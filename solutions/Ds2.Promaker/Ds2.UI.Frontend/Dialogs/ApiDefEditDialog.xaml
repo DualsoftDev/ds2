@@ -1,0 +1,94 @@
+<Window x:Class="Ds2.UI.Frontend.Dialogs.ApiDefEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ApiDef 편집"
+        Width="380" Height="330"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1">
+        <Grid Margin="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- 이름 -->
+            <StackPanel Grid.Row="0" Margin="0,0,0,8">
+                <TextBlock Text="이름"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,0,0,2"/>
+                <TextBox x:Name="NameBox" Padding="6,4"/>
+            </StackPanel>
+
+            <!-- 타입 -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBlock Text="타입"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           VerticalAlignment="Center" Margin="0,0,12,0"/>
+                <RadioButton x:Name="PushRadio" Content="Push"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             IsChecked="True" Margin="0,0,12,0"/>
+                <RadioButton x:Name="PollRadio" Content="Poll"
+                             Foreground="{DynamicResource PrimaryTextBrush}"/>
+            </StackPanel>
+
+            <!-- TX Work / RX Work -->
+            <Grid Grid.Row="2" Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="TX Work"
+                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,0,0,2"/>
+                    <ComboBox x:Name="TxWorkCombo" DisplayMemberPath="Name" Padding="6,4"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="RX Work"
+                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,0,0,2"/>
+                    <ComboBox x:Name="RxWorkCombo" DisplayMemberPath="Name" Padding="6,4"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Duration -->
+            <StackPanel Grid.Row="3" Margin="0,0,0,8">
+                <TextBlock Text="Duration (ms)"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,0,0,2"/>
+                <TextBox x:Name="DurationBox" Padding="6,4" Text="0"
+                         PreviewTextInput="OnDurationPreviewInput"/>
+            </StackPanel>
+
+            <!-- 메모 -->
+            <StackPanel Grid.Row="4" Margin="0,0,0,8">
+                <TextBlock Text="메모"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,0,0,2"/>
+                <TextBox x:Name="MemoBox" Padding="6,4"/>
+            </StackPanel>
+
+            <!-- Buttons -->
+            <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right"
+                        Margin="0,10,0,0">
+                <Button Content="OK" Style="{StaticResource DarkButton}"
+                        Padding="12,4" Margin="0,0,4,0"
+                        Click="Ok_Click" IsDefault="True"/>
+                <Button Content="Cancel" Style="{StaticResource DarkButton}"
+                        Padding="12,4" IsCancel="True"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

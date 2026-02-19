@@ -1,0 +1,82 @@
+<UserControl x:Class="Ds2.UI.Frontend.Controls.ValueSpecEditorControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Row 0: Data Type -->
+        <Grid Grid.Row="0" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="56"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="타입:"
+                       VerticalAlignment="Center"
+                       FontSize="11"
+                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+            <ComboBox Grid.Column="1" x:Name="DataTypeCombo"
+                      FontSize="11"
+                      SelectionChanged="OnDataTypeChanged">
+                <ComboBoxItem Content="Undefined"/>
+                <ComboBoxItem Content="bool (비트)"/>
+                <ComboBoxItem Content="int (정수)"/>
+                <ComboBoxItem Content="double (실수)"/>
+                <ComboBoxItem Content="string (문자열)"/>
+            </ComboBox>
+        </Grid>
+
+        <!-- Row 1: Value input -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="56"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="값:"
+                       VerticalAlignment="Center"
+                       FontSize="11"
+                       Foreground="{DynamicResource SecondaryTextBrush}"
+                       x:Name="ValueLabel"/>
+            <Grid Grid.Column="1">
+                <!-- Bool: True/False 라디오 버튼 -->
+                <StackPanel x:Name="BoolButtonsPanel"
+                            Orientation="Horizontal"
+                            Visibility="Collapsed">
+                    <RadioButton x:Name="TrueRadio"
+                                 Margin="0,0,12,0"
+                                 FontSize="11"
+                                 Foreground="{DynamicResource PrimaryTextBrush}">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="8" Height="8" Fill="#4CAF50" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="True" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton x:Name="FalseRadio"
+                                 FontSize="11"
+                                 Foreground="{DynamicResource PrimaryTextBrush}">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="8" Height="8" Fill="#F44336" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="False" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+                <!-- 숫자/문자 입력 -->
+                <TextBox x:Name="ValueTextBox"
+                         Padding="6,4"
+                         Visibility="Collapsed"
+                         ToolTip="Single: 999 / Multiple: 1, 2, 3"/>
+                <!-- Undefined 안내 -->
+                <TextBlock x:Name="UndefinedHint"
+                           Text="(조건 없음)"
+                           FontSize="11"
+                           FontStyle="Italic"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           VerticalAlignment="Center"
+                           Visibility="Visible"/>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -1,0 +1,78 @@
+# Build outputs
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.csproj.user
+*.fsproj.user
+*.userprefs
+
+# NuGet
+**/packages/
+*.nupkg
+*.snupkg
+*.nuget.props
+*.nuget.targets
+**/project.lock.json
+**/project.fragment.lock.json
+artifacts/
+
+# Test results
+[Tt]est[Rr]esults/
+[Tt]est[Rr]esult*/
+coverage*/
+*.trx
+*.coverage
+*.coveragexml
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+*.DS_Store
+
+# AI / Claude Code
+.claude/
+CLAUDE.md
+CRITIC.md
+AGENTS.md
+STRUCTURE.md
+
+# ci
+count_lines.ps1
+scripts/ci-*.ps1
+
+# Scratch scripts
+/*.fsx
+scripts/scratch/
+
+# Temp / logs
+*.log
+*.bak
+*.tmp
+*.cache
+*~

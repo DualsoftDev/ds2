@@ -1,0 +1,43 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!-- 데이터베이스 -->
+  <ItemGroup>
+    <PackageVersion Include="Dapper" Version="2.1.35" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+    <PackageVersion Include="Npgsql" Version="9.0.0" />
+    <PackageVersion Include="System.Data.Common" Version="9.0.0" />
+  </ItemGroup>
+
+  <!-- 직렬화 -->
+  <ItemGroup>
+    <PackageVersion Include="System.Text.Json" Version="9.0.0" />
+    <PackageVersion Include="FSharp.SystemTextJson" Version="1.3.13" />
+  </ItemGroup>
+
+  <!-- F# 핵심 라이브러리 -->
+  <ItemGroup>
+    <PackageVersion Include="FSharp.Core" Version="9.0.100" />
+  </ItemGroup>
+
+  <!-- 테스트 -->
+  <ItemGroup>
+    <PackageVersion Include="xunit" Version="2.9.0" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.2" />
+  </ItemGroup>
+
+  <!-- WPF MVVM -->
+  <ItemGroup>
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+  </ItemGroup>
+
+  <!-- 로깅 (선택적) -->
+  <ItemGroup>
+    <PackageVersion Include="Serilog" Version="4.2.0" />
+    <PackageVersion Include="Serilog.Sinks.Console" Version="6.0.0" />
+  </ItemGroup>
+</Project>

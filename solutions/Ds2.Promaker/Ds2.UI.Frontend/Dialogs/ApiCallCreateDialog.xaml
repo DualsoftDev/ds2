@@ -1,0 +1,142 @@
+<Window x:Class="Ds2.UI.Frontend.Dialogs.ApiCallCreateDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Add ApiCall"
+        Width="440"
+        Height="400"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1">
+        <Grid Margin="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0"
+                       Text="Linked Device ApiDef"
+                       Margin="0,0,0,2"
+                       FontSize="11"
+                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+            <ComboBox Grid.Row="1"
+                      x:Name="LinkedApiDefComboBox"
+                      Margin="0,0,0,8"
+                      Padding="6,4"/>
+
+            <TextBlock Grid.Row="2"
+                       Text="Name"
+                       Margin="0,0,0,2"
+                       FontSize="11"
+                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+            <TextBox Grid.Row="3"
+                     x:Name="ApiCallNameTextBox"
+                     Margin="0,0,0,8"
+                     Padding="6,4"/>
+
+            <Grid Grid.Row="4" Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                    <TextBlock Text="Output Address"
+                               Margin="0,0,0,2"
+                               FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <TextBox x:Name="OutputAddressTextBox"
+                             Padding="6,4"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                    <TextBlock Text="Input Address"
+                               Margin="0,0,0,2"
+                               FontSize="11"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <TextBox x:Name="InputAddressTextBox"
+                             Padding="6,4"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Out Spec -->
+            <TextBlock Grid.Row="5"
+                       Text="Out Spec"
+                       Margin="0,0,0,2"
+                       FontSize="11"
+                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+            <Grid Grid.Row="6" Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0"
+                         x:Name="OutValueSpecTextBox"
+                         Padding="6,4"
+                         IsReadOnly="True"
+                         ToolTip="'...' 버튼으로 편집"/>
+                <Button Grid.Column="1"
+                        Content="..."
+                        Style="{StaticResource DarkButton}"
+                        Margin="4,0,0,0"
+                        Padding="10,4"
+                        Click="EditOutValueSpec_Click"/>
+            </Grid>
+
+            <!-- In Spec -->
+            <TextBlock Grid.Row="7"
+                       Text="In Spec"
+                       Margin="0,0,0,2"
+                       FontSize="11"
+                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+            <Grid Grid.Row="8" Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0"
+                         x:Name="InValueSpecTextBox"
+                         Padding="6,4"
+                         IsReadOnly="True"
+                         ToolTip="'...' 버튼으로 편집"/>
+                <Button Grid.Column="1"
+                        Content="..."
+                        Style="{StaticResource DarkButton}"
+                        Margin="4,0,0,0"
+                        Padding="10,4"
+                        Click="EditInValueSpec_Click"/>
+            </Grid>
+
+            <TextBlock Grid.Row="9"
+                       x:Name="HintText"
+                       Margin="0,0,0,0"
+                       FontSize="11"
+                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+
+            <StackPanel Grid.Row="10"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Margin="0,10,0,0">
+                <Button x:Name="AddButton"
+                        Content="Add"
+                        Style="{StaticResource DarkButton}"
+                        Padding="12,4"
+                        Margin="0,0,4,0"
+                        Click="Add_Click"/>
+                <Button Content="Cancel"
+                        Style="{StaticResource DarkButton}"
+                        Padding="12,4"
+                        IsCancel="True"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

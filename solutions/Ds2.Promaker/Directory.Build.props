@@ -1,0 +1,33 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Authors>Dualsoft</Authors>
+    <Company>Dualsoft</Company>
+    <Product>DS System</Product>
+    <Copyright>Copyright © Dualsoft 2025</Copyright>
+    <RepositoryUrl>http://dualsoft.co.kr:8081/dualsoft/dsev2</RepositoryUrl>
+    <PackageProjectUrl>http://dualsoft.co.kr:8081/dualsoft/dsev2</PackageProjectUrl>
+  </PropertyGroup>
+
+  <!-- Release 빌드 설정 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <Optimize>true</Optimize>
+    <DebugType>pdbonly</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+  </PropertyGroup>
+
+  <!-- Debug 빌드 설정 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <Optimize>false</Optimize>
+    <DebugType>full</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+  </PropertyGroup>
+
+  <!-- F# 특정 설정 -->
+  <PropertyGroup>
+    <OtherFlags>$(OtherFlags) --warnon:1182</OtherFlags>
+  </PropertyGroup>
+</Project>

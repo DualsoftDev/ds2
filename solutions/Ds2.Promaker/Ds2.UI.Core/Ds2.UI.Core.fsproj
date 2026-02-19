@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Core\DsStore.fs" />
+    <Compile Include="Core\DsQuery.fs" />
+    <Compile Include="Core\Mutation.fs" />
+    <Compile Include="Core\ValidationRules.fs" />
+    <Compile Include="Core\EditorTypes.fs" />
+    <Compile Include="Commands\CommandExecutor.fs" />
+    <Compile Include="Commands\UndoRedoManager.fs" />
+    <Compile Include="Geometry\ArrowPathCalculator.fs" />
+    <Compile Include="Projection\ViewTypes.fs" />
+    <Compile Include="Projection\TreeProjection.fs" />
+    <Compile Include="Projection\CanvasProjection.fs" />
+    <Compile Include="Queries\EntityHierarchyQueries.fs" />
+    <Compile Include="Queries\AddTargetQueries.fs" />
+    <Compile Include="Queries\SelectionQueries.fs" />
+    <Compile Include="Queries\ConnectionQueries.fs" />
+    <Compile Include="Editing\EditorApi.CascadeHelpers.fs" />
+    <Compile Include="Editing\EditorApi.RemoveOps.fs" />
+    <Compile Include="Editing\EditorApi.ArrowOps.fs" />
+    <Compile Include="Editing\EditorApi.DeviceOps.fs" />
+    <Compile Include="Editing\EditorApi.PasteResolvers.fs" />
+    <Compile Include="Editing\EditorApi.PasteOps.fs" />
+    <Compile Include="Editing\EditorApi.PropertyPanel.fs" />
+    <Compile Include="Editing\EditorApi.PanelOps.fs" />
+    <Compile Include="Editing\EditorApi.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ds2.Core\Ds2.Core.fsproj" />
+  </ItemGroup>
+
+</Project>

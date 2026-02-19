@@ -1,0 +1,146 @@
+<Window x:Class="Ds2.UI.Frontend.Dialogs.CallCreateDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Add Call"
+        Width="460" Height="360"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1">
+        <Grid Margin="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Mode selection -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,12">
+                <RadioButton x:Name="RadioDeviceMode" Content="Call + Device System 추가" IsChecked="True"
+                             Foreground="{DynamicResource PrimaryTextBrush}" Margin="0,0,16,0"
+                             Checked="OnRadioChanged"/>
+                <RadioButton x:Name="RadioCallOnly" Content="기존 ApiDef에 연결"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             Checked="OnRadioChanged"/>
+            </StackPanel>
+
+            <!-- Content area -->
+            <Grid Grid.Row="1">
+                <!-- Device mode panel -->
+                <StackPanel x:Name="DeviceModePanel">
+                    <TextBlock Text="Call은 {DevicesAlias}.{ApiName} 형식으로 생성됩니다"
+                               FontSize="11" FontStyle="Italic"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,0,0,10"/>
+
+                    <!-- DevicesAlias + Preset + Count -->
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="130"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="56"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="DevicesAlias"
+                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,0,0,2"/>
+                        <TextBlock Grid.Row="0" Grid.Column="2" Text="프리셋"
+                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,0,0,2"/>
+                        <TextBlock Grid.Row="0" Grid.Column="4" Text="개수"
+                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,0,0,2"/>
+
+                        <TextBox Grid.Row="1" Grid.Column="0" x:Name="DeviceAliasTextBox"
+                                 Padding="6,4"/>
+                        <ComboBox Grid.Row="1" Grid.Column="2" x:Name="PresetComboBox"
+                                  SelectionChanged="OnPresetChanged">
+                            <ComboBoxItem Content="ADV-RET" Tag="ADV;RET" IsSelected="True"/>
+                            <ComboBoxItem Content="UP-DOWN" Tag="UP;DOWN"/>
+                            <ComboBoxItem Content="FWD-BWD" Tag="FWD;BWD"/>
+                            <ComboBoxItem Content="USER입력" Tag="USER"/>
+                        </ComboBox>
+                        <TextBox Grid.Row="1" Grid.Column="4" x:Name="DeviceCountTextBox"
+                                 Padding="6,4" Text="1" TextAlignment="Center"
+                                 PreviewTextInput="OnCountPreviewTextInput"/>
+                    </Grid>
+
+                    <!-- ApiName -->
+                    <TextBlock Text="ApiName (';'로 구분)"
+                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,0,0,2"/>
+                    <TextBox x:Name="DeviceApiNameTextBox"
+                             Padding="6,4" Text="ADV;RET" IsEnabled="False"/>
+                </StackPanel>
+
+                <!-- ApiDef picker panel -->
+                <Grid x:Name="ApiDefPickerPanel" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0"
+                               Text="ApiName으로 기존 ApiDef를 검색하고 DevicesAlias를 지정해 Call과 연결합니다."
+                               FontSize="11" FontStyle="Italic"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,0,0,8"/>
+
+                    <Grid Grid.Row="1" Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="DevicesAlias"
+                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,0,0,2"/>
+                        <TextBlock Grid.Row="0" Grid.Column="2" Text="ApiName"
+                                   FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,0,0,2"/>
+                        <TextBox Grid.Row="1" Grid.Column="0" x:Name="AliasFilterBox"
+                                 Padding="6,4"/>
+                        <TextBox Grid.Row="1" Grid.Column="2" x:Name="ApiNameFilterBox"
+                                 Padding="6,4" TextChanged="OnApiNameFilterChanged"/>
+                    </Grid>
+
+                    <TextBlock Grid.Row="2"
+                               Text="검색 결과"
+                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="0,0,0,2"/>
+                    <ListBox Grid.Row="3" x:Name="ApiDefListBox"
+                             DisplayMemberPath="DisplayName"
+                             SelectionMode="Extended"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             Background="{DynamicResource PrimaryBackgroundBrush}"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             BorderBrush="{DynamicResource BorderBrush}"/>
+                </Grid>
+            </Grid>
+
+            <!-- Buttons -->
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right"
+                        Margin="0,10,0,0">
+                <Button Content="Add" Style="{StaticResource DarkButton}"
+                        Padding="12,4" Margin="0,0,4,0"
+                        Click="Add_Click" IsDefault="True"/>
+                <Button Content="Cancel" Style="{StaticResource DarkButton}"
+                        Padding="12,4" IsCancel="True"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

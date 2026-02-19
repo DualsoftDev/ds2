@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Ds2.UI.Frontend</RootNamespace>
+    <AssemblyName>Ds2.UI.Frontend</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OtherFlags></OtherFlags>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
+  </ItemGroup>
+
+</Project>
