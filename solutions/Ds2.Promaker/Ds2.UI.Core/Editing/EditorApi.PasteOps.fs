@@ -12,17 +12,19 @@ type ExecFn = EditorCommand -> unit
 
 /// 새 GUID로 ApiCall 복사 — 다른 Work/Flow로 붙여넣을 때 사용
 let copyApiCalls (exec: ExecFn) (sourceCall: Call) (targetCallId: Guid) =
-    for (apiCall, valueSpec) in sourceCall.ApiCalls do
+    for apiCall in sourceCall.ApiCalls do
         let copied = ApiCall(apiCall.Name)
         copied.InTag  <- apiCall.InTag  |> Option.map (fun t -> IOTag(t.Name, t.Address, t.Description))
         copied.OutTag <- apiCall.OutTag |> Option.map (fun t -> IOTag(t.Name, t.Address, t.Description))
         copied.ApiDefId <- apiCall.ApiDefId
-        exec(AddApiCallToCall(targetCallId, copied, valueSpec))
+        copied.InputSpec  <- apiCall.InputSpec
+        copied.OutputSpec <- apiCall.OutputSpec
+        exec(AddApiCallToCall(targetCallId, copied))
 
 /// 기존 ApiCall GUID 공유 — 동일 Work 내 붙여넣을 때 사용 (store.ApiCalls 불변)
 let shareApiCalls (exec: ExecFn) (sourceCall: Call) (targetCallId: Guid) =
-    for (apiCall, valueSpec) in sourceCall.ApiCalls do
-        exec(AddSharedApiCallToCall(targetCallId, apiCall.Id, valueSpec))
+    for apiCall in sourceCall.ApiCalls do
+        exec(AddSharedApiCallToCall(targetCallId, apiCall.Id))
 
 /// sourceCall의 ParentId(Work)와 targetWorkId를 비교해 컨텍스트 결정
 let detectCopyContext (store: DsStore) (sourceCall: Call) (targetWorkId: Guid) : CallCopyContext =

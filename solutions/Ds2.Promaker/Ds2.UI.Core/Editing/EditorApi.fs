@@ -171,7 +171,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
             |> Seq.map (fun apiDef ->
                 let apiCall = ApiCall($"{devicesAlias}.{apiDef.Name}")
                 apiCall.ApiDefId <- Some apiDef.Id
-                AddApiCallToCall(call.Id, apiCall, ValueSpec.undefined))
+                AddApiCallToCall(call.Id, apiCall))
             |> Seq.toList
         this.Exec(Composite("Add Call", AddCall call :: apiCallCmds))
         call
@@ -276,13 +276,13 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     // =====================================================================
     // ApiCall API (Call 내부 ApiCall 관리)
     // =====================================================================
-    member this.AddApiCallToCall(callId: Guid, apiCall: ApiCall, valueSpec: ValueSpec) =
-        this.Exec(AddApiCallToCall(callId, apiCall, valueSpec))
+    member this.AddApiCallToCall(callId: Guid, apiCall: ApiCall) =
+        this.Exec(AddApiCallToCall(callId, apiCall))
 
     member this.RemoveApiCallFromCall(callId: Guid, apiCallId: Guid) =
         withEntity DsQuery.getCall callId (fun call ->
-            match call.ApiCalls |> Seq.tryFind (fun (ac, _) -> ac.Id = apiCallId) with
-            | Some (apiCall, valueSpec) -> this.Exec(RemoveApiCallFromCall(callId, apiCall, valueSpec))
+            match call.ApiCalls |> Seq.tryFind (fun ac -> ac.Id = apiCallId) with
+            | Some apiCall -> this.Exec(RemoveApiCallFromCall(callId, apiCall))
             | None -> ())
 
     // =====================================================================

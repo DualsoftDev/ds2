@@ -79,7 +79,7 @@ module CommandExecutor =
         // 따라서 AddCall execute 에서 store.ApiCalls 에 다시 추가해 주어야 함 (동기화 처리)
         | AddCall call ->
             Mutation.addCall call store |> requireMutationOk "addCall"
-            for (apiCall, _) in call.ApiCalls do
+            for apiCall in call.ApiCalls do
                 store.ApiCalls.[apiCall.Id] <- apiCall
             [ CallAdded call ]
 
@@ -146,29 +146,29 @@ module CommandExecutor =
             [ ApiDefPropsChanged id ]
 
         // --- ApiCall (Call 내의 API 호출 추가/삭제) ---
-        | AddApiCallToCall(callId, apiCall, valueSpec) ->
+        | AddApiCallToCall(callId, apiCall) ->
             let call = DsQuery.getCall callId store |> Option.get
-            call.ApiCalls.Add((apiCall, valueSpec))
+            call.ApiCalls.Add(apiCall)
             store.ApiCalls.[apiCall.Id] <- apiCall
             [ CallPropsChanged callId ]
 
-        | RemoveApiCallFromCall(callId, apiCall, _valueSpec) ->
+        | RemoveApiCallFromCall(callId, apiCall) ->
             let call = DsQuery.getCall callId store |> Option.get
-            call.ApiCalls.RemoveAll(fun (ac, _) -> ac.Id = apiCall.Id) |> ignore
+            call.ApiCalls.RemoveAll(fun ac -> ac.Id = apiCall.Id) |> ignore
             store.ApiCalls.Remove(apiCall.Id) |> ignore
             [ CallPropsChanged callId ]
 
         // 공유된 ApiCall 은 store.ApiCalls 에서 제거하지 않고 Call.ApiCalls 에서만 제거함
-        | AddSharedApiCallToCall(callId, apiCallId, valueSpec) ->
+        | AddSharedApiCallToCall(callId, apiCallId) ->
             let call = DsQuery.getCall callId store |> Option.get
             match DsQuery.getApiCall apiCallId store with
-            | Some apiCall -> call.ApiCalls.Add((apiCall, valueSpec))
+            | Some apiCall -> call.ApiCalls.Add(apiCall)
             | None -> ()
             [ CallPropsChanged callId ]
 
-        | RemoveSharedApiCallFromCall(callId, apiCallId, _valueSpec) ->
+        | RemoveSharedApiCallFromCall(callId, apiCallId) ->
             let call = DsQuery.getCall callId store |> Option.get
-            call.ApiCalls.RemoveAll(fun (ac, _) -> ac.Id = apiCallId) |> ignore
+            call.ApiCalls.RemoveAll(fun ac -> ac.Id = apiCallId) |> ignore
             [ CallPropsChanged callId ]
 
         // --- HW Components ---
@@ -235,10 +235,10 @@ module CommandExecutor =
         | RemoveArrowCall b                      -> execute (AddArrowCall b) store
         | AddApiDef d                            -> execute (RemoveApiDef d) store
         | RemoveApiDef b                         -> execute (AddApiDef b) store
-        | AddApiCallToCall(c, ac, vs)            -> execute (RemoveApiCallFromCall(c, ac, vs)) store
-        | RemoveApiCallFromCall(c, ac, vs)       -> execute (AddApiCallToCall(c, ac, vs)) store
-        | AddSharedApiCallToCall(c, id, vs)      -> execute (RemoveSharedApiCallFromCall(c, id, vs)) store
-        | RemoveSharedApiCallFromCall(c, id, vs) -> execute (AddSharedApiCallToCall(c, id, vs)) store
+        | AddApiCallToCall(c, ac)            -> execute (RemoveApiCallFromCall(c, ac)) store
+        | RemoveApiCallFromCall(c, ac)       -> execute (AddApiCallToCall(c, ac)) store
+        | AddSharedApiCallToCall(c, id)      -> execute (RemoveSharedApiCallFromCall(c, id)) store
+        | RemoveSharedApiCallFromCall(c, id) -> execute (AddSharedApiCallToCall(c, id)) store
         | AddButton b                            -> execute (RemoveButton b) store
         | RemoveButton b                         -> execute (AddButton b) store
         | AddLamp l                              -> execute (RemoveLamp l) store

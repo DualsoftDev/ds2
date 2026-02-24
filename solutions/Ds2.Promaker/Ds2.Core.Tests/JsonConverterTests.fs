@@ -52,7 +52,8 @@ let private assertApiCallEqual (expected: ApiCall) (actual: ApiCall) =
     assertIOTagEqual expected.InTag actual.InTag
     assertIOTagEqual expected.OutTag actual.OutTag
     Assert.Equal(expected.ApiDefId, actual.ApiDefId)
-    assertValueSpecEqual expected.InputValueSpec actual.InputValueSpec
+    assertValueSpecEqual expected.InputSpec actual.InputSpec
+    assertValueSpecEqual expected.OutputSpec actual.OutputSpec
 
 let private assertXywhEqual (expected: Xywh option) (actual: Xywh option) =
     match expected, actual with
@@ -79,8 +80,8 @@ module ValueSpecSerializationTests =
         let floatRanges =
             FloatValue (
                 Ranges [
-                    { Lower = Some (-10.5, Open); Upper = Some (0.0, Closed) }
-                    { Lower = Some (3.14, Closed); Upper = None }
+                    { Lower = Some (-10.5m, Open); Upper = Some (0.0m, Closed) }
+                    { Lower = Some (3.14m, Closed); Upper = None }
                 ])
 
         let specs: ValueSpec list = [
@@ -90,8 +91,8 @@ module ValueSpecSerializationTests =
             IntValue (Multiple [ 1; 2; 3 ])
             intRanges
             FloatValue Undefined
-            FloatValue (Single 12.75)
-            FloatValue (Multiple [ -1.5; 0.0; 8.25 ])
+            FloatValue (Single 12.75m)
+            FloatValue (Multiple [ -1.5m; 0.0m; 8.25m ])
             floatRanges
             StringValue (Single "A-01")
             StringValue (Multiple [ "X"; "Y"; "Z" ])
@@ -138,18 +139,23 @@ module JsonRoundTripTests =
         let floatSpec =
             FloatValue (
                 Ranges [
-                    { Lower = Some (0.1, Open); Upper = Some (9.9, Closed) }
+                    { Lower = Some (0.1m, Open); Upper = Some (9.9m, Closed) }
                 ])
 
         let stringSpec = StringValue (Multiple [ "READY"; "RUNNING"; "STOP" ])
         let boolSpec = BoolValue (Single true)
 
+        apiInt.OutputSpec    <- intSpec
+        apiFloat.OutputSpec  <- floatSpec
+        apiString.OutputSpec <- stringSpec
+        apiBool.OutputSpec   <- boolSpec
+
         let condition = CallCondition()
         condition.Type <- Some CallConditionType.Active
         condition.IsOR <- true
         condition.IsRising <- true
-        condition.Conditions.Add((apiFloat, floatSpec))
-        condition.Conditions.Add((apiBool, boolSpec))
+        condition.Conditions.Add(apiFloat)
+        condition.Conditions.Add(apiBool)
 
         let call = Call("Call", "Full", workId)
         call.Properties.Description <- Some "call-desc"
@@ -158,8 +164,8 @@ module JsonRoundTripTests =
         call.Properties.SensorDelay <- Some 12
         call.Status4 <- Status4.Homing
         call.Position <- Some(Xywh(11, 22, 33, 44))
-        call.ApiCalls.Add((apiInt, intSpec))
-        call.ApiCalls.Add((apiString, stringSpec))
+        call.ApiCalls.Add(apiInt)
+        call.ApiCalls.Add(apiString)
         call.CallConditions.Add(condition)
 
         let actual = roundTrip call
@@ -177,9 +183,8 @@ module JsonRoundTripTests =
         let expectedApiCalls = call.ApiCalls |> Seq.toList
         let actualApiCalls = actual.ApiCalls |> Seq.toList
         Assert.Equal(expectedApiCalls.Length, actualApiCalls.Length)
-        List.iter2 (fun (eApi, eSpec) (aApi, aSpec) ->
-            assertApiCallEqual eApi aApi
-            assertValueSpecEqual eSpec aSpec) expectedApiCalls actualApiCalls
+        List.iter2 (fun (eApi: ApiCall) (aApi: ApiCall) ->
+            assertApiCallEqual eApi aApi) expectedApiCalls actualApiCalls
 
         let expectedConditions = call.CallConditions |> Seq.toList
         let actualConditions = actual.CallConditions |> Seq.toList
@@ -188,12 +193,11 @@ module JsonRoundTripTests =
             Assert.Equal(e.Type, a.Type)
             Assert.Equal(e.IsOR, a.IsOR)
             Assert.Equal(e.IsRising, a.IsRising)
-            let eItems: (ApiCall * ValueSpec) list = e.Conditions |> Seq.toList
-            let aItems: (ApiCall * ValueSpec) list = a.Conditions |> Seq.toList
+            let eItems: ApiCall list = e.Conditions |> Seq.toList
+            let aItems: ApiCall list = a.Conditions |> Seq.toList
             Assert.Equal(eItems.Length, aItems.Length)
-            List.iter2 (fun ((eApi, eSpec): ApiCall * ValueSpec) ((aApi, aSpec): ApiCall * ValueSpec) ->
-                assertApiCallEqual eApi aApi
-                assertValueSpecEqual eSpec aSpec) eItems aItems
+            List.iter2 (fun (eApi: ApiCall) (aApi: ApiCall) ->
+                assertApiCallEqual eApi aApi) eItems aItems
         ) expectedConditions actualConditions
 
     [<Fact>]

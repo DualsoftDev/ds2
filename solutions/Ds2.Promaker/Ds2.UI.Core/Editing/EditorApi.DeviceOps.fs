@@ -153,7 +153,7 @@ let buildAddCallsWithDeviceCmds
 
                     let apiCall = ApiCall(callName)
                     apiCall.ApiDefId <- Some apiDef.Id
-                    withApiDef |> addCommand (AddApiCallToCall(call.Id, apiCall, ValueSpec.undefined))
+                    withApiDef |> addCommand (AddApiCallToCall(call.Id, apiCall))
             ) initialState
 
         List.rev finalState.CommandsRev @ buildArrowCommands finalState

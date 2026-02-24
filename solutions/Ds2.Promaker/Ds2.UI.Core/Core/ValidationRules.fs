@@ -423,11 +423,11 @@ module NameUniquenessValidation =
                             calls
                             |> List.collect (fun call ->
                                 call.ApiCalls |> Seq.toList)))
-                    |> List.distinctBy (fun ((ac: ApiCall), _) -> ac.Id)
+                    |> List.distinctBy (fun (ac: ApiCall) -> ac.Id)
 
                 let duplicates =
                     apiCalls
-                    |> List.groupBy (fun ((ac: ApiCall), _) -> ac.Name)
+                    |> List.groupBy (fun (ac: ApiCall) -> ac.Name)
                     |> List.filter (fun (_, items) -> List.length items > 1)
                     |> List.map fst
                 duplicates |> List.map (fun name ->

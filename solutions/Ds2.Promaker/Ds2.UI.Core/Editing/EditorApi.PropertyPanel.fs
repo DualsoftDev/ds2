@@ -64,25 +64,52 @@ module internal PropertyPanelValueSpec =
             |> List.map (formatRangeSegment toText)
             |> String.concat "; "
 
+    let private formatDecimal (v: decimal) =
+        let s = v.ToString("G29", CultureInfo.InvariantCulture)
+        // 정수값(소수점/지수 없음)이면 ".0"을 붙여 float 구분 보장 (예: 10 → "10.0")
+        if s.Contains('.') || s.Contains('E') || s.Contains('e') then s else s + ".0"
+
     let format (valueSpec: ValueSpec) =
         match valueSpec with
         | UndefinedValue -> "Undefined"
         | IntValue spec -> formatTyped string spec
-        | FloatValue spec -> formatTyped (fun (v: float) -> v.ToString("G", CultureInfo.InvariantCulture)) spec
+        | FloatValue spec -> formatTyped formatDecimal spec
         | StringValue spec -> formatTyped id spec
         | BoolValue spec -> formatTyped (fun v -> if v then "true" else "false") spec
 
-    let tryParseSingle (text: string) =
+    let private inferFromText (raw: string) =
+        match Boolean.TryParse(raw) with
+        | true, b -> Some(ValueSpec.singleBool b)
+        | _ ->
+            match Int32.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+            | true, i -> Some(ValueSpec.singleInt i)
+            | _ ->
+                match Decimal.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture) with
+                | true, d -> Some(ValueSpec.singleFloat d)
+                | _ -> Some(ValueSpec.singleString raw)
+
+    // 힌트 타입으로 파싱 시도, 실패 시 타입 추론으로 폴백
+    let tryParseAs (hint: ValueSpec) (text: string) =
         let raw = text.Trim()
         if String.IsNullOrWhiteSpace(raw) || raw.Equals("undefined", StringComparison.OrdinalIgnoreCase) then
             Some UndefinedValue
         else
-            match Boolean.TryParse(raw) with
-            | true, b -> Some(ValueSpec.singleBool b)
-            | _ ->
-                match Int32.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture) with
-                | true, i -> Some(ValueSpec.singleInt i)
-                | _ ->
-                    match Double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture) with
-                    | true, f -> Some(ValueSpec.singleFloat f)
-                    | _ -> Some(ValueSpec.singleString raw)
+            let hinted =
+                match hint with
+                | IntValue _ ->
+                    match Int32.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                    | true, i -> Some(ValueSpec.singleInt i)
+                    | _ -> None
+                | FloatValue _ ->
+                    match Decimal.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture) with
+                    | true, d -> Some(ValueSpec.singleFloat d)
+                    | _ -> None
+                | BoolValue _ ->
+                    match Boolean.TryParse(raw) with
+                    | true, b -> Some(ValueSpec.singleBool b)
+                    | _ -> None
+                | StringValue _ -> Some(ValueSpec.singleString raw)
+                | UndefinedValue -> None
+            match hinted with
+            | Some _ -> hinted
+            | None -> inferFromText raw

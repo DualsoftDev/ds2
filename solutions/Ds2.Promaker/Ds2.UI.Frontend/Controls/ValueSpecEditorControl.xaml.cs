@@ -77,7 +77,19 @@ public partial class ValueSpecEditorControl : UserControl
         {
             0 => "Undefined",
             1 => TrueRadio?.IsChecked == true ? "true" : "false",
+            3 => EnsureDecimalPoint(ValueTextBox?.Text?.Trim() ?? string.Empty), // double
             _ => ValueTextBox?.Text?.Trim() ?? "Undefined"
         };
+    }
+
+    // double 타입 선택 시 소수점 없는 정수값에 ".0"을 추가하여 int와 구분 보장
+    private static string EnsureDecimalPoint(string value)
+    {
+        if (string.IsNullOrEmpty(value) ||
+            value.Equals("Undefined", StringComparison.OrdinalIgnoreCase))
+            return "Undefined";
+        return value.Contains('.') || value.Contains('E') || value.Contains('e')
+            ? value
+            : value + ".0";
     }
 }

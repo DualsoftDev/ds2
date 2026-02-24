@@ -177,9 +177,9 @@ module Mutation =
             let sharedIds =
                 store.Calls.Values
                 |> Seq.filter (fun c -> c.Id <> id)
-                |> Seq.collect (fun c -> c.ApiCalls |> Seq.map (fun (ac, _) -> ac.Id))
+                |> Seq.collect (fun c -> c.ApiCalls |> Seq.map (fun ac -> ac.Id))
                 |> Set.ofSeq
-            call.ApiCalls |> Seq.iter (fun ((ac: ApiCall), _) ->
+            call.ApiCalls |> Seq.iter (fun (ac: ApiCall) ->
                 if not (sharedIds.Contains ac.Id) then
                     store.ApiCalls.Remove(ac.Id) |> ignore)
 
@@ -246,7 +246,7 @@ module Mutation =
             // Call.ApiCalls에서 제거
             store.Calls.Values
             |> Seq.iter (fun call ->
-                let idx = call.ApiCalls.FindIndex(fun ((ac: ApiCall), _) -> ac.Id = id)
+                let idx = call.ApiCalls.FindIndex(fun (ac: ApiCall) -> ac.Id = id)
                 if idx >= 0 then
                     call.ApiCalls.RemoveAt(idx))
 

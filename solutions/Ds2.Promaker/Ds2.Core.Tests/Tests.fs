@@ -167,14 +167,16 @@ module DeepCopyTests =
     [<Fact>]
     let ``CallCondition DeepCopy should copy ValueSpec correctly`` () =
         let apiCall1 = ApiCall("ApiCall1")
+        apiCall1.OutputSpec <- ValueSpec.singleInt 100
         let apiCall2 = ApiCall("ApiCall2")
+        apiCall2.OutputSpec <- ValueSpec.singleBool true
 
         let original = CallCondition()
         original.Type <- Some CallConditionType.Common
         original.IsOR <- true
         original.IsRising <- true
-        original.Conditions.Add((apiCall1, ValueSpec.singleInt 100))
-        original.Conditions.Add((apiCall2, ValueSpec.singleBool true))
+        original.Conditions.Add(apiCall1)
+        original.Conditions.Add(apiCall2)
 
         let copied = original.DeepCopy()
 
@@ -183,16 +185,14 @@ module DeepCopyTests =
         Assert.True(copied.IsRising)
         Assert.Equal(2, copied.Conditions.Count)
 
-        // ValueSpec이 올바르게 복사되는지 확인
-        let (_, spec1) = copied.Conditions.[0]
-        match spec1 with
+        // OutputSpec이 올바르게 복사되는지 확인
+        match copied.Conditions.[0].OutputSpec with
         | IntValue (Single 100) -> Assert.True(true)
-        | _ -> Assert.Fail("ValueSpec not copied correctly")
+        | _ -> Assert.Fail("OutputSpec not copied correctly")
 
-        let (_, spec2) = copied.Conditions.[1]
-        match spec2 with
+        match copied.Conditions.[1].OutputSpec with
         | BoolValue (Single true) -> Assert.True(true)
-        | _ -> Assert.Fail("ValueSpec not copied correctly")
+        | _ -> Assert.Fail("OutputSpec not copied correctly")
 
     [<Fact>]
     let ``CallCondition with complex ValueSpec ranges should DeepCopy correctly`` () =
@@ -201,14 +201,13 @@ module DeepCopyTests =
 
         // 복잡한 ValueSpec: 범위 값
         let rangeSpec = ValueSpec.rangesIntClosed [ (Some 10, Some 20); (None, Some 100) ]
-        original.Conditions.Add((apiCall, rangeSpec))
+        apiCall.OutputSpec <- rangeSpec
+        original.Conditions.Add(apiCall)
 
         let copied = original.DeepCopy()
 
         Assert.Equal(1, copied.Conditions.Count)
-        let (_, spec) = copied.Conditions.[0]
-
-        match spec with
+        match copied.Conditions.[0].OutputSpec with
         | IntValue (Ranges segments) ->
             Assert.Equal(2, segments.Length)
             Assert.Equal(Some (10, Closed), segments.[0].Lower)

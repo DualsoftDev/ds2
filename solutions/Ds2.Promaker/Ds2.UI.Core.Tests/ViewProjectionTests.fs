@@ -193,7 +193,7 @@ let ``buildTrees splits control tree and shows ApiDef category in device tree`` 
     let apiDef = api.AddApiDef("AD1", device.Id)
     let apiCall = ApiCall("AC1")
     apiCall.ApiDefId <- Some apiDef.Id
-    api.AddApiCallToCall(call.Id, apiCall, UndefinedValue)
+    api.AddApiCallToCall(call.Id, apiCall)
 
     let controlTree, deviceTree = TreeProjection.buildTrees store
 

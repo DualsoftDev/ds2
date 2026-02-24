@@ -594,34 +594,34 @@ let ``UpdateApiCallFromPanel should be one undo step with full rollback`` () =
     let changed = api.UpdateApiCallFromPanel(call.Id, apiCallId, apiDef.Id, "AC2", "OUT.1", "IN.1", "true", "")
     Assert.True(changed)
 
-    let (updatedApiCall, updatedValueSpec) =
+    let updatedApiCall =
         store.Calls.[call.Id].ApiCalls
-        |> Seq.find (fun (ac, _) -> ac.Id = apiCallId)
+        |> Seq.find (fun ac -> ac.Id = apiCallId)
     Assert.Equal("AC2", updatedApiCall.Name)
     Assert.Equal("OUT.1", updatedApiCall.OutTag.Value.Address)
     Assert.Equal("IN.1", updatedApiCall.InTag.Value.Address)
-    match updatedValueSpec with
+    match updatedApiCall.OutputSpec with
     | BoolValue(Single true) -> ()
     | _ -> failwith "Expected BoolValue(Single true)"
 
     // Composite update must rollback in one undo call.
     api.Undo()
-    let (rolledBackApiCall, rolledBackValueSpec) =
+    let rolledBackApiCall =
         store.Calls.[call.Id].ApiCalls
-        |> Seq.find (fun (ac, _) -> ac.Id = apiCallId)
+        |> Seq.find (fun ac -> ac.Id = apiCallId)
     Assert.Equal("AC1", rolledBackApiCall.Name)
     Assert.Equal("OUT.0", rolledBackApiCall.OutTag.Value.Address)
     Assert.Equal("IN.0", rolledBackApiCall.InTag.Value.Address)
-    match rolledBackValueSpec with
+    match rolledBackApiCall.OutputSpec with
     | IntValue(Single 10) -> ()
     | _ -> failwith "Expected IntValue(Single 10)"
 
     api.Redo()
-    let (redoneApiCall, redoneValueSpec) =
+    let redoneApiCall =
         store.Calls.[call.Id].ApiCalls
-        |> Seq.find (fun (ac, _) -> ac.Id = apiCallId)
+        |> Seq.find (fun ac -> ac.Id = apiCallId)
     Assert.Equal("AC2", redoneApiCall.Name)
-    match redoneValueSpec with
+    match redoneApiCall.OutputSpec with
     | BoolValue(Single true) -> ()
     | _ -> failwith "Expected BoolValue(Single true)"
 
@@ -676,9 +676,8 @@ let ``AddApiCallToCall should add and be undoable`` () =
     let work = api.AddWork("W1", flow.Id)
     let call = api.AddCall("Dev", "C1", work.Id)
     let apiCall = ApiCall("AC1")
-    let valueSpec = UndefinedValue
 
-    api.AddApiCallToCall(call.Id, apiCall, valueSpec)
+    api.AddApiCallToCall(call.Id, apiCall)
     Assert.True(store.ApiCalls.ContainsKey(apiCall.Id))
     Assert.Equal(1, call.ApiCalls.Count)
 
@@ -696,9 +695,8 @@ let ``RemoveApiCallFromCall should remove and be undoable`` () =
     let work = api.AddWork("W1", flow.Id)
     let call = api.AddCall("Dev", "C1", work.Id)
     let apiCall = ApiCall("AC1")
-    let valueSpec = UndefinedValue
 
-    api.AddApiCallToCall(call.Id, apiCall, valueSpec)
+    api.AddApiCallToCall(call.Id, apiCall)
     api.RemoveApiCallFromCall(call.Id, apiCall.Id)
     Assert.False(store.ApiCalls.ContainsKey(apiCall.Id))
     Assert.Equal(0, call.ApiCalls.Count)
@@ -837,7 +835,7 @@ let ``PasteEntity should duplicate Work with Calls ApiCalls and internal call ar
     let apiDef = api.AddApiDef("AD1", system.Id)
     let ac = ApiCall("AC1")
     ac.ApiDefId <- Some apiDef.Id
-    api.AddApiCallToCall(c1.Id, ac, UndefinedValue)
+    api.AddApiCallToCall(c1.Id, ac)
 
     let pastedOpt = api.PasteEntity("Work", w1.Id, "Flow", flow.Id)
     Assert.True(pastedOpt.IsSome)
@@ -1219,8 +1217,8 @@ let ``AddCallWithLinkedApiDefs should create one Call with N ApiCalls in one und
 
     let apiCalls = store.Calls.[call.Id].ApiCalls
     Assert.Equal(2, apiCalls.Count)
-    Assert.True(apiCalls |> Seq.exists (fun (ac, _) -> ac.ApiDefId = Some apiDef1.Id))
-    Assert.True(apiCalls |> Seq.exists (fun (ac, _) -> ac.ApiDefId = Some apiDef2.Id))
+    Assert.True(apiCalls |> Seq.exists (fun ac -> ac.ApiDefId = Some apiDef1.Id))
+    Assert.True(apiCalls |> Seq.exists (fun ac -> ac.ApiDefId = Some apiDef2.Id))
 
     // 전체가 단 1회의 Undo로 되돌려짐
     api.Undo()

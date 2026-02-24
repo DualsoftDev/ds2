@@ -8,7 +8,7 @@ open Ds2.Core
 let buildApiCall
     (apiDef: ApiDef) (fallbackName: string) (apiCallName: string)
     (outputAddress: string) (inputAddress: string) (apiCallId: Guid option)
-    (inputValueSpec: ValueSpec)
+    (inputSpec: ValueSpec) (outputSpec: ValueSpec)
     : ApiCall =
     let resolvedName =
         if String.IsNullOrWhiteSpace(apiCallName) then fallbackName
@@ -20,7 +20,8 @@ let buildApiCall
         apiCall.OutTag <- Some(IOTag("Out", outputAddress.Trim(), ""))
     if not (String.IsNullOrWhiteSpace(inputAddress)) then
         apiCall.InTag <- Some(IOTag("In", inputAddress.Trim(), ""))
-    apiCall.InputValueSpec <- inputValueSpec
+    apiCall.InputSpec  <- inputSpec
+    apiCall.OutputSpec <- outputSpec
     apiCall
 
 let getWorkDurationText (store: DsStore) (workId: Guid) : string =
@@ -118,7 +119,7 @@ let getCallApiCallsForPanel (store: DsStore) (callId: Guid) : CallApiCallPanelIt
     | None -> []
     | Some call ->
         call.ApiCalls
-        |> Seq.map (fun (apiCall, valueSpec) ->
+        |> Seq.map (fun apiCall ->
             let apiDefId, hasApiDef, apiDefDisplayName =
                 match apiCall.ApiDefId |> Option.bind (fun id -> DsQuery.getApiDef id store) with
                 | Some apiDef ->
@@ -133,16 +134,21 @@ let getCallApiCallsForPanel (store: DsStore) (callId: Guid) : CallApiCallPanelIt
             CallApiCallPanelItem(
                 apiCall.Id, apiCall.Name, apiDefId, hasApiDef, apiDefDisplayName,
                 outputAddress, inputAddress,
-                PropertyPanelValueSpec.format valueSpec,
-                PropertyPanelValueSpec.format apiCall.InputValueSpec))
+                PropertyPanelValueSpec.format apiCall.OutputSpec,
+                PropertyPanelValueSpec.format apiCall.InputSpec))
         |> Seq.toList
 
 /// AddApiCall 커맨드 빌드 → Some (newApiCallId, cmd) or None
 let buildAddApiCallCmd (store: DsStore) (callId: Guid) (apiDefId: Guid) (apiCallName: string) (outputAddress: string) (inputAddress: string) (valueSpecText: string) (inputValueSpecText: string) : (Guid * EditorCommand) option =
-    match DsQuery.getApiDef apiDefId store, DsQuery.getCall callId store, PropertyPanelValueSpec.tryParseSingle valueSpecText, PropertyPanelValueSpec.tryParseSingle inputValueSpecText with
-    | Some apiDef, Some _, Some valueSpec, Some inputValueSpec ->
-        let apiCall = buildApiCall apiDef apiDef.Name apiCallName outputAddress inputAddress None inputValueSpec
-        Some(apiCall.Id, AddApiCallToCall(callId, apiCall, valueSpec))
+    match DsQuery.getApiDef apiDefId store, DsQuery.getCall callId store with
+    | Some apiDef, Some _ ->
+        // Add 시엔 기존 타입 없으므로 UndefinedValue 힌트로 텍스트에서 추론
+        match PropertyPanelValueSpec.tryParseAs UndefinedValue valueSpecText,
+              PropertyPanelValueSpec.tryParseAs UndefinedValue inputValueSpecText with
+        | Some outputSpec, Some inputSpec ->
+            let apiCall = buildApiCall apiDef apiDef.Name apiCallName outputAddress inputAddress None inputSpec outputSpec
+            Some(apiCall.Id, AddApiCallToCall(callId, apiCall))
+        | _ -> None
     | _ -> None
 
 /// UpdateApiCall 커맨드 빌드 → Some cmd or None
@@ -150,12 +156,18 @@ let buildUpdateApiCallCmd (store: DsStore) (callId: Guid) (apiCallId: Guid) (api
     match DsQuery.getCall callId store with
     | None -> None
     | Some call ->
-        let existing = call.ApiCalls |> Seq.tryFind (fun (ac, _) -> ac.Id = apiCallId)
-        match existing, DsQuery.getApiDef apiDefId store, PropertyPanelValueSpec.tryParseSingle valueSpecText, PropertyPanelValueSpec.tryParseSingle inputValueSpecText with
-        | Some(oldApiCall, oldValueSpec), Some newApiDef, Some newValueSpec, Some newInputValueSpec ->
-            let updatedApiCall = buildApiCall newApiDef oldApiCall.Name apiCallName outputAddress inputAddress (Some oldApiCall.Id) newInputValueSpec
-            Some(Composite("Update ApiCall", [
-                RemoveApiCallFromCall(callId, oldApiCall, oldValueSpec)
-                AddApiCallToCall(callId, updatedApiCall, newValueSpec)
-            ]))
+        let existing = call.ApiCalls |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
+        match existing, DsQuery.getApiDef apiDefId store with
+        | Some oldApiCall, Some newApiDef ->
+            // Out Spec 힌트: 기존 ApiCall.OutputSpec
+            // In Spec 힌트: 기존 ApiCall.InputSpec
+            match PropertyPanelValueSpec.tryParseAs oldApiCall.OutputSpec valueSpecText,
+                  PropertyPanelValueSpec.tryParseAs oldApiCall.InputSpec inputValueSpecText with
+            | Some newOutputSpec, Some newInputSpec ->
+                let updatedApiCall = buildApiCall newApiDef oldApiCall.Name apiCallName outputAddress inputAddress (Some oldApiCall.Id) newInputSpec newOutputSpec
+                Some(Composite("Update ApiCall", [
+                    RemoveApiCallFromCall(callId, oldApiCall)
+                    AddApiCallToCall(callId, updatedApiCall)
+                ]))
+            | _ -> None
         | _ -> None

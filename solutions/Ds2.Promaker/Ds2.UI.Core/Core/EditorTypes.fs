@@ -140,11 +140,11 @@ type EditorCommand =
     | UpdateApiDefProps of id: Guid * oldProps: ApiDefProperties * newProps: ApiDefProperties
 
     // --- ApiCall ---
-    | AddApiCallToCall      of callId: Guid * apiCall: ApiCall * valueSpec: ValueSpec
-    | RemoveApiCallFromCall of callId: Guid * apiCall: ApiCall * valueSpec: ValueSpec
+    | AddApiCallToCall      of callId: Guid * apiCall: ApiCall
+    | RemoveApiCallFromCall of callId: Guid * apiCall: ApiCall
     /// 기존 ApiCall을 다른 Call에서 공유 참조 (store.ApiCalls 변경 없음)
-    | AddSharedApiCallToCall      of callId: Guid * apiCallId: Guid * valueSpec: ValueSpec
-    | RemoveSharedApiCallFromCall of callId: Guid * apiCallId: Guid * valueSpec: ValueSpec
+    | AddSharedApiCallToCall      of callId: Guid * apiCallId: Guid
+    | RemoveSharedApiCallFromCall of callId: Guid * apiCallId: Guid
 
     // --- HW Components ---
     | AddButton       of button: HwButton

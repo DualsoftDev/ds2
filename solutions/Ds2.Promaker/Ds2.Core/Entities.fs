@@ -36,7 +36,7 @@ type Call(devicesAlias: string, apiName: string, parentId: Guid) =
     member val Properties     = CallProperties() with get, set
     member val Status4        : Status4 = Status4.Ready with get, set
     member val Position       : Xywh option = None with get, set
-    member val ApiCalls       = ResizeArray<ApiCall*ValueSpec>() with get, set
+    member val ApiCalls       = ResizeArray<ApiCall>() with get, set
     member val CallConditions = ResizeArray<CallCondition>() with get, set
     /// 저장된 Device 별칭 — '.'을 포함할 수 없음
     member val DevicesAlias   = devicesAlias with get, set
@@ -74,12 +74,13 @@ and ApiCall(name) =
     member val InTag  : IOTag option = None with get, set
     member val OutTag : IOTag option = None with get, set
     member val ApiDefId : Guid option = None with get, set
-    member val InputValueSpec : ValueSpec = UndefinedValue with get, set
+    member val InputSpec  : ValueSpec = UndefinedValue with get, set
+    member val OutputSpec : ValueSpec = UndefinedValue with get, set
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> ApiCall
 
 and CallCondition() =
     member val Type : CallConditionType option = None with get, set
-    member val Conditions = ResizeArray<ApiCall*ValueSpec>() with get, set
+    member val Conditions = ResizeArray<ApiCall>() with get, set
     member val IsOR       = false with get, set
     member val IsRising   = false with get, set
     member this.DeepCopy() = DeepCopyHelper.jsonClone<CallCondition>(this)
