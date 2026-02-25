@@ -181,7 +181,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         if (SelectedNode is { } node)
-            _editor.RemoveEntity(node.EntityType, node.Id);
+            _editor.RemoveEntities(new[] { Tuple.Create(node.EntityType, node.Id) });
     }
 
     [RelayCommand]
