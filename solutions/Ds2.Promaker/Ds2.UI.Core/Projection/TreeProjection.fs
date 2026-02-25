@@ -126,11 +126,6 @@ let private buildDeviceTree (store: DsStore) : TreeNodeInfo list =
         ParentId = None
         Children = deviceSystemNodes } ]
 
-let buildTree (store: DsStore) : TreeNodeInfo list =
-    DsQuery.allProjects store
-    |> List.map (fun proj ->
-        buildProjectTree store (DsQuery.projectSystemsOf proj.Id store) proj)
-
 let buildTrees (store: DsStore) : TreeNodeInfo list * TreeNodeInfo list =
     let controlTree =
         DsQuery.allProjects store

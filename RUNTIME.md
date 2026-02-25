@@ -56,8 +56,7 @@ Last Sync: 2026-02-25
 | `AddWork` | `AddWork` Single | 캔버스 위치(Xywh) 포함 |
 | `AddCall` | `AddCall` Single | `devicesAlias.apiName` 형식 |
 | `AddCallsWithDevice` | Composite | Passive System·ApiDef 자동 생성 + Call 일괄 추가를 하나의 Undo 단위로 기록 |
-| `AddArrowBetweenWorks` | `AddArrowBetweenWorks` Single | |
-| `AddArrowBetweenCalls` | `AddArrowBetweenCalls` Single | |
+| `AddArrow` | `AddArrowWork` or `AddArrowCall` Single | entityType으로 Work/Call 분기 |
 | `AddApiDef` | `AddApiDef` Single | |
 | `AddApiCall` | `AddApiCall` Single | |
 | `AddButton / AddLamp / AddHwCondition / AddHwAction` | Single | |
@@ -89,8 +88,7 @@ Store를 직접 읽지 않고 Projection을 통해 뷰 데이터를 얻습니다
 |------|------|------|
 | Work 이름 변경 | `RenameWork` Single | |
 | Call DevicesAlias 변경 | `RenameCall` Single | `Call.Name` = DevicesAlias + "." + ApiName; setter는 DevicesAlias만 변경 |
-| Work 위치 이동 | `MoveWork` Single | 동일 위치면 명령 미생성 |
-| 다중 엔티티 이동 | `MoveEntities` → Composite | 각 이동이 하나의 Composite에 묶임 |
+| 엔티티 이동(단/다중) | `MoveEntities` → Composite | 동일 위치 항목은 명령 미생성, 각 이동이 하나의 Composite에 묶임 |
 | Work 속성(Duration) | `UpdateWorkDuration` Single | |
 | Call 속성(Timeout) | `UpdateCallTimeout` Single | |
 | ApiCall 태그/ValueSpec | `UpdateApiCallInTag` / `UpdateApiCallOutTag` / `UpdateApiCallValueSpec` Single | |
@@ -208,7 +206,7 @@ Redo()
 ### 4.1 개요
 
 - 복사 가능 타입: `Flow`, `Work`, `Call` (판정: `PasteResolvers.isCopyableEntityType`)
-- 단일/다중 선택 모두 `EditorApi.PasteEntity` / `EditorApi.PasteEntities`로 진입
+- 단일/다중 선택 모두 `EditorApi.PasteEntities`로 진입
 - 다중 붙여넣기는 `Composite` 1건으로 기록 → Undo 1회 처리
 
 ### 4.2 붙여넣기 대상 해석

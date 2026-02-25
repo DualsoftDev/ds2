@@ -26,8 +26,7 @@ let buildConnectSelectionCmds (store: DsStore) (orderedNodeIds: seq<Guid>) (arro
         | _ -> None)
 
 let tryResolveReconnectArrowCmd (store: DsStore) (arrowId: Guid) (replaceSource: bool) (newEndpointId: Guid) : EditorCommand option =
-    let buildWorkReconnectCommand () =
-        let arrow = DsQuery.getArrowWork arrowId store |> Option.get
+    let buildWorkReconnectCommand (arrow: ArrowBetweenWorks) =
         let keepId = if replaceSource then arrow.TargetId else arrow.SourceId
         let newSourceId = if replaceSource then newEndpointId else keepId
         let newTargetId = if replaceSource then keepId else newEndpointId
@@ -39,18 +38,16 @@ let tryResolveReconnectArrowCmd (store: DsStore) (arrowId: Guid) (replaceSource:
             | Some newWork, Some keepWork
                 when newWork.ParentId = arrow.ParentId && keepWork.ParentId = arrow.ParentId ->
                 let hasDuplicate =
-                    DsQuery.allArrowWorks store
+                    DsQuery.arrowWorksOf arrow.ParentId store
                     |> List.exists (fun e ->
                         e.Id <> arrow.Id
-                        && e.ParentId = arrow.ParentId
                         && e.SourceId = newSourceId
                         && e.TargetId = newTargetId)
                 if hasDuplicate then None
                 else Some(ReconnectArrowWork(arrow.Id, arrow.SourceId, arrow.TargetId, newSourceId, newTargetId))
             | _ -> None
 
-    let buildCallReconnectCommand () =
-        let arrow = DsQuery.getArrowCall arrowId store |> Option.get
+    let buildCallReconnectCommand (arrow: ArrowBetweenCalls) =
         let keepId = if replaceSource then arrow.TargetId else arrow.SourceId
         let newSourceId = if replaceSource then newEndpointId else keepId
         let newTargetId = if replaceSource then keepId else newEndpointId
@@ -63,10 +60,9 @@ let tryResolveReconnectArrowCmd (store: DsStore) (arrowId: Guid) (replaceSource:
                 match DsQuery.getWork newCall.ParentId store with
                 | Some work when work.ParentId = arrow.ParentId ->
                     let hasDuplicate =
-                        DsQuery.allArrowCalls store
+                        DsQuery.arrowCallsOf arrow.ParentId store
                         |> List.exists (fun e ->
                             e.Id <> arrow.Id
-                            && e.ParentId = arrow.ParentId
                             && e.SourceId = newSourceId
                             && e.TargetId = newTargetId)
                     if hasDuplicate then None
@@ -75,6 +71,6 @@ let tryResolveReconnectArrowCmd (store: DsStore) (arrowId: Guid) (replaceSource:
             | _ -> None
 
     match DsQuery.getArrowWork arrowId store, DsQuery.getArrowCall arrowId store with
-    | Some _, _ -> buildWorkReconnectCommand ()
-    | None, Some _ -> buildCallReconnectCommand ()
+    | Some arrow, _ -> buildWorkReconnectCommand arrow
+    | None, Some arrow -> buildCallReconnectCommand arrow
     | _ -> None

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
-using Ds2.Core;
 using Ds2.UI.Core;
 
 namespace Ds2.UI.Frontend.Dialogs;
@@ -13,12 +12,12 @@ public partial class ApiDefEditDialog : Window
     private readonly List<WorkDropdownItem> _workItems;
 
     // 출력
-    public string ApiDefName  { get; private set; } = string.Empty;
-    public bool   IsPush      { get; private set; } = true;
-    public Guid?  TxWorkId    { get; private set; }
-    public Guid?  RxWorkId    { get; private set; }
-    public int    Duration    { get; private set; }
-    public string Memo        { get; private set; } = string.Empty;
+    public string ApiDefName { get; private set; } = string.Empty;
+    public bool IsPush { get; private set; } = true;
+    public Guid? TxWorkId { get; private set; }
+    public Guid? RxWorkId { get; private set; }
+    public int Duration { get; private set; }
+    public string Description { get; private set; } = string.Empty;
 
     public ApiDefEditDialog(IReadOnlyList<WorkDropdownItem> works, ApiDefPanelItem? existing = null)
     {
@@ -32,11 +31,11 @@ public partial class ApiDefEditDialog : Window
 
         if (existing is not null)
         {
-            NameBox.Text        = existing.Name;
+            NameBox.Text = existing.Name;
             PushRadio.IsChecked = existing.IsPush;
             PollRadio.IsChecked = !existing.IsPush;
-            DurationBox.Text    = existing.Duration.ToString();
-            MemoBox.Text        = existing.Memo;
+            DurationBox.Text = existing.Duration.ToString();
+            DescriptionBox.Text = existing.Description;
 
             TxWorkCombo.SelectedItem = _workItems.FirstOrDefault(w => w.Id == existing.TxWorkIdOrEmpty) ?? noneItem;
             RxWorkCombo.SelectedItem = _workItems.FirstOrDefault(w => w.Id == existing.RxWorkIdOrEmpty) ?? noneItem;
@@ -71,9 +70,9 @@ public partial class ApiDefEditDialog : Window
         }
 
         ApiDefName = name;
-        IsPush     = PushRadio.IsChecked == true;
-        Duration   = duration;
-        Memo       = MemoBox.Text.Trim();
+        IsPush = PushRadio.IsChecked == true;
+        Duration = duration;
+        Description = DescriptionBox.Text.Trim();
 
         var tx = TxWorkCombo.SelectedItem as WorkDropdownItem;
         TxWorkId = tx is not null && tx.Id != Guid.Empty ? tx.Id : null;

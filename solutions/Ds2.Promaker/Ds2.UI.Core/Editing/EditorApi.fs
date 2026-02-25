@@ -11,8 +11,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     let undoManager = UndoRedoManager(defaultArg maxUndoSize 100)
     let eventBus = Event<EditorEvent>()
     let cloneStore (s: DsStore) =
-        Ds2.Serialization.JsonConverter.serialize s
-        |> Ds2.Serialization.JsonConverter.deserialize<DsStore>
+        StoreCopy.deepClone s
 
     let ensureValidStoreOrThrow (targetStore: DsStore) (context: string) =
         match ValidationHelpers.validateStore targetStore with
@@ -23,10 +22,10 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
                 else String.concat " | " errors
             invalidOp $"Store validation failed ({context}): {message}"
 
-    let withEntity (findById: Guid -> DsStore -> 'T option) (id: Guid) (onFound: 'T -> unit) =
+    let withEntityOrThrow (entityType: string) (findById: Guid -> DsStore -> 'T option) (id: Guid) (onFound: 'T -> unit) =
         match findById id store with
         | Some entity -> onFound entity
-        | None -> ()
+        | None -> invalidOp $"'{entityType}' entity was not found. id={id}"
 
     // --- 이벤트 ---
     member _.OnEvent = eventBus.Publish
@@ -42,19 +41,18 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         eventBus.Trigger(UndoRedoChanged(undoManager.CanUndo, undoManager.CanRedo))
 
     member private this.ExecuteCommand(cmd: EditorCommand) =
-        let events = CommandExecutor.execute cmd store
+        ensureValidStoreOrThrow store (sprintf "before execute %A" cmd)
+        let snapshot = cloneStore store
         try
-            ensureValidStoreOrThrow store (sprintf "execute %A" cmd)
+            let events = CommandExecutor.execute cmd store
+            ensureValidStoreOrThrow store (sprintf "after execute %A" cmd)
+            undoManager.Push(cmd)
+            this.PublishCommandResult(cmd, events)
         with ex ->
-            try
-                CommandExecutor.undo cmd store |> ignore
-            with rollbackEx ->
-                raise (InvalidOperationException($"Command failed and rollback failed: {rollbackEx.Message}", rollbackEx))
+            StoreCopy.replaceAllCollections snapshot store
             eventBus.Trigger(StoreRefreshed)
             eventBus.Trigger(UndoRedoChanged(undoManager.CanUndo, undoManager.CanRedo))
-            raise (InvalidOperationException($"Command rejected by validation: {ex.Message}", ex))
-        undoManager.Push(cmd)
-        this.PublishCommandResult(cmd, events)
+            raise (InvalidOperationException($"Command execution failed and state was restored: {ex.Message}", ex))
 
     member internal this.Exec(cmd: EditorCommand) =
         this.ExecuteCommand(cmd)
@@ -82,9 +80,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         this.Exec(AddProject project)
         project
 
-    member this.RemoveProject(projectId: Guid) =
-        this.Exec(RemoveOps.buildRemoveProjectCmd store projectId)
-
     // =====================================================================
     // System API
     // =====================================================================
@@ -92,9 +87,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         let system = DsSystem(name)
         this.Exec(AddSystem(system, projectId, isActive))
         system
-
-    member this.RemoveSystem(systemId: Guid) =
-        this.Exec(RemoveOps.buildRemoveSystemCmd store systemId)
 
     // =====================================================================
     // Flow API
@@ -104,9 +96,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         this.Exec(AddFlow flow)
         flow
 
-    member this.RemoveFlow(flowId: Guid) =
-        this.Exec(RemoveOps.buildRemoveFlowCmd store flowId)
-
     // =====================================================================
     // Work API
     // =====================================================================
@@ -115,23 +104,17 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         this.Exec(AddWork work)
         work
 
-    member this.RemoveWork(workId: Guid) =
-        this.Exec(RemoveOps.buildRemoveWorkCmd store workId)
-
     member this.MoveEntities(requests: seq<MoveEntityRequest>) : int =
         this.ExecBatch("Move Selected Nodes", RemoveOps.buildMoveEntitiesCmds store requests)
 
-    member this.MoveWork(workId: Guid, newPos: Xywh option) =
-        this.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, workId, newPos) ]) |> ignore
-
     member this.RenameWork(workId: Guid, newName: string) =
-        withEntity DsQuery.getWork workId (fun work ->
+        withEntityOrThrow EntityTypeNames.Work DsQuery.getWork workId (fun work ->
             let oldName = work.Name
             if oldName <> newName then
                 this.Exec(RenameWork(workId, oldName, newName)))
 
     member this.UpdateWorkProperties(workId: Guid, newProps: WorkProperties) =
-        withEntity DsQuery.getWork workId (fun work ->
+        withEntityOrThrow EntityTypeNames.Work DsQuery.getWork workId (fun work ->
             let oldProps = work.Properties.DeepCopy()
             this.Exec(UpdateWorkProps(workId, oldProps, newProps)))
 
@@ -176,55 +159,31 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         this.Exec(Composite("Add Call", AddCall call :: apiCallCmds))
         call
 
-    member this.RemoveCall(callId: Guid) =
-        this.Exec(RemoveOps.buildRemoveCallCmd store callId)
-
-    member this.MoveCall(callId: Guid, newPos: Xywh option) =
-        this.MoveEntities([ MoveEntityRequest(EntityTypeNames.Call, callId, newPos) ]) |> ignore
-
     member this.RenameCall(callId: Guid, newName: string) =
-        withEntity DsQuery.getCall callId (fun call ->
+        withEntityOrThrow EntityTypeNames.Call DsQuery.getCall callId (fun call ->
             let oldName = call.Name
             if oldName <> newName then
                 this.Exec(RenameCall(callId, oldName, newName)))
 
     member this.UpdateCallProperties(callId: Guid, newProps: CallProperties) =
-        withEntity DsQuery.getCall callId (fun call ->
+        withEntityOrThrow EntityTypeNames.Call DsQuery.getCall callId (fun call ->
             let oldProps = call.Properties.DeepCopy()
             this.Exec(UpdateCallProps(callId, oldProps, newProps)))
 
     // =====================================================================
     // Arrow API
     // =====================================================================
-    member this.AddArrowBetweenWorks(flowId: Guid, sourceId: Guid, targetId: Guid, arrowType: ArrowType) =
-        let arrow = ArrowBetweenWorks(flowId, sourceId, targetId, arrowType)
-        this.Exec(AddArrowWork arrow)
-        arrow
-
-    member this.RemoveArrowBetweenWorks(arrowId: Guid) =
-        withEntity DsQuery.getArrowWork arrowId (fun arrow ->
-            this.Exec(RemoveArrowWork(DeepCopyHelper.backupEntityAs arrow)))
-
-    member this.AddArrowBetweenCalls(flowId: Guid, sourceId: Guid, targetId: Guid, arrowType: ArrowType) =
-        let arrow = ArrowBetweenCalls(flowId, sourceId, targetId, arrowType)
-        this.Exec(AddArrowCall arrow)
-        arrow
-
     /// Unified arrow add entrypoint for UI callers.
     /// Returns true when the entity type is supported and an arrow was created.
     member this.AddArrow(entityType: string, flowId: Guid, sourceId: Guid, targetId: Guid, arrowType: ArrowType) : bool =
         match EntityKind.tryOfString entityType with
         | ValueSome Work ->
-            this.AddArrowBetweenWorks(flowId, sourceId, targetId, arrowType) |> ignore
+            this.Exec(AddArrowWork(ArrowBetweenWorks(flowId, sourceId, targetId, arrowType)))
             true
         | ValueSome Call ->
-            this.AddArrowBetweenCalls(flowId, sourceId, targetId, arrowType) |> ignore
+            this.Exec(AddArrowCall(ArrowBetweenCalls(flowId, sourceId, targetId, arrowType)))
             true
         | _ -> false
-
-    member this.RemoveArrowBetweenCalls(arrowId: Guid) =
-        withEntity DsQuery.getArrowCall arrowId (fun arrow ->
-            this.Exec(RemoveArrowCall(DeepCopyHelper.backupEntityAs arrow)))
 
     /// Flow 내 모든 화살표의 경로를 일괄 계산 (C# 렌더링용)
     member _.GetFlowArrowPaths(flowId: Guid) : Map<Guid, ArrowPathCalculator.ArrowVisual> =
@@ -257,11 +216,11 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         apiDef
 
     member this.RemoveApiDef(apiDefId: Guid) =
-        withEntity DsQuery.getApiDef apiDefId (fun apiDef ->
+        withEntityOrThrow EntityTypeNames.ApiDef DsQuery.getApiDef apiDefId (fun apiDef ->
             this.Exec(RemoveApiDef(DeepCopyHelper.backupEntityAs apiDef)))
 
     member this.UpdateApiDefProperties(apiDefId: Guid, newProps: ApiDefProperties) =
-        withEntity DsQuery.getApiDef apiDefId (fun apiDef ->
+        withEntityOrThrow EntityTypeNames.ApiDef DsQuery.getApiDef apiDefId (fun apiDef ->
             let oldProps = apiDef.Properties.DeepCopy()
             this.Exec(UpdateApiDefProps(apiDefId, oldProps, newProps)))
 
@@ -272,10 +231,10 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         this.Exec(AddApiCallToCall(callId, apiCall))
 
     member this.RemoveApiCallFromCall(callId: Guid, apiCallId: Guid) =
-        withEntity DsQuery.getCall callId (fun call ->
+        withEntityOrThrow EntityTypeNames.Call DsQuery.getCall callId (fun call ->
             match call.ApiCalls |> Seq.tryFind (fun ac -> ac.Id = apiCallId) with
             | Some apiCall -> this.Exec(RemoveApiCallFromCall(callId, apiCall))
-            | None -> ())
+            | None -> invalidOp $"ApiCall was not found in Call. callId={callId}, apiCallId={apiCallId}")
 
     // =====================================================================
     // Property Panel API
@@ -332,7 +291,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         button
 
     member this.RemoveButton(buttonId: Guid) =
-        withEntity DsQuery.getButton buttonId (fun button ->
+        withEntityOrThrow EntityTypeNames.Button DsQuery.getButton buttonId (fun button ->
             this.Exec(RemoveButton(DeepCopyHelper.backupEntityAs button)))
 
     member this.AddLamp(name: string, systemId: Guid) : HwLamp =
@@ -341,7 +300,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         lamp
 
     member this.RemoveLamp(lampId: Guid) =
-        withEntity DsQuery.getLamp lampId (fun lamp ->
+        withEntityOrThrow EntityTypeNames.Lamp DsQuery.getLamp lampId (fun lamp ->
             this.Exec(RemoveLamp(DeepCopyHelper.backupEntityAs lamp)))
 
     member this.AddHwCondition(name: string, systemId: Guid) : HwCondition =
@@ -350,7 +309,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         condition
 
     member this.RemoveHwCondition(conditionId: Guid) =
-        withEntity DsQuery.getCondition conditionId (fun condition ->
+        withEntityOrThrow EntityTypeNames.Condition DsQuery.getCondition conditionId (fun condition ->
             this.Exec(RemoveHwCondition(DeepCopyHelper.backupEntityAs condition)))
 
     member this.AddHwAction(name: string, systemId: Guid) : HwAction =
@@ -359,52 +318,81 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         action
 
     member this.RemoveHwAction(actionId: Guid) =
-        withEntity DsQuery.getAction actionId (fun action ->
+        withEntityOrThrow EntityTypeNames.Action DsQuery.getAction actionId (fun action ->
             this.Exec(RemoveHwAction(DeepCopyHelper.backupEntityAs action)))
 
     // =====================================================================
-    // 범용 Remove (엔티티 타입 디스패치)
+    // 범용 Remove (단일 → 배치 위임)
     // =====================================================================
-    /// 엔티티 타입 문자열 + ID로 적절한 Remove 호출
+    /// 단일 엔티티 삭제: RemoveEntities에 위임
     member this.RemoveEntity(entityType: string, entityId: Guid) =
-        match EntityKind.tryOfString entityType with
-        | ValueSome Project   -> this.RemoveProject(entityId)
-        | ValueSome System    -> this.RemoveSystem(entityId)
-        | ValueSome Flow      -> this.RemoveFlow(entityId)
-        | ValueSome Work      -> this.RemoveWork(entityId)
-        | ValueSome Call      -> this.RemoveCall(entityId)
-        | ValueSome ApiDef    -> this.RemoveApiDef(entityId)
-        | ValueSome Button    -> this.RemoveButton(entityId)
-        | ValueSome Lamp      -> this.RemoveLamp(entityId)
-        | ValueSome Condition -> this.RemoveHwCondition(entityId)
-        | ValueSome Action    -> this.RemoveHwAction(entityId)
-        | ValueNone           -> ()
+        this.RemoveEntities(seq { (entityType, entityId) })
 
     /// 여러 엔티티를 Composite 명령 1개로 일괄 삭제 (Undo/Redo 1회 단위)
-    /// Call의 부모 Work가 같은 선택에 포함된 경우 해당 Call은 건너뜀 (Work cascade가 처리)
+    /// Work/Call은 선택 집합 전체의 화살표를 한 번에 수집해 중복 제거 후 삭제.
+    /// Call의 부모 Work가 같은 선택에 포함된 경우 해당 Call은 건너뜀 (Work cascade가 처리).
     member this.RemoveEntities(selections: seq<string * Guid>) =
         let selList = selections |> Seq.distinctBy snd |> Seq.toList
         let selIds  = selList |> List.map snd |> Set.ofList
 
-        let buildCmd (entityType: string) (id: Guid) : EditorCommand option =
-            match EntityKind.tryOfString entityType with
-            | ValueSome Call ->
-                match DsQuery.getCall id store with
-                | Some call when Set.contains call.ParentId selIds -> None
-                | Some _ -> Some(RemoveOps.buildRemoveCallCmd store id)
-                | None   -> None
-            | ValueSome Work      -> DsQuery.getWork id store      |> Option.map (fun _ -> RemoveOps.buildRemoveWorkCmd store id)
-            | ValueSome Flow      -> DsQuery.getFlow id store      |> Option.map (fun _ -> RemoveOps.buildRemoveFlowCmd store id)
-            | ValueSome System    -> DsQuery.getSystem id store    |> Option.map (fun _ -> RemoveOps.buildRemoveSystemCmd store id)
-            | ValueSome Project   -> DsQuery.getProject id store   |> Option.map (fun _ -> RemoveOps.buildRemoveProjectCmd store id)
-            | ValueSome ApiDef    -> DsQuery.getApiDef id store    |> Option.map (fun a -> RemoveApiDef(DeepCopyHelper.backupEntityAs a))
-            | ValueSome Button    -> DsQuery.getButton id store    |> Option.map (fun b -> RemoveButton(DeepCopyHelper.backupEntityAs b))
-            | ValueSome Lamp      -> DsQuery.getLamp id store      |> Option.map (fun l -> RemoveLamp(DeepCopyHelper.backupEntityAs l))
-            | ValueSome Condition -> DsQuery.getCondition id store |> Option.map (fun c -> RemoveHwCondition(DeepCopyHelper.backupEntityAs c))
-            | ValueSome Action    -> DsQuery.getAction id store    |> Option.map (fun a -> RemoveHwAction(DeepCopyHelper.backupEntityAs a))
-            | ValueNone -> None
+        // ── Work 배치 ─────────────────────────────────────────────────────────
+        let selectedWorks =
+            selList |> List.choose (fun (et, id) ->
+                match EntityKind.tryOfString et with
+                | ValueSome EntityKind.Work -> DsQuery.getWork id store
+                | _ -> None)
 
-        let commands = selList |> List.choose (fun (et, id) -> buildCmd et id)
+        // Work cascade: 각 Work 내 Call 전체 수집
+        let cascadeCalls = selectedWorks |> List.collect (fun w -> DsQuery.callsOf w.Id store)
+
+        let workIds     = selectedWorks |> List.map (fun w -> w.Id) |> Set.ofList
+        let cascadeIds  = cascadeCalls  |> List.map (fun c -> c.Id) |> Set.ofList
+
+        let batchArrowWorks =
+            if workIds.IsEmpty then []
+            else CascadeHelpers.arrowWorksFor store workIds
+
+        // ── Call 배치 (부모 Work가 선택 집합에 없는 Call만) ─────────────────
+        let selectedCalls =
+            selList |> List.choose (fun (et, id) ->
+                match EntityKind.tryOfString et with
+                | ValueSome EntityKind.Call ->
+                    match DsQuery.getCall id store with
+                    | Some call when not (selIds.Contains call.ParentId) -> Some call
+                    | _ -> None
+                | _ -> None)
+
+        let directCallIds = selectedCalls |> List.map (fun c -> c.Id) |> Set.ofList
+        let allCallIds    = Set.union cascadeIds directCallIds
+
+        let batchArrowCalls =
+            if allCallIds.IsEmpty then []
+            else CascadeHelpers.arrowCallsFor store allCallIds
+
+        // ── 나머지 엔티티 (Flow/System/Project/HW) ───────────────────────────
+        let otherCmds =
+            selList |> List.choose (fun (et, id) ->
+                match EntityKind.tryOfString et with
+                | ValueSome EntityKind.Work | ValueSome EntityKind.Call -> None
+                | ValueSome EntityKind.Flow      -> DsQuery.getFlow id store      |> Option.map (fun _ -> RemoveOps.buildRemoveFlowCmd store id)
+                | ValueSome EntityKind.System    -> DsQuery.getSystem id store    |> Option.map (fun _ -> RemoveOps.buildRemoveSystemCmd store id)
+                | ValueSome EntityKind.Project   -> DsQuery.getProject id store   |> Option.map (fun _ -> RemoveOps.buildRemoveProjectCmd store id)
+                | ValueSome EntityKind.ApiDef    -> DsQuery.getApiDef id store    |> Option.map (fun a -> RemoveApiDef(DeepCopyHelper.backupEntityAs a))
+                | ValueSome EntityKind.Button    -> DsQuery.getButton id store    |> Option.map (fun b -> RemoveButton(DeepCopyHelper.backupEntityAs b))
+                | ValueSome EntityKind.Lamp      -> DsQuery.getLamp id store      |> Option.map (fun l -> RemoveLamp(DeepCopyHelper.backupEntityAs l))
+                | ValueSome EntityKind.Condition -> DsQuery.getCondition id store |> Option.map (fun c -> RemoveHwCondition(DeepCopyHelper.backupEntityAs c))
+                | ValueSome EntityKind.Action    -> DsQuery.getAction id store    |> Option.map (fun a -> RemoveHwAction(DeepCopyHelper.backupEntityAs a))
+                | ValueNone -> None)
+
+        // ── 실행 순서: 말단(ArrowCall) → Call → ArrowWork → Work → 기타 ──────
+        let commands = [
+            yield! batchArrowCalls |> List.map (fun a -> RemoveArrowCall(DeepCopyHelper.backupEntityAs a))
+            yield! cascadeCalls    |> List.map (fun c -> RemoveCall(DeepCopyHelper.backupEntityAs c))
+            yield! selectedCalls   |> List.map (fun c -> RemoveCall(DeepCopyHelper.backupEntityAs c))
+            yield! batchArrowWorks |> List.map (fun a -> RemoveArrowWork(DeepCopyHelper.backupEntityAs a))
+            yield! selectedWorks   |> List.map (fun w -> RemoveWork(DeepCopyHelper.backupEntityAs w))
+            yield! otherCmds
+        ]
         this.ExecBatch("Delete Entities", commands) |> ignore
 
     // =====================================================================
@@ -419,42 +407,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     // =====================================================================
     // Copy / Paste API
     // =====================================================================
-    /// Copy된 Flow/Work/Call을 대상 위치에 Paste한다.
-    /// ExecBatch로 감싸 Undo 1회를 보장한다.
-    member this.PasteEntity(copiedEntityType: string, copiedEntityId: Guid, targetEntityType: string, targetEntityId: Guid) : Guid option =
-        if not (PasteResolvers.isCopyableEntityType copiedEntityType) then None
-        else
-            match EntityKind.tryOfString copiedEntityType with
-            | ValueSome Flow ->
-                DsQuery.getFlow copiedEntityId store
-                |> Option.map (fun sourceFlow ->
-                    let targetSystemId =
-                        PasteResolvers.resolveSystemTarget store targetEntityType targetEntityId
-                        |> Option.defaultValue sourceFlow.ParentId
-                    this.ExecBatch("Paste Flow", fun exec ->
-                        PasteOps.pasteFlowToSystem exec store sourceFlow targetSystemId))
-            | ValueSome Work ->
-                DsQuery.getWork copiedEntityId store
-                |> Option.map (fun sourceWork ->
-                    let targetFlowId =
-                        PasteResolvers.resolveFlowTarget store targetEntityType targetEntityId
-                        |> Option.defaultValue sourceWork.ParentId
-                    this.ExecBatch("Paste Work", fun exec ->
-                        match PasteOps.pasteWorksToFlowBatch exec store [ sourceWork ] targetFlowId with
-                        | pastedWorkId :: _ -> pastedWorkId
-                        | [] -> sourceWork.Id))
-            | ValueSome Call ->
-                DsQuery.getCall copiedEntityId store
-                |> Option.map (fun sourceCall ->
-                    let targetWorkId =
-                        PasteResolvers.resolveWorkTarget store targetEntityType targetEntityId
-                        |> Option.defaultValue sourceCall.ParentId
-                    this.ExecBatch("Paste Call", fun exec ->
-                        match PasteOps.pasteCallsToWorkBatch exec store [ sourceCall ] targetWorkId with
-                        | pastedCallId :: _ -> pastedCallId
-                        | [] -> sourceCall.Id))
-            | _ -> None
-
     /// Batch paste API for same-type copied entities.
     /// 모든 배치 타입이 ExecBatch로 감싸 Undo 1회를 보장한다.
     member this.PasteEntities
@@ -502,15 +454,35 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         match undoManager.PopUndo() with
         | None -> ()
         | Some cmd ->
-            let events = CommandExecutor.undo cmd store
-            this.PublishCommandResult(cmd, events)
+            let snapshot = cloneStore store
+            try
+                ensureValidStoreOrThrow store (sprintf "before undo %A" cmd)
+                let events = CommandExecutor.undo cmd store
+                ensureValidStoreOrThrow store (sprintf "after undo %A" cmd)
+                this.PublishCommandResult(cmd, events)
+            with ex ->
+                StoreCopy.replaceAllCollections snapshot store
+                undoManager.RestoreAfterFailedUndo(cmd)
+                eventBus.Trigger(StoreRefreshed)
+                eventBus.Trigger(UndoRedoChanged(undoManager.CanUndo, undoManager.CanRedo))
+                raise (InvalidOperationException($"Undo failed and state was restored: {ex.Message}", ex))
 
     member this.Redo() =
         match undoManager.PopRedo() with
         | None -> ()
         | Some cmd ->
-            let events = CommandExecutor.execute cmd store
-            this.PublishCommandResult(cmd, events)
+            let snapshot = cloneStore store
+            try
+                ensureValidStoreOrThrow store (sprintf "before redo %A" cmd)
+                let events = CommandExecutor.execute cmd store
+                ensureValidStoreOrThrow store (sprintf "after redo %A" cmd)
+                this.PublishCommandResult(cmd, events)
+            with ex ->
+                StoreCopy.replaceAllCollections snapshot store
+                undoManager.RestoreAfterFailedRedo(cmd)
+                eventBus.Trigger(StoreRefreshed)
+                eventBus.Trigger(UndoRedoChanged(undoManager.CanUndo, undoManager.CanRedo))
+                raise (InvalidOperationException($"Redo failed and state was restored: {ex.Message}", ex))
 
     // =====================================================================
     // 파일 I/O

@@ -29,17 +29,15 @@ let private resolveOrderedNodeContext (store: DsStore) (nodeId: Guid) : (string 
         | None -> None
 
 let private hasArrowWork (store: DsStore) (flowId: Guid) (sourceId: Guid) (targetId: Guid) =
-    DsQuery.allArrowWorks store
+    DsQuery.arrowWorksOf flowId store
     |> List.exists (fun arrow ->
-        arrow.ParentId = flowId
-        && arrow.SourceId = sourceId
+        arrow.SourceId = sourceId
         && arrow.TargetId = targetId)
 
 let private hasArrowCall (store: DsStore) (flowId: Guid) (sourceId: Guid) (targetId: Guid) =
-    DsQuery.allArrowCalls store
+    DsQuery.arrowCallsOf flowId store
     |> List.exists (fun arrow ->
-        arrow.ParentId = flowId
-        && arrow.SourceId = sourceId
+        arrow.SourceId = sourceId
         && arrow.TargetId = targetId)
 
 /// Ordered multi-selection -> connectable arrow links.

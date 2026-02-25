@@ -92,7 +92,7 @@ let getApiDefsForSystem (store: DsStore) (systemId: Guid) : ApiDefPanelItem list
             apiDef.Properties.TxGuid,
             apiDef.Properties.RxGuid,
             apiDef.Properties.Duration,
-            apiDef.Properties.Memo |> Option.defaultValue ""))
+            apiDef.Properties.Description |> Option.defaultValue ""))
 
 let getWorksForSystem (store: DsStore) (systemId: Guid) : WorkDropdownItem list =
     DsQuery.flowsOf systemId store

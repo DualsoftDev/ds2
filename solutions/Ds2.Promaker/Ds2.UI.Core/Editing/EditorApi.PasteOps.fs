@@ -68,10 +68,8 @@ let pasteFlowToSystem (exec: ExecFn) (store: DsStore) (sourceFlow: Flow) (target
     let pastedFlow = Flow(sourceFlow.Name, targetSystemId)
     exec(AddFlow pastedFlow)
 
-    let sourceWorkArrows =
-        DsQuery.allArrowWorks store |> List.filter (fun a -> a.ParentId = sourceFlow.Id)
-    let sourceCallArrows =
-        DsQuery.allArrowCalls store |> List.filter (fun a -> a.ParentId = sourceFlow.Id)
+    let sourceWorkArrows = DsQuery.arrowWorksOf sourceFlow.Id store
+    let sourceCallArrows = DsQuery.arrowCallsOf sourceFlow.Id store
 
     let workMap, callMap =
         DsQuery.worksOf sourceFlow.Id store
@@ -104,16 +102,18 @@ let pasteWorksToFlowBatch (exec: ExecFn) (store: DsStore) (sourceWorks: Work lis
     let sourceFlowIds = sourceWorks |> List.map (fun w -> w.ParentId) |> Set.ofList
 
     let sourceWorkArrows =
-        DsQuery.allArrowWorks store
+        sourceFlowIds
+        |> Set.toList
+        |> List.collect (fun flowId -> DsQuery.arrowWorksOf flowId store)
         |> List.filter (fun a ->
-            sourceFlowIds.Contains a.ParentId
-            && selectedWorkIds.Contains a.SourceId
+            selectedWorkIds.Contains a.SourceId
             && selectedWorkIds.Contains a.TargetId)
     let sourceCallArrows =
-        DsQuery.allArrowCalls store
+        sourceFlowIds
+        |> Set.toList
+        |> List.collect (fun flowId -> DsQuery.arrowCallsOf flowId store)
         |> List.filter (fun a ->
-            sourceFlowIds.Contains a.ParentId
-            && selectedCallIds.Contains a.SourceId
+            selectedCallIds.Contains a.SourceId
             && selectedCallIds.Contains a.TargetId)
 
     let workMap, callMap, pastedWorkIdsRev =
@@ -144,10 +144,11 @@ let pasteCallsToWorkBatch (exec: ExecFn) (store: DsStore) (sourceCalls: Call lis
         |> List.choose (fun c -> DsQuery.getWork c.ParentId store |> Option.map (fun w -> w.ParentId))
         |> Set.ofList
     let sourceCallArrows =
-        DsQuery.allArrowCalls store
+        sourceFlowIds
+        |> Set.toList
+        |> List.collect (fun flowId -> DsQuery.arrowCallsOf flowId store)
         |> List.filter (fun a ->
-            sourceFlowIds.Contains a.ParentId
-            && selectedCallIds.Contains a.SourceId
+            selectedCallIds.Contains a.SourceId
             && selectedCallIds.Contains a.TargetId)
     let targetFlowIdOpt =
         DsQuery.getWork targetWorkId store |> Option.map (fun w -> w.ParentId)

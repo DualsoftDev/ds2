@@ -13,6 +13,12 @@ module CommandExecutor =
         match result with
         | Ok () -> ()
         | Error message -> invalidOp $"Mutation '{opName}' failed: {message}"
+
+    let private requireEntity (entityType: string) (entityId: Guid) (entityOpt: 'T option) : 'T =
+        entityOpt
+        |> Option.defaultWith (fun () ->
+            invalidOp $"'{entityType}' entity was not found while executing command. id={entityId}")
+
     /// 명령 실행 -> 발행할 이벤트 리스트 반환
     let rec execute (cmd: EditorCommand) (store: DsStore) : EditorEvent list =
         match cmd with
@@ -31,7 +37,7 @@ module CommandExecutor =
         // Project.ActiveSystems/PassiveSystems 에도 추가해야 함 (동기화 처리)
         | AddSystem(system, projectId, isActive) ->
             Mutation.addSystem system store |> requireMutationOk "addSystem"
-            let project = DsQuery.getProject projectId store |> Option.get
+            let project = DsQuery.getProject projectId store |> requireEntity "Project" projectId
             if isActive then project.ActiveSystemIds.Add(system.Id)
             else project.PassiveSystemIds.Add(system.Id)
             [ SystemAdded system ]
@@ -60,17 +66,17 @@ module CommandExecutor =
             [ WorkRemoved backup.Id ]
 
         | MoveWork(id, _, newPos) ->
-            let work = DsQuery.getWork id store |> Option.get
+            let work = DsQuery.getWork id store |> requireEntity "Work" id
             work.Position <- newPos
             [ WorkMoved(id, newPos) ]
 
         | RenameWork(id, _, newName) ->
-            let work = DsQuery.getWork id store |> Option.get
+            let work = DsQuery.getWork id store |> requireEntity "Work" id
             work.Name <- newName
             [ EntityRenamed(id, newName) ]
 
         | UpdateWorkProps(id, _, newProps) ->
-            let work = DsQuery.getWork id store |> Option.get
+            let work = DsQuery.getWork id store |> requireEntity "Work" id
             work.Properties <- newProps
             [ WorkPropsChanged id ]
 
@@ -88,17 +94,17 @@ module CommandExecutor =
             [ CallRemoved backup.Id ]
 
         | MoveCall(id, _, newPos) ->
-            let call = DsQuery.getCall id store |> Option.get
+            let call = DsQuery.getCall id store |> requireEntity "Call" id
             call.Position <- newPos
             [ CallMoved(id, newPos) ]
 
         | RenameCall(id, _, newName) ->
-            let call = DsQuery.getCall id store |> Option.get
+            let call = DsQuery.getCall id store |> requireEntity "Call" id
             call.Name <- newName
             [ EntityRenamed(id, newName) ]
 
         | UpdateCallProps(id, _, newProps) ->
-            let call = DsQuery.getCall id store |> Option.get
+            let call = DsQuery.getCall id store |> requireEntity "Call" id
             call.Properties <- newProps
             [ CallPropsChanged id ]
 
@@ -120,13 +126,13 @@ module CommandExecutor =
             [ ArrowCallRemoved backup.Id ]
 
         | ReconnectArrowWork(id, _, _, newSourceId, newTargetId) ->
-            let arrow = DsQuery.getArrowWork id store |> Option.get
+            let arrow = DsQuery.getArrowWork id store |> requireEntity "ArrowWork" id
             arrow.SourceId <- newSourceId
             arrow.TargetId <- newTargetId
             [ StoreRefreshed ]
 
         | ReconnectArrowCall(id, _, _, newSourceId, newTargetId) ->
-            let arrow = DsQuery.getArrowCall id store |> Option.get
+            let arrow = DsQuery.getArrowCall id store |> requireEntity "ArrowCall" id
             arrow.SourceId <- newSourceId
             arrow.TargetId <- newTargetId
             [ StoreRefreshed ]
@@ -141,33 +147,32 @@ module CommandExecutor =
             [ ApiDefRemoved backup.Id ]
 
         | UpdateApiDefProps(id, _, newProps) ->
-            let apiDef = DsQuery.getApiDef id store |> Option.get
+            let apiDef = DsQuery.getApiDef id store |> requireEntity "ApiDef" id
             apiDef.Properties <- newProps
             [ ApiDefPropsChanged id ]
 
         // --- ApiCall (Call 내의 API 호출 추가/삭제) ---
         | AddApiCallToCall(callId, apiCall) ->
-            let call = DsQuery.getCall callId store |> Option.get
+            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
             call.ApiCalls.Add(apiCall)
             store.ApiCalls.[apiCall.Id] <- apiCall
             [ CallPropsChanged callId ]
 
         | RemoveApiCallFromCall(callId, apiCall) ->
-            let call = DsQuery.getCall callId store |> Option.get
+            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
             call.ApiCalls.RemoveAll(fun ac -> ac.Id = apiCall.Id) |> ignore
             store.ApiCalls.Remove(apiCall.Id) |> ignore
             [ CallPropsChanged callId ]
 
         // 공유된 ApiCall 은 store.ApiCalls 에서 제거하지 않고 Call.ApiCalls 에서만 제거함
         | AddSharedApiCallToCall(callId, apiCallId) ->
-            let call = DsQuery.getCall callId store |> Option.get
-            match DsQuery.getApiCall apiCallId store with
-            | Some apiCall -> call.ApiCalls.Add(apiCall)
-            | None -> ()
+            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
+            let apiCall = DsQuery.getApiCall apiCallId store |> requireEntity "ApiCall" apiCallId
+            call.ApiCalls.Add(apiCall)
             [ CallPropsChanged callId ]
 
         | RemoveSharedApiCallFromCall(callId, apiCallId) ->
-            let call = DsQuery.getCall callId store |> Option.get
+            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
             call.ApiCalls.RemoveAll(fun ac -> ac.Id = apiCallId) |> ignore
             [ CallPropsChanged callId ]
 

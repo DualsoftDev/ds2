@@ -2,7 +2,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using Ds2.UI.Frontend;
 using Ds2.UI.Frontend.ViewModels;
 
 namespace Ds2.UI.Frontend;

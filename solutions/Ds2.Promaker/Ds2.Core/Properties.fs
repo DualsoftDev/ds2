@@ -71,8 +71,7 @@ type CallProperties() =
 
 type ApiDefProperties() =
     inherit PropertiesBase<ApiDefProperties>()
-    member val IsPush    : bool          = false with get, set
-    member val TxGuid    : Guid option   = None  with get, set
-    member val RxGuid    : Guid option   = None  with get, set
-    member val Duration  : int           = 0     with get, set
-    member val Memo      : string option = None  with get, set
+    member val IsPush    : bool        = false with get, set
+    member val TxGuid    : Guid option = None  with get, set
+    member val RxGuid    : Guid option = None  with get, set
+    member val Duration  : int         = 0     with get, set
