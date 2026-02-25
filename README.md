@@ -1,6 +1,6 @@
 # Ds2.Promaker
 
-Last Sync: 2026-02-24 (DsStore/ValidationRules → Ds2.UI.Core 이동)
+Last Sync: 2026-02-25 (ApiCall.OutputSpec/InputSpec 필드 분리, ValueSpec float → decimal, int/float 텍스트 구분)
 
 ## 프로젝트 목표
 
@@ -88,7 +88,7 @@ Project
                    └── HwAction
 
 Call.Name = DevicesAlias + "." + ApiName   (computed, Rename 시 DevicesAlias만 변경)
-ApiCall   = ApiDef 실행 1건 (OutTag 주소 / InTag 주소 / ValueSpec 포함)
+ApiCall   = ApiDef 실행 1건 (OutTag 주소 / InTag 주소 / OutputSpec / InputSpec 포함)
 ```
 
 - **Active System**: 제어 흐름 트리 (Flow → Work → Call)
@@ -105,7 +105,7 @@ solutions/Ds2.Promaker/
   Ds2.Core/                # 순수 도메인 타입 (Entities, Properties, Enum, ValueSpec, JsonConverter)
   Ds2.UI.Core/             # 편집 코어(F#) — 24개 모듈 (DsStore/Query/Mutation 포함)
   Ds2.Database/            # 데이터 계층
-  Ds2.UI.Frontend/         # WPF UI(C#) — 20개 파일
+  Ds2.UI.Frontend/         # WPF UI(C#) — 22개 파일
   Ds2.Core.Tests/          # Core 단위 테스트 (21개)
   Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (97개)
   Ds2.Integration.Tests/   # 통합 테스트 (13개)
@@ -270,3 +270,13 @@ dotnet test solutions/Ds2.Promaker/Ds2.Promaker.sln -nologo
 | 문서 | 내용 |
 |------|------|
 | `RUNTIME.md` | CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제 동작 상세 |
+
+---
+
+## License and Notices
+
+- **License:** Apache License 2.0 (see `LICENSE`)
+- **Notice:** Project notices and attribution information (see `NOTICE`)
+- **Patent information:** See `PATENTS.md` and the official page:
+  http://dualsoft.co.kr/HelpDS/patents/patents.html
+- **Commercial services / enterprise support:** See `COMMERCIAL.md`

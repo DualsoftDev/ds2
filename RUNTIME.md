@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-02-24
+Last Sync: 2026-02-25
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -303,7 +303,7 @@ pasteCallsToWorkBatch(sourceCalls, targetWorkId)
 | `Works` | Work + WorkProperties |
 | `Calls` | Call + CallProperties (`devicesAlias`, `apiName` 필드로 저장, `name`은 computed이므로 제외) |
 | `ApiDefs` | ApiDef + ApiDefProperties |
-| `ApiCalls` | ApiCall (InTag, OutTag, ApiDefId, InputValueSpec) |
+| `ApiCalls` | ApiCall (InTag, OutTag, ApiDefId, OutputSpec, InputSpec) |
 | `ArrowWorks` | ArrowBetweenWorks |
 | `ArrowCalls` | ArrowBetweenCalls |
 | `HwButtons` | HwButton |

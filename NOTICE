@@ -1,27 +1,21 @@
 Dualsoft Open Source Project
-Copyright 2026 Dualsoft. All rights reserved.
+Copyright 2026 Dualsoft.
 
-This product includes or implements technology protected by the following 
-registered patents and pending applications in the Republic of Korea:
+Licensed under the Apache License, Version 2.0.
+You may obtain a copy of the License in the LICENSE file included with this repository.
 
-[Registered Patents]
-- Patent 10-2258103: 제어 프로그램 자동 생성 방법 및 상기 방법을 수행하는 컴퓨팅 장치
-- Patent 10-2396944: 세그먼트 기반의 가상 물리 시스템을 위한 시스템 모델링 방법 및 시스템 연동 방법
-- Patent 10-2409623: 대상 시스템에 대한 모델링 방법 및 컴퓨팅 장치
-- Patent 10-2790397: 생성형 AI 이용한 PLC, PC, HMI 자동구성을 수행하는 전자 장치 및 그 동작 방법
-- Patent 10-2863568: 인과 기반의 시스템 모델링 방법 및 상기 방법을 수행하는 컴퓨팅 장치
-- Patent 10-2863572: 인과 언어를 이용한 시스템 모델링 방법 및 컴퓨팅 장치
-- Patent 10-2863579: 모델링 검증을 이용한 시스템 모델링 방법 및 컴퓨팅 장치
-- Patent 10-2863582: 시스템의 인터페이스 설정 방법 및 제어 방법
-- Patent 10-2868176: 생성형 AI 이용한 PLC, PC, HMI 자동구성을 수행하는 전자 장치 및 그 동작 방법
-
-[Patent Applications]
-- AAS 기반 디지털 트윈 자동 생성 방법 (Asset Administration Shell standard)
-- LLM 기반 PLC 코드 최적화 방법 (Large Language Model based PLC code optimization)
-
-For more information regarding these patents, please visit:
+This product may include or implement technology related to patents and patent applications
+held by Dualsoft in the Republic of Korea. For patent information, please visit:
 http://dualsoft.co.kr/HelpDS/patents/patents.html
 
-This software is licensed under the Apache License, Version 2.0. 
-The patent grant in Section 3 of the Apache License 2.0 applies to the 
-above-listed patents to the extent they are embodied in this software.
+This NOTICE file is provided for attribution and informational purposes only.
+It does not modify the Apache License, Version 2.0.
+Any patent license granted with this software is governed solely by the Apache License,
+Version 2.0, as applicable.
+
+Optional paid services (such as technical support, consulting, and SLA-based maintenance)
+may be offered separately by Dualsoft under separate commercial agreements.
+No separate commercial license is required to exercise rights granted under the Apache License,
+Version 2.0 for the software itself.
+
+Commercial inquiries: license@dualsoft.co.kr
