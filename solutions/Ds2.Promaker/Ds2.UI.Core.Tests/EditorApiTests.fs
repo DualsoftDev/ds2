@@ -201,11 +201,11 @@ let ``AddSystem should add to store and project list`` () =
 // =============================================================================
 
 [<Fact>]
-let ``AddArrow for Works should add and be undoable`` () =
+let ``ConnectSelectionInOrder adds a single work arrow and is undoable`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
-    api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
 
     Assert.True(store.ArrowWorks.ContainsKey(arrow.Id))
@@ -222,8 +222,8 @@ let ``RemoveArrows should delete multiple arrows in one undo step`` () =
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
     let w3 = api.AddWork("W3", flow.Id)
-    api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
-    api.AddArrow(EntityTypeNames.Work, flow.Id, w2.Id, w3.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([w2.Id; w3.Id], ArrowType.Start) |> ignore
     let a1 = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
     let a2 = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w2.Id && a.TargetId = w3.Id)
 
@@ -245,7 +245,7 @@ let ``ReconnectArrow should reconnect work arrow and be undoable`` () =
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
     let w3 = api.AddWork("W3", flow.Id)
-    api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
 
     let changed = api.ReconnectArrow(arrow.Id, true, w3.Id)
@@ -268,7 +268,7 @@ let ``ReconnectArrow should reconnect call arrow and be undoable`` () =
     let c1 = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
     let c2 = api.AddCallWithLinkedApiDefs work.Id "Dev" "C2" [||]
     let c3 = api.AddCallWithLinkedApiDefs work.Id "Dev" "C3" [||]
-    api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
     let arrow = store.ArrowCalls.Values |> Seq.find (fun a -> a.SourceId = c1.Id && a.TargetId = c2.Id)
 
     let changed = api.ReconnectArrow(arrow.Id, false, c3.Id)
@@ -315,7 +315,7 @@ let ``RemoveWork should cascade delete calls and arrows`` () =
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
     let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
-    api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
 
     let workCount = store.Works.Count
@@ -351,7 +351,7 @@ let ``RemoveSystem should cascade and be fully restorable`` () =
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
     let _c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
-    api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
 
     let systemCount = store.Systems.Count
     let flowCount = store.Flows.Count
@@ -598,7 +598,7 @@ let ``RemoveCall should cascade delete ArrowBetweenCalls`` () =
     let w1 = api.AddWork("W1", flow.Id)
     let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
     let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
-    api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
     let arrow = store.ArrowCalls.Values |> Seq.find (fun a -> a.SourceId = c1.Id && a.TargetId = c2.Id)
 
     api.RemoveEntities(seq { EntityTypeNames.Call, c1.Id })
@@ -778,7 +778,7 @@ let ``PasteEntities should duplicate Work with Calls ApiCalls and internal call 
     let w1 = api.AddWork("W1", flow.Id)
     let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
     let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
-    api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
 
     let apiDef = api.AddApiDef("AD1", system.Id)
     let ac = ApiCall("AC1")
@@ -822,13 +822,13 @@ let ``PasteEntities should preserve arrows between selected works and calls`` ()
     let w2 = api.AddWork("W2", flow.Id)
     api.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, w1.Id, Some(Xywh(100, 100, 120, 40))) ]) |> ignore
     api.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, w2.Id, Some(Xywh(300, 100, 120, 40))) ]) |> ignore
-    api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
 
     let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
     let c2 = api.AddCallWithLinkedApiDefs w2.Id "Dev" "C2" [||]
     api.MoveEntities([ MoveEntityRequest(EntityTypeNames.Call, c1.Id, Some(Xywh(120, 180, 120, 40))) ]) |> ignore
     api.MoveEntities([ MoveEntityRequest(EntityTypeNames.Call, c2.Id, Some(Xywh(320, 180, 120, 40))) ]) |> ignore
-    api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
 
     let workIdsBefore =
         store.Works.Keys
@@ -912,8 +912,8 @@ let ``PasteEntities should duplicate Flow with Works Calls and arrows`` () =
     let w2 = api.AddWork("W2", sourceFlow.Id)
     let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
     let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
-    api.AddArrow(EntityTypeNames.Work, sourceFlow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
-    api.AddArrow(EntityTypeNames.Call, sourceFlow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
 
     let flowsBefore = store.Flows.Keys |> Set.ofSeq
     api.PasteEntities("Flow", [| sourceFlow.Id |], "System", system.Id) |> ignore
@@ -1278,7 +1278,7 @@ let ``RemoveEntities with two connected Works should not crash`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
-    api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
 
     let selections = seq { (EntityTypeNames.Work, w1.Id); (EntityTypeNames.Work, w2.Id) }
     api.RemoveEntities(selections)
@@ -1294,7 +1294,7 @@ let ``RemoveEntities with two connected Calls should not crash`` () =
     let w1 = api.AddWork("W1", flow.Id)
     let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
     let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
-    api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
 
     let selections = seq { (EntityTypeNames.Call, c1.Id); (EntityTypeNames.Call, c2.Id) }
     api.RemoveEntities(selections)
@@ -1310,7 +1310,7 @@ let ``RemoveEntities Work with its own Call selected should not double-remove Ca
     let w1 = api.AddWork("W1", flow.Id)
     let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
     let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
-    api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
+    api.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
 
     let selections = seq { (EntityTypeNames.Work, w1.Id); (EntityTypeNames.Call, c1.Id) }
     api.RemoveEntities(selections)

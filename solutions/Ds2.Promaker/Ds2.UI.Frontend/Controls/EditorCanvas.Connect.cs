@@ -1,10 +1,8 @@
 using System;
 using System.Windows;
 using Ds2.Core;
-using Ds2.UI.Core;
 using Ds2.UI.Frontend;
 using Ds2.UI.Frontend.Dialogs;
-using Microsoft.FSharp.Core;
 
 namespace Ds2.UI.Frontend.Controls;
 
@@ -83,24 +81,7 @@ public partial class EditorCanvas
             return;
         }
 
-        var sourceParentId = srcNode.ParentId is { } srcParent ? FSharpOption<Guid>.Some(srcParent) : null;
-        var targetParentId = tgtNode.ParentId is { } tgtParent ? FSharpOption<Guid>.Some(tgtParent) : null;
-        var flowIdOpt = ConnectionQueries.resolveFlowIdForConnect(
-            VM.Store,
-            srcNode.EntityType,
-            sourceParentId,
-            tgtNode.EntityType,
-            targetParentId);
-
-        if (!FSharpOption<Guid>.get_IsSome(flowIdOpt))
-        {
-            CancelConnect();
-            return;
-        }
-
-        var flowId = flowIdOpt.Value;
-        VM.Editor.AddArrow(srcNode.EntityType, flowId, sourceId, targetId, _connectArrowType);
-
+        VM.Editor.ConnectSelectionInOrder(new[] { sourceId, targetId }, _connectArrowType);
         CancelConnect();
     }
 
