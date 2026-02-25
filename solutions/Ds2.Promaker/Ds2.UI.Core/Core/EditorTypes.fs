@@ -41,6 +41,44 @@ module UiDefaults =
         bytes.[15] <- bytes.[15] ^^^ 0xFEuy
         Guid(bytes)
 
+[<RequireQualifiedAccess>]
+module EntityTypeNames =
+    [<Literal>]
+    let Project = "Project"
+
+    [<Literal>]
+    let System = "System"
+
+    [<Literal>]
+    let Flow = "Flow"
+
+    [<Literal>]
+    let Work = "Work"
+
+    [<Literal>]
+    let Call = "Call"
+
+    [<Literal>]
+    let ApiDef = "ApiDef"
+
+    [<Literal>]
+    let Button = "Button"
+
+    [<Literal>]
+    let Lamp = "Lamp"
+
+    [<Literal>]
+    let Condition = "Condition"
+
+    [<Literal>]
+    let Action = "Action"
+
+    [<Literal>]
+    let ApiDefCategory = "ApiDefCategory"
+
+    [<Literal>]
+    let DeviceRoot = "DeviceRoot"
+
 // =============================================================================
 // EntityKind — 엔티티 타입 DU (컴파일 시점 완전성 보장)
 // =============================================================================
@@ -53,24 +91,30 @@ type EntityKind =
 module EntityKind =
     let tryOfString (s: string) : EntityKind voption =
         match s with
-        | "Project"   -> ValueSome Project
-        | "System"    -> ValueSome System
-        | "Flow"      -> ValueSome Flow
-        | "Work"      -> ValueSome Work
-        | "Call"      -> ValueSome Call
-        | "ApiDef"    -> ValueSome ApiDef
-        | "Button"    -> ValueSome Button
-        | "Lamp"      -> ValueSome Lamp
-        | "Condition" -> ValueSome Condition
-        | "Action"    -> ValueSome Action
+        | EntityTypeNames.Project   -> ValueSome Project
+        | EntityTypeNames.System    -> ValueSome System
+        | EntityTypeNames.Flow      -> ValueSome Flow
+        | EntityTypeNames.Work      -> ValueSome Work
+        | EntityTypeNames.Call      -> ValueSome Call
+        | EntityTypeNames.ApiDef    -> ValueSome ApiDef
+        | EntityTypeNames.Button    -> ValueSome Button
+        | EntityTypeNames.Lamp      -> ValueSome Lamp
+        | EntityTypeNames.Condition -> ValueSome Condition
+        | EntityTypeNames.Action    -> ValueSome Action
         | _           -> ValueNone
 
     let toString (k: EntityKind) =
         match k with
-        | Project -> "Project" | System -> "System" | Flow -> "Flow"
-        | Work    -> "Work"    | Call   -> "Call"   | ApiDef -> "ApiDef"
-        | Button  -> "Button"  | Lamp   -> "Lamp"   | Condition -> "Condition"
-        | Action  -> "Action"
+        | Project -> EntityTypeNames.Project
+        | System -> EntityTypeNames.System
+        | Flow -> EntityTypeNames.Flow
+        | Work -> EntityTypeNames.Work
+        | Call -> EntityTypeNames.Call
+        | ApiDef -> EntityTypeNames.ApiDef
+        | Button -> EntityTypeNames.Button
+        | Lamp -> EntityTypeNames.Lamp
+        | Condition -> EntityTypeNames.Condition
+        | Action -> EntityTypeNames.Action
 
 module EntityNameAccess =
     let private tryGetEntity (store: DsStore) (entityType: string) (id: Guid) : DsEntity option =

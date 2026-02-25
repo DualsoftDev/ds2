@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using Ds2.UI.Frontend;
 using Ds2.UI.Frontend.ViewModels;
 
 namespace Ds2.UI.Frontend;
@@ -41,12 +42,12 @@ public partial class MainWindow : Window
         if (!ReferenceEquals(item, FindOwningTreeViewItem(e.OriginalSource as DependencyObject))) return;
         if (item.DataContext is not EntityNode node) return;
 
-        if (node.EntityType is "System" or "Flow" or "Work")
+        if (EntityTypes.IsCanvasOpenable(node.EntityType))
         {
             _vm.OpenCanvasTab(node.Id, node.EntityType);
             e.Handled = true;
         }
-        else if (node.EntityType == "ApiDef")
+        else if (EntityTypes.Is(node.EntityType, EntityTypes.ApiDef))
         {
             _vm.EditApiDefNode(node.Id);
             e.Handled = true;

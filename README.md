@@ -105,7 +105,7 @@ solutions/Ds2.Promaker/
   Ds2.Core/                # 순수 도메인 타입 (Entities, Properties, Enum, ValueSpec, JsonConverter)
   Ds2.UI.Core/             # 편집 코어(F#) — 24개 모듈 (DsStore/Query/Mutation 포함)
   Ds2.Database/            # 데이터 계층
-  Ds2.UI.Frontend/         # WPF UI(C#) — 22개 파일
+  Ds2.UI.Frontend/         # WPF UI(C#) — 23개 파일
   Ds2.Core.Tests/          # Core 단위 테스트 (21개)
   Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (97개)
   Ds2.Integration.Tests/   # 통합 테스트 (13개)
@@ -180,6 +180,7 @@ solutions/Ds2.Promaker/
 | 파일 | 역할 |
 |------|------|
 | `App.xaml / App.xaml.cs` | 앱 리소스 루트 및 시작 코드 |
+| `EntityTypes.cs` | Entity type 문자열 상수 (`"Work"`, `"Call"` 등) + `Is` / `IsWorkOrCall` / `IsCanvasOpenable` 헬퍼 |
 | `MainWindow.xaml` | 메인 화면 레이아웃 (트리 패널 / 캔버스 탭 / 속성 패널) |
 | `MainWindow.xaml.cs` | 트리·탭·메뉴 이벤트 wiring, `EditorApi` 호출 진입 |
 | `Themes/Theme.Dark.xaml` | 다크 테마 리소스 딕셔너리 (브러시, 컨트롤 스타일) |

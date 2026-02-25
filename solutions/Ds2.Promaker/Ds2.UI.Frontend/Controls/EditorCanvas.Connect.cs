@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using Ds2.Core;
 using Ds2.UI.Core;
+using Ds2.UI.Frontend;
 using Ds2.UI.Frontend.Dialogs;
 using Microsoft.FSharp.Core;
 
@@ -30,10 +31,10 @@ public partial class EditorCanvas
                 return;
         }
 
-        if (VM.SelectedNode is not { EntityType: "Work" or "Call" } node)
+        if (VM.SelectedNode is not { } node || !EntityTypes.IsWorkOrCall(node.EntityType))
             return;
 
-        if (!hasPromptedArrowType || !string.Equals(node.EntityType, orderedSelectionType, StringComparison.Ordinal))
+        if (!hasPromptedArrowType || !EntityTypes.Is(node.EntityType, orderedSelectionType))
         {
             if (!TryPromptArrowType(node.EntityType, out selectedArrowType))
                 return;
@@ -55,7 +56,7 @@ public partial class EditorCanvas
 
     private bool TryPromptArrowType(string sourceEntityType, out ArrowType arrowType)
     {
-        var dialog = new ArrowTypeDialog(isWorkMode: sourceEntityType == "Work");
+        var dialog = new ArrowTypeDialog(isWorkMode: EntityTypes.Is(sourceEntityType, EntityTypes.Work));
 
         if (Window.GetWindow(this) is { } owner)
             dialog.Owner = owner;

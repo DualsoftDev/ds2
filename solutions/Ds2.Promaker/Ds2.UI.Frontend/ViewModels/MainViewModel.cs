@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.UI.Core;
+using Ds2.UI.Frontend;
 using Ds2.UI.Frontend.Dialogs;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
@@ -134,21 +135,21 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void AddWork()
     {
-        if (TryResolveTargetId("Flow", TabKind.Flow, out var flowId))
+        if (TryResolveTargetId(EntityTypes.Flow, TabKind.Flow, out var flowId))
             _editor.AddWork("NewWork", flowId);
     }
 
     [RelayCommand]
     private void AddCall()
     {
-        if (!TryResolveTargetId("Work", TabKind.Work, out var workId)) return;
+        if (!TryResolveTargetId(EntityTypes.Work, TabKind.Work, out var workId)) return;
 
         var dialog = new CallCreateDialog(_store) { Owner = Application.Current.MainWindow };
         if (dialog.ShowDialog() != true) return;
 
         if (dialog.IsDeviceMode)
         {
-            var projectIdOpt = EntityHierarchyQueries.tryFindProjectIdForEntity(_store, "Work", workId);
+            var projectIdOpt = EntityHierarchyQueries.tryFindProjectIdForEntity(_store, EntityTypes.Work, workId);
             var projectId = FSharpOption<Guid>.get_IsSome(projectIdOpt) ? projectIdOpt.Value : Guid.Empty;
             _editor.AddCallsWithDevice(projectId, workId, dialog.CallNames, createDeviceSystem: true);
         }

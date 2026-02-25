@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using Ds2.Core;
 using Ds2.UI.Core;
+using Ds2.UI.Frontend;
 using Ds2.UI.Frontend.ViewModels;
 using Microsoft.FSharp.Core;
 
@@ -40,9 +41,9 @@ public partial class EditorCanvas
             var node = VM.CanvasNodes.FirstOrDefault(n => n.Id == nodeId);
             if (node is null) return;
 
-            if (e.ClickCount == 2 && node.EntityType == "Work")
+            if (e.ClickCount == 2 && EntityTypes.Is(node.EntityType, EntityTypes.Work))
             {
-                VM.OpenCanvasTab(nodeId, "Work");
+                VM.OpenCanvasTab(nodeId, EntityTypes.Work);
                 e.Handled = true;
                 return;
             }
