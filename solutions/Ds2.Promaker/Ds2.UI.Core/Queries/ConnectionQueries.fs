@@ -11,21 +11,21 @@ let resolveFlowIdForConnect
     (targetParentId: Guid option)
     : Guid option =
     match sourceEntityType, targetEntityType, sourceParentId, targetParentId with
-    | "Work", "Work", Some sourceFlowId, Some targetFlowId when sourceFlowId = targetFlowId ->
+    | EntityTypeNames.Work, EntityTypeNames.Work, Some sourceFlowId, Some targetFlowId when sourceFlowId = targetFlowId ->
         Some sourceFlowId
-    | "Call", "Call", Some sourceWorkId, Some targetWorkId when sourceWorkId = targetWorkId ->
+    | EntityTypeNames.Call, EntityTypeNames.Call, Some sourceWorkId, Some targetWorkId when sourceWorkId = targetWorkId ->
         DsQuery.getWork sourceWorkId store
         |> Option.map (fun work -> work.ParentId)
     | _ -> None
 
 let private resolveOrderedNodeContext (store: DsStore) (nodeId: Guid) : (string * Guid * Guid) option =
     match DsQuery.getWork nodeId store with
-    | Some work -> Some ("Work", work.ParentId, work.Id)
+    | Some work -> Some (EntityTypeNames.Work, work.ParentId, work.Id)
     | None ->
         match DsQuery.getCall nodeId store with
         | Some call ->
             DsQuery.getWork call.ParentId store
-            |> Option.map (fun work -> ("Call", work.ParentId, call.Id))
+            |> Option.map (fun work -> (EntityTypeNames.Call, work.ParentId, call.Id))
         | None -> None
 
 let private hasArrowWork (store: DsStore) (flowId: Guid) (sourceId: Guid) (targetId: Guid) =
@@ -67,8 +67,8 @@ let orderedArrowLinksForSelection
         else
             let alreadyExists =
                 match sourceType with
-                | "Work" -> hasArrowWork store sourceFlowId sourceId targetId
-                | "Call" -> hasArrowCall store sourceFlowId sourceId targetId
+                | EntityTypeNames.Work -> hasArrowWork store sourceFlowId sourceId targetId
+                | EntityTypeNames.Call -> hasArrowCall store sourceFlowId sourceId targetId
                 | _ -> true
 
             if alreadyExists then None

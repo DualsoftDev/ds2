@@ -24,14 +24,21 @@ open Ds2.Core
 module DsQuery =
 
     // ─────────────────────────────────────────────────────────────────────────
+    // 내부 헬퍼 — Dictionary 보일러플레이트 제거
+    // ─────────────────────────────────────────────────────────────────────────
+
+    let private byId (dict: System.Collections.Generic.Dictionary<Guid, 'T>) (id: Guid) : 'T option =
+        match dict.TryGetValue(id) with true, v -> Some v | _ -> None
+
+    let private childrenOf (values: seq<'T>) (parentId: Guid) (getParent: 'T -> Guid) : 'T list =
+        values |> Seq.filter (fun x -> getParent x = parentId) |> Seq.toList
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Project 쿼리
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>Project ID로 Project 조회</summary>
-    let getProject (id: Guid) (store: DsStore) : Project option =
-        match store.Projects.TryGetValue(id) with
-        | true, p -> Some p
-        | false, _ -> None
+    let getProject (id: Guid) (store: DsStore) = byId store.Projects id
 
     /// <summary>모든 Project 조회</summary>
     let allProjects (store: DsStore) : Project list =
@@ -42,10 +49,7 @@ module DsQuery =
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>DsSystem ID로 DsSystem 조회</summary>
-    let getSystem (id: Guid) (store: DsStore) : DsSystem option =
-        match store.Systems.TryGetValue(id) with
-        | true, s -> Some s
-        | false, _ -> None
+    let getSystem (id: Guid) (store: DsStore) = byId store.Systems id
 
     /// <summary>모든 DsSystem 조회</summary>
     let allSystems (store: DsStore) : DsSystem list =
@@ -78,10 +82,7 @@ module DsQuery =
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>Flow ID로 Flow 조회</summary>
-    let getFlow (id: Guid) (store: DsStore) : Flow option =
-        match store.Flows.TryGetValue(id) with
-        | true, f -> Some f
-        | false, _ -> None
+    let getFlow (id: Guid) (store: DsStore) = byId store.Flows id
 
     /// <summary>모든 Flow 조회</summary>
     let allFlows (store: DsStore) : Flow list =
@@ -89,19 +90,14 @@ module DsQuery =
 
     /// <summary>특정 DsSystem에 속한 Flow들 조회</summary>
     let flowsOf (systemId: Guid) (store: DsStore) : Flow list =
-        store.FlowsReadOnly.Values
-        |> Seq.filter (fun f -> f.ParentId = systemId)
-        |> Seq.toList
+        childrenOf store.FlowsReadOnly.Values systemId (fun f -> f.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
     // Work 쿼리
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>Work ID로 Work 조회</summary>
-    let getWork (id: Guid) (store: DsStore) : Work option =
-        match store.Works.TryGetValue(id) with
-        | true, w -> Some w
-        | false, _ -> None
+    let getWork (id: Guid) (store: DsStore) = byId store.Works id
 
     /// <summary>모든 Work 조회</summary>
     let allWorks (store: DsStore) : Work list =
@@ -109,19 +105,14 @@ module DsQuery =
 
     /// <summary>특정 Flow에 속한 Work들 조회</summary>
     let worksOf (flowId: Guid) (store: DsStore) : Work list =
-        store.WorksReadOnly.Values
-        |> Seq.filter (fun w -> w.ParentId = flowId)
-        |> Seq.toList
+        childrenOf store.WorksReadOnly.Values flowId (fun w -> w.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
     // Call 쿼리
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>Call ID로 Call 조회</summary>
-    let getCall (id: Guid) (store: DsStore) : Call option =
-        match store.Calls.TryGetValue(id) with
-        | true, c -> Some c
-        | false, _ -> None
+    let getCall (id: Guid) (store: DsStore) = byId store.Calls id
 
     /// <summary>모든 Call 조회</summary>
     let allCalls (store: DsStore) : Call list =
@@ -129,19 +120,14 @@ module DsQuery =
 
     /// <summary>특정 Work에 속한 Call들 조회</summary>
     let callsOf (workId: Guid) (store: DsStore) : Call list =
-        store.CallsReadOnly.Values
-        |> Seq.filter (fun c -> c.ParentId = workId)
-        |> Seq.toList
+        childrenOf store.CallsReadOnly.Values workId (fun c -> c.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
     // ApiDef 쿼리
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>ApiDef ID로 ApiDef 조회</summary>
-    let getApiDef (id: Guid) (store: DsStore) : ApiDef option =
-        match store.ApiDefs.TryGetValue(id) with
-        | true, a -> Some a
-        | false, _ -> None
+    let getApiDef (id: Guid) (store: DsStore) = byId store.ApiDefs id
 
     /// <summary>모든 ApiDef 조회</summary>
     let allApiDefs (store: DsStore) : ApiDef list =
@@ -149,19 +135,14 @@ module DsQuery =
 
     /// <summary>특정 DsSystem에 속한 ApiDef들 조회</summary>
     let apiDefsOf (systemId: Guid) (store: DsStore) : ApiDef list =
-        store.ApiDefsReadOnly.Values
-        |> Seq.filter (fun a -> a.ParentId = systemId)
-        |> Seq.toList
+        childrenOf store.ApiDefsReadOnly.Values systemId (fun a -> a.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
     // ApiCall 쿼리
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>ApiCall ID로 ApiCall 조회</summary>
-    let getApiCall (id: Guid) (store: DsStore) : ApiCall option =
-        match store.ApiCalls.TryGetValue(id) with
-        | true, ac -> Some ac
-        | false, _ -> None
+    let getApiCall (id: Guid) (store: DsStore) = byId store.ApiCalls id
 
     /// <summary>모든 ApiCall 조회</summary>
     let allApiCalls (store: DsStore) : ApiCall list =
@@ -172,10 +153,7 @@ module DsQuery =
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>ArrowBetweenWorks ID로 Arrow 조회</summary>
-    let getArrowWork (id: Guid) (store: DsStore) : ArrowBetweenWorks option =
-        match store.ArrowWorks.TryGetValue(id) with
-        | true, a -> Some a
-        | false, _ -> None
+    let getArrowWork (id: Guid) (store: DsStore) = byId store.ArrowWorks id
 
     /// <summary>모든 ArrowBetweenWorks 조회</summary>
     let allArrowWorks (store: DsStore) : ArrowBetweenWorks list =
@@ -186,10 +164,7 @@ module DsQuery =
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>ArrowBetweenCalls ID로 Arrow 조회</summary>
-    let getArrowCall (id: Guid) (store: DsStore) : ArrowBetweenCalls option =
-        match store.ArrowCalls.TryGetValue(id) with
-        | true, a -> Some a
-        | false, _ -> None
+    let getArrowCall (id: Guid) (store: DsStore) = byId store.ArrowCalls id
 
     /// <summary>모든 ArrowBetweenCalls 조회</summary>
     let allArrowCalls (store: DsStore) : ArrowBetweenCalls list =
@@ -200,10 +175,7 @@ module DsQuery =
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>HwButton ID로 Button 조회</summary>
-    let getButton (id: Guid) (store: DsStore) : HwButton option =
-        match store.HwButtons.TryGetValue(id) with
-        | true, b -> Some b
-        | false, _ -> None
+    let getButton (id: Guid) (store: DsStore) = byId store.HwButtons id
 
     /// <summary>모든 HwButton 조회</summary>
     let allButtons (store: DsStore) : HwButton list =
@@ -211,19 +183,14 @@ module DsQuery =
 
     /// <summary>특정 DsSystem에 속한 HwButton들 조회</summary>
     let buttonsOf (systemId: Guid) (store: DsStore) : HwButton list =
-        store.HwButtonsReadOnly.Values
-        |> Seq.filter (fun b -> b.ParentId = systemId)
-        |> Seq.toList
+        childrenOf store.HwButtonsReadOnly.Values systemId (fun b -> b.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
     // HwLamp 쿼리
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>HwLamp ID로 Lamp 조회</summary>
-    let getLamp (id: Guid) (store: DsStore) : HwLamp option =
-        match store.HwLamps.TryGetValue(id) with
-        | true, l -> Some l
-        | false, _ -> None
+    let getLamp (id: Guid) (store: DsStore) = byId store.HwLamps id
 
     /// <summary>모든 HwLamp 조회</summary>
     let allLamps (store: DsStore) : HwLamp list =
@@ -231,19 +198,14 @@ module DsQuery =
 
     /// <summary>특정 DsSystem에 속한 HwLamp들 조회</summary>
     let lampsOf (systemId: Guid) (store: DsStore) : HwLamp list =
-        store.HwLampsReadOnly.Values
-        |> Seq.filter (fun l -> l.ParentId = systemId)
-        |> Seq.toList
+        childrenOf store.HwLampsReadOnly.Values systemId (fun l -> l.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
     // HwCondition 쿼리
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>HwCondition ID로 Condition 조회</summary>
-    let getCondition (id: Guid) (store: DsStore) : HwCondition option =
-        match store.HwConditions.TryGetValue(id) with
-        | true, c -> Some c
-        | false, _ -> None
+    let getCondition (id: Guid) (store: DsStore) = byId store.HwConditions id
 
     /// <summary>모든 HwCondition 조회</summary>
     let allConditions (store: DsStore) : HwCondition list =
@@ -251,19 +213,14 @@ module DsQuery =
 
     /// <summary>특정 DsSystem에 속한 HwCondition들 조회</summary>
     let conditionsOf (systemId: Guid) (store: DsStore) : HwCondition list =
-        store.HwConditionsReadOnly.Values
-        |> Seq.filter (fun c -> c.ParentId = systemId)
-        |> Seq.toList
+        childrenOf store.HwConditionsReadOnly.Values systemId (fun c -> c.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
     // HwAction 쿼리
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>HwAction ID로 Action 조회</summary>
-    let getAction (id: Guid) (store: DsStore) : HwAction option =
-        match store.HwActions.TryGetValue(id) with
-        | true, a -> Some a
-        | false, _ -> None
+    let getAction (id: Guid) (store: DsStore) = byId store.HwActions id
 
     /// <summary>모든 HwAction 조회</summary>
     let allActions (store: DsStore) : HwAction list =
@@ -271,6 +228,4 @@ module DsQuery =
 
     /// <summary>특정 DsSystem에 속한 HwAction들 조회</summary>
     let actionsOf (systemId: Guid) (store: DsStore) : HwAction list =
-        store.HwActionsReadOnly.Values
-        |> Seq.filter (fun a -> a.ParentId = systemId)
-        |> Seq.toList
+        childrenOf store.HwActionsReadOnly.Values systemId (fun a -> a.ParentId)

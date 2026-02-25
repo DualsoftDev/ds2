@@ -64,7 +64,7 @@ let private tryResolveSystemFromSelectedEntity
     (selectedEntityId: Guid option)
     : Guid option =
     match selectedEntityType, selectedEntityId with
-    | Some "Project", Some projectId ->
+    | Some EntityTypeNames.Project, Some projectId ->
         DsQuery.getProject projectId store
         |> Option.bind (fun project ->
             match systemIdsOfProject project with

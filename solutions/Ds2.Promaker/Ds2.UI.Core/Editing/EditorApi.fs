@@ -60,7 +60,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         this.ExecuteCommand(cmd)
 
     /// 여러 exec 호출을 하나의 Composite으로 묶어 Undo 1회를 보장한다.
-    member internal this.BatchExec(label: string, action: PasteOps.ExecFn -> 'a) : 'a =
+    member internal this.ExecBatch(label: string, action: PasteOps.ExecFn -> 'a) : 'a =
         let buffer = ResizeArray<EditorCommand>()
         let bufExec (cmd: EditorCommand) = buffer.Add(cmd)
         let result = action bufExec
@@ -69,6 +69,10 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         | [single] -> this.Exec single
         | cmds     -> this.Exec(Composite(label, cmds))
         result
+
+    /// 사전에 빌드된 command 목록을 단일 Undo 단위로 실행. 실행된 개수 반환.
+    member private this.ExecBatch(label: string, commands: EditorCommand list) : int =
+        this.ExecBatch(label, fun exec -> commands |> List.iter exec; commands.Length)
 
     // =====================================================================
     // Project API
@@ -115,14 +119,10 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         this.Exec(RemoveOps.buildRemoveWorkCmd store workId)
 
     member this.MoveEntities(requests: seq<MoveEntityRequest>) : int =
-        let commands = RemoveOps.buildMoveEntitiesCmds store requests
-        match commands with
-        | [] -> 0
-        | [ single ] -> this.Exec(single); 1
-        | _ -> this.Exec(Composite("Move Selected Nodes", commands)); commands.Length
+        this.ExecBatch("Move Selected Nodes", RemoveOps.buildMoveEntitiesCmds store requests)
 
     member this.MoveWork(workId: Guid, newPos: Xywh option) =
-        this.MoveEntities([ MoveEntityRequest("Work", workId, newPos) ]) |> ignore
+        this.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, workId, newPos) ]) |> ignore
 
     member this.RenameWork(workId: Guid, newName: string) =
         withEntity DsQuery.getWork workId (fun work ->
@@ -180,7 +180,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         this.Exec(RemoveOps.buildRemoveCallCmd store callId)
 
     member this.MoveCall(callId: Guid, newPos: Xywh option) =
-        this.MoveEntities([ MoveEntityRequest("Call", callId, newPos) ]) |> ignore
+        this.MoveEntities([ MoveEntityRequest(EntityTypeNames.Call, callId, newPos) ]) |> ignore
 
     member this.RenameCall(callId: Guid, newName: string) =
         withEntity DsQuery.getCall callId (fun call ->
@@ -231,11 +231,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         ArrowPathCalculator.computeFlowArrowPaths store flowId
 
     member this.RemoveArrows(arrowIds: seq<Guid>) : int =
-        let commands = ArrowOps.buildRemoveArrowsCmds store arrowIds
-        match commands with
-        | [] -> 0
-        | [ single ] -> this.Exec(single); 1
-        | _ -> this.Exec(Composite("Delete Arrows", commands)); commands.Length
+        this.ExecBatch("Delete Arrows", ArrowOps.buildRemoveArrowsCmds store arrowIds)
 
     /// 화살표 타입 자동 판별 후 삭제 (ArrowWorks/ArrowCalls 딕셔너리 체크)
     member this.RemoveArrow(arrowId: Guid) =
@@ -250,11 +246,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     /// Returns number of arrows actually created.
     member this.ConnectSelectionInOrder(orderedNodeIds: seq<Guid>, ?arrowType: ArrowType) : int =
         let connectArrowType = defaultArg arrowType ArrowType.Start
-        let commands = ArrowOps.buildConnectSelectionCmds store orderedNodeIds connectArrowType
-        match commands with
-        | [] -> 0
-        | [ single ] -> this.Exec(single); 1
-        | _ -> this.Exec(Composite("Connect Selected Nodes In Order", commands)); commands.Length
+        this.ExecBatch("Connect Selected Nodes In Order", ArrowOps.buildConnectSelectionCmds store orderedNodeIds connectArrowType)
 
     // =====================================================================
     // ApiDef API
@@ -388,6 +380,33 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         | ValueSome Action    -> this.RemoveHwAction(entityId)
         | ValueNone           -> ()
 
+    /// 여러 엔티티를 Composite 명령 1개로 일괄 삭제 (Undo/Redo 1회 단위)
+    /// Call의 부모 Work가 같은 선택에 포함된 경우 해당 Call은 건너뜀 (Work cascade가 처리)
+    member this.RemoveEntities(selections: seq<string * Guid>) =
+        let selList = selections |> Seq.distinctBy snd |> Seq.toList
+        let selIds  = selList |> List.map snd |> Set.ofList
+
+        let buildCmd (entityType: string) (id: Guid) : EditorCommand option =
+            match EntityKind.tryOfString entityType with
+            | ValueSome Call ->
+                match DsQuery.getCall id store with
+                | Some call when Set.contains call.ParentId selIds -> None
+                | Some _ -> Some(RemoveOps.buildRemoveCallCmd store id)
+                | None   -> None
+            | ValueSome Work      -> DsQuery.getWork id store      |> Option.map (fun _ -> RemoveOps.buildRemoveWorkCmd store id)
+            | ValueSome Flow      -> DsQuery.getFlow id store      |> Option.map (fun _ -> RemoveOps.buildRemoveFlowCmd store id)
+            | ValueSome System    -> DsQuery.getSystem id store    |> Option.map (fun _ -> RemoveOps.buildRemoveSystemCmd store id)
+            | ValueSome Project   -> DsQuery.getProject id store   |> Option.map (fun _ -> RemoveOps.buildRemoveProjectCmd store id)
+            | ValueSome ApiDef    -> DsQuery.getApiDef id store    |> Option.map (fun a -> RemoveApiDef(DeepCopyHelper.backupEntityAs a))
+            | ValueSome Button    -> DsQuery.getButton id store    |> Option.map (fun b -> RemoveButton(DeepCopyHelper.backupEntityAs b))
+            | ValueSome Lamp      -> DsQuery.getLamp id store      |> Option.map (fun l -> RemoveLamp(DeepCopyHelper.backupEntityAs l))
+            | ValueSome Condition -> DsQuery.getCondition id store |> Option.map (fun c -> RemoveHwCondition(DeepCopyHelper.backupEntityAs c))
+            | ValueSome Action    -> DsQuery.getAction id store    |> Option.map (fun a -> RemoveHwAction(DeepCopyHelper.backupEntityAs a))
+            | ValueNone -> None
+
+        let commands = selList |> List.choose (fun (et, id) -> buildCmd et id)
+        this.ExecBatch("Delete Entities", commands) |> ignore
+
     // =====================================================================
     // 범용 Rename
     // =====================================================================
@@ -401,7 +420,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     // Copy / Paste API
     // =====================================================================
     /// Copy된 Flow/Work/Call을 대상 위치에 Paste한다.
-    /// BatchExec으로 감싸 Undo 1회를 보장한다.
+    /// ExecBatch로 감싸 Undo 1회를 보장한다.
     member this.PasteEntity(copiedEntityType: string, copiedEntityId: Guid, targetEntityType: string, targetEntityId: Guid) : Guid option =
         if not (PasteResolvers.isCopyableEntityType copiedEntityType) then None
         else
@@ -412,7 +431,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
                     let targetSystemId =
                         PasteResolvers.resolveSystemTarget store targetEntityType targetEntityId
                         |> Option.defaultValue sourceFlow.ParentId
-                    this.BatchExec("Paste Flow", fun exec ->
+                    this.ExecBatch("Paste Flow", fun exec ->
                         PasteOps.pasteFlowToSystem exec store sourceFlow targetSystemId))
             | ValueSome Work ->
                 DsQuery.getWork copiedEntityId store
@@ -420,7 +439,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
                     let targetFlowId =
                         PasteResolvers.resolveFlowTarget store targetEntityType targetEntityId
                         |> Option.defaultValue sourceWork.ParentId
-                    this.BatchExec("Paste Work", fun exec ->
+                    this.ExecBatch("Paste Work", fun exec ->
                         match PasteOps.pasteWorksToFlowBatch exec store [ sourceWork ] targetFlowId with
                         | pastedWorkId :: _ -> pastedWorkId
                         | [] -> sourceWork.Id))
@@ -430,14 +449,14 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
                     let targetWorkId =
                         PasteResolvers.resolveWorkTarget store targetEntityType targetEntityId
                         |> Option.defaultValue sourceCall.ParentId
-                    this.BatchExec("Paste Call", fun exec ->
+                    this.ExecBatch("Paste Call", fun exec ->
                         match PasteOps.pasteCallsToWorkBatch exec store [ sourceCall ] targetWorkId with
                         | pastedCallId :: _ -> pastedCallId
                         | [] -> sourceCall.Id))
             | _ -> None
 
     /// Batch paste API for same-type copied entities.
-    /// 모든 배치 타입이 BatchExec으로 감싸 Undo 1회를 보장한다.
+    /// 모든 배치 타입이 ExecBatch로 감싸 Undo 1회를 보장한다.
     member this.PasteEntities
         (copiedEntityType: string, copiedEntityIds: seq<Guid>, targetEntityType: string, targetEntityId: Guid)
         : int =
@@ -449,7 +468,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
                 let sourceFlows = ids |> List.choose (fun id -> DsQuery.getFlow id store)
                 if sourceFlows.IsEmpty then 0
                 else
-                    this.BatchExec("Paste Flows", fun exec ->
+                    this.ExecBatch("Paste Flows", fun exec ->
                         sourceFlows |> List.sumBy (fun sourceFlow ->
                             let targetSystemId =
                                 PasteResolvers.resolveSystemTarget store targetEntityType targetEntityId
@@ -463,7 +482,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
                     let targetFlowId =
                         PasteResolvers.resolveFlowTarget store targetEntityType targetEntityId
                         |> Option.defaultValue sourceWorks.Head.ParentId
-                    this.BatchExec("Paste Works", fun exec ->
+                    this.ExecBatch("Paste Works", fun exec ->
                         PasteOps.pasteWorksToFlowBatch exec store sourceWorks targetFlowId |> List.length)
             | ValueSome Call ->
                 let sourceCalls = ids |> List.choose (fun id -> DsQuery.getCall id store)
@@ -472,7 +491,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
                     let targetWorkId =
                         PasteResolvers.resolveWorkTarget store targetEntityType targetEntityId
                         |> Option.defaultValue sourceCalls.Head.ParentId
-                    this.BatchExec("Paste Calls", fun exec ->
+                    this.ExecBatch("Paste Calls", fun exec ->
                         PasteOps.pasteCallsToWorkBatch exec store sourceCalls targetWorkId |> List.length)
             | _ -> 0
 

@@ -5,9 +5,9 @@ open Ds2.Core
 
 let isCopyableEntityType (entityType: string) =
     match entityType with
-    | "Flow"
-    | "Work"
-    | "Call" -> true
+    | EntityTypeNames.Flow
+    | EntityTypeNames.Work
+    | EntityTypeNames.Call -> true
     | _ -> false
 
 let entityTypeForTabKind (tabKind: TabKind) : string option =
@@ -18,13 +18,13 @@ let offsetPosition (pos: Xywh option) : Xywh option =
 
 let resolveSystemTarget (store: DsStore) (targetEntityType: string) (targetEntityId: Guid) : Guid option =
     match targetEntityType with
-    | "System" -> Some targetEntityId
+    | EntityTypeNames.System -> Some targetEntityId
     | _ -> EntityHierarchyQueries.tryFindSystemIdForEntity store targetEntityType targetEntityId
 
 let resolveFlowTarget (store: DsStore) (targetEntityType: string) (targetEntityId: Guid) : Guid option =
     match targetEntityType with
-    | "Flow" -> Some targetEntityId
-    | "System" ->
+    | EntityTypeNames.Flow -> Some targetEntityId
+    | EntityTypeNames.System ->
         DsQuery.flowsOf targetEntityId store
         |> List.tryHead
         |> Option.map (fun f -> f.Id)
@@ -32,8 +32,8 @@ let resolveFlowTarget (store: DsStore) (targetEntityType: string) (targetEntityI
 
 let resolveWorkTarget (store: DsStore) (targetEntityType: string) (targetEntityId: Guid) : Guid option =
     match targetEntityType with
-    | "Work" -> Some targetEntityId
-    | "Flow" ->
+    | EntityTypeNames.Work -> Some targetEntityId
+    | EntityTypeNames.Flow ->
         DsQuery.worksOf targetEntityId store
         |> List.tryHead
         |> Option.map (fun w -> w.Id)

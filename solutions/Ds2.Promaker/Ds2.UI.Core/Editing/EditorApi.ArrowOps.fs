@@ -21,8 +21,8 @@ let buildConnectSelectionCmds (store: DsStore) (orderedNodeIds: seq<Guid>) (arro
     links
     |> List.choose (fun (entityType, flowId, sourceId, targetId) ->
         match entityType with
-        | "Work" -> Some(AddArrowWork(ArrowBetweenWorks(flowId, sourceId, targetId, arrowType)))
-        | "Call" -> Some(AddArrowCall(ArrowBetweenCalls(flowId, sourceId, targetId, arrowType)))
+        | EntityTypeNames.Work -> Some(AddArrowWork(ArrowBetweenWorks(flowId, sourceId, targetId, arrowType)))
+        | EntityTypeNames.Call -> Some(AddArrowCall(ArrowBetweenCalls(flowId, sourceId, targetId, arrowType)))
         | _ -> None)
 
 let tryResolveReconnectArrowCmd (store: DsStore) (arrowId: Guid) (replaceSource: bool) (newEndpointId: Guid) : EditorCommand option =
