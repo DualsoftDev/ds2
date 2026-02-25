@@ -228,7 +228,7 @@ public partial class MainViewModel
     {
         if (item is null || RequireSelectedAs(EntityTypes.System) is not { } systemNode) return;
 
-        _editor.RemoveApiDef(item.Id);
+        _editor.RemoveEntities(new[] { Tuple.Create(EntityTypes.ApiDef, item.Id) });
         RefreshSystemPanel(systemNode.Id);
         StatusText = $"ApiDef '{item.Name}' deleted.";
     }

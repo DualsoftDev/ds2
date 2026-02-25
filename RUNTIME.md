@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-02-25
+Last Sync: 2026-02-25 (AddArrow 제거, 화살표 생성 ConnectSelectionInOrder로 통일)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -54,14 +54,11 @@ Last Sync: 2026-02-25
 | `AddSystem` | `AddSystem` Single | isPassive 플래그로 Active/Passive 구분 |
 | `AddFlow` | `AddFlow` Single | |
 | `AddWork` | `AddWork` Single | 캔버스 위치(Xywh) 포함 |
-| `AddCall` | `AddCall` Single | `devicesAlias.apiName` 형식 |
 | `AddCallsWithDevice` | Composite | Passive System·ApiDef 자동 생성 + Call 일괄 추가를 하나의 Undo 단위로 기록 |
-| `AddArrow` | `AddArrowWork` or `AddArrowCall` Single | entityType으로 Work/Call 분기 |
+| `AddCallWithLinkedApiDefs` | Composite | 기존 ApiDef ID 목록 기반 Call 1개 + ApiCall N개를 Composite 1건으로 추가 (Undo 1회 보장) |
+| `ConnectSelectionInOrder` | Composite (1개면 Single) | 선택 순서 기반 Work-Work 또는 Call-Call 화살표 N개 일괄 생성. 2-노드(단일 화살표) 포함 모두 이 진입점 사용. |
 | `AddApiDef` | `AddApiDef` Single | |
 | `AddApiCall` | `AddApiCall` Single | |
-| `AddButton / AddLamp / AddHwCondition / AddHwAction` | Single | |
-
-**일괄 연결** (`ConnectSelectionInOrder`): 선택 순서에 따라 Work-Work 또는 Call-Call 화살표를 N개 생성하고 `Composite` 1건으로 기록 → Undo 1회로 전체 제거.
 
 ### 2.2 Read (Projection)
 
@@ -69,8 +66,7 @@ Store를 직접 읽지 않고 Projection을 통해 뷰 데이터를 얻습니다
 
 | Projection | 입력 | 출력 |
 |------------|------|------|
-| `TreeProjection.buildTree` | `DsStore` + rootId | `TreeNodeInfo list` |
-| `TreeProjection.buildTrees` | `DsStore` | Control 트리 + Device 트리 |
+| `TreeProjection.buildTrees` | `DsStore` | Control 트리 + Device 트리 (두 루트 리스트 반환) |
 | `CanvasProjection.buildCanvas` | `DsStore` + tabKey | `CanvasNodeInfo list` + Arrow 좌표 |
 
 **탭 열림 기준**:
@@ -97,6 +93,8 @@ Store를 직접 읽지 않고 Projection을 통해 뷰 데이터를 얻습니다
 ### 2.4 Delete
 
 삭제는 항상 **말단 → 부모** 순서의 `Composite`로 조립됩니다. Undo는 `List.rev`로 자동 역순 복원.
+
+**진입점**: `RemoveEntities(IEnumerable<string * Guid>)` 하나로 단일·다중 삭제를 모두 처리합니다 (단일 전용 wrapper 없음).
 
 단일 삭제도 관련 화살표가 있으면 Composite로 조립합니다.
 

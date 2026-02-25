@@ -1,6 +1,6 @@
 # Ds2.Promaker
 
-Last Sync: 2026-02-25 (ApiCall.OutputSpec/InputSpec 필드 분리, ValueSpec float → decimal, int/float 텍스트 구분)
+Last Sync: 2026-02-25 (AddArrow 제거, 화살표 생성 ConnectSelectionInOrder로 통일)
 
 ## 프로젝트 목표
 
@@ -107,12 +107,12 @@ solutions/Ds2.Promaker/
   Ds2.Database/            # 데이터 계층
   Ds2.UI.Frontend/         # WPF UI(C#) — 23개 파일
   Ds2.Core.Tests/          # Core 단위 테스트 (21개)
-  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (105개)
+  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (102개)
   Ds2.Integration.Tests/   # 통합 테스트 (13개)
   Ds2.Promaker.sln
 ```
 
-테스트 합계: **139개** (21 + 105 + 13)
+테스트 합계: **136개** (21 + 102 + 13)
 
 ---
 
@@ -157,7 +157,7 @@ solutions/Ds2.Promaker/
 | 7 | `Commands/UndoRedoManager.fs` | `LinkedList` 기반 undo/redo 스택 관리, maxSize O(1) trim |
 | 8 | `Geometry/ArrowPathCalculator.fs` | Work/Call 캔버스 화살표 polyline 경로 계산 (직교 꺾임) |
 | 9 | `Projection/ViewTypes.fs` | `TreeNodeInfo` · `CanvasNodeInfo` · `SelectionKey` 등 뷰 전용 레코드 |
-| 10 | `Projection/TreeProjection.fs` | `DsStore` → 트리 데이터 변환 (`buildTree`, `buildTrees`) |
+| 10 | `Projection/TreeProjection.fs` | `DsStore` → 트리 데이터 변환 (`buildTrees`: 컨트롤 트리 + 디바이스 트리) |
 | 11 | `Projection/CanvasProjection.fs` | `DsStore` → 캔버스 콘텐츠 변환 (노드 위치, 화살표 포인트) |
 | 12 | `Queries/EntityHierarchyQueries.fs` | 계층 역탐색 (stepCallToWork / stepWorkToFlow / stepFlowToSystem), 탭 정보 해석, ApiDef 검색 |
 | 13 | `Queries/AddTargetQueries.fs` | Add System/Flow 대상 해석 |

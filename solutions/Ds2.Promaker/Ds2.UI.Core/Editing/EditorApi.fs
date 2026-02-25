@@ -146,18 +146,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     // =====================================================================
     // Arrow API
     // =====================================================================
-    /// Unified arrow add entrypoint for UI callers.
-    /// Returns true when the entity type is supported and an arrow was created.
-    member this.AddArrow(entityType: string, flowId: Guid, sourceId: Guid, targetId: Guid, arrowType: ArrowType) : bool =
-        match EntityKind.tryOfString entityType with
-        | ValueSome Work ->
-            this.Exec(AddArrowWork(ArrowBetweenWorks(flowId, sourceId, targetId, arrowType)))
-            true
-        | ValueSome Call ->
-            this.Exec(AddArrowCall(ArrowBetweenCalls(flowId, sourceId, targetId, arrowType)))
-            true
-        | _ -> false
-
     /// Flow 내 모든 화살표의 경로를 일괄 계산 (C# 렌더링용)
     member _.GetFlowArrowPaths(flowId: Guid) : Map<Guid, ArrowPathCalculator.ArrowVisual> =
         ArrowPathCalculator.computeFlowArrowPaths store flowId
@@ -183,10 +171,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         let apiDef = ApiDef(name, systemId)
         this.Exec(AddApiDef apiDef)
         apiDef
-
-    member this.RemoveApiDef(apiDefId: Guid) =
-        withEntityOrThrow EntityTypeNames.ApiDef DsQuery.getApiDef apiDefId (fun apiDef ->
-            this.Exec(RemoveApiDef(DeepCopyHelper.backupEntityAs apiDef)))
 
     member this.UpdateApiDefProperties(apiDefId: Guid, newProps: ApiDefProperties) =
         withEntityOrThrow EntityTypeNames.ApiDef DsQuery.getApiDef apiDefId (fun apiDef ->
