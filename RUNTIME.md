@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-02-25 (Call Conditions — ActiveTrigger/AutoCondition/CommonCondition 구현)
+Last Sync: 2026-02-26 (Copy Rules — Device System `{flowName}_{devAlias}` 네이밍 + DifferentFlow Device System 복제/재사용)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -14,7 +14,8 @@ Last Sync: 2026-02-25 (Call Conditions — ActiveTrigger/AutoCondition/CommonCon
 [사용자 입력] — 키보드 / 마우스 / 메뉴
       │
       ▼  C# — EditorCanvas.Input.cs / MainViewModel.cs
-      │  입력 해석 후 EditorApi.Xxx(...) 호출
+      │  편집 입력 해석 후 EditorApi.Xxx(...) 호출
+      │  (조회/투영은 Query/Projection + DsStore 경로)
       │
       ▼  F# — EditorApi.fs
       │  EditorCommand (Single or Composite) 조립
@@ -295,14 +296,16 @@ pasteCallsToWorkBatch(sourceCalls, targetWorkId)
           │
           └─ 다른 Flow ?
                     YES ──► DifferentFlow
-                             └─ AddApiCallToCall (현재는 DifferentWork와 동일)
+                             ├─ copyApiCalls() — ApiCall 새 GUID
+                             └─ Device System `{targetFlowName}_{devAlias}`
+                                  존재 시 재사용(ApiDef 이름 매칭), 없으면 신규 + ApiDef 복제
 ```
 
 | 컨텍스트 | 조건 | Call GUID | ApiCall GUID | 비고 |
 |---------|------|-----------|-------------|------|
 | `SameWork` | 소스·대상 Work ID 동일 | 새 GUID | 원본 그대로(공유) | `AddSharedApiCallToCall` 사용 |
 | `DifferentWork` | 같은 Flow 내 다른 Work | 새 GUID | 새 GUID | `AddApiCallToCall` 사용 |
-| `DifferentFlow` | 다른 Flow | 새 GUID | 새 GUID | 현재는 DifferentWork와 동일 |
+| `DifferentFlow` | 다른 Flow | 새 GUID | 새 GUID | Passive System `{targetFlow}_{devAlias}` 복제/재사용, ApiDefId 매핑 |
 
 ### 4.4 ApiCall 공유 참조 불변 조건
 

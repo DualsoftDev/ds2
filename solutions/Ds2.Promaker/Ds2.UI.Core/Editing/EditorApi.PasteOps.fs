@@ -10,6 +10,74 @@ open Ds2.Core
 
 type ExecFn = EditorCommand -> unit
 
+// =============================================================================
+// Device System paste state — shared across calls in a single paste batch.
+// Tracks device systems cloned/reused during DifferentFlow paste operations.
+// =============================================================================
+
+type DevicePasteState = {
+    // key: targetSystemName (e.g., "FlowB_Dev1")
+    // value: (targetSystem, Map<sourceApiDefId → targetApiDefId>)
+    ClonedSystems: Map<string, DsSystem * Map<Guid, Guid>>
+}
+
+let private initialDevicePasteState = { ClonedSystems = Map.empty }
+
+type private DeviceFlowCtx = {
+    Store: DsStore
+    ProjectId: Guid
+    TargetFlowName: string
+}
+
+let private isPassiveSystemId (store: DsStore) (systemId: Guid) : bool =
+    DsQuery.allProjects store
+    |> List.exists (fun p -> p.PassiveSystemIds.Contains(systemId))
+
+let private ensureTargetDeviceSystem
+    (store: DsStore)
+    (exec: ExecFn)
+    (projectId: Guid)
+    (targetFlowName: string)
+    (devAlias: string)
+    (sourceSystemId: Guid)
+    (state: DevicePasteState)
+    : DevicePasteState * Map<Guid, Guid> =
+    let targetName = $"{targetFlowName}_{devAlias}"
+    match Map.tryFind targetName state.ClonedSystems with
+    | Some (_, mapping) -> state, mapping
+    | None ->
+        let existing =
+            DsQuery.passiveSystemsOf projectId store
+            |> List.tryFind (fun s -> s.Name = targetName)
+        let targetSystem, mapping =
+            match existing with
+            | Some sys ->
+                let targetApiDefs = DsQuery.apiDefsOf sys.Id store
+                let sourceApiDefs = DsQuery.apiDefsOf sourceSystemId store
+                let mapping =
+                    sourceApiDefs
+                    |> List.choose (fun src ->
+                        targetApiDefs
+                        |> List.tryFind (fun t -> t.Name = src.Name)
+                        |> Option.map (fun t -> src.Id, t.Id))
+                    |> Map.ofList
+                sys, mapping
+            | None ->
+                let newSystem = DsSystem(targetName)
+                exec(AddSystem(newSystem, projectId, false))
+                let sourceApiDefs = DsQuery.apiDefsOf sourceSystemId store
+                let mapping =
+                    sourceApiDefs
+                    |> List.map (fun src ->
+                        let cloned = ApiDef(src.Name, newSystem.Id)
+                        cloned.Properties.IsPush <- src.Properties.IsPush
+                        exec(AddApiDef cloned)
+                        src.Id, cloned.Id)
+                    |> Map.ofList
+                newSystem, mapping
+        let newState = { ClonedSystems = Map.add targetName (targetSystem, mapping) state.ClonedSystems }
+        newState, mapping
+
 /// 새 GUID로 ApiCall 복사 — 다른 Work/Flow로 붙여넣을 때 사용
 let copyApiCalls (exec: ExecFn) (sourceCall: Call) (targetCallId: Guid) =
     for apiCall in sourceCall.ApiCalls do
@@ -26,6 +94,47 @@ let shareApiCalls (exec: ExecFn) (sourceCall: Call) (targetCallId: Guid) =
     for apiCall in sourceCall.ApiCalls do
         exec(AddSharedApiCallToCall(targetCallId, apiCall.Id))
 
+/// DifferentFlow 케이스: ApiCall 복사 + Device System 복제/재사용 + ApiDefId 매핑
+let private copyApiCallsAcrossFlows
+    (store: DsStore)
+    (exec: ExecFn)
+    (projectId: Guid)
+    (targetFlowName: string)
+    (sourceCall: Call)
+    (targetCallId: Guid)
+    (state: DevicePasteState)
+    : DevicePasteState =
+    // Passive system에 연결된 ApiDef가 있는지 확인
+    let sourceSystemIdOpt =
+        sourceCall.ApiCalls
+        |> Seq.tryPick (fun ac ->
+            ac.ApiDefId
+            |> Option.bind (fun id -> DsQuery.getApiDef id store)
+            |> Option.bind (fun d ->
+                if isPassiveSystemId store d.ParentId then Some d.ParentId
+                else None))
+    match sourceSystemIdOpt with
+    | None ->
+        // Passive system ApiDef 없음 — 일반 복사
+        copyApiCalls exec sourceCall targetCallId
+        state
+    | Some sourceSystemId ->
+        let devAlias = sourceCall.DevicesAlias
+        let newState, apiDefMapping =
+            ensureTargetDeviceSystem store exec projectId targetFlowName devAlias sourceSystemId state
+        for apiCall in sourceCall.ApiCalls do
+            let copied = ApiCall(apiCall.Name)
+            copied.InTag  <- apiCall.InTag  |> Option.map (fun t -> IOTag(t.Name, t.Address, t.Description))
+            copied.OutTag <- apiCall.OutTag |> Option.map (fun t -> IOTag(t.Name, t.Address, t.Description))
+            copied.ApiDefId <-
+                apiCall.ApiDefId
+                |> Option.bind (fun id -> Map.tryFind id apiDefMapping)
+                |> Option.orElse apiCall.ApiDefId
+            copied.InputSpec  <- apiCall.InputSpec
+            copied.OutputSpec <- apiCall.OutputSpec
+            exec(AddApiCallToCall(targetCallId, copied))
+        newState
+
 /// sourceCall의 ParentId(Work)와 targetWorkId를 비교해 컨텍스트 결정
 let detectCopyContext (store: DsStore) (sourceCall: Call) (targetWorkId: Guid) : CallCopyContext =
     if sourceCall.ParentId = targetWorkId then
@@ -35,7 +144,14 @@ let detectCopyContext (store: DsStore) (sourceCall: Call) (targetWorkId: Guid) :
         | Some tw, Some sw when tw.ParentId = sw.ParentId -> DifferentWork
         | _ -> DifferentFlow
 
-let pasteCallToWork (exec: ExecFn) (context: CallCopyContext) (sourceCall: Call) (targetWorkId: Guid) : Call =
+let private pasteCallToWork
+    (exec: ExecFn)
+    (context: CallCopyContext)
+    (sourceCall: Call)
+    (targetWorkId: Guid)
+    (deviceState: DevicePasteState)
+    (deviceFlowCtxOpt: DeviceFlowCtx option)
+    : Call * DevicePasteState =
     let pastedCall = Call(sourceCall.DevicesAlias, sourceCall.ApiName, targetWorkId)
     exec(AddCall pastedCall)
     exec(UpdateCallProps(pastedCall.Id, pastedCall.Properties.DeepCopy(), sourceCall.Properties.DeepCopy()))
@@ -43,11 +159,44 @@ let pasteCallToWork (exec: ExecFn) (context: CallCopyContext) (sourceCall: Call)
     if pastedCall.Position <> newPos then
         exec(MoveCall(pastedCall.Id, pastedCall.Position, newPos))
     match context with
-    | SameWork -> shareApiCalls exec sourceCall pastedCall.Id
-    | DifferentWork | DifferentFlow -> copyApiCalls exec sourceCall pastedCall.Id
-    pastedCall
+    | SameWork ->
+        shareApiCalls exec sourceCall pastedCall.Id
+        pastedCall, deviceState
+    | DifferentWork ->
+        copyApiCalls exec sourceCall pastedCall.Id
+        pastedCall, deviceState
+    | DifferentFlow ->
+        match deviceFlowCtxOpt with
+        | Some ctx ->
+            let newState = copyApiCallsAcrossFlows ctx.Store exec ctx.ProjectId ctx.TargetFlowName sourceCall pastedCall.Id deviceState
+            pastedCall, newState
+        | None ->
+            copyApiCalls exec sourceCall pastedCall.Id
+            pastedCall, deviceState
 
-let pasteWorkToFlow (exec: ExecFn) (store: DsStore) (sourceWork: Work) (targetFlowId: Guid) : Work * Map<Guid, Guid> =
+let private makeDeviceFlowCtx (store: DsStore) (targetFlowId: Guid) : DeviceFlowCtx option =
+    match DsQuery.getFlow targetFlowId store with
+    | None -> None
+    | Some targetFlow ->
+        let projectIdOpt =
+            DsQuery.getSystem targetFlow.ParentId store
+            |> Option.bind (fun s -> EntityHierarchyQueries.findProjectOfSystem store s.Id)
+        match projectIdOpt with
+        | None -> None
+        | Some projectId ->
+            Some {
+                Store = store
+                ProjectId = projectId
+                TargetFlowName = targetFlow.Name
+            }
+
+let pasteWorkToFlow
+    (exec: ExecFn)
+    (store: DsStore)
+    (sourceWork: Work)
+    (targetFlowId: Guid)
+    (deviceState: DevicePasteState)
+    : Work * Map<Guid, Guid> * DevicePasteState =
     let pastedWork = Work(sourceWork.Name, targetFlowId)
     exec(AddWork pastedWork)
     exec(UpdateWorkProps(pastedWork.Id, pastedWork.Properties.DeepCopy(), sourceWork.Properties.DeepCopy()))
@@ -55,14 +204,18 @@ let pasteWorkToFlow (exec: ExecFn) (store: DsStore) (sourceWork: Work) (targetFl
     if pastedWork.Position <> newPos then
         exec(MoveWork(pastedWork.Id, pastedWork.Position, newPos))
 
-    let callMap =
-        DsQuery.callsOf sourceWork.Id store
-        |> List.map (fun sourceCall ->
-            let pastedCall = pasteCallToWork exec DifferentWork sourceCall pastedWork.Id
-            sourceCall.Id, pastedCall.Id)
-        |> Map.ofList
+    let isDifferentFlow = sourceWork.ParentId <> targetFlowId
+    let context = if isDifferentFlow then DifferentFlow else DifferentWork
+    let deviceFlowCtxOpt = if isDifferentFlow then makeDeviceFlowCtx store targetFlowId else None
 
-    pastedWork, callMap
+    let callMap, finalDeviceState =
+        DsQuery.callsOf sourceWork.Id store
+        |> List.fold (fun (callMap, devState) sourceCall ->
+            let pastedCall, newDevState = pasteCallToWork exec context sourceCall pastedWork.Id devState deviceFlowCtxOpt
+            Map.add sourceCall.Id pastedCall.Id callMap, newDevState
+        ) (Map.empty, deviceState)
+
+    pastedWork, callMap, finalDeviceState
 
 let pasteFlowToSystem (exec: ExecFn) (store: DsStore) (sourceFlow: Flow) (targetSystemId: Guid) : Guid =
     let pastedFlow = Flow(sourceFlow.Name, targetSystemId)
@@ -71,12 +224,13 @@ let pasteFlowToSystem (exec: ExecFn) (store: DsStore) (sourceFlow: Flow) (target
     let sourceWorkArrows = DsQuery.arrowWorksOf sourceFlow.Id store
     let sourceCallArrows = DsQuery.arrowCallsOf sourceFlow.Id store
 
-    let workMap, callMap =
+    let workMap, callMap, _ =
         DsQuery.worksOf sourceFlow.Id store
-        |> List.fold (fun (workMap, callMap) sourceWork ->
-            let pastedWork, localCallMap = pasteWorkToFlow exec store sourceWork pastedFlow.Id
+        |> List.fold (fun (workMap, callMap, devState) sourceWork ->
+            let pastedWork, localCallMap, newDevState = pasteWorkToFlow exec store sourceWork pastedFlow.Id devState
             let mergedCallMap = Map.fold (fun s k v -> Map.add k v s) callMap localCallMap
-            Map.add sourceWork.Id pastedWork.Id workMap, mergedCallMap) (Map.empty<Guid, Guid>, Map.empty<Guid, Guid>)
+            Map.add sourceWork.Id pastedWork.Id workMap, mergedCallMap, newDevState
+        ) (Map.empty<Guid, Guid>, Map.empty<Guid, Guid>, initialDevicePasteState)
 
     for arrow in sourceWorkArrows do
         match Map.tryFind arrow.SourceId workMap, Map.tryFind arrow.TargetId workMap with
@@ -116,12 +270,13 @@ let pasteWorksToFlowBatch (exec: ExecFn) (store: DsStore) (sourceWorks: Work lis
             selectedCallIds.Contains a.SourceId
             && selectedCallIds.Contains a.TargetId)
 
-    let workMap, callMap, pastedWorkIdsRev =
+    let workMap, callMap, pastedWorkIdsRev, _ =
         sourceWorks
-        |> List.fold (fun (workMap, callMap, pastedWorkIdsRev) sourceWork ->
-            let pastedWork, localCallMap = pasteWorkToFlow exec store sourceWork targetFlowId
+        |> List.fold (fun (workMap, callMap, pastedWorkIdsRev, devState) sourceWork ->
+            let pastedWork, localCallMap, newDevState = pasteWorkToFlow exec store sourceWork targetFlowId devState
             let mergedCallMap = Map.fold (fun s k v -> Map.add k v s) callMap localCallMap
-            Map.add sourceWork.Id pastedWork.Id workMap, mergedCallMap, pastedWork.Id :: pastedWorkIdsRev) (Map.empty<Guid, Guid>, Map.empty<Guid, Guid>, [])
+            Map.add sourceWork.Id pastedWork.Id workMap, mergedCallMap, pastedWork.Id :: pastedWorkIdsRev, newDevState
+        ) (Map.empty<Guid, Guid>, Map.empty<Guid, Guid>, [], initialDevicePasteState)
 
     for arrow in sourceWorkArrows do
         match Map.tryFind arrow.SourceId workMap, Map.tryFind arrow.TargetId workMap with
@@ -153,12 +308,21 @@ let pasteCallsToWorkBatch (exec: ExecFn) (store: DsStore) (sourceCalls: Call lis
     let targetFlowIdOpt =
         DsQuery.getWork targetWorkId store |> Option.map (fun w -> w.ParentId)
 
-    let callMap, pastedCallIdsRev =
+    // DifferentFlow calls에 사용할 Device context 준비
+    let deviceFlowCtxForDiffFlow =
+        targetFlowIdOpt |> Option.bind (makeDeviceFlowCtx store)
+
+    let callMap, pastedCallIdsRev, _ =
         sourceCalls
-        |> List.fold (fun (callMap, pastedCallIdsRev) sourceCall ->
+        |> List.fold (fun (callMap, pastedCallIdsRev, devState) sourceCall ->
             let context = detectCopyContext store sourceCall targetWorkId
-            let pastedCall = pasteCallToWork exec context sourceCall targetWorkId
-            Map.add sourceCall.Id pastedCall.Id callMap, pastedCall.Id :: pastedCallIdsRev) (Map.empty<Guid, Guid>, [])
+            let deviceFlowCtxOpt =
+                match context with
+                | DifferentFlow -> deviceFlowCtxForDiffFlow
+                | _ -> None
+            let pastedCall, newDevState = pasteCallToWork exec context sourceCall targetWorkId devState deviceFlowCtxOpt
+            Map.add sourceCall.Id pastedCall.Id callMap, pastedCall.Id :: pastedCallIdsRev, newDevState
+        ) (Map.empty<Guid, Guid>, [], initialDevicePasteState)
 
     match targetFlowIdOpt with
     | Some targetFlowId ->

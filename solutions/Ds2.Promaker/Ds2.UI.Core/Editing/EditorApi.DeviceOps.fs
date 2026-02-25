@@ -37,24 +37,26 @@ let private shouldCreateDeviceSystem (createDeviceSystem: bool) (projectId: Guid
     && projectId <> Guid.Empty
     && not (String.IsNullOrEmpty apiName)
 
-let private tryFindExistingSystem (store: DsStore) (projectId: Guid) (devAlias: string) =
+let private tryFindExistingSystem (store: DsStore) (projectId: Guid) (systemName: string) =
     DsQuery.passiveSystemsOf projectId store
-    |> List.tryFind (fun s -> s.Name = devAlias)
+    |> List.tryFind (fun s -> s.Name = systemName)
 
 let private ensureSystem
     (store: DsStore)
     (projectId: Guid)
+    (flowName: string)
     (devAlias: string)
     (state: DeviceBatchState)
     : DsSystem * DeviceBatchState =
-    match Map.tryFind devAlias state.PendingSystems with
+    let systemName = $"{flowName}_{devAlias}"
+    match Map.tryFind systemName state.PendingSystems with
     | Some system -> system, state
     | None ->
-        match tryFindExistingSystem store projectId devAlias with
+        match tryFindExistingSystem store projectId systemName with
         | Some existing ->
-            existing, { state with PendingSystems = Map.add devAlias existing state.PendingSystems }
+            existing, { state with PendingSystems = Map.add systemName existing state.PendingSystems }
         | None ->
-            let system = DsSystem(devAlias)
+            let system = DsSystem(systemName)
             let flow = Flow($"{devAlias}_Flow", system.Id)
             let nextState =
                 state
@@ -62,7 +64,7 @@ let private ensureSystem
                 |> addCommand (AddFlow flow)
             let nextState = {
                 nextState with
-                    PendingSystems = Map.add devAlias system nextState.PendingSystems
+                    PendingSystems = Map.add systemName system nextState.PendingSystems
                     PendingFlows = Map.add devAlias flow nextState.PendingFlows
                     NewSystemIds = Set.add system.Id nextState.NewSystemIds
             }
@@ -137,6 +139,12 @@ let buildAddCallsWithDeviceCmds
     if callNames.IsEmpty then
         []
     else
+        let flowName =
+            DsQuery.getWork workId store
+            |> Option.bind (fun w -> DsQuery.getFlow w.ParentId store)
+            |> Option.map (fun f -> f.Name)
+            |> Option.defaultValue ""
+
         let finalState =
             callNames
             |> List.fold (fun state callName ->
@@ -147,7 +155,7 @@ let buildAddCallsWithDeviceCmds
                 if not (shouldCreateDeviceSystem createDeviceSystem projectId apiName) then
                     withCall
                 else
-                    let system, withSystem = ensureSystem store projectId devAlias withCall
+                    let system, withSystem = ensureSystem store projectId flowName devAlias withCall
                     let withWork = ensurePendingWork devAlias apiName system.Id withSystem
                     let apiDef, withApiDef = ensureApiDef store system apiName withWork
 

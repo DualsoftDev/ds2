@@ -945,6 +945,8 @@ let ``AddCallsWithDevice should set ApiDef IsPush=true and TxGuid to same-name W
     api.AddCallsWithDevice project.Id work.Id [ "Dev1.ADV"; "Dev1.RET" ] true
 
     let passiveSystem = DsQuery.passiveSystemsOf project.Id store |> List.exactlyOne
+    // System 이름은 {flowName}_{devAlias} 형식
+    Assert.Equal("F1_Dev1", passiveSystem.Name)
     let apiDefs = DsQuery.apiDefsOf passiveSystem.Id store
 
     Assert.Equal(2, apiDefs.Length)
@@ -973,9 +975,11 @@ let ``AddCallsWithDevice existing system should not overwrite existing ApiDef pr
     api.AddCallsWithDevice project.Id work.Id [ "Dev1.ADV" ] true
 
     let passiveSystem = DsQuery.passiveSystemsOf project.Id store |> List.exactlyOne
+    // System 이름은 {flowName}_{devAlias} 형식
+    Assert.Equal("F1_Dev1", passiveSystem.Name)
     let advDefFirst = DsQuery.apiDefsOf passiveSystem.Id store |> List.exactlyOne
 
-    // 두 번째 배치 — 기존 시스템에 같은 ApiDef 재사용
+    // 두 번째 배치 — 같은 flow이므로 기존 "F1_Dev1" 시스템 재사용
     let work2 = api.AddWork("W2", flow.Id)
     api.AddCallsWithDevice project.Id work2.Id [ "Dev1.ADV" ] true
 
@@ -995,6 +999,8 @@ let ``AddCallsWithDevice should create ResetReset arrows between consecutive Wor
     api.AddCallsWithDevice project.Id work.Id [ "Dev1.ADV"; "Dev1.RET"; "Dev1.HOME" ] true
 
     let passiveSystem = DsQuery.passiveSystemsOf project.Id store |> List.exactlyOne
+    // System 이름은 {flowName}_{devAlias} 형식
+    Assert.Equal("F1_Dev1", passiveSystem.Name)
     let passiveFlow = DsQuery.flowsOf passiveSystem.Id store |> List.exactlyOne
     let passiveWorks = DsQuery.worksOf passiveFlow.Id store
 
@@ -1028,6 +1034,8 @@ let ``AddCallsWithDevice with single Work should create no arrows`` () =
     api.AddCallsWithDevice project.Id work.Id [ "Dev1.ADV" ] true
 
     let passiveSystem = DsQuery.passiveSystemsOf project.Id store |> List.exactlyOne
+    // System 이름은 {flowName}_{devAlias} 형식
+    Assert.Equal("F1_Dev1", passiveSystem.Name)
     let passiveFlow = DsQuery.flowsOf passiveSystem.Id store |> List.exactlyOne
 
     let arrows =
@@ -1036,6 +1044,83 @@ let ``AddCallsWithDevice with single Work should create no arrows`` () =
         |> Seq.toList
 
     Assert.Equal(0, arrows.Length)
+
+// =============================================================================
+// PasteEntities DifferentFlow — Device System 복제/재사용
+// =============================================================================
+
+[<Fact>]
+let ``PasteEntities Work to different Flow creates device system with target flow name prefix`` () =
+    let store, api = createApi()
+    let project = api.AddProject("P1")
+    let activeSystem = api.AddSystem("S1", project.Id, true)
+    let f1 = api.AddFlow("F1", activeSystem.Id)
+    let f2 = api.AddFlow("F2", activeSystem.Id)
+    let work = api.AddWork("W1", f1.Id)
+
+    api.AddCallsWithDevice project.Id work.Id [ "Dev1.ADV" ] true
+
+    // F1_Dev1 passive system 확인
+    let f1Passive = DsQuery.passiveSystemsOf project.Id store |> List.exactlyOne
+    Assert.Equal("F1_Dev1", f1Passive.Name)
+    let f1ApiDef = DsQuery.apiDefsOf f1Passive.Id store |> List.exactlyOne
+
+    // W1을 F2로 붙여넣기 (DifferentFlow)
+    let worksBefore = store.Works.Keys |> Set.ofSeq
+    api.PasteEntities("Work", [| work.Id |], "Flow", f2.Id) |> ignore
+    let pastedWork = store.Works.Values |> Seq.find (fun w -> not (worksBefore.Contains w.Id))
+
+    // F2_Dev1 passive system이 새로 생성되어야 함
+    let passiveSystems = DsQuery.passiveSystemsOf project.Id store
+    Assert.Equal(2, passiveSystems.Length)
+    let f2Passive = passiveSystems |> List.find (fun s -> s.Name = "F2_Dev1")
+
+    // 복제된 ApiDef가 F2_Dev1에 있어야 함
+    let f2ApiDefs = DsQuery.apiDefsOf f2Passive.Id store
+    Assert.Equal(1, f2ApiDefs.Length)
+    Assert.Equal("ADV", f2ApiDefs.[0].Name)
+
+    // 붙여넣어진 Call의 ApiCall이 F2_Dev1의 ApiDef를 가리켜야 함
+    let pastedCalls = DsQuery.callsOf pastedWork.Id store
+    Assert.Equal(1, pastedCalls.Length)
+    let pastedApiCalls = pastedCalls.[0].ApiCalls
+    Assert.Equal(1, pastedApiCalls.Count)
+    Assert.Equal(Some f2ApiDefs.[0].Id, pastedApiCalls.[0].ApiDefId)
+    // 원본 F1_Dev1의 ApiDef를 가리키지 않아야 함
+    Assert.NotEqual(Some f1ApiDef.Id, pastedApiCalls.[0].ApiDefId)
+
+[<Fact>]
+let ``PasteEntities Work to different Flow reuses existing device system`` () =
+    let store, api = createApi()
+    let project = api.AddProject("P1")
+    let activeSystem = api.AddSystem("S1", project.Id, true)
+    let f1 = api.AddFlow("F1", activeSystem.Id)
+    let f2 = api.AddFlow("F2", activeSystem.Id)
+    let work = api.AddWork("W1", f1.Id)
+
+    api.AddCallsWithDevice project.Id work.Id [ "Dev1.ADV" ] true
+
+    // F2_Dev1 passive system 미리 수동 생성 (ADV ApiDef 포함)
+    let existingF2System = api.AddSystem("F2_Dev1", project.Id, false)
+    let existingF2ApiDef = api.AddApiDef("ADV", existingF2System.Id)
+
+    // passiveSystems: F1_Dev1 + F2_Dev1
+    Assert.Equal(2, DsQuery.passiveSystemsOf project.Id store |> List.length)
+
+    // W1을 F2로 붙여넣기
+    api.PasteEntities("Work", [| work.Id |], "Flow", f2.Id) |> ignore
+
+    // 새 passive system이 생성되지 않아야 함 (재사용)
+    Assert.Equal(2, DsQuery.passiveSystemsOf project.Id store |> List.length)
+
+    // 붙여넣어진 Call의 ApiCall이 기존 F2_Dev1의 ApiDef를 가리켜야 함
+    let worksBefore = [ work.Id ] |> Set.ofList
+    let pastedWork = store.Works.Values |> Seq.find (fun w -> not (worksBefore.Contains w.Id) && w.ParentId = f2.Id)
+    let pastedCalls = DsQuery.callsOf pastedWork.Id store
+    Assert.Equal(1, pastedCalls.Length)
+    let pastedApiCalls = pastedCalls.[0].ApiCalls
+    Assert.Equal(1, pastedApiCalls.Count)
+    Assert.Equal(Some existingF2ApiDef.Id, pastedApiCalls.[0].ApiDefId)
 
 // =============================================================================
 // Paste Undo — BatchExec 보장 (Paste 1회 = Undo 1회)
