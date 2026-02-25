@@ -305,7 +305,7 @@
                                                        VerticalAlignment="Center"
                                                        ToolTip="{Binding Title}"/>
                                             <Button Style="{StaticResource TabCloseButtonStyle}"
-                                                    Click="CloseTabButton_Click" Tag="{Binding}"/>
+                                                    Click="CloseTab_Click" Tag="{Binding}"/>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
