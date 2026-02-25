@@ -107,25 +107,9 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     member this.MoveEntities(requests: seq<MoveEntityRequest>) : int =
         this.ExecBatch("Move Selected Nodes", RemoveOps.buildMoveEntitiesCmds store requests)
 
-    member this.RenameWork(workId: Guid, newName: string) =
-        withEntityOrThrow EntityTypeNames.Work DsQuery.getWork workId (fun work ->
-            let oldName = work.Name
-            if oldName <> newName then
-                this.Exec(RenameWork(workId, oldName, newName)))
-
-    member this.UpdateWorkProperties(workId: Guid, newProps: WorkProperties) =
-        withEntityOrThrow EntityTypeNames.Work DsQuery.getWork workId (fun work ->
-            let oldProps = work.Properties.DeepCopy()
-            this.Exec(UpdateWorkProps(workId, oldProps, newProps)))
-
     // =====================================================================
     // Call API
     // =====================================================================
-    member this.AddCall(devicesAlias: string, apiName: string, workId: Guid) : Call =
-        let call = Call(devicesAlias, apiName, workId)
-        this.Exec(AddCall call)
-        call
-
     /// Call 목록을 한 번에 추가한다.
     /// callNames: 각 항목은 "devAlias.apiName" 형식.
     /// createDeviceSystem=true 이면 Passive System / Flow / Work / ApiDef / ApiCall 을 자동 생성 또는 재사용한다.
@@ -159,17 +143,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         this.Exec(Composite("Add Call", AddCall call :: apiCallCmds))
         call
 
-    member this.RenameCall(callId: Guid, newName: string) =
-        withEntityOrThrow EntityTypeNames.Call DsQuery.getCall callId (fun call ->
-            let oldName = call.Name
-            if oldName <> newName then
-                this.Exec(RenameCall(callId, oldName, newName)))
-
-    member this.UpdateCallProperties(callId: Guid, newProps: CallProperties) =
-        withEntityOrThrow EntityTypeNames.Call DsQuery.getCall callId (fun call ->
-            let oldProps = call.Properties.DeepCopy()
-            this.Exec(UpdateCallProps(callId, oldProps, newProps)))
-
     // =====================================================================
     // Arrow API
     // =====================================================================
@@ -191,10 +164,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
 
     member this.RemoveArrows(arrowIds: seq<Guid>) : int =
         this.ExecBatch("Delete Arrows", ArrowOps.buildRemoveArrowsCmds store arrowIds)
-
-    /// 화살표 타입 자동 판별 후 삭제 (ArrowWorks/ArrowCalls 딕셔너리 체크)
-    member this.RemoveArrow(arrowId: Guid) =
-        this.RemoveArrows([ arrowId ]) |> ignore
 
     member this.ReconnectArrow(arrowId: Guid, replaceSource: bool, newEndpointId: Guid) : bool =
         match ArrowOps.tryResolveReconnectArrowCmd store arrowId replaceSource newEndpointId with
@@ -227,9 +196,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     // =====================================================================
     // ApiCall API (Call 내부 ApiCall 관리)
     // =====================================================================
-    member this.AddApiCallToCall(callId: Guid, apiCall: ApiCall) =
-        this.Exec(AddApiCallToCall(callId, apiCall))
-
     member this.RemoveApiCallFromCall(callId: Guid, apiCallId: Guid) =
         withEntityOrThrow EntityTypeNames.Call DsQuery.getCall callId (fun call ->
             match call.ApiCalls |> Seq.tryFind (fun ac -> ac.Id = apiCallId) with
@@ -283,51 +249,8 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         | None -> false
 
     // =====================================================================
-    // HW Component API
+    // 범용 Remove
     // =====================================================================
-    member this.AddButton(name: string, systemId: Guid) : HwButton =
-        let button = HwButton(name, systemId)
-        this.Exec(AddButton button)
-        button
-
-    member this.RemoveButton(buttonId: Guid) =
-        withEntityOrThrow EntityTypeNames.Button DsQuery.getButton buttonId (fun button ->
-            this.Exec(RemoveButton(DeepCopyHelper.backupEntityAs button)))
-
-    member this.AddLamp(name: string, systemId: Guid) : HwLamp =
-        let lamp = HwLamp(name, systemId)
-        this.Exec(AddLamp lamp)
-        lamp
-
-    member this.RemoveLamp(lampId: Guid) =
-        withEntityOrThrow EntityTypeNames.Lamp DsQuery.getLamp lampId (fun lamp ->
-            this.Exec(RemoveLamp(DeepCopyHelper.backupEntityAs lamp)))
-
-    member this.AddHwCondition(name: string, systemId: Guid) : HwCondition =
-        let condition = HwCondition(name, systemId)
-        this.Exec(AddHwCondition condition)
-        condition
-
-    member this.RemoveHwCondition(conditionId: Guid) =
-        withEntityOrThrow EntityTypeNames.Condition DsQuery.getCondition conditionId (fun condition ->
-            this.Exec(RemoveHwCondition(DeepCopyHelper.backupEntityAs condition)))
-
-    member this.AddHwAction(name: string, systemId: Guid) : HwAction =
-        let action = HwAction(name, systemId)
-        this.Exec(AddHwAction action)
-        action
-
-    member this.RemoveHwAction(actionId: Guid) =
-        withEntityOrThrow EntityTypeNames.Action DsQuery.getAction actionId (fun action ->
-            this.Exec(RemoveHwAction(DeepCopyHelper.backupEntityAs action)))
-
-    // =====================================================================
-    // 범용 Remove (단일 → 배치 위임)
-    // =====================================================================
-    /// 단일 엔티티 삭제: RemoveEntities에 위임
-    member this.RemoveEntity(entityType: string, entityId: Guid) =
-        this.RemoveEntities(seq { (entityType, entityId) })
-
     /// 여러 엔티티를 Composite 명령 1개로 일괄 삭제 (Undo/Redo 1회 단위)
     /// Work/Call은 선택 집합 전체의 화살표를 한 번에 수집해 중복 제거 후 삭제.
     /// Call의 부모 Work가 같은 선택에 포함된 경우 해당 Call은 건너뜀 (Work cascade가 처리).

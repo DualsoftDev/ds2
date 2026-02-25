@@ -39,7 +39,7 @@ let ``buildTrees returns empty control tree for empty store`` () =
 let ``buildTrees creates correct control hierarchy`` () =
     let store, api, project, system, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
 
     let controlTree, _ = TreeProjection.buildTrees store
     Assert.Single(controlTree) |> ignore  // 1 project
@@ -70,9 +70,11 @@ let ``buildTrees creates correct control hierarchy`` () =
 
 [<Fact>]
 let ``buildTrees includes HW components under System in control tree`` () =
-    let store, api, _project, system, _flow = setupProjectSystemFlow()
-    api.AddButton("Btn1", system.Id) |> ignore
-    api.AddLamp("Lamp1", system.Id) |> ignore
+    let store, _api, _project, system, _flow = setupProjectSystemFlow()
+    let btn = HwButton("Btn1", system.Id)
+    store.HwButtons.[btn.Id] <- btn
+    let lamp = HwLamp("Lamp1", system.Id)
+    store.HwLamps.[lamp.Id] <- lamp
 
     let controlTree, _ = TreeProjection.buildTrees store
     let sNode = controlTree.Head.Children.Head
@@ -89,7 +91,7 @@ let ``buildTrees includes HW components under System in control tree`` () =
 let ``canvasContentForFlow returns works and calls`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
 
     let content = CanvasProjection.canvasContentForFlow store flow.Id
     Assert.Equal(2, content.Nodes.Length)  // 1 work + 1 call
@@ -141,7 +143,7 @@ let ``canvasContentForSystemWorks returns works from all flows only`` () =
     let flow2 = api.AddFlow("F2", system.Id)
     let w1 = api.AddWork("W1", flow1.Id)
     let w2 = api.AddWork("W2", flow2.Id)
-    api.AddCall("Dev", "C1", w1.Id) |> ignore
+    api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||] |> ignore
 
     let content = CanvasProjection.canvasContentForSystemWorks store system.Id
     Assert.Equal(2, content.Nodes.Length)
@@ -154,7 +156,7 @@ let ``canvasContentForFlowWorks returns only works in selected flow`` () =
     let store, api, _, system, flow = setupProjectSystemFlow()
     let _flow2 = api.AddFlow("F2", system.Id)
     let w1 = api.AddWork("W1", flow.Id)
-    api.AddCall("Dev", "C1", w1.Id) |> ignore
+    api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||] |> ignore
 
     let content = CanvasProjection.canvasContentForFlowWorks store flow.Id
     Assert.Single(content.Nodes) |> ignore
@@ -166,9 +168,9 @@ let ``canvasContentForWorkCalls returns only calls in selected work`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
-    let c1 = api.AddCall("Dev", "C1", w1.Id)
-    let c2 = api.AddCall("Dev", "C2", w1.Id)
-    let c3 = api.AddCall("Dev", "C3", w2.Id)
+    let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
+    let c3 = api.AddCallWithLinkedApiDefs w2.Id "Dev" "C3" [||]
     api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
     api.AddArrow(EntityTypeNames.Call, flow.Id, c2.Id, c3.Id, ArrowType.Start) |> ignore
     let ownArrow = store.ArrowCalls.Values |> Seq.find (fun a -> a.SourceId = c1.Id && a.TargetId = c2.Id)
@@ -203,11 +205,12 @@ let ``buildTrees splits control tree and shows ApiDef category in device tree`` 
     let device  = api.AddSystem("Device",  project.Id, false)
     let flow = api.AddFlow("F1", control.Id)
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
     let apiDef = api.AddApiDef("AD1", device.Id)
     let apiCall = ApiCall("AC1")
     apiCall.ApiDefId <- Some apiDef.Id
-    api.AddApiCallToCall(call.Id, apiCall)
+    store.ApiCalls.[apiCall.Id] <- apiCall
+    store.Calls.[call.Id].ApiCalls.Add(apiCall)
 
     let controlTree, deviceTree = TreeProjection.buildTrees store
 
@@ -313,8 +316,9 @@ let ``findProjectOfSystem returns None for unknown system`` () =
 
 [<Fact>]
 let ``findHwParent returns parent system ID`` () =
-    let store, api, _, system, _ = setupProjectSystemFlow()
-    let btn = api.AddButton("Btn1", system.Id)
+    let store, _api, _, system, _ = setupProjectSystemFlow()
+    let btn = HwButton("Btn1", system.Id)
+    store.HwButtons.[btn.Id] <- btn
     let result = EntityHierarchyQueries.findHwParent store btn.Id
     Assert.Equal(Some system.Id, result)
 
@@ -332,7 +336,7 @@ let ``findHwParent returns None for unknown ID`` () =
 let ``isCallInFlow returns true when call is in flow`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
     Assert.True(EntityHierarchyQueries.isCallInFlow store call.Id flow.Id)
 
 [<Fact>]
@@ -340,7 +344,7 @@ let ``isCallInFlow returns false for different flow`` () =
     let store, api, _, system, flow = setupProjectSystemFlow() // all used
     let flow2 = api.AddFlow("F2", system.Id)
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
     Assert.False(EntityHierarchyQueries.isCallInFlow store call.Id flow2.Id)
 
 // =============================================================================
@@ -390,20 +394,20 @@ let ``resolveSystemForEntity returns None for unknown type`` () =
     Assert.True(result.IsNone)
 
 // =============================================================================
-// EditorApi.RemoveEntity + RemoveArrow
+// EditorApi.RemoveEntities + RemoveArrows
 // =============================================================================
 
 [<Fact>]
-let ``RemoveEntity removes work by entity type string`` () =
+let ``RemoveEntities removes work by entity type string`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
     Assert.True(store.Works.ContainsKey(work.Id))
 
-    api.RemoveEntity("Work", work.Id)
+    api.RemoveEntities(seq { "Work", work.Id })
     Assert.False(store.Works.ContainsKey(work.Id))
 
 [<Fact>]
-let ``RemoveArrow removes arrow between works`` () =
+let ``RemoveArrows removes arrow between works`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
@@ -411,7 +415,7 @@ let ``RemoveArrow removes arrow between works`` () =
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
     Assert.True(store.ArrowWorks.ContainsKey(arrow.Id))
 
-    api.RemoveArrow(arrow.Id)
+    api.RemoveArrows([ arrow.Id ]) |> ignore
     Assert.False(store.ArrowWorks.ContainsKey(arrow.Id))
 
 // =============================================================================
@@ -445,7 +449,7 @@ let ``tryOpenTabForEntity returns tab info`` () =
 let ``canvasContentForTab dispatches by tab kind`` () =
     let store, api, _, system, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
-    let _call = api.AddCall("Dev", "C1", work.Id)
+    let _call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
 
     let systemContent = CanvasProjection.canvasContentForTab store TabKind.System system.Id
     Assert.Single(systemContent.Nodes) |> ignore
@@ -588,8 +592,8 @@ let ``resolveFlowIdForConnect resolves work siblings`` () =
 let ``resolveFlowIdForConnect resolves call siblings by work parent`` () =
     let store, api, _project, _system, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
-    let call1 = api.AddCall("Dev", "C1", work.Id)
-    let call2 = api.AddCall("Dev", "C2", work.Id)
+    let call1 = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
+    let call2 = api.AddCallWithLinkedApiDefs work.Id "Dev" "C2" [||]
 
     let resolved =
         ConnectionQueries.resolveFlowIdForConnect

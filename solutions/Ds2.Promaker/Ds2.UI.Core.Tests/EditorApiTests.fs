@@ -40,7 +40,7 @@ let ``RemoveWork should remove from store and be undoable`` () =
     let work = api.AddWork("W1", flow.Id)
     let workId = work.Id
 
-    api.RemoveEntity(EntityTypeNames.Work, workId)
+    api.RemoveEntities(seq { EntityTypeNames.Work, workId })
     Assert.False(store.Works.ContainsKey(workId))
 
     api.Undo()
@@ -109,11 +109,11 @@ let ``MoveWork should not create command if position unchanged`` () =
     Assert.False(store.Works.ContainsKey(work.Id)) // work removed by undo
 
 [<Fact>]
-let ``RenameWork should update name and be undoable`` () =
+let ``RenameEntity Work should update name and be undoable`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
 
-    api.RenameWork(work.Id, "W1_Renamed")
+    api.RenameEntity(work.Id, EntityTypeNames.Work, "W1_Renamed")
     Assert.Equal("W1_Renamed", store.Works.[work.Id].Name)
 
     api.Undo()
@@ -127,10 +127,10 @@ let ``RenameWork should update name and be undoable`` () =
 // =============================================================================
 
 [<Fact>]
-let ``AddCall should add to store and be undoable`` () =
+let ``AddCallWithLinkedApiDefs should add to store and be undoable`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
 
     Assert.True(store.Calls.ContainsKey(call.Id))
 
@@ -144,10 +144,10 @@ let ``AddCall should add to store and be undoable`` () =
 let ``RemoveCall should remove from store and be undoable`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
     let callId = call.Id
 
-    api.RemoveEntity(EntityTypeNames.Call, callId)
+    api.RemoveEntities(seq { EntityTypeNames.Call, callId })
     Assert.False(store.Calls.ContainsKey(callId))
 
     api.Undo()
@@ -265,9 +265,9 @@ let ``ReconnectArrow should reconnect work arrow and be undoable`` () =
 let ``ReconnectArrow should reconnect call arrow and be undoable`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
-    let c1 = api.AddCall("Dev", "C1", work.Id)
-    let c2 = api.AddCall("Dev", "C2", work.Id)
-    let c3 = api.AddCall("Dev", "C3", work.Id)
+    let c1 = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
+    let c2 = api.AddCallWithLinkedApiDefs work.Id "Dev" "C2" [||]
+    let c3 = api.AddCallWithLinkedApiDefs work.Id "Dev" "C3" [||]
     api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
     let arrow = store.ArrowCalls.Values |> Seq.find (fun a -> a.SourceId = c1.Id && a.TargetId = c2.Id)
 
@@ -314,7 +314,7 @@ let ``RemoveWork should cascade delete calls and arrows`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
-    let c1 = api.AddCall("Dev", "C1", w1.Id)
+    let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
     api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
 
@@ -322,7 +322,7 @@ let ``RemoveWork should cascade delete calls and arrows`` () =
     let callCount = store.Calls.Count
     let arrowCount = store.ArrowWorks.Count
 
-    api.RemoveEntity(EntityTypeNames.Work, w1.Id)
+    api.RemoveEntities(seq { EntityTypeNames.Work, w1.Id })
     Assert.False(store.Works.ContainsKey(w1.Id))
     Assert.False(store.Calls.ContainsKey(c1.Id))
     Assert.False(store.ArrowWorks.ContainsKey(arrow.Id))
@@ -350,7 +350,7 @@ let ``RemoveSystem should cascade and be fully restorable`` () =
     let flow = api.AddFlow("F1", system.Id)
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
-    let _c1 = api.AddCall("Dev", "C1", w1.Id)
+    let _c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
     api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
 
     let systemCount = store.Systems.Count
@@ -359,7 +359,7 @@ let ``RemoveSystem should cascade and be fully restorable`` () =
     let callCount = store.Calls.Count
     let arrowCount = store.ArrowWorks.Count
 
-    api.RemoveEntity(EntityTypeNames.System, system.Id)
+    api.RemoveEntities(seq { EntityTypeNames.System, system.Id })
     Assert.Equal(0, store.Flows.Count)
     Assert.Equal(0, store.Works.Count)
     Assert.Equal(0, store.Calls.Count)
@@ -377,13 +377,13 @@ let ``RemoveSystem should cascade and be fully restorable`` () =
 let ``RemoveFlow should cascade and be fully restorable`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
-    let _c1 = api.AddCall("Dev", "C1", w1.Id)
+    let _c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
 
     let flowCount = store.Flows.Count
     let workCount = store.Works.Count
     let callCount = store.Calls.Count
 
-    api.RemoveEntity(EntityTypeNames.Flow, flow.Id)
+    api.RemoveEntities(seq { EntityTypeNames.Flow, flow.Id })
     Assert.False(store.Flows.ContainsKey(flow.Id))
     Assert.Equal(0, store.Works.Count)
     Assert.Equal(0, store.Calls.Count)
@@ -411,10 +411,10 @@ let ``AddWork should emit WorkAdded and UndoRedoChanged events`` () =
 let ``Composite delete should emit StoreRefreshed`` () =
     let _, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
-    let _c1 = api.AddCall("Dev", "C1", w1.Id)
+    let _c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
 
     let events = collectEvents api
-    api.RemoveEntity(EntityTypeNames.Work, w1.Id) // cascade -> Composite -> StoreRefreshed
+    api.RemoveEntities(seq { EntityTypeNames.Work, w1.Id }) // cascade -> Composite -> StoreRefreshed
 
     Assert.True(events |> Seq.exists (function StoreRefreshed -> true | _ -> false))
 
@@ -422,8 +422,8 @@ let ``Composite delete should emit StoreRefreshed`` () =
 let ``Undo of Composite should emit StoreRefreshed`` () =
     let _, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
-    let _c1 = api.AddCall("Dev", "C1", w1.Id)
-    api.RemoveEntity(EntityTypeNames.Work, w1.Id)
+    let _c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    api.RemoveEntities(seq { EntityTypeNames.Work, w1.Id })
 
     let events = collectEvents api
     api.Undo()
@@ -481,25 +481,6 @@ let ``AddProject should add to store and be undoable`` () =
     Assert.True(store.Projects.ContainsKey(project.Id))
 
 // =============================================================================
-// HW Component + Undo/Redo
-// =============================================================================
-
-[<Fact>]
-let ``AddButton should add to store and be undoable`` () =
-    let store, api = createApi()
-    let project = api.AddProject("P1")
-    let system = api.AddSystem("S1", project.Id, true)
-    let button = api.AddButton("B1", system.Id)
-
-    Assert.True(store.HwButtons.ContainsKey(button.Id))
-
-    api.Undo()
-    Assert.False(store.HwButtons.ContainsKey(button.Id))
-
-    api.Redo()
-    Assert.True(store.HwButtons.ContainsKey(button.Id))
-
-// =============================================================================
 // ApiDef + Undo/Redo
 // =============================================================================
 
@@ -517,30 +498,6 @@ let ``AddApiDef should add to store and be undoable`` () =
 
     api.Redo()
     Assert.True(store.ApiDefs.ContainsKey(apiDef.Id))
-
-// =============================================================================
-// UpdateWorkProperties + Undo/Redo
-// =============================================================================
-
-[<Fact>]
-let ``UpdateWorkProperties should be undoable`` () =
-    let store, api, _, _, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
-
-    let newProps = WorkProperties()
-    newProps.Motion <- Some "Linear"
-    newProps.NumRepeat <- 5
-
-    api.UpdateWorkProperties(work.Id, newProps)
-    Assert.Equal(Some "Linear", store.Works.[work.Id].Properties.Motion)
-    Assert.Equal(5, store.Works.[work.Id].Properties.NumRepeat)
-
-    api.Undo()
-    Assert.Equal(None, store.Works.[work.Id].Properties.Motion)
-    Assert.Equal(0, store.Works.[work.Id].Properties.NumRepeat)
-
-    api.Redo()
-    Assert.Equal(Some "Linear", store.Works.[work.Id].Properties.Motion)
 
 [<Fact>]
 let ``TryUpdateWorkDuration should be undoable and redoable`` () =
@@ -564,7 +521,7 @@ let ``Call property panel data should include Device ApiDef addresses and ValueS
     let activeSystem = api.AddSystem("S1", project.Id, true)
     let flow = api.AddFlow("F1", activeSystem.Id)
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
 
     let deviceSystem = api.AddSystem("D1", project.Id, false)
     let apiDef = api.AddApiDef("ADV", deviceSystem.Id)
@@ -589,7 +546,7 @@ let ``UpdateApiCallFromPanel should be one undo step with full rollback`` () =
     let activeSystem = api.AddSystem("S1", project.Id, true)
     let flow = api.AddFlow("F1", activeSystem.Id)
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
     let deviceSystem = api.AddSystem("D1", project.Id, false)
     let apiDef = api.AddApiDef("ADV", deviceSystem.Id)
 
@@ -639,12 +596,12 @@ let ``UpdateApiCallFromPanel should be one undo step with full rollback`` () =
 let ``RemoveCall should cascade delete ArrowBetweenCalls`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
-    let c1 = api.AddCall("Dev", "C1", w1.Id)
-    let c2 = api.AddCall("Dev", "C2", w1.Id)
+    let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
     api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
     let arrow = store.ArrowCalls.Values |> Seq.find (fun a -> a.SourceId = c1.Id && a.TargetId = c2.Id)
 
-    api.RemoveEntity(EntityTypeNames.Call, c1.Id)
+    api.RemoveEntities(seq { EntityTypeNames.Call, c1.Id })
     Assert.False(store.Calls.ContainsKey(c1.Id))
     Assert.False(store.ArrowCalls.ContainsKey(arrow.Id))
 
@@ -666,7 +623,7 @@ let ``RemoveSystem should cascade delete ApiDefs`` () =
 
     let apiDefCount = store.ApiDefs.Count
 
-    api.RemoveEntity(EntityTypeNames.System, system.Id)
+    api.RemoveEntities(seq { EntityTypeNames.System, system.Id })
     Assert.False(store.ApiDefs.ContainsKey(apiDef.Id))
 
     api.Undo()
@@ -678,32 +635,14 @@ let ``RemoveSystem should cascade delete ApiDefs`` () =
 // =============================================================================
 
 [<Fact>]
-let ``AddApiCallToCall should add and be undoable`` () =
-    let store, api, _, _, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
-    let apiCall = ApiCall("AC1")
-
-    api.AddApiCallToCall(call.Id, apiCall)
-    Assert.True(store.ApiCalls.ContainsKey(apiCall.Id))
-    Assert.Equal(1, call.ApiCalls.Count)
-
-    api.Undo()
-    Assert.False(store.ApiCalls.ContainsKey(apiCall.Id))
-    Assert.Equal(0, call.ApiCalls.Count)
-
-    api.Redo()
-    Assert.True(store.ApiCalls.ContainsKey(apiCall.Id))
-    Assert.Equal(1, call.ApiCalls.Count)
-
-[<Fact>]
 let ``RemoveApiCallFromCall should remove and be undoable`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
     let apiCall = ApiCall("AC1")
+    store.ApiCalls.[apiCall.Id] <- apiCall
+    store.Calls.[call.Id].ApiCalls.Add(apiCall)
 
-    api.AddApiCallToCall(call.Id, apiCall)
     api.RemoveApiCallFromCall(call.Id, apiCall.Id)
     Assert.False(store.ApiCalls.ContainsKey(apiCall.Id))
     Assert.Equal(0, call.ApiCalls.Count)
@@ -721,7 +660,8 @@ let ``RenameEntity should work for Project and HW types`` () =
     let store, api = createApi()
     let project = api.AddProject("P1")
     let system = api.AddSystem("S1", project.Id, true)
-    let button = api.AddButton("B1", system.Id)
+    let button = HwButton("B1", system.Id)
+    store.HwButtons.[button.Id] <- button
 
     api.RenameEntity(project.Id, "Project", "P1_Renamed")
     Assert.Equal("P1_Renamed", store.Projects.[project.Id].Name)
@@ -746,9 +686,10 @@ let ``RemoveProject should cascade and be fully restorable`` () =
     let system = api.AddSystem("S1", project.Id, true)
     let flow = api.AddFlow("F1", system.Id)
     let w1 = api.AddWork("W1", flow.Id)
-    let _c1 = api.AddCall("Dev", "C1", w1.Id)
+    api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||] |> ignore
     let _apiDef = api.AddApiDef("AD1", system.Id)
-    let _button = api.AddButton("B1", system.Id)
+    let button = HwButton("B1", system.Id)
+    store.HwButtons.[button.Id] <- button
 
     let projectCount = store.Projects.Count
     let systemCount  = store.Systems.Count
@@ -758,7 +699,7 @@ let ``RemoveProject should cascade and be fully restorable`` () =
     let apiDefCount  = store.ApiDefs.Count
     let buttonCount  = store.HwButtons.Count
 
-    api.RemoveEntity(EntityTypeNames.Project, project.Id)
+    api.RemoveEntities(seq { EntityTypeNames.Project, project.Id })
     Assert.Equal(0, store.Projects.Count)
     Assert.Equal(0, store.Systems.Count)
     Assert.Equal(0, store.Flows.Count)
@@ -835,14 +776,15 @@ let ``UndoRedoManager should trim stack when exceeding maxSize`` () =
 let ``PasteEntities should duplicate Work with Calls ApiCalls and internal call arrows`` () =
     let store, api, _, system, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
-    let c1 = api.AddCall("Dev", "C1", w1.Id)
-    let c2 = api.AddCall("Dev", "C2", w1.Id)
+    let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
     api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
 
     let apiDef = api.AddApiDef("AD1", system.Id)
     let ac = ApiCall("AC1")
     ac.ApiDefId <- Some apiDef.Id
-    api.AddApiCallToCall(c1.Id, ac)
+    store.ApiCalls.[ac.Id] <- ac
+    store.Calls.[c1.Id].ApiCalls.Add(ac)
 
     let worksBefore = store.Works.Keys |> Set.ofSeq
     api.PasteEntities("Work", [| w1.Id |], "Flow", flow.Id) |> ignore
@@ -861,7 +803,7 @@ let ``PasteEntities should duplicate Work with Calls ApiCalls and internal call 
 let ``PasteEntities should preserve original names`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
-    let c1 = api.AddCall("Dev", "C1", w1.Id)
+    let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
 
     let worksBefore = store.Works.Keys |> Set.ofSeq
     api.PasteEntities("Work", [| w1.Id |], "Flow", flow.Id) |> ignore
@@ -882,8 +824,8 @@ let ``PasteEntities should preserve arrows between selected works and calls`` ()
     api.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, w2.Id, Some(Xywh(300, 100, 120, 40))) ]) |> ignore
     api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
 
-    let c1 = api.AddCall("Dev", "C1", w1.Id)
-    let c2 = api.AddCall("Dev", "C2", w2.Id)
+    let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    let c2 = api.AddCallWithLinkedApiDefs w2.Id "Dev" "C2" [||]
     api.MoveEntities([ MoveEntityRequest(EntityTypeNames.Call, c1.Id, Some(Xywh(120, 180, 120, 40))) ]) |> ignore
     api.MoveEntities([ MoveEntityRequest(EntityTypeNames.Call, c2.Id, Some(Xywh(320, 180, 120, 40))) ]) |> ignore
     api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
@@ -968,8 +910,8 @@ let ``PasteEntities should duplicate Flow with Works Calls and arrows`` () =
     let sourceFlow = api.AddFlow("F1", system.Id)
     let w1 = api.AddWork("W1", sourceFlow.Id)
     let w2 = api.AddWork("W2", sourceFlow.Id)
-    let c1 = api.AddCall("Dev", "C1", w1.Id)
-    let c2 = api.AddCall("Dev", "C2", w1.Id)
+    let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
     api.AddArrow(EntityTypeNames.Work, sourceFlow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
     api.AddArrow(EntityTypeNames.Call, sourceFlow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
 
@@ -1103,8 +1045,8 @@ let ``AddCallsWithDevice with single Work should create no arrows`` () =
 let ``PasteEntities Work with Calls should be exactly 1 undo step`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("OrigWork", flow.Id)
-    api.AddCall("Dev", "A", work.Id) |> ignore
-    api.AddCall("Dev", "B", work.Id) |> ignore
+    api.AddCallWithLinkedApiDefs work.Id "Dev" "A" [||] |> ignore
+    api.AddCallWithLinkedApiDefs work.Id "Dev" "B" [||] |> ignore
 
     // Paste: Work + 2 Calls → BatchExec Composite → Undo 1회
     api.PasteEntities("Work", [| work.Id |], "Flow", flow.Id) |> ignore
@@ -1132,7 +1074,7 @@ let ``PasteEntities Works batch should be exactly 1 undo step`` () =
 let ``PasteEntities Call should be exactly 1 undo step`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "API", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "API" [||]
 
     api.PasteEntities("Call", [| call.Id |], "Work", work.Id) |> ignore
     Assert.Equal(2, DsQuery.callsOf work.Id store |> List.length)
@@ -1152,7 +1094,7 @@ let ``TryUpdateCallTimeout should set timeout and support undo redo`` () =
     let system = api.AddSystem("S1", project.Id, true)
     let flow = api.AddFlow("F1", system.Id)
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
 
     Assert.Equal("", api.GetCallTimeoutText(call.Id))
 
@@ -1176,7 +1118,7 @@ let ``TryUpdateCallTimeout with empty string should clear timeout`` () =
     let system = api.AddSystem("S1", project.Id, true)
     let flow = api.AddFlow("F1", system.Id)
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
 
     api.TryUpdateCallTimeout(call.Id, "1000") |> ignore
     Assert.Equal("1000", api.GetCallTimeoutText(call.Id))
@@ -1193,7 +1135,7 @@ let ``TryUpdateCallTimeout with invalid text should return false`` () =
     let system = api.AddSystem("S1", project.Id, true)
     let flow = api.AddFlow("F1", system.Id)
     let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCall("Dev", "C1", work.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
 
     let ok = api.TryUpdateCallTimeout(call.Id, "not-a-number")
     Assert.False(ok)
@@ -1291,14 +1233,15 @@ let ``RemoveWork should keep shared ApiCall referenced by surviving Call`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
-    let c1 = api.AddCall("Dev", "C1", w1.Id)
-    let c2 = api.AddCall("Dev", "C2", w2.Id)
+    let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    let c2 = api.AddCallWithLinkedApiDefs w2.Id "Dev" "C2" [||]
     let shared = ApiCall("Shared")
 
-    api.AddApiCallToCall(c1.Id, shared)
-    api.AddApiCallToCall(c2.Id, shared)
+    store.ApiCalls.[shared.Id] <- shared
+    store.Calls.[c1.Id].ApiCalls.Add(shared)
+    store.Calls.[c2.Id].ApiCalls.Add(shared)
 
-    api.RemoveEntity(EntityTypeNames.Work, w1.Id)
+    api.RemoveEntities(seq { EntityTypeNames.Work, w1.Id })
 
     Assert.True(store.Calls.ContainsKey(c2.Id))
     Assert.True(store.ApiCalls.ContainsKey(shared.Id))
@@ -1308,8 +1251,8 @@ let ``RemoveWork should keep shared ApiCall referenced by surviving Call`` () =
 let ``RemoveCall should keep ApiCall referenced only via CallCondition Conditions`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
-    let c1 = api.AddCall("Dev", "C1", w1.Id)
-    let c2 = api.AddCall("Dev", "C2", w1.Id)
+    let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
 
     // c1의 CallCondition.Conditions에만 ApiCall 등록 (c1.ApiCalls에는 없음)
     let condAc = ApiCall("CondApiCall")
@@ -1319,7 +1262,7 @@ let ``RemoveCall should keep ApiCall referenced only via CallCondition Condition
     store.Calls.[c1.Id].CallConditions.Add(cc)
 
     // c2 삭제 → removeOrphanApiCalls 실행
-    api.RemoveEntity(EntityTypeNames.Call, c2.Id)
+    api.RemoveEntities(seq { EntityTypeNames.Call, c2.Id })
 
     // condAc는 c1.CallConditions에서 참조 중이므로 orphan 제거 대상이 아님
     Assert.True(store.ApiCalls.ContainsKey(condAc.Id))
@@ -1349,8 +1292,8 @@ let ``RemoveEntities with two connected Calls should not crash`` () =
     // C1 → C2 화살표가 있는 두 Call을 동시에 선택 삭제할 때 ArrowCall 중복 제거 검증
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
-    let c1 = api.AddCall("Dev", "C1", w1.Id)
-    let c2 = api.AddCall("Dev", "C2", w1.Id)
+    let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
     api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
 
     let selections = seq { (EntityTypeNames.Call, c1.Id); (EntityTypeNames.Call, c2.Id) }
@@ -1365,8 +1308,8 @@ let ``RemoveEntities Work with its own Call selected should not double-remove Ca
     // Work와 그 아래 Call이 함께 선택될 때 Call은 Work cascade에 맡기고 중복 삭제 없어야 함
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
-    let c1 = api.AddCall("Dev", "C1", w1.Id)
-    let c2 = api.AddCall("Dev", "C2", w1.Id)
+    let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
     api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
 
     let selections = seq { (EntityTypeNames.Work, w1.Id); (EntityTypeNames.Call, c1.Id) }
