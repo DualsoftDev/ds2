@@ -59,32 +59,26 @@ public partial class MainWindow : Window
             _vm.ActiveTab = tab;
     }
 
-    private void CloseTabButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement { Tag: CanvasTab tab })
-            _vm.CloseTabCommand.Execute(tab);
-    }
-
     private void CloseTab_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is MenuItem { Tag: CanvasTab tab })
+        if (sender is FrameworkElement { Tag: CanvasTab tab })
             _vm.CloseTabCommand.Execute(tab);
     }
 
     private void CloseOtherTabs_Click(object sender, RoutedEventArgs e)
     {
         if (sender is MenuItem { Tag: CanvasTab keepTab })
-        {
-            var toClose = _vm.OpenTabs.Where(t => t != keepTab).ToList();
-            foreach (var t in toClose)
-                _vm.CloseTabCommand.Execute(t);
-        }
+            CloseTabs(_vm.OpenTabs.Where(t => t != keepTab));
     }
 
     private void CloseAllTabs_Click(object sender, RoutedEventArgs e)
     {
-        var toClose = _vm.OpenTabs.ToList();
-        foreach (var t in toClose)
+        CloseTabs(_vm.OpenTabs);
+    }
+
+    private void CloseTabs(IEnumerable<CanvasTab> tabs)
+    {
+        foreach (var t in tabs.ToList())
             _vm.CloseTabCommand.Execute(t);
     }
 
