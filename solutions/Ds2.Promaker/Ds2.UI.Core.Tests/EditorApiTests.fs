@@ -1269,6 +1269,120 @@ let ``RemoveCall should keep ApiCall referenced only via CallCondition Condition
     Assert.True(store.Calls.[c1.Id].CallConditions.[0].Conditions |> Seq.exists (fun ac -> ac.Id = condAc.Id))
 
 // =============================================================================
+// CallCondition CRUD + Undo
+// =============================================================================
+
+[<Fact>]
+let ``AddCallCondition should add condition and be undoable`` () =
+    let store, api, _, _, flow = setupProjectSystemFlow()
+    let work = api.AddWork("W1", flow.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
+
+    let ok = api.AddCallCondition(call.Id, CallConditionType.Auto)
+    Assert.True(ok)
+    Assert.Equal(1, store.Calls.[call.Id].CallConditions.Count)
+    Assert.Equal(Some CallConditionType.Auto, store.Calls.[call.Id].CallConditions.[0].Type)
+
+    api.Undo()
+    Assert.Equal(0, store.Calls.[call.Id].CallConditions.Count)
+
+    api.Redo()
+    Assert.Equal(1, store.Calls.[call.Id].CallConditions.Count)
+
+[<Fact>]
+let ``AddApiCallToCondition should store DeepCopy with custom OutputSpec`` () =
+    // 소스 ApiCall은 다른 Call에 등록 — store 전역 조회 동작 및 DeepCopy/OutputSpec/Undo 검증
+    let _, api = createApi()
+    let project = api.AddProject("P1")
+    let activeSystem = api.AddSystem("S1", project.Id, true)
+    let flow = api.AddFlow("F1", activeSystem.Id)
+    let w1 = api.AddWork("W1", flow.Id)
+    let w2 = api.AddWork("W2", flow.Id)
+    let srcCall  = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    let condCall = api.AddCallWithLinkedApiDefs w2.Id "Dev" "C2" [||]
+    let deviceSystem = api.AddSystem("D1", project.Id, false)
+    let apiDef = api.AddApiDef("ADV", deviceSystem.Id)
+    // 소스 ApiCall은 srcCall에만 등록 (condCall에는 없음)
+    let srcApiCallId = (api.AddApiCallFromPanel(srcCall.Id, apiDef.Id, "AC1", "", "", "", "")).Value
+
+    api.AddCallCondition(condCall.Id, CallConditionType.Active) |> ignore
+    let condId = api.GetCallConditionsForPanel(condCall.Id).[0].ConditionId
+
+    let ok = api.AddApiCallToCondition(condCall.Id, condId, srcApiCallId, "42")
+    Assert.True(ok)
+
+    let items = api.GetCallConditionsForPanel(condCall.Id).[0].Items
+    Assert.Equal(1, items.Length)
+    Assert.Equal("42", items.[0].OutputSpecText)
+    Assert.Equal(srcApiCallId, items.[0].ApiCallId)
+
+    api.Undo()
+    Assert.Equal(0, api.GetCallConditionsForPanel(condCall.Id).[0].Items.Length)
+
+[<Fact>]
+let ``UpdateCallConditionSettings IsOR toggle should be undoable`` () =
+    let store, api, _, _, flow = setupProjectSystemFlow()
+    let work = api.AddWork("W1", flow.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
+
+    api.AddCallCondition(call.Id, CallConditionType.Common) |> ignore
+    let condId = api.GetCallConditionsForPanel(call.Id).[0].ConditionId
+
+    let ok = api.UpdateCallConditionSettings(call.Id, condId, true, false)
+    Assert.True(ok)
+    Assert.True(store.Calls.[call.Id].CallConditions.[0].IsOR)
+    Assert.False(store.Calls.[call.Id].CallConditions.[0].IsRising)
+
+    api.Undo()
+    Assert.False(store.Calls.[call.Id].CallConditions.[0].IsOR)
+
+[<Fact>]
+let ``GetAllApiCallsForPanel returns ApiCalls across all Calls`` () =
+    let _, api = createApi()
+    let project = api.AddProject("P1")
+    let activeSystem = api.AddSystem("S1", project.Id, true)
+    let flow = api.AddFlow("F1", activeSystem.Id)
+    let w1 = api.AddWork("W1", flow.Id)
+    let w2 = api.AddWork("W2", flow.Id)
+    let call1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    let call2 = api.AddCallWithLinkedApiDefs w2.Id "Dev" "C2" [||]
+    let deviceSystem = api.AddSystem("D1", project.Id, false)
+    let apiDef = api.AddApiDef("ADV", deviceSystem.Id)
+    let id1 = (api.AddApiCallFromPanel(call1.Id, apiDef.Id, "AC1", "", "", "", "")).Value
+    let id2 = (api.AddApiCallFromPanel(call2.Id, apiDef.Id, "AC2", "", "", "", "")).Value
+
+    let all = api.GetAllApiCallsForPanel()
+    let ids = all |> List.map (fun x -> x.ApiCallId)
+    Assert.Equal(2, all.Length)
+    Assert.Contains(id1, ids)
+    Assert.Contains(id2, ids)
+
+[<Fact>]
+let ``AddApiCallsToConditionBatch adds multiple ApiCalls as single Undo unit`` () =
+    let _, api = createApi()
+    let project = api.AddProject("P1")
+    let activeSystem = api.AddSystem("S1", project.Id, true)
+    let flow = api.AddFlow("F1", activeSystem.Id)
+    let w1 = api.AddWork("W1", flow.Id)
+    let w2 = api.AddWork("W2", flow.Id)
+    let srcCall  = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
+    let condCall = api.AddCallWithLinkedApiDefs w2.Id "Dev" "C2" [||]
+    let deviceSystem = api.AddSystem("D1", project.Id, false)
+    let apiDef = api.AddApiDef("ADV", deviceSystem.Id)
+    let srcId1 = (api.AddApiCallFromPanel(srcCall.Id, apiDef.Id, "AC1", "", "", "", "")).Value
+    let srcId2 = (api.AddApiCallFromPanel(srcCall.Id, apiDef.Id, "AC2", "", "", "", "")).Value
+
+    api.AddCallCondition(condCall.Id, CallConditionType.Active) |> ignore
+    let condId = api.GetCallConditionsForPanel(condCall.Id).[0].ConditionId
+
+    let added = api.AddApiCallsToConditionBatch(condCall.Id, condId, [| srcId1; srcId2 |])
+    Assert.Equal(2, added)
+    Assert.Equal(2, api.GetCallConditionsForPanel(condCall.Id).[0].Items.Length)
+
+    api.Undo()  // 단일 Undo로 2개 모두 제거
+    Assert.Equal(0, api.GetCallConditionsForPanel(condCall.Id).[0].Items.Length)
+
+// =============================================================================
 // RemoveEntities — 다중 선택 삭제 회귀 테스트
 // =============================================================================
 

@@ -180,6 +180,7 @@ module DeepCopyTests =
 
         let copied = original.DeepCopy()
 
+        Assert.Equal(original.Id, copied.Id)
         Assert.Equal(Some CallConditionType.Common, copied.Type)
         Assert.True(copied.IsOR)
         Assert.True(copied.IsRising)
@@ -206,6 +207,7 @@ module DeepCopyTests =
 
         let copied = original.DeepCopy()
 
+        Assert.Equal(original.Id, copied.Id)
         Assert.Equal(1, copied.Conditions.Count)
         match copied.Conditions.[0].OutputSpec with
         | IntValue (Ranges segments) ->

@@ -108,6 +108,43 @@ module CommandExecutor =
             call.Properties <- newProps
             [ CallPropsChanged id ]
 
+        // --- CallCondition ---
+        | AddCallCondition(callId, condition) ->
+            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
+            call.CallConditions.Add(condition)
+            [ CallPropsChanged callId ]
+
+        | RemoveCallCondition(callId, backup) ->
+            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
+            call.CallConditions.RemoveAll(fun c -> c.Id = backup.Id) |> ignore
+            [ CallPropsChanged callId ]
+
+        | UpdateCallConditionSettings(callId, conditionId, _, newIsOR, _, newIsRising) ->
+            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
+            let cond = call.CallConditions |> Seq.find (fun c -> c.Id = conditionId)
+            cond.IsOR     <- newIsOR
+            cond.IsRising <- newIsRising
+            [ CallPropsChanged callId ]
+
+        | AddApiCallToCondition(callId, conditionId, apiCall) ->
+            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
+            let cond = call.CallConditions |> Seq.find (fun c -> c.Id = conditionId)
+            cond.Conditions.Add(apiCall)
+            [ CallPropsChanged callId ]
+
+        | RemoveApiCallFromCondition(callId, conditionId, backup) ->
+            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
+            let cond = call.CallConditions |> Seq.find (fun c -> c.Id = conditionId)
+            cond.Conditions.RemoveAll(fun ac -> ac.Id = backup.Id) |> ignore
+            [ CallPropsChanged callId ]
+
+        | UpdateConditionApiCallOutputSpec(callId, conditionId, apiCallId, _, newSpec) ->
+            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
+            let cond = call.CallConditions |> Seq.find (fun c -> c.Id = conditionId)
+            let ac = cond.Conditions |> Seq.find (fun x -> x.Id = apiCallId)
+            ac.OutputSpec <- newSpec
+            [ CallPropsChanged callId ]
+
         // --- Arrow ---
         | AddArrowWork arrow ->
             Mutation.addArrowWork arrow store |> requireMutationOk "addArrowWork"
@@ -234,6 +271,14 @@ module CommandExecutor =
         | RemoveWork b                           -> execute (AddWork b) store
         | AddCall c                              -> execute (RemoveCall c) store
         | RemoveCall b                           -> execute (AddCall b) store
+        | AddCallCondition(callId, c)            -> execute (RemoveCallCondition(callId, c)) store
+        | RemoveCallCondition(callId, b)         -> execute (AddCallCondition(callId, b)) store
+        | AddApiCallToCondition(cId, cndId, ac)  -> execute (RemoveApiCallFromCondition(cId, cndId, ac)) store
+        | RemoveApiCallFromCondition(cId, cndId, b) -> execute (AddApiCallToCondition(cId, cndId, b)) store
+        | UpdateCallConditionSettings(cId, cndId, oldOR, newOR, oldRising, newRising) ->
+            execute (UpdateCallConditionSettings(cId, cndId, newOR, oldOR, newRising, oldRising)) store
+        | UpdateConditionApiCallOutputSpec(cId, cndId, acId, oldSpec, newSpec) ->
+            execute (UpdateConditionApiCallOutputSpec(cId, cndId, acId, newSpec, oldSpec)) store
         | AddArrowWork a                         -> execute (RemoveArrowWork a) store
         | RemoveArrowWork b                      -> execute (AddArrowWork b) store
         | AddArrowCall a                         -> execute (RemoveArrowCall a) store

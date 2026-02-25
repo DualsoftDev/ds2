@@ -114,29 +114,151 @@ let getDeviceApiDefOptionsForCall (store: DsStore) (callId: Guid) : DeviceApiDef
         |> List.map (fun apiDef -> DeviceApiDefOption(apiDef.Id, system.Name, apiDef.Name)))
     |> List.sortBy (fun item -> item.DisplayName)
 
+let private resolveApiDefDisplay (store: DsStore) (apiDefIdOpt: Guid option) : Guid * bool * string =
+    match apiDefIdOpt |> Option.bind (fun id -> DsQuery.getApiDef id store) with
+    | Some apiDef ->
+        let dev =
+            DsQuery.getSystem apiDef.ParentId store
+            |> Option.map (fun s -> s.Name)
+            |> Option.defaultValue "UnknownDevice"
+        apiDef.Id, true, $"{dev}.{apiDef.Name}"
+    | None -> Guid.Empty, false, "(unlinked)"
+
+let private toCallApiCallPanelItem (store: DsStore) (apiCall: ApiCall) : CallApiCallPanelItem =
+    let apiDefId, hasApiDef, apiDefDisplayName = resolveApiDefDisplay store apiCall.ApiDefId
+    let outputAddress = apiCall.OutTag |> Option.map (fun t -> t.Address) |> Option.defaultValue ""
+    let inputAddress  = apiCall.InTag  |> Option.map (fun t -> t.Address) |> Option.defaultValue ""
+    CallApiCallPanelItem(
+        apiCall.Id, apiCall.Name, apiDefId, hasApiDef, apiDefDisplayName,
+        outputAddress, inputAddress,
+        PropertyPanelValueSpec.format apiCall.OutputSpec,
+        PropertyPanelValueSpec.format apiCall.InputSpec)
+
 let getCallApiCallsForPanel (store: DsStore) (callId: Guid) : CallApiCallPanelItem list =
     match DsQuery.getCall callId store with
     | None -> []
     | Some call ->
         call.ApiCalls
-        |> Seq.map (fun apiCall ->
-            let apiDefId, hasApiDef, apiDefDisplayName =
-                match apiCall.ApiDefId |> Option.bind (fun id -> DsQuery.getApiDef id store) with
-                | Some apiDef ->
-                    let deviceName =
-                        DsQuery.getSystem apiDef.ParentId store
-                        |> Option.map (fun s -> s.Name)
-                        |> Option.defaultValue "UnknownDevice"
-                    apiDef.Id, true, $"{deviceName}.{apiDef.Name}"
-                | None -> Guid.Empty, false, "(unlinked)"
-            let outputAddress = apiCall.OutTag |> Option.map (fun t -> t.Address) |> Option.defaultValue ""
-            let inputAddress  = apiCall.InTag  |> Option.map (fun t -> t.Address) |> Option.defaultValue ""
-            CallApiCallPanelItem(
-                apiCall.Id, apiCall.Name, apiDefId, hasApiDef, apiDefDisplayName,
-                outputAddress, inputAddress,
-                PropertyPanelValueSpec.format apiCall.OutputSpec,
-                PropertyPanelValueSpec.format apiCall.InputSpec))
+        |> Seq.map (toCallApiCallPanelItem store)
         |> Seq.toList
+
+let getCallConditionsForPanel (store: DsStore) (callId: Guid) : CallConditionPanelItem list =
+    match DsQuery.getCall callId store with
+    | None -> []
+    | Some call ->
+        call.CallConditions
+        |> Seq.map (fun cond ->
+            let items =
+                cond.Conditions
+                |> Seq.map (fun ac ->
+                    let _, _, displayName = resolveApiDefDisplay store ac.ApiDefId
+                    CallConditionApiCallItem(
+                        ac.Id, ac.Name, displayName,
+                        PropertyPanelValueSpec.format ac.OutputSpec))
+                |> Seq.toList
+            CallConditionPanelItem(
+                cond.Id,
+                cond.Type |> Option.defaultValue CallConditionType.Auto,
+                cond.IsOR, cond.IsRising, items))
+        |> Seq.toList
+
+let buildAddCallConditionCmd (store: DsStore) (callId: Guid) (conditionType: CallConditionType) : EditorCommand option =
+    match DsQuery.getCall callId store with
+    | None -> None
+    | Some _ ->
+        let cond = CallCondition(Type = Some conditionType)
+        Some(AddCallCondition(callId, cond))
+
+let buildRemoveCallConditionCmd (store: DsStore) (callId: Guid) (conditionId: Guid) : EditorCommand option =
+    match DsQuery.getCall callId store with
+    | None -> None
+    | Some call ->
+        call.CallConditions
+        |> Seq.tryFind (fun c -> c.Id = conditionId)
+        |> Option.map (fun cond -> RemoveCallCondition(callId, cond))
+
+let buildUpdateCallConditionSettingsCmd
+    (store: DsStore) (callId: Guid) (conditionId: Guid)
+    (newIsOR: bool) (newIsRising: bool) : EditorCommand option =
+    match DsQuery.getCall callId store with
+    | None -> None
+    | Some call ->
+        call.CallConditions
+        |> Seq.tryFind (fun c -> c.Id = conditionId)
+        |> Option.bind (fun cond ->
+            if cond.IsOR = newIsOR && cond.IsRising = newIsRising then None
+            else
+                Some(UpdateCallConditionSettings(
+                    callId, conditionId,
+                    cond.IsOR, newIsOR, cond.IsRising, newIsRising)))
+
+/// store.ApiCalls 전체에서 ApiCall 목록 반환 (조건 ApiCall 선택 등 전역 목록 필요 시 사용)
+let getAllApiCallsForPanel (store: DsStore) : CallApiCallPanelItem list =
+    DsQuery.allApiCalls store
+    |> List.map (toCallApiCallPanelItem store)
+    |> List.sortBy (fun item -> item.ApiDefDisplayName, item.Name)
+
+/// store.ApiCalls 전체에서 소스 ApiCall을 DeepCopy(Id 유지) 후 OutputSpec을 교체하여 조건에 추가
+let buildAddApiCallToConditionCmd
+    (store: DsStore) (callId: Guid) (conditionId: Guid)
+    (sourceApiCallId: Guid) (outputSpecText: string) : EditorCommand option =
+    match DsQuery.getCall callId store with
+    | None -> None
+    | Some _ ->
+        match DsQuery.getApiCall sourceApiCallId store with
+        | None -> None
+        | Some src ->
+            match PropertyPanelValueSpec.tryParseAs src.OutputSpec outputSpecText with
+            | None -> None
+            | Some newSpec ->
+                let copy = src.DeepCopy()
+                copy.Id <- src.Id   // DeepCopy는 새 Guid를 생성하므로 원본 Id 복원
+                copy.OutputSpec <- newSpec
+                Some(AddApiCallToCondition(callId, conditionId, copy))
+
+let buildAddApiCallsToConditionBatchCmd
+    (store: DsStore) (callId: Guid) (conditionId: Guid)
+    (sourceApiCallIds: Guid list) : (EditorCommand * int) option =
+    let cmds =
+        sourceApiCallIds
+        |> List.choose (fun srcId ->
+            buildAddApiCallToConditionCmd store callId conditionId srcId "Undefined")
+    match cmds with
+    | []      -> None
+    | [single] -> Some(single, 1)
+    | many    -> Some(Composite("조건에 ApiCall 추가", many), many.Length)
+
+let buildRemoveApiCallFromConditionCmd
+    (store: DsStore) (callId: Guid) (conditionId: Guid) (apiCallId: Guid) : EditorCommand option =
+    match DsQuery.getCall callId store with
+    | None -> None
+    | Some call ->
+        call.CallConditions
+        |> Seq.tryFind (fun c -> c.Id = conditionId)
+        |> Option.bind (fun cond ->
+            cond.Conditions
+            |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
+            |> Option.map (fun ac -> RemoveApiCallFromCondition(callId, conditionId, ac)))
+
+let buildUpdateConditionApiCallOutputSpecCmd
+    (store: DsStore) (callId: Guid) (conditionId: Guid)
+    (apiCallId: Guid) (newSpecText: string) : EditorCommand option =
+    match DsQuery.getCall callId store with
+    | None -> None
+    | Some call ->
+        call.CallConditions
+        |> Seq.tryFind (fun c -> c.Id = conditionId)
+        |> Option.bind (fun cond ->
+            cond.Conditions
+            |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
+            |> Option.bind (fun ac ->
+                match PropertyPanelValueSpec.tryParseAs ac.OutputSpec newSpecText with
+                | None -> None
+                | Some newSpec ->
+                    if ac.OutputSpec = newSpec then None
+                    else
+                        Some(UpdateConditionApiCallOutputSpec(
+                            callId, conditionId, apiCallId, ac.OutputSpec, newSpec))))
 
 /// AddApiCall 커맨드 빌드 → Some (newApiCallId, cmd) or None
 let buildAddApiCallCmd (store: DsStore) (callId: Guid) (apiDefId: Guid) (apiCallName: string) (outputAddress: string) (inputAddress: string) (valueSpecText: string) (inputValueSpecText: string) : (Guid * EditorCommand) option =

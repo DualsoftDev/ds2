@@ -170,6 +170,19 @@ type EditorCommand =
     | RenameCall     of id: Guid * oldName: string * newName: string
     | UpdateCallProps of id: Guid * oldProps: CallProperties * newProps: CallProperties
 
+    // --- CallCondition ---
+    | AddCallCondition       of callId: Guid * condition: CallCondition
+    | RemoveCallCondition    of callId: Guid * backup: CallCondition
+    | UpdateCallConditionSettings
+        of callId: Guid * conditionId: Guid
+         * oldIsOR: bool * newIsOR: bool
+         * oldIsRising: bool * newIsRising: bool
+    | AddApiCallToCondition      of callId: Guid * conditionId: Guid * apiCall: ApiCall
+    | RemoveApiCallFromCondition of callId: Guid * conditionId: Guid * apiCall: ApiCall
+    | UpdateConditionApiCallOutputSpec
+        of callId: Guid * conditionId: Guid * apiCallId: Guid
+         * oldSpec: ValueSpec * newSpec: ValueSpec
+
     // --- Arrow ---
     | AddArrowWork    of arrow: ArrowBetweenWorks
     | RemoveArrowWork of backup: ArrowBetweenWorks

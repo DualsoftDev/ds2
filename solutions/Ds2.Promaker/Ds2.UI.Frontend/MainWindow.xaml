@@ -359,7 +359,7 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBox x:Name="NameEditor" Text="{Binding NameEditorText, UpdateSourceTrigger=PropertyChanged}"
                                          Padding="6,4" FontSize="12"/>
-                                <Button Grid.Column="1" Content="v" Style="{StaticResource DarkButton}"
+                                <Button Grid.Column="1" Content="✓" Style="{StaticResource DarkButton}"
                                         Margin="4,0,0,0" Click="ApplyName_Click" Padding="8,4"
                                         IsEnabled="{Binding IsNameDirty}"/>
                             </Grid>
@@ -462,7 +462,7 @@
                                              FontSize="12"
                                              ToolTip="Format: hh:mm:ss or d.hh:mm:ss"/>
                                     <Button Grid.Column="1"
-                                            Content="v"
+                                            Content="✓"
                                             Style="{StaticResource DarkButton}"
                                             Margin="4,0,0,0"
                                             Padding="8,4"
@@ -485,7 +485,7 @@
                                              Text="{Binding CallTimeoutText, UpdateSourceTrigger=PropertyChanged}"
                                              Padding="6,4"/>
                                     <Button Grid.Column="1"
-                                            Content="v"
+                                            Content="✓"
                                             Style="{StaticResource DarkButton}"
                                             Margin="4,0,0,0"
                                             Padding="10,4"
@@ -651,7 +651,7 @@
                                                 <DataGridTemplateColumn Width="32">
                                                     <DataGridTemplateColumn.CellTemplate>
                                                         <DataTemplate>
-                                                            <Button Content="v"
+                                                            <Button Content="✓"
                                                                     Style="{StaticResource InlineListButton}"
                                                                     Margin="0,1,0,1"
                                                                     IsEnabled="{Binding IsDirty}"
@@ -663,6 +663,177 @@
                                             </DataGrid.Columns>
                                         </DataGrid>
                                     </Grid>
+                                </Border>
+
+                                <!-- ActiveTrigger 섹션 -->
+                                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,2,0,4" Background="{DynamicResource TertiaryBackgroundBrush}">
+                                    <StackPanel>
+                                        <Border Background="{DynamicResource SecondaryBackgroundBrush}" Padding="4,3">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding ActiveTriggersHeader}" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                <Button Grid.Column="1" Content="+" ToolTip="Add ActiveTrigger" Style="{StaticResource InlineListButton}" Command="{Binding AddActiveConditionCommand}"/>
+                                            </Grid>
+                                        </Border>
+                                        <ItemsControl ItemsSource="{Binding ActiveTriggers}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="4,4">
+                                                        <StackPanel>
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <Button Grid.Column="0" Content="x" Style="{StaticResource InlineListButton}" Command="{Binding DataContext.RemoveCallConditionCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                                                <CheckBox Grid.Column="1" Content="OR" IsChecked="{Binding IsOR, Mode=OneWay}" Margin="4,0" VerticalAlignment="Center" Command="{Binding DataContext.ToggleConditionIsORCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                                                <CheckBox Grid.Column="2" Content="Rising" IsChecked="{Binding IsRising, Mode=OneWay}" Margin="4,0" VerticalAlignment="Center" Command="{Binding DataContext.ToggleConditionIsRisingCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                                                <Button Grid.Column="4" Content="+" ToolTip="Add ApiCall" Style="{StaticResource InlineListButton}" Command="{Binding DataContext.AddConditionApiCallCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                                            </Grid>
+                                                            <ItemsControl ItemsSource="{Binding Items}" Margin="8,2,0,0">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate>
+                                                                        <Grid Margin="0,1">
+                                                                            <Grid.ColumnDefinitions>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                                <ColumnDefinition Width="*"/>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                            </Grid.ColumnDefinitions>
+                                                                            <Button Grid.Column="0" Content="x" Style="{StaticResource InlineListButton}" Command="{Binding DataContext.RemoveConditionApiCallCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                                            <TextBlock Grid.Column="1" Text="{Binding ApiDefDisplayName}" FontSize="10" VerticalAlignment="Center" Margin="4,0"/>
+                                                                            <TextBlock Grid.Column="2" Text="{Binding OutputSpecText}" FontSize="10" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" Margin="4,0"/>
+                                                                            <Button Grid.Column="3" Content="✎" ToolTip="Edit OutputSpec" Style="{StaticResource InlineListButton}" Command="{Binding DataContext.EditConditionApiCallSpecCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                                        </Grid>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- AutoCondition 섹션 -->
+                                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,2,0,4" Background="{DynamicResource TertiaryBackgroundBrush}">
+                                    <StackPanel>
+                                        <Border Background="{DynamicResource SecondaryBackgroundBrush}" Padding="4,3">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding AutoConditionsHeader}" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                <Button Grid.Column="1" Content="+" ToolTip="Add AutoCondition" Style="{StaticResource InlineListButton}" Command="{Binding AddAutoConditionCommand}"/>
+                                            </Grid>
+                                        </Border>
+                                        <ItemsControl ItemsSource="{Binding AutoConditions}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="4,4">
+                                                        <StackPanel>
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <Button Grid.Column="0" Content="x" Style="{StaticResource InlineListButton}" Command="{Binding DataContext.RemoveCallConditionCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                                                <CheckBox Grid.Column="1" Content="OR" IsChecked="{Binding IsOR, Mode=OneWay}" Margin="4,0" VerticalAlignment="Center" Command="{Binding DataContext.ToggleConditionIsORCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                                                <CheckBox Grid.Column="2" Content="Rising" IsChecked="{Binding IsRising, Mode=OneWay}" Margin="4,0" VerticalAlignment="Center" Command="{Binding DataContext.ToggleConditionIsRisingCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                                                <Button Grid.Column="4" Content="+" ToolTip="Add ApiCall" Style="{StaticResource InlineListButton}" Command="{Binding DataContext.AddConditionApiCallCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                                            </Grid>
+                                                            <ItemsControl ItemsSource="{Binding Items}" Margin="8,2,0,0">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate>
+                                                                        <Grid Margin="0,1">
+                                                                            <Grid.ColumnDefinitions>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                                <ColumnDefinition Width="*"/>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                            </Grid.ColumnDefinitions>
+                                                                            <Button Grid.Column="0" Content="x" Style="{StaticResource InlineListButton}" Command="{Binding DataContext.RemoveConditionApiCallCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                                            <TextBlock Grid.Column="1" Text="{Binding ApiDefDisplayName}" FontSize="10" VerticalAlignment="Center" Margin="4,0"/>
+                                                                            <TextBlock Grid.Column="2" Text="{Binding OutputSpecText}" FontSize="10" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" Margin="4,0"/>
+                                                                            <Button Grid.Column="3" Content="✎" ToolTip="Edit OutputSpec" Style="{StaticResource InlineListButton}" Command="{Binding DataContext.EditConditionApiCallSpecCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                                        </Grid>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- CommonCondition 섹션 -->
+                                <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Margin="0,2,0,4" Background="{DynamicResource TertiaryBackgroundBrush}">
+                                    <StackPanel>
+                                        <Border Background="{DynamicResource SecondaryBackgroundBrush}" Padding="4,3">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding CommonConditionsHeader}" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                <Button Grid.Column="1" Content="+" ToolTip="Add CommonCondition" Style="{StaticResource InlineListButton}" Command="{Binding AddCommonConditionCommand}"/>
+                                            </Grid>
+                                        </Border>
+                                        <ItemsControl ItemsSource="{Binding CommonConditions}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="4,4">
+                                                        <StackPanel>
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <Button Grid.Column="0" Content="x" Style="{StaticResource InlineListButton}" Command="{Binding DataContext.RemoveCallConditionCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                                                <CheckBox Grid.Column="1" Content="OR" IsChecked="{Binding IsOR, Mode=OneWay}" Margin="4,0" VerticalAlignment="Center" Command="{Binding DataContext.ToggleConditionIsORCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                                                <CheckBox Grid.Column="2" Content="Rising" IsChecked="{Binding IsRising, Mode=OneWay}" Margin="4,0" VerticalAlignment="Center" Command="{Binding DataContext.ToggleConditionIsRisingCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                                                <Button Grid.Column="4" Content="+" ToolTip="Add ApiCall" Style="{StaticResource InlineListButton}" Command="{Binding DataContext.AddConditionApiCallCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                                                            </Grid>
+                                                            <ItemsControl ItemsSource="{Binding Items}" Margin="8,2,0,0">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate>
+                                                                        <Grid Margin="0,1">
+                                                                            <Grid.ColumnDefinitions>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                                <ColumnDefinition Width="*"/>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                                <ColumnDefinition Width="Auto"/>
+                                                                            </Grid.ColumnDefinitions>
+                                                                            <Button Grid.Column="0" Content="x" Style="{StaticResource InlineListButton}" Command="{Binding DataContext.RemoveConditionApiCallCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                                            <TextBlock Grid.Column="1" Text="{Binding ApiDefDisplayName}" FontSize="10" VerticalAlignment="Center" Margin="4,0"/>
+                                                                            <TextBlock Grid.Column="2" Text="{Binding OutputSpecText}" FontSize="10" VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}" Margin="4,0"/>
+                                                                            <Button Grid.Column="3" Content="✎" ToolTip="Edit OutputSpec" Style="{StaticResource InlineListButton}" Command="{Binding DataContext.EditConditionApiCallSpecCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                                        </Grid>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
                                 </Border>
 
                                 <Separator Margin="0,12"/>

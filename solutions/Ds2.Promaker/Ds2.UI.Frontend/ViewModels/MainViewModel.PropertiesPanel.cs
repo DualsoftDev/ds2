@@ -18,9 +18,15 @@ public partial class MainViewModel
     public ObservableCollection<CallApiCallItem> CallApiCalls { get; } = [];
     public ObservableCollection<DeviceApiDefOptionItem> DeviceApiDefOptions { get; } = [];
     public ObservableCollection<ApiDefPanelItem> SystemApiDefs { get; } = [];
+    public ObservableCollection<CallConditionItem> ActiveTriggers  { get; } = [];
+    public ObservableCollection<CallConditionItem> AutoConditions  { get; } = [];
+    public ObservableCollection<CallConditionItem> CommonConditions{ get; } = [];
 
-    public string CallApiCallsHeader => $"ApiCalls [{CallApiCalls.Count}]";
-    public string SystemApiDefsHeader => $"ApiDefs [{SystemApiDefs.Count}]";
+    public string CallApiCallsHeader    => $"ApiCalls [{CallApiCalls.Count}]";
+    public string SystemApiDefsHeader   => $"ApiDefs [{SystemApiDefs.Count}]";
+    public string ActiveTriggersHeader  => $"ActiveTrigger [{ActiveTriggers.Count}]";
+    public string AutoConditionsHeader  => $"AutoCondition [{AutoConditions.Count}]";
+    public string CommonConditionsHeader=> $"CommonCondition [{CommonConditions.Count}]";
 
     [ObservableProperty] private bool _isWorkSelected;
     [ObservableProperty] private bool _isCallSelected;
@@ -49,8 +55,11 @@ public partial class MainViewModel
 
     private void InitializePropertyPanelState()
     {
-        CallApiCalls.CollectionChanged += (_, _) => OnPropertyChanged(nameof(CallApiCallsHeader));
-        SystemApiDefs.CollectionChanged += (_, _) => OnPropertyChanged(nameof(SystemApiDefsHeader));
+        CallApiCalls.CollectionChanged    += (_, _) => OnPropertyChanged(nameof(CallApiCallsHeader));
+        SystemApiDefs.CollectionChanged   += (_, _) => OnPropertyChanged(nameof(SystemApiDefsHeader));
+        ActiveTriggers.CollectionChanged  += (_, _) => OnPropertyChanged(nameof(ActiveTriggersHeader));
+        AutoConditions.CollectionChanged  += (_, _) => OnPropertyChanged(nameof(AutoConditionsHeader));
+        CommonConditions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(CommonConditionsHeader));
     }
 
     [RelayCommand]
@@ -126,10 +135,31 @@ public partial class MainViewModel
         StatusText = "ApiCall added.";
     }
 
+    // 단일 ApiCall 항목만 store에서 다시 읽어 교체 — 다른 항목의 dirty 상태 보존
+    private void RefreshSingleCallApiCall(Guid callId, CallApiCallItem item)
+    {
+        var idx = CallApiCalls.IndexOf(item);
+        var row = _editor.GetCallApiCallsForPanel(callId)
+                         .FirstOrDefault(r => r.ApiCallId == item.ApiCallId);
+        if (idx < 0 || row is null) return;
+        var newItem = new CallApiCallItem(
+            row.ApiCallId, row.Name, row.ApiDefId, row.HasApiDef,
+            row.ApiDefDisplayName, row.OutputAddress, row.InputAddress,
+            row.ValueSpecText, row.InputValueSpecText);
+        CallApiCalls[idx] = newItem;
+        SelectedCallApiCall = newItem;
+    }
+
     [RelayCommand]
     private void EditCallApiCallSpec(CallApiCallItem? item)
     {
+        if (RequireSelectedAs(EntityTypes.Call) is not { } selectedCall) return;
         if (item is null) return;
+        if (item.ApiDefId is not Guid apiDefId || apiDefId == Guid.Empty)
+        {
+            StatusText = "Select a Device ApiDef first.";
+            return;
+        }
 
         var dialog = new ApiCallSpecDialog(item.Name, item.ValueSpecText, item.InputValueSpecText);
         if (GetOwnerWindow() is { } owner)
@@ -138,42 +168,42 @@ public partial class MainViewModel
         if (dialog.ShowDialog() != true)
             return;
 
-        item.ValueSpecText = dialog.OutSpecText;
-        item.InputValueSpecText = dialog.InSpecText;
-        StatusText = "Spec updated in row. Click v to apply.";
+        var updated = _editor.UpdateApiCallFromPanel(
+            selectedCall.Id, item.ApiCallId, apiDefId,
+            item.Name, item.OutputAddress, item.InputAddress,
+            dialog.OutSpecText, dialog.InSpecText);
+
+        if (!updated) { StatusText = "Failed to update ApiCall spec."; return; }
+        RefreshSingleCallApiCall(selectedCall.Id, item);
+        StatusText = "ApiCall spec updated.";
     }
 
     [RelayCommand]
-    private void UpdateCallApiCall(CallApiCallItem? item)
+    private void UpdateCallApiCall(CallApiCallItem? _)
     {
         if (RequireSelectedAs(EntityTypes.Call) is not { } selectedCall) return;
-        if (item is null || !item.IsDirty) return;
-        if (item.ApiDefId is not Guid apiDefId || apiDefId == Guid.Empty)
+
+        var dirtyItems = CallApiCalls.Where(x => x.IsDirty).ToList();
+        if (dirtyItems.Count == 0) return;
+
+        var failCount = 0;
+        foreach (var dirty in dirtyItems)
         {
-            StatusText = "Select a Device ApiDef first.";
-            return;
+            if (dirty.ApiDefId is not Guid apiDefId || apiDefId == Guid.Empty) { failCount++; continue; }
+            if (!_editor.UpdateApiCallFromPanel(
+                    selectedCall.Id, dirty.ApiCallId, apiDefId,
+                    dirty.Name, dirty.OutputAddress, dirty.InputAddress,
+                    dirty.ValueSpecText, dirty.InputValueSpecText))
+                failCount++;
         }
 
-        var updated = _editor.UpdateApiCallFromPanel(
-            selectedCall.Id,
-            item.ApiCallId,
-            apiDefId,
-            item.Name,
-            item.OutputAddress,
-            item.InputAddress,
-            item.ValueSpecText,
-            item.InputValueSpecText);
-
-        if (!updated)
-        {
-            StatusText = "Failed to update ApiCall.";
-            return;
-        }
-
-        var selectedId = item.ApiCallId;
+        var selectedId = SelectedCallApiCall?.ApiCallId;
         RefreshPropertyPanel();
-        SelectedCallApiCall = CallApiCalls.FirstOrDefault(x => x.ApiCallId == selectedId);
-        StatusText = "ApiCall updated.";
+        if (selectedId is { } id)
+            SelectedCallApiCall = CallApiCalls.FirstOrDefault(x => x.ApiCallId == id);
+        StatusText = failCount == 0
+            ? $"{dirtyItems.Count} ApiCall(s) updated."
+            : $"{dirtyItems.Count - failCount} updated, {failCount} failed.";
     }
 
     [RelayCommand]
@@ -185,6 +215,109 @@ public partial class MainViewModel
         _editor.RemoveApiCallFromCall(selectedCall.Id, item.ApiCallId);
         RefreshPropertyPanel();
         StatusText = "ApiCall removed.";
+    }
+
+    private void AddCondition(CallConditionType type)
+    {
+        if (RequireSelectedAs(EntityTypes.Call) is not { } selectedCall) return;
+        if (!_editor.AddCallCondition(selectedCall.Id, type)) return;
+        RefreshCallPanel(selectedCall.Id);
+    }
+
+    [RelayCommand]
+    private void AddActiveCondition() => AddCondition(CallConditionType.Active);
+
+    [RelayCommand]
+    private void AddAutoCondition() => AddCondition(CallConditionType.Auto);
+
+    [RelayCommand]
+    private void AddCommonCondition() => AddCondition(CallConditionType.Common);
+
+    [RelayCommand]
+    private void RemoveCallCondition(CallConditionItem? item)
+    {
+        if (RequireSelectedAs(EntityTypes.Call) is not { } selectedCall) return;
+        if (item is null) return;
+        if (!_editor.RemoveCallCondition(selectedCall.Id, item.ConditionId)) return;
+        RefreshCallPanel(selectedCall.Id);
+    }
+
+    [RelayCommand]
+    private void AddConditionApiCall(CallConditionItem? item)
+    {
+        if (RequireSelectedAs(EntityTypes.Call) is not { } selectedCall) return;
+        if (item is null) return;
+
+        var choices = _editor.GetAllApiCallsForPanel()
+            .Select(x => new ConditionApiCallPickerDialog.ApiCallChoice(
+                x.ApiCallId, $"{x.ApiDefDisplayName} / {x.Name}"))
+            .ToList();
+
+        if (choices.Count == 0)
+        {
+            StatusText = "프로젝트에 ApiCall이 없습니다.";
+            return;
+        }
+
+        var dialog = new ConditionApiCallPickerDialog(choices);
+        if (GetOwnerWindow() is { } owner)
+            dialog.Owner = owner;
+
+        if (dialog.ShowDialog() != true || dialog.SelectedApiCallIds.Count == 0)
+            return;
+
+        var added = _editor.AddApiCallsToConditionBatch(
+            selectedCall.Id, item.ConditionId,
+            dialog.SelectedApiCallIds.ToArray());
+
+        RefreshCallPanel(selectedCall.Id);
+        var failCount = dialog.SelectedApiCallIds.Count - added;
+        if (failCount > 0)
+            StatusText = $"{failCount} ApiCall(s) 추가 실패.";
+    }
+
+    [RelayCommand]
+    private void RemoveConditionApiCall(ConditionApiCallRow? row)
+    {
+        if (RequireSelectedAs(EntityTypes.Call) is not { } selectedCall) return;
+        if (row is null) return;
+        if (!_editor.RemoveApiCallFromCondition(selectedCall.Id, row.ConditionId, row.ApiCallId)) return;
+        RefreshCallPanel(selectedCall.Id);
+    }
+
+    [RelayCommand]
+    private void EditConditionApiCallSpec(ConditionApiCallRow? row)
+    {
+        if (RequireSelectedAs(EntityTypes.Call) is not { } selectedCall) return;
+        if (row is null) return;
+
+        var dialog = new ValueSpecDialog(row.OutputSpecText, "기대값 편집");
+        if (GetOwnerWindow() is { } owner)
+            dialog.Owner = owner;
+
+        if (dialog.ShowDialog() != true)
+            return;
+
+        if (!_editor.UpdateConditionApiCallOutputSpec(selectedCall.Id, row.ConditionId, row.ApiCallId, dialog.ValueSpecText)) return;
+        RefreshCallPanel(selectedCall.Id);
+    }
+
+    [RelayCommand]
+    private void ToggleConditionIsOR(CallConditionItem? item)
+    {
+        if (RequireSelectedAs(EntityTypes.Call) is not { } selectedCall) return;
+        if (item is null) return;
+        if (!_editor.UpdateCallConditionSettings(selectedCall.Id, item.ConditionId, !item.IsOR, item.IsRising)) return;
+        RefreshCallPanel(selectedCall.Id);
+    }
+
+    [RelayCommand]
+    private void ToggleConditionIsRising(CallConditionItem? item)
+    {
+        if (RequireSelectedAs(EntityTypes.Call) is not { } selectedCall) return;
+        if (item is null) return;
+        if (!_editor.UpdateCallConditionSettings(selectedCall.Id, item.ConditionId, item.IsOR, !item.IsRising)) return;
+        RefreshCallPanel(selectedCall.Id);
     }
 
     [RelayCommand]
@@ -276,6 +409,9 @@ public partial class MainViewModel
             CallApiCalls.Clear();
             DeviceApiDefOptions.Clear();
             SelectedCallApiCall = null;
+            ActiveTriggers.Clear();
+            AutoConditions.Clear();
+            CommonConditions.Clear();
         }
 
         if (IsSystemSelected && selected is not null)
@@ -331,6 +467,20 @@ public partial class MainViewModel
 
         if (SelectedCallApiCall is null && CallApiCalls.Count > 0)
             SelectedCallApiCall = CallApiCalls[0];
+
+        ActiveTriggers.Clear();
+        AutoConditions.Clear();
+        CommonConditions.Clear();
+        foreach (var cond in _editor.GetCallConditionsForPanel(callId))
+        {
+            var target = cond.ConditionType switch
+            {
+                CallConditionType.Active => ActiveTriggers,
+                CallConditionType.Auto   => AutoConditions,
+                _                        => CommonConditions
+            };
+            target.Add(new CallConditionItem(cond));
+        }
     }
 
     public void EditApiDefNode(Guid apiDefId)
@@ -368,148 +518,4 @@ public partial class MainViewModel
 
         return Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive);
     }
-}
-
-public sealed class CallApiCallItem : ObservableObject
-{
-    private readonly Guid? _originalApiDefId;
-    private readonly string _originalName;
-    private readonly string _originalOutputAddress;
-    private readonly string _originalInputAddress;
-    private readonly string _originalValueSpecText;
-    private readonly string _originalInputValueSpecText;
-
-    private Guid? _apiDefId;
-    private string _name;
-    private string _outputAddress;
-    private string _inputAddress;
-    private string _valueSpecText;
-    private string _inputValueSpecText;
-    private bool _isDirty;
-
-    public CallApiCallItem(
-        Guid apiCallId,
-        string name,
-        Guid apiDefId,
-        bool hasApiDef,
-        string apiDefDisplayName,
-        string outputAddress,
-        string inputAddress,
-        string valueSpecText,
-        string inputValueSpecText)
-    {
-        ApiCallId = apiCallId;
-        ApiDefDisplayName = apiDefDisplayName;
-
-        _apiDefId = hasApiDef && apiDefId != Guid.Empty ? apiDefId : null;
-        _name = name;
-        _outputAddress = outputAddress;
-        _inputAddress = inputAddress;
-        _valueSpecText = valueSpecText;
-        _inputValueSpecText = inputValueSpecText;
-
-        _originalApiDefId = _apiDefId;
-        _originalName = _name;
-        _originalOutputAddress = _outputAddress;
-        _originalInputAddress = _inputAddress;
-        _originalValueSpecText = _valueSpecText;
-        _originalInputValueSpecText = _inputValueSpecText;
-    }
-
-    public Guid ApiCallId { get; }
-    public string ApiDefDisplayName { get; }
-
-    public Guid? ApiDefId
-    {
-        get => _apiDefId;
-        set
-        {
-            if (SetProperty(ref _apiDefId, value))
-                RefreshDirtyState();
-        }
-    }
-
-    public string Name
-    {
-        get => _name;
-        set
-        {
-            var next = value ?? string.Empty;
-            if (SetProperty(ref _name, next))
-                RefreshDirtyState();
-        }
-    }
-
-    public string OutputAddress
-    {
-        get => _outputAddress;
-        set
-        {
-            var next = value ?? string.Empty;
-            if (SetProperty(ref _outputAddress, next))
-                RefreshDirtyState();
-        }
-    }
-
-    public string InputAddress
-    {
-        get => _inputAddress;
-        set
-        {
-            var next = value ?? string.Empty;
-            if (SetProperty(ref _inputAddress, next))
-                RefreshDirtyState();
-        }
-    }
-
-    public string ValueSpecText
-    {
-        get => _valueSpecText;
-        set
-        {
-            var next = value ?? string.Empty;
-            if (SetProperty(ref _valueSpecText, next))
-                RefreshDirtyState();
-        }
-    }
-
-    public string InputValueSpecText
-    {
-        get => _inputValueSpecText;
-        set
-        {
-            var next = value ?? string.Empty;
-            if (SetProperty(ref _inputValueSpecText, next))
-                RefreshDirtyState();
-        }
-    }
-
-    public bool IsDirty
-    {
-        get => _isDirty;
-        private set => SetProperty(ref _isDirty, value);
-    }
-
-    private void RefreshDirtyState()
-    {
-        IsDirty =
-            _originalApiDefId != _apiDefId ||
-            !String.Equals(_originalName, _name, StringComparison.Ordinal) ||
-            !String.Equals(_originalOutputAddress, _outputAddress, StringComparison.Ordinal) ||
-            !String.Equals(_originalInputAddress, _inputAddress, StringComparison.Ordinal) ||
-            !String.Equals(_originalValueSpecText, _valueSpecText, StringComparison.Ordinal) ||
-            !String.Equals(_originalInputValueSpecText, _inputValueSpecText, StringComparison.Ordinal);
-    }
-}
-
-public sealed class DeviceApiDefOptionItem(
-    Guid id,
-    string deviceName,
-    string apiDefName,
-    string displayName)
-{
-    public Guid Id { get; } = id;
-    public string DeviceName { get; } = deviceName;
-    public string ApiDefName { get; } = apiDefName;
-    public string DisplayName { get; } = displayName;
 }
