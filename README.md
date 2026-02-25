@@ -1,6 +1,6 @@
 # Ds2.Promaker
 
-Last Sync: 2026-02-25 (AddArrow 제거, 화살표 생성 ConnectSelectionInOrder로 통일)
+Last Sync: 2026-02-25 (Call Conditions — ActiveTrigger/AutoCondition/CommonCondition 구현)
 
 ## 프로젝트 목표
 
@@ -89,6 +89,7 @@ Project
 
 Call.Name = DevicesAlias + "." + ApiName   (computed, Rename 시 DevicesAlias만 변경)
 ApiCall   = ApiDef 실행 1건 (OutTag 주소 / InTag 주소 / OutputSpec / InputSpec 포함)
+CallCondition = Call 동작 조건 1건 (Active/Auto/Common 타입, IsOR, IsRising, 조건 ApiCall 목록)
 ```
 
 - **Active System**: 제어 흐름 트리 (Flow → Work → Call)
@@ -105,14 +106,14 @@ solutions/Ds2.Promaker/
   Ds2.Core/                # 순수 도메인 타입 (Entities, Properties, Enum, ValueSpec, JsonConverter)
   Ds2.UI.Core/             # 편집 코어(F#) — 24개 모듈 (DsStore/Query/Mutation 포함)
   Ds2.Database/            # 데이터 계층
-  Ds2.UI.Frontend/         # WPF UI(C#) — 23개 파일
+  Ds2.UI.Frontend/         # WPF UI(C#) — 25개 파일
   Ds2.Core.Tests/          # Core 단위 테스트 (21개)
-  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (102개)
+  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (107개)
   Ds2.Integration.Tests/   # 통합 테스트 (13개)
   Ds2.Promaker.sln
 ```
 
-테스트 합계: **136개** (21 + 102 + 13)
+테스트 합계: **141개** (21 + 107 + 13)
 
 ---
 
@@ -169,8 +170,8 @@ solutions/Ds2.Promaker/
 | 19 | `Editing/EditorApi.DeviceOps.fs` | `AddCallsWithDevice` — Passive System/ApiDef 자동 생성 후 Call 일괄 추가 |
 | 20 | `Editing/EditorApi.PasteResolvers.fs` | 복사 가능 타입 판정, 붙여넣기 대상(System/Flow/Work) 해석 |
 | 21 | `Editing/EditorApi.PasteOps.fs` | 붙여넣기 명령 조립, `CallCopyContext` 기반 ApiCall 공유/복제 분기 |
-| 22 | `Editing/EditorApi.PropertyPanel.fs` | 속성 패널 전용 타입 (`DeviceApiDefOption`, `CallApiCallPanelItem`, `PropertyPanelValueSpec`) |
-| 23 | `Editing/EditorApi.PanelOps.fs` | 패널 데이터 조회(`getWorkDurationText`, `getCallTimeoutText`, `getCallApiCallsForPanel` 등) 및 ApiCall 빌더 |
+| 22 | `Editing/EditorApi.PropertyPanel.fs` | 속성 패널 전용 타입: `DeviceApiDefOption`, `CallApiCallPanelItem`, `CallConditionApiCallItem`, `CallConditionPanelItem`, `PropertyPanelValueSpec` |
+| 23 | `Editing/EditorApi.PanelOps.fs` | 패널 데이터 조회(`getWorkDurationText`, `getCallTimeoutText`, `getCallApiCallsForPanel`, `getAllApiCallsForPanel`, `getCallConditionsForPanel` 등) 및 ApiCall/CallCondition 커맨드 빌더(`buildAddApiCallsToConditionBatchCmd` 포함) |
 | 24 | `Editing/EditorApi.fs` | **외부 진입 API** — `ExecuteCommand`(실행+검증+롤백), `Undo`, `Redo`, `LoadFromFile`(백업+검증+롤백) |
 
 ---
@@ -196,7 +197,8 @@ solutions/Ds2.Promaker/
 | `ViewModels/MainViewModel.cs` | `HandleEvent` 허브, 파일 I/O, Undo/Redo, 리셋 |
 | `ViewModels/MainViewModel.Selection.cs` | 트리·캔버스 선택 동기화 |
 | `ViewModels/MainViewModel.CanvasTabs.cs` | 탭 상태, `RebuildAll` (트리+캔버스 전체 재구성) |
-| `ViewModels/MainViewModel.PropertiesPanel.cs` | 속성 패널 상태 (ApiCall CRUD, ValueSpec, 더티 추적) |
+| `ViewModels/MainViewModel.PropertiesPanel.cs` | 속성 패널 커맨드 (ApiCall CRUD, Call Conditions CRUD, ValueSpec, 더티 추적) |
+| `ViewModels/MainViewModel.PropertyPanelItems.cs` | 속성 패널 보조 뷰모델 타입: `CallApiCallItem`, `DeviceApiDefOptionItem`, `CallConditionItem`, `ConditionApiCallRow` |
 | `ViewModels/ArrowNode.cs` | 화살표 뷰모델 (Geometry 계산, 화살촉 타입별 렌더링) |
 | `ViewModels/EntityNode.cs` | 트리/캔버스 노드 뷰모델 |
 | `ViewModels/TreeNodeSearch.cs` | 트리 탐색 정적 유틸리티 |
@@ -205,6 +207,7 @@ solutions/Ds2.Promaker/
 | `Dialogs/ApiDefEditDialog.xaml(.cs)` | ApiDef 속성 편집 다이얼로그 |
 | `Dialogs/ArrowTypeDialog.xaml(.cs)` | 화살표 유형 선택 다이얼로그 (Start / Reset / StartReset / ResetReset / Group) |
 | `Dialogs/CallCreateDialog.xaml(.cs)` | Call 생성 다이얼로그 (Device 모드 / Call only 모드) |
+| `Dialogs/ConditionApiCallPickerDialog.xaml(.cs)` | 조건 ApiCall 선택 다이얼로그 (전체 목록, 다중 선택 지원) |
 | `Dialogs/ValueSpecDialog.xaml(.cs)` | ValueSpec 독립 편집 다이얼로그 |
 
 ---

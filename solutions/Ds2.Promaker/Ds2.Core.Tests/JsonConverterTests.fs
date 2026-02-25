@@ -190,6 +190,7 @@ module JsonRoundTripTests =
         let actualConditions = actual.CallConditions |> Seq.toList
         Assert.Equal(expectedConditions.Length, actualConditions.Length)
         List.iter2 (fun (e: CallCondition) (a: CallCondition) ->
+            Assert.Equal(e.Id, a.Id)
             Assert.Equal(e.Type, a.Type)
             Assert.Equal(e.IsOR, a.IsOR)
             Assert.Equal(e.IsRising, a.IsRising)

@@ -31,7 +31,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     member _.OnEvent = eventBus.Publish
     member _.CanUndo = undoManager.CanUndo
     member _.CanRedo = undoManager.CanRedo
-    member _.Store = store
 
     // --- 내부: 명령 실행 공통 ---
     member private _.PublishCommandResult(cmd: EditorCommand, events: EditorEvent list) =
@@ -222,6 +221,9 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     member _.GetCallApiCallsForPanel(callId: Guid) : CallApiCallPanelItem list =
         PanelOps.getCallApiCallsForPanel store callId
 
+    member _.GetAllApiCallsForPanel() : CallApiCallPanelItem list =
+        PanelOps.getAllApiCallsForPanel store
+
     member this.AddApiCallFromPanel(callId: Guid, apiDefId: Guid, apiCallName: string, outputAddress: string, inputAddress: string, valueSpecText: string, inputValueSpecText: string) : Guid option =
         match PanelOps.buildAddApiCallCmd store callId apiDefId apiCallName outputAddress inputAddress valueSpecText inputValueSpecText with
         | Some (newId, cmd) -> this.Exec cmd; Some newId
@@ -229,6 +231,45 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
 
     member this.UpdateApiCallFromPanel(callId: Guid, apiCallId: Guid, apiDefId: Guid, apiCallName: string, outputAddress: string, inputAddress: string, valueSpecText: string, inputValueSpecText: string) : bool =
         match PanelOps.buildUpdateApiCallCmd store callId apiCallId apiDefId apiCallName outputAddress inputAddress valueSpecText inputValueSpecText with
+        | Some cmd -> this.Exec cmd; true
+        | None -> false
+
+    member _.GetCallConditionsForPanel(callId: Guid) : CallConditionPanelItem list =
+        PanelOps.getCallConditionsForPanel store callId
+
+    member this.AddCallCondition(callId: Guid, conditionType: CallConditionType) : bool =
+        match PanelOps.buildAddCallConditionCmd store callId conditionType with
+        | Some cmd -> this.Exec cmd; true
+        | None -> false
+
+    member this.RemoveCallCondition(callId: Guid, conditionId: Guid) : bool =
+        match PanelOps.buildRemoveCallConditionCmd store callId conditionId with
+        | Some cmd -> this.Exec cmd; true
+        | None -> false
+
+    member this.UpdateCallConditionSettings(callId: Guid, conditionId: Guid, isOR: bool, isRising: bool) : bool =
+        match PanelOps.buildUpdateCallConditionSettingsCmd store callId conditionId isOR isRising with
+        | Some cmd -> this.Exec cmd; true
+        | None -> false
+
+    member this.AddApiCallToCondition(callId: Guid, conditionId: Guid, sourceApiCallId: Guid, outputSpecText: string) : bool =
+        match PanelOps.buildAddApiCallToConditionCmd store callId conditionId sourceApiCallId outputSpecText with
+        | Some cmd -> this.Exec cmd; true
+        | None -> false
+
+    /// 다중 ApiCall을 조건에 한 번에 추가 (Composite 1건 → Undo 1회). 추가된 개수 반환.
+    member this.AddApiCallsToConditionBatch(callId: Guid, conditionId: Guid, sourceApiCallIds: Guid[]) : int =
+        match PanelOps.buildAddApiCallsToConditionBatchCmd store callId conditionId (List.ofArray sourceApiCallIds) with
+        | Some (cmd, count) -> this.Exec cmd; count
+        | None -> 0
+
+    member this.RemoveApiCallFromCondition(callId: Guid, conditionId: Guid, apiCallId: Guid) : bool =
+        match PanelOps.buildRemoveApiCallFromConditionCmd store callId conditionId apiCallId with
+        | Some cmd -> this.Exec cmd; true
+        | None -> false
+
+    member this.UpdateConditionApiCallOutputSpec(callId: Guid, conditionId: Guid, apiCallId: Guid, newSpecText: string) : bool =
+        match PanelOps.buildUpdateConditionApiCallOutputSpecCmd store callId conditionId apiCallId newSpecText with
         | Some cmd -> this.Exec cmd; true
         | None -> false
 

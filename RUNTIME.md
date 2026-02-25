@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-02-25 (AddArrow 제거, 화살표 생성 ConnectSelectionInOrder로 통일)
+Last Sync: 2026-02-25 (Call Conditions — ActiveTrigger/AutoCondition/CommonCondition 구현)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -89,6 +89,65 @@ Store를 직접 읽지 않고 Projection을 통해 뷰 데이터를 얻습니다
 | Call 속성(Timeout) | `UpdateCallTimeout` Single | |
 | ApiCall 태그/ValueSpec | `UpdateApiCallInTag` / `UpdateApiCallOutTag` / `UpdateApiCallValueSpec` Single | |
 | 화살표 재연결 | `ReconnectArrow` Single | source 또는 target 교체 |
+| CallCondition IsOR/IsRising 변경 | `UpdateCallConditionSettings` Single | 변경 없으면 명령 미생성(false 반환) |
+| 조건 ApiCall 기대값 변경 | `UpdateConditionApiCallOutputSpec` Single | ValueSpec 동일하면 명령 미생성(false 반환) |
+
+### 2.5 Call Conditions
+
+Call 노드에는 **ActiveTrigger / AutoCondition / CommonCondition** 세 종류의 조건을 붙일 수 있습니다.
+
+#### 조건 구조
+
+```
+Call
+ └── CallConditions[]
+       └── CallCondition
+             ├── Id       (Guid — 조건 식별)
+             ├── Type     (Active=0 / Auto=1 / Common=2)
+             ├── IsOR     (bool — AND/OR 결합 방식)
+             ├── IsRising (bool — 상승 엣지 트리거)
+             └── Conditions[]   (ApiCall 목록 — 조건 기대값)
+```
+
+#### 조건 ApiCall 저장 방식
+
+조건 ApiCall은 **`store.ApiCalls`에 등록하지 않습니다.**
+
+```
+원본 ApiCall (store.ApiCalls 내 존재)
+  │
+  ▼  buildAddApiCallToConditionCmd
+     1. DsQuery.getApiCall(sourceApiCallId, store) — store 전역 조회
+     2. src.DeepCopy() — Id 동일 유지, 독립 객체
+     3. copy.OutputSpec <- 사용자 기대값 (ValueSpec)
+     4. AddApiCallToCondition 명령 → CallCondition.Conditions에 추가
+```
+
+- 원본 ApiCall 삭제 후에도 조건 ApiCall은 `(unlinked)` fallback으로 패널에 표시됨 (Id 참조 없음)
+- 조건 ApiCall은 해당 `CallCondition.Conditions`에만 존재 — 다른 Call의 `ApiCalls`와 공유하지 않음
+
+#### 패널 표시 흐름
+
+```
+Call 선택
+  → GetCallConditionsForPanel(callId)
+  → CallConditionPanelItem list (ConditionId, Type, IsOR, IsRising, Items[])
+  → C# RefreshCallPanel:
+       ActiveTriggers / AutoConditions / CommonConditions ObservableCollection 갱신
+```
+
+#### CRUD API 요약
+
+| 동작 | EditorApi 메서드 | 반환 false 조건 |
+|------|----------------|----------------|
+| 조건 추가 | `AddCallCondition(callId, type)` | Call 미존재 |
+| 조건 삭제 | `RemoveCallCondition(callId, conditionId)` | Call 또는 조건 미존재 |
+| IsOR/IsRising 변경 | `UpdateCallConditionSettings(callId, conditionId, isOR, isRising)` | 미존재 또는 값 동일 |
+| 조건 ApiCall 추가 | `AddApiCallToCondition(callId, conditionId, sourceApiCallId, outputSpecText)` | 미존재 또는 파싱 실패 |
+| 조건 ApiCall 삭제 | `RemoveApiCallFromCondition(callId, conditionId, apiCallId)` | 미존재 |
+| 조건 ApiCall 기대값 변경 | `UpdateConditionApiCallOutputSpec(callId, conditionId, apiCallId, newSpecText)` | 미존재 또는 값 동일 |
+
+모든 조작은 Undo 1회로 원상복귀됩니다.
 
 ### 2.4 Delete
 

@@ -79,6 +79,7 @@ and ApiCall(name) =
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> ApiCall
 
 and CallCondition() =
+    member val Id         : Guid              = Guid.NewGuid() with get, set
     member val Type : CallConditionType option = None with get, set
     member val Conditions = ResizeArray<ApiCall>() with get, set
     member val IsOR       = false with get, set

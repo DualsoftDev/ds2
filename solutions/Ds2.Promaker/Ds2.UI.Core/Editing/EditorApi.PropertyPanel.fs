@@ -34,6 +34,24 @@ type CallApiCallPanelItem
     member _.ValueSpecText = valueSpecText
     member _.InputValueSpecText = inputValueSpecText
 
+[<Sealed>]
+type CallConditionApiCallItem
+    (apiCallId: Guid, apiCallName: string, apiDefDisplayName: string, outputSpecText: string) =
+    member _.ApiCallId         = apiCallId
+    member _.ApiCallName       = apiCallName
+    member _.ApiDefDisplayName = apiDefDisplayName
+    member _.OutputSpecText    = outputSpecText
+
+[<Sealed>]
+type CallConditionPanelItem
+    (conditionId: Guid, conditionType: CallConditionType,
+     isOR: bool, isRising: bool, items: CallConditionApiCallItem list) =
+    member _.ConditionId   = conditionId
+    member _.ConditionType = conditionType
+    member _.IsOR          = isOR
+    member _.IsRising      = isRising
+    member _.Items         = items
+
 module internal PropertyPanelValueSpec =
 
     let private formatBound toText (value, boundType) =
