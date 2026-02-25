@@ -5,7 +5,7 @@ open System.Globalization
 open Ds2.Core
 
 // =============================================================================
-// EditorApi — UI가 호출하는 유일한 진입점
+// EditorApi — UI의 편집(쓰기) 명령 진입점
 // =============================================================================
 type EditorApi(store: DsStore, ?maxUndoSize: int) =
     let undoManager = UndoRedoManager(defaultArg maxUndoSize 100)

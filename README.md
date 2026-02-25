@@ -1,6 +1,6 @@
 # Ds2.Promaker
 
-Last Sync: 2026-02-25 (Call Conditions — ActiveTrigger/AutoCondition/CommonCondition 구현)
+Last Sync: 2026-02-26 (Copy Rules — Device System `{flowName}_{devAlias}` 네이밍 + DifferentFlow Device System 복제/재사용)
 
 ## 프로젝트 목표
 
@@ -27,7 +27,8 @@ Ds2.Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeu
 ║  │          역할: wiring / binding / rendering 만 담당                     │  ║
 ║  │          금지: 직접 Store 수정, 자체 Undo 스택, 비즈니스 로직            │  ║
 ║  └────────────────────────┬───────────────────────────────────────────────┘  ║
-║                           │ EditorApi.Xxx(...)        ▲ EditorEvent          ║
+║                           │ 편집: EditorApi.Xxx(...)   ▲ EditorEvent          ║
+║                           │ 조회: Query/Projection + DsStore                 ║
 ║                           ▼                           │ (StoreRefreshed 등)  ║
 ║  ┌──────────────── Ds2.UI.Core  (F#) ─────────────────────────────────────┐  ║
 ║  │                                                                        │  ║
@@ -108,12 +109,12 @@ solutions/Ds2.Promaker/
   Ds2.Database/            # 데이터 계층
   Ds2.UI.Frontend/         # WPF UI(C#) — 25개 파일
   Ds2.Core.Tests/          # Core 단위 테스트 (21개)
-  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (107개)
+  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (109개)
   Ds2.Integration.Tests/   # 통합 테스트 (13개)
   Ds2.Promaker.sln
 ```
 
-테스트 합계: **141개** (21 + 107 + 13)
+테스트 합계: **143개** (21 + 109 + 13)
 
 ---
 
@@ -167,9 +168,9 @@ solutions/Ds2.Promaker/
 | 16 | `Editing/EditorApi.CascadeHelpers.fs` | 캐스케이드 삭제용 저수준 유틸리티 (Arrow 수집, 하위 ID 수집) |
 | 17 | `Editing/EditorApi.RemoveOps.fs` | `buildRemoveXxxCmd` — 엔티티별 삭제 명령 조립 (Composite 포함) |
 | 18 | `Editing/EditorApi.ArrowOps.fs` | 화살표 Add/Remove 명령 조립, ReconnectArrow |
-| 19 | `Editing/EditorApi.DeviceOps.fs` | `AddCallsWithDevice` — Passive System/ApiDef 자동 생성 후 Call 일괄 추가 |
+| 19 | `Editing/EditorApi.DeviceOps.fs` | `AddCallsWithDevice` — Passive System(`{flowName}_{devAlias}` 이름)/ApiDef 자동 생성 후 Call 일괄 추가 |
 | 20 | `Editing/EditorApi.PasteResolvers.fs` | 복사 가능 타입 판정, 붙여넣기 대상(System/Flow/Work) 해석 |
-| 21 | `Editing/EditorApi.PasteOps.fs` | 붙여넣기 명령 조립, `CallCopyContext` 기반 ApiCall 공유/복제 분기 |
+| 21 | `Editing/EditorApi.PasteOps.fs` | 붙여넣기 명령 조립, `CallCopyContext` 기반 ApiCall 공유/복제 분기. DifferentFlow 시 `DevicePasteState`로 Device System 복제/재사용 |
 | 22 | `Editing/EditorApi.PropertyPanel.fs` | 속성 패널 전용 타입: `DeviceApiDefOption`, `CallApiCallPanelItem`, `CallConditionApiCallItem`, `CallConditionPanelItem`, `PropertyPanelValueSpec` |
 | 23 | `Editing/EditorApi.PanelOps.fs` | 패널 데이터 조회(`getWorkDurationText`, `getCallTimeoutText`, `getCallApiCallsForPanel`, `getAllApiCallsForPanel`, `getCallConditionsForPanel` 등) 및 ApiCall/CallCondition 커맨드 빌더(`buildAddApiCallsToConditionBatchCmd` 포함) |
 | 24 | `Editing/EditorApi.fs` | **외부 진입 API** — `ExecuteCommand`(실행+검증+롤백), `Undo`, `Redo`, `LoadFromFile`(백업+검증+롤백) |
@@ -231,7 +232,8 @@ solutions/Ds2.Promaker/
 사용자 입력 (키보드 / 마우스 / 메뉴)
     │
     ▼  C# — EditorCanvas / MainViewModel
-    │  입력 해석 → EditorApi.Xxx() 호출
+    │  편집 입력 해석 → EditorApi.Xxx() 호출
+    │  조회/탭/투영 계산은 Query/Projection + DsStore 사용
     │
     ▼  F# — EditorApi.fs
     │  EditorCommand 조립 (Single or Composite)
