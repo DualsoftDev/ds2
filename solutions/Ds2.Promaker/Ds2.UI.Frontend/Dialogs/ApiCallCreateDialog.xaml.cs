@@ -33,10 +33,10 @@ public partial class ApiCallCreateDialog : Window
     public Guid? SelectedApiDefId =>
         LinkedApiDefComboBox.SelectedItem is ApiDefChoice choice ? choice.Id : null;
 
-    public string ApiCallName     => ApiCallNameTextBox.Text.Trim();
-    public string OutputAddress   => OutputAddressTextBox.Text.Trim();
-    public string InputAddress    => InputAddressTextBox.Text.Trim();
-    public string ValueSpecText   => OutValueSpecTextBox.Text.Trim();
+    public string ApiCallName => ApiCallNameTextBox.Text.Trim();
+    public string OutputAddress => OutputAddressTextBox.Text.Trim();
+    public string InputAddress => InputAddressTextBox.Text.Trim();
+    public string ValueSpecText => OutValueSpecTextBox.Text.Trim();
     public string InValueSpecText => InValueSpecTextBox.Text.Trim();
 
     private void EditOutValueSpec_Click(object sender, RoutedEventArgs e)

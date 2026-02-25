@@ -1,10 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Ds2.Core;
 using Ds2.UI.Core;
 using Ds2.UI.Frontend;
 using Ds2.UI.Frontend.Dialogs;
@@ -18,6 +18,7 @@ public partial class MainViewModel : ObservableObject
     private EditorApi _editor;
     private DsStore _store;
     private readonly Dispatcher _dispatcher;
+    private IDisposable? _eventSubscription;
     private string? _currentFilePath;
     private TreePaneKind _activeTreePane = TreePaneKind.Control;
     private readonly List<SelectionKey> _clipboardSelection = [];
@@ -208,8 +209,9 @@ public partial class MainViewModel : ObservableObject
         selected = selected.Where(k => k.EntityType == batchType).ToList();
 
         _clipboardSelection.Clear();
+        var seen = new HashSet<SelectionKey>();
         foreach (var key in selected)
-            if (!_clipboardSelection.Contains(key))
+            if (seen.Add(key))
                 _clipboardSelection.Add(key);
 
         StatusText = $"Copied {_clipboardSelection.Count} {batchType}(s).";
@@ -237,7 +239,14 @@ public partial class MainViewModel : ObservableObject
     private void WireEvents()
     {
         var observable = (IObservable<EditorEvent>)_editor.OnEvent;
-        observable.Subscribe(new ActionObserver<EditorEvent>(evt => _dispatcher.Invoke(() => HandleEvent(evt))));
+        _eventSubscription?.Dispose();
+        _eventSubscription = observable.Subscribe(new ActionObserver<EditorEvent>(
+            evt => _dispatcher.Invoke(() => HandleEvent(evt)),
+            error => _dispatcher.Invoke(() =>
+            {
+                StatusText = $"[ERROR] {error.Message}";
+                RebuildAll();
+            })));
     }
 
     private void HandleEvent(EditorEvent evt)
@@ -249,51 +258,110 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        if (evt is EditorEvent.EntityRenamed ren)
+        switch (evt)
         {
-            foreach (var n in CanvasNodes)
-                if (n.Id == ren.id) n.Name = ren.newName;
+            case EditorEvent.EntityRenamed ren:
+                ApplyEntityRename(ren.id, ren.newName);
+                return;
 
-            var tab = OpenTabs.FirstOrDefault(t => t.RootId == ren.id);
-            if (tab is not null) tab.Title = ren.newName;
+            case EditorEvent.WorkMoved wm:
+                ApplyNodeMove(wm.id, wm.newPos);
+                return;
 
+            case EditorEvent.CallMoved cm:
+                ApplyNodeMove(cm.id, cm.newPos);
+                return;
+
+            case EditorEvent.UndoRedoChanged ur:
+                CanUndo = ur.canUndo;
+                CanRedo = ur.canRedo;
+                IsDirty = ur.canUndo;
+                UpdateTitle();
+                return;
+
+            case EditorEvent.WorkPropsChanged:
+            case EditorEvent.CallPropsChanged:
+            case EditorEvent.ApiDefPropsChanged:
+                RefreshPropertyPanel();
+                return;
+
+            case EditorEvent.ArrowWorkAdded:
+            case EditorEvent.ArrowWorkRemoved:
+            case EditorEvent.ArrowCallAdded:
+            case EditorEvent.ArrowCallRemoved:
+                RefreshCanvasForActiveTab();
+                ApplyArrowSelectionVisuals();
+                return;
+
+            case { IsStoreRefreshed: true }:
+                RebuildAll();
+                return;
+        }
+
+        if (IsTreeStructuralEvent(evt))
+        {
             RebuildAll();
             return;
         }
 
-        if (evt is EditorEvent.WorkMoved wm)
-        {
-            ApplyNodeMove(wm.id, wm.newPos);
-            return;
-        }
-
-        if (evt is EditorEvent.CallMoved cm)
-        {
-            ApplyNodeMove(cm.id, cm.newPos);
-            return;
-        }
-
-        if (evt is EditorEvent.UndoRedoChanged ur)
-        {
-            CanUndo = ur.canUndo;
-            CanRedo = ur.canRedo;
-            IsDirty = ur.canUndo;
-            UpdateTitle();
-            return;
-        }
-
+        StatusText = $"[WARN] Unhandled event: {evt.GetType().Name}";
         RebuildAll();
     }
 
     private static Guid? TryGetAddedEntityId(EditorEvent evt) =>
         evt switch
         {
+            EditorEvent.ProjectAdded projectAdded => projectAdded.Item.Id,
             EditorEvent.SystemAdded systemAdded => systemAdded.Item.Id,
             EditorEvent.FlowAdded flowAdded => flowAdded.Item.Id,
             EditorEvent.WorkAdded workAdded => workAdded.Item.Id,
             EditorEvent.CallAdded callAdded => callAdded.Item.Id,
+            EditorEvent.ApiDefAdded apiDefAdded => apiDefAdded.Item.Id,
+            EditorEvent.HwComponentAdded hwAdded => hwAdded.id,
             _ => null
         };
+
+    private static bool IsTreeStructuralEvent(EditorEvent evt) =>
+        evt is
+            EditorEvent.ProjectAdded or
+            EditorEvent.ProjectRemoved or
+            EditorEvent.SystemAdded or
+            EditorEvent.SystemRemoved or
+            EditorEvent.FlowAdded or
+            EditorEvent.FlowRemoved or
+            EditorEvent.WorkAdded or
+            EditorEvent.WorkRemoved or
+            EditorEvent.CallAdded or
+            EditorEvent.CallRemoved or
+            EditorEvent.ApiDefAdded or
+            EditorEvent.ApiDefRemoved or
+            EditorEvent.HwComponentAdded or
+            EditorEvent.HwComponentRemoved;
+
+    private void ApplyEntityRename(Guid entityId, string newName)
+    {
+        static void UpdateMatching<TItem>(
+            IEnumerable<TItem> items,
+            Guid targetId,
+            Func<TItem, Guid> idSelector,
+            Action<TItem, string> update,
+            string value)
+        {
+            foreach (var item in items)
+                if (idSelector(item) == targetId)
+                    update(item, value);
+        }
+
+        UpdateMatching(CanvasNodes, entityId, static n => n.Id, static (n, value) => n.Name = value, newName);
+        UpdateMatching(EnumerateTreeNodes(), entityId, static n => n.Id, static (n, value) => n.Name = value, newName);
+        UpdateMatching(OpenTabs, entityId, static t => t.RootId, static (t, value) => t.Title = value, newName);
+
+        if (SelectedNode is { Id: var selectedId } && selectedId == entityId)
+        {
+            NameEditorText = newName;
+            IsNameDirty = false;
+        }
+    }
 
     private (string EntityType, Guid EntityId)? ResolvePasteTarget()
     {
@@ -396,9 +464,22 @@ public partial class CanvasTab : ObservableObject
     [ObservableProperty] private bool _isActive;
 }
 
-file sealed class ActionObserver<T>(Action<T> onNext) : IObserver<T>
+file sealed class ActionObserver<T> : IObserver<T>
 {
-    public void OnNext(T value) => onNext(value);
+    private readonly Action<T> _onNext;
+    private readonly Action<Exception>? _onError;
+
+    public ActionObserver(Action<T> onNext, Action<Exception>? onError = null)
+    {
+        _onNext = onNext;
+        _onError = onError;
+    }
+
+    public void OnNext(T value) => _onNext(value);
     public void OnCompleted() { }
-    public void OnError(Exception error) { }
+    public void OnError(Exception error)
+    {
+        if (_onError is null) return;
+        _onError(error);
+    }
 }

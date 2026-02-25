@@ -13,7 +13,7 @@ public partial class ApiCallSpecDialog : Window
     }
 
     public string OutSpecText => OutSpecEditor.GetText();
-    public string InSpecText  => InSpecEditor.GetText();
+    public string InSpecText => InSpecEditor.GetText();
 
     private void Ok_Click(object sender, RoutedEventArgs e)
     {

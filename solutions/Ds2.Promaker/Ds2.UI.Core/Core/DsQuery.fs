@@ -159,6 +159,10 @@ module DsQuery =
     let allArrowWorks (store: DsStore) : ArrowBetweenWorks list =
         store.ArrowWorksReadOnly.Values |> Seq.toList
 
+    /// <summary>특정 Flow에 속한 ArrowBetweenWorks 조회</summary>
+    let arrowWorksOf (flowId: Guid) (store: DsStore) : ArrowBetweenWorks list =
+        childrenOf store.ArrowWorksReadOnly.Values flowId (fun a -> a.ParentId)
+
     // ─────────────────────────────────────────────────────────────────────────
     // ArrowBetweenCalls 쿼리
     // ─────────────────────────────────────────────────────────────────────────
@@ -169,6 +173,10 @@ module DsQuery =
     /// <summary>모든 ArrowBetweenCalls 조회</summary>
     let allArrowCalls (store: DsStore) : ArrowBetweenCalls list =
         store.ArrowCallsReadOnly.Values |> Seq.toList
+
+    /// <summary>특정 Flow에 속한 ArrowBetweenCalls 조회</summary>
+    let arrowCallsOf (flowId: Guid) (store: DsStore) : ArrowBetweenCalls list =
+        childrenOf store.ArrowCallsReadOnly.Values flowId (fun a -> a.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
     // HwButton 쿼리

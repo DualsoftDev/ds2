@@ -25,6 +25,24 @@ module Mutation =
         if not (dict.ContainsKey(id)) then Error $"{typeName} with ID {id} not found"
         else dict.Remove(id) |> ignore; Ok ()
 
+    let private collectReferencedApiCallIds (store: DsStore) =
+        store.Calls.Values
+        |> Seq.collect (fun c ->
+            seq {
+                yield! c.ApiCalls |> Seq.map (fun ac -> ac.Id)
+                yield! c.CallConditions |> Seq.collect (fun cc -> cc.Conditions |> Seq.map (fun ac -> ac.Id))
+            })
+        |> Set.ofSeq
+
+    let private removeOrphanApiCalls (store: DsStore) =
+        let referencedIds = collectReferencedApiCallIds store
+        let orphanIds =
+            store.ApiCalls.Keys
+            |> Seq.filter (fun id -> not (referencedIds.Contains id))
+            |> Seq.toList
+        for orphanId in orphanIds do
+            store.ApiCalls.Remove(orphanId) |> ignore
+
     // ─────────────────────────────────────────────────────────────────────────
     // Project CRUD
     // ─────────────────────────────────────────────────────────────────────────
@@ -100,16 +118,9 @@ module Mutation =
     let removeCall (id: Guid) (store: DsStore) : Result<unit, string> =
         match store.Calls.TryGetValue(id) with
         | false, _ -> Error $"Call with ID {id} not found"
-        | true, call ->
-            let sharedIds =
-                store.Calls.Values
-                |> Seq.filter (fun c -> c.Id <> id)
-                |> Seq.collect (fun c -> c.ApiCalls |> Seq.map (fun ac -> ac.Id))
-                |> Set.ofSeq
-            call.ApiCalls |> Seq.iter (fun (ac: ApiCall) ->
-                if not (sharedIds.Contains ac.Id) then
-                    store.ApiCalls.Remove(ac.Id) |> ignore)
+        | true, _ ->
             store.Calls.Remove(id) |> ignore
+            removeOrphanApiCalls store
             Ok ()
 
     // ─────────────────────────────────────────────────────────────────────────

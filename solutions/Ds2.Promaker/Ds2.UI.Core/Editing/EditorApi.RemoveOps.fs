@@ -3,8 +3,13 @@ module Ds2.UI.Core.RemoveOps
 open System
 open Ds2.Core
 
+let private requireEntity (entityType: string) (entityId: Guid) (entityOpt: 'T option) : 'T =
+    entityOpt
+    |> Option.defaultWith (fun () ->
+        invalidOp $"'{entityType}' entity was not found while building remove command. id={entityId}")
+
 let buildRemoveProjectCmd (store: DsStore) (projectId: Guid) : EditorCommand =
-    let project = DsQuery.getProject projectId store |> Option.get
+    let project = DsQuery.getProject projectId store |> requireEntity "Project" projectId
     let systems = DsQuery.projectSystemsOf project.Id store
     let flows = systems |> List.collect (fun s -> DsQuery.flowsOf s.Id store)
     let works = flows |> List.collect (fun f -> DsQuery.worksOf f.Id store)
@@ -26,7 +31,7 @@ let buildRemoveProjectCmd (store: DsStore) (projectId: Guid) : EditorCommand =
     ])
 
 let buildRemoveSystemCmd (store: DsStore) (systemId: Guid) : EditorCommand =
-    let system = DsQuery.getSystem systemId store |> Option.get
+    let system = DsQuery.getSystem systemId store |> requireEntity "System" systemId
     let project =
         DsQuery.allProjects store
         |> List.tryFind (fun p ->
@@ -48,7 +53,7 @@ let buildRemoveSystemCmd (store: DsStore) (systemId: Guid) : EditorCommand =
     ])
 
 let buildRemoveFlowCmd (store: DsStore) (flowId: Guid) : EditorCommand =
-    let flow = DsQuery.getFlow flowId store |> Option.get
+    let flow = DsQuery.getFlow flowId store |> requireEntity "Flow" flowId
     let works = DsQuery.worksOf flowId store
     let calls = works |> List.collect (fun w -> DsQuery.callsOf w.Id store)
     let arrowWorks, arrowCalls = CascadeHelpers.collectDescendantArrows store works calls
@@ -62,7 +67,7 @@ let buildRemoveFlowCmd (store: DsStore) (flowId: Guid) : EditorCommand =
         ])
 
 let buildRemoveWorkCmd (store: DsStore) (workId: Guid) : EditorCommand =
-    let work = DsQuery.getWork workId store |> Option.get
+    let work = DsQuery.getWork workId store |> requireEntity "Work" workId
     let calls = DsQuery.callsOf workId store
     let workIds = Set.singleton workId
     let callIds = calls |> List.map (fun c -> c.Id) |> Set.ofList
@@ -78,7 +83,7 @@ let buildRemoveWorkCmd (store: DsStore) (workId: Guid) : EditorCommand =
         ])
 
 let buildRemoveCallCmd (store: DsStore) (callId: Guid) : EditorCommand =
-    let call = DsQuery.getCall callId store |> Option.get
+    let call = DsQuery.getCall callId store |> requireEntity "Call" callId
     let arrowCalls = CascadeHelpers.arrowCallsFor store (Set.singleton callId)
 
     if arrowCalls.IsEmpty then

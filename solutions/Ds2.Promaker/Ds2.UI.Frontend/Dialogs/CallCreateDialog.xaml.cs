@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using Ds2.Core;
 using Ds2.UI.Core;
 
 namespace Ds2.UI.Frontend.Dialogs;

@@ -165,6 +165,23 @@ module NameUniquenessValidation =
             |> Seq.toList
         if List.isEmpty errors then Valid else Invalid errors
 
+    let private validateFlowScopedNames
+        (typeName: string)
+        (getItems: System.Guid -> DsStore -> 'a list)
+        (getName: 'a -> string)
+        (store: DsStore)
+        : ValidationResult =
+        let errors =
+            store.FlowsReadOnly.Values
+            |> Seq.collect (fun flow ->
+                getItems flow.Id store
+                |> List.groupBy getName
+                |> List.filter (fun (_, items) -> List.length items > 1)
+                |> List.map (fun (name, _) ->
+                    sprintf "Duplicate %s name '%s' in Flow '%s'" typeName name flow.Name))
+            |> Seq.toList
+        if List.isEmpty errors then Valid else Invalid errors
+
     // ── 공개 검증 함수 ─────────────────────────────────────────────────────────
 
     let validateProjectNames (store: DsStore) : ValidationResult =
@@ -189,12 +206,13 @@ module NameUniquenessValidation =
             |> Seq.toList
         if List.isEmpty errors then Valid else Invalid errors
 
-    let validateFlowNames    store = validateSystemScopedNames EntityTypeNames.Flow      DsQuery.flowsOf       (fun f -> f.Name) store
-    let validateApiDefNames  store = validateSystemScopedNames EntityTypeNames.ApiDef    DsQuery.apiDefsOf     (fun a -> a.Name) store
-    let validateButtonNames  store = validateSystemScopedNames EntityTypeNames.Button    DsQuery.buttonsOf     (fun b -> b.Name) store
-    let validateLampNames    store = validateSystemScopedNames EntityTypeNames.Lamp      DsQuery.lampsOf       (fun l -> l.Name) store
-    let validateConditionNames store = validateSystemScopedNames EntityTypeNames.Condition DsQuery.conditionsOf (fun c -> c.Name) store
-    let validateActionNames  store = validateSystemScopedNames EntityTypeNames.Action    DsQuery.actionsOf     (fun a -> a.Name) store
+    let validateFlowNames      store = validateSystemScopedNames EntityTypeNames.Flow      DsQuery.flowsOf       (fun f -> f.Name) store
+    let validateWorkNames      store = validateFlowScopedNames   EntityTypeNames.Work      DsQuery.worksOf       (fun w -> w.Name) store
+    let validateApiDefNames    store = validateSystemScopedNames EntityTypeNames.ApiDef    DsQuery.apiDefsOf     (fun a -> a.Name) store
+    let validateButtonNames    store = validateSystemScopedNames EntityTypeNames.Button    DsQuery.buttonsOf     (fun b -> b.Name) store
+    let validateLampNames      store = validateSystemScopedNames EntityTypeNames.Lamp      DsQuery.lampsOf       (fun l -> l.Name) store
+    let validateConditionNames store = validateSystemScopedNames EntityTypeNames.Condition DsQuery.conditionsOf  (fun c -> c.Name) store
+    let validateActionNames    store = validateSystemScopedNames EntityTypeNames.Action    DsQuery.actionsOf     (fun a -> a.Name) store
 
     /// ApiCall 이름 중복 검증 (시스템 내 모든 Call 탐색)
     let validateApiCallNames (store: DsStore) : ValidationResult =
@@ -222,6 +240,7 @@ module NameUniquenessValidation =
             validateProjectNames store
             validateSystemNames store
             validateFlowNames store
+            validateWorkNames store
             validateApiDefNames store
             validateApiCallNames store
             validateButtonNames store

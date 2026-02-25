@@ -19,8 +19,8 @@ public partial class MainViewModel
     public ObservableCollection<DeviceApiDefOptionItem> DeviceApiDefOptions { get; } = [];
     public ObservableCollection<ApiDefPanelItem> SystemApiDefs { get; } = [];
 
-    public string CallApiCallsHeader   => $"ApiCalls [{CallApiCalls.Count}]";
-    public string SystemApiDefsHeader  => $"ApiDefs [{SystemApiDefs.Count}]";
+    public string CallApiCallsHeader => $"ApiCalls [{CallApiCalls.Count}]";
+    public string SystemApiDefsHeader => $"ApiDefs [{SystemApiDefs.Count}]";
 
     [ObservableProperty] private bool _isWorkSelected;
     [ObservableProperty] private bool _isCallSelected;
@@ -49,7 +49,7 @@ public partial class MainViewModel
 
     private void InitializePropertyPanelState()
     {
-        CallApiCalls.CollectionChanged  += (_, _) => OnPropertyChanged(nameof(CallApiCallsHeader));
+        CallApiCalls.CollectionChanged += (_, _) => OnPropertyChanged(nameof(CallApiCallsHeader));
         SystemApiDefs.CollectionChanged += (_, _) => OnPropertyChanged(nameof(SystemApiDefsHeader));
     }
 
@@ -138,7 +138,7 @@ public partial class MainViewModel
         if (dialog.ShowDialog() != true)
             return;
 
-        item.ValueSpecText      = dialog.OutSpecText;
+        item.ValueSpecText = dialog.OutSpecText;
         item.InputValueSpecText = dialog.InSpecText;
         StatusText = "Spec updated in row. Click v to apply.";
     }
@@ -236,11 +236,11 @@ public partial class MainViewModel
     private static ApiDefProperties BuildApiDefProperties(ApiDefEditDialog dialog)
     {
         var props = new ApiDefProperties();
-        props.IsPush   = dialog.IsPush;
-        props.TxGuid   = dialog.TxWorkId.HasValue ? Microsoft.FSharp.Core.FSharpOption<Guid>.Some(dialog.TxWorkId.Value) : null;
-        props.RxGuid   = dialog.RxWorkId.HasValue ? Microsoft.FSharp.Core.FSharpOption<Guid>.Some(dialog.RxWorkId.Value) : null;
+        props.IsPush = dialog.IsPush;
+        props.TxGuid = dialog.TxWorkId.HasValue ? Microsoft.FSharp.Core.FSharpOption<Guid>.Some(dialog.TxWorkId.Value) : null;
+        props.RxGuid = dialog.RxWorkId.HasValue ? Microsoft.FSharp.Core.FSharpOption<Guid>.Some(dialog.RxWorkId.Value) : null;
         props.Duration = dialog.Duration;
-        props.Memo     = !string.IsNullOrEmpty(dialog.Memo) ? Microsoft.FSharp.Core.FSharpOption<string>.Some(dialog.Memo) : null;
+        props.Description = !string.IsNullOrEmpty(dialog.Description) ? Microsoft.FSharp.Core.FSharpOption<string>.Some(dialog.Description) : null;
         return props;
     }
 
@@ -248,8 +248,8 @@ public partial class MainViewModel
     {
         var selected = SelectedNode;
         NameEditorText = selected?.Name ?? string.Empty;
-        IsWorkSelected   = EntityTypes.Is(selected?.EntityType, EntityTypes.Work);
-        IsCallSelected   = EntityTypes.Is(selected?.EntityType, EntityTypes.Call);
+        IsWorkSelected = EntityTypes.Is(selected?.EntityType, EntityTypes.Work);
+        IsCallSelected = EntityTypes.Is(selected?.EntityType, EntityTypes.Call);
         IsSystemSelected = EntityTypes.Is(selected?.EntityType, EntityTypes.System);
 
         if (IsWorkSelected && selected is not null)

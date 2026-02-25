@@ -107,12 +107,12 @@ solutions/Ds2.Promaker/
   Ds2.Database/            # 데이터 계층
   Ds2.UI.Frontend/         # WPF UI(C#) — 23개 파일
   Ds2.Core.Tests/          # Core 단위 테스트 (21개)
-  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (97개)
+  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (105개)
   Ds2.Integration.Tests/   # 통합 테스트 (13개)
   Ds2.Promaker.sln
 ```
 
-테스트 합계: **131개** (21 + 97 + 13)
+테스트 합계: **139개** (21 + 105 + 13)
 
 ---
 
@@ -215,8 +215,8 @@ solutions/Ds2.Promaker/
 |------|------|
 | `Ds2.Core.Tests/Tests.fs` | Core 엔티티·DeepCopy·ValueSpec 단위 테스트 (21개) |
 | `Ds2.Core.Tests/JsonConverterTests.fs` | JSON 직렬화 라운드트립 테스트 |
-| `Ds2.UI.Core.Tests/EditorApiTests.fs` | EditorApi CRUD·Undo/Redo·캐스케이드 테스트 (54개) |
-| `Ds2.UI.Core.Tests/ViewProjectionTests.fs` | Tree/Canvas Projection·Selection·Query 테스트 (43개) |
+| `Ds2.UI.Core.Tests/EditorApiTests.fs` | EditorApi CRUD·Undo/Redo·캐스케이드 테스트 |
+| `Ds2.UI.Core.Tests/ViewProjectionTests.fs` | Tree/Canvas Projection·Selection·Query 테스트 |
 | `Ds2.UI.Core.Tests/TestHelpers.fs` | 테스트 헬퍼 |
 | `Ds2.Integration.Tests/Tests.fs` | 통합 시나리오 테스트 (13개) |
 

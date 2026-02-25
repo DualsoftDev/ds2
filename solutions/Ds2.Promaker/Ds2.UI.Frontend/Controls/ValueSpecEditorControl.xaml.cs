@@ -22,13 +22,13 @@ public partial class ValueSpecEditorControl : UserControl
     private void ApplyDataTypeVisibility(int index)
     {
         // 0=Undefined, 1=bool, 2=int, 3=double, 4=string
-        var isBool      = index == 1;
+        var isBool = index == 1;
         var isUndefined = index == 0;
-        var isOther     = !isBool && !isUndefined;
+        var isOther = !isBool && !isUndefined;
 
-        if (BoolButtonsPanel  is not null) BoolButtonsPanel.Visibility  = isBool      ? Visibility.Visible : Visibility.Collapsed;
-        if (ValueTextBox      is not null) ValueTextBox.Visibility      = isOther     ? Visibility.Visible : Visibility.Collapsed;
-        if (UndefinedHint     is not null) UndefinedHint.Visibility     = isUndefined ? Visibility.Visible : Visibility.Collapsed;
+        if (BoolButtonsPanel is not null) BoolButtonsPanel.Visibility = isBool ? Visibility.Visible : Visibility.Collapsed;
+        if (ValueTextBox is not null) ValueTextBox.Visibility = isOther ? Visibility.Visible : Visibility.Collapsed;
+        if (UndefinedHint is not null) UndefinedHint.Visibility = isUndefined ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Load a ValueSpec text (e.g. "true", "10", "3.14", "text", "Undefined") into the editor controls.</summary>
@@ -45,7 +45,7 @@ public partial class ValueSpecEditorControl : UserControl
         if (bool.TryParse(raw, out bool bVal))
         {
             DataTypeCombo.SelectedIndex = 1; // bool
-            TrueRadio.IsChecked  = bVal;
+            TrueRadio.IsChecked = bVal;
             FalseRadio.IsChecked = !bVal;
             return;
         }

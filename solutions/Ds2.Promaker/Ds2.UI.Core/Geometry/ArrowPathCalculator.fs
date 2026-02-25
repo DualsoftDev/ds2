@@ -85,14 +85,12 @@ let private buildNodePositions (store: DsStore) (flowId: Guid) =
 let computeFlowArrowPaths (store: DsStore) (flowId: Guid) : Map<Guid, ArrowVisual> =
     let positions = buildNodePositions store flowId
     let result = Collections.Generic.Dictionary<Guid, ArrowVisual>()
-    for arrow in DsQuery.allArrowWorks store do
-        if arrow.ParentId = flowId then
-            match positions.TryGetValue(arrow.SourceId), positions.TryGetValue(arrow.TargetId) with
-            | (true, srcPos), (true, tgtPos) -> result.[arrow.Id] <- computePath srcPos tgtPos
-            | _ -> ()
-    for arrow in DsQuery.allArrowCalls store do
-        if arrow.ParentId = flowId then
-            match positions.TryGetValue(arrow.SourceId), positions.TryGetValue(arrow.TargetId) with
-            | (true, srcPos), (true, tgtPos) -> result.[arrow.Id] <- computePath srcPos tgtPos
-            | _ -> ()
+    for arrow in DsQuery.arrowWorksOf flowId store do
+        match positions.TryGetValue(arrow.SourceId), positions.TryGetValue(arrow.TargetId) with
+        | (true, srcPos), (true, tgtPos) -> result.[arrow.Id] <- computePath srcPos tgtPos
+        | _ -> ()
+    for arrow in DsQuery.arrowCallsOf flowId store do
+        match positions.TryGetValue(arrow.SourceId), positions.TryGetValue(arrow.TargetId) with
+        | (true, srcPos), (true, tgtPos) -> result.[arrow.Id] <- computePath srcPos tgtPos
+        | _ -> ()
     result |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq

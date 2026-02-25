@@ -50,9 +50,15 @@ type SelectionKey(id: Guid, entityType: string) =
     member _.Id = id
     member _.EntityType = entityType
 
-    override _.Equals(obj) =
+    interface IEquatable<SelectionKey> with
+        member _.Equals(other: SelectionKey) =
+            not (isNull (box other))
+            && id = other.Id
+            && entityType = other.EntityType
+
+    override this.Equals(obj) =
         match obj with
-        | :? SelectionKey as other -> id = other.Id && entityType = other.EntityType
+        | :? SelectionKey as other -> (this :> IEquatable<SelectionKey>).Equals(other)
         | _ -> false
 
     override _.GetHashCode() =
@@ -84,14 +90,14 @@ type ApiDefMatch(apiDefId: Guid, apiDefName: string, systemId: Guid, systemName:
 
 /// System 프로퍼티 패널 — ApiDef 항목 (C# 소비용)
 [<Sealed>]
-type ApiDefPanelItem(id: Guid, name: string, isPush: bool, txWorkId: Guid option, rxWorkId: Guid option, duration: int, memo: string) =
-    member _.Id       = id
-    member _.Name     = name
-    member _.IsPush   = isPush
-    member _.TxWorkId = txWorkId
-    member _.RxWorkId = rxWorkId
-    member _.Duration = duration
-    member _.Memo     = memo
+type ApiDefPanelItem(id: Guid, name: string, isPush: bool, txWorkId: Guid option, rxWorkId: Guid option, duration: int, description: string) =
+    member _.Id          = id
+    member _.Name        = name
+    member _.IsPush      = isPush
+    member _.TxWorkId    = txWorkId
+    member _.RxWorkId    = rxWorkId
+    member _.Duration    = duration
+    member _.Description = description
     /// C# 편의: TxWorkId가 None이면 Guid.Empty 반환
     member _.TxWorkIdOrEmpty = txWorkId |> Option.defaultValue Guid.Empty
     /// C# 편의: RxWorkId가 None이면 Guid.Empty 반환

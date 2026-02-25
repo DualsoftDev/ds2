@@ -72,12 +72,12 @@
                          PreviewTextInput="OnDurationPreviewInput"/>
             </StackPanel>
 
-            <!-- 메모 -->
+            <!-- 설명 -->
             <StackPanel Grid.Row="4" Margin="0,0,0,8">
-                <TextBlock Text="메모"
+                <TextBlock Text="설명"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
-                <TextBox x:Name="MemoBox" Padding="6,4"/>
+                <TextBox x:Name="DescriptionBox" Padding="6,4"/>
             </StackPanel>
 
             <!-- Buttons -->

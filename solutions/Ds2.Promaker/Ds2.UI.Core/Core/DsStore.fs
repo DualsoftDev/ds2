@@ -47,6 +47,63 @@ type DsStore() =
     static member empty() = DsStore()
 
 module StoreCopy =
+    let private cloneEntityDictionary<'T when 'T :> DsEntity> (source: Dictionary<Guid, 'T>) : Dictionary<Guid, 'T> =
+        let cloned = Dictionary<Guid, 'T>(source.Count)
+        for kv in source do
+            cloned.[kv.Key] <- DeepCopyHelper.backupEntityAs kv.Value
+        cloned
+
+    let private cloneCalls
+        (sourceCalls: Dictionary<Guid, Call>)
+        (apiCallSnapshot: Dictionary<Guid, ApiCall>)
+        : Dictionary<Guid, Call> =
+        let remapApiCall (apiCall: ApiCall) =
+            match apiCallSnapshot.TryGetValue(apiCall.Id) with
+            | true, mapped -> mapped
+            | false, _ ->
+                let cloned = DeepCopyHelper.backupEntityAs apiCall
+                apiCallSnapshot.[cloned.Id] <- cloned
+                cloned
+
+        let clonedCalls = Dictionary<Guid, Call>(sourceCalls.Count)
+        for kv in sourceCalls do
+            let clonedCall = DeepCopyHelper.backupEntityAs kv.Value
+            let remappedApiCalls = ResizeArray<ApiCall>(clonedCall.ApiCalls.Count)
+            for apiCall in clonedCall.ApiCalls do
+                remappedApiCalls.Add(remapApiCall apiCall)
+            clonedCall.ApiCalls <- remappedApiCalls
+
+            for condition in clonedCall.CallConditions do
+                let remappedConditions = ResizeArray<ApiCall>(condition.Conditions.Count)
+                for apiCall in condition.Conditions do
+                    remappedConditions.Add(remapApiCall apiCall)
+                condition.Conditions <- remappedConditions
+
+            clonedCalls.[kv.Key] <- clonedCall
+        clonedCalls
+
+    /// <summary>
+    /// Full deep snapshot of the store for rollback/redo safety without whole-store JSON roundtrip.
+    /// </summary>
+    let deepClone (source: DsStore) : DsStore =
+        let snapshot = DsStore()
+        let apiCallSnapshot = cloneEntityDictionary source.ApiCalls
+
+        snapshot.Projects <- cloneEntityDictionary source.Projects
+        snapshot.Systems <- cloneEntityDictionary source.Systems
+        snapshot.Flows <- cloneEntityDictionary source.Flows
+        snapshot.Works <- cloneEntityDictionary source.Works
+        snapshot.Calls <- cloneCalls source.Calls apiCallSnapshot
+        snapshot.ApiDefs <- cloneEntityDictionary source.ApiDefs
+        snapshot.ApiCalls <- apiCallSnapshot
+        snapshot.ArrowWorks <- cloneEntityDictionary source.ArrowWorks
+        snapshot.ArrowCalls <- cloneEntityDictionary source.ArrowCalls
+        snapshot.HwButtons <- cloneEntityDictionary source.HwButtons
+        snapshot.HwLamps <- cloneEntityDictionary source.HwLamps
+        snapshot.HwConditions <- cloneEntityDictionary source.HwConditions
+        snapshot.HwActions <- cloneEntityDictionary source.HwActions
+        snapshot
+
     /// <summary>
     /// source 스토어의 모든 컬렉션을 target 스토어로 교체한다.
     /// </summary>

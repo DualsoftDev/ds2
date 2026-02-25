@@ -1,6 +1,7 @@
 module Ds2.UI.Core.Tests.ViewProjectionTests
 
 open System
+open System.Collections.Generic
 open Xunit
 open Ds2.Core
 open Ds2.UI.Core
@@ -13,26 +14,37 @@ open Ds2.UI.Core.Tests.TestHelpers
 let private selectionKey id entityType =
     SelectionKey(id, entityType)
 
+[<Fact>]
+let ``SelectionKey should support HashSet equality without duplicates`` () =
+    let id = Guid.NewGuid()
+    let key1 = SelectionKey(id, EntityTypeNames.Work)
+    let key2 = SelectionKey(id, EntityTypeNames.Work)
+    let set = HashSet<SelectionKey>()
+
+    Assert.True(set.Add(key1))
+    Assert.False(set.Add(key2))
+    Assert.True(set.Contains(key2))
+
 // =============================================================================
-// buildTree
+// buildTrees (control tree)
 // =============================================================================
 
 [<Fact>]
-let ``buildTree returns empty list for empty store`` () =
+let ``buildTrees returns empty control tree for empty store`` () =
     let store = DsStore.empty()
-    let tree = TreeProjection.buildTree store
-    Assert.Empty(tree)
+    let controlTree, _ = TreeProjection.buildTrees store
+    Assert.Empty(controlTree)
 
 [<Fact>]
-let ``buildTree creates correct hierarchy`` () =
+let ``buildTrees creates correct control hierarchy`` () =
     let store, api, project, system, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
     let call = api.AddCall("Dev", "C1", work.Id)
 
-    let tree = TreeProjection.buildTree store
-    Assert.Single(tree) |> ignore  // 1 project
+    let controlTree, _ = TreeProjection.buildTrees store
+    Assert.Single(controlTree) |> ignore  // 1 project
 
-    let pNode = tree.Head
+    let pNode = controlTree.Head
     Assert.Equal(project.Id, pNode.Id)
     Assert.Equal("Project", pNode.EntityType)
     Assert.Equal("P1", pNode.Name)
@@ -57,13 +69,13 @@ let ``buildTree creates correct hierarchy`` () =
     Assert.Equal("Call", cNode.EntityType)
 
 [<Fact>]
-let ``buildTree includes HW components under System`` () =
+let ``buildTrees includes HW components under System in control tree`` () =
     let store, api, _project, system, _flow = setupProjectSystemFlow()
     api.AddButton("Btn1", system.Id) |> ignore
     api.AddLamp("Lamp1", system.Id) |> ignore
 
-    let tree = TreeProjection.buildTree store
-    let sNode = tree.Head.Children.Head
+    let controlTree, _ = TreeProjection.buildTrees store
+    let sNode = controlTree.Head.Children.Head
     let hwNodes = sNode.Children |> List.filter (fun c -> c.EntityType = "Button" || c.EntityType = "Lamp")
     Assert.Equal(2, hwNodes.Length)
     Assert.True(hwNodes |> List.exists (fun n -> n.Name = "Btn1" && n.EntityType = "Button"))
@@ -94,7 +106,8 @@ let ``canvasContentForFlow includes arrows`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
-    let arrow = api.AddArrowBetweenWorks(flow.Id, w1.Id, w2.Id, ArrowType.Start)
+    api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
+    let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
 
     let content = CanvasProjection.canvasContentForFlow store flow.Id
     Assert.Single(content.Arrows) |> ignore
@@ -106,7 +119,7 @@ let ``canvasContentForFlow includes arrows`` () =
 let ``canvasContentForFlow uses position when available`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
-    api.MoveWork(work.Id, Some(Xywh(100, 200, 150, 50)))
+    api.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, work.Id, Some(Xywh(100, 200, 150, 50))) ]) |> ignore
 
     let content = CanvasProjection.canvasContentForFlow store flow.Id
     let wNode = content.Nodes |> List.find (fun n -> n.Id = work.Id)
@@ -156,8 +169,9 @@ let ``canvasContentForWorkCalls returns only calls in selected work`` () =
     let c1 = api.AddCall("Dev", "C1", w1.Id)
     let c2 = api.AddCall("Dev", "C2", w1.Id)
     let c3 = api.AddCall("Dev", "C3", w2.Id)
-    let ownArrow = api.AddArrowBetweenCalls(flow.Id, c1.Id, c2.Id, ArrowType.Start)
-    api.AddArrowBetweenCalls(flow.Id, c2.Id, c3.Id, ArrowType.Start) |> ignore
+    api.AddArrow(EntityTypeNames.Call, flow.Id, c1.Id, c2.Id, ArrowType.Start) |> ignore
+    api.AddArrow(EntityTypeNames.Call, flow.Id, c2.Id, c3.Id, ArrowType.Start) |> ignore
+    let ownArrow = store.ArrowCalls.Values |> Seq.find (fun a -> a.SourceId = c1.Id && a.TargetId = c2.Id)
 
     let content = CanvasProjection.canvasContentForWorkCalls store w1.Id
     Assert.Equal(2, content.Nodes.Length)
@@ -393,7 +407,8 @@ let ``RemoveArrow removes arrow between works`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
-    let arrow = api.AddArrowBetweenWorks(flow.Id, w1.Id, w2.Id, ArrowType.Start)
+    api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
+    let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
     Assert.True(store.ArrowWorks.ContainsKey(arrow.Id))
 
     api.RemoveArrow(arrow.Id)
@@ -543,7 +558,7 @@ let ``orderedArrowLinksForSelection skips already existing arrows`` () =
     let w1 = api.AddWork("W1", flow.Id)
     let w2 = api.AddWork("W2", flow.Id)
     let w3 = api.AddWork("W3", flow.Id)
-    api.AddArrowBetweenWorks(flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
+    api.AddArrow(EntityTypeNames.Work, flow.Id, w1.Id, w2.Id, ArrowType.Start) |> ignore
 
     let links =
         ConnectionQueries.orderedArrowLinksForSelection store [ w1.Id; w2.Id; w3.Id ]

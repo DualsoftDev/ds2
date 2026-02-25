@@ -45,9 +45,27 @@ type UndoRedoManager(maxSize: int) =
             let cmd = first.Value
             redoList.RemoveFirst()
             pushFront undoList cmd
-            if undoList.Count > maxSize then
-                undoList.RemoveLast()
             Some cmd
+
+    member _.RestoreAfterFailedUndo(cmd: EditorCommand) =
+        match redoList.First with
+        | null -> ()
+        | first when first.Value = cmd ->
+            redoList.RemoveFirst()
+            pushFront undoList cmd
+        | _ ->
+            if redoList.Remove(cmd) then
+                pushFront undoList cmd
+
+    member _.RestoreAfterFailedRedo(cmd: EditorCommand) =
+        match undoList.First with
+        | null -> ()
+        | first when first.Value = cmd ->
+            undoList.RemoveFirst()
+            pushFront redoList cmd
+        | _ ->
+            if undoList.Remove(cmd) then
+                pushFront redoList cmd
 
     member _.Clear() =
         undoList.Clear()
