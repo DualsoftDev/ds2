@@ -30,9 +30,9 @@ let canvasContentForFlow (store: DsStore) (flowId: Guid) : CanvasContent =
         |> List.collect (fun w ->
             let calls =
                 DsQuery.callsOf w.Id store
-                |> List.map (fun c -> nodeFromPosition c.Id "Call" c.Name c.ParentId c.Position)
+                |> List.map (fun c -> nodeFromPosition c.Id EntityTypeNames.Call c.Name c.ParentId c.Position)
 
-            nodeFromPosition w.Id "Work" w.Name w.ParentId w.Position :: calls)
+            nodeFromPosition w.Id EntityTypeNames.Work w.Name w.ParentId w.Position :: calls)
 
     let arrows = [
         yield! DsQuery.allArrowWorks store
@@ -65,7 +65,7 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
         flowIds
         |> List.collect (fun flowId ->
             DsQuery.worksOf flowId store
-            |> List.map (fun w -> nodeFromPosition w.Id "Work" w.Name w.ParentId w.Position))
+            |> List.map (fun w -> nodeFromPosition w.Id EntityTypeNames.Work w.Name w.ParentId w.Position))
 
     let arrows =
         DsQuery.allArrowWorks store
@@ -81,7 +81,7 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
 let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
     let nodes =
         DsQuery.worksOf flowId store
-        |> List.map (fun w -> nodeFromPosition w.Id "Work" w.Name w.ParentId w.Position)
+        |> List.map (fun w -> nodeFromPosition w.Id EntityTypeNames.Work w.Name w.ParentId w.Position)
 
     let arrows =
         DsQuery.allArrowWorks store
@@ -103,7 +103,7 @@ let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
 
         let nodes =
             calls
-            |> List.map (fun c -> nodeFromPosition c.Id "Call" c.Name c.ParentId c.Position)
+            |> List.map (fun c -> nodeFromPosition c.Id EntityTypeNames.Call c.Name c.ParentId c.Position)
 
         let arrows =
             DsQuery.allArrowCalls store

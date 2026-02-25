@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Ds2.Core;
 using Ds2.UI.Core;
+using Ds2.UI.Frontend;
 using Microsoft.FSharp.Core;
 
 namespace Ds2.UI.Frontend.ViewModels;
@@ -37,7 +38,7 @@ public partial class MainViewModel
             SelectNodeFromCanvas(node, ctrlPressed, shiftPressed);
 
         var dragNodes = CanvasNodes
-            .Where(n => n.IsSelected && n.EntityType is "Work" or "Call")
+            .Where(n => n.IsSelected && EntityTypes.IsWorkOrCall(n.EntityType))
             .ToList();
 
         if (dragNodes.Count == 0 || dragNodes.All(n => n.Id != node.Id))
@@ -97,7 +98,7 @@ public partial class MainViewModel
 
         foreach (var key in _orderedNodeSelection)
         {
-            if (key.EntityType is "Work" or "Call")
+            if (EntityTypes.IsWorkOrCall(key.EntityType))
             {
                 entityType = key.EntityType;
                 return true;

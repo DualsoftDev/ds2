@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.UI.Core;
+using Ds2.UI.Frontend;
 using Ds2.UI.Frontend.Dialogs;
 using Microsoft.FSharp.Core;
 
@@ -55,7 +56,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void ApplyWorkDuration()
     {
-        if (SelectedNode is not { EntityType: "Work" } selectedWork) return;
+        if (SelectedNode is not { } selectedWork || !EntityTypes.Is(selectedWork.EntityType, EntityTypes.Work)) return;
 
         if (!_editor.TryUpdateWorkDuration(selectedWork.Id, WorkDurationText))
         {
@@ -71,7 +72,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void ApplyCallTimeout()
     {
-        if (SelectedNode is not { EntityType: "Call" } selectedCall) return;
+        if (SelectedNode is not { } selectedCall || !EntityTypes.Is(selectedCall.EntityType, EntityTypes.Call)) return;
 
         if (!_editor.TryUpdateCallTimeout(selectedCall.Id, CallTimeoutText))
         {
@@ -87,7 +88,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void AddCallApiCall()
     {
-        if (SelectedNode is not { EntityType: "Call" } selectedCall) return;
+        if (SelectedNode is not { } selectedCall || !EntityTypes.Is(selectedCall.EntityType, EntityTypes.Call)) return;
 
         var apiDefChoices = DeviceApiDefOptions
             .Select(x => new ApiCallCreateDialog.ApiDefChoice(x.Id, x.DisplayName))
@@ -145,7 +146,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void UpdateCallApiCall(CallApiCallItem? item)
     {
-        if (SelectedNode is not { EntityType: "Call" } selectedCall) return;
+        if (SelectedNode is not { } selectedCall || !EntityTypes.Is(selectedCall.EntityType, EntityTypes.Call)) return;
         if (item is null || !item.IsDirty) return;
         if (item.ApiDefId is not Guid apiDefId || apiDefId == Guid.Empty)
         {
@@ -178,7 +179,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void RemoveCallApiCall(CallApiCallItem? item)
     {
-        if (SelectedNode is not { EntityType: "Call" } selectedCall) return;
+        if (SelectedNode is not { } selectedCall || !EntityTypes.Is(selectedCall.EntityType, EntityTypes.Call)) return;
         if (item is null) return;
 
         _editor.RemoveApiCallFromCall(selectedCall.Id, item.ApiCallId);
@@ -189,7 +190,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void AddSystemApiDef()
     {
-        if (SelectedNode is not { EntityType: "System" } systemNode) return;
+        if (SelectedNode is not { } systemNode || !EntityTypes.Is(systemNode.EntityType, EntityTypes.System)) return;
 
         var works = _editor.GetWorksForSystem(systemNode.Id).ToList();
         var dialog = new ApiDefEditDialog(works) { Owner = GetOwnerWindow() };
@@ -206,14 +207,14 @@ public partial class MainViewModel
     [RelayCommand]
     private void EditSystemApiDef(ApiDefPanelItem? item)
     {
-        if (item is null || SelectedNode is not { EntityType: "System" } systemNode) return;
+        if (item is null || SelectedNode is not { } systemNode || !EntityTypes.Is(systemNode.EntityType, EntityTypes.System)) return;
 
         var works = _editor.GetWorksForSystem(systemNode.Id).ToList();
         var dialog = new ApiDefEditDialog(works, item) { Owner = GetOwnerWindow() };
         if (dialog.ShowDialog() != true) return;
 
         if (dialog.ApiDefName != item.Name)
-            _editor.RenameEntity(item.Id, "ApiDef", dialog.ApiDefName);
+            _editor.RenameEntity(item.Id, EntityTypes.ApiDef, dialog.ApiDefName);
 
         var props = BuildApiDefProperties(dialog);
         _editor.UpdateApiDefProperties(item.Id, props);
@@ -225,7 +226,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void DeleteSystemApiDef(ApiDefPanelItem? item)
     {
-        if (item is null || SelectedNode is not { EntityType: "System" } systemNode) return;
+        if (item is null || SelectedNode is not { } systemNode || !EntityTypes.Is(systemNode.EntityType, EntityTypes.System)) return;
 
         _editor.RemoveApiDef(item.Id);
         RefreshSystemPanel(systemNode.Id);
@@ -247,9 +248,9 @@ public partial class MainViewModel
     {
         var selected = SelectedNode;
         NameEditorText = selected?.Name ?? string.Empty;
-        IsWorkSelected   = selected?.EntityType == "Work";
-        IsCallSelected   = selected?.EntityType == "Call";
-        IsSystemSelected = selected?.EntityType == "System";
+        IsWorkSelected   = EntityTypes.Is(selected?.EntityType, EntityTypes.Work);
+        IsCallSelected   = EntityTypes.Is(selected?.EntityType, EntityTypes.Call);
+        IsSystemSelected = EntityTypes.Is(selected?.EntityType, EntityTypes.System);
 
         if (IsWorkSelected && selected is not null)
         {
@@ -346,7 +347,7 @@ public partial class MainViewModel
         if (dialog.ShowDialog() != true) return;
 
         if (dialog.ApiDefName != existing.Name)
-            _editor.RenameEntity(apiDefId, "ApiDef", dialog.ApiDefName);
+            _editor.RenameEntity(apiDefId, EntityTypes.ApiDef, dialog.ApiDefName);
 
         var props = BuildApiDefProperties(dialog);
         _editor.UpdateApiDefProperties(apiDefId, props);

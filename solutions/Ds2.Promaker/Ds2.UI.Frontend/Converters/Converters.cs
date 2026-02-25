@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
 using Ds2.Core;
+using Ds2.UI.Frontend;
 
 namespace Ds2.UI.Frontend.Converters;
 
@@ -20,15 +21,14 @@ public sealed class EntityTypeToBrushConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        var key = value?.ToString() switch
-        {
-            "Work" => "NodeWorkBackgroundBrush",
-            "Call" => "NodeCallBackgroundBrush",
-            "Flow" => "AccentBrush",
-            "System" => "OrangeAccentBrush",
-            "Project" => "GreenAccentBrush",
-            _ => "TertiaryBackgroundBrush"
-        };
+        var entityType = value?.ToString();
+        var key =
+            EntityTypes.Is(entityType, EntityTypes.Work) ? "NodeWorkBackgroundBrush" :
+            EntityTypes.Is(entityType, EntityTypes.Call) ? "NodeCallBackgroundBrush" :
+            EntityTypes.Is(entityType, EntityTypes.Flow) ? "AccentBrush" :
+            EntityTypes.Is(entityType, EntityTypes.System) ? "OrangeAccentBrush" :
+            EntityTypes.Is(entityType, EntityTypes.Project) ? "GreenAccentBrush" :
+            "TertiaryBackgroundBrush";
 
         return Application.Current.TryFindResource(key) as Brush ?? Brushes.Gray;
     }
@@ -107,20 +107,21 @@ public sealed class ArrowTypeToDashConverter : IValueConverter
 public sealed class EntityTypeToIconConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-        => value?.ToString() switch
-        {
-            "Project" => "P",
-            "System" => "S",
-            "Flow" => "F",
-            "Work" => "W",
-            "Call" => "C",
-            "ApiDef" => "A",
-            "Button" => "B",
-            "Lamp" => "L",
-            "Condition" => "?",
-            "Action" => "!",
-            _ => "?"
-        };
+    {
+        var entityType = value?.ToString();
+        return
+            EntityTypes.Is(entityType, EntityTypes.Project) ? "P" :
+            EntityTypes.Is(entityType, EntityTypes.System) ? "S" :
+            EntityTypes.Is(entityType, EntityTypes.Flow) ? "F" :
+            EntityTypes.Is(entityType, EntityTypes.Work) ? "W" :
+            EntityTypes.Is(entityType, EntityTypes.Call) ? "C" :
+            EntityTypes.Is(entityType, EntityTypes.ApiDef) ? "A" :
+            EntityTypes.Is(entityType, EntityTypes.Button) ? "B" :
+            EntityTypes.Is(entityType, EntityTypes.Lamp) ? "L" :
+            EntityTypes.Is(entityType, EntityTypes.Condition) ? "?" :
+            EntityTypes.Is(entityType, EntityTypes.Action) ? "!" :
+            "?";
+    }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => throw new NotSupportedException();
