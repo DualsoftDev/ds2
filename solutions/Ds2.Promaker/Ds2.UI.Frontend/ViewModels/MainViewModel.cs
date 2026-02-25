@@ -174,8 +174,8 @@ public partial class MainViewModel : ObservableObject
 
         if (_orderedNodeSelection.Count > 0)
         {
-            var key = _orderedNodeSelection[^1];
-            _editor.RemoveEntity(key.EntityType, key.Id);
+            var selections = _orderedNodeSelection.Select(k => Tuple.Create(k.EntityType, k.Id));
+            _editor.RemoveEntities(selections);
             return;
         }
 

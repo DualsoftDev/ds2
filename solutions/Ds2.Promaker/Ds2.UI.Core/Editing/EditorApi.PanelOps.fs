@@ -104,7 +104,7 @@ let getApiDefParentSystemId (store: DsStore) (apiDefId: Guid) : Guid option =
 
 let getDeviceApiDefOptionsForCall (store: DsStore) (callId: Guid) : DeviceApiDefOption list =
     let systems =
-        match EntityHierarchyQueries.tryFindProjectIdForEntity store "Call" callId with
+        match EntityHierarchyQueries.tryFindProjectIdForEntity store EntityTypeNames.Call callId with
         | Some projectId -> DsQuery.passiveSystemsOf projectId store
         | None -> DsQuery.allProjects store |> List.collect (fun p -> DsQuery.passiveSystemsOf p.Id store)
     systems

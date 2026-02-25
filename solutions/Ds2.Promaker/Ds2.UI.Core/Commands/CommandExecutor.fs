@@ -174,35 +174,35 @@ module CommandExecutor =
         // --- HW Components ---
         | AddButton button ->
             Mutation.addButton button store |> requireMutationOk "addButton"
-            [ HwComponentAdded("Button", button.Id, button.Name) ]
+            [ HwComponentAdded(EntityTypeNames.Button, button.Id, button.Name) ]
 
         | RemoveButton backup ->
             Mutation.removeButton backup.Id store |> requireMutationOk "removeButton"
-            [ HwComponentRemoved("Button", backup.Id) ]
+            [ HwComponentRemoved(EntityTypeNames.Button, backup.Id) ]
 
         | AddLamp lamp ->
             Mutation.addLamp lamp store |> requireMutationOk "addLamp"
-            [ HwComponentAdded("Lamp", lamp.Id, lamp.Name) ]
+            [ HwComponentAdded(EntityTypeNames.Lamp, lamp.Id, lamp.Name) ]
 
         | RemoveLamp backup ->
             Mutation.removeLamp backup.Id store |> requireMutationOk "removeLamp"
-            [ HwComponentRemoved("Lamp", backup.Id) ]
+            [ HwComponentRemoved(EntityTypeNames.Lamp, backup.Id) ]
 
         | AddHwCondition condition ->
             Mutation.addCondition condition store |> requireMutationOk "addCondition"
-            [ HwComponentAdded("Condition", condition.Id, condition.Name) ]
+            [ HwComponentAdded(EntityTypeNames.Condition, condition.Id, condition.Name) ]
 
         | RemoveHwCondition backup ->
             Mutation.removeCondition backup.Id store |> requireMutationOk "removeCondition"
-            [ HwComponentRemoved("Condition", backup.Id) ]
+            [ HwComponentRemoved(EntityTypeNames.Condition, backup.Id) ]
 
         | AddHwAction action ->
             Mutation.addAction action store |> requireMutationOk "addAction"
-            [ HwComponentAdded("Action", action.Id, action.Name) ]
+            [ HwComponentAdded(EntityTypeNames.Action, action.Id, action.Name) ]
 
         | RemoveHwAction backup ->
             Mutation.removeAction backup.Id store |> requireMutationOk "removeAction"
-            [ HwComponentRemoved("Action", backup.Id) ]
+            [ HwComponentRemoved(EntityTypeNames.Action, backup.Id) ]
 
         // --- 엔티티 공통 ---
         | RenameEntity(id, entityType, _, newName) ->

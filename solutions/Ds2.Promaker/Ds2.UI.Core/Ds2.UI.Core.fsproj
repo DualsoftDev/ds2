@@ -9,8 +9,8 @@
     <Compile Include="Core\DsStore.fs" />
     <Compile Include="Core\DsQuery.fs" />
     <Compile Include="Core\Mutation.fs" />
-    <Compile Include="Core\ValidationRules.fs" />
     <Compile Include="Core\EditorTypes.fs" />
+    <Compile Include="Core\ValidationRules.fs" />
     <Compile Include="Commands\CommandExecutor.fs" />
     <Compile Include="Commands\UndoRedoManager.fs" />
     <Compile Include="Geometry\ArrowPathCalculator.fs" />
