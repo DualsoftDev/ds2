@@ -132,7 +132,9 @@ let private toCallApiCallPanelItem (store: DsStore) (apiCall: ApiCall) : CallApi
         apiCall.Id, apiCall.Name, apiDefId, hasApiDef, apiDefDisplayName,
         outputAddress, inputAddress,
         PropertyPanelValueSpec.format apiCall.OutputSpec,
-        PropertyPanelValueSpec.format apiCall.InputSpec)
+        PropertyPanelValueSpec.format apiCall.InputSpec,
+        PropertyPanelValueSpec.dataTypeIndex apiCall.OutputSpec,
+        PropertyPanelValueSpec.dataTypeIndex apiCall.InputSpec)
 
 let getCallApiCallsForPanel (store: DsStore) (callId: Guid) : CallApiCallPanelItem list =
     match DsQuery.getCall callId store with
@@ -154,7 +156,8 @@ let getCallConditionsForPanel (store: DsStore) (callId: Guid) : CallConditionPan
                     let _, _, displayName = resolveApiDefDisplay store ac.ApiDefId
                     CallConditionApiCallItem(
                         ac.Id, ac.Name, displayName,
-                        PropertyPanelValueSpec.format ac.OutputSpec))
+                        PropertyPanelValueSpec.format ac.OutputSpec,
+                        PropertyPanelValueSpec.dataTypeIndex ac.OutputSpec))
                 |> Seq.toList
             CallConditionPanelItem(
                 cond.Id,

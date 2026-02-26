@@ -252,11 +252,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         | Some cmd -> this.Exec cmd; true
         | None -> false
 
-    member this.AddApiCallToCondition(callId: Guid, conditionId: Guid, sourceApiCallId: Guid, outputSpecText: string) : bool =
-        match PanelOps.buildAddApiCallToConditionCmd store callId conditionId sourceApiCallId outputSpecText with
-        | Some cmd -> this.Exec cmd; true
-        | None -> false
-
     /// 다중 ApiCall을 조건에 한 번에 추가 (Composite 1건 → Undo 1회). 추가된 개수 반환.
     member this.AddApiCallsToConditionBatch(callId: Guid, conditionId: Guid, sourceApiCallIds: Guid[]) : int =
         match PanelOps.buildAddApiCallsToConditionBatchCmd store callId conditionId (List.ofArray sourceApiCallIds) with

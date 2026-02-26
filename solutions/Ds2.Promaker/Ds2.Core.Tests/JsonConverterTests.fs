@@ -38,11 +38,19 @@ let private assertTypedValueSpecEqual (expected: ValueSpec<'T>) (actual: ValueSp
 
 let private assertValueSpecEqual (expected: ValueSpec) (actual: ValueSpec) =
     match expected, actual with
-    | UndefinedValue, UndefinedValue -> ()
-    | IntValue e, IntValue a -> assertTypedValueSpecEqual e a
-    | FloatValue e, FloatValue a -> assertTypedValueSpecEqual e a
-    | StringValue e, StringValue a -> assertTypedValueSpecEqual e a
-    | BoolValue e, BoolValue a -> assertTypedValueSpecEqual e a
+    | UndefinedValue,    UndefinedValue    -> ()
+    | BoolValue    e,    BoolValue    a    -> assertTypedValueSpecEqual e a
+    | Int8Value    e,    Int8Value    a    -> assertTypedValueSpecEqual e a
+    | Int16Value   e,    Int16Value   a    -> assertTypedValueSpecEqual e a
+    | Int32Value   e,    Int32Value   a    -> assertTypedValueSpecEqual e a
+    | Int64Value   e,    Int64Value   a    -> assertTypedValueSpecEqual e a
+    | UInt8Value   e,    UInt8Value   a    -> assertTypedValueSpecEqual e a
+    | UInt16Value  e,    UInt16Value  a    -> assertTypedValueSpecEqual e a
+    | UInt32Value  e,    UInt32Value  a    -> assertTypedValueSpecEqual e a
+    | UInt64Value  e,    UInt64Value  a    -> assertTypedValueSpecEqual e a
+    | Float32Value e,    Float32Value a    -> assertTypedValueSpecEqual e a
+    | Float64Value e,    Float64Value a    -> assertTypedValueSpecEqual e a
+    | StringValue  e,    StringValue  a    -> assertTypedValueSpecEqual e a
     | _ ->
         Assert.True(false, sprintf "ValueSpec kind mismatch. expected=%A actual=%A" expected actual)
 
@@ -70,34 +78,46 @@ module ValueSpecSerializationTests =
 
     [<Fact>]
     let ``JsonConverter should roundtrip every ValueSpec case with exact boundaries`` () =
-        let intRanges =
-            IntValue (
+        let int32Ranges =
+            Int32Value (
                 Ranges [
                     { Lower = Some (1, Closed); Upper = Some (10, Open) }
                     { Lower = None; Upper = Some (99, Closed) }
                 ])
 
-        let floatRanges =
-            FloatValue (
+        let float64Ranges =
+            Float64Value (
                 Ranges [
-                    { Lower = Some (-10.5m, Open); Upper = Some (0.0m, Closed) }
-                    { Lower = Some (3.14m, Closed); Upper = None }
+                    { Lower = Some (-10.5, Open); Upper = Some (0.0, Closed) }
+                    { Lower = Some (3.14, Closed); Upper = None }
                 ])
 
         let specs: ValueSpec list = [
             UndefinedValue
-            IntValue Undefined
-            IntValue (Single -5)
-            IntValue (Multiple [ 1; 2; 3 ])
-            intRanges
-            FloatValue Undefined
-            FloatValue (Single 12.75m)
-            FloatValue (Multiple [ -1.5m; 0.0m; 8.25m ])
-            floatRanges
-            StringValue (Single "A-01")
-            StringValue (Multiple [ "X"; "Y"; "Z" ])
             BoolValue (Single true)
             BoolValue (Multiple [ true; false; true ])
+            Int8Value  (Single -128y)
+            Int8Value  (Multiple [ -1y; 0y; 127y ])
+            Int16Value (Single -32768s)
+            Int16Value (Multiple [ -1s; 0s; 32767s ])
+            Int32Value Undefined
+            Int32Value (Single -5)
+            Int32Value (Multiple [ 1; 2; 3 ])
+            int32Ranges
+            Int64Value (Single -9223372036854775808L)
+            Int64Value (Multiple [ -1L; 0L; 9223372036854775807L ])
+            UInt8Value  (Single 255uy)
+            UInt16Value (Single 65535us)
+            UInt32Value (Single 4294967295u)
+            UInt64Value (Single 18446744073709551615UL)
+            Float32Value (Single 3.14f)
+            Float32Value (Multiple [ -1.5f; 0.0f; 8.25f ])
+            Float64Value Undefined
+            Float64Value (Single 12.75)
+            Float64Value (Multiple [ -1.5; 0.0; 8.25 ])
+            float64Ranges
+            StringValue (Single "A-01")
+            StringValue (Multiple [ "X"; "Y"; "Z" ])
         ]
 
         for expected in specs do
@@ -130,16 +150,16 @@ module JsonRoundTripTests =
         let apiBool = mkApiCall "Api-Bool" "D400" "D401"
 
         let intSpec =
-            IntValue (
+            Int32Value (
                 Ranges [
                     { Lower = Some (10, Closed); Upper = Some (20, Open) }
                     { Lower = None; Upper = Some (100, Closed) }
                 ])
 
         let floatSpec =
-            FloatValue (
+            Float64Value (
                 Ranges [
-                    { Lower = Some (0.1m, Open); Upper = Some (9.9m, Closed) }
+                    { Lower = Some (0.1, Open); Upper = Some (9.9, Closed) }
                 ])
 
         let stringSpec = StringValue (Multiple [ "READY"; "RUNNING"; "STOP" ])

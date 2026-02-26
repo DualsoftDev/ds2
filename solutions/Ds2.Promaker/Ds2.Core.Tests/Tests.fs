@@ -80,15 +80,15 @@ module EntityPositionTests =
 module ValueSpecConvenienceTests =
 
     [<Fact>]
-    let ``rangesIntClosed should support unbounded and bounded segments`` () =
-        match ValueSpec.rangesIntClosed [ (Some 10, Some 20); (None, Some 0) ] with
-        | IntValue (Ranges segments) ->
+    let ``rangesInt32Closed should support unbounded and bounded segments`` () =
+        match ValueSpec.rangesInt32Closed [ (Some 10, Some 20); (None, Some 0) ] with
+        | Int32Value (Ranges segments) ->
             Assert.Equal(2, segments.Length)
             Assert.Equal(Some (10, Closed), segments.[0].Lower)
             Assert.Equal(Some (20, Closed), segments.[0].Upper)
             Assert.Equal((None: Bound<int> option), segments.[1].Lower)
             Assert.Equal(Some (0, Closed), segments.[1].Upper)
-        | _ -> Assert.True(false, "rangesIntClosed should return IntValue with range segments")
+        | _ -> Assert.True(false, "rangesInt32Closed should return Int32Value with range segments")
 
 /// DeepCopy 테스트
 module DeepCopyTests =
@@ -167,7 +167,7 @@ module DeepCopyTests =
     [<Fact>]
     let ``CallCondition DeepCopy should copy ValueSpec correctly`` () =
         let apiCall1 = ApiCall("ApiCall1")
-        apiCall1.OutputSpec <- ValueSpec.singleInt 100
+        apiCall1.OutputSpec <- ValueSpec.singleInt32 100
         let apiCall2 = ApiCall("ApiCall2")
         apiCall2.OutputSpec <- ValueSpec.singleBool true
 
@@ -188,7 +188,7 @@ module DeepCopyTests =
 
         // OutputSpec이 올바르게 복사되는지 확인
         match copied.Conditions.[0].OutputSpec with
-        | IntValue (Single 100) -> Assert.True(true)
+        | Int32Value (Single 100) -> Assert.True(true)
         | _ -> Assert.Fail("OutputSpec not copied correctly")
 
         match copied.Conditions.[1].OutputSpec with
@@ -201,7 +201,7 @@ module DeepCopyTests =
         let apiCall = ApiCall("RangeApiCall")
 
         // 복잡한 ValueSpec: 범위 값
-        let rangeSpec = ValueSpec.rangesIntClosed [ (Some 10, Some 20); (None, Some 100) ]
+        let rangeSpec = ValueSpec.rangesInt32Closed [ (Some 10, Some 20); (None, Some 100) ]
         apiCall.OutputSpec <- rangeSpec
         original.Conditions.Add(apiCall)
 
@@ -210,7 +210,7 @@ module DeepCopyTests =
         Assert.Equal(original.Id, copied.Id)
         Assert.Equal(1, copied.Conditions.Count)
         match copied.Conditions.[0].OutputSpec with
-        | IntValue (Ranges segments) ->
+        | Int32Value (Ranges segments) ->
             Assert.Equal(2, segments.Length)
             Assert.Equal(Some (10, Closed), segments.[0].Lower)
             Assert.Equal(Some (20, Closed), segments.[0].Upper)

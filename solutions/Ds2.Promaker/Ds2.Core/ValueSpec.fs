@@ -26,13 +26,21 @@ type ValueSpec<'T when 'T : equality and 'T : comparison> =
 
     interface IValueSpec
 
-/// 타입 안전한 비제네릭 ValueSpec (런타임 캐스팅 위험 제거)
+/// 타입 안전한 비제네릭 ValueSpec — 비트폭 정보를 JSON에서 완전히 보존
 type ValueSpec =
     | UndefinedValue
-    | IntValue of ValueSpec<int>
-    | FloatValue of ValueSpec<decimal>
-    | StringValue of ValueSpec<string>
-    | BoolValue of ValueSpec<bool>
+    | BoolValue    of ValueSpec<bool>
+    | Int8Value    of ValueSpec<sbyte>
+    | Int16Value   of ValueSpec<int16>
+    | Int32Value   of ValueSpec<int>
+    | Int64Value   of ValueSpec<int64>
+    | UInt8Value   of ValueSpec<byte>
+    | UInt16Value  of ValueSpec<uint16>
+    | UInt32Value  of ValueSpec<uint32>
+    | UInt64Value  of ValueSpec<uint64>
+    | Float32Value of ValueSpec<float32>   // System.Single (단정밀도)
+    | Float64Value of ValueSpec<float>     // System.Double (배정밀도, F#의 float)
+    | StringValue  of ValueSpec<string>
 
 /// ValueSpec 생성 헬퍼
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -43,29 +51,26 @@ module ValueSpec =
     let private segment<'T> (lower: Bound<'T> option) (upper: Bound<'T> option) : RangeSegment<'T> =
         { Lower = lower; Upper = upper }
 
-    let singleInt (value: int) : ValueSpec = IntValue (Single value)
-    let singleFloat (value: decimal) : ValueSpec = FloatValue (Single value)
-    let singleString (value: string) : ValueSpec = StringValue (Single value)
-    let singleBool (value: bool) : ValueSpec = BoolValue (Single value)
-    let multipleInt (values: int list) : ValueSpec = IntValue (Multiple values)
-    let multipleFloat (values: decimal list) : ValueSpec = FloatValue (Multiple values)
-    let multipleString (values: string list) : ValueSpec = StringValue (Multiple values)
-    let multipleBool (values: bool list) : ValueSpec = BoolValue (Multiple values)
-    let rangesInt (segments: RangeSegment<int> list) : ValueSpec = IntValue (Ranges segments)
-    let rangesFloat (segments: RangeSegment<decimal> list) : ValueSpec = FloatValue (Ranges segments)
+    let singleBool    (value: bool)    = BoolValue    (Single value)
+    let singleInt8    (value: sbyte)   = Int8Value    (Single value)
+    let singleInt16   (value: int16)   = Int16Value   (Single value)
+    let singleInt32   (value: int)     = Int32Value   (Single value)
+    let singleInt64   (value: int64)   = Int64Value   (Single value)
+    let singleUInt8   (value: byte)    = UInt8Value   (Single value)
+    let singleUInt16  (value: uint16)  = UInt16Value  (Single value)
+    let singleUInt32  (value: uint32)  = UInt32Value  (Single value)
+    let singleUInt64  (value: uint64)  = UInt64Value  (Single value)
+    let singleFloat32 (value: float32) = Float32Value (Single value)
+    let singleFloat64 (value: float)   = Float64Value (Single value)
+    let singleString  (value: string)  = StringValue  (Single value)
+
+    let rangesInt32 (segments: RangeSegment<int> list) : ValueSpec = Int32Value (Ranges segments)
 
     // 닫힌 구간 튜플 입력: (하한 option, 상한 option)
-    // 예: [Some 10, Some 20; None, Some 0]
-    let rangesIntClosed (segments: (int option * int option) list) : ValueSpec =
+    let rangesInt32Closed (segments: (int option * int option) list) : ValueSpec =
         segments
         |> List.map (fun (lower, upper) ->
             segment (lower |> Option.map boundClosed) (upper |> Option.map boundClosed))
-        |> rangesInt
-
-    let rangesFloatClosed (segments: (decimal option * decimal option) list) : ValueSpec =
-        segments
-        |> List.map (fun (lower, upper) ->
-            segment (lower |> Option.map boundClosed) (upper |> Option.map boundClosed))
-        |> rangesFloat
+        |> rangesInt32
 
     let undefined : ValueSpec = UndefinedValue
