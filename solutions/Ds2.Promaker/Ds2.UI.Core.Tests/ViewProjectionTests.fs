@@ -164,6 +164,24 @@ let ``canvasContentForFlowWorks returns only works in selected flow`` () =
     Assert.Equal(w1.Id, content.Nodes.Head.Id)
 
 [<Fact>]
+let ``canvasContentForFlowWorks excludes cross-flow arrows and keeps them in system canvas`` () =
+    let store, api, _, system, flow1 = setupProjectSystemFlow()
+    let flow2 = api.AddFlow("F2", system.Id)
+    let w1 = api.AddWork("W1", flow1.Id)
+    let w2 = api.AddWork("W2", flow2.Id)
+
+    let created = api.ConnectSelectionInOrder([ w1.Id; w2.Id ], ArrowType.Start)
+    Assert.Equal(1, created)
+
+    let flowContent = CanvasProjection.canvasContentForFlowWorks store flow1.Id
+    Assert.Empty(flowContent.Arrows)
+
+    let systemContent = CanvasProjection.canvasContentForSystemWorks store system.Id
+    Assert.Single(systemContent.Arrows) |> ignore
+    Assert.Equal(w1.Id, systemContent.Arrows.Head.SourceId)
+    Assert.Equal(w2.Id, systemContent.Arrows.Head.TargetId)
+
+[<Fact>]
 let ``canvasContentForWorkCalls returns only calls in selected work`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
@@ -573,6 +591,39 @@ let ``orderedArrowLinksForSelection skips already existing arrows`` () =
     Assert.Equal(w3.Id, tgt)
 
 [<Fact>]
+let ``orderedArrowLinksForSelection allows cross-flow work links in same system`` () =
+    let store, api, _project, system, flow1 = setupProjectSystemFlow()
+    let flow2 = api.AddFlow("F2", system.Id)
+    let w1 = api.AddWork("W1", flow1.Id)
+    let w2 = api.AddWork("W2", flow2.Id)
+
+    let links =
+        ConnectionQueries.orderedArrowLinksForSelection store [ w1.Id; w2.Id ]
+
+    Assert.Single(links) |> ignore
+    let (entityType, flowId, src, tgt) = links.Head
+    Assert.Equal(EntityTypeNames.Work, entityType)
+    Assert.Equal(flow1.Id, flowId)
+    Assert.Equal(w1.Id, src)
+    Assert.Equal(w2.Id, tgt)
+
+[<Fact>]
+let ``orderedArrowLinksForSelection rejects cross-system work links`` () =
+    let store, api = createApi()
+    let project = api.AddProject("P1")
+    let system1 = api.AddSystem("S1", project.Id, true)
+    let system2 = api.AddSystem("S2", project.Id, true)
+    let flow1 = api.AddFlow("F1", system1.Id)
+    let flow2 = api.AddFlow("F2", system2.Id)
+    let w1 = api.AddWork("W1", flow1.Id)
+    let w2 = api.AddWork("W2", flow2.Id)
+
+    let links =
+        ConnectionQueries.orderedArrowLinksForSelection store [ w1.Id; w2.Id ]
+
+    Assert.Empty(links)
+
+[<Fact>]
 let ``resolveFlowIdForConnect resolves work siblings`` () =
     let store, api, _project, _system, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
@@ -587,6 +638,23 @@ let ``resolveFlowIdForConnect resolves work siblings`` () =
             (Some w2.ParentId)
 
     Assert.Equal(Some flow.Id, resolved)
+
+[<Fact>]
+let ``resolveFlowIdForConnect resolves cross-flow works in same system`` () =
+    let store, api, _project, system, flow1 = setupProjectSystemFlow()
+    let flow2 = api.AddFlow("F2", system.Id)
+    let w1 = api.AddWork("W1", flow1.Id)
+    let w2 = api.AddWork("W2", flow2.Id)
+
+    let resolved =
+        ConnectionQueries.resolveFlowIdForConnect
+            store
+            EntityTypeNames.Work
+            (Some w1.ParentId)
+            EntityTypeNames.Work
+            (Some w2.ParentId)
+
+    Assert.Equal(Some flow1.Id, resolved)
 
 [<Fact>]
 let ``resolveFlowIdForConnect resolves call siblings by work parent`` () =

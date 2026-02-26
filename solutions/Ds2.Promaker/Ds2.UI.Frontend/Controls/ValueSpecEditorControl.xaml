@@ -6,10 +6,31 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Row 0: Data Type -->
+        <!-- Row 0: Condition Type -->
         <Grid Grid.Row="0" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="56"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="형태:"
+                       VerticalAlignment="Center"
+                       FontSize="11"
+                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+            <ComboBox Grid.Column="1" x:Name="ConditionTypeCombo"
+                      FontSize="11"
+                      SelectedIndex="0"
+                      SelectionChanged="OnConditionTypeChanged">
+                <ComboBoxItem Content="Single (단일값)"/>
+                <ComboBoxItem Content="Multiple (복수값, 쉼표 구분)"/>
+                <ComboBoxItem Content="Ranges (범위, 읽기 전용)"/>
+            </ComboBox>
+        </Grid>
+
+        <!-- Row 1: Data Type -->
+        <Grid Grid.Row="1" Margin="0,0,0,6">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="56"/>
                 <ColumnDefinition Width="*"/>
@@ -37,8 +58,8 @@
             </ComboBox>
         </Grid>
 
-        <!-- Row 1: Value input -->
-        <Grid Grid.Row="1">
+        <!-- Row 2: Value input -->
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="56"/>
                 <ColumnDefinition Width="*"/>

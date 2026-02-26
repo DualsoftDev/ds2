@@ -13,7 +13,9 @@ public partial class ApiCallSpecDialog : Window
     }
 
     public string OutSpecText => OutSpecEditor.GetText();
+    public int OutSpecTypeIndex => OutSpecEditor.GetTypeIndex();
     public string InSpecText => InSpecEditor.GetText();
+    public int InSpecTypeIndex => InSpecEditor.GetTypeIndex();
 
     private void Ok_Click(object sender, RoutedEventArgs e)
     {

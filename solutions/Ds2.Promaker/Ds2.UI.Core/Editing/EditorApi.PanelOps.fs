@@ -277,17 +277,18 @@ let buildAddApiCallCmd (store: DsStore) (callId: Guid) (apiDefId: Guid) (apiCall
     | _ -> None
 
 /// UpdateApiCall 커맨드 빌드 → Some cmd or None
-let buildUpdateApiCallCmd (store: DsStore) (callId: Guid) (apiCallId: Guid) (apiDefId: Guid) (apiCallName: string) (outputAddress: string) (inputAddress: string) (valueSpecText: string) (inputValueSpecText: string) : EditorCommand option =
+let buildUpdateApiCallCmd (store: DsStore) (callId: Guid) (apiCallId: Guid) (apiDefId: Guid) (apiCallName: string) (outputAddress: string) (inputAddress: string) (outputTypeIndex: int) (valueSpecText: string) (inputTypeIndex: int) (inputValueSpecText: string) : EditorCommand option =
     match DsQuery.getCall callId store with
     | None -> None
     | Some call ->
         let existing = call.ApiCalls |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
         match existing, DsQuery.getApiDef apiDefId store with
         | Some oldApiCall, Some newApiDef ->
-            // Out Spec 힌트: 기존 ApiCall.OutputSpec
-            // In Spec 힌트: 기존 ApiCall.InputSpec
-            match PropertyPanelValueSpec.tryParseAs oldApiCall.OutputSpec valueSpecText,
-                  PropertyPanelValueSpec.tryParseAs oldApiCall.InputSpec inputValueSpecText with
+            // 사용자가 선택한 타입 인덱스를 hint로 사용 (타입 변경 지원)
+            let outputHint = PropertyPanelValueSpec.specFromTypeIndex outputTypeIndex
+            let inputHint  = PropertyPanelValueSpec.specFromTypeIndex inputTypeIndex
+            match PropertyPanelValueSpec.tryParseAs outputHint valueSpecText,
+                  PropertyPanelValueSpec.tryParseAs inputHint  inputValueSpecText with
             | Some newOutputSpec, Some newInputSpec ->
                 let updatedApiCall = buildApiCall newApiDef oldApiCall.Name apiCallName outputAddress inputAddress (Some oldApiCall.Id) newInputSpec newOutputSpec
                 Some(Composite("Update ApiCall", [
