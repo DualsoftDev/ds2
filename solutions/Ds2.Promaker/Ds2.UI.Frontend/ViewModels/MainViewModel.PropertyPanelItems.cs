@@ -33,10 +33,14 @@ public sealed class CallApiCallItem : ObservableObject
         string outputAddress,
         string inputAddress,
         string valueSpecText,
-        string inputValueSpecText)
+        string inputValueSpecText,
+        int outputSpecTypeIndex,
+        int inputSpecTypeIndex)
     {
         ApiCallId = apiCallId;
         ApiDefDisplayName = apiDefDisplayName;
+        OutputSpecTypeIndex = outputSpecTypeIndex;
+        InputSpecTypeIndex  = inputSpecTypeIndex;
 
         _apiDefId = hasApiDef && apiDefId != Guid.Empty ? apiDefId : null;
         _name = name;
@@ -55,6 +59,8 @@ public sealed class CallApiCallItem : ObservableObject
 
     public Guid ApiCallId { get; }
     public string ApiDefDisplayName { get; }
+    public int OutputSpecTypeIndex { get; }
+    public int InputSpecTypeIndex  { get; }
 
     public Guid? ApiDefId
     {
@@ -128,16 +134,18 @@ public sealed class ConditionApiCallRow
 {
     public ConditionApiCallRow(Guid conditionId, CallConditionApiCallItem item)
     {
-        ConditionId       = conditionId;
-        ApiCallId         = item.ApiCallId;
-        ApiCallName       = item.ApiCallName;
-        ApiDefDisplayName = item.ApiDefDisplayName;
-        OutputSpecText    = item.OutputSpecText;
+        ConditionId          = conditionId;
+        ApiCallId            = item.ApiCallId;
+        ApiCallName          = item.ApiCallName;
+        ApiDefDisplayName    = item.ApiDefDisplayName;
+        OutputSpecText       = item.OutputSpecText;
+        OutputSpecTypeIndex  = item.OutputSpecTypeIndex;
     }
 
-    public Guid   ConditionId       { get; }
-    public Guid   ApiCallId         { get; }
-    public string ApiCallName       { get; }
-    public string ApiDefDisplayName { get; }
-    public string OutputSpecText    { get; }
+    public Guid   ConditionId          { get; }
+    public Guid   ApiCallId            { get; }
+    public string ApiCallName          { get; }
+    public string ApiDefDisplayName    { get; }
+    public string OutputSpecText       { get; }
+    public int    OutputSpecTypeIndex  { get; }
 }

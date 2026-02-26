@@ -145,7 +145,8 @@ public partial class MainViewModel
         var newItem = new CallApiCallItem(
             row.ApiCallId, row.Name, row.ApiDefId, row.HasApiDef,
             row.ApiDefDisplayName, row.OutputAddress, row.InputAddress,
-            row.ValueSpecText, row.InputValueSpecText);
+            row.ValueSpecText, row.InputValueSpecText,
+            row.OutputSpecTypeIndex, row.InputSpecTypeIndex);
         CallApiCalls[idx] = newItem;
         SelectedCallApiCall = newItem;
     }
@@ -161,7 +162,7 @@ public partial class MainViewModel
             return;
         }
 
-        var dialog = new ApiCallSpecDialog(item.Name, item.ValueSpecText, item.InputValueSpecText);
+        var dialog = new ApiCallSpecDialog(item.Name, item.ValueSpecText, item.OutputSpecTypeIndex, item.InputValueSpecText, item.InputSpecTypeIndex);
         if (GetOwnerWindow() is { } owner)
             dialog.Owner = owner;
 
@@ -291,7 +292,7 @@ public partial class MainViewModel
         if (RequireSelectedAs(EntityTypes.Call) is not { } selectedCall) return;
         if (row is null) return;
 
-        var dialog = new ValueSpecDialog(row.OutputSpecText, "기대값 편집");
+        var dialog = new ValueSpecDialog(row.OutputSpecText, row.OutputSpecTypeIndex, "기대값 편집");
         if (GetOwnerWindow() is { } owner)
             dialog.Owner = owner;
 
@@ -459,7 +460,9 @@ public partial class MainViewModel
                     row.OutputAddress,
                     row.InputAddress,
                     row.ValueSpecText,
-                    row.InputValueSpecText));
+                    row.InputValueSpecText,
+                    row.OutputSpecTypeIndex,
+                    row.InputSpecTypeIndex));
         }
 
         if (previousSelectionId is { } selectedId)

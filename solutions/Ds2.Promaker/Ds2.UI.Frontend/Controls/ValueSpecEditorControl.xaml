@@ -22,9 +22,17 @@
                       FontSize="11"
                       SelectionChanged="OnDataTypeChanged">
                 <ComboBoxItem Content="Undefined"/>
-                <ComboBoxItem Content="bool (비트)"/>
-                <ComboBoxItem Content="int (정수)"/>
-                <ComboBoxItem Content="double (실수)"/>
+                <ComboBoxItem Content="bool (1비트)"/>
+                <ComboBoxItem Content="int8 (부호있는 1바이트)"/>
+                <ComboBoxItem Content="int16 (부호있는 2바이트)"/>
+                <ComboBoxItem Content="int32 (부호있는 4바이트)"/>
+                <ComboBoxItem Content="int64 (부호있는 8바이트)"/>
+                <ComboBoxItem Content="uint8 (부호없는 1바이트)"/>
+                <ComboBoxItem Content="uint16 (부호없는 2바이트)"/>
+                <ComboBoxItem Content="uint32 (부호없는 4바이트)"/>
+                <ComboBoxItem Content="uint64 (부호없는 8바이트)"/>
+                <ComboBoxItem Content="float32 (단정밀도 4바이트)"/>
+                <ComboBoxItem Content="float64 (배정밀도 8바이트)"/>
                 <ComboBoxItem Content="string (문자열)"/>
             </ComboBox>
         </Grid>

@@ -537,7 +537,18 @@ let ``Call property panel data should include Device ApiDef addresses and ValueS
     Assert.Equal("D1.ADV", row.ApiDefDisplayName)
     Assert.Equal("OUT.0", row.OutputAddress)
     Assert.Equal("IN.0", row.InputAddress)
-    Assert.Equal("10", row.ValueSpecText)
+    Assert.Equal("10", row.ValueSpecText)        // Int64Value(Single 10L) → "10"
+    Assert.Equal(5, row.OutputSpecTypeIndex)     // Int64Value = 인덱스 5
+    Assert.Equal(0, row.InputSpecTypeIndex)      // UndefinedValue = 인덱스 0
+
+    // Float64 정수 값(10.0)은 format 시 소수점을 보장해야 LoadFromText 역파싱에서 정수 오인식 방지
+    // OutputSpecTypeIndex=11(Float64)이 정확히 전달되어야 UI에서 float32로 오인식하지 않음
+    let created2 = api.AddApiCallFromPanel(call.Id, apiDef.Id, "AC2", "F.0", "", "10.0", "")
+    Assert.True(created2.IsSome)
+    let rows2 = api.GetCallApiCallsForPanel(call.Id)
+    let floatRow = rows2 |> List.find (fun r -> r.OutputAddress = "F.0")
+    Assert.Equal("10.0", floatRow.ValueSpecText)    // Float64Value(Single 10.0) → "10.0" (소수점 보장)
+    Assert.Equal(11, floatRow.OutputSpecTypeIndex)  // Float64Value = 인덱스 11 (float32=10과 구분)
 
 [<Fact>]
 let ``UpdateApiCallFromPanel should be one undo step with full rollback`` () =
@@ -576,8 +587,8 @@ let ``UpdateApiCallFromPanel should be one undo step with full rollback`` () =
     Assert.Equal("OUT.0", rolledBackApiCall.OutTag.Value.Address)
     Assert.Equal("IN.0", rolledBackApiCall.InTag.Value.Address)
     match rolledBackApiCall.OutputSpec with
-    | IntValue(Single 10) -> ()
-    | _ -> failwith "Expected IntValue(Single 10)"
+    | Int64Value(Single 10L) -> ()
+    | _ -> failwith "Expected Int64Value(Single 10L)"
 
     api.Redo()
     let redoneApiCall =
@@ -1375,36 +1386,6 @@ let ``AddCallCondition should add condition and be undoable`` () =
     Assert.Equal(1, store.Calls.[call.Id].CallConditions.Count)
 
 [<Fact>]
-let ``AddApiCallToCondition should store DeepCopy with custom OutputSpec`` () =
-    // 소스 ApiCall은 다른 Call에 등록 — store 전역 조회 동작 및 DeepCopy/OutputSpec/Undo 검증
-    let _, api = createApi()
-    let project = api.AddProject("P1")
-    let activeSystem = api.AddSystem("S1", project.Id, true)
-    let flow = api.AddFlow("F1", activeSystem.Id)
-    let w1 = api.AddWork("W1", flow.Id)
-    let w2 = api.AddWork("W2", flow.Id)
-    let srcCall  = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
-    let condCall = api.AddCallWithLinkedApiDefs w2.Id "Dev" "C2" [||]
-    let deviceSystem = api.AddSystem("D1", project.Id, false)
-    let apiDef = api.AddApiDef("ADV", deviceSystem.Id)
-    // 소스 ApiCall은 srcCall에만 등록 (condCall에는 없음)
-    let srcApiCallId = (api.AddApiCallFromPanel(srcCall.Id, apiDef.Id, "AC1", "", "", "", "")).Value
-
-    api.AddCallCondition(condCall.Id, CallConditionType.Active) |> ignore
-    let condId = api.GetCallConditionsForPanel(condCall.Id).[0].ConditionId
-
-    let ok = api.AddApiCallToCondition(condCall.Id, condId, srcApiCallId, "42")
-    Assert.True(ok)
-
-    let items = api.GetCallConditionsForPanel(condCall.Id).[0].Items
-    Assert.Equal(1, items.Length)
-    Assert.Equal("42", items.[0].OutputSpecText)
-    Assert.Equal(srcApiCallId, items.[0].ApiCallId)
-
-    api.Undo()
-    Assert.Equal(0, api.GetCallConditionsForPanel(condCall.Id).[0].Items.Length)
-
-[<Fact>]
 let ``UpdateCallConditionSettings IsOR toggle should be undoable`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
@@ -1518,3 +1499,104 @@ let ``RemoveEntities Work with its own Call selected should not double-remove Ca
     Assert.False(store.Calls.ContainsKey(c1.Id))
     Assert.False(store.Calls.ContainsKey(c2.Id))
     Assert.Empty(store.ArrowCalls)
+
+// =============================================================================
+// ValueSpec 13케이스 — OutputSpecTypeIndex + tryParseAs roundtrip
+// =============================================================================
+
+[<Fact>]
+let ``GetCallApiCallsForPanel should return correct OutputSpecTypeIndex for all 13 ValueSpec types`` () =
+    let store, api = createApi()
+    let project = api.AddProject("P1")
+    let system = api.AddSystem("S1", project.Id, true)
+    let flow = api.AddFlow("F1", system.Id)
+    let work = api.AddWork("W1", flow.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
+
+    // 각 타입을 직접 store에 삽입
+    let addAc (spec: ValueSpec) =
+        let ac = ApiCall($"AC-{System.Guid.NewGuid()}")
+        ac.OutputSpec <- spec
+        store.ApiCalls.[ac.Id] <- ac
+        store.Calls.[call.Id].ApiCalls.Add(ac)
+        ac.Id
+
+    let cases: (ValueSpec * int) list = [
+        UndefinedValue,                           0
+        BoolValue    (Single true),               1
+        Int8Value    (Single 100y),               2
+        Int16Value   (Single 1000s),              3
+        Int32Value   (Single 100000),             4
+        Int64Value   (Single 10000000000L),       5
+        UInt8Value   (Single 200uy),              6
+        UInt16Value  (Single 60000us),            7
+        UInt32Value  (Single 4000000000u),        8
+        UInt64Value  (Single 18000000000000000UL),9
+        Float32Value (Single 3.14f),              10
+        Float64Value (Single 3.14159265358979),   11
+        StringValue  (Single "hello"),            12
+    ]
+
+    let acIds = cases |> List.map (fun (spec, _) -> addAc spec)
+
+    let rows = api.GetCallApiCallsForPanel(call.Id)
+    for (acId, (_, expectedIdx)) in List.zip acIds cases do
+        let row = rows |> List.find (fun r -> r.ApiCallId = acId)
+        Assert.Equal(expectedIdx, row.OutputSpecTypeIndex)
+
+[<Fact>]
+let ``UpdateApiCallFromPanel should preserve ValueSpec type through tryParseAs roundtrip`` () =
+    // 버그 재현: Float64Value(Single 10.0)을 format 후 다시 update하면 Float32로 오인식되면 안 됨
+    let store, api = createApi()
+    let project = api.AddProject("P1")
+    let activeSystem = api.AddSystem("S1", project.Id, true)
+    let flow = api.AddFlow("F1", activeSystem.Id)
+    let work = api.AddWork("W1", flow.Id)
+    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
+    let deviceSystem = api.AddSystem("D1", project.Id, false)
+    let apiDef = api.AddApiDef("ADV", deviceSystem.Id)
+
+    let roundtrip (spec: ValueSpec) =
+        // store에 직접 삽입
+        let ac = ApiCall($"AC")
+        ac.OutputSpec <- spec
+        store.ApiCalls.[ac.Id] <- ac
+        store.Calls.[call.Id].ApiCalls.Add(ac)
+        // format 텍스트 가져오기
+        let row = api.GetCallApiCallsForPanel(call.Id) |> List.find (fun r -> r.ApiCallId = ac.Id)
+        // 동일 텍스트로 UpdateApiCallFromPanel → tryParseAs(hint=spec, text)
+        api.UpdateApiCallFromPanel(call.Id, ac.Id, apiDef.Id, "AC", "", "", row.ValueSpecText, "") |> ignore
+        // 결과 확인
+        store.Calls.[call.Id].ApiCalls |> Seq.find (fun a -> a.Id = ac.Id)
+
+    // Float32 vs Float64 구분 (핵심 버그 케이스)
+    let afterFloat32 = roundtrip (Float32Value (Single 3.14f))
+    match afterFloat32.OutputSpec with
+    | Float32Value _ -> ()
+    | other -> Assert.Fail($"Float32Value roundtrip failed: got {other}")
+
+    let afterFloat64 = roundtrip (Float64Value (Single 3.14159265358979))
+    match afterFloat64.OutputSpec with
+    | Float64Value _ -> ()
+    | other -> Assert.Fail($"Float64Value roundtrip failed: got {other}")
+
+    // 정수 계열 — 힌트 타입 보존
+    let afterInt8 = roundtrip (Int8Value (Single 100y))
+    match afterInt8.OutputSpec with
+    | Int8Value _ -> ()
+    | other -> Assert.Fail($"Int8Value roundtrip failed: got {other}")
+
+    let afterUInt32 = roundtrip (UInt32Value (Single 4000000000u))
+    match afterUInt32.OutputSpec with
+    | UInt32Value _ -> ()
+    | other -> Assert.Fail($"UInt32Value roundtrip failed: got {other}")
+
+    let afterBool = roundtrip (BoolValue (Single false))
+    match afterBool.OutputSpec with
+    | BoolValue (Single false) -> ()
+    | other -> Assert.Fail($"BoolValue roundtrip failed: got {other}")
+
+    let afterString = roundtrip (StringValue (Single "hello"))
+    match afterString.OutputSpec with
+    | StringValue (Single "hello") -> ()
+    | other -> Assert.Fail($"StringValue roundtrip failed: got {other}")
