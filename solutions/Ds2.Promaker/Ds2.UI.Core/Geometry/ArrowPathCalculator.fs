@@ -81,16 +81,34 @@ let private buildNodePositions (store: DsStore) (flowId: Guid) =
             | None -> positions.[call.Id] <- UiDefaults.createDefaultNodeBounds ()
     positions
 
+let private positionOrDefault (posOpt: Xywh option) =
+    defaultArg posOpt (UiDefaults.createDefaultNodeBounds ())
+
+let private tryResolveNodePosition
+    (store: DsStore)
+    (positions: Collections.Generic.Dictionary<Guid, Xywh>)
+    (nodeId: Guid)
+    : Xywh option =
+    match positions.TryGetValue nodeId with
+    | true, pos -> Some pos
+    | _ ->
+        match DsQuery.getWork nodeId store with
+        | Some work -> Some(positionOrDefault work.Position)
+        | None ->
+            match DsQuery.getCall nodeId store with
+            | Some call -> Some(positionOrDefault call.Position)
+            | None -> None
+
 /// Flow 내 모든 화살표 경로 일괄 계산
 let computeFlowArrowPaths (store: DsStore) (flowId: Guid) : Map<Guid, ArrowVisual> =
     let positions = buildNodePositions store flowId
     let result = Collections.Generic.Dictionary<Guid, ArrowVisual>()
     for arrow in DsQuery.arrowWorksOf flowId store do
-        match positions.TryGetValue(arrow.SourceId), positions.TryGetValue(arrow.TargetId) with
-        | (true, srcPos), (true, tgtPos) -> result.[arrow.Id] <- computePath srcPos tgtPos
+        match tryResolveNodePosition store positions arrow.SourceId, tryResolveNodePosition store positions arrow.TargetId with
+        | Some srcPos, Some tgtPos -> result.[arrow.Id] <- computePath srcPos tgtPos
         | _ -> ()
     for arrow in DsQuery.arrowCallsOf flowId store do
-        match positions.TryGetValue(arrow.SourceId), positions.TryGetValue(arrow.TargetId) with
-        | (true, srcPos), (true, tgtPos) -> result.[arrow.Id] <- computePath srcPos tgtPos
+        match tryResolveNodePosition store positions arrow.SourceId, tryResolveNodePosition store positions arrow.TargetId with
+        | Some srcPos, Some tgtPos -> result.[arrow.Id] <- computePath srcPos tgtPos
         | _ -> ()
     result |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq

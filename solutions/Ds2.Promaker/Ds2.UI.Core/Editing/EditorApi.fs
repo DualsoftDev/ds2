@@ -229,8 +229,8 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         | Some (newId, cmd) -> this.Exec cmd; Some newId
         | None -> None
 
-    member this.UpdateApiCallFromPanel(callId: Guid, apiCallId: Guid, apiDefId: Guid, apiCallName: string, outputAddress: string, inputAddress: string, valueSpecText: string, inputValueSpecText: string) : bool =
-        match PanelOps.buildUpdateApiCallCmd store callId apiCallId apiDefId apiCallName outputAddress inputAddress valueSpecText inputValueSpecText with
+    member this.UpdateApiCallFromPanel(callId: Guid, apiCallId: Guid, apiDefId: Guid, apiCallName: string, outputAddress: string, inputAddress: string, outputTypeIndex: int, valueSpecText: string, inputTypeIndex: int, inputValueSpecText: string) : bool =
+        match PanelOps.buildUpdateApiCallCmd store callId apiCallId apiDefId apiCallName outputAddress inputAddress outputTypeIndex valueSpecText inputTypeIndex inputValueSpecText with
         | Some cmd -> this.Exec cmd; true
         | None -> false
 

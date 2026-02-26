@@ -3,6 +3,9 @@ module Ds2.UI.Core.CanvasProjection
 open System
 open Ds2.Core
 
+let private containsBoth (idSet: Set<Guid>) (sourceId: Guid) (targetId: Guid) =
+    idSet.Contains sourceId && idSet.Contains targetId
+
 let private nodeFromPosition (id: Guid) (entityType: string) (name: string) (parentId: Guid) (pos: Xywh option) =
     match pos with
     | Some p ->
@@ -25,29 +28,45 @@ let private nodeFromPosition (id: Guid) (entityType: string) (name: string) (par
           Height = UiDefaults.DefaultNodeHeightf }
 
 let canvasContentForFlow (store: DsStore) (flowId: Guid) : CanvasContent =
+    let works = DsQuery.worksOf flowId store
+    let callsByWork =
+        works
+        |> List.map (fun work -> work, DsQuery.callsOf work.Id store)
+
     let nodes =
-        DsQuery.worksOf flowId store
-        |> List.collect (fun w ->
+        callsByWork
+        |> List.collect (fun (work, calls) ->
             let calls =
-                DsQuery.callsOf w.Id store
+                calls
                 |> List.map (fun c -> nodeFromPosition c.Id EntityTypeNames.Call c.Name c.ParentId c.Position)
 
-            nodeFromPosition w.Id EntityTypeNames.Work w.Name w.ParentId w.Position :: calls)
+            nodeFromPosition work.Id EntityTypeNames.Work work.Name work.ParentId work.Position :: calls)
+
+    let workIds = works |> List.map (fun w -> w.Id) |> Set.ofList
+    let callIds =
+        callsByWork
+        |> List.collect (fun (_, calls) -> calls)
+        |> List.map (fun call -> call.Id)
+        |> Set.ofList
 
     let arrows = [
-        yield! DsQuery.arrowWorksOf flowId store
-               |> List.map (fun a ->
-                   { Id = a.Id
-                     SourceId = a.SourceId
-                     TargetId = a.TargetId
-                     ArrowType = a.ArrowType })
+        yield!
+            DsQuery.arrowWorksOf flowId store
+            |> List.filter (fun arrow -> containsBoth workIds arrow.SourceId arrow.TargetId)
+            |> List.map (fun arrow ->
+                { Id = arrow.Id
+                  SourceId = arrow.SourceId
+                  TargetId = arrow.TargetId
+                  ArrowType = arrow.ArrowType })
 
-        yield! DsQuery.arrowCallsOf flowId store
-               |> List.map (fun a ->
-                   { Id = a.Id
-                     SourceId = a.SourceId
-                     TargetId = a.TargetId
-                     ArrowType = a.ArrowType })
+        yield!
+            DsQuery.arrowCallsOf flowId store
+            |> List.filter (fun arrow -> containsBoth callIds arrow.SourceId arrow.TargetId)
+            |> List.map (fun arrow ->
+                { Id = arrow.Id
+                  SourceId = arrow.SourceId
+                  TargetId = arrow.TargetId
+                  ArrowType = arrow.ArrowType })
     ]
 
     { Nodes = nodes; Arrows = arrows }
@@ -77,17 +96,21 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
     { Nodes = nodes; Arrows = arrows }
 
 let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
+    let works = DsQuery.worksOf flowId store
+    let workIds = works |> List.map (fun w -> w.Id) |> Set.ofList
+
     let nodes =
-        DsQuery.worksOf flowId store
+        works
         |> List.map (fun w -> nodeFromPosition w.Id EntityTypeNames.Work w.Name w.ParentId w.Position)
 
     let arrows =
         DsQuery.arrowWorksOf flowId store
-        |> List.map (fun a ->
-            { Id = a.Id
-              SourceId = a.SourceId
-              TargetId = a.TargetId
-              ArrowType = a.ArrowType })
+        |> List.filter (fun arrow -> containsBoth workIds arrow.SourceId arrow.TargetId)
+        |> List.map (fun arrow ->
+            { Id = arrow.Id
+              SourceId = arrow.SourceId
+              TargetId = arrow.TargetId
+              ArrowType = arrow.ArrowType })
 
     { Nodes = nodes; Arrows = arrows }
 

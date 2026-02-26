@@ -172,7 +172,8 @@ public partial class MainViewModel
         var updated = _editor.UpdateApiCallFromPanel(
             selectedCall.Id, item.ApiCallId, apiDefId,
             item.Name, item.OutputAddress, item.InputAddress,
-            dialog.OutSpecText, dialog.InSpecText);
+            dialog.OutSpecTypeIndex, dialog.OutSpecText,
+            dialog.InSpecTypeIndex, dialog.InSpecText);
 
         if (!updated) { StatusText = "Failed to update ApiCall spec."; return; }
         RefreshSingleCallApiCall(selectedCall.Id, item);
@@ -194,7 +195,8 @@ public partial class MainViewModel
             if (!_editor.UpdateApiCallFromPanel(
                     selectedCall.Id, dirty.ApiCallId, apiDefId,
                     dirty.Name, dirty.OutputAddress, dirty.InputAddress,
-                    dirty.ValueSpecText, dirty.InputValueSpecText))
+                    dirty.OutputSpecTypeIndex, dirty.ValueSpecText,
+                    dirty.InputSpecTypeIndex, dirty.InputValueSpecText))
                 failCount++;
         }
 

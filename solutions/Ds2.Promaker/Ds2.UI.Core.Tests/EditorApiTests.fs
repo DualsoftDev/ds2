@@ -217,6 +217,28 @@ let ``ConnectSelectionInOrder adds a single work arrow and is undoable`` () =
     Assert.True(store.ArrowWorks.ContainsKey(arrow.Id))
 
 [<Fact>]
+let ``ConnectSelectionInOrder connects cross-flow works in same system and produces path`` () =
+    let store, api, _, system, flow1 = setupProjectSystemFlow()
+    let flow2 = api.AddFlow("F2", system.Id)
+    let w1 = api.AddWork("W1", flow1.Id)
+    let w2 = api.AddWork("W2", flow2.Id)
+
+    let created = api.ConnectSelectionInOrder([ w1.Id; w2.Id ], ArrowType.Start)
+    Assert.Equal(1, created)
+
+    let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
+    Assert.Equal(flow1.Id, arrow.ParentId)
+
+    let paths = api.GetFlowArrowPaths(flow1.Id)
+    Assert.True(paths.ContainsKey(arrow.Id))
+
+    api.Undo()
+    Assert.False(store.ArrowWorks.ContainsKey(arrow.Id))
+
+    api.Redo()
+    Assert.True(store.ArrowWorks.ContainsKey(arrow.Id))
+
+[<Fact>]
 let ``RemoveArrows should delete multiple arrows in one undo step`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = api.AddWork("W1", flow.Id)
@@ -565,7 +587,7 @@ let ``UpdateApiCallFromPanel should be one undo step with full rollback`` () =
     Assert.True(created.IsSome)
     let apiCallId = created.Value
 
-    let changed = api.UpdateApiCallFromPanel(call.Id, apiCallId, apiDef.Id, "AC2", "OUT.1", "IN.1", "true", "")
+    let changed = api.UpdateApiCallFromPanel(call.Id, apiCallId, apiDef.Id, "AC2", "OUT.1", "IN.1", 1, "true", 0, "")
     Assert.True(changed)
 
     let updatedApiCall =
@@ -1562,10 +1584,10 @@ let ``UpdateApiCallFromPanel should preserve ValueSpec type through tryParseAs r
         ac.OutputSpec <- spec
         store.ApiCalls.[ac.Id] <- ac
         store.Calls.[call.Id].ApiCalls.Add(ac)
-        // format 텍스트 가져오기
+        // format 텍스트 + typeIndex 가져오기 (다이얼로그 경로와 동일 조건)
         let row = api.GetCallApiCallsForPanel(call.Id) |> List.find (fun r -> r.ApiCallId = ac.Id)
-        // 동일 텍스트로 UpdateApiCallFromPanel → tryParseAs(hint=spec, text)
-        api.UpdateApiCallFromPanel(call.Id, ac.Id, apiDef.Id, "AC", "", "", row.ValueSpecText, "") |> ignore
+        // typeIndex를 명시하여 UpdateApiCallFromPanel 호출 → specFromTypeIndex 기반 hint 사용
+        api.UpdateApiCallFromPanel(call.Id, ac.Id, apiDef.Id, "AC", "", "", row.OutputSpecTypeIndex, row.ValueSpecText, 0, "") |> ignore
         // 결과 확인
         store.Calls.[call.Id].ApiCalls |> Seq.find (fun a -> a.Id = ac.Id)
 
@@ -1600,3 +1622,49 @@ let ``UpdateApiCallFromPanel should preserve ValueSpec type through tryParseAs r
     match afterString.OutputSpec with
     | StringValue (Single "hello") -> ()
     | other -> Assert.Fail($"StringValue roundtrip failed: got {other}")
+
+    // Multiple — 쉼표 구분 텍스트가 Multiple로 역파싱되어야 함
+    let afterInt32Multi = roundtrip (Int32Value (Multiple [1; 2; 3]))
+    match afterInt32Multi.OutputSpec with
+    | Int32Value (Multiple [1; 2; 3]) -> ()
+    | other -> Assert.Fail($"Int32Value Multiple roundtrip failed: got {other}")
+
+    let afterInt64Multi = roundtrip (Int64Value (Multiple [10L; 20L; 30L]))
+    match afterInt64Multi.OutputSpec with
+    | Int64Value (Multiple [10L; 20L; 30L]) -> ()
+    | other -> Assert.Fail($"Int64Value Multiple roundtrip failed: got {other}")
+
+    let afterFloat64Multi = roundtrip (Float64Value (Multiple [1.5; 2.5; 3.5]))
+    match afterFloat64Multi.OutputSpec with
+    | Float64Value (Multiple [1.5; 2.5; 3.5]) -> ()
+    | other -> Assert.Fail($"Float64Value Multiple roundtrip failed: got {other}")
+
+    let afterStringMulti = roundtrip (StringValue (Multiple ["a"; "b"; "c"]))
+    match afterStringMulti.OutputSpec with
+    | StringValue (Multiple ["a"; "b"; "c"]) -> ()
+    | other -> Assert.Fail($"StringValue Multiple roundtrip failed: got {other}")
+
+    // 타입 변경 케이스 — 기존 spec과 다른 typeIndex로 저장 시 올바른 타입으로 변경되어야 함
+    // (버그 재현: 기존 hint 기반이면 StringValue → 계속 StringValue로 저장됨)
+    let acTypeChange = ApiCall("ATC")
+    acTypeChange.OutputSpec <- StringValue (Single "old")
+    store.ApiCalls.[acTypeChange.Id] <- acTypeChange
+    store.Calls.[call.Id].ApiCalls.Add(acTypeChange)
+    // typeIndex=5 (Int64), text="42" → Int64Value(Single 42L) 로 저장되어야 함
+    api.UpdateApiCallFromPanel(call.Id, acTypeChange.Id, apiDef.Id, "ATC", "", "", 5, "42", 0, "") |> ignore
+    let afterTypeChange = store.Calls.[call.Id].ApiCalls |> Seq.find (fun a -> a.Id = acTypeChange.Id)
+    match afterTypeChange.OutputSpec with
+    | Int64Value (Single 42L) -> ()
+    | other -> Assert.Fail($"Type change StringValue→Int64 failed: got {other}")
+
+    // 타입 변경: Int64 → Float64
+    let acF64 = ApiCall("AF64")
+    acF64.OutputSpec <- Int64Value (Single 0L)
+    store.ApiCalls.[acF64.Id] <- acF64
+    store.Calls.[call.Id].ApiCalls.Add(acF64)
+    // typeIndex=11 (Float64), text="3.14"
+    api.UpdateApiCallFromPanel(call.Id, acF64.Id, apiDef.Id, "AF64", "", "", 11, "3.14", 0, "") |> ignore
+    let afterF64Change = store.Calls.[call.Id].ApiCalls |> Seq.find (fun a -> a.Id = acF64.Id)
+    match afterF64Change.OutputSpec with
+    | Float64Value (Single _) -> ()
+    | other -> Assert.Fail($"Type change Int64→Float64 failed: got {other}")
