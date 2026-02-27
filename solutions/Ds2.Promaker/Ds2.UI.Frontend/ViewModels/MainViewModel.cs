@@ -51,7 +51,6 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private ArrowNode? _selectedArrow;
 
     public EditorApi Editor => _editor;
-    public DsStore Store => _store;
 
     partial void OnActiveTabChanged(CanvasTab? value)
     {
@@ -99,22 +98,21 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void AddProject() => _editor.AddProject("NewProject");
+    private void AddProject() => _editor.AddProjectAndGetId("NewProject");
 
     [RelayCommand]
     private void AddSystem()
     {
         var context = ResolveAddTargetContext();
 
-        var targetProjectId = AddTargetQueries.tryResolveAddSystemTarget(
-            _store,
+        var targetProjectId = _editor.TryResolveAddSystemTarget(
             context.SelectedEntityType,
             context.SelectedEntityId,
             context.ActiveTabKind,
             context.ActiveTabRootId);
 
         if (FSharpOption<Guid>.get_IsSome(targetProjectId))
-            _editor.AddSystem("NewSystem", targetProjectId.Value, isActive: _activeTreePane == TreePaneKind.Control);
+            _editor.AddSystemAndGetId("NewSystem", targetProjectId.Value, isActive: _activeTreePane == TreePaneKind.Control);
     }
 
     [RelayCommand]
@@ -122,22 +120,21 @@ public partial class MainViewModel : ObservableObject
     {
         var context = ResolveAddTargetContext();
 
-        var targetSystemId = AddTargetQueries.tryResolveAddFlowTarget(
-            _store,
+        var targetSystemId = _editor.TryResolveAddFlowTarget(
             context.SelectedEntityType,
             context.SelectedEntityId,
             context.ActiveTabKind,
             context.ActiveTabRootId);
 
         if (FSharpOption<Guid>.get_IsSome(targetSystemId))
-            _editor.AddFlow("NewFlow", targetSystemId.Value);
+            _editor.AddFlowAndGetId("NewFlow", targetSystemId.Value);
     }
 
     [RelayCommand]
     private void AddWork()
     {
         if (TryResolveTargetId(EntityTypes.Flow, TabKind.Flow, out var flowId))
-            _editor.AddWork("NewWork", flowId);
+            _editor.AddWorkAndGetId("NewWork", flowId);
     }
 
     [RelayCommand]
@@ -145,18 +142,22 @@ public partial class MainViewModel : ObservableObject
     {
         if (!TryResolveTargetId(EntityTypes.Work, TabKind.Work, out var workId)) return;
 
-        var dialog = new CallCreateDialog(_store) { Owner = Application.Current.MainWindow };
+        var dialog = new CallCreateDialog(
+            apiNameFilter => _editor.FindApiDefsByName(apiNameFilter).ToList())
+        {
+            Owner = Application.Current.MainWindow
+        };
         if (dialog.ShowDialog() != true) return;
 
         if (dialog.IsDeviceMode)
         {
-            var projectIdOpt = EntityHierarchyQueries.tryFindProjectIdForEntity(_store, EntityTypes.Work, workId);
+            var projectIdOpt = _editor.TryFindProjectIdForEntity(EntityTypes.Work, workId);
             var projectId = FSharpOption<Guid>.get_IsSome(projectIdOpt) ? projectIdOpt.Value : Guid.Empty;
             _editor.AddCallsWithDevice(projectId, workId, dialog.CallNames, createDeviceSystem: true);
         }
         else
         {
-            _editor.AddCallWithLinkedApiDefs(
+            _editor.AddCallWithLinkedApiDefsAndGetId(
                 workId, dialog.DevicesAlias, dialog.ApiName,
                 dialog.SelectedApiDefs.Select(m => m.ApiDefId));
         }
@@ -251,10 +252,11 @@ public partial class MainViewModel : ObservableObject
 
     private void HandleEvent(EditorEvent evt)
     {
-        if (TryGetAddedEntityId(evt) is { } addedId)
+        var addedIdOpt = _editor.TryGetAddedEntityId(evt);
+        if (FSharpOption<Guid>.get_IsSome(addedIdOpt))
         {
             RebuildAll();
-            ExpandNodeAndAncestors(addedId);
+            ExpandNodeAndAncestors(addedIdOpt.Value);
             return;
         }
 
@@ -298,7 +300,7 @@ public partial class MainViewModel : ObservableObject
                 return;
         }
 
-        if (IsTreeStructuralEvent(evt))
+        if (_editor.IsTreeStructuralEvent(evt))
         {
             RebuildAll();
             return;
@@ -307,36 +309,6 @@ public partial class MainViewModel : ObservableObject
         StatusText = $"[WARN] Unhandled event: {evt.GetType().Name}";
         RebuildAll();
     }
-
-    private static Guid? TryGetAddedEntityId(EditorEvent evt) =>
-        evt switch
-        {
-            EditorEvent.ProjectAdded projectAdded => projectAdded.Item.Id,
-            EditorEvent.SystemAdded systemAdded => systemAdded.Item.Id,
-            EditorEvent.FlowAdded flowAdded => flowAdded.Item.Id,
-            EditorEvent.WorkAdded workAdded => workAdded.Item.Id,
-            EditorEvent.CallAdded callAdded => callAdded.Item.Id,
-            EditorEvent.ApiDefAdded apiDefAdded => apiDefAdded.Item.Id,
-            EditorEvent.HwComponentAdded hwAdded => hwAdded.id,
-            _ => null
-        };
-
-    private static bool IsTreeStructuralEvent(EditorEvent evt) =>
-        evt is
-            EditorEvent.ProjectAdded or
-            EditorEvent.ProjectRemoved or
-            EditorEvent.SystemAdded or
-            EditorEvent.SystemRemoved or
-            EditorEvent.FlowAdded or
-            EditorEvent.FlowRemoved or
-            EditorEvent.WorkAdded or
-            EditorEvent.WorkRemoved or
-            EditorEvent.CallAdded or
-            EditorEvent.CallRemoved or
-            EditorEvent.ApiDefAdded or
-            EditorEvent.ApiDefRemoved or
-            EditorEvent.HwComponentAdded or
-            EditorEvent.HwComponentRemoved;
 
     private void ApplyEntityRename(Guid entityId, string newName)
     {

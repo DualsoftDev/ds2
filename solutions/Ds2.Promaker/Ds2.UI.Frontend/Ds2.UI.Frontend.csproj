@@ -8,6 +8,7 @@
     <AssemblyName>Ds2.UI.Frontend</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <DisableTransitiveProjectReferences>true</DisableTransitiveProjectReferences>
     <OtherFlags></OtherFlags>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
@@ -21,5 +22,14 @@
     <ProjectReference Include="..\Ds2.Core.Contracts\Ds2.Core.Contracts.fsproj" />
     <ProjectReference Include="..\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
   </ItemGroup>
+
+  <Target Name="FailIfDs2CoreReferenced" AfterTargets="ResolveReferences">
+    <ItemGroup>
+      <_ForbiddenCoreRef Include="@(ReferencePath)"
+                         Condition="'%(ReferencePath.Filename)' == 'Ds2.Core' and '%(ReferencePath.Extension)' == '.dll'" />
+    </ItemGroup>
+    <Error Condition="'@(_ForbiddenCoreRef)' != ''"
+           Text="Ds2.UI.Frontend must not reference Ds2.Core directly or transitively. Use Ds2.Core.Contracts and Ds2.UI.Core APIs." />
+  </Target>
 
 </Project>

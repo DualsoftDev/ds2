@@ -18,7 +18,7 @@ public partial class MainViewModel
         var storeOpt = AasxImporter.importFromAasxFile(dlg.FileName);
         if (!FSharpOption<DsStore>.get_IsSome(storeOpt))
         {
-            DialogHelpers.Warn("AASX 임포트에 실패했습니다.");
+            DialogHelpers.Warn("Failed to import AASX.");
             return;
         }
 
@@ -26,19 +26,12 @@ public partial class MainViewModel
         _currentFilePath = null;
         IsDirty = false;
         UpdateTitle();
-        StatusText = $"AASX 임포트 완료: {System.IO.Path.GetFileName(dlg.FileName)}";
+        StatusText = $"AASX import completed: {System.IO.Path.GetFileName(dlg.FileName)}";
     }
 
     [RelayCommand]
     private void ExportAasx()
     {
-        var project = _store.Projects.Values.FirstOrDefault();
-        if (project is null)
-        {
-            DialogHelpers.Warn("익스포트할 프로젝트가 없습니다.");
-            return;
-        }
-
         var dlg = new SaveFileDialog
         {
             Filter = "AASX Files (*.aasx)|*.aasx",
@@ -48,12 +41,17 @@ public partial class MainViewModel
 
         try
         {
-            AasxExporter.exportToAasxFile(_store, project, dlg.FileName);
-            StatusText = $"AASX 익스포트 완료: {System.IO.Path.GetFileName(dlg.FileName)}";
+            if (!AasxExporter.tryExportFirstProjectToAasxFile(_store, dlg.FileName))
+            {
+                DialogHelpers.Warn("No project available for export.");
+                return;
+            }
+
+            StatusText = $"AASX export completed: {System.IO.Path.GetFileName(dlg.FileName)}";
         }
         catch (Exception ex)
         {
-            DialogHelpers.Warn($"AASX 익스포트에 실패했습니다: {ex.Message}");
+            DialogHelpers.Warn($"Failed to export AASX: {ex.Message}");
         }
     }
 }

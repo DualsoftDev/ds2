@@ -304,8 +304,8 @@ public partial class MainViewModel
         var dialog = new ApiDefEditDialog(works);
         if (!ShowOwnedDialog(dialog)) return;
 
-        var newApiDef = _editor.AddApiDef(dialog.ApiDefName, systemNode.Id);
-        _editor.UpdateApiDefProperties(newApiDef.Id, dialog.IsPush, dialog.TxWorkId, dialog.RxWorkId, dialog.Duration, dialog.Description);
+        var newApiDefId = _editor.AddApiDefAndGetId(dialog.ApiDefName, systemNode.Id);
+        _editor.UpdateApiDefProperties(newApiDefId, dialog.IsPush, dialog.TxWorkId, dialog.RxWorkId, dialog.Duration, dialog.Description);
 
         RefreshSystemPanel(systemNode.Id);
         StatusText = $"ApiDef '{dialog.ApiDefName}' added.";

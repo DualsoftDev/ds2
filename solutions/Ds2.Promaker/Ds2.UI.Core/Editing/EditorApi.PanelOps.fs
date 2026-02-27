@@ -299,3 +299,37 @@ let buildUpdateApiCallCmd (store: DsStore) (callId: Guid) (apiCallId: Guid) (api
                 ]))
             | _ -> None
         | _ -> None)
+
+/// ApiDef 속성 갱신 커맨드 빌드. ApiDef가 없으면 예외.
+let buildUpdateApiDefPropertiesCmd
+    (store: DsStore)
+    (apiDefId: Guid)
+    (isPush: bool)
+    (txGuid: Nullable<Guid>)
+    (rxGuid: Nullable<Guid>)
+    (duration: int)
+    (description: string)
+    : EditorCommand =
+    let toOpt (n: Nullable<Guid>) = if n.HasValue then Some n.Value else None
+    let toOptStr (s: string) = if String.IsNullOrEmpty s then None else Some s
+    let newProps =
+        ApiDefProperties(
+            IsPush      = isPush,
+            TxGuid      = toOpt txGuid,
+            RxGuid      = toOpt rxGuid,
+            Duration    = duration,
+            Description = toOptStr description)
+    match DsQuery.getApiDef apiDefId store with
+    | None -> invalidOp $"'ApiDef' entity not found. id={apiDefId}"
+    | Some apiDef ->
+        UpdateApiDefProps(apiDefId, apiDef.Properties.DeepCopy(), newProps)
+
+/// Call 내 ApiCall 제거 커맨드 빌드. 엔티티가 없으면 예외.
+let buildRemoveApiCallFromCallCmd (store: DsStore) (callId: Guid) (apiCallId: Guid) : EditorCommand =
+    match DsQuery.getCall callId store with
+    | None -> invalidOp $"'Call' entity not found. id={callId}"
+    | Some call ->
+        match call.ApiCalls |> Seq.tryFind (fun ac -> ac.Id = apiCallId) with
+        | Some apiCall -> RemoveApiCallFromCall(callId, apiCall)
+        | None -> invalidOp $"ApiCall was not found in Call. callId={callId}, apiCallId={apiCallId}"
+

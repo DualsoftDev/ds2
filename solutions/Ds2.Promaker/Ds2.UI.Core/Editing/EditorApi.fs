@@ -1,7 +1,6 @@
 namespace Ds2.UI.Core
 
 open System
-open System.Globalization
 open Ds2.Core
 
 // =============================================================================
@@ -26,6 +25,35 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     member _.OnEvent = eventBus.Publish
     member _.CanUndo = undoManager.CanUndo
     member _.CanRedo = undoManager.CanRedo
+
+    member _.TryGetAddedEntityId(evt: EditorEvent) : Guid option =
+        match evt with
+        | ProjectAdded project -> Some project.Id
+        | SystemAdded system -> Some system.Id
+        | FlowAdded flow -> Some flow.Id
+        | WorkAdded work -> Some work.Id
+        | CallAdded call -> Some call.Id
+        | ApiDefAdded apiDef -> Some apiDef.Id
+        | HwComponentAdded(_, id, _) -> Some id
+        | _ -> None
+
+    member _.IsTreeStructuralEvent(evt: EditorEvent) : bool =
+        match evt with
+        | ProjectAdded _
+        | ProjectRemoved _
+        | SystemAdded _
+        | SystemRemoved _
+        | FlowAdded _
+        | FlowRemoved _
+        | WorkAdded _
+        | WorkRemoved _
+        | CallAdded _
+        | CallRemoved _
+        | ApiDefAdded _
+        | ApiDefRemoved _
+        | HwComponentAdded _
+        | HwComponentRemoved _ -> true
+        | _ -> false
 
     // --- 내부: 명령 실행 공통 ---
     member private _.PublishCommandResult(cmd: EditorCommand, events: EditorEvent list) =
@@ -72,37 +100,96 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     // =====================================================================
     // Project API
     // =====================================================================
-    member this.AddProject(name: string) : Project =
+    member internal this.AddProject(name: string) : Project =
         let project = Project(name)
         this.Exec(AddProject project)
         project
 
+    member this.AddProjectAndGetId(name: string) : Guid =
+        (this.AddProject name).Id
+
+
     // =====================================================================
     // System API
     // =====================================================================
-    member this.AddSystem(name: string, projectId: Guid, isActive: bool) : DsSystem =
+    member internal this.AddSystem(name: string, projectId: Guid, isActive: bool) : DsSystem =
         let system = DsSystem(name)
         this.Exec(AddSystem(system, projectId, isActive))
         system
 
+    member this.AddSystemAndGetId(name: string, projectId: Guid, isActive: bool) : Guid =
+        (this.AddSystem(name, projectId, isActive)).Id
+
+
     // =====================================================================
     // Flow API
     // =====================================================================
-    member this.AddFlow(name: string, systemId: Guid) : Flow =
+    member internal this.AddFlow(name: string, systemId: Guid) : Flow =
         let flow = Flow(name, systemId)
         this.Exec(AddFlow flow)
         flow
 
+    member this.AddFlowAndGetId(name: string, systemId: Guid) : Guid =
+        (this.AddFlow(name, systemId)).Id
+
+
     // =====================================================================
     // Work API
     // =====================================================================
-    member this.AddWork(name: string, flowId: Guid) : Work =
+    member internal this.AddWork(name: string, flowId: Guid) : Work =
         let work = Work(name, flowId)
         this.Exec(AddWork work)
         work
 
+    member this.AddWorkAndGetId(name: string, flowId: Guid) : Guid =
+        (this.AddWork(name, flowId)).Id
+
+
     member this.MoveEntities(requests: seq<MoveEntityRequest>) : int =
         this.ExecBatch("Move Selected Nodes", RemoveOps.buildMoveEntitiesCmds store requests)
+
+    // =====================================================================
+    // Query / Projection API for UI
+    // =====================================================================
+    member _.BuildTrees() : TreeNodeInfo list * TreeNodeInfo list =
+        TreeProjection.buildTrees store
+
+    member _.CanvasContentForTab(kind: TabKind, rootId: Guid) : CanvasContent =
+        CanvasProjection.canvasContentForTab store kind rootId
+
+    member _.TryOpenTabForEntity(entityType: string, entityId: Guid) : TabOpenInfo option =
+        EntityHierarchyQueries.tryOpenTabForEntity store entityType entityId
+
+    member _.FlowIdsForTab(kind: TabKind, rootId: Guid) : Guid list =
+        EntityHierarchyQueries.flowIdsForTab store kind rootId
+
+    member _.TabExists(kind: TabKind, rootId: Guid) : bool =
+        EntityHierarchyQueries.tabExists store kind rootId
+
+    member _.TabTitle(kind: TabKind, rootId: Guid) : string option =
+        EntityHierarchyQueries.tabTitle store kind rootId
+
+    member _.TryFindProjectIdForEntity(entityType: string, entityId: Guid) : Guid option =
+        EntityHierarchyQueries.tryFindProjectIdForEntity store entityType entityId
+
+    member _.FindApiDefsByName(filterName: string) : ApiDefMatch list =
+        EntityHierarchyQueries.findApiDefsByName store filterName
+
+    member _.TryResolveAddSystemTarget
+        (selectedEntityType: string option)
+        (selectedEntityId: Guid option)
+        (activeTabKind: TabKind option)
+        (activeTabRootId: Guid option)
+        : Guid option =
+        AddTargetQueries.tryResolveAddSystemTarget store selectedEntityType selectedEntityId activeTabKind activeTabRootId
+
+    member _.TryResolveAddFlowTarget
+        (selectedEntityType: string option)
+        (selectedEntityId: Guid option)
+        (activeTabKind: TabKind option)
+        (activeTabRootId: Guid option)
+        : Guid option =
+        AddTargetQueries.tryResolveAddFlowTarget store selectedEntityType selectedEntityId activeTabKind activeTabRootId
 
     // =====================================================================
     // Call API
@@ -116,29 +203,26 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         (callNames: string seq)
         (createDeviceSystem: bool)
         =
-        let cmdList = DeviceOps.buildAddCallsWithDeviceCmds store projectId workId (callNames |> Seq.toList) createDeviceSystem
-        match cmdList with
-        | []       -> ()
-        | [single] -> this.Exec(single)
-        | _        -> this.Exec(Composite("Add Calls", cmdList))
+        this.ExecBatch("Add Calls", DeviceOps.buildAddCallsWithDeviceCmds store projectId workId (callNames |> Seq.toList) createDeviceSystem) |> ignore
 
-    member this.AddCallWithLinkedApiDefs
+    member internal this.AddCallWithLinkedApiDefs
         (workId: Guid)
         (devicesAlias: string)
         (apiName: string)
         (apiDefIds: Guid seq)
         : Call =
-        let call = Call(devicesAlias, apiName, workId)
-        let apiCallCmds =
-            apiDefIds
-            |> Seq.choose (fun id -> DsQuery.getApiDef id store)
-            |> Seq.map (fun apiDef ->
-                let apiCall = ApiCall($"{devicesAlias}.{apiDef.Name}")
-                apiCall.ApiDefId <- Some apiDef.Id
-                AddApiCallToCall(call.Id, apiCall))
-            |> Seq.toList
-        this.Exec(Composite("Add Call", AddCall call :: apiCallCmds))
+        let call, cmd = DeviceOps.buildAddCallWithLinkedApiDefsCmd store workId devicesAlias apiName apiDefIds
+        this.Exec cmd
         call
+
+    member this.AddCallWithLinkedApiDefsAndGetId
+        (workId: Guid)
+        (devicesAlias: string)
+        (apiName: string)
+        (apiDefIds: Guid seq)
+        : Guid =
+        (this.AddCallWithLinkedApiDefs workId devicesAlias apiName apiDefIds).Id
+
 
     // =====================================================================
     // Arrow API
@@ -162,40 +246,26 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     // =====================================================================
     // ApiDef API
     // =====================================================================
-    member this.AddApiDef(name: string, systemId: Guid) : ApiDef =
+    member internal this.AddApiDef(name: string, systemId: Guid) : ApiDef =
         let apiDef = ApiDef(name, systemId)
         this.Exec(AddApiDef apiDef)
         apiDef
+
+    member this.AddApiDefAndGetId(name: string, systemId: Guid) : Guid =
+        (this.AddApiDef(name, systemId)).Id
+
 
     member this.UpdateApiDefProperties
         (apiDefId: Guid, isPush: bool,
          txGuid: Nullable<Guid>, rxGuid: Nullable<Guid>,
          duration: int, description: string) =
-        let toOpt (n: Nullable<Guid>) = if n.HasValue then Some n.Value else None
-        let toOptStr (s: string)      = if String.IsNullOrEmpty s then None else Some s
-        let newProps =
-            ApiDefProperties(
-                IsPush      = isPush,
-                TxGuid      = toOpt txGuid,
-                RxGuid      = toOpt rxGuid,
-                Duration    = duration,
-                Description = toOptStr description)
-        match DsQuery.getApiDef apiDefId store with
-        | None -> invalidOp $"'ApiDef' entity not found. id={apiDefId}"
-        | Some apiDef ->
-            let oldProps = apiDef.Properties.DeepCopy()
-            this.Exec(UpdateApiDefProps(apiDefId, oldProps, newProps))
+        this.Exec(PanelOps.buildUpdateApiDefPropertiesCmd store apiDefId isPush txGuid rxGuid duration description)
 
     // =====================================================================
     // ApiCall API (Call 내부 ApiCall 관리)
     // =====================================================================
     member this.RemoveApiCallFromCall(callId: Guid, apiCallId: Guid) =
-        match DsQuery.getCall callId store with
-        | None -> invalidOp $"'Call' entity not found. id={callId}"
-        | Some call ->
-            match call.ApiCalls |> Seq.tryFind (fun ac -> ac.Id = apiCallId) with
-            | Some apiCall -> this.Exec(RemoveApiCallFromCall(callId, apiCall))
-            | None -> invalidOp $"ApiCall was not found in Call. callId={callId}, apiCallId={apiCallId}"
+        this.Exec(PanelOps.buildRemoveApiCallFromCallCmd store callId apiCallId)
 
     // =====================================================================
     // Property Panel API
@@ -272,71 +342,9 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     // 범용 Remove
     // =====================================================================
     /// 여러 엔티티를 Composite 명령 1개로 일괄 삭제 (Undo/Redo 1회 단위)
-    /// Work/Call은 선택 집합 전체의 화살표를 한 번에 수집해 중복 제거 후 삭제.
-    /// Call의 부모 Work가 같은 선택에 포함된 경우 해당 Call은 건너뜀 (Work cascade가 처리).
     member this.RemoveEntities(selections: seq<string * Guid>) =
         let selList = selections |> Seq.distinctBy snd |> Seq.toList
-        let selIds  = selList |> List.map snd |> Set.ofList
-
-        // ── Work 배치 ─────────────────────────────────────────────────────────
-        let selectedWorks =
-            selList |> List.choose (fun (et, id) ->
-                match EntityKind.tryOfString et with
-                | ValueSome EntityKind.Work -> DsQuery.getWork id store
-                | _ -> None)
-
-        // Work cascade: 각 Work 내 Call 전체 수집
-        let cascadeCalls = selectedWorks |> List.collect (fun w -> DsQuery.callsOf w.Id store)
-
-        let workIds     = selectedWorks |> List.map (fun w -> w.Id) |> Set.ofList
-        let cascadeIds  = cascadeCalls  |> List.map (fun c -> c.Id) |> Set.ofList
-
-        let batchArrowWorks =
-            if workIds.IsEmpty then []
-            else CascadeHelpers.arrowWorksFor store workIds
-
-        // ── Call 배치 (부모 Work가 선택 집합에 없는 Call만) ─────────────────
-        let selectedCalls =
-            selList |> List.choose (fun (et, id) ->
-                match EntityKind.tryOfString et with
-                | ValueSome EntityKind.Call ->
-                    match DsQuery.getCall id store with
-                    | Some call when not (selIds.Contains call.ParentId) -> Some call
-                    | _ -> None
-                | _ -> None)
-
-        let directCallIds = selectedCalls |> List.map (fun c -> c.Id) |> Set.ofList
-        let allCallIds    = Set.union cascadeIds directCallIds
-
-        let batchArrowCalls =
-            if allCallIds.IsEmpty then []
-            else CascadeHelpers.arrowCallsFor store allCallIds
-
-        // ── 나머지 엔티티 (Flow/System/Project/HW) ───────────────────────────
-        let otherCmds =
-            selList |> List.choose (fun (et, id) ->
-                match EntityKind.tryOfString et with
-                | ValueSome EntityKind.Work | ValueSome EntityKind.Call -> None
-                | ValueSome EntityKind.Flow      -> DsQuery.getFlow id store      |> Option.map (fun _ -> RemoveOps.buildRemoveFlowCmd store id)
-                | ValueSome EntityKind.System    -> DsQuery.getSystem id store    |> Option.map (fun _ -> RemoveOps.buildRemoveSystemCmd store id)
-                | ValueSome EntityKind.Project   -> DsQuery.getProject id store   |> Option.map (fun _ -> RemoveOps.buildRemoveProjectCmd store id)
-                | ValueSome EntityKind.ApiDef    -> DsQuery.getApiDef id store    |> Option.map (fun a -> RemoveApiDef(DeepCopyHelper.backupEntityAs a))
-                | ValueSome EntityKind.Button    -> DsQuery.getButton id store    |> Option.map (fun b -> RemoveButton(DeepCopyHelper.backupEntityAs b))
-                | ValueSome EntityKind.Lamp      -> DsQuery.getLamp id store      |> Option.map (fun l -> RemoveLamp(DeepCopyHelper.backupEntityAs l))
-                | ValueSome EntityKind.Condition -> DsQuery.getCondition id store |> Option.map (fun c -> RemoveHwCondition(DeepCopyHelper.backupEntityAs c))
-                | ValueSome EntityKind.Action    -> DsQuery.getAction id store    |> Option.map (fun a -> RemoveHwAction(DeepCopyHelper.backupEntityAs a))
-                | ValueNone -> None)
-
-        // ── 실행 순서: 말단(ArrowCall) → Call → ArrowWork → Work → 기타 ──────
-        let commands = [
-            yield! batchArrowCalls |> List.map (fun a -> RemoveArrowCall(DeepCopyHelper.backupEntityAs a))
-            yield! cascadeCalls    |> List.map (fun c -> RemoveCall(DeepCopyHelper.backupEntityAs c))
-            yield! selectedCalls   |> List.map (fun c -> RemoveCall(DeepCopyHelper.backupEntityAs c))
-            yield! batchArrowWorks |> List.map (fun a -> RemoveArrowWork(DeepCopyHelper.backupEntityAs a))
-            yield! selectedWorks   |> List.map (fun w -> RemoveWork(DeepCopyHelper.backupEntityAs w))
-            yield! otherCmds
-        ]
-        this.ExecBatch("Delete Entities", commands) |> ignore
+        this.ExecBatch("Delete Entities", RemoveOps.buildRemoveEntitiesCmds store selList) |> ignore
 
     // =====================================================================
     // 범용 Rename
@@ -355,40 +363,9 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     member this.PasteEntities
         (copiedEntityType: string, copiedEntityIds: seq<Guid>, targetEntityType: string, targetEntityId: Guid)
         : int =
-        if not (PasteResolvers.isCopyableEntityType copiedEntityType) then 0
-        else
-            let ids = copiedEntityIds |> Seq.distinct |> Seq.toList
-            match EntityKind.tryOfString copiedEntityType with
-            | ValueSome Flow ->
-                let sourceFlows = ids |> List.choose (fun id -> DsQuery.getFlow id store)
-                if sourceFlows.IsEmpty then 0
-                else
-                    this.ExecBatch("Paste Flows", fun exec ->
-                        sourceFlows |> List.sumBy (fun sourceFlow ->
-                            let targetSystemId =
-                                PasteResolvers.resolveSystemTarget store targetEntityType targetEntityId
-                                |> Option.defaultValue sourceFlow.ParentId
-                            PasteOps.pasteFlowToSystem exec store sourceFlow targetSystemId |> ignore
-                            1))
-            | ValueSome Work ->
-                let sourceWorks = ids |> List.choose (fun id -> DsQuery.getWork id store)
-                if sourceWorks.IsEmpty then 0
-                else
-                    let targetFlowId =
-                        PasteResolvers.resolveFlowTarget store targetEntityType targetEntityId
-                        |> Option.defaultValue sourceWorks.Head.ParentId
-                    this.ExecBatch("Paste Works", fun exec ->
-                        PasteOps.pasteWorksToFlowBatch exec store sourceWorks targetFlowId |> List.length)
-            | ValueSome Call ->
-                let sourceCalls = ids |> List.choose (fun id -> DsQuery.getCall id store)
-                if sourceCalls.IsEmpty then 0
-                else
-                    let targetWorkId =
-                        PasteResolvers.resolveWorkTarget store targetEntityType targetEntityId
-                        |> Option.defaultValue sourceCalls.Head.ParentId
-                    this.ExecBatch("Paste Calls", fun exec ->
-                        PasteOps.pasteCallsToWorkBatch exec store sourceCalls targetWorkId |> List.length)
-            | _ -> 0
+        let ids = copiedEntityIds |> Seq.distinct |> Seq.toList
+        this.ExecBatch($"Paste {copiedEntityType}s", fun exec ->
+            PasteOps.dispatchPaste exec store copiedEntityType ids targetEntityType targetEntityId)
 
     // =====================================================================
     // Undo / Redo
