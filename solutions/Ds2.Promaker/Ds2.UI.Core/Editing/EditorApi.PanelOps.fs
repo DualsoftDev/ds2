@@ -24,6 +24,9 @@ let buildApiCall
     apiCall.OutputSpec <- outputSpec
     apiCall
 
+let private withCall (store: DsStore) (callId: Guid) (f: Call -> 'a option) : 'a option =
+    DsQuery.getCall callId store |> Option.bind f
+
 let getWorkDurationText (store: DsStore) (workId: Guid) : string =
     match DsQuery.getWork workId store with
     | Some work ->
@@ -166,26 +169,20 @@ let getCallConditionsForPanel (store: DsStore) (callId: Guid) : CallConditionPan
         |> Seq.toList
 
 let buildAddCallConditionCmd (store: DsStore) (callId: Guid) (conditionType: CallConditionType) : EditorCommand option =
-    match DsQuery.getCall callId store with
-    | None -> None
-    | Some _ ->
+    withCall store callId (fun _ ->
         let cond = CallCondition(Type = Some conditionType)
-        Some(AddCallCondition(callId, cond))
+        Some(AddCallCondition(callId, cond)))
 
 let buildRemoveCallConditionCmd (store: DsStore) (callId: Guid) (conditionId: Guid) : EditorCommand option =
-    match DsQuery.getCall callId store with
-    | None -> None
-    | Some call ->
+    withCall store callId (fun call ->
         call.CallConditions
         |> Seq.tryFind (fun c -> c.Id = conditionId)
-        |> Option.map (fun cond -> RemoveCallCondition(callId, cond))
+        |> Option.map (fun cond -> RemoveCallCondition(callId, cond)))
 
 let buildUpdateCallConditionSettingsCmd
     (store: DsStore) (callId: Guid) (conditionId: Guid)
     (newIsOR: bool) (newIsRising: bool) : EditorCommand option =
-    match DsQuery.getCall callId store with
-    | None -> None
-    | Some call ->
+    withCall store callId (fun call ->
         call.CallConditions
         |> Seq.tryFind (fun c -> c.Id = conditionId)
         |> Option.bind (fun cond ->
@@ -193,7 +190,7 @@ let buildUpdateCallConditionSettingsCmd
             else
                 Some(UpdateCallConditionSettings(
                     callId, conditionId,
-                    cond.IsOR, newIsOR, cond.IsRising, newIsRising)))
+                    cond.IsOR, newIsOR, cond.IsRising, newIsRising))))
 
 /// store.ApiCalls 전체에서 ApiCall 목록 반환 (조건 ApiCall 선택 등 전역 목록 필요 시 사용)
 let getAllApiCallsForPanel (store: DsStore) : CallApiCallPanelItem list =
@@ -205,9 +202,7 @@ let getAllApiCallsForPanel (store: DsStore) : CallApiCallPanelItem list =
 let buildAddApiCallToConditionCmd
     (store: DsStore) (callId: Guid) (conditionId: Guid)
     (sourceApiCallId: Guid) (outputSpecText: string) : EditorCommand option =
-    match DsQuery.getCall callId store with
-    | None -> None
-    | Some _ ->
+    withCall store callId (fun _ ->
         match DsQuery.getApiCall sourceApiCallId store with
         | None -> None
         | Some src ->
@@ -217,7 +212,7 @@ let buildAddApiCallToConditionCmd
                 let copy = src.DeepCopy()
                 copy.Id <- src.Id   // DeepCopy는 새 Guid를 생성하므로 원본 Id 복원
                 copy.OutputSpec <- newSpec
-                Some(AddApiCallToCondition(callId, conditionId, copy))
+                Some(AddApiCallToCondition(callId, conditionId, copy)))
 
 let buildAddApiCallsToConditionBatchCmd
     (store: DsStore) (callId: Guid) (conditionId: Guid)
@@ -233,22 +228,18 @@ let buildAddApiCallsToConditionBatchCmd
 
 let buildRemoveApiCallFromConditionCmd
     (store: DsStore) (callId: Guid) (conditionId: Guid) (apiCallId: Guid) : EditorCommand option =
-    match DsQuery.getCall callId store with
-    | None -> None
-    | Some call ->
+    withCall store callId (fun call ->
         call.CallConditions
         |> Seq.tryFind (fun c -> c.Id = conditionId)
         |> Option.bind (fun cond ->
             cond.Conditions
             |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
-            |> Option.map (fun ac -> RemoveApiCallFromCondition(callId, conditionId, ac)))
+            |> Option.map (fun ac -> RemoveApiCallFromCondition(callId, conditionId, ac))))
 
 let buildUpdateConditionApiCallOutputSpecCmd
     (store: DsStore) (callId: Guid) (conditionId: Guid)
     (apiCallId: Guid) (newSpecText: string) : EditorCommand option =
-    match DsQuery.getCall callId store with
-    | None -> None
-    | Some call ->
+    withCall store callId (fun call ->
         call.CallConditions
         |> Seq.tryFind (fun c -> c.Id = conditionId)
         |> Option.bind (fun cond ->
@@ -261,7 +252,7 @@ let buildUpdateConditionApiCallOutputSpecCmd
                     if ac.OutputSpec = newSpec then None
                     else
                         Some(UpdateConditionApiCallOutputSpec(
-                            callId, conditionId, apiCallId, ac.OutputSpec, newSpec))))
+                            callId, conditionId, apiCallId, ac.OutputSpec, newSpec)))))
 
 /// AddApiCall 커맨드 빌드 → Some (newApiCallId, cmd) or None
 let buildAddApiCallCmd (store: DsStore) (callId: Guid) (apiDefId: Guid) (apiCallName: string) (outputAddress: string) (inputAddress: string) (valueSpecText: string) (inputValueSpecText: string) : (Guid * EditorCommand) option =
@@ -278,9 +269,7 @@ let buildAddApiCallCmd (store: DsStore) (callId: Guid) (apiDefId: Guid) (apiCall
 
 /// UpdateApiCall 커맨드 빌드 → Some cmd or None
 let buildUpdateApiCallCmd (store: DsStore) (callId: Guid) (apiCallId: Guid) (apiDefId: Guid) (apiCallName: string) (outputAddress: string) (inputAddress: string) (outputTypeIndex: int) (valueSpecText: string) (inputTypeIndex: int) (inputValueSpecText: string) : EditorCommand option =
-    match DsQuery.getCall callId store with
-    | None -> None
-    | Some call ->
+    withCall store callId (fun call ->
         let existing = call.ApiCalls |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
         match existing, DsQuery.getApiDef apiDefId store with
         | Some oldApiCall, Some newApiDef ->
@@ -296,4 +285,4 @@ let buildUpdateApiCallCmd (store: DsStore) (callId: Guid) (apiCallId: Guid) (api
                     AddApiCallToCall(callId, updatedApiCall)
                 ]))
             | _ -> None
-        | _ -> None
+        | _ -> None)

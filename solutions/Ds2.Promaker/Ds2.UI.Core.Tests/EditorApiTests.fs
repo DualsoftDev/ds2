@@ -453,6 +453,30 @@ let ``Undo of Composite should emit StoreRefreshed`` () =
     Assert.True(events |> Seq.exists (function StoreRefreshed -> true | _ -> false))
 
 [<Fact>]
+let ``CommandExecutor undo should invert nested Composite in reverse order`` () =
+    let store = DsStore.empty()
+    let project = Ds2.Core.Project("P1")
+
+    let cmd =
+        Composite(
+            "Outer",
+            [
+                AddProject project
+                Composite(
+                    "Inner",
+                    [
+                        RenameEntity(project.Id, EntityTypeNames.Project, "P1", "P2")
+                    ])
+            ])
+
+    CommandExecutor.execute cmd store |> ignore
+    Assert.True(store.Projects.ContainsKey(project.Id))
+    Assert.Equal("P2", store.Projects.[project.Id].Name)
+
+    CommandExecutor.undo cmd store |> ignore
+    Assert.False(store.Projects.ContainsKey(project.Id))
+
+[<Fact>]
 let ``Validation rollback should emit StoreRefreshed and UndoRedoChanged`` () =
     let store, api = createApi()
     api.AddProject("Dup") |> ignore

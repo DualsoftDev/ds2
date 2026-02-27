@@ -103,10 +103,7 @@ public partial class MainViewModel
             .Select(x => new ApiCallCreateDialog.ApiDefChoice(x.Id, x.DisplayName))
             .ToList();
         var dialog = new ApiCallCreateDialog(apiDefChoices);
-        if (GetOwnerWindow() is { } owner)
-            dialog.Owner = owner;
-
-        if (dialog.ShowDialog() != true)
+        if (!ShowOwnedDialog(dialog))
             return;
 
         if (dialog.SelectedApiDefId is not Guid selectedApiDefId || selectedApiDefId == Guid.Empty)
@@ -163,10 +160,7 @@ public partial class MainViewModel
         }
 
         var dialog = new ApiCallSpecDialog(item.Name, item.ValueSpecText, item.OutputSpecTypeIndex, item.InputValueSpecText, item.InputSpecTypeIndex);
-        if (GetOwnerWindow() is { } owner)
-            dialog.Owner = owner;
-
-        if (dialog.ShowDialog() != true)
+        if (!ShowOwnedDialog(dialog))
             return;
 
         var updated = _editor.UpdateApiCallFromPanel(
@@ -263,10 +257,7 @@ public partial class MainViewModel
         }
 
         var dialog = new ConditionApiCallPickerDialog(choices);
-        if (GetOwnerWindow() is { } owner)
-            dialog.Owner = owner;
-
-        if (dialog.ShowDialog() != true || dialog.SelectedApiCallIds.Count == 0)
+        if (!ShowOwnedDialog(dialog) || dialog.SelectedApiCallIds.Count == 0)
             return;
 
         var added = _editor.AddApiCallsToConditionBatch(
@@ -295,10 +286,7 @@ public partial class MainViewModel
         if (row is null) return;
 
         var dialog = new ValueSpecDialog(row.OutputSpecText, row.OutputSpecTypeIndex, "기대값 편집");
-        if (GetOwnerWindow() is { } owner)
-            dialog.Owner = owner;
-
-        if (dialog.ShowDialog() != true)
+        if (!ShowOwnedDialog(dialog))
             return;
 
         if (!_editor.UpdateConditionApiCallOutputSpec(selectedCall.Id, row.ConditionId, row.ApiCallId, dialog.ValueSpecText)) return;
@@ -329,8 +317,8 @@ public partial class MainViewModel
         if (RequireSelectedAs(EntityTypes.System) is not { } systemNode) return;
 
         var works = _editor.GetWorksForSystem(systemNode.Id).ToList();
-        var dialog = new ApiDefEditDialog(works) { Owner = GetOwnerWindow() };
-        if (dialog.ShowDialog() != true) return;
+        var dialog = new ApiDefEditDialog(works);
+        if (!ShowOwnedDialog(dialog)) return;
 
         var newApiDef = _editor.AddApiDef(dialog.ApiDefName, systemNode.Id);
         var props = BuildApiDefProperties(dialog);
@@ -346,8 +334,8 @@ public partial class MainViewModel
         if (item is null || RequireSelectedAs(EntityTypes.System) is not { } systemNode) return;
 
         var works = _editor.GetWorksForSystem(systemNode.Id).ToList();
-        var dialog = new ApiDefEditDialog(works, item) { Owner = GetOwnerWindow() };
-        if (dialog.ShowDialog() != true) return;
+        var dialog = new ApiDefEditDialog(works, item);
+        if (!ShowOwnedDialog(dialog)) return;
 
         if (dialog.ApiDefName != item.Name)
             _editor.RenameEntity(item.Id, EntityTypes.ApiDef, dialog.ApiDefName);
@@ -473,6 +461,11 @@ public partial class MainViewModel
         if (SelectedCallApiCall is null && CallApiCalls.Count > 0)
             SelectedCallApiCall = CallApiCalls[0];
 
+        ReloadConditions(callId);
+    }
+
+    private void ReloadConditions(Guid callId)
+    {
         ActiveTriggers.Clear();
         AutoConditions.Clear();
         CommonConditions.Clear();
@@ -498,8 +491,8 @@ public partial class MainViewModel
         if (existing is null) return;
 
         var works = _editor.GetWorksForSystem(systemId).ToList();
-        var dialog = new ApiDefEditDialog(works, existing) { Owner = GetOwnerWindow() };
-        if (dialog.ShowDialog() != true) return;
+        var dialog = new ApiDefEditDialog(works, existing);
+        if (!ShowOwnedDialog(dialog)) return;
 
         if (dialog.ApiDefName != existing.Name)
             _editor.RenameEntity(apiDefId, EntityTypes.ApiDef, dialog.ApiDefName);
@@ -522,5 +515,12 @@ public partial class MainViewModel
             return null;
 
         return Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive);
+    }
+
+    private static bool ShowOwnedDialog(Window dialog)
+    {
+        if (GetOwnerWindow() is { } owner)
+            dialog.Owner = owner;
+        return dialog.ShowDialog() == true;
     }
 }

@@ -98,15 +98,15 @@ public partial class CallCreateDialog : Window
 
         if (string.IsNullOrEmpty(alias))
         {
-            Warn("DevicesAlias를 입력해주세요."); return;
+            DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return;
         }
         if (alias.Contains('.'))
         {
-            Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return;
+            DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return;
         }
         if (string.IsNullOrEmpty(apiDefText))
         {
-            Warn("ApiName을 입력해주세요."); return;
+            DialogHelpers.Warn("ApiName을 입력해주세요."); return;
         }
 
         var apiNames = apiDefText.Split(';', StringSplitOptions.RemoveEmptyEntries)
@@ -116,15 +116,15 @@ public partial class CallCreateDialog : Window
 
         if (apiNames.Count == 0)
         {
-            Warn("ApiName을 입력해주세요."); return;
+            DialogHelpers.Warn("ApiName을 입력해주세요."); return;
         }
         if (apiNames.Any(n => n.Contains('.')))
         {
-            Warn("ApiName에는 '.'을 사용할 수 없습니다."); return;
+            DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return;
         }
         if (!int.TryParse(DeviceCountTextBox.Text.Trim(), out int count) || count < 1 || count > 100)
         {
-            Warn("개수는 1~100 사이의 숫자를 입력해주세요."); return;
+            DialogHelpers.Warn("개수는 1~100 사이의 숫자를 입력해주세요."); return;
         }
 
         var deviceAliases = count == 1
@@ -146,27 +146,27 @@ public partial class CallCreateDialog : Window
         var alias = AliasFilterBox.Text.Trim();
         if (string.IsNullOrEmpty(alias))
         {
-            Warn("DevicesAlias를 입력해주세요."); return;
+            DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return;
         }
         if (alias.Contains('.'))
         {
-            Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return;
+            DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return;
         }
 
         var apiName = ApiNameFilterBox.Text.Trim();
         if (string.IsNullOrEmpty(apiName))
         {
-            Warn("ApiName을 입력해주세요."); return;
+            DialogHelpers.Warn("ApiName을 입력해주세요."); return;
         }
         if (apiName.Contains('.'))
         {
-            Warn("ApiName에는 '.'을 사용할 수 없습니다."); return;
+            DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return;
         }
 
         var selected = ApiDefListBox.SelectedItems.OfType<ApiDefMatch>().ToList();
         if (selected.Count == 0)
         {
-            Warn("ApiDef를 선택해주세요.\n\nDevice System이 없으면 '프리셋 모드'로 먼저 생성해주세요."); return;
+            DialogHelpers.Warn("ApiDef를 선택해주세요.\n\nDevice System이 없으면 '프리셋 모드'로 먼저 생성해주세요."); return;
         }
 
         IsDeviceMode = false;
@@ -177,6 +177,4 @@ public partial class CallCreateDialog : Window
         DialogResult = true;
     }
 
-    private void Warn(string message) =>
-        MessageBox.Show(message, "입력 오류", MessageBoxButton.OK, MessageBoxImage.Warning);
 }

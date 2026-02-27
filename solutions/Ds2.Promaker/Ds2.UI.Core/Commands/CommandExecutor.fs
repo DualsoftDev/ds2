@@ -14,23 +14,46 @@ module CommandExecutor =
         | Ok () -> ()
         | Error message -> invalidOp $"Mutation '{opName}' failed: {message}"
 
-    let private requireEntity (entityType: string) (entityId: Guid) (entityOpt: 'T option) : 'T =
+    let internal requireEntity (entityType: string) (entityId: Guid) (entityOpt: 'T option) : 'T =
         entityOpt
         |> Option.defaultWith (fun () ->
-            invalidOp $"'{entityType}' entity was not found while executing command. id={entityId}")
+            invalidOp $"'{entityType}' entity not found. id={entityId}")
+
+    let private requireCallAndCond (callId: Guid) (conditionId: Guid) (store: DsStore) =
+        let call = DsQuery.getCall callId store |> requireEntity "Call" callId
+        let cond = call.CallConditions |> Seq.find (fun c -> c.Id = conditionId)
+        call, cond
+
+    let private runAdd opName addFn store entity toEvent =
+        addFn entity store |> requireMutationOk opName
+        [ toEvent entity ]
+
+    let private runRemove opName removeFn store id toEvent =
+        removeFn id store |> requireMutationOk opName
+        [ toEvent id ]
+
+    let private updateExisting entityType query store id update event =
+        let entity = query id store |> requireEntity entityType id
+        update entity
+        [ event ]
+
+    let private updateCall (callId: Guid) (store: DsStore) (update: Call -> unit) =
+        let call = DsQuery.getCall callId store |> requireEntity "Call" callId
+        update call
+        [ CallPropsChanged callId ]
+
+    let private updateCallCondition (callId: Guid) (conditionId: Guid) (store: DsStore) (update: CallCondition -> unit) =
+        let _, condition = requireCallAndCond callId conditionId store
+        update condition
+        [ CallPropsChanged callId ]
 
     /// 명령 실행 -> 발행할 이벤트 리스트 반환
     let rec execute (cmd: EditorCommand) (store: DsStore) : EditorEvent list =
         match cmd with
 
         // --- Project ---
-        | AddProject project ->
-            Mutation.addProject project store |> requireMutationOk "addProject"
-            [ ProjectAdded project ]
-
-        | RemoveProject backup ->
-            Mutation.removeProject backup.Id store |> requireMutationOk "removeProject"
-            [ ProjectRemoved backup.Id ]
+        | AddProject project -> runAdd "addProject" Mutation.addProject store project ProjectAdded
+        | RemoveProject backup -> runRemove "removeProject" Mutation.removeProject store backup.Id ProjectRemoved
 
         // --- System ---
         // Mutation.addSystem은 store.Systems에만 추가하므로
@@ -43,42 +66,23 @@ module CommandExecutor =
             [ SystemAdded system ]
 
         | RemoveSystem(backup, _projectId, _isActive) ->
-            // Mutation.removeSystem 은 Project 하위의 참조도 함께 제거함
-            Mutation.removeSystem backup.Id store |> requireMutationOk "removeSystem"
-            [ SystemRemoved backup.Id ]
+            // Mutation.removeSystem removes system reference from project lists.
+            runRemove "removeSystem" Mutation.removeSystem store backup.Id SystemRemoved
 
         // --- Flow ---
-        | AddFlow flow ->
-            Mutation.addFlow flow store |> requireMutationOk "addFlow"
-            [ FlowAdded flow ]
-
-        | RemoveFlow backup ->
-            Mutation.removeFlow backup.Id store |> requireMutationOk "removeFlow"
-            [ FlowRemoved backup.Id ]
+        | AddFlow flow -> runAdd "addFlow" Mutation.addFlow store flow FlowAdded
+        | RemoveFlow backup -> runRemove "removeFlow" Mutation.removeFlow store backup.Id FlowRemoved
 
         // --- Work ---
-        | AddWork work ->
-            Mutation.addWork work store |> requireMutationOk "addWork"
-            [ WorkAdded work ]
-
-        | RemoveWork backup ->
-            Mutation.removeWork backup.Id store |> requireMutationOk "removeWork"
-            [ WorkRemoved backup.Id ]
+        | AddWork work -> runAdd "addWork" Mutation.addWork store work WorkAdded
+        | RemoveWork backup -> runRemove "removeWork" Mutation.removeWork store backup.Id WorkRemoved
 
         | MoveWork(id, _, newPos) ->
-            let work = DsQuery.getWork id store |> requireEntity "Work" id
-            work.Position <- newPos
-            [ WorkMoved(id, newPos) ]
-
+            updateExisting "Work" DsQuery.getWork store id (fun work -> work.Position <- newPos) (WorkMoved(id, newPos))
         | RenameWork(id, _, newName) ->
-            let work = DsQuery.getWork id store |> requireEntity "Work" id
-            work.Name <- newName
-            [ EntityRenamed(id, newName) ]
-
+            updateExisting "Work" DsQuery.getWork store id (fun work -> work.Name <- newName) (EntityRenamed(id, newName))
         | UpdateWorkProps(id, _, newProps) ->
-            let work = DsQuery.getWork id store |> requireEntity "Work" id
-            work.Properties <- newProps
-            [ WorkPropsChanged id ]
+            updateExisting "Work" DsQuery.getWork store id (fun work -> work.Properties <- newProps) (WorkPropsChanged id)
 
         // --- Call ---
         // Mutation.removeCall 은 store.ApiCalls 에 포함된 ApiCall 들도 제거하므로
@@ -90,161 +94,102 @@ module CommandExecutor =
             [ CallAdded call ]
 
         | RemoveCall backup ->
-            Mutation.removeCall backup.Id store |> requireMutationOk "removeCall"
-            [ CallRemoved backup.Id ]
+            runRemove "removeCall" Mutation.removeCall store backup.Id CallRemoved
 
         | MoveCall(id, _, newPos) ->
-            let call = DsQuery.getCall id store |> requireEntity "Call" id
-            call.Position <- newPos
-            [ CallMoved(id, newPos) ]
-
+            updateExisting "Call" DsQuery.getCall store id (fun call -> call.Position <- newPos) (CallMoved(id, newPos))
         | RenameCall(id, _, newName) ->
-            let call = DsQuery.getCall id store |> requireEntity "Call" id
-            call.Name <- newName
-            [ EntityRenamed(id, newName) ]
-
+            updateExisting "Call" DsQuery.getCall store id (fun call -> call.Name <- newName) (EntityRenamed(id, newName))
         | UpdateCallProps(id, _, newProps) ->
-            let call = DsQuery.getCall id store |> requireEntity "Call" id
-            call.Properties <- newProps
-            [ CallPropsChanged id ]
+            updateExisting "Call" DsQuery.getCall store id (fun call -> call.Properties <- newProps) (CallPropsChanged id)
 
         // --- CallCondition ---
         | AddCallCondition(callId, condition) ->
-            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
-            call.CallConditions.Add(condition)
-            [ CallPropsChanged callId ]
+            updateCall callId store (fun call -> call.CallConditions.Add(condition))
 
         | RemoveCallCondition(callId, backup) ->
-            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
-            call.CallConditions.RemoveAll(fun c -> c.Id = backup.Id) |> ignore
-            [ CallPropsChanged callId ]
+            updateCall callId store (fun call -> call.CallConditions.RemoveAll(fun c -> c.Id = backup.Id) |> ignore)
 
         | UpdateCallConditionSettings(callId, conditionId, _, newIsOR, _, newIsRising) ->
-            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
-            let cond = call.CallConditions |> Seq.find (fun c -> c.Id = conditionId)
-            cond.IsOR     <- newIsOR
-            cond.IsRising <- newIsRising
-            [ CallPropsChanged callId ]
+            updateCallCondition callId conditionId store (fun condition ->
+                condition.IsOR <- newIsOR
+                condition.IsRising <- newIsRising)
 
         | AddApiCallToCondition(callId, conditionId, apiCall) ->
-            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
-            let cond = call.CallConditions |> Seq.find (fun c -> c.Id = conditionId)
-            cond.Conditions.Add(apiCall)
-            [ CallPropsChanged callId ]
+            updateCallCondition callId conditionId store (fun condition -> condition.Conditions.Add(apiCall))
 
         | RemoveApiCallFromCondition(callId, conditionId, backup) ->
-            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
-            let cond = call.CallConditions |> Seq.find (fun c -> c.Id = conditionId)
-            cond.Conditions.RemoveAll(fun ac -> ac.Id = backup.Id) |> ignore
-            [ CallPropsChanged callId ]
+            updateCallCondition callId conditionId store (fun condition ->
+                condition.Conditions.RemoveAll(fun ac -> ac.Id = backup.Id) |> ignore)
 
         | UpdateConditionApiCallOutputSpec(callId, conditionId, apiCallId, _, newSpec) ->
-            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
-            let cond = call.CallConditions |> Seq.find (fun c -> c.Id = conditionId)
-            let ac = cond.Conditions |> Seq.find (fun x -> x.Id = apiCallId)
-            ac.OutputSpec <- newSpec
-            [ CallPropsChanged callId ]
+            updateCallCondition callId conditionId store (fun condition ->
+                let apiCall = condition.Conditions |> Seq.find (fun x -> x.Id = apiCallId)
+                apiCall.OutputSpec <- newSpec)
 
         // --- Arrow ---
-        | AddArrowWork arrow ->
-            Mutation.addArrowWork arrow store |> requireMutationOk "addArrowWork"
-            [ ArrowWorkAdded arrow ]
-
-        | RemoveArrowWork backup ->
-            Mutation.removeArrowWork backup.Id store |> requireMutationOk "removeArrowWork"
-            [ ArrowWorkRemoved backup.Id ]
-
-        | AddArrowCall arrow ->
-            Mutation.addArrowCall arrow store |> requireMutationOk "addArrowCall"
-            [ ArrowCallAdded arrow ]
-
-        | RemoveArrowCall backup ->
-            Mutation.removeArrowCall backup.Id store |> requireMutationOk "removeArrowCall"
-            [ ArrowCallRemoved backup.Id ]
+        | AddArrowWork arrow -> runAdd "addArrowWork" Mutation.addArrowWork store arrow ArrowWorkAdded
+        | RemoveArrowWork backup -> runRemove "removeArrowWork" Mutation.removeArrowWork store backup.Id ArrowWorkRemoved
+        | AddArrowCall arrow -> runAdd "addArrowCall" Mutation.addArrowCall store arrow ArrowCallAdded
+        | RemoveArrowCall backup -> runRemove "removeArrowCall" Mutation.removeArrowCall store backup.Id ArrowCallRemoved
 
         | ReconnectArrowWork(id, _, _, newSourceId, newTargetId) ->
-            let arrow = DsQuery.getArrowWork id store |> requireEntity "ArrowWork" id
-            arrow.SourceId <- newSourceId
-            arrow.TargetId <- newTargetId
-            [ StoreRefreshed ]
-
+            updateExisting "ArrowWork" DsQuery.getArrowWork store id
+                (fun arrow ->
+                    arrow.SourceId <- newSourceId
+                    arrow.TargetId <- newTargetId)
+                StoreRefreshed
         | ReconnectArrowCall(id, _, _, newSourceId, newTargetId) ->
-            let arrow = DsQuery.getArrowCall id store |> requireEntity "ArrowCall" id
-            arrow.SourceId <- newSourceId
-            arrow.TargetId <- newTargetId
-            [ StoreRefreshed ]
+            updateExisting "ArrowCall" DsQuery.getArrowCall store id
+                (fun arrow ->
+                    arrow.SourceId <- newSourceId
+                    arrow.TargetId <- newTargetId)
+                StoreRefreshed
 
         // --- ApiDef ---
-        | AddApiDef apiDef ->
-            Mutation.addApiDef apiDef store |> requireMutationOk "addApiDef"
-            [ ApiDefAdded apiDef ]
-
-        | RemoveApiDef backup ->
-            Mutation.removeApiDef backup.Id store |> requireMutationOk "removeApiDef"
-            [ ApiDefRemoved backup.Id ]
+        | AddApiDef apiDef -> runAdd "addApiDef" Mutation.addApiDef store apiDef ApiDefAdded
+        | RemoveApiDef backup -> runRemove "removeApiDef" Mutation.removeApiDef store backup.Id ApiDefRemoved
 
         | UpdateApiDefProps(id, _, newProps) ->
-            let apiDef = DsQuery.getApiDef id store |> requireEntity "ApiDef" id
-            apiDef.Properties <- newProps
-            [ ApiDefPropsChanged id ]
+            updateExisting "ApiDef" DsQuery.getApiDef store id (fun apiDef -> apiDef.Properties <- newProps) (ApiDefPropsChanged id)
 
         // --- ApiCall (Call 내의 API 호출 추가/삭제) ---
         | AddApiCallToCall(callId, apiCall) ->
-            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
-            call.ApiCalls.Add(apiCall)
-            store.ApiCalls.[apiCall.Id] <- apiCall
-            [ CallPropsChanged callId ]
+            updateCall callId store (fun call ->
+                call.ApiCalls.Add(apiCall)
+                store.ApiCalls.[apiCall.Id] <- apiCall)
 
         | RemoveApiCallFromCall(callId, apiCall) ->
-            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
-            call.ApiCalls.RemoveAll(fun ac -> ac.Id = apiCall.Id) |> ignore
-            store.ApiCalls.Remove(apiCall.Id) |> ignore
-            [ CallPropsChanged callId ]
+            updateCall callId store (fun call ->
+                call.ApiCalls.RemoveAll(fun ac -> ac.Id = apiCall.Id) |> ignore
+                store.ApiCalls.Remove(apiCall.Id) |> ignore)
 
         // 공유된 ApiCall 은 store.ApiCalls 에서 제거하지 않고 Call.ApiCalls 에서만 제거함
         | AddSharedApiCallToCall(callId, apiCallId) ->
-            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
-            let apiCall = DsQuery.getApiCall apiCallId store |> requireEntity "ApiCall" apiCallId
-            call.ApiCalls.Add(apiCall)
-            [ CallPropsChanged callId ]
+            updateCall callId store (fun call ->
+                let apiCall = DsQuery.getApiCall apiCallId store |> requireEntity "ApiCall" apiCallId
+                call.ApiCalls.Add(apiCall))
 
         | RemoveSharedApiCallFromCall(callId, apiCallId) ->
-            let call = DsQuery.getCall callId store |> requireEntity "Call" callId
-            call.ApiCalls.RemoveAll(fun ac -> ac.Id = apiCallId) |> ignore
-            [ CallPropsChanged callId ]
+            updateCall callId store (fun call -> call.ApiCalls.RemoveAll(fun ac -> ac.Id = apiCallId) |> ignore)
 
         // --- HW Components ---
         | AddButton button ->
-            Mutation.addButton button store |> requireMutationOk "addButton"
-            [ HwComponentAdded(EntityTypeNames.Button, button.Id, button.Name) ]
-
+            runAdd "addButton" Mutation.addButton store button (fun b -> HwComponentAdded(EntityTypeNames.Button, b.Id, b.Name))
         | RemoveButton backup ->
-            Mutation.removeButton backup.Id store |> requireMutationOk "removeButton"
-            [ HwComponentRemoved(EntityTypeNames.Button, backup.Id) ]
-
+            runRemove "removeButton" Mutation.removeButton store backup.Id (fun id -> HwComponentRemoved(EntityTypeNames.Button, id))
         | AddLamp lamp ->
-            Mutation.addLamp lamp store |> requireMutationOk "addLamp"
-            [ HwComponentAdded(EntityTypeNames.Lamp, lamp.Id, lamp.Name) ]
-
+            runAdd "addLamp" Mutation.addLamp store lamp (fun l -> HwComponentAdded(EntityTypeNames.Lamp, l.Id, l.Name))
         | RemoveLamp backup ->
-            Mutation.removeLamp backup.Id store |> requireMutationOk "removeLamp"
-            [ HwComponentRemoved(EntityTypeNames.Lamp, backup.Id) ]
-
+            runRemove "removeLamp" Mutation.removeLamp store backup.Id (fun id -> HwComponentRemoved(EntityTypeNames.Lamp, id))
         | AddHwCondition condition ->
-            Mutation.addCondition condition store |> requireMutationOk "addCondition"
-            [ HwComponentAdded(EntityTypeNames.Condition, condition.Id, condition.Name) ]
-
+            runAdd "addCondition" Mutation.addCondition store condition (fun c -> HwComponentAdded(EntityTypeNames.Condition, c.Id, c.Name))
         | RemoveHwCondition backup ->
-            Mutation.removeCondition backup.Id store |> requireMutationOk "removeCondition"
-            [ HwComponentRemoved(EntityTypeNames.Condition, backup.Id) ]
-
+            runRemove "removeCondition" Mutation.removeCondition store backup.Id (fun id -> HwComponentRemoved(EntityTypeNames.Condition, id))
         | AddHwAction action ->
-            Mutation.addAction action store |> requireMutationOk "addAction"
-            [ HwComponentAdded(EntityTypeNames.Action, action.Id, action.Name) ]
-
+            runAdd "addAction" Mutation.addAction store action (fun a -> HwComponentAdded(EntityTypeNames.Action, a.Id, a.Name))
         | RemoveHwAction backup ->
-            Mutation.removeAction backup.Id store |> requireMutationOk "removeAction"
-            [ HwComponentRemoved(EntityTypeNames.Action, backup.Id) ]
+            runRemove "removeAction" Mutation.removeAction store backup.Id (fun id -> HwComponentRemoved(EntityTypeNames.Action, id))
 
         // --- 엔티티 공통 ---
         | RenameEntity(id, entityType, _, newName) ->
@@ -258,56 +203,56 @@ module CommandExecutor =
     /// 명령 실행 취소 -> 역방향 이벤트를 반환
     /// Add/Remove 계열은 undo(Add X) = execute(Remove X), undo(Remove X) = execute(Add X)
     /// 상태 변경 계열 (Move/Rename/Update/Reconnect): old/new 값을 반전하여 execute 호출
-    let rec undo (cmd: EditorCommand) (store: DsStore) : EditorEvent list =
+    let rec private invert (cmd: EditorCommand) : EditorCommand =
         match cmd with
-        // --- 추가/삭제 (Add/Remove) ---
-        | AddProject p                           -> execute (RemoveProject p) store
-        | RemoveProject b                        -> execute (AddProject b) store
-        | AddSystem(s, pid, ia)                  -> execute (RemoveSystem(s, pid, ia)) store
-        | RemoveSystem(b, pid, ia)               -> execute (AddSystem(b, pid, ia)) store
-        | AddFlow f                              -> execute (RemoveFlow f) store
-        | RemoveFlow b                           -> execute (AddFlow b) store
-        | AddWork w                              -> execute (RemoveWork w) store
-        | RemoveWork b                           -> execute (AddWork b) store
-        | AddCall c                              -> execute (RemoveCall c) store
-        | RemoveCall b                           -> execute (AddCall b) store
-        | AddCallCondition(callId, c)            -> execute (RemoveCallCondition(callId, c)) store
-        | RemoveCallCondition(callId, b)         -> execute (AddCallCondition(callId, b)) store
-        | AddApiCallToCondition(cId, cndId, ac)  -> execute (RemoveApiCallFromCondition(cId, cndId, ac)) store
-        | RemoveApiCallFromCondition(cId, cndId, b) -> execute (AddApiCallToCondition(cId, cndId, b)) store
-        | UpdateCallConditionSettings(cId, cndId, oldOR, newOR, oldRising, newRising) ->
-            execute (UpdateCallConditionSettings(cId, cndId, newOR, oldOR, newRising, oldRising)) store
-        | UpdateConditionApiCallOutputSpec(cId, cndId, acId, oldSpec, newSpec) ->
-            execute (UpdateConditionApiCallOutputSpec(cId, cndId, acId, newSpec, oldSpec)) store
-        | AddArrowWork a                         -> execute (RemoveArrowWork a) store
-        | RemoveArrowWork b                      -> execute (AddArrowWork b) store
-        | AddArrowCall a                         -> execute (RemoveArrowCall a) store
-        | RemoveArrowCall b                      -> execute (AddArrowCall b) store
-        | AddApiDef d                            -> execute (RemoveApiDef d) store
-        | RemoveApiDef b                         -> execute (AddApiDef b) store
-        | AddApiCallToCall(c, ac)            -> execute (RemoveApiCallFromCall(c, ac)) store
-        | RemoveApiCallFromCall(c, ac)       -> execute (AddApiCallToCall(c, ac)) store
-        | AddSharedApiCallToCall(c, id)      -> execute (RemoveSharedApiCallFromCall(c, id)) store
-        | RemoveSharedApiCallFromCall(c, id) -> execute (AddSharedApiCallToCall(c, id)) store
-        | AddButton b                            -> execute (RemoveButton b) store
-        | RemoveButton b                         -> execute (AddButton b) store
-        | AddLamp l                              -> execute (RemoveLamp l) store
-        | RemoveLamp b                           -> execute (AddLamp b) store
-        | AddHwCondition c                       -> execute (RemoveHwCondition c) store
-        | RemoveHwCondition b                    -> execute (AddHwCondition b) store
-        | AddHwAction a                          -> execute (RemoveHwAction a) store
-        | RemoveHwAction b                       -> execute (AddHwAction b) store
-        // --- 상태 변경 (Move/Rename/Update/Reconnect): old/new 반전 ---
-        | MoveWork(id, oldPos, newPos)                   -> execute (MoveWork(id, newPos, oldPos)) store
-        | RenameWork(id, oldName, newName)               -> execute (RenameWork(id, newName, oldName)) store
-        | UpdateWorkProps(id, oldProps, newProps)        -> execute (UpdateWorkProps(id, newProps, oldProps)) store
-        | MoveCall(id, oldPos, newPos)                   -> execute (MoveCall(id, newPos, oldPos)) store
-        | RenameCall(id, oldName, newName)               -> execute (RenameCall(id, newName, oldName)) store
-        | UpdateCallProps(id, oldProps, newProps)        -> execute (UpdateCallProps(id, newProps, oldProps)) store
-        | UpdateApiDefProps(id, oldProps, newProps)      -> execute (UpdateApiDefProps(id, newProps, oldProps)) store
-        | ReconnectArrowWork(id, os, ot, ns, nt)         -> execute (ReconnectArrowWork(id, ns, nt, os, ot)) store
-        | ReconnectArrowCall(id, os, ot, ns, nt)         -> execute (ReconnectArrowCall(id, ns, nt, os, ot)) store
-        | RenameEntity(id, t, oldName, newName)          -> execute (RenameEntity(id, t, newName, oldName)) store
-        // --- Composite: 역순으로 undo ---
-        | Composite(_, commands) ->
-            commands |> List.rev |> List.collect (fun c -> undo c store)
+        | AddProject p -> RemoveProject p
+        | RemoveProject b -> AddProject b
+        | AddSystem(system, projectId, isActive) -> RemoveSystem(system, projectId, isActive)
+        | RemoveSystem(backup, projectId, isActive) -> AddSystem(backup, projectId, isActive)
+        | AddFlow flow -> RemoveFlow flow
+        | RemoveFlow backup -> AddFlow backup
+        | AddWork work -> RemoveWork work
+        | RemoveWork backup -> AddWork backup
+        | AddCall call -> RemoveCall call
+        | RemoveCall backup -> AddCall backup
+        | AddCallCondition(callId, condition) -> RemoveCallCondition(callId, condition)
+        | RemoveCallCondition(callId, backup) -> AddCallCondition(callId, backup)
+        | AddApiCallToCondition(callId, conditionId, apiCall) -> RemoveApiCallFromCondition(callId, conditionId, apiCall)
+        | RemoveApiCallFromCondition(callId, conditionId, backup) -> AddApiCallToCondition(callId, conditionId, backup)
+        | UpdateCallConditionSettings(callId, conditionId, oldIsOR, newIsOR, oldIsRising, newIsRising) -> UpdateCallConditionSettings(callId, conditionId, newIsOR, oldIsOR, newIsRising, oldIsRising)
+        | UpdateConditionApiCallOutputSpec(callId, conditionId, apiCallId, oldSpec, newSpec) -> UpdateConditionApiCallOutputSpec(callId, conditionId, apiCallId, newSpec, oldSpec)
+        | AddArrowWork arrow -> RemoveArrowWork arrow
+        | RemoveArrowWork backup -> AddArrowWork backup
+        | AddArrowCall arrow -> RemoveArrowCall arrow
+        | RemoveArrowCall backup -> AddArrowCall backup
+        | AddApiDef apiDef -> RemoveApiDef apiDef
+        | RemoveApiDef backup -> AddApiDef backup
+        | AddApiCallToCall(callId, apiCall) -> RemoveApiCallFromCall(callId, apiCall)
+        | RemoveApiCallFromCall(callId, apiCall) -> AddApiCallToCall(callId, apiCall)
+        | AddSharedApiCallToCall(callId, apiCallId) -> RemoveSharedApiCallFromCall(callId, apiCallId)
+        | RemoveSharedApiCallFromCall(callId, apiCallId) -> AddSharedApiCallToCall(callId, apiCallId)
+        | AddButton button -> RemoveButton button
+        | RemoveButton backup -> AddButton backup
+        | AddLamp lamp -> RemoveLamp lamp
+        | RemoveLamp backup -> AddLamp backup
+        | AddHwCondition condition -> RemoveHwCondition condition
+        | RemoveHwCondition backup -> AddHwCondition backup
+        | AddHwAction action -> RemoveHwAction action
+        | RemoveHwAction backup -> AddHwAction backup
+        | MoveWork(id, oldPos, newPos) -> MoveWork(id, newPos, oldPos)
+        | RenameWork(id, oldName, newName) -> RenameWork(id, newName, oldName)
+        | UpdateWorkProps(id, oldProps, newProps) -> UpdateWorkProps(id, newProps, oldProps)
+        | MoveCall(id, oldPos, newPos) -> MoveCall(id, newPos, oldPos)
+        | RenameCall(id, oldName, newName) -> RenameCall(id, newName, oldName)
+        | UpdateCallProps(id, oldProps, newProps) -> UpdateCallProps(id, newProps, oldProps)
+        | UpdateApiDefProps(id, oldProps, newProps) -> UpdateApiDefProps(id, newProps, oldProps)
+        | ReconnectArrowWork(id, oldSourceId, oldTargetId, newSourceId, newTargetId) -> ReconnectArrowWork(id, newSourceId, newTargetId, oldSourceId, oldTargetId)
+        | ReconnectArrowCall(id, oldSourceId, oldTargetId, newSourceId, newTargetId) -> ReconnectArrowCall(id, newSourceId, newTargetId, oldSourceId, oldTargetId)
+        | RenameEntity(id, entityType, oldName, newName) -> RenameEntity(id, entityType, newName, oldName)
+        | Composite(_, commands) -> Composite("Undo Composite", commands |> List.rev |> List.map invert)
+
+    /// 명령 실행 취소 -> 반대 이벤트를 반환
+    /// Add/Remove 계열은 undo(Add X) = execute(Remove X), undo(Remove X) = execute(Add X)
+    /// 상태 변경 계열 (Move/Rename/Update/Reconnect): old/new 값을 반전하여 execute 호출
+    let undo (cmd: EditorCommand) (store: DsStore) : EditorEvent list =
+        execute (invert cmd) store
