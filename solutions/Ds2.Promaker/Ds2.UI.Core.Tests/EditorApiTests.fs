@@ -805,6 +805,33 @@ let ``SaveToFile and LoadFromFile should round-trip store`` () =
         if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 
 // =============================================================================
+// ReplaceStore
+// =============================================================================
+
+[<Fact>]
+let ``ReplaceStore should replace all collections, clear undo stack, and emit StoreRefreshed`` () =
+    let store, api = createApi()
+    let project = api.AddProject("P1")
+    let system = api.AddSystem("S1", project.Id, true)
+    let _flow = api.AddFlow("F1", system.Id)
+    Assert.True(api.CanUndo)
+
+    // 새 store에 프로젝트 추가 — Project(...) 직접 생성 시 EntityKind.Project DU 케이스와 이름 충돌
+    let newStore = DsStore.empty()
+    let newApi2 = EditorApi(newStore)
+    let newProject = newApi2.AddProject("P2")
+
+    let events = collectEvents api
+    api.ReplaceStore(newStore)
+
+    Assert.Equal(1, store.Projects.Count)
+    Assert.True(store.Projects.ContainsKey(newProject.Id))
+    Assert.False(store.Projects.ContainsKey(project.Id))
+    Assert.False(api.CanUndo)
+    Assert.True(events |> Seq.exists (function StoreRefreshed -> true | _ -> false))
+    Assert.True(events |> Seq.exists (function UndoRedoChanged(false, false) -> true | _ -> false))
+
+// =============================================================================
 // maxUndoSize 제한
 // =============================================================================
 

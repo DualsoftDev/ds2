@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -148,4 +149,21 @@ public sealed class ConditionApiCallRow
     public string ApiDefDisplayName    { get; }
     public string OutputSpecText       { get; }
     public int    OutputSpecTypeIndex  { get; }
+}
+
+public sealed class ConditionSectionItem : ObservableObject
+{
+    public ConditionSectionItem(CallConditionType conditionType, string title, string addToolTip)
+    {
+        ConditionType = conditionType;
+        Title = title;
+        AddToolTip = addToolTip;
+        Conditions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(Header));
+    }
+
+    public CallConditionType ConditionType { get; }
+    public string Title { get; }
+    public string AddToolTip { get; }
+    public ObservableCollection<CallConditionItem> Conditions { get; } = [];
+    public string Header => $"{Title} [{Conditions.Count}]";
 }

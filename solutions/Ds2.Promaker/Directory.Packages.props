@@ -30,6 +30,11 @@
     <PackageVersion Include="coverlet.collector" Version="6.0.2" />
   </ItemGroup>
 
+  <!-- AAS -->
+  <ItemGroup>
+    <PackageVersion Include="AasCore.Aas3_0" Version="1.0.0" />
+  </ItemGroup>
+
   <!-- WPF MVVM -->
   <ItemGroup>
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.0" />

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AasxSemantics.fs" />
+    <Compile Include="AasxFileIO.fs" />
+    <Compile Include="AasxExporter.fs" />
+    <Compile Include="AasxImporter.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="AasCore.Aas3_0" />
+  </ItemGroup>
+
+</Project>
