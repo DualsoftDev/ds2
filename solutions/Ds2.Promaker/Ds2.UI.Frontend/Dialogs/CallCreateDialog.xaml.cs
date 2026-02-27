@@ -7,7 +7,7 @@ namespace Ds2.UI.Frontend.Dialogs;
 
 public partial class CallCreateDialog : Window
 {
-    private readonly DsStore _store;
+    private readonly Func<string, IReadOnlyList<ApiDefMatch>> _findApiDefsByName;
 
     // Device 모드 출력
     public bool IsDeviceMode { get; private set; }
@@ -18,9 +18,9 @@ public partial class CallCreateDialog : Window
     public string DevicesAlias { get; private set; } = string.Empty;
     public string ApiName { get; private set; } = string.Empty;
 
-    public CallCreateDialog(DsStore store)
+    public CallCreateDialog(Func<string, IReadOnlyList<ApiDefMatch>> findApiDefsByName)
     {
-        _store = store;
+        _findApiDefsByName = findApiDefsByName;
         InitializeComponent();
         Loaded += (_, _) =>
         {
@@ -77,9 +77,9 @@ public partial class CallCreateDialog : Window
     private void RefreshApiDefList()
     {
         var apiNameFilter = ApiNameFilterBox?.Text?.Trim() ?? string.Empty;
-        var matches = EntityHierarchyQueries.findApiDefsByName(_store, apiNameFilter);
+        var matches = _findApiDefsByName(apiNameFilter);
         ApiDefListBox.ItemsSource = matches;
-        if (matches.Length > 0)
+        if (matches.Count > 0)
             ApiDefListBox.SelectedIndex = 0;
     }
 

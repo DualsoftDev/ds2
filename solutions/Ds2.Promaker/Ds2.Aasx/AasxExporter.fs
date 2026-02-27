@@ -139,3 +139,12 @@ let exportToAasxFile (store: DsStore) (project: Project) (outputPath: string) : 
             assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
             conceptDescriptions = null)
     writeEnvironment env outputPath
+
+/// Export helper for UI callers that should not access Project entity directly.
+/// Returns false when there is no project in the store.
+let tryExportFirstProjectToAasxFile (store: DsStore) (outputPath: string) : bool =
+    match DsQuery.allProjects store |> List.tryHead with
+    | None -> false
+    | Some project ->
+        exportToAasxFile store project outputPath
+        true

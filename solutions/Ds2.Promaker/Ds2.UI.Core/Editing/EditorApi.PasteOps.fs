@@ -334,3 +334,44 @@ let pasteCallsToWorkBatch (exec: ExecFn) (store: DsStore) (sourceCalls: Call lis
     | None -> ()
 
     pastedCallIdsRev |> List.rev
+
+/// PasteEntities 분기 dispatch.
+/// exec 콜백으로 command를 즉시 전달하고 붙여넣기 수행. 반환값: 실제 붙여넣은 엔티티 수.
+let dispatchPaste
+    (exec: ExecFn)
+    (store: DsStore)
+    (copiedEntityType: string)
+    (copiedIds: Guid list)
+    (targetEntityType: string)
+    (targetEntityId: Guid)
+    : int =
+    if not (PasteResolvers.isCopyableEntityType copiedEntityType) then 0
+    else
+        match EntityKind.tryOfString copiedEntityType with
+        | ValueSome Flow ->
+            let sourceFlows = copiedIds |> List.choose (fun id -> DsQuery.getFlow id store)
+            if sourceFlows.IsEmpty then 0
+            else
+                sourceFlows |> List.sumBy (fun sourceFlow ->
+                    let targetSystemId =
+                        PasteResolvers.resolveSystemTarget store targetEntityType targetEntityId
+                        |> Option.defaultValue sourceFlow.ParentId
+                    pasteFlowToSystem exec store sourceFlow targetSystemId |> ignore
+                    1)
+        | ValueSome Work ->
+            let sourceWorks = copiedIds |> List.choose (fun id -> DsQuery.getWork id store)
+            if sourceWorks.IsEmpty then 0
+            else
+                let targetFlowId =
+                    PasteResolvers.resolveFlowTarget store targetEntityType targetEntityId
+                    |> Option.defaultValue sourceWorks.Head.ParentId
+                pasteWorksToFlowBatch exec store sourceWorks targetFlowId |> List.length
+        | ValueSome Call ->
+            let sourceCalls = copiedIds |> List.choose (fun id -> DsQuery.getCall id store)
+            if sourceCalls.IsEmpty then 0
+            else
+                let targetWorkId =
+                    PasteResolvers.resolveWorkTarget store targetEntityType targetEntityId
+                    |> Option.defaultValue sourceCalls.Head.ParentId
+                pasteCallsToWorkBatch exec store sourceCalls targetWorkId |> List.length
+        | _ -> 0

@@ -91,6 +91,62 @@ let buildRemoveCallCmd (store: DsStore) (callId: Guid) : EditorCommand =
             RemoveCall(DeepCopyHelper.backupEntityAs call)
         ])
 
+/// 다중 선택 엔티티 일괄 삭제 command 목록 빌드.
+/// selections: distinctBy snd 적용된 (entityType, id) 리스트.
+/// 실행 순서: ArrowCall → cascadeCall → directCall → ArrowWork → Work → 기타
+let buildRemoveEntitiesCmds (store: DsStore) (selections: (string * Guid) list) : EditorCommand list =
+    let selIds = selections |> List.map snd |> Set.ofList
+
+    // ── Work 배치 ────────────────────────────────────────────────────────
+    let selectedWorks =
+        selections |> List.choose (fun (et, id) ->
+            match EntityKind.tryOfString et with
+            | ValueSome EntityKind.Work -> DsQuery.getWork id store
+            | _ -> None)
+
+    let cascadeCalls    = selectedWorks |> List.collect (fun w -> DsQuery.callsOf w.Id store)
+    let workIds         = selectedWorks |> List.map (fun w -> w.Id) |> Set.ofList
+    let cascadeIds      = cascadeCalls  |> List.map (fun c -> c.Id) |> Set.ofList
+    let batchArrowWorks = if workIds.IsEmpty then [] else CascadeHelpers.arrowWorksFor store workIds
+
+    // ── Call 배치 (부모 Work가 선택 집합에 없는 Call만) ──────────────────
+    let selectedCalls =
+        selections |> List.choose (fun (et, id) ->
+            match EntityKind.tryOfString et with
+            | ValueSome EntityKind.Call ->
+                match DsQuery.getCall id store with
+                | Some call when not (selIds.Contains call.ParentId) -> Some call
+                | _ -> None
+            | _ -> None)
+
+    let directCallIds   = selectedCalls |> List.map (fun c -> c.Id) |> Set.ofList
+    let allCallIds      = Set.union cascadeIds directCallIds
+    let batchArrowCalls = if allCallIds.IsEmpty then [] else CascadeHelpers.arrowCallsFor store allCallIds
+
+    // ── 나머지 엔티티 (Flow/System/Project/HW) ───────────────────────────
+    let otherCmds =
+        selections |> List.choose (fun (et, id) ->
+            match EntityKind.tryOfString et with
+            | ValueSome EntityKind.Work | ValueSome EntityKind.Call -> None
+            | ValueSome EntityKind.Flow      -> DsQuery.getFlow id store      |> Option.map (fun _ -> buildRemoveFlowCmd store id)
+            | ValueSome EntityKind.System    -> DsQuery.getSystem id store    |> Option.map (fun _ -> buildRemoveSystemCmd store id)
+            | ValueSome EntityKind.Project   -> DsQuery.getProject id store   |> Option.map (fun _ -> buildRemoveProjectCmd store id)
+            | ValueSome EntityKind.ApiDef    -> DsQuery.getApiDef id store    |> Option.map (fun a -> RemoveApiDef(DeepCopyHelper.backupEntityAs a))
+            | ValueSome EntityKind.Button    -> DsQuery.getButton id store    |> Option.map (fun b -> RemoveButton(DeepCopyHelper.backupEntityAs b))
+            | ValueSome EntityKind.Lamp      -> DsQuery.getLamp id store      |> Option.map (fun l -> RemoveLamp(DeepCopyHelper.backupEntityAs l))
+            | ValueSome EntityKind.Condition -> DsQuery.getCondition id store |> Option.map (fun c -> RemoveHwCondition(DeepCopyHelper.backupEntityAs c))
+            | ValueSome EntityKind.Action    -> DsQuery.getAction id store    |> Option.map (fun a -> RemoveHwAction(DeepCopyHelper.backupEntityAs a))
+            | ValueNone -> None)
+
+    [
+        yield! batchArrowCalls |> List.map (fun a -> RemoveArrowCall(DeepCopyHelper.backupEntityAs a))
+        yield! cascadeCalls    |> List.map (fun c -> RemoveCall(DeepCopyHelper.backupEntityAs c))
+        yield! selectedCalls   |> List.map (fun c -> RemoveCall(DeepCopyHelper.backupEntityAs c))
+        yield! batchArrowWorks |> List.map (fun a -> RemoveArrowWork(DeepCopyHelper.backupEntityAs a))
+        yield! selectedWorks   |> List.map (fun w -> RemoveWork(DeepCopyHelper.backupEntityAs w))
+        yield! otherCmds
+    ]
+
 let buildMoveEntitiesCmds (store: DsStore) (requests: seq<MoveEntityRequest>) : EditorCommand list =
     requests
     |> Seq.distinctBy (fun r -> r.EntityType, r.Id)

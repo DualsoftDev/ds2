@@ -24,7 +24,7 @@ public partial class MainViewModel
 
     public void OpenCanvasTab(Guid entityId, string entityType)
     {
-        var infoOpt = EntityHierarchyQueries.tryOpenTabForEntity(_store, entityType, entityId);
+        var infoOpt = _editor.TryOpenTabForEntity(entityType, entityId);
         if (!FSharpOption<TabOpenInfo>.get_IsSome(infoOpt))
             return;
 
@@ -53,7 +53,7 @@ public partial class MainViewModel
             return;
         }
 
-        var content = CanvasProjection.canvasContentForTab(_store, ActiveTab.Kind, ActiveTab.RootId);
+        var content = _editor.CanvasContentForTab(ActiveTab.Kind, ActiveTab.RootId);
 
         foreach (var n in content.Nodes)
         {
@@ -77,7 +77,7 @@ public partial class MainViewModel
     {
         if (ActiveTab is null || CanvasArrows.Count == 0) return;
 
-        var flowIds = EntityHierarchyQueries.flowIdsForTab(_store, ActiveTab.Kind, ActiveTab.RootId);
+        var flowIds = _editor.FlowIdsForTab(ActiveTab.Kind, ActiveTab.RootId);
         foreach (var flowId in flowIds)
             ApplyArrowPathsFromFlow(flowId);
     }
@@ -102,7 +102,7 @@ public partial class MainViewModel
         ControlTreeRoots.Clear();
         DeviceTreeRoots.Clear();
 
-        var trees = TreeProjection.buildTrees(_store);
+        var trees = _editor.BuildTrees();
         foreach (var info in trees.Item1)
             ControlTreeRoots.Add(MapToEntityNode(info));
         foreach (var info in trees.Item2)
@@ -125,11 +125,11 @@ public partial class MainViewModel
         RestoreSelection(prevSelection, prevSelectedArrowIds);
     }
 
-    private bool TabExists(CanvasTab tab) => EntityHierarchyQueries.tabExists(_store, tab.Kind, tab.RootId);
+    private bool TabExists(CanvasTab tab) => _editor.TabExists(tab.Kind, tab.RootId);
 
     private string ResolveTabTitle(CanvasTab tab)
     {
-        var titleOpt = EntityHierarchyQueries.tabTitle(_store, tab.Kind, tab.RootId);
+        var titleOpt = _editor.TabTitle(tab.Kind, tab.RootId);
         return FSharpOption<string>.get_IsSome(titleOpt) ? titleOpt.Value : tab.Title;
     }
 

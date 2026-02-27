@@ -165,3 +165,23 @@ let buildAddCallsWithDeviceCmds
             ) initialState
 
         List.rev finalState.CommandsRev @ buildArrowCommands finalState
+
+/// 단일 Call + 연결 ApiDef ApiCall 목록을 Composite 명령으로 빌드.
+/// 반환: (생성된 Call 객체, 실행할 EditorCommand)
+let buildAddCallWithLinkedApiDefsCmd
+    (store: DsStore)
+    (workId: Guid)
+    (devicesAlias: string)
+    (apiName: string)
+    (apiDefIds: Guid seq)
+    : Call * EditorCommand =
+    let call = Call(devicesAlias, apiName, workId)
+    let apiCallCmds =
+        apiDefIds
+        |> Seq.choose (fun id -> DsQuery.getApiDef id store)
+        |> Seq.map (fun apiDef ->
+            let apiCall = ApiCall($"{devicesAlias}.{apiDef.Name}")
+            apiCall.ApiDefId <- Some apiDef.Id
+            AddApiCallToCall(call.Id, apiCall))
+        |> Seq.toList
+    call, Composite("Add Call", AddCall call :: apiCallCmds)

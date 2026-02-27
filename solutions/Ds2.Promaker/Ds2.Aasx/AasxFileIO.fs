@@ -49,50 +49,42 @@ let readEnvironment (path: string) : Environment option =
                     Some (Jsonization.Deserialize.EnvironmentFrom(node)))
     with _ -> None
 
+// ZipArchiveMode.Create 에서는 이전 엔트리 스트림이 닫혀야 다음 엔트리를 열 수 있음.
+// F# `use`는 함수 스코프 끝까지 유지되므로 별도 함수로 분리하여 즉시 dispose되도록 함.
+let private writeTextEntry (archive: ZipArchive) (entryName: string) (content: string) =
+    let entry = archive.CreateEntry(entryName)
+    use writer = new StreamWriter(entry.Open(), Encoding.UTF8)
+    writer.Write(content)
+
+let private writeXmlEntry (archive: ZipArchive) (entryName: string) (env: Environment) =
+    let entry = archive.CreateEntry(entryName)
+    use stream = entry.Open()
+    let settings = XmlWriterSettings(Indent = true, Encoding = Encoding.UTF8)
+    use xmlWriter = XmlWriter.Create(stream, settings)
+    Xmlization.Serialize.To(env, xmlWriter)
+
 /// Environment를 AASX ZIP으로 저장합니다 (XML 직렬화).
 let writeEnvironment (env: Environment) (path: string) : unit =
     use fileStream = new FileStream(path, FileMode.Create)
     use archive = new ZipArchive(fileStream, ZipArchiveMode.Create)
 
-    // 1. [Content_Types].xml
-    let e1 = archive.CreateEntry("[Content_Types].xml")
-    use w1 = new StreamWriter(e1.Open(), Encoding.UTF8)
-    w1.Write("""<?xml version="1.0" encoding="utf-8"?>
+    writeTextEntry archive "[Content_Types].xml" """<?xml version="1.0" encoding="utf-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" />
   <Default Extension="xml" ContentType="text/xml" />
   <Override PartName="/aasx/aasx-origin" ContentType="text/plain" />
-</Types>""")
-    w1.Flush()
+</Types>"""
 
-    // 2. _rels/.rels
-    let e2 = archive.CreateEntry("_rels/.rels")
-    use w2 = new StreamWriter(e2.Open(), Encoding.UTF8)
-    w2.Write("""<?xml version="1.0" encoding="utf-8"?>
+    writeTextEntry archive "_rels/.rels" """<?xml version="1.0" encoding="utf-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Type="http://www.admin-shell.io/aasx/relationships/aasx-origin" Target="/aasx/aasx-origin" Id="R320e13957d794f91" />
-</Relationships>""")
-    w2.Flush()
+</Relationships>"""
 
-    // 3. aasx/aasx-origin (빈 마커)
-    let e3 = archive.CreateEntry("aasx/aasx-origin")
-    use w3 = new StreamWriter(e3.Open(), Encoding.UTF8)
-    w3.Write("Intentionally empty.")
-    w3.Flush()
+    writeTextEntry archive "aasx/aasx-origin" "Intentionally empty."
 
-    // 4. aasx/_rels/aasx-origin.rels
-    let e4 = archive.CreateEntry("aasx/_rels/aasx-origin.rels")
-    use w4 = new StreamWriter(e4.Open(), Encoding.UTF8)
-    w4.Write("""<?xml version="1.0" encoding="utf-8"?>
+    writeTextEntry archive "aasx/_rels/aasx-origin.rels" """<?xml version="1.0" encoding="utf-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Type="http://www.admin-shell.io/aasx/relationships/aas-spec" Target="/aasx/aas/aas.aas.xml" Id="R40528201d6544e91" />
-</Relationships>""")
-    w4.Flush()
+</Relationships>"""
 
-    // 5. aasx/aas/aas.aas.xml
-    let e5 = archive.CreateEntry("aasx/aas/aas.aas.xml")
-    use stream5 = e5.Open()
-    let settings = XmlWriterSettings(Indent = true, Encoding = Encoding.UTF8)
-    use xmlWriter = XmlWriter.Create(stream5, settings)
-    Xmlization.Serialize.To(env, xmlWriter)
-    xmlWriter.Flush()
+    writeXmlEntry archive "aasx/aas/aas.aas.xml" env

@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Core\DsStore.fs" />
     <Compile Include="Core\DsQuery.fs" />
     <Compile Include="Core\Mutation.fs" />
