@@ -22,11 +22,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
                 else String.concat " | " errors
             invalidOp $"Store validation failed ({context}): {message}"
 
-    let withEntityOrThrow (entityType: string) (findById: Guid -> DsStore -> 'T option) (id: Guid) (onFound: 'T -> unit) =
-        match findById id store with
-        | Some entity -> onFound entity
-        | None -> invalidOp $"'{entityType}' entity was not found. id={id}"
-
     // --- 이벤트 ---
     member _.OnEvent = eventBus.Publish
     member _.CanUndo = undoManager.CanUndo
@@ -55,6 +50,9 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
 
     member internal this.Exec(cmd: EditorCommand) =
         this.ExecuteCommand(cmd)
+
+    member private this.ExecOpt(cmdOpt: EditorCommand option) =
+        match cmdOpt with Some cmd -> this.Exec cmd; true | None -> false
 
     /// 여러 exec 호출을 하나의 Composite으로 묶어 Undo 1회를 보장한다.
     member internal this.ExecBatch(label: string, action: PasteOps.ExecFn -> 'a) : 'a =
@@ -153,9 +151,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         this.ExecBatch("Delete Arrows", ArrowOps.buildRemoveArrowsCmds store arrowIds)
 
     member this.ReconnectArrow(arrowId: Guid, replaceSource: bool, newEndpointId: Guid) : bool =
-        match ArrowOps.tryResolveReconnectArrowCmd store arrowId replaceSource newEndpointId with
-        | Some cmd -> this.Exec(cmd); true
-        | None -> false
+        this.ExecOpt(ArrowOps.tryResolveReconnectArrowCmd store arrowId replaceSource newEndpointId)
 
     /// Ordered node selection (Work/Call) -> sequential arrow connect.
     /// Returns number of arrows actually created.
@@ -172,18 +168,22 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         apiDef
 
     member this.UpdateApiDefProperties(apiDefId: Guid, newProps: ApiDefProperties) =
-        withEntityOrThrow EntityTypeNames.ApiDef DsQuery.getApiDef apiDefId (fun apiDef ->
+        match DsQuery.getApiDef apiDefId store with
+        | None -> invalidOp $"'ApiDef' entity not found. id={apiDefId}"
+        | Some apiDef ->
             let oldProps = apiDef.Properties.DeepCopy()
-            this.Exec(UpdateApiDefProps(apiDefId, oldProps, newProps)))
+            this.Exec(UpdateApiDefProps(apiDefId, oldProps, newProps))
 
     // =====================================================================
     // ApiCall API (Call 내부 ApiCall 관리)
     // =====================================================================
     member this.RemoveApiCallFromCall(callId: Guid, apiCallId: Guid) =
-        withEntityOrThrow EntityTypeNames.Call DsQuery.getCall callId (fun call ->
+        match DsQuery.getCall callId store with
+        | None -> invalidOp $"'Call' entity not found. id={callId}"
+        | Some call ->
             match call.ApiCalls |> Seq.tryFind (fun ac -> ac.Id = apiCallId) with
             | Some apiCall -> this.Exec(RemoveApiCallFromCall(callId, apiCall))
-            | None -> invalidOp $"ApiCall was not found in Call. callId={callId}, apiCallId={apiCallId}")
+            | None -> invalidOp $"ApiCall was not found in Call. callId={callId}, apiCallId={apiCallId}"
 
     // =====================================================================
     // Property Panel API
@@ -204,7 +204,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         match PanelOps.tryBuildUpdateCallTimeoutCmd store callId msText with
         | false, _ -> false
         | true, Some cmd -> this.Exec cmd; true
-        | true, None -> true
+        | true, None     -> true
 
     member _.GetApiDefsForSystem(systemId: Guid) : ApiDefPanelItem list =
         PanelOps.getApiDefsForSystem store systemId
@@ -230,27 +230,19 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         | None -> None
 
     member this.UpdateApiCallFromPanel(callId: Guid, apiCallId: Guid, apiDefId: Guid, apiCallName: string, outputAddress: string, inputAddress: string, outputTypeIndex: int, valueSpecText: string, inputTypeIndex: int, inputValueSpecText: string) : bool =
-        match PanelOps.buildUpdateApiCallCmd store callId apiCallId apiDefId apiCallName outputAddress inputAddress outputTypeIndex valueSpecText inputTypeIndex inputValueSpecText with
-        | Some cmd -> this.Exec cmd; true
-        | None -> false
+        this.ExecOpt(PanelOps.buildUpdateApiCallCmd store callId apiCallId apiDefId apiCallName outputAddress inputAddress outputTypeIndex valueSpecText inputTypeIndex inputValueSpecText)
 
     member _.GetCallConditionsForPanel(callId: Guid) : CallConditionPanelItem list =
         PanelOps.getCallConditionsForPanel store callId
 
     member this.AddCallCondition(callId: Guid, conditionType: CallConditionType) : bool =
-        match PanelOps.buildAddCallConditionCmd store callId conditionType with
-        | Some cmd -> this.Exec cmd; true
-        | None -> false
+        this.ExecOpt(PanelOps.buildAddCallConditionCmd store callId conditionType)
 
     member this.RemoveCallCondition(callId: Guid, conditionId: Guid) : bool =
-        match PanelOps.buildRemoveCallConditionCmd store callId conditionId with
-        | Some cmd -> this.Exec cmd; true
-        | None -> false
+        this.ExecOpt(PanelOps.buildRemoveCallConditionCmd store callId conditionId)
 
     member this.UpdateCallConditionSettings(callId: Guid, conditionId: Guid, isOR: bool, isRising: bool) : bool =
-        match PanelOps.buildUpdateCallConditionSettingsCmd store callId conditionId isOR isRising with
-        | Some cmd -> this.Exec cmd; true
-        | None -> false
+        this.ExecOpt(PanelOps.buildUpdateCallConditionSettingsCmd store callId conditionId isOR isRising)
 
     /// 다중 ApiCall을 조건에 한 번에 추가 (Composite 1건 → Undo 1회). 추가된 개수 반환.
     member this.AddApiCallsToConditionBatch(callId: Guid, conditionId: Guid, sourceApiCallIds: Guid[]) : int =
@@ -259,14 +251,10 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         | None -> 0
 
     member this.RemoveApiCallFromCondition(callId: Guid, conditionId: Guid, apiCallId: Guid) : bool =
-        match PanelOps.buildRemoveApiCallFromConditionCmd store callId conditionId apiCallId with
-        | Some cmd -> this.Exec cmd; true
-        | None -> false
+        this.ExecOpt(PanelOps.buildRemoveApiCallFromConditionCmd store callId conditionId apiCallId)
 
     member this.UpdateConditionApiCallOutputSpec(callId: Guid, conditionId: Guid, apiCallId: Guid, newSpecText: string) : bool =
-        match PanelOps.buildUpdateConditionApiCallOutputSpecCmd store callId conditionId apiCallId newSpecText with
-        | Some cmd -> this.Exec cmd; true
-        | None -> false
+        this.ExecOpt(PanelOps.buildUpdateConditionApiCallOutputSpecCmd store callId conditionId apiCallId newSpecText)
 
     // =====================================================================
     // 범용 Remove

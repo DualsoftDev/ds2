@@ -59,13 +59,13 @@ public partial class ApiDefEditDialog : Window
         var name = NameBox.Text.Trim();
         if (string.IsNullOrEmpty(name))
         {
-            Warn("이름을 입력해주세요.");
+            DialogHelpers.Warn("이름을 입력해주세요.");
             return;
         }
 
         if (!int.TryParse(DurationBox.Text.Trim(), out int duration) || duration < 0)
         {
-            Warn("Duration은 0 이상의 정수를 입력해주세요.");
+            DialogHelpers.Warn("Duration은 0 이상의 정수를 입력해주세요.");
             return;
         }
 
@@ -83,6 +83,4 @@ public partial class ApiDefEditDialog : Window
         DialogResult = true;
     }
 
-    private void Warn(string message) =>
-        MessageBox.Show(message, "입력 오류", MessageBoxButton.OK, MessageBoxImage.Warning);
 }

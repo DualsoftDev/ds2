@@ -3,10 +3,7 @@ module Ds2.UI.Core.RemoveOps
 open System
 open Ds2.Core
 
-let private requireEntity (entityType: string) (entityId: Guid) (entityOpt: 'T option) : 'T =
-    entityOpt
-    |> Option.defaultWith (fun () ->
-        invalidOp $"'{entityType}' entity was not found while building remove command. id={entityId}")
+let private requireEntity = CommandExecutor.requireEntity
 
 let buildRemoveProjectCmd (store: DsStore) (projectId: Guid) : EditorCommand =
     let project = DsQuery.getProject projectId store |> requireEntity "Project" projectId
