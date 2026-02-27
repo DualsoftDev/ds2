@@ -9,7 +9,6 @@ using Ds2.Core;
 using Ds2.UI.Core;
 using Ds2.UI.Frontend;
 using Ds2.UI.Frontend.Dialogs;
-using Microsoft.FSharp.Core;
 
 namespace Ds2.UI.Frontend.ViewModels;
 
@@ -18,15 +17,10 @@ public partial class MainViewModel
     public ObservableCollection<CallApiCallItem> CallApiCalls { get; } = [];
     public ObservableCollection<DeviceApiDefOptionItem> DeviceApiDefOptions { get; } = [];
     public ObservableCollection<ApiDefPanelItem> SystemApiDefs { get; } = [];
-    public ObservableCollection<CallConditionItem> ActiveTriggers  { get; } = [];
-    public ObservableCollection<CallConditionItem> AutoConditions  { get; } = [];
-    public ObservableCollection<CallConditionItem> CommonConditions{ get; } = [];
+    public ObservableCollection<ConditionSectionItem> ConditionSections { get; } = [];
 
     public string CallApiCallsHeader    => $"ApiCalls [{CallApiCalls.Count}]";
     public string SystemApiDefsHeader   => $"ApiDefs [{SystemApiDefs.Count}]";
-    public string ActiveTriggersHeader  => $"ActiveTrigger [{ActiveTriggers.Count}]";
-    public string AutoConditionsHeader  => $"AutoCondition [{AutoConditions.Count}]";
-    public string CommonConditionsHeader=> $"CommonCondition [{CommonConditions.Count}]";
 
     [ObservableProperty] private bool _isWorkSelected;
     [ObservableProperty] private bool _isCallSelected;
@@ -57,9 +51,7 @@ public partial class MainViewModel
     {
         CallApiCalls.CollectionChanged    += (_, _) => OnPropertyChanged(nameof(CallApiCallsHeader));
         SystemApiDefs.CollectionChanged   += (_, _) => OnPropertyChanged(nameof(SystemApiDefsHeader));
-        ActiveTriggers.CollectionChanged  += (_, _) => OnPropertyChanged(nameof(ActiveTriggersHeader));
-        AutoConditions.CollectionChanged  += (_, _) => OnPropertyChanged(nameof(AutoConditionsHeader));
-        CommonConditions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(CommonConditionsHeader));
+        EnsureConditionSectionsInitialized();
     }
 
     [RelayCommand]
@@ -121,7 +113,7 @@ public partial class MainViewModel
             dialog.ValueSpecText,
             dialog.InValueSpecText);
 
-        if (!FSharpOption<Guid>.get_IsSome(created))
+        if (created is null)
         {
             StatusText = "Failed to add ApiCall.";
             return;
@@ -214,21 +206,13 @@ public partial class MainViewModel
         StatusText = "ApiCall removed.";
     }
 
+    [RelayCommand]
     private void AddCondition(CallConditionType type)
     {
         if (RequireSelectedAs(EntityTypes.Call) is not { } selectedCall) return;
         if (!_editor.AddCallCondition(selectedCall.Id, type)) return;
         RefreshCallPanel(selectedCall.Id);
     }
-
-    [RelayCommand]
-    private void AddActiveCondition() => AddCondition(CallConditionType.Active);
-
-    [RelayCommand]
-    private void AddAutoCondition() => AddCondition(CallConditionType.Auto);
-
-    [RelayCommand]
-    private void AddCommonCondition() => AddCondition(CallConditionType.Common);
 
     [RelayCommand]
     private void RemoveCallCondition(CallConditionItem? item)
@@ -321,8 +305,7 @@ public partial class MainViewModel
         if (!ShowOwnedDialog(dialog)) return;
 
         var newApiDef = _editor.AddApiDef(dialog.ApiDefName, systemNode.Id);
-        var props = BuildApiDefProperties(dialog);
-        _editor.UpdateApiDefProperties(newApiDef.Id, props);
+        _editor.UpdateApiDefProperties(newApiDef.Id, dialog.IsPush, dialog.TxWorkId, dialog.RxWorkId, dialog.Duration, dialog.Description);
 
         RefreshSystemPanel(systemNode.Id);
         StatusText = $"ApiDef '{dialog.ApiDefName}' added.";
@@ -340,8 +323,7 @@ public partial class MainViewModel
         if (dialog.ApiDefName != item.Name)
             _editor.RenameEntity(item.Id, EntityTypes.ApiDef, dialog.ApiDefName);
 
-        var props = BuildApiDefProperties(dialog);
-        _editor.UpdateApiDefProperties(item.Id, props);
+        _editor.UpdateApiDefProperties(item.Id, dialog.IsPush, dialog.TxWorkId, dialog.RxWorkId, dialog.Duration, dialog.Description);
 
         RefreshSystemPanel(systemNode.Id);
         StatusText = $"ApiDef '{dialog.ApiDefName}' updated.";
@@ -355,17 +337,6 @@ public partial class MainViewModel
         _editor.RemoveEntities(new[] { Tuple.Create(EntityTypes.ApiDef, item.Id) });
         RefreshSystemPanel(systemNode.Id);
         StatusText = $"ApiDef '{item.Name}' deleted.";
-    }
-
-    private static ApiDefProperties BuildApiDefProperties(ApiDefEditDialog dialog)
-    {
-        var props = new ApiDefProperties();
-        props.IsPush = dialog.IsPush;
-        props.TxGuid = dialog.TxWorkId.HasValue ? Microsoft.FSharp.Core.FSharpOption<Guid>.Some(dialog.TxWorkId.Value) : null;
-        props.RxGuid = dialog.RxWorkId.HasValue ? Microsoft.FSharp.Core.FSharpOption<Guid>.Some(dialog.RxWorkId.Value) : null;
-        props.Duration = dialog.Duration;
-        props.Description = !string.IsNullOrEmpty(dialog.Description) ? Microsoft.FSharp.Core.FSharpOption<string>.Some(dialog.Description) : null;
-        return props;
     }
 
     private void RefreshPropertyPanel()
@@ -400,9 +371,7 @@ public partial class MainViewModel
             CallApiCalls.Clear();
             DeviceApiDefOptions.Clear();
             SelectedCallApiCall = null;
-            ActiveTriggers.Clear();
-            AutoConditions.Clear();
-            CommonConditions.Clear();
+            ClearConditionSections();
         }
 
         if (IsSystemSelected && selected is not null)
@@ -466,25 +435,40 @@ public partial class MainViewModel
 
     private void ReloadConditions(Guid callId)
     {
-        ActiveTriggers.Clear();
-        AutoConditions.Clear();
-        CommonConditions.Clear();
+        ClearConditionSections();
         foreach (var cond in _editor.GetCallConditionsForPanel(callId))
         {
-            var target = cond.ConditionType switch
-            {
-                CallConditionType.Active => ActiveTriggers,
-                CallConditionType.Auto   => AutoConditions,
-                _                        => CommonConditions
-            };
-            target.Add(new CallConditionItem(cond));
+            var target = FindConditionSection(cond.ConditionType)
+                         ?? FindConditionSection(CallConditionType.Common);
+            target?.Conditions.Add(new CallConditionItem(cond));
         }
+    }
+
+    private void ClearConditionSections()
+    {
+        EnsureConditionSectionsInitialized();
+        foreach (var section in ConditionSections)
+            section.Conditions.Clear();
+    }
+
+    private ConditionSectionItem? FindConditionSection(CallConditionType type)
+    {
+        EnsureConditionSectionsInitialized();
+        return ConditionSections.FirstOrDefault(s => s.ConditionType == type);
+    }
+
+    private void EnsureConditionSectionsInitialized()
+    {
+        if (ConditionSections.Count > 0) return;
+        ConditionSections.Add(new ConditionSectionItem(CallConditionType.Active, "ActiveTrigger", "Add ActiveTrigger"));
+        ConditionSections.Add(new ConditionSectionItem(CallConditionType.Auto, "AutoCondition", "Add AutoCondition"));
+        ConditionSections.Add(new ConditionSectionItem(CallConditionType.Common, "CommonCondition", "Add CommonCondition"));
     }
 
     public void EditApiDefNode(Guid apiDefId)
     {
         var systemIdOpt = _editor.GetApiDefParentSystemId(apiDefId);
-        if (!FSharpOption<Guid>.get_IsSome(systemIdOpt)) return;
+        if (systemIdOpt is null) return;
         var systemId = systemIdOpt.Value;
 
         var existing = _editor.GetApiDefsForSystem(systemId).FirstOrDefault(x => x.Id == apiDefId);
@@ -497,8 +481,7 @@ public partial class MainViewModel
         if (dialog.ApiDefName != existing.Name)
             _editor.RenameEntity(apiDefId, EntityTypes.ApiDef, dialog.ApiDefName);
 
-        var props = BuildApiDefProperties(dialog);
-        _editor.UpdateApiDefProperties(apiDefId, props);
+        _editor.UpdateApiDefProperties(apiDefId, dialog.IsPush, dialog.TxWorkId, dialog.RxWorkId, dialog.Duration, dialog.Description);
 
         if (IsSystemSelected && SelectedNode?.Id == systemId)
             RefreshSystemPanel(systemId);

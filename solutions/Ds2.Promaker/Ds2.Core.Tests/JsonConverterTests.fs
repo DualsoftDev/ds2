@@ -100,6 +100,23 @@ module JsonOptionsFactoryTests =
         let actual = JsonSerializer.Deserialize<ValueSpec>(json, options)
         assertValueSpecEqual expected actual
 
+    [<Fact>]
+    let ``JsonOptions profiles should keep intentional differences explicit`` () =
+        let project = JsonOptions.createProjectSerializationOptions ()
+        let deep = JsonOptions.createDeepCopyOptions ()
+
+        Assert.True(project.WriteIndented)
+        Assert.False(deep.WriteIndented)
+
+        Assert.Equal(JsonNamingPolicy.CamelCase, project.PropertyNamingPolicy)
+        Assert.Null(deep.PropertyNamingPolicy)
+
+        Assert.True(project.PropertyNameCaseInsensitive)
+        Assert.False(deep.PropertyNameCaseInsensitive)
+
+        Assert.True(project.IncludeFields)
+        Assert.False(deep.IncludeFields)
+
 module ValueSpecSerializationTests =
 
     [<Fact>]

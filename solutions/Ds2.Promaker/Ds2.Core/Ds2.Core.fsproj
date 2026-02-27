@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Ds2.Core.Contracts\Ds2.Core.Contracts.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="Enum.fs" />
     <Compile Include="Class.fs" />
     <Compile Include="Properties.fs" />

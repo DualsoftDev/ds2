@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-02-26 (Copy Rules — Device System `{flowName}_{devAlias}` 네이밍 + DifferentFlow Device System 복제/재사용)
+Last Sync: 2026-02-27 (AASX 임포트/익스포트 — Ds2.Aasx 신규 프로젝트 + 조건 섹션 XAML ConditionSectionControl 분리)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -372,16 +372,28 @@ pasteCallsToWorkBatch(sourceCalls, targetWorkId)
 - `Project.ActiveSystemIds / PassiveSystemIds`: `ResizeArray<Guid>` (DsSystem 객체 아닌 ID만 저장)
 - `ApiCall.ApiDefId`: `Guid option` (ApiDef 객체 아닌 ID만 참조)
 
-### 6.3 JSON 옵션
+### 6.3 JSON 옵션 (`Ds2.Core/JsonOptions.fs`)
 
-| 옵션 | 값 |
-|------|---|
-| 라이브러리 | `System.Text.Json` + `FSharp.SystemTextJson` |
-| 들여쓰기 | `WriteIndented = true` |
-| 키 네이밍 | `CamelCase` |
-| 키 대소문자 | `PropertyNameCaseInsensitive = true` |
-| null 필드 | `DefaultIgnoreCondition = WhenWritingNull` |
-| F# DU/레코드 | `JsonFSharpConverter(WithIncludeRecordProperties(true))` |
+두 직렬화 목적의 설정을 단일 파일에서 중앙 관리합니다. `JsonConverter`와 `DeepCopyHelper`가 각각 위임하여 설정 드리프트를 방지합니다.
+
+```
+JsonOptions 모듈
+  ├── JsonOptionsProfile (private DU)
+  │     ├── ProjectSerialization  — 프로젝트 저장/로드용
+  │     └── DeepCopy              — 엔티티 복제/Undo 백업용
+  │
+  ├── createProjectSerializationOptions() ← JsonConverter.defaultOptions 위임
+  └── createDeepCopyOptions()             ← DeepCopyHelper.jsonOptions 위임
+```
+
+| 프로필 | 사용처 | WriteIndented | NamingPolicy | IgnoreNull | IncludeFields |
+|--------|--------|:---:|:---:|:---:|:---:|
+| `ProjectSerialization` | `JsonConverter.serialize / deserialize` | ✓ | CamelCase | ✓ | ✓ |
+| `DeepCopy` | `DeepCopyHelper.backupEntityAs / jsonCloneEntity` | — | — | — | — |
+
+공통: `System.Text.Json` + `FSharp.SystemTextJson`, `JsonFSharpConverter(WithIncludeRecordProperties(true))`
+
+**AASX에서의 재사용**: `AasxExporter.mkJsonProp<T>` / `AasxImporter.fromJsonProp<T>`에서 `JsonConverter.serialize/deserialize`를 직접 호출 — JSON 옵션 중복 없음.
 
 ### 6.4 불러오기
 
@@ -400,7 +412,26 @@ EditorApi.LoadFromFile(path)
 
 파일 로드 후 Undo 스택은 초기화되므로 로드 직후 Undo 동작은 불가합니다.
 
-### 6.5 backupEntity vs jsonCloneEntity
+### 6.5 Store 교체 API 비교
+
+`LoadFromFile`과 `ReplaceStore`는 동일한 방어 패턴을 따릅니다:
+
+```
+1. backup = cloneStore store          ← 실패 시 복원용 스냅샷
+2. ensureValidStoreOrThrow newStore   ← 입력 데이터 검증
+3. StoreCopy.replaceAllCollections    ← 기존 참조 유지하며 컬렉션 교체
+4. undoManager.Clear()                ← Undo/Redo 스택 초기화
+5. StoreRefreshed 발행                ← UI 전체 재구성
+6. UndoRedoChanged(false, false) 발행
+   실패 시: backup으로 복원 후 예외
+```
+
+| API | 입력 소스 | 주요 차이점 |
+|-----|---------|-----------|
+| `LoadFromFile(path)` | JSON 파일 | `JsonConverter.deserialize<DsStore>` |
+| `ReplaceStore(newStore)` | 외부 구성된 DsStore | AASX 임포트 등 파일 I/O 경로에서 사용 |
+
+### 6.6 backupEntity vs jsonCloneEntity
 
 | 함수 | GUID | 사용 위치 | 용도 |
 |------|------|----------|------|
@@ -418,3 +449,87 @@ EditorApi.LoadFromFile(path)
 - Ctrl 다중 선택, Shift 범위 선택, 박스(드래그) 선택 지원
 - 선택 정렬·범위 판정은 F# `SelectionQueries`에서 처리, C#에서 중복 구현하지 않음
 - 선택 변경 시 `SelectionChanged` 이벤트 → 속성 패널 갱신
+
+---
+
+## 8. AASX 임포트/익스포트
+
+### 8.1 개요
+
+`Ds2.Aasx` 프로젝트가 IEC 62714 / AAS 3.0 AASX 파일과 `DsStore` 간 양방향 변환을 담당합니다.
+`Ds2.UI.Core`는 `Ds2.Aasx`를 참조하지 않습니다. `Ds2.UI.Frontend`(C#)가 양쪽을 직접 참조합니다.
+
+### 8.2 익스포트 흐름
+
+```
+MainViewModel.ExportAasxCommand (C#)
+  → _store.Projects.Values.FirstOrDefault()  ← 프로젝트 취득
+  → AasxExporter.exportToAasxFile(_store, project, path)  ← F# 직접 호출
+      → exportToSubmodel: Project 계층 → AAS Submodel
+            Call → SMC
+            Work → SMC (Calls SML + ArrowsBetweenCalls SML)
+            Flow → SMC (Works SML + ArrowsBetweenWorks SML)
+            DsSystem → SMC (Flows SML + ApiDefs SML, IsActiveSystem 플래그)
+            Project → 최상위 SMC
+      → writeEnvironment env path  ← AASX ZIP 생성 (XML 직렬화)
+```
+
+**직렬화 전략**:
+- 단순 필드 (Name, Guid, DevicesAlias, ArrowType 등): AAS `Property` (string)
+- 복잡한 타입 (ApiCall list, CallCondition list, *Properties, Xywh option): `JsonConverter.serialize<T>` → JSON 문자열 → AAS `Property`
+
+### 8.3 임포트 흐름
+
+```
+MainViewModel.ImportAasxCommand (C#)
+  → AasxImporter.importFromAasxFile(path)  ← F# 직접 호출 → DsStore option
+      → readEnvironment path  ← AASX ZIP 열기 (XML/JSON 자동 판별)
+      → Submodel → Project + 모든 엔티티 재구성
+            SMC → Call (ApiCalls/CallConditions JSON 역직렬화)
+            SMC → Work → Calls + ArrowBetweenCalls
+            SMC → Flow → Works + ArrowBetweenWorks
+            SMC → DsSystem (isActive 플래그로 ActiveSystemIds/PassiveSystemIds 분류)
+            Submodel → Project + DsStore
+  → FSharpOption<DsStore>.get_IsSome(storeOpt) 검사
+  → _editor.ReplaceStore(storeOpt.Value)  ← EditorApi: store 교체 + StoreRefreshed 발행
+  → _currentFilePath = null, IsDirty = false, UpdateTitle()
+```
+
+### 8.4 AASX 파일 구조 (ds2 전용)
+
+```
+Environment
+└── AssetAdministrationShell (id="urn:ds2:shell:{projectId}")
+└── Submodel (idShort="Ds2SequenceControlSubmodel")
+    └── SMC (Project)
+        ├── Property "Name", "Guid", "Properties" (JSON)
+        ├── SML "ActiveSystems"
+        │   └── SMC (DsSystem, IsActiveSystem="true")
+        │       ├── SML "Flows"
+        │       │   └── SMC (Flow)
+        │       │       ├── SML "Works"
+        │       │       │   └── SMC (Work)
+        │       │       │       ├── SML "Calls"
+        │       │       │       │   └── SMC (Call) — ApiCalls/CallConditions as JSON
+        │       │       │       └── SML "ArrowsBetweenCalls"
+        │       │       └── SML "ArrowsBetweenWorks"
+        │       └── SML "ApiDefs"
+        └── SML "PassiveSystems"
+            └── SMC (DsSystem, IsActiveSystem="false")
+```
+
+### 8.5 ReplaceStore
+
+```
+EditorApi.ReplaceStore(newStore: DsStore)  — LoadFromFile 패턴 동일
+  → cloneStore store          ← 현재 상태 백업
+  → ensureValidStoreOrThrow newStore
+  → StoreCopy.replaceAllCollections newStore store
+  → ensureValidStoreOrThrow store
+  → undoManager.Clear()       ← Undo/Redo 스택 초기화
+  → StoreRefreshed 이벤트 발행
+  → UndoRedoChanged(false, false) 발행
+  실패 시: StoreCopy.replaceAllCollections backup store → 예외
+```
+
+임포트 후 Undo 스택은 초기화되므로 임포트 직후 Undo 동작은 불가합니다.

@@ -1,0 +1,110 @@
+<UserControl x:Class="Ds2.UI.Frontend.Controls.ConditionSectionControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Name="Root">
+    <Border BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1"
+            Margin="0,2,0,4"
+            Background="{DynamicResource TertiaryBackgroundBrush}">
+        <StackPanel>
+            <Border Background="{DynamicResource SecondaryBackgroundBrush}" Padding="4,3">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding HeaderText, ElementName=Root}"
+                               FontSize="11"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <Button Grid.Column="1"
+                            Content="+"
+                            ToolTip="{Binding AddToolTip, ElementName=Root}"
+                            Style="{DynamicResource InlineListButton}"
+                            Command="{Binding AddCommand, ElementName=Root}"
+                            CommandParameter="{Binding AddCommandParameter, ElementName=Root}"/>
+                </Grid>
+            </Border>
+            <ItemsControl ItemsSource="{Binding ItemsSource, ElementName=Root}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="4,4">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Button Grid.Column="0"
+                                            Content="x"
+                                            Style="{DynamicResource InlineListButton}"
+                                            Command="{Binding RemoveConditionCommand, ElementName=Root}"
+                                            CommandParameter="{Binding}"/>
+                                    <CheckBox Grid.Column="1"
+                                              Content="OR"
+                                              IsChecked="{Binding IsOR, Mode=OneWay}"
+                                              Margin="4,0"
+                                              VerticalAlignment="Center"
+                                              Command="{Binding ToggleConditionIsOrCommand, ElementName=Root}"
+                                              CommandParameter="{Binding}"/>
+                                    <CheckBox Grid.Column="2"
+                                              Content="Rising"
+                                              IsChecked="{Binding IsRising, Mode=OneWay}"
+                                              Margin="4,0"
+                                              VerticalAlignment="Center"
+                                              Command="{Binding ToggleConditionIsRisingCommand, ElementName=Root}"
+                                              CommandParameter="{Binding}"/>
+                                    <Button Grid.Column="4"
+                                            Content="+"
+                                            ToolTip="Add ApiCall"
+                                            Style="{DynamicResource InlineListButton}"
+                                            Command="{Binding AddConditionApiCallCommand, ElementName=Root}"
+                                            CommandParameter="{Binding}"/>
+                                </Grid>
+                                <ItemsControl ItemsSource="{Binding Items}" Margin="8,2,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,1">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Button Grid.Column="0"
+                                                        Content="x"
+                                                        Style="{DynamicResource InlineListButton}"
+                                                        Command="{Binding RemoveConditionApiCallCommand, ElementName=Root}"
+                                                        CommandParameter="{Binding}"/>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{Binding ApiDefDisplayName}"
+                                                           FontSize="10"
+                                                           VerticalAlignment="Center"
+                                                           Margin="4,0"/>
+                                                <TextBlock Grid.Column="2"
+                                                           Text="{Binding OutputSpecText}"
+                                                           FontSize="10"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource AccentBrush}"
+                                                           Margin="4,0"/>
+                                                <Button Grid.Column="3"
+                                                        Content="v"
+                                                        ToolTip="Edit OutputSpec"
+                                                        Style="{DynamicResource InlineListButton}"
+                                                        Command="{Binding EditConditionApiCallSpecCommand, ElementName=Root}"
+                                                        CommandParameter="{Binding}"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </Border>
+</UserControl>

@@ -1,6 +1,6 @@
 # Ds2.Promaker
 
-Last Sync: 2026-02-26 (Copy Rules — Device System `{flowName}_{devAlias}` 네이밍 + DifferentFlow Device System 복제/재사용)
+Last Sync: 2026-02-27 (AASX 임포트/익스포트 — Ds2.Aasx 신규 프로젝트 + 조건 섹션 XAML ConditionSectionControl 분리)
 
 ## 프로젝트 목표
 
@@ -27,9 +27,11 @@ Ds2.Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeu
 ║  │          역할: wiring / binding / rendering 만 담당                     │  ║
 ║  │          금지: 직접 Store 수정, 자체 Undo 스택, 비즈니스 로직            │  ║
 ║  └────────────────────────┬───────────────────────────────────────────────┘  ║
-║                           │ 편집: EditorApi.Xxx(...)   ▲ EditorEvent          ║
-║                           │ 조회: Query/Projection + DsStore                 ║
-║                           ▼                           │ (StoreRefreshed 등)  ║
+║                           │ 편집: EditorApi.Xxx(...)   ▲ EditorEvent         ║
+║           ┌───────────────┘ 조회: Query/Projection + DsStore                 ║
+║           │                                           │ (StoreRefreshed 등)  ║
+║           │               ┌───────────────────────────┘                      ║
+║           ▼               ▼                                                  ║
 ║  ┌──────────────── Ds2.UI.Core  (F#) ─────────────────────────────────────┐  ║
 ║  │                                                                        │  ║
 ║  │  Store:  DsStore  DsQuery.*  Mutation.*  ValidationRules               │  ║
@@ -51,24 +53,40 @@ Ds2.Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeu
 ║                           ▼                                                  ║
 ║  ┌──────────────── Ds2.Core  (F#) ────────────────────────────────────────┐  ║
 ║  │                                                                        │  ║
-║  │  Entities                           Serialization                      │  ║
-║  │  Project / DsSystem                 JsonConverter / DeepCopyHelper     │  ║
-║  │  Flow / Work / Call                                                    │  ║
-║  │  ApiCall / ApiDef                   Properties / Enum / Class          │  ║
-║  │  HW components                      ValueSpec                          │  ║
+║  │  Entities:  Project / DsSystem / Flow / Work / Call                    │  ║
+║  │             ApiCall / ApiDef / HW components                           │  ║
+║  │  Serialization:  JsonConverter  JsonOptions  DeepCopyHelper            │  ║
+║  │  Types:  Properties / Enum / Class / ValueSpec                         │  ║
 ║  │                                                                        │  ║
 ║  └────────────────────────────────────────────────────────────────────────┘  ║
+║                                                                              ║
+║  ┌──────────── Ds2.Aasx  (F#) ──────────────┐  ┌── Ds2.Core.Contracts ───┐   ║
+║  │  AasxSemantics  idShort 상수 정의         │  │  ArrowType (enum)       │   ║
+║  │  AasxFileIO     AASX ZIP 읽기/쓰기        │  │  CallConditionType      │   ║
+║  │  AasxExporter   DsStore → AASX           │  │  Xywh (class)           │   ║
+║  │  AasxImporter   AASX → DsStore           │  │                         │   ║
+║  │                 (AasCore.Aas3_0 v1.0.0)  │  │  Ds2.Core 참조 없음      │   ║
+║  │  → Ds2.Core + Ds2.UI.Core 양쪽 참조       │  │  C# 측 공유 타입 전용    │   ║
+║  │  ← UI.Core 에서는 참조 없음 (순환 방지)    │  │                         │   ║
+║  └──────────────────────────────────────────┘  └─────────────────────────┘   ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
 ### 레이어 의존 방향
 
 ```
-Ds2.UI.Frontend  →  Ds2.UI.Core  →  Ds2.Core
-     (C#, WPF)        (F#)            (F#)
+Ds2.UI.Frontend  →  Ds2.UI.Core  →  Ds2.Core  →  Ds2.Core.Contracts
+     (C#, WPF)        (F#)            (F#)              (F#)
+         │                                ▲                  ▲
+         ├──────►  Ds2.Aasx  ─────────────┘                  │
+         │          (F#)      + Ds2.UI.Core 참조              │
+         └──────────────────────────────────────────────────┘
+                         (직접 참조 — Ds2.Core 없이 공유 타입 접근)
 ```
 
-상위 레이어는 하위 레이어만 의존합니다. 역방향 의존은 없습니다.
+상위 레이어는 하위 레이어만 의존합니다.
+`Ds2.Aasx`는 `Ds2.UI.Frontend`에서 직접 참조되며 `Ds2.UI.Core → Ds2.Aasx` 순환 의존은 없습니다.
+`Ds2.UI.Frontend`는 `Ds2.Core.Contracts`를 직접 참조하여 `Ds2.Core` 없이도 공유 타입(`ArrowType`, `Xywh` 등)에 접근합니다.
 
 ---
 
@@ -106,15 +124,16 @@ CallCondition = Call 동작 조건 1건 (Active/Auto/Common 타입, IsOR, IsRisi
 solutions/Ds2.Promaker/
   Ds2.Core/                # 순수 도메인 타입 (Entities, Properties, Enum, ValueSpec, JsonConverter)
   Ds2.UI.Core/             # 편집 코어(F#) — 24개 모듈 (DsStore/Query/Mutation 포함)
+  Ds2.Aasx/                # AASX I/O(F#) — 4개 모듈 (AasCore.Aas3_0 v1.0.0 기반 AASX 양방향 변환)
   Ds2.Database/            # 데이터 계층
-  Ds2.UI.Frontend/         # WPF UI(C#) — 25개 파일
-  Ds2.Core.Tests/          # Core 단위 테스트 (21개)
-  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (109개)
+  Ds2.UI.Frontend/         # WPF UI(C#) — 28개 파일
+  Ds2.Core.Tests/          # Core 단위 테스트 (24개)
+  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (117개)
   Ds2.Integration.Tests/   # 통합 테스트 (13개)
   Ds2.Promaker.sln
 ```
 
-테스트 합계: **143개** (21 + 109 + 13)
+테스트 합계: **154개** (24 + 117 + 13)
 
 ---
 
@@ -137,10 +156,25 @@ solutions/Ds2.Promaker/
 | `AbstractClass.fs` | `DsEntity` 추상 베이스 타입, `DeepCopyHelper` (backupEntityAs&lt;'T&gt; / jsonCloneEntity) |
 | `Entities.fs` | Project · DsSystem · Flow · Work · Call · ApiDef · ApiCall · HW 엔티티 정의 |
 | `Properties.fs` | WorkProperties · CallProperties · ApiDefProperties 등 속성 모델 |
-| `Enum.fs` | `ArrowType` 등 도메인 열거형 |
-| `Class.fs` | `Xywh` (위치/크기), `IOTag` 등 값 타입 클래스 |
+| `Enum.fs` | `Status4`, `CallType` 도메인 열거형 (`ArrowType`/`CallConditionType`은 Ds2.Core.Contracts로 이전) |
+| `Class.fs` | `IOTag` 등 값 타입 클래스 (`Xywh`는 Ds2.Core.Contracts로 이전) |
 | `ValueSpec.fs` | `ValueSpec` DU (None / Bool / Int / Float / String / Range 등) |
 | `JsonConverter.fs` | `System.Text.Json` 기반 직렬화 옵션 및 커스텀 컨버터 |
+
+---
+
+### Ds2.Core.Contracts — C# 공유 타입 격리 (F#)
+
+`Ds2.Core`와 `Ds2.UI.Frontend`가 공통으로 사용하는 단순 타입을 격리한 독립 프로젝트. 외부 참조 없음.
+
+| 파일 | 역할 |
+|------|------|
+| `Enum.fs` | `ArrowType` (None/Start/Reset/StartReset/ResetReset/Group), `CallConditionType` (Active/Auto/Common) |
+| `Class.fs` | `Xywh(x,y,w,h)` — 위치/크기 값 객체 |
+
+- **`Ds2.Core`가 참조**: 도메인 코드에서 `ArrowType`, `Xywh` 등 재사용
+- **`Ds2.UI.Frontend`가 직접 참조**: `Ds2.Core` 없이도 C#에서 공유 타입에 접근 (F# 런타임 타입 노출 방지)
+- **`Ds2.Aasx`는 전이 참조**: `Ds2.Core → Ds2.Core.Contracts` 경로로 사용
 
 ---
 
@@ -153,8 +187,8 @@ solutions/Ds2.Promaker/
 | 1 | `Core/DsStore.fs` | `DsStore` 타입 (13개 컬렉션 + ReadOnly 뷰), `StoreCopy.replaceAllCollections` |
 | 2 | `Core/DsQuery.fs` | `DsQuery.*` — 엔티티 조회 쿼리 (`getXxx`, `allXxxs`, `xxxsOf`) |
 | 3 | `Core/Mutation.fs` | `Mutation.*` — 엔티티 추가/수정/삭제 (특수: removeSystem, removeCall, removeApiCall) |
-| 4 | `Core/ValidationRules.fs` | 이름 · 주소 · 값 검증 규칙 (`ProjectValidation`, `OneToOneValidation` 등) |
-| 5 | `Core/EditorTypes.fs` | `EditorCommand` DU, `EditorEvent` DU, `EntityKind` DU, `CallCopyContext` DU, `EntityNameAccess` |
+| 4 | `Core/EditorTypes.fs` | `EditorCommand` DU, `EditorEvent` DU, `EntityKind` DU, `CallCopyContext` DU, `EntityNameAccess` |
+| 5 | `Core/ValidationRules.fs` | 이름 · 주소 · 값 검증 규칙 (`ProjectValidation`, `OneToOneValidation` 등) |
 | 6 | `Commands/CommandExecutor.fs` | `EditorCommand` DU 패턴 매칭 → `DsStore` Mutation 실행, `requireMutationOk`로 에러 보장 |
 | 7 | `Commands/UndoRedoManager.fs` | `LinkedList` 기반 undo/redo 스택 관리, maxSize O(1) trim |
 | 8 | `Geometry/ArrowPathCalculator.fs` | Work/Call 캔버스 화살표 polyline 경로 계산 (직교 꺾임) |
@@ -173,7 +207,18 @@ solutions/Ds2.Promaker/
 | 21 | `Editing/EditorApi.PasteOps.fs` | 붙여넣기 명령 조립, `CallCopyContext` 기반 ApiCall 공유/복제 분기. DifferentFlow 시 `DevicePasteState`로 Device System 복제/재사용 |
 | 22 | `Editing/EditorApi.PropertyPanel.fs` | 속성 패널 전용 타입: `DeviceApiDefOption`, `CallApiCallPanelItem`, `CallConditionApiCallItem`, `CallConditionPanelItem`, `PropertyPanelValueSpec` |
 | 23 | `Editing/EditorApi.PanelOps.fs` | 패널 데이터 조회(`getWorkDurationText`, `getCallTimeoutText`, `getCallApiCallsForPanel`, `getAllApiCallsForPanel`, `getCallConditionsForPanel` 등) 및 ApiCall/CallCondition 커맨드 빌더(`buildAddApiCallsToConditionBatchCmd` 포함) |
-| 24 | `Editing/EditorApi.fs` | **외부 진입 API** — `ExecuteCommand`(실행+검증+롤백), `Undo`, `Redo`, `LoadFromFile`(백업+검증+롤백) |
+| 24 | `Editing/EditorApi.fs` | **외부 진입 API** — `Undo`, `Redo`, `LoadFromFile`(백업+롤백), `ReplaceStore`(외부 I/O 경로용 store 전체 교체 + StoreRefreshed 발행). `ExecuteCommand`는 private, `Exec`/`ExecBatch`는 internal |
+
+---
+
+### Ds2.Aasx — AASX I/O (F#)
+
+| 파일 | 역할 |
+|------|------|
+| `AasxSemantics.fs` | Ds2 전용 idShort 상수 (`Ds2SequenceControlSubmodel`, `Name_`, `Guid_` 등) |
+| `AasxFileIO.fs` | AASX ZIP 읽기(`readEnvironment`) / 쓰기(`writeEnvironment`) — AasCore.Aas3_0 Xmlization 사용 |
+| `AasxExporter.fs` | `DsStore` → AASX 변환 (`exportToAasxFile`): Project 계층을 SMC/SML로 직렬화, 복잡한 타입은 JSON Property로 저장 |
+| `AasxImporter.fs` | AASX → `DsStore option` 역변환 (`importFromAasxFile`): SMC/SML 파싱 후 엔티티 재구성 |
 
 ---
 
@@ -195,11 +240,14 @@ solutions/Ds2.Promaker/
 | `Controls/EditorCanvas.Connect.cs` | 화살표 연결 시작/완료/취소 |
 | `Controls/ValueSpecEditorControl.xaml` | ValueSpec 인라인 편집 컨트롤 UI |
 | `Controls/ValueSpecEditorControl.xaml.cs` | ValueSpec 인라인 편집 컨트롤 코드 |
+| `Controls/ConditionSectionControl.xaml` | CallCondition 섹션(Active/Auto/Common) 공통 UserControl UI |
+| `Controls/ConditionSectionControl.xaml.cs` | `ConditionSectionControl` 코드 (Header, AddToolTip, Conditions 바인딩) |
 | `ViewModels/MainViewModel.cs` | `HandleEvent` 허브, 파일 I/O, Undo/Redo, 리셋 |
+| `ViewModels/MainViewModel.FileIO.cs` | AASX 임포트(`ImportAasxCommand`) / 익스포트(`ExportAasxCommand`) RelayCommand |
 | `ViewModels/MainViewModel.Selection.cs` | 트리·캔버스 선택 동기화 |
 | `ViewModels/MainViewModel.CanvasTabs.cs` | 탭 상태, `RebuildAll` (트리+캔버스 전체 재구성) |
 | `ViewModels/MainViewModel.PropertiesPanel.cs` | 속성 패널 커맨드 (ApiCall CRUD, Call Conditions CRUD, ValueSpec, 더티 추적) |
-| `ViewModels/MainViewModel.PropertyPanelItems.cs` | 속성 패널 보조 뷰모델 타입: `CallApiCallItem`, `DeviceApiDefOptionItem`, `CallConditionItem`, `ConditionApiCallRow` |
+| `ViewModels/MainViewModel.PropertyPanelItems.cs` | 속성 패널 보조 뷰모델 타입: `CallApiCallItem`, `DeviceApiDefOptionItem`, `CallConditionItem`, `ConditionApiCallRow`, `ConditionSectionItem` |
 | `ViewModels/ArrowNode.cs` | 화살표 뷰모델 (Geometry 계산, 화살촉 타입별 렌더링) |
 | `ViewModels/EntityNode.cs` | 트리/캔버스 노드 뷰모델 |
 | `ViewModels/TreeNodeSearch.cs` | 트리 탐색 정적 유틸리티 |
@@ -217,7 +265,7 @@ solutions/Ds2.Promaker/
 
 | 파일 | 역할 |
 |------|------|
-| `Ds2.Core.Tests/Tests.fs` | Core 엔티티·DeepCopy·ValueSpec 단위 테스트 (21개) |
+| `Ds2.Core.Tests/Tests.fs` | Core 엔티티·DeepCopy·ValueSpec 단위 테스트 (24개) |
 | `Ds2.Core.Tests/JsonConverterTests.fs` | JSON 직렬화 라운드트립 테스트 |
 | `Ds2.UI.Core.Tests/EditorApiTests.fs` | EditorApi CRUD·Undo/Redo·캐스케이드 테스트 |
 | `Ds2.UI.Core.Tests/ViewProjectionTests.fs` | Tree/Canvas Projection·Selection·Query 테스트 |

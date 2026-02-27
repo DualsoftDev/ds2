@@ -167,7 +167,19 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         this.Exec(AddApiDef apiDef)
         apiDef
 
-    member this.UpdateApiDefProperties(apiDefId: Guid, newProps: ApiDefProperties) =
+    member this.UpdateApiDefProperties
+        (apiDefId: Guid, isPush: bool,
+         txGuid: Nullable<Guid>, rxGuid: Nullable<Guid>,
+         duration: int, description: string) =
+        let toOpt (n: Nullable<Guid>) = if n.HasValue then Some n.Value else None
+        let toOptStr (s: string)      = if String.IsNullOrEmpty s then None else Some s
+        let newProps =
+            ApiDefProperties(
+                IsPush      = isPush,
+                TxGuid      = toOpt txGuid,
+                RxGuid      = toOpt rxGuid,
+                Duration    = duration,
+                Description = toOptStr description)
         match DsQuery.getApiDef apiDefId store with
         | None -> invalidOp $"'ApiDef' entity not found. id={apiDefId}"
         | Some apiDef ->
@@ -438,3 +450,19 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         with ex ->
             StoreCopy.replaceAllCollections backup store
             raise (InvalidOperationException($"LoadFromFile failed: {ex.Message}", ex))
+
+    /// 외부에서 구성된 DsStore를 현재 store에 적용하고 StoreRefreshed를 발행한다.
+    /// AASX 임포트 등 파일 I/O 경로에서 사용.
+    member this.ReplaceStore(newStore: DsStore) =
+        let backup = cloneStore store
+        try
+            ensureValidStoreOrThrow newStore "ReplaceStore"
+            StoreCopy.replaceAllCollections newStore store
+            ensureValidStoreOrThrow store "apply replaced store"
+
+            undoManager.Clear()
+            eventBus.Trigger(StoreRefreshed)
+            eventBus.Trigger(UndoRedoChanged(false, false))
+        with ex ->
+            StoreCopy.replaceAllCollections backup store
+            raise (InvalidOperationException($"ReplaceStore failed: {ex.Message}", ex))
