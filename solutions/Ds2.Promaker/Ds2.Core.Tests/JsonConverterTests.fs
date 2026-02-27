@@ -2,6 +2,7 @@ module JsonConverterTests
 
 open System
 open System.IO
+open System.Text.Json
 open Xunit
 open Ds2.Core
 open Ds2.Serialization
@@ -73,6 +74,31 @@ let private assertXywhEqual (expected: Xywh option) (actual: Xywh option) =
         Assert.Equal(e.H, a.H)
     | _ ->
         Assert.True(false, sprintf "Xywh option mismatch. expected=%A actual=%A" expected actual)
+
+module JsonOptionsFactoryTests =
+
+    [<Fact>]
+    let ``JsonOptions factories should create fresh option instances`` () =
+        let a = JsonOptions.createProjectSerializationOptions ()
+        let b = JsonOptions.createProjectSerializationOptions ()
+        let c = JsonOptions.createDeepCopyOptions ()
+
+        Assert.False(obj.ReferenceEquals(a, b), "Project serialization options should not be shared singleton")
+        Assert.False(obj.ReferenceEquals(a, c), "Different factory outputs should not share same instance")
+
+    [<Fact>]
+    let ``DeepCopy options should roundtrip ValueSpec union`` () =
+        let options = JsonOptions.createDeepCopyOptions ()
+        let expected =
+            Float64Value(
+                Ranges [
+                    { Lower = Some (0.5, Closed); Upper = Some (1.5, Open) }
+                    { Lower = Some (2.0, Closed); Upper = None }
+                ])
+
+        let json = JsonSerializer.Serialize(expected, options)
+        let actual = JsonSerializer.Deserialize<ValueSpec>(json, options)
+        assertValueSpecEqual expected actual
 
 module ValueSpecSerializationTests =
 

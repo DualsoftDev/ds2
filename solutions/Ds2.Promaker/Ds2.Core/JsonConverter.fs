@@ -1,7 +1,6 @@
 namespace Ds2.Serialization
 
 open System.Text.Json
-open System.Text.Json.Serialization
 open Ds2.Core
 
 /// <summary>
@@ -10,18 +9,7 @@ open Ds2.Core
 module JsonConverter =
 
     /// JSON 직렬화 옵션
-    let private defaultOptions =
-        let options = JsonSerializerOptions()
-        options.WriteIndented <- true
-        options.PropertyNamingPolicy <- JsonNamingPolicy.CamelCase
-        options.PropertyNameCaseInsensitive <- true  // 역직렬화 시 대소문자 무시
-        options.DefaultIgnoreCondition <- JsonIgnoreCondition.WhenWritingNull
-        options.IncludeFields <- true  // private/internal 필드 포함
-
-        // JsonFSharpConverter: internal 멤버 포함 설정
-        let fsharpOptions = JsonFSharpOptions.Default().WithIncludeRecordProperties(true)
-        options.Converters.Add(JsonFSharpConverter(fsharpOptions))
-        options
+    let private defaultOptions = JsonOptions.createProjectSerializationOptions ()
 
     /// 객체를 JSON 문자열로 직렬화
     let serialize<'T> (value: 'T) : string =

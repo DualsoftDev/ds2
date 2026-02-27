@@ -27,6 +27,15 @@ let buildApiCall
 let private withCall (store: DsStore) (callId: Guid) (f: Call -> 'a option) : 'a option =
     DsQuery.getCall callId store |> Option.bind f
 
+let private buildPropsUpdate<'props>
+    (copy: unit -> 'props)
+    (mutate: 'props -> unit)
+    (mkCmd: 'props -> 'props -> EditorCommand) : EditorCommand =
+    let oldProps = copy()
+    let next = copy()
+    mutate next
+    mkCmd oldProps next
+
 let getWorkDurationText (store: DsStore) (workId: Guid) : string =
     match DsQuery.getWork workId store with
     | Some work ->
@@ -51,10 +60,12 @@ let tryBuildUpdateWorkDurationCmd (store: DsStore) (workId: Guid) (durationText:
         | Some work ->
             if work.Properties.Duration = parsedDuration then true, None
             else
-                let oldProps = work.Properties.DeepCopy()
-                let next = work.Properties.DeepCopy()
-                next.Duration <- parsedDuration
-                true, Some(UpdateWorkProps(workId, oldProps, next))
+                let cmd =
+                    buildPropsUpdate
+                        work.Properties.DeepCopy
+                        (fun props -> props.Duration <- parsedDuration)
+                        (fun oldProps next -> UpdateWorkProps(workId, oldProps, next))
+                true, Some cmd
 
 let getCallTimeoutText (store: DsStore) (callId: Guid) : string =
     match DsQuery.getCall callId store with
@@ -80,10 +91,12 @@ let tryBuildUpdateCallTimeoutCmd (store: DsStore) (callId: Guid) (msText: string
         | Some call ->
             if call.Properties.Timeout = parsedTimeout then true, None
             else
-                let oldProps = call.Properties.DeepCopy()
-                let next = call.Properties.DeepCopy()
-                next.Timeout <- parsedTimeout
-                true, Some(UpdateCallProps(callId, oldProps, next))
+                let cmd =
+                    buildPropsUpdate
+                        call.Properties.DeepCopy
+                        (fun props -> props.Timeout <- parsedTimeout)
+                        (fun oldProps next -> UpdateCallProps(callId, oldProps, next))
+                true, Some cmd
 
 let getApiDefsForSystem (store: DsStore) (systemId: Guid) : ApiDefPanelItem list =
     DsQuery.apiDefsOf systemId store
