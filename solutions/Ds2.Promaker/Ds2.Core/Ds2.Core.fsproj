@@ -10,6 +10,7 @@
     <Compile Include="Class.fs" />
     <Compile Include="Properties.fs" />
     <Compile Include="ValueSpec.fs" />
+    <Compile Include="JsonOptions.fs" />
     <Compile Include="AbstractClass.fs" />
     <Compile Include="Entities.fs" />
     <Compile Include="JsonConverter.fs" />

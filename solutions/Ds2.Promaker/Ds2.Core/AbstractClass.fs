@@ -38,12 +38,7 @@ type HwComponent(name, parentId) =
 // =============================================================================
 
 module DeepCopyHelper =
-    open System.Text.Json.Serialization
-
-    let private jsonOptions =
-        let opts = JsonSerializerOptions()
-        opts.Converters.Add(JsonFSharpConverter())
-        opts
+    let private jsonOptions = JsonOptions.createDeepCopyOptions ()
 
     let private cloneViaJson (obj: obj) (t: Type) : obj =
         let json = JsonSerializer.Serialize(obj, t, jsonOptions)
