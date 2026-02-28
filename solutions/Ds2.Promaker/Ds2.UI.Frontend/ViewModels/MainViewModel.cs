@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -12,6 +13,12 @@ using Microsoft.FSharp.Core;
 using Microsoft.Win32;
 
 namespace Ds2.UI.Frontend.ViewModels;
+
+public sealed class HistoryPanelItem(string label, bool isRedo)
+{
+    public string Label  { get; } = label;
+    public bool   IsRedo { get; } = isRedo;
+}
 
 public partial class MainViewModel : ObservableObject
 {
@@ -40,6 +47,7 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<EntityNode> CanvasNodes { get; } = [];
     public ObservableCollection<CanvasTab> OpenTabs { get; } = [];
     public ObservableCollection<ArrowNode> CanvasArrows { get; } = [];
+    public ObservableCollection<HistoryPanelItem> HistoryItems { get; } = [];
 
     [ObservableProperty] private EntityNode? _selectedNode;
     [ObservableProperty] private CanvasTab? _activeTab;
@@ -48,6 +56,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _canUndo;
     [ObservableProperty] private bool _canRedo;
     [ObservableProperty] private bool _isDirty;
+    [ObservableProperty] private int _currentHistoryIndex;
     [ObservableProperty] private ArrowNode? _selectedArrow;
 
     public EditorApi Editor => _editor;
@@ -64,6 +73,36 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand] private void NewProject() => Reset(DsStore.empty());
     [RelayCommand] private void Undo() => _editor.Undo();
     [RelayCommand] private void Redo() => _editor.Redo();
+
+    [RelayCommand]
+    private void JumpToHistory(HistoryPanelItem? item)
+    {
+        if (item is null) return;
+        int clickedIdx = HistoryItems.IndexOf(item);
+        if (clickedIdx < 0) return;
+        int delta = clickedIdx - CurrentHistoryIndex;
+        if (delta < 0) _editor.UndoTo(-delta);
+        else if (delta > 0) _editor.RedoTo(delta);
+    }
+
+    private void RebuildHistoryItems(
+        IEnumerable<string> undoLabels,
+        IEnumerable<string> redoLabels)
+    {
+        var undoList = undoLabels.ToList();
+        var redoList = redoLabels.ToList();
+        CanUndo = undoList.Count > 0;
+        CanRedo = redoList.Count > 0;
+        IsDirty = undoList.Count > 0;
+
+        HistoryItems.Clear();
+        HistoryItems.Add(new HistoryPanelItem("(초기 상태)", isRedo: false));
+        foreach (var label in Enumerable.Reverse(undoList))
+            HistoryItems.Add(new HistoryPanelItem(label, isRedo: false));
+        foreach (var label in redoList)
+            HistoryItems.Add(new HistoryPanelItem(label, isRedo: true));
+        CurrentHistoryIndex = undoList.Count;
+    }
 
     [RelayCommand]
     private void OpenFile()
@@ -274,10 +313,8 @@ public partial class MainViewModel : ObservableObject
                 ApplyNodeMove(cm.id, cm.newPos);
                 return;
 
-            case EditorEvent.UndoRedoChanged ur:
-                CanUndo = ur.canUndo;
-                CanRedo = ur.canRedo;
-                IsDirty = ur.canUndo;
+            case EditorEvent.HistoryChanged h:
+                RebuildHistoryItems(h.undoLabels, h.redoLabels);
                 UpdateTitle();
                 return;
 
@@ -384,6 +421,9 @@ public partial class MainViewModel : ObservableObject
         IsDirty = false;
         CanUndo = false;
         CanRedo = false;
+        HistoryItems.Clear();
+        HistoryItems.Add(new HistoryPanelItem("(초기 상태)", isRedo: false));
+        CurrentHistoryIndex = 0;
 
         _clipboardSelection.Clear();
         _orderedNodeSelection.Clear();

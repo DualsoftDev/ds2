@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-02-27 (AASX 임포트/익스포트 — Ds2.Aasx 신규 프로젝트 + 조건 섹션 XAML ConditionSectionControl 분리)
+Last Sync: 2026-02-28 (Undo History 패널 구현 + EditorApi 헬퍼 추출 리팩토링)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -27,14 +27,14 @@ Last Sync: 2026-02-27 (AASX 임포트/익스포트 — Ds2.Aasx 신규 프로젝
       │
       ▼  F# — ensureValidStoreOrThrow
       │  Store 무결성 검증
-      │  → 실패 시: CommandExecutor.undo → StoreRefreshed + UndoRedoChanged 발행 → 예외
+      │  → 실패 시: CommandExecutor.undo → StoreRefreshed + HistoryChanged 발행 → 예외
       │
       ▼  F# — UndoRedoManager
       │  undoList.AddFirst / redoList.Clear
       │
       ▼  F# — EditorApi: EditorEvent 발행
       │  StoreRefreshed       → UI 전체 재구성
-      │  UndoRedoChanged      → Undo/Redo 버튼 상태 갱신
+      │  HistoryChanged       → History 패널 갱신 + Undo/Redo 버튼 상태 갱신
       │  SelectionChanged     → 속성 패널 갱신
       │
       ▼  C# — MainViewModel.HandleEvent(event)
@@ -224,25 +224,47 @@ Undo 복원 순서: 위 역순 자동 (List.rev)
 Exec(cmd)
   → CommandExecutor.execute(cmd, store)
   → ensureValidStoreOrThrow
-       실패 시: undo(cmd, store) → StoreRefreshed + UndoRedoChanged → 예외
+       실패 시: undo(cmd, store) → StoreRefreshed + HistoryChanged → 예외
   → undoList.AddFirst(cmd)
   → redoList.Clear()
-  → EditorEvent 발행
+  → EditorEvent 발행 (HistoryChanged 포함)
 
 Undo()
   → undoList.RemoveFirst() → cmd
   → CommandExecutor.undo(cmd, store)
   → redoList.AddFirst(cmd)
-  → EditorEvent 발행
+  → EditorEvent 발행 (HistoryChanged 포함)
 
 Redo()
   → redoList.RemoveFirst() → cmd
   → CommandExecutor.execute(cmd, store)
   → undoList.AddFirst(cmd)
-  → EditorEvent 발행
+  → EditorEvent 발행 (HistoryChanged 포함)
+
+UndoTo(n) / RedoTo(n)
+  → n=0 : no-op
+  → n=1 : Undo()/Redo() 1회 (이벤트 정상 발행)
+  → n>1 : suppressEvents=true → Undo()/Redo() × n → finally: StoreRefreshed + HistoryChanged 1회
 ```
 
-### 3.3 Composite와 의미 단위
+### 3.3 History 패널
+
+```
+HistoryChanged(undoLabels: string list, redoLabels: string list)
+  → C#: RebuildHistoryItems 호출
+       HistoryItems[0]       = "(초기 상태)"
+       HistoryItems[1..N]    = undoLabels (역순 — 오래된 것이 위)
+       HistoryItems[N+1..]   = redoLabels (회색 + 취소선)
+       CurrentHistoryIndex   = undoList.Count (현재 상태 위치)
+
+더블클릭 점프:
+  HistoryListBox_MouseDoubleClick → JumpToHistoryCommand(item)
+    delta = clickedIdx - CurrentHistoryIndex
+    delta < 0 → UndoTo(-delta)
+    delta > 0 → RedoTo(delta)
+```
+
+### 3.4 Composite와 의미 단위
 
 복잡한 다중 동작은 `Composite(label, [cmd₁; cmd₂; ...; cmdₙ])` 1건으로 기록합니다.
 
@@ -407,14 +429,14 @@ EditorApi.LoadFromFile(path)
   → ensureValidStoreOrThrow store  ← 적용 후 재검증
   → undoManager.Clear()  ← Undo/Redo 스택 초기화
   → StoreRefreshed 이벤트 발행  ← UI 전체 재구성
-  → UndoRedoChanged(false, false) 발행
+  → HistoryChanged([], []) 발행  ← History 패널 초기화
 ```
 
 파일 로드 후 Undo 스택은 초기화되므로 로드 직후 Undo 동작은 불가합니다.
 
 ### 6.5 Store 교체 API 비교
 
-`LoadFromFile`과 `ReplaceStore`는 동일한 방어 패턴을 따릅니다:
+`LoadFromFile`과 `ReplaceStore`는 내부 헬퍼 `ApplyNewStore(contextLabel)`를 공유합니다:
 
 ```
 1. backup = cloneStore store          ← 실패 시 복원용 스냅샷
@@ -422,7 +444,7 @@ EditorApi.LoadFromFile(path)
 3. StoreCopy.replaceAllCollections    ← 기존 참조 유지하며 컬렉션 교체
 4. undoManager.Clear()                ← Undo/Redo 스택 초기화
 5. StoreRefreshed 발행                ← UI 전체 재구성
-6. UndoRedoChanged(false, false) 발행
+6. HistoryChanged([], []) 발행        ← History 패널 초기화
    실패 시: backup으로 복원 후 예외
 ```
 
@@ -528,7 +550,7 @@ EditorApi.ReplaceStore(newStore: DsStore)  — LoadFromFile 패턴 동일
   → ensureValidStoreOrThrow store
   → undoManager.Clear()       ← Undo/Redo 스택 초기화
   → StoreRefreshed 이벤트 발행
-  → UndoRedoChanged(false, false) 발행
+  → HistoryChanged([], []) 발행  ← History 패널 초기화
   실패 시: StoreCopy.replaceAllCollections backup store → 예외
 ```
 

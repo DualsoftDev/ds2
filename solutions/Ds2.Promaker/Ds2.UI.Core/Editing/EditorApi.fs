@@ -9,6 +9,7 @@ open Ds2.Core
 type EditorApi(store: DsStore, ?maxUndoSize: int) =
     let undoManager = UndoRedoManager(defaultArg maxUndoSize 100)
     let eventBus = Event<EditorEvent>()
+    let mutable suppressEvents = false
     let cloneStore (s: DsStore) =
         StoreCopy.deepClone s
 
@@ -57,10 +58,11 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
 
     // --- 내부: 명령 실행 공통 ---
     member private _.PublishCommandResult(cmd: EditorCommand, events: EditorEvent list) =
-        match cmd with
-        | Composite _ -> eventBus.Trigger(StoreRefreshed)
-        | _ -> events |> List.iter eventBus.Trigger
-        eventBus.Trigger(UndoRedoChanged(undoManager.CanUndo, undoManager.CanRedo))
+        if not suppressEvents then
+            match cmd with
+            | Composite _ -> eventBus.Trigger(StoreRefreshed)
+            | _ -> events |> List.iter eventBus.Trigger
+            eventBus.Trigger(HistoryChanged(undoManager.UndoLabels, undoManager.RedoLabels))
 
     member private this.ExecuteCommand(cmd: EditorCommand) =
         ensureValidStoreOrThrow store (sprintf "before execute %A" cmd)
@@ -72,8 +74,9 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
             this.PublishCommandResult(cmd, events)
         with ex ->
             StoreCopy.replaceAllCollections snapshot store
-            eventBus.Trigger(StoreRefreshed)
-            eventBus.Trigger(UndoRedoChanged(undoManager.CanUndo, undoManager.CanRedo))
+            if not suppressEvents then
+                eventBus.Trigger(StoreRefreshed)
+                eventBus.Trigger(HistoryChanged(undoManager.UndoLabels, undoManager.RedoLabels))
             raise (InvalidOperationException($"Command execution failed and state was restored: {ex.Message}", ex))
 
     member internal this.Exec(cmd: EditorCommand) =
@@ -370,39 +373,48 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     // =====================================================================
     // Undo / Redo
     // =====================================================================
-    member this.Undo() =
-        match undoManager.PopUndo() with
+    member private this.RunUndoRedoStep(
+        pop: unit -> EditorCommand option,
+        apply: EditorCommand -> DsStore -> EditorEvent list,
+        restore: EditorCommand -> unit,
+        label: string) =
+        match pop() with
         | None -> ()
         | Some cmd ->
             let snapshot = cloneStore store
             try
-                ensureValidStoreOrThrow store (sprintf "before undo %A" cmd)
-                let events = CommandExecutor.undo cmd store
-                ensureValidStoreOrThrow store (sprintf "after undo %A" cmd)
+                ensureValidStoreOrThrow store (sprintf "before %s %A" label cmd)
+                let events = apply cmd store
+                ensureValidStoreOrThrow store (sprintf "after %s %A" label cmd)
                 this.PublishCommandResult(cmd, events)
             with ex ->
                 StoreCopy.replaceAllCollections snapshot store
-                undoManager.RestoreAfterFailedUndo(cmd)
-                eventBus.Trigger(StoreRefreshed)
-                eventBus.Trigger(UndoRedoChanged(undoManager.CanUndo, undoManager.CanRedo))
-                raise (InvalidOperationException($"Undo failed and state was restored: {ex.Message}", ex))
+                restore cmd
+                if not suppressEvents then
+                    eventBus.Trigger(StoreRefreshed)
+                    eventBus.Trigger(HistoryChanged(undoManager.UndoLabels, undoManager.RedoLabels))
+                raise (InvalidOperationException($"{label} failed and state was restored: {ex.Message}", ex))
+
+    member this.Undo() =
+        this.RunUndoRedoStep(undoManager.PopUndo, CommandExecutor.undo, undoManager.RestoreAfterFailedUndo, "Undo")
 
     member this.Redo() =
-        match undoManager.PopRedo() with
-        | None -> ()
-        | Some cmd ->
-            let snapshot = cloneStore store
+        this.RunUndoRedoStep(undoManager.PopRedo, CommandExecutor.execute, undoManager.RestoreAfterFailedRedo, "Redo")
+
+    member private this.RunBatchedSteps(n: int, step: unit -> unit) =
+        if n <= 1 then
+            for _ in 1 .. n do step()
+        else
+            suppressEvents <- true
             try
-                ensureValidStoreOrThrow store (sprintf "before redo %A" cmd)
-                let events = CommandExecutor.execute cmd store
-                ensureValidStoreOrThrow store (sprintf "after redo %A" cmd)
-                this.PublishCommandResult(cmd, events)
-            with ex ->
-                StoreCopy.replaceAllCollections snapshot store
-                undoManager.RestoreAfterFailedRedo(cmd)
+                for _ in 1 .. n do step()
+            finally
+                suppressEvents <- false
                 eventBus.Trigger(StoreRefreshed)
-                eventBus.Trigger(UndoRedoChanged(undoManager.CanUndo, undoManager.CanRedo))
-                raise (InvalidOperationException($"Redo failed and state was restored: {ex.Message}", ex))
+                eventBus.Trigger(HistoryChanged(undoManager.UndoLabels, undoManager.RedoLabels))
+
+    member this.UndoTo(steps: int) = this.RunBatchedSteps(max 0 steps, this.Undo)
+    member this.RedoTo(steps: int) = this.RunBatchedSteps(max 0 steps, this.Redo)
 
     // =====================================================================
     // 파일 I/O
@@ -410,36 +422,26 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     member this.SaveToFile(path: string) =
         Ds2.Serialization.JsonConverter.saveToFile path store
 
-    member this.LoadFromFile(path: string) =
+    member private this.ApplyNewStore(newStore: DsStore, contextLabel: string) =
         let backup = cloneStore store
         try
-            let loaded = Ds2.Serialization.JsonConverter.loadFromFile<DsStore> path
-            if isNull (box loaded) then
-                invalidOp "Loaded store is null."
-
-            ensureValidStoreOrThrow loaded (sprintf "load file '%s'" path)
-            StoreCopy.replaceAllCollections loaded store
-            ensureValidStoreOrThrow store "apply loaded store"
-
+            ensureValidStoreOrThrow newStore contextLabel
+            StoreCopy.replaceAllCollections newStore store
+            ensureValidStoreOrThrow store $"apply {contextLabel}"
             undoManager.Clear()
             eventBus.Trigger(StoreRefreshed)
-            eventBus.Trigger(UndoRedoChanged(false, false))
+            eventBus.Trigger(HistoryChanged(undoManager.UndoLabels, undoManager.RedoLabels))
         with ex ->
             StoreCopy.replaceAllCollections backup store
-            raise (InvalidOperationException($"LoadFromFile failed: {ex.Message}", ex))
+            raise (InvalidOperationException($"{contextLabel} failed: {ex.Message}", ex))
+
+    member this.LoadFromFile(path: string) =
+        let loaded = Ds2.Serialization.JsonConverter.loadFromFile<DsStore> path
+        if isNull (box loaded) then
+            invalidOp "Loaded store is null."
+        this.ApplyNewStore(loaded, sprintf "load file '%s'" path)
 
     /// 외부에서 구성된 DsStore를 현재 store에 적용하고 StoreRefreshed를 발행한다.
     /// AASX 임포트 등 파일 I/O 경로에서 사용.
     member this.ReplaceStore(newStore: DsStore) =
-        let backup = cloneStore store
-        try
-            ensureValidStoreOrThrow newStore "ReplaceStore"
-            StoreCopy.replaceAllCollections newStore store
-            ensureValidStoreOrThrow store "apply replaced store"
-
-            undoManager.Clear()
-            eventBus.Trigger(StoreRefreshed)
-            eventBus.Trigger(UndoRedoChanged(false, false))
-        with ex ->
-            StoreCopy.replaceAllCollections backup store
-            raise (InvalidOperationException($"ReplaceStore failed: {ex.Message}", ex))
+        this.ApplyNewStore(newStore, "ReplaceStore")

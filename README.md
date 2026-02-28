@@ -1,6 +1,6 @@
 # Ds2.Promaker
 
-Last Sync: 2026-02-27 (AASX 임포트/익스포트 — Ds2.Aasx 신규 프로젝트 + 조건 섹션 XAML ConditionSectionControl 분리)
+Last Sync: 2026-02-28 (Undo History 패널 구현 + EditorApi 헬퍼 추출 리팩토링)
 
 ## 프로젝트 목표
 
@@ -128,12 +128,12 @@ solutions/Ds2.Promaker/
   Ds2.Database/            # 데이터 계층
   Ds2.UI.Frontend/         # WPF UI(C#) — 28개 파일
   Ds2.Core.Tests/          # Core 단위 테스트 (24개)
-  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (117개)
+  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (119개)
   Ds2.Integration.Tests/   # 통합 테스트 (13개)
   Ds2.Promaker.sln
 ```
 
-테스트 합계: **154개** (24 + 117 + 13)
+테스트 합계: **155개** (24 + 119 + 13)
 
 ---
 
@@ -187,10 +187,10 @@ solutions/Ds2.Promaker/
 | 1 | `Core/DsStore.fs` | `DsStore` 타입 (13개 컬렉션 + ReadOnly 뷰), `StoreCopy.replaceAllCollections` |
 | 2 | `Core/DsQuery.fs` | `DsQuery.*` — 엔티티 조회 쿼리 (`getXxx`, `allXxxs`, `xxxsOf`) |
 | 3 | `Core/Mutation.fs` | `Mutation.*` — 엔티티 추가/수정/삭제 (특수: removeSystem, removeCall, removeApiCall) |
-| 4 | `Core/EditorTypes.fs` | `EditorCommand` DU, `EditorEvent` DU, `EntityKind` DU, `CallCopyContext` DU, `EntityNameAccess` |
+| 4 | `Core/EditorTypes.fs` | `EditorCommand` DU, `CommandLabel.ofCommand`(전 케이스 → 한국어 레이블), `EditorEvent` DU(`HistoryChanged` 포함), `EntityKind` DU, `CallCopyContext` DU, `EntityNameAccess` |
 | 5 | `Core/ValidationRules.fs` | 이름 · 주소 · 값 검증 규칙 (`ProjectValidation`, `OneToOneValidation` 등) |
 | 6 | `Commands/CommandExecutor.fs` | `EditorCommand` DU 패턴 매칭 → `DsStore` Mutation 실행, `requireMutationOk`로 에러 보장 |
-| 7 | `Commands/UndoRedoManager.fs` | `LinkedList` 기반 undo/redo 스택 관리, maxSize O(1) trim |
+| 7 | `Commands/UndoRedoManager.fs` | `LinkedList` 기반 undo/redo 스택 관리, maxSize O(1) trim. `UndoLabels`/`RedoLabels` 프로퍼티로 레이블 목록 노출 |
 | 8 | `Geometry/ArrowPathCalculator.fs` | Work/Call 캔버스 화살표 polyline 경로 계산 (직교 꺾임) |
 | 9 | `Projection/ViewTypes.fs` | `TreeNodeInfo` · `CanvasNodeInfo` · `SelectionKey` 등 뷰 전용 레코드 |
 | 10 | `Projection/TreeProjection.fs` | `DsStore` → 트리 데이터 변환 (`buildTrees`: 컨트롤 트리 + 디바이스 트리) |
@@ -207,7 +207,7 @@ solutions/Ds2.Promaker/
 | 21 | `Editing/EditorApi.PasteOps.fs` | 붙여넣기 명령 조립, `CallCopyContext` 기반 ApiCall 공유/복제 분기. DifferentFlow 시 `DevicePasteState`로 Device System 복제/재사용. `dispatchPaste` — 엔티티 타입별 붙여넣기 라우팅 진입점 |
 | 22 | `Editing/EditorApi.PropertyPanel.fs` | 속성 패널 전용 타입: `DeviceApiDefOption`, `CallApiCallPanelItem`, `CallConditionApiCallItem`, `CallConditionPanelItem`, `PropertyPanelValueSpec` |
 | 23 | `Editing/EditorApi.PanelOps.fs` | 패널 데이터 조회(`getWorkDurationText`, `getCallTimeoutText`, `getCallApiCallsForPanel`, `getAllApiCallsForPanel`, `getCallConditionsForPanel` 등) 및 ApiCall/CallCondition 커맨드 빌더(`buildAddApiCallsToConditionBatchCmd`, `buildUpdateApiDefPropertiesCmd`, `buildRemoveApiCallFromCallCmd` 포함) |
-| 24 | `Editing/EditorApi.fs` | **외부 진입 API** — `Undo`, `Redo`, `LoadFromFile`(백업+롤백), `ReplaceStore`(외부 I/O 경로용 store 전체 교체 + StoreRefreshed 발행). Add* 6개 `internal` 전용, `AndGetId` 공개 래퍼. `ExecuteCommand`는 private, `Exec`/`ExecBatch`는 internal |
+| 24 | `Editing/EditorApi.fs` | **외부 진입 API** — `Undo`, `Redo`, `UndoTo(steps)`, `RedoTo(steps)`, `LoadFromFile`(백업+롤백), `ReplaceStore`(외부 I/O 경로용 store 전체 교체 + StoreRefreshed 발행). 내부 헬퍼: `RunUndoRedoStep`, `RunBatchedSteps`, `ApplyNewStore`. `suppressEvents` 플래그로 배치 이벤트 폭증 방지. Add* 6개 `internal` 전용, `AndGetId` 공개 래퍼. `ExecuteCommand`는 private, `Exec`/`ExecBatch`는 internal |
 
 ---
 
@@ -291,14 +291,14 @@ solutions/Ds2.Promaker/
     │  DU 패턴 매칭 → DsStore Mutation 실행
     │
     ▼  F# — ValidationHelpers.ensureValidStoreOrThrow
-    │  검증 실패 시: undo() → StoreRefreshed + UndoRedoChanged 발행 → 예외
+    │  검증 실패 시: undo() → StoreRefreshed + HistoryChanged 발행 → 예외
     │
     ▼  F# — UndoRedoManager
     │  undoList.AddFirst / redoList.Clear
     │
     ▼  F# — EditorApi: EditorEvent 발행
     │  StoreRefreshed       → UI 전체 재구성
-    │  UndoRedoChanged      → Undo/Redo 버튼 상태 갱신
+    │  HistoryChanged       → History 패널 갱신 + Undo/Redo 버튼 상태 갱신
     │  SelectionChanged     → 속성 패널 갱신
     │
     ▼  C# — MainViewModel.HandleEvent(event)

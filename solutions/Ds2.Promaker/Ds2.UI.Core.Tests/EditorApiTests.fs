@@ -420,14 +420,19 @@ let ``RemoveFlow should cascade and be fully restorable`` () =
 // =============================================================================
 
 [<Fact>]
-let ``AddWork should emit WorkAdded and UndoRedoChanged events`` () =
+let ``AddWork should emit WorkAdded and HistoryChanged with label`` () =
     let _, api, _, _, flow = setupProjectSystemFlow()
     let events = collectEvents api
 
     api.AddWork("W1", flow.Id) |> ignore
 
     Assert.True(events |> Seq.exists (function WorkAdded _ -> true | _ -> false))
-    Assert.True(events |> Seq.exists (function UndoRedoChanged _ -> true | _ -> false))
+    let histOpt = events |> Seq.tryPick (function HistoryChanged(u, _) -> Some u | _ -> None)
+    Assert.True(histOpt.IsSome)
+    let undoLabels = histOpt.Value
+    // undo 스택 최신 항목(앞)이 방금 추가한 Work 레이블
+    Assert.True(undoLabels.Length > 0)
+    Assert.Contains("W1", undoLabels[0])
 
 [<Fact>]
 let ``Composite delete should emit StoreRefreshed`` () =
@@ -477,7 +482,7 @@ let ``CommandExecutor undo should invert nested Composite in reverse order`` () 
     Assert.False(store.Projects.ContainsKey(project.Id))
 
 [<Fact>]
-let ``Validation rollback should emit StoreRefreshed and UndoRedoChanged`` () =
+let ``Validation rollback should emit StoreRefreshed and HistoryChanged`` () =
     let store, api = createApi()
     api.AddProject("Dup") |> ignore
 
@@ -490,7 +495,7 @@ let ``Validation rollback should emit StoreRefreshed and UndoRedoChanged`` () =
 
     Assert.Single(store.ProjectsReadOnly) |> ignore
     Assert.True(events |> Seq.exists (function StoreRefreshed -> true | _ -> false))
-    Assert.True(events |> Seq.exists (function UndoRedoChanged _ -> true | _ -> false))
+    Assert.True(events |> Seq.exists (function HistoryChanged _ -> true | _ -> false))
 
 // =============================================================================
 // Undo/Redo 상태
@@ -829,7 +834,7 @@ let ``ReplaceStore should replace all collections, clear undo stack, and emit St
     Assert.False(store.Projects.ContainsKey(project.Id))
     Assert.False(api.CanUndo)
     Assert.True(events |> Seq.exists (function StoreRefreshed -> true | _ -> false))
-    Assert.True(events |> Seq.exists (function UndoRedoChanged(false, false) -> true | _ -> false))
+    Assert.True(events |> Seq.exists (function HistoryChanged([], []) -> true | _ -> false))
 
 // =============================================================================
 // maxUndoSize 제한
@@ -851,6 +856,57 @@ let ``UndoRedoManager should trim stack when exceeding maxSize`` () =
     api.Undo() // undo AddFlow
     api.Undo() // undo AddSystem
     Assert.False(api.CanUndo) // AddProject was trimmed
+
+// =============================================================================
+// UndoTo / RedoTo 점프
+// =============================================================================
+
+[<Fact>]
+let ``UndoTo should jump multiple steps and emit single HistoryChanged`` () =
+    let store, api, _, _, flow = setupProjectSystemFlow()
+    let _ = api.AddWork("W1", flow.Id)
+    let _ = api.AddWork("W2", flow.Id)
+    let _ = api.AddWork("W3", flow.Id)
+
+    let events = collectEvents api
+    api.UndoTo(2)  // W3, W2 undo → W1만 남아야 함
+
+    Assert.Equal(1, store.Works.Count)
+    // suppress로 HistoryChanged는 1번만 발행
+    let histChanges =
+        events |> Seq.filter (function HistoryChanged _ -> true | _ -> false) |> Seq.toList
+    Assert.Single(histChanges) |> ignore
+    let _, redoLabels =
+        match histChanges[0] with
+        | HistoryChanged(u, r) -> u, r
+        | _ -> failwith "unexpected"
+    // undo 순서: W3→W2, 따라서 redo 스택은 W2(다음 redo 대상)가 앞
+    Assert.Equal(2, List.length redoLabels)
+    Assert.Contains("W2", redoLabels[0])
+    Assert.Contains("W3", redoLabels[1])
+
+[<Fact>]
+let ``RedoTo should jump multiple steps and emit single HistoryChanged`` () =
+    let store, api, _, _, flow = setupProjectSystemFlow()
+    let _ = api.AddWork("W1", flow.Id)
+    let _ = api.AddWork("W2", flow.Id)
+    let _ = api.AddWork("W3", flow.Id)
+    api.UndoTo(3)  // W1~W3 모두 undo
+
+    let events = collectEvents api
+    api.RedoTo(2)  // W1, W2 redo
+
+    Assert.Equal(2, store.Works.Count)
+    let histChanges =
+        events |> Seq.filter (function HistoryChanged _ -> true | _ -> false) |> Seq.toList
+    Assert.Single(histChanges) |> ignore
+    let _, redoLabels =
+        match histChanges[0] with
+        | HistoryChanged(u, r) -> u, r
+        | _ -> failwith "unexpected"
+    // W3가 redo 스택에 남아 있어야 함
+    Assert.Equal(1, List.length redoLabels)
+    Assert.Contains("W3", redoLabels[0])
 
 // =============================================================================
 // Copy / Paste
