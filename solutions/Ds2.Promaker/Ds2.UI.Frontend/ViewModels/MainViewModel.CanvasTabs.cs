@@ -8,6 +8,15 @@ namespace Ds2.UI.Frontend.ViewModels;
 
 public partial class MainViewModel
 {
+    partial void OnActiveTabChanged(CanvasTab? value)
+    {
+        foreach (var t in OpenTabs)
+            t.IsActive = t == value;
+
+        ClearArrowSelection();
+        RefreshCanvasForActiveTab();
+    }
+
     private void OpenTab(TabKind kind, Guid rootId, string title)
     {
         var existing = OpenTabs.FirstOrDefault(t => t.Kind == kind && t.RootId == rootId);

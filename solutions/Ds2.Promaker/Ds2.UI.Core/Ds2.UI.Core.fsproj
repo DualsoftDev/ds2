@@ -37,4 +37,8 @@
     <ProjectReference Include="..\Ds2.Core\Ds2.Core.fsproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="log4net" />
+  </ItemGroup>
+
 </Project>

@@ -2,11 +2,13 @@ namespace Ds2.UI.Core
 
 open System
 open Ds2.Core
+open log4net
 
 // =============================================================================
 // EditorApi — UI의 편집(쓰기) 명령 진입점
 // =============================================================================
 type EditorApi(store: DsStore, ?maxUndoSize: int) =
+    let log = LogManager.GetLogger(typedefof<EditorApi>)
     let undoManager = UndoRedoManager(defaultArg maxUndoSize 100)
     let eventBus = Event<EditorEvent>()
     let mutable suppressEvents = false
@@ -71,9 +73,11 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
             let events = CommandExecutor.execute cmd store
             ensureValidStoreOrThrow store (sprintf "after execute %A" cmd)
             undoManager.Push(cmd)
+            log.Info($"Executed: {CommandLabel.ofCommand cmd}")
             this.PublishCommandResult(cmd, events)
         with ex ->
             StoreCopy.replaceAllCollections snapshot store
+            log.Error($"Command failed: {CommandLabel.ofCommand cmd} — {ex.Message}", ex)
             if not suppressEvents then
                 eventBus.Trigger(StoreRefreshed)
                 eventBus.Trigger(HistoryChanged(undoManager.UndoLabels, undoManager.RedoLabels))
@@ -386,10 +390,12 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
                 ensureValidStoreOrThrow store (sprintf "before %s %A" label cmd)
                 let events = apply cmd store
                 ensureValidStoreOrThrow store (sprintf "after %s %A" label cmd)
+                log.Debug($"{label}: {CommandLabel.ofCommand cmd}")
                 this.PublishCommandResult(cmd, events)
             with ex ->
                 StoreCopy.replaceAllCollections snapshot store
                 restore cmd
+                log.Error($"{label} failed: {CommandLabel.ofCommand cmd} — {ex.Message}", ex)
                 if not suppressEvents then
                     eventBus.Trigger(StoreRefreshed)
                     eventBus.Trigger(HistoryChanged(undoManager.UndoLabels, undoManager.RedoLabels))
@@ -420,7 +426,12 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     // 파일 I/O
     // =====================================================================
     member this.SaveToFile(path: string) =
-        Ds2.Serialization.JsonConverter.saveToFile path store
+        try
+            Ds2.Serialization.JsonConverter.saveToFile path store
+            log.Info($"저장 완료: {path}")
+        with ex ->
+            log.Error($"저장 실패: {path} — {ex.Message}", ex)
+            raise (InvalidOperationException($"저장 실패: {ex.Message}", ex))
 
     member private this.ApplyNewStore(newStore: DsStore, contextLabel: string) =
         let backup = cloneStore store
@@ -429,10 +440,12 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
             StoreCopy.replaceAllCollections newStore store
             ensureValidStoreOrThrow store $"apply {contextLabel}"
             undoManager.Clear()
+            log.Info($"Store applied: {contextLabel}")
             eventBus.Trigger(StoreRefreshed)
             eventBus.Trigger(HistoryChanged(undoManager.UndoLabels, undoManager.RedoLabels))
         with ex ->
             StoreCopy.replaceAllCollections backup store
+            log.Error($"ApplyNewStore failed: {contextLabel} — {ex.Message}", ex)
             raise (InvalidOperationException($"{contextLabel} failed: {ex.Message}", ex))
 
     member this.LoadFromFile(path: string) =

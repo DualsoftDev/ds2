@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-02-28 (Undo History 패널 구현 + EditorApi 헬퍼 추출 리팩토링)
+Last Sync: 2026-02-28 (MainViewModel.cs 분리 + log4net 로깅 도입)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -555,3 +555,132 @@ EditorApi.ReplaceStore(newStore: DsStore)  — LoadFromFile 패턴 동일
 ```
 
 임포트 후 Undo 스택은 초기화되므로 임포트 직후 Undo 동작은 불가합니다.
+
+---
+
+## 9. 로깅 (log4net)
+
+### 9.1 초기화 흐름
+
+```
+앱 시작
+  → App.xaml.cs OnStartup
+      → XmlConfigurator.Configure(new FileInfo("log4net.config"))
+           log4net.config 있음  → log4net 초기화
+           log4net.config 없음  → System.Diagnostics.Trace.TraceWarning("log4net.config 파일을 찾을 수 없습니다...")
+                                   (log4net 미초기화 상태에서도 VS 출력 창에 표시)
+      → Log.Info("=== Ds2.Promaker 시작 ===")
+      → DispatcherUnhandledException += (_, ex) =>
+              Log.Fatal("처리되지 않은 예외", ex.Exception); ex.Handled = true
+앱 종료
+  → App.xaml.cs OnExit
+      → Log.Info("=== Ds2.Promaker 종료 ===")
+```
+
+### 9.2 로그 파일
+
+```
+<실행 파일 위치>/logs/ds2_yyyyMMdd.log
+```
+
+- **Appender**: `RollingFileAppender` (Composite 롤링, 최대 10MB × 10개 백업)
+- **패턴**: `%date{yyyy-MM-dd HH:mm:ss.fff} [%-5level] %logger{1} — %message%newline%exception`
+- **Visual Studio**: `DebugAppender`로 출력 창에도 동시 출력 (패턴 단축)
+
+### 9.3 레이어별 로거와 레벨
+
+#### F# — EditorApi.fs
+
+| 지점 | 레벨 | 메시지 형태 |
+|------|------|------------|
+| `ExecuteCommand` 성공 | INFO | `Executed: {CommandLabel.ofCommand cmd}` |
+| `ExecuteCommand` 실패 | ERROR | `Command failed: {label} — {ex.Message}` + 예외 |
+| `RunUndoRedoStep` (Undo/Redo) 성공 | DEBUG | `Undo: {label}` / `Redo: {label}` |
+| `RunUndoRedoStep` (Undo/Redo) 실패 | ERROR | `Undo failed: {label} — {ex.Message}` + 예외 |
+| `ApplyNewStore` 성공 | INFO | `Store applied: {contextLabel}` |
+| `ApplyNewStore` 실패 | ERROR | `ApplyNewStore failed: {contextLabel} — {ex.Message}` + 예외 |
+| `SaveToFile` 성공 | INFO | `저장 완료: {path}` |
+| `SaveToFile` 실패 | ERROR | `저장 실패: {path} — {ex.Message}` + 예외 (재throw) |
+
+로거 선언:
+```fsharp
+// EditorApi 클래스 내부
+let log = LogManager.GetLogger(typedefof<EditorApi>)
+```
+
+#### F# — AasxFileIO.fs
+
+| 지점 | 레벨 | 메시지 형태 |
+|------|------|------------|
+| `readEnvironment` 예외 (AASX ZIP 읽기 실패) | WARN | `"AASX 읽기 실패"` + 예외 객체 (stack trace 포함) |
+
+기존의 `with _ -> None` 패턴을 `with ex -> log.Warn("AASX 읽기 실패", ex); None`으로 개선하여 silent failure 제거.
+예외 객체를 두 번째 인자로 전달하므로 log4net이 stack trace를 자동 포함합니다.
+
+로거 선언:
+```fsharp
+// 모듈 레벨
+let private log = LogManager.GetLogger("Ds2.Aasx.AasxFileIO")
+```
+
+#### F# — AasxImporter.fs
+
+| 지점 | 레벨 | 메시지 형태 |
+|------|------|------------|
+| `fromJsonProp` JSON 역직렬화 실패 | WARN | `JSON 역직렬화 실패: {idShort} — {ex.Message}` + 예외 |
+| `smcToArrowCall` 파싱 실패 | WARN | `smcToArrowCall 실패: {ex.Message}` + 예외 |
+| `smcToArrowWork` 파싱 실패 | WARN | `smcToArrowWork 실패: {ex.Message}` + 예외 |
+| `smcToCall` 파싱 실패 | WARN | `smcToCall 실패: {ex.Message}` + 예외 |
+| `smcToWork` 파싱 실패 | WARN | `smcToWork 실패: {ex.Message}` + 예외 |
+| `smcToFlow` 파싱 실패 | WARN | `smcToFlow 실패: {ex.Message}` + 예외 |
+| `smcToApiDef` 파싱 실패 | WARN | `smcToApiDef 실패: {ex.Message}` + 예외 |
+| `smcToSystem` 파싱 실패 | WARN | `smcToSystem 실패: {ex.Message}` + 예외 |
+| `submodelToProjectStore` 실패 | WARN | `submodelToProjectStore 실패: {ex.Message}` + 예외 |
+
+기존의 `with _ -> None` 패턴 9곳을 모두 `with ex -> log.Warn(..., ex); None`으로 변경.
+각 변환 계층에서 어느 단계가 실패했는지 정확히 파악 가능합니다.
+
+진입점 `importFromAasxFile`의 silent None 분기도 WARN으로 노출됩니다:
+
+| 지점 | 레벨 | 메시지 형태 |
+|------|------|------------|
+| `env.Submodels = null` | WARN | `AASX 파싱 실패: Submodels null ({path})` |
+| `Seq.tryPick` 결과 None (IdShort 불일치) | WARN | `AASX 파싱 실패: '{SubmodelIdShort}' Submodel을 찾을 수 없습니다 ({path})` |
+
+로거 선언:
+```fsharp
+// 모듈 레벨
+let private log = LogManager.GetLogger("Ds2.Aasx.AasxImporter")
+```
+
+#### C# — MainViewModel (partial class 공유)
+
+`MainViewModel.cs`에 `private static readonly ILog Log` 선언.
+모든 partial 파일(`Events.cs`, `FileIO.cs`, `NodeCommands.cs` 등)은 같은 partial class이므로 별도 선언 없이 `Log` 공유.
+
+| 지점 | 레벨 | 메시지 형태 |
+|------|------|------------|
+| EditorEvent 구독자 에러 | ERROR | `EditorEvent 구독자 에러` + 예외 |
+| JSON 파일 열기 성공 | INFO | `파일 열기 완료: {path}` |
+| JSON 파일 열기 실패 | ERROR | `파일 열기 실패: {path}` + 예외 → DialogHelpers.Warn |
+| JSON 파일 저장 성공 | INFO | `파일 저장 완료: {path}` |
+| JSON 파일 저장 실패 | ERROR | `파일 저장 실패: {path}` + 예외 → DialogHelpers.Warn |
+| AASX import 성공 | INFO | `AASX import 완료: {path}` |
+| AASX import 빈 결과 | WARN | `AASX import 실패 (빈 결과): {path}` |
+| AASX import ReplaceStore 실패 | ERROR | `AASX import 실패 (ReplaceStore): {path}` + 예외 → DialogHelpers.Warn |
+| Unhandled EditorEvent | WARN | `Unhandled event: {evt.GetType().Name}` |
+| AASX export 성공 | INFO | `AASX export 완료: {path}` |
+| AASX export 프로젝트 없음 | WARN | `AASX export 실패: 프로젝트 없음 ({path})` |
+| AASX export 예외 | ERROR | `AASX export 실패: {path}` + 예외 → DialogHelpers.Warn |
+
+`ImportAasx()`의 `_editor.ReplaceStore(...)` 호출이 try/catch로 감싸져 있어, 임포트 후 Store 교체 단계에서 예외가 발생해도 파일 경로 맥락과 함께 ERROR 로그가 남습니다.
+
+### 9.4 로깅 레벨 요약
+
+| 레벨 | 의미 | 지점 |
+|------|------|------|
+| FATAL | 앱이 계속 실행되기 어려운 미처리 예외 | `DispatcherUnhandledException` |
+| ERROR | 복구 시도했거나 사용자에게 알린 실패 | 파일 I/O 실패, ExecuteCommand 실패, Undo/Redo 실패 |
+| WARN | 기능 저하지만 계속 실행 가능 | AASX import 빈 결과, AASX ZIP 읽기 실패 |
+| INFO | 정상 수명주기 이벤트 | 앱 시작/종료, 파일 I/O 성공, ExecuteCommand 성공, Store 교체 |
+| DEBUG | 반복 호출 상세 추적 | Undo/Redo 각 단계 |
