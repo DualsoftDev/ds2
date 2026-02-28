@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-02-28 (MainViewModel.cs 분리 + log4net 로깅 도입)
+Last Sync: 2026-02-28 (PropertiesPanel.cs 분리 — CallPanel.cs + SystemPanel.cs 신규)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
