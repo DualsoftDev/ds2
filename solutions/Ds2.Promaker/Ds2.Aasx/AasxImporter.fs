@@ -6,8 +6,11 @@ open Ds2.UI.Core   // DsStore, DsQuery 등을 위해 먼저 열기
 open Ds2.Core      // Call, Work, Flow, Project 클래스가 EntityKind 케이스보다 우선시되도록 나중에 열기
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxFileIO
+open log4net
 
 // ── 내부 헬퍼 ──────────────────────────────────────────────────────────────
+
+let private log = LogManager.GetLogger("Ds2.Aasx.AasxImporter")
 
 let private getProp (smc: SubmodelElementCollection) (idShort: string) : string option =
     if smc.Value = null then None
@@ -22,7 +25,7 @@ let private fromJsonProp<'T> (smc: SubmodelElementCollection) (idShort: string) 
     getProp smc idShort
     |> Option.bind (fun json ->
         try Some (Ds2.Serialization.JsonConverter.deserialize<'T> json)
-        with _ -> None)
+        with ex -> log.Warn($"JSON 역직렬화 실패: {idShort} — {ex.Message}", ex); None)
 
 let private getChildSmlSmcs (smc: SubmodelElementCollection) (idShort: string) : SubmodelElementCollection list =
     if smc.Value = null then []
@@ -49,7 +52,7 @@ let private smcToArrowCall (smc: SubmodelElementCollection) (workId: Guid) : Arr
         let arrow = ArrowBetweenCalls(workId, sourceId, targetId, arrowType)
         arrow.Id <- id
         Some arrow
-    with _ -> None
+    with ex -> log.Warn($"smcToArrowCall 실패: {ex.Message}", ex); None
 
 let private smcToArrowWork (smc: SubmodelElementCollection) (flowId: Guid) : ArrowBetweenWorks option =
     try
@@ -60,7 +63,7 @@ let private smcToArrowWork (smc: SubmodelElementCollection) (flowId: Guid) : Arr
         let arrow = ArrowBetweenWorks(flowId, sourceId, targetId, arrowType)
         arrow.Id <- id
         Some arrow
-    with _ -> None
+    with ex -> log.Warn($"smcToArrowWork 실패: {ex.Message}", ex); None
 
 let private smcToCall (smc: SubmodelElementCollection) (workId: Guid) : Call option =
     try
@@ -74,7 +77,7 @@ let private smcToCall (smc: SubmodelElementCollection) (workId: Guid) : Call opt
         fromJsonProp<ResizeArray<ApiCall>>       smc ApiCalls_       |> Option.iter (fun acs -> call.ApiCalls <- acs)
         fromJsonProp<ResizeArray<CallCondition>> smc CallConditions_ |> Option.iter (fun ccs -> call.CallConditions <- ccs)
         Some call
-    with _ -> None
+    with ex -> log.Warn($"smcToCall 실패: {ex.Message}", ex); None
 
 let private smcToWork
     (smc: SubmodelElementCollection)
@@ -91,7 +94,7 @@ let private smcToWork
         let calls      = getChildSmlSmcs smc Calls_       |> List.choose (fun c -> smcToCall c work.Id)
         let arrowCalls = getChildSmlSmcs smc ArrowsBtCalls_ |> List.choose (fun a -> smcToArrowCall a work.Id)
         Some (work, calls, arrowCalls)
-    with _ -> None
+    with ex -> log.Warn($"smcToWork 실패: {ex.Message}", ex); None
 
 let private smcToFlow
     (smc: SubmodelElementCollection)
@@ -109,7 +112,7 @@ let private smcToFlow
         let arrowCalls = workResults |> List.collect (fun (_, _, acs) -> acs)
         let arrowWorks = getChildSmlSmcs smc ArrowsBtWorks_ |> List.choose (fun a -> smcToArrowWork a flow.Id)
         Some (flow, works, calls, arrowCalls, arrowWorks)
-    with _ -> None
+    with ex -> log.Warn($"smcToFlow 실패: {ex.Message}", ex); None
 
 let private smcToApiDef (smc: SubmodelElementCollection) (systemId: Guid) : ApiDef option =
     try
@@ -118,7 +121,7 @@ let private smcToApiDef (smc: SubmodelElementCollection) (systemId: Guid) : ApiD
         getProp smc Name_ |> Option.iter (fun n -> apiDef.Name <- n)
         fromJsonProp<ApiDefProperties> smc Properties_ |> Option.iter (fun p -> apiDef.Properties <- p)
         Some apiDef
-    with _ -> None
+    with ex -> log.Warn($"smcToApiDef 실패: {ex.Message}", ex); None
 
 let private smcToSystem (smc: SubmodelElementCollection)
     : (DsSystem * bool * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) option =
@@ -137,7 +140,7 @@ let private smcToSystem (smc: SubmodelElementCollection)
         let arrowWorks = flowResults |> List.collect (fun (_, _, _, _, aws)  -> aws)
         let apiDefs    = getChildSmlSmcs smc ApiDefs_ |> List.choose (fun a -> smcToApiDef a system.Id)
         Some (system, isActive, flows, works, calls, arrowCalls, arrowWorks, apiDefs)
-    with _ -> None
+    with ex -> log.Warn($"smcToSystem 실패: {ex.Message}", ex); None
 
 let private populateStore
     (store: DsStore)
@@ -182,7 +185,7 @@ let private submodelToProjectStore (sm: ISubmodel) : (Project * DsStore) option 
                     populateStore store project passiveSystems
                     Some (project, store)
                 | _ -> None)
-    with _ -> None
+    with ex -> log.Warn($"submodelToProjectStore 실패: {ex.Message}", ex); None
 
 // ── 진입점 ─────────────────────────────────────────────────────────────────
 
@@ -190,10 +193,16 @@ let private submodelToProjectStore (sm: ISubmodel) : (Project * DsStore) option 
 let importFromAasxFile (path: string) : DsStore option =
     readEnvironment path
     |> Option.bind (fun env ->
-        if env.Submodels = null then None
+        if env.Submodels = null then
+            log.Warn($"AASX 파싱 실패: Submodels null ({path})")
+            None
         else
-            env.Submodels
-            |> Seq.tryPick (fun sm ->
-                if sm.IdShort = SubmodelIdShort then
-                    submodelToProjectStore sm |> Option.map snd
-                else None))
+            let result =
+                env.Submodels
+                |> Seq.tryPick (fun sm ->
+                    if sm.IdShort = SubmodelIdShort then
+                        submodelToProjectStore sm |> Option.map snd
+                    else None)
+            if result.IsNone then
+                log.Warn($"AASX 파싱 실패: '{SubmodelIdShort}' Submodel을 찾을 수 없습니다 ({path})")
+            result)

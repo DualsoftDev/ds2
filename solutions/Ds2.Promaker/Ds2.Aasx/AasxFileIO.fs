@@ -6,6 +6,9 @@ open System.IO.Compression
 open System.Text
 open System.Xml
 open AasCore.Aas3_0
+open log4net
+
+let private log = LogManager.GetLogger("Ds2.Aasx.AasxFileIO")
 
 /// AASX ZIP에서 aasx-origin.rels를 파싱하여 AAS 파일 경로를 반환합니다.
 let private resolveAasPath (archive: ZipArchive) : string option =
@@ -47,7 +50,9 @@ let readEnvironment (path: string) : Environment option =
                     let json = rdr.ReadToEnd()
                     let node = Text.Json.Nodes.JsonNode.Parse(json)
                     Some (Jsonization.Deserialize.EnvironmentFrom(node)))
-    with _ -> None
+    with ex ->
+        log.Warn("AASX 읽기 실패", ex)
+        None
 
 // ZipArchiveMode.Create 에서는 이전 엔트리 스트림이 닫혀야 다음 엔트리를 열 수 있음.
 // F# `use`는 함수 스코프 끝까지 유지되므로 별도 함수로 분리하여 즉시 dispose되도록 함.

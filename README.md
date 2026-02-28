@@ -1,6 +1,6 @@
 # Ds2.Promaker
 
-Last Sync: 2026-02-28 (Undo History 패널 구현 + EditorApi 헬퍼 추출 리팩토링)
+Last Sync: 2026-02-28 (MainViewModel.cs 분리 + log4net 로깅 도입)
 
 ## 프로젝트 목표
 
@@ -133,7 +133,7 @@ solutions/Ds2.Promaker/
   Ds2.Promaker.sln
 ```
 
-테스트 합계: **155개** (24 + 119 + 13)
+테스트 합계: **156개** (24 + 119 + 13)
 
 ---
 
@@ -226,7 +226,8 @@ solutions/Ds2.Promaker/
 
 | 파일 | 역할 |
 |------|------|
-| `App.xaml / App.xaml.cs` | 앱 리소스 루트 및 시작 코드 |
+| `App.xaml / App.xaml.cs` | 앱 리소스 루트 및 시작/종료 코드. `OnStartup`에서 log4net.config 로딩, `DispatcherUnhandledException` FATAL 로깅 처리 |
+| `log4net.config` | log4net 설정 파일 (RollingFile + DebugAppender). 빌드 시 출력 폴더로 복사 (`PreserveNewest`) |
 | `EntityTypes.cs` | Entity type 문자열 상수 (`"Work"`, `"Call"` 등) + `Is` / `IsWorkOrCall` / `IsCanvasOpenable` 헬퍼 |
 | `MainWindow.xaml` | 메인 화면 레이아웃 (트리 패널 / 캔버스 탭 / 속성 패널) |
 | `MainWindow.xaml.cs` | 트리·탭·메뉴 이벤트 wiring, `EditorApi` 호출 진입 |
@@ -242,12 +243,16 @@ solutions/Ds2.Promaker/
 | `Controls/ValueSpecEditorControl.xaml.cs` | ValueSpec 인라인 편집 컨트롤 코드 |
 | `Controls/ConditionSectionControl.xaml` | CallCondition 섹션(Active/Auto/Common) 공통 UserControl UI |
 | `Controls/ConditionSectionControl.xaml.cs` | `ConditionSectionControl` 코드 (Header, AddToolTip, Conditions 바인딩) |
-| `ViewModels/MainViewModel.cs` | `HandleEvent` 허브, 파일 I/O, Undo/Redo, 리셋 |
-| `ViewModels/MainViewModel.FileIO.cs` | AASX 임포트(`ImportAasxCommand`) / 익스포트(`ExportAasxCommand`) RelayCommand |
+| `ViewModels/MainViewModel.cs` | 핵심 필드/컬렉션/프로퍼티, 생성자, NewProject/Undo/Redo, Reset, UpdateTitle |
+| `ViewModels/MainViewModel.History.cs` | `HistoryPanelItem` 타입 + `JumpToHistory` + `RebuildHistoryItems` |
+| `ViewModels/MainViewModel.Events.cs` | `WireEvents` + `HandleEvent` + `ApplyEntityRename` + `ActionObserver<T>` |
+| `ViewModels/MainViewModel.NodeCommands.cs` | AddProject/System/Flow/Work/Call, Delete, Rename, Copy, Paste + 타겟 결정 헬퍼 |
+| `ViewModels/MainViewModel.FileIO.cs` | JSON Open/Save + AASX 임포트(`ImportAasxCommand`) / 익스포트(`ExportAasxCommand`) |
 | `ViewModels/MainViewModel.Selection.cs` | 트리·캔버스 선택 동기화 |
-| `ViewModels/MainViewModel.CanvasTabs.cs` | 탭 상태, `RebuildAll` (트리+캔버스 전체 재구성) |
+| `ViewModels/MainViewModel.CanvasTabs.cs` | 탭 상태, `RebuildAll` (트리+캔버스 전체 재구성), `OnActiveTabChanged` |
 | `ViewModels/MainViewModel.PropertiesPanel.cs` | 속성 패널 커맨드 (ApiCall CRUD, Call Conditions CRUD, ValueSpec, 더티 추적) |
 | `ViewModels/MainViewModel.PropertyPanelItems.cs` | 속성 패널 보조 뷰모델 타입: `CallApiCallItem`, `DeviceApiDefOptionItem`, `CallConditionItem`, `ConditionApiCallRow`, `ConditionSectionItem` |
+| `ViewModels/CanvasTab.cs` | `CanvasTab` ObservableObject + `TreePaneKind` enum |
 | `ViewModels/ArrowNode.cs` | 화살표 뷰모델 (Geometry 계산, 화살촉 타입별 렌더링) |
 | `ViewModels/EntityNode.cs` | 트리/캔버스 노드 뷰모델 |
 | `ViewModels/TreeNodeSearch.cs` | 트리 탐색 정적 유틸리티 |
@@ -304,6 +309,61 @@ solutions/Ds2.Promaker/
     ▼  C# — MainViewModel.HandleEvent(event)
        RebuildAll → WPF 바인딩 갱신 → 화면 반영
 ```
+
+---
+
+## 로깅 (log4net)
+
+log4net 2.0.17이 F#+C# 전 레이어에 적용되어 있습니다.
+
+### 초기화
+
+`App.xaml.cs OnStartup`에서 `XmlConfigurator.Configure(new FileInfo("log4net.config"))`로 초기화합니다.
+log4net.config 파일이 없으면 로깅 없이 앱이 정상 실행됩니다.
+
+### 로그 파일 위치
+
+```
+<실행 파일 위치>/logs/ds2_yyyyMMdd.log
+```
+
+- Composite 롤링 (날짜 + 크기): 최대 10MB × 10개 백업 보관
+- Visual Studio 출력 창(DebugAppender)에도 동시 출력
+
+### 로거별 레벨 전략
+
+| 지점 | 레벨 | 예시 |
+|------|------|------|
+| 앱 시작/종료 | INFO | `=== Ds2.Promaker 시작 ===` |
+| 전역 미처리 예외 | FATAL | `DispatcherUnhandledException` + 스택 트레이스 |
+| EditorEvent 구독자 에러 | ERROR | `EditorEvent 구독자 에러` + 예외 |
+| JSON 파일 열기/저장 성공 | INFO | `파일 열기/저장 완료: {path}` |
+| JSON 파일 열기/저장 실패 | ERROR | 예외 포함 |
+| AASX import/export 성공 | INFO | 경로 포함 |
+| AASX import 빈 결과 | WARN | |
+| AASX import ReplaceStore 실패 | ERROR | 예외 포함 → DialogHelpers.Warn |
+| AASX export 실패 | WARN / ERROR | |
+| AASX 내부 파싱 실패 (`AasxImporter`) | WARN | 9곳 `with _ -> None` → 함수명 + 예외 포함 |
+| AASX ZIP 읽기 실패 | WARN | 예외 객체 포함 (stack trace) |
+| AASX Submodels null / Submodel IdShort 불일치 | WARN | 경로 포함 |
+| Unhandled EditorEvent | WARN | `Unhandled event: {타입명}` |
+| `SaveToFile` 성공 | INFO | `저장 완료: {path}` |
+| `SaveToFile` 실패 | ERROR | 예외 포함 (재throw) |
+| `ExecuteCommand` 성공 | INFO | `Executed: {명령 레이블}` |
+| `ExecuteCommand` 실패 | ERROR | `Command failed: {label} — {msg}` + 예외 |
+| Undo/Redo 성공 | DEBUG | `Undo: {명령 레이블}` / `Redo: …` |
+| Undo/Redo 실패 | ERROR | 예외 포함 |
+| `ApplyNewStore` 성공 | INFO | `Store applied: {context}` |
+| `ApplyNewStore` 실패 | ERROR | 예외 포함 |
+| AASX ZIP 읽기 실패 | WARN | `AASX 읽기 실패: {msg}` (기존 silent failure 개선) |
+
+### 패키지 적용 범위
+
+| 프로젝트 | 로거 선언 방식 |
+|---------|-------------|
+| `Ds2.UI.Core` (F#) | `LogManager.GetLogger(typedefof<EditorApi>)` |
+| `Ds2.Aasx` (F#) | `LogManager.GetLogger("Ds2.Aasx.AasxFileIO")` / `LogManager.GetLogger("Ds2.Aasx.AasxImporter")` |
+| `Ds2.UI.Frontend` (C#) | `LogManager.GetLogger(typeof(App))` / `typeof(MainViewModel)` |
 
 ---
 
