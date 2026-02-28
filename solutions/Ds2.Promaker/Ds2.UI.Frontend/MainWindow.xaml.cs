@@ -35,6 +35,12 @@ public partial class MainWindow : Window
     private void TreeViewItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
         => HandleTreeItemPreviewMouseRightButtonDown(ResolveTreePane(sender), sender, e);
 
+    private void HistoryListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (HistoryListBox.SelectedItem is HistoryPanelItem item)
+            _vm.JumpToHistoryCommand.Execute(item);
+    }
+
     private void TreeViewItem_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (sender is not TreeViewItem item) return;

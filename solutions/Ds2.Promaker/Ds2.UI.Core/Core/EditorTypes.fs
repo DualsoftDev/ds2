@@ -219,6 +219,55 @@ type EditorCommand =
     // --- 범용 (캐스케이드 삭제 용) ---
     | Composite of description: string * commands: EditorCommand list
 
+module CommandLabel =
+    let ofCommand (cmd: EditorCommand) : string =
+        match cmd with
+        | Composite(desc, _)                    -> desc
+        | AddProject p                          -> $"프로젝트 추가 \"{p.Name}\""
+        | RemoveProject _                       -> "프로젝트 삭제"
+        | AddSystem(s, _, _)                    -> $"시스템 추가 \"{s.Name}\""
+        | RemoveSystem _                        -> "시스템 삭제"
+        | AddFlow f                             -> $"Flow 추가 \"{f.Name}\""
+        | RemoveFlow _                          -> "Flow 삭제"
+        | AddWork w                             -> $"Work 추가 \"{w.Name}\""
+        | RemoveWork _                          -> "Work 삭제"
+        | MoveWork _                            -> "Work 이동"
+        | RenameWork(_, _, n)                   -> $"Work 이름 변경 → \"{n}\""
+        | UpdateWorkProps _                     -> "Work 속성 변경"
+        | AddCall c                             -> $"Call 추가 \"{c.Name}\""
+        | RemoveCall _                          -> "Call 삭제"
+        | MoveCall _                            -> "Call 이동"
+        | RenameCall(_, _, n)                   -> $"Call 이름 변경 → \"{n}\""
+        | UpdateCallProps _                     -> "Call 속성 변경"
+        | AddCallCondition _                    -> "조건 추가"
+        | RemoveCallCondition _                 -> "조건 삭제"
+        | UpdateCallConditionSettings _         -> "조건 설정 변경"
+        | AddApiCallToCondition _               -> "조건에 ApiCall 추가"
+        | RemoveApiCallFromCondition _          -> "조건에서 ApiCall 제거"
+        | UpdateConditionApiCallOutputSpec _    -> "조건 OutputSpec 변경"
+        | AddArrowWork _                        -> "Work 연결"
+        | RemoveArrowWork _                     -> "Work 연결 해제"
+        | AddArrowCall _                        -> "Call 연결"
+        | RemoveArrowCall _                     -> "Call 연결 해제"
+        | ReconnectArrowWork _                  -> "Work 화살표 재연결"
+        | ReconnectArrowCall _                  -> "Call 화살표 재연결"
+        | AddApiDef a                           -> $"ApiDef 추가 \"{a.Name}\""
+        | RemoveApiDef _                        -> "ApiDef 삭제"
+        | UpdateApiDefProps _                   -> "ApiDef 속성 변경"
+        | AddApiCallToCall _                    -> "ApiCall 추가"
+        | RemoveApiCallFromCall _               -> "ApiCall 제거"
+        | AddSharedApiCallToCall _              -> "ApiCall 공유 추가"
+        | RemoveSharedApiCallFromCall _         -> "ApiCall 공유 제거"
+        | AddButton b                           -> $"버튼 추가 \"{b.Name}\""
+        | RemoveButton _                        -> "버튼 삭제"
+        | AddLamp l                             -> $"램프 추가 \"{l.Name}\""
+        | RemoveLamp _                          -> "램프 삭제"
+        | AddHwCondition _                      -> "HW 조건 추가"
+        | RemoveHwCondition _                   -> "HW 조건 삭제"
+        | AddHwAction _                         -> "HW 동작 추가"
+        | RemoveHwAction _                      -> "HW 동작 삭제"
+        | RenameEntity(_, _, _, n)              -> $"이름 변경 → \"{n}\""
+
 // =============================================================================
 // EditorEvent — UI에 발행하는 변경 이벤트 (STRUCTURE.md 4.2)
 // =============================================================================
@@ -254,8 +303,8 @@ type EditorEvent =
     | HwComponentAdded   of entityType: string * id: Guid * name: string
     | HwComponentRemoved of entityType: string * id: Guid
 
-    // --- Undo/Redo 상태 ---
-    | UndoRedoChanged of canUndo: bool * canRedo: bool
+    // --- Undo/Redo 히스토리 ---
+    | HistoryChanged of undoLabels: string list * redoLabels: string list
 
     // --- 전체 갱신 (Composite undo/redo 용) ---
     | StoreRefreshed

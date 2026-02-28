@@ -22,6 +22,8 @@ type UndoRedoManager(maxSize: int) =
     member _.CanRedo = redoList.Count > 0
     member _.UndoCount = undoList.Count
     member _.RedoCount = redoList.Count
+    member _.UndoLabels = undoList |> Seq.map CommandLabel.ofCommand |> Seq.toList
+    member _.RedoLabels = redoList |> Seq.map CommandLabel.ofCommand |> Seq.toList
 
     member _.Push(cmd: EditorCommand) =
         pushFront undoList cmd
