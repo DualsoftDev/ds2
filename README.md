@@ -1,6 +1,6 @@
 # Ds2.Promaker
 
-Last Sync: 2026-02-28 (MainViewModel.cs 분리 + log4net 로깅 도입)
+Last Sync: 2026-02-28 (PropertiesPanel.cs 분리 — CallPanel.cs + SystemPanel.cs 신규)
 
 ## 프로젝트 목표
 
@@ -77,9 +77,9 @@ Ds2.Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeu
 ```
 Ds2.UI.Frontend  →  Ds2.UI.Core  →  Ds2.Core  →  Ds2.Core.Contracts
      (C#, WPF)        (F#)            (F#)              (F#)
-         │                                ▲                  ▲
-         ├──────►  Ds2.Aasx  ─────────────┘                  │
-         │          (F#)      + Ds2.UI.Core 참조              │
+         │                                ▲                 ▲
+         ├──────►  Ds2.Aasx  ─────────────┘                 │
+         │          (F#)      + Ds2.UI.Core 참조            │
          └──────────────────────────────────────────────────┘
                          (직접 참조 — Ds2.Core 없이 공유 타입 접근)
 ```
@@ -250,7 +250,9 @@ solutions/Ds2.Promaker/
 | `ViewModels/MainViewModel.FileIO.cs` | JSON Open/Save + AASX 임포트(`ImportAasxCommand`) / 익스포트(`ExportAasxCommand`) |
 | `ViewModels/MainViewModel.Selection.cs` | 트리·캔버스 선택 동기화 |
 | `ViewModels/MainViewModel.CanvasTabs.cs` | 탭 상태, `RebuildAll` (트리+캔버스 전체 재구성), `OnActiveTabChanged` |
-| `ViewModels/MainViewModel.PropertiesPanel.cs` | 속성 패널 커맨드 (ApiCall CRUD, Call Conditions CRUD, ValueSpec, 더티 추적) |
+| `ViewModels/MainViewModel.PropertiesPanel.cs` | 속성 패널 공용 Collections/Properties + ApplyWorkDuration + RefreshPropertyPanel + RequireSelectedAs + ShowOwnedDialog |
+| `ViewModels/MainViewModel.CallPanel.cs` | Call 속성 패널 — ApplyCallTimeout, ApiCall CRUD 5개, CallCondition CRUD 7개, RefreshCallPanel, ReloadConditions, 섹션 헬퍼 |
+| `ViewModels/MainViewModel.SystemPanel.cs` | System 속성 패널 — ApiDef CRUD 3개, RefreshSystemPanel, EditApiDefNode |
 | `ViewModels/MainViewModel.PropertyPanelItems.cs` | 속성 패널 보조 뷰모델 타입: `CallApiCallItem`, `DeviceApiDefOptionItem`, `CallConditionItem`, `ConditionApiCallRow`, `ConditionSectionItem` |
 | `ViewModels/CanvasTab.cs` | `CanvasTab` ObservableObject + `TreePaneKind` enum |
 | `ViewModels/ArrowNode.cs` | 화살표 뷰모델 (Geometry 계산, 화살촉 타입별 렌더링) |
