@@ -7,6 +7,15 @@ using Ds2.UI.Frontend;
 
 namespace Ds2.UI.Frontend.Converters;
 
+file static class ConverterHelpers
+{
+    public static Brush ResolveBrush(string key)
+    {
+        var app = Application.Current;
+        return app?.TryFindResource(key) as Brush ?? Brushes.Gray;
+    }
+}
+
 public sealed class BoolToVisibilityConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
@@ -29,11 +38,11 @@ public sealed class EntityTypeToBrushConverter : IValueConverter
             EntityTypes.Is(entityType, EntityTypes.Project) ? "GreenAccentBrush" :
             "TertiaryBackgroundBrush";
 
-        return Application.Current.TryFindResource(key) as Brush ?? Brushes.Gray;
+        return ConverterHelpers.ResolveBrush(key);
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-        => throw new NotSupportedException();
+        => Binding.DoNothing;
 }
 
 public sealed class InvCountToVisibilityConverter : IValueConverter
@@ -42,7 +51,7 @@ public sealed class InvCountToVisibilityConverter : IValueConverter
         => value is int count && count > 0 ? Visibility.Collapsed : Visibility.Visible;
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-        => throw new NotSupportedException();
+        => Binding.DoNothing;
 }
 
 public sealed class PositiveIntToVisibilityConverter : IValueConverter
@@ -51,7 +60,7 @@ public sealed class PositiveIntToVisibilityConverter : IValueConverter
         => value is int count && count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-        => throw new NotSupportedException();
+        => Binding.DoNothing;
 }
 
 public class BindingProxy : Freezable
@@ -83,11 +92,11 @@ public sealed class ArrowTypeToColorConverter : IValueConverter
             }
             : "SecondaryTextBrush";
 
-        return Application.Current.TryFindResource(key) as Brush ?? Brushes.Gray;
+        return ConverterHelpers.ResolveBrush(key);
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-        => throw new NotSupportedException();
+        => Binding.DoNothing;
 }
 
 public sealed class ArrowTypeToDashConverter : IValueConverter
@@ -100,7 +109,7 @@ public sealed class ArrowTypeToDashConverter : IValueConverter
             : null;
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-        => throw new NotSupportedException();
+        => Binding.DoNothing;
 }
 
 public sealed class EntityTypeToIconConverter : IValueConverter
@@ -123,5 +132,5 @@ public sealed class EntityTypeToIconConverter : IValueConverter
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-        => throw new NotSupportedException();
+        => Binding.DoNothing;
 }

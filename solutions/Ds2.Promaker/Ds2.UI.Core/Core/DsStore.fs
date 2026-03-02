@@ -46,6 +46,37 @@ type DsStore() =
     /// <summary>빈 스토어 생성</summary>
     static member empty() = DsStore()
 
+module StoreWrite =
+    let private upsert (dict: Dictionary<Guid, 'T>) (id: Guid) (entity: 'T) =
+        dict.[id] <- entity
+
+    let project (store: DsStore) (project: Project) =
+        upsert store.Projects project.Id project
+
+    let system (store: DsStore) (system: DsSystem) =
+        upsert store.Systems system.Id system
+
+    let flow (store: DsStore) (flow: Flow) =
+        upsert store.Flows flow.Id flow
+
+    let work (store: DsStore) (work: Work) =
+        upsert store.Works work.Id work
+
+    let call (store: DsStore) (call: Call) =
+        upsert store.Calls call.Id call
+
+    let apiDef (store: DsStore) (apiDef: ApiDef) =
+        upsert store.ApiDefs apiDef.Id apiDef
+
+    let apiCall (store: DsStore) (apiCall: ApiCall) =
+        upsert store.ApiCalls apiCall.Id apiCall
+
+    let arrowWork (store: DsStore) (arrow: ArrowBetweenWorks) =
+        upsert store.ArrowWorks arrow.Id arrow
+
+    let arrowCall (store: DsStore) (arrow: ArrowBetweenCalls) =
+        upsert store.ArrowCalls arrow.Id arrow
+
 module StoreCopy =
     let private cloneEntityDictionary<'T when 'T :> DsEntity> (source: Dictionary<Guid, 'T>) : Dictionary<Guid, 'T> =
         let cloned = Dictionary<Guid, 'T>(source.Count)

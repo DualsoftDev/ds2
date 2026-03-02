@@ -44,8 +44,12 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private CanvasTab? _activeTab;
     [ObservableProperty] private string _title = "Ds2 Promaker";
     [ObservableProperty] private string _statusText = "Ready";
-    [ObservableProperty] private bool _canUndo;
-    [ObservableProperty] private bool _canRedo;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(UndoCommand))]
+    private bool _canUndo;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RedoCommand))]
+    private bool _canRedo;
     [ObservableProperty] private bool _isDirty;
     [ObservableProperty] private int _currentHistoryIndex;
     [ObservableProperty] private ArrowNode? _selectedArrow;
@@ -53,8 +57,10 @@ public partial class MainViewModel : ObservableObject
     public EditorApi Editor => _editor;
 
     [RelayCommand] private void NewProject() => Reset(DsStore.empty());
-    [RelayCommand] private void Undo() => _editor.Undo();
-    [RelayCommand] private void Redo() => _editor.Redo();
+    [RelayCommand(CanExecute = nameof(CanUndo))]
+    private void Undo() => TryEditorAction("Undo", () => _editor.Undo());
+    [RelayCommand(CanExecute = nameof(CanRedo))]
+    private void Redo() => TryEditorAction("Redo", () => _editor.Redo());
 
     private void Reset(DsStore newStore)
     {

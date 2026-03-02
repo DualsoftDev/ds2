@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Windows.Threading;
 using Ds2.UI.Core;
-using log4net;
 using Microsoft.FSharp.Core;
 
 namespace Ds2.UI.Frontend.ViewModels;
@@ -14,22 +12,44 @@ public partial class MainViewModel
         var observable = (IObservable<EditorEvent>)_editor.OnEvent;
         _eventSubscription?.Dispose();
         _eventSubscription = observable.Subscribe(new ActionObserver<EditorEvent>(
-            evt => _dispatcher.Invoke(() => HandleEvent(evt)),
+            evt => _dispatcher.Invoke(() =>
+            {
+                try
+                {
+                    HandleEvent(evt);
+                }
+                catch (Exception ex)
+                {
+                    HandleUiOperationException(
+                        $"HandleEvent({evt.GetType().Name})",
+                        ex,
+                        statusOverride: "[ERROR] Event processing failed. See log.");
+                    RebuildAll();
+                }
+            }),
             error => _dispatcher.Invoke(() =>
             {
-                Log.Error("EditorEvent 구독자 에러", error);
-                StatusText = $"[ERROR] {error.Message}";
+                HandleUiOperationException(
+                    "EditorEvent subscription",
+                    error,
+                    statusOverride: "[ERROR] Editor event subscription failed. See log.");
                 RebuildAll();
             })));
     }
 
     private void HandleEvent(EditorEvent evt)
     {
-        var addedIdOpt = _editor.TryGetAddedEntityId(evt);
+        if (!TryEditorFunc(
+                "TryGetAddedEntityId",
+                () => _editor.TryGetAddedEntityId(evt),
+                out FSharpOption<Guid>? addedIdOpt,
+                fallback: null))
+            return;
+
         if (FSharpOption<Guid>.get_IsSome(addedIdOpt))
         {
             RebuildAll();
-            ExpandNodeAndAncestors(addedIdOpt.Value);
+            ExpandNodeAndAncestors(addedIdOpt!.Value);
             return;
         }
 
@@ -71,7 +91,14 @@ public partial class MainViewModel
                 return;
         }
 
-        if (_editor.IsTreeStructuralEvent(evt))
+        if (!TryEditorFunc(
+                "IsTreeStructuralEvent",
+                () => _editor.IsTreeStructuralEvent(evt),
+                out var isTreeStructuralEvent,
+                fallback: false))
+            return;
+
+        if (isTreeStructuralEvent)
         {
             RebuildAll();
             return;

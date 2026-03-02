@@ -26,8 +26,6 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
 
     // --- 이벤트 ---
     member _.OnEvent = eventBus.Publish
-    member _.CanUndo = undoManager.CanUndo
-    member _.CanRedo = undoManager.CanRedo
 
     member _.TryGetAddedEntityId(evt: EditorEvent) : Guid option =
         match evt with
@@ -180,7 +178,7 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         EntityHierarchyQueries.tryFindProjectIdForEntity store entityType entityId
 
     member _.FindApiDefsByName(filterName: string) : ApiDefMatch list =
-        EntityHierarchyQueries.findApiDefsByName store filterName
+        EntityHierarchyQueries.findApiDefs store "" filterName
 
     member _.TryResolveAddSystemTarget
         (selectedEntityType: string option)

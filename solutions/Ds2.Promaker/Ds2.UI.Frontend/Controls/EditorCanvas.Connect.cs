@@ -81,7 +81,7 @@ public partial class EditorCanvas
             return;
         }
 
-        VM.Editor.ConnectSelectionInOrder(new[] { sourceId, targetId }, _connectArrowType);
+        VM.TryConnectNodesFromCanvas(sourceId, targetId, _connectArrowType);
         CancelConnect();
     }
 

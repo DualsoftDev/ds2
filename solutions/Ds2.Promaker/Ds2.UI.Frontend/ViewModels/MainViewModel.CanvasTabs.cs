@@ -33,11 +33,17 @@ public partial class MainViewModel
 
     public void OpenCanvasTab(Guid entityId, string entityType)
     {
-        var infoOpt = _editor.TryOpenTabForEntity(entityType, entityId);
+        if (!TryEditorFunc(
+                "TryOpenTabForEntity",
+                () => _editor.TryOpenTabForEntity(entityType, entityId),
+                out var infoOpt,
+                fallback: (FSharpOption<TabOpenInfo>?)null))
+            return;
+
         if (!FSharpOption<TabOpenInfo>.get_IsSome(infoOpt))
             return;
 
-        var info = infoOpt.Value;
+        var info = infoOpt!.Value;
         OpenTab(info.Kind, info.RootId, info.Title);
     }
 
@@ -62,7 +68,16 @@ public partial class MainViewModel
             return;
         }
 
-        var content = _editor.CanvasContentForTab(ActiveTab.Kind, ActiveTab.RootId);
+        if (!TryEditorFunc(
+                "CanvasContentForTab",
+                () => _editor.CanvasContentForTab(ActiveTab.Kind, ActiveTab.RootId),
+                out var content,
+                fallback: (CanvasContent?)null,
+                statusOverride: "[ERROR] Failed to refresh canvas content."))
+            return;
+
+        if (content is null)
+            return;
 
         foreach (var n in content.Nodes)
         {
@@ -84,16 +99,36 @@ public partial class MainViewModel
 
     private void RefreshArrowPaths()
     {
-        if (ActiveTab is null || CanvasArrows.Count == 0) return;
+        if (ActiveTab is null || CanvasArrows.Count == 0)
+            return;
 
-        var flowIds = _editor.FlowIdsForTab(ActiveTab.Kind, ActiveTab.RootId);
+        if (!TryEditorFunc(
+                "FlowIdsForTab",
+                () => _editor.FlowIdsForTab(ActiveTab.Kind, ActiveTab.RootId),
+                out var flowIds,
+                fallback: null,
+                statusOverride: "[ERROR] Failed to resolve flow ids for canvas."))
+            return;
+
+        if (flowIds is null)
+            return;
+
         foreach (var flowId in flowIds)
             ApplyArrowPathsFromFlow(flowId);
     }
 
     private void ApplyArrowPathsFromFlow(Guid flowId)
     {
-        var paths = _editor.GetFlowArrowPaths(flowId);
+        if (!TryEditorFunc(
+                "GetFlowArrowPaths",
+                () => _editor.GetFlowArrowPaths(flowId),
+                out var paths,
+                fallback: null))
+            return;
+
+        if (paths is null)
+            return;
+
         foreach (var arrow in CanvasArrows)
             if (paths.TryGetValue(arrow.Id, out var visual))
                 arrow.UpdateFromVisual(visual);
@@ -111,7 +146,17 @@ public partial class MainViewModel
         ControlTreeRoots.Clear();
         DeviceTreeRoots.Clear();
 
-        var trees = _editor.BuildTrees();
+        if (!TryEditorFunc(
+                "BuildTrees",
+                () => _editor.BuildTrees(),
+                out var trees,
+                fallback: null,
+                statusOverride: "[ERROR] Failed to rebuild tree views."))
+            return;
+
+        if (trees is null)
+            return;
+
         foreach (var info in trees.Item1)
             ControlTreeRoots.Add(MapToEntityNode(info));
         foreach (var info in trees.Item2)
@@ -134,12 +179,27 @@ public partial class MainViewModel
         RestoreSelection(prevSelection, prevSelectedArrowIds);
     }
 
-    private bool TabExists(CanvasTab tab) => _editor.TabExists(tab.Kind, tab.RootId);
+    private bool TabExists(CanvasTab tab)
+    {
+        if (!TryEditorFunc("TabExists", () => _editor.TabExists(tab.Kind, tab.RootId), out var exists, fallback: false))
+            return false;
+
+        return exists;
+    }
 
     private string ResolveTabTitle(CanvasTab tab)
     {
-        var titleOpt = _editor.TabTitle(tab.Kind, tab.RootId);
-        return FSharpOption<string>.get_IsSome(titleOpt) ? titleOpt.Value : tab.Title;
+        if (!TryEditorFunc(
+                "TabTitle",
+                () => _editor.TabTitle(tab.Kind, tab.RootId),
+                out var titleOpt,
+                fallback: (FSharpOption<string>?)null))
+            return tab.Title;
+
+        if (!FSharpOption<string>.get_IsSome(titleOpt))
+            return tab.Title;
+
+        return titleOpt!.Value;
     }
 
     private static EntityNode MapToEntityNode(TreeNodeInfo info)
@@ -167,7 +227,6 @@ public partial class MainViewModel
         }
         else
         {
-            // Position=None means "use default canvas bounds".
             node.X = UiDefaults.DefaultNodeXf;
             node.Y = UiDefaults.DefaultNodeYf;
             node.Width = UiDefaults.DefaultNodeWidthf;
