@@ -1,6 +1,6 @@
 # Ds2.Promaker
 
-Last Sync: 2026-02-28 (PropertiesPanel.cs 분리 — CallPanel.cs + SystemPanel.cs 신규)
+Last Sync: 2026-03-02 (예외처리 보완 — GetEntityParentId TryEditorFunc 패턴 적용, ImportAasx try/catch 범위 통합)
 
 ## 프로젝트 목표
 
@@ -133,7 +133,7 @@ solutions/Ds2.Promaker/
   Ds2.Promaker.sln
 ```
 
-테스트 합계: **156개** (24 + 119 + 13)
+테스트 합계: **157개** (24 + 120 + 13)
 
 ---
 
@@ -184,7 +184,7 @@ solutions/Ds2.Promaker/
 
 | # | 파일 | 역할 |
 |---|------|------|
-| 1 | `Core/DsStore.fs` | `DsStore` 타입 (13개 컬렉션 + ReadOnly 뷰), `StoreCopy.replaceAllCollections` |
+| 1 | `Core/DsStore.fs` | `DsStore` 타입 (13개 컬렉션 + ReadOnly 뷰), `StoreCopy.replaceAllCollections`, `StoreWrite` 모듈 (컬렉션 인덱서 대입 허용 구역 중앙화 — `AasxImporter` 전용) |
 | 2 | `Core/DsQuery.fs` | `DsQuery.*` — 엔티티 조회 쿼리 (`getXxx`, `allXxxs`, `xxxsOf`) |
 | 3 | `Core/Mutation.fs` | `Mutation.*` — 엔티티 추가/수정/삭제 (특수: removeSystem, removeCall, removeApiCall) |
 | 4 | `Core/EditorTypes.fs` | `EditorCommand` DU, `CommandLabel.ofCommand`(전 케이스 → 한국어 레이블), `EditorEvent` DU(`HistoryChanged` 포함), `EntityKind` DU, `CallCopyContext` DU, `EntityNameAccess` |
@@ -195,7 +195,7 @@ solutions/Ds2.Promaker/
 | 9 | `Projection/ViewTypes.fs` | `TreeNodeInfo` · `CanvasNodeInfo` · `SelectionKey` 등 뷰 전용 레코드 |
 | 10 | `Projection/TreeProjection.fs` | `DsStore` → 트리 데이터 변환 (`buildTrees`: 컨트롤 트리 + 디바이스 트리) |
 | 11 | `Projection/CanvasProjection.fs` | `DsStore` → 캔버스 콘텐츠 변환 (노드 위치, 화살표 포인트) |
-| 12 | `Queries/EntityHierarchyQueries.fs` | 계층 역탐색 (stepCallToWork / stepWorkToFlow / stepFlowToSystem), 탭 정보 해석, ApiDef 검색 |
+| 12 | `Queries/EntityHierarchyQueries.fs` | 계층 역탐색 (stepCallToWork / stepWorkToFlow / stepFlowToSystem), `parentIdOf` — Call/Work/Flow 부모 ID store 직접 조회 (C# 복사 유효성 검사용), 탭 정보 해석, ApiDef 검색 |
 | 13 | `Queries/AddTargetQueries.fs` | Add System/Flow 대상 해석 |
 | 14 | `Queries/SelectionQueries.fs` | 캔버스 선택 정렬/범위 선택/Ctrl+Shift 다중 선택 해석 |
 | 15 | `Queries/ConnectionQueries.fs` | 화살표 연결 가능 대상 Flow 해석, 선택 순서 연결 |
@@ -207,7 +207,7 @@ solutions/Ds2.Promaker/
 | 21 | `Editing/EditorApi.PasteOps.fs` | 붙여넣기 명령 조립, `CallCopyContext` 기반 ApiCall 공유/복제 분기. DifferentFlow 시 `DevicePasteState`로 Device System 복제/재사용. `dispatchPaste` — 엔티티 타입별 붙여넣기 라우팅 진입점 |
 | 22 | `Editing/EditorApi.PropertyPanel.fs` | 속성 패널 전용 타입: `DeviceApiDefOption`, `CallApiCallPanelItem`, `CallConditionApiCallItem`, `CallConditionPanelItem`, `PropertyPanelValueSpec` |
 | 23 | `Editing/EditorApi.PanelOps.fs` | 패널 데이터 조회(`getWorkDurationText`, `getCallTimeoutText`, `getCallApiCallsForPanel`, `getAllApiCallsForPanel`, `getCallConditionsForPanel` 등) 및 ApiCall/CallCondition 커맨드 빌더(`buildAddApiCallsToConditionBatchCmd`, `buildUpdateApiDefPropertiesCmd`, `buildRemoveApiCallFromCallCmd` 포함) |
-| 24 | `Editing/EditorApi.fs` | **외부 진입 API** — `Undo`, `Redo`, `UndoTo(steps)`, `RedoTo(steps)`, `LoadFromFile`(백업+롤백), `ReplaceStore`(외부 I/O 경로용 store 전체 교체 + StoreRefreshed 발행). 내부 헬퍼: `RunUndoRedoStep`, `RunBatchedSteps`, `ApplyNewStore`. `suppressEvents` 플래그로 배치 이벤트 폭증 방지. Add* 6개 `internal` 전용, `AndGetId` 공개 래퍼. `ExecuteCommand`는 private, `Exec`/`ExecBatch`는 internal |
+| 24 | `Editing/EditorApi.fs` | **외부 진입 API** — `Undo`, `Redo`, `UndoTo(steps)`, `RedoTo(steps)`, `LoadFromFile`(백업+롤백), `ReplaceStore`(외부 I/O 경로용 store 전체 교체 + StoreRefreshed 발행), `GetEntityParentId(entityType, entityId)` — store에서 직접 부모 ID 조회(C# 복사 유효성 검사용). 내부 헬퍼: `RunUndoRedoStep`, `RunBatchedSteps`, `ApplyNewStore`. `suppressEvents` 플래그로 배치 이벤트 폭증 방지. Add* 6개 `internal` 전용, `AndGetId` 공개 래퍼. `ExecuteCommand`는 private, `Exec`/`ExecBatch`는 internal |
 
 ---
 
@@ -244,12 +244,13 @@ solutions/Ds2.Promaker/
 | `Controls/ConditionSectionControl.xaml` | CallCondition 섹션(Active/Auto/Common) 공통 UserControl UI |
 | `Controls/ConditionSectionControl.xaml.cs` | `ConditionSectionControl` 코드 (Header, AddToolTip, Conditions 바인딩) |
 | `ViewModels/MainViewModel.cs` | 핵심 필드/컬렉션/프로퍼티, 생성자, NewProject/Undo/Redo, Reset, UpdateTitle |
+| `ViewModels/MainViewModel.EditorGuards.cs` | `TryEditorAction` / `TryEditorFunc` / `TryEditorRef` — EditorApi 호출 공통 예외 처리 가드. `TryMoveEntitiesFromCanvas`, `TryReconnectArrowFromCanvas`, `TryConnectNodesFromCanvas` Canvas 공용 메서드 |
 | `ViewModels/MainViewModel.History.cs` | `HistoryPanelItem` 타입 + `JumpToHistory` + `RebuildHistoryItems` |
 | `ViewModels/MainViewModel.Events.cs` | `WireEvents` + `HandleEvent` + `ApplyEntityRename` + `ActionObserver<T>` |
-| `ViewModels/MainViewModel.NodeCommands.cs` | AddProject/System/Flow/Work/Call, Delete, Rename, Copy, Paste + 타겟 결정 헬퍼 |
+| `ViewModels/MainViewModel.NodeCommands.cs` | AddProject/System/Flow/Work/Call, Delete, Rename, Copy(혼합 타입/부모 금지 경고), Paste(System 대상 경고) + 타겟 결정 헬퍼 |
 | `ViewModels/MainViewModel.FileIO.cs` | JSON Open/Save + AASX 임포트(`ImportAasxCommand`) / 익스포트(`ExportAasxCommand`) |
 | `ViewModels/MainViewModel.Selection.cs` | 트리·캔버스 선택 동기화 |
-| `ViewModels/MainViewModel.CanvasTabs.cs` | 탭 상태, `RebuildAll` (트리+캔버스 전체 재구성), `OnActiveTabChanged` |
+| `ViewModels/MainViewModel.CanvasTabs.cs` | 탭 상태, `RebuildAll` (트리+캔버스 전체 재구성), `OnActiveTabChanged` (탭 전환 시 노드/화살표 선택 자동 해제 포함) |
 | `ViewModels/MainViewModel.PropertiesPanel.cs` | 속성 패널 공용 Collections/Properties + ApplyWorkDuration + RefreshPropertyPanel + RequireSelectedAs + ShowOwnedDialog |
 | `ViewModels/MainViewModel.CallPanel.cs` | Call 속성 패널 — ApplyCallTimeout, ApiCall CRUD 5개, CallCondition CRUD 7개, RefreshCallPanel, ReloadConditions, 섹션 헬퍼 |
 | `ViewModels/MainViewModel.SystemPanel.cs` | System 속성 패널 — ApiDef CRUD 3개, RefreshSystemPanel, EditApiDefNode |

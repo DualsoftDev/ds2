@@ -170,9 +170,44 @@ public partial class MainViewModel
         if (selected.Count == 0)
             return;
 
-        var batchType = selected[0].EntityType;
-        selected = selected.Where(k => k.EntityType == batchType).ToList();
+        // 혼합 타입 복사 금지
+        var distinctTypes = selected.Select(k => k.EntityType).Distinct().ToList();
+        if (distinctTypes.Count > 1)
+        {
+            MessageBox.Show(
+                "같은 종류의 항목만 복사할 수 있습니다.",
+                "복사 불가",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
 
+        // 서로 다른 부모에 속한 항목 혼합 복사 금지 (다중 선택인 경우만)
+        if (selected.Count > 1)
+        {
+            var parents = new List<Guid?>();
+            foreach (var k in selected)
+            {
+                if (!TryEditorFunc(
+                        "GetEntityParentId",
+                        () => _editor.GetEntityParentId(k.EntityType, k.Id),
+                        out FSharpOption<Guid>? opt,
+                        fallback: null))
+                    return;
+                parents.Add(FSharpOption<Guid>.get_IsSome(opt) ? opt.Value : (Guid?)null);
+            }
+            if (parents.Distinct().Count() > 1)
+            {
+                MessageBox.Show(
+                    "서로 다른 위치에 있는 항목은 함께 복사할 수 없습니다.",
+                    "복사 불가",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+        }
+
+        var batchType = selected[0].EntityType;
         _clipboardSelection.Clear();
         var seen = new HashSet<SelectionKey>();
         foreach (var key in selected)
@@ -193,6 +228,19 @@ public partial class MainViewModel
             return;
 
         var batchType = _clipboardSelection[0].EntityType;
+
+        // Work/Call 붙여넣기 시 System이 선택된 경우 → Flow를 선택하도록 안내
+        if (EntityTypes.Is(target.Value.EntityType, EntityTypes.System)
+            && (EntityTypes.Is(batchType, EntityTypes.Work) || EntityTypes.Is(batchType, EntityTypes.Call)))
+        {
+            MessageBox.Show(
+                "붙여넣기 대상으로 Flow를 선택하세요.",
+                "붙여넣기 불가",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
         if (!TryEditorFunc(
                 "PasteEntities",
                 () => _editor.PasteEntities(

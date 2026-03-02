@@ -174,6 +174,7 @@ let private pasteCallToWork
             copyApiCalls exec sourceCall pastedCall.Id
             pastedCall, deviceState
 
+/// store에서 Flow 조회 → DeviceFlowCtx 구성 (Flow가 이미 store에 있는 경우에만 사용)
 let private makeDeviceFlowCtx (store: DsStore) (targetFlowId: Guid) : DeviceFlowCtx option =
     match DsQuery.getFlow targetFlowId store with
     | None -> None
@@ -190,12 +191,23 @@ let private makeDeviceFlowCtx (store: DsStore) (targetFlowId: Guid) : DeviceFlow
                 TargetFlowName = targetFlow.Name
             }
 
-let pasteWorkToFlow
+/// System에서 Project 역탐색 → DeviceFlowCtx 직접 구성
+/// pasteFlowToSystem에서 pastedFlow는 exec 후에도 store snapshot에 없으므로 이 오버로드를 사용
+let private makeDeviceFlowCtxDirect (store: DsStore) (targetSystemId: Guid) (targetFlowName: string) : DeviceFlowCtx option =
+    EntityHierarchyQueries.findProjectOfSystem store targetSystemId
+    |> Option.map (fun projectId ->
+        { Store = store; ProjectId = projectId; TargetFlowName = targetFlowName })
+
+/// deviceFlowCtxOpt를 외부에서 주입받아 DifferentFlow paste를 수행.
+/// pasteWorksToFlowBatch: makeDeviceFlowCtx store targetFlowId (store에 있는 Flow)
+/// pasteFlowToSystem: makeDeviceFlowCtxDirect (pastedFlow는 store에 없으므로 직접 구성)
+let private pasteWorkToFlow
     (exec: ExecFn)
     (store: DsStore)
     (sourceWork: Work)
     (targetFlowId: Guid)
     (deviceState: DevicePasteState)
+    (deviceFlowCtxOpt: DeviceFlowCtx option)
     : Work * Map<Guid, Guid> * DevicePasteState =
     let pastedWork = Work(sourceWork.Name, targetFlowId)
     exec(AddWork pastedWork)
@@ -206,12 +218,12 @@ let pasteWorkToFlow
 
     let isDifferentFlow = sourceWork.ParentId <> targetFlowId
     let context = if isDifferentFlow then DifferentFlow else DifferentWork
-    let deviceFlowCtxOpt = if isDifferentFlow then makeDeviceFlowCtx store targetFlowId else None
+    let ctxOpt = if isDifferentFlow then deviceFlowCtxOpt else None
 
     let callMap, finalDeviceState =
         DsQuery.callsOf sourceWork.Id store
         |> List.fold (fun (callMap, devState) sourceCall ->
-            let pastedCall, newDevState = pasteCallToWork exec context sourceCall pastedWork.Id devState deviceFlowCtxOpt
+            let pastedCall, newDevState = pasteCallToWork exec context sourceCall pastedWork.Id devState ctxOpt
             Map.add sourceCall.Id pastedCall.Id callMap, newDevState
         ) (Map.empty, deviceState)
 
@@ -221,13 +233,16 @@ let pasteFlowToSystem (exec: ExecFn) (store: DsStore) (sourceFlow: Flow) (target
     let pastedFlow = Flow(sourceFlow.Name, targetSystemId)
     exec(AddFlow pastedFlow)
 
+    // pastedFlow는 exec 후에도 store snapshot에 없으므로 DeviceFlowCtx를 직접 구성
+    let deviceFlowCtxOpt = makeDeviceFlowCtxDirect store targetSystemId pastedFlow.Name
+
     let sourceWorkArrows = DsQuery.arrowWorksOf sourceFlow.Id store
     let sourceCallArrows = DsQuery.arrowCallsOf sourceFlow.Id store
 
     let workMap, callMap, _ =
         DsQuery.worksOf sourceFlow.Id store
         |> List.fold (fun (workMap, callMap, devState) sourceWork ->
-            let pastedWork, localCallMap, newDevState = pasteWorkToFlow exec store sourceWork pastedFlow.Id devState
+            let pastedWork, localCallMap, newDevState = pasteWorkToFlow exec store sourceWork pastedFlow.Id devState deviceFlowCtxOpt
             let mergedCallMap = Map.fold (fun s k v -> Map.add k v s) callMap localCallMap
             Map.add sourceWork.Id pastedWork.Id workMap, mergedCallMap, newDevState
         ) (Map.empty<Guid, Guid>, Map.empty<Guid, Guid>, initialDevicePasteState)
@@ -270,10 +285,13 @@ let pasteWorksToFlowBatch (exec: ExecFn) (store: DsStore) (sourceWorks: Work lis
             selectedCallIds.Contains a.SourceId
             && selectedCallIds.Contains a.TargetId)
 
+    // targetFlow는 store에 이미 있으므로 makeDeviceFlowCtx로 정상 조회
+    let deviceFlowCtxOpt = makeDeviceFlowCtx store targetFlowId
+
     let workMap, callMap, pastedWorkIdsRev, _ =
         sourceWorks
         |> List.fold (fun (workMap, callMap, pastedWorkIdsRev, devState) sourceWork ->
-            let pastedWork, localCallMap, newDevState = pasteWorkToFlow exec store sourceWork targetFlowId devState
+            let pastedWork, localCallMap, newDevState = pasteWorkToFlow exec store sourceWork targetFlowId devState deviceFlowCtxOpt
             let mergedCallMap = Map.fold (fun s k v -> Map.add k v s) callMap localCallMap
             Map.add sourceWork.Id pastedWork.Id workMap, mergedCallMap, pastedWork.Id :: pastedWorkIdsRev, newDevState
         ) (Map.empty<Guid, Guid>, Map.empty<Guid, Guid>, [], initialDevicePasteState)
