@@ -29,6 +29,30 @@ type private DeviceFlowCtx = {
     TargetFlowName: string
 }
 
+// Arrow 재연결: sourceWorkArrows/sourceCallArrows를 id 매핑으로 변환해 exec
+let private replayArrows
+    (exec: ExecFn) (flowId: Guid)
+    (sourceWorkArrows: ArrowBetweenWorks list) (sourceCallArrows: ArrowBetweenCalls list)
+    (workMap: Map<Guid, Guid>) (callMap: Map<Guid, Guid>) =
+    for arrow in sourceWorkArrows do
+        match Map.tryFind arrow.SourceId workMap, Map.tryFind arrow.TargetId workMap with
+        | Some src, Some tgt -> exec(AddArrowWork(ArrowBetweenWorks(flowId, src, tgt, arrow.ArrowType)))
+        | _ -> ()
+    for arrow in sourceCallArrows do
+        match Map.tryFind arrow.SourceId callMap, Map.tryFind arrow.TargetId callMap with
+        | Some src, Some tgt -> exec(AddArrowCall(ArrowBetweenCalls(flowId, src, tgt, arrow.ArrowType)))
+        | _ -> ()
+
+// flowIds 내 모든 arrows 수집 → source/target 모두 selectedIds에 속하는 것만 반환
+let private collectArrowsWithinSet
+    (getArrows: Guid -> DsStore -> 'a list)
+    (getSourceId: 'a -> Guid) (getTargetId: 'a -> Guid)
+    (flowIds: Set<Guid>) (selectedIds: Set<Guid>) (store: DsStore) : 'a list =
+    flowIds
+    |> Set.toList
+    |> List.collect (fun flowId -> getArrows flowId store)
+    |> List.filter (fun a -> selectedIds.Contains(getSourceId a) && selectedIds.Contains(getTargetId a))
+
 let private isPassiveSystemId (store: DsStore) (systemId: Guid) : bool =
     DsQuery.allProjects store
     |> List.exists (fun p -> p.PassiveSystemIds.Contains(systemId))
@@ -247,17 +271,7 @@ let pasteFlowToSystem (exec: ExecFn) (store: DsStore) (sourceFlow: Flow) (target
             Map.add sourceWork.Id pastedWork.Id workMap, mergedCallMap, newDevState
         ) (Map.empty<Guid, Guid>, Map.empty<Guid, Guid>, initialDevicePasteState)
 
-    for arrow in sourceWorkArrows do
-        match Map.tryFind arrow.SourceId workMap, Map.tryFind arrow.TargetId workMap with
-        | Some src, Some tgt ->
-            exec(AddArrowWork(ArrowBetweenWorks(pastedFlow.Id, src, tgt, arrow.ArrowType)))
-        | _ -> ()
-
-    for arrow in sourceCallArrows do
-        match Map.tryFind arrow.SourceId callMap, Map.tryFind arrow.TargetId callMap with
-        | Some src, Some tgt ->
-            exec(AddArrowCall(ArrowBetweenCalls(pastedFlow.Id, src, tgt, arrow.ArrowType)))
-        | _ -> ()
+    replayArrows exec pastedFlow.Id sourceWorkArrows sourceCallArrows workMap callMap
 
     pastedFlow.Id
 
@@ -271,19 +285,9 @@ let pasteWorksToFlowBatch (exec: ExecFn) (store: DsStore) (sourceWorks: Work lis
     let sourceFlowIds = sourceWorks |> List.map (fun w -> w.ParentId) |> Set.ofList
 
     let sourceWorkArrows =
-        sourceFlowIds
-        |> Set.toList
-        |> List.collect (fun flowId -> DsQuery.arrowWorksOf flowId store)
-        |> List.filter (fun a ->
-            selectedWorkIds.Contains a.SourceId
-            && selectedWorkIds.Contains a.TargetId)
+        collectArrowsWithinSet DsQuery.arrowWorksOf (fun a -> a.SourceId) (fun a -> a.TargetId) sourceFlowIds selectedWorkIds store
     let sourceCallArrows =
-        sourceFlowIds
-        |> Set.toList
-        |> List.collect (fun flowId -> DsQuery.arrowCallsOf flowId store)
-        |> List.filter (fun a ->
-            selectedCallIds.Contains a.SourceId
-            && selectedCallIds.Contains a.TargetId)
+        collectArrowsWithinSet DsQuery.arrowCallsOf (fun a -> a.SourceId) (fun a -> a.TargetId) sourceFlowIds selectedCallIds store
 
     // targetFlow는 store에 이미 있으므로 makeDeviceFlowCtx로 정상 조회
     let deviceFlowCtxOpt = makeDeviceFlowCtx store targetFlowId
@@ -296,17 +300,7 @@ let pasteWorksToFlowBatch (exec: ExecFn) (store: DsStore) (sourceWorks: Work lis
             Map.add sourceWork.Id pastedWork.Id workMap, mergedCallMap, pastedWork.Id :: pastedWorkIdsRev, newDevState
         ) (Map.empty<Guid, Guid>, Map.empty<Guid, Guid>, [], initialDevicePasteState)
 
-    for arrow in sourceWorkArrows do
-        match Map.tryFind arrow.SourceId workMap, Map.tryFind arrow.TargetId workMap with
-        | Some src, Some tgt ->
-            exec(AddArrowWork(ArrowBetweenWorks(targetFlowId, src, tgt, arrow.ArrowType)))
-        | _ -> ()
-
-    for arrow in sourceCallArrows do
-        match Map.tryFind arrow.SourceId callMap, Map.tryFind arrow.TargetId callMap with
-        | Some src, Some tgt ->
-            exec(AddArrowCall(ArrowBetweenCalls(targetFlowId, src, tgt, arrow.ArrowType)))
-        | _ -> ()
+    replayArrows exec targetFlowId sourceWorkArrows sourceCallArrows workMap callMap
 
     pastedWorkIdsRev |> List.rev
 
@@ -317,12 +311,7 @@ let pasteCallsToWorkBatch (exec: ExecFn) (store: DsStore) (sourceCalls: Call lis
         |> List.choose (fun c -> DsQuery.getWork c.ParentId store |> Option.map (fun w -> w.ParentId))
         |> Set.ofList
     let sourceCallArrows =
-        sourceFlowIds
-        |> Set.toList
-        |> List.collect (fun flowId -> DsQuery.arrowCallsOf flowId store)
-        |> List.filter (fun a ->
-            selectedCallIds.Contains a.SourceId
-            && selectedCallIds.Contains a.TargetId)
+        collectArrowsWithinSet DsQuery.arrowCallsOf (fun a -> a.SourceId) (fun a -> a.TargetId) sourceFlowIds selectedCallIds store
     let targetFlowIdOpt =
         DsQuery.getWork targetWorkId store |> Option.map (fun w -> w.ParentId)
 

@@ -30,8 +30,16 @@ module DsQuery =
     let private byId (dict: System.Collections.Generic.Dictionary<Guid, 'T>) (id: Guid) : 'T option =
         match dict.TryGetValue(id) with true, v -> Some v | _ -> None
 
+    let private allOf (dict: System.Collections.Generic.IReadOnlyDictionary<Guid, 'T>) : 'T list =
+        dict.Values |> Seq.toList
+
     let private childrenOf (values: seq<'T>) (parentId: Guid) (getParent: 'T -> Guid) : 'T list =
         values |> Seq.filter (fun x -> getParent x = parentId) |> Seq.toList
+
+    let private orderedSystemsOf (getIds: Project -> seq<Guid>) (projectId: Guid) (store: DsStore) : DsSystem list =
+        match store.Projects.TryGetValue(projectId) with
+        | true, project -> getIds project |> Seq.choose (fun id -> byId store.Systems id) |> Seq.toList
+        | false, _      -> []
 
     // ─────────────────────────────────────────────────────────────────────────
     // Project 쿼리
@@ -41,8 +49,7 @@ module DsQuery =
     let getProject (id: Guid) (store: DsStore) = byId store.Projects id
 
     /// <summary>모든 Project 조회</summary>
-    let allProjects (store: DsStore) : Project list =
-        store.ProjectsReadOnly.Values |> Seq.toList
+    let allProjects (store: DsStore) : Project list = allOf store.ProjectsReadOnly
 
     // ─────────────────────────────────────────────────────────────────────────
     // DsSystem 쿼리
@@ -52,26 +59,15 @@ module DsQuery =
     let getSystem (id: Guid) (store: DsStore) = byId store.Systems id
 
     /// <summary>모든 DsSystem 조회</summary>
-    let allSystems (store: DsStore) : DsSystem list =
-        store.SystemsReadOnly.Values |> Seq.toList
+    let allSystems (store: DsStore) : DsSystem list = allOf store.SystemsReadOnly
 
     /// <summary>특정 Project의 ActiveSystem 목록 조회 (순서 유지)</summary>
     let activeSystemsOf (projectId: Guid) (store: DsStore) : DsSystem list =
-        match store.Projects.TryGetValue(projectId) with
-        | true, project ->
-            project.ActiveSystemIds
-            |> Seq.choose (fun id -> getSystem id store)
-            |> Seq.toList
-        | false, _ -> []
+        orderedSystemsOf (fun p -> p.ActiveSystemIds) projectId store
 
     /// <summary>특정 Project의 PassiveSystem 목록 조회 (순서 유지)</summary>
     let passiveSystemsOf (projectId: Guid) (store: DsStore) : DsSystem list =
-        match store.Projects.TryGetValue(projectId) with
-        | true, project ->
-            project.PassiveSystemIds
-            |> Seq.choose (fun id -> getSystem id store)
-            |> Seq.toList
-        | false, _ -> []
+        orderedSystemsOf (fun p -> p.PassiveSystemIds) projectId store
 
     /// <summary>특정 Project의 모든 System 조회 (Active + Passive, 순서 유지)</summary>
     let projectSystemsOf (projectId: Guid) (store: DsStore) : DsSystem list =
@@ -85,8 +81,7 @@ module DsQuery =
     let getFlow (id: Guid) (store: DsStore) = byId store.Flows id
 
     /// <summary>모든 Flow 조회</summary>
-    let allFlows (store: DsStore) : Flow list =
-        store.FlowsReadOnly.Values |> Seq.toList
+    let allFlows (store: DsStore) : Flow list = allOf store.FlowsReadOnly
 
     /// <summary>특정 DsSystem에 속한 Flow들 조회</summary>
     let flowsOf (systemId: Guid) (store: DsStore) : Flow list =
@@ -100,8 +95,7 @@ module DsQuery =
     let getWork (id: Guid) (store: DsStore) = byId store.Works id
 
     /// <summary>모든 Work 조회</summary>
-    let allWorks (store: DsStore) : Work list =
-        store.WorksReadOnly.Values |> Seq.toList
+    let allWorks (store: DsStore) : Work list = allOf store.WorksReadOnly
 
     /// <summary>특정 Flow에 속한 Work들 조회</summary>
     let worksOf (flowId: Guid) (store: DsStore) : Work list =
@@ -115,8 +109,7 @@ module DsQuery =
     let getCall (id: Guid) (store: DsStore) = byId store.Calls id
 
     /// <summary>모든 Call 조회</summary>
-    let allCalls (store: DsStore) : Call list =
-        store.CallsReadOnly.Values |> Seq.toList
+    let allCalls (store: DsStore) : Call list = allOf store.CallsReadOnly
 
     /// <summary>특정 Work에 속한 Call들 조회</summary>
     let callsOf (workId: Guid) (store: DsStore) : Call list =
@@ -130,8 +123,7 @@ module DsQuery =
     let getApiDef (id: Guid) (store: DsStore) = byId store.ApiDefs id
 
     /// <summary>모든 ApiDef 조회</summary>
-    let allApiDefs (store: DsStore) : ApiDef list =
-        store.ApiDefsReadOnly.Values |> Seq.toList
+    let allApiDefs (store: DsStore) : ApiDef list = allOf store.ApiDefsReadOnly
 
     /// <summary>특정 DsSystem에 속한 ApiDef들 조회</summary>
     let apiDefsOf (systemId: Guid) (store: DsStore) : ApiDef list =
@@ -145,8 +137,7 @@ module DsQuery =
     let getApiCall (id: Guid) (store: DsStore) = byId store.ApiCalls id
 
     /// <summary>모든 ApiCall 조회</summary>
-    let allApiCalls (store: DsStore) : ApiCall list =
-        store.ApiCallsReadOnly.Values |> Seq.toList
+    let allApiCalls (store: DsStore) : ApiCall list = allOf store.ApiCallsReadOnly
 
     // ─────────────────────────────────────────────────────────────────────────
     // ArrowBetweenWorks 쿼리
@@ -156,8 +147,7 @@ module DsQuery =
     let getArrowWork (id: Guid) (store: DsStore) = byId store.ArrowWorks id
 
     /// <summary>모든 ArrowBetweenWorks 조회</summary>
-    let allArrowWorks (store: DsStore) : ArrowBetweenWorks list =
-        store.ArrowWorksReadOnly.Values |> Seq.toList
+    let allArrowWorks (store: DsStore) : ArrowBetweenWorks list = allOf store.ArrowWorksReadOnly
 
     /// <summary>특정 Flow에 속한 ArrowBetweenWorks 조회</summary>
     let arrowWorksOf (flowId: Guid) (store: DsStore) : ArrowBetweenWorks list =
@@ -171,8 +161,7 @@ module DsQuery =
     let getArrowCall (id: Guid) (store: DsStore) = byId store.ArrowCalls id
 
     /// <summary>모든 ArrowBetweenCalls 조회</summary>
-    let allArrowCalls (store: DsStore) : ArrowBetweenCalls list =
-        store.ArrowCallsReadOnly.Values |> Seq.toList
+    let allArrowCalls (store: DsStore) : ArrowBetweenCalls list = allOf store.ArrowCallsReadOnly
 
     /// <summary>특정 Flow에 속한 ArrowBetweenCalls 조회</summary>
     let arrowCallsOf (flowId: Guid) (store: DsStore) : ArrowBetweenCalls list =
@@ -186,8 +175,7 @@ module DsQuery =
     let getButton (id: Guid) (store: DsStore) = byId store.HwButtons id
 
     /// <summary>모든 HwButton 조회</summary>
-    let allButtons (store: DsStore) : HwButton list =
-        store.HwButtonsReadOnly.Values |> Seq.toList
+    let allButtons (store: DsStore) : HwButton list = allOf store.HwButtonsReadOnly
 
     /// <summary>특정 DsSystem에 속한 HwButton들 조회</summary>
     let buttonsOf (systemId: Guid) (store: DsStore) : HwButton list =
@@ -201,8 +189,7 @@ module DsQuery =
     let getLamp (id: Guid) (store: DsStore) = byId store.HwLamps id
 
     /// <summary>모든 HwLamp 조회</summary>
-    let allLamps (store: DsStore) : HwLamp list =
-        store.HwLampsReadOnly.Values |> Seq.toList
+    let allLamps (store: DsStore) : HwLamp list = allOf store.HwLampsReadOnly
 
     /// <summary>특정 DsSystem에 속한 HwLamp들 조회</summary>
     let lampsOf (systemId: Guid) (store: DsStore) : HwLamp list =
@@ -216,8 +203,7 @@ module DsQuery =
     let getCondition (id: Guid) (store: DsStore) = byId store.HwConditions id
 
     /// <summary>모든 HwCondition 조회</summary>
-    let allConditions (store: DsStore) : HwCondition list =
-        store.HwConditionsReadOnly.Values |> Seq.toList
+    let allConditions (store: DsStore) : HwCondition list = allOf store.HwConditionsReadOnly
 
     /// <summary>특정 DsSystem에 속한 HwCondition들 조회</summary>
     let conditionsOf (systemId: Guid) (store: DsStore) : HwCondition list =
@@ -231,8 +217,7 @@ module DsQuery =
     let getAction (id: Guid) (store: DsStore) = byId store.HwActions id
 
     /// <summary>모든 HwAction 조회</summary>
-    let allActions (store: DsStore) : HwAction list =
-        store.HwActionsReadOnly.Values |> Seq.toList
+    let allActions (store: DsStore) : HwAction list = allOf store.HwActionsReadOnly
 
     /// <summary>특정 DsSystem에 속한 HwAction들 조회</summary>
     let actionsOf (systemId: Guid) (store: DsStore) : HwAction list =
