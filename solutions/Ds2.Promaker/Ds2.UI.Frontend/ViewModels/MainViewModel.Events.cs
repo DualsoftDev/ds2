@@ -46,7 +46,7 @@ public partial class MainViewModel
                 fallback: null))
             return;
 
-        if (FSharpOption<Guid>.get_IsSome(addedIdOpt))
+        if (HasOptionValue(addedIdOpt))
         {
             RebuildAll();
             ExpandNodeAndAncestors(addedIdOpt!.Value);

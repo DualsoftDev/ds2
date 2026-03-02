@@ -27,6 +27,31 @@ let buildApiCall
 let private withCall (store: DsStore) (callId: Guid) (f: Call -> 'a option) : 'a option =
     DsQuery.getCall callId store |> Option.bind f
 
+let private tryFindCondition (call: Call) (conditionId: Guid) : CallCondition option =
+    call.CallConditions |> Seq.tryFind (fun c -> c.Id = conditionId)
+
+let private withCondition
+    (store: DsStore)
+    (callId: Guid)
+    (conditionId: Guid)
+    (f: Call -> CallCondition -> 'a option)
+    : 'a option =
+    withCall store callId (fun call ->
+        tryFindCondition call conditionId
+        |> Option.bind (fun cond -> f call cond))
+
+let private withConditionApiCall
+    (store: DsStore)
+    (callId: Guid)
+    (conditionId: Guid)
+    (apiCallId: Guid)
+    (f: CallCondition -> ApiCall -> 'a option)
+    : 'a option =
+    withCondition store callId conditionId (fun _ cond ->
+        cond.Conditions
+        |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
+        |> Option.bind (fun ac -> f cond ac))
+
 let private buildPropsUpdate<'props>
     (copy: unit -> 'props)
     (mutate: 'props -> unit)
@@ -44,28 +69,46 @@ let getWorkDurationText (store: DsStore) (workId: Guid) : string =
         | None -> ""
     | None -> ""
 
-/// parse 실패 → (false, None) / 변경 없음 → (true, None) / 변경 → (true, Some cmd)
-let tryBuildUpdateWorkDurationCmd (store: DsStore) (workId: Guid) (durationText: string) : bool * EditorCommand option =
-    let parsedOpt =
-        if String.IsNullOrWhiteSpace(durationText) then Some None
-        else
-            match TimeSpan.TryParse(durationText.Trim(), CultureInfo.InvariantCulture) with
-            | true, d -> Some(Some d)
-            | _ -> None
+let private parseDurationText (durationText: string) : TimeSpan option option =
+    if String.IsNullOrWhiteSpace(durationText) then Some None
+    else
+        match TimeSpan.TryParse(durationText.Trim(), CultureInfo.InvariantCulture) with
+        | true, d -> Some(Some d)
+        | _ -> None
+
+let private parseTimeoutText (msText: string) : TimeSpan option option =
+    if String.IsNullOrWhiteSpace(msText) then Some None
+    else
+        match Int32.TryParse(msText.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture) with
+        | true, ms when ms >= 0 -> Some(Some(TimeSpan.FromMilliseconds(float ms)))
+        | _ -> None
+
+let private tryBuildOptionalPropsUpdateCmd<'entity, 'value when 'value : equality>
+    (entityOpt: 'entity option)
+    (parsedOpt: 'value option option)
+    (current: 'entity -> 'value option)
+    (mkCmd: 'entity -> 'value option -> EditorCommand)
+    : bool * EditorCommand option =
     match parsedOpt with
     | None -> false, None
-    | Some parsedDuration ->
-        match DsQuery.getWork workId store with
+    | Some parsed ->
+        match entityOpt with
         | None -> false, None
-        | Some work ->
-            if work.Properties.Duration = parsedDuration then true, None
-            else
-                let cmd =
-                    buildPropsUpdate
-                        work.Properties.DeepCopy
-                        (fun props -> props.Duration <- parsedDuration)
-                        (fun oldProps next -> UpdateWorkProps(workId, oldProps, next))
-                true, Some cmd
+        | Some entity ->
+            if current entity = parsed then true, None
+            else true, Some(mkCmd entity parsed)
+
+/// parse 실패 → (false, None) / 변경 없음 → (true, None) / 변경 → (true, Some cmd)
+let tryBuildUpdateWorkDurationCmd (store: DsStore) (workId: Guid) (durationText: string) : bool * EditorCommand option =
+    tryBuildOptionalPropsUpdateCmd
+        (DsQuery.getWork workId store)
+        (parseDurationText durationText)
+        (fun work -> work.Properties.Duration)
+        (fun work parsedDuration ->
+            buildPropsUpdate
+                work.Properties.DeepCopy
+                (fun props -> props.Duration <- parsedDuration)
+                (fun oldProps next -> UpdateWorkProps(workId, oldProps, next)))
 
 let getCallTimeoutText (store: DsStore) (callId: Guid) : string =
     match DsQuery.getCall callId store with
@@ -77,26 +120,15 @@ let getCallTimeoutText (store: DsStore) (callId: Guid) : string =
 
 /// parse 실패 → (false, None) / 변경 없음 → (true, None) / 변경 → (true, Some cmd)
 let tryBuildUpdateCallTimeoutCmd (store: DsStore) (callId: Guid) (msText: string) : bool * EditorCommand option =
-    let parsedOpt =
-        if String.IsNullOrWhiteSpace(msText) then Some None
-        else
-            match Int32.TryParse(msText.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture) with
-            | true, ms when ms >= 0 -> Some(Some(TimeSpan.FromMilliseconds(float ms)))
-            | _ -> None
-    match parsedOpt with
-    | None -> false, None
-    | Some parsedTimeout ->
-        match DsQuery.getCall callId store with
-        | None -> false, None
-        | Some call ->
-            if call.Properties.Timeout = parsedTimeout then true, None
-            else
-                let cmd =
-                    buildPropsUpdate
-                        call.Properties.DeepCopy
-                        (fun props -> props.Timeout <- parsedTimeout)
-                        (fun oldProps next -> UpdateCallProps(callId, oldProps, next))
-                true, Some cmd
+    tryBuildOptionalPropsUpdateCmd
+        (DsQuery.getCall callId store)
+        (parseTimeoutText msText)
+        (fun call -> call.Properties.Timeout)
+        (fun call parsedTimeout ->
+            buildPropsUpdate
+                call.Properties.DeepCopy
+                (fun props -> props.Timeout <- parsedTimeout)
+                (fun oldProps next -> UpdateCallProps(callId, oldProps, next)))
 
 let getApiDefsForSystem (store: DsStore) (systemId: Guid) : ApiDefPanelItem list =
     DsQuery.apiDefsOf systemId store
@@ -182,28 +214,23 @@ let getCallConditionsForPanel (store: DsStore) (callId: Guid) : CallConditionPan
         |> Seq.toList
 
 let buildAddCallConditionCmd (store: DsStore) (callId: Guid) (conditionType: CallConditionType) : EditorCommand option =
-    withCall store callId (fun _ ->
+    DsQuery.getCall callId store |> Option.map (fun _ ->
         let cond = CallCondition(Type = Some conditionType)
-        Some(AddCallCondition(callId, cond)))
+        AddCallCondition(callId, cond))
 
 let buildRemoveCallConditionCmd (store: DsStore) (callId: Guid) (conditionId: Guid) : EditorCommand option =
-    withCall store callId (fun call ->
-        call.CallConditions
-        |> Seq.tryFind (fun c -> c.Id = conditionId)
-        |> Option.map (fun cond -> RemoveCallCondition(callId, cond)))
+    withCondition store callId conditionId (fun _ cond ->
+        Some(RemoveCallCondition(callId, cond)))
 
 let buildUpdateCallConditionSettingsCmd
     (store: DsStore) (callId: Guid) (conditionId: Guid)
     (newIsOR: bool) (newIsRising: bool) : EditorCommand option =
-    withCall store callId (fun call ->
-        call.CallConditions
-        |> Seq.tryFind (fun c -> c.Id = conditionId)
-        |> Option.bind (fun cond ->
-            if cond.IsOR = newIsOR && cond.IsRising = newIsRising then None
-            else
-                Some(UpdateCallConditionSettings(
-                    callId, conditionId,
-                    cond.IsOR, newIsOR, cond.IsRising, newIsRising))))
+    withCondition store callId conditionId (fun _ cond ->
+        if cond.IsOR = newIsOR && cond.IsRising = newIsRising then None
+        else
+            Some(UpdateCallConditionSettings(
+                callId, conditionId,
+                cond.IsOR, newIsOR, cond.IsRising, newIsRising)))
 
 /// store.ApiCalls 전체에서 ApiCall 목록 반환 (조건 ApiCall 선택 등 전역 목록 필요 시 사용)
 let getAllApiCallsForPanel (store: DsStore) : CallApiCallPanelItem list =
@@ -241,31 +268,20 @@ let buildAddApiCallsToConditionBatchCmd
 
 let buildRemoveApiCallFromConditionCmd
     (store: DsStore) (callId: Guid) (conditionId: Guid) (apiCallId: Guid) : EditorCommand option =
-    withCall store callId (fun call ->
-        call.CallConditions
-        |> Seq.tryFind (fun c -> c.Id = conditionId)
-        |> Option.bind (fun cond ->
-            cond.Conditions
-            |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
-            |> Option.map (fun ac -> RemoveApiCallFromCondition(callId, conditionId, ac))))
+    withConditionApiCall store callId conditionId apiCallId (fun _ ac ->
+        Some(RemoveApiCallFromCondition(callId, conditionId, ac)))
 
 let buildUpdateConditionApiCallOutputSpecCmd
     (store: DsStore) (callId: Guid) (conditionId: Guid)
     (apiCallId: Guid) (newSpecText: string) : EditorCommand option =
-    withCall store callId (fun call ->
-        call.CallConditions
-        |> Seq.tryFind (fun c -> c.Id = conditionId)
-        |> Option.bind (fun cond ->
-            cond.Conditions
-            |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
-            |> Option.bind (fun ac ->
-                match PropertyPanelValueSpec.tryParseAs ac.OutputSpec newSpecText with
-                | None -> None
-                | Some newSpec ->
-                    if ac.OutputSpec = newSpec then None
-                    else
-                        Some(UpdateConditionApiCallOutputSpec(
-                            callId, conditionId, apiCallId, ac.OutputSpec, newSpec)))))
+    withConditionApiCall store callId conditionId apiCallId (fun _ ac ->
+        match PropertyPanelValueSpec.tryParseAs ac.OutputSpec newSpecText with
+        | None -> None
+        | Some newSpec ->
+            if ac.OutputSpec = newSpec then None
+            else
+                Some(UpdateConditionApiCallOutputSpec(
+                    callId, conditionId, apiCallId, ac.OutputSpec, newSpec)))
 
 /// AddApiCall 커맨드 빌드 → Some (newApiCallId, cmd) or None
 let buildAddApiCallCmd (store: DsStore) (callId: Guid) (apiDefId: Guid) (apiCallName: string) (outputAddress: string) (inputAddress: string) (valueSpecText: string) (inputValueSpecText: string) : (Guid * EditorCommand) option =

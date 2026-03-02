@@ -30,9 +30,8 @@ let buildRemoveProjectCmd (store: DsStore) (projectId: Guid) : EditorCommand =
 let buildRemoveSystemCmd (store: DsStore) (systemId: Guid) : EditorCommand =
     let system = DsQuery.getSystem systemId store |> requireEntity "System" systemId
     let project =
-        DsQuery.allProjects store
-        |> List.tryFind (fun p ->
-            p.ActiveSystemIds.Contains(systemId) || p.PassiveSystemIds.Contains(systemId))
+        EntityHierarchyQueries.findProjectOfSystem store systemId
+        |> Option.bind (fun pid -> DsQuery.getProject pid store)
         |> Option.defaultWith (fun () ->
             invalidOp $"Cannot remove system {systemId}: owner project was not found.")
     let isActive = project.ActiveSystemIds.Contains(systemId)

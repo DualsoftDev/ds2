@@ -6,8 +6,9 @@ open log4net
 
 // =============================================================================
 // EditorApi — UI의 편집(쓰기) 명령 진입점
+// 서브-API 클래스(Query/Nodes/Arrows/Panel)를 통해 도메인별 접근 제공.
 // =============================================================================
-type EditorApi(store: DsStore, ?maxUndoSize: int) =
+type EditorApi(store: DsStore, ?maxUndoSize: int) as this =
     let log = LogManager.GetLogger(typedefof<EditorApi>)
     let undoManager = UndoRedoManager(defaultArg maxUndoSize 100)
     let eventBus = Event<EditorEvent>()
@@ -23,6 +24,33 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
                 if List.isEmpty errors then "Unknown validation failure"
                 else String.concat " | " errors
             invalidOp $"Store validation failed ({context}): {message}"
+
+    // --- 서브-API 초기화: ref 패턴으로 지연 바인딩 ---
+    // let 바인딩 단계에서 this.Exec/BatchExec를 직접 참조할 수 없으므로
+    // ref를 통해 do 블록에서 실제 함수로 연결한다.
+    let execRef      : ExecFn ref         = ref (fun _ -> ())
+    let batchExecRef : BatchExecFn ref    = ref (fun _ _ -> ())
+    let execOptRef   : (EditorCommand option -> bool) ref = ref (fun _ -> false)
+    let applyTryRef  : ((bool * EditorCommand option) -> bool) ref = ref (fun _ -> false)
+
+    let query  = EditorQueryApi(store)
+    let nodes  = EditorNodeApi(store,
+                     (fun cmd  -> execRef.Value cmd),
+                     (fun l a  -> batchExecRef.Value l a))
+    let arrows = EditorArrowApi(store,
+                     (fun cmd  -> execRef.Value cmd),
+                     (fun l a  -> batchExecRef.Value l a))
+    let panel  = EditorPanelApi(store,
+                     (fun cmd  -> execRef.Value cmd),
+                     (fun cmdOpt -> execOptRef.Value cmdOpt),
+                     (fun r    -> applyTryRef.Value r))
+
+    // do 블록: 서브-API에 주입한 ref를 실제 구현으로 연결
+    do
+        execRef.Value      <- fun cmd    -> this.ExecuteCommand(cmd)
+        batchExecRef.Value <- fun label action -> this.ExecBatch(label, action)
+        execOptRef.Value   <- fun cmdOpt -> this.ExecOpt(cmdOpt)
+        applyTryRef.Value  <- fun result -> this.ApplyTryBuildResult(result)
 
     // --- 이벤트 ---
     member _.OnEvent = eventBus.Publish
@@ -56,6 +84,9 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         | HwComponentRemoved _ -> true
         | _ -> false
 
+    // --- 내부: store 접근 ---
+    member internal _.Store = store
+
     // --- 내부: 명령 실행 공통 ---
     member private _.PublishCommandResult(cmd: EditorCommand, events: EditorEvent list) =
         if not suppressEvents then
@@ -87,8 +118,14 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     member private this.ExecOpt(cmdOpt: EditorCommand option) =
         match cmdOpt with Some cmd -> this.Exec cmd; true | None -> false
 
+    member private this.ApplyTryBuildResult(result: bool * EditorCommand option) : bool =
+        match result with
+        | false, _ -> false
+        | true, Some cmd -> this.Exec cmd; true
+        | true, None -> true
+
     /// 여러 exec 호출을 하나의 Composite으로 묶어 Undo 1회를 보장한다.
-    member internal this.ExecBatch(label: string, action: PasteOps.ExecFn -> 'a) : 'a =
+    member internal this.ExecBatch(label: string, action: ExecFn -> 'a) : 'a =
         let buffer = ResizeArray<EditorCommand>()
         let bufExec (cmd: EditorCommand) = buffer.Add(cmd)
         let result = action bufExec
@@ -98,282 +135,13 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
         | cmds     -> this.Exec(Composite(label, cmds))
         result
 
-    /// 사전에 빌드된 command 목록을 단일 Undo 단위로 실행. 실행된 개수 반환.
-    member private this.ExecBatch(label: string, commands: EditorCommand list) : int =
-        this.ExecBatch(label, fun exec -> commands |> List.iter exec; commands.Length)
-
     // =====================================================================
-    // Project API
+    // 서브-API 인스턴스 — 도메인별 접근 진입점
     // =====================================================================
-    member internal this.AddProject(name: string) : Project =
-        let project = Project(name)
-        this.Exec(AddProject project)
-        project
-
-    member this.AddProjectAndGetId(name: string) : Guid =
-        (this.AddProject name).Id
-
-
-    // =====================================================================
-    // System API
-    // =====================================================================
-    member internal this.AddSystem(name: string, projectId: Guid, isActive: bool) : DsSystem =
-        let system = DsSystem(name)
-        this.Exec(AddSystem(system, projectId, isActive))
-        system
-
-    member this.AddSystemAndGetId(name: string, projectId: Guid, isActive: bool) : Guid =
-        (this.AddSystem(name, projectId, isActive)).Id
-
-
-    // =====================================================================
-    // Flow API
-    // =====================================================================
-    member internal this.AddFlow(name: string, systemId: Guid) : Flow =
-        let flow = Flow(name, systemId)
-        this.Exec(AddFlow flow)
-        flow
-
-    member this.AddFlowAndGetId(name: string, systemId: Guid) : Guid =
-        (this.AddFlow(name, systemId)).Id
-
-
-    // =====================================================================
-    // Work API
-    // =====================================================================
-    member internal this.AddWork(name: string, flowId: Guid) : Work =
-        let work = Work(name, flowId)
-        this.Exec(AddWork work)
-        work
-
-    member this.AddWorkAndGetId(name: string, flowId: Guid) : Guid =
-        (this.AddWork(name, flowId)).Id
-
-
-    member this.MoveEntities(requests: seq<MoveEntityRequest>) : int =
-        this.ExecBatch("Move Selected Nodes", RemoveOps.buildMoveEntitiesCmds store requests)
-
-    // =====================================================================
-    // Query / Projection API for UI
-    // =====================================================================
-    member _.BuildTrees() : TreeNodeInfo list * TreeNodeInfo list =
-        TreeProjection.buildTrees store
-
-    member _.CanvasContentForTab(kind: TabKind, rootId: Guid) : CanvasContent =
-        CanvasProjection.canvasContentForTab store kind rootId
-
-    member _.TryOpenTabForEntity(entityType: string, entityId: Guid) : TabOpenInfo option =
-        EntityHierarchyQueries.tryOpenTabForEntity store entityType entityId
-
-    member _.FlowIdsForTab(kind: TabKind, rootId: Guid) : Guid list =
-        EntityHierarchyQueries.flowIdsForTab store kind rootId
-
-    member _.TabExists(kind: TabKind, rootId: Guid) : bool =
-        EntityHierarchyQueries.tabExists store kind rootId
-
-    member _.TabTitle(kind: TabKind, rootId: Guid) : string option =
-        EntityHierarchyQueries.tabTitle store kind rootId
-
-    member _.TryFindProjectIdForEntity(entityType: string, entityId: Guid) : Guid option =
-        EntityHierarchyQueries.tryFindProjectIdForEntity store entityType entityId
-
-    member _.GetEntityParentId(entityType: string, entityId: Guid) : Guid option =
-        EntityHierarchyQueries.parentIdOf store entityType entityId
-
-    member _.FindApiDefsByName(filterName: string) : ApiDefMatch list =
-        EntityHierarchyQueries.findApiDefs store "" filterName
-
-    member _.TryResolveAddSystemTarget
-        (selectedEntityType: string option)
-        (selectedEntityId: Guid option)
-        (activeTabKind: TabKind option)
-        (activeTabRootId: Guid option)
-        : Guid option =
-        AddTargetQueries.tryResolveAddSystemTarget store selectedEntityType selectedEntityId activeTabKind activeTabRootId
-
-    member _.TryResolveAddFlowTarget
-        (selectedEntityType: string option)
-        (selectedEntityId: Guid option)
-        (activeTabKind: TabKind option)
-        (activeTabRootId: Guid option)
-        : Guid option =
-        AddTargetQueries.tryResolveAddFlowTarget store selectedEntityType selectedEntityId activeTabKind activeTabRootId
-
-    // =====================================================================
-    // Call API
-    // =====================================================================
-    /// Call 목록을 한 번에 추가한다.
-    /// callNames: 각 항목은 "devAlias.apiName" 형식.
-    /// createDeviceSystem=true 이면 Passive System / Flow / Work / ApiDef / ApiCall 을 자동 생성 또는 재사용한다.
-    member this.AddCallsWithDevice
-        (projectId: Guid)
-        (workId: Guid)
-        (callNames: string seq)
-        (createDeviceSystem: bool)
-        =
-        this.ExecBatch("Add Calls", DeviceOps.buildAddCallsWithDeviceCmds store projectId workId (callNames |> Seq.toList) createDeviceSystem) |> ignore
-
-    member internal this.AddCallWithLinkedApiDefs
-        (workId: Guid)
-        (devicesAlias: string)
-        (apiName: string)
-        (apiDefIds: Guid seq)
-        : Call =
-        let call, cmd = DeviceOps.buildAddCallWithLinkedApiDefsCmd store workId devicesAlias apiName apiDefIds
-        this.Exec cmd
-        call
-
-    member this.AddCallWithLinkedApiDefsAndGetId
-        (workId: Guid)
-        (devicesAlias: string)
-        (apiName: string)
-        (apiDefIds: Guid seq)
-        : Guid =
-        (this.AddCallWithLinkedApiDefs workId devicesAlias apiName apiDefIds).Id
-
-
-    // =====================================================================
-    // Arrow API
-    // =====================================================================
-    /// Flow 내 모든 화살표의 경로를 일괄 계산 (C# 렌더링용)
-    member _.GetFlowArrowPaths(flowId: Guid) : Map<Guid, ArrowPathCalculator.ArrowVisual> =
-        ArrowPathCalculator.computeFlowArrowPaths store flowId
-
-    member this.RemoveArrows(arrowIds: seq<Guid>) : int =
-        this.ExecBatch("Delete Arrows", ArrowOps.buildRemoveArrowsCmds store arrowIds)
-
-    member this.ReconnectArrow(arrowId: Guid, replaceSource: bool, newEndpointId: Guid) : bool =
-        this.ExecOpt(ArrowOps.tryResolveReconnectArrowCmd store arrowId replaceSource newEndpointId)
-
-    /// Ordered node selection (Work/Call) -> sequential arrow connect.
-    /// Returns number of arrows actually created.
-    member this.ConnectSelectionInOrder(orderedNodeIds: seq<Guid>, ?arrowType: ArrowType) : int =
-        let connectArrowType = defaultArg arrowType ArrowType.Start
-        this.ExecBatch("Connect Selected Nodes In Order", ArrowOps.buildConnectSelectionCmds store orderedNodeIds connectArrowType)
-
-    // =====================================================================
-    // ApiDef API
-    // =====================================================================
-    member internal this.AddApiDef(name: string, systemId: Guid) : ApiDef =
-        let apiDef = ApiDef(name, systemId)
-        this.Exec(AddApiDef apiDef)
-        apiDef
-
-    member this.AddApiDefAndGetId(name: string, systemId: Guid) : Guid =
-        (this.AddApiDef(name, systemId)).Id
-
-
-    member this.UpdateApiDefProperties
-        (apiDefId: Guid, isPush: bool,
-         txGuid: Nullable<Guid>, rxGuid: Nullable<Guid>,
-         duration: int, description: string) =
-        this.Exec(PanelOps.buildUpdateApiDefPropertiesCmd store apiDefId isPush txGuid rxGuid duration description)
-
-    // =====================================================================
-    // ApiCall API (Call 내부 ApiCall 관리)
-    // =====================================================================
-    member this.RemoveApiCallFromCall(callId: Guid, apiCallId: Guid) =
-        this.Exec(PanelOps.buildRemoveApiCallFromCallCmd store callId apiCallId)
-
-    // =====================================================================
-    // Property Panel API
-    // =====================================================================
-    member _.GetWorkDurationText(workId: Guid) : string =
-        PanelOps.getWorkDurationText store workId
-
-    member this.TryUpdateWorkDuration(workId: Guid, durationText: string) : bool =
-        match PanelOps.tryBuildUpdateWorkDurationCmd store workId durationText with
-        | false, _ -> false
-        | true, Some cmd -> this.Exec cmd; true
-        | true, None -> true
-
-    member _.GetCallTimeoutText(callId: Guid) : string =
-        PanelOps.getCallTimeoutText store callId
-
-    member this.TryUpdateCallTimeout(callId: Guid, msText: string) : bool =
-        match PanelOps.tryBuildUpdateCallTimeoutCmd store callId msText with
-        | false, _ -> false
-        | true, Some cmd -> this.Exec cmd; true
-        | true, None     -> true
-
-    member _.GetApiDefsForSystem(systemId: Guid) : ApiDefPanelItem list =
-        PanelOps.getApiDefsForSystem store systemId
-
-    member _.GetWorksForSystem(systemId: Guid) : WorkDropdownItem list =
-        PanelOps.getWorksForSystem store systemId
-
-    member _.GetApiDefParentSystemId(apiDefId: Guid) : Guid option =
-        PanelOps.getApiDefParentSystemId store apiDefId
-
-    member _.GetDeviceApiDefOptionsForCall(callId: Guid) : DeviceApiDefOption list =
-        PanelOps.getDeviceApiDefOptionsForCall store callId
-
-    member _.GetCallApiCallsForPanel(callId: Guid) : CallApiCallPanelItem list =
-        PanelOps.getCallApiCallsForPanel store callId
-
-    member _.GetAllApiCallsForPanel() : CallApiCallPanelItem list =
-        PanelOps.getAllApiCallsForPanel store
-
-    member this.AddApiCallFromPanel(callId: Guid, apiDefId: Guid, apiCallName: string, outputAddress: string, inputAddress: string, valueSpecText: string, inputValueSpecText: string) : Guid option =
-        match PanelOps.buildAddApiCallCmd store callId apiDefId apiCallName outputAddress inputAddress valueSpecText inputValueSpecText with
-        | Some (newId, cmd) -> this.Exec cmd; Some newId
-        | None -> None
-
-    member this.UpdateApiCallFromPanel(callId: Guid, apiCallId: Guid, apiDefId: Guid, apiCallName: string, outputAddress: string, inputAddress: string, outputTypeIndex: int, valueSpecText: string, inputTypeIndex: int, inputValueSpecText: string) : bool =
-        this.ExecOpt(PanelOps.buildUpdateApiCallCmd store callId apiCallId apiDefId apiCallName outputAddress inputAddress outputTypeIndex valueSpecText inputTypeIndex inputValueSpecText)
-
-    member _.GetCallConditionsForPanel(callId: Guid) : CallConditionPanelItem list =
-        PanelOps.getCallConditionsForPanel store callId
-
-    member this.AddCallCondition(callId: Guid, conditionType: CallConditionType) : bool =
-        this.ExecOpt(PanelOps.buildAddCallConditionCmd store callId conditionType)
-
-    member this.RemoveCallCondition(callId: Guid, conditionId: Guid) : bool =
-        this.ExecOpt(PanelOps.buildRemoveCallConditionCmd store callId conditionId)
-
-    member this.UpdateCallConditionSettings(callId: Guid, conditionId: Guid, isOR: bool, isRising: bool) : bool =
-        this.ExecOpt(PanelOps.buildUpdateCallConditionSettingsCmd store callId conditionId isOR isRising)
-
-    /// 다중 ApiCall을 조건에 한 번에 추가 (Composite 1건 → Undo 1회). 추가된 개수 반환.
-    member this.AddApiCallsToConditionBatch(callId: Guid, conditionId: Guid, sourceApiCallIds: Guid[]) : int =
-        match PanelOps.buildAddApiCallsToConditionBatchCmd store callId conditionId (List.ofArray sourceApiCallIds) with
-        | Some (cmd, count) -> this.Exec cmd; count
-        | None -> 0
-
-    member this.RemoveApiCallFromCondition(callId: Guid, conditionId: Guid, apiCallId: Guid) : bool =
-        this.ExecOpt(PanelOps.buildRemoveApiCallFromConditionCmd store callId conditionId apiCallId)
-
-    member this.UpdateConditionApiCallOutputSpec(callId: Guid, conditionId: Guid, apiCallId: Guid, newSpecText: string) : bool =
-        this.ExecOpt(PanelOps.buildUpdateConditionApiCallOutputSpecCmd store callId conditionId apiCallId newSpecText)
-
-    // =====================================================================
-    // 범용 Remove
-    // =====================================================================
-    /// 여러 엔티티를 Composite 명령 1개로 일괄 삭제 (Undo/Redo 1회 단위)
-    member this.RemoveEntities(selections: seq<string * Guid>) =
-        let selList = selections |> Seq.distinctBy snd |> Seq.toList
-        this.ExecBatch("Delete Entities", RemoveOps.buildRemoveEntitiesCmds store selList) |> ignore
-
-    // =====================================================================
-    // 범용 Rename
-    // =====================================================================
-    member this.RenameEntity(id: Guid, entityType: string, newName: string) =
-        match EntityNameAccess.tryGetName store entityType id with
-        | Some oldName when oldName <> newName ->
-            this.Exec(RenameEntity(id, entityType, oldName, newName))
-        | _ -> ()
-
-    // =====================================================================
-    // Copy / Paste API
-    // =====================================================================
-    /// Batch paste API for same-type copied entities.
-    /// 모든 배치 타입이 ExecBatch로 감싸 Undo 1회를 보장한다.
-    member this.PasteEntities
-        (copiedEntityType: string, copiedEntityIds: seq<Guid>, targetEntityType: string, targetEntityId: Guid)
-        : int =
-        let ids = copiedEntityIds |> Seq.distinct |> Seq.toList
-        this.ExecBatch($"Paste {copiedEntityType}s", fun exec ->
-            PasteOps.dispatchPaste exec store copiedEntityType ids targetEntityType targetEntityId)
+    member _.Query  = query
+    member _.Nodes  = nodes
+    member _.Arrows = arrows
+    member _.Panel  = panel
 
     // =====================================================================
     // Undo / Redo

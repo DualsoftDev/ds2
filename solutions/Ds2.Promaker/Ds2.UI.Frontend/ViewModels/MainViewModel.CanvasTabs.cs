@@ -37,12 +37,12 @@ public partial class MainViewModel
     {
         if (!TryEditorFunc(
                 "TryOpenTabForEntity",
-                () => _editor.TryOpenTabForEntity(entityType, entityId),
+                () => _editor.Query.TryOpenTabForEntity(entityType, entityId),
                 out var infoOpt,
                 fallback: (FSharpOption<TabOpenInfo>?)null))
             return;
 
-        if (!FSharpOption<TabOpenInfo>.get_IsSome(infoOpt))
+        if (!HasOptionValue(infoOpt))
             return;
 
         var info = infoOpt!.Value;
@@ -72,7 +72,7 @@ public partial class MainViewModel
 
         if (!TryEditorFunc(
                 "CanvasContentForTab",
-                () => _editor.CanvasContentForTab(ActiveTab.Kind, ActiveTab.RootId),
+                () => _editor.Query.CanvasContentForTab(ActiveTab.Kind, ActiveTab.RootId),
                 out var content,
                 fallback: (CanvasContent?)null,
                 statusOverride: "[ERROR] Failed to refresh canvas content."))
@@ -106,7 +106,7 @@ public partial class MainViewModel
 
         if (!TryEditorFunc(
                 "FlowIdsForTab",
-                () => _editor.FlowIdsForTab(ActiveTab.Kind, ActiveTab.RootId),
+                () => _editor.Query.FlowIdsForTab(ActiveTab.Kind, ActiveTab.RootId),
                 out var flowIds,
                 fallback: null,
                 statusOverride: "[ERROR] Failed to resolve flow ids for canvas."))
@@ -123,7 +123,7 @@ public partial class MainViewModel
     {
         if (!TryEditorFunc(
                 "GetFlowArrowPaths",
-                () => _editor.GetFlowArrowPaths(flowId),
+                () => _editor.Query.GetFlowArrowPaths(flowId),
                 out var paths,
                 fallback: null))
             return;
@@ -150,7 +150,7 @@ public partial class MainViewModel
 
         if (!TryEditorFunc(
                 "BuildTrees",
-                () => _editor.BuildTrees(),
+                () => _editor.Query.BuildTrees(),
                 out var trees,
                 fallback: null,
                 statusOverride: "[ERROR] Failed to rebuild tree views."))
@@ -183,7 +183,7 @@ public partial class MainViewModel
 
     private bool TabExists(CanvasTab tab)
     {
-        if (!TryEditorFunc("TabExists", () => _editor.TabExists(tab.Kind, tab.RootId), out var exists, fallback: false))
+        if (!TryEditorFunc("TabExists", () => _editor.Query.TabExists(tab.Kind, tab.RootId), out var exists, fallback: false))
             return false;
 
         return exists;
@@ -193,12 +193,12 @@ public partial class MainViewModel
     {
         if (!TryEditorFunc(
                 "TabTitle",
-                () => _editor.TabTitle(tab.Kind, tab.RootId),
+                () => _editor.Query.TabTitle(tab.Kind, tab.RootId),
                 out var titleOpt,
                 fallback: (FSharpOption<string>?)null))
             return tab.Title;
 
-        if (!FSharpOption<string>.get_IsSome(titleOpt))
+        if (!HasOptionValue(titleOpt))
             return tab.Title;
 
         return titleOpt!.Value;

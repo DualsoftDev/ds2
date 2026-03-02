@@ -59,7 +59,7 @@ public partial class MainViewModel
 
         if (!TryEditorFunc(
                 "TryUpdateWorkDuration",
-                () => _editor.TryUpdateWorkDuration(selectedWork.Id, WorkDurationText),
+                () => _editor.Panel.TryUpdateWorkDuration(selectedWork.Id, WorkDurationText),
                 out var updated,
                 fallback: false))
             return;
@@ -87,7 +87,7 @@ public partial class MainViewModel
         {
             if (!TryEditorFunc(
                     "GetWorkDurationText",
-                    () => _editor.GetWorkDurationText(selected.Id),
+                    () => _editor.Panel.GetWorkDurationText(selected.Id),
                     out _originalWorkDurationText,
                     fallback: string.Empty))
                 _originalWorkDurationText = string.Empty;
@@ -104,7 +104,7 @@ public partial class MainViewModel
         {
             if (!TryEditorFunc(
                     "GetCallTimeoutText",
-                    () => _editor.GetCallTimeoutText(selected.Id),
+                    () => _editor.Panel.GetCallTimeoutText(selected.Id),
                     out _originalCallTimeoutText,
                     fallback: string.Empty))
                 _originalCallTimeoutText = string.Empty;

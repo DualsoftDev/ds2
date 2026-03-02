@@ -5,10 +5,8 @@ open Ds2.Core
 
 // =============================================================================
 // Paste execution algorithms.
-// ExecFn threads command dispatch from EditorApi without coupling to the class.
+// ExecFn is defined in EditorTypes.fs and threads command dispatch without coupling to EditorApi.
 // =============================================================================
-
-type ExecFn = EditorCommand -> unit
 
 // =============================================================================
 // Device System paste state — shared across calls in a single paste batch.
@@ -52,6 +50,21 @@ let private collectArrowsWithinSet
     |> Set.toList
     |> List.collect (fun flowId -> getArrows flowId store)
     |> List.filter (fun a -> selectedIds.Contains(getSourceId a) && selectedIds.Contains(getTargetId a))
+
+let private cloneIOTag (tagOpt: IOTag option) : IOTag option =
+    tagOpt |> Option.map (fun t -> IOTag(t.Name, t.Address, t.Description))
+
+let private cloneApiCall (sourceApiCall: ApiCall) (mapApiDefId: Guid option -> Guid option) : ApiCall =
+    let cloned = ApiCall(sourceApiCall.Name)
+    cloned.InTag <- cloneIOTag sourceApiCall.InTag
+    cloned.OutTag <- cloneIOTag sourceApiCall.OutTag
+    cloned.ApiDefId <- mapApiDefId sourceApiCall.ApiDefId
+    cloned.InputSpec <- sourceApiCall.InputSpec
+    cloned.OutputSpec <- sourceApiCall.OutputSpec
+    cloned
+
+let private mergeGuidMap (baseMap: Map<Guid, Guid>) (additions: Map<Guid, Guid>) : Map<Guid, Guid> =
+    Map.fold (fun acc k v -> Map.add k v acc) baseMap additions
 
 let private isPassiveSystemId (store: DsStore) (systemId: Guid) : bool =
     DsQuery.allProjects store
@@ -105,12 +118,7 @@ let private ensureTargetDeviceSystem
 /// 새 GUID로 ApiCall 복사 — 다른 Work/Flow로 붙여넣을 때 사용
 let copyApiCalls (exec: ExecFn) (sourceCall: Call) (targetCallId: Guid) =
     for apiCall in sourceCall.ApiCalls do
-        let copied = ApiCall(apiCall.Name)
-        copied.InTag  <- apiCall.InTag  |> Option.map (fun t -> IOTag(t.Name, t.Address, t.Description))
-        copied.OutTag <- apiCall.OutTag |> Option.map (fun t -> IOTag(t.Name, t.Address, t.Description))
-        copied.ApiDefId <- apiCall.ApiDefId
-        copied.InputSpec  <- apiCall.InputSpec
-        copied.OutputSpec <- apiCall.OutputSpec
+        let copied = cloneApiCall apiCall id
         exec(AddApiCallToCall(targetCallId, copied))
 
 /// 기존 ApiCall GUID 공유 — 동일 Work 내 붙여넣을 때 사용 (store.ApiCalls 불변)
@@ -147,15 +155,11 @@ let private copyApiCallsAcrossFlows
         let newState, apiDefMapping =
             ensureTargetDeviceSystem store exec projectId targetFlowName devAlias sourceSystemId state
         for apiCall in sourceCall.ApiCalls do
-            let copied = ApiCall(apiCall.Name)
-            copied.InTag  <- apiCall.InTag  |> Option.map (fun t -> IOTag(t.Name, t.Address, t.Description))
-            copied.OutTag <- apiCall.OutTag |> Option.map (fun t -> IOTag(t.Name, t.Address, t.Description))
-            copied.ApiDefId <-
-                apiCall.ApiDefId
-                |> Option.bind (fun id -> Map.tryFind id apiDefMapping)
-                |> Option.orElse apiCall.ApiDefId
-            copied.InputSpec  <- apiCall.InputSpec
-            copied.OutputSpec <- apiCall.OutputSpec
+            let copied =
+                cloneApiCall apiCall (fun sourceApiDefIdOpt ->
+                    sourceApiDefIdOpt
+                    |> Option.bind (fun id -> Map.tryFind id apiDefMapping)
+                    |> Option.orElse sourceApiDefIdOpt)
             exec(AddApiCallToCall(targetCallId, copied))
         newState
 
@@ -267,7 +271,7 @@ let pasteFlowToSystem (exec: ExecFn) (store: DsStore) (sourceFlow: Flow) (target
         DsQuery.worksOf sourceFlow.Id store
         |> List.fold (fun (workMap, callMap, devState) sourceWork ->
             let pastedWork, localCallMap, newDevState = pasteWorkToFlow exec store sourceWork pastedFlow.Id devState deviceFlowCtxOpt
-            let mergedCallMap = Map.fold (fun s k v -> Map.add k v s) callMap localCallMap
+            let mergedCallMap = mergeGuidMap callMap localCallMap
             Map.add sourceWork.Id pastedWork.Id workMap, mergedCallMap, newDevState
         ) (Map.empty<Guid, Guid>, Map.empty<Guid, Guid>, initialDevicePasteState)
 
@@ -296,7 +300,7 @@ let pasteWorksToFlowBatch (exec: ExecFn) (store: DsStore) (sourceWorks: Work lis
         sourceWorks
         |> List.fold (fun (workMap, callMap, pastedWorkIdsRev, devState) sourceWork ->
             let pastedWork, localCallMap, newDevState = pasteWorkToFlow exec store sourceWork targetFlowId devState deviceFlowCtxOpt
-            let mergedCallMap = Map.fold (fun s k v -> Map.add k v s) callMap localCallMap
+            let mergedCallMap = mergeGuidMap callMap localCallMap
             Map.add sourceWork.Id pastedWork.Id workMap, mergedCallMap, pastedWork.Id :: pastedWorkIdsRev, newDevState
         ) (Map.empty<Guid, Guid>, Map.empty<Guid, Guid>, [], initialDevicePasteState)
 
@@ -331,14 +335,8 @@ let pasteCallsToWorkBatch (exec: ExecFn) (store: DsStore) (sourceCalls: Call lis
             Map.add sourceCall.Id pastedCall.Id callMap, pastedCall.Id :: pastedCallIdsRev, newDevState
         ) (Map.empty<Guid, Guid>, [], initialDevicePasteState)
 
-    match targetFlowIdOpt with
-    | Some targetFlowId ->
-        for arrow in sourceCallArrows do
-            match Map.tryFind arrow.SourceId callMap, Map.tryFind arrow.TargetId callMap with
-            | Some src, Some tgt ->
-                exec(AddArrowCall(ArrowBetweenCalls(targetFlowId, src, tgt, arrow.ArrowType)))
-            | _ -> ()
-    | None -> ()
+    targetFlowIdOpt |> Option.iter (fun targetFlowId ->
+        replayArrows exec targetFlowId [] sourceCallArrows Map.empty callMap)
 
     pastedCallIdsRev |> List.rev
 

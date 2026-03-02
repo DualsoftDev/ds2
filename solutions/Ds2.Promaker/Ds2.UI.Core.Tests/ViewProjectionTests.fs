@@ -38,8 +38,8 @@ let ``buildTrees returns empty control tree for empty store`` () =
 [<Fact>]
 let ``buildTrees creates correct control hierarchy`` () =
     let store, api, project, system, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
+    let work = addWork store api "W1" flow.Id
+    let call = addCall store api work.Id "Dev" "C1" [||]
 
     let controlTree, _ = TreeProjection.buildTrees store
     Assert.Single(controlTree) |> ignore  // 1 project
@@ -90,8 +90,8 @@ let ``buildTrees includes HW components under System in control tree`` () =
 [<Fact>]
 let ``canvasContentForFlow returns works and calls`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
+    let work = addWork store api "W1" flow.Id
+    let call = addCall store api work.Id "Dev" "C1" [||]
 
     let content = CanvasProjection.canvasContentForFlow store flow.Id
     Assert.Equal(2, content.Nodes.Length)  // 1 work + 1 call
@@ -106,9 +106,9 @@ let ``canvasContentForFlow returns works and calls`` () =
 [<Fact>]
 let ``canvasContentForFlow includes arrows`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
-    let w1 = api.AddWork("W1", flow.Id)
-    let w2 = api.AddWork("W2", flow.Id)
-    api.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    let w1 = addWork store api "W1" flow.Id
+    let w2 = addWork store api "W2" flow.Id
+    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
 
     let content = CanvasProjection.canvasContentForFlow store flow.Id
@@ -120,8 +120,8 @@ let ``canvasContentForFlow includes arrows`` () =
 [<Fact>]
 let ``canvasContentForFlow uses position when available`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
-    api.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, work.Id, Some(Xywh(100, 200, 150, 50))) ]) |> ignore
+    let work = addWork store api "W1" flow.Id
+    api.Nodes.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, work.Id, Some(Xywh(100, 200, 150, 50))) ]) |> ignore
 
     let content = CanvasProjection.canvasContentForFlow store flow.Id
     let wNode = content.Nodes |> List.find (fun n -> n.Id = work.Id)
@@ -140,10 +140,10 @@ let ``canvasContentForFlow returns empty for nonexistent flow`` () =
 [<Fact>]
 let ``canvasContentForSystemWorks returns works from all flows only`` () =
     let store, api, _, system, flow1 = setupProjectSystemFlow()
-    let flow2 = api.AddFlow("F2", system.Id)
-    let w1 = api.AddWork("W1", flow1.Id)
-    let w2 = api.AddWork("W2", flow2.Id)
-    api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||] |> ignore
+    let flow2 = addFlow store api "F2" system.Id
+    let w1 = addWork store api "W1" flow1.Id
+    let w2 = addWork store api "W2" flow2.Id
+    addCall store api w1.Id "Dev" "C1" [||] |> ignore
 
     let content = CanvasProjection.canvasContentForSystemWorks store system.Id
     Assert.Equal(2, content.Nodes.Length)
@@ -154,9 +154,9 @@ let ``canvasContentForSystemWorks returns works from all flows only`` () =
 [<Fact>]
 let ``canvasContentForFlowWorks returns only works in selected flow`` () =
     let store, api, _, system, flow = setupProjectSystemFlow()
-    let _flow2 = api.AddFlow("F2", system.Id)
-    let w1 = api.AddWork("W1", flow.Id)
-    api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||] |> ignore
+    let _flow2 = addFlow store api "F2" system.Id
+    let w1 = addWork store api "W1" flow.Id
+    addCall store api w1.Id "Dev" "C1" [||] |> ignore
 
     let content = CanvasProjection.canvasContentForFlowWorks store flow.Id
     Assert.Single(content.Nodes) |> ignore
@@ -166,11 +166,11 @@ let ``canvasContentForFlowWorks returns only works in selected flow`` () =
 [<Fact>]
 let ``canvasContentForFlowWorks excludes cross-flow arrows and keeps them in system canvas`` () =
     let store, api, _, system, flow1 = setupProjectSystemFlow()
-    let flow2 = api.AddFlow("F2", system.Id)
-    let w1 = api.AddWork("W1", flow1.Id)
-    let w2 = api.AddWork("W2", flow2.Id)
+    let flow2 = addFlow store api "F2" system.Id
+    let w1 = addWork store api "W1" flow1.Id
+    let w2 = addWork store api "W2" flow2.Id
 
-    let created = api.ConnectSelectionInOrder([ w1.Id; w2.Id ], ArrowType.Start)
+    let created = api.Arrows.ConnectSelectionInOrder([ w1.Id; w2.Id ], ArrowType.Start)
     Assert.Equal(1, created)
 
     let flowContent = CanvasProjection.canvasContentForFlowWorks store flow1.Id
@@ -184,13 +184,13 @@ let ``canvasContentForFlowWorks excludes cross-flow arrows and keeps them in sys
 [<Fact>]
 let ``canvasContentForWorkCalls returns only calls in selected work`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
-    let w1 = api.AddWork("W1", flow.Id)
-    let w2 = api.AddWork("W2", flow.Id)
-    let c1 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C1" [||]
-    let c2 = api.AddCallWithLinkedApiDefs w1.Id "Dev" "C2" [||]
-    let c3 = api.AddCallWithLinkedApiDefs w2.Id "Dev" "C3" [||]
-    api.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
-    api.ConnectSelectionInOrder([c2.Id; c3.Id], ArrowType.Start) |> ignore
+    let w1 = addWork store api "W1" flow.Id
+    let w2 = addWork store api "W2" flow.Id
+    let c1 = addCall store api w1.Id "Dev" "C1" [||]
+    let c2 = addCall store api w1.Id "Dev" "C2" [||]
+    let c3 = addCall store api w2.Id "Dev" "C3" [||]
+    api.Arrows.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrder([c2.Id; c3.Id], ArrowType.Start) |> ignore
     let ownArrow = store.ArrowCalls.Values |> Seq.find (fun a -> a.SourceId = c1.Id && a.TargetId = c2.Id)
 
     let content = CanvasProjection.canvasContentForWorkCalls store w1.Id
@@ -208,7 +208,7 @@ let ``canvasContentForWorkCalls returns only calls in selected work`` () =
 [<Fact>]
 let ``flowsForSystem returns flow list`` () =
     let store, api, _, system, flow = setupProjectSystemFlow()
-    let flow2 = api.AddFlow("F2", system.Id)
+    let flow2 = addFlow store api "F2" system.Id
 
     let flows = EntityHierarchyQueries.flowsForSystem store system.Id
     Assert.Equal(2, flows.Length)
@@ -218,13 +218,13 @@ let ``flowsForSystem returns flow list`` () =
 [<Fact>]
 let ``buildTrees splits control tree and shows ApiDef category in device tree`` () =
     let store, api = createApi()
-    let project = api.AddProject("P1")
-    let control = api.AddSystem("Control", project.Id, true)
-    let device  = api.AddSystem("Device",  project.Id, false)
-    let flow = api.AddFlow("F1", control.Id)
-    let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
-    let apiDef = api.AddApiDef("AD1", device.Id)
+    let project = addProject store api "P1"
+    let control = addSystem store api "Control" project.Id true
+    let device  = addSystem store api "Device" project.Id false
+    let flow = addFlow store api "F1" control.Id
+    let work = addWork store api "W1" flow.Id
+    let call = addCall store api work.Id "Dev" "C1" [||]
+    let apiDef = addApiDef store api "AD1" device.Id
     let apiCall = ApiCall("AC1")
     apiCall.ApiDefId <- Some apiDef.Id
     store.ApiCalls.[apiCall.Id] <- apiCall
@@ -251,13 +251,13 @@ let ``buildTrees splits control tree and shows ApiDef category in device tree`` 
 [<Fact>]
 let ``buildTrees device system shows Flow and Works alongside ApiDefs category`` () =
     let store, api = createApi()
-    let project = api.AddProject("P1")
-    let device  = api.AddSystem("Dev", project.Id, false)
-    let devFlow = api.AddFlow("Dev_Flow", device.Id)
-    let w1      = api.AddWork("ADV", devFlow.Id)
-    let w2      = api.AddWork("RET", devFlow.Id)
-    let _ad1    = api.AddApiDef("ADV", device.Id)
-    let _ad2    = api.AddApiDef("RET", device.Id)
+    let project = addProject store api "P1"
+    let device  = addSystem store api "Dev" project.Id false
+    let devFlow = addFlow store api "Dev_Flow" device.Id
+    let w1      = addWork store api "ADV" devFlow.Id
+    let w2      = addWork store api "RET" devFlow.Id
+    let _ad1    = addApiDef store api "ADV" device.Id
+    let _ad2    = addApiDef store api "RET" device.Id
 
     let _, deviceTree = TreeProjection.buildTrees store
     let deviceRoot = deviceTree.Head
@@ -277,9 +277,9 @@ let ``buildTrees device system shows Flow and Works alongside ApiDefs category``
 [<Fact>]
 let ``buildTrees device system with no ApiDefs has no category node`` () =
     let store, api = createApi()
-    let project = api.AddProject("P1")
-    let _control = api.AddSystem("Control", project.Id, true)
-    let device   = api.AddSystem("EmptyDevice", project.Id, false)
+    let project = addProject store api "P1"
+    let _control = addSystem store api "Control" project.Id true
+    let device   = addSystem store api "EmptyDevice" project.Id false
 
     let _, deviceTree = TreeProjection.buildTrees store
 
@@ -290,10 +290,10 @@ let ``buildTrees device system with no ApiDefs has no category node`` () =
 [<Fact>]
 let ``findApiDefs returns all passive system ApiDefs when filters are empty`` () =
     let store, api = createApi()
-    let project = api.AddProject("P1")
-    let device = api.AddSystem("Dev", project.Id, false)
-    let _ad1 = api.AddApiDef("ADV", device.Id)
-    let _ad2 = api.AddApiDef("RET", device.Id)
+    let project = addProject store api "P1"
+    let device = addSystem store api "Dev" project.Id false
+    let _ad1 = addApiDef store api "ADV" device.Id
+    let _ad2 = addApiDef store api "RET" device.Id
 
     let results = EntityHierarchyQueries.findApiDefs store "" ""
     Assert.Equal(2, results.Length)
@@ -301,10 +301,10 @@ let ``findApiDefs returns all passive system ApiDefs when filters are empty`` ()
 [<Fact>]
 let ``findApiDefs filters by ApiDef name`` () =
     let store, api = createApi()
-    let project = api.AddProject("P1")
-    let device = api.AddSystem("Dev", project.Id, false)
-    let _ad1 = api.AddApiDef("ADV", device.Id)
-    let _ad2 = api.AddApiDef("RET", device.Id)
+    let project = addProject store api "P1"
+    let device = addSystem store api "Dev" project.Id false
+    let _ad1 = addApiDef store api "ADV" device.Id
+    let _ad2 = addApiDef store api "RET" device.Id
 
     let results = EntityHierarchyQueries.findApiDefs store "" "AD"
     Assert.Equal(1, results.Length)
@@ -353,16 +353,16 @@ let ``findHwParent returns None for unknown ID`` () =
 [<Fact>]
 let ``isCallInFlow returns true when call is in flow`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
+    let work = addWork store api "W1" flow.Id
+    let call = addCall store api work.Id "Dev" "C1" [||]
     Assert.True(EntityHierarchyQueries.isCallInFlow store call.Id flow.Id)
 
 [<Fact>]
 let ``isCallInFlow returns false for different flow`` () =
     let store, api, _, system, flow = setupProjectSystemFlow() // all used
-    let flow2 = api.AddFlow("F2", system.Id)
-    let work = api.AddWork("W1", flow.Id)
-    let call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
+    let flow2 = addFlow store api "F2" system.Id
+    let work = addWork store api "W1" flow.Id
+    let call = addCall store api work.Id "Dev" "C1" [||]
     Assert.False(EntityHierarchyQueries.isCallInFlow store call.Id flow2.Id)
 
 // =============================================================================
@@ -390,7 +390,7 @@ let ``resolveSystemForEntity resolves Flow type`` () =
 [<Fact>]
 let ``resolveSystemForEntity resolves Work type`` () =
     let store, api, _, system, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
+    let work = addWork store api "W1" flow.Id
     let result = EntityHierarchyQueries.resolveSystemForEntity store "Work" work.Id
     Assert.True(result.IsSome)
     let (sysId, flowId) = result.Value
@@ -400,8 +400,8 @@ let ``resolveSystemForEntity resolves Work type`` () =
 [<Fact>]
 let ``resolveSystemForEntity returns None for System without flows`` () =
     let store, api = createApi()
-    let project = api.AddProject("P1")
-    let system = api.AddSystem("S1", project.Id, true)
+    let project = addProject store api "P1"
+    let system = addSystem store api "S1" project.Id true
     let result = EntityHierarchyQueries.resolveSystemForEntity store "System" system.Id
     Assert.True(result.IsNone)
 
@@ -418,22 +418,22 @@ let ``resolveSystemForEntity returns None for unknown type`` () =
 [<Fact>]
 let ``RemoveEntities removes work by entity type string`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
+    let work = addWork store api "W1" flow.Id
     Assert.True(store.Works.ContainsKey(work.Id))
 
-    api.RemoveEntities(seq { "Work", work.Id })
+    api.Nodes.RemoveEntities(seq { "Work", work.Id })
     Assert.False(store.Works.ContainsKey(work.Id))
 
 [<Fact>]
 let ``RemoveArrows removes arrow between works`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
-    let w1 = api.AddWork("W1", flow.Id)
-    let w2 = api.AddWork("W2", flow.Id)
-    api.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    let w1 = addWork store api "W1" flow.Id
+    let w2 = addWork store api "W2" flow.Id
+    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
     Assert.True(store.ArrowWorks.ContainsKey(arrow.Id))
 
-    api.RemoveArrows([ arrow.Id ]) |> ignore
+    api.Arrows.RemoveArrows([ arrow.Id ]) |> ignore
     Assert.False(store.ArrowWorks.ContainsKey(arrow.Id))
 
 // =============================================================================
@@ -443,7 +443,7 @@ let ``RemoveArrows removes arrow between works`` () =
 [<Fact>]
 let ``tryOpenTabForEntity returns tab info`` () =
     let store, api, _, system, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
+    let work = addWork store api "W1" flow.Id
 
     let sysTab = EntityHierarchyQueries.tryOpenTabForEntity store "System" system.Id
     Assert.True(sysTab.IsSome)
@@ -466,8 +466,8 @@ let ``tryOpenTabForEntity returns tab info`` () =
 [<Fact>]
 let ``canvasContentForTab dispatches by tab kind`` () =
     let store, api, _, system, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
-    let _call = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
+    let work = addWork store api "W1" flow.Id
+    let _call = addCall store api work.Id "Dev" "C1" [||]
 
     let systemContent = CanvasProjection.canvasContentForTab store TabKind.System system.Id
     Assert.Single(systemContent.Nodes) |> ignore
@@ -484,7 +484,7 @@ let ``canvasContentForTab dispatches by tab kind`` () =
 [<Fact>]
 let ``tabExists tabTitle and flowIdsForTab work for all tab kinds`` () =
     let store, api, _, system, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
+    let work = addWork store api "W1" flow.Id
 
     Assert.True(EntityHierarchyQueries.tabExists store TabKind.System system.Id)
     Assert.True(EntityHierarchyQueries.tabExists store TabKind.Flow flow.Id)
@@ -523,7 +523,7 @@ let ``tryResolveAddFlowTarget resolves from selected project with single system`
 [<Fact>]
 let ``tryResolveAddFlowTarget resolves from active work tab`` () =
     let store, api, _project, system, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
+    let work = addWork store api "W1" flow.Id
     let result =
         AddTargetQueries.tryResolveAddFlowTarget
             store
@@ -560,9 +560,9 @@ let ``tryResolveAddSystemTarget resolves from selected flow`` () =
 [<Fact>]
 let ``orderedArrowLinksForSelection returns sequential work links`` () =
     let store, api, _project, _system, flow = setupProjectSystemFlow()
-    let w1 = api.AddWork("W1", flow.Id)
-    let w2 = api.AddWork("W2", flow.Id)
-    let w3 = api.AddWork("W3", flow.Id)
+    let w1 = addWork store api "W1" flow.Id
+    let w2 = addWork store api "W2" flow.Id
+    let w3 = addWork store api "W3" flow.Id
 
     let links =
         ConnectionQueries.orderedArrowLinksForSelection store [ w1.Id; w2.Id; w3.Id ]
@@ -577,10 +577,10 @@ let ``orderedArrowLinksForSelection returns sequential work links`` () =
 [<Fact>]
 let ``orderedArrowLinksForSelection skips already existing arrows`` () =
     let store, api, _project, _system, flow = setupProjectSystemFlow()
-    let w1 = api.AddWork("W1", flow.Id)
-    let w2 = api.AddWork("W2", flow.Id)
-    let w3 = api.AddWork("W3", flow.Id)
-    api.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    let w1 = addWork store api "W1" flow.Id
+    let w2 = addWork store api "W2" flow.Id
+    let w3 = addWork store api "W3" flow.Id
+    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
 
     let links =
         ConnectionQueries.orderedArrowLinksForSelection store [ w1.Id; w2.Id; w3.Id ]
@@ -593,9 +593,9 @@ let ``orderedArrowLinksForSelection skips already existing arrows`` () =
 [<Fact>]
 let ``orderedArrowLinksForSelection allows cross-flow work links in same system`` () =
     let store, api, _project, system, flow1 = setupProjectSystemFlow()
-    let flow2 = api.AddFlow("F2", system.Id)
-    let w1 = api.AddWork("W1", flow1.Id)
-    let w2 = api.AddWork("W2", flow2.Id)
+    let flow2 = addFlow store api "F2" system.Id
+    let w1 = addWork store api "W1" flow1.Id
+    let w2 = addWork store api "W2" flow2.Id
 
     let links =
         ConnectionQueries.orderedArrowLinksForSelection store [ w1.Id; w2.Id ]
@@ -610,13 +610,13 @@ let ``orderedArrowLinksForSelection allows cross-flow work links in same system`
 [<Fact>]
 let ``orderedArrowLinksForSelection rejects cross-system work links`` () =
     let store, api = createApi()
-    let project = api.AddProject("P1")
-    let system1 = api.AddSystem("S1", project.Id, true)
-    let system2 = api.AddSystem("S2", project.Id, true)
-    let flow1 = api.AddFlow("F1", system1.Id)
-    let flow2 = api.AddFlow("F2", system2.Id)
-    let w1 = api.AddWork("W1", flow1.Id)
-    let w2 = api.AddWork("W2", flow2.Id)
+    let project = addProject store api "P1"
+    let system1 = addSystem store api "S1" project.Id true
+    let system2 = addSystem store api "S2" project.Id true
+    let flow1 = addFlow store api "F1" system1.Id
+    let flow2 = addFlow store api "F2" system2.Id
+    let w1 = addWork store api "W1" flow1.Id
+    let w2 = addWork store api "W2" flow2.Id
 
     let links =
         ConnectionQueries.orderedArrowLinksForSelection store [ w1.Id; w2.Id ]
@@ -626,8 +626,8 @@ let ``orderedArrowLinksForSelection rejects cross-system work links`` () =
 [<Fact>]
 let ``resolveFlowIdForConnect resolves work siblings`` () =
     let store, api, _project, _system, flow = setupProjectSystemFlow()
-    let w1 = api.AddWork("W1", flow.Id)
-    let w2 = api.AddWork("W2", flow.Id)
+    let w1 = addWork store api "W1" flow.Id
+    let w2 = addWork store api "W2" flow.Id
 
     let resolved =
         ConnectionQueries.resolveFlowIdForConnect
@@ -642,9 +642,9 @@ let ``resolveFlowIdForConnect resolves work siblings`` () =
 [<Fact>]
 let ``resolveFlowIdForConnect resolves cross-flow works in same system`` () =
     let store, api, _project, system, flow1 = setupProjectSystemFlow()
-    let flow2 = api.AddFlow("F2", system.Id)
-    let w1 = api.AddWork("W1", flow1.Id)
-    let w2 = api.AddWork("W2", flow2.Id)
+    let flow2 = addFlow store api "F2" system.Id
+    let w1 = addWork store api "W1" flow1.Id
+    let w2 = addWork store api "W2" flow2.Id
 
     let resolved =
         ConnectionQueries.resolveFlowIdForConnect
@@ -659,9 +659,9 @@ let ``resolveFlowIdForConnect resolves cross-flow works in same system`` () =
 [<Fact>]
 let ``resolveFlowIdForConnect resolves call siblings by work parent`` () =
     let store, api, _project, _system, flow = setupProjectSystemFlow()
-    let work = api.AddWork("W1", flow.Id)
-    let call1 = api.AddCallWithLinkedApiDefs work.Id "Dev" "C1" [||]
-    let call2 = api.AddCallWithLinkedApiDefs work.Id "Dev" "C2" [||]
+    let work = addWork store api "W1" flow.Id
+    let call1 = addCall store api work.Id "Dev" "C1" [||]
+    let call2 = addCall store api work.Id "Dev" "C2" [||]
 
     let resolved =
         ConnectionQueries.resolveFlowIdForConnect

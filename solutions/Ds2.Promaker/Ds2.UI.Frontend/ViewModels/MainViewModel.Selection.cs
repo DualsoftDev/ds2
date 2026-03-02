@@ -115,7 +115,7 @@ public partial class MainViewModel
 
         if (!TryEditorFunc(
                 "ConnectSelectionInOrder",
-                () => _editor.ConnectSelectionInOrder(_orderedNodeSelection.Select(s => s.Id), arrowType),
+                () => _editor.Arrows.ConnectSelectionInOrder(_orderedNodeSelection.Select(s => s.Id), arrowType),
                 out var created,
                 fallback: 0,
                 statusOverride: "[ERROR] Failed to connect selected nodes."))

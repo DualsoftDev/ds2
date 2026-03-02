@@ -328,3 +328,9 @@ type CallCopyContext =
     | SameWork
     | DifferentWork
     | DifferentFlow
+
+/// 명령 실행 함수 타입 — 서브-API 생성자에 주입하여 EditorApi 결합을 끊음.
+type ExecFn = EditorCommand -> unit
+
+/// 배치 실행 함수 타입 — action 내부 호출을 Composite 단위로 묶어 Undo 1회를 보장.
+type BatchExecFn = string -> (ExecFn -> unit) -> unit

@@ -30,6 +30,10 @@
     <Compile Include="Editing\EditorApi.PasteOps.fs" />
     <Compile Include="Editing\EditorApi.PropertyPanel.fs" />
     <Compile Include="Editing\EditorApi.PanelOps.fs" />
+    <Compile Include="Editing\EditorApi.QueryApi.fs" />
+    <Compile Include="Editing\EditorApi.NodeApi.fs" />
+    <Compile Include="Editing\EditorApi.ArrowApi.fs" />
+    <Compile Include="Editing\EditorApi.PanelApi.fs" />
     <Compile Include="Editing\EditorApi.fs" />
   </ItemGroup>
 
