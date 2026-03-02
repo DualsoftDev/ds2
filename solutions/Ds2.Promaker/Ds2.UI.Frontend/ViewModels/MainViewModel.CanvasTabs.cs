@@ -13,6 +13,8 @@ public partial class MainViewModel
         foreach (var t in OpenTabs)
             t.IsActive = t == value;
 
+        _orderedNodeSelection.Clear();
+        SelectedNode = null;
         ClearArrowSelection();
         RefreshCanvasForActiveTab();
     }

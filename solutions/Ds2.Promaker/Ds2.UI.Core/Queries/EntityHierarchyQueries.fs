@@ -48,6 +48,13 @@ let private stepCallToWork  (store: DsStore) (callId: Guid)  = DsQuery.getCall c
 let private stepWorkToFlow  (store: DsStore) (workId: Guid)  = DsQuery.getWork workId  store |> Option.map (fun w -> w.ParentId)
 let private stepFlowToSystem(store: DsStore) (flowId: Guid)  = DsQuery.getFlow flowId  store |> Option.map (fun f -> f.ParentId)
 
+let parentIdOf (store: DsStore) (entityType: string) (entityId: Guid) : Guid option =
+    match entityType with
+    | EntityTypeNames.Call -> DsQuery.getCall entityId store |> Option.map (fun c -> c.ParentId)
+    | EntityTypeNames.Work -> DsQuery.getWork entityId store |> Option.map (fun w -> w.ParentId)
+    | EntityTypeNames.Flow -> DsQuery.getFlow entityId store |> Option.map (fun f -> f.ParentId)
+    | _                    -> None
+
 let tryFindWorkIdForEntity (store: DsStore) (entityType: string) (entityId: Guid) : Guid option =
     match entityType with
     | EntityTypeNames.Work -> DsQuery.getWork entityId store |> Option.map (fun w -> w.Id)

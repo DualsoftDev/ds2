@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-02-28 (PropertiesPanel.cs 분리 — CallPanel.cs + SystemPanel.cs 신규)
+Last Sync: 2026-03-02 (예외처리 보완 — GetEntityParentId TryEditorFunc 패턴 적용, ImportAasx try/catch 범위 통합)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -289,6 +289,16 @@ HistoryChanged(undoLabels: string list, redoLabels: string list)
 - 단일/다중 선택 모두 `EditorApi.PasteEntities`로 진입
 - 다중 붙여넣기는 `Composite` 1건으로 기록 → Undo 1회 처리
 
+#### 복사 금지 규칙 (C# `CopySelected`)
+
+- **혼합 타입 금지**: `Work + Call` 등 서로 다른 EntityType을 동시에 복사하면 경고 다이얼로그 표시 후 취소 (기존: 첫 타입만 조용히 남김)
+- **다른 부모 금지**: 같은 타입이어도 서로 다른 부모(ParentId)에 속한 항목을 동시에 복사하면 경고 다이얼로그 표시 후 취소. ParentId는 `EditorApi.GetEntityParentId`로 store에서 직접 조회 — 트리 패널 다중 선택 시에도 올바르게 작동 (CanvasNodes에서 조회하면 트리 항목이 null로 처리되어 경고가 누락되는 버그 수정)
+
+#### 붙여넣기 대상 제한 (C# `PasteCopied`)
+
+- **System 대상 Work/Call 금지**: System 노드를 target으로 선택한 상태에서 Work/Call 붙여넣기 시 "붙여넣기 대상으로 Flow를 선택하세요" 경고 다이얼로그 표시 후 취소
+- **탭 전환 시 target 오염 방지**: `OnActiveTabChanged`에서 `_orderedNodeSelection.Clear()` + `SelectedNode = null` 실행 — 이전 탭 노드가 붙여넣기 대상으로 잘못 사용되는 버그 수정
+
 ### 4.2 붙여넣기 대상 해석
 
 | 복사 타입 | 대상 해석 함수 | 기본 대상 (미해석 시) |
@@ -334,6 +344,22 @@ pasteCallsToWorkBatch(sourceCalls, targetWorkId)
 - `AddSharedApiCallToCall` execute: `Call.ApiCalls`에만 추가, `store.ApiCalls` 변경 없음
 - `AddSharedApiCallToCall` undo: `Call.ApiCalls`에서 제거, `store.ApiCalls` 변경 없음
 - `Mutation.removeCall`: 다른 Call에서 아직 참조 중인 ApiCall은 `store.ApiCalls`에서 삭제하지 않음 (레퍼런스 카운팅)
+
+### 4.5 DifferentFlow paste Device System 생성 보장
+
+`pasteFlowToSystem`에서 `exec(AddFlow pastedFlow)` 실행 후 store snapshot에 pastedFlow가 없어 Device System이 생성되지 않는 버그를 수정했습니다.
+
+```
+버그 원인:
+  exec(AddFlow pastedFlow)
+  makeDeviceFlowCtx store pastedFlow.Id  ← store는 paste 시작 시점 snapshot → pastedFlow 없음 → None
+  → copyApiCalls fallback → Device System 미생성, ApiDefId 매핑 없이 원본 복사
+
+수정:
+  makeDeviceFlowCtxDirect store targetSystemId pastedFlow.Name
+  → store 조회 없이 targetSystemId + targetFlowName으로 DeviceFlowCtx 직접 구성
+  → Device System 정상 생성 + ApiDefId 매핑 보장
+```
 
 ---
 

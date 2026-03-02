@@ -1281,6 +1281,52 @@ let ``PasteEntities Work to different Flow reuses existing device system`` () =
     Assert.Equal(Some existingF2ApiDef.Id, pastedApiCalls.[0].ApiDefId)
 
 // =============================================================================
+// PasteEntities Flow — Device System 복제 (pasteFlowToSystem 경로)
+// 버그: pastedFlow는 exec 후에도 store snapshot에 없어서 makeDeviceFlowCtx = None → Device System 미생성
+// 수정: makeDeviceFlowCtxDirect로 targetSystemId + pastedFlow.Name 직접 구성
+// =============================================================================
+
+[<Fact>]
+let ``PasteEntities Flow to system in different project creates new device system with mapped ApiDefs`` () =
+    let store, api = createApi()
+    let p1 = api.AddProject("P1")
+    let p2 = api.AddProject("P2")
+    let s1 = api.AddSystem("S1", p1.Id, true)
+    let s2 = api.AddSystem("S2", p2.Id, true)
+    let f1 = api.AddFlow("F1", s1.Id)
+    let work = api.AddWork("W1", f1.Id)
+
+    api.AddCallsWithDevice p1.Id work.Id [ "Dev1.ADV" ] true
+
+    // P1에 F1_Dev1 passive system 확인
+    let p1Passive = DsQuery.passiveSystemsOf p1.Id store |> List.exactlyOne
+    Assert.Equal("F1_Dev1", p1Passive.Name)
+    let p1ApiDef = DsQuery.apiDefsOf p1Passive.Id store |> List.exactlyOne
+
+    // F1(Flow)을 S2(P2 소속)에 붙여넣기 — pasteFlowToSystem 경로
+    api.PasteEntities("Flow", [| f1.Id |], "System", s2.Id) |> ignore
+
+    // P2에 새 F1_Dev1 passive system이 생성돼야 함
+    let p2Passive = DsQuery.passiveSystemsOf p2.Id store |> List.exactlyOne
+    Assert.Equal("F1_Dev1", p2Passive.Name)
+
+    // P2의 ApiDef는 P1과 다른 ID여야 함
+    let p2ApiDef = DsQuery.apiDefsOf p2Passive.Id store |> List.exactlyOne
+    Assert.Equal("ADV", p2ApiDef.Name)
+    Assert.NotEqual(p1ApiDef.Id, p2ApiDef.Id)
+
+    // 붙여넣어진 Flow의 Work → Call → ApiCall이 P2의 ApiDef를 가리켜야 함
+    let pastedFlow = DsQuery.flowsOf s2.Id store |> List.exactlyOne
+    let pastedWork = DsQuery.worksOf pastedFlow.Id store |> List.exactlyOne
+    let pastedCalls = DsQuery.callsOf pastedWork.Id store
+    Assert.Equal(1, pastedCalls.Length)
+    let pastedApiCalls = pastedCalls.[0].ApiCalls
+    Assert.Equal(1, pastedApiCalls.Count)
+    Assert.Equal(Some p2ApiDef.Id, pastedApiCalls.[0].ApiDefId)
+    // P1의 ApiDef를 가리키면 안 됨 (수정 전 버그: copyApiCalls가 ApiDefId를 그대로 복사)
+    Assert.NotEqual(Some p1ApiDef.Id, pastedApiCalls.[0].ApiDefId)
+
+// =============================================================================
 // Paste Undo — BatchExec 보장 (Paste 1회 = Undo 1회)
 // =============================================================================
 

@@ -67,16 +67,16 @@ public partial class MainViewModel
         var dlg = new OpenFileDialog { Filter = "AASX Files (*.aasx)|*.aasx" };
         if (dlg.ShowDialog() != true) return;
 
-        var storeOpt = AasxImporter.importFromAasxFile(dlg.FileName);
-        if (!FSharpOption<DsStore>.get_IsSome(storeOpt))
-        {
-            Log.Warn($"AASX import 실패 (빈 결과): {dlg.FileName}");
-            DialogHelpers.Warn("Failed to import AASX.");
-            return;
-        }
-
         try
         {
+            var storeOpt = AasxImporter.importFromAasxFile(dlg.FileName);
+            if (!FSharpOption<DsStore>.get_IsSome(storeOpt))
+            {
+                Log.Warn($"AASX import 실패 (빈 결과): {dlg.FileName}");
+                DialogHelpers.Warn("Failed to import AASX.");
+                return;
+            }
+
             _editor.ReplaceStore(storeOpt.Value);
             _currentFilePath = null;
             IsDirty = false;
@@ -86,8 +86,8 @@ public partial class MainViewModel
         }
         catch (Exception ex)
         {
-            Log.Error($"AASX import 실패 (ReplaceStore): {dlg.FileName}", ex);
-            DialogHelpers.Warn($"Failed to apply imported AASX: {ex.Message}");
+            Log.Error($"AASX import 실패: {dlg.FileName}", ex);
+            DialogHelpers.Warn($"Failed to import AASX: {ex.Message}");
         }
     }
 

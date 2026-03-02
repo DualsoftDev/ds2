@@ -177,6 +177,9 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) =
     member _.TryFindProjectIdForEntity(entityType: string, entityId: Guid) : Guid option =
         EntityHierarchyQueries.tryFindProjectIdForEntity store entityType entityId
 
+    member _.GetEntityParentId(entityType: string, entityId: Guid) : Guid option =
+        EntityHierarchyQueries.parentIdOf store entityType entityId
+
     member _.FindApiDefsByName(filterName: string) : ApiDefMatch list =
         EntityHierarchyQueries.findApiDefs store "" filterName
 
