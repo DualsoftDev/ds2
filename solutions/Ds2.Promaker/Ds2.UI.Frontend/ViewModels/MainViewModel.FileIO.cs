@@ -70,7 +70,7 @@ public partial class MainViewModel
         try
         {
             var storeOpt = AasxImporter.importFromAasxFile(dlg.FileName);
-            if (!FSharpOption<DsStore>.get_IsSome(storeOpt))
+            if (!HasOptionValue(storeOpt))
             {
                 Log.Warn($"AASX import 실패 (빈 결과): {dlg.FileName}");
                 DialogHelpers.Warn("Failed to import AASX.");

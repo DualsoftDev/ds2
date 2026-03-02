@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-03-02 (내부 중복 패턴 헬퍼 추출 — DsQuery.fs allOf/orderedSystemsOf, PasteOps.fs replayArrows/collectArrowsWithinSet)
+Last Sync: 2026-03-02 (EditorApi 서브-API 분리 — Query/Nodes/Arrows/Panel 4개 클래스 + ExecFn/BatchExecFn 타입 EditorTypes.fs 추가)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -14,12 +14,12 @@ Last Sync: 2026-03-02 (내부 중복 패턴 헬퍼 추출 — DsQuery.fs allOf/o
 [사용자 입력] — 키보드 / 마우스 / 메뉴
       │
       ▼  C# — EditorCanvas.Input.cs / MainViewModel.cs
-      │  편집 입력 해석 후 EditorApi.Xxx(...) 호출
-      │  (조회/투영은 Query/Projection + DsStore 경로)
+      │  편집 입력 해석 후 EditorApi.Nodes.Xxx(...) / EditorApi.Arrows.Xxx(...) 등 서브-API 호출
+      │  (조회/투영은 EditorApi.Query.Xxx(...) + DsStore 경로)
       │
-      ▼  F# — EditorApi.fs
+      ▼  F# — EditorApi 서브-API (NodeApi / ArrowApi / PanelApi)
       │  EditorCommand (Single or Composite) 조립
-      │  → this.Exec(cmd)
+      │  → exec(cmd) [주입된 ExecFn → EditorApi.ExecuteCommand]
       │
       ▼  F# — CommandExecutor.execute(cmd, store)
       │  EditorCommand DU 패턴 매칭
@@ -40,6 +40,51 @@ Last Sync: 2026-03-02 (내부 중복 패턴 헬퍼 추출 — DsQuery.fs allOf/o
       ▼  C# — MainViewModel.HandleEvent(event)
          RebuildAll → WPF 바인딩 갱신 → 화면 반영
 ```
+
+---
+
+### 1.1 Ops vs Api 설계 구분
+
+`Editing/` 디렉토리의 파일은 **Ops 층**과 **Api 층**으로 나뉩니다.
+
+| 층 | 파일 | 역할 | exec 의존 |
+|----|------|------|-----------|
+| **Ops** | `RemoveOps`, `ArrowOps`, `DeviceOps`, `PasteOps`, `PanelOps` | `store` + 파라미터 → `EditorCommand` 조립만. 사이드 이펙트 없음 | **없음** |
+| **Api** | `QueryApi`, `NodeApi`, `ArrowApi`, `PanelApi` | 생성자로 `ExecFn`/`BatchExecFn` 주입받아 Ops 호출 + 실행까지 담당. C#(`EditorApi` 멤버)으로 노출 | **있음** (주입) |
+
+**분리 이유**: `exec` 의존성을 Api 층에서만 보유하여 Ops를 순수 함수로 유지합니다.
+
+- **단독 테스트 가능**: Ops는 `exec` 없이 `store` + 파라미터만으로 호출 → 명령 조립 결과를 단순 비교로 검증
+- **책임 경계 명확화**: "무엇을 할지(EditorCommand 조립)"와 "어떻게 실행할지(exec 주입)"를 완전히 분리
+- **EditorApi 결합 배제**: Ops는 `EditorApi` 클래스를 참조하지 않아 순환 의존 없음
+
+---
+
+### 1.2 명령 조립이란? — `EditorCommand` DU 패턴 선택 이유
+
+**명령 조립(Command Assembly)**이란 `EditorCommand` DU 케이스를 **값으로 생성하여 반환하는 것**입니다. `exec` 호출 없이 데이터 구조만 만듭니다.
+
+- **Single 명령**: `AddWork work`, `RemoveWork work`, `MoveEntities [(id, xywh)]` 등 원자 연산 1건
+- **Composite 명령**: `Composite(label, EditorCommand list)` — 원자 명령 N건을 하나의 Undo 단위로 묶음. `EditorCommand list`를 재귀적으로 담는 DU 케이스로 중첩 트리를 자연스럽게 표현
+
+Ops 함수(`buildRemoveWorkCmd` 등)는 이 값을 조립해 반환하고, Api 층이 받아서 `exec(cmd)`를 호출합니다.
+
+**DU vs 클래스 Command 패턴 비교**
+
+| 항목 | **현재 DU** | **클래스 `ICommand`** |
+|------|------------|----------------------|
+| 케이스 누락 감지 | 컴파일 타임 완전성 체크 → 누락 시 빌드 실패 | 런타임에만 발견 |
+| Composite | `Composite(label, EditorCommand list)` — 재귀 DU로 자연 표현 | 별도 `CompositeCommand` 클래스 + 재귀 실행/Undo 로직 필요 |
+| execute / undo | `CommandExecutor` 한 파일에서 패턴 매칭으로 쌍 집중 처리 | 각 클래스마다 `Undo()` 구현 → 분산, 누락 위험 |
+| 테스트 | `assert cmd = Composite(...)` 값 비교로 충분 | Mock/stub 없이 비교 불가 |
+| 레이블 | `CommandLabel.ofCommand` 한 곳 집중 → 누락 시 컴파일 에러 | 각 클래스 분산 → 누락 감지 불가 |
+| 케이스 분기 비용 | 컴파일러 최적화 switch/jump → O(1) | vtable virtual dispatch → 간접 호출 오버헤드 |
+| 힙 할당 | DU 케이스 단일 객체, 불변 → GC 수집 용이 | 각 Command 인스턴스 별도 할당, 장수명 가능 |
+| Composite 실행 | 단형성 순회 → CPU 캐시 친화적 | virtual dispatch × N → 캐시 미스 가능 |
+
+`Composite` 재귀 구조가 결정적입니다. 클래스 기반이었다면 `CompositeCommand` 클래스, 재귀 실행 로직, 각 클래스별 Undo 구현이 분산됩니다.
+
+> **실질적 영향**: 이 프로젝트의 명령 실행 빈도는 사용자 입력 연동(초당 수 번 이하)이므로 성능 차이가 UX에 영향을 주지 않습니다. 타입 안전성과 구조적 이점(Composite 재귀, execute/undo 집중, 컴파일 타임 완전성)이 선택의 결정 요소입니다.
 
 ---
 

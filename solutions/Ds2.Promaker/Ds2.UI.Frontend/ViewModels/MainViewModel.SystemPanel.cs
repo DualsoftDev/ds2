@@ -13,14 +13,14 @@ public partial class MainViewModel
     private bool TryGetWorksForSystem(Guid systemId, out List<WorkDropdownItem> works) =>
         TryEditorFunc(
             "GetWorksForSystem",
-            () => _editor.GetWorksForSystem(systemId).ToList(),
+            () => _editor.Panel.GetWorksForSystem(systemId).ToList(),
             out works,
             fallback: []);
 
     private bool TryUpdateApiDefProperties(Guid apiDefId, ApiDefEditDialog dialog) =>
         TryEditorAction(
             "UpdateApiDefProperties",
-            () => _editor.UpdateApiDefProperties(
+            () => _editor.Panel.UpdateApiDefProperties(
                 apiDefId,
                 dialog.IsPush,
                 dialog.TxWorkId,
@@ -32,7 +32,7 @@ public partial class MainViewModel
         nextName == currentName ||
         TryEditorAction(
             "RenameEntity",
-            () => _editor.RenameEntity(apiDefId, EntityTypes.ApiDef, nextName));
+            () => _editor.Nodes.RenameEntity(apiDefId, EntityTypes.ApiDef, nextName));
 
     [RelayCommand]
     private void AddSystemApiDef()
@@ -47,7 +47,7 @@ public partial class MainViewModel
 
         if (!TryEditorFunc(
                 "AddApiDefAndGetId",
-                () => _editor.AddApiDefAndGetId(dialog.ApiDefName, systemNode.Id),
+                () => _editor.Nodes.AddApiDefAndGetId(dialog.ApiDefName, systemNode.Id),
                 out var newApiDefId,
                 fallback: Guid.Empty))
             return;
@@ -90,7 +90,7 @@ public partial class MainViewModel
 
         if (!TryEditorAction(
                 "RemoveEntities",
-                () => _editor.RemoveEntities(new[] { Tuple.Create(EntityTypes.ApiDef, item.Id) })))
+                () => _editor.Nodes.RemoveEntities(new[] { Tuple.Create(EntityTypes.ApiDef, item.Id) })))
             return;
 
         RefreshSystemPanel(systemNode.Id);
@@ -101,7 +101,7 @@ public partial class MainViewModel
     {
         if (!TryEditorRef(
                 "GetApiDefsForSystem",
-                () => _editor.GetApiDefsForSystem(systemId),
+                () => _editor.Panel.GetApiDefsForSystem(systemId),
                 out var items))
             return;
 
@@ -114,7 +114,7 @@ public partial class MainViewModel
     {
         if (!TryEditorRef(
                 "GetApiDefParentSystemId",
-                () => _editor.GetApiDefParentSystemId(apiDefId),
+                () => _editor.Panel.GetApiDefParentSystemId(apiDefId),
                 out var systemIdOpt))
             return;
 
@@ -122,7 +122,7 @@ public partial class MainViewModel
 
         if (!TryEditorFunc(
                 "GetApiDefsForSystem",
-                () => _editor.GetApiDefsForSystem(systemId).FirstOrDefault(x => x.Id == apiDefId),
+                () => _editor.Panel.GetApiDefsForSystem(systemId).FirstOrDefault(x => x.Id == apiDefId),
                 out ApiDefPanelItem? existing,
                 fallback: null))
             return;

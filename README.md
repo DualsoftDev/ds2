@@ -1,6 +1,6 @@
 # Ds2.Promaker
 
-Last Sync: 2026-03-02 (내부 중복 패턴 헬퍼 추출 — DsQuery.fs allOf/orderedSystemsOf, PasteOps.fs replayArrows/collectArrowsWithinSet)
+Last Sync: 2026-03-02 (EditorApi 서브-API 분리 — Query/Nodes/Arrows/Panel 4개 클래스 + ExecFn/BatchExecFn 타입 EditorTypes.fs 추가)
 
 ## 프로젝트 목표
 
@@ -41,7 +41,9 @@ Ds2.Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeu
 ║  │                   DU 패턴 매칭)                                         │  ║
 ║  │       │                                                                │  ║
 ║  │       ├── Editing:   RemoveOps  ArrowOps  DeviceOps                    │  ║
-║  │       │              PasteOps  PanelOps  (명령 조립 헬퍼)               │  ║
+║  │       │              PasteOps  PanelOps  (Ops: 순수 명령 조립, exec 없음) │  ║
+║  │       │              QueryApi  NodeApi  ArrowApi  PanelApi              │  ║
+║  │       │              (Api: ExecFn 주입 + Ops 호출 + 실행, C# 노출)       │  ║
 ║  │       │                                                                │  ║
 ║  │       ├── Projection: TreeProjection  CanvasProjection                 │  ║
 ║  │       │               (Store → 트리/캔버스 뷰 데이터)                   │  ║
@@ -123,7 +125,7 @@ CallCondition = Call 동작 조건 1건 (Active/Auto/Common 타입, IsOR, IsRisi
 ```text
 solutions/Ds2.Promaker/
   Ds2.Core/                # 순수 도메인 타입 (Entities, Properties, Enum, ValueSpec, JsonConverter)
-  Ds2.UI.Core/             # 편집 코어(F#) — 24개 모듈 (DsStore/Query/Mutation 포함)
+  Ds2.UI.Core/             # 편집 코어(F#) — 28개 모듈 (DsStore/Query/Mutation 포함)
   Ds2.Aasx/                # AASX I/O(F#) — 4개 모듈 (AasCore.Aas3_0 v1.0.0 기반 AASX 양방향 변환)
   Ds2.Database/            # 데이터 계층
   Ds2.UI.Frontend/         # WPF UI(C#) — 28개 파일
@@ -133,7 +135,7 @@ solutions/Ds2.Promaker/
   Ds2.Promaker.sln
 ```
 
-테스트 합계: **157개** (24 + 120 + 13)
+테스트 합계: **159개** (24 + 122 + 13)
 
 ---
 
@@ -187,7 +189,7 @@ solutions/Ds2.Promaker/
 | 1 | `Core/DsStore.fs` | `DsStore` 타입 (13개 컬렉션 + ReadOnly 뷰), `StoreCopy.replaceAllCollections`, `StoreWrite` 모듈 (컬렉션 인덱서 대입 허용 구역 중앙화 — `AasxImporter` 전용) |
 | 2 | `Core/DsQuery.fs` | `DsQuery.*` — 엔티티 조회 쿼리 (`getXxx`, `allXxxs`, `xxxsOf`) |
 | 3 | `Core/Mutation.fs` | `Mutation.*` — 엔티티 추가/수정/삭제 (특수: removeSystem, removeCall, removeApiCall) |
-| 4 | `Core/EditorTypes.fs` | `EditorCommand` DU, `CommandLabel.ofCommand`(전 케이스 → 한국어 레이블), `EditorEvent` DU(`HistoryChanged` 포함), `EntityKind` DU, `CallCopyContext` DU, `EntityNameAccess` |
+| 4 | `Core/EditorTypes.fs` | `EditorCommand` DU, `CommandLabel.ofCommand`(전 케이스 → 한국어 레이블), `EditorEvent` DU(`HistoryChanged` 포함), `EntityKind` DU, `CallCopyContext` DU, `EntityNameAccess`. `ExecFn`/`BatchExecFn` 타입 alias — 서브-API 생성자 주입용 |
 | 5 | `Core/ValidationRules.fs` | 이름 · 주소 · 값 검증 규칙 (`ProjectValidation`, `OneToOneValidation` 등) |
 | 6 | `Commands/CommandExecutor.fs` | `EditorCommand` DU 패턴 매칭 → `DsStore` Mutation 실행, `requireMutationOk`로 에러 보장 |
 | 7 | `Commands/UndoRedoManager.fs` | `LinkedList` 기반 undo/redo 스택 관리, maxSize O(1) trim. `UndoLabels`/`RedoLabels` 프로퍼티로 레이블 목록 노출 |
@@ -200,6 +202,7 @@ solutions/Ds2.Promaker/
 | 14 | `Queries/SelectionQueries.fs` | 캔버스 선택 정렬/범위 선택/Ctrl+Shift 다중 선택 해석 |
 | 15 | `Queries/ConnectionQueries.fs` | 화살표 연결 가능 대상 Flow 해석, 선택 순서 연결 |
 | 16 | `Editing/EditorApi.CascadeHelpers.fs` | 캐스케이드 삭제용 저수준 유틸리티 (Arrow 수집, 하위 ID 수집) |
+| | **[Ops 층]** | `*Ops.fs` — `store` + 파라미터 → `EditorCommand` 조립만. `exec` 의존성 없음, 사이드 이펙트 없음 → 단독 테스트 가능 |
 | 17 | `Editing/EditorApi.RemoveOps.fs` | `buildRemoveXxxCmd` — 엔티티별 삭제 명령 조립 (Composite 포함). `buildRemoveEntitiesCmds` — 다중 선택 일괄 삭제 |
 | 18 | `Editing/EditorApi.ArrowOps.fs` | 화살표 Add/Remove 명령 조립, ReconnectArrow |
 | 19 | `Editing/EditorApi.DeviceOps.fs` | `AddCallsWithDevice` — Passive System(`{flowName}_{devAlias}` 이름)/ApiDef 자동 생성 후 Call 일괄 추가. `buildAddCallWithLinkedApiDefsCmd` — 단일 Call + 연결 ApiDef ApiCall Composite 빌드 |
@@ -207,7 +210,12 @@ solutions/Ds2.Promaker/
 | 21 | `Editing/EditorApi.PasteOps.fs` | 붙여넣기 명령 조립, `CallCopyContext` 기반 ApiCall 공유/복제 분기. DifferentFlow 시 `DevicePasteState`로 Device System 복제/재사용. `dispatchPaste` — 엔티티 타입별 붙여넣기 라우팅 진입점 |
 | 22 | `Editing/EditorApi.PropertyPanel.fs` | 속성 패널 전용 타입: `DeviceApiDefOption`, `CallApiCallPanelItem`, `CallConditionApiCallItem`, `CallConditionPanelItem`, `PropertyPanelValueSpec` |
 | 23 | `Editing/EditorApi.PanelOps.fs` | 패널 데이터 조회(`getWorkDurationText`, `getCallTimeoutText`, `getCallApiCallsForPanel`, `getAllApiCallsForPanel`, `getCallConditionsForPanel` 등) 및 ApiCall/CallCondition 커맨드 빌더(`buildAddApiCallsToConditionBatchCmd`, `buildUpdateApiDefPropertiesCmd`, `buildRemoveApiCallFromCallCmd` 포함) |
-| 24 | `Editing/EditorApi.fs` | **외부 진입 API** — `Undo`, `Redo`, `UndoTo(steps)`, `RedoTo(steps)`, `LoadFromFile`(백업+롤백), `ReplaceStore`(외부 I/O 경로용 store 전체 교체 + StoreRefreshed 발행), `GetEntityParentId(entityType, entityId)` — store에서 직접 부모 ID 조회(C# 복사 유효성 검사용). 내부 헬퍼: `RunUndoRedoStep`, `RunBatchedSteps`, `ApplyNewStore`. `suppressEvents` 플래그로 배치 이벤트 폭증 방지. Add* 6개 `internal` 전용, `AndGetId` 공개 래퍼. `ExecuteCommand`는 private, `Exec`/`ExecBatch`는 internal |
+| | **[Api 층]** | `*Api.fs` — 생성자로 `ExecFn`/`BatchExecFn` 주입받아 Ops 호출 + 실행까지 담당. C#(`EditorApi` 멤버)으로 노출. **Ops/Api 분리 이유**: `exec` 의존성을 Api 층에서만 보유 → Ops를 순수 함수로 유지(단독 테스트 가능, 책임 경계 명확화) |
+| 24 | `Editing/EditorApi.QueryApi.fs` | **서브-API: 읽기 전용 쿼리** — `EditorQueryApi(store)`. BuildTrees, CanvasContentForTab, TryOpenTabForEntity, FlowIdsForTab, TabExists, TabTitle, TryFindProjectIdForEntity, GetEntityParentId, FindApiDefsByName, TryResolveAddSystemTarget, TryResolveAddFlowTarget, GetFlowArrowPaths |
+| 25 | `Editing/EditorApi.NodeApi.fs` | **서브-API: 노드 CRUD** — `EditorNodeApi(store, exec, batchExec)`. AddProjectAndGetId, AddSystemAndGetId, AddFlowAndGetId, AddWorkAndGetId, AddCallsWithDevice, AddCallWithLinkedApiDefsAndGetId, AddApiDefAndGetId, MoveEntities, RemoveEntities, RenameEntity, PasteEntities |
+| 26 | `Editing/EditorApi.ArrowApi.fs` | **서브-API: 화살표 연산** — `EditorArrowApi(store, exec, batchExec)`. RemoveArrows, ReconnectArrow, ConnectSelectionInOrder |
+| 27 | `Editing/EditorApi.PanelApi.fs` | **서브-API: 속성 패널** — `EditorPanelApi(store, exec, execOpt, applyTryBuild)`. UpdateApiDefProperties, RemoveApiCallFromCall, GetWorkDurationText, TryUpdateWorkDuration, GetCallTimeoutText, TryUpdateCallTimeout, GetApiDefsForSystem, GetWorksForSystem, GetApiDefParentSystemId, GetDeviceApiDefOptionsForCall, GetCallApiCallsForPanel, GetAllApiCallsForPanel, AddApiCallFromPanel, UpdateApiCallFromPanel, GetCallConditionsForPanel, AddCallCondition, RemoveCallCondition, UpdateCallConditionSettings, AddApiCallsToConditionBatch, RemoveApiCallFromCondition, UpdateConditionApiCallOutputSpec |
+| 28 | `Editing/EditorApi.fs` | **외부 진입점** — `EditorApi(store)`. 서브-API 4개 노출(`Query`/`Nodes`/`Arrows`/`Panel`). `Undo`, `Redo`, `UndoTo(steps)`, `RedoTo(steps)`, `LoadFromFile`(백업+롤백), `ReplaceStore`(외부 I/O 경로용 store 전체 교체). 내부 헬퍼: `RunUndoRedoStep`, `RunBatchedSteps`, `ApplyNewStore`. ref 지연 바인딩(`execRef`/`batchExecRef`/`execOptRef`/`applyTryRef`) + `do` 블록 wire. `suppressEvents` 플래그로 배치 이벤트 폭증 방지. `ExecuteCommand` private, `Exec`/`ExecBatch` internal |
 
 ---
 
@@ -312,6 +320,34 @@ solutions/Ds2.Promaker/
     ▼  C# — MainViewModel.HandleEvent(event)
        RebuildAll → WPF 바인딩 갱신 → 화면 반영
 ```
+
+### EditorCommand — 명령 조립과 DU 패턴 선택 이유
+
+**명령 조립(Command Assembly)**이란 `EditorCommand` DU 케이스를 **값으로 생성하여 반환하는 것**입니다. `exec` 호출 없이 데이터 구조만 만듭니다.
+
+- **Single 명령**: `AddWork work`, `RemoveWork work`, `MoveEntities [(id, xywh)]` 등 원자 연산 1건
+- **Composite 명령**: `Composite(label, EditorCommand list)` — 원자 명령 N건을 하나의 Undo 단위로 묶음. `EditorCommand list`를 재귀적으로 담는 DU 케이스로 중첩 트리를 자연스럽게 표현
+
+Ops 함수(`buildRemoveWorkCmd` 등)는 이 값을 조립해 반환하고, Api 층이 받아서 `exec(cmd)`를 호출합니다.
+
+**DU vs 클래스 Command 패턴 비교**
+
+| 항목 | **현재 DU** | **클래스 `ICommand`** |
+|------|------------|----------------------|
+| 케이스 누락 감지 | 컴파일 타임 완전성 체크 → 누락 시 빌드 실패 | 런타임에만 발견 |
+| Composite | `Composite(label, EditorCommand list)` — 재귀 DU로 자연 표현 | 별도 `CompositeCommand` 클래스 + 재귀 실행/Undo 로직 필요 |
+| execute / undo | `CommandExecutor` 한 파일에서 패턴 매칭으로 쌍 집중 처리 | 각 클래스마다 `Undo()` 구현 → 분산, 누락 위험 |
+| 테스트 | `assert cmd = Composite(...)` 값 비교로 충분 | Mock/stub 없이 비교 불가 |
+| 레이블 | `CommandLabel.ofCommand` 한 곳 집중 → 누락 시 컴파일 에러 | 각 클래스 분산 → 누락 감지 불가 |
+| 케이스 분기 비용 | 컴파일러 최적화 switch/jump → O(1) | vtable virtual dispatch → 간접 호출 오버헤드 |
+| 힙 할당 | DU 케이스 단일 객체, 불변 → GC 수집 용이 | 각 Command 인스턴스 별도 할당, 장수명 가능 |
+| Composite 실행 | 단형성 순회 → CPU 캐시 친화적 | virtual dispatch × N → 캐시 미스 가능 |
+
+`Composite` 재귀 구조가 결정적입니다. 클래스 기반이었다면 `CompositeCommand` 클래스, 재귀 실행 로직, 각 클래스별 Undo 구현이 분산됩니다.
+
+> **실질적 영향**: 이 프로젝트의 명령 실행 빈도는 사용자 입력 연동(초당 수 번 이하)이므로 성능 차이가 UX에 영향을 주지 않습니다. 타입 안전성과 구조적 이점(Composite 재귀, execute/undo 집중, 컴파일 타임 완전성)이 선택의 결정 요소입니다.
+
+> 상세 내용: [`RUNTIME.md` — 1.2절](RUNTIME.md)
 
 ---
 

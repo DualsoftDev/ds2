@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using Ds2.Core;
 using Ds2.UI.Core;
 using Ds2.UI.Frontend.Dialogs;
+using Microsoft.FSharp.Core;
 
 namespace Ds2.UI.Frontend.ViewModels;
 
@@ -91,6 +92,9 @@ public partial class MainViewModel
         return true;
     }
 
+    private static bool HasOptionValue<T>(FSharpOption<T>? option) =>
+        option is not null && FSharpOption<T>.get_IsSome(option);
+
     private bool TryGetSelectedNode(string entityType, [NotNullWhen(true)] out EntityNode? node)
     {
         node = RequireSelectedAs(entityType);
@@ -98,14 +102,14 @@ public partial class MainViewModel
     }
 
     public bool TryMoveEntitiesFromCanvas(IReadOnlyList<MoveEntityRequest> requests) =>
-        TryEditorAction("MoveEntities", () => _editor.MoveEntities(requests),
+        TryEditorAction("MoveEntities", () => _editor.Nodes.MoveEntities(requests),
             statusOverride: "[ERROR] Failed to move selected nodes.");
 
     public bool TryReconnectArrowFromCanvas(Guid arrowId, bool replaceSource, Guid newEndpointId)
     {
         if (!TryEditorFunc(
                 "ReconnectArrow",
-                () => _editor.ReconnectArrow(arrowId, replaceSource, newEndpointId),
+                () => _editor.Arrows.ReconnectArrow(arrowId, replaceSource, newEndpointId),
                 out bool changed,
                 fallback: false,
                 statusOverride: "[ERROR] Failed to reconnect arrow."))
@@ -118,7 +122,7 @@ public partial class MainViewModel
     {
         if (!TryEditorFunc(
                 "ConnectSelectionInOrder",
-                () => _editor.ConnectSelectionInOrder([sourceId, targetId], arrowType),
+                () => _editor.Arrows.ConnectSelectionInOrder([sourceId, targetId], arrowType),
                 out int createdCount,
                 fallback: 0,
                 statusOverride: "[ERROR] Failed to connect selected nodes."))
