@@ -18,8 +18,6 @@ type UndoRedoManager(maxSize: int) =
     let pushFront (list: LinkedList<EditorCommand>) (cmd: EditorCommand) =
         list.AddFirst(cmd) |> ignore
 
-    member _.CanUndo = undoList.Count > 0
-    member _.CanRedo = redoList.Count > 0
     member _.UndoCount = undoList.Count
     member _.RedoCount = redoList.Count
     member _.UndoLabels = undoList |> Seq.map CommandLabel.ofCommand |> Seq.toList

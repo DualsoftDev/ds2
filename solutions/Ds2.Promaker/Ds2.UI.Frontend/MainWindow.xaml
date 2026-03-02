@@ -741,15 +741,6 @@
             <StatusBarItem>
                 <TextBlock Text="{Binding StatusText}"/>
             </StatusBarItem>
-            <Separator/>
-            <StatusBarItem HorizontalAlignment="Right">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="Undo: " Margin="0,0,2,0"/>
-                    <TextBlock Text="{Binding CanUndo}"/>
-                    <TextBlock Text="  Redo: " Margin="8,0,2,0"/>
-                    <TextBlock Text="{Binding CanRedo}"/>
-                </StackPanel>
-            </StatusBarItem>
         </StatusBar>
     </Grid>
 </Window>

@@ -15,6 +15,11 @@ let private collectEvents (api: EditorApi) =
     api.OnEvent.Add(fun e -> events.Add(e))
     events
 
+let private latestHistoryChanged (events: ResizeArray<EditorEvent>) =
+    events
+    |> Seq.choose (function HistoryChanged(undoLabels, redoLabels) -> Some(undoLabels, redoLabels) | _ -> None)
+    |> Seq.tryLast
+
 // =============================================================================
 // Work CRUD + Undo/Redo
 // =============================================================================
@@ -502,17 +507,23 @@ let ``Validation rollback should emit StoreRefreshed and HistoryChanged`` () =
 // =============================================================================
 
 [<Fact>]
-let ``CanUndo and CanRedo should reflect state`` () =
+let ``HistoryChanged should reflect undo/redo availability`` () =
     let _, api, _, _, flow = setupProjectSystemFlow()
+    let events = collectEvents api
 
-    Assert.True(api.CanUndo) // AddProject, AddSystem, AddFlow in stack
     api.AddWork("W1", flow.Id) |> ignore
-    Assert.True(api.CanUndo)
-    Assert.False(api.CanRedo)
+    match latestHistoryChanged events with
+    | Some (undoLabels, redoLabels) ->
+        Assert.True(undoLabels.Length > 0)
+        Assert.Empty(redoLabels)
+    | None -> failwith "Expected HistoryChanged after AddWork"
 
     api.Undo()
-    Assert.True(api.CanUndo)
-    Assert.True(api.CanRedo)
+    match latestHistoryChanged events with
+    | Some (undoLabels, redoLabels) ->
+        Assert.True(undoLabels.Length > 0)
+        Assert.True(redoLabels.Length > 0)
+    | None -> failwith "Expected HistoryChanged after Undo"
 
 // =============================================================================
 // Project CRUD + Undo/Redo
@@ -797,6 +808,7 @@ let ``SaveToFile and LoadFromFile should round-trip store`` () =
         // Load into fresh api
         let store2 = DsStore.empty()
         let api2 = EditorApi(store2)
+        let events2 = collectEvents api2
         api2.LoadFromFile(path)
 
         Assert.Equal(store.Projects.Count, store2.Projects.Count)
@@ -805,7 +817,7 @@ let ``SaveToFile and LoadFromFile should round-trip store`` () =
         Assert.True(store2.Projects.ContainsKey(project.Id))
 
         // Undo stack should be cleared after load
-        Assert.False(api2.CanUndo)
+        Assert.True(events2 |> Seq.exists (function HistoryChanged([], []) -> true | _ -> false))
     finally
         if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 
@@ -819,7 +831,6 @@ let ``ReplaceStore should replace all collections, clear undo stack, and emit St
     let project = api.AddProject("P1")
     let system = api.AddSystem("S1", project.Id, true)
     let _flow = api.AddFlow("F1", system.Id)
-    Assert.True(api.CanUndo)
 
     // 새 store에 프로젝트 추가 — Project(...) 직접 생성 시 EntityKind.Project DU 케이스와 이름 충돌
     let newStore = DsStore.empty()
@@ -832,7 +843,6 @@ let ``ReplaceStore should replace all collections, clear undo stack, and emit St
     Assert.Equal(1, store.Projects.Count)
     Assert.True(store.Projects.ContainsKey(newProject.Id))
     Assert.False(store.Projects.ContainsKey(project.Id))
-    Assert.False(api.CanUndo)
     Assert.True(events |> Seq.exists (function StoreRefreshed -> true | _ -> false))
     Assert.True(events |> Seq.exists (function HistoryChanged([], []) -> true | _ -> false))
 
@@ -855,7 +865,15 @@ let ``UndoRedoManager should trim stack when exceeding maxSize`` () =
     api.Undo() // undo AddWork
     api.Undo() // undo AddFlow
     api.Undo() // undo AddSystem
-    Assert.False(api.CanUndo) // AddProject was trimmed
+    Assert.True(store.Projects.ContainsKey(project.Id)) // AddProject was trimmed
+    Assert.Equal(0, store.Systems.Count)
+    Assert.Equal(0, store.Flows.Count)
+    Assert.Equal(0, store.Works.Count)
+
+    // one more undo should be a no-op
+    api.Undo()
+    Assert.True(store.Projects.ContainsKey(project.Id))
+    Assert.Equal(0, store.Systems.Count)
 
 // =============================================================================
 // UndoTo / RedoTo 점프
@@ -1423,6 +1441,7 @@ let ``AddCallWithLinkedApiDefs with no apiDefIds should still create Call`` () =
 let ``Undo failure should restore undo stack and store snapshot`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
+    let events = collectEvents api
 
     // force undo(AddWork) failure by corrupting current state
     store.Works.Remove(work.Id) |> ignore
@@ -1431,16 +1450,22 @@ let ``Undo failure should restore undo stack and store snapshot`` () =
         Assert.Throws<InvalidOperationException>(fun () ->
             api.Undo())
 
-    Assert.True(api.CanUndo)
-    Assert.False(api.CanRedo)
+    match latestHistoryChanged events with
+    | Some (undoLabels, redoLabels) ->
+        Assert.True(undoLabels.Length > 0)
+        Assert.Empty(redoLabels)
+    | None -> failwith "Expected HistoryChanged after failed Undo"
     Assert.False(store.Works.ContainsKey(work.Id))
 
 [<Fact>]
 let ``Redo failure should restore redo stack and store snapshot`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = api.AddWork("W1", flow.Id)
+    let events = collectEvents api
     api.Undo()
-    Assert.True(api.CanRedo)
+    match latestHistoryChanged events with
+    | Some (_, redoLabels) -> Assert.True(redoLabels.Length > 0)
+    | None -> failwith "Expected HistoryChanged after Undo"
 
     // force redo(AddWork) failure by pre-inserting same ID
     store.Works.[work.Id] <- work
@@ -1449,8 +1474,11 @@ let ``Redo failure should restore redo stack and store snapshot`` () =
         Assert.Throws<InvalidOperationException>(fun () ->
             api.Redo())
 
-    Assert.True(api.CanRedo)
-    Assert.True(api.CanUndo)
+    match latestHistoryChanged events with
+    | Some (undoLabels, redoLabels) ->
+        Assert.True(undoLabels.Length > 0)
+        Assert.True(redoLabels.Length > 0)
+    | None -> failwith "Expected HistoryChanged after failed Redo"
     Assert.True(store.Works.ContainsKey(work.Id))
 
 [<Fact>]

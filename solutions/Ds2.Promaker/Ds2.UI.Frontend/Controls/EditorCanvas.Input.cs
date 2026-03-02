@@ -180,7 +180,7 @@ public partial class EditorCanvas
             }
 
             if (requests.Count > 0)
-                VM.Editor.MoveEntities(requests);
+                VM.TryMoveEntitiesFromCanvas(requests);
         }
 
         _drag = null;
@@ -272,7 +272,7 @@ public partial class EditorCanvas
         if (target is null)
             return;
 
-        vm.Editor.ReconnectArrow(reconnect.ArrowId, reconnect.ReplaceSource, target.Id);
+        vm.TryReconnectArrowFromCanvas(reconnect.ArrowId, reconnect.ReplaceSource, target.Id);
     }
 
     private void CancelArrowReconnect()

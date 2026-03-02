@@ -146,24 +146,23 @@ let private populateStore
     (store: DsStore)
     (project: Project)
     (systemResults: (DsSystem * bool * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) list) =
-    store.Projects.[project.Id] <- project
     for (system, isActive, flows, works, calls, arrowCalls, arrowWorks, apiDefs) in systemResults do
-        store.Systems.[system.Id] <- system
+        StoreWrite.system store system
         if isActive then project.ActiveSystemIds.Add(system.Id)
         else             project.PassiveSystemIds.Add(system.Id)
-        for flow    in flows      do store.Flows.[flow.Id]       <- flow
-        for work    in works      do store.Works.[work.Id]       <- work
+        for flow    in flows      do StoreWrite.flow store flow
+        for work    in works      do StoreWrite.work store work
         for call    in calls      do
-            store.Calls.[call.Id] <- call
+            StoreWrite.call store call
             for apiCall in call.ApiCalls do
-                store.ApiCalls.[apiCall.Id] <- apiCall
+                StoreWrite.apiCall store apiCall
             for condition in call.CallConditions do
                 for apiCall in condition.Conditions do
                     if not (store.ApiCalls.ContainsKey(apiCall.Id)) then
-                        store.ApiCalls.[apiCall.Id] <- apiCall
-        for arrow   in arrowCalls do store.ArrowCalls.[arrow.Id] <- arrow
-        for arrow   in arrowWorks do store.ArrowWorks.[arrow.Id] <- arrow
-        for apiDef  in apiDefs    do store.ApiDefs.[apiDef.Id]   <- apiDef
+                        StoreWrite.apiCall store apiCall
+        for arrow   in arrowCalls do StoreWrite.arrowCall store arrow
+        for arrow   in arrowWorks do StoreWrite.arrowWork store arrow
+        for apiDef  in apiDefs    do StoreWrite.apiDef store apiDef
 
 let private submodelToProjectStore (sm: ISubmodel) : (Project * DsStore) option =
     try
@@ -181,6 +180,7 @@ let private submodelToProjectStore (sm: ISubmodel) : (Project * DsStore) option 
                     let passiveSystems = getChildSmlSmcs pSmc PassiveSystems_ |> List.choose smcToSystem
 
                     let store = DsStore()
+                    StoreWrite.project store project
                     populateStore store project activeSystems
                     populateStore store project passiveSystems
                     Some (project, store)

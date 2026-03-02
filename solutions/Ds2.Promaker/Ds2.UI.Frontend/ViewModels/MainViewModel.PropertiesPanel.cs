@@ -57,7 +57,14 @@ public partial class MainViewModel
     {
         if (RequireSelectedAs(EntityTypes.Work) is not { } selectedWork) return;
 
-        if (!_editor.TryUpdateWorkDuration(selectedWork.Id, WorkDurationText))
+        if (!TryEditorFunc(
+                "TryUpdateWorkDuration",
+                () => _editor.TryUpdateWorkDuration(selectedWork.Id, WorkDurationText),
+                out var updated,
+                fallback: false))
+            return;
+
+        if (!updated)
         {
             StatusText = "Invalid duration. Use hh:mm:ss or leave empty.";
             return;
@@ -78,7 +85,13 @@ public partial class MainViewModel
 
         if (IsWorkSelected && selected is not null)
         {
-            _originalWorkDurationText = _editor.GetWorkDurationText(selected.Id);
+            if (!TryEditorFunc(
+                    "GetWorkDurationText",
+                    () => _editor.GetWorkDurationText(selected.Id),
+                    out _originalWorkDurationText,
+                    fallback: string.Empty))
+                _originalWorkDurationText = string.Empty;
+
             WorkDurationText = _originalWorkDurationText;
         }
         else
@@ -89,7 +102,13 @@ public partial class MainViewModel
 
         if (IsCallSelected && selected is not null)
         {
-            _originalCallTimeoutText = _editor.GetCallTimeoutText(selected.Id);
+            if (!TryEditorFunc(
+                    "GetCallTimeoutText",
+                    () => _editor.GetCallTimeoutText(selected.Id),
+                    out _originalCallTimeoutText,
+                    fallback: string.Empty))
+                _originalCallTimeoutText = string.Empty;
+
             CallTimeoutText = _originalCallTimeoutText;
             RefreshCallPanel(selected.Id);
         }

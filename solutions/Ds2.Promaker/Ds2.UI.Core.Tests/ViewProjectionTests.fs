@@ -288,25 +288,25 @@ let ``buildTrees device system with no ApiDefs has no category node`` () =
     Assert.Empty(deviceSystemNode.Children)
 
 [<Fact>]
-let ``findApiDefsByName returns all passive system ApiDefs when filter is empty`` () =
+let ``findApiDefs returns all passive system ApiDefs when filters are empty`` () =
     let store, api = createApi()
     let project = api.AddProject("P1")
     let device = api.AddSystem("Dev", project.Id, false)
     let _ad1 = api.AddApiDef("ADV", device.Id)
     let _ad2 = api.AddApiDef("RET", device.Id)
 
-    let results = EntityHierarchyQueries.findApiDefsByName store ""
+    let results = EntityHierarchyQueries.findApiDefs store "" ""
     Assert.Equal(2, results.Length)
 
 [<Fact>]
-let ``findApiDefsByName filters by name`` () =
+let ``findApiDefs filters by ApiDef name`` () =
     let store, api = createApi()
     let project = api.AddProject("P1")
     let device = api.AddSystem("Dev", project.Id, false)
     let _ad1 = api.AddApiDef("ADV", device.Id)
     let _ad2 = api.AddApiDef("RET", device.Id)
 
-    let results = EntityHierarchyQueries.findApiDefsByName store "AD"
+    let results = EntityHierarchyQueries.findApiDefs store "" "AD"
     Assert.Equal(1, results.Length)
     Assert.Equal("ADV", results.[0].ApiDefName)
     Assert.Equal("Dev", results.[0].SystemName)

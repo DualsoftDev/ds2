@@ -21,7 +21,7 @@ public partial class ConditionApiCallPickerDialog : Window
     private void OK_Click(object sender, RoutedEventArgs e)
     {
         var selected = PickerListBox.SelectedItems
-            .Cast<ApiCallChoice>()
+            .OfType<ApiCallChoice>()
             .Select(x => x.Id)
             .ToList();
 

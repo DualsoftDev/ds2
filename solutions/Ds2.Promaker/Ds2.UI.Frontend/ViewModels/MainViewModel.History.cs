@@ -19,8 +19,10 @@ public partial class MainViewModel
         int clickedIdx = HistoryItems.IndexOf(item);
         if (clickedIdx < 0) return;
         int delta = clickedIdx - CurrentHistoryIndex;
-        if (delta < 0) _editor.UndoTo(-delta);
-        else if (delta > 0) _editor.RedoTo(delta);
+        if (delta < 0)
+            TryEditorAction("UndoTo", () => _editor.UndoTo(-delta));
+        else if (delta > 0)
+            TryEditorAction("RedoTo", () => _editor.RedoTo(delta));
     }
 
     private void RebuildHistoryItems(

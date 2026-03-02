@@ -156,7 +156,3 @@ let findApiDefs (store: DsStore) (aliasFilter: string) (apiNameFilter: string) :
             String.IsNullOrEmpty(apiNameFilter) ||
             a.Name.IndexOf(apiNameFilter, StringComparison.OrdinalIgnoreCase) >= 0)
         |> List.map (fun a -> ApiDefMatch(a.Id, a.Name, sys.Id, sys.Name)))
-
-/// 기존 호환 API: ApiDef 이름만으로 검색.
-let findApiDefsByName (store: DsStore) (filterName: string) : ApiDefMatch list =
-    findApiDefs store "" filterName

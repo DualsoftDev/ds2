@@ -113,7 +113,14 @@ public partial class MainViewModel
         if (_orderedNodeSelection.Count < 2)
             return false;
 
-        var created = _editor.ConnectSelectionInOrder(_orderedNodeSelection.Select(s => s.Id), arrowType);
+        if (!TryEditorFunc(
+                "ConnectSelectionInOrder",
+                () => _editor.ConnectSelectionInOrder(_orderedNodeSelection.Select(s => s.Id), arrowType),
+                out var created,
+                fallback: 0,
+                statusOverride: "[ERROR] Failed to connect selected nodes."))
+            return false;
+
         if (created <= 0)
             return false;
 
