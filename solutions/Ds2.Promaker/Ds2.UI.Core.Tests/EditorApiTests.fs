@@ -1208,7 +1208,7 @@ let ``AddCallsWithDevice with single Work should create no arrows`` () =
 // =============================================================================
 
 [<Fact>]
-let ``PasteEntities Work to different Flow creates device system with target flow name prefix`` () =
+let ``PasteEntities Work to different Flow creates device system with Flow Work and ApiDef linked`` () =
     let store, api = createApi()
     let project = addProject store api "P1"
     let activeSystem = addSystem store api "S1" project.Id true
@@ -1218,12 +1218,6 @@ let ``PasteEntities Work to different Flow creates device system with target flo
 
     api.Nodes.AddCallsWithDevice project.Id work.Id [ "Dev1.ADV" ] true
 
-    // F1_Dev1 passive system 확인
-    let f1Passive = DsQuery.passiveSystemsOf project.Id store |> List.exactlyOne
-    Assert.Equal("F1_Dev1", f1Passive.Name)
-    let f1ApiDef = DsQuery.apiDefsOf f1Passive.Id store |> List.exactlyOne
-
-    // W1을 F2로 붙여넣기 (DifferentFlow)
     let worksBefore = store.Works.Keys |> Set.ofSeq
     api.Nodes.PasteEntities("Work", [| work.Id |], "Flow", f2.Id) |> ignore
     let pastedWork = store.Works.Values |> Seq.find (fun w -> not (worksBefore.Contains w.Id))
@@ -1233,19 +1227,17 @@ let ``PasteEntities Work to different Flow creates device system with target flo
     Assert.Equal(2, passiveSystems.Length)
     let f2Passive = passiveSystems |> List.find (fun s -> s.Name = "F2_Dev1")
 
-    // 복제된 ApiDef가 F2_Dev1에 있어야 함
-    let f2ApiDefs = DsQuery.apiDefsOf f2Passive.Id store
-    Assert.Equal(1, f2ApiDefs.Length)
-    Assert.Equal("ADV", f2ApiDefs.[0].Name)
+    // F2_Dev1: Flow + Work + ApiDef(TxGuid) 구조 완전 복제
+    let f2DevFlow = DsQuery.flowsOf f2Passive.Id store |> List.exactlyOne
+    let f2ApiDef = DsQuery.apiDefsOf f2Passive.Id store |> List.exactlyOne
+    Assert.Equal("ADV", f2ApiDef.Name)
+    let txWork = store.Works.[f2ApiDef.Properties.TxGuid.Value]
+    Assert.Equal("ADV", txWork.Name)
+    Assert.Equal(f2DevFlow.Id, txWork.ParentId)
 
     // 붙여넣어진 Call의 ApiCall이 F2_Dev1의 ApiDef를 가리켜야 함
-    let pastedCalls = DsQuery.callsOf pastedWork.Id store
-    Assert.Equal(1, pastedCalls.Length)
-    let pastedApiCalls = pastedCalls.[0].ApiCalls
-    Assert.Equal(1, pastedApiCalls.Count)
-    Assert.Equal(Some f2ApiDefs.[0].Id, pastedApiCalls.[0].ApiDefId)
-    // 원본 F1_Dev1의 ApiDef를 가리키지 않아야 함
-    Assert.NotEqual(Some f1ApiDef.Id, pastedApiCalls.[0].ApiDefId)
+    let pastedCall = DsQuery.callsOf pastedWork.Id store |> List.exactlyOne
+    Assert.Equal(Some f2ApiDef.Id, pastedCall.ApiCalls.[0].ApiDefId)
 
 [<Fact>]
 let ``PasteEntities Work to different Flow reuses existing device system`` () =
@@ -1282,12 +1274,10 @@ let ``PasteEntities Work to different Flow reuses existing device system`` () =
 
 // =============================================================================
 // PasteEntities Flow — Device System 복제 (pasteFlowToSystem 경로)
-// 버그: pastedFlow는 exec 후에도 store snapshot에 없어서 makeDeviceFlowCtx = None → Device System 미생성
-// 수정: makeDeviceFlowCtxDirect로 targetSystemId + pastedFlow.Name 직접 구성
 // =============================================================================
 
 [<Fact>]
-let ``PasteEntities Flow to system in different project creates new device system with mapped ApiDefs`` () =
+let ``PasteEntities Flow to system creates device system with Flow Work and ApiDef linked`` () =
     let store, api = createApi()
     let p1 = addProject store api "P1"
     let p2 = addProject store api "P2"
@@ -1298,33 +1288,26 @@ let ``PasteEntities Flow to system in different project creates new device syste
 
     api.Nodes.AddCallsWithDevice p1.Id work.Id [ "Dev1.ADV" ] true
 
-    // P1에 F1_Dev1 passive system 확인
-    let p1Passive = DsQuery.passiveSystemsOf p1.Id store |> List.exactlyOne
-    Assert.Equal("F1_Dev1", p1Passive.Name)
-    let p1ApiDef = DsQuery.apiDefsOf p1Passive.Id store |> List.exactlyOne
-
     // F1(Flow)을 S2(P2 소속)에 붙여넣기 — pasteFlowToSystem 경로
     api.Nodes.PasteEntities("Flow", [| f1.Id |], "System", s2.Id) |> ignore
 
-    // P2에 새 F1_Dev1 passive system이 생성돼야 함
+    // P2에 F1_Dev1 passive system이 생성됨
     let p2Passive = DsQuery.passiveSystemsOf p2.Id store |> List.exactlyOne
     Assert.Equal("F1_Dev1", p2Passive.Name)
 
-    // P2의 ApiDef는 P1과 다른 ID여야 함
+    // P2_Dev1: Flow + Work + ApiDef(TxGuid) 구조 완전 복제
+    let p2DevFlow = DsQuery.flowsOf p2Passive.Id store |> List.exactlyOne
     let p2ApiDef = DsQuery.apiDefsOf p2Passive.Id store |> List.exactlyOne
     Assert.Equal("ADV", p2ApiDef.Name)
-    Assert.NotEqual(p1ApiDef.Id, p2ApiDef.Id)
+    let p2TxWork = store.Works.[p2ApiDef.Properties.TxGuid.Value]
+    Assert.Equal("ADV", p2TxWork.Name)
+    Assert.Equal(p2DevFlow.Id, p2TxWork.ParentId)
 
-    // 붙여넣어진 Flow의 Work → Call → ApiCall이 P2의 ApiDef를 가리켜야 함
+    // 붙여넣어진 Flow의 Call의 ApiCall이 P2의 ApiDef를 가리켜야 함
     let pastedFlow = DsQuery.flowsOf s2.Id store |> List.exactlyOne
     let pastedWork = DsQuery.worksOf pastedFlow.Id store |> List.exactlyOne
-    let pastedCalls = DsQuery.callsOf pastedWork.Id store
-    Assert.Equal(1, pastedCalls.Length)
-    let pastedApiCalls = pastedCalls.[0].ApiCalls
-    Assert.Equal(1, pastedApiCalls.Count)
-    Assert.Equal(Some p2ApiDef.Id, pastedApiCalls.[0].ApiDefId)
-    // P1의 ApiDef를 가리키면 안 됨 (수정 전 버그: copyApiCalls가 ApiDefId를 그대로 복사)
-    Assert.NotEqual(Some p1ApiDef.Id, pastedApiCalls.[0].ApiDefId)
+    let pastedCall = DsQuery.callsOf pastedWork.Id store |> List.exactlyOne
+    Assert.Equal(Some p2ApiDef.Id, pastedCall.ApiCalls.[0].ApiDefId)
 
 // =============================================================================
 // Paste Undo — BatchExec 보장 (Paste 1회 = Undo 1회)

@@ -54,14 +54,6 @@ type Call(devicesAlias: string, apiName: string, parentId: Guid) =
                 elif dotIdx = 0 then ""
                 else value
 
-    // 편의 속성 - 타입별 필터링
-    member this.AutoConditions =
-        this.CallConditions |> Seq.filter (fun c -> c.Type = Some CallConditionType.Auto) |> Seq.toList
-    member this.CommonConditions =
-        this.CallConditions |> Seq.filter (fun c -> c.Type = Some CallConditionType.Common) |> Seq.toList
-    member this.ActiveTriggers =
-        this.CallConditions |> Seq.filter (fun c -> c.Type = Some CallConditionType.Active) |> Seq.toList
-
     /// - ApiCall: 같은 인스턴스 참조 (ID 유지)
     /// - 나머지 속성: 깊은 복사 (새로운 ID 생성)
     member this.DeepCopySharedApiCalls() =

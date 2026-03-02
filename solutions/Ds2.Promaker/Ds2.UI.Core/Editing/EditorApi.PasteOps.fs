@@ -102,12 +102,17 @@ let private ensureTargetDeviceSystem
             | None ->
                 let newSystem = DsSystem(targetName)
                 exec(AddSystem(newSystem, projectId, false))
+                let newFlow = Flow($"{devAlias}_Flow", newSystem.Id)
+                exec(AddFlow newFlow)
                 let sourceApiDefs = DsQuery.apiDefsOf sourceSystemId store
                 let mapping =
                     sourceApiDefs
                     |> List.map (fun src ->
                         let cloned = ApiDef(src.Name, newSystem.Id)
                         cloned.Properties.IsPush <- src.Properties.IsPush
+                        let work = Work(src.Name, newFlow.Id)
+                        exec(AddWork work)
+                        cloned.Properties.TxGuid <- Some work.Id
                         exec(AddApiDef cloned)
                         src.Id, cloned.Id)
                     |> Map.ofList
