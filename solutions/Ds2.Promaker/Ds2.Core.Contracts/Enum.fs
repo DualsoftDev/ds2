@@ -11,6 +11,6 @@ type ArrowType =
 
 /// CallCondition의 타입
 type CallConditionType =
-    | Auto   = 0  // AutoConditions
-    | Common = 1  // CommonConditions
-    | Active = 2  // ActiveTriggers
+    | Auto   = 0
+    | Common = 1
+    | Active = 2

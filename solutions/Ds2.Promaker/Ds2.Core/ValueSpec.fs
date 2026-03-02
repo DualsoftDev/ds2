@@ -73,4 +73,3 @@ module ValueSpec =
             segment (lower |> Option.map boundClosed) (upper |> Option.map boundClosed))
         |> rangesInt32
 
-    let undefined : ValueSpec = UndefinedValue

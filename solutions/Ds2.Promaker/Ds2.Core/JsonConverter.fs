@@ -46,11 +46,3 @@ module ProjectSerializer =
     /// JSON 파일에서 Project 로드
     let loadProject (filePath: string) : Project =
         JsonConverter.loadFromFile filePath
-
-    /// Project를 JSON 문자열로 변환
-    let projectToJson (project: Project) : string =
-        JsonConverter.serialize project
-
-    /// JSON 문자열에서 Project 생성
-    let projectFromJson (json: string) : Project =
-        JsonConverter.deserialize json
