@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-03-02 (예외처리 보완 — GetEntityParentId TryEditorFunc 패턴 적용, ImportAasx try/catch 범위 통합)
+Last Sync: 2026-03-02 (내부 중복 패턴 헬퍼 추출 — DsQuery.fs allOf/orderedSystemsOf, PasteOps.fs replayArrows/collectArrowsWithinSet)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
