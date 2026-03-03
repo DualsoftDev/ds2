@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Promaker</RootNamespace>
+    <AssemblyName>Promaker</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <DisableTransitiveProjectReferences>true</DisableTransitiveProjectReferences>
+    <OtherFlags></OtherFlags>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="log4net" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="log4net.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
+  </ItemGroup>
+
+  <Target Name="FailIfDs2CoreReferenced" AfterTargets="ResolveReferences">
+    <ItemGroup>
+      <_ForbiddenCoreRef Include="@(ReferencePath)"
+                         Condition="'%(ReferencePath.Filename)' == 'Ds2.Core' and '%(ReferencePath.Extension)' == '.dll'" />
+    </ItemGroup>
+    <Error Condition="'@(_ForbiddenCoreRef)' != ''"
+           Text="Promaker must not reference Ds2.Core directly or transitively. Use Ds2.UI.Core APIs only." />
+  </Target>
+
+</Project>

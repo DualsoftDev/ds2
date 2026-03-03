@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!-- WPF MVVM -->
+  <ItemGroup>
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+  </ItemGroup>
+
+  <!-- 로깅 -->
+  <ItemGroup>
+    <PackageVersion Include="log4net" Version="2.0.17" />
+  </ItemGroup>
+</Project>

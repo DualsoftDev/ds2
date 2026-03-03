@@ -1,10 +1,10 @@
-# Ds2.Promaker
+# Promaker
 
-Last Sync: 2026-03-03 (Ds2.Core.Contracts 삭제 — ArrowType/CallConditionType/Xywh를 Ds2.Core로 통합, UiArrowType/UiCallConditionType을 Ds2.UI.Core로 격리, Ds2.UI.Frontend Ds2.Core 직접 참조 금지 유지)
+Last Sync: 2026-03-03 (디렉토리 구조 재편 — Solutions/Core/Convert/Backend/Tests + Apps/Promaker 분리, Promaker 네임스페이스 교체)
 
 ## 프로젝트 목표
 
-Ds2.Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeunce control editor**를 구현 중입니다.
+Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeunce control editor**를 구현 중입니다.
 
 - **편집 코어(F#) 분리**: 추가/삭제/이동/연결/복사/붙여넣기의 로직을 F# 레이어에 집중시켜 UI 기술이 바뀌어도 재사용 가능
 - **사용자 제스처 단위 Undo/Redo**: 복잡한 다중 동작도 Composite 1건으로 기록해 Undo 1회 = 1 제스처를 보장
@@ -16,10 +16,10 @@ Ds2.Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeu
 
 ```
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                           Ds2.Promaker 전체 구조                              ║
+║                              Promaker 전체 구조                               ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
 ║                                                                              ║
-║  ┌──────────────── Ds2.UI.Frontend  (C#, WPF) ────────────────────────────┐  ║
+║  ┌──────────────── Promaker  (C#, WPF) ────────────────────────────┐  ║
 ║  │                                                                        │  ║
 ║  │  MainWindow  │  EditorCanvas (Input/Select/Nav/Connect)                │  ║
 ║  │  ViewModels  │  Dialogs                                                │  ║
@@ -75,7 +75,7 @@ Ds2.Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeu
 ### 레이어 의존 방향
 
 ```
-Ds2.UI.Frontend  →  Ds2.UI.Core  →  Ds2.Core
+Promaker  →  Ds2.UI.Core  →  Ds2.Core
      (C#, WPF)        (F#)            (F#)
          │                ▲
          └──►  Ds2.Aasx ──┘ (+ Ds2.UI.Core 참조)
@@ -83,8 +83,8 @@ Ds2.UI.Frontend  →  Ds2.UI.Core  →  Ds2.Core
 ```
 
 상위 레이어는 하위 레이어만 의존합니다.
-`Ds2.Aasx`는 `Ds2.UI.Frontend`에서 직접 참조되며 `Ds2.UI.Core → Ds2.Aasx` 순환 의존은 없습니다.
-`Ds2.UI.Frontend`는 `Ds2.Core`를 직접 참조하지 않습니다 — `FailIfDs2CoreReferenced` MSBuild 타겟과 `DisableTransitiveProjectReferences`로 컴파일 타임에 차단.
+`Ds2.Aasx`는 `Promaker`에서 직접 참조되며 `Ds2.UI.Core → Ds2.Aasx` 순환 의존은 없습니다.
+`Promaker`는 `Ds2.Core`를 직접 참조하지 않습니다 — `FailIfDs2CoreReferenced` MSBuild 타겟과 `DisableTransitiveProjectReferences`로 컴파일 타임에 차단.
 C#용 공유 타입(`UiArrowType`, `UiCallConditionType` 등)은 `Ds2.UI.Core/Core/EditorTypes.fs`에서 정의됩니다.
 
 ---
@@ -120,19 +120,28 @@ CallCondition = Call 동작 조건 1건 (Active/Auto/Common 타입, IsOR, IsRisi
 ## 솔루션 구조
 
 ```text
-solutions/Ds2.Promaker/
-  Ds2.Core/                # 순수 도메인 타입 (Entities, Properties, Enum, ValueSpec, JsonConverter)
-  Ds2.UI.Core/             # 편집 코어(F#) — 28개 모듈 (DsStore/Query/Mutation 포함)
-  Ds2.Aasx/                # AASX I/O(F#) — 4개 모듈 (AasCore.Aas3_0 v1.0.0 기반 AASX 양방향 변환)
-  Ds2.Database/            # 데이터 계층
-  Ds2.UI.Frontend/         # WPF UI(C#) — 28개 파일
-  Ds2.Core.Tests/          # Core 단위 테스트 (24개)
-  Ds2.UI.Core.Tests/       # UI.Core 단위 테스트 (119개)
-  Ds2.Integration.Tests/   # 통합 테스트 (13개)
-  Ds2.Promaker.sln
+BuildAll/                  # 빌드 산출물 배포 스크립트
+ExternalDlls/              # 외부 DLL (NuGet 외 수동 참조)
+Solutions/
+  Ds2.sln
+  Core/
+    Ds2.Core/              # 순수 도메인 타입 (Entities, Properties, Enum, ValueSpec, JsonConverter)
+    Ds2.UI.Core/           # 편집 코어(F#) — 24개 모듈 (DsStore/Query/Mutation 포함)
+  Convert/
+    Ds2.Aasx/              # AASX I/O(F#) — 4개 모듈 (AasCore.Aas3_0 v1.0.0 기반 AASX 양방향 변환)
+  Backend/
+    Ds2.Database/          # 데이터 계층
+  Tests/
+    Ds2.Core.Tests/        # Core 단위 테스트 (24개)
+    Ds2.UI.Core.Tests/     # UI.Core 단위 테스트 (126개)
+    Ds2.Integration.Tests/ # 통합 테스트 (13개)
+
+Apps/Promaker/
+  Promaker.sln
+  Promaker/                # WPF UI(C#) — 어셈블리명 Promaker, namespace Promaker.*
 ```
 
-테스트 합계: **159개** (24 + 122 + 13)
+테스트 합계: **163개** (24 + 126 + 13)
 
 ---
 
@@ -164,7 +173,7 @@ solutions/Ds2.Promaker/
 
 ### Ds2.Core.Contracts — C# 공유 타입 격리 (F#)
 
-`Ds2.Core`와 `Ds2.UI.Frontend`가 공통으로 사용하는 단순 타입을 격리한 독립 프로젝트. 외부 참조 없음.
+`Ds2.Core`와 `Promaker`가 공통으로 사용하는 단순 타입을 격리한 독립 프로젝트. 외부 참조 없음.
 
 | 파일 | 역할 |
 |------|------|
@@ -172,7 +181,7 @@ solutions/Ds2.Promaker/
 | `Class.fs` | `Xywh(x,y,w,h)` — 위치/크기 값 객체 |
 
 - **`Ds2.Core`가 참조**: 도메인 코드에서 `ArrowType`, `Xywh` 등 재사용
-- **`Ds2.UI.Frontend`가 직접 참조**: `Ds2.Core` 없이도 C#에서 공유 타입에 접근 (F# 런타임 타입 노출 방지)
+- **`Promaker`가 직접 참조**: `Ds2.Core` 없이도 C#에서 공유 타입에 접근 (F# 런타임 타입 노출 방지)
 - **`Ds2.Aasx`는 전이 참조**: `Ds2.Core → Ds2.Core.Contracts` 경로로 사용
 
 ---
@@ -227,7 +236,7 @@ solutions/Ds2.Promaker/
 
 ---
 
-### Ds2.UI.Frontend — WPF UI (C#)
+### Promaker — WPF UI (C#)
 
 | 파일 | 역할 |
 |------|------|
@@ -370,7 +379,7 @@ log4net.config 파일이 없으면 로깅 없이 앱이 정상 실행됩니다.
 
 | 지점 | 레벨 | 예시 |
 |------|------|------|
-| 앱 시작/종료 | INFO | `=== Ds2.Promaker 시작 ===` |
+| 앱 시작/종료 | INFO | `=== Promaker startup ===` |
 | 전역 미처리 예외 | FATAL | `DispatcherUnhandledException` + 스택 트레이스 |
 | EditorEvent 구독자 에러 | ERROR | `EditorEvent 구독자 에러` + 예외 |
 | JSON 파일 열기/저장 성공 | INFO | `파일 열기/저장 완료: {path}` |
@@ -399,7 +408,7 @@ log4net.config 파일이 없으면 로깅 없이 앱이 정상 실행됩니다.
 |---------|-------------|
 | `Ds2.UI.Core` (F#) | `LogManager.GetLogger(typedefof<EditorApi>)` |
 | `Ds2.Aasx` (F#) | `LogManager.GetLogger("Ds2.Aasx.AasxFileIO")` / `LogManager.GetLogger("Ds2.Aasx.AasxImporter")` |
-| `Ds2.UI.Frontend` (C#) | `LogManager.GetLogger(typeof(App))` / `typeof(MainViewModel)` |
+| `Promaker` (C#) | `LogManager.GetLogger(typeof(App))` / `typeof(MainViewModel)` |
 
 ---
 
@@ -407,10 +416,11 @@ log4net.config 파일이 없으면 로깅 없이 앱이 정상 실행됩니다.
 
 ```bash
 # 빌드
-dotnet build solutions/Ds2.Promaker/Ds2.Promaker.sln -nologo
+dotnet build Solutions/Ds2.sln -nologo
+dotnet build Apps/Promaker/Promaker.sln -nologo
 
 # 테스트
-dotnet test solutions/Ds2.Promaker/Ds2.Promaker.sln -nologo
+dotnet test Solutions/Ds2.sln -nologo
 ```
 
 ---
