@@ -57,6 +57,17 @@ type EditorNodeApi(store: DsStore, exec: ExecFn, batchExec: BatchExecFn) =
         batchExec "Move Selected Nodes" (fun bExec -> cmds |> List.iter bExec)
         cmds.Length
 
+    member this.MoveEntitiesUi(requests: seq<UiMoveEntityRequest>) : int =
+        requests
+        |> Seq.map (fun request ->
+            let newPos =
+                if request.HasPosition then
+                    Some(Xywh(request.X, request.Y, request.W, request.H))
+                else
+                    None
+            MoveEntityRequest(request.EntityType, request.Id, newPos))
+        |> this.MoveEntities
+
     member _.RemoveEntities(selections: seq<string * Guid>) =
         let selList = selections |> Seq.distinctBy snd |> Seq.toList
         let cmds = RemoveOps.buildRemoveEntitiesCmds store selList

@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
-using Ds2.Core;
+using Ds2.UI.Core;
 using Ds2.UI.Frontend;
 
 namespace Ds2.UI.Frontend.Converters;
@@ -81,13 +81,13 @@ public sealed class ArrowTypeToColorConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        var key = value is ArrowType at
+        var key = value is UiArrowType at
             ? at switch
             {
-                ArrowType.Start => "GreenAccentBrush",
-                ArrowType.Reset => "OrangeAccentBrush",
-                ArrowType.StartReset => "RedAccentBrush",
-                ArrowType.ResetReset => "OrangeAccentBrush",
+                UiArrowType.Start => "GreenAccentBrush",
+                UiArrowType.Reset => "OrangeAccentBrush",
+                UiArrowType.StartReset => "RedAccentBrush",
+                UiArrowType.ResetReset => "OrangeAccentBrush",
                 _ => "SecondaryTextBrush"
             }
             : "SecondaryTextBrush";
@@ -104,7 +104,7 @@ public sealed class ArrowTypeToDashConverter : IValueConverter
     private static readonly DoubleCollection Dashed = [4, 2];
 
     public object? Convert(object value, Type targetType, object parameter, CultureInfo culture)
-        => value is ArrowType at && (at == ArrowType.Reset || at == ArrowType.ResetReset)
+        => value is UiArrowType at && (at == UiArrowType.Reset || at == UiArrowType.ResetReset)
             ? Dashed
             : null;
 

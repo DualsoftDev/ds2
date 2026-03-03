@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using Ds2.Core;
 using Ds2.UI.Core;
 using Ds2.UI.Frontend.Dialogs;
 using Microsoft.FSharp.Core;
@@ -101,8 +100,8 @@ public partial class MainViewModel
         return node is not null;
     }
 
-    public bool TryMoveEntitiesFromCanvas(IReadOnlyList<MoveEntityRequest> requests) =>
-        TryEditorAction("MoveEntities", () => _editor.Nodes.MoveEntities(requests),
+    public bool TryMoveEntitiesFromCanvas(IReadOnlyList<UiMoveEntityRequest> requests) =>
+        TryEditorAction("MoveEntitiesUi", () => _editor.Nodes.MoveEntitiesUi(requests),
             statusOverride: "[ERROR] Failed to move selected nodes.");
 
     public bool TryReconnectArrowFromCanvas(Guid arrowId, bool replaceSource, Guid newEndpointId)
@@ -118,11 +117,11 @@ public partial class MainViewModel
         return changed;
     }
 
-    public bool TryConnectNodesFromCanvas(Guid sourceId, Guid targetId, ArrowType arrowType)
+    public bool TryConnectNodesFromCanvas(Guid sourceId, Guid targetId, UiArrowType arrowType)
     {
         if (!TryEditorFunc(
-                "ConnectSelectionInOrder",
-                () => _editor.Arrows.ConnectSelectionInOrder([sourceId, targetId], arrowType),
+                "ConnectSelectionInOrderUi",
+                () => _editor.Arrows.ConnectSelectionInOrderUi([sourceId, targetId], arrowType),
                 out int createdCount,
                 fallback: 0,
                 statusOverride: "[ERROR] Failed to connect selected nodes."))

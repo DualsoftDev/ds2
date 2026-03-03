@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
-using Ds2.Core;
 using Ds2.UI.Core;
 
 namespace Ds2.UI.Frontend.ViewModels;
@@ -13,7 +12,7 @@ public partial class ArrowNode : ObservableObject
     private const double MarkerSize = 15.0;
     private const double MinSegmentLength = 0.001;
 
-    public ArrowNode(Guid id, Guid sourceId, Guid targetId, ArrowType arrowType)
+    public ArrowNode(Guid id, Guid sourceId, Guid targetId, UiArrowType arrowType)
     {
         Id = id;
         SourceId = sourceId;
@@ -24,7 +23,7 @@ public partial class ArrowNode : ObservableObject
     public Guid Id { get; }
     public Guid SourceId { get; }
     public Guid TargetId { get; }
-    public ArrowType ArrowType { get; }
+    public UiArrowType ArrowType { get; }
 
     [ObservableProperty] private Geometry? _pathGeometry;
     [ObservableProperty] private Geometry? _headGeometry;
@@ -85,12 +84,12 @@ public partial class ArrowNode : ObservableObject
         return geo;
     }
 
-    private static Geometry CreateHeadGeometry(ArrowType arrowType, IReadOnlyList<Point> points)
+    private static Geometry CreateHeadGeometry(UiArrowType arrowType, IReadOnlyList<Point> points)
     {
         if (points.Count < 2)
             return Geometry.Empty;
 
-        if (arrowType is ArrowType.None or ArrowType.Group)
+        if (arrowType is UiArrowType.None or UiArrowType.Group)
             return Geometry.Empty;
 
         if (!TryGetDirection(points, fromEnd: true, out var endDirection))
@@ -105,12 +104,12 @@ public partial class ArrowNode : ObservableObject
             // End marker: closed kite shape.
             AppendKiteHead(ctx, end, endDirection, MarkerSize);
 
-            if (arrowType == ArrowType.StartReset && TryGetDirection(points, fromEnd: false, out var startForwardDirection))
+            if (arrowType == UiArrowType.StartReset && TryGetDirection(points, fromEnd: false, out var startForwardDirection))
             {
                 // StartReset: add a small square marker at source side.
                 AppendStartSquare(ctx, start, startForwardDirection, MarkerSize * 0.5);
             }
-            else if (arrowType == ArrowType.ResetReset && TryGetDirection(points, fromEnd: false, out var startForwardDirectionForReset))
+            else if (arrowType == UiArrowType.ResetReset && TryGetDirection(points, fromEnd: false, out var startForwardDirectionForReset))
             {
                 // ResetReset: add backward kite marker at source side.
                 var startBackwardDirection = new Vector(-startForwardDirectionForReset.X, -startForwardDirectionForReset.Y);

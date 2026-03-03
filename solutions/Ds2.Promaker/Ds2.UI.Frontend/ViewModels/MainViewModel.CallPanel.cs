@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
-using Ds2.Core;
+using Ds2.UI.Core;
 using Ds2.UI.Frontend.Dialogs;
 using Microsoft.FSharp.Core;
 
@@ -202,13 +202,13 @@ public partial class MainViewModel
     }
 
     [RelayCommand]
-    private void AddCondition(CallConditionType type)
+    private void AddCondition(UiCallConditionType type)
     {
         if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
 
         if (!TryEditorFunc(
-                "AddCallCondition",
-                () => _editor.Panel.AddCallCondition(selectedCall.Id, type),
+                "AddCallConditionUi",
+                () => _editor.Panel.AddCallConditionUi(selectedCall.Id, type),
                 out var added,
                 fallback: false))
             return;
@@ -407,15 +407,15 @@ public partial class MainViewModel
         ClearConditionSections();
 
         if (!TryEditorRef(
-                "GetCallConditionsForPanel",
-                () => _editor.Panel.GetCallConditionsForPanel(callId),
+                "GetCallConditionsForPanelUi",
+                () => _editor.Panel.GetCallConditionsForPanelUi(callId),
                 out var conditions))
             return;
 
         foreach (var cond in conditions)
         {
             var target = FindConditionSection(cond.ConditionType)
-                         ?? FindConditionSection(CallConditionType.Common);
+                         ?? FindConditionSection(UiCallConditionType.Common);
             target?.Conditions.Add(new CallConditionItem(cond));
         }
     }
@@ -427,7 +427,7 @@ public partial class MainViewModel
             section.Conditions.Clear();
     }
 
-    private ConditionSectionItem? FindConditionSection(CallConditionType type)
+    private ConditionSectionItem? FindConditionSection(UiCallConditionType type)
     {
         EnsureConditionSectionsInitialized();
         return ConditionSections.FirstOrDefault(s => s.ConditionType == type);
@@ -436,8 +436,8 @@ public partial class MainViewModel
     private void EnsureConditionSectionsInitialized()
     {
         if (ConditionSections.Count > 0) return;
-        ConditionSections.Add(new ConditionSectionItem(CallConditionType.Active, "ActiveTrigger", "Add ActiveTrigger"));
-        ConditionSections.Add(new ConditionSectionItem(CallConditionType.Auto, "AutoCondition", "Add AutoCondition"));
-        ConditionSections.Add(new ConditionSectionItem(CallConditionType.Common, "CommonCondition", "Add CommonCondition"));
+        ConditionSections.Add(new ConditionSectionItem(UiCallConditionType.Active, "ActiveTrigger", "Add ActiveTrigger"));
+        ConditionSections.Add(new ConditionSectionItem(UiCallConditionType.Auto, "AutoCondition", "Add AutoCondition"));
+        ConditionSections.Add(new ConditionSectionItem(UiCallConditionType.Common, "CommonCondition", "Add CommonCondition"));
     }
 }

@@ -1875,3 +1875,58 @@ let ``UpdateApiCallFromPanel should preserve ValueSpec type through tryParseAs r
     match afterF64Change.OutputSpec with
     | Float64Value (Single _) -> ()
     | other -> Assert.Fail($"Type change Int64→Float64 failed: got {other}")
+
+[<Fact>]
+let ``MoveEntitiesUi should move node without exposing Core Xywh to C#`` () =
+    let store, api, _, _, flow = setupProjectSystemFlow()
+    let work = addWork store api "W1" flow.Id
+
+    let moved =
+        api.Nodes.MoveEntitiesUi([
+            UiMoveEntityRequest(EntityTypeNames.Work, work.Id, true, 123, 45, 120, 40)
+        ])
+
+    Assert.Equal(1, moved)
+    Assert.True(store.Works.[work.Id].Position.IsSome)
+    Assert.Equal(123, store.Works.[work.Id].Position.Value.X)
+    Assert.Equal(45, store.Works.[work.Id].Position.Value.Y)
+
+[<Fact>]
+let ``CanvasContentForTabUi should map arrow type to UiArrowType`` () =
+    let store, api, _, _, flow = setupProjectSystemFlow()
+    let w1 = addWork store api "W1" flow.Id
+    let w2 = addWork store api "W2" flow.Id
+
+    let created = api.Arrows.ConnectSelectionInOrderUi([ w1.Id; w2.Id ], UiArrowType.ResetReset)
+    Assert.Equal(1, created)
+
+    let content = api.Query.CanvasContentForTabUi(TabKind.Flow, flow.Id)
+    let arrow = Assert.Single(content.Arrows)
+    Assert.Equal(UiArrowType.ResetReset, arrow.ArrowType)
+
+[<Fact>]
+let ``Panel Ui condition api should accept and return UiCallConditionType`` () =
+    let store, api, _, _, flow = setupProjectSystemFlow()
+    let work = addWork store api "W1" flow.Id
+    let call = addCall store api work.Id "Dev" "Api" [||]
+
+    let added = api.Panel.AddCallConditionUi(call.Id, UiCallConditionType.Common)
+    Assert.True(added)
+
+    let conditions = api.Panel.GetCallConditionsForPanelUi(call.Id)
+    let condition = Assert.Single(conditions)
+    Assert.Equal(UiCallConditionType.Common, condition.ConditionType)
+
+[<Fact>]
+let ``EditorApi CSharp-friendly event helpers should expose UiNodeMoveInfo`` () =
+    let store, api, _, _, flow = setupProjectSystemFlow()
+    let work = addWork store api "W1" flow.Id
+
+    let moveInfo = api.TryGetMovedNodeInfoOrNull(WorkMoved(work.Id, Some(Xywh(10, 20, 120, 40))))
+    Assert.NotNull(moveInfo)
+    Assert.True(moveInfo.HasPosition)
+    Assert.Equal(work.Id, moveInfo.EntityId)
+    Assert.Equal(10, moveInfo.X)
+    Assert.Equal(20, moveInfo.Y)
+
+    Assert.Null(api.TryGetMovedNodeInfoOrNull(StoreRefreshed))

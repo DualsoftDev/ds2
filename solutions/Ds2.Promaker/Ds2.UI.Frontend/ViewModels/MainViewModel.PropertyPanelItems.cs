@@ -3,7 +3,6 @@ using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
-using Ds2.Core;
 using Ds2.UI.Core;
 
 namespace Ds2.UI.Frontend.ViewModels;
@@ -113,7 +112,7 @@ public sealed class DeviceApiDefOptionItem(
 
 public sealed class CallConditionItem
 {
-    public CallConditionItem(CallConditionPanelItem panel)
+    public CallConditionItem(UiCallConditionPanelItem panel)
     {
         ConditionId   = panel.ConditionId;
         ConditionType = panel.ConditionType;
@@ -125,7 +124,7 @@ public sealed class CallConditionItem
     }
 
     public Guid               ConditionId   { get; }
-    public CallConditionType  ConditionType  { get; }
+    public UiCallConditionType ConditionType  { get; }
     public bool               IsOR          { get; }
     public bool               IsRising      { get; }
     public IReadOnlyList<ConditionApiCallRow> Items { get; }
@@ -153,7 +152,7 @@ public sealed class ConditionApiCallRow
 
 public sealed class ConditionSectionItem : ObservableObject
 {
-    public ConditionSectionItem(CallConditionType conditionType, string title, string addToolTip)
+    public ConditionSectionItem(UiCallConditionType conditionType, string title, string addToolTip)
     {
         ConditionType = conditionType;
         Title = title;
@@ -161,7 +160,7 @@ public sealed class ConditionSectionItem : ObservableObject
         Conditions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(Header));
     }
 
-    public CallConditionType ConditionType { get; }
+    public UiCallConditionType ConditionType { get; }
     public string Title { get; }
     public string AddToolTip { get; }
     public ObservableCollection<CallConditionItem> Conditions { get; } = [];

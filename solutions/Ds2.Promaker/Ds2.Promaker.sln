@@ -3,8 +3,6 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Core.Contracts", "Ds2.Core.Contracts\Ds2.Core.Contracts.fsproj", "{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}"
-EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Core", "Ds2.Core\Ds2.Core.fsproj", "{1014CAE5-6176-4459-B280-1B6DBCCD29BB}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.UI.Core", "Ds2.UI.Core\Ds2.UI.Core.fsproj", "{BAE22609-C80E-4840-BA39-ABA678EFA80C}"
@@ -31,18 +29,6 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}.Debug|x64.Build.0 = Debug|Any CPU
-		{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}.Debug|x86.Build.0 = Debug|Any CPU
-		{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}.Release|Any CPU.Build.0 = Release|Any CPU
-		{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}.Release|x64.ActiveCfg = Release|Any CPU
-		{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}.Release|x64.Build.0 = Release|Any CPU
-		{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}.Release|x86.ActiveCfg = Release|Any CPU
-		{A3E8F2C1-7D4B-4F9A-B6E5-3C2A8D1F0E47}.Release|x86.Build.0 = Release|Any CPU
 		{1014CAE5-6176-4459-B280-1B6DBCCD29BB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{1014CAE5-6176-4459-B280-1B6DBCCD29BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1014CAE5-6176-4459-B280-1B6DBCCD29BB}.Debug|x64.ActiveCfg = Debug|Any CPU

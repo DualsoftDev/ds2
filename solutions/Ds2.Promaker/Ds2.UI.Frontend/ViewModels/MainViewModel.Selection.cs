@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Ds2.Core;
 using Ds2.UI.Core;
 using Ds2.UI.Frontend;
 using Microsoft.FSharp.Core;
@@ -108,14 +107,14 @@ public partial class MainViewModel
         return false;
     }
 
-    public bool ConnectSelectedNodesInOrder(ArrowType arrowType)
+    public bool ConnectSelectedNodesInOrder(UiArrowType arrowType)
     {
         if (_orderedNodeSelection.Count < 2)
             return false;
 
         if (!TryEditorFunc(
-                "ConnectSelectionInOrder",
-                () => _editor.Arrows.ConnectSelectionInOrder(_orderedNodeSelection.Select(s => s.Id), arrowType),
+                "ConnectSelectionInOrderUi",
+                () => _editor.Arrows.ConnectSelectionInOrderUi(_orderedNodeSelection.Select(s => s.Id), arrowType),
                 out var created,
                 fallback: 0,
                 statusOverride: "[ERROR] Failed to connect selected nodes."))

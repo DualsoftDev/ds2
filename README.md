@@ -1,6 +1,6 @@
 # Ds2.Promaker
 
-Last Sync: 2026-03-02 (EditorApi 서브-API 분리 — Query/Nodes/Arrows/Panel 4개 클래스 + ExecFn/BatchExecFn 타입 EditorTypes.fs 추가)
+Last Sync: 2026-03-03 (Ds2.Core.Contracts 삭제 — ArrowType/CallConditionType/Xywh를 Ds2.Core로 통합, UiArrowType/UiCallConditionType을 Ds2.UI.Core로 격리, Ds2.UI.Frontend Ds2.Core 직접 참조 금지 유지)
 
 ## 프로젝트 목표
 
@@ -62,33 +62,30 @@ Ds2.Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeu
 ║  │                                                                        │  ║
 ║  └────────────────────────────────────────────────────────────────────────┘  ║
 ║                                                                              ║
-║  ┌──────────── Ds2.Aasx  (F#) ──────────────┐  ┌── Ds2.Core.Contracts ───┐   ║
-║  │  AasxSemantics  idShort 상수 정의         │  │  ArrowType (enum)       │   ║
-║  │  AasxFileIO     AASX ZIP 읽기/쓰기        │  │  CallConditionType      │   ║
-║  │  AasxExporter   DsStore → AASX           │  │  Xywh (class)           │   ║
-║  │  AasxImporter   AASX → DsStore           │  │                         │   ║
-║  │                 (AasCore.Aas3_0 v1.0.0)  │  │  Ds2.Core 참조 없음      │   ║
-║  │  → Ds2.Core + Ds2.UI.Core 양쪽 참조       │  │  C# 측 공유 타입 전용    │   ║
-║  │  ← UI.Core 에서는 참조 없음 (순환 방지)    │  │                         │   ║
-║  └──────────────────────────────────────────┘  └─────────────────────────┘   ║
+║  ┌──────────── Ds2.Aasx  (F#) ──────────────────────────────────────────────┐  ║
+║  │  AasxSemantics  idShort 상수 정의                                         │  ║
+║  │  AasxFileIO     AASX ZIP 읽기/쓰기                                        │  ║
+║  │  AasxExporter   DsStore → AASX  (AasCore.Aas3_0 v1.0.0)                 │  ║
+║  │  AasxImporter   AASX → DsStore                                           │  ║
+║  │  → Ds2.Core + Ds2.UI.Core 양쪽 참조  ← UI.Core에서는 참조 없음 (순환 방지) │  ║
+║  └──────────────────────────────────────────────────────────────────────────┘  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
 ### 레이어 의존 방향
 
 ```
-Ds2.UI.Frontend  →  Ds2.UI.Core  →  Ds2.Core  →  Ds2.Core.Contracts
-     (C#, WPF)        (F#)            (F#)              (F#)
-         │                                ▲                 ▲
-         ├──────►  Ds2.Aasx  ─────────────┘                 │
-         │          (F#)      + Ds2.UI.Core 참조            │
-         └──────────────────────────────────────────────────┘
-                         (직접 참조 — Ds2.Core 없이 공유 타입 접근)
+Ds2.UI.Frontend  →  Ds2.UI.Core  →  Ds2.Core
+     (C#, WPF)        (F#)            (F#)
+         │                ▲
+         └──►  Ds2.Aasx ──┘ (+ Ds2.UI.Core 참조)
+                (F#)
 ```
 
 상위 레이어는 하위 레이어만 의존합니다.
 `Ds2.Aasx`는 `Ds2.UI.Frontend`에서 직접 참조되며 `Ds2.UI.Core → Ds2.Aasx` 순환 의존은 없습니다.
-`Ds2.UI.Frontend`는 `Ds2.Core.Contracts`를 직접 참조하여 `Ds2.Core` 없이도 공유 타입(`ArrowType`, `Xywh` 등)에 접근합니다.
+`Ds2.UI.Frontend`는 `Ds2.Core`를 직접 참조하지 않습니다 — `FailIfDs2CoreReferenced` MSBuild 타겟과 `DisableTransitiveProjectReferences`로 컴파일 타임에 차단.
+C#용 공유 타입(`UiArrowType`, `UiCallConditionType` 등)은 `Ds2.UI.Core/Core/EditorTypes.fs`에서 정의됩니다.
 
 ---
 

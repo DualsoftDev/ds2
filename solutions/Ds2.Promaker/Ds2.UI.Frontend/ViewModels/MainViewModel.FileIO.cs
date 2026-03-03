@@ -1,10 +1,8 @@
 using System;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
-using Ds2.UI.Core;
 using Ds2.UI.Frontend.Dialogs;
 using log4net;
-using Microsoft.FSharp.Core;
 using Microsoft.Win32;
 
 namespace Ds2.UI.Frontend.ViewModels;
@@ -69,15 +67,13 @@ public partial class MainViewModel
 
         try
         {
-            var storeOpt = AasxImporter.importFromAasxFile(dlg.FileName);
-            if (!HasOptionValue(storeOpt))
+            if (!AasxImporter.importIntoEditor(_editor, dlg.FileName))
             {
                 Log.Warn($"AASX import 실패 (빈 결과): {dlg.FileName}");
                 DialogHelpers.Warn("Failed to import AASX.");
                 return;
             }
 
-            _editor.ReplaceStore(storeOpt.Value);
             _currentFilePath = null;
             IsDirty = false;
             UpdateTitle();
@@ -103,7 +99,7 @@ public partial class MainViewModel
 
         try
         {
-            if (!AasxExporter.tryExportFirstProjectToAasxFile(_store, dlg.FileName))
+            if (!AasxExporter.exportFromEditor(_editor, dlg.FileName))
             {
                 Log.Warn($"AASX export 실패: 프로젝트 없음 ({dlg.FileName})");
                 DialogHelpers.Warn("No project available for export.");

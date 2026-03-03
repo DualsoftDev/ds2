@@ -84,8 +84,21 @@ type EditorPanelApi
     member _.GetCallConditionsForPanel(callId: Guid) : CallConditionPanelItem list =
         PanelOps.getCallConditionsForPanel store callId
 
+    member _.GetCallConditionsForPanelUi(callId: Guid) : UiCallConditionPanelItem list =
+        PanelOps.getCallConditionsForPanel store callId
+        |> List.map (fun condition ->
+            UiCallConditionPanelItem(
+                condition.ConditionId,
+                UiCallConditionType.ofCore condition.ConditionType,
+                condition.IsOR,
+                condition.IsRising,
+                condition.Items))
+
     member _.AddCallCondition(callId: Guid, conditionType: CallConditionType) : bool =
         execOpt(PanelOps.buildAddCallConditionCmd store callId conditionType)
+
+    member _.AddCallConditionUi(callId: Guid, conditionType: UiCallConditionType) : bool =
+        execOpt(PanelOps.buildAddCallConditionCmd store callId (UiCallConditionType.toCore conditionType))
 
     member _.RemoveCallCondition(callId: Guid, conditionId: Guid) : bool =
         execOpt(PanelOps.buildRemoveCallConditionCmd store callId conditionId)

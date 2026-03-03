@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-03-02 (EditorApi 서브-API 분리 — Query/Nodes/Arrows/Panel 4개 클래스 + ExecFn/BatchExecFn 타입 EditorTypes.fs 추가)
+Last Sync: 2026-03-03 (Ds2.Core.Contracts 삭제 — 런타임 동작 변경 없음. ArrowType/UiArrowType 타입 경로만 변경)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 

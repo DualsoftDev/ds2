@@ -1,6 +1,6 @@
 using System;
 using System.Windows;
-using Ds2.Core;
+using Ds2.UI.Core;
 using Ds2.UI.Frontend;
 using Ds2.UI.Frontend.Dialogs;
 
@@ -8,7 +8,7 @@ namespace Ds2.UI.Frontend.Controls;
 
 public partial class EditorCanvas
 {
-    private ArrowType _connectArrowType = ArrowType.Start;
+    private UiArrowType _connectArrowType = UiArrowType.Start;
 
     private void StartConnect_Click(object sender, RoutedEventArgs e)
     {
@@ -16,7 +16,7 @@ public partial class EditorCanvas
 
         var hasOrderedSelectionType = VM.TryGetOrderedSelectionConnectEntityType(out var orderedSelectionType);
         var hasPromptedArrowType = false;
-        var selectedArrowType = ArrowType.Start;
+        var selectedArrowType = UiArrowType.Start;
 
         if (hasOrderedSelectionType)
         {
@@ -52,7 +52,7 @@ public partial class EditorCanvas
         Focus();
     }
 
-    private bool TryPromptArrowType(string sourceEntityType, out ArrowType arrowType)
+    private bool TryPromptArrowType(string sourceEntityType, out UiArrowType arrowType)
     {
         var dialog = new ArrowTypeDialog(isWorkMode: EntityTypes.Is(sourceEntityType, EntityTypes.Work));
 
@@ -61,7 +61,7 @@ public partial class EditorCanvas
 
         if (dialog.ShowDialog() != true)
         {
-            arrowType = ArrowType.Start;
+            arrowType = UiArrowType.Start;
             return false;
         }
 
@@ -88,7 +88,7 @@ public partial class EditorCanvas
     private void CancelConnect()
     {
         _connectSource = null;
-        _connectArrowType = ArrowType.Start;
+        _connectArrowType = UiArrowType.Start;
         ConnectPreview.Visibility = Visibility.Collapsed;
         RootGrid.Cursor = System.Windows.Input.Cursors.Arrow;
     }

@@ -106,7 +106,7 @@ let private systemToSmc (store: DsStore) (system: DsSystem) (isActive: bool) : I
 
 // ── 진입점 ─────────────────────────────────────────────────────────────────
 
-let exportToSubmodel (store: DsStore) (project: Project) : Submodel =
+let internal exportToSubmodel (store: DsStore) (project: Project) : Submodel =
     let activeSystems  = DsQuery.activeSystemsOf  project.Id store |> List.map (fun s -> systemToSmc store s true)
     let passiveSystems = DsQuery.passiveSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s false)
     let projectElems : ISubmodelElement list = [
@@ -125,7 +125,7 @@ let exportToSubmodel (store: DsStore) (project: Project) : Submodel =
     sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
     sm
 
-let exportToAasxFile (store: DsStore) (project: Project) (outputPath: string) : unit =
+let internal exportToAasxFile (store: DsStore) (project: Project) (outputPath: string) : unit =
     let sm = exportToSubmodel store project
     let key = Key(KeyTypes.Submodel, sm.Id) :> IKey
     let smRef = Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
@@ -142,9 +142,12 @@ let exportToAasxFile (store: DsStore) (project: Project) (outputPath: string) : 
 
 /// Export helper for UI callers that should not access Project entity directly.
 /// Returns false when there is no project in the store.
-let tryExportFirstProjectToAasxFile (store: DsStore) (outputPath: string) : bool =
+let internal tryExportFirstProjectToAasxFile (store: DsStore) (outputPath: string) : bool =
     match DsQuery.allProjects store |> List.tryHead with
     | None -> false
     | Some project ->
         exportToAasxFile store project outputPath
         true
+
+let exportFromEditor (editor: EditorApi) (path: string) : bool =
+    tryExportFirstProjectToAasxFile editor.Store path

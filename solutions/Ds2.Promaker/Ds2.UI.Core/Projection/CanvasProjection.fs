@@ -49,24 +49,24 @@ let canvasContentForFlow (store: DsStore) (flowId: Guid) : CanvasContent =
         |> List.map (fun call -> call.Id)
         |> Set.ofList
 
-    let arrows = [
+    let arrows : CanvasArrowInfo list = [
         yield!
             DsQuery.arrowWorksOf flowId store
             |> List.filter (fun arrow -> containsBoth workIds arrow.SourceId arrow.TargetId)
             |> List.map (fun arrow ->
-                { Id = arrow.Id
-                  SourceId = arrow.SourceId
-                  TargetId = arrow.TargetId
-                  ArrowType = arrow.ArrowType })
+                ({ Id = arrow.Id
+                   SourceId = arrow.SourceId
+                   TargetId = arrow.TargetId
+                   ArrowType = arrow.ArrowType } : CanvasArrowInfo))
 
         yield!
             DsQuery.arrowCallsOf flowId store
             |> List.filter (fun arrow -> containsBoth callIds arrow.SourceId arrow.TargetId)
             |> List.map (fun arrow ->
-                { Id = arrow.Id
-                  SourceId = arrow.SourceId
-                  TargetId = arrow.TargetId
-                  ArrowType = arrow.ArrowType })
+                ({ Id = arrow.Id
+                   SourceId = arrow.SourceId
+                   TargetId = arrow.TargetId
+                   ArrowType = arrow.ArrowType } : CanvasArrowInfo))
     ]
 
     { Nodes = nodes; Arrows = arrows }
@@ -84,14 +84,14 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
             DsQuery.worksOf flowId store
             |> List.map (fun w -> nodeFromPosition w.Id EntityTypeNames.Work w.Name w.ParentId w.Position))
 
-    let arrows =
+    let arrows : CanvasArrowInfo list =
         DsQuery.allArrowWorks store
         |> List.filter (fun a -> flowSet.Contains a.ParentId)
         |> List.map (fun a ->
-            { Id = a.Id
-              SourceId = a.SourceId
-              TargetId = a.TargetId
-              ArrowType = a.ArrowType })
+            ({ Id = a.Id
+               SourceId = a.SourceId
+               TargetId = a.TargetId
+               ArrowType = a.ArrowType } : CanvasArrowInfo))
 
     { Nodes = nodes; Arrows = arrows }
 
@@ -103,14 +103,14 @@ let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
         works
         |> List.map (fun w -> nodeFromPosition w.Id EntityTypeNames.Work w.Name w.ParentId w.Position)
 
-    let arrows =
+    let arrows : CanvasArrowInfo list =
         DsQuery.arrowWorksOf flowId store
         |> List.filter (fun arrow -> containsBoth workIds arrow.SourceId arrow.TargetId)
         |> List.map (fun arrow ->
-            { Id = arrow.Id
-              SourceId = arrow.SourceId
-              TargetId = arrow.TargetId
-              ArrowType = arrow.ArrowType })
+            ({ Id = arrow.Id
+               SourceId = arrow.SourceId
+               TargetId = arrow.TargetId
+               ArrowType = arrow.ArrowType } : CanvasArrowInfo))
 
     { Nodes = nodes; Arrows = arrows }
 
@@ -125,16 +125,16 @@ let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
             calls
             |> List.map (fun c -> nodeFromPosition c.Id EntityTypeNames.Call c.Name c.ParentId c.Position)
 
-        let arrows =
+        let arrows : CanvasArrowInfo list =
             DsQuery.arrowCallsOf work.ParentId store
             |> List.filter (fun a ->
                 callSet.Contains a.SourceId
                 && callSet.Contains a.TargetId)
             |> List.map (fun a ->
-                { Id = a.Id
-                  SourceId = a.SourceId
-                  TargetId = a.TargetId
-                  ArrowType = a.ArrowType })
+                ({ Id = a.Id
+                   SourceId = a.SourceId
+                   TargetId = a.TargetId
+                   ArrowType = a.ArrowType } : CanvasArrowInfo))
 
         { Nodes = nodes; Arrows = arrows }
 

@@ -2,11 +2,9 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using Ds2.Core;
 using Ds2.UI.Core;
 using Ds2.UI.Frontend;
 using Ds2.UI.Frontend.ViewModels;
-using Microsoft.FSharp.Core;
 
 namespace Ds2.UI.Frontend.Controls;
 
@@ -164,7 +162,7 @@ public partial class EditorCanvas
 
         if (VM is not null)
         {
-            var requests = new List<MoveEntityRequest>();
+            var requests = new List<UiMoveEntityRequest>();
 
             foreach (var item in _drag.Items)
             {
@@ -175,8 +173,15 @@ public partial class EditorCanvas
                 if (!moved)
                     continue;
 
-                var newPos = new Xywh((int)item.Node.X, (int)item.Node.Y, (int)item.Node.Width, (int)item.Node.Height);
-                requests.Add(new MoveEntityRequest(item.Node.EntityType, item.Node.Id, FSharpOption<Xywh>.Some(newPos)));
+                requests.Add(
+                    new UiMoveEntityRequest(
+                        item.Node.EntityType,
+                        item.Node.Id,
+                        hasPosition: true,
+                        x: (int)item.Node.X,
+                        y: (int)item.Node.Y,
+                        w: (int)item.Node.Width,
+                        h: (int)item.Node.Height));
             }
 
             if (requests.Count > 0)

@@ -26,7 +26,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Ds2.Aasx\Ds2.Aasx.fsproj" />
-    <ProjectReference Include="..\Ds2.Core.Contracts\Ds2.Core.Contracts.fsproj" />
     <ProjectReference Include="..\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
   </ItemGroup>
 
@@ -36,7 +35,7 @@
                          Condition="'%(ReferencePath.Filename)' == 'Ds2.Core' and '%(ReferencePath.Extension)' == '.dll'" />
     </ItemGroup>
     <Error Condition="'@(_ForbiddenCoreRef)' != ''"
-           Text="Ds2.UI.Frontend must not reference Ds2.Core directly or transitively. Use Ds2.Core.Contracts and Ds2.UI.Core APIs." />
+           Text="Ds2.UI.Frontend must not reference Ds2.Core directly or transitively. Use Ds2.UI.Core APIs only." />
   </Target>
 
 </Project>
