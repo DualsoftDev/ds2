@@ -77,3 +77,6 @@ scripts/scratch/
 *.tmp
 *.cache
 *~
+
+# Samples
+[Ss]amples/

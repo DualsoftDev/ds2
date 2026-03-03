@@ -108,7 +108,7 @@ let ``canvasContentForFlow includes arrows`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = addWork store api "W1" flow.Id
     let w2 = addWork store api "W2" flow.Id
-    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([w1.Id; w2.Id], UiArrowType.Start) |> ignore
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
 
     let content = CanvasProjection.canvasContentForFlow store flow.Id
@@ -121,7 +121,7 @@ let ``canvasContentForFlow includes arrows`` () =
 let ``canvasContentForFlow uses position when available`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = addWork store api "W1" flow.Id
-    api.Nodes.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, work.Id, Some(Xywh(100, 200, 150, 50))) ]) |> ignore
+    api.Nodes.MoveEntitiesUi([ UiMoveEntityRequest(EntityTypeNames.Work, work.Id, true, 100, 200, 150, 50) ]) |> ignore
 
     let content = CanvasProjection.canvasContentForFlow store flow.Id
     let wNode = content.Nodes |> List.find (fun n -> n.Id = work.Id)
@@ -170,7 +170,7 @@ let ``canvasContentForFlowWorks excludes cross-flow arrows and keeps them in sys
     let w1 = addWork store api "W1" flow1.Id
     let w2 = addWork store api "W2" flow2.Id
 
-    let created = api.Arrows.ConnectSelectionInOrder([ w1.Id; w2.Id ], ArrowType.Start)
+    let created = api.Arrows.ConnectSelectionInOrderUi([ w1.Id; w2.Id ], UiArrowType.Start)
     Assert.Equal(1, created)
 
     let flowContent = CanvasProjection.canvasContentForFlowWorks store flow1.Id
@@ -189,8 +189,8 @@ let ``canvasContentForWorkCalls returns only calls in selected work`` () =
     let c1 = addCall store api w1.Id "Dev" "C1" [||]
     let c2 = addCall store api w1.Id "Dev" "C2" [||]
     let c3 = addCall store api w2.Id "Dev" "C3" [||]
-    api.Arrows.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
-    api.Arrows.ConnectSelectionInOrder([c2.Id; c3.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([c1.Id; c2.Id], UiArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([c2.Id; c3.Id], UiArrowType.Start) |> ignore
     let ownArrow = store.ArrowCalls.Values |> Seq.find (fun a -> a.SourceId = c1.Id && a.TargetId = c2.Id)
 
     let content = CanvasProjection.canvasContentForWorkCalls store w1.Id
@@ -429,7 +429,7 @@ let ``RemoveArrows removes arrow between works`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = addWork store api "W1" flow.Id
     let w2 = addWork store api "W2" flow.Id
-    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([w1.Id; w2.Id], UiArrowType.Start) |> ignore
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
     Assert.True(store.ArrowWorks.ContainsKey(arrow.Id))
 
@@ -580,7 +580,7 @@ let ``orderedArrowLinksForSelection skips already existing arrows`` () =
     let w1 = addWork store api "W1" flow.Id
     let w2 = addWork store api "W2" flow.Id
     let w3 = addWork store api "W3" flow.Id
-    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([w1.Id; w2.Id], UiArrowType.Start) |> ignore
 
     let links =
         ConnectionQueries.orderedArrowLinksForSelection store [ w1.Id; w2.Id; w3.Id ]

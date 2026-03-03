@@ -44,6 +44,7 @@ let readEnvironment (path: string) : Environment option =
                 use aasStream = entry.Open()
                 if aasPath.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) then
                     use xmlReader = XmlReader.Create(aasStream)
+                    xmlReader.MoveToContent() |> ignore
                     Some (Xmlization.Deserialize.EnvironmentFrom(xmlReader))
                 else
                     use rdr = new IO.StreamReader(aasStream, Encoding.UTF8)

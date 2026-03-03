@@ -33,75 +33,102 @@ let private mkSml (idShort: string) (items: ISubmodelElement list) : ISubmodelEl
 // ── 변환 계층 ──────────────────────────────────────────────────────────────
 
 let private callToSmc (call: Call) : ISubmodelElement =
-    mkSmc (call.Id.ToString()) [
+    mkSmc "Call" [
         mkProp     Name_         call.Name
         mkProp     Guid_         (call.Id.ToString())
         mkProp     DevicesAlias_ call.DevicesAlias
         mkProp     ApiName_      call.ApiName
         mkJsonProp<CallProperties>              Properties_      call.Properties
         mkJsonProp<Xywh option>                 Position_        call.Position
-        mkProp     Status_       (int call.Status4 |> string)
+        mkProp     Status_       (string call.Status4)
         mkJsonProp<ResizeArray<ApiCall>>        ApiCalls_        call.ApiCalls
         mkJsonProp<ResizeArray<CallCondition>>  CallConditions_  call.CallConditions
     ]
 
 let private arrowCallToSmc (arrow: ArrowBetweenCalls) : ISubmodelElement =
-    mkSmc (arrow.Id.ToString()) [
-        mkProp Guid_      (arrow.Id.ToString())
-        mkProp SourceId_  (arrow.SourceId.ToString())
-        mkProp TargetId_  (arrow.TargetId.ToString())
-        mkProp ArrowType_ (int arrow.ArrowType |> string)
+    mkSmc "Arrow" [
+        mkProp Guid_    (arrow.Id.ToString())
+        mkProp Source_  (arrow.SourceId.ToString())
+        mkProp Target_  (arrow.TargetId.ToString())
+        mkProp Type_    (string arrow.ArrowType)
     ]
 
 let private workToSmc (store: DsStore) (work: Work) : ISubmodelElement =
     let calls  = DsQuery.callsOf work.Id store      |> List.map callToSmc
     let arrows = DsQuery.arrowCallsOf work.Id store |> List.map arrowCallToSmc
-    mkSmc (work.Id.ToString()) [
+    mkSmc "Work" [
         mkProp     Name_       work.Name
         mkProp     Guid_       (work.Id.ToString())
+        mkProp     FlowGuid_   (work.ParentId.ToString())
         mkJsonProp<WorkProperties> Properties_ work.Properties
         mkJsonProp<Xywh option>    Position_   work.Position
-        mkProp     Status_     (int work.Status4 |> string)
-        mkSml Calls_         calls
-        mkSml ArrowsBtCalls_ arrows
+        mkProp     Status_     (string work.Status4)
+        mkSml Calls_   calls
+        mkSml Arrows_  arrows
     ]
 
 let private arrowWorkToSmc (arrow: ArrowBetweenWorks) : ISubmodelElement =
-    mkSmc (arrow.Id.ToString()) [
-        mkProp Guid_      (arrow.Id.ToString())
-        mkProp SourceId_  (arrow.SourceId.ToString())
-        mkProp TargetId_  (arrow.TargetId.ToString())
-        mkProp ArrowType_ (int arrow.ArrowType |> string)
+    mkSmc "Arrow" [
+        mkProp Guid_    (arrow.Id.ToString())
+        mkProp Source_  (arrow.SourceId.ToString())
+        mkProp Target_  (arrow.TargetId.ToString())
+        mkProp Type_    (string arrow.ArrowType)
     ]
 
-let private flowToSmc (store: DsStore) (flow: Flow) : ISubmodelElement =
-    let works  = DsQuery.worksOf flow.Id store      |> List.map (workToSmc store)
-    let arrows = DsQuery.arrowWorksOf flow.Id store |> List.map arrowWorkToSmc
-    mkSmc (flow.Id.ToString()) [
-        mkProp     Name_         flow.Name
-        mkProp     Guid_         (flow.Id.ToString())
+let private flowToSmc (flow: Flow) : ISubmodelElement =
+    mkSmc "Flow" [
+        mkProp     Name_       flow.Name
+        mkProp     Guid_       (flow.Id.ToString())
         mkJsonProp<FlowProperties> Properties_ flow.Properties
-        mkSml Works_         works
-        mkSml ArrowsBtWorks_ arrows
     ]
 
 let private apiDefToSmc (apiDef: ApiDef) : ISubmodelElement =
-    mkSmc (apiDef.Id.ToString()) [
+    mkSmc "ApiDef" [
         mkProp     Name_         apiDef.Name
         mkProp     Guid_         (apiDef.Id.ToString())
         mkJsonProp<ApiDefProperties> Properties_ apiDef.Properties
     ]
 
+let private apiCallToSmc (apiCall: ApiCall) : ISubmodelElement =
+    let apiDefProp = apiCall.ApiDefId |> Option.map (fun id -> $"{{\"ApiDef\":\"{id}\"}}") |> Option.defaultValue "{}"
+    mkSmc "ApiCall" [
+        mkProp Name_       apiCall.Name
+        mkProp Guid_       (apiCall.Id.ToString())
+        mkProp Properties_ apiDefProp
+    ]
+
 let private systemToSmc (store: DsStore) (system: DsSystem) (isActive: bool) : ISubmodelElement =
-    let flows   = DsQuery.flowsOf system.Id store   |> List.map (flowToSmc store)
-    let apiDefs = DsQuery.apiDefsOf system.Id store |> List.map apiDefToSmc
-    mkSmc (system.Id.ToString()) [
-        mkProp     Name_     system.Name
-        mkProp     Guid_     (system.Id.ToString())
-        mkProp     IsActive_ (if isActive then "true" else "false")
+    let allFlows  = DsQuery.flowsOf system.Id store
+    let flows     = allFlows |> List.map flowToSmc
+    let works     = allFlows |> List.collect (fun f -> DsQuery.worksOf f.Id store)
+                             |> List.map (workToSmc store)
+    let arrows    = allFlows |> List.collect (fun f -> DsQuery.arrowWorksOf f.Id store)
+                             |> List.map arrowWorkToSmc
+    let apiDefs   = DsQuery.apiDefsOf system.Id store |> List.map apiDefToSmc
+    // ApiCalls/ReferencedApiDefs는 ActiveSystem 전용 — DeviceSystem은 빈 목록
+    let apiCalls, referencedApiDefs =
+        if isActive then
+            let acs = DsQuery.allApiCalls store |> List.map apiCallToSmc
+            let refs =
+                DsQuery.allApiCalls store
+                |> List.choose (fun ac -> ac.ApiDefId |> Option.bind (fun id -> DsQuery.getApiDef id store))
+                |> List.filter (fun ad -> ad.ParentId <> system.Id)
+                |> List.distinctBy (fun ad -> ad.Id)
+                |> List.map apiDefToSmc
+            acs, refs
+        else [], []
+    let iri       = system.IRI |> Option.defaultValue ""
+    mkSmc "System" [
+        mkProp     Name_             system.Name
+        mkProp     Guid_             (system.Id.ToString())
+        mkProp     IRI_              iri
         mkJsonProp<SystemProperties> Properties_ system.Properties
-        mkSml Flows_   flows
-        mkSml ApiDefs_ apiDefs
+        mkSml ApiDefs_           apiDefs
+        mkSml ApiCalls_          apiCalls
+        mkSml ReferencedApiDefs_ referencedApiDefs
+        mkSml Flows_             flows
+        mkSml Arrows_            arrows
+        mkSml Works_             works
     ]
 
 // ── 진입점 ─────────────────────────────────────────────────────────────────
@@ -113,15 +140,18 @@ let internal exportToSubmodel (store: DsStore) (project: Project) : Submodel =
         mkProp     Name_         project.Name
         mkProp     Guid_         (project.Id.ToString())
         mkJsonProp<ProjectProperties> Properties_ project.Properties
-        mkSml ActiveSystems_  activeSystems
-        mkSml PassiveSystems_ passiveSystems
+        mkSml ActiveSystems_    activeSystems
+        mkSml DeviceReferences_ passiveSystems
     ]
     let projectSmc = SubmodelElementCollection()
-    projectSmc.IdShort <- project.Name
+    projectSmc.IdShort <- "Project"
     projectSmc.Value <- ResizeArray<ISubmodelElement>(projectElems)
 
-    let sm = Submodel(id = $"urn:ds2:submodel:{project.Id}")
+    let sm = Submodel(id = project.Id.ToString())
     sm.IdShort <- SubmodelIdShort
+    sm.SemanticId <- Reference(
+        ReferenceTypes.ExternalReference,
+        ResizeArray<IKey>([Key(KeyTypes.GlobalReference, SubmodelSemanticId) :> IKey]))
     sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
     sm
 
@@ -131,7 +161,7 @@ let internal exportToAasxFile (store: DsStore) (project: Project) (outputPath: s
     let smRef = Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
     let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = $"urn:ds2:asset:{project.Id}")
     let shell = AssetAdministrationShell(id = $"urn:ds2:shell:{project.Id}", assetInformation = assetInfo)
-    shell.IdShort <- "Ds2Shell"
+    shell.IdShort <- "ProjectShell"
     shell.Submodels <- ResizeArray<IReference>([smRef])
     let env =
         Environment(

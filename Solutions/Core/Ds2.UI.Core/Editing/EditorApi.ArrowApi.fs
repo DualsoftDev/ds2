@@ -19,11 +19,7 @@ type EditorArrowApi(store: DsStore, exec: ExecFn, batchExec: BatchExecFn) =
         | Some cmd -> exec cmd; true
         | None -> false
 
-    member _.ConnectSelectionInOrder(orderedNodeIds: seq<Guid>, ?arrowType: ArrowType) : int =
-        let connectArrowType = defaultArg arrowType ArrowType.Start
-        let cmds = ArrowOps.buildConnectSelectionCmds store orderedNodeIds connectArrowType
+    member _.ConnectSelectionInOrderUi(orderedNodeIds: seq<Guid>, arrowType: UiArrowType) : int =
+        let cmds = ArrowOps.buildConnectSelectionCmds store orderedNodeIds (UiArrowType.toCore arrowType)
         batchExec "Connect Selected Nodes In Order" (fun bExec -> cmds |> List.iter bExec)
         cmds.Length
-
-    member this.ConnectSelectionInOrderUi(orderedNodeIds: seq<Guid>, arrowType: UiArrowType) : int =
-        this.ConnectSelectionInOrder(orderedNodeIds, UiArrowType.toCore arrowType)

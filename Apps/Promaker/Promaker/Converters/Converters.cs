@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
@@ -9,11 +10,46 @@ namespace Promaker.Converters;
 
 file static class ConverterHelpers
 {
+    private static readonly IReadOnlyDictionary<string, string> EntityBrushKeys =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [EntityTypes.Work] = "NodeWorkBackgroundBrush",
+            [EntityTypes.Call] = "NodeCallBackgroundBrush",
+            [EntityTypes.Flow] = "AccentBrush",
+            [EntityTypes.System] = "OrangeAccentBrush",
+            [EntityTypes.Project] = "GreenAccentBrush"
+        };
+
+    private static readonly IReadOnlyDictionary<string, string> EntityIcons =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [EntityTypes.Project] = "P",
+            [EntityTypes.System] = "S",
+            [EntityTypes.Flow] = "F",
+            [EntityTypes.Work] = "W",
+            [EntityTypes.Call] = "C",
+            [EntityTypes.ApiDef] = "A",
+            [EntityTypes.Button] = "B",
+            [EntityTypes.Lamp] = "L",
+            [EntityTypes.Condition] = "?",
+            [EntityTypes.Action] = "!"
+        };
+
     public static Brush ResolveBrush(string key)
     {
         var app = Application.Current;
         return app?.TryFindResource(key) as Brush ?? Brushes.Gray;
     }
+
+    public static string ResolveEntityBrushKey(string? entityType) =>
+        entityType is not null && EntityBrushKeys.TryGetValue(entityType, out var key)
+            ? key
+            : "TertiaryBackgroundBrush";
+
+    public static string ResolveEntityIcon(string? entityType) =>
+        entityType is not null && EntityIcons.TryGetValue(entityType, out var icon)
+            ? icon
+            : "?";
 }
 
 public sealed class BoolToVisibilityConverter : IValueConverter
@@ -29,15 +65,7 @@ public sealed class EntityTypeToBrushConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        var entityType = value?.ToString();
-        var key =
-            EntityTypes.Is(entityType, EntityTypes.Work) ? "NodeWorkBackgroundBrush" :
-            EntityTypes.Is(entityType, EntityTypes.Call) ? "NodeCallBackgroundBrush" :
-            EntityTypes.Is(entityType, EntityTypes.Flow) ? "AccentBrush" :
-            EntityTypes.Is(entityType, EntityTypes.System) ? "OrangeAccentBrush" :
-            EntityTypes.Is(entityType, EntityTypes.Project) ? "GreenAccentBrush" :
-            "TertiaryBackgroundBrush";
-
+        var key = ConverterHelpers.ResolveEntityBrushKey(value?.ToString());
         return ConverterHelpers.ResolveBrush(key);
     }
 
@@ -115,21 +143,7 @@ public sealed class ArrowTypeToDashConverter : IValueConverter
 public sealed class EntityTypeToIconConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-    {
-        var entityType = value?.ToString();
-        return
-            EntityTypes.Is(entityType, EntityTypes.Project) ? "P" :
-            EntityTypes.Is(entityType, EntityTypes.System) ? "S" :
-            EntityTypes.Is(entityType, EntityTypes.Flow) ? "F" :
-            EntityTypes.Is(entityType, EntityTypes.Work) ? "W" :
-            EntityTypes.Is(entityType, EntityTypes.Call) ? "C" :
-            EntityTypes.Is(entityType, EntityTypes.ApiDef) ? "A" :
-            EntityTypes.Is(entityType, EntityTypes.Button) ? "B" :
-            EntityTypes.Is(entityType, EntityTypes.Lamp) ? "L" :
-            EntityTypes.Is(entityType, EntityTypes.Condition) ? "?" :
-            EntityTypes.Is(entityType, EntityTypes.Action) ? "!" :
-            "?";
-    }
+        => ConverterHelpers.ResolveEntityIcon(value?.ToString());
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => Binding.DoNothing;
