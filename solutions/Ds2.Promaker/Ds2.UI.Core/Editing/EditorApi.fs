@@ -8,7 +8,7 @@ open log4net
 // EditorApi — UI의 편집(쓰기) 명령 진입점
 // 서브-API 클래스(Query/Nodes/Arrows/Panel)를 통해 도메인별 접근 제공.
 // =============================================================================
-type EditorApi(store: DsStore, ?maxUndoSize: int) as this =
+type EditorApi internal (store: DsStore, ?maxUndoSize: int) as this =
     let log = LogManager.GetLogger(typedefof<EditorApi>)
     let undoManager = UndoRedoManager(defaultArg maxUndoSize 100)
     let eventBus = Event<EditorEvent>()
@@ -52,6 +52,8 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) as this =
         execOptRef.Value   <- fun cmdOpt -> this.ExecOpt(cmdOpt)
         applyTryRef.Value  <- fun result -> this.ApplyTryBuildResult(result)
 
+    new(?maxUndoSize: int) = EditorApi(DsStore.empty(), ?maxUndoSize = maxUndoSize)
+
     // --- 이벤트 ---
     member _.OnEvent = eventBus.Publish
 
@@ -65,6 +67,16 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) as this =
         | ApiDefAdded apiDef -> Some apiDef.Id
         | HwComponentAdded(_, id, _) -> Some id
         | _ -> None
+
+    member _.TryGetMovedNodeInfoOrNull(evt: EditorEvent) : UiNodeMoveInfo =
+        let createInfo (id: Guid) (pos: Xywh option) =
+            match pos with
+            | Some bounds -> UiNodeMoveInfo(id, true, bounds.X, bounds.Y, bounds.W, bounds.H)
+            | None -> UiNodeMoveInfo(id, false, 0, 0, 0, 0)
+        match evt with
+        | WorkMoved(id, pos) -> createInfo id pos
+        | CallMoved(id, pos) -> createInfo id pos
+        | _ -> null
 
     member _.IsTreeStructuralEvent(evt: EditorEvent) : bool =
         match evt with
@@ -225,5 +237,5 @@ type EditorApi(store: DsStore, ?maxUndoSize: int) as this =
 
     /// 외부에서 구성된 DsStore를 현재 store에 적용하고 StoreRefreshed를 발행한다.
     /// AASX 임포트 등 파일 I/O 경로에서 사용.
-    member this.ReplaceStore(newStore: DsStore) =
+    member internal this.ReplaceStore(newStore: DsStore) =
         this.ApplyNewStore(newStore, "ReplaceStore")

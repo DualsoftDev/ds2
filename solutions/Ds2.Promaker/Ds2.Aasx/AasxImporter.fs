@@ -190,7 +190,7 @@ let private submodelToProjectStore (sm: ISubmodel) : (Project * DsStore) option 
 // ── 진입점 ─────────────────────────────────────────────────────────────────
 
 /// AASX 파일에서 DsStore를 읽어 반환합니다 (Project는 store.Projects에 포함됩니다).
-let importFromAasxFile (path: string) : DsStore option =
+let internal importFromAasxFile (path: string) : DsStore option =
     readEnvironment path
     |> Option.bind (fun env ->
         if env.Submodels = null then
@@ -206,3 +206,10 @@ let importFromAasxFile (path: string) : DsStore option =
             if result.IsNone then
                 log.Warn($"AASX 파싱 실패: '{SubmodelIdShort}' Submodel을 찾을 수 없습니다 ({path})")
             result)
+
+let importIntoEditor (editor: EditorApi) (path: string) : bool =
+    match importFromAasxFile path with
+    | Some store ->
+        editor.ReplaceStore(store)
+        true
+    | None -> false

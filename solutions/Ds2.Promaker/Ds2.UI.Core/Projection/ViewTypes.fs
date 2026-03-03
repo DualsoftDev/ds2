@@ -29,9 +29,21 @@ type CanvasArrowInfo = {
     ArrowType: ArrowType
 }
 
+type UiCanvasArrowInfo = {
+    Id: Guid
+    SourceId: Guid
+    TargetId: Guid
+    ArrowType: UiArrowType
+}
+
 type CanvasContent = {
     Nodes: CanvasNodeInfo list
     Arrows: CanvasArrowInfo list
+}
+
+type UiCanvasContent = {
+    Nodes: CanvasNodeInfo list
+    Arrows: UiCanvasArrowInfo list
 }
 
 [<RequireQualifiedAccess>]

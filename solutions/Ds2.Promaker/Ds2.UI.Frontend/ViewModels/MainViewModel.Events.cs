@@ -53,18 +53,23 @@ public partial class MainViewModel
             return;
         }
 
+        if (!TryEditorFunc(
+                "TryGetMovedNodeInfoOrNull",
+                () => _editor.TryGetMovedNodeInfoOrNull(evt),
+                out UiNodeMoveInfo? movedNode,
+                fallback: null))
+            return;
+
+        if (movedNode is not null)
+        {
+            ApplyNodeMove(movedNode);
+            return;
+        }
+
         switch (evt)
         {
             case EditorEvent.EntityRenamed ren:
                 ApplyEntityRename(ren.id, ren.newName);
-                return;
-
-            case EditorEvent.WorkMoved wm:
-                ApplyNodeMove(wm.id, wm.newPos);
-                return;
-
-            case EditorEvent.CallMoved cm:
-                ApplyNodeMove(cm.id, cm.newPos);
                 return;
 
             case EditorEvent.HistoryChanged h:

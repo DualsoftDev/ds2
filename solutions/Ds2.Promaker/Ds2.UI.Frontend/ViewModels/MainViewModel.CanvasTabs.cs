@@ -1,6 +1,5 @@
 using System;
 using CommunityToolkit.Mvvm.Input;
-using Ds2.Core;
 using Ds2.UI.Core;
 using Microsoft.FSharp.Core;
 
@@ -36,16 +35,15 @@ public partial class MainViewModel
     public void OpenCanvasTab(Guid entityId, string entityType)
     {
         if (!TryEditorFunc(
-                "TryOpenTabForEntity",
-                () => _editor.Query.TryOpenTabForEntity(entityType, entityId),
-                out var infoOpt,
-                fallback: (FSharpOption<TabOpenInfo>?)null))
+                "TryOpenTabForEntityOrNull",
+                () => _editor.Query.TryOpenTabForEntityOrNull(entityType, entityId),
+                out var info,
+                fallback: null))
             return;
 
-        if (!HasOptionValue(infoOpt))
+        if (info is null)
             return;
 
-        var info = infoOpt!.Value;
         OpenTab(info.Kind, info.RootId, info.Title);
     }
 
@@ -71,10 +69,10 @@ public partial class MainViewModel
         }
 
         if (!TryEditorFunc(
-                "CanvasContentForTab",
-                () => _editor.Query.CanvasContentForTab(ActiveTab.Kind, ActiveTab.RootId),
+                "CanvasContentForTabUi",
+                () => _editor.Query.CanvasContentForTabUi(ActiveTab.Kind, ActiveTab.RootId),
                 out var content,
-                fallback: (CanvasContent?)null,
+                fallback: (UiCanvasContent?)null,
                 statusOverride: "[ERROR] Failed to refresh canvas content."))
             return;
 
@@ -192,16 +190,16 @@ public partial class MainViewModel
     private string ResolveTabTitle(CanvasTab tab)
     {
         if (!TryEditorFunc(
-                "TabTitle",
-                () => _editor.Query.TabTitle(tab.Kind, tab.RootId),
-                out var titleOpt,
-                fallback: (FSharpOption<string>?)null))
+                "TabTitleOrNull",
+                () => _editor.Query.TabTitleOrNull(tab.Kind, tab.RootId),
+                out var title,
+                fallback: null))
             return tab.Title;
 
-        if (!HasOptionValue(titleOpt))
+        if (string.IsNullOrEmpty(title))
             return tab.Title;
 
-        return titleOpt!.Value;
+        return title;
     }
 
     private static EntityNode MapToEntityNode(TreeNodeInfo info)
@@ -213,19 +211,18 @@ public partial class MainViewModel
         return node;
     }
 
-    private void ApplyNodeMove(Guid nodeId, FSharpOption<Xywh> newPos)
+    private void ApplyNodeMove(UiNodeMoveInfo moveInfo)
     {
-        var node = CanvasNodes.FirstOrDefault(n => n.Id == nodeId);
+        var node = CanvasNodes.FirstOrDefault(n => n.Id == moveInfo.EntityId);
         if (node is null)
             return;
 
-        if (FSharpOption<Xywh>.get_IsSome(newPos))
+        if (moveInfo.HasPosition)
         {
-            var p = newPos.Value;
-            node.X = p.X;
-            node.Y = p.Y;
-            node.Width = p.W;
-            node.Height = p.H;
+            node.X = moveInfo.X;
+            node.Y = moveInfo.Y;
+            node.Width = moveInfo.W;
+            node.Height = moveInfo.H;
         }
         else
         {

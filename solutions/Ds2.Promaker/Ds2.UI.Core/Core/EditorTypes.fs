@@ -42,6 +42,55 @@ module UiDefaults =
         Guid(bytes)
 
 [<RequireQualifiedAccess>]
+type UiArrowType =
+    | None = 0
+    | Start = 1
+    | Reset = 2
+    | StartReset = 3
+    | ResetReset = 4
+    | Group = 5
+
+module UiArrowType =
+    let ofCore (value: ArrowType) : UiArrowType =
+        enum<UiArrowType>(int value)
+
+    let toCore (value: UiArrowType) : ArrowType =
+        enum<ArrowType>(int value)
+
+[<RequireQualifiedAccess>]
+type UiCallConditionType =
+    | Auto = 0
+    | Common = 1
+    | Active = 2
+
+module UiCallConditionType =
+    let ofCore (value: CallConditionType) : UiCallConditionType =
+        enum<UiCallConditionType>(int value)
+
+    let toCore (value: UiCallConditionType) : CallConditionType =
+        enum<CallConditionType>(int value)
+
+[<Sealed>]
+type UiMoveEntityRequest(entityType: string, id: Guid, hasPosition: bool, x: int, y: int, w: int, h: int) =
+    member _.EntityType = entityType
+    member _.Id = id
+    member _.HasPosition = hasPosition
+    member _.X = x
+    member _.Y = y
+    member _.W = w
+    member _.H = h
+
+[<Sealed>]
+[<AllowNullLiteral>]
+type UiNodeMoveInfo(entityId: Guid, hasPosition: bool, x: int, y: int, w: int, h: int) =
+    member _.EntityId = entityId
+    member _.HasPosition = hasPosition
+    member _.X = x
+    member _.Y = y
+    member _.W = w
+    member _.H = h
+
+[<RequireQualifiedAccess>]
 module EntityTypeNames =
     [<Literal>]
     let Project = "Project"

@@ -57,6 +57,16 @@ type CallConditionPanelItem
     member _.IsRising      = isRising
     member _.Items         = items
 
+[<Sealed>]
+type UiCallConditionPanelItem
+    (conditionId: Guid, conditionType: UiCallConditionType,
+     isOR: bool, isRising: bool, items: CallConditionApiCallItem list) =
+    member _.ConditionId   = conditionId
+    member _.ConditionType = conditionType
+    member _.IsOR          = isOR
+    member _.IsRising      = isRising
+    member _.Items         = items
+
 module internal PropertyPanelValueSpec =
 
     let private formatBound toText (value, boundType) =
