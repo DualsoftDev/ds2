@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-03-03 (Ds2.Core.Contracts 삭제 — 런타임 동작 변경 없음. ArrowType/UiArrowType 타입 경로만 변경)
+Last Sync: 2026-03-03 (디렉토리 구조 재편 — 런타임 동작 변경 없음)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -550,7 +550,7 @@ EditorApi.LoadFromFile(path)
 ### 8.1 개요
 
 `Ds2.Aasx` 프로젝트가 IEC 62714 / AAS 3.0 AASX 파일과 `DsStore` 간 양방향 변환을 담당합니다.
-`Ds2.UI.Core`는 `Ds2.Aasx`를 참조하지 않습니다. `Ds2.UI.Frontend`(C#)가 양쪽을 직접 참조합니다.
+`Ds2.UI.Core`는 `Ds2.Aasx`를 참조하지 않습니다. `Promaker`(C#)가 양쪽을 직접 참조합니다.
 
 ### 8.2 익스포트 흐름
 
@@ -640,12 +640,12 @@ EditorApi.ReplaceStore(newStore: DsStore)  — LoadFromFile 패턴 동일
            log4net.config 있음  → log4net 초기화
            log4net.config 없음  → System.Diagnostics.Trace.TraceWarning("log4net.config 파일을 찾을 수 없습니다...")
                                    (log4net 미초기화 상태에서도 VS 출력 창에 표시)
-      → Log.Info("=== Ds2.Promaker 시작 ===")
+      → Log.Info("=== Promaker startup ===")
       → DispatcherUnhandledException += (_, ex) =>
               Log.Fatal("처리되지 않은 예외", ex.Exception); ex.Handled = true
 앱 종료
   → App.xaml.cs OnExit
-      → Log.Info("=== Ds2.Promaker 종료 ===")
+      → Log.Info("=== Promaker shutdown ===")
 ```
 
 ### 9.2 로그 파일
