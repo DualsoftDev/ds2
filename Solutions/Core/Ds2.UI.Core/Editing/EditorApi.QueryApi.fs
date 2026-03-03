@@ -9,25 +9,8 @@ open Ds2.Core
 
 type EditorQueryApi(store: DsStore) =
 
-    let toNullable (valueOpt: Guid option) =
-        match valueOpt with
-        | Some value -> Nullable value
-        | None -> Nullable()
-
-    let toOption (value: Nullable<Guid>) =
-        if value.HasValue then Some value.Value else None
-
-    let toTabKindOption (value: Nullable<TabKind>) =
-        if value.HasValue then Some value.Value else None
-
-    let toStringOption (value: string) =
-        if String.IsNullOrWhiteSpace(value) then None else Some value
-
     member _.BuildTrees() : TreeNodeInfo list * TreeNodeInfo list =
         TreeProjection.buildTrees store
-
-    member _.CanvasContentForTab(kind: TabKind, rootId: Guid) : CanvasContent =
-        CanvasProjection.canvasContentForTab store kind rootId
 
     member _.CanvasContentForTabUi(kind: TabKind, rootId: Guid) : UiCanvasContent =
         let content = CanvasProjection.canvasContentForTab store kind rootId
@@ -61,14 +44,8 @@ type EditorQueryApi(store: DsStore) =
     member _.TryFindProjectIdForEntity(entityType: string, entityId: Guid) : Guid option =
         EntityHierarchyQueries.tryFindProjectIdForEntity store entityType entityId
 
-    member this.TryFindProjectIdForEntityOrNull(entityType: string, entityId: Guid) : Nullable<Guid> =
-        this.TryFindProjectIdForEntity(entityType, entityId) |> toNullable
-
     member _.GetEntityParentId(entityType: string, entityId: Guid) : Guid option =
         EntityHierarchyQueries.parentIdOf store entityType entityId
-
-    member this.GetEntityParentIdOrNull(entityType: string, entityId: Guid) : Nullable<Guid> =
-        this.GetEntityParentId(entityType, entityId) |> toNullable
 
     member _.FindApiDefsByName(filterName: string) : ApiDefMatch list =
         EntityHierarchyQueries.findApiDefs store "" filterName
@@ -81,16 +58,6 @@ type EditorQueryApi(store: DsStore) =
         : Guid option =
         AddTargetQueries.tryResolveAddSystemTarget store selectedEntityType selectedEntityId activeTabKind activeTabRootId
 
-    member this.TryResolveAddSystemTargetOrNull
-        (selectedEntityType: string, selectedEntityId: Nullable<Guid>, activeTabKind: Nullable<TabKind>, activeTabRootId: Nullable<Guid>)
-        : Nullable<Guid> =
-        this.TryResolveAddSystemTarget
-            (toStringOption selectedEntityType)
-            (toOption selectedEntityId)
-            (toTabKindOption activeTabKind)
-            (toOption activeTabRootId)
-        |> toNullable
-
     member _.TryResolveAddFlowTarget
         (selectedEntityType: string option)
         (selectedEntityId: Guid option)
@@ -98,16 +65,6 @@ type EditorQueryApi(store: DsStore) =
         (activeTabRootId: Guid option)
         : Guid option =
         AddTargetQueries.tryResolveAddFlowTarget store selectedEntityType selectedEntityId activeTabKind activeTabRootId
-
-    member this.TryResolveAddFlowTargetOrNull
-        (selectedEntityType: string, selectedEntityId: Nullable<Guid>, activeTabKind: Nullable<TabKind>, activeTabRootId: Nullable<Guid>)
-        : Nullable<Guid> =
-        this.TryResolveAddFlowTarget
-            (toStringOption selectedEntityType)
-            (toOption selectedEntityId)
-            (toTabKindOption activeTabKind)
-            (toOption activeTabRootId)
-        |> toNullable
 
     member _.GetFlowArrowPaths(flowId: Guid) : Map<Guid, ArrowPathCalculator.ArrowVisual> =
         ArrowPathCalculator.computeFlowArrowPaths store flowId

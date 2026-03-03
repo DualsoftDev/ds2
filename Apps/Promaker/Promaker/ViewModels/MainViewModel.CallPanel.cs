@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.UI.Core;
@@ -12,7 +13,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void ApplyCallTimeout()
     {
-        if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
+        if (!TryGetSelectedCall(out var selectedCall)) return;
 
         if (!TryEditorFunc(
                 "TryUpdateCallTimeout",
@@ -35,7 +36,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void AddCallApiCall()
     {
-        if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
+        if (!TryGetSelectedCall(out var selectedCall)) return;
 
         var apiDefChoices = DeviceApiDefOptions
             .Select(x => new ApiCallCreateDialog.ApiDefChoice(x.Id, x.DisplayName))
@@ -103,7 +104,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void EditCallApiCallSpec(CallApiCallItem? item)
     {
-        if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
+        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (item is null) return;
         if (item.ApiDefId is not Guid apiDefId || apiDefId == Guid.Empty)
         {
@@ -144,7 +145,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void UpdateCallApiCall(CallApiCallItem? _)
     {
-        if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
+        if (!TryGetSelectedCall(out var selectedCall)) return;
 
         var dirtyItems = CallApiCalls.Where(x => x.IsDirty).ToList();
         if (dirtyItems.Count == 0) return;
@@ -189,7 +190,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void RemoveCallApiCall(CallApiCallItem? item)
     {
-        if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
+        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (item is null) return;
 
         if (!TryEditorAction(
@@ -204,7 +205,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void AddCondition(UiCallConditionType type)
     {
-        if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
+        if (!TryGetSelectedCall(out var selectedCall)) return;
 
         if (!TryEditorFunc(
                 "AddCallConditionUi",
@@ -220,7 +221,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void RemoveCallCondition(CallConditionItem? item)
     {
-        if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
+        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (item is null) return;
 
         if (!TryEditorFunc(
@@ -237,7 +238,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void AddConditionApiCall(CallConditionItem? item)
     {
-        if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
+        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (item is null) return;
 
         if (!TryEditorRef(
@@ -279,7 +280,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void RemoveConditionApiCall(ConditionApiCallRow? row)
     {
-        if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
+        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (row is null) return;
 
         if (!TryEditorFunc(
@@ -296,7 +297,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void EditConditionApiCallSpec(ConditionApiCallRow? row)
     {
-        if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
+        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (row is null) return;
 
         var dialog = new ValueSpecDialog(row.OutputSpecText, row.OutputSpecTypeIndex, "Edit Output ValueSpec");
@@ -317,7 +318,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void ToggleConditionIsOR(CallConditionItem? item)
     {
-        if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
+        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (item is null) return;
 
         if (!TryEditorFunc(
@@ -334,7 +335,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void ToggleConditionIsRising(CallConditionItem? item)
     {
-        if (!TryGetSelectedNode(EntityTypes.Call, out var selectedCall)) return;
+        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (item is null) return;
 
         if (!TryEditorFunc(
@@ -347,6 +348,9 @@ public partial class MainViewModel
         if (!updated) return;
         RefreshCallPanel(selectedCall.Id);
     }
+
+    private bool TryGetSelectedCall([NotNullWhen(true)] out EntityNode? selectedCall) =>
+        TryGetSelectedNode(EntityTypes.Call, out selectedCall);
 
     private void RefreshCallPanel(Guid callId)
     {

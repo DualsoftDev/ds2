@@ -59,9 +59,8 @@ let ``RemoveWork should remove from store and be undoable`` () =
 let ``MoveWork should update position and be undoable`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = addWork store api "W1" flow.Id
-    let pos = Some(Xywh(100, 200, 80, 40))
 
-    api.Nodes.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, work.Id, pos) ]) |> ignore
+    api.Nodes.MoveEntitiesUi([ UiMoveEntityRequest(EntityTypeNames.Work, work.Id, true, 100, 200, 80, 40) ]) |> ignore
     Assert.True(store.Works.[work.Id].Position.IsSome)
 
     api.Undo()
@@ -77,9 +76,9 @@ let ``MoveEntities should move multiple nodes in one undo step`` () =
     let w2 = addWork store api "W2" flow.Id
 
     let moved =
-        api.Nodes.MoveEntities([
-            MoveEntityRequest("Work", w1.Id, Some(Xywh(100, 200, 120, 40)))
-            MoveEntityRequest("Work", w2.Id, Some(Xywh(300, 200, 120, 40)))
+        api.Nodes.MoveEntitiesUi([
+            UiMoveEntityRequest(EntityTypeNames.Work, w1.Id, true, 100, 200, 120, 40)
+            UiMoveEntityRequest(EntityTypeNames.Work, w2.Id, true, 300, 200, 120, 40)
         ])
 
     Assert.Equal(2, moved)
@@ -108,7 +107,7 @@ let ``MoveWork should not create command if position unchanged`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let work = addWork store api "W1" flow.Id
 
-    api.Nodes.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, work.Id, None) ]) |> ignore
+    api.Nodes.MoveEntitiesUi([ UiMoveEntityRequest(EntityTypeNames.Work, work.Id, false, 0, 0, 0, 0) ]) |> ignore
     // undo should take us back to before AddWork, not before MoveWork
     api.Undo() // undoes AddWork (not MoveWork, since no command was created)
     Assert.False(store.Works.ContainsKey(work.Id)) // work removed by undo
@@ -210,7 +209,7 @@ let ``ConnectSelectionInOrder adds a single work arrow and is undoable`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = addWork store api "W1" flow.Id
     let w2 = addWork store api "W2" flow.Id
-    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([w1.Id; w2.Id], UiArrowType.Start) |> ignore
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
 
     Assert.True(store.ArrowWorks.ContainsKey(arrow.Id))
@@ -228,7 +227,7 @@ let ``ConnectSelectionInOrder connects cross-flow works in same system and produ
     let w1 = addWork store api "W1" flow1.Id
     let w2 = addWork store api "W2" flow2.Id
 
-    let created = api.Arrows.ConnectSelectionInOrder([ w1.Id; w2.Id ], ArrowType.Start)
+    let created = api.Arrows.ConnectSelectionInOrderUi([ w1.Id; w2.Id ], UiArrowType.Start)
     Assert.Equal(1, created)
 
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
@@ -249,8 +248,8 @@ let ``RemoveArrows should delete multiple arrows in one undo step`` () =
     let w1 = addWork store api "W1" flow.Id
     let w2 = addWork store api "W2" flow.Id
     let w3 = addWork store api "W3" flow.Id
-    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
-    api.Arrows.ConnectSelectionInOrder([w2.Id; w3.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([w1.Id; w2.Id], UiArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([w2.Id; w3.Id], UiArrowType.Start) |> ignore
     let a1 = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
     let a2 = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w2.Id && a.TargetId = w3.Id)
 
@@ -272,7 +271,7 @@ let ``ReconnectArrow should reconnect work arrow and be undoable`` () =
     let w1 = addWork store api "W1" flow.Id
     let w2 = addWork store api "W2" flow.Id
     let w3 = addWork store api "W3" flow.Id
-    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([w1.Id; w2.Id], UiArrowType.Start) |> ignore
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
 
     let changed = api.Arrows.ReconnectArrow(arrow.Id, true, w3.Id)
@@ -295,7 +294,7 @@ let ``ReconnectArrow should reconnect call arrow and be undoable`` () =
     let c1 = addCall store api work.Id "Dev" "C1" [||]
     let c2 = addCall store api work.Id "Dev" "C2" [||]
     let c3 = addCall store api work.Id "Dev" "C3" [||]
-    api.Arrows.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([c1.Id; c2.Id], UiArrowType.Start) |> ignore
     let arrow = store.ArrowCalls.Values |> Seq.find (fun a -> a.SourceId = c1.Id && a.TargetId = c2.Id)
 
     let changed = api.Arrows.ReconnectArrow(arrow.Id, false, c3.Id)
@@ -318,7 +317,7 @@ let ``ConnectSelectionInOrder should be undone as single action`` () =
     let w2 = addWork store api "W2" flow.Id
     let w3 = addWork store api "W3" flow.Id
 
-    let created = api.Arrows.ConnectSelectionInOrder([ w1.Id; w2.Id; w3.Id ], ArrowType.Start)
+    let created = api.Arrows.ConnectSelectionInOrderUi([ w1.Id; w2.Id; w3.Id ], UiArrowType.Start)
     Assert.Equal(2, created)
     Assert.Equal(2, store.ArrowWorks.Count)
 
@@ -342,7 +341,7 @@ let ``RemoveWork should cascade delete calls and arrows`` () =
     let w1 = addWork store api "W1" flow.Id
     let w2 = addWork store api "W2" flow.Id
     let c1 = addCall store api w1.Id "Dev" "C1" [||]
-    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([w1.Id; w2.Id], UiArrowType.Start) |> ignore
     let arrow = store.ArrowWorks.Values |> Seq.find (fun a -> a.SourceId = w1.Id && a.TargetId = w2.Id)
 
     let workCount = store.Works.Count
@@ -378,7 +377,7 @@ let ``RemoveSystem should cascade and be fully restorable`` () =
     let w1 = addWork store api "W1" flow.Id
     let w2 = addWork store api "W2" flow.Id
     let _c1 = addCall store api w1.Id "Dev" "C1" [||]
-    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([w1.Id; w2.Id], UiArrowType.Start) |> ignore
 
     let systemCount = store.Systems.Count
     let flowCount = store.Flows.Count
@@ -671,7 +670,7 @@ let ``RemoveCall should cascade delete ArrowBetweenCalls`` () =
     let w1 = addWork store api "W1" flow.Id
     let c1 = addCall store api w1.Id "Dev" "C1" [||]
     let c2 = addCall store api w1.Id "Dev" "C2" [||]
-    api.Arrows.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([c1.Id; c2.Id], UiArrowType.Start) |> ignore
     let arrow = store.ArrowCalls.Values |> Seq.find (fun a -> a.SourceId = c1.Id && a.TargetId = c2.Id)
 
     api.Nodes.RemoveEntities(seq { EntityTypeNames.Call, c1.Id })
@@ -936,7 +935,7 @@ let ``PasteEntities should duplicate Work with Calls ApiCalls and internal call 
     let w1 = addWork store api "W1" flow.Id
     let c1 = addCall store api w1.Id "Dev" "C1" [||]
     let c2 = addCall store api w1.Id "Dev" "C2" [||]
-    api.Arrows.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([c1.Id; c2.Id], UiArrowType.Start) |> ignore
 
     let apiDef = addApiDef store api "AD1" system.Id
     let ac = ApiCall("AC1")
@@ -978,15 +977,15 @@ let ``PasteEntities should preserve arrows between selected works and calls`` ()
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = addWork store api "W1" flow.Id
     let w2 = addWork store api "W2" flow.Id
-    api.Nodes.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, w1.Id, Some(Xywh(100, 100, 120, 40))) ]) |> ignore
-    api.Nodes.MoveEntities([ MoveEntityRequest(EntityTypeNames.Work, w2.Id, Some(Xywh(300, 100, 120, 40))) ]) |> ignore
-    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    api.Nodes.MoveEntitiesUi([ UiMoveEntityRequest(EntityTypeNames.Work, w1.Id, true, 100, 100, 120, 40) ]) |> ignore
+    api.Nodes.MoveEntitiesUi([ UiMoveEntityRequest(EntityTypeNames.Work, w2.Id, true, 300, 100, 120, 40) ]) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([w1.Id; w2.Id], UiArrowType.Start) |> ignore
 
     let c1 = addCall store api w1.Id "Dev" "C1" [||]
     let c2 = addCall store api w2.Id "Dev" "C2" [||]
-    api.Nodes.MoveEntities([ MoveEntityRequest(EntityTypeNames.Call, c1.Id, Some(Xywh(120, 180, 120, 40))) ]) |> ignore
-    api.Nodes.MoveEntities([ MoveEntityRequest(EntityTypeNames.Call, c2.Id, Some(Xywh(320, 180, 120, 40))) ]) |> ignore
-    api.Arrows.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
+    api.Nodes.MoveEntitiesUi([ UiMoveEntityRequest(EntityTypeNames.Call, c1.Id, true, 120, 180, 120, 40) ]) |> ignore
+    api.Nodes.MoveEntitiesUi([ UiMoveEntityRequest(EntityTypeNames.Call, c2.Id, true, 320, 180, 120, 40) ]) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([c1.Id; c2.Id], UiArrowType.Start) |> ignore
 
     let workIdsBefore =
         store.Works.Keys
@@ -1070,8 +1069,8 @@ let ``PasteEntities should duplicate Flow with Works Calls and arrows`` () =
     let w2 = addWork store api "W2" sourceFlow.Id
     let c1 = addCall store api w1.Id "Dev" "C1" [||]
     let c2 = addCall store api w1.Id "Dev" "C2" [||]
-    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
-    api.Arrows.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([w1.Id; w2.Id], UiArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([c1.Id; c2.Id], UiArrowType.Start) |> ignore
 
     let flowsBefore = store.Flows.Keys |> Set.ofSeq
     api.Nodes.PasteEntities("Flow", [| sourceFlow.Id |], "System", system.Id) |> ignore
@@ -1560,7 +1559,7 @@ let ``AddCallCondition should add condition and be undoable`` () =
     let work = addWork store api "W1" flow.Id
     let call = addCall store api work.Id "Dev" "C1" [||]
 
-    let ok = api.Panel.AddCallCondition(call.Id, CallConditionType.Auto)
+    let ok = api.Panel.AddCallConditionUi(call.Id, UiCallConditionType.Auto)
     Assert.True(ok)
     Assert.Equal(1, store.Calls.[call.Id].CallConditions.Count)
     Assert.Equal(Some CallConditionType.Auto, store.Calls.[call.Id].CallConditions.[0].Type)
@@ -1577,8 +1576,8 @@ let ``UpdateCallConditionSettings IsOR toggle should be undoable`` () =
     let work = addWork store api "W1" flow.Id
     let call = addCall store api work.Id "Dev" "C1" [||]
 
-    api.Panel.AddCallCondition(call.Id, CallConditionType.Common) |> ignore
-    let condId = api.Panel.GetCallConditionsForPanel(call.Id).[0].ConditionId
+    api.Panel.AddCallConditionUi(call.Id, UiCallConditionType.Common) |> ignore
+    let condId = api.Panel.GetCallConditionsForPanelUi(call.Id).[0].ConditionId
 
     let ok = api.Panel.UpdateCallConditionSettings(call.Id, condId, true, false)
     Assert.True(ok)
@@ -1594,8 +1593,8 @@ let ``RemoveCallCondition should remove condition and be undoable`` () =
     let work = addWork store api "W1" flow.Id
     let call = addCall store api work.Id "Dev" "C1" [||]
 
-    api.Panel.AddCallCondition(call.Id, CallConditionType.Auto) |> ignore
-    let condId = api.Panel.GetCallConditionsForPanel(call.Id).[0].ConditionId
+    api.Panel.AddCallConditionUi(call.Id, UiCallConditionType.Auto) |> ignore
+    let condId = api.Panel.GetCallConditionsForPanelUi(call.Id).[0].ConditionId
 
     let removed = api.Panel.RemoveCallCondition(call.Id, condId)
     Assert.True(removed)
@@ -1618,18 +1617,18 @@ let ``UpdateConditionApiCallOutputSpec should update spec and be undoable`` () =
     let apiDef = addApiDef store api "ADV" deviceSystem.Id
     let sourceApiCallId = (api.Panel.AddApiCallFromPanel(sourceCall.Id, apiDef.Id, "AC1", "", "", "10", "")).Value
 
-    api.Panel.AddCallCondition(targetCall.Id, CallConditionType.Active) |> ignore
-    let condId = api.Panel.GetCallConditionsForPanel(targetCall.Id).[0].ConditionId
+    api.Panel.AddCallConditionUi(targetCall.Id, UiCallConditionType.Active) |> ignore
+    let condId = api.Panel.GetCallConditionsForPanelUi(targetCall.Id).[0].ConditionId
     let added = api.Panel.AddApiCallsToConditionBatch(targetCall.Id, condId, [| sourceApiCallId |])
     Assert.Equal(1, added)
 
-    let condApiCallId = api.Panel.GetCallConditionsForPanel(targetCall.Id).[0].Items.[0].ApiCallId
+    let condApiCallId = api.Panel.GetCallConditionsForPanelUi(targetCall.Id).[0].Items.[0].ApiCallId
     let updated = api.Panel.UpdateConditionApiCallOutputSpec(targetCall.Id, condId, condApiCallId, "42")
     Assert.True(updated)
-    Assert.Equal("42", api.Panel.GetCallConditionsForPanel(targetCall.Id).[0].Items.[0].OutputSpecText)
+    Assert.Equal("42", api.Panel.GetCallConditionsForPanelUi(targetCall.Id).[0].Items.[0].OutputSpecText)
 
     api.Undo()
-    Assert.Equal("Undefined", api.Panel.GetCallConditionsForPanel(targetCall.Id).[0].Items.[0].OutputSpecText)
+    Assert.Equal("Undefined", api.Panel.GetCallConditionsForPanelUi(targetCall.Id).[0].Items.[0].OutputSpecText)
 
 [<Fact>]
 let ``GetAllApiCallsForPanel returns ApiCalls across all Calls`` () =
@@ -1667,15 +1666,15 @@ let ``AddApiCallsToConditionBatch adds multiple ApiCalls as single Undo unit`` (
     let srcId1 = (api.Panel.AddApiCallFromPanel(srcCall.Id, apiDef.Id, "AC1", "", "", "", "")).Value
     let srcId2 = (api.Panel.AddApiCallFromPanel(srcCall.Id, apiDef.Id, "AC2", "", "", "", "")).Value
 
-    api.Panel.AddCallCondition(condCall.Id, CallConditionType.Active) |> ignore
-    let condId = api.Panel.GetCallConditionsForPanel(condCall.Id).[0].ConditionId
+    api.Panel.AddCallConditionUi(condCall.Id, UiCallConditionType.Active) |> ignore
+    let condId = api.Panel.GetCallConditionsForPanelUi(condCall.Id).[0].ConditionId
 
     let added = api.Panel.AddApiCallsToConditionBatch(condCall.Id, condId, [| srcId1; srcId2 |])
     Assert.Equal(2, added)
-    Assert.Equal(2, api.Panel.GetCallConditionsForPanel(condCall.Id).[0].Items.Length)
+    Assert.Equal(2, api.Panel.GetCallConditionsForPanelUi(condCall.Id).[0].Items.Length)
 
     api.Undo()  // 단일 Undo로 2개 모두 제거
-    Assert.Equal(0, api.Panel.GetCallConditionsForPanel(condCall.Id).[0].Items.Length)
+    Assert.Equal(0, api.Panel.GetCallConditionsForPanelUi(condCall.Id).[0].Items.Length)
 
 // =============================================================================
 // RemoveEntities — 다중 선택 삭제 회귀 테스트
@@ -1687,7 +1686,7 @@ let ``RemoveEntities with two connected Works should not crash`` () =
     let store, api, _, _, flow = setupProjectSystemFlow()
     let w1 = addWork store api "W1" flow.Id
     let w2 = addWork store api "W2" flow.Id
-    api.Arrows.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([w1.Id; w2.Id], UiArrowType.Start) |> ignore
 
     let selections = seq { (EntityTypeNames.Work, w1.Id); (EntityTypeNames.Work, w2.Id) }
     api.Nodes.RemoveEntities(selections)
@@ -1703,7 +1702,7 @@ let ``RemoveEntities with two connected Calls should not crash`` () =
     let w1 = addWork store api "W1" flow.Id
     let c1 = addCall store api w1.Id "Dev" "C1" [||]
     let c2 = addCall store api w1.Id "Dev" "C2" [||]
-    api.Arrows.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([c1.Id; c2.Id], UiArrowType.Start) |> ignore
 
     let selections = seq { (EntityTypeNames.Call, c1.Id); (EntityTypeNames.Call, c2.Id) }
     api.Nodes.RemoveEntities(selections)
@@ -1719,7 +1718,7 @@ let ``RemoveEntities Work with its own Call selected should not double-remove Ca
     let w1 = addWork store api "W1" flow.Id
     let c1 = addCall store api w1.Id "Dev" "C1" [||]
     let c2 = addCall store api w1.Id "Dev" "C2" [||]
-    api.Arrows.ConnectSelectionInOrder([c1.Id; c2.Id], ArrowType.Start) |> ignore
+    api.Arrows.ConnectSelectionInOrderUi([c1.Id; c2.Id], UiArrowType.Start) |> ignore
 
     let selections = seq { (EntityTypeNames.Work, w1.Id); (EntityTypeNames.Call, c1.Id) }
     api.Nodes.RemoveEntities(selections)
