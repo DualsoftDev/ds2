@@ -11,27 +11,9 @@ public partial class MainViewModel
 {
     private bool TryGetWorksForSystem(Guid systemId, out List<WorkDropdownItem> works) =>
         TryEditorFunc(
-            "GetWorksForSystem",
-            () => _editor.Panel.GetWorksForSystem(systemId).ToList(),
+            () => _store.GetWorksForSystem(systemId).ToList(),
             out works,
             fallback: []);
-
-    private bool TryUpdateApiDefProperties(Guid apiDefId, ApiDefEditDialog dialog) =>
-        TryEditorAction(
-            "UpdateApiDefProperties",
-            () => _editor.Panel.UpdateApiDefProperties(
-                apiDefId,
-                dialog.IsPush,
-                dialog.TxWorkId,
-                dialog.RxWorkId,
-                dialog.Duration,
-                dialog.Description));
-
-    private bool TryRenameApiDefIfNeeded(Guid apiDefId, string currentName, string nextName) =>
-        nextName == currentName ||
-        TryEditorAction(
-            "RenameEntity",
-            () => _editor.Nodes.RenameEntity(apiDefId, EntityTypes.ApiDef, nextName));
 
     [RelayCommand]
     private void AddSystemApiDef()
@@ -44,17 +26,10 @@ public partial class MainViewModel
         var dialog = new ApiDefEditDialog(works);
         if (!ShowOwnedDialog(dialog)) return;
 
-        if (!TryEditorFunc(
-                "AddApiDefAndGetId",
-                () => _editor.Nodes.AddApiDefAndGetId(dialog.ApiDefName, systemNode.Id),
-                out var newApiDefId,
-                fallback: Guid.Empty))
-            return;
-
-        if (newApiDefId == Guid.Empty)
-            return;
-
-        if (!TryUpdateApiDefProperties(newApiDefId, dialog))
+        if (!TryEditorAction(
+                () => _store.AddApiDefWithProperties(
+                    dialog.ApiDefName, systemNode.Id, dialog.IsPush,
+                    dialog.TxWorkId, dialog.RxWorkId, dialog.Period, dialog.Description)))
             return;
 
         RefreshSystemPanel(systemNode.Id);
@@ -72,10 +47,10 @@ public partial class MainViewModel
         var dialog = new ApiDefEditDialog(works, item);
         if (!ShowOwnedDialog(dialog)) return;
 
-        if (!TryRenameApiDefIfNeeded(item.Id, item.Name, dialog.ApiDefName))
-            return;
-
-        if (!TryUpdateApiDefProperties(item.Id, dialog))
+        if (!TryEditorAction(
+                () => _store.UpdateApiDef(
+                    item.Id, dialog.ApiDefName, dialog.IsPush,
+                    dialog.TxWorkId, dialog.RxWorkId, dialog.Period, dialog.Description)))
             return;
 
         RefreshSystemPanel(systemNode.Id);
@@ -88,8 +63,7 @@ public partial class MainViewModel
         if (item is null || !TryGetSelectedNode(EntityTypes.System, out var systemNode)) return;
 
         if (!TryEditorAction(
-                "RemoveEntities",
-                () => _editor.Nodes.RemoveEntities(new[] { Tuple.Create(EntityTypes.ApiDef, item.Id) })))
+                () => _store.RemoveEntities(new[] { Tuple.Create(EntityTypes.ApiDef, item.Id) })))
             return;
 
         RefreshSystemPanel(systemNode.Id);
@@ -99,8 +73,7 @@ public partial class MainViewModel
     private void RefreshSystemPanel(Guid systemId)
     {
         if (!TryEditorRef(
-                "GetApiDefsForSystem",
-                () => _editor.Panel.GetApiDefsForSystem(systemId),
+                () => _store.GetApiDefsForSystem(systemId),
                 out var items))
             return;
 
@@ -111,23 +84,16 @@ public partial class MainViewModel
 
     public void EditApiDefNode(Guid apiDefId)
     {
-        if (!TryEditorRef(
-                "GetApiDefParentSystemId",
-                () => _editor.Panel.GetApiDefParentSystemId(apiDefId),
-                out var systemIdOpt))
-            return;
-
-        var systemId = systemIdOpt.Value;
-
         if (!TryEditorFunc(
-                "GetApiDefsForSystem",
-                () => _editor.Panel.GetApiDefsForSystem(systemId).FirstOrDefault(x => x.Id == apiDefId),
-                out ApiDefPanelItem? existing,
+                () => _store.TryGetApiDefForEdit(apiDefId),
+                out var editInfo,
                 fallback: null))
             return;
 
-        if (existing is null)
+        if (editInfo is not { } info)
             return;
+
+        var (systemId, existing) = info.Value;
 
         if (!TryGetWorksForSystem(systemId, out var works))
             return;
@@ -135,10 +101,10 @@ public partial class MainViewModel
         var dialog = new ApiDefEditDialog(works, existing);
         if (!ShowOwnedDialog(dialog)) return;
 
-        if (!TryRenameApiDefIfNeeded(apiDefId, existing.Name, dialog.ApiDefName))
-            return;
-
-        if (!TryUpdateApiDefProperties(apiDefId, dialog))
+        if (!TryEditorAction(
+                () => _store.UpdateApiDef(
+                    apiDefId, dialog.ApiDefName, dialog.IsPush,
+                    dialog.TxWorkId, dialog.RxWorkId, dialog.Period, dialog.Description)))
             return;
 
         if (IsSystemSelected && SelectedNode?.Id == systemId)

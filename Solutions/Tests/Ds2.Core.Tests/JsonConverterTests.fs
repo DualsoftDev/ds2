@@ -291,7 +291,7 @@ module JsonRoundTripTests =
         work.Properties.ExternalStart <- true
         work.Properties.IsFinished <- false
         work.Properties.NumRepeat <- 3
-        work.Properties.Duration <- Some(TimeSpan.FromMilliseconds(2500.0))
+        work.Properties.Period <- Some(TimeSpan.FromMilliseconds(2500.0))
         work.Status4 <- Status4.Going
         work.Position <- Some(Xywh(101, 102, 103, 104))
         work.Id <- workId
@@ -361,7 +361,7 @@ module JsonRoundTripTests =
         Assert.Equal(work.Properties.ExternalStart, workRt.Properties.ExternalStart)
         Assert.Equal(work.Properties.IsFinished, workRt.Properties.IsFinished)
         Assert.Equal(work.Properties.NumRepeat, workRt.Properties.NumRepeat)
-        Assert.Equal(work.Properties.Duration, workRt.Properties.Duration)
+        Assert.Equal(work.Properties.Period, workRt.Properties.Period)
         Assert.Equal(work.Status4, workRt.Status4)
         assertXywhEqual work.Position workRt.Position
 

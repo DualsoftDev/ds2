@@ -3,8 +3,7 @@ namespace Ds2.UI.Core
 open System.Collections.Generic
 
 // =============================================================================
-// UndoRedoManager — 스택 관리 (STRUCTURE.md 6)
-// 실행은 하지 않음. EditorApi가 CommandExecutor를 호출.
+// UndoRedoManager — UndoTransaction 기반 증분 Undo/Redo 스택 관리
 // =============================================================================
 
 type UndoRedoManager(maxSize: int) =
@@ -12,61 +11,32 @@ type UndoRedoManager(maxSize: int) =
         if maxSize < 1 then
             invalidArg "maxSize" "maxSize must be greater than 0."
 
-    let undoList = LinkedList<EditorCommand>()
-    let redoList = LinkedList<EditorCommand>()
+    let undoStack = LinkedList<UndoTransaction>()
+    let redoStack = LinkedList<UndoTransaction>()
 
-    let pushFront (list: LinkedList<EditorCommand>) (cmd: EditorCommand) =
-        list.AddFirst(cmd) |> ignore
-
-    member _.UndoCount = undoList.Count
-    member _.RedoCount = redoList.Count
-    member _.UndoLabels = undoList |> Seq.map CommandLabel.ofCommand |> Seq.toList
-    member _.RedoLabels = redoList |> Seq.map CommandLabel.ofCommand |> Seq.toList
-
-    member _.Push(cmd: EditorCommand) =
-        pushFront undoList cmd
-        redoList.Clear()
-        if undoList.Count > maxSize then
-            undoList.RemoveLast()
-
-    member _.PopUndo() : EditorCommand option =
-        match undoList.First with
+    let popFirst (stack: LinkedList<UndoTransaction>) =
+        match stack.First with
         | null -> None
         | first ->
-            let cmd = first.Value
-            undoList.RemoveFirst()
-            pushFront redoList cmd
-            Some cmd
+            let tx = first.Value
+            stack.RemoveFirst()
+            Some tx
 
-    member _.PopRedo() : EditorCommand option =
-        match redoList.First with
-        | null -> None
-        | first ->
-            let cmd = first.Value
-            redoList.RemoveFirst()
-            pushFront undoList cmd
-            Some cmd
+    member _.UndoLabels = undoStack |> Seq.map (fun t -> t.Label) |> Seq.toList
+    member _.RedoLabels = redoStack |> Seq.map (fun t -> t.Label) |> Seq.toList
 
-    member _.RestoreAfterFailedUndo(cmd: EditorCommand) =
-        match redoList.First with
-        | null -> ()
-        | first when first.Value = cmd ->
-            redoList.RemoveFirst()
-            pushFront undoList cmd
-        | _ ->
-            if redoList.Remove(cmd) then
-                pushFront undoList cmd
+    member _.Push(tx: UndoTransaction) =
+        undoStack.AddFirst(tx) |> ignore
+        redoStack.Clear()
+        if undoStack.Count > maxSize then
+            undoStack.RemoveLast()
 
-    member _.RestoreAfterFailedRedo(cmd: EditorCommand) =
-        match undoList.First with
-        | null -> ()
-        | first when first.Value = cmd ->
-            undoList.RemoveFirst()
-            pushFront redoList cmd
-        | _ ->
-            if undoList.Remove(cmd) then
-                pushFront redoList cmd
+    member _.PopUndo() = popFirst undoStack
+    member _.PopRedo() = popFirst redoStack
+
+    member _.PushUndo(tx: UndoTransaction) = undoStack.AddFirst(tx) |> ignore
+    member _.PushRedo(tx: UndoTransaction) = redoStack.AddFirst(tx) |> ignore
 
     member _.Clear() =
-        undoList.Clear()
-        redoList.Clear()
+        undoStack.Clear()
+        redoStack.Clear()

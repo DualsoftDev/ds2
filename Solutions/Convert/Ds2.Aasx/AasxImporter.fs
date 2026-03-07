@@ -53,13 +53,13 @@ let private parseStatus4 (s: string) : Status4 =
 
 // ── 변환 계층 ──────────────────────────────────────────────────────────────
 
-let private smcToArrowCall (smc: SubmodelElementCollection) (workId: Guid) : ArrowBetweenCalls option =
+let private smcToArrowCall (smc: SubmodelElementCollection) (flowId: Guid) : ArrowBetweenCalls option =
     try
         let id        = getProp smc Guid_   |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
         let sourceId  = getProp smc Source_ |> Option.map Guid.Parse |> Option.defaultValue Guid.Empty
         let targetId  = getProp smc Target_ |> Option.map Guid.Parse |> Option.defaultValue Guid.Empty
         let arrowType = getProp smc Type_   |> Option.map parseArrowType |> Option.defaultValue ArrowType.None
-        let arrow = ArrowBetweenCalls(workId, sourceId, targetId, arrowType)
+        let arrow = ArrowBetweenCalls(flowId, sourceId, targetId, arrowType)
         arrow.Id <- id
         Some arrow
     with ex -> log.Warn($"smcToArrowCall 실패: {ex.Message}", ex); None
@@ -103,7 +103,7 @@ let private smcToWork
         getProp smc Status_ |> Option.iter (fun s -> work.Status4 <- parseStatus4 s)
 
         let calls      = getChildSmlSmcs smc Calls_  |> List.choose (fun c -> smcToCall c work.Id)
-        let arrowCalls = getChildSmlSmcs smc Arrows_ |> List.choose (fun a -> smcToArrowCall a work.Id)
+        let arrowCalls = getChildSmlSmcs smc Arrows_ |> List.choose (fun a -> smcToArrowCall a work.ParentId)
         Some (work, calls, arrowCalls)
     with ex -> log.Warn($"smcToWork 실패: {ex.Message}", ex); None
 
@@ -170,27 +170,32 @@ let private populateStore
     (project: Project)
     (isActive: bool)
     (systemResults: (DsSystem * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) list) =
-    for (system, flows, works, calls, arrowCalls, arrowWorks, apiDefs) in systemResults do
-        StoreWrite.system store system
-        if isActive then project.ActiveSystemIds.Add(system.Id)
-        else             project.PassiveSystemIds.Add(system.Id)
-        for flow    in flows      do StoreWrite.flow store flow
-        for work    in works      do StoreWrite.work store work
-        for call    in calls      do
-            StoreWrite.call store call
-            for apiCall in call.ApiCalls do
-                StoreWrite.apiCall store apiCall
-            for condition in call.CallConditions do
-                for apiCall in condition.Conditions do
-                    if not (store.ApiCalls.ContainsKey(apiCall.Id)) then
-                        StoreWrite.apiCall store apiCall
-        for arrow   in arrowCalls do StoreWrite.arrowCall store arrow
-        for arrow   in arrowWorks do StoreWrite.arrowWork store arrow
-        for apiDef  in apiDefs    do StoreWrite.apiDef store apiDef
+    systemResults
+    |> List.iter (fun (system, flows, works, calls, arrowCalls, arrowWorks, apiDefs) ->
+        store.DirectWrite(store.Systems, system)
+        if isActive then 
+            project.ActiveSystemIds.Add(system.Id) |> ignore
+        else
+            project.PassiveSystemIds.Add(system.Id) |> ignore
+
+        flows |> List.iter (fun f -> store.DirectWrite(store.Flows, f))
+        works |> List.iter (fun w -> store.DirectWrite(store.Works, w))
+        calls |> List.iter (fun call ->
+            store.DirectWrite(store.Calls, call)
+            call.ApiCalls |> Seq.iter (fun apiCall -> store.DirectWrite(store.ApiCalls, apiCall))
+            call.CallConditions
+            |> Seq.iter (fun cond ->
+                cond.Conditions
+                |> Seq.filter (fun apiCall -> not (store.ApiCalls.ContainsKey(apiCall.Id)))
+                |> Seq.iter (fun apiCall -> store.DirectWrite(store.ApiCalls, apiCall))))
+        arrowCalls |> List.iter (fun a -> store.DirectWrite(store.ArrowCalls, a))
+        arrowWorks |> List.iter (fun a -> store.DirectWrite(store.ArrowWorks, a))
+        apiDefs    |> List.iter (fun d -> store.DirectWrite(store.ApiDefs, d)))
 
 let private submodelToProjectStore (sm: ISubmodel) : (Project * DsStore) option =
     try
-        if sm = null || sm.SubmodelElements = null || sm.SubmodelElements.Count = 0 then None
+        if sm = null || sm.SubmodelElements = null || sm.SubmodelElements.Count = 0 then 
+            None
         else
             sm.SubmodelElements
             |> Seq.tryPick (function
@@ -209,7 +214,7 @@ let private submodelToProjectStore (sm: ISubmodel) : (Project * DsStore) option 
                         else fromNew
 
                     let store = DsStore()
-                    StoreWrite.project store project
+                    store.DirectWrite(store.Projects, project)
                     populateStore store project true  activeSystems
                     populateStore store project false passiveSystems
                     Some (project, store)
@@ -236,9 +241,9 @@ let internal importFromAasxFile (path: string) : DsStore option =
                 log.Warn($"AASX 파싱 실패: '{SubmodelIdShort}' Submodel을 찾을 수 없습니다 ({path})")
             result)
 
-let importIntoEditor (editor: EditorApi) (path: string) : bool =
+let importIntoStore (store: DsStore) (path: string) : bool =
     match importFromAasxFile path with
-    | Some store ->
-        editor.ReplaceStore(store)
+    | Some imported ->
+        store.ReplaceStore(imported)
         true
     | None -> false

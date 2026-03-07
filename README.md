@@ -1,14 +1,14 @@
 # Promaker
 
-Last Sync: 2026-03-03 (디렉토리 구조 재편 — Solutions/Core/Convert/Backend/Tests + Apps/Promaker 분리, Promaker 네임스페이스 교체)
+Last Sync: 2026-03-08 (보일러플레이트 제거 + string→typed 바인딩 전환)
 
 ## 프로젝트 목표
 
 Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeunce control editor**를 구현 중입니다.
 
 - **편집 코어(F#) 분리**: 추가/삭제/이동/연결/복사/붙여넣기의 로직을 F# 레이어에 집중시켜 UI 기술이 바뀌어도 재사용 가능
-- **사용자 제스처 단위 Undo/Redo**: 복잡한 다중 동작도 Composite 1건으로 기록해 Undo 1회 = 1 제스처를 보장
-- **레이어 경계 강제**: C#(WPF)는 wiring·binding·rendering만, 편집 상태 변경은 반드시 F# `EditorApi` 경유
+- **증분 UndoRecord 기반 Undo/Redo**: 변경된 엔티티만 클로저 기반 UndoRecord로 추적, Undo 1회 = 1 사용자 제스처 보장
+- **레이어 경계 강제**: C#(WPF)는 wiring·binding·rendering만, 편집 상태 변경은 반드시 F# `DsStore` 확장 메서드 경유
 
 ---
 
@@ -27,28 +27,27 @@ Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeunce 
 ║  │          역할: wiring / binding / rendering 만 담당                     │  ║
 ║  │          금지: 직접 Store 수정, 자체 Undo 스택, 비즈니스 로직            │  ║
 ║  └────────────────────────┬───────────────────────────────────────────────┘  ║
-║                           │ 편집: EditorApi.Xxx(...)   ▲ EditorEvent         ║
-║           ┌───────────────┘ 조회: Query/Projection + DsStore                 ║
+║                           │ 편집: store.Xxx(...)       ▲ EditorEvent         ║
+║           ┌───────────────┘ 조회: store.Query/Projection                     ║
 ║           │                                           │ (StoreRefreshed 등)  ║
 ║           │               ┌───────────────────────────┘                      ║
 ║           ▼               ▼                                                  ║
 ║  ┌──────────────── Ds2.UI.Core  (F#) ─────────────────────────────────────┐  ║
 ║  │                                                                        │  ║
-║  │  Store:  DsStore  DsQuery.*  Mutation.*  ValidationRules               │  ║
+║  │  Core:  DsStore (컬렉션 + Undo/Redo + 이벤트 + File I/O)              │  ║
+║  │         DsQuery.*  ValidationRules                                     │  ║
 ║  │                                                                        │  ║
-║  │  EditorApi  ──►  CommandExecutor  ──►  UndoRedoManager                 │  ║
-║  │  (진입점)         (execute / undo         (undo/redo 스택)              │  ║
-║  │                   DU 패턴 매칭)                                         │  ║
-║  │       │                                                                │  ║
-║  │       ├── Editing:   RemoveOps  ArrowOps  DeviceOps                    │  ║
-║  │       │              PasteOps  PanelOps  (Ops: 순수 명령 조립, exec 없음) │  ║
-║  │       │              QueryApi  NodeApi  ArrowApi  PanelApi              │  ║
-║  │       │              (Api: ExecFn 주입 + Ops 호출 + 실행, C# 노출)       │  ║
-║  │       │                                                                │  ║
-║  │       ├── Projection: TreeProjection  CanvasProjection                 │  ║
-║  │       │               (Store → 트리/캔버스 뷰 데이터)                   │  ║
-║  │       │                                                                │  ║
-║  │       └── Queries:   EntityHierarchy  Selection  Connection            │  ║
+║  │  Extensions ([<Extension>] C# 확장 메서드):                             │  ║
+║  │       DsStore.Queries  — 읽기 전용 쿼리/프로젝션 위임                  │  ║
+║  │       DsStore.Nodes    — 엔티티 CRUD/이동/삭제 + WithTransaction       │  ║
+║  │       DsStore.Arrows   — 화살표 연결/제거/재연결                        │  ║
+║  │       DsStore.Panel    — 속성 패널 읽기/쓰기                            │  ║
+║  │       DsStore.Paste    — 복사/붙여넣기                                  │  ║
+║  │                                                                        │  ║
+║  │  Projection: TreeProjection  CanvasProjection                          │  ║
+║  │              (Store → 트리/캔버스 뷰 데이터)                            │  ║
+║  │                                                                        │  ║
+║  │  Queries:   EntityHierarchy  Selection  Connection  AddTarget          │  ║
 ║  │                                                                        │  ║
 ║  └────────────────────────┬───────────────────────────────────────────────┘  ║
 ║                           │ entity 타입 참조                                  ║
@@ -78,14 +77,15 @@ Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeunce 
 Promaker  →  Ds2.UI.Core  →  Ds2.Core
      (C#, WPF)        (F#)            (F#)
          │                ▲
-         └──►  Ds2.Aasx ──┘ (+ Ds2.UI.Core 참조)
-                (F#)
+         ├──►  Ds2.Aasx ──┘ (+ Ds2.UI.Core 참조)
+         │      (F#)
+         └──►  Ds2.Core (도메인 타입 직접 참조: ValueSpec 등)
 ```
 
 상위 레이어는 하위 레이어만 의존합니다.
 `Ds2.Aasx`는 `Promaker`에서 직접 참조되며 `Ds2.UI.Core → Ds2.Aasx` 순환 의존은 없습니다.
-`Promaker`는 `Ds2.Core`를 직접 참조하지 않습니다 — `FailIfDs2CoreReferenced` MSBuild 타겟과 `DisableTransitiveProjectReferences`로 컴파일 타임에 차단.
-C#용 공유 타입(`UiArrowType`, `UiCallConditionType` 등)은 `Ds2.UI.Core/Core/EditorTypes.fs`에서 정의됩니다.
+`Promaker`는 `Ds2.Core`를 직접 참조합니다 — 도메인 타입(`ValueSpec` 등)을 C#에서 직접 사용하기 위함.
+C#용 공유 타입(`UiArrowType`, `UiCallConditionType` 등)은 `Ds2.UI.Core/Core/Types.fs`에서 정의됩니다.
 
 ---
 
@@ -126,22 +126,22 @@ Solutions/
   Ds2.sln
   Core/
     Ds2.Core/              # 순수 도메인 타입 (Entities, Properties, Enum, ValueSpec, JsonConverter)
-    Ds2.UI.Core/           # 편집 코어(F#) — 24개 모듈 (DsStore/Query/Mutation 포함)
+    Ds2.UI.Core/           # 편집 코어(F#) — 21개 모듈 (DsStore + Extensions + Projection + Queries)
   Convert/
     Ds2.Aasx/              # AASX I/O(F#) — 4개 모듈 (AasCore.Aas3_0 v1.0.0 기반 AASX 양방향 변환)
   Backend/
     Ds2.Database/          # 데이터 계층
   Tests/
     Ds2.Core.Tests/        # Core 단위 테스트 (24개)
-    Ds2.UI.Core.Tests/     # UI.Core 단위 테스트 (126개)
-    Ds2.Integration.Tests/ # 통합 테스트 (13개)
+    Ds2.UI.Core.Tests/     # UI.Core 단위 테스트 (49개: DsStore 39 + ViewProjection 10)
+    Ds2.Integration.Tests/ # 통합 테스트 (14개)
 
 Apps/Promaker/
   Promaker.sln
   Promaker/                # WPF UI(C#) — 어셈블리명 Promaker, namespace Promaker.*
 ```
 
-테스트 합계: **163개** (24 + 126 + 13)
+테스트 합계: **87개** (24 + 49 + 14)
 
 ---
 
@@ -164,25 +164,12 @@ Apps/Promaker/
 | `AbstractClass.fs` | `DsEntity` 추상 베이스 타입, `DeepCopyHelper` (backupEntityAs&lt;'T&gt; / jsonCloneEntity) |
 | `Entities.fs` | Project · DsSystem · Flow · Work · Call · ApiDef · ApiCall · HW 엔티티 정의 |
 | `Properties.fs` | WorkProperties · CallProperties · ApiDefProperties 등 속성 모델 |
-| `Enum.fs` | `Status4`, `CallType` 도메인 열거형 (`ArrowType`/`CallConditionType`은 Ds2.Core.Contracts로 이전) |
-| `Class.fs` | `IOTag` 등 값 타입 클래스 (`Xywh`는 Ds2.Core.Contracts로 이전) |
+| `Enum.fs` | `Status4`, `CallType`, `ArrowType`, `CallConditionType` 도메인 열거형 |
+| `Class.fs` | `IOTag`, `Xywh` 등 값 타입 클래스 |
 | `ValueSpec.fs` | `ValueSpec` DU (None / Bool / Int / Float / String / Range 등) |
 | `JsonConverter.fs` | `System.Text.Json` 기반 직렬화 옵션 및 커스텀 컨버터 |
 
 ---
-
-### Ds2.Core.Contracts — C# 공유 타입 격리 (F#)
-
-`Ds2.Core`와 `Promaker`가 공통으로 사용하는 단순 타입을 격리한 독립 프로젝트. 외부 참조 없음.
-
-| 파일 | 역할 |
-|------|------|
-| `Enum.fs` | `ArrowType` (None/Start/Reset/StartReset/ResetReset/Group), `CallConditionType` (Active/Auto/Common) |
-| `Class.fs` | `Xywh(x,y,w,h)` — 위치/크기 값 객체 |
-
-- **`Ds2.Core`가 참조**: 도메인 코드에서 `ArrowType`, `Xywh` 등 재사용
-- **`Promaker`가 직접 참조**: `Ds2.Core` 없이도 C#에서 공유 타입에 접근 (F# 런타임 타입 노출 방지)
-- **`Ds2.Aasx`는 전이 참조**: `Ds2.Core → Ds2.Core.Contracts` 경로로 사용
 
 ---
 
@@ -192,36 +179,28 @@ Apps/Promaker/
 
 | # | 파일 | 역할 |
 |---|------|------|
-| 1 | `Core/DsStore.fs` | `DsStore` 타입 (13개 컬렉션 + ReadOnly 뷰), `StoreCopy.replaceAllCollections`, `StoreWrite` 모듈 (컬렉션 인덱서 대입 허용 구역 중앙화 — `AasxImporter` 전용) |
-| 2 | `Core/DsQuery.fs` | `DsQuery.*` — 엔티티 조회 쿼리 (`getXxx`, `allXxxs`, `xxxsOf`) |
-| 3 | `Core/Mutation.fs` | `Mutation.*` — 엔티티 추가/수정/삭제 (특수: removeSystem, removeCall, removeApiCall) |
-| 4 | `Core/EditorTypes.fs` | `EditorCommand` DU, `CommandLabel.ofCommand`(전 케이스 → 한국어 레이블), `EditorEvent` DU(`HistoryChanged` 포함), `EntityKind` DU, `CallCopyContext` DU, `EntityNameAccess`. `ExecFn`/`BatchExecFn` 타입 alias — 서브-API 생성자 주입용 |
-| 5 | `Core/ValidationRules.fs` | 이름 · 주소 · 값 검증 규칙 (`ProjectValidation`, `OneToOneValidation` 등) |
-| 6 | `Commands/CommandExecutor.fs` | `EditorCommand` DU 패턴 매칭 → `DsStore` Mutation 실행, `requireMutationOk`로 에러 보장 |
-| 7 | `Commands/UndoRedoManager.fs` | `LinkedList` 기반 undo/redo 스택 관리, maxSize O(1) trim. `UndoLabels`/`RedoLabels` 프로퍼티로 레이블 목록 노출 |
-| 8 | `Geometry/ArrowPathCalculator.fs` | Work/Call 캔버스 화살표 polyline 경로 계산 (직교 꺾임) |
-| 9 | `Projection/ViewTypes.fs` | `TreeNodeInfo` · `CanvasNodeInfo` · `SelectionKey` 등 뷰 전용 레코드 |
+| 1 | `Core/Types.fs` | `EditorEvent` DU (`HistoryChanged` 포함), `EntityKind` DU, `EntityTypeNames`, `UiDefaults`, `UiArrowType`/`UiCallConditionType` + ofCore/toCore, `UiMoveEntityRequest`, `MoveEntityRequest`, `CallCopyContext` DU |
+| 2 | `Core/UndoRecord.fs` | `UndoRecord` (`Undo`/`Redo` 클로저 + `Description`), `UndoTransaction` (`Label` + `Records` 리스트) |
+| 3 | `Commands/UndoRedoManager.fs` | 비제네릭 `UndoRedoManager(maxSize)` — `LinkedList<UndoTransaction>` 기반 undo/redo 스택 관리, maxSize O(1) trim. `UndoLabels`/`RedoLabels` 프로퍼티로 레이블 목록 노출 |
+| 4 | `Core/DsStore.fs` | `DsStore` 타입 (13개 Dictionary 컬렉션 + ReadOnly 뷰 + 증분 Undo/Redo + 이벤트 발행 + File I/O). `WithTransaction(label, action)` — 증분 UndoRecord 기반 트랜잭션. `TrackAdd`/`TrackRemove`/`TrackMutate`/`TrackGuidSetAdd`/`TrackGuidSetRemove` — dict 조작 + UndoRecord 기록을 하나로 묶는 Track 헬퍼. `RewireApiCallReferences` — Undo/Redo 후 Call↔ApiCall 참조 재연결. `DirectWrite` — 비 Undo 직접 쓰기 (AASX 임포트용). `Undo`/`Redo`/`UndoTo`/`RedoTo`. `LoadFromFile`/`SaveToFile`/`ReplaceStore` |
+| 4 | `Core/DsQuery.fs` | `DsQuery.*` — 엔티티 조회 쿼리 (`getXxx`, `allXxxs`, `xxxsOf`) |
+| 5 | `Core/EntityNameAccess.fs` | `EntityNameAccess` — 엔티티 종류별 이름/ID 접근 헬퍼 |
+| 6 | `Core/ValidationRules.fs` | 이름 · 주소 · 값 검증 규칙 (`ProjectValidation`, `OneToOneValidation` 등) |
+| 7 | `Geometry/ArrowPathCalculator.fs` | Work/Call 캔버스 화살표 polyline 경로 계산 (직교 꺾임) |
+| 8 | `Projection/ViewTypes.fs` | `TreeNodeInfo` · `CanvasNodeInfo` · `SelectionKey` · `DeviceApiDefOption` · `CallApiCallPanelItem` · `CallConditionPanelItem` 등 뷰/패널 전용 레코드 |
+| 9 | `Projection/PropertyPanelValueSpec.fs` | `PropertyPanelValueSpec` — ValueSpec 타입 인덱스 ↔ DU 변환, 텍스트 파싱 (`specFromTypeIndex`, `tryParseAs`) |
 | 10 | `Projection/TreeProjection.fs` | `DsStore` → 트리 데이터 변환 (`buildTrees`: 컨트롤 트리 + 디바이스 트리) |
 | 11 | `Projection/CanvasProjection.fs` | `DsStore` → 캔버스 콘텐츠 변환 (노드 위치, 화살표 포인트) |
-| 12 | `Queries/EntityHierarchyQueries.fs` | 계층 역탐색 (stepCallToWork / stepWorkToFlow / stepFlowToSystem), `parentIdOf` — Call/Work/Flow 부모 ID store 직접 조회 (C# 복사 유효성 검사용), 탭 정보 해석, ApiDef 검색 |
+| 12 | `Queries/EntityHierarchyQueries.fs` | 계층 역탐색 (stepCallToWork / stepWorkToFlow / stepFlowToSystem), `parentIdOf`, 탭 정보 해석, ApiDef 검색 |
 | 13 | `Queries/AddTargetQueries.fs` | Add System/Flow 대상 해석 |
 | 14 | `Queries/SelectionQueries.fs` | 캔버스 선택 정렬/범위 선택/Ctrl+Shift 다중 선택 해석 |
 | 15 | `Queries/ConnectionQueries.fs` | 화살표 연결 가능 대상 Flow 해석, 선택 순서 연결 |
-| 16 | `Editing/EditorApi.CascadeHelpers.fs` | 캐스케이드 삭제용 저수준 유틸리티 (Arrow 수집, 하위 ID 수집) |
-| | **[Ops 층]** | `*Ops.fs` — `store` + 파라미터 → `EditorCommand` 조립만. `exec` 의존성 없음, 사이드 이펙트 없음 → 단독 테스트 가능 |
-| 17 | `Editing/EditorApi.RemoveOps.fs` | `buildRemoveXxxCmd` — 엔티티별 삭제 명령 조립 (Composite 포함). `buildRemoveEntitiesCmds` — 다중 선택 일괄 삭제 |
-| 18 | `Editing/EditorApi.ArrowOps.fs` | 화살표 Add/Remove 명령 조립, ReconnectArrow |
-| 19 | `Editing/EditorApi.DeviceOps.fs` | `AddCallsWithDevice` — Passive System(`{flowName}_{devAlias}` 이름)/ApiDef 자동 생성 후 Call 일괄 추가. `buildAddCallWithLinkedApiDefsCmd` — 단일 Call + 연결 ApiDef ApiCall Composite 빌드 |
-| 20 | `Editing/EditorApi.PasteResolvers.fs` | 복사 가능 타입 판정, 붙여넣기 대상(System/Flow/Work) 해석 |
-| 21 | `Editing/EditorApi.PasteOps.fs` | 붙여넣기 명령 조립, `CallCopyContext` 기반 ApiCall 공유/복제 분기. DifferentFlow 시 `DevicePasteState`로 Device System 복제/재사용. `dispatchPaste` — 엔티티 타입별 붙여넣기 라우팅 진입점 |
-| 22 | `Editing/EditorApi.PropertyPanel.fs` | 속성 패널 전용 타입: `DeviceApiDefOption`, `CallApiCallPanelItem`, `CallConditionApiCallItem`, `CallConditionPanelItem`, `PropertyPanelValueSpec` |
-| 23 | `Editing/EditorApi.PanelOps.fs` | 패널 데이터 조회(`getWorkDurationText`, `getCallTimeoutText`, `getCallApiCallsForPanel`, `getAllApiCallsForPanel`, `getCallConditionsForPanel` 등) 및 ApiCall/CallCondition 커맨드 빌더(`buildAddApiCallsToConditionBatchCmd`, `buildUpdateApiDefPropertiesCmd`, `buildRemoveApiCallFromCallCmd` 포함) |
-| | **[Api 층]** | `*Api.fs` — 생성자로 `ExecFn`/`BatchExecFn` 주입받아 Ops 호출 + 실행까지 담당. C#(`EditorApi` 멤버)으로 노출. **Ops/Api 분리 이유**: `exec` 의존성을 Api 층에서만 보유 → Ops를 순수 함수로 유지(단독 테스트 가능, 책임 경계 명확화) |
-| 24 | `Editing/EditorApi.QueryApi.fs` | **서브-API: 읽기 전용 쿼리** — `EditorQueryApi(store)`. BuildTrees, CanvasContentForTab, TryOpenTabForEntity, FlowIdsForTab, TabExists, TabTitle, TryFindProjectIdForEntity, GetEntityParentId, FindApiDefsByName, TryResolveAddSystemTarget, TryResolveAddFlowTarget, GetFlowArrowPaths |
-| 25 | `Editing/EditorApi.NodeApi.fs` | **서브-API: 노드 CRUD** — `EditorNodeApi(store, exec, batchExec)`. AddProjectAndGetId, AddSystemAndGetId, AddFlowAndGetId, AddWorkAndGetId, AddCallsWithDevice, AddCallWithLinkedApiDefsAndGetId, AddApiDefAndGetId, MoveEntities, RemoveEntities, RenameEntity, PasteEntities |
-| 26 | `Editing/EditorApi.ArrowApi.fs` | **서브-API: 화살표 연산** — `EditorArrowApi(store, exec, batchExec)`. RemoveArrows, ReconnectArrow, ConnectSelectionInOrder |
-| 27 | `Editing/EditorApi.PanelApi.fs` | **서브-API: 속성 패널** — `EditorPanelApi(store, exec, execOpt, applyTryBuild)`. UpdateApiDefProperties, RemoveApiCallFromCall, GetWorkDurationText, TryUpdateWorkDuration, GetCallTimeoutText, TryUpdateCallTimeout, GetApiDefsForSystem, GetWorksForSystem, GetApiDefParentSystemId, GetDeviceApiDefOptionsForCall, GetCallApiCallsForPanel, GetAllApiCallsForPanel, AddApiCallFromPanel, UpdateApiCallFromPanel, GetCallConditionsForPanel, AddCallCondition, RemoveCallCondition, UpdateCallConditionSettings, AddApiCallsToConditionBatch, RemoveApiCallFromCondition, UpdateConditionApiCallOutputSpec |
-| 28 | `Editing/EditorApi.fs` | **외부 진입점** — `EditorApi(store)`. 서브-API 4개 노출(`Query`/`Nodes`/`Arrows`/`Panel`). `Undo`, `Redo`, `UndoTo(steps)`, `RedoTo(steps)`, `LoadFromFile`(백업+롤백), `ReplaceStore`(외부 I/O 경로용 store 전체 교체). 내부 헬퍼: `RunUndoRedoStep`, `RunBatchedSteps`, `ApplyNewStore`. ref 지연 바인딩(`execRef`/`batchExecRef`/`execOptRef`/`applyTryRef`) + `do` 블록 wire. `suppressEvents` 플래그로 배치 이벤트 폭증 방지. `ExecuteCommand` private, `Exec`/`ExecBatch` internal |
+| | **[Extensions — `[<Extension>]` C# 확장 메서드]** | DsStore의 모든 편집/조회 메서드를 정의. C#에서 `store.Xxx(...)` 형태로 호출. 내부에서 `store.WithTransaction` + Track 헬퍼로 증분 변경 추적 |
+| 16 | `Extensions/DsStore.Paste.fs` | 복사/붙여넣기 — `PasteEntities`, `IsCopyableEntityType`, `EntityTypeForTabKind`. 내부: `PasteResolvers` (대상 해석), `DirectPasteOps` (`CallCopyContext` 기반 ApiCall 공유/복제, `DevicePasteState`로 Device System 복제/재사용) |
+| 17 | `Extensions/DsStore.Queries.fs` | 읽기 전용 쿼리 래퍼 — `BuildTrees`, `CanvasContentForTabUi`, `TryOpenTabForEntity`, `FindApiDefsByName`, `ParseValueSpec`, `OrderCanvasSelectionKeys`, `ApplyNodeSelection` 등. Projection/Queries 모듈에 위임 |
+| 18 | `Extensions/DsStore.Nodes.fs` | 엔티티 CRUD/이동/삭제 — `AddProject`/`AddSystem`/`AddFlow`/`AddWork`/`AddApiDef`/`AddCallsWithDevice`/`AddCallWithLinkedApiDefs`, `MoveEntitiesUi`, `RemoveEntities`, `RenameEntity`. 내부: `CascadeRemove`, `DirectDeviceOps` |
+| 19 | `Extensions/DsStore.Arrows.fs` | 화살표 연산 — `RemoveArrows`, `ReconnectArrow`, `ConnectSelectionInOrderUi`. 내부: `DirectArrowOps` |
+| 20 | `Extensions/DsStore.Panel.fs` | 속성 패널 읽기/쓰기 — PeriodMs/TimeoutMs 조회·수정, ApiDef CRUD, ApiCall CRUD, CallCondition CRUD, OutputSpec 수정. 내부: `DirectPanelOps` |
 
 ---
 
@@ -244,7 +223,7 @@ Apps/Promaker/
 | `log4net.config` | log4net 설정 파일 (RollingFile + DebugAppender). 빌드 시 출력 폴더로 복사 (`PreserveNewest`) |
 | `EntityTypes.cs` | Entity type 문자열 상수 (`"Work"`, `"Call"` 등) + `Is` / `IsWorkOrCall` / `IsCanvasOpenable` 헬퍼 |
 | `MainWindow.xaml` | 메인 화면 레이아웃 (트리 패널 / 캔버스 탭 / 속성 패널) |
-| `MainWindow.xaml.cs` | 트리·탭·메뉴 이벤트 wiring, `EditorApi` 호출 진입 |
+| `MainWindow.xaml.cs` | 트리·탭·메뉴 이벤트 wiring, `DsStore` 확장 메서드 호출 진입 |
 | `Themes/Theme.Dark.xaml` | 다크 테마 리소스 딕셔너리 (브러시, 컨트롤 스타일) |
 | `Converters/Converters.cs` | WPF 바인딩 컨버터 |
 | `Controls/EditorCanvas.xaml` | 캔버스 UI 템플릿 |
@@ -258,14 +237,14 @@ Apps/Promaker/
 | `Controls/ConditionSectionControl.xaml` | CallCondition 섹션(Active/Auto/Common) 공통 UserControl UI |
 | `Controls/ConditionSectionControl.xaml.cs` | `ConditionSectionControl` 코드 (Header, AddToolTip, Conditions 바인딩) |
 | `ViewModels/MainViewModel.cs` | 핵심 필드/컬렉션/프로퍼티, 생성자, NewProject/Undo/Redo, Reset, UpdateTitle |
-| `ViewModels/MainViewModel.EditorGuards.cs` | `TryEditorAction` / `TryEditorFunc` / `TryEditorRef` — EditorApi 호출 공통 예외 처리 가드. `TryMoveEntitiesFromCanvas`, `TryReconnectArrowFromCanvas`, `TryConnectNodesFromCanvas` Canvas 공용 메서드 |
+| `ViewModels/MainViewModel.EditorGuards.cs` | `TryEditorAction` / `TryEditorFunc` / `TryEditorRef` — DsStore 확장 메서드 호출 공통 예외 처리 가드. `TryMoveEntitiesFromCanvas`, `TryReconnectArrowFromCanvas`, `TryConnectNodesFromCanvas` Canvas 공용 메서드 |
 | `ViewModels/MainViewModel.History.cs` | `HistoryPanelItem` 타입 + `JumpToHistory` + `RebuildHistoryItems` |
 | `ViewModels/MainViewModel.Events.cs` | `WireEvents` + `HandleEvent` + `ApplyEntityRename` + `ActionObserver<T>` |
 | `ViewModels/MainViewModel.NodeCommands.cs` | AddProject/System/Flow/Work/Call, Delete, Rename, Copy(혼합 타입/부모 금지 경고), Paste(System 대상 경고) + 타겟 결정 헬퍼 |
 | `ViewModels/MainViewModel.FileIO.cs` | JSON Open/Save + AASX 임포트(`ImportAasxCommand`) / 익스포트(`ExportAasxCommand`) |
 | `ViewModels/MainViewModel.Selection.cs` | 트리·캔버스 선택 동기화 |
 | `ViewModels/MainViewModel.CanvasTabs.cs` | 탭 상태, `RebuildAll` (트리+캔버스 전체 재구성), `OnActiveTabChanged` (탭 전환 시 노드/화살표 선택 자동 해제 포함) |
-| `ViewModels/MainViewModel.PropertiesPanel.cs` | 속성 패널 공용 Collections/Properties + ApplyWorkDuration + RefreshPropertyPanel + RequireSelectedAs + ShowOwnedDialog |
+| `ViewModels/MainViewModel.PropertiesPanel.cs` | 속성 패널 공용 Collections/Properties + ApplyWorkPeriod + RefreshPropertyPanel + RequireSelectedAs + ShowOwnedDialog |
 | `ViewModels/MainViewModel.CallPanel.cs` | Call 속성 패널 — ApplyCallTimeout, ApiCall CRUD 5개, CallCondition CRUD 7개, RefreshCallPanel, ReloadConditions, 섹션 헬퍼 |
 | `ViewModels/MainViewModel.SystemPanel.cs` | System 속성 패널 — ApiDef CRUD 3개, RefreshSystemPanel, EditApiDefNode |
 | `ViewModels/MainViewModel.PropertyPanelItems.cs` | 속성 패널 보조 뷰모델 타입: `CallApiCallItem`, `DeviceApiDefOptionItem`, `CallConditionItem`, `ConditionApiCallRow`, `ConditionSectionItem` |
@@ -289,10 +268,10 @@ Apps/Promaker/
 |------|------|
 | `Ds2.Core.Tests/Tests.fs` | Core 엔티티·DeepCopy·ValueSpec 단위 테스트 (24개) |
 | `Ds2.Core.Tests/JsonConverterTests.fs` | JSON 직렬화 라운드트립 테스트 |
-| `Ds2.UI.Core.Tests/EditorApiTests.fs` | EditorApi CRUD·Undo/Redo·캐스케이드 테스트 |
-| `Ds2.UI.Core.Tests/ViewProjectionTests.fs` | Tree/Canvas Projection·Selection·Query 테스트 |
+| `Ds2.UI.Core.Tests/DsStoreTests.fs` | DsStore CRUD·Undo/Redo·캐스케이드·복사붙여넣기·패널 테스트 (39개) |
+| `Ds2.UI.Core.Tests/ViewProjectionTests.fs` | Tree/Canvas Projection·Selection·Query 테스트 (10개) |
 | `Ds2.UI.Core.Tests/TestHelpers.fs` | 테스트 헬퍼 |
-| `Ds2.Integration.Tests/Tests.fs` | 통합 시나리오 테스트 (13개) |
+| `Ds2.Integration.Tests/Tests.fs` | 통합 시나리오 테스트 (14개) |
 
 ---
 
@@ -302,23 +281,18 @@ Apps/Promaker/
 사용자 입력 (키보드 / 마우스 / 메뉴)
     │
     ▼  C# — EditorCanvas / MainViewModel
-    │  편집 입력 해석 → EditorApi.Xxx() 호출
-    │  조회/탭/투영 계산은 Query/Projection + DsStore 사용
+    │  편집 입력 해석 → store.Xxx(...) 호출
+    │  조회/탭/투영 계산은 store.BuildTrees() / store.CanvasContentForTabUi() 등
     │
-    ▼  F# — EditorApi.fs
-    │  EditorCommand 조립 (Single or Composite)
-    │  → this.Exec(cmd)
+    ▼  F# — DsStore Extensions ([<Extension>] 메서드)
+    │  store.WithTransaction(label, fun () -> Track 헬퍼로 증분 변경)
+    │  → TrackAdd/TrackRemove/TrackMutate가 UndoRecord 기록
+    │  → 실패 시 기록된 UndoRecord를 역순 실행하여 자동 복원 + reraise
     │
-    ▼  F# — CommandExecutor.execute(cmd, store)
-    │  DU 패턴 매칭 → DsStore Mutation 실행
+    ▼  F# — UndoRedoManager(100)
+    │  undoStack.AddFirst(UndoTransaction) / redoStack.Clear
     │
-    ▼  F# — ValidationHelpers.ensureValidStoreOrThrow
-    │  검증 실패 시: undo() → StoreRefreshed + HistoryChanged 발행 → 예외
-    │
-    ▼  F# — UndoRedoManager
-    │  undoList.AddFirst / redoList.Clear
-    │
-    ▼  F# — EditorApi: EditorEvent 발행
+    ▼  F# — DsStore: EditorEvent 발행
     │  StoreRefreshed       → UI 전체 재구성
     │  HistoryChanged       → History 패널 갱신 + Undo/Redo 버튼 상태 갱신
     │  SelectionChanged     → 속성 패널 갱신
@@ -327,33 +301,16 @@ Apps/Promaker/
        RebuildAll → WPF 바인딩 갱신 → 화면 반영
 ```
 
-### EditorCommand — 명령 조립과 DU 패턴 선택 이유
+### 증분 UndoRecord 기반 Undo 설계
 
-**명령 조립(Command Assembly)**이란 `EditorCommand` DU 케이스를 **값으로 생성하여 반환하는 것**입니다. `exec` 호출 없이 데이터 구조만 만듭니다.
+변경된 엔티티만 클로저 기반 `UndoRecord`로 추적합니다. Undo 시 기록된 클로저를 역순 실행하여 복원합니다.
 
-- **Single 명령**: `AddWork work`, `RemoveWork work`, `MoveEntities [(id, xywh)]` 등 원자 연산 1건
-- **Composite 명령**: `Composite(label, EditorCommand list)` — 원자 명령 N건을 하나의 Undo 단위로 묶음. `EditorCommand list`를 재귀적으로 담는 DU 케이스로 중첩 트리를 자연스럽게 표현
+- **Track 헬퍼**: `TrackAdd`/`TrackRemove`/`TrackMutate`/`TrackGuidSetAdd`/`TrackGuidSetRemove` — Dictionary 조작 + UndoRecord 기록을 하나로 묶어 Record 누락 방지
+- **WithTransaction**: 여러 Track 호출을 하나의 `UndoTransaction`으로 묶음. 실패 시 기록된 UndoRecord를 역순 Undo로 자동 롤백
+- **RewireApiCallReferences**: Undo/Redo 후 Call↔ApiCall 공유 참조 재연결 (deep copy로 인스턴스 불일치 해소)
+- **제약**: 외부에서 `store.GetProject(id).Name <- "new"` 직접 필드 수정 시 Undo 추적 불가. 변경은 반드시 `store.메서드()` 경유
 
-Ops 함수(`buildRemoveWorkCmd` 등)는 이 값을 조립해 반환하고, Api 층이 받아서 `exec(cmd)`를 호출합니다.
-
-**DU vs 클래스 Command 패턴 비교**
-
-| 항목 | **현재 DU** | **클래스 `ICommand`** |
-|------|------------|----------------------|
-| 케이스 누락 감지 | 컴파일 타임 완전성 체크 → 누락 시 빌드 실패 | 런타임에만 발견 |
-| Composite | `Composite(label, EditorCommand list)` — 재귀 DU로 자연 표현 | 별도 `CompositeCommand` 클래스 + 재귀 실행/Undo 로직 필요 |
-| execute / undo | `CommandExecutor` 한 파일에서 패턴 매칭으로 쌍 집중 처리 | 각 클래스마다 `Undo()` 구현 → 분산, 누락 위험 |
-| 테스트 | `assert cmd = Composite(...)` 값 비교로 충분 | Mock/stub 없이 비교 불가 |
-| 레이블 | `CommandLabel.ofCommand` 한 곳 집중 → 누락 시 컴파일 에러 | 각 클래스 분산 → 누락 감지 불가 |
-| 케이스 분기 비용 | 컴파일러 최적화 switch/jump → O(1) | vtable virtual dispatch → 간접 호출 오버헤드 |
-| 힙 할당 | DU 케이스 단일 객체, 불변 → GC 수집 용이 | 각 Command 인스턴스 별도 할당, 장수명 가능 |
-| Composite 실행 | 단형성 순회 → CPU 캐시 친화적 | virtual dispatch × N → 캐시 미스 가능 |
-
-`Composite` 재귀 구조가 결정적입니다. 클래스 기반이었다면 `CompositeCommand` 클래스, 재귀 실행 로직, 각 클래스별 Undo 구현이 분산됩니다.
-
-> **실질적 영향**: 이 프로젝트의 명령 실행 빈도는 사용자 입력 연동(초당 수 번 이하)이므로 성능 차이가 UX에 영향을 주지 않습니다. 타입 안전성과 구조적 이점(Composite 재귀, execute/undo 집중, 컴파일 타임 완전성)이 선택의 결정 요소입니다.
-
-> 상세 내용: [`RUNTIME.md` — 1.2절](RUNTIME.md)
+> 상세 내용: [`RUNTIME.md`](RUNTIME.md)
 
 ---
 
@@ -394,8 +351,8 @@ log4net.config 파일이 없으면 로깅 없이 앱이 정상 실행됩니다.
 | Unhandled EditorEvent | WARN | `Unhandled event: {타입명}` |
 | `SaveToFile` 성공 | INFO | `저장 완료: {path}` |
 | `SaveToFile` 실패 | ERROR | 예외 포함 (재throw) |
-| `ExecuteCommand` 성공 | INFO | `Executed: {명령 레이블}` |
-| `ExecuteCommand` 실패 | ERROR | `Command failed: {label} — {msg}` + 예외 |
+| `WithTransaction` 성공 | DEBUG | `Executed: {label}` |
+| `WithTransaction` 실패 | ERROR | `Transaction failed: {label} — {msg}` + 예외 |
 | Undo/Redo 성공 | DEBUG | `Undo: {명령 레이블}` / `Redo: …` |
 | Undo/Redo 실패 | ERROR | 예외 포함 |
 | `ApplyNewStore` 성공 | INFO | `Store applied: {context}` |
@@ -406,7 +363,7 @@ log4net.config 파일이 없으면 로깅 없이 앱이 정상 실행됩니다.
 
 | 프로젝트 | 로거 선언 방식 |
 |---------|-------------|
-| `Ds2.UI.Core` (F#) | `LogManager.GetLogger(typedefof<EditorApi>)` |
+| `Ds2.UI.Core` (F#) | `LogManager.GetLogger(typedefof<DsStore>)` |
 | `Ds2.Aasx` (F#) | `LogManager.GetLogger("Ds2.Aasx.AasxFileIO")` / `LogManager.GetLogger("Ds2.Aasx.AasxImporter")` |
 | `Promaker` (C#) | `LogManager.GetLogger(typeof(App))` / `typeof(MainViewModel)` |
 

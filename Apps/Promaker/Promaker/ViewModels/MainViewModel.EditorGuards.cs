@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using Ds2.UI.Core;
 using Promaker.Dialogs;
 using Microsoft.FSharp.Core;
@@ -9,6 +10,25 @@ namespace Promaker.ViewModels;
 
 public partial class MainViewModel
 {
+    private static string ExtractMethodName(LambdaExpression expression)
+    {
+        var body = expression.Body;
+        while (body is MethodCallExpression call)
+        {
+            if (call.Object is { Type: var t } && t == typeof(DsStore))
+                return call.Method.Name;
+            if (call.Arguments.Count > 0 && call.Arguments[0].Type == typeof(DsStore))
+                return call.Method.Name;
+            if (call.Object is MethodCallExpression inner)
+                body = inner;
+            else if (call.Arguments.Count > 0 && call.Arguments[0] is MethodCallExpression argInner)
+                body = argInner;
+            else
+                break;
+        }
+        return "Unknown";
+    }
+
     private void HandleUiOperationException(
         string operation,
         Exception ex,
@@ -23,14 +43,14 @@ public partial class MainViewModel
     }
 
     private bool TryEditorAction(
-        string operation,
-        Action action,
+        Expression<Action> expression,
         string? statusOverride = null,
         bool warnDialog = false)
     {
+        var operation = ExtractMethodName(expression);
         try
         {
-            action();
+            expression.Compile()();
             return true;
         }
         catch (Exception ex)
@@ -41,16 +61,16 @@ public partial class MainViewModel
     }
 
     private bool TryEditorFunc<T>(
-        string operation,
-        Func<T> action,
+        Expression<Func<T>> expression,
         out T result,
         T fallback = default!,
         string? statusOverride = null,
         bool warnDialog = false)
     {
+        var operation = ExtractMethodName(expression);
         try
         {
-            result = action();
+            result = expression.Compile()();
             return true;
         }
         catch (Exception ex)
@@ -62,37 +82,37 @@ public partial class MainViewModel
     }
 
     private bool TryEditorRef<T>(
-        string operation,
-        Func<T> action,
+        Expression<Func<T>> expression,
         [NotNullWhen(true)] out T? result,
         string? statusOverride = null,
         bool warnDialog = false)
         where T : class
     {
-        if (!TryEditorFunc(
-                operation,
-                action,
-                out T raw,
-                fallback: null!,
-                statusOverride: statusOverride,
-                warnDialog: warnDialog))
+        var operation = ExtractMethodName(expression);
+        try
+        {
+            var raw = expression.Compile()();
+            if (raw is null)
+            {
+                result = null;
+                return false;
+            }
+            result = raw;
+            return true;
+        }
+        catch (Exception ex)
         {
             result = null;
+            HandleUiOperationException(operation, ex, statusOverride, warnDialog);
             return false;
         }
-
-        if (raw is null)
-        {
-            result = null;
-            return false;
-        }
-
-        result = raw;
-        return true;
     }
 
-    private static bool HasOptionValue<T>(FSharpOption<T>? option) =>
-        option is not null && FSharpOption<T>.get_IsSome(option);
+    private static FSharpOption<T>? ToOption<T>(T? value) where T : struct =>
+        value.HasValue ? FSharpOption<T>.Some(value.Value) : null;
+
+    private static FSharpOption<T>? ToOption<T>(T? value) where T : class =>
+        value is not null ? FSharpOption<T>.Some(value) : null;
 
     private bool TryGetSelectedNode(string entityType, [NotNullWhen(true)] out EntityNode? node)
     {
@@ -101,14 +121,13 @@ public partial class MainViewModel
     }
 
     public bool TryMoveEntitiesFromCanvas(IReadOnlyList<UiMoveEntityRequest> requests) =>
-        TryEditorAction("MoveEntitiesUi", () => _editor.Nodes.MoveEntitiesUi(requests),
+        TryEditorAction(() => _store.MoveEntitiesUi(requests),
             statusOverride: "[ERROR] Failed to move selected nodes.");
 
     public bool TryReconnectArrowFromCanvas(Guid arrowId, bool replaceSource, Guid newEndpointId)
     {
         if (!TryEditorFunc(
-                "ReconnectArrow",
-                () => _editor.Arrows.ReconnectArrow(arrowId, replaceSource, newEndpointId),
+                () => _store.ReconnectArrow(arrowId, replaceSource, newEndpointId),
                 out bool changed,
                 fallback: false,
                 statusOverride: "[ERROR] Failed to reconnect arrow."))
@@ -120,8 +139,7 @@ public partial class MainViewModel
     public bool TryConnectNodesFromCanvas(Guid sourceId, Guid targetId, UiArrowType arrowType)
     {
         if (!TryEditorFunc(
-                "ConnectSelectionInOrderUi",
-                () => _editor.Arrows.ConnectSelectionInOrderUi([sourceId, targetId], arrowType),
+                () => _store.ConnectSelectionInOrderUi(new Guid[] { sourceId, targetId }, arrowType),
                 out int createdCount,
                 fallback: 0,
                 statusOverride: "[ERROR] Failed to connect selected nodes."))

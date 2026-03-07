@@ -54,8 +54,13 @@ let private arrowCallToSmc (arrow: ArrowBetweenCalls) : ISubmodelElement =
     ]
 
 let private workToSmc (store: DsStore) (work: Work) : ISubmodelElement =
-    let calls  = DsQuery.callsOf work.Id store      |> List.map callToSmc
-    let arrows = DsQuery.arrowCallsOf work.Id store |> List.map arrowCallToSmc
+    let rawCalls = DsQuery.callsOf work.Id store
+    let calls    = rawCalls |> List.map callToSmc
+    let callIds  = rawCalls |> List.map (fun c -> c.Id) |> Set.ofList
+    let arrows   =
+        DsQuery.arrowCallsOf work.ParentId store
+        |> List.filter (fun a -> callIds.Contains a.SourceId && callIds.Contains a.TargetId)
+        |> List.map arrowCallToSmc
     mkSmc "Work" [
         mkProp     Name_       work.Name
         mkProp     Guid_       (work.Id.ToString())
@@ -179,5 +184,5 @@ let internal tryExportFirstProjectToAasxFile (store: DsStore) (outputPath: strin
         exportToAasxFile store project outputPath
         true
 
-let exportFromEditor (editor: EditorApi) (path: string) : bool =
-    tryExportFirstProjectToAasxFile editor.Store path
+let exportFromStore (store: DsStore) (path: string) : bool =
+    tryExportFirstProjectToAasxFile store path

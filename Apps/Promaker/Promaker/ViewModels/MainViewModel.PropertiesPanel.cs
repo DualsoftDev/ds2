@@ -22,25 +22,25 @@ public partial class MainViewModel
     [ObservableProperty] private bool _isWorkSelected;
     [ObservableProperty] private bool _isCallSelected;
     [ObservableProperty] private bool _isSystemSelected;
-    [ObservableProperty] private string _workDurationText = string.Empty;
-    [ObservableProperty] private string _callTimeoutText = string.Empty;
+    [ObservableProperty] private int? _workPeriodMs;
+    [ObservableProperty] private int? _callTimeoutMs;
     [ObservableProperty] private CallApiCallItem? _selectedCallApiCall;
     [ObservableProperty] private string _nameEditorText = string.Empty;
     [ObservableProperty] private bool _isNameDirty;
-    [ObservableProperty] private bool _isWorkDurationDirty;
+    [ObservableProperty] private bool _isWorkPeriodDirty;
     [ObservableProperty] private bool _isCallTimeoutDirty;
 
-    private string _originalWorkDurationText = string.Empty;
-    private string _originalCallTimeoutText = string.Empty;
+    private int? _originalWorkPeriodMs;
+    private int? _originalCallTimeoutMs;
 
     partial void OnNameEditorTextChanged(string value) =>
         IsNameDirty = !string.Equals(value.Trim(), SelectedNode?.Name ?? string.Empty, StringComparison.Ordinal);
 
-    partial void OnWorkDurationTextChanged(string value) =>
-        IsWorkDurationDirty = value != _originalWorkDurationText;
+    partial void OnWorkPeriodMsChanged(int? value) =>
+        IsWorkPeriodDirty = value != _originalWorkPeriodMs;
 
-    partial void OnCallTimeoutTextChanged(string value) =>
-        IsCallTimeoutDirty = value != _originalCallTimeoutText;
+    partial void OnCallTimeoutMsChanged(int? value) =>
+        IsCallTimeoutDirty = value != _originalCallTimeoutMs;
 
     partial void OnSelectedNodeChanged(EntityNode? value) => RefreshPropertyPanel();
 
@@ -52,26 +52,17 @@ public partial class MainViewModel
     }
 
     [RelayCommand]
-    private void ApplyWorkDuration()
+    private void ApplyWorkPeriod()
     {
         if (RequireSelectedAs(EntityTypes.Work) is not { } selectedWork) return;
 
-        if (!TryEditorFunc(
-                "TryUpdateWorkDuration",
-                () => _editor.Panel.TryUpdateWorkDuration(selectedWork.Id, WorkDurationText),
-                out var updated,
-                fallback: false))
+        if (!TryEditorAction(
+                () => _store.UpdateWorkPeriodMs(selectedWork.Id, ToOption(WorkPeriodMs))))
             return;
 
-        if (!updated)
-        {
-            StatusText = "Invalid duration. Use hh:mm:ss or leave empty.";
-            return;
-        }
-
-        _originalWorkDurationText = WorkDurationText;
-        IsWorkDurationDirty = false;
-        StatusText = "Work duration updated.";
+        _originalWorkPeriodMs = WorkPeriodMs;
+        IsWorkPeriodDirty = false;
+        StatusText = "Work period updated.";
     }
 
     private void RefreshPropertyPanel()
@@ -84,37 +75,39 @@ public partial class MainViewModel
 
         if (IsWorkSelected && selected is not null)
         {
-            if (!TryEditorFunc(
-                    "GetWorkDurationText",
-                    () => _editor.Panel.GetWorkDurationText(selected.Id),
-                    out _originalWorkDurationText,
-                    fallback: string.Empty))
-                _originalWorkDurationText = string.Empty;
+            if (TryEditorFunc(
+                    () => _store.GetWorkPeriodMs(selected.Id),
+                    out var periodOpt,
+                    fallback: null))
+                _originalWorkPeriodMs = periodOpt?.Value;
+            else
+                _originalWorkPeriodMs = null;
 
-            WorkDurationText = _originalWorkDurationText;
+            WorkPeriodMs = _originalWorkPeriodMs;
         }
         else
         {
-            _originalWorkDurationText = string.Empty;
-            WorkDurationText = string.Empty;
+            _originalWorkPeriodMs = null;
+            WorkPeriodMs = null;
         }
 
         if (IsCallSelected && selected is not null)
         {
-            if (!TryEditorFunc(
-                    "GetCallTimeoutText",
-                    () => _editor.Panel.GetCallTimeoutText(selected.Id),
-                    out _originalCallTimeoutText,
-                    fallback: string.Empty))
-                _originalCallTimeoutText = string.Empty;
+            if (TryEditorFunc(
+                    () => _store.GetCallTimeoutMs(selected.Id),
+                    out var timeoutOpt,
+                    fallback: null))
+                _originalCallTimeoutMs = timeoutOpt?.Value;
+            else
+                _originalCallTimeoutMs = null;
 
-            CallTimeoutText = _originalCallTimeoutText;
+            CallTimeoutMs = _originalCallTimeoutMs;
             RefreshCallPanel(selected.Id);
         }
         else
         {
-            _originalCallTimeoutText = string.Empty;
-            CallTimeoutText = string.Empty;
+            _originalCallTimeoutMs = null;
+            CallTimeoutMs = null;
             CallApiCalls.Clear();
             DeviceApiDefOptions.Clear();
             SelectedCallApiCall = null;

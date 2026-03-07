@@ -13,7 +13,7 @@ public partial class MainViewModel : ObservableObject
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(MainViewModel));
 
-    private EditorApi _editor;
+    private DsStore _store;
     private readonly Dispatcher _dispatcher;
     private IDisposable? _eventSubscription;
     private string? _currentFilePath;
@@ -26,7 +26,7 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel()
     {
         _dispatcher = Dispatcher.CurrentDispatcher;
-        _editor = new EditorApi(maxUndoSize: 100);
+        _store = new DsStore();
         InitializePropertyPanelState();
         WireEvents();
     }
@@ -52,17 +52,15 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private int _currentHistoryIndex;
     [ObservableProperty] private ArrowNode? _selectedArrow;
 
-    public EditorApi Editor => _editor;
-
     [RelayCommand] private void NewProject() => Reset();
     [RelayCommand(CanExecute = nameof(CanUndo))]
-    private void Undo() => TryEditorAction("Undo", () => _editor.Undo());
+    private void Undo() => TryEditorAction(() => _store.Undo());
     [RelayCommand(CanExecute = nameof(CanRedo))]
-    private void Redo() => TryEditorAction("Redo", () => _editor.Redo());
+    private void Redo() => TryEditorAction(() => _store.Redo());
 
     private void Reset()
     {
-        _editor = new EditorApi(maxUndoSize: 100);
+        _store = new DsStore();
         WireEvents();
 
         _currentFilePath = null;

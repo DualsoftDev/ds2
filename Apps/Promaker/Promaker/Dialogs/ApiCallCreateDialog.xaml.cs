@@ -36,23 +36,31 @@ public partial class ApiCallCreateDialog : Window
     public string ApiCallName => ApiCallNameTextBox.Text.Trim();
     public string OutputAddress => OutputAddressTextBox.Text.Trim();
     public string InputAddress => InputAddressTextBox.Text.Trim();
-    public string ValueSpecText => OutValueSpecTextBox.Text.Trim();
-    public string InValueSpecText => InValueSpecTextBox.Text.Trim();
+    public string OutSpecText => OutValueSpecTextBox.Text.Trim();
+    public int OutTypeIndex { get; private set; }
+    public string InSpecText => InValueSpecTextBox.Text.Trim();
+    public int InTypeIndex { get; private set; }
 
     private void EditOutValueSpec_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new ValueSpecDialog(OutValueSpecTextBox.Text, "Out Spec 편집");
+        var dialog = new ValueSpecDialog(OutValueSpecTextBox.Text, OutTypeIndex, "Out Spec 편집");
         dialog.Owner = this;
         if (dialog.ShowDialog() == true)
+        {
             OutValueSpecTextBox.Text = dialog.ValueSpecText;
+            OutTypeIndex = dialog.TypeIndex;
+        }
     }
 
     private void EditInValueSpec_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new ValueSpecDialog(InValueSpecTextBox.Text, "In Spec 편집");
+        var dialog = new ValueSpecDialog(InValueSpecTextBox.Text, InTypeIndex, "In Spec 편집");
         dialog.Owner = this;
         if (dialog.ShowDialog() == true)
+        {
             InValueSpecTextBox.Text = dialog.ValueSpecText;
+            InTypeIndex = dialog.TypeIndex;
+        }
     }
 
     private void Add_Click(object sender, RoutedEventArgs e)

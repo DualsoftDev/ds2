@@ -3,12 +3,12 @@ module Ds2.UI.Core.TreeProjection
 open System
 open Ds2.Core
 
-let private leafNodes entityType parentId (items: 'a list) getId getName =
+let inline private namedLeafNodes entityType parentId items =
     items
     |> List.map (fun item ->
-        { Id = getId item
+        { Id = (^a: (member Id: Guid) item)
           EntityType = entityType
-          Name = getName item
+          Name = (^a: (member Name: string) item)
           ParentId = Some parentId
           Children = [] })
 
@@ -77,11 +77,11 @@ let private buildSystemChildren (store: DsStore) (systemId: Guid) =
               Children = works })
 
     let hwAndApi = [
-        yield! leafNodes EntityTypeNames.ApiDef systemId (DsQuery.apiDefsOf systemId store) (fun a -> a.Id) (fun a -> a.Name)
-        yield! leafNodes EntityTypeNames.Button systemId (DsQuery.buttonsOf systemId store) (fun b -> b.Id) (fun b -> b.Name)
-        yield! leafNodes EntityTypeNames.Lamp systemId (DsQuery.lampsOf systemId store) (fun l -> l.Id) (fun l -> l.Name)
-        yield! leafNodes EntityTypeNames.Condition systemId (DsQuery.conditionsOf systemId store) (fun c -> c.Id) (fun c -> c.Name)
-        yield! leafNodes EntityTypeNames.Action systemId (DsQuery.actionsOf systemId store) (fun a -> a.Id) (fun a -> a.Name)
+        yield! namedLeafNodes EntityTypeNames.ApiDef    systemId (DsQuery.apiDefsOf    systemId store)
+        yield! namedLeafNodes EntityTypeNames.Button    systemId (DsQuery.buttonsOf    systemId store)
+        yield! namedLeafNodes EntityTypeNames.Lamp      systemId (DsQuery.lampsOf      systemId store)
+        yield! namedLeafNodes EntityTypeNames.Condition systemId (DsQuery.conditionsOf systemId store)
+        yield! namedLeafNodes EntityTypeNames.Action    systemId (DsQuery.actionsOf    systemId store)
     ]
 
     flows @ hwAndApi

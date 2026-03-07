@@ -64,11 +64,6 @@ public partial class CallCreateDialog : Window
         }
     }
 
-    private void OnCountPreviewTextInput(object sender, TextCompositionEventArgs e)
-    {
-        e.Handled = !int.TryParse(e.Text, out _);
-    }
-
     private void OnApiNameFilterChanged(object sender, TextChangedEventArgs e)
     {
         RefreshApiDefList();

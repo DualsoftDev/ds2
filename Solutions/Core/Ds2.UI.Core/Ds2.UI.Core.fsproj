@@ -7,34 +7,26 @@
 
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
-    <Compile Include="Core\DsStore.fs" />
-    <Compile Include="Core\DsQuery.fs" />
-    <Compile Include="Core\Mutation.fs" />
-    <Compile Include="Core\EditorTypes.fs" />
-    <Compile Include="Core\ValidationRules.fs" />
-    <Compile Include="Commands\CommandExecutor.fs" />
+    <Compile Include="Core\Types.fs" />
     <Compile Include="Commands\UndoRedoManager.fs" />
+    <Compile Include="Store\DsStore.fs" />
+    <Compile Include="Core\DsQuery.fs" />
+    <Compile Include="Core\ValidationRules.fs" />
     <Compile Include="Geometry\ArrowPathCalculator.fs" />
     <Compile Include="Projection\ViewTypes.fs" />
+    <Compile Include="Projection\PropertyPanelValueSpec.fs" />
     <Compile Include="Projection\TreeProjection.fs" />
     <Compile Include="Projection\CanvasProjection.fs" />
     <Compile Include="Queries\EntityHierarchyQueries.fs" />
     <Compile Include="Queries\AddTargetQueries.fs" />
     <Compile Include="Queries\SelectionQueries.fs" />
     <Compile Include="Queries\ConnectionQueries.fs" />
-    <Compile Include="Editing\EditorApi.CascadeHelpers.fs" />
-    <Compile Include="Editing\EditorApi.RemoveOps.fs" />
-    <Compile Include="Editing\EditorApi.ArrowOps.fs" />
-    <Compile Include="Editing\EditorApi.DeviceOps.fs" />
-    <Compile Include="Editing\EditorApi.PasteResolvers.fs" />
-    <Compile Include="Editing\EditorApi.PasteOps.fs" />
-    <Compile Include="Editing\EditorApi.PropertyPanel.fs" />
-    <Compile Include="Editing\EditorApi.PanelOps.fs" />
-    <Compile Include="Editing\EditorApi.QueryApi.fs" />
-    <Compile Include="Editing\EditorApi.NodeApi.fs" />
-    <Compile Include="Editing\EditorApi.ArrowApi.fs" />
-    <Compile Include="Editing\EditorApi.PanelApi.fs" />
-    <Compile Include="Editing\EditorApi.fs" />
+    <Compile Include="Store\DsStore.Log.fs" />
+    <Compile Include="Store\DsStore.Paste.fs" />
+    <Compile Include="Store\DsStore.Queries.fs" />
+    <Compile Include="Store\DsStore.Nodes.fs" />
+    <Compile Include="Store\DsStore.Arrows.fs" />
+    <Compile Include="Store\DsStore.Panel.fs" />
   </ItemGroup>
 
   <ItemGroup>
