@@ -69,8 +69,7 @@
                             <ComboBoxItem Content="USER입력" Tag="USER"/>
                         </ComboBox>
                         <TextBox Grid.Row="1" Grid.Column="4" x:Name="DeviceCountTextBox"
-                                 Padding="6,4" Text="1" TextAlignment="Center"
-                                 PreviewTextInput="OnCountPreviewTextInput"/>
+                                 Padding="6,4" Text="1" TextAlignment="Center"/>
                     </Grid>
 
                     <!-- ApiName -->

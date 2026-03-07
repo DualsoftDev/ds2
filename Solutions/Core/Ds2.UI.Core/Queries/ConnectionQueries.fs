@@ -40,18 +40,6 @@ let private resolveOrderedNodeContext (store: DsStore) (nodeId: Guid) : (string 
             |> Option.map (fun work -> (EntityTypeNames.Call, work.ParentId, call.Id))
         | None -> None
 
-let private hasArrowWork (store: DsStore) (sourceId: Guid) (targetId: Guid) =
-    DsQuery.allArrowWorks store
-    |> List.exists (fun arrow ->
-        arrow.SourceId = sourceId
-        && arrow.TargetId = targetId)
-
-let private hasArrowCall (store: DsStore) (flowId: Guid) (sourceId: Guid) (targetId: Guid) =
-    DsQuery.arrowCallsOf flowId store
-    |> List.exists (fun arrow ->
-        arrow.SourceId = sourceId
-        && arrow.TargetId = targetId)
-
 /// Ordered multi-selection -> connectable arrow links.
 /// Result tuple: (entityType, flowId, sourceId, targetId)
 let orderedArrowLinksForSelection
@@ -69,6 +57,17 @@ let orderedArrowLinksForSelection
         distinctIds
         |> List.choose (resolveOrderedNodeContext store)
 
+    // 기존 화살표를 HashSet으로 프리빌드 — O(1) 중복 체크
+    let existingWorkArrows =
+        DsQuery.allArrowWorks store
+        |> List.map (fun a -> struct (a.SourceId, a.TargetId))
+        |> System.Collections.Generic.HashSet
+
+    let existingCallArrows =
+        DsQuery.allArrowCalls store
+        |> List.map (fun a -> struct (a.SourceId, a.TargetId))
+        |> System.Collections.Generic.HashSet
+
     orderedContexts
     |> List.pairwise
     |> List.choose (fun ((sourceType, sourceFlowId, sourceId), (targetType, targetFlowId, targetId)) ->
@@ -77,9 +76,9 @@ let orderedArrowLinksForSelection
         else
             match sourceType with
             | EntityTypeNames.Work when areFlowsInSameSystem store sourceFlowId targetFlowId ->
-                if hasArrowWork store sourceId targetId then None
+                if existingWorkArrows.Contains(struct (sourceId, targetId)) then None
                 else Some (sourceType, sourceFlowId, sourceId, targetId)
             | EntityTypeNames.Call when sourceFlowId = targetFlowId ->
-                if hasArrowCall store sourceFlowId sourceId targetId then None
+                if existingCallArrows.Contains(struct (sourceId, targetId)) then None
                 else Some (sourceType, sourceFlowId, sourceId, targetId)
             | _ -> None)

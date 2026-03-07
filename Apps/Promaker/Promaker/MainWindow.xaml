@@ -4,6 +4,7 @@
         xmlns:vm="clr-namespace:Promaker.ViewModels"
         xmlns:ctrl="clr-namespace:Promaker.Controls"
         xmlns:conv="clr-namespace:Promaker.Converters"
+        xmlns:core="clr-namespace:Ds2.UI.Core;assembly=Ds2.UI.Core"
         Title="{Binding Title}" Width="1280" Height="800"
         WindowStartupLocation="CenterScreen">
 
@@ -489,7 +490,7 @@
                             </StackPanel>
 
                             <StackPanel Visibility="{Binding IsWorkSelected, Converter={StaticResource BoolToVis}}">
-                                <TextBlock Text="Work Duration"
+                                <TextBlock Text="{x:Static core:Labels.WorkPeriod}"
                                            FontSize="11"
                                            Foreground="{DynamicResource SecondaryTextBrush}"
                                            Margin="0,2,0,2"/>
@@ -498,23 +499,24 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBox Text="{Binding WorkDurationText, UpdateSourceTrigger=PropertyChanged}"
+                                    <TextBox Text="{Binding WorkPeriodMs, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}"
                                              Padding="6,4"
                                              FontSize="12"
-                                             ToolTip="Format: hh:mm:ss or d.hh:mm:ss"/>
+                                             ToolTip="{x:Static core:Labels.PeriodFormat}"
+                                             MaxLength="9"/>
                                     <Button Grid.Column="1"
                                             Content="✓"
                                             Style="{StaticResource DarkButton}"
                                             Margin="4,0,0,0"
                                             Padding="8,4"
-                                            IsEnabled="{Binding IsWorkDurationDirty}"
-                                            Command="{Binding ApplyWorkDurationCommand}"/>
+                                            IsEnabled="{Binding IsWorkPeriodDirty}"
+                                            Command="{Binding ApplyWorkPeriodCommand}"/>
                                 </Grid>
                                 <Separator Margin="0,12"/>
                             </StackPanel>
 
                             <StackPanel Visibility="{Binding IsCallSelected, Converter={StaticResource BoolToVis}}">
-                                <TextBlock Text="Timeout (ms)" FontSize="11"
+                                <TextBlock Text="{x:Static core:Labels.TimeoutMs}" FontSize="11"
                                            Foreground="{DynamicResource SecondaryTextBrush}"
                                            Margin="0,4,0,2"/>
                                 <Grid Margin="0,0,0,8">
@@ -523,7 +525,7 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBox Grid.Column="0"
-                                             Text="{Binding CallTimeoutText, UpdateSourceTrigger=PropertyChanged}"
+                                             Text="{Binding CallTimeoutMs, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}"
                                              Padding="6,4"/>
                                     <Button Grid.Column="1"
                                             Content="✓"
@@ -623,7 +625,7 @@
                                                     </DataGridTemplateColumn.CellTemplate>
                                                 </DataGridTemplateColumn>
 
-                                                <DataGridTextColumn Header="ApiDef" Width="1.5*"
+                                                <DataGridTextColumn Header="{x:Static core:Labels.ApiDef}" Width="1.5*"
                                                                     Binding="{Binding ApiDefDisplayName, Mode=OneWay}"
                                                                     IsReadOnly="True">
                                                     <DataGridTextColumn.ElementStyle>
@@ -635,7 +637,7 @@
                                                     </DataGridTextColumn.ElementStyle>
                                                 </DataGridTextColumn>
 
-                                                <DataGridTemplateColumn Header="Out address" Width="*">
+                                                <DataGridTemplateColumn Header="{x:Static core:Labels.OutAddress}" Width="*">
                                                     <DataGridTemplateColumn.CellTemplate>
                                                         <DataTemplate>
                                                             <TextBox Text="{Binding OutputAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -645,7 +647,7 @@
                                                     </DataGridTemplateColumn.CellTemplate>
                                                 </DataGridTemplateColumn>
 
-                                                <DataGridTemplateColumn Header="In address" Width="*">
+                                                <DataGridTemplateColumn Header="{x:Static core:Labels.InAddress}" Width="*">
                                                     <DataGridTemplateColumn.CellTemplate>
                                                         <DataTemplate>
                                                             <TextBox Text="{Binding InputAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -655,7 +657,7 @@
                                                     </DataGridTemplateColumn.CellTemplate>
                                                 </DataGridTemplateColumn>
 
-                                                <DataGridTemplateColumn Header="Out spec" Width="1.2*">
+                                                <DataGridTemplateColumn Header="{x:Static core:Labels.OutSpec}" Width="1.2*">
                                                     <DataGridTemplateColumn.CellTemplate>
                                                         <DataTemplate>
                                                             <TextBox Text="{Binding ValueSpecText, Mode=OneWay}"
@@ -666,7 +668,7 @@
                                                     </DataGridTemplateColumn.CellTemplate>
                                                 </DataGridTemplateColumn>
 
-                                                <DataGridTemplateColumn Header="In spec" Width="1.2*">
+                                                <DataGridTemplateColumn Header="{x:Static core:Labels.InSpec}" Width="1.2*">
                                                     <DataGridTemplateColumn.CellTemplate>
                                                         <DataTemplate>
                                                             <Grid Margin="0,1,0,1">

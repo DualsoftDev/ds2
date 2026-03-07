@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
+    <ProjectReference Include="..\..\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
     <ProjectReference Include="..\..\Backend\Ds2.Database\Ds2.Database.fsproj" />
   </ItemGroup>
 

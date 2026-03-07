@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using Ds2.UI.Core;
 using Promaker;
-using Microsoft.FSharp.Core;
 
 namespace Promaker.ViewModels;
 
@@ -57,7 +56,7 @@ public partial class MainViewModel
         if (!additive)
             _orderedNodeSelection.Clear();
 
-        var orderedKeys = SelectionQueries.orderCanvasSelectionKeysForBox(
+        var orderedKeys = _store.OrderCanvasSelectionKeysForBox(
             startX,
             startY,
             endX,
@@ -78,7 +77,7 @@ public partial class MainViewModel
     }
 
     private List<SelectionKey> CanvasSelectionOrderKeys() =>
-        SelectionQueries.orderCanvasSelectionKeys(CanvasNodes.Select(ToCanvasSelectionCandidate))
+        _store.OrderCanvasSelectionKeys(CanvasNodes.Select(ToCanvasSelectionCandidate))
             .ToList();
 
     public void ClearNodeSelection()
@@ -113,8 +112,7 @@ public partial class MainViewModel
             return false;
 
         if (!TryEditorFunc(
-                "ConnectSelectionInOrderUi",
-                () => _editor.Arrows.ConnectSelectionInOrderUi(_orderedNodeSelection.Select(s => s.Id), arrowType),
+                () => _store.ConnectSelectionInOrderUi(_orderedNodeSelection.Select(s => s.Id), arrowType),
                 out var created,
                 fallback: 0,
                 statusOverride: "[ERROR] Failed to connect selected nodes."))
@@ -180,13 +178,10 @@ public partial class MainViewModel
         bool shiftPressed,
         IReadOnlyList<SelectionKey> orderedKeys)
     {
-        var targetOption = node is null ? null : FSharpOption<SelectionKey>.Some(ToKey(node));
-        var anchorOption = _selectionAnchor is null ? null : FSharpOption<SelectionKey>.Some(_selectionAnchor);
-
-        var result = SelectionQueries.applyNodeSelection(
+        var result = _store.ApplyNodeSelection(
             _orderedNodeSelection,
-            anchorOption,
-            targetOption,
+            ToOption(_selectionAnchor),
+            ToOption(node is null ? null : ToKey(node)),
             ctrlPressed,
             shiftPressed,
             orderedKeys);
@@ -196,9 +191,7 @@ public partial class MainViewModel
             if (!_orderedNodeSelection.Contains(key))
                 _orderedNodeSelection.Add(key);
 
-        _selectionAnchor = FSharpOption<SelectionKey>.get_IsSome(result.Anchor)
-            ? result.Anchor.Value
-            : null;
+        _selectionAnchor = result.Anchor?.Value;
 
         ApplyNodeSelectionVisuals();
         if (node is not null)

@@ -40,54 +40,18 @@ module ValidationRules =
             |> List.concat
         if List.isEmpty errors then Valid else Invalid errors
 
+    /// DsEntity 공통 검증 — Id ≠ Empty, Name ≠ 빈값
+    let validateEntity (typeName: string) (id: System.Guid) (name: string) : ValidationResult =
+        combine [
+            validGuid $"{typeName}.Id" id
+            notEmpty $"{typeName}.Name" name
+        ]
+
 // =============================================================================
-// ProjectValidation / SystemValidation / FlowValidation / WorkValidation
+// WorkValidation - Work 고유 검증 (validateConnections)
 // =============================================================================
-
-module ProjectValidation =
-    open ValidationRules
-
-    let validate (project: Project) : ValidationResult =
-        combine [
-            validGuid "Project.Id" project.Id
-            notEmpty "Project.Name" project.Name
-        ]
-
-    let isValid (project: Project) = match validate project with | Valid -> true | Invalid _ -> false
-    let getErrors (project: Project) = match validate project with | Valid -> [] | Invalid errors -> errors
-
-module SystemValidation =
-    open ValidationRules
-
-    let validate (system: DsSystem) : ValidationResult =
-        combine [
-            validGuid "System.Id" system.Id
-            notEmpty "System.Name" system.Name
-        ]
-
-    let isValid (system: DsSystem) = match validate system with | Valid -> true | Invalid _ -> false
-    let getErrors (system: DsSystem) = match validate system with | Valid -> [] | Invalid errors -> errors
-
-module FlowValidation =
-    open ValidationRules
-
-    let validate (flow: Flow) : ValidationResult =
-        combine [
-            validGuid "Flow.Id" flow.Id
-            notEmpty "Flow.Name" flow.Name
-        ]
-
-    let isValid (flow: Flow) = match validate flow with | Valid -> true | Invalid _ -> false
 
 module WorkValidation =
-    open ValidationRules
-
-    let validate (work: Work) : ValidationResult =
-        combine [
-            validGuid "Work.Id" work.Id
-            notEmpty "Work.Name" work.Name
-        ]
-
     let validateConnections (work: Work) (store: DsStore) : ValidationResult =
         let workCallIds =
             DsQuery.callsOf work.Id store |> List.map (fun c -> c.Id) |> Set.ofList
@@ -147,40 +111,30 @@ module NameUniquenessValidation =
 
     // ── 공통 헬퍼 ──────────────────────────────────────────────────────────────
 
-    /// 시스템 범위 내 엔티티 이름 중복 검사
-    let private validateSystemScopedNames
+    /// 부모 스코프 내 자식 엔티티 이름 중복 검사
+    let private validateScopedNames
+        (parents: (System.Guid * string) seq)
         (typeName: string)
         (getItems: System.Guid -> DsStore -> 'a list)
         (getName: 'a -> string)
         (store: DsStore)
         : ValidationResult =
         let errors =
-            store.SystemsReadOnly.Values
-            |> Seq.collect (fun system ->
-                getItems system.Id store
+            parents
+            |> Seq.collect (fun (parentId, parentName) ->
+                getItems parentId store
                 |> List.groupBy getName
                 |> List.filter (fun (_, items) -> List.length items > 1)
                 |> List.map (fun (name, _) ->
-                    sprintf "Duplicate %s name '%s' in System '%s'" typeName name system.Name))
+                    sprintf "Duplicate %s name '%s' in %s" typeName name parentName))
             |> Seq.toList
         if List.isEmpty errors then Valid else Invalid errors
 
-    let private validateFlowScopedNames
-        (typeName: string)
-        (getItems: System.Guid -> DsStore -> 'a list)
-        (getName: 'a -> string)
-        (store: DsStore)
-        : ValidationResult =
-        let errors =
-            store.FlowsReadOnly.Values
-            |> Seq.collect (fun flow ->
-                getItems flow.Id store
-                |> List.groupBy getName
-                |> List.filter (fun (_, items) -> List.length items > 1)
-                |> List.map (fun (name, _) ->
-                    sprintf "Duplicate %s name '%s' in Flow '%s'" typeName name flow.Name))
-            |> Seq.toList
-        if List.isEmpty errors then Valid else Invalid errors
+    let private systemScoped typeName getItems getName (store: DsStore) =
+        validateScopedNames (store.SystemsReadOnly.Values |> Seq.map (fun (s: DsSystem) -> s.Id, s.Name)) typeName getItems getName store
+
+    let private flowScoped typeName getItems getName (store: DsStore) =
+        validateScopedNames (store.FlowsReadOnly.Values |> Seq.map (fun (f: Flow) -> f.Id, f.Name)) typeName getItems getName store
 
     // ── 공개 검증 함수 ─────────────────────────────────────────────────────────
 
@@ -206,13 +160,13 @@ module NameUniquenessValidation =
             |> Seq.toList
         if List.isEmpty errors then Valid else Invalid errors
 
-    let validateFlowNames      store = validateSystemScopedNames EntityTypeNames.Flow      DsQuery.flowsOf       (fun f -> f.Name) store
-    let validateWorkNames      store = validateFlowScopedNames   EntityTypeNames.Work      DsQuery.worksOf       (fun w -> w.Name) store
-    let validateApiDefNames    store = validateSystemScopedNames EntityTypeNames.ApiDef    DsQuery.apiDefsOf     (fun a -> a.Name) store
-    let validateButtonNames    store = validateSystemScopedNames EntityTypeNames.Button    DsQuery.buttonsOf     (fun b -> b.Name) store
-    let validateLampNames      store = validateSystemScopedNames EntityTypeNames.Lamp      DsQuery.lampsOf       (fun l -> l.Name) store
-    let validateConditionNames store = validateSystemScopedNames EntityTypeNames.Condition DsQuery.conditionsOf  (fun c -> c.Name) store
-    let validateActionNames    store = validateSystemScopedNames EntityTypeNames.Action    DsQuery.actionsOf     (fun a -> a.Name) store
+    let validateFlowNames      store = systemScoped EntityTypeNames.Flow      DsQuery.flowsOf       (fun f -> f.Name) store
+    let validateWorkNames      store = flowScoped   EntityTypeNames.Work      DsQuery.worksOf       (fun w -> w.Name) store
+    let validateApiDefNames    store = systemScoped EntityTypeNames.ApiDef    DsQuery.apiDefsOf     (fun a -> a.Name) store
+    let validateButtonNames    store = systemScoped EntityTypeNames.Button    DsQuery.buttonsOf     (fun b -> b.Name) store
+    let validateLampNames      store = systemScoped EntityTypeNames.Lamp      DsQuery.lampsOf       (fun l -> l.Name) store
+    let validateConditionNames store = systemScoped EntityTypeNames.Condition DsQuery.conditionsOf  (fun c -> c.Name) store
+    let validateActionNames    store = systemScoped EntityTypeNames.Action    DsQuery.actionsOf     (fun a -> a.Name) store
 
     /// ApiCall 이름 중복 검증 (시스템 내 모든 Call 탐색)
     let validateApiCallNames (store: DsStore) : ValidationResult =
@@ -282,10 +236,10 @@ module ValidationHelpers =
     /// 편집 런타임 스토어 정합성 검증
     let validateStore (store: DsStore) : ValidationResult =
         ValidationRules.combine [
-            store.ProjectsReadOnly.Values |> Seq.map ProjectValidation.validate |> combineSeq
-            store.SystemsReadOnly.Values  |> Seq.map SystemValidation.validate  |> combineSeq
-            store.FlowsReadOnly.Values    |> Seq.map FlowValidation.validate    |> combineSeq
-            store.WorksReadOnly.Values    |> Seq.map WorkValidation.validate    |> combineSeq
+            store.ProjectsReadOnly.Values |> Seq.map (fun (p: Project)  -> ValidationRules.validateEntity "Project" p.Id p.Name) |> combineSeq
+            store.SystemsReadOnly.Values  |> Seq.map (fun (s: DsSystem) -> ValidationRules.validateEntity "System"  s.Id s.Name) |> combineSeq
+            store.FlowsReadOnly.Values    |> Seq.map (fun (f: Flow)     -> ValidationRules.validateEntity "Flow"    f.Id f.Name) |> combineSeq
+            store.WorksReadOnly.Values    |> Seq.map (fun (w: Work)     -> ValidationRules.validateEntity "Work"    w.Id w.Name) |> combineSeq
             store.WorksReadOnly.Values    |> Seq.map (fun w -> WorkValidation.validateConnections w store) |> combineSeq
             OneToOneValidation.validateAllOneToOne store
             validateRuntimeUniqueNames store

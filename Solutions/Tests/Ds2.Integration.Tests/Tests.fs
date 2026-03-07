@@ -35,9 +35,9 @@ module JsonSerializationTests =
         project.ActiveSystemIds.Add(system2.Id)
 
         let store = Ds2.UI.Core.DsStore.empty()
-        Ds2.UI.Core.Mutation.addProject project store |> ignore
-        Ds2.UI.Core.Mutation.addSystem system1 store |> ignore
-        Ds2.UI.Core.Mutation.addSystem system2 store |> ignore
+        store.Projects.[project.Id] <- project
+        store.Systems.[system1.Id] <- system1
+        store.Systems.[system2.Id] <- system2
 
         let json = JsonConverter.serialize store
         let deserialized = JsonConverter.deserialize<Ds2.UI.Core.DsStore> json
@@ -138,7 +138,7 @@ module ValidationIntegrationTests =
     [<Fact>]
     let ``Valid project should pass validation`` () =
         let project = Project("ValidProject")
-        let result = Ds2.UI.Core.ProjectValidation.validate project
+        let result = Ds2.UI.Core.ValidationRules.validateEntity "Project" project.Id project.Name
 
         match result with
         | Ds2.UI.Core.Valid -> Assert.True(true)
@@ -148,7 +148,7 @@ module ValidationIntegrationTests =
     let ``Project with empty name should fail validation`` () =
         let project = Project("Test")
         project.Name <- ""
-        let result = Ds2.UI.Core.ProjectValidation.validate project
+        let result = Ds2.UI.Core.ValidationRules.validateEntity "Project" project.Id project.Name
 
         match result with
         | Ds2.UI.Core.Valid -> Assert.True(false, "Validation should fail for empty name")
@@ -160,7 +160,7 @@ module ValidationIntegrationTests =
     let ``Project with empty GUID should fail validation`` () =
         let project = Project("Test")
         project.Id <- Guid.Empty
-        let result = Ds2.UI.Core.ProjectValidation.validate project
+        let result = Ds2.UI.Core.ValidationRules.validateEntity "Project" project.Id project.Name
 
         match result with
         | Ds2.UI.Core.Valid -> Assert.True(false, "Validation should fail for empty GUID")
@@ -181,7 +181,7 @@ module FileSerializationTests =
             // Arrange
             let project = Project("FileTestProject")
             let store = Ds2.UI.Core.DsStore.empty()
-            Ds2.UI.Core.Mutation.addProject project store |> ignore
+            store.Projects.[project.Id] <- project
 
             // Act
             let json = JsonConverter.serialize store
@@ -213,11 +213,11 @@ module WorkflowTests =
         // Project에 ActiveSystem 추가
         project.ActiveSystemIds.Add(system.Id)
         let store = Ds2.UI.Core.DsStore.empty()
-        Ds2.UI.Core.Mutation.addProject project store |> ignore
-        Ds2.UI.Core.Mutation.addSystem system store |> ignore
+        store.Projects.[project.Id] <- project
+        store.Systems.[system.Id] <- system
 
         // 2. Validate
-        let validationResult = Ds2.UI.Core.ProjectValidation.validate project
+        let validationResult = Ds2.UI.Core.ValidationRules.validateEntity "Project" project.Id project.Name
         Assert.Equal(Ds2.UI.Core.Valid, validationResult)
 
         // 3. Serialize to JSON
@@ -238,3 +238,49 @@ module WorkflowTests =
         // 6. Verify data integrity
         Assert.Equal(project.Id, loadedProject.Value.Id)
         Assert.Equal(system.Id, loadedSystems.[0].Id)
+
+/// AASX 라운드트립 통합 테스트
+module AasxRoundTripTests =
+
+    open Ds2.UI.Core
+
+    [<Fact>]
+    let ``AASX round-trip preserves ArrowBetweenCalls`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("P")
+        let systemId = store.AddSystem("S", projectId, true)
+        let flowId = store.AddFlow("F", systemId)
+        let workId = store.AddWork("W", flowId)
+
+        // 2개 Call 생성 (Device system 포함)
+        store.AddCallsWithDevice(projectId, workId, [ "Dev.Api1"; "Dev.Api2" ], true)
+        let callIds = DsQuery.callsOf workId store |> List.map (fun c -> c.Id)
+        Assert.Equal(2, callIds.Length)
+
+        // Call 간 화살표 생성
+        let arrowCount = store.ConnectSelectionInOrderUi(callIds, UiArrowType.ResetReset)
+        Assert.Equal(1, arrowCount)
+        Assert.Equal(1, store.ArrowCalls.Count)
+        let originalArrow = store.ArrowCalls.Values |> Seq.head
+        Assert.Equal(flowId, originalArrow.ParentId)
+
+        // AASX export → import
+        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported, "Export should succeed")
+
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed")
+
+            // ArrowBetweenCalls가 살아있어야 함
+            Assert.Equal(1, store2.ArrowCalls.Count)
+            let restoredArrow = store2.ArrowCalls.Values |> Seq.head
+            Assert.Equal(originalArrow.SourceId, restoredArrow.SourceId)
+            Assert.Equal(originalArrow.TargetId, restoredArrow.TargetId)
+            Assert.Equal(originalArrow.ArrowType, restoredArrow.ArrowType)
+            // parentId가 flowId여야 함 (workId가 아닌)
+            Assert.Equal(flowId, restoredArrow.ParentId)
+        finally
+            if System.IO.File.Exists(path) then System.IO.File.Delete(path)

@@ -13,57 +13,34 @@ public partial class MainViewModel
 {
     [RelayCommand]
     private void AddProject() =>
-        TryEditorAction("AddProject", () => _editor.Nodes.AddProjectAndGetId("NewProject"));
+        TryEditorAction(() => _store.AddProject("NewProject"));
 
     [RelayCommand]
     private void AddSystem()
     {
-        var context = ResolveAddTargetContext();
-
-        if (!TryEditorFunc(
-                "TryResolveAddSystemTarget",
-                () => _editor.Query.TryResolveAddSystemTarget(
-                    context.SelectedEntityType,
-                    context.SelectedEntityId,
-                    context.ActiveTabKind,
-                    context.ActiveTabRootId),
-                out FSharpOption<Guid>? targetProjectId,
-                fallback: null))
-            return;
-
-        if (HasOptionValue(targetProjectId))
-            TryEditorAction(
-                "AddSystem",
-                () => _editor.Nodes.AddSystemAndGetId("NewSystem", targetProjectId!.Value, isActive: _activeTreePane == TreePaneKind.Control));
+        var (selType, selId, tabKind, tabRoot) = SnapshotContext();
+        TryEditorAction(() => _store.AddSystemResolved(
+            "NewSystem", _activeTreePane == TreePaneKind.Control,
+            selType, selId, tabKind, tabRoot));
     }
 
     [RelayCommand]
     private void AddFlow()
     {
-        var context = ResolveAddTargetContext();
-
-        if (!TryEditorFunc(
-                "TryResolveAddFlowTarget",
-                () => _editor.Query.TryResolveAddFlowTarget(
-                    context.SelectedEntityType,
-                    context.SelectedEntityId,
-                    context.ActiveTabKind,
-                    context.ActiveTabRootId),
-                out FSharpOption<Guid>? targetSystemId,
-                fallback: null))
-            return;
-
-        if (HasOptionValue(targetSystemId))
-            TryEditorAction(
-                "AddFlow",
-                () => _editor.Nodes.AddFlowAndGetId("NewFlow", targetSystemId!.Value));
+        var (selType, selId, tabKind, tabRoot) = SnapshotContext();
+        TryEditorAction(() => _store.AddFlowResolved(
+            "NewFlow", selType, selId, tabKind, tabRoot));
     }
+
+    private (FSharpOption<string>?, FSharpOption<Guid>?, FSharpOption<TabKind>?, FSharpOption<Guid>?) SnapshotContext() =>
+        (ToOption(SelectedNode?.EntityType), ToOption(SelectedNode?.Id),
+         ToOption(ActiveTab?.Kind), ToOption(ActiveTab?.RootId));
 
     [RelayCommand]
     private void AddWork()
     {
         if (TryResolveTargetId(EntityTypes.Flow, TabKind.Flow, out var flowId))
-            TryEditorAction("AddWork", () => _editor.Nodes.AddWorkAndGetId("NewWork", flowId));
+            TryEditorAction(() => _store.AddWork("NewWork", flowId));
     }
 
     [RelayCommand]
@@ -76,8 +53,7 @@ public partial class MainViewModel
             apiNameFilter =>
             {
                 if (!TryEditorFunc(
-                        "FindApiDefsByName",
-                        () => _editor.Query.FindApiDefsByName(apiNameFilter).ToList(),
+                        () => _store.FindApiDefsByName(apiNameFilter).ToList(),
                         out List<ApiDefMatch> matches,
                         fallback: []))
                     return [];
@@ -92,29 +68,13 @@ public partial class MainViewModel
 
         if (dialog.IsDeviceMode)
         {
-            if (!TryEditorFunc(
-                    "TryFindProjectIdForEntity",
-                    () => _editor.Query.TryFindProjectIdForEntity(EntityTypes.Work, workId),
-                    out FSharpOption<Guid>? projectIdOpt,
-                    fallback: null))
-                return;
-
-            if (!HasOptionValue(projectIdOpt))
-            {
-                Log.Error($"AddCall(DeviceMode) failed to resolve project id for workId={workId}");
-                StatusText = "[ERROR] Failed to resolve project for selected Work.";
-                return;
-            }
-
             TryEditorAction(
-                "AddCallsWithDevice",
-                () => _editor.Nodes.AddCallsWithDevice(projectIdOpt!.Value, workId, dialog.CallNames, createDeviceSystem: true));
+                () => _store.AddCallsWithDeviceResolved(EntityTypes.Work, workId, workId, dialog.CallNames, true));
         }
         else
         {
             TryEditorAction(
-                "AddCallWithLinkedApiDefsAndGetId",
-                () => _editor.Nodes.AddCallWithLinkedApiDefsAndGetId(
+                () => _store.AddCallWithLinkedApiDefs(
                     workId,
                     dialog.DevicesAlias,
                     dialog.ApiName,
@@ -128,7 +88,7 @@ public partial class MainViewModel
         if (_orderedArrowSelection.Count > 0)
         {
             var arrowIds = _orderedArrowSelection.ToList();
-            if (TryEditorAction("RemoveArrows", () => _editor.Arrows.RemoveArrows(arrowIds)))
+            if (TryEditorAction(() => _store.RemoveArrows(arrowIds)))
                 ClearArrowSelection();
             return;
         }
@@ -136,14 +96,13 @@ public partial class MainViewModel
         if (_orderedNodeSelection.Count > 0)
         {
             var selections = _orderedNodeSelection.Select(k => Tuple.Create(k.EntityType, k.Id));
-            TryEditorAction("RemoveEntities", () => _editor.Nodes.RemoveEntities(selections));
+            TryEditorAction(() => _store.RemoveEntities(selections));
             return;
         }
 
         if (SelectedNode is { } node)
             TryEditorAction(
-                "RemoveEntities",
-                () => _editor.Nodes.RemoveEntities(new[] { Tuple.Create(node.EntityType, node.Id) }));
+                () => _store.RemoveEntities(new[] { Tuple.Create(node.EntityType, node.Id) }));
     }
 
     [RelayCommand]
@@ -153,68 +112,45 @@ public partial class MainViewModel
             return;
 
         TryEditorAction(
-            "RenameEntity",
-            () => _editor.Nodes.RenameEntity(SelectedNode.Id, SelectedNode.EntityType, newName));
+            () => _store.RenameEntity(SelectedNode.Id, SelectedNode.EntityType, newName));
     }
 
     [RelayCommand]
     private void CopySelected()
     {
-        var selected = _orderedNodeSelection
-            .Where(k => PasteResolvers.isCopyableEntityType(k.EntityType))
-            .ToList();
+        var candidates = _orderedNodeSelection.Count > 0
+            ? _orderedNodeSelection
+            : SelectedNode is { } single
+                ? [new SelectionKey(single.Id, single.EntityType)]
+                : [];
 
-        if (selected.Count == 0 && SelectedNode is { } single && PasteResolvers.isCopyableEntityType(single.EntityType))
-            selected.Add(new SelectionKey(single.Id, single.EntityType));
-
-        if (selected.Count == 0)
+        if (!TryEditorFunc(
+                () => _store.ValidateCopySelection(candidates),
+                out CopyValidationResult result,
+                fallback: CopyValidationResult.NothingToCopy))
             return;
 
-        // 혼합 타입 복사 금지
-        var distinctTypes = selected.Select(k => k.EntityType).Distinct().ToList();
-        if (distinctTypes.Count > 1)
+        if (result.IsMixedTypes)
         {
-            MessageBox.Show(
-                "같은 종류의 항목만 복사할 수 있습니다.",
-                "복사 불가",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+            MessageBox.Show("같은 종류의 항목만 복사할 수 있습니다.", "복사 불가",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-
-        // 서로 다른 부모에 속한 항목 혼합 복사 금지 (다중 선택인 경우만)
-        if (selected.Count > 1)
+        if (result.IsMixedParents)
         {
-            var parents = new List<Guid?>();
-            foreach (var k in selected)
-            {
-                if (!TryEditorFunc(
-                        "GetEntityParentId",
-                        () => _editor.Query.GetEntityParentId(k.EntityType, k.Id),
-                        out FSharpOption<Guid>? opt,
-                        fallback: null))
-                    return;
-                parents.Add(HasOptionValue(opt) ? opt!.Value : (Guid?)null);
-            }
-            if (parents.Distinct().Count() > 1)
-            {
-                MessageBox.Show(
-                    "서로 다른 위치에 있는 항목은 함께 복사할 수 없습니다.",
-                    "복사 불가",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                return;
-            }
+            MessageBox.Show("서로 다른 위치에 있는 항목은 함께 복사할 수 없습니다.", "복사 불가",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
         }
+        if (result is not CopyValidationResult.Ok ok)
+            return;
 
-        var batchType = selected[0].EntityType;
+        var validated = ok.Item;
         _clipboardSelection.Clear();
-        var seen = new HashSet<SelectionKey>();
-        foreach (var key in selected)
-            if (seen.Add(key))
-                _clipboardSelection.Add(key);
+        foreach (var key in validated)
+            _clipboardSelection.Add(key);
 
-        StatusText = $"Copied {_clipboardSelection.Count} {batchType}(s).";
+        StatusText = $"Copied {_clipboardSelection.Count} {validated[0].EntityType}(s).";
     }
 
     [RelayCommand]
@@ -242,8 +178,7 @@ public partial class MainViewModel
         }
 
         if (!TryEditorFunc(
-                "PasteEntities",
-                () => _editor.Nodes.PasteEntities(
+                () => _store.PasteEntities(
                     batchType,
                     _clipboardSelection.Select(k => k.Id),
                     target.Value.EntityType,
@@ -264,11 +199,10 @@ public partial class MainViewModel
         if (ActiveTab is not { } tab)
             return null;
 
-        var entityTypeOpt = PasteResolvers.entityTypeForTabKind(tab.Kind);
-        if (!FSharpOption<string>.get_IsSome(entityTypeOpt))
+        if (_store.EntityTypeForTabKind(tab.Kind)?.Value is not { } entityType)
             return null;
 
-        return (entityTypeOpt.Value, tab.RootId);
+        return (entityType, tab.RootId);
     }
 
     private bool TryResolveTargetId(string selectedEntityType, TabKind activeTabKind, out Guid targetId)
@@ -289,18 +223,4 @@ public partial class MainViewModel
         return false;
     }
 
-    private AddTargetContext ResolveAddTargetContext()
-    {
-        var selectedEntityType = SelectedNode is null ? null : FSharpOption<string>.Some(SelectedNode.EntityType);
-        var selectedEntityId = SelectedNode is null ? null : FSharpOption<Guid>.Some(SelectedNode.Id);
-        var activeTabKind = ActiveTab is null ? null : FSharpOption<TabKind>.Some(ActiveTab.Kind);
-        var activeTabRootId = ActiveTab is null ? null : FSharpOption<Guid>.Some(ActiveTab.RootId);
-        return new AddTargetContext(selectedEntityType, selectedEntityId, activeTabKind, activeTabRootId);
-    }
-
-    private readonly record struct AddTargetContext(
-        FSharpOption<string>? SelectedEntityType,
-        FSharpOption<Guid>? SelectedEntityId,
-        FSharpOption<TabKind>? ActiveTabKind,
-        FSharpOption<Guid>? ActiveTabRootId);
 }

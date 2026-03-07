@@ -57,6 +57,12 @@ public sealed class CallApiCallItem : ObservableObject
         _originalInputValueSpecText = _inputValueSpecText;
     }
 
+    public static CallApiCallItem FromPanel(CallApiCallPanelItem row) =>
+        new(row.ApiCallId, row.Name, row.ApiDefId, row.HasApiDef,
+            row.ApiDefDisplayName, row.OutputAddress, row.InputAddress,
+            row.ValueSpecText, row.InputValueSpecText,
+            row.OutputSpecTypeIndex, row.InputSpecTypeIndex);
+
     public Guid ApiCallId { get; }
     public string ApiDefDisplayName { get; }
     public int OutputSpecTypeIndex { get; }

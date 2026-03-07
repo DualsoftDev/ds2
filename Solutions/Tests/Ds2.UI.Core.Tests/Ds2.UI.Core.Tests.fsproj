@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
-    <Compile Include="EditorApiTests.fs" />
+    <Compile Include="DsStoreTests.fs" />
     <Compile Include="ViewProjectionTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

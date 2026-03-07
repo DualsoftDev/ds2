@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
-using System.Windows.Input;
 using Ds2.UI.Core;
 
 namespace Promaker.Dialogs;
@@ -16,7 +15,7 @@ public partial class ApiDefEditDialog : Window
     public bool IsPush { get; private set; } = true;
     public Guid? TxWorkId { get; private set; }
     public Guid? RxWorkId { get; private set; }
-    public int Duration { get; private set; }
+    public int Period { get; private set; }
     public string Description { get; private set; } = string.Empty;
 
     public ApiDefEditDialog(IReadOnlyList<WorkDropdownItem> works, ApiDefPanelItem? existing = null)
@@ -34,7 +33,7 @@ public partial class ApiDefEditDialog : Window
             NameBox.Text = existing.Name;
             PushRadio.IsChecked = existing.IsPush;
             PollRadio.IsChecked = !existing.IsPush;
-            DurationBox.Text = existing.Duration.ToString();
+            PeriodBox.Text = existing.Period.ToString();
             DescriptionBox.Text = existing.Description;
 
             TxWorkCombo.SelectedItem = _workItems.FirstOrDefault(w => w.Id == existing.TxWorkIdOrEmpty) ?? noneItem;
@@ -49,11 +48,6 @@ public partial class ApiDefEditDialog : Window
         Loaded += (_, _) => NameBox.Focus();
     }
 
-    private void OnDurationPreviewInput(object sender, TextCompositionEventArgs e)
-    {
-        e.Handled = !int.TryParse(e.Text, out _);
-    }
-
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
         var name = NameBox.Text.Trim();
@@ -63,15 +57,15 @@ public partial class ApiDefEditDialog : Window
             return;
         }
 
-        if (!int.TryParse(DurationBox.Text.Trim(), out int duration) || duration < 0)
+        if (!int.TryParse(PeriodBox.Text.Trim(), out int period) || period < 0)
         {
-            DialogHelpers.Warn("Duration은 0 이상의 정수를 입력해주세요.");
+            DialogHelpers.Warn("Period는 0 이상의 정수를 입력해주세요.");
             return;
         }
 
         ApiDefName = name;
         IsPush = PushRadio.IsChecked == true;
-        Duration = duration;
+        Period = period;
         Description = DescriptionBox.Text.Trim();
 
         var tx = TxWorkCombo.SelectedItem as WorkDropdownItem;

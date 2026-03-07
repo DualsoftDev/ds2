@@ -16,7 +16,7 @@ public partial class MainViewModel
         if (dlg.ShowDialog() != true) return;
         try
         {
-            _editor.LoadFromFile(dlg.FileName);
+            _store.LoadFromFile(dlg.FileName);
             _currentFilePath = dlg.FileName;
             IsDirty = false;
             UpdateTitle();
@@ -46,7 +46,7 @@ public partial class MainViewModel
 
         try
         {
-            _editor.SaveToFile(_currentFilePath);
+            _store.SaveToFile(_currentFilePath);
             IsDirty = false;
             UpdateTitle();
             StatusText = "Saved.";
@@ -67,7 +67,7 @@ public partial class MainViewModel
 
         try
         {
-            if (!AasxImporter.importIntoEditor(_editor, dlg.FileName))
+            if (!AasxImporter.importIntoStore(_store, dlg.FileName))
             {
                 Log.Warn($"AASX import 실패 (빈 결과): {dlg.FileName}");
                 DialogHelpers.Warn("Failed to import AASX.");
@@ -99,7 +99,7 @@ public partial class MainViewModel
 
         try
         {
-            if (!AasxExporter.exportFromEditor(_editor, dlg.FileName))
+            if (!AasxExporter.exportFromStore(_store, dlg.FileName))
             {
                 Log.Warn($"AASX export 실패: 프로젝트 없음 ({dlg.FileName})");
                 DialogHelpers.Warn("No project available for export.");

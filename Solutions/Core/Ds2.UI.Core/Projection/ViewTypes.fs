@@ -76,6 +76,13 @@ type SelectionKey(id: Guid, entityType: string) =
     override _.GetHashCode() =
         HashCode.Combine(id, entityType)
 
+[<RequireQualifiedAccess>]
+type CopyValidationResult =
+    | Ok of SelectionKey list
+    | MixedTypes
+    | MixedParents
+    | NothingToCopy
+
 [<Sealed>]
 type CanvasSelectionCandidate(key: SelectionKey, x: float, y: float, width: float, height: float, name: string) =
     member _.Key = key
@@ -102,13 +109,13 @@ type ApiDefMatch(apiDefId: Guid, apiDefName: string, systemId: Guid, systemName:
 
 /// System 프로퍼티 패널 — ApiDef 항목 (C# 소비용)
 [<Sealed>]
-type ApiDefPanelItem(id: Guid, name: string, isPush: bool, txWorkId: Guid option, rxWorkId: Guid option, duration: int, description: string) =
+type ApiDefPanelItem(id: Guid, name: string, isPush: bool, txWorkId: Guid option, rxWorkId: Guid option, period: int, description: string) =
     member _.Id          = id
     member _.Name        = name
     member _.IsPush      = isPush
     member _.TxWorkId    = txWorkId
     member _.RxWorkId    = rxWorkId
-    member _.Duration    = duration
+    member _.Period      = period
     member _.Description = description
     /// C# 편의: TxWorkId가 None이면 Guid.Empty 반환
     member _.TxWorkIdOrEmpty = txWorkId |> Option.defaultValue Guid.Empty
@@ -121,3 +128,60 @@ type WorkDropdownItem(id: Guid, name: string) =
     member _.Id   = id
     member _.Name = name
     override _.ToString() = name
+
+// =============================================================================
+// PropertyPanel 전용 타입
+// =============================================================================
+
+[<Sealed>]
+type DeviceApiDefOption(id: Guid, deviceName: string, apiDefName: string) =
+    member _.Id = id
+    member _.DeviceName = deviceName
+    member _.ApiDefName = apiDefName
+    member _.DisplayName = $"{deviceName}.{apiDefName}"
+
+[<Sealed>]
+type CallApiCallPanelItem
+    (
+        apiCallId: Guid,
+        name: string,
+        apiDefId: Guid,
+        hasApiDef: bool,
+        apiDefDisplayName: string,
+        outputAddress: string,
+        inputAddress: string,
+        valueSpecText: string,
+        inputValueSpecText: string,
+        outputSpecTypeIndex: int,
+        inputSpecTypeIndex: int
+    ) =
+    member _.ApiCallId = apiCallId
+    member _.Name = name
+    member _.ApiDefId = apiDefId
+    member _.HasApiDef = hasApiDef
+    member _.ApiDefDisplayName = apiDefDisplayName
+    member _.OutputAddress = outputAddress
+    member _.InputAddress = inputAddress
+    member _.ValueSpecText = valueSpecText
+    member _.InputValueSpecText = inputValueSpecText
+    member _.OutputSpecTypeIndex = outputSpecTypeIndex
+    member _.InputSpecTypeIndex  = inputSpecTypeIndex
+
+[<Sealed>]
+type CallConditionApiCallItem
+    (apiCallId: Guid, apiCallName: string, apiDefDisplayName: string, outputSpecText: string, outputSpecTypeIndex: int) =
+    member _.ApiCallId         = apiCallId
+    member _.ApiCallName       = apiCallName
+    member _.ApiDefDisplayName = apiDefDisplayName
+    member _.OutputSpecText    = outputSpecText
+    member _.OutputSpecTypeIndex = outputSpecTypeIndex
+
+[<Sealed>]
+type UiCallConditionPanelItem
+    (conditionId: Guid, conditionType: UiCallConditionType,
+     isOR: bool, isRising: bool, items: CallConditionApiCallItem list) =
+    member _.ConditionId   = conditionId
+    member _.ConditionType = conditionType
+    member _.IsOR          = isOR
+    member _.IsRising      = isRising
+    member _.Items         = items

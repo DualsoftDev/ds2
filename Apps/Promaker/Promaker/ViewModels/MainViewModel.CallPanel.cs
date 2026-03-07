@@ -15,20 +15,11 @@ public partial class MainViewModel
     {
         if (!TryGetSelectedCall(out var selectedCall)) return;
 
-        if (!TryEditorFunc(
-                "TryUpdateCallTimeout",
-                () => _editor.Panel.TryUpdateCallTimeout(selectedCall.Id, CallTimeoutText),
-                out var updated,
-                fallback: false))
+        if (!TryEditorAction(
+                () => _store.UpdateCallTimeoutMs(selectedCall.Id, ToOption(CallTimeoutMs))))
             return;
 
-        if (!updated)
-        {
-            StatusText = "Invalid timeout. Enter a non-negative integer (ms) or leave empty.";
-            return;
-        }
-
-        _originalCallTimeoutText = CallTimeoutText;
+        _originalCallTimeoutMs = CallTimeoutMs;
         IsCallTimeoutDirty = false;
         StatusText = "Call timeout updated.";
     }
@@ -52,27 +43,26 @@ public partial class MainViewModel
         }
 
         if (!TryEditorFunc(
-                "AddApiCallFromPanel",
-                () => _editor.Panel.AddApiCallFromPanel(
+                () => _store.AddApiCallFromPanel(
                     selectedCall.Id,
                     selectedApiDefId,
                     dialog.ApiCallName,
                     dialog.OutputAddress,
                     dialog.InputAddress,
-                    dialog.ValueSpecText,
-                    dialog.InValueSpecText),
+                    dialog.OutTypeIndex, dialog.OutSpecText,
+                    dialog.InTypeIndex, dialog.InSpecText),
                 out var created,
                 fallback: (FSharpOption<Guid>?)null))
             return;
 
-        if (!HasOptionValue(created))
+        if (created?.Value is not { } createdId)
         {
             StatusText = "Failed to add ApiCall.";
             return;
         }
 
         RefreshPropertyPanel();
-        SelectedCallApiCall = CallApiCalls.FirstOrDefault(x => x.ApiCallId == created!.Value);
+        SelectedCallApiCall = CallApiCalls.FirstOrDefault(x => x.ApiCallId == createdId);
         StatusText = "ApiCall added.";
     }
 
@@ -83,8 +73,7 @@ public partial class MainViewModel
             return;
 
         if (!TryEditorRef(
-                "GetCallApiCallsForPanel",
-                () => _editor.Panel.GetCallApiCallsForPanel(callId),
+                () => _store.GetCallApiCallsForPanel(callId),
                 out var rows))
             return;
 
@@ -92,11 +81,7 @@ public partial class MainViewModel
         if (row is null)
             return;
 
-        var newItem = new CallApiCallItem(
-            row.ApiCallId, row.Name, row.ApiDefId, row.HasApiDef,
-            row.ApiDefDisplayName, row.OutputAddress, row.InputAddress,
-            row.ValueSpecText, row.InputValueSpecText,
-            row.OutputSpecTypeIndex, row.InputSpecTypeIndex);
+        var newItem = CallApiCallItem.FromPanel(row);
         CallApiCalls[idx] = newItem;
         SelectedCallApiCall = newItem;
     }
@@ -122,8 +107,7 @@ public partial class MainViewModel
             return;
 
         if (!TryEditorFunc(
-                "UpdateApiCallFromPanel",
-                () => _editor.Panel.UpdateApiCallFromPanel(
+                () => _store.UpdateApiCallFromPanel(
                     selectedCall.Id, item.ApiCallId, apiDefId,
                     item.Name, item.OutputAddress, item.InputAddress,
                     dialog.OutSpecTypeIndex, dialog.OutSpecText,
@@ -160,8 +144,7 @@ public partial class MainViewModel
             }
 
             if (!TryEditorFunc(
-                    "UpdateApiCallFromPanel",
-                    () => _editor.Panel.UpdateApiCallFromPanel(
+                    () => _store.UpdateApiCallFromPanel(
                         selectedCall.Id, dirty.ApiCallId, apiDefId,
                         dirty.Name, dirty.OutputAddress, dirty.InputAddress,
                         dirty.OutputSpecTypeIndex, dirty.ValueSpecText,
@@ -194,8 +177,7 @@ public partial class MainViewModel
         if (item is null) return;
 
         if (!TryEditorAction(
-                "RemoveApiCallFromCall",
-                () => _editor.Panel.RemoveApiCallFromCall(selectedCall.Id, item.ApiCallId)))
+                () => _store.RemoveApiCallFromCall(selectedCall.Id, item.ApiCallId)))
             return;
 
         RefreshPropertyPanel();
@@ -208,8 +190,7 @@ public partial class MainViewModel
         if (!TryGetSelectedCall(out var selectedCall)) return;
 
         if (!TryEditorFunc(
-                "AddCallConditionUi",
-                () => _editor.Panel.AddCallConditionUi(selectedCall.Id, type),
+                () => _store.AddCallConditionUi(selectedCall.Id, type),
                 out var added,
                 fallback: false))
             return;
@@ -225,8 +206,7 @@ public partial class MainViewModel
         if (item is null) return;
 
         if (!TryEditorFunc(
-                "RemoveCallCondition",
-                () => _editor.Panel.RemoveCallCondition(selectedCall.Id, item.ConditionId),
+                () => _store.RemoveCallCondition(selectedCall.Id, item.ConditionId),
                 out var removed,
                 fallback: false))
             return;
@@ -242,8 +222,7 @@ public partial class MainViewModel
         if (item is null) return;
 
         if (!TryEditorRef(
-                "GetAllApiCallsForPanel",
-                () => _editor.Panel.GetAllApiCallsForPanel(),
+                () => _store.GetAllApiCallsForPanel(),
                 out var allApiCalls))
             return;
 
@@ -263,8 +242,7 @@ public partial class MainViewModel
             return;
 
         if (!TryEditorFunc(
-                "AddApiCallsToConditionBatch",
-                () => _editor.Panel.AddApiCallsToConditionBatch(
+                () => _store.AddApiCallsToConditionBatch(
                     selectedCall.Id, item.ConditionId,
                     dialog.SelectedApiCallIds.ToArray()),
                 out var added,
@@ -284,8 +262,7 @@ public partial class MainViewModel
         if (row is null) return;
 
         if (!TryEditorFunc(
-                "RemoveApiCallFromCondition",
-                () => _editor.Panel.RemoveApiCallFromCondition(selectedCall.Id, row.ConditionId, row.ApiCallId),
+                () => _store.RemoveApiCallFromCondition(selectedCall.Id, row.ConditionId, row.ApiCallId),
                 out var removed,
                 fallback: false))
             return;
@@ -305,8 +282,27 @@ public partial class MainViewModel
             return;
 
         if (!TryEditorFunc(
-                "UpdateConditionApiCallOutputSpec",
-                () => _editor.Panel.UpdateConditionApiCallOutputSpec(selectedCall.Id, row.ConditionId, row.ApiCallId, dialog.ValueSpecText),
+                () => _store.UpdateConditionApiCallOutputSpec(
+                    selectedCall.Id, row.ConditionId, row.ApiCallId,
+                    row.OutputSpecTypeIndex, dialog.ValueSpecText),
+                out var updated,
+                fallback: false))
+            return;
+
+        if (!updated) return;
+        RefreshCallPanel(selectedCall.Id);
+    }
+
+    private void ToggleConditionSetting(CallConditionItem? item, bool toggleIsOR)
+    {
+        if (!TryGetSelectedCall(out var selectedCall)) return;
+        if (item is null) return;
+
+        var newIsOR    = toggleIsOR ? !item.IsOR : item.IsOR;
+        var newIsRising = toggleIsOR ? item.IsRising : !item.IsRising;
+
+        if (!TryEditorFunc(
+                () => _store.UpdateCallConditionSettings(selectedCall.Id, item.ConditionId, newIsOR, newIsRising),
                 out var updated,
                 fallback: false))
             return;
@@ -316,38 +312,10 @@ public partial class MainViewModel
     }
 
     [RelayCommand]
-    private void ToggleConditionIsOR(CallConditionItem? item)
-    {
-        if (!TryGetSelectedCall(out var selectedCall)) return;
-        if (item is null) return;
-
-        if (!TryEditorFunc(
-                "UpdateCallConditionSettings",
-                () => _editor.Panel.UpdateCallConditionSettings(selectedCall.Id, item.ConditionId, !item.IsOR, item.IsRising),
-                out var updated,
-                fallback: false))
-            return;
-
-        if (!updated) return;
-        RefreshCallPanel(selectedCall.Id);
-    }
+    private void ToggleConditionIsOR(CallConditionItem? item) => ToggleConditionSetting(item, toggleIsOR: true);
 
     [RelayCommand]
-    private void ToggleConditionIsRising(CallConditionItem? item)
-    {
-        if (!TryGetSelectedCall(out var selectedCall)) return;
-        if (item is null) return;
-
-        if (!TryEditorFunc(
-                "UpdateCallConditionSettings",
-                () => _editor.Panel.UpdateCallConditionSettings(selectedCall.Id, item.ConditionId, item.IsOR, !item.IsRising),
-                out var updated,
-                fallback: false))
-            return;
-
-        if (!updated) return;
-        RefreshCallPanel(selectedCall.Id);
-    }
+    private void ToggleConditionIsRising(CallConditionItem? item) => ToggleConditionSetting(item, toggleIsOR: false);
 
     private bool TryGetSelectedCall([NotNullWhen(true)] out EntityNode? selectedCall) =>
         TryGetSelectedNode(EntityTypes.Call, out selectedCall);
@@ -357,14 +325,12 @@ public partial class MainViewModel
         var previousSelectionId = SelectedCallApiCall?.ApiCallId;
 
         if (!TryEditorRef(
-                "GetDeviceApiDefOptionsForCall",
-                () => _editor.Panel.GetDeviceApiDefOptionsForCall(callId),
+                () => _store.GetDeviceApiDefOptionsForCall(callId),
                 out var deviceOptions))
             return;
 
         if (!TryEditorRef(
-                "GetCallApiCallsForPanel",
-                () => _editor.Panel.GetCallApiCallsForPanel(callId),
+                () => _store.GetCallApiCallsForPanel(callId),
                 out var callRows))
             return;
 
@@ -381,21 +347,7 @@ public partial class MainViewModel
 
         CallApiCalls.Clear();
         foreach (var row in callRows)
-        {
-            CallApiCalls.Add(
-                new CallApiCallItem(
-                    row.ApiCallId,
-                    row.Name,
-                    row.ApiDefId,
-                    row.HasApiDef,
-                    row.ApiDefDisplayName,
-                    row.OutputAddress,
-                    row.InputAddress,
-                    row.ValueSpecText,
-                    row.InputValueSpecText,
-                    row.OutputSpecTypeIndex,
-                    row.InputSpecTypeIndex));
-        }
+            CallApiCalls.Add(CallApiCallItem.FromPanel(row));
 
         if (previousSelectionId is { } selectedId)
             SelectedCallApiCall = CallApiCalls.FirstOrDefault(x => x.ApiCallId == selectedId);
@@ -411,8 +363,7 @@ public partial class MainViewModel
         ClearConditionSections();
 
         if (!TryEditorRef(
-                "GetCallConditionsForPanelUi",
-                () => _editor.Panel.GetCallConditionsForPanelUi(callId),
+                () => _store.GetCallConditionsForPanelUi(callId),
                 out var conditions))
             return;
 

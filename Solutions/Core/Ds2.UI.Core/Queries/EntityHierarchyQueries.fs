@@ -21,32 +21,20 @@ let findProjectOfSystem (store: DsStore) (systemId: Guid) : Guid option =
         then Some p.Id
         else None)
 
-let findHwParent (store: DsStore) (hwId: Guid) : Guid option =
-    match store.HwButtons.TryGetValue(hwId) with
-    | true, b -> Some b.ParentId
-    | _ ->
-        match store.HwLamps.TryGetValue(hwId) with
-        | true, l -> Some l.ParentId
-        | _ ->
-            match store.HwConditions.TryGetValue(hwId) with
-            | true, c -> Some c.ParentId
-            | _ ->
-                match store.HwActions.TryGetValue(hwId) with
-                | true, a -> Some a.ParentId
-                | _ -> None
-
-let isCallInFlow (store: DsStore) (callId: Guid) (flowId: Guid) : bool =
-    match DsQuery.getCall callId store with
-    | Some call ->
-        match DsQuery.getWork call.ParentId store with
-        | Some work -> work.ParentId = flowId
-        | None -> false
-    | None -> false
-
-// 계층 탐색 primitive — 각 엔티티 타입에서 부모 ID 한 단계 이동
-let private stepCallToWork  (store: DsStore) (callId: Guid)  = DsQuery.getCall callId  store |> Option.map (fun c -> c.ParentId)
-let private stepWorkToFlow  (store: DsStore) (workId: Guid)  = DsQuery.getWork workId  store |> Option.map (fun w -> w.ParentId)
-let private stepFlowToSystem(store: DsStore) (flowId: Guid)  = DsQuery.getFlow flowId  store |> Option.map (fun f -> f.ParentId)
+/// 계층을 거슬러 올라가며 targetKind 수준의 조상 ID를 찾는다.
+/// Call → Work → Flow → System 순으로 부모를 추적.
+let resolveTarget (store: DsStore) (targetKind: EntityKind) (entityType: string) (entityId: Guid) : Guid option =
+    let rec walk kind id =
+        if kind = targetKind then Some id
+        else
+            match kind with
+            | EntityKind.Call -> DsQuery.getCall id store |> Option.bind (fun c -> walk EntityKind.Work c.ParentId)
+            | EntityKind.Work -> DsQuery.getWork id store |> Option.bind (fun w -> walk EntityKind.Flow w.ParentId)
+            | EntityKind.Flow -> DsQuery.getFlow id store |> Option.bind (fun f -> walk EntityKind.System f.ParentId)
+            | _ -> None
+    match EntityKind.tryOfString entityType with
+    | ValueSome kind -> walk kind entityId
+    | ValueNone -> None
 
 let parentIdOf (store: DsStore) (entityType: string) (entityId: Guid) : Guid option =
     match entityType with
@@ -55,21 +43,9 @@ let parentIdOf (store: DsStore) (entityType: string) (entityId: Guid) : Guid opt
     | EntityTypeNames.Flow -> DsQuery.getFlow entityId store |> Option.map (fun f -> f.ParentId)
     | _                    -> None
 
-let tryFindWorkIdForEntity (store: DsStore) (entityType: string) (entityId: Guid) : Guid option =
-    match entityType with
-    | EntityTypeNames.Work -> DsQuery.getWork entityId store |> Option.map (fun w -> w.Id)
-    | EntityTypeNames.Call -> stepCallToWork store entityId
-    | _ -> None
-
-let tryFindFlowIdForEntity (store: DsStore) (entityType: string) (entityId: Guid) : Guid option =
-    match entityType with
-    | EntityTypeNames.Flow -> DsQuery.getFlow entityId store |> Option.map (fun f -> f.Id)
-    | _ -> tryFindWorkIdForEntity store entityType entityId |> Option.bind (stepWorkToFlow store)
-
-let tryFindSystemIdForEntity (store: DsStore) (entityType: string) (entityId: Guid) : Guid option =
-    match entityType with
-    | EntityTypeNames.System -> DsQuery.getSystem entityId store |> Option.map (fun s -> s.Id)
-    | _ -> tryFindFlowIdForEntity store entityType entityId |> Option.bind (stepFlowToSystem store)
+let tryFindWorkIdForEntity   store entityType entityId = resolveTarget store EntityKind.Work   entityType entityId
+let tryFindFlowIdForEntity   store entityType entityId = resolveTarget store EntityKind.Flow   entityType entityId
+let tryFindSystemIdForEntity store entityType entityId = resolveTarget store EntityKind.System entityType entityId
 
 let tryFindProjectIdForEntity (store: DsStore) (entityType: string) (entityId: Guid) : Guid option =
     match entityType with
@@ -80,55 +56,28 @@ let tryFindProjectIdForEntity (store: DsStore) (entityType: string) (entityId: G
         tryFindSystemIdForEntity store entityType entityId
         |> Option.bind (findProjectOfSystem store)
 
-let resolveSystemForEntity (store: DsStore) (entityType: string) (entityId: Guid) : (Guid * Guid) option =
+let private lookupEntity (store: DsStore) (tabKind: TabKind) (id: Guid) : (Guid * string) option =
+    match tabKind with
+    | TabKind.System -> DsQuery.getSystem id store |> Option.map (fun s -> s.Id, s.Name)
+    | TabKind.Flow   -> DsQuery.getFlow   id store |> Option.map (fun f -> f.Id, f.Name)
+    | TabKind.Work   -> DsQuery.getWork   id store |> Option.map (fun w -> w.Id, w.Name)
+    | _              -> None
+
+let private tabKindForEntityType entityType =
     match entityType with
-    | EntityTypeNames.System ->
-        DsQuery.flowsOf entityId store
-        |> List.tryHead
-        |> Option.map (fun f -> (entityId, f.Id))
-    | EntityTypeNames.Flow ->
-        DsQuery.getFlow entityId store
-        |> Option.map (fun f -> (f.ParentId, entityId))
-    | EntityTypeNames.Work ->
-        DsQuery.getWork entityId store
-        |> Option.bind (fun w -> DsQuery.getFlow w.ParentId store)
-        |> Option.map (fun f -> (f.ParentId, f.Id))
-    | _ -> None
+    | EntityTypeNames.System -> Some TabKind.System
+    | EntityTypeNames.Flow   -> Some TabKind.Flow
+    | EntityTypeNames.Work   -> Some TabKind.Work
+    | _                      -> None
 
 let tryOpenTabForEntity (store: DsStore) (entityType: string) (entityId: Guid) : TabOpenInfo option =
-    match entityType with
-    | EntityTypeNames.System ->
-        DsQuery.getSystem entityId store
-        |> Option.map (fun s ->
-            { Kind = TabKind.System
-              RootId = s.Id
-              Title = s.Name })
-    | EntityTypeNames.Flow ->
-        DsQuery.getFlow entityId store
-        |> Option.map (fun f ->
-            { Kind = TabKind.Flow
-              RootId = f.Id
-              Title = f.Name })
-    | EntityTypeNames.Work ->
-        DsQuery.getWork entityId store
-        |> Option.map (fun w ->
-            { Kind = TabKind.Work
-              RootId = w.Id
-              Title = w.Name })
-    | _ -> None
+    tabKindForEntityType entityType
+    |> Option.bind (fun kind ->
+        lookupEntity store kind entityId
+        |> Option.map (fun (id, name) -> { Kind = kind; RootId = id; Title = name }))
 
 let tabTitle (store: DsStore) (tabKind: TabKind) (rootId: Guid) : string option =
-    match tabKind with
-    | TabKind.System ->
-        DsQuery.getSystem rootId store
-        |> Option.map (fun s -> s.Name)
-    | TabKind.Flow ->
-        DsQuery.getFlow rootId store
-        |> Option.map (fun f -> f.Name)
-    | TabKind.Work ->
-        DsQuery.getWork rootId store
-        |> Option.map (fun w -> w.Name)
-    | _ -> None
+    lookupEntity store tabKind rootId |> Option.map snd
 
 let tabExists (store: DsStore) (tabKind: TabKind) (rootId: Guid) : bool =
     tabTitle store tabKind rootId |> Option.isSome

@@ -9,7 +9,7 @@ public partial class MainViewModel
 {
     private void WireEvents()
     {
-        var observable = (IObservable<EditorEvent>)_editor.OnEvent;
+        var observable = (IObservable<EditorEvent>)_store.OnEvent;
         _eventSubscription?.Dispose();
         _eventSubscription = observable.Subscribe(new ActionObserver<EditorEvent>(
             evt => _dispatcher.Invoke(() =>
@@ -40,22 +40,20 @@ public partial class MainViewModel
     private void HandleEvent(EditorEvent evt)
     {
         if (!TryEditorFunc(
-                "TryGetAddedEntityId",
-                () => _editor.TryGetAddedEntityId(evt),
+                () => _store.TryGetAddedEntityId(evt),
                 out FSharpOption<Guid>? addedIdOpt,
                 fallback: null))
             return;
 
-        if (HasOptionValue(addedIdOpt))
+        if (addedIdOpt?.Value is { } addedId)
         {
             RebuildAll();
-            ExpandNodeAndAncestors(addedIdOpt!.Value);
+            ExpandNodeAndAncestors(addedId);
             return;
         }
 
         if (!TryEditorFunc(
-                "TryGetMovedNodeInfoOrNull",
-                () => _editor.TryGetMovedNodeInfoOrNull(evt),
+                () => _store.TryGetMovedNodeInfoOrNull(evt),
                 out UiNodeMoveInfo? movedNode,
                 fallback: null))
             return;
@@ -97,8 +95,7 @@ public partial class MainViewModel
         }
 
         if (!TryEditorFunc(
-                "IsTreeStructuralEvent",
-                () => _editor.IsTreeStructuralEvent(evt),
+                () => _store.IsTreeStructuralEvent(evt),
                 out var isTreeStructuralEvent,
                 fallback: false))
             return;

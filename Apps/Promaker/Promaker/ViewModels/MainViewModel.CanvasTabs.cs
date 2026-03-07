@@ -1,7 +1,6 @@
 using System;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.UI.Core;
-using Microsoft.FSharp.Core;
 
 namespace Promaker.ViewModels;
 
@@ -35,8 +34,7 @@ public partial class MainViewModel
     public void OpenCanvasTab(Guid entityId, string entityType)
     {
         if (!TryEditorFunc(
-                "TryOpenTabForEntityOrNull",
-                () => _editor.Query.TryOpenTabForEntityOrNull(entityType, entityId),
+                () => _store.TryOpenTabForEntityOrNull(entityType, entityId),
                 out var info,
                 fallback: null))
             return;
@@ -69,8 +67,7 @@ public partial class MainViewModel
         }
 
         if (!TryEditorFunc(
-                "CanvasContentForTabUi",
-                () => _editor.Query.CanvasContentForTabUi(ActiveTab.Kind, ActiveTab.RootId),
+                () => _store.CanvasContentForTabUi(ActiveTab.Kind, ActiveTab.RootId),
                 out var content,
                 fallback: (UiCanvasContent?)null,
                 statusOverride: "[ERROR] Failed to refresh canvas content."))
@@ -103,8 +100,7 @@ public partial class MainViewModel
             return;
 
         if (!TryEditorFunc(
-                "FlowIdsForTab",
-                () => _editor.Query.FlowIdsForTab(ActiveTab.Kind, ActiveTab.RootId),
+                () => _store.FlowIdsForTab(ActiveTab.Kind, ActiveTab.RootId),
                 out var flowIds,
                 fallback: null,
                 statusOverride: "[ERROR] Failed to resolve flow ids for canvas."))
@@ -120,8 +116,7 @@ public partial class MainViewModel
     private void ApplyArrowPathsFromFlow(Guid flowId)
     {
         if (!TryEditorFunc(
-                "GetFlowArrowPaths",
-                () => _editor.Query.GetFlowArrowPaths(flowId),
+                () => _store.GetFlowArrowPaths(flowId),
                 out var paths,
                 fallback: null))
             return;
@@ -147,8 +142,7 @@ public partial class MainViewModel
         DeviceTreeRoots.Clear();
 
         if (!TryEditorFunc(
-                "BuildTrees",
-                () => _editor.Query.BuildTrees(),
+                () => _store.BuildTrees(),
                 out var trees,
                 fallback: null,
                 statusOverride: "[ERROR] Failed to rebuild tree views."))
@@ -181,7 +175,7 @@ public partial class MainViewModel
 
     private bool TabExists(CanvasTab tab)
     {
-        if (!TryEditorFunc("TabExists", () => _editor.Query.TabExists(tab.Kind, tab.RootId), out var exists, fallback: false))
+        if (!TryEditorFunc(() => _store.TabExists(tab.Kind, tab.RootId), out var exists, fallback: false))
             return false;
 
         return exists;
@@ -190,8 +184,7 @@ public partial class MainViewModel
     private string ResolveTabTitle(CanvasTab tab)
     {
         if (!TryEditorFunc(
-                "TabTitleOrNull",
-                () => _editor.Query.TabTitleOrNull(tab.Kind, tab.RootId),
+                () => _store.TabTitleOrNull(tab.Kind, tab.RootId),
                 out var title,
                 fallback: null))
             return tab.Title;
@@ -204,7 +197,7 @@ public partial class MainViewModel
 
     private static EntityNode MapToEntityNode(TreeNodeInfo info)
     {
-        var parentId = FSharpOption<Guid>.get_IsSome(info.ParentId) ? (Guid?)info.ParentId.Value : null;
+        var parentId = info.ParentId?.Value;
         var node = new EntityNode(info.Id, info.EntityType, info.Name, parentId);
         foreach (var child in info.Children)
             node.Children.Add(MapToEntityNode(child));
