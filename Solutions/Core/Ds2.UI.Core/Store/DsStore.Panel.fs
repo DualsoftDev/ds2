@@ -87,46 +87,61 @@ module internal DirectPanelOps =
             apiDef.Properties.Period,
             apiDef.Properties.Description |> Option.defaultValue "")
 
+    /// Call 조회 → 매핑 or warn + 빈 리스트
+    let withCallOrEmpty (store: DsStore) (callId: Guid) (f: Call -> 'T list) : 'T list =
+        match DsQuery.getCall callId store with
+        | Some call -> f call
+        | None -> StoreLog.warn($"Call not found. id={callId}"); []
+
+    /// withTransactionCallProps + TrackMutate(Calls) 조합 (조건 CRUD용)
+    let mutateCallProps (store: DsStore) callId label (mutate: Call -> unit) =
+        withTransactionCallProps store callId label (fun () ->
+            store.TrackMutate(store.Calls, callId, mutate))
+
 // =============================================================================
 // DsStore 패널 확장 — 속성 패널 읽기/쓰기
 // =============================================================================
 
+module internal TimeSpanMsHelper =
+    let getMs (tsOpt: TimeSpan option) : int option =
+        tsOpt |> Option.map (fun t -> int t.TotalMilliseconds)
+
+    let fromMs (ms: int option) : TimeSpan option =
+        ms |> Option.map (fun m -> TimeSpan.FromMilliseconds(float m))
+
+    /// 엔티티 조회 → TimeSpan 속성 → ms 변환, 없으면 warn + None
+    let readMs (query: Guid -> DsStore -> 'T option) (getProp: 'T -> TimeSpan option) (entityType: string) (store: DsStore) (id: Guid) : int option =
+        query id store
+        |> Option.bind (fun e -> getProp e |> getMs)
+        |> Option.orElseWith (fun () -> StoreLog.warn($"{entityType} not found. id={id}"); None)
+
 [<Extension>]
 type DsStorePanelExtensions =
 
-    // ─── Work Period (ms) ───────────────────────────────────────
+    // ─── Work Period / Call Timeout (ms) ─────────────────────────
     [<Extension>]
     static member GetWorkPeriodMs(store: DsStore, workId: Guid) : int option =
-        match DsQuery.getWork workId store with
-        | Some work -> work.Properties.Period |> Option.map (fun p -> int p.TotalMilliseconds)
-        | None ->
-            StoreLog.warn($"Work not found. id={workId}")
-            None
+        TimeSpanMsHelper.readMs DsQuery.getWork (fun w -> w.Properties.Period) "Work" store workId
+
+    [<Extension>]
+    static member GetCallTimeoutMs(store: DsStore, callId: Guid) : int option =
+        TimeSpanMsHelper.readMs DsQuery.getCall (fun c -> c.Properties.Timeout) "Call" store callId
 
     [<Extension>]
     static member UpdateWorkPeriodMs(store: DsStore, workId: Guid, periodMs: int option) =
         StoreLog.debug($"workId={workId}, periodMs={periodMs}")
         let work = StoreLog.requireWork(store, workId)
-        let period = periodMs |> Option.map (fun ms -> TimeSpan.FromMilliseconds(float ms))
+        let period = TimeSpanMsHelper.fromMs periodMs
         if work.Properties.Period <> period then
             store.WithTransaction("Work 속성 변경", fun () ->
                 store.TrackMutate(store.Works, workId, fun w -> w.Properties.Period <- period))
             store.EmitAndHistory(WorkPropsChanged workId)
 
-    // ─── Call Timeout (ms) ───────────────────────────────────────
-    [<Extension>]
-    static member GetCallTimeoutMs(store: DsStore, callId: Guid) : int option =
-        match DsQuery.getCall callId store with
-        | Some call -> call.Properties.Timeout |> Option.map (fun t -> int t.TotalMilliseconds)
-        | None ->
-            StoreLog.warn($"Call not found. id={callId}")
-            None
-
     [<Extension>]
     static member UpdateCallTimeoutMs(store: DsStore, callId: Guid, timeoutMs: int option) =
         StoreLog.debug($"callId={callId}, timeoutMs={timeoutMs}")
         let call = StoreLog.requireCall(store, callId)
-        let timeout = timeoutMs |> Option.map (fun ms -> TimeSpan.FromMilliseconds(float ms))
+        let timeout = TimeSpanMsHelper.fromMs timeoutMs
         if call.Properties.Timeout <> timeout then
             store.WithTransaction("Call 속성 변경", fun () ->
                 store.TrackMutate(store.Calls, callId, fun c -> c.Properties.Timeout <- timeout))
@@ -165,12 +180,19 @@ type DsStorePanelExtensions =
     // ─── ApiCall Panel ─────────────────────────────────────────────
     [<Extension>]
     static member GetCallApiCallsForPanel(store: DsStore, callId: Guid) : CallApiCallPanelItem list =
+        DirectPanelOps.withCallOrEmpty store callId (fun call ->
+            call.ApiCalls |> Seq.map (DirectPanelOps.toCallApiCallPanelItem store) |> Seq.toList)
+
+    [<Extension>]
+    static member TryGetCallApiCallForPanel(store: DsStore, callId: Guid, apiCallId: Guid) : CallApiCallPanelItem option =
         match DsQuery.getCall callId store with
         | Some call ->
-            call.ApiCalls |> Seq.map (DirectPanelOps.toCallApiCallPanelItem store) |> Seq.toList
+            call.ApiCalls
+            |> Seq.tryFind (fun apiCall -> apiCall.Id = apiCallId)
+            |> Option.map (DirectPanelOps.toCallApiCallPanelItem store)
         | None ->
             StoreLog.warn($"Call not found. id={callId}")
-            []
+            None
 
     [<Extension>]
     static member GetAllApiCallsForPanel(store: DsStore) : CallApiCallPanelItem list =
@@ -257,8 +279,7 @@ type DsStorePanelExtensions =
     // ─── Call Conditions ───────────────────────────────────────────
     [<Extension>]
     static member GetCallConditionsForPanelUi(store: DsStore, callId: Guid) : UiCallConditionPanelItem list =
-        match DsQuery.getCall callId store with
-        | Some call ->
+        DirectPanelOps.withCallOrEmpty store callId (fun call ->
             call.CallConditions
             |> Seq.map (fun cond ->
                 let items = cond.Conditions |> Seq.map (DirectPanelOps.toConditionApiCallItem store) |> Seq.toList
@@ -266,27 +287,22 @@ type DsStorePanelExtensions =
                     cond.Id,
                     UiCallConditionType.ofCore (cond.Type |> Option.defaultValue CallConditionType.Auto),
                     cond.IsOR, cond.IsRising, items))
-            |> Seq.toList
-        | None ->
-            StoreLog.warn($"Call not found. id={callId}")
-            []
+            |> Seq.toList)
 
     [<Extension>]
     static member AddCallConditionUi(store: DsStore, callId: Guid, condType: UiCallConditionType) : bool =
         StoreLog.debug($"callId={callId}, condType={condType}")
-        let _call = StoreLog.requireCall(store, callId)
+        StoreLog.requireCall(store, callId) |> ignore
         let cond = CallCondition(Type = Some (UiCallConditionType.toCore condType))
-        DirectPanelOps.withTransactionCallProps store callId "조건 추가" (fun () ->
-            store.TrackMutate(store.Calls, callId, fun c -> c.CallConditions.Add(cond)))
+        DirectPanelOps.mutateCallProps store callId "조건 추가" (fun c -> c.CallConditions.Add(cond))
         true
 
     [<Extension>]
     static member RemoveCallCondition(store: DsStore, callId: Guid, conditionId: Guid) : bool =
         StoreLog.debug($"callId={callId}, conditionId={conditionId}")
         StoreLog.requireCallCondition(store, callId, conditionId) |> ignore
-        DirectPanelOps.withTransactionCallProps store callId "조건 삭제" (fun () ->
-            store.TrackMutate(store.Calls, callId, fun c ->
-                c.CallConditions.RemoveAll(fun cc -> cc.Id = conditionId) |> ignore))
+        DirectPanelOps.mutateCallProps store callId "조건 삭제" (fun c ->
+            c.CallConditions.RemoveAll(fun cc -> cc.Id = conditionId) |> ignore)
         true
 
     [<Extension>]
@@ -294,10 +310,9 @@ type DsStorePanelExtensions =
         StoreLog.debug($"callId={callId}, condId={condId}, isOR={isOR}, isRising={isRising}")
         let cond = StoreLog.requireCallCondition(store, callId, condId)
         if cond.IsOR <> isOR || cond.IsRising <> isRising then
-            DirectPanelOps.withTransactionCallProps store callId "조건 설정 변경" (fun () ->
-                store.TrackMutate(store.Calls, callId, fun _ ->
-                    cond.IsOR <- isOR
-                    cond.IsRising <- isRising))
+            DirectPanelOps.mutateCallProps store callId "조건 설정 변경" (fun _ ->
+                cond.IsOR <- isOR
+                cond.IsRising <- isRising)
             true
         else false
 
@@ -307,14 +322,13 @@ type DsStorePanelExtensions =
         if sources.IsEmpty then 0
         else
             StoreLog.debug($"callId={callId}, condId={condId}, count={sources.Length}")
-            let _cond = StoreLog.requireCallCondition(store, callId, condId)
-            DirectPanelOps.withTransactionCallProps store callId "조건에 ApiCall 추가" (fun () ->
-                store.TrackMutate(store.Calls, callId, fun c ->
-                    let cond = DirectPanelOps.findCondition c condId
-                    for src in sources do
-                        let copy = src.DeepCopy()
-                        copy.Id <- src.Id
-                        cond.Conditions.Add(copy)))
+            StoreLog.requireCallCondition(store, callId, condId) |> ignore
+            DirectPanelOps.mutateCallProps store callId "조건에 ApiCall 추가" (fun c ->
+                let cond = DirectPanelOps.findCondition c condId
+                for src in sources do
+                    let copy = src.DeepCopy()
+                    copy.Id <- src.Id
+                    cond.Conditions.Add(copy))
             sources.Length
 
     [<Extension>]
@@ -322,9 +336,8 @@ type DsStorePanelExtensions =
         StoreLog.debug($"callId={callId}, condId={condId}, apiCallId={apiCallId}")
         let cond = StoreLog.requireCallCondition(store, callId, condId)
         StoreLog.requireApiCallInCondition(cond, apiCallId) |> ignore
-        DirectPanelOps.withTransactionCallProps store callId "조건에서 ApiCall 제거" (fun () ->
-            store.TrackMutate(store.Calls, callId, fun c ->
-                (DirectPanelOps.findCondition c condId).Conditions.RemoveAll(fun ac -> ac.Id = apiCallId) |> ignore))
+        DirectPanelOps.mutateCallProps store callId "조건에서 ApiCall 제거" (fun c ->
+            (DirectPanelOps.findCondition c condId).Conditions.RemoveAll(fun ac -> ac.Id = apiCallId) |> ignore)
         true
 
     [<Extension>]
@@ -334,9 +347,8 @@ type DsStorePanelExtensions =
         let ac = StoreLog.requireApiCallInCondition(cond, apiCallId)
         let newSpec = PropertyPanelValueSpec.parseFromPanel outTypeIndex outText
         if ac.OutputSpec <> newSpec then
-            DirectPanelOps.withTransactionCallProps store callId "조건 OutputSpec 변경" (fun () ->
-                store.TrackMutate(store.Calls, callId, fun c ->
-                    let ac = (DirectPanelOps.findCondition c condId).Conditions |> Seq.find (fun a -> a.Id = apiCallId)
-                    ac.OutputSpec <- newSpec))
+            DirectPanelOps.mutateCallProps store callId "조건 OutputSpec 변경" (fun c ->
+                let ac = (DirectPanelOps.findCondition c condId).Conditions |> Seq.find (fun a -> a.Id = apiCallId)
+                ac.OutputSpec <- newSpec)
             true
         else false

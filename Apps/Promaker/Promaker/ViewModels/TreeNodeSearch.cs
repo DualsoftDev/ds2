@@ -26,45 +26,26 @@ internal static class TreeNodeSearch
         }
     }
 
-    public static EntityNode? FindById(IEnumerable<EntityNode> nodes, Guid id)
+    private static EntityNode? FindFirst(IEnumerable<EntityNode> nodes, Func<EntityNode, bool> predicate)
     {
         foreach (var node in nodes)
         {
-            if (node.Id == id)
+            if (predicate(node))
                 return node;
 
-            if (FindById(node.Children, id) is { } found)
+            if (FindFirst(node.Children, predicate) is { } found)
                 return found;
         }
 
         return null;
     }
 
-    public static EntityNode? FindByKey(IEnumerable<EntityNode> nodes, SelectionKey key)
-    {
-        foreach (var node in nodes)
-        {
-            if (node.Id == key.Id && node.EntityType == key.EntityType)
-                return node;
+    public static EntityNode? FindById(IEnumerable<EntityNode> nodes, Guid id) =>
+        FindFirst(nodes, n => n.Id == id);
 
-            if (FindByKey(node.Children, key) is { } found)
-                return found;
-        }
+    public static EntityNode? FindByKey(IEnumerable<EntityNode> nodes, SelectionKey key) =>
+        FindFirst(nodes, n => n.Id == key.Id && n.EntityType == key.EntityType);
 
-        return null;
-    }
-
-    public static EntityNode? FindParentByChildId(IEnumerable<EntityNode> nodes, Guid childId)
-    {
-        foreach (var node in nodes)
-        {
-            if (node.Children.Any(c => c.Id == childId))
-                return node;
-
-            if (FindParentByChildId(node.Children, childId) is { } found)
-                return found;
-        }
-
-        return null;
-    }
+    public static EntityNode? FindParentByChildId(IEnumerable<EntityNode> nodes, Guid childId) =>
+        FindFirst(nodes, n => n.Children.Any(c => c.Id == childId));
 }

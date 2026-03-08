@@ -202,9 +202,7 @@ type DsStore() =
             this.RewireApiCallReferences()
             push(tx)
             log.Debug($"{label}: {tx.Label}")
-            if not suppressEvents then
-                eventBus.Trigger(StoreRefreshed)
-                eventBus.Trigger(HistoryChanged(undoManager.UndoLabels, undoManager.RedoLabels))
+            this.EmitRefreshAndHistory()
 
     member this.Undo() =
         this.ApplyTransaction(undoManager.PopUndo, undoManager.PushRedo,
@@ -223,8 +221,7 @@ type DsStore() =
             try for _ in 1 .. n do action()
             finally
                 suppressEvents <- false
-                eventBus.Trigger(StoreRefreshed)
-                eventBus.Trigger(HistoryChanged(undoManager.UndoLabels, undoManager.RedoLabels))
+                this.EmitRefreshAndHistory()
 
     member this.UndoTo(steps: int) = this.RunBatch(this.Undo, steps)
     member this.RedoTo(steps: int) = this.RunBatch(this.Redo, steps)
@@ -265,8 +262,7 @@ type DsStore() =
             this.ReplaceAllCollections(newStore)
             undoManager.Clear()
             log.Info($"Store applied: {contextLabel}")
-            eventBus.Trigger(StoreRefreshed)
-            eventBus.Trigger(HistoryChanged(undoManager.UndoLabels, undoManager.RedoLabels))
+            this.EmitRefreshAndHistory()
         with ex ->
             log.Error($"ApplyNewStore failed: {contextLabel} — {ex.Message}", ex)
             raise (InvalidOperationException($"{contextLabel} failed: {ex.Message}", ex))

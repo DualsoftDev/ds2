@@ -99,16 +99,18 @@ let private tryResolveNodePosition
             | Some call -> Some(positionOrDefault call.Position)
             | None -> None
 
+let private addArrowPaths
+    (store: DsStore) (positions: Collections.Generic.Dictionary<Guid, Xywh>)
+    (result: Collections.Generic.Dictionary<Guid, ArrowVisual>) (arrows: DsArrow list) =
+    for arrow in arrows do
+        match tryResolveNodePosition store positions arrow.SourceId, tryResolveNodePosition store positions arrow.TargetId with
+        | Some srcPos, Some tgtPos -> result.[arrow.Id] <- computePath srcPos tgtPos
+        | _ -> ()
+
 /// Flow 내 모든 화살표 경로 일괄 계산
 let computeFlowArrowPaths (store: DsStore) (flowId: Guid) : Map<Guid, ArrowVisual> =
     let positions = buildNodePositions store flowId
     let result = Collections.Generic.Dictionary<Guid, ArrowVisual>()
-    for arrow in DsQuery.arrowWorksOf flowId store do
-        match tryResolveNodePosition store positions arrow.SourceId, tryResolveNodePosition store positions arrow.TargetId with
-        | Some srcPos, Some tgtPos -> result.[arrow.Id] <- computePath srcPos tgtPos
-        | _ -> ()
-    for arrow in DsQuery.arrowCallsOf flowId store do
-        match tryResolveNodePosition store positions arrow.SourceId, tryResolveNodePosition store positions arrow.TargetId with
-        | Some srcPos, Some tgtPos -> result.[arrow.Id] <- computePath srcPos tgtPos
-        | _ -> ()
+    addArrowPaths store positions result (DsQuery.arrowWorksOf flowId store |> List.map (fun a -> a :> DsArrow))
+    addArrowPaths store positions result (DsQuery.arrowCallsOf flowId store |> List.map (fun a -> a :> DsArrow))
     result |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
