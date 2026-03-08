@@ -28,8 +28,7 @@ public sealed class CallApiCallItem : ObservableObject
     public CallApiCallItem(
         Guid apiCallId,
         string name,
-        Guid apiDefId,
-        bool hasApiDef,
+        Guid? apiDefId,
         string apiDefDisplayName,
         string outputAddress,
         string inputAddress,
@@ -43,7 +42,7 @@ public sealed class CallApiCallItem : ObservableObject
         OutputSpecTypeIndex         = outputSpecTypeIndex;
         InputSpecTypeIndex          = inputSpecTypeIndex;
 
-        _apiDefId                   = hasApiDef && apiDefId != Guid.Empty ? apiDefId : null;
+        _apiDefId                   = apiDefId;
         _name                       = name;
         _outputAddress              = outputAddress;
         _inputAddress               = inputAddress;
@@ -59,7 +58,7 @@ public sealed class CallApiCallItem : ObservableObject
     }
 
     public static CallApiCallItem FromPanel(CallApiCallPanelItem row) =>
-        new(row.ApiCallId, row.Name, row.ApiDefId, row.HasApiDef,
+        new(row.ApiCallId, row.Name, row.ApiDefIdOrNull,
             row.ApiDefDisplayName, row.OutputAddress, row.InputAddress,
             row.ValueSpecText, row.InputValueSpecText,
             row.OutputSpecTypeIndex, row.InputSpecTypeIndex);

@@ -16,7 +16,6 @@ open Ds2.Core
 /// <code>
 /// let store = DsStore.empty()
 /// let project = DsQuery.getProject projectId store
-/// let systems = DsQuery.allSystems store
 /// let flows = DsQuery.flowsOf systemId store
 /// </code>
 /// </example>
@@ -58,9 +57,6 @@ module DsQuery =
     /// <summary>DsSystem ID로 DsSystem 조회</summary>
     let getSystem (id: Guid) (store: DsStore) = byId store.Systems id
 
-    /// <summary>모든 DsSystem 조회</summary>
-    let allSystems (store: DsStore) : DsSystem list = allOf store.SystemsReadOnly
-
     /// <summary>특정 Project의 ActiveSystem 목록 조회 (순서 유지)</summary>
     let activeSystemsOf (projectId: Guid) (store: DsStore) : DsSystem list =
         orderedSystemsOf (fun p -> p.ActiveSystemIds) projectId store
@@ -94,9 +90,6 @@ module DsQuery =
     /// <summary>Work ID로 Work 조회</summary>
     let getWork (id: Guid) (store: DsStore) = byId store.Works id
 
-    /// <summary>모든 Work 조회</summary>
-    let allWorks (store: DsStore) : Work list = allOf store.WorksReadOnly
-
     /// <summary>특정 Flow에 속한 Work들 조회</summary>
     let worksOf (flowId: Guid) (store: DsStore) : Work list =
         childrenOf store.WorksReadOnly.Values flowId (fun w -> w.ParentId)
@@ -114,9 +107,6 @@ module DsQuery =
     /// <summary>Call ID로 Call 조회</summary>
     let getCall (id: Guid) (store: DsStore) = byId store.Calls id
 
-    /// <summary>모든 Call 조회</summary>
-    let allCalls (store: DsStore) : Call list = allOf store.CallsReadOnly
-
     /// <summary>특정 Work에 속한 Call들 조회</summary>
     let callsOf (workId: Guid) (store: DsStore) : Call list =
         childrenOf store.CallsReadOnly.Values workId (fun c -> c.ParentId)
@@ -127,9 +117,6 @@ module DsQuery =
 
     /// <summary>ApiDef ID로 ApiDef 조회</summary>
     let getApiDef (id: Guid) (store: DsStore) = byId store.ApiDefs id
-
-    /// <summary>모든 ApiDef 조회</summary>
-    let allApiDefs (store: DsStore) : ApiDef list = allOf store.ApiDefsReadOnly
 
     /// <summary>특정 DsSystem에 속한 ApiDef들 조회</summary>
     let apiDefsOf (systemId: Guid) (store: DsStore) : ApiDef list =
@@ -180,9 +167,6 @@ module DsQuery =
     /// <summary>HwButton ID로 Button 조회</summary>
     let getButton (id: Guid) (store: DsStore) = byId store.HwButtons id
 
-    /// <summary>모든 HwButton 조회</summary>
-    let allButtons (store: DsStore) : HwButton list = allOf store.HwButtonsReadOnly
-
     /// <summary>특정 DsSystem에 속한 HwButton들 조회</summary>
     let buttonsOf (systemId: Guid) (store: DsStore) : HwButton list =
         childrenOf store.HwButtonsReadOnly.Values systemId (fun b -> b.ParentId)
@@ -193,9 +177,6 @@ module DsQuery =
 
     /// <summary>HwLamp ID로 Lamp 조회</summary>
     let getLamp (id: Guid) (store: DsStore) = byId store.HwLamps id
-
-    /// <summary>모든 HwLamp 조회</summary>
-    let allLamps (store: DsStore) : HwLamp list = allOf store.HwLampsReadOnly
 
     /// <summary>특정 DsSystem에 속한 HwLamp들 조회</summary>
     let lampsOf (systemId: Guid) (store: DsStore) : HwLamp list =
@@ -208,9 +189,6 @@ module DsQuery =
     /// <summary>HwCondition ID로 Condition 조회</summary>
     let getCondition (id: Guid) (store: DsStore) = byId store.HwConditions id
 
-    /// <summary>모든 HwCondition 조회</summary>
-    let allConditions (store: DsStore) : HwCondition list = allOf store.HwConditionsReadOnly
-
     /// <summary>특정 DsSystem에 속한 HwCondition들 조회</summary>
     let conditionsOf (systemId: Guid) (store: DsStore) : HwCondition list =
         childrenOf store.HwConditionsReadOnly.Values systemId (fun c -> c.ParentId)
@@ -221,9 +199,6 @@ module DsQuery =
 
     /// <summary>HwAction ID로 Action 조회</summary>
     let getAction (id: Guid) (store: DsStore) = byId store.HwActions id
-
-    /// <summary>모든 HwAction 조회</summary>
-    let allActions (store: DsStore) : HwAction list = allOf store.HwActionsReadOnly
 
     /// <summary>특정 DsSystem에 속한 HwAction들 조회</summary>
     let actionsOf (systemId: Guid) (store: DsStore) : HwAction list =

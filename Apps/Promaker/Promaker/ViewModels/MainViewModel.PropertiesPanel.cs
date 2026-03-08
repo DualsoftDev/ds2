@@ -5,7 +5,6 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.UI.Core;
-using Microsoft.FSharp.Core;
 using Promaker;
 
 namespace Promaker.ViewModels;
@@ -58,7 +57,7 @@ public partial class MainViewModel
         if (RequireSelectedAs(EntityKind.Work) is not { } selectedWork) return;
 
         if (!TryEditorAction(
-                () => _store.UpdateWorkPeriodMs(selectedWork.Id, ToOption(WorkPeriodMs))))
+                () => _store.UpdateWorkPeriodMs(selectedWork.Id, WorkPeriodMs)))
             return;
 
         _originalWorkPeriodMs = WorkPeriodMs;
@@ -76,7 +75,7 @@ public partial class MainViewModel
 
         if (IsWorkSelected && selected is not null)
         {
-            _originalWorkPeriodMs = LoadOptionalMsFromStore(selected.Id, _store.GetWorkPeriodMs);
+            _originalWorkPeriodMs = LoadOptionalMsFromStore(selected.Id, _store.GetWorkPeriodMsOrNull);
             WorkPeriodMs = _originalWorkPeriodMs;
         }
         else
@@ -87,7 +86,7 @@ public partial class MainViewModel
 
         if (IsCallSelected && selected is not null)
         {
-            _originalCallTimeoutMs = LoadOptionalMsFromStore(selected.Id, _store.GetCallTimeoutMs);
+            _originalCallTimeoutMs = LoadOptionalMsFromStore(selected.Id, _store.GetCallTimeoutMsOrNull);
             CallTimeoutMs = _originalCallTimeoutMs;
             RefreshCallPanel(selected.Id);
         }
@@ -107,10 +106,10 @@ public partial class MainViewModel
             SystemApiDefs.Clear();
     }
 
-    private int? LoadOptionalMsFromStore(Guid entityId, Func<Guid, FSharpOption<int>> getter)
+    private int? LoadOptionalMsFromStore(Guid entityId, Func<Guid, int?> getter)
     {
-        if (TryEditorFunc(() => getter(entityId), out var opt, fallback: null))
-            return opt?.Value;
+        if (TryEditorFunc(() => getter(entityId), out int? value, fallback: null))
+            return value;
         return null;
     }
 

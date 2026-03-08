@@ -44,13 +44,13 @@ let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
         works
         |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position)
 
-    let systemId =
-        DsQuery.getFlow flowId store |> Option.map (fun f -> f.ParentId) |> Option.defaultValue Guid.Empty
-
     let arrows =
-        DsQuery.arrowWorksOf systemId store
-        |> List.filter (fun a -> workIds.Contains a.SourceId && workIds.Contains a.TargetId)
-        |> List.map toArrowInfo
+        match DsQuery.getFlow flowId store with
+        | None -> []
+        | Some flow ->
+            DsQuery.arrowWorksOf flow.ParentId store
+            |> List.filter (fun a -> workIds.Contains a.SourceId && workIds.Contains a.TargetId)
+            |> List.map toArrowInfo
 
     { Nodes = nodes; Arrows = arrows }
 

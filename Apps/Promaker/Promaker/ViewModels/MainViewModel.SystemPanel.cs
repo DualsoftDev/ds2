@@ -76,13 +76,13 @@ public partial class MainViewModel
 
     public void EditApiDefNode(Guid apiDefId)
     {
-        if (!TryEditorFunc(() => _store.TryGetApiDefForEdit(apiDefId), out var editInfo, fallback: null))
+        if (!TryEditorRef(
+                () => _store.TryGetApiDefForEditOrNull(apiDefId),
+                out var info))
             return;
 
-        if (editInfo is not { } info)
-            return;
-
-        var (systemId, existing) = info.Value;
+        var systemId = info.SystemId;
+        var existing = info.Item;
         if (!TryShowApiDefDialog(systemId, existing, out var dialog)) return;
         if (!TryUpdateApiDef(apiDefId, dialog)) return;
 

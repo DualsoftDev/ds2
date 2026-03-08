@@ -7,12 +7,12 @@ let flowsForSystem (store: DsStore) (systemId: Guid) : (Guid * string) list =
     DsQuery.flowsOf systemId store
     |> List.map (fun f -> (f.Id, f.Name))
 
-let entityKindForTabKind (tabKind: TabKind) : EntityKind option =
+let entityKindForTabKind (tabKind: TabKind) : EntityKind =
     match tabKind with
-    | TabKind.System -> Some EntityKind.System
-    | TabKind.Flow -> Some EntityKind.Flow
-    | TabKind.Work -> Some EntityKind.Work
-    | _ -> None
+    | TabKind.System -> EntityKind.System
+    | TabKind.Flow -> EntityKind.Flow
+    | TabKind.Work -> EntityKind.Work
+    | _ -> invalidArg (nameof tabKind) $"Unknown TabKind: {tabKind}"
 
 let findProjectOfSystem (store: DsStore) (systemId: Guid) : Guid option =
     DsQuery.allProjects store
@@ -41,8 +41,6 @@ let parentIdOf (store: DsStore) (entityKind: EntityKind) (entityId: Guid) : Guid
     | EntityKind.Flow -> DsQuery.getFlow entityId store |> Option.map (fun f -> f.ParentId)
     | _               -> None
 
-let tryFindWorkIdForEntity   store entityKind entityId = resolveTarget store EntityKind.Work   entityKind entityId
-let tryFindFlowIdForEntity   store entityKind entityId = resolveTarget store EntityKind.Flow   entityKind entityId
 let tryFindSystemIdForEntity store entityKind entityId = resolveTarget store EntityKind.System entityKind entityId
 
 let tryFindProjectIdForEntity (store: DsStore) (entityKind: EntityKind) (entityId: Guid) : Guid option =

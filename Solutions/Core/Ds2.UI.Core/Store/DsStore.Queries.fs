@@ -27,6 +27,11 @@ type DsStoreQueriesExtensions =
         EntityHierarchyQueries.tryOpenTabForEntity store entityKind entityId
 
     [<Extension>]
+    static member TryOpenTabForEntityOrNull(store: DsStore, entityKind: EntityKind, entityId: Guid) : TabOpenInfo =
+        EntityHierarchyQueries.tryOpenTabForEntity store entityKind entityId
+        |> Option.toObj
+
+    [<Extension>]
     static member FlowIdsForTab(store: DsStore, kind: TabKind, rootId: Guid) : Guid list =
         EntityHierarchyQueries.flowIdsForTab store kind rootId
 
@@ -35,8 +40,18 @@ type DsStoreQueriesExtensions =
         EntityHierarchyQueries.tabTitle store kind rootId
 
     [<Extension>]
+    static member TabTitleOrNull(store: DsStore, kind: TabKind, rootId: Guid) : string =
+        EntityHierarchyQueries.tabTitle store kind rootId
+        |> Option.toObj
+
+    [<Extension>]
     static member FindApiDefsByName(store: DsStore, filterName: string) : ApiDefMatch list =
         EntityHierarchyQueries.findApiDefs store filterName
+
+    [<Extension>]
+    static member AddedEntityIdOrNull(store: DsStore, evt: EditorEvent) : Nullable<Guid> =
+        store.TryGetAddedEntityId(evt)
+        |> Option.toNullable
 
     // ─── ArrowPathCalculator ─────────────────────────────────────────
     [<Extension>]
@@ -55,4 +70,8 @@ type DsStoreQueriesExtensions =
     [<Extension>]
     static member ApplyNodeSelection(_store: DsStore, currentSelection, anchor, target, ctrlPressed, shiftPressed, orderedKeys) : NodeSelectionResult =
         SelectionQueries.applyNodeSelection currentSelection anchor target ctrlPressed shiftPressed orderedKeys
+
+    [<Extension>]
+    static member ApplyNodeSelection(_store: DsStore, currentSelection, anchor: SelectionKey, target: SelectionKey, ctrlPressed, shiftPressed, orderedKeys) : NodeSelectionResult =
+        SelectionQueries.applyNodeSelection currentSelection (Option.ofObj anchor) (Option.ofObj target) ctrlPressed shiftPressed orderedKeys
 

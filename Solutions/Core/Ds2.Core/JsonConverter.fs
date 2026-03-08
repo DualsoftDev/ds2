@@ -29,11 +29,6 @@ module JsonConverter =
         let json = System.IO.File.ReadAllText(filePath)
         deserialize<'T> json
 
-    /// Pretty print JSON
-    let prettyPrint (json: string) : string =
-        let doc = JsonDocument.Parse(json)
-        JsonSerializer.Serialize(doc, defaultOptions)
-
 /// <summary>
 /// Project 전용 직렬화 헬퍼
 /// </summary>

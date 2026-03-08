@@ -10,23 +10,23 @@ open Ds2.Core
 // =============================================================================
 
 module internal DirectPanelOps =
-    let private resolveApiDefDisplay (store: DsStore) (apiDefIdOpt: Guid option) : Guid * bool * string =
+    let private resolveApiDefDisplay (store: DsStore) (apiDefIdOpt: Guid option) : Guid option * string =
         match apiDefIdOpt |> Option.bind (fun id -> DsQuery.getApiDef id store) with
         | Some apiDef ->
             let dev =
                 DsQuery.getSystem apiDef.ParentId store
                 |> Option.map (fun s -> s.Name)
                 |> Option.defaultValue "UnknownDevice"
-            apiDef.Id, true, $"{dev}.{apiDef.Name}"
-        | None -> Guid.Empty, false, "(unlinked)"
+            Some apiDef.Id, $"{dev}.{apiDef.Name}"
+        | None -> None, "(unlinked)"
 
     let private tagAddress (tagOpt: IOTag option) =
         tagOpt |> Option.map (fun t -> t.Address) |> Option.defaultValue ""
 
     let toCallApiCallPanelItem (store: DsStore) (apiCall: ApiCall) : CallApiCallPanelItem =
-        let apiDefId, hasApiDef, apiDefDisplayName = resolveApiDefDisplay store apiCall.ApiDefId
+        let apiDefId, apiDefDisplayName = resolveApiDefDisplay store apiCall.ApiDefId
         CallApiCallPanelItem(
-            apiCall.Id, apiCall.Name, apiDefId, hasApiDef, apiDefDisplayName,
+            apiCall.Id, apiCall.Name, apiDefId, apiDefDisplayName,
             tagAddress apiCall.OutTag, tagAddress apiCall.InTag,
             PropertyPanelValueSpec.format apiCall.OutputSpec,
             PropertyPanelValueSpec.format apiCall.InputSpec,
@@ -34,7 +34,7 @@ module internal DirectPanelOps =
             PropertyPanelValueSpec.dataTypeIndex apiCall.InputSpec)
 
     let toConditionApiCallItem (store: DsStore) (ac: ApiCall) : CallConditionApiCallItem =
-        let _, _, displayName = resolveApiDefDisplay store ac.ApiDefId
+        let _, displayName = resolveApiDefDisplay store ac.ApiDefId
         CallConditionApiCallItem(
             ac.Id, ac.Name, displayName,
             PropertyPanelValueSpec.format ac.OutputSpec,
@@ -124,8 +124,18 @@ type DsStorePanelExtensions =
         TimeSpanMsHelper.readMs DsQuery.getWork (fun w -> w.Properties.Period) EntityKind.Work store workId
 
     [<Extension>]
+    static member GetWorkPeriodMsOrNull(store: DsStore, workId: Guid) : Nullable<int> =
+        DsStorePanelExtensions.GetWorkPeriodMs(store, workId)
+        |> Option.toNullable
+
+    [<Extension>]
     static member GetCallTimeoutMs(store: DsStore, callId: Guid) : int option =
         TimeSpanMsHelper.readMs DsQuery.getCall (fun c -> c.Properties.Timeout) EntityKind.Call store callId
+
+    [<Extension>]
+    static member GetCallTimeoutMsOrNull(store: DsStore, callId: Guid) : Nullable<int> =
+        DsStorePanelExtensions.GetCallTimeoutMs(store, callId)
+        |> Option.toNullable
 
     [<Extension>]
     static member UpdateWorkPeriodMs(store: DsStore, workId: Guid, periodMs: int option) =
@@ -138,6 +148,10 @@ type DsStorePanelExtensions =
             store.EmitAndHistory(WorkPropsChanged workId)
 
     [<Extension>]
+    static member UpdateWorkPeriodMs(store: DsStore, workId: Guid, periodMs: Nullable<int>) =
+        DsStorePanelExtensions.UpdateWorkPeriodMs(store, workId, Option.ofNullable periodMs)
+
+    [<Extension>]
     static member UpdateCallTimeoutMs(store: DsStore, callId: Guid, timeoutMs: int option) =
         StoreLog.debug($"callId={callId}, timeoutMs={timeoutMs}")
         let call = StoreLog.requireCall(store, callId)
@@ -146,6 +160,10 @@ type DsStorePanelExtensions =
             store.WithTransaction("Call 속성 변경", fun () ->
                 store.TrackMutate(store.Calls, callId, fun c -> c.Properties.Timeout <- timeout))
             store.EmitAndHistory(CallPropsChanged callId)
+
+    [<Extension>]
+    static member UpdateCallTimeoutMs(store: DsStore, callId: Guid, timeoutMs: Nullable<int>) =
+        DsStorePanelExtensions.UpdateCallTimeoutMs(store, callId, Option.ofNullable timeoutMs)
 
     // ─── ApiDef / System Query ─────────────────────────────────────
     [<Extension>]
@@ -163,6 +181,12 @@ type DsStorePanelExtensions =
     static member TryGetApiDefForEdit(store: DsStore, apiDefId: Guid) : (Guid * ApiDefPanelItem) option =
         DsQuery.getApiDef apiDefId store
         |> Option.map (fun apiDef -> apiDef.ParentId, DirectPanelOps.toApiDefPanelItem apiDef)
+
+    [<Extension>]
+    static member TryGetApiDefForEditOrNull(store: DsStore, apiDefId: Guid) : ApiDefEditInfo =
+        DsStorePanelExtensions.TryGetApiDefForEdit(store, apiDefId)
+        |> Option.map (fun (systemId, item) -> ApiDefEditInfo(systemId, item))
+        |> Option.toObj
 
     [<Extension>]
     static member GetDeviceApiDefOptionsForCall(store: DsStore, callId: Guid) : DeviceApiDefOption list =
@@ -195,6 +219,11 @@ type DsStorePanelExtensions =
             None
 
     [<Extension>]
+    static member TryGetCallApiCallForPanelOrNull(store: DsStore, callId: Guid, apiCallId: Guid) : CallApiCallPanelItem =
+        DsStorePanelExtensions.TryGetCallApiCallForPanel(store, callId, apiCallId)
+        |> Option.toObj
+
+    [<Extension>]
     static member GetAllApiCallsForPanel(store: DsStore) : CallApiCallPanelItem list =
         DsQuery.allApiCalls store
         |> List.map (DirectPanelOps.toCallApiCallPanelItem store)
@@ -205,7 +234,7 @@ type DsStorePanelExtensions =
         (store: DsStore, callId: Guid, apiDefId: Guid, apiCallName: string,
          outputAddress: string, inputAddress: string,
          outTypeIndex: int, outText: string, inTypeIndex: int, inText: string)
-        : Guid option =
+        : Guid =
         StoreLog.debug($"callId={callId}, apiDefId={apiDefId}, name={apiCallName}")
         let apiDef = StoreLog.requireApiDef(store, apiDefId)
         let call = StoreLog.requireCall(store, callId)
@@ -214,7 +243,7 @@ type DsStorePanelExtensions =
         let apiCall = DirectPanelOps.buildApiCall apiDef apiDef.Name apiCallName outputAddress inputAddress None inputSpec outputSpec
         DirectPanelOps.withTransactionCallProps store callId "ApiCall 추가" (fun () ->
             DirectPanelOps.addApiCallToStore store call apiCall)
-        Some apiCall.Id
+        apiCall.Id
 
     [<Extension>]
     static member UpdateApiCallFromPanel

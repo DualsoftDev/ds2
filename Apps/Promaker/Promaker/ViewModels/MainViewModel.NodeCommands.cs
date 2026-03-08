@@ -5,7 +5,6 @@ using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.UI.Core;
 using Promaker.Dialogs;
-using Microsoft.FSharp.Core;
 
 namespace Promaker.ViewModels;
 
@@ -32,21 +31,22 @@ public partial class MainViewModel
             "NewFlow", selType, selId, tabKind, tabRoot));
     }
 
-    private (FSharpOption<EntityKind>?, FSharpOption<Guid>?, FSharpOption<TabKind>?, FSharpOption<Guid>?) SnapshotContext() =>
-        (ToOption(SelectedNode?.EntityType), ToOption(SelectedNode?.Id),
-         ToOption(ActiveTab?.Kind), ToOption(ActiveTab?.RootId));
+    private (EntityKind? SelectedEntityKind, Guid? SelectedEntityId, TabKind? ActiveTabKind, Guid? ActiveTabRootId) SnapshotContext() =>
+        (SelectedNode?.EntityType, SelectedNode?.Id, ActiveTab?.Kind, ActiveTab?.RootId);
 
     [RelayCommand]
     private void AddWork()
     {
-        if (TryResolveTargetId(EntityKind.Flow, TabKind.Flow, out var flowId))
-            TryEditorAction(() => _store.AddWork("NewWork", flowId));
+        var flowId = ResolveTargetId(EntityKind.Flow, TabKind.Flow);
+        if (flowId is { } id)
+            TryEditorAction(() => _store.AddWork("NewWork", id));
     }
 
     [RelayCommand]
     private void AddCall()
     {
-        if (!TryResolveTargetId(EntityKind.Work, TabKind.Work, out var workId))
+        var workId = ResolveTargetId(EntityKind.Work, TabKind.Work);
+        if (workId is not { } targetWorkId)
             return;
 
         var dialog = new CallCreateDialog(
@@ -68,13 +68,13 @@ public partial class MainViewModel
         if (dialog.IsDeviceMode)
         {
             TryEditorAction(
-                () => _store.AddCallsWithDeviceResolved(EntityKind.Work, workId, workId, dialog.CallNames, true));
+                () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true));
         }
         else
         {
             TryEditorAction(
                 () => _store.AddCallWithLinkedApiDefs(
-                    workId,
+                    targetWorkId,
                     dialog.DevicesAlias,
                     dialog.ApiName,
                     dialog.SelectedApiDefs.Select(m => m.ApiDefId)));
@@ -197,27 +197,17 @@ public partial class MainViewModel
         if (ActiveTab is not { } tab)
             return null;
 
-        if (EntityHierarchyQueries.entityKindForTabKind(tab.Kind)?.Value is not { } entityKind)
-            return null;
-
-        return (entityKind, tab.RootId);
+        return (EntityHierarchyQueries.entityKindForTabKind(tab.Kind), tab.RootId);
     }
 
-    private bool TryResolveTargetId(EntityKind selectedEntityType, TabKind activeTabKind, out Guid targetId)
+    private Guid? ResolveTargetId(EntityKind selectedEntityType, TabKind activeTabKind)
     {
         if (SelectedNode is { EntityType: var type } node && type == selectedEntityType)
-        {
-            targetId = node.Id;
-            return true;
-        }
+            return node.Id;
 
         if (ActiveTab is { Kind: var kind } tab && kind == activeTabKind)
-        {
-            targetId = tab.RootId;
-            return true;
-        }
+            return tab.RootId;
 
-        targetId = Guid.Empty;
-        return false;
+        return null;
     }
 }

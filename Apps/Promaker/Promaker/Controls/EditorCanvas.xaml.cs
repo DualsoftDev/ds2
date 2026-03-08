@@ -83,7 +83,7 @@ public partial class EditorCanvas : UserControl
             source = VisualTreeHelper.GetParent(source);
         }
 
-        nodeId = Guid.Empty;
+        nodeId = default;
         border = null!;
         return false;
     }

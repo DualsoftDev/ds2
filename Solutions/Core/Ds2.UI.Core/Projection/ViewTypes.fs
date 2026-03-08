@@ -10,6 +10,8 @@ type TreeNodeInfo = {
     ParentId: Guid option
     Children: TreeNodeInfo list
 }
+with
+    member this.ParentIdOrNull = this.ParentId |> Option.toNullable
 
 type CanvasNodeInfo = {
     Id: Guid
@@ -46,6 +48,7 @@ type TabOpenInfo = {
     Title: string
 }
 
+[<AllowNullLiteral>]
 type SelectionKey(id: Guid, entityKind: EntityKind) =
     member _.Id = id
     member _.EntityKind = entityKind
@@ -84,6 +87,7 @@ type CanvasSelectionCandidate(key: SelectionKey, x: float, y: float, width: floa
 type NodeSelectionResult(orderedKeys: SelectionKey list, anchor: SelectionKey option) =
     member _.OrderedKeys = orderedKeys
     member _.Anchor = anchor
+    member _.AnchorOrNull = defaultArg anchor null
 
 /// Device 트리에서 ApiDef 선택용 — C#의 CallCreateDialog에서 소비
 [<Sealed>]
@@ -103,18 +107,22 @@ type ApiDefPanelItem(id: Guid, name: string, isPush: bool, txWorkId: Guid option
     member _.IsPush      = isPush
     member _.TxWorkId    = txWorkId
     member _.RxWorkId    = rxWorkId
+    member _.TxWorkIdOrNull = txWorkId |> Option.toNullable
+    member _.RxWorkIdOrNull = rxWorkId |> Option.toNullable
     member _.Period      = period
     member _.Description = description
-    /// C# 편의: TxWorkId가 None이면 Guid.Empty 반환
-    member _.TxWorkIdOrEmpty = txWorkId |> Option.defaultValue Guid.Empty
-    /// C# 편의: RxWorkId가 None이면 Guid.Empty 반환
-    member _.RxWorkIdOrEmpty = rxWorkId |> Option.defaultValue Guid.Empty
+
+[<Sealed>]
+type ApiDefEditInfo(systemId: Guid, item: ApiDefPanelItem) =
+    member _.SystemId = systemId
+    member _.Item = item
 
 /// TX/RX Work 드롭다운 항목 (C# 소비용)
 [<Sealed>]
-type WorkDropdownItem(id: Guid, name: string) =
-    member _.Id   = id
-    member _.Name = name
+type WorkDropdownItem(id: Guid, name: string, ?isNone: bool) =
+    member _.Id     = id
+    member _.Name   = name
+    member _.IsNone = defaultArg isNone false
     override _.ToString() = name
 
 // =============================================================================
@@ -133,8 +141,7 @@ type CallApiCallPanelItem
     (
         apiCallId: Guid,
         name: string,
-        apiDefId: Guid,
-        hasApiDef: bool,
+        apiDefId: Guid option,
         apiDefDisplayName: string,
         outputAddress: string,
         inputAddress: string,
@@ -146,7 +153,7 @@ type CallApiCallPanelItem
     member _.ApiCallId = apiCallId
     member _.Name = name
     member _.ApiDefId = apiDefId
-    member _.HasApiDef = hasApiDef
+    member _.ApiDefIdOrNull = apiDefId |> Option.toNullable
     member _.ApiDefDisplayName = apiDefDisplayName
     member _.OutputAddress = outputAddress
     member _.InputAddress = inputAddress

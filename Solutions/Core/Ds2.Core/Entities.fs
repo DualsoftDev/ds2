@@ -54,13 +54,6 @@ type Call(devicesAlias: string, apiName: string, parentId: Guid) =
                 elif dotIdx = 0 then ""
                 else value
 
-    /// - ApiCall: 같은 인스턴스 참조 (ID 유지)
-    /// - 나머지 속성: 깊은 복사 (새로운 ID 생성)
-    member this.DeepCopySharedApiCalls() =
-        let cloned = DeepCopyHelper.jsonCloneEntity(this) :?> Call
-        cloned.ApiCalls <- ResizeArray(this.ApiCalls)
-        cloned
-
 and ApiCall(name) =
     inherit DsEntity(name)
     member val InTag  : IOTag option = None with get, set

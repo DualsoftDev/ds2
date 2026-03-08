@@ -21,8 +21,7 @@ let private resolveFromActiveTab
     : Guid option =
     match activeTabKind, activeTabRootId with
     | Some tabKind, Some tabRootId ->
-        EntityHierarchyQueries.entityKindForTabKind tabKind
-        |> Option.bind (fun ek -> resolve store ek tabRootId)
+        resolve store (EntityHierarchyQueries.entityKindForTabKind tabKind) tabRootId
     | _ -> None
 
 /// Add System target resolver for UI. Priority:
@@ -42,12 +41,9 @@ let tryResolveAddSystemTarget
         resolveFromActiveTab EntityHierarchyQueries.tryFindProjectIdForEntity store activeTabKind activeTabRootId
 
     let singleProjectInStore =
-        DsQuery.allProjects store
-        |> List.map (fun p -> p.Id)
-        |> List.distinct
-        |> function
-            | [ projectId ] -> Some projectId
-            | _ -> None
+        match DsQuery.allProjects store with
+        | [ single ] -> Some single.Id
+        | _ -> None
 
     fromSelection
     |> Option.orElse fromTab
