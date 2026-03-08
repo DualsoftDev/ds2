@@ -201,11 +201,12 @@ module internal DirectDeviceOps =
             match Map.tryFind devAlias state.PendingFlows with
             | None -> ()
             | Some flow ->
+                let systemId = flow.ParentId
                 workOrderRev
                 |> List.rev
                 |> List.pairwise
                 |> List.iter (fun (src, dst) ->
-                    let arrow = ArrowBetweenWorks(flow.Id, src.Id, dst.Id, ArrowType.ResetReset)
+                    let arrow = ArrowBetweenWorks(systemId, src.Id, dst.Id, ArrowType.ResetReset)
                     store.TrackAdd(store.ArrowWorks, arrow)))
 
     let addCallsWithDevice (store: DsStore) (projectId: Guid) (workId: Guid) (callNames: string list) (createDeviceSystem: bool) =

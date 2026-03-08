@@ -87,8 +87,8 @@ module OneToOneValidation =
         else Invalid [ sprintf "Work '%s' references non-existent Flow GUID: %A" work.Name work.ParentId ]
 
     let validateArrowWorkParent (arrow: ArrowBetweenWorks) (store: DsStore) : ValidationResult =
-        if store.FlowsReadOnly.ContainsKey(arrow.ParentId) then Valid
-        else Invalid [ sprintf "ArrowBetweenWorks references non-existent Flow GUID: %A" arrow.ParentId ]
+        if store.SystemsReadOnly.ContainsKey(arrow.ParentId) then Valid
+        else Invalid [ sprintf "ArrowBetweenWorks references non-existent System GUID: %A" arrow.ParentId ]
 
     let validateApiDefParent (apiDef: ApiDef) (store: DsStore) : ValidationResult =
         if store.SystemsReadOnly.ContainsKey(apiDef.ParentId) then Valid

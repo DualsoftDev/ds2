@@ -94,9 +94,8 @@ C#용 공유 타입(`EntityKind`, `MoveEntityRequest`, `TabKind` 등)은 `Ds2.UI
 ```
 Project
  ├─[Active]──► DsSystem ──► Flow ──► Work ─────────────────► Call
- │                                    │      .ApiCalls[]       │  .ApiDefId
- │                           ArrowBetweenWorks                 │      │
- │                                             ArrowBetweenCalls      │
+ │                  │                         .ApiCalls[]       │  .ApiDefId
+ │                  └── ArrowBetweenWorks          ArrowBetweenCalls   │
  │                                                                    │
  └─[Passive]─► DsSystem (Device) ◄────────────────────────────────────┘
                    ├── ApiDef  ◄── ApiCall.ApiDefId 로 연결
@@ -112,8 +111,8 @@ CallCondition = Call 동작 조건 1건 (Active/Auto/Common 타입, IsOR, IsRisi
 
 - **Active System**: 제어 흐름 트리 (Flow → Work → Call)
 - **Passive System**: 장치 정의 트리 (ApiDef, HW 컴포넌트)
-- **ArrowBetweenWorks**: System/Flow 캔버스에서 Work-Work 연결선
-- **ArrowBetweenCalls**: Work 캔버스에서 Call-Call 연결선
+- **ArrowBetweenWorks**: DsSystem의 자식, Work-Work 연결선 (parentId = systemId)
+- **ArrowBetweenCalls**: Work의 자식, Call-Call 연결선 (parentId = workId)
 
 ---
 
@@ -141,7 +140,7 @@ Apps/Promaker/
   Promaker/                # WPF UI(C#) — 어셈블리명 Promaker, namespace Promaker.*
 ```
 
-테스트 합계: **89개** (24 + 51 + 14)
+테스트 합계: **92개** (24 + 53 + 15)
 
 ---
 

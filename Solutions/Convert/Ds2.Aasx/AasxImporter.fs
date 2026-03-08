@@ -53,24 +53,24 @@ let private parseStatus4 (s: string) : Status4 =
 
 // ── 변환 계층 ──────────────────────────────────────────────────────────────
 
-let private smcToArrowCall (smc: SubmodelElementCollection) (flowId: Guid) : ArrowBetweenCalls option =
+let private smcToArrowCall (smc: SubmodelElementCollection) (workId: Guid) : ArrowBetweenCalls option =
     try
         let id        = getProp smc Guid_   |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
         let sourceId  = getProp smc Source_ |> Option.map Guid.Parse |> Option.defaultValue Guid.Empty
         let targetId  = getProp smc Target_ |> Option.map Guid.Parse |> Option.defaultValue Guid.Empty
         let arrowType = getProp smc Type_   |> Option.map parseArrowType |> Option.defaultValue ArrowType.None
-        let arrow = ArrowBetweenCalls(flowId, sourceId, targetId, arrowType)
+        let arrow = ArrowBetweenCalls(workId, sourceId, targetId, arrowType)
         arrow.Id <- id
         Some arrow
     with ex -> log.Warn($"smcToArrowCall 실패: {ex.Message}", ex); None
 
-let private smcToArrowWork (smc: SubmodelElementCollection) (flowId: Guid) : ArrowBetweenWorks option =
+let private smcToArrowWork (smc: SubmodelElementCollection) (systemId: Guid) : ArrowBetweenWorks option =
     try
         let id        = getProp smc Guid_   |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
         let sourceId  = getProp smc Source_ |> Option.map Guid.Parse |> Option.defaultValue Guid.Empty
         let targetId  = getProp smc Target_ |> Option.map Guid.Parse |> Option.defaultValue Guid.Empty
         let arrowType = getProp smc Type_   |> Option.map parseArrowType |> Option.defaultValue ArrowType.None
-        let arrow = ArrowBetweenWorks(flowId, sourceId, targetId, arrowType)
+        let arrow = ArrowBetweenWorks(systemId, sourceId, targetId, arrowType)
         arrow.Id <- id
         Some arrow
     with ex -> log.Warn($"smcToArrowWork 실패: {ex.Message}", ex); None
@@ -103,7 +103,7 @@ let private smcToWork
         getProp smc Status_ |> Option.iter (fun s -> work.Status4 <- parseStatus4 s)
 
         let calls      = getChildSmlSmcs smc Calls_  |> List.choose (fun c -> smcToCall c work.Id)
-        let arrowCalls = getChildSmlSmcs smc Arrows_ |> List.choose (fun a -> smcToArrowCall a work.ParentId)
+        let arrowCalls = getChildSmlSmcs smc Arrows_ |> List.choose (fun a -> smcToArrowCall a work.Id)
         Some (work, calls, arrowCalls)
     with ex -> log.Warn($"smcToWork 실패: {ex.Message}", ex); None
 
@@ -151,15 +151,10 @@ let private smcToSystem (smc: SubmodelElementCollection)
         let calls      = workResults |> List.collect (fun (_, cs, _)  -> cs)
         let arrowCalls = workResults |> List.collect (fun (_, _, acs) -> acs)
 
-        // ArrowBetweenWorks は System レベルに平坦化 — sourceWork の ParentId (flowId) を推論
+        // ArrowBetweenWorks: parentId = systemId
         let arrowWorks =
             getChildSmlSmcs smc Arrows_
-            |> List.choose (fun a ->
-                let sourceId = getProp a Source_ |> Option.map Guid.Parse |> Option.defaultValue Guid.Empty
-                let flowId   = works |> List.tryFind (fun w -> w.Id = sourceId)
-                               |> Option.map (fun w -> w.ParentId)
-                               |> Option.defaultValue Guid.Empty
-                smcToArrowWork a flowId)
+            |> List.choose (fun a -> smcToArrowWork a system.Id)
 
         let apiDefs = getChildSmlSmcs smc ApiDefs_ |> List.choose (fun a -> smcToApiDef a system.Id)
         Some (system, flows, works, calls, arrowCalls, arrowWorks, apiDefs)

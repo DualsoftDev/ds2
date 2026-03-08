@@ -101,6 +101,12 @@ module DsQuery =
     let worksOf (flowId: Guid) (store: DsStore) : Work list =
         childrenOf store.WorksReadOnly.Values flowId (fun w -> w.ParentId)
 
+    /// <summary>Work가 속한 System의 ID를 반환</summary>
+    let trySystemIdOfWork (workId: Guid) (store: DsStore) : Guid option =
+        getWork workId store
+        |> Option.bind (fun work -> getFlow work.ParentId store)
+        |> Option.map (fun flow -> flow.ParentId)
+
     // ─────────────────────────────────────────────────────────────────────────
     // Call 쿼리
     // ─────────────────────────────────────────────────────────────────────────
@@ -149,9 +155,9 @@ module DsQuery =
     /// <summary>모든 ArrowBetweenWorks 조회</summary>
     let allArrowWorks (store: DsStore) : ArrowBetweenWorks list = allOf store.ArrowWorksReadOnly
 
-    /// <summary>특정 Flow에 속한 ArrowBetweenWorks 조회</summary>
-    let arrowWorksOf (flowId: Guid) (store: DsStore) : ArrowBetweenWorks list =
-        childrenOf store.ArrowWorksReadOnly.Values flowId (fun a -> a.ParentId)
+    /// <summary>특정 System에 속한 ArrowBetweenWorks 조회</summary>
+    let arrowWorksOf (systemId: Guid) (store: DsStore) : ArrowBetweenWorks list =
+        childrenOf store.ArrowWorksReadOnly.Values systemId (fun a -> a.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
     // ArrowBetweenCalls 쿼리
@@ -163,9 +169,9 @@ module DsQuery =
     /// <summary>모든 ArrowBetweenCalls 조회</summary>
     let allArrowCalls (store: DsStore) : ArrowBetweenCalls list = allOf store.ArrowCallsReadOnly
 
-    /// <summary>특정 Flow에 속한 ArrowBetweenCalls 조회</summary>
-    let arrowCallsOf (flowId: Guid) (store: DsStore) : ArrowBetweenCalls list =
-        childrenOf store.ArrowCallsReadOnly.Values flowId (fun a -> a.ParentId)
+    /// <summary>특정 Work에 속한 ArrowBetweenCalls 조회</summary>
+    let arrowCallsOf (workId: Guid) (store: DsStore) : ArrowBetweenCalls list =
+        childrenOf store.ArrowCallsReadOnly.Values workId (fun a -> a.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
     // HwButton 쿼리
