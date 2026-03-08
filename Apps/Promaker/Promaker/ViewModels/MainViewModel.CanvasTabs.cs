@@ -1,6 +1,7 @@
 using System;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.UI.Core;
+using System.Windows.Threading;
 
 namespace Promaker.ViewModels;
 
@@ -171,6 +172,30 @@ public partial class MainViewModel
 
         RefreshCanvasForActiveTab();
         RestoreSelection(prevSelection, prevSelectedArrowIds);
+    }
+
+    private void RequestRebuildAll(Action? afterRebuild = null)
+    {
+        if (afterRebuild is not null)
+            _pendingRebuildActions.Add(afterRebuild);
+
+        if (_rebuildQueued)
+            return;
+
+        _rebuildQueued = true;
+        _dispatcher.BeginInvoke(new Action(() =>
+        {
+            _rebuildQueued = false;
+            RebuildAll();
+
+            if (_pendingRebuildActions.Count == 0)
+                return;
+
+            var actions = _pendingRebuildActions.ToArray();
+            _pendingRebuildActions.Clear();
+            foreach (var action in actions)
+                action();
+        }), DispatcherPriority.Background);
     }
 
     private bool TabExists(CanvasTab tab)

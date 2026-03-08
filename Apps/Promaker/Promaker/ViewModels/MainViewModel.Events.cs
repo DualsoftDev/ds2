@@ -24,7 +24,7 @@ public partial class MainViewModel
                         $"HandleEvent({evt.GetType().Name})",
                         ex,
                         statusOverride: "[ERROR] Event processing failed. See log.");
-                    RebuildAll();
+                    RequestRebuildAll();
                 }
             }),
             error => _dispatcher.Invoke(() =>
@@ -33,7 +33,7 @@ public partial class MainViewModel
                     "EditorEvent subscription",
                     error,
                     statusOverride: "[ERROR] Editor event subscription failed. See log.");
-                RebuildAll();
+                RequestRebuildAll();
             })));
     }
 
@@ -47,8 +47,7 @@ public partial class MainViewModel
 
         if (addedIdOpt?.Value is { } addedId)
         {
-            RebuildAll();
-            ExpandNodeAndAncestors(addedId);
+            RequestRebuildAll(() => ExpandNodeAndAncestors(addedId));
             return;
         }
 
@@ -90,7 +89,7 @@ public partial class MainViewModel
                 return;
 
             case { IsStoreRefreshed: true }:
-                RebuildAll();
+                RequestRebuildAll();
                 return;
         }
 
@@ -102,13 +101,13 @@ public partial class MainViewModel
 
         if (isTreeStructuralEvent)
         {
-            RebuildAll();
+            RequestRebuildAll();
             return;
         }
 
         Log.Warn($"Unhandled event: {evt.GetType().Name}");
         StatusText = $"[WARN] Unhandled event: {evt.GetType().Name}";
-        RebuildAll();
+        RequestRebuildAll();
     }
 
     private void ApplyEntityRename(Guid entityId, string newName)

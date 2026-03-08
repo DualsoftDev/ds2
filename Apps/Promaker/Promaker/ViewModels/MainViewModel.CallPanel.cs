@@ -72,13 +72,13 @@ public partial class MainViewModel
         if (idx < 0)
             return;
 
-        if (!TryEditorRef(
-                () => _store.GetCallApiCallsForPanel(callId),
-                out var rows))
+        if (!TryEditorFunc(
+                () => _store.TryGetCallApiCallForPanel(callId, item.ApiCallId),
+                out FSharpOption<CallApiCallPanelItem>? rowOpt,
+                fallback: null))
             return;
 
-        var row = rows.FirstOrDefault(r => r.ApiCallId == item.ApiCallId);
-        if (row is null)
+        if (rowOpt?.Value is not { } row)
             return;
 
         var newItem = CallApiCallItem.FromPanel(row);
@@ -86,16 +86,36 @@ public partial class MainViewModel
         SelectedCallApiCall = newItem;
     }
 
+    /// ApiDefId 검증 + UpdateApiCallFromPanel 호출을 한 곳에서 처리
+    private bool TryUpdateSingleApiCall(
+        Guid callId, CallApiCallItem item,
+        int outTypeIndex, string outSpecText, int inTypeIndex, string inSpecText,
+        bool setMissingApiDefStatus)
+    {
+        if (item.ApiDefId is not Guid apiDefId || apiDefId == Guid.Empty)
+        {
+            if (setMissingApiDefStatus)
+                StatusText = "Select a Device ApiDef first.";
+            return false;
+        }
+
+        if (!TryEditorFunc(
+                () => _store.UpdateApiCallFromPanel(
+                    callId, item.ApiCallId, apiDefId,
+                    item.Name, item.OutputAddress, item.InputAddress,
+                    outTypeIndex, outSpecText, inTypeIndex, inSpecText),
+                out var updated,
+                fallback: false))
+            return false;
+
+        return updated;
+    }
+
     [RelayCommand]
     private void EditCallApiCallSpec(CallApiCallItem? item)
     {
         if (!TryGetSelectedCall(out var selectedCall)) return;
         if (item is null) return;
-        if (item.ApiDefId is not Guid apiDefId || apiDefId == Guid.Empty)
-        {
-            StatusText = "Select a Device ApiDef first.";
-            return;
-        }
 
         var dialog = new ApiCallSpecDialog(
             item.Name,
@@ -106,17 +126,10 @@ public partial class MainViewModel
         if (!ShowOwnedDialog(dialog))
             return;
 
-        if (!TryEditorFunc(
-                () => _store.UpdateApiCallFromPanel(
-                    selectedCall.Id, item.ApiCallId, apiDefId,
-                    item.Name, item.OutputAddress, item.InputAddress,
-                    dialog.OutSpecTypeIndex, dialog.OutSpecText,
-                    dialog.InSpecTypeIndex, dialog.InSpecText),
-                out var updated,
-                fallback: false))
-            return;
-
-        if (!updated)
+        if (!TryUpdateSingleApiCall(selectedCall.Id, item,
+                dialog.OutSpecTypeIndex, dialog.OutSpecText,
+                dialog.InSpecTypeIndex, dialog.InSpecText,
+                setMissingApiDefStatus: true))
         {
             StatusText = "Failed to update ApiCall spec.";
             return;
@@ -134,31 +147,11 @@ public partial class MainViewModel
         var dirtyItems = CallApiCalls.Where(x => x.IsDirty).ToList();
         if (dirtyItems.Count == 0) return;
 
-        var failCount = 0;
-        foreach (var dirty in dirtyItems)
-        {
-            if (dirty.ApiDefId is not Guid apiDefId || apiDefId == Guid.Empty)
-            {
-                failCount++;
-                continue;
-            }
-
-            if (!TryEditorFunc(
-                    () => _store.UpdateApiCallFromPanel(
-                        selectedCall.Id, dirty.ApiCallId, apiDefId,
-                        dirty.Name, dirty.OutputAddress, dirty.InputAddress,
-                        dirty.OutputSpecTypeIndex, dirty.ValueSpecText,
-                        dirty.InputSpecTypeIndex, dirty.InputValueSpecText),
-                    out var updated,
-                    fallback: false))
-            {
-                failCount++;
-                continue;
-            }
-
-            if (!updated)
-                failCount++;
-        }
+        var failCount = dirtyItems.Count(dirty =>
+            !TryUpdateSingleApiCall(selectedCall.Id, dirty,
+                dirty.OutputSpecTypeIndex, dirty.ValueSpecText,
+                dirty.InputSpecTypeIndex, dirty.InputValueSpecText,
+                setMissingApiDefStatus: false));
 
         var selectedId = SelectedCallApiCall?.ApiCallId;
         RefreshPropertyPanel();
@@ -334,20 +327,10 @@ public partial class MainViewModel
                 out var callRows))
             return;
 
-        DeviceApiDefOptions.Clear();
-        foreach (var option in deviceOptions)
-        {
-            DeviceApiDefOptions.Add(
-                new DeviceApiDefOptionItem(
-                    option.Id,
-                    option.DeviceName,
-                    option.ApiDefName,
-                    option.DisplayName));
-        }
+        ReplaceAll(DeviceApiDefOptions,
+            deviceOptions.Select(o => new DeviceApiDefOptionItem(o.Id, o.DeviceName, o.ApiDefName, o.DisplayName)));
 
-        CallApiCalls.Clear();
-        foreach (var row in callRows)
-            CallApiCalls.Add(CallApiCallItem.FromPanel(row));
+        ReplaceAll(CallApiCalls, callRows.Select(CallApiCallItem.FromPanel));
 
         if (previousSelectionId is { } selectedId)
             SelectedCallApiCall = CallApiCalls.FirstOrDefault(x => x.ApiCallId == selectedId);

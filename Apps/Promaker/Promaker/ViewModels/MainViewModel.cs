@@ -22,6 +22,8 @@ public partial class MainViewModel : ObservableObject
     private readonly List<SelectionKey> _orderedNodeSelection = [];
     private readonly List<Guid> _orderedArrowSelection = [];
     private SelectionKey? _selectionAnchor;
+    private bool _rebuildQueued;
+    private readonly List<Action> _pendingRebuildActions = [];
 
     public MainViewModel()
     {
@@ -75,6 +77,8 @@ public partial class MainViewModel : ObservableObject
         _orderedNodeSelection.Clear();
         _orderedArrowSelection.Clear();
         _selectionAnchor = null;
+        _rebuildQueued = false;
+        _pendingRebuildActions.Clear();
 
         OpenTabs.Clear();
         ActiveTab = null;

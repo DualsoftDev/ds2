@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq.Expressions;
+using System.Runtime.CompilerServices;
 using Ds2.UI.Core;
 using Promaker.Dialogs;
 using Microsoft.FSharp.Core;
@@ -10,25 +11,6 @@ namespace Promaker.ViewModels;
 
 public partial class MainViewModel
 {
-    private static string ExtractMethodName(LambdaExpression expression)
-    {
-        var body = expression.Body;
-        while (body is MethodCallExpression call)
-        {
-            if (call.Object is { Type: var t } && t == typeof(DsStore))
-                return call.Method.Name;
-            if (call.Arguments.Count > 0 && call.Arguments[0].Type == typeof(DsStore))
-                return call.Method.Name;
-            if (call.Object is MethodCallExpression inner)
-                body = inner;
-            else if (call.Arguments.Count > 0 && call.Arguments[0] is MethodCallExpression argInner)
-                body = argInner;
-            else
-                break;
-        }
-        return "Unknown";
-    }
-
     private void HandleUiOperationException(
         string operation,
         Exception ex,
@@ -43,14 +25,14 @@ public partial class MainViewModel
     }
 
     private bool TryEditorAction(
-        Expression<Action> expression,
+        Action action,
         string? statusOverride = null,
-        bool warnDialog = false)
+        bool warnDialog = false,
+        [CallerArgumentExpression(nameof(action))] string operation = "")
     {
-        var operation = ExtractMethodName(expression);
         try
         {
-            expression.Compile()();
+            action();
             return true;
         }
         catch (Exception ex)
@@ -61,16 +43,16 @@ public partial class MainViewModel
     }
 
     private bool TryEditorFunc<T>(
-        Expression<Func<T>> expression,
+        Func<T> func,
         out T result,
         T fallback = default!,
         string? statusOverride = null,
-        bool warnDialog = false)
+        bool warnDialog = false,
+        [CallerArgumentExpression(nameof(func))] string operation = "")
     {
-        var operation = ExtractMethodName(expression);
         try
         {
-            result = expression.Compile()();
+            result = func();
             return true;
         }
         catch (Exception ex)
@@ -82,30 +64,29 @@ public partial class MainViewModel
     }
 
     private bool TryEditorRef<T>(
-        Expression<Func<T>> expression,
+        Func<T> func,
         [NotNullWhen(true)] out T? result,
         string? statusOverride = null,
-        bool warnDialog = false)
+        bool warnDialog = false,
+        [CallerArgumentExpression(nameof(func))] string operation = "")
         where T : class
     {
-        var operation = ExtractMethodName(expression);
-        try
+        if (TryEditorFunc(func, out var raw, fallback: default!, statusOverride, warnDialog, operation) && raw is not null)
         {
-            var raw = expression.Compile()();
-            if (raw is null)
-            {
-                result = null;
-                return false;
-            }
             result = raw;
             return true;
         }
-        catch (Exception ex)
-        {
-            result = null;
-            HandleUiOperationException(operation, ex, statusOverride, warnDialog);
-            return false;
-        }
+
+        result = null;
+        return false;
+    }
+
+    /// ObservableCollection 전체 교체 (Clear + AddRange)
+    private static void ReplaceAll<T>(ObservableCollection<T> collection, IEnumerable<T> items)
+    {
+        collection.Clear();
+        foreach (var item in items)
+            collection.Add(item);
     }
 
     private static FSharpOption<T>? ToOption<T>(T? value) where T : struct =>

@@ -14,7 +14,7 @@ public partial class MainViewModel
         var orderedKeys = EnumerateVisibleActiveTreeNodes().Select(ToKey).ToList();
         UpdateNodeSelection(node, ctrlPressed, shiftPressed, orderedKeys);
         if (node is not null)
-            ExpandAncestors(node.Id);
+            ExpandNodeAndAncestors(node.Id);
     }
 
     public void SelectNodeFromCanvas(EntityNode? node, bool ctrlPressed, bool shiftPressed)
@@ -147,11 +147,15 @@ public partial class MainViewModel
     {
         _orderedNodeSelection.Clear();
 
+        var existingNodeKeys = TreeNodeSearch.EnumerateNodes(EnumerateTreeRoots())
+            .Select(ToKey)
+            .ToHashSet();
+        existingNodeKeys.UnionWith(CanvasNodes.Select(ToKey));
+
+        var restoredNodeSet = new HashSet<SelectionKey>();
         foreach (var key in selectedKeys)
         {
-            var existsInTree = TreeNodeSearch.FindByKey(EnumerateTreeRoots(), key) is not null;
-            var existsInCanvas = CanvasNodes.Any(n => n.Id == key.Id && n.EntityType == key.EntityType);
-            if (!_orderedNodeSelection.Contains(key) && (existsInTree || existsInCanvas))
+            if (existingNodeKeys.Contains(key) && restoredNodeSet.Add(key))
                 _orderedNodeSelection.Add(key);
         }
 
@@ -160,9 +164,11 @@ public partial class MainViewModel
         ApplyNodeSelectionVisuals();
         _orderedArrowSelection.Clear();
 
+        var canvasArrowIds = CanvasArrows.Select(a => a.Id).ToHashSet();
+        var restoredArrowSet = new HashSet<Guid>();
         foreach (var arrowId in selectedArrowIds)
         {
-            if (CanvasArrows.Any(a => a.Id == arrowId))
+            if (canvasArrowIds.Contains(arrowId) && restoredArrowSet.Add(arrowId))
                 _orderedArrowSelection.Add(arrowId);
         }
 
@@ -204,37 +210,31 @@ public partial class MainViewModel
         for (var i = 0; i < _orderedNodeSelection.Count; i++)
             selectionOrder[_orderedNodeSelection[i]] = i + 1;
 
-        foreach (var node in CanvasNodes)
-        {
-            var key = ToKey(node);
-            if (selectionOrder.TryGetValue(key, out var order))
-            {
-                node.IsSelected = true;
-                node.SelectionOrder = order;
-            }
-            else
-            {
-                node.IsSelected = false;
-                node.SelectionOrder = 0;
-            }
-        }
-
-        foreach (var node in EnumerateTreeNodes())
-        {
-            var key = ToKey(node);
-            if (selectionOrder.TryGetValue(key, out var order))
-            {
-                node.IsTreeSelected = true;
-                node.SelectionOrder = order;
-            }
-            else
-            {
-                node.IsTreeSelected = false;
-                node.SelectionOrder = 0;
-            }
-        }
+        ApplySelectionTo(CanvasNodes, selectionOrder, static (n, s) => n.IsSelected = s);
+        ApplySelectionTo(EnumerateTreeNodes(), selectionOrder, static (n, s) => n.IsTreeSelected = s);
 
         SelectedNode = ResolvePrimarySelectedNode();
+    }
+
+    private static void ApplySelectionTo(
+        IEnumerable<EntityNode> nodes,
+        Dictionary<SelectionKey, int> selectionOrder,
+        Action<EntityNode, bool> setSelected)
+    {
+        foreach (var node in nodes)
+        {
+            var key = ToKey(node);
+            if (selectionOrder.TryGetValue(key, out var order))
+            {
+                setSelected(node, true);
+                node.SelectionOrder = order;
+            }
+            else
+            {
+                setSelected(node, false);
+                node.SelectionOrder = 0;
+            }
+        }
     }
 
     private EntityNode? ResolvePrimarySelectedNode()
@@ -269,22 +269,22 @@ public partial class MainViewModel
             : CanvasArrows.FirstOrDefault(a => a.Id == primaryArrowId);
     }
 
-    private void ExpandAncestors(Guid nodeId)
-    {
-        var parent = TreeNodeSearch.FindParentByChildId(EnumerateTreeRoots(), nodeId);
-        while (parent is not null)
-        {
-            parent.IsExpanded = true;
-            parent = parent.ParentId is { } parentId ? TreeNodeSearch.FindById(EnumerateTreeRoots(), parentId) : null;
-        }
-    }
-
     private void ExpandNodeAndAncestors(Guid nodeId)
     {
-        if (TreeNodeSearch.FindById(EnumerateTreeRoots(), nodeId) is { } node)
-            node.IsExpanded = true;
+        var nodeIndex = TreeNodeSearch.EnumerateNodes(EnumerateTreeRoots())
+            .ToDictionary(n => n.Id);
 
-        ExpandAncestors(nodeId);
+        if (!nodeIndex.TryGetValue(nodeId, out var node))
+            return;
+
+        node.IsExpanded = true;
+        var parentId = node.ParentId;
+
+        while (parentId is { } id && nodeIndex.TryGetValue(id, out var parent))
+        {
+            parent.IsExpanded = true;
+            parentId = parent.ParentId;
+        }
     }
 
     private static void ApplyExpansionState(IEnumerable<EntityNode> roots, HashSet<SelectionKey> expandedNodes)

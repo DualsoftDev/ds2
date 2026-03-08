@@ -344,6 +344,29 @@ module PanelTests =
         Assert.Equal(Some "test desc", apiDef.Properties.Description)
 
     [<Fact>]
+    let ``TryGetCallApiCallForPanel returns item when api call exists`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+
+        let call = store.Calls.Values |> Seq.head
+        let apiCall = call.ApiCalls |> Seq.head
+
+        let row = store.TryGetCallApiCallForPanel(call.Id, apiCall.Id)
+        Assert.True(row.IsSome)
+        Assert.Equal(apiCall.Id, row.Value.ApiCallId)
+
+    [<Fact>]
+    let ``TryGetCallApiCallForPanel returns None for unknown api call id`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+
+        let call = store.Calls.Values |> Seq.head
+        let row = store.TryGetCallApiCallForPanel(call.Id, Guid.NewGuid())
+        Assert.True(row.IsNone)
+
+    [<Fact>]
     let ``UpdateApiDef changes name and properties atomically`` () =
         let store = createStore ()
         let project = addProject store "P"

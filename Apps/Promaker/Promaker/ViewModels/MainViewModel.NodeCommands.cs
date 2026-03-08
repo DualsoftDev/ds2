@@ -222,5 +222,4 @@ public partial class MainViewModel
         targetId = Guid.Empty;
         return false;
     }
-
 }

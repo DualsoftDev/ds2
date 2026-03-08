@@ -37,23 +37,23 @@ public sealed class CallApiCallItem : ObservableObject
         int outputSpecTypeIndex,
         int inputSpecTypeIndex)
     {
-        ApiCallId = apiCallId;
-        ApiDefDisplayName = apiDefDisplayName;
-        OutputSpecTypeIndex = outputSpecTypeIndex;
-        InputSpecTypeIndex  = inputSpecTypeIndex;
+        ApiCallId                   = apiCallId;
+        ApiDefDisplayName           = apiDefDisplayName;
+        OutputSpecTypeIndex         = outputSpecTypeIndex;
+        InputSpecTypeIndex          = inputSpecTypeIndex;
 
-        _apiDefId = hasApiDef && apiDefId != Guid.Empty ? apiDefId : null;
-        _name = name;
-        _outputAddress = outputAddress;
-        _inputAddress = inputAddress;
-        _valueSpecText = valueSpecText;
-        _inputValueSpecText = inputValueSpecText;
+        _apiDefId                   = hasApiDef && apiDefId != Guid.Empty ? apiDefId : null;
+        _name                       = name;
+        _outputAddress              = outputAddress;
+        _inputAddress               = inputAddress;
+        _valueSpecText              = valueSpecText;
+        _inputValueSpecText         = inputValueSpecText;
 
-        _originalApiDefId = _apiDefId;
-        _originalName = _name;
-        _originalOutputAddress = _outputAddress;
-        _originalInputAddress = _inputAddress;
-        _originalValueSpecText = _valueSpecText;
+        _originalApiDefId           = _apiDefId;
+        _originalName               = _name;
+        _originalOutputAddress      = _outputAddress;
+        _originalInputAddress       = _inputAddress;
+        _originalValueSpecText      = _valueSpecText;
         _originalInputValueSpecText = _inputValueSpecText;
     }
 

@@ -1,32 +1,46 @@
 using System;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
-using Promaker.Dialogs;
-using log4net;
 using Microsoft.Win32;
+using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
 
 public partial class MainViewModel
 {
+    private bool TryRunFileOperation(string operation, Action action, Func<Exception, string> warnMessage)
+    {
+        try
+        {
+            action();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"{operation} failed", ex);
+            DialogHelpers.Warn(warnMessage(ex));
+            return false;
+        }
+    }
+
     [RelayCommand]
     private void OpenFile()
     {
         var dlg = new OpenFileDialog { Filter = "JSON Files (*.json)|*.json|All Files (*.*)|*.*" };
         if (dlg.ShowDialog() != true) return;
-        try
-        {
-            _store.LoadFromFile(dlg.FileName);
-            _currentFilePath = dlg.FileName;
-            IsDirty = false;
-            UpdateTitle();
-            Log.Info($"파일 열기 완료: {dlg.FileName}");
-        }
-        catch (Exception ex)
-        {
-            Log.Error($"파일 열기 실패: {dlg.FileName}", ex);
-            DialogHelpers.Warn($"파일을 열 수 없습니다: {ex.Message}");
-        }
+
+        var fileName = dlg.FileName;
+        TryRunFileOperation(
+            $"Open file '{fileName}'",
+            () =>
+            {
+                _store.LoadFromFile(fileName);
+                _currentFilePath = fileName;
+                IsDirty = false;
+                UpdateTitle();
+                Log.Info($"File opened: {fileName}");
+            },
+            ex => $"Failed to open file: {ex.Message}");
     }
 
     [RelayCommand]
@@ -44,19 +58,18 @@ public partial class MainViewModel
             _currentFilePath = dlg.FileName;
         }
 
-        try
-        {
-            _store.SaveToFile(_currentFilePath);
-            IsDirty = false;
-            UpdateTitle();
-            StatusText = "Saved.";
-            Log.Info($"파일 저장 완료: {_currentFilePath}");
-        }
-        catch (Exception ex)
-        {
-            Log.Error($"파일 저장 실패: {_currentFilePath}", ex);
-            DialogHelpers.Warn($"파일을 저장할 수 없습니다: {ex.Message}");
-        }
+        var filePath = _currentFilePath;
+        TryRunFileOperation(
+            $"Save file '{filePath}'",
+            () =>
+            {
+                _store.SaveToFile(filePath);
+                IsDirty = false;
+                UpdateTitle();
+                StatusText = "Saved.";
+                Log.Info($"File saved: {filePath}");
+            },
+            ex => $"Failed to save file: {ex.Message}");
     }
 
     [RelayCommand]
@@ -65,26 +78,25 @@ public partial class MainViewModel
         var dlg = new OpenFileDialog { Filter = "AASX Files (*.aasx)|*.aasx" };
         if (dlg.ShowDialog() != true) return;
 
-        try
-        {
-            if (!AasxImporter.importIntoStore(_store, dlg.FileName))
+        var fileName = dlg.FileName;
+        TryRunFileOperation(
+            $"Import AASX '{fileName}'",
+            () =>
             {
-                Log.Warn($"AASX import 실패 (빈 결과): {dlg.FileName}");
-                DialogHelpers.Warn("Failed to import AASX.");
-                return;
-            }
+                if (!AasxImporter.importIntoStore(_store, fileName))
+                {
+                    Log.Warn($"AASX import failed: empty result ({fileName})");
+                    DialogHelpers.Warn("Failed to import AASX.");
+                    return;
+                }
 
-            _currentFilePath = null;
-            IsDirty = false;
-            UpdateTitle();
-            Log.Info($"AASX import 완료: {dlg.FileName}");
-            StatusText = $"AASX import completed: {System.IO.Path.GetFileName(dlg.FileName)}";
-        }
-        catch (Exception ex)
-        {
-            Log.Error($"AASX import 실패: {dlg.FileName}", ex);
-            DialogHelpers.Warn($"Failed to import AASX: {ex.Message}");
-        }
+                _currentFilePath = null;
+                IsDirty = false;
+                UpdateTitle();
+                Log.Info($"AASX imported: {fileName}");
+                StatusText = $"AASX import completed: {System.IO.Path.GetFileName(fileName)}";
+            },
+            ex => $"Failed to import AASX: {ex.Message}");
     }
 
     [RelayCommand]
@@ -97,22 +109,21 @@ public partial class MainViewModel
         };
         if (dlg.ShowDialog() != true) return;
 
-        try
-        {
-            if (!AasxExporter.exportFromStore(_store, dlg.FileName))
+        var fileName = dlg.FileName;
+        TryRunFileOperation(
+            $"Export AASX '{fileName}'",
+            () =>
             {
-                Log.Warn($"AASX export 실패: 프로젝트 없음 ({dlg.FileName})");
-                DialogHelpers.Warn("No project available for export.");
-                return;
-            }
+                if (!AasxExporter.exportFromStore(_store, fileName))
+                {
+                    Log.Warn($"AASX export failed: no project ({fileName})");
+                    DialogHelpers.Warn("No project available for export.");
+                    return;
+                }
 
-            Log.Info($"AASX export 완료: {dlg.FileName}");
-            StatusText = $"AASX export completed: {System.IO.Path.GetFileName(dlg.FileName)}";
-        }
-        catch (Exception ex)
-        {
-            Log.Error($"AASX export 실패: {dlg.FileName}", ex);
-            DialogHelpers.Warn($"Failed to export AASX: {ex.Message}");
-        }
+                Log.Info($"AASX exported: {fileName}");
+                StatusText = $"AASX export completed: {System.IO.Path.GetFileName(fileName)}";
+            },
+            ex => $"Failed to export AASX: {ex.Message}");
     }
 }

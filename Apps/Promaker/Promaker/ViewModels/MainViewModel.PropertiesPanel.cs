@@ -5,6 +5,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.UI.Core;
+using Microsoft.FSharp.Core;
 using Promaker;
 
 namespace Promaker.ViewModels;
@@ -46,8 +47,8 @@ public partial class MainViewModel
 
     private void InitializePropertyPanelState()
     {
-        CallApiCalls.CollectionChanged    += (_, _) => OnPropertyChanged(nameof(CallApiCallsHeader));
-        SystemApiDefs.CollectionChanged   += (_, _) => OnPropertyChanged(nameof(SystemApiDefsHeader));
+        CallApiCalls.CollectionChanged  += (_, _) => OnPropertyChanged(nameof(CallApiCallsHeader));
+        SystemApiDefs.CollectionChanged += (_, _) => OnPropertyChanged(nameof(SystemApiDefsHeader));
         EnsureConditionSectionsInitialized();
     }
 
@@ -75,14 +76,7 @@ public partial class MainViewModel
 
         if (IsWorkSelected && selected is not null)
         {
-            if (TryEditorFunc(
-                    () => _store.GetWorkPeriodMs(selected.Id),
-                    out var periodOpt,
-                    fallback: null))
-                _originalWorkPeriodMs = periodOpt?.Value;
-            else
-                _originalWorkPeriodMs = null;
-
+            _originalWorkPeriodMs = LoadOptionalMsFromStore(selected.Id, _store.GetWorkPeriodMs);
             WorkPeriodMs = _originalWorkPeriodMs;
         }
         else
@@ -93,14 +87,7 @@ public partial class MainViewModel
 
         if (IsCallSelected && selected is not null)
         {
-            if (TryEditorFunc(
-                    () => _store.GetCallTimeoutMs(selected.Id),
-                    out var timeoutOpt,
-                    fallback: null))
-                _originalCallTimeoutMs = timeoutOpt?.Value;
-            else
-                _originalCallTimeoutMs = null;
-
+            _originalCallTimeoutMs = LoadOptionalMsFromStore(selected.Id, _store.GetCallTimeoutMs);
             CallTimeoutMs = _originalCallTimeoutMs;
             RefreshCallPanel(selected.Id);
         }
@@ -118,6 +105,13 @@ public partial class MainViewModel
             RefreshSystemPanel(selected.Id);
         else
             SystemApiDefs.Clear();
+    }
+
+    private int? LoadOptionalMsFromStore(Guid entityId, Func<Guid, FSharpOption<int>> getter)
+    {
+        if (TryEditorFunc(() => getter(entityId), out var opt, fallback: null))
+            return opt?.Value;
+        return null;
     }
 
     private EntityNode? RequireSelectedAs(string entityType) =>
