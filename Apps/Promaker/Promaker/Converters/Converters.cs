@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
+using Ds2.Core;
 using Ds2.UI.Core;
 using Promaker;
 
@@ -10,29 +11,29 @@ namespace Promaker.Converters;
 
 file static class ConverterHelpers
 {
-    private static readonly IReadOnlyDictionary<string, string> EntityBrushKeys =
-        new Dictionary<string, string>(StringComparer.Ordinal)
+    private static readonly IReadOnlyDictionary<EntityKind, string> EntityBrushKeys =
+        new Dictionary<EntityKind, string>
         {
-            [EntityTypes.Work] = "NodeWorkBackgroundBrush",
-            [EntityTypes.Call] = "NodeCallBackgroundBrush",
-            [EntityTypes.Flow] = "AccentBrush",
-            [EntityTypes.System] = "OrangeAccentBrush",
-            [EntityTypes.Project] = "GreenAccentBrush"
+            [EntityKind.Work] = "NodeWorkBackgroundBrush",
+            [EntityKind.Call] = "NodeCallBackgroundBrush",
+            [EntityKind.Flow] = "AccentBrush",
+            [EntityKind.System] = "OrangeAccentBrush",
+            [EntityKind.Project] = "GreenAccentBrush"
         };
 
-    private static readonly IReadOnlyDictionary<string, string> EntityIcons =
-        new Dictionary<string, string>(StringComparer.Ordinal)
+    private static readonly IReadOnlyDictionary<EntityKind, string> EntityIcons =
+        new Dictionary<EntityKind, string>
         {
-            [EntityTypes.Project] = "P",
-            [EntityTypes.System] = "S",
-            [EntityTypes.Flow] = "F",
-            [EntityTypes.Work] = "W",
-            [EntityTypes.Call] = "C",
-            [EntityTypes.ApiDef] = "A",
-            [EntityTypes.Button] = "B",
-            [EntityTypes.Lamp] = "L",
-            [EntityTypes.Condition] = "?",
-            [EntityTypes.Action] = "!"
+            [EntityKind.Project] = "P",
+            [EntityKind.System] = "S",
+            [EntityKind.Flow] = "F",
+            [EntityKind.Work] = "W",
+            [EntityKind.Call] = "C",
+            [EntityKind.ApiDef] = "A",
+            [EntityKind.Button] = "B",
+            [EntityKind.Lamp] = "L",
+            [EntityKind.Condition] = "?",
+            [EntityKind.Action] = "!"
         };
 
     public static Brush ResolveBrush(string key)
@@ -41,13 +42,13 @@ file static class ConverterHelpers
         return app?.TryFindResource(key) as Brush ?? Brushes.Gray;
     }
 
-    public static string ResolveEntityBrushKey(string? entityType) =>
-        entityType is not null && EntityBrushKeys.TryGetValue(entityType, out var key)
+    public static string ResolveEntityBrushKey(EntityKind entityType) =>
+        EntityBrushKeys.TryGetValue(entityType, out var key)
             ? key
             : "TertiaryBackgroundBrush";
 
-    public static string ResolveEntityIcon(string? entityType) =>
-        entityType is not null && EntityIcons.TryGetValue(entityType, out var icon)
+    public static string ResolveEntityIcon(EntityKind entityType) =>
+        EntityIcons.TryGetValue(entityType, out var icon)
             ? icon
             : "?";
 }
@@ -65,7 +66,8 @@ public sealed class EntityTypeToBrushConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        var key = ConverterHelpers.ResolveEntityBrushKey(value?.ToString());
+        var kind = value is EntityKind ek ? ek : EntityKind.Project;
+        var key = ConverterHelpers.ResolveEntityBrushKey(kind);
         return ConverterHelpers.ResolveBrush(key);
     }
 
@@ -109,13 +111,13 @@ public sealed class ArrowTypeToColorConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        var key = value is UiArrowType at
+        var key = value is ArrowType at
             ? at switch
             {
-                UiArrowType.Start => "GreenAccentBrush",
-                UiArrowType.Reset => "OrangeAccentBrush",
-                UiArrowType.StartReset => "RedAccentBrush",
-                UiArrowType.ResetReset => "OrangeAccentBrush",
+                ArrowType.Start => "GreenAccentBrush",
+                ArrowType.Reset => "OrangeAccentBrush",
+                ArrowType.StartReset => "RedAccentBrush",
+                ArrowType.ResetReset => "OrangeAccentBrush",
                 _ => "SecondaryTextBrush"
             }
             : "SecondaryTextBrush";
@@ -132,7 +134,7 @@ public sealed class ArrowTypeToDashConverter : IValueConverter
     private static readonly DoubleCollection Dashed = [4, 2];
 
     public object? Convert(object value, Type targetType, object parameter, CultureInfo culture)
-        => value is UiArrowType at && (at == UiArrowType.Reset || at == UiArrowType.ResetReset)
+        => value is ArrowType at && (at == ArrowType.Reset || at == ArrowType.ResetReset)
             ? Dashed
             : null;
 
@@ -143,7 +145,7 @@ public sealed class ArrowTypeToDashConverter : IValueConverter
 public sealed class EntityTypeToIconConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-        => ConverterHelpers.ResolveEntityIcon(value?.ToString());
+        => ConverterHelpers.ResolveEntityIcon(value is EntityKind ek ? ek : EntityKind.Project);
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => Binding.DoNothing;

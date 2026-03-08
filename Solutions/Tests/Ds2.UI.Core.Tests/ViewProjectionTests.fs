@@ -31,18 +31,18 @@ module TreeProjectionTests =
 module CanvasProjectionTests =
 
     [<Fact>]
-    let ``CanvasContentForTabUi returns works for system tab`` () =
+    let ``CanvasContentForTab returns works for system tab`` () =
         let store = createStore ()
         let _, system, _, _ = setupBasicHierarchy store
-        let content = store.CanvasContentForTabUi(TabKind.System, system.Id)
+        let content = store.CanvasContentForTab(TabKind.System, system.Id)
         Assert.NotEmpty(content.Nodes)
 
     [<Fact>]
-    let ``CanvasContentForTabUi returns calls for flow tab`` () =
+    let ``CanvasContentForTab returns calls for flow tab`` () =
         let store = createStore ()
         let _, _, flow, work = setupBasicHierarchy store
         store.AddCallsWithDevice(Guid.Empty, work.Id, [ "Dev.Api" ], false)
-        let content = store.CanvasContentForTabUi(TabKind.Flow, flow.Id)
+        let content = store.CanvasContentForTab(TabKind.Flow, flow.Id)
         Assert.NotEmpty(content.Nodes)
 
 module PropertyPanelValueSpecTests =

@@ -101,20 +101,19 @@ type DsStoreArrowsExtensions =
         success
 
     [<Extension>]
-    static member ConnectSelectionInOrderUi(store: DsStore, orderedNodeIds: seq<Guid>, arrowType: UiArrowType) : int =
+    static member ConnectSelectionInOrder(store: DsStore, orderedNodeIds: seq<Guid>, arrowType: ArrowType) : int =
         let links = ConnectionQueries.orderedArrowLinksForSelection store orderedNodeIds
-        let coreType = UiArrowType.toCore arrowType
         if links.IsEmpty then 0
         else
             StoreLog.debug($"count={links.Length}, arrowType={arrowType}")
             store.WithTransaction("Connect Selected Nodes In Order", fun () ->
-                for (entityType, flowId, sourceId, targetId) in links do
-                    match entityType with
-                    | EntityTypeNames.Work ->
-                        let arrow = ArrowBetweenWorks(flowId, sourceId, targetId, coreType)
+                for (entityKind, flowId, sourceId, targetId) in links do
+                    match entityKind with
+                    | EntityKind.Work ->
+                        let arrow = ArrowBetweenWorks(flowId, sourceId, targetId, arrowType)
                         store.TrackAdd(store.ArrowWorks, arrow)
-                    | EntityTypeNames.Call ->
-                        let arrow = ArrowBetweenCalls(flowId, sourceId, targetId, coreType)
+                    | EntityKind.Call ->
+                        let arrow = ArrowBetweenCalls(flowId, sourceId, targetId, arrowType)
                         store.TrackAdd(store.ArrowCalls, arrow)
                     | _ -> ())
             store.EmitRefreshAndHistory()

@@ -55,7 +55,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void ApplyWorkPeriod()
     {
-        if (RequireSelectedAs(EntityTypes.Work) is not { } selectedWork) return;
+        if (RequireSelectedAs(EntityKind.Work) is not { } selectedWork) return;
 
         if (!TryEditorAction(
                 () => _store.UpdateWorkPeriodMs(selectedWork.Id, ToOption(WorkPeriodMs))))
@@ -70,9 +70,9 @@ public partial class MainViewModel
     {
         var selected = SelectedNode;
         NameEditorText = selected?.Name ?? string.Empty;
-        IsWorkSelected = EntityTypes.Is(selected?.EntityType, EntityTypes.Work);
-        IsCallSelected = EntityTypes.Is(selected?.EntityType, EntityTypes.Call);
-        IsSystemSelected = EntityTypes.Is(selected?.EntityType, EntityTypes.System);
+        IsWorkSelected = selected?.EntityType == EntityKind.Work;
+        IsCallSelected = selected?.EntityType == EntityKind.Call;
+        IsSystemSelected = selected?.EntityType == EntityKind.System;
 
         if (IsWorkSelected && selected is not null)
         {
@@ -114,8 +114,8 @@ public partial class MainViewModel
         return null;
     }
 
-    private EntityNode? RequireSelectedAs(string entityType) =>
-        SelectedNode is { } n && EntityTypes.Is(n.EntityType, entityType) ? n : null;
+    private EntityNode? RequireSelectedAs(EntityKind entityType) =>
+        SelectedNode is { } n && n.EntityType == entityType ? n : null;
 
     private static Window? GetOwnerWindow()
     {

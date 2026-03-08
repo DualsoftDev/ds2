@@ -3,12 +3,12 @@ module Ds2.UI.Core.CanvasProjection
 open System
 open Ds2.Core
 
-let private defaultPos = Xywh(int UiDefaults.DefaultNodeXf, int UiDefaults.DefaultNodeYf, int UiDefaults.DefaultNodeWidthf, int UiDefaults.DefaultNodeHeightf)
+let private defaultPos = Xywh(UiDefaults.DefaultNodeX, UiDefaults.DefaultNodeY, UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight)
 
-let private nodeFromPosition (id: Guid) (entityType: string) (name: string) (parentId: Guid) (pos: Xywh option) =
+let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) (parentId: Guid) (pos: Xywh option) =
     let p = pos |> Option.defaultValue defaultPos
     { Id = id
-      EntityType = entityType
+      EntityKind = entityKind
       Name = name
       ParentId = parentId
       X = float p.X
@@ -30,7 +30,7 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
         flowIds
         |> List.collect (fun flowId ->
             DsQuery.worksOf flowId store
-            |> List.map (fun w -> nodeFromPosition w.Id EntityTypeNames.Work w.Name w.ParentId w.Position))
+            |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position))
 
     let arrows =
         DsQuery.allArrowWorks store
@@ -45,7 +45,7 @@ let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
 
     let nodes =
         works
-        |> List.map (fun w -> nodeFromPosition w.Id EntityTypeNames.Work w.Name w.ParentId w.Position)
+        |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position)
 
     let arrows =
         DsQuery.arrowWorksOf flowId store
@@ -63,7 +63,7 @@ let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
 
         let nodes =
             calls
-            |> List.map (fun c -> nodeFromPosition c.Id EntityTypeNames.Call c.Name c.ParentId c.Position)
+            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position)
 
         let arrows =
             DsQuery.arrowCallsOf work.ParentId store

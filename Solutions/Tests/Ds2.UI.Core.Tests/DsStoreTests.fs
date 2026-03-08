@@ -168,7 +168,7 @@ module RemoveTests =
     let ``RemoveEntities deletes project and cascades`` () =
         let store = createStore ()
         let project, _, _, _ = setupBasicHierarchy store
-        store.RemoveEntities([ (EntityTypeNames.Project, project.Id) ])
+        store.RemoveEntities([ (EntityKind.Project, project.Id) ])
         Assert.Equal(0, store.Projects.Count)
         Assert.Equal(0, store.Systems.Count)
         Assert.Equal(0, store.Flows.Count)
@@ -180,7 +180,7 @@ module RemoveTests =
         let _, _, _, work = setupBasicHierarchy store
         store.AddCallsWithDevice(Guid.Empty, work.Id, ["Dev.Api"], false)
         Assert.True(store.Calls.Count > 0)
-        store.RemoveEntities([ (EntityTypeNames.Work, work.Id) ])
+        store.RemoveEntities([ (EntityKind.Work, work.Id) ])
         Assert.Equal(0, store.Calls.Count)
 
     [<Fact>]
@@ -188,7 +188,7 @@ module RemoveTests =
         let store = createStore ()
         let project, _, _, _ = setupBasicHierarchy store
         let projectCount = store.Projects.Count
-        store.RemoveEntities([ (EntityTypeNames.Project, project.Id) ])
+        store.RemoveEntities([ (EntityKind.Project, project.Id) ])
         Assert.Equal(0, store.Projects.Count)
         store.Undo()
         Assert.Equal(projectCount, store.Projects.Count)
@@ -203,14 +203,14 @@ module RenameTests =
     let ``RenameEntity changes project name`` () =
         let store = createStore ()
         let project = addProject store "OldName"
-        store.RenameEntity(project.Id, EntityTypeNames.Project, "NewName")
+        store.RenameEntity(project.Id, EntityKind.Project, "NewName")
         Assert.Equal("NewName", store.Projects.[project.Id].Name)
 
     [<Fact>]
     let ``RenameEntity with same name does not create extra undo step`` () =
         let store = createStore ()
         let project = addProject store "Same"
-        store.RenameEntity(project.Id, EntityTypeNames.Project, "Same")
+        store.RenameEntity(project.Id, EntityKind.Project, "Same")
         store.Undo() // should undo AddProject directly (rename no-op must not push)
         Assert.False(store.Projects.ContainsKey(project.Id))
 
@@ -221,11 +221,11 @@ module RenameTests =
 module ArrowTests =
 
     [<Fact>]
-    let ``ConnectSelectionInOrderUi creates arrows between works`` () =
+    let ``ConnectSelectionInOrder creates arrows between works`` () =
         let store = createStore ()
         let _, _, flow, work1 = setupBasicHierarchy store
         let work2 = addWork store "W2" flow.Id
-        let count = store.ConnectSelectionInOrderUi([ work1.Id; work2.Id ], UiArrowType.ResetReset)
+        let count = store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.ResetReset)
         Assert.Equal(1, count)
         Assert.Equal(1, store.ArrowWorks.Count)
 
@@ -234,7 +234,7 @@ module ArrowTests =
         let store = createStore ()
         let _, _, flow, work1 = setupBasicHierarchy store
         let work2 = addWork store "W2" flow.Id
-        store.ConnectSelectionInOrderUi([ work1.Id; work2.Id ], UiArrowType.ResetReset) |> ignore
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.ResetReset) |> ignore
         let arrowId = store.ArrowWorks.Values |> Seq.head |> fun a -> a.Id
         let removed = store.RemoveArrows([ arrowId ])
         Assert.Equal(1, removed)
@@ -250,7 +250,7 @@ module PasteTests =
     let ``PasteEntities copies flow to same system`` () =
         let store = createStore ()
         let _, system, flow, _ = setupBasicHierarchy store
-        let count = store.PasteEntities(EntityTypeNames.Flow, [ flow.Id ], EntityTypeNames.System, system.Id)
+        let count = store.PasteEntities(EntityKind.Flow, [ flow.Id ], EntityKind.System, system.Id)
         Assert.Equal(1, count)
         Assert.Equal(2, DsQuery.flowsOf system.Id store |> List.length)
 
@@ -258,7 +258,7 @@ module PasteTests =
     let ``PasteEntities copies works to same flow`` () =
         let store = createStore ()
         let _, _, flow, work = setupBasicHierarchy store
-        let count = store.PasteEntities(EntityTypeNames.Work, [ work.Id ], EntityTypeNames.Flow, flow.Id)
+        let count = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id)
         Assert.Equal(1, count)
         Assert.Equal(2, DsQuery.worksOf flow.Id store |> List.length)
 
@@ -266,7 +266,7 @@ module PasteTests =
     let ``ValidateCopySelection returns Ok for single copyable entity`` () =
         let store = createStore ()
         let _, _, flow, _ = setupBasicHierarchy store
-        let keys = [| SelectionKey(flow.Id, EntityTypeNames.Flow) |]
+        let keys = [| SelectionKey(flow.Id, EntityKind.Flow) |]
         let result = store.ValidateCopySelection(keys)
         Assert.True(result.IsOk)
 
@@ -274,7 +274,7 @@ module PasteTests =
     let ``ValidateCopySelection returns NothingToCopy for non-copyable type`` () =
         let store = createStore ()
         let project, _, _, _ = setupBasicHierarchy store
-        let keys = [| SelectionKey(project.Id, EntityTypeNames.Project) |]
+        let keys = [| SelectionKey(project.Id, EntityKind.Project) |]
         let result = store.ValidateCopySelection(keys)
         Assert.True(result.IsNothingToCopy)
 
@@ -282,7 +282,7 @@ module PasteTests =
     let ``ValidateCopySelection returns MixedTypes for different entity types`` () =
         let store = createStore ()
         let _, _, flow, work = setupBasicHierarchy store
-        let keys = [| SelectionKey(flow.Id, EntityTypeNames.Flow); SelectionKey(work.Id, EntityTypeNames.Work) |]
+        let keys = [| SelectionKey(flow.Id, EntityKind.Flow); SelectionKey(work.Id, EntityKind.Work) |]
         let result = store.ValidateCopySelection(keys)
         Assert.True(result.IsMixedTypes)
 
@@ -292,7 +292,7 @@ module PasteTests =
         let _, system, _, work1 = setupBasicHierarchy store
         let flow2 = addFlow store "Flow2" system.Id
         let work2 = addWork store "Work2" flow2.Id
-        let keys = [| SelectionKey(work1.Id, EntityTypeNames.Work); SelectionKey(work2.Id, EntityTypeNames.Work) |]
+        let keys = [| SelectionKey(work1.Id, EntityKind.Work); SelectionKey(work2.Id, EntityKind.Work) |]
         let result = store.ValidateCopySelection(keys)
         Assert.True(result.IsMixedParents)
 
@@ -301,7 +301,7 @@ module PasteTests =
         let store = createStore ()
         let _, _, flow, work1 = setupBasicHierarchy store
         let work2 = addWork store "Work2" flow.Id
-        let keys = [| SelectionKey(work1.Id, EntityTypeNames.Work); SelectionKey(work2.Id, EntityTypeNames.Work) |]
+        let keys = [| SelectionKey(work1.Id, EntityKind.Work); SelectionKey(work2.Id, EntityKind.Work) |]
         let result = store.ValidateCopySelection(keys)
         Assert.True(result.IsOk)
         match result with
@@ -315,13 +315,24 @@ module PasteTests =
 module MoveTests =
 
     [<Fact>]
-    let ``MoveEntitiesUi updates work position`` () =
+    let ``MoveEntities updates work position by id lookup`` () =
         let store = createStore ()
         let _, _, _, work = setupBasicHierarchy store
-        let request = UiMoveEntityRequest(EntityTypeNames.Work, work.Id, true, 100, 200, 50, 30)
-        let moved = store.MoveEntitiesUi([ request ])
+        let request = MoveEntityRequest(work.Id, Xywh(100, 200, 50, 30))
+        let moved = store.MoveEntities([ request ])
         Assert.Equal(1, moved)
         Assert.True(store.Works.[work.Id].Position.IsSome)
+
+    [<Fact>]
+    let ``MoveEntities updates call position by id lookup`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1" ], true)
+        let call = DsQuery.callsOf work.Id store |> List.head
+        let request = MoveEntityRequest(call.Id, Xywh(50, 60, 120, 40))
+        let moved = store.MoveEntities([ request ])
+        Assert.Equal(1, moved)
+        Assert.True(store.Calls.[call.Id].Position.IsSome)
 
 // =============================================================================
 // Panel (도메인 타입 직접 사용)
@@ -427,16 +438,10 @@ module QueryTests =
         Assert.NotEmpty(activeTrees)
 
     [<Fact>]
-    let ``TabExists returns true for valid tab`` () =
-        let store = createStore ()
-        let _, system, _, _ = setupBasicHierarchy store
-        Assert.True(store.TabExists(TabKind.System, system.Id))
-
-    [<Fact>]
     let ``TryOpenTabForEntity returns tab info for system`` () =
         let store = createStore ()
         let _, system, _, _ = setupBasicHierarchy store
-        let result = store.TryOpenTabForEntity(EntityTypeNames.System, system.Id)
+        let result = store.TryOpenTabForEntity(EntityKind.System, system.Id)
         Assert.True(result.IsSome)
         Assert.Equal(TabKind.System, result.Value.Kind)
 

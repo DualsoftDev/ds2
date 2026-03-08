@@ -1,11 +1,12 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Ds2.UI.Core;
 
 namespace Promaker.ViewModels;
 
 public partial class EntityNode : ObservableObject
 {
-    public EntityNode(Guid id, string entityType, string name, Guid? parentId = null)
+    public EntityNode(Guid id, EntityKind entityType, string name, Guid? parentId = null)
     {
         Id = id;
         EntityType = entityType;
@@ -14,7 +15,7 @@ public partial class EntityNode : ObservableObject
     }
 
     public Guid Id { get; }
-    public string EntityType { get; }
+    public EntityKind EntityType { get; }
     public Guid? ParentId { get; }
 
     [ObservableProperty] private string _name;

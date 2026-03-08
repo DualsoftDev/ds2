@@ -1,12 +1,12 @@
 using System.Windows;
-using Ds2.UI.Core;
+using Ds2.Core;
 
 namespace Promaker.Dialogs;
 
 public partial class ArrowTypeDialog : Window
 {
-    private static UiArrowType _lastWorkArrowType = UiArrowType.Start;
-    private static UiArrowType _lastCallArrowType = UiArrowType.Start;
+    private static ArrowType _lastWorkArrowType = ArrowType.Start;
+    private static ArrowType _lastCallArrowType = ArrowType.Start;
 
     private readonly bool _isWorkMode;
 
@@ -30,20 +30,20 @@ public partial class ArrowTypeDialog : Window
         Loaded += (_, _) => OkButton.Focus();
     }
 
-    public UiArrowType SelectedArrowType { get; private set; } = UiArrowType.Start;
+    public ArrowType SelectedArrowType { get; private set; } = ArrowType.Start;
 
-    private static UiArrowType NormalizeArrowTypeForMode(UiArrowType arrowType, bool isWorkMode)
+    private static ArrowType NormalizeArrowTypeForMode(ArrowType arrowType, bool isWorkMode)
     {
-        if (arrowType == UiArrowType.None)
-            return UiArrowType.Start;
+        if (arrowType == ArrowType.None)
+            return ArrowType.Start;
 
-        if (!isWorkMode && (arrowType == UiArrowType.Reset || arrowType == UiArrowType.StartReset || arrowType == UiArrowType.ResetReset))
-            return UiArrowType.Start;
+        if (!isWorkMode && (arrowType == ArrowType.Reset || arrowType == ArrowType.StartReset || arrowType == ArrowType.ResetReset))
+            return ArrowType.Start;
 
         return arrowType;
     }
 
-    private void ApplySelection(UiArrowType arrowType)
+    private void ApplySelection(ArrowType arrowType)
     {
         StartRadio.IsChecked = false;
         ResetRadio.IsChecked = false;
@@ -53,19 +53,19 @@ public partial class ArrowTypeDialog : Window
 
         switch (arrowType)
         {
-            case UiArrowType.Start:
+            case ArrowType.Start:
                 StartRadio.IsChecked = true;
                 break;
-            case UiArrowType.Reset:
+            case ArrowType.Reset:
                 ResetRadio.IsChecked = true;
                 break;
-            case UiArrowType.StartReset:
+            case ArrowType.StartReset:
                 StartResetRadio.IsChecked = true;
                 break;
-            case UiArrowType.ResetReset:
+            case ArrowType.ResetReset:
                 ResetResetRadio.IsChecked = true;
                 break;
-            case UiArrowType.Group:
+            case ArrowType.Group:
                 GroupRadio.IsChecked = true;
                 break;
             default:
@@ -74,24 +74,24 @@ public partial class ArrowTypeDialog : Window
         }
     }
 
-    private UiArrowType ReadSelectedArrowType()
+    private ArrowType ReadSelectedArrowType()
     {
         if (GroupRadio.IsChecked == true)
-            return UiArrowType.Group;
+            return ArrowType.Group;
 
         if (_isWorkMode)
         {
             if (ResetRadio.IsChecked == true)
-                return UiArrowType.Reset;
+                return ArrowType.Reset;
 
             if (StartResetRadio.IsChecked == true)
-                return UiArrowType.StartReset;
+                return ArrowType.StartReset;
 
             if (ResetResetRadio.IsChecked == true)
-                return UiArrowType.ResetReset;
+                return ArrowType.ResetReset;
         }
 
-        return UiArrowType.Start;
+        return ArrowType.Start;
     }
 
     private void Ok_Click(object sender, RoutedEventArgs e)

@@ -18,45 +18,25 @@ type DsStoreQueriesExtensions =
 
     // ─── CanvasProjection ────────────────────────────────────────────
     [<Extension>]
-    static member CanvasContentForTabUi(store: DsStore, kind: TabKind, rootId: Guid) : UiCanvasContent =
-        let content = CanvasProjection.canvasContentForTab store kind rootId
-        { Nodes = content.Nodes
-          Arrows =
-            content.Arrows
-            |> List.map (fun arrow ->
-                { Id = arrow.Id
-                  SourceId = arrow.SourceId
-                  TargetId = arrow.TargetId
-                  ArrowType = UiArrowType.ofCore arrow.ArrowType }) }
+    static member CanvasContentForTab(store: DsStore, kind: TabKind, rootId: Guid) : CanvasContent =
+        CanvasProjection.canvasContentForTab store kind rootId
 
     // ─── EntityHierarchyQueries ──────────────────────────────────────
     [<Extension>]
-    static member TryOpenTabForEntity(store: DsStore, entityType: string, entityId: Guid) : TabOpenInfo option =
-        EntityHierarchyQueries.tryOpenTabForEntity store entityType entityId
-
-    [<Extension>]
-    static member TryOpenTabForEntityOrNull(store: DsStore, entityType: string, entityId: Guid) : TabOpenInfo =
-        DsStoreQueriesExtensions.TryOpenTabForEntity(store, entityType, entityId) |> Option.toObj
+    static member TryOpenTabForEntity(store: DsStore, entityKind: EntityKind, entityId: Guid) : TabOpenInfo option =
+        EntityHierarchyQueries.tryOpenTabForEntity store entityKind entityId
 
     [<Extension>]
     static member FlowIdsForTab(store: DsStore, kind: TabKind, rootId: Guid) : Guid list =
         EntityHierarchyQueries.flowIdsForTab store kind rootId
 
     [<Extension>]
-    static member TabExists(store: DsStore, kind: TabKind, rootId: Guid) : bool =
-        EntityHierarchyQueries.tabExists store kind rootId
-
-    [<Extension>]
     static member TabTitle(store: DsStore, kind: TabKind, rootId: Guid) : string option =
         EntityHierarchyQueries.tabTitle store kind rootId
 
     [<Extension>]
-    static member TabTitleOrNull(store: DsStore, kind: TabKind, rootId: Guid) : string =
-        DsStoreQueriesExtensions.TabTitle(store, kind, rootId) |> Option.toObj
-
-    [<Extension>]
     static member FindApiDefsByName(store: DsStore, filterName: string) : ApiDefMatch list =
-        EntityHierarchyQueries.findApiDefs store "" filterName
+        EntityHierarchyQueries.findApiDefs store filterName
 
     // ─── ArrowPathCalculator ─────────────────────────────────────────
     [<Extension>]

@@ -110,10 +110,10 @@ module internal TimeSpanMsHelper =
         ms |> Option.map (fun m -> TimeSpan.FromMilliseconds(float m))
 
     /// 엔티티 조회 → TimeSpan 속성 → ms 변환, 없으면 warn + None
-    let readMs (query: Guid -> DsStore -> 'T option) (getProp: 'T -> TimeSpan option) (entityType: string) (store: DsStore) (id: Guid) : int option =
+    let readMs (query: Guid -> DsStore -> 'T option) (getProp: 'T -> TimeSpan option) (entityKind: EntityKind) (store: DsStore) (id: Guid) : int option =
         query id store
         |> Option.bind (fun e -> getProp e |> getMs)
-        |> Option.orElseWith (fun () -> StoreLog.warn($"{entityType} not found. id={id}"); None)
+        |> Option.orElseWith (fun () -> StoreLog.warn($"{entityKind} not found. id={id}"); None)
 
 [<Extension>]
 type DsStorePanelExtensions =
@@ -121,11 +121,11 @@ type DsStorePanelExtensions =
     // ─── Work Period / Call Timeout (ms) ─────────────────────────
     [<Extension>]
     static member GetWorkPeriodMs(store: DsStore, workId: Guid) : int option =
-        TimeSpanMsHelper.readMs DsQuery.getWork (fun w -> w.Properties.Period) "Work" store workId
+        TimeSpanMsHelper.readMs DsQuery.getWork (fun w -> w.Properties.Period) EntityKind.Work store workId
 
     [<Extension>]
     static member GetCallTimeoutMs(store: DsStore, callId: Guid) : int option =
-        TimeSpanMsHelper.readMs DsQuery.getCall (fun c -> c.Properties.Timeout) "Call" store callId
+        TimeSpanMsHelper.readMs DsQuery.getCall (fun c -> c.Properties.Timeout) EntityKind.Call store callId
 
     [<Extension>]
     static member UpdateWorkPeriodMs(store: DsStore, workId: Guid, periodMs: int option) =
@@ -167,7 +167,7 @@ type DsStorePanelExtensions =
     [<Extension>]
     static member GetDeviceApiDefOptionsForCall(store: DsStore, callId: Guid) : DeviceApiDefOption list =
         let systems =
-            match EntityHierarchyQueries.tryFindProjectIdForEntity store EntityTypeNames.Call callId with
+            match EntityHierarchyQueries.tryFindProjectIdForEntity store EntityKind.Call callId with
             | Some projectId -> DsQuery.passiveSystemsOf projectId store
             | None -> DsQuery.allProjects store |> List.collect (fun p -> DsQuery.passiveSystemsOf p.Id store)
         systems
@@ -278,32 +278,30 @@ type DsStorePanelExtensions =
 
     // ─── Call Conditions ───────────────────────────────────────────
     [<Extension>]
-    static member GetCallConditionsForPanelUi(store: DsStore, callId: Guid) : UiCallConditionPanelItem list =
+    static member GetCallConditionsForPanel(store: DsStore, callId: Guid) : CallConditionPanelItem list =
         DirectPanelOps.withCallOrEmpty store callId (fun call ->
             call.CallConditions
             |> Seq.map (fun cond ->
                 let items = cond.Conditions |> Seq.map (DirectPanelOps.toConditionApiCallItem store) |> Seq.toList
-                UiCallConditionPanelItem(
+                CallConditionPanelItem(
                     cond.Id,
-                    UiCallConditionType.ofCore (cond.Type |> Option.defaultValue CallConditionType.Auto),
+                    (cond.Type |> Option.defaultValue CallConditionType.Auto),
                     cond.IsOR, cond.IsRising, items))
             |> Seq.toList)
 
     [<Extension>]
-    static member AddCallConditionUi(store: DsStore, callId: Guid, condType: UiCallConditionType) : bool =
+    static member AddCallCondition(store: DsStore, callId: Guid, condType: CallConditionType) =
         StoreLog.debug($"callId={callId}, condType={condType}")
         StoreLog.requireCall(store, callId) |> ignore
-        let cond = CallCondition(Type = Some (UiCallConditionType.toCore condType))
+        let cond = CallCondition(Type = Some condType)
         DirectPanelOps.mutateCallProps store callId "조건 추가" (fun c -> c.CallConditions.Add(cond))
-        true
 
     [<Extension>]
-    static member RemoveCallCondition(store: DsStore, callId: Guid, conditionId: Guid) : bool =
+    static member RemoveCallCondition(store: DsStore, callId: Guid, conditionId: Guid) =
         StoreLog.debug($"callId={callId}, conditionId={conditionId}")
         StoreLog.requireCallCondition(store, callId, conditionId) |> ignore
         DirectPanelOps.mutateCallProps store callId "조건 삭제" (fun c ->
             c.CallConditions.RemoveAll(fun cc -> cc.Id = conditionId) |> ignore)
-        true
 
     [<Extension>]
     static member UpdateCallConditionSettings(store: DsStore, callId: Guid, condId: Guid, isOR: bool, isRising: bool) : bool =
@@ -332,13 +330,12 @@ type DsStorePanelExtensions =
             sources.Length
 
     [<Extension>]
-    static member RemoveApiCallFromCondition(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid) : bool =
+    static member RemoveApiCallFromCondition(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid) =
         StoreLog.debug($"callId={callId}, condId={condId}, apiCallId={apiCallId}")
         let cond = StoreLog.requireCallCondition(store, callId, condId)
         StoreLog.requireApiCallInCondition(cond, apiCallId) |> ignore
         DirectPanelOps.mutateCallProps store callId "조건에서 ApiCall 제거" (fun c ->
             (DirectPanelOps.findCondition c condId).Conditions.RemoveAll(fun ac -> ac.Id = apiCallId) |> ignore)
-        true
 
     [<Extension>]
     static member UpdateConditionApiCallOutputSpec(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid, outTypeIndex: int, outText: string) : bool =

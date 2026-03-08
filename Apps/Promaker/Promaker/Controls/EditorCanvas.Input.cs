@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using Ds2.Core;
 using Ds2.UI.Core;
 using Promaker;
 using Promaker.ViewModels;
@@ -39,9 +40,9 @@ public partial class EditorCanvas
             var node = VM.CanvasNodes.FirstOrDefault(n => n.Id == nodeId);
             if (node is null) return;
 
-            if (e.ClickCount == 2 && EntityTypes.Is(node.EntityType, EntityTypes.Work))
+            if (e.ClickCount == 2 && node.EntityType == EntityKind.Work)
             {
-                VM.OpenCanvasTab(nodeId, EntityTypes.Work);
+                VM.OpenCanvasTab(nodeId, EntityKind.Work);
                 e.Handled = true;
                 return;
             }
@@ -162,7 +163,7 @@ public partial class EditorCanvas
 
         if (VM is not null)
         {
-            var requests = new List<UiMoveEntityRequest>();
+            var requests = new List<MoveEntityRequest>();
 
             foreach (var item in _drag.Items)
             {
@@ -174,14 +175,9 @@ public partial class EditorCanvas
                     continue;
 
                 requests.Add(
-                    new UiMoveEntityRequest(
-                        item.Node.EntityType,
+                    new MoveEntityRequest(
                         item.Node.Id,
-                        hasPosition: true,
-                        x: (int)item.Node.X,
-                        y: (int)item.Node.Y,
-                        w: (int)item.Node.Width,
-                        h: (int)item.Node.Height));
+                        new Xywh((int)item.Node.X, (int)item.Node.Y, (int)item.Node.Width, (int)item.Node.Height)));
             }
 
             if (requests.Count > 0)

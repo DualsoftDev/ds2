@@ -224,23 +224,23 @@ module DsQuery =
         childrenOf store.HwActionsReadOnly.Values systemId (fun a -> a.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 엔티티 이름 접근 (EntityKind 문자열 기반)
+    // 엔티티 이름 접근 (EntityKind 기반)
     // ─────────────────────────────────────────────────────────────────────────
 
-    let private tryGetEntity (store: DsStore) (entityType: string) (id: Guid) : DsEntity option =
-        match EntityKind.tryOfString entityType with
-        | ValueSome Project   -> getProject   id store |> Option.map (fun e -> e :> DsEntity)
-        | ValueSome System    -> getSystem    id store |> Option.map (fun e -> e :> DsEntity)
-        | ValueSome Flow      -> getFlow      id store |> Option.map (fun e -> e :> DsEntity)
-        | ValueSome Work      -> getWork      id store |> Option.map (fun e -> e :> DsEntity)
-        | ValueSome Call      -> getCall      id store |> Option.map (fun e -> e :> DsEntity)
-        | ValueSome ApiDef    -> getApiDef    id store |> Option.map (fun e -> e :> DsEntity)
-        | ValueSome Button    -> getButton    id store |> Option.map (fun e -> e :> DsEntity)
-        | ValueSome Lamp      -> getLamp      id store |> Option.map (fun e -> e :> DsEntity)
-        | ValueSome Condition -> getCondition id store |> Option.map (fun e -> e :> DsEntity)
-        | ValueSome Action    -> getAction    id store |> Option.map (fun e -> e :> DsEntity)
-        | ValueNone           -> None
+    let private tryGetEntity (store: DsStore) (entityKind: EntityKind) (id: Guid) : DsEntity option =
+        match entityKind with
+        | EntityKind.Project   -> getProject   id store |> Option.map (fun e -> e :> DsEntity)
+        | EntityKind.System    -> getSystem    id store |> Option.map (fun e -> e :> DsEntity)
+        | EntityKind.Flow      -> getFlow      id store |> Option.map (fun e -> e :> DsEntity)
+        | EntityKind.Work      -> getWork      id store |> Option.map (fun e -> e :> DsEntity)
+        | EntityKind.Call      -> getCall      id store |> Option.map (fun e -> e :> DsEntity)
+        | EntityKind.ApiDef    -> getApiDef    id store |> Option.map (fun e -> e :> DsEntity)
+        | EntityKind.Button    -> getButton    id store |> Option.map (fun e -> e :> DsEntity)
+        | EntityKind.Lamp      -> getLamp      id store |> Option.map (fun e -> e :> DsEntity)
+        | EntityKind.Condition -> getCondition id store |> Option.map (fun e -> e :> DsEntity)
+        | EntityKind.Action    -> getAction    id store |> Option.map (fun e -> e :> DsEntity)
+        | _                    -> None
 
-    /// <summary>엔티티 종류 문자열 + ID로 엔티티 이름 조회</summary>
-    let tryGetName (store: DsStore) (entityType: string) (id: Guid) : string option =
-        tryGetEntity store entityType id |> Option.map (fun e -> e.Name)
+    /// <summary>EntityKind + ID로 엔티티 이름 조회</summary>
+    let tryGetName (store: DsStore) (entityKind: EntityKind) (id: Guid) : string option =
+        tryGetEntity store entityKind id |> Option.map (fun e -> e.Name)

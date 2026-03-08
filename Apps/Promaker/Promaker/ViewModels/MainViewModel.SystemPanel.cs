@@ -12,7 +12,7 @@ public partial class MainViewModel
     private bool TryShowApiDefDialog(Guid systemId, ApiDefPanelItem? existing, out ApiDefEditDialog dialog)
     {
         dialog = null!;
-        if (!TryEditorFunc(() => _store.GetWorksForSystem(systemId).ToList(), out List<WorkDropdownItem> works, fallback: []))
+        if (!TryEditorRef(() => _store.GetWorksForSystem(systemId), out var works))
             return false;
         dialog = existing is not null ? new ApiDefEditDialog(works, existing) : new ApiDefEditDialog(works);
         return ShowOwnedDialog(dialog);
@@ -27,7 +27,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void AddSystemApiDef()
     {
-        if (!TryGetSelectedNode(EntityTypes.System, out var systemNode)) return;
+        if (!TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
         if (!TryShowApiDefDialog(systemNode.Id, null, out var dialog)) return;
 
         if (!TryEditorAction(
@@ -43,7 +43,7 @@ public partial class MainViewModel
     [RelayCommand]
     private void EditSystemApiDef(ApiDefPanelItem? item)
     {
-        if (item is null || !TryGetSelectedNode(EntityTypes.System, out var systemNode)) return;
+        if (item is null || !TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
         if (!TryShowApiDefDialog(systemNode.Id, item, out var dialog)) return;
         if (!TryUpdateApiDef(item.Id, dialog)) return;
 
@@ -54,10 +54,10 @@ public partial class MainViewModel
     [RelayCommand]
     private void DeleteSystemApiDef(ApiDefPanelItem? item)
     {
-        if (item is null || !TryGetSelectedNode(EntityTypes.System, out var systemNode)) return;
+        if (item is null || !TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
 
         if (!TryEditorAction(
-                () => _store.RemoveEntities(new[] { Tuple.Create(EntityTypes.ApiDef, item.Id) })))
+                () => _store.RemoveEntities(new[] { Tuple.Create(EntityKind.ApiDef, item.Id) })))
             return;
 
         RefreshSystemPanel(systemNode.Id);

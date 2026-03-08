@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
+using Ds2.Core;
 using Ds2.UI.Core;
 using Promaker.Dialogs;
 using Microsoft.FSharp.Core;
@@ -74,7 +75,7 @@ public partial class MainViewModel
 
         if (!TryEditorFunc(
                 () => _store.TryGetCallApiCallForPanel(callId, item.ApiCallId),
-                out FSharpOption<CallApiCallPanelItem>? rowOpt,
+                out var rowOpt,
                 fallback: null))
             return;
 
@@ -178,17 +179,13 @@ public partial class MainViewModel
     }
 
     [RelayCommand]
-    private void AddCondition(UiCallConditionType type)
+    private void AddCondition(CallConditionType type)
     {
         if (!TryGetSelectedCall(out var selectedCall)) return;
 
-        if (!TryEditorFunc(
-                () => _store.AddCallConditionUi(selectedCall.Id, type),
-                out var added,
-                fallback: false))
+        if (!TryEditorAction(() => _store.AddCallCondition(selectedCall.Id, type)))
             return;
 
-        if (!added) return;
         RefreshCallPanel(selectedCall.Id);
     }
 
@@ -198,13 +195,9 @@ public partial class MainViewModel
         if (!TryGetSelectedCall(out var selectedCall)) return;
         if (item is null) return;
 
-        if (!TryEditorFunc(
-                () => _store.RemoveCallCondition(selectedCall.Id, item.ConditionId),
-                out var removed,
-                fallback: false))
+        if (!TryEditorAction(() => _store.RemoveCallCondition(selectedCall.Id, item.ConditionId)))
             return;
 
-        if (!removed) return;
         RefreshCallPanel(selectedCall.Id);
     }
 
@@ -254,13 +247,9 @@ public partial class MainViewModel
         if (!TryGetSelectedCall(out var selectedCall)) return;
         if (row is null) return;
 
-        if (!TryEditorFunc(
-                () => _store.RemoveApiCallFromCondition(selectedCall.Id, row.ConditionId, row.ApiCallId),
-                out var removed,
-                fallback: false))
+        if (!TryEditorAction(() => _store.RemoveApiCallFromCondition(selectedCall.Id, row.ConditionId, row.ApiCallId)))
             return;
 
-        if (!removed) return;
         RefreshCallPanel(selectedCall.Id);
     }
 
@@ -311,7 +300,7 @@ public partial class MainViewModel
     private void ToggleConditionIsRising(CallConditionItem? item) => ToggleConditionSetting(item, toggleIsOR: false);
 
     private bool TryGetSelectedCall([NotNullWhen(true)] out EntityNode? selectedCall) =>
-        TryGetSelectedNode(EntityTypes.Call, out selectedCall);
+        TryGetSelectedNode(EntityKind.Call, out selectedCall);
 
     private void RefreshCallPanel(Guid callId)
     {
@@ -346,14 +335,14 @@ public partial class MainViewModel
         ClearConditionSections();
 
         if (!TryEditorRef(
-                () => _store.GetCallConditionsForPanelUi(callId),
+                () => _store.GetCallConditionsForPanel(callId),
                 out var conditions))
             return;
 
         foreach (var cond in conditions)
         {
             var target = FindConditionSection(cond.ConditionType)
-                         ?? FindConditionSection(UiCallConditionType.Common);
+                         ?? FindConditionSection(CallConditionType.Common);
             target?.Conditions.Add(new CallConditionItem(cond));
         }
     }
@@ -365,7 +354,7 @@ public partial class MainViewModel
             section.Conditions.Clear();
     }
 
-    private ConditionSectionItem? FindConditionSection(UiCallConditionType type)
+    private ConditionSectionItem? FindConditionSection(CallConditionType type)
     {
         EnsureConditionSectionsInitialized();
         return ConditionSections.FirstOrDefault(s => s.ConditionType == type);
@@ -374,8 +363,8 @@ public partial class MainViewModel
     private void EnsureConditionSectionsInitialized()
     {
         if (ConditionSections.Count > 0) return;
-        ConditionSections.Add(new ConditionSectionItem(UiCallConditionType.Active, "ActiveTrigger", "Add ActiveTrigger"));
-        ConditionSections.Add(new ConditionSectionItem(UiCallConditionType.Auto, "AutoCondition", "Add AutoCondition"));
-        ConditionSections.Add(new ConditionSectionItem(UiCallConditionType.Common, "CommonCondition", "Add CommonCondition"));
+        ConditionSections.Add(new ConditionSectionItem(CallConditionType.Active, "ActiveTrigger", "Add ActiveTrigger"));
+        ConditionSections.Add(new ConditionSectionItem(CallConditionType.Auto, "AutoCondition", "Add AutoCondition"));
+        ConditionSections.Add(new ConditionSectionItem(CallConditionType.Common, "CommonCondition", "Add CommonCondition"));
     }
 }

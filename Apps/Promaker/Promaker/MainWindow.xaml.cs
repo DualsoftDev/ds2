@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using Ds2.UI.Core;
 using Promaker.ViewModels;
 
 namespace Promaker;
@@ -52,7 +53,7 @@ public partial class MainWindow : Window
             _vm.OpenCanvasTab(node.Id, node.EntityType);
             e.Handled = true;
         }
-        else if (EntityTypes.Is(node.EntityType, EntityTypes.ApiDef))
+        else if (node.EntityType == EntityKind.ApiDef)
         {
             _vm.EditApiDefNode(node.Id);
             e.Handled = true;

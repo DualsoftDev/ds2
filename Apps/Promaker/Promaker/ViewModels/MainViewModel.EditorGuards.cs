@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using Ds2.Core;
 using Ds2.UI.Core;
 using Promaker.Dialogs;
 using Microsoft.FSharp.Core;
@@ -95,14 +96,14 @@ public partial class MainViewModel
     private static FSharpOption<T>? ToOption<T>(T? value) where T : class =>
         value is not null ? FSharpOption<T>.Some(value) : null;
 
-    private bool TryGetSelectedNode(string entityType, [NotNullWhen(true)] out EntityNode? node)
+    private bool TryGetSelectedNode(EntityKind entityType, [NotNullWhen(true)] out EntityNode? node)
     {
         node = RequireSelectedAs(entityType);
         return node is not null;
     }
 
-    public bool TryMoveEntitiesFromCanvas(IReadOnlyList<UiMoveEntityRequest> requests) =>
-        TryEditorAction(() => _store.MoveEntitiesUi(requests),
+    public bool TryMoveEntitiesFromCanvas(IReadOnlyList<MoveEntityRequest> requests) =>
+        TryEditorAction(() => _store.MoveEntities(requests),
             statusOverride: "[ERROR] Failed to move selected nodes.");
 
     public bool TryReconnectArrowFromCanvas(Guid arrowId, bool replaceSource, Guid newEndpointId)
@@ -117,10 +118,10 @@ public partial class MainViewModel
         return changed;
     }
 
-    public bool TryConnectNodesFromCanvas(Guid sourceId, Guid targetId, UiArrowType arrowType)
+    public bool TryConnectNodesFromCanvas(Guid sourceId, Guid targetId, ArrowType arrowType)
     {
         if (!TryEditorFunc(
-                () => _store.ConnectSelectionInOrderUi(new Guid[] { sourceId, targetId }, arrowType),
+                () => _store.ConnectSelectionInOrder(new Guid[] { sourceId, targetId }, arrowType),
                 out int createdCount,
                 fallback: 0,
                 statusOverride: "[ERROR] Failed to connect selected nodes."))

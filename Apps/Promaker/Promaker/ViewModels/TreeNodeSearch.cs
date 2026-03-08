@@ -44,7 +44,7 @@ internal static class TreeNodeSearch
         FindFirst(nodes, n => n.Id == id);
 
     public static EntityNode? FindByKey(IEnumerable<EntityNode> nodes, SelectionKey key) =>
-        FindFirst(nodes, n => n.Id == key.Id && n.EntityType == key.EntityType);
+        FindFirst(nodes, n => n.Id == key.Id && n.EntityType == key.EntityKind);
 
     public static EntityNode? FindParentByChildId(IEnumerable<EntityNode> nodes, Guid childId) =>
         FindFirst(nodes, n => n.Children.Any(c => c.Id == childId));

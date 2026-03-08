@@ -16,36 +16,36 @@ let private areFlowsInSameSystem (store: DsStore) (sourceFlowId: Guid) (targetFl
 
 let resolveFlowIdForConnect
     (store: DsStore)
-    (sourceEntityType: string)
+    (sourceEntityKind: EntityKind)
     (sourceParentId: Guid option)
-    (targetEntityType: string)
+    (targetEntityKind: EntityKind)
     (targetParentId: Guid option)
     : Guid option =
-    match sourceEntityType, targetEntityType, sourceParentId, targetParentId with
-    | EntityTypeNames.Work, EntityTypeNames.Work, Some sourceFlowId, Some targetFlowId
+    match sourceEntityKind, targetEntityKind, sourceParentId, targetParentId with
+    | EntityKind.Work, EntityKind.Work, Some sourceFlowId, Some targetFlowId
         when areFlowsInSameSystem store sourceFlowId targetFlowId ->
         Some sourceFlowId
-    | EntityTypeNames.Call, EntityTypeNames.Call, Some sourceWorkId, Some targetWorkId when sourceWorkId = targetWorkId ->
+    | EntityKind.Call, EntityKind.Call, Some sourceWorkId, Some targetWorkId when sourceWorkId = targetWorkId ->
         DsQuery.getWork sourceWorkId store
         |> Option.map (fun work -> work.ParentId)
     | _ -> None
 
-let private resolveOrderedNodeContext (store: DsStore) (nodeId: Guid) : (string * Guid * Guid) option =
+let private resolveOrderedNodeContext (store: DsStore) (nodeId: Guid) : (EntityKind * Guid * Guid) option =
     match DsQuery.getWork nodeId store with
-    | Some work -> Some (EntityTypeNames.Work, work.ParentId, work.Id)
+    | Some work -> Some (EntityKind.Work, work.ParentId, work.Id)
     | None ->
         match DsQuery.getCall nodeId store with
         | Some call ->
             DsQuery.getWork call.ParentId store
-            |> Option.map (fun work -> (EntityTypeNames.Call, work.ParentId, call.Id))
+            |> Option.map (fun work -> (EntityKind.Call, work.ParentId, call.Id))
         | None -> None
 
 /// Ordered multi-selection -> connectable arrow links.
-/// Result tuple: (entityType, flowId, sourceId, targetId)
+/// Result tuple: (entityKind, flowId, sourceId, targetId)
 let orderedArrowLinksForSelection
     (store: DsStore)
     (orderedNodeIds: seq<Guid>)
-    : (string * Guid * Guid * Guid) list =
+    : (EntityKind * Guid * Guid * Guid) list =
 
     let distinctIds =
         let seen = System.Collections.Generic.HashSet<Guid>()
@@ -75,10 +75,10 @@ let orderedArrowLinksForSelection
             None
         else
             match sourceType with
-            | EntityTypeNames.Work when areFlowsInSameSystem store sourceFlowId targetFlowId ->
+            | EntityKind.Work when areFlowsInSameSystem store sourceFlowId targetFlowId ->
                 if existingWorkArrows.Contains(struct (sourceId, targetId)) then None
                 else Some (sourceType, sourceFlowId, sourceId, targetId)
-            | EntityTypeNames.Call when sourceFlowId = targetFlowId ->
+            | EntityKind.Call when sourceFlowId = targetFlowId ->
                 if existingCallArrows.Contains(struct (sourceId, targetId)) then None
                 else Some (sourceType, sourceFlowId, sourceId, targetId)
             | _ -> None)

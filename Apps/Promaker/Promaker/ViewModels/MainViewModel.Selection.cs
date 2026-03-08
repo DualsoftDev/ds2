@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Ds2.Core;
 using Ds2.UI.Core;
 using Promaker;
 
@@ -87,18 +88,18 @@ public partial class MainViewModel
         ApplyNodeSelectionVisuals();
     }
 
-    public bool TryGetOrderedSelectionConnectEntityType(out string entityType)
+    public bool TryGetOrderedSelectionConnectEntityType(out EntityKind entityType)
     {
-        entityType = string.Empty;
+        entityType = default;
 
         if (_orderedNodeSelection.Count < 2)
             return false;
 
         foreach (var key in _orderedNodeSelection)
         {
-            if (EntityTypes.IsWorkOrCall(key.EntityType))
+            if (EntityTypes.IsWorkOrCall(key.EntityKind))
             {
-                entityType = key.EntityType;
+                entityType = key.EntityKind;
                 return true;
             }
         }
@@ -106,13 +107,13 @@ public partial class MainViewModel
         return false;
     }
 
-    public bool ConnectSelectedNodesInOrder(UiArrowType arrowType)
+    public bool ConnectSelectedNodesInOrder(ArrowType arrowType)
     {
         if (_orderedNodeSelection.Count < 2)
             return false;
 
         if (!TryEditorFunc(
-                () => _store.ConnectSelectionInOrderUi(_orderedNodeSelection.Select(s => s.Id), arrowType),
+                () => _store.ConnectSelectionInOrder(_orderedNodeSelection.Select(s => s.Id), arrowType),
                 out var created,
                 fallback: 0,
                 statusOverride: "[ERROR] Failed to connect selected nodes."))
@@ -243,7 +244,7 @@ public partial class MainViewModel
             return null;
 
         var key = _orderedNodeSelection[^1];
-        var canvasNode = CanvasNodes.FirstOrDefault(n => n.Id == key.Id && n.EntityType == key.EntityType);
+        var canvasNode = CanvasNodes.FirstOrDefault(n => n.Id == key.Id && n.EntityType == key.EntityKind);
         if (canvasNode is not null)
             return canvasNode;
 
