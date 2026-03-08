@@ -187,8 +187,8 @@ public partial class MainViewModel
     {
         var result = _store.ApplyNodeSelection(
             _orderedNodeSelection,
-            ToOption(_selectionAnchor),
-            ToOption(node is null ? null : ToKey(node)),
+            _selectionAnchor,
+            node is null ? null : ToKey(node),
             ctrlPressed,
             shiftPressed,
             orderedKeys);
@@ -198,7 +198,7 @@ public partial class MainViewModel
             if (!_orderedNodeSelection.Contains(key))
                 _orderedNodeSelection.Add(key);
 
-        _selectionAnchor = result.Anchor?.Value;
+        _selectionAnchor = result.AnchorOrNull;
 
         ApplyNodeSelectionVisuals();
         if (node is not null)
@@ -264,10 +264,10 @@ public partial class MainViewModel
         foreach (var arrow in CanvasArrows)
             arrow.IsSelected = selected.Contains(arrow.Id);
 
-        var primaryArrowId = _orderedArrowSelection.Count > 0 ? _orderedArrowSelection[^1] : Guid.Empty;
-        SelectedArrow = primaryArrowId == Guid.Empty
-            ? null
-            : CanvasArrows.FirstOrDefault(a => a.Id == primaryArrowId);
+        Guid? primaryArrowId = _orderedArrowSelection.Count > 0 ? _orderedArrowSelection[^1] : null;
+        SelectedArrow = primaryArrowId is { } id
+            ? CanvasArrows.FirstOrDefault(a => a.Id == id)
+            : null;
     }
 
     private void ExpandNodeAndAncestors(Guid nodeId)

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Ds2.UI.Core;
-using Microsoft.FSharp.Core;
 
 namespace Promaker.ViewModels;
 
@@ -40,14 +39,14 @@ public partial class MainViewModel
     private void HandleEvent(EditorEvent evt)
     {
         if (!TryEditorFunc(
-                () => _store.TryGetAddedEntityId(evt),
-                out FSharpOption<Guid>? addedIdOpt,
+                () => _store.AddedEntityIdOrNull(evt),
+                out Guid? addedId,
                 fallback: null))
             return;
 
-        if (addedIdOpt?.Value is { } addedId)
+        if (addedId is { } id)
         {
-            RequestRebuildAll(() => ExpandNodeAndAncestors(addedId));
+            RequestRebuildAll(() => ExpandNodeAndAncestors(id));
             return;
         }
 

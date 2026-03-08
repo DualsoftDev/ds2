@@ -35,13 +35,9 @@ public partial class MainViewModel
 
     public void OpenCanvasTab(Guid entityId, EntityKind entityType)
     {
-        if (!TryEditorFunc(
-                () => _store.TryOpenTabForEntity(entityType, entityId)?.Value,
-                out var info,
-                fallback: null))
-            return;
-
-        if (info is null)
+        if (!TryEditorRef(
+                () => _store.TryOpenTabForEntityOrNull(entityType, entityId),
+                out var info))
             return;
 
         OpenTab(info.Kind, info.RootId, info.Title);
@@ -192,8 +188,8 @@ public partial class MainViewModel
     private string? ResolveTabTitle(CanvasTab tab)
     {
         if (!TryEditorFunc(
-                () => _store.TabTitle(tab.Kind, tab.RootId)?.Value,
-                out var title,
+                () => _store.TabTitleOrNull(tab.Kind, tab.RootId),
+                out string? title,
                 fallback: null))
             return null;
 
@@ -202,7 +198,7 @@ public partial class MainViewModel
 
     private static EntityNode MapToEntityNode(TreeNodeInfo info)
     {
-        var parentId = info.ParentId?.Value;
+        var parentId = info.ParentIdOrNull;
         var node = new EntityNode(info.Id, info.EntityKind, info.Name, parentId);
         foreach (var child in info.Children)
             node.Children.Add(MapToEntityNode(child));

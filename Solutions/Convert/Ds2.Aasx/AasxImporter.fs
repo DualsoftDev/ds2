@@ -55,24 +55,26 @@ let private parseStatus4 (s: string) : Status4 =
 
 let private smcToArrowCall (smc: SubmodelElementCollection) (workId: Guid) : ArrowBetweenCalls option =
     try
-        let id        = getProp smc Guid_   |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
-        let sourceId  = getProp smc Source_ |> Option.map Guid.Parse |> Option.defaultValue Guid.Empty
-        let targetId  = getProp smc Target_ |> Option.map Guid.Parse |> Option.defaultValue Guid.Empty
-        let arrowType = getProp smc Type_   |> Option.map parseArrowType |> Option.defaultValue ArrowType.None
-        let arrow = ArrowBetweenCalls(workId, sourceId, targetId, arrowType)
-        arrow.Id <- id
-        Some arrow
+        match getProp smc Source_ |> Option.map Guid.Parse, getProp smc Target_ |> Option.map Guid.Parse with
+        | Some sourceId, Some targetId ->
+            let id        = getProp smc Guid_ |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
+            let arrowType = getProp smc Type_  |> Option.map parseArrowType |> Option.defaultValue ArrowType.None
+            let arrow = ArrowBetweenCalls(workId, sourceId, targetId, arrowType)
+            arrow.Id <- id
+            Some arrow
+        | _ -> log.Warn($"smcToArrowCall: Source 또는 Target 누락"); None
     with ex -> log.Warn($"smcToArrowCall 실패: {ex.Message}", ex); None
 
 let private smcToArrowWork (smc: SubmodelElementCollection) (systemId: Guid) : ArrowBetweenWorks option =
     try
-        let id        = getProp smc Guid_   |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
-        let sourceId  = getProp smc Source_ |> Option.map Guid.Parse |> Option.defaultValue Guid.Empty
-        let targetId  = getProp smc Target_ |> Option.map Guid.Parse |> Option.defaultValue Guid.Empty
-        let arrowType = getProp smc Type_   |> Option.map parseArrowType |> Option.defaultValue ArrowType.None
-        let arrow = ArrowBetweenWorks(systemId, sourceId, targetId, arrowType)
-        arrow.Id <- id
-        Some arrow
+        match getProp smc Source_ |> Option.map Guid.Parse, getProp smc Target_ |> Option.map Guid.Parse with
+        | Some sourceId, Some targetId ->
+            let id        = getProp smc Guid_ |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
+            let arrowType = getProp smc Type_  |> Option.map parseArrowType |> Option.defaultValue ArrowType.None
+            let arrow = ArrowBetweenWorks(systemId, sourceId, targetId, arrowType)
+            arrow.Id <- id
+            Some arrow
+        | _ -> log.Warn($"smcToArrowWork: Source 또는 Target 누락"); None
     with ex -> log.Warn($"smcToArrowWork 실패: {ex.Message}", ex); None
 
 let private smcToCall (smc: SubmodelElementCollection) (workId: Guid) : Call option =

@@ -2,9 +2,6 @@ namespace Ds2.Core
 
 open System
 
-/// ValueSpec 마커 인터페이스
-type IValueSpec = interface end
-
 /// 범위 경계 타입 (열림/닫힘)
 type BoundType = Open | Closed
 
@@ -23,8 +20,6 @@ type ValueSpec<'T when 'T : equality and 'T : comparison> =
     | Single of 'T
     | Multiple of 'T list
     | Ranges of RangeSegment<'T> list
-
-    interface IValueSpec
 
 /// 타입 안전한 비제네릭 ValueSpec — 비트폭 정보를 JSON에서 완전히 보존
 type ValueSpec =
@@ -46,7 +41,6 @@ type ValueSpec =
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module ValueSpec =
 
-    let private boundOpen<'T> (value: 'T) : Bound<'T> = (value, Open)
     let private boundClosed<'T> (value: 'T) : Bound<'T> = (value, Closed)
     let private segment<'T> (lower: Bound<'T> option) (upper: Bound<'T> option) : RangeSegment<'T> =
         { Lower = lower; Upper = upper }

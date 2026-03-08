@@ -132,8 +132,8 @@ module internal DirectDeviceOps =
         let parts = callName.Split([| '.' |], 2)
         parts.[0], (if parts.Length > 1 then parts.[1] else "")
 
-    let private shouldCreate (create: bool) (projectId: Guid) (apiName: string) =
-        create && projectId <> Guid.Empty && not (String.IsNullOrEmpty apiName)
+    let private shouldCreate (create: bool) (apiName: string) =
+        create && not (String.IsNullOrEmpty apiName)
 
     let private ensureSystem (store: DsStore) (projectId: Guid) (flowName: string) (devAlias: string) (state: DeviceBatchState) =
         let systemName = $"{flowName}_{devAlias}"
@@ -225,7 +225,7 @@ module internal DirectDeviceOps =
                     let call = Call(devAlias, apiName, workId)
                     store.TrackAdd(store.Calls, call)
 
-                    if not (shouldCreate createDeviceSystem projectId apiName) then state
+                    if not (shouldCreate createDeviceSystem apiName) then state
                     else
                         let system, withSystem = ensureSystem store projectId flowName devAlias state
                         let withWork = ensurePendingWork devAlias apiName system.Id store withSystem
@@ -307,9 +307,9 @@ type DsStoreNodesExtensions =
     [<Extension>]
     static member AddCallWithLinkedApiDefs(store: DsStore, workId: Guid, devicesAlias: string, apiName: string, apiDefIds: Guid seq) : Guid =
         StoreLog.debug($"workId={workId}, devicesAlias={devicesAlias}, apiName={apiName}")
-        let mutable resultId = Guid.Empty
-        store.WithTransaction("Add Call", fun () ->
-            resultId <- DirectDeviceOps.addCallWithLinkedApiDefs store workId devicesAlias apiName apiDefIds)
+        let resultId =
+            store.WithTransaction("Add Call", fun () ->
+                DirectDeviceOps.addCallWithLinkedApiDefs store workId devicesAlias apiName apiDefIds)
         store.EmitRefreshAndHistory()
         resultId
 
@@ -324,6 +324,18 @@ type DsStoreNodesExtensions =
         | None -> ()
 
     [<Extension>]
+    static member AddSystemResolved
+        (store: DsStore, name: string, isActive: bool,
+         selectedEntityKind: Nullable<EntityKind>, selectedEntityId: Nullable<Guid>,
+         activeTabKind: Nullable<TabKind>, activeTabRootId: Nullable<Guid>) : unit =
+        DsStoreNodesExtensions.AddSystemResolved(
+            store, name, isActive,
+            Option.ofNullable selectedEntityKind,
+            Option.ofNullable selectedEntityId,
+            Option.ofNullable activeTabKind,
+            Option.ofNullable activeTabRootId)
+
+    [<Extension>]
     static member AddFlowResolved
         (store: DsStore, name: string,
          selectedEntityKind: EntityKind option, selectedEntityId: Guid option,
@@ -331,6 +343,18 @@ type DsStoreNodesExtensions =
         match AddTargetQueries.tryResolveAddFlowTarget store selectedEntityKind selectedEntityId activeTabKind activeTabRootId with
         | Some systemId -> DsStoreNodesExtensions.AddFlow(store, name, systemId) |> ignore
         | None -> ()
+
+    [<Extension>]
+    static member AddFlowResolved
+        (store: DsStore, name: string,
+         selectedEntityKind: Nullable<EntityKind>, selectedEntityId: Nullable<Guid>,
+         activeTabKind: Nullable<TabKind>, activeTabRootId: Nullable<Guid>) : unit =
+        DsStoreNodesExtensions.AddFlowResolved(
+            store, name,
+            Option.ofNullable selectedEntityKind,
+            Option.ofNullable selectedEntityId,
+            Option.ofNullable activeTabKind,
+            Option.ofNullable activeTabRootId)
 
     [<Extension>]
     static member AddCallsWithDeviceResolved

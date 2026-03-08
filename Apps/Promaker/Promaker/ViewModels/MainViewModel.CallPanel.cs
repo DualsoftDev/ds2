@@ -5,7 +5,6 @@ using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.UI.Core;
 using Promaker.Dialogs;
-using Microsoft.FSharp.Core;
 
 namespace Promaker.ViewModels;
 
@@ -17,7 +16,7 @@ public partial class MainViewModel
         if (!TryGetSelectedCall(out var selectedCall)) return;
 
         if (!TryEditorAction(
-                () => _store.UpdateCallTimeoutMs(selectedCall.Id, ToOption(CallTimeoutMs))))
+                () => _store.UpdateCallTimeoutMs(selectedCall.Id, CallTimeoutMs)))
             return;
 
         _originalCallTimeoutMs = CallTimeoutMs;
@@ -37,7 +36,7 @@ public partial class MainViewModel
         if (!ShowOwnedDialog(dialog))
             return;
 
-        if (dialog.SelectedApiDefId is not Guid selectedApiDefId || selectedApiDefId == Guid.Empty)
+        if (dialog.SelectedApiDefId is not Guid selectedApiDefId)
         {
             StatusText = "Select a Device ApiDef first.";
             return;
@@ -52,15 +51,9 @@ public partial class MainViewModel
                     dialog.InputAddress,
                     dialog.OutTypeIndex, dialog.OutSpecText,
                     dialog.InTypeIndex, dialog.InSpecText),
-                out var created,
-                fallback: (FSharpOption<Guid>?)null))
+                out Guid createdId,
+                fallback: default))
             return;
-
-        if (created?.Value is not { } createdId)
-        {
-            StatusText = "Failed to add ApiCall.";
-            return;
-        }
 
         RefreshPropertyPanel();
         SelectedCallApiCall = CallApiCalls.FirstOrDefault(x => x.ApiCallId == createdId);
@@ -73,13 +66,9 @@ public partial class MainViewModel
         if (idx < 0)
             return;
 
-        if (!TryEditorFunc(
-                () => _store.TryGetCallApiCallForPanel(callId, item.ApiCallId),
-                out var rowOpt,
-                fallback: null))
-            return;
-
-        if (rowOpt?.Value is not { } row)
+        if (!TryEditorRef(
+                () => _store.TryGetCallApiCallForPanelOrNull(callId, item.ApiCallId),
+                out var row))
             return;
 
         var newItem = CallApiCallItem.FromPanel(row);
@@ -93,7 +82,7 @@ public partial class MainViewModel
         int outTypeIndex, string outSpecText, int inTypeIndex, string inSpecText,
         bool setMissingApiDefStatus)
     {
-        if (item.ApiDefId is not Guid apiDefId || apiDefId == Guid.Empty)
+        if (item.ApiDefId is not Guid apiDefId)
         {
             if (setMissingApiDefStatus)
                 StatusText = "Select a Device ApiDef first.";
@@ -230,7 +219,7 @@ public partial class MainViewModel
         if (!TryEditorFunc(
                 () => _store.AddApiCallsToConditionBatch(
                     selectedCall.Id, item.ConditionId,
-                    dialog.SelectedApiCallIds.ToArray()),
+                    dialog.SelectedApiCallIds),
                 out var added,
                 fallback: 0))
             return;

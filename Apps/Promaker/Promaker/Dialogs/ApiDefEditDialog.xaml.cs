@@ -22,7 +22,7 @@ public partial class ApiDefEditDialog : Window
     {
         InitializeComponent();
 
-        var noneItem = new WorkDropdownItem(Guid.Empty, "(없음)");
+        var noneItem = new WorkDropdownItem(Guid.NewGuid(), "(없음)", isNone: true);
         _workItems = new[] { noneItem }.Concat(works).ToList();
 
         TxWorkCombo.ItemsSource = _workItems;
@@ -36,8 +36,12 @@ public partial class ApiDefEditDialog : Window
             PeriodBox.Text = existing.Period.ToString();
             DescriptionBox.Text = existing.Description;
 
-            TxWorkCombo.SelectedItem = _workItems.FirstOrDefault(w => w.Id == existing.TxWorkIdOrEmpty) ?? noneItem;
-            RxWorkCombo.SelectedItem = _workItems.FirstOrDefault(w => w.Id == existing.RxWorkIdOrEmpty) ?? noneItem;
+            TxWorkCombo.SelectedItem = existing.TxWorkIdOrNull is { } txId
+                ? _workItems.FirstOrDefault(w => w.Id == txId) ?? noneItem
+                : noneItem;
+            RxWorkCombo.SelectedItem = existing.RxWorkIdOrNull is { } rxId
+                ? _workItems.FirstOrDefault(w => w.Id == rxId) ?? noneItem
+                : noneItem;
         }
         else
         {
@@ -68,11 +72,8 @@ public partial class ApiDefEditDialog : Window
         Period = period;
         Description = DescriptionBox.Text.Trim();
 
-        var tx = TxWorkCombo.SelectedItem as WorkDropdownItem;
-        TxWorkId = tx is not null && tx.Id != Guid.Empty ? tx.Id : null;
-
-        var rx = RxWorkCombo.SelectedItem as WorkDropdownItem;
-        RxWorkId = rx is not null && rx.Id != Guid.Empty ? rx.Id : null;
+        TxWorkId = TxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } tx ? tx.Id : null;
+        RxWorkId = RxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } rx ? rx.Id : null;
 
         DialogResult = true;
     }

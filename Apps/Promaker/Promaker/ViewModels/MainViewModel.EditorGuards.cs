@@ -6,7 +6,6 @@ using System.Runtime.CompilerServices;
 using Ds2.Core;
 using Ds2.UI.Core;
 using Promaker.Dialogs;
-using Microsoft.FSharp.Core;
 
 namespace Promaker.ViewModels;
 
@@ -89,12 +88,6 @@ public partial class MainViewModel
         foreach (var item in items)
             collection.Add(item);
     }
-
-    private static FSharpOption<T>? ToOption<T>(T? value) where T : struct =>
-        value.HasValue ? FSharpOption<T>.Some(value.Value) : null;
-
-    private static FSharpOption<T>? ToOption<T>(T? value) where T : class =>
-        value is not null ? FSharpOption<T>.Some(value) : null;
 
     private bool TryGetSelectedNode(EntityKind entityType, [NotNullWhen(true)] out EntityNode? node)
     {

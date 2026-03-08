@@ -111,10 +111,11 @@ let private addArrowPaths
 let computeFlowArrowPaths (store: DsStore) (flowId: Guid) : Map<Guid, ArrowVisual> =
     let positions = buildNodePositions store flowId
     let result = Collections.Generic.Dictionary<Guid, ArrowVisual>()
-    // ArrowBetweenWorks: parentId = systemId → positions filter가 관계없는 화살표를 걸러줌
-    let systemId =
-        DsQuery.getFlow flowId store |> Option.map (fun f -> f.ParentId) |> Option.defaultValue Guid.Empty
-    addArrowPaths store positions result (DsQuery.arrowWorksOf systemId store |> List.map (fun a -> a :> DsArrow))
+    // ArrowBetweenWorks: parentId = systemId
+    match DsQuery.getFlow flowId store with
+    | Some flow ->
+        addArrowPaths store positions result (DsQuery.arrowWorksOf flow.ParentId store |> List.map (fun a -> a :> DsArrow))
+    | None -> ()
     // ArrowBetweenCalls: parentId = workId → 각 work별로 수집
     let works = DsQuery.worksOf flowId store
     for work in works do

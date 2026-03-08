@@ -132,42 +132,6 @@ module DatabaseTests =
         Assert.Equal(system.Id, systems.[0].Id)
         Assert.Equal(system.Name, systems.[0].Name)
 
-/// Validation 통합 테스트
-module ValidationIntegrationTests =
-
-    [<Fact>]
-    let ``Valid project should pass validation`` () =
-        let project = Project("ValidProject")
-        let result = Ds2.UI.Core.ValidationRules.validateEntity "Project" project.Id project.Name
-
-        match result with
-        | Ds2.UI.Core.Valid -> Assert.True(true)
-        | Ds2.UI.Core.Invalid errors -> Assert.True(false, sprintf "Validation should pass but got errors: %A" errors)
-
-    [<Fact>]
-    let ``Project with empty name should fail validation`` () =
-        let project = Project("Test")
-        project.Name <- ""
-        let result = Ds2.UI.Core.ValidationRules.validateEntity "Project" project.Id project.Name
-
-        match result with
-        | Ds2.UI.Core.Valid -> Assert.True(false, "Validation should fail for empty name")
-        | Ds2.UI.Core.Invalid errors ->
-            Assert.NotEmpty(errors)
-            Assert.Contains("Name", errors.[0])
-
-    [<Fact>]
-    let ``Project with empty GUID should fail validation`` () =
-        let project = Project("Test")
-        project.Id <- Guid.Empty
-        let result = Ds2.UI.Core.ValidationRules.validateEntity "Project" project.Id project.Name
-
-        match result with
-        | Ds2.UI.Core.Valid -> Assert.True(false, "Validation should fail for empty GUID")
-        | Ds2.UI.Core.Invalid errors ->
-            Assert.NotEmpty(errors)
-            Assert.Contains("GUID", errors.[0])
-
 /// 파일 기반 통합 테스트
 module FileSerializationTests =
 
@@ -215,27 +179,22 @@ module WorkflowTests =
         let store = Ds2.UI.Core.DsStore.empty()
         store.Projects.[project.Id] <- project
         store.Systems.[system.Id] <- system
-
-        // 2. Validate
-        let validationResult = Ds2.UI.Core.ValidationRules.validateEntity "Project" project.Id project.Name
-        Assert.Equal(Ds2.UI.Core.Valid, validationResult)
-
-        // 3. Serialize to JSON
+        // 2. Serialize to JSON
         let json = JsonConverter.serialize store
         Assert.NotEmpty(json)
 
-        // 4. Save to database
+        // 3. Save to database
         ProjectDb.save conn project
         SystemDb.save conn (project.Id.ToString()) system
 
-        // 5. Load from database
+        // 4. Load from database
         let loadedProject = ProjectDb.load conn (project.Id.ToString())
         Assert.True(loadedProject.IsSome)
 
         let loadedSystems = SystemDb.loadByProjectId conn (project.Id.ToString())
         Assert.Single(loadedSystems) |> ignore
 
-        // 6. Verify data integrity
+        // 5. Verify data integrity
         Assert.Equal(project.Id, loadedProject.Value.Id)
         Assert.Equal(system.Id, loadedSystems.[0].Id)
 

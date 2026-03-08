@@ -18,12 +18,11 @@ public partial class ApiCallCreateDialog : Window
     {
         InitializeComponent();
 
-        var list = apiDefs?.ToList() ?? [];
-        LinkedApiDefComboBox.ItemsSource = list;
+        LinkedApiDefComboBox.ItemsSource = apiDefs;
         LinkedApiDefComboBox.DisplayMemberPath = nameof(ApiDefChoice.DisplayName);
-        LinkedApiDefComboBox.SelectedIndex = list.Count > 0 ? 0 : -1;
+        LinkedApiDefComboBox.SelectedIndex = apiDefs.Count > 0 ? 0 : -1;
 
-        var canCreate = list.Count > 0;
+        var canCreate = apiDefs.Count > 0;
         AddButton.IsEnabled = canCreate;
         HintText.Text = canCreate
             ? "This ApiCall will be linked to the selected device ApiDef above."
