@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 
+
 // =============================================================================
 // 내부 헬퍼 — 캐스케이드 삭제 + 디바이스 생성
 // =============================================================================
@@ -317,44 +318,24 @@ type DsStoreNodesExtensions =
     [<Extension>]
     static member AddSystemResolved
         (store: DsStore, name: string, isActive: bool,
-         selectedEntityKind: EntityKind option, selectedEntityId: Guid option,
-         activeTabKind: TabKind option, activeTabRootId: Guid option) : unit =
-        match AddTargetQueries.tryResolveAddSystemTarget store selectedEntityKind selectedEntityId activeTabKind activeTabRootId with
+         selectedEntityKind: Nullable<EntityKind>, selectedEntityId: Nullable<Guid>,
+         activeTabKind: Nullable<TabKind>, activeTabRootId: Nullable<Guid>) : unit =
+        match AddTargetQueries.tryResolveAddSystemTarget store
+                (Option.ofNullable selectedEntityKind) (Option.ofNullable selectedEntityId)
+                (Option.ofNullable activeTabKind) (Option.ofNullable activeTabRootId) with
         | Some projectId -> DsStoreNodesExtensions.AddSystem(store, name, projectId, isActive) |> ignore
         | None -> ()
 
     [<Extension>]
-    static member AddSystemResolved
-        (store: DsStore, name: string, isActive: bool,
-         selectedEntityKind: Nullable<EntityKind>, selectedEntityId: Nullable<Guid>,
-         activeTabKind: Nullable<TabKind>, activeTabRootId: Nullable<Guid>) : unit =
-        DsStoreNodesExtensions.AddSystemResolved(
-            store, name, isActive,
-            Option.ofNullable selectedEntityKind,
-            Option.ofNullable selectedEntityId,
-            Option.ofNullable activeTabKind,
-            Option.ofNullable activeTabRootId)
-
-    [<Extension>]
     static member AddFlowResolved
         (store: DsStore, name: string,
-         selectedEntityKind: EntityKind option, selectedEntityId: Guid option,
-         activeTabKind: TabKind option, activeTabRootId: Guid option) : unit =
-        match AddTargetQueries.tryResolveAddFlowTarget store selectedEntityKind selectedEntityId activeTabKind activeTabRootId with
+         selectedEntityKind: Nullable<EntityKind>, selectedEntityId: Nullable<Guid>,
+         activeTabKind: Nullable<TabKind>, activeTabRootId: Nullable<Guid>) : unit =
+        match AddTargetQueries.tryResolveAddFlowTarget store
+                (Option.ofNullable selectedEntityKind) (Option.ofNullable selectedEntityId)
+                (Option.ofNullable activeTabKind) (Option.ofNullable activeTabRootId) with
         | Some systemId -> DsStoreNodesExtensions.AddFlow(store, name, systemId) |> ignore
         | None -> ()
-
-    [<Extension>]
-    static member AddFlowResolved
-        (store: DsStore, name: string,
-         selectedEntityKind: Nullable<EntityKind>, selectedEntityId: Nullable<Guid>,
-         activeTabKind: Nullable<TabKind>, activeTabRootId: Nullable<Guid>) : unit =
-        DsStoreNodesExtensions.AddFlowResolved(
-            store, name,
-            Option.ofNullable selectedEntityKind,
-            Option.ofNullable selectedEntityId,
-            Option.ofNullable activeTabKind,
-            Option.ofNullable activeTabRootId)
 
     [<Extension>]
     static member AddCallsWithDeviceResolved

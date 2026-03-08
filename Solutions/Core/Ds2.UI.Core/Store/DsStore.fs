@@ -177,7 +177,7 @@ type DsStore() =
             for ac in source do
                 match this.ApiCalls.TryGetValue(ac.Id) with
                 | true, storeAc -> result.Add(storeAc)
-                | false, _ -> ()
+                | false, _ -> log.Warn($"RewireApiCallReferences: ApiCall {ac.Id} not found in store — skipped")
             result
         for call in this.Calls.Values do
             call.ApiCalls <- rewire call.ApiCalls
