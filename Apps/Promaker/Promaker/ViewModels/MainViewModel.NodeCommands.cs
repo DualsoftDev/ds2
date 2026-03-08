@@ -32,30 +32,29 @@ public partial class MainViewModel
             "NewFlow", selType, selId, tabKind, tabRoot));
     }
 
-    private (FSharpOption<string>?, FSharpOption<Guid>?, FSharpOption<TabKind>?, FSharpOption<Guid>?) SnapshotContext() =>
+    private (FSharpOption<EntityKind>?, FSharpOption<Guid>?, FSharpOption<TabKind>?, FSharpOption<Guid>?) SnapshotContext() =>
         (ToOption(SelectedNode?.EntityType), ToOption(SelectedNode?.Id),
          ToOption(ActiveTab?.Kind), ToOption(ActiveTab?.RootId));
 
     [RelayCommand]
     private void AddWork()
     {
-        if (TryResolveTargetId(EntityTypes.Flow, TabKind.Flow, out var flowId))
+        if (TryResolveTargetId(EntityKind.Flow, TabKind.Flow, out var flowId))
             TryEditorAction(() => _store.AddWork("NewWork", flowId));
     }
 
     [RelayCommand]
     private void AddCall()
     {
-        if (!TryResolveTargetId(EntityTypes.Work, TabKind.Work, out var workId))
+        if (!TryResolveTargetId(EntityKind.Work, TabKind.Work, out var workId))
             return;
 
         var dialog = new CallCreateDialog(
             apiNameFilter =>
             {
-                if (!TryEditorFunc(
-                        () => _store.FindApiDefsByName(apiNameFilter).ToList(),
-                        out List<ApiDefMatch> matches,
-                        fallback: []))
+                if (!TryEditorRef(
+                        () => _store.FindApiDefsByName(apiNameFilter),
+                        out var matches))
                     return [];
 
                 return matches;
@@ -69,7 +68,7 @@ public partial class MainViewModel
         if (dialog.IsDeviceMode)
         {
             TryEditorAction(
-                () => _store.AddCallsWithDeviceResolved(EntityTypes.Work, workId, workId, dialog.CallNames, true));
+                () => _store.AddCallsWithDeviceResolved(EntityKind.Work, workId, workId, dialog.CallNames, true));
         }
         else
         {
@@ -87,15 +86,14 @@ public partial class MainViewModel
     {
         if (_orderedArrowSelection.Count > 0)
         {
-            var arrowIds = _orderedArrowSelection.ToList();
-            if (TryEditorAction(() => _store.RemoveArrows(arrowIds)))
+            if (TryEditorAction(() => _store.RemoveArrows(_orderedArrowSelection)))
                 ClearArrowSelection();
             return;
         }
 
         if (_orderedNodeSelection.Count > 0)
         {
-            var selections = _orderedNodeSelection.Select(k => Tuple.Create(k.EntityType, k.Id));
+            var selections = _orderedNodeSelection.Select(k => Tuple.Create(k.EntityKind, k.Id));
             TryEditorAction(() => _store.RemoveEntities(selections));
             return;
         }
@@ -122,7 +120,7 @@ public partial class MainViewModel
             ? _orderedNodeSelection
             : SelectedNode is { } single
                 ? [new SelectionKey(single.Id, single.EntityType)]
-                : [];
+                : (IReadOnlyList<SelectionKey>)[];
 
         if (!TryEditorFunc(
                 () => _store.ValidateCopySelection(candidates),
@@ -150,7 +148,7 @@ public partial class MainViewModel
         foreach (var key in validated)
             _clipboardSelection.Add(key);
 
-        StatusText = $"Copied {_clipboardSelection.Count} {validated[0].EntityType}(s).";
+        StatusText = $"Copied {_clipboardSelection.Count} {validated[0].EntityKind}(s).";
     }
 
     [RelayCommand]
@@ -163,11 +161,11 @@ public partial class MainViewModel
         if (!target.HasValue)
             return;
 
-        var batchType = _clipboardSelection[0].EntityType;
+        var batchType = _clipboardSelection[0].EntityKind;
 
         // Work/Call 붙여넣기 시 System이 선택된 경우 → Flow를 선택하도록 안내
-        if (EntityTypes.Is(target.Value.EntityType, EntityTypes.System)
-            && (EntityTypes.Is(batchType, EntityTypes.Work) || EntityTypes.Is(batchType, EntityTypes.Call)))
+        if (target.Value.EntityType == EntityKind.System
+            && (batchType == EntityKind.Work || batchType == EntityKind.Call))
         {
             MessageBox.Show(
                 "붙여넣기 대상으로 Flow를 선택하세요.",
@@ -191,7 +189,7 @@ public partial class MainViewModel
             StatusText = $"Pasted {pastedCount} {batchType}(s).";
     }
 
-    private (string EntityType, Guid EntityId)? ResolvePasteTarget()
+    private (EntityKind EntityType, Guid EntityId)? ResolvePasteTarget()
     {
         if (SelectedNode is { } selected)
             return (selected.EntityType, selected.Id);
@@ -199,13 +197,13 @@ public partial class MainViewModel
         if (ActiveTab is not { } tab)
             return null;
 
-        if (_store.EntityTypeForTabKind(tab.Kind)?.Value is not { } entityType)
+        if (EntityHierarchyQueries.entityKindForTabKind(tab.Kind)?.Value is not { } entityKind)
             return null;
 
-        return (entityType, tab.RootId);
+        return (entityKind, tab.RootId);
     }
 
-    private bool TryResolveTargetId(string selectedEntityType, TabKind activeTabKind, out Guid targetId)
+    private bool TryResolveTargetId(EntityKind selectedEntityType, TabKind activeTabKind, out Guid targetId)
     {
         if (SelectedNode is { EntityType: var type } node && type == selectedEntityType)
         {

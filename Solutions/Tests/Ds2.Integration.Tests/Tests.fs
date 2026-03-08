@@ -258,7 +258,7 @@ module AasxRoundTripTests =
         Assert.Equal(2, callIds.Length)
 
         // Call 간 화살표 생성
-        let arrowCount = store.ConnectSelectionInOrderUi(callIds, UiArrowType.ResetReset)
+        let arrowCount = store.ConnectSelectionInOrder(callIds, ArrowType.ResetReset)
         Assert.Equal(1, arrowCount)
         Assert.Equal(1, store.ArrowCalls.Count)
         let originalArrow = store.ArrowCalls.Values |> Seq.head

@@ -4,39 +4,39 @@ open System
 open Ds2.Core
 
 let private resolveFromEntity
-    (resolve: DsStore -> string -> Guid -> Guid option)
+    (resolve: DsStore -> EntityKind -> Guid -> Guid option)
     (store: DsStore)
-    (entityType: string option)
+    (entityKind: EntityKind option)
     (entityId: Guid option)
     : Guid option =
-    match entityType, entityId with
-    | Some et, Some eid -> resolve store et eid
+    match entityKind, entityId with
+    | Some ek, Some eid -> resolve store ek eid
     | _ -> None
 
 let private resolveFromActiveTab
-    (resolve: DsStore -> string -> Guid -> Guid option)
+    (resolve: DsStore -> EntityKind -> Guid -> Guid option)
     (store: DsStore)
     (activeTabKind: TabKind option)
     (activeTabRootId: Guid option)
     : Guid option =
     match activeTabKind, activeTabRootId with
     | Some tabKind, Some tabRootId ->
-        EntityHierarchyQueries.entityTypeForTabKind tabKind
-        |> Option.bind (fun et -> resolve store et tabRootId)
+        EntityHierarchyQueries.entityKindForTabKind tabKind
+        |> Option.bind (fun ek -> resolve store ek tabRootId)
     | _ -> None
 
 /// Add System target resolver for UI. Priority:
 /// 1) selected entity context, 2) active tab context, 3) single project in store.
 let tryResolveAddSystemTarget
     (store: DsStore)
-    (selectedEntityType: string option)
+    (selectedEntityKind: EntityKind option)
     (selectedEntityId: Guid option)
     (activeTabKind: TabKind option)
     (activeTabRootId: Guid option)
     : Guid option =
 
     let fromSelection =
-        resolveFromEntity EntityHierarchyQueries.tryFindProjectIdForEntity store selectedEntityType selectedEntityId
+        resolveFromEntity EntityHierarchyQueries.tryFindProjectIdForEntity store selectedEntityKind selectedEntityId
 
     let fromTab =
         resolveFromActiveTab EntityHierarchyQueries.tryFindProjectIdForEntity store activeTabKind activeTabRootId
@@ -60,30 +60,30 @@ let private systemIdsOfProject (project: Project) =
 
 let private tryResolveSystemFromSelectedEntity
     (store: DsStore)
-    (selectedEntityType: string option)
+    (selectedEntityKind: EntityKind option)
     (selectedEntityId: Guid option)
     : Guid option =
-    match selectedEntityType, selectedEntityId with
-    | Some EntityTypeNames.Project, Some projectId ->
+    match selectedEntityKind, selectedEntityId with
+    | Some EntityKind.Project, Some projectId ->
         DsQuery.getProject projectId store
         |> Option.bind (fun project ->
             match systemIdsOfProject project with
             | [ systemId ] -> Some systemId
             | _ -> None)
-    | _ -> resolveFromEntity EntityHierarchyQueries.tryFindSystemIdForEntity store selectedEntityType selectedEntityId
+    | _ -> resolveFromEntity EntityHierarchyQueries.tryFindSystemIdForEntity store selectedEntityKind selectedEntityId
 
 /// Add Flow target resolver for UI. Priority:
 /// 1) selected entity context, 2) active tab context, 3) single system in store.
 let tryResolveAddFlowTarget
     (store: DsStore)
-    (selectedEntityType: string option)
+    (selectedEntityKind: EntityKind option)
     (selectedEntityId: Guid option)
     (activeTabKind: TabKind option)
     (activeTabRootId: Guid option)
     : Guid option =
 
     let fromSelection =
-        tryResolveSystemFromSelectedEntity store selectedEntityType selectedEntityId
+        tryResolveSystemFromSelectedEntity store selectedEntityKind selectedEntityId
 
     let fromTab =
         resolveFromActiveTab EntityHierarchyQueries.tryFindSystemIdForEntity store activeTabKind activeTabRootId

@@ -28,31 +28,31 @@ type UndoTransaction = {
 /// UI.Core에서 한 번 정의 → C# XAML 자동 전파.
 module Labels =
     [<Literal>]
-    let WorkPeriod = "Work Period"
+    let WorkPeriod   = "Work Period"
     [<Literal>]
     let PeriodFormat = "밀리초(ms) 단위 정수"
     [<Literal>]
-    let TimeoutMs = "Timeout (ms)"
+    let TimeoutMs    = "Timeout (ms)"
     [<Literal>]
-    let PeriodMs = "Period (ms)"
+    let PeriodMs     = "Period (ms)"
     [<Literal>]
-    let TxWork = "TX Work"
+    let TxWork       = "TX Work"
     [<Literal>]
-    let RxWork = "RX Work"
+    let RxWork       = "RX Work"
     [<Literal>]
-    let Push = "Push"
+    let Push         = "Push"
     [<Literal>]
-    let Poll = "Poll"
+    let Poll         = "Poll"
     [<Literal>]
-    let ApiDef = "ApiDef"
+    let ApiDef       = "ApiDef"
     [<Literal>]
-    let OutAddress = "Out address"
+    let OutAddress   = "Out address"
     [<Literal>]
-    let InAddress = "In address"
+    let InAddress    = "In address"
     [<Literal>]
-    let OutSpec = "Out spec"
+    let OutSpec      = "Out spec"
     [<Literal>]
-    let InSpec = "In spec"
+    let InSpec       = "In spec"
 
 module UiDefaults =
     /// Fixed logical root ID for the device tree. Keep stable across sessions/files.
@@ -66,14 +66,6 @@ module UiDefaults =
     let DefaultNodeWidth = 120
     [<Literal>]
     let DefaultNodeHeight = 40
-    [<Literal>]
-    let DefaultNodeXf = 0.0
-    [<Literal>]
-    let DefaultNodeYf = 0.0
-    [<Literal>]
-    let DefaultNodeWidthf = 120.0
-    [<Literal>]
-    let DefaultNodeHeightf = 40.0
 
     let createDefaultNodeBounds () =
         Xywh(DefaultNodeX, DefaultNodeY, DefaultNodeWidth, DefaultNodeHeight)
@@ -85,118 +77,29 @@ module UiDefaults =
         bytes.[15] <- bytes.[15] ^^^ 0xFEuy
         Guid(bytes)
 
-[<RequireQualifiedAccess>]
-type UiArrowType =
-    | None = 0
-    | Start = 1
-    | Reset = 2
-    | StartReset = 3
-    | ResetReset = 4
-    | Group = 5
-
-module UiArrowType =
-    let ofCore (value: ArrowType) : UiArrowType =
-        enum<UiArrowType>(int value)
-
-    let toCore (value: UiArrowType) : ArrowType =
-        enum<ArrowType>(int value)
-
-[<RequireQualifiedAccess>]
-type UiCallConditionType =
-    | Auto = 0
-    | Common = 1
-    | Active = 2
-
-module UiCallConditionType =
-    let ofCore (value: CallConditionType) : UiCallConditionType =
-        enum<UiCallConditionType>(int value)
-
-    let toCore (value: UiCallConditionType) : CallConditionType =
-        enum<CallConditionType>(int value)
-
-[<Sealed>]
-type UiMoveEntityRequest(entityType: string, id: Guid, hasPosition: bool, x: int, y: int, w: int, h: int) =
-    member _.EntityType = entityType
-    member _.Id = id
-    member _.HasPosition = hasPosition
-    member _.X = x
-    member _.Y = y
-    member _.W = w
-    member _.H = h
-
-[<Sealed>]
-[<AllowNullLiteral>]
-type UiNodeMoveInfo(entityId: Guid, hasPosition: bool, x: int, y: int, w: int, h: int) =
-    member _.EntityId = entityId
-    member _.HasPosition = hasPosition
-    member _.X = x
-    member _.Y = y
-    member _.W = w
-    member _.H = h
-
-[<RequireQualifiedAccess>]
-module EntityTypeNames =
-    [<Literal>]
-    let Project = "Project"
-    [<Literal>]
-    let System = "System"
-    [<Literal>]
-    let Flow = "Flow"
-    [<Literal>]
-    let Work = "Work"
-    [<Literal>]
-    let Call = "Call"
-    [<Literal>]
-    let ApiDef = "ApiDef"
-    [<Literal>]
-    let Button = "Button"
-    [<Literal>]
-    let Lamp = "Lamp"
-    [<Literal>]
-    let Condition = "Condition"
-    [<Literal>]
-    let Action = "Action"
-    [<Literal>]
-    let ApiDefCategory = "ApiDefCategory"
-    [<Literal>]
-    let DeviceRoot = "DeviceRoot"
 
 // =============================================================================
-// EntityKind — 엔티티 타입 DU (컴파일 시점 완전성 보장)
+// EntityKind — 엔티티/노드 타입 열거형 (C# == 비교 가능)
 // =============================================================================
 
-[<Struct>]
 type EntityKind =
-    | Project | System | Flow | Work | Call
-    | ApiDef | Button | Lamp | Condition | Action
+    | Project        = 0
+    | System         = 1
+    | Flow           = 2
+    | Work           = 3
+    | Call           = 4
+    | ApiDef         = 5
+    | Button         = 6
+    | Lamp           = 7
+    | Condition      = 8
+    | Action         = 9
+    | ApiDefCategory = 10
+    | DeviceRoot     = 11
 
-module EntityKind =
-    let tryOfString (s: string) : EntityKind voption =
-        match s with
-        | EntityTypeNames.Project   -> ValueSome Project
-        | EntityTypeNames.System    -> ValueSome System
-        | EntityTypeNames.Flow      -> ValueSome Flow
-        | EntityTypeNames.Work      -> ValueSome Work
-        | EntityTypeNames.Call      -> ValueSome Call
-        | EntityTypeNames.ApiDef    -> ValueSome ApiDef
-        | EntityTypeNames.Button    -> ValueSome Button
-        | EntityTypeNames.Lamp      -> ValueSome Lamp
-        | EntityTypeNames.Condition -> ValueSome Condition
-        | EntityTypeNames.Action    -> ValueSome Action
-        | _           -> ValueNone
-
-    let toString (k: EntityKind) =
-        match k with
-        | Project -> EntityTypeNames.Project
-        | System -> EntityTypeNames.System
-        | Flow -> EntityTypeNames.Flow
-        | Work -> EntityTypeNames.Work
-        | Call -> EntityTypeNames.Call
-        | ApiDef -> EntityTypeNames.ApiDef
-        | Button -> EntityTypeNames.Button
-        | Lamp -> EntityTypeNames.Lamp
-        | Condition -> EntityTypeNames.Condition
-        | Action -> EntityTypeNames.Action
+[<Sealed>]
+type MoveEntityRequest(id: Guid, position: Xywh) =
+    member _.Id = id
+    member _.Position = position
 
 // =============================================================================
 // EditorEvent — UI에 발행하는 변경 이벤트
@@ -204,37 +107,35 @@ module EntityKind =
 
 type EditorEvent =
     // --- 엔티티 생명주기 ---
-    | ProjectAdded    of Project
-    | ProjectRemoved  of Guid
-    | SystemAdded     of DsSystem
-    | SystemRemoved   of Guid
-    | FlowAdded       of Flow
-    | FlowRemoved     of Guid
-    | WorkAdded       of Work
-    | WorkRemoved     of Guid
-    | CallAdded       of Call
-    | CallRemoved     of Guid
-    | ApiDefAdded     of ApiDef
-    | ApiDefRemoved   of Guid
-    | ArrowWorkAdded    of ArrowBetweenWorks
-    | ArrowWorkRemoved  of Guid
-    | ArrowCallAdded    of ArrowBetweenCalls
-    | ArrowCallRemoved  of Guid
+    | ProjectAdded       of Project
+    | ProjectRemoved     of Guid
+    | SystemAdded        of DsSystem
+    | SystemRemoved      of Guid
+    | FlowAdded          of Flow
+    | FlowRemoved        of Guid
+    | WorkAdded          of Work
+    | WorkRemoved        of Guid
+    | CallAdded          of Call
+    | CallRemoved        of Guid
+    | ApiDefAdded        of ApiDef
+    | ApiDefRemoved      of Guid
+    | ArrowWorkAdded     of ArrowBetweenWorks
+    | ArrowWorkRemoved   of Guid
+    | ArrowCallAdded     of ArrowBetweenCalls
+    | ArrowCallRemoved   of Guid
 
     // --- 프로퍼티 변경 ---
     | EntityRenamed      of id: Guid * newName: string
-    | WorkMoved          of id: Guid * newPos: Xywh option
-    | CallMoved          of id: Guid * newPos: Xywh option
     | WorkPropsChanged   of id: Guid
     | CallPropsChanged   of id: Guid
     | ApiDefPropsChanged of id: Guid
 
     // --- HW ---
-    | HwComponentAdded   of entityType: string * id: Guid * name: string
-    | HwComponentRemoved of entityType: string * id: Guid
+    | HwComponentAdded   of entityKind: EntityKind * id: Guid * name: string
+    | HwComponentRemoved of entityKind: EntityKind * id: Guid
 
     // --- Undo/Redo 히스토리 ---
-    | HistoryChanged of undoLabels: string list * redoLabels: string list
+    | HistoryChanged     of undoLabels: string list * redoLabels: string list
 
     // --- 전체 갱신 ---
     | StoreRefreshed

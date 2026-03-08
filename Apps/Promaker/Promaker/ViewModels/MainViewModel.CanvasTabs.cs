@@ -1,5 +1,6 @@
 using System;
 using CommunityToolkit.Mvvm.Input;
+using Ds2.Core;
 using Ds2.UI.Core;
 using System.Windows.Threading;
 
@@ -32,10 +33,10 @@ public partial class MainViewModel
         ActiveTab = tab;
     }
 
-    public void OpenCanvasTab(Guid entityId, string entityType)
+    public void OpenCanvasTab(Guid entityId, EntityKind entityType)
     {
         if (!TryEditorFunc(
-                () => _store.TryOpenTabForEntityOrNull(entityType, entityId),
+                () => _store.TryOpenTabForEntity(entityType, entityId)?.Value,
                 out var info,
                 fallback: null))
             return;
@@ -67,19 +68,15 @@ public partial class MainViewModel
             return;
         }
 
-        if (!TryEditorFunc(
-                () => _store.CanvasContentForTabUi(ActiveTab.Kind, ActiveTab.RootId),
+        if (!TryEditorRef(
+                () => _store.CanvasContentForTab(ActiveTab.Kind, ActiveTab.RootId),
                 out var content,
-                fallback: (UiCanvasContent?)null,
                 statusOverride: "[ERROR] Failed to refresh canvas content."))
-            return;
-
-        if (content is null)
             return;
 
         foreach (var n in content.Nodes)
         {
-            CanvasNodes.Add(new EntityNode(n.Id, n.EntityType, n.Name, n.ParentId)
+            CanvasNodes.Add(new EntityNode(n.Id, n.EntityKind, n.Name, n.ParentId)
             {
                 X = n.X,
                 Y = n.Y,
@@ -100,14 +97,10 @@ public partial class MainViewModel
         if (ActiveTab is null || CanvasArrows.Count == 0)
             return;
 
-        if (!TryEditorFunc(
+        if (!TryEditorRef(
                 () => _store.FlowIdsForTab(ActiveTab.Kind, ActiveTab.RootId),
                 out var flowIds,
-                fallback: null,
                 statusOverride: "[ERROR] Failed to resolve flow ids for canvas."))
-            return;
-
-        if (flowIds is null)
             return;
 
         foreach (var flowId in flowIds)
@@ -116,13 +109,9 @@ public partial class MainViewModel
 
     private void ApplyArrowPathsFromFlow(Guid flowId)
     {
-        if (!TryEditorFunc(
+        if (!TryEditorRef(
                 () => _store.GetFlowArrowPaths(flowId),
-                out var paths,
-                fallback: null))
-            return;
-
-        if (paths is null)
+                out var paths))
             return;
 
         foreach (var arrow in CanvasArrows)
@@ -142,14 +131,10 @@ public partial class MainViewModel
         ControlTreeRoots.Clear();
         DeviceTreeRoots.Clear();
 
-        if (!TryEditorFunc(
+        if (!TryEditorRef(
                 () => _store.BuildTrees(),
                 out var trees,
-                fallback: null,
                 statusOverride: "[ERROR] Failed to rebuild tree views."))
-            return;
-
-        if (trees is null)
             return;
 
         foreach (var info in trees.Item1)
@@ -160,15 +145,20 @@ public partial class MainViewModel
         ApplyExpansionState(ControlTreeRoots, expandedNodes);
         ApplyExpansionState(DeviceTreeRoots, expandedNodes);
 
-        var deadTabs = OpenTabs.Where(t => !TabExists(t)).ToList();
+        var deadTabs = new List<CanvasTab>();
+        foreach (var t in OpenTabs)
+        {
+            var title = ResolveTabTitle(t);
+            if (title is null)
+                deadTabs.Add(t);
+            else
+                t.Title = title;
+        }
         foreach (var t in deadTabs)
             OpenTabs.Remove(t);
 
         if (ActiveTab is not null && !OpenTabs.Contains(ActiveTab))
             ActiveTab = OpenTabs.Count > 0 ? OpenTabs[0] : null;
-
-        foreach (var t in OpenTabs)
-            t.Title = ResolveTabTitle(t);
 
         RefreshCanvasForActiveTab();
         RestoreSelection(prevSelection, prevSelectedArrowIds);
@@ -198,24 +188,14 @@ public partial class MainViewModel
         }), DispatcherPriority.Background);
     }
 
-    private bool TabExists(CanvasTab tab)
-    {
-        if (!TryEditorFunc(() => _store.TabExists(tab.Kind, tab.RootId), out var exists, fallback: false))
-            return false;
-
-        return exists;
-    }
-
-    private string ResolveTabTitle(CanvasTab tab)
+    /// Returns the resolved title, or null if the tab's root entity no longer exists.
+    private string? ResolveTabTitle(CanvasTab tab)
     {
         if (!TryEditorFunc(
-                () => _store.TabTitleOrNull(tab.Kind, tab.RootId),
+                () => _store.TabTitle(tab.Kind, tab.RootId)?.Value,
                 out var title,
                 fallback: null))
-            return tab.Title;
-
-        if (string.IsNullOrEmpty(title))
-            return tab.Title;
+            return null;
 
         return title;
     }
@@ -223,33 +203,9 @@ public partial class MainViewModel
     private static EntityNode MapToEntityNode(TreeNodeInfo info)
     {
         var parentId = info.ParentId?.Value;
-        var node = new EntityNode(info.Id, info.EntityType, info.Name, parentId);
+        var node = new EntityNode(info.Id, info.EntityKind, info.Name, parentId);
         foreach (var child in info.Children)
             node.Children.Add(MapToEntityNode(child));
         return node;
-    }
-
-    private void ApplyNodeMove(UiNodeMoveInfo moveInfo)
-    {
-        var node = CanvasNodes.FirstOrDefault(n => n.Id == moveInfo.EntityId);
-        if (node is null)
-            return;
-
-        if (moveInfo.HasPosition)
-        {
-            node.X = moveInfo.X;
-            node.Y = moveInfo.Y;
-            node.Width = moveInfo.W;
-            node.Height = moveInfo.H;
-        }
-        else
-        {
-            node.X = UiDefaults.DefaultNodeXf;
-            node.Y = UiDefaults.DefaultNodeYf;
-            node.Width = UiDefaults.DefaultNodeWidthf;
-            node.Height = UiDefaults.DefaultNodeHeightf;
-        }
-
-        RefreshArrowPaths();
     }
 }

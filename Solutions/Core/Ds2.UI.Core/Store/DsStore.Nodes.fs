@@ -85,26 +85,26 @@ module internal CascadeRemove =
         |> List.iter (fun system -> cascadeRemoveSystem store system.Id)
         store.TrackRemove(store.Projects, projectId)
 
-    let batchRemoveEntities (store: DsStore) (selections: (string * Guid) list) =
+    let batchRemoveEntities (store: DsStore) (selections: (EntityKind * Guid) list) =
         let selIds = selections |> List.map snd |> Set.ofList
 
-        for (et, id) in selections do
-            match EntityKind.tryOfString et with
-            | ValueSome EntityKind.Call ->
+        for (ek, id) in selections do
+            match ek with
+            | EntityKind.Call ->
                 // 부모 Work가 함께 선택된 Call은 건너뜀 — Work 캐스케이드가 처리
                 match DsQuery.getCall id store with
                 | Some call when not (selIds.Contains call.ParentId) ->
                     cascadeRemoveCall store id
                 | _ -> ()
-            | ValueSome EntityKind.Work      -> cascadeRemoveWork store id
-            | ValueSome EntityKind.Flow      -> cascadeRemoveFlow store id
-            | ValueSome EntityKind.System    -> cascadeRemoveSystem store id
-            | ValueSome EntityKind.Project   -> cascadeRemoveProject store id
-            | ValueSome EntityKind.ApiDef    -> store.TrackRemove(store.ApiDefs, id)
-            | ValueSome EntityKind.Button    -> store.TrackRemove(store.HwButtons, id)
-            | ValueSome EntityKind.Lamp      -> store.TrackRemove(store.HwLamps, id)
-            | ValueSome EntityKind.Condition -> store.TrackRemove(store.HwConditions, id)
-            | ValueSome EntityKind.Action    -> store.TrackRemove(store.HwActions, id)
+            | EntityKind.Work      -> cascadeRemoveWork store id
+            | EntityKind.Flow      -> cascadeRemoveFlow store id
+            | EntityKind.System    -> cascadeRemoveSystem store id
+            | EntityKind.Project   -> cascadeRemoveProject store id
+            | EntityKind.ApiDef    -> store.TrackRemove(store.ApiDefs, id)
+            | EntityKind.Button    -> store.TrackRemove(store.HwButtons, id)
+            | EntityKind.Lamp      -> store.TrackRemove(store.HwLamps, id)
+            | EntityKind.Condition -> store.TrackRemove(store.HwConditions, id)
+            | EntityKind.Action    -> store.TrackRemove(store.HwActions, id)
             | _ -> ()
 
         removeOrphanApiCalls store
@@ -316,68 +316,64 @@ type DsStoreNodesExtensions =
     [<Extension>]
     static member AddSystemResolved
         (store: DsStore, name: string, isActive: bool,
-         selectedEntityType: string option, selectedEntityId: Guid option,
+         selectedEntityKind: EntityKind option, selectedEntityId: Guid option,
          activeTabKind: TabKind option, activeTabRootId: Guid option) : unit =
-        match AddTargetQueries.tryResolveAddSystemTarget store selectedEntityType selectedEntityId activeTabKind activeTabRootId with
+        match AddTargetQueries.tryResolveAddSystemTarget store selectedEntityKind selectedEntityId activeTabKind activeTabRootId with
         | Some projectId -> DsStoreNodesExtensions.AddSystem(store, name, projectId, isActive) |> ignore
         | None -> ()
 
     [<Extension>]
     static member AddFlowResolved
         (store: DsStore, name: string,
-         selectedEntityType: string option, selectedEntityId: Guid option,
+         selectedEntityKind: EntityKind option, selectedEntityId: Guid option,
          activeTabKind: TabKind option, activeTabRootId: Guid option) : unit =
-        match AddTargetQueries.tryResolveAddFlowTarget store selectedEntityType selectedEntityId activeTabKind activeTabRootId with
+        match AddTargetQueries.tryResolveAddFlowTarget store selectedEntityKind selectedEntityId activeTabKind activeTabRootId with
         | Some systemId -> DsStoreNodesExtensions.AddFlow(store, name, systemId) |> ignore
         | None -> ()
 
     [<Extension>]
     static member AddCallsWithDeviceResolved
-        (store: DsStore, entityType: string, entityId: Guid,
+        (store: DsStore, entityKind: EntityKind, entityId: Guid,
          workId: Guid, callNames: string seq, createDeviceSystem: bool) : unit =
-        match EntityHierarchyQueries.tryFindProjectIdForEntity store entityType entityId with
+        match EntityHierarchyQueries.tryFindProjectIdForEntity store entityKind entityId with
         | Some projectId ->
             DsStoreNodesExtensions.AddCallsWithDevice(store, projectId, workId, callNames, createDeviceSystem)
-        | None -> invalidOp $"Project not found for entity {entityType}/{entityId}"
+        | None -> invalidOp $"Project not found for entity {entityKind}/{entityId}"
 
     // ─── Move ────────────────────────────────────────────────────────
     [<Extension>]
-    static member MoveEntitiesUi(store: DsStore, requests: seq<UiMoveEntityRequest>) : int =
+    static member MoveEntities(store: DsStore, requests: seq<MoveEntityRequest>) : int =
         let moves =
             requests
-            |> Seq.distinctBy (fun r -> r.EntityType, r.Id)
+            |> Seq.distinctBy (fun r -> r.Id)
             |> Seq.choose (fun r ->
-                let newPos = if r.HasPosition then Some(Xywh(r.X, r.Y, r.W, r.H)) else None
-                match EntityKind.tryOfString r.EntityType with
-                | ValueSome Work ->
-                    match DsQuery.getWork r.Id store with
-                    | Some work when work.Position <> newPos -> Some(r.Id, EntityTypeNames.Work, newPos)
-                    | _ -> None
-                | ValueSome Call ->
+                let newPos = Some r.Position
+                match DsQuery.getWork r.Id store with
+                | Some work when work.Position <> newPos -> Some(r.Id, true, newPos)
+                | Some _ -> None
+                | None ->
                     match DsQuery.getCall r.Id store with
-                    | Some call when call.Position <> newPos -> Some(r.Id, EntityTypeNames.Call, newPos)
-                    | _ -> None
-                | _ -> None)
+                    | Some call when call.Position <> newPos -> Some(r.Id, false, newPos)
+                    | _ -> None)
             |> Seq.toList
         if moves.IsEmpty then 0
         else
             StoreLog.debug($"count={moves.Length}")
             store.WithTransaction("Move Selected Nodes", fun () ->
-                for (id, entityType, newPos) in moves do
-                    match entityType with
-                    | EntityTypeNames.Work ->
+                for (id, isWork, newPos) in moves do
+                    if isWork then
                         store.TrackMutate(store.Works, id, fun work -> work.Position <- newPos)
-                    | _ ->
+                    else
                         store.TrackMutate(store.Calls, id, fun call -> call.Position <- newPos))
             store.EmitRefreshAndHistory()
             moves.Length
 
     // ─── Remove ──────────────────────────────────────────────────────
     [<Extension>]
-    static member RemoveEntities(store: DsStore, selections: seq<string * Guid>) =
+    static member RemoveEntities(store: DsStore, selections: seq<EntityKind * Guid>) =
         let selList = selections |> Seq.distinctBy snd |> Seq.toList
         if not selList.IsEmpty then
-            let types = selList |> List.map fst |> List.distinct |> String.concat ","
+            let types = selList |> List.map (fun (k, _) -> k.ToString()) |> List.distinct |> String.concat ","
             StoreLog.debug($"count={selList.Length}, types=[{types}]")
             store.WithTransaction("Delete Entities", fun () ->
                 CascadeRemove.batchRemoveEntities store selList)
@@ -385,25 +381,25 @@ type DsStoreNodesExtensions =
 
     // ─── Rename ──────────────────────────────────────────────────────
     [<Extension>]
-    static member RenameEntity(store: DsStore, id: Guid, entityType: string, newName: string) =
-        match DsQuery.tryGetName store entityType id with
+    static member RenameEntity(store: DsStore, id: Guid, entityKind: EntityKind, newName: string) =
+        match DsQuery.tryGetName store entityKind id with
         | Some oldName when oldName <> newName ->
-            StoreLog.debug($"id={id}, type={entityType}, oldName={oldName} → newName={newName}")
+            StoreLog.debug($"id={id}, kind={entityKind}, oldName={oldName} → newName={newName}")
             store.WithTransaction($"이름 변경 → \"{newName}\"", fun () ->
-                match EntityKind.tryOfString entityType with
-                | ValueSome Project   -> store.TrackMutate(store.Projects, id, fun e -> e.Name <- newName)
-                | ValueSome System    -> store.TrackMutate(store.Systems, id, fun e -> e.Name <- newName)
-                | ValueSome Flow      -> store.TrackMutate(store.Flows, id, fun e -> e.Name <- newName)
-                | ValueSome Work      -> store.TrackMutate(store.Works, id, fun e -> e.Name <- newName)
-                | ValueSome Call      -> store.TrackMutate(store.Calls, id, fun e -> e.Name <- newName)
-                | ValueSome ApiDef    -> store.TrackMutate(store.ApiDefs, id, fun e -> e.Name <- newName)
-                | ValueSome Button    -> store.TrackMutate(store.HwButtons, id, fun e -> e.Name <- newName)
-                | ValueSome Lamp      -> store.TrackMutate(store.HwLamps, id, fun e -> e.Name <- newName)
-                | ValueSome Condition -> store.TrackMutate(store.HwConditions, id, fun e -> e.Name <- newName)
-                | ValueSome Action    -> store.TrackMutate(store.HwActions, id, fun e -> e.Name <- newName)
-                | ValueNone           -> failwithf "Unknown entity type: %s" entityType)
+                match entityKind with
+                | EntityKind.Project   -> store.TrackMutate(store.Projects, id, fun e -> e.Name <- newName)
+                | EntityKind.System    -> store.TrackMutate(store.Systems, id, fun e -> e.Name <- newName)
+                | EntityKind.Flow      -> store.TrackMutate(store.Flows, id, fun e -> e.Name <- newName)
+                | EntityKind.Work      -> store.TrackMutate(store.Works, id, fun e -> e.Name <- newName)
+                | EntityKind.Call      -> store.TrackMutate(store.Calls, id, fun e -> e.Name <- newName)
+                | EntityKind.ApiDef    -> store.TrackMutate(store.ApiDefs, id, fun e -> e.Name <- newName)
+                | EntityKind.Button    -> store.TrackMutate(store.HwButtons, id, fun e -> e.Name <- newName)
+                | EntityKind.Lamp      -> store.TrackMutate(store.HwLamps, id, fun e -> e.Name <- newName)
+                | EntityKind.Condition -> store.TrackMutate(store.HwConditions, id, fun e -> e.Name <- newName)
+                | EntityKind.Action    -> store.TrackMutate(store.HwActions, id, fun e -> e.Name <- newName)
+                | _                    -> failwithf "Unknown entity kind: %A" entityKind)
             store.EmitAndHistory(EntityRenamed(id, newName))
         | Some _ -> () // 이름 변경 없음
         | None ->
-            StoreLog.warn($"Entity not found. type={entityType}, id={id}")
-            invalidOp $"Entity not found. type={entityType}, id={id}"
+            StoreLog.warn($"Entity not found. kind={entityKind}, id={id}")
+            invalidOp $"Entity not found. kind={entityKind}, id={id}"

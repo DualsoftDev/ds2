@@ -23,7 +23,6 @@ type internal StoreLog private () =
     // ─── 로깅 ──────────────────────────────────────────────────────
     static member debug(detail: string, [<CallerMemberName>] ?op: string) = log.Debug(StoreLog.fmt(detail, op))
     static member warn(detail: string, [<CallerMemberName>] ?op: string) = log.Warn(StoreLog.fmt(detail, op))
-    static member error(detail: string, ex: exn, [<CallerMemberName>] ?op: string) = log.Error(StoreLog.fmt(detail, op), ex)
 
     // ─── 엔티티 require (not found → Warn + throw) ──────────────
     static member private requireEntity<'T>(query: Guid -> DsStore -> 'T option, entityType: string, store: DsStore, id: Guid, op: string option) : 'T =

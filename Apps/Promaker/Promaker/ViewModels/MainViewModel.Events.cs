@@ -51,18 +51,6 @@ public partial class MainViewModel
             return;
         }
 
-        if (!TryEditorFunc(
-                () => _store.TryGetMovedNodeInfoOrNull(evt),
-                out UiNodeMoveInfo? movedNode,
-                fallback: null))
-            return;
-
-        if (movedNode is not null)
-        {
-            ApplyNodeMove(movedNode);
-            return;
-        }
-
         switch (evt)
         {
             case EditorEvent.EntityRenamed ren:

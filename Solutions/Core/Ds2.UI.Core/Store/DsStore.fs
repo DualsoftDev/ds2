@@ -153,16 +153,6 @@ type DsStore() =
         | HwComponentAdded(_, id, _) -> Some id
         | _ -> None
 
-    member _.TryGetMovedNodeInfoOrNull(evt: EditorEvent) : UiNodeMoveInfo =
-        let createInfo (id: Guid) (pos: Xywh option) =
-            match pos with
-            | Some bounds -> UiNodeMoveInfo(id, true, bounds.X, bounds.Y, bounds.W, bounds.H)
-            | None -> UiNodeMoveInfo(id, false, 0, 0, 0, 0)
-        match evt with
-        | WorkMoved(id, pos) -> createInfo id pos
-        | CallMoved(id, pos) -> createInfo id pos
-        | _ -> null
-
     member _.IsTreeStructuralEvent(evt: EditorEvent) : bool =
         match evt with
         | ProjectAdded _     | ProjectRemoved _

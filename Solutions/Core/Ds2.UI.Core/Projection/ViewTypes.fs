@@ -5,7 +5,7 @@ open Ds2.Core
 
 type TreeNodeInfo = {
     Id: Guid
-    EntityType: string
+    EntityKind: EntityKind
     Name: string
     ParentId: Guid option
     Children: TreeNodeInfo list
@@ -13,7 +13,7 @@ type TreeNodeInfo = {
 
 type CanvasNodeInfo = {
     Id: Guid
-    EntityType: string
+    EntityKind: EntityKind
     Name: string
     ParentId: Guid
     X: float
@@ -29,21 +29,9 @@ type CanvasArrowInfo = {
     ArrowType: ArrowType
 }
 
-type UiCanvasArrowInfo = {
-    Id: Guid
-    SourceId: Guid
-    TargetId: Guid
-    ArrowType: UiArrowType
-}
-
 type CanvasContent = {
     Nodes: CanvasNodeInfo list
     Arrows: CanvasArrowInfo list
-}
-
-type UiCanvasContent = {
-    Nodes: CanvasNodeInfo list
-    Arrows: UiCanvasArrowInfo list
 }
 
 [<RequireQualifiedAccess>]
@@ -58,15 +46,15 @@ type TabOpenInfo = {
     Title: string
 }
 
-type SelectionKey(id: Guid, entityType: string) =
+type SelectionKey(id: Guid, entityKind: EntityKind) =
     member _.Id = id
-    member _.EntityType = entityType
+    member _.EntityKind = entityKind
 
     interface IEquatable<SelectionKey> with
         member _.Equals(other: SelectionKey) =
             not (isNull (box other))
             && id = other.Id
-            && entityType = other.EntityType
+            && entityKind = other.EntityKind
 
     override this.Equals(obj) =
         match obj with
@@ -74,7 +62,7 @@ type SelectionKey(id: Guid, entityType: string) =
         | _ -> false
 
     override _.GetHashCode() =
-        HashCode.Combine(id, entityType)
+        HashCode.Combine(id, int entityKind)
 
 [<RequireQualifiedAccess>]
 type CopyValidationResult =
@@ -177,8 +165,8 @@ type CallConditionApiCallItem
     member _.OutputSpecTypeIndex = outputSpecTypeIndex
 
 [<Sealed>]
-type UiCallConditionPanelItem
-    (conditionId: Guid, conditionType: UiCallConditionType,
+type CallConditionPanelItem
+    (conditionId: Guid, conditionType: CallConditionType,
      isOR: bool, isRising: bool, items: CallConditionApiCallItem list) =
     member _.ConditionId   = conditionId
     member _.ConditionType = conditionType

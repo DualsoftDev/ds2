@@ -7,7 +7,7 @@ let inline private namedLeafNodes entityType parentId items =
     items
     |> List.map (fun item ->
         { Id = (^a: (member Id: Guid) item)
-          EntityType = entityType
+          EntityKind = entityType
           Name = (^a: (member Name: string) item)
           ParentId = Some parentId
           Children = [] })
@@ -21,12 +21,12 @@ let private buildDeviceSystemChildren (store: DsStore) (systemId: Guid) : TreeNo
                 DsQuery.worksOf flow.Id store
                 |> List.map (fun work ->
                     { Id = work.Id
-                      EntityType = EntityTypeNames.Work
+                      EntityKind = EntityKind.Work
                       Name = work.Name
                       ParentId = Some flow.Id
                       Children = [] })
             { Id = flow.Id
-              EntityType = EntityTypeNames.Flow
+              EntityKind = EntityKind.Flow
               Name = flow.Name
               ParentId = Some systemId
               Children = works })
@@ -37,13 +37,13 @@ let private buildDeviceSystemChildren (store: DsStore) (systemId: Guid) : TreeNo
         else
             let catId = UiDefaults.apiDefCategoryId systemId
             [ { Id = catId
-                EntityType = EntityTypeNames.ApiDefCategory
+                EntityKind = EntityKind.ApiDefCategory
                 Name = "ApiDefs"
                 ParentId = Some systemId
                 Children =
                     apiDefs |> List.map (fun a ->
                         { Id = a.Id
-                          EntityType = EntityTypeNames.ApiDef
+                          EntityKind = EntityKind.ApiDef
                           Name = a.Name
                           ParentId = Some catId
                           Children = [] }) } ]
@@ -61,27 +61,27 @@ let private buildSystemChildren (store: DsStore) (systemId: Guid) =
                         DsQuery.callsOf work.Id store
                         |> List.map (fun c ->
                             { Id = c.Id
-                              EntityType = EntityTypeNames.Call
+                              EntityKind = EntityKind.Call
                               Name = c.Name
                               ParentId = Some work.Id
                               Children = [] })
                     { Id = work.Id
-                      EntityType = EntityTypeNames.Work
+                      EntityKind = EntityKind.Work
                       Name = work.Name
                       ParentId = Some flow.Id
                       Children = calls })
             { Id = flow.Id
-              EntityType = EntityTypeNames.Flow
+              EntityKind = EntityKind.Flow
               Name = flow.Name
               ParentId = Some systemId
               Children = works })
 
     let hwAndApi = [
-        yield! namedLeafNodes EntityTypeNames.ApiDef    systemId (DsQuery.apiDefsOf    systemId store)
-        yield! namedLeafNodes EntityTypeNames.Button    systemId (DsQuery.buttonsOf    systemId store)
-        yield! namedLeafNodes EntityTypeNames.Lamp      systemId (DsQuery.lampsOf      systemId store)
-        yield! namedLeafNodes EntityTypeNames.Condition systemId (DsQuery.conditionsOf systemId store)
-        yield! namedLeafNodes EntityTypeNames.Action    systemId (DsQuery.actionsOf    systemId store)
+        yield! namedLeafNodes EntityKind.ApiDef    systemId (DsQuery.apiDefsOf    systemId store)
+        yield! namedLeafNodes EntityKind.Button    systemId (DsQuery.buttonsOf    systemId store)
+        yield! namedLeafNodes EntityKind.Lamp      systemId (DsQuery.lampsOf      systemId store)
+        yield! namedLeafNodes EntityKind.Condition systemId (DsQuery.conditionsOf systemId store)
+        yield! namedLeafNodes EntityKind.Action    systemId (DsQuery.actionsOf    systemId store)
     ]
 
     flows @ hwAndApi
@@ -91,13 +91,13 @@ let private buildProjectTree (store: DsStore) (systems: DsSystem list) (project:
         systems
         |> List.map (fun sys ->
             { Id = sys.Id
-              EntityType = EntityTypeNames.System
+              EntityKind = EntityKind.System
               Name = sys.Name
               ParentId = Some project.Id
               Children = buildSystemChildren store sys.Id })
 
     { Id = project.Id
-      EntityType = EntityTypeNames.Project
+      EntityKind = EntityKind.Project
       Name = project.Name
       ParentId = None
       Children = systemNodes }
@@ -115,13 +115,13 @@ let private buildDeviceTree (store: DsStore) : TreeNodeInfo list =
         deviceSystems
         |> List.map (fun system ->
             { Id = system.Id
-              EntityType = EntityTypeNames.System
+              EntityKind = EntityKind.System
               Name = system.Name
               ParentId = Some deviceRootId
               Children = buildDeviceSystemChildren store system.Id })
 
     [ { Id = deviceRootId
-        EntityType = EntityTypeNames.DeviceRoot
+        EntityKind = EntityKind.DeviceRoot
         Name = "Device system"
         ParentId = None
         Children = deviceSystemNodes } ]

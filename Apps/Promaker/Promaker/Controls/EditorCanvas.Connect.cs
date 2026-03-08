@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using Ds2.Core;
 using Ds2.UI.Core;
 using Promaker;
 using Promaker.Dialogs;
@@ -8,7 +9,7 @@ namespace Promaker.Controls;
 
 public partial class EditorCanvas
 {
-    private UiArrowType _connectArrowType = UiArrowType.Start;
+    private ArrowType _connectArrowType = ArrowType.Start;
 
     private void StartConnect_Click(object sender, RoutedEventArgs e)
     {
@@ -16,7 +17,7 @@ public partial class EditorCanvas
 
         var hasOrderedSelectionType = VM.TryGetOrderedSelectionConnectEntityType(out var orderedSelectionType);
         var hasPromptedArrowType = false;
-        var selectedArrowType = UiArrowType.Start;
+        var selectedArrowType = ArrowType.Start;
 
         if (hasOrderedSelectionType)
         {
@@ -32,7 +33,7 @@ public partial class EditorCanvas
         if (VM.SelectedNode is not { } node || !EntityTypes.IsWorkOrCall(node.EntityType))
             return;
 
-        if (!hasPromptedArrowType || !EntityTypes.Is(node.EntityType, orderedSelectionType))
+        if (!hasPromptedArrowType || node.EntityType != orderedSelectionType)
         {
             if (!TryPromptArrowType(node.EntityType, out selectedArrowType))
                 return;
@@ -52,16 +53,16 @@ public partial class EditorCanvas
         Focus();
     }
 
-    private bool TryPromptArrowType(string sourceEntityType, out UiArrowType arrowType)
+    private bool TryPromptArrowType(EntityKind sourceEntityType, out ArrowType arrowType)
     {
-        var dialog = new ArrowTypeDialog(isWorkMode: EntityTypes.Is(sourceEntityType, EntityTypes.Work));
+        var dialog = new ArrowTypeDialog(isWorkMode: sourceEntityType == EntityKind.Work);
 
         if (Window.GetWindow(this) is { } owner)
             dialog.Owner = owner;
 
         if (dialog.ShowDialog() != true)
         {
-            arrowType = UiArrowType.Start;
+            arrowType = ArrowType.Start;
             return false;
         }
 
@@ -88,7 +89,7 @@ public partial class EditorCanvas
     private void CancelConnect()
     {
         _connectSource = null;
-        _connectArrowType = UiArrowType.Start;
+        _connectArrowType = ArrowType.Start;
         ConnectPreview.Visibility = Visibility.Collapsed;
         RootGrid.Cursor = System.Windows.Input.Cursors.Arrow;
     }
