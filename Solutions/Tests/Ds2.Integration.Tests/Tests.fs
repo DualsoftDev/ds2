@@ -245,26 +245,20 @@ module AasxRoundTripTests =
     open Ds2.UI.Core
 
     [<Fact>]
-    let ``AASX round-trip preserves ArrowBetweenCalls`` () =
+    let ``AASX round-trip preserves ArrowBetweenCalls with parentId = workId`` () =
         let store = DsStore()
         let projectId = store.AddProject("P")
         let systemId = store.AddSystem("S", projectId, true)
         let flowId = store.AddFlow("F", systemId)
         let workId = store.AddWork("W", flowId)
 
-        // 2개 Call 생성 (Device system 포함)
         store.AddCallsWithDevice(projectId, workId, [ "Dev.Api1"; "Dev.Api2" ], true)
         let callIds = DsQuery.callsOf workId store |> List.map (fun c -> c.Id)
-        Assert.Equal(2, callIds.Length)
-
-        // Call 간 화살표 생성
         let arrowCount = store.ConnectSelectionInOrder(callIds, ArrowType.ResetReset)
         Assert.Equal(1, arrowCount)
-        Assert.Equal(1, store.ArrowCalls.Count)
         let originalArrow = store.ArrowCalls.Values |> Seq.head
-        Assert.Equal(flowId, originalArrow.ParentId)
+        Assert.Equal(workId, originalArrow.ParentId)
 
-        // AASX export → import
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
             let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
@@ -274,13 +268,48 @@ module AasxRoundTripTests =
             let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
             Assert.True(imported, "Import should succeed")
 
-            // ArrowBetweenCalls가 살아있어야 함
             Assert.Equal(1, store2.ArrowCalls.Count)
             let restoredArrow = store2.ArrowCalls.Values |> Seq.head
             Assert.Equal(originalArrow.SourceId, restoredArrow.SourceId)
             Assert.Equal(originalArrow.TargetId, restoredArrow.TargetId)
             Assert.Equal(originalArrow.ArrowType, restoredArrow.ArrowType)
-            // parentId가 flowId여야 함 (workId가 아닌)
-            Assert.Equal(flowId, restoredArrow.ParentId)
+            // parentId = workId (flowId가 아님)
+            let restoredWorkId = store2.Works.Values |> Seq.head |> fun w -> w.Id
+            Assert.Equal(restoredWorkId, restoredArrow.ParentId)
         finally
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+
+    [<Fact>]
+    let ``AASX round-trip preserves ArrowBetweenWorks with parentId = systemId`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("P")
+        let systemId = store.AddSystem("S", projectId, true)
+        let flowId = store.AddFlow("F", systemId)
+        let work1Id = store.AddWork("W1", flowId)
+        let work2Id = store.AddWork("W2", flowId)
+
+        let arrowCount = store.ConnectSelectionInOrder([ work1Id; work2Id ], ArrowType.StartReset)
+        Assert.Equal(1, arrowCount)
+        let originalArrow = store.ArrowWorks.Values |> Seq.head
+        Assert.Equal(systemId, originalArrow.ParentId)
+
+        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported, "Export should succeed")
+
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed")
+
+            Assert.Equal(1, store2.ArrowWorks.Count)
+            let restoredArrow = store2.ArrowWorks.Values |> Seq.head
+            Assert.Equal(originalArrow.SourceId, restoredArrow.SourceId)
+            Assert.Equal(originalArrow.TargetId, restoredArrow.TargetId)
+            Assert.Equal(originalArrow.ArrowType, restoredArrow.ArrowType)
+            // parentId = systemId
+            let restoredSystemId = store2.Systems.Values |> Seq.head |> fun s -> s.Id
+            Assert.Equal(restoredSystemId, restoredArrow.ParentId)
+        finally
+            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+

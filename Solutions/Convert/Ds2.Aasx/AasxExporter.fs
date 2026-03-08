@@ -58,7 +58,7 @@ let private workToSmc (store: DsStore) (work: Work) : ISubmodelElement =
     let calls    = rawCalls |> List.map callToSmc
     let callIds  = rawCalls |> List.map (fun c -> c.Id) |> Set.ofList
     let arrows   =
-        DsQuery.arrowCallsOf work.ParentId store
+        DsQuery.arrowCallsOf work.Id store
         |> List.filter (fun a -> callIds.Contains a.SourceId && callIds.Contains a.TargetId)
         |> List.map arrowCallToSmc
     mkSmc "Work" [
@@ -107,8 +107,8 @@ let private systemToSmc (store: DsStore) (system: DsSystem) (isActive: bool) : I
     let flows     = allFlows |> List.map flowToSmc
     let works     = allFlows |> List.collect (fun f -> DsQuery.worksOf f.Id store)
                              |> List.map (workToSmc store)
-    let arrows    = allFlows |> List.collect (fun f -> DsQuery.arrowWorksOf f.Id store)
-                             |> List.map arrowWorkToSmc
+    let arrows    = DsQuery.arrowWorksOf system.Id store
+                    |> List.map arrowWorkToSmc
     let apiDefs   = DsQuery.apiDefsOf system.Id store |> List.map apiDefToSmc
     // ApiCalls/ReferencedApiDefs는 ActiveSystem 전용 — DeviceSystem은 빈 목록
     let apiCalls, referencedApiDefs =

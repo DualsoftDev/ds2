@@ -55,10 +55,10 @@ module internal DirectPasteOps =
     let private collectArrowsWithinSet
         (getArrows: Guid -> DsStore -> 'a list)
         (getSourceId: 'a -> Guid) (getTargetId: 'a -> Guid)
-        (flowIds: Set<Guid>) (selectedIds: Set<Guid>) (store: DsStore) : 'a list =
-        flowIds
+        (parentIds: Set<Guid>) (selectedIds: Set<Guid>) (store: DsStore) : 'a list =
+        parentIds
         |> Set.toList
-        |> List.collect (fun flowId -> getArrows flowId store)
+        |> List.collect (fun parentId -> getArrows parentId store)
         |> List.filter (fun a -> selectedIds.Contains(getSourceId a) && selectedIds.Contains(getTargetId a))
 
     let private ensureTargetDeviceSystem
@@ -144,20 +144,24 @@ module internal DirectPasteOps =
             | Some tw, Some sw when tw.ParentId = sw.ParentId -> DifferentWork
             | _ -> DifferentFlow
 
-    let private replayArrows (store: DsStore) (flowId: Guid)
+    let private replayArrows (store: DsStore) (targetSystemId: Guid)
         (sourceWorkArrows: ArrowBetweenWorks list) (sourceCallArrows: ArrowBetweenCalls list)
         (workMap: Map<Guid, Guid>) (callMap: Map<Guid, Guid>) =
         for arrow in sourceWorkArrows do
             match Map.tryFind arrow.SourceId workMap, Map.tryFind arrow.TargetId workMap with
             | Some src, Some tgt ->
-                let a = ArrowBetweenWorks(flowId, src, tgt, arrow.ArrowType)
+                let a = ArrowBetweenWorks(targetSystemId, src, tgt, arrow.ArrowType)
                 store.TrackAdd(store.ArrowWorks, a)
             | _ -> ()
         for arrow in sourceCallArrows do
             match Map.tryFind arrow.SourceId callMap, Map.tryFind arrow.TargetId callMap with
             | Some src, Some tgt ->
-                let a = ArrowBetweenCalls(flowId, src, tgt, arrow.ArrowType)
-                store.TrackAdd(store.ArrowCalls, a)
+                // 새 call의 parentId(workId)를 parentId로 사용
+                match DsQuery.getCall src store with
+                | Some newCall ->
+                    let a = ArrowBetweenCalls(newCall.ParentId, src, tgt, arrow.ArrowType)
+                    store.TrackAdd(store.ArrowCalls, a)
+                | None -> ()
             | _ -> ()
 
     let private offsetPosition (pos: Xywh option) =
@@ -225,15 +229,18 @@ module internal DirectPasteOps =
         let pastedFlow = Flow(sourceFlow.Name, targetSystemId)
         store.TrackAdd(store.Flows, pastedFlow)
         let deviceFlowCtxOpt = makeDeviceFlowCtxDirect store targetSystemId pastedFlow.Name
-        let sourceWorkArrows = DsQuery.arrowWorksOf sourceFlow.Id store
-        let sourceCallArrows = DsQuery.arrowCallsOf sourceFlow.Id store
+        let sourceSystemId = sourceFlow.ParentId
+        let sourceWorkArrows = DsQuery.arrowWorksOf sourceSystemId store
+        let sourceWorks = DsQuery.worksOf sourceFlow.Id store
+        let sourceCallArrows =
+            sourceWorks |> List.collect (fun w -> DsQuery.arrowCallsOf w.Id store)
         let workMap, callMap, _ =
-            DsQuery.worksOf sourceFlow.Id store
+            sourceWorks
             |> List.fold (fun (wm, cm, ds) sw ->
                 let pw, lcm, nds = pasteWorkToFlow store sw pastedFlow.Id ds deviceFlowCtxOpt
                 Map.add sw.Id pw.Id wm, mergeGuidMap cm lcm, nds
             ) (Map.empty, Map.empty, initialDevicePasteState)
-        replayArrows store pastedFlow.Id sourceWorkArrows sourceCallArrows workMap callMap
+        replayArrows store targetSystemId sourceWorkArrows sourceCallArrows workMap callMap
         pastedFlow.Id
 
     let pasteWorksToFlowBatch (store: DsStore) (sourceWorks: Work list) (targetFlowId: Guid) : Guid list =
@@ -242,29 +249,32 @@ module internal DirectPasteOps =
             sourceWorks
             |> List.collect (fun w -> DsQuery.callsOf w.Id store)
             |> List.map (fun c -> c.Id) |> Set.ofList
-        let sourceFlowIds = sourceWorks |> List.map (fun w -> w.ParentId) |> Set.ofList
+        let sourceSystemIds =
+            sourceWorks
+            |> List.choose (fun w -> DsQuery.getFlow w.ParentId store |> Option.map (fun f -> f.ParentId))
+            |> Set.ofList
         let sourceWorkArrows =
-            collectArrowsWithinSet DsQuery.arrowWorksOf (fun a -> a.SourceId) (fun a -> a.TargetId) sourceFlowIds selectedWorkIds store
+            collectArrowsWithinSet DsQuery.arrowWorksOf (fun a -> a.SourceId) (fun a -> a.TargetId) sourceSystemIds selectedWorkIds store
         let sourceCallArrows =
-            collectArrowsWithinSet DsQuery.arrowCallsOf (fun a -> a.SourceId) (fun a -> a.TargetId) sourceFlowIds selectedCallIds store
+            collectArrowsWithinSet DsQuery.arrowCallsOf (fun a -> a.SourceId) (fun a -> a.TargetId) selectedWorkIds selectedCallIds store
         let deviceFlowCtxOpt = makeDeviceFlowCtx store targetFlowId
+        let targetSystemId =
+            DsQuery.getFlow targetFlowId store |> Option.map (fun f -> f.ParentId) |> Option.defaultValue Guid.Empty
         let workMap, callMap, pastedIdsRev, _ =
             sourceWorks
             |> List.fold (fun (wm, cm, ids, ds) sw ->
                 let pw, lcm, nds = pasteWorkToFlow store sw targetFlowId ds deviceFlowCtxOpt
                 Map.add sw.Id pw.Id wm, mergeGuidMap cm lcm, pw.Id :: ids, nds
             ) (Map.empty, Map.empty, [], initialDevicePasteState)
-        replayArrows store targetFlowId sourceWorkArrows sourceCallArrows workMap callMap
+        replayArrows store targetSystemId sourceWorkArrows sourceCallArrows workMap callMap
         pastedIdsRev |> List.rev
 
     let pasteCallsToWorkBatch (store: DsStore) (sourceCalls: Call list) (targetWorkId: Guid) : Guid list =
         let selectedCallIds = sourceCalls |> List.map (fun c -> c.Id) |> Set.ofList
-        let sourceFlowIds =
-            sourceCalls
-            |> List.choose (fun c -> DsQuery.getWork c.ParentId store |> Option.map (fun w -> w.ParentId))
-            |> Set.ofList
+        let sourceWorkIds =
+            sourceCalls |> List.map (fun c -> c.ParentId) |> Set.ofList
         let sourceCallArrows =
-            collectArrowsWithinSet DsQuery.arrowCallsOf (fun a -> a.SourceId) (fun a -> a.TargetId) sourceFlowIds selectedCallIds store
+            collectArrowsWithinSet DsQuery.arrowCallsOf (fun a -> a.SourceId) (fun a -> a.TargetId) sourceWorkIds selectedCallIds store
         let targetFlowIdOpt = DsQuery.getWork targetWorkId store |> Option.map (fun w -> w.ParentId)
         let deviceFlowCtxForDiffFlow = targetFlowIdOpt |> Option.bind (makeDeviceFlowCtx store)
         let callMap, pastedIdsRev, _ =
@@ -275,8 +285,8 @@ module internal DirectPasteOps =
                 let pc, nds = pasteCallToWork store context sc targetWorkId ds ctxOpt
                 Map.add sc.Id pc.Id cm, pc.Id :: ids, nds
             ) (Map.empty, [], initialDevicePasteState)
-        targetFlowIdOpt |> Option.iter (fun tfid ->
-            replayArrows store tfid [] sourceCallArrows Map.empty callMap)
+        // Call-only paste: work arrow 없음, targetSystemId는 사용되지 않음
+        replayArrows store Guid.Empty [] sourceCallArrows Map.empty callMap
         pastedIdsRev |> List.rev
 
     let dispatchPaste

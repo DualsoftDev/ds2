@@ -221,13 +221,38 @@ module RenameTests =
 module ArrowTests =
 
     [<Fact>]
-    let ``ConnectSelectionInOrder creates arrows between works`` () =
+    let ``ConnectSelectionInOrder creates ArrowBetweenWorks with parentId = systemId`` () =
         let store = createStore ()
-        let _, _, flow, work1 = setupBasicHierarchy store
+        let _, system, flow, work1 = setupBasicHierarchy store
         let work2 = addWork store "W2" flow.Id
         let count = store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.ResetReset)
         Assert.Equal(1, count)
         Assert.Equal(1, store.ArrowWorks.Count)
+        let arrow = store.ArrowWorks.Values |> Seq.head
+        Assert.Equal(system.Id, arrow.ParentId)
+
+    [<Fact>]
+    let ``ConnectSelectionInOrder creates ArrowBetweenCalls with parentId = workId`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1"; "Dev.Api2" ], true)
+        let callIds = DsQuery.callsOf work.Id store |> List.map (fun c -> c.Id)
+        let count = store.ConnectSelectionInOrder(callIds, ArrowType.ResetReset)
+        Assert.Equal(1, count)
+        Assert.Equal(1, store.ArrowCalls.Count)
+        let arrow = store.ArrowCalls.Values |> Seq.head
+        Assert.Equal(work.Id, arrow.ParentId)
+
+    [<Fact>]
+    let ``ConnectSelectionInOrder creates cross-flow ArrowBetweenWorks in same system`` () =
+        let store = createStore ()
+        let _, system, _, work1 = setupBasicHierarchy store
+        let flow2 = addFlow store "Flow2" system.Id
+        let work2 = addWork store "W2" flow2.Id
+        let count = store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.ResetReset)
+        Assert.Equal(1, count)
+        let arrow = store.ArrowWorks.Values |> Seq.head
+        Assert.Equal(system.Id, arrow.ParentId)
 
     [<Fact>]
     let ``RemoveArrows deletes arrows`` () =

@@ -3,45 +3,22 @@ module Ds2.UI.Core.ConnectionQueries
 open System
 open Ds2.Core
 
-let private trySystemIdOfFlow (store: DsStore) (flowId: Guid) : Guid option =
-    DsQuery.getFlow flowId store |> Option.map (fun flow -> flow.ParentId)
-
-let private areFlowsInSameSystem (store: DsStore) (sourceFlowId: Guid) (targetFlowId: Guid) : bool =
-    if sourceFlowId = targetFlowId then
-        true
-    else
-        match trySystemIdOfFlow store sourceFlowId, trySystemIdOfFlow store targetFlowId with
-        | Some sourceSystemId, Some targetSystemId -> sourceSystemId = targetSystemId
-        | _ -> false
-
-let resolveFlowIdForConnect
-    (store: DsStore)
-    (sourceEntityKind: EntityKind)
-    (sourceParentId: Guid option)
-    (targetEntityKind: EntityKind)
-    (targetParentId: Guid option)
-    : Guid option =
-    match sourceEntityKind, targetEntityKind, sourceParentId, targetParentId with
-    | EntityKind.Work, EntityKind.Work, Some sourceFlowId, Some targetFlowId
-        when areFlowsInSameSystem store sourceFlowId targetFlowId ->
-        Some sourceFlowId
-    | EntityKind.Call, EntityKind.Call, Some sourceWorkId, Some targetWorkId when sourceWorkId = targetWorkId ->
-        DsQuery.getWork sourceWorkId store
-        |> Option.map (fun work -> work.ParentId)
-    | _ -> None
-
+/// Work → (EntityKind.Work, systemId, workId)
+/// Call → (EntityKind.Call, workId, callId)
 let private resolveOrderedNodeContext (store: DsStore) (nodeId: Guid) : (EntityKind * Guid * Guid) option =
     match DsQuery.getWork nodeId store with
-    | Some work -> Some (EntityKind.Work, work.ParentId, work.Id)
+    | Some work ->
+        DsQuery.trySystemIdOfWork work.Id store
+        |> Option.map (fun systemId -> (EntityKind.Work, systemId, work.Id))
     | None ->
         match DsQuery.getCall nodeId store with
-        | Some call ->
-            DsQuery.getWork call.ParentId store
-            |> Option.map (fun work -> (EntityKind.Call, work.ParentId, call.Id))
+        | Some call -> Some (EntityKind.Call, call.ParentId, call.Id)
         | None -> None
 
 /// Ordered multi-selection -> connectable arrow links.
-/// Result tuple: (entityKind, flowId, sourceId, targetId)
+/// Result tuple: (entityKind, parentId, sourceId, targetId)
+///   Work arrow: parentId = systemId
+///   Call arrow: parentId = workId
 let orderedArrowLinksForSelection
     (store: DsStore)
     (orderedNodeIds: seq<Guid>)
@@ -70,15 +47,17 @@ let orderedArrowLinksForSelection
 
     orderedContexts
     |> List.pairwise
-    |> List.choose (fun ((sourceType, sourceFlowId, sourceId), (targetType, targetFlowId, targetId)) ->
+    |> List.choose (fun ((sourceType, sourceParent, sourceId), (targetType, targetParent, targetId)) ->
         if sourceType <> targetType || sourceId = targetId then
             None
         else
             match sourceType with
-            | EntityKind.Work when areFlowsInSameSystem store sourceFlowId targetFlowId ->
+            | EntityKind.Work when sourceParent = targetParent ->
+                // 같은 System에 속한 Work끼리만 연결
                 if existingWorkArrows.Contains(struct (sourceId, targetId)) then None
-                else Some (sourceType, sourceFlowId, sourceId, targetId)
-            | EntityKind.Call when sourceFlowId = targetFlowId ->
+                else Some (sourceType, sourceParent, sourceId, targetId)
+            | EntityKind.Call when sourceParent = targetParent ->
+                // 같은 Work에 속한 Call끼리만 연결
                 if existingCallArrows.Contains(struct (sourceId, targetId)) then None
-                else Some (sourceType, sourceFlowId, sourceId, targetId)
+                else Some (sourceType, sourceParent, sourceId, targetId)
             | _ -> None)

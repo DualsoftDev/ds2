@@ -24,8 +24,6 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
         DsQuery.flowsOf systemId store
         |> List.map (fun f -> f.Id)
 
-    let flowSet = Set.ofList flowIds
-
     let nodes =
         flowIds
         |> List.collect (fun flowId ->
@@ -33,8 +31,7 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
             |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position))
 
     let arrows =
-        DsQuery.allArrowWorks store
-        |> List.filter (fun a -> flowSet.Contains a.ParentId)
+        DsQuery.arrowWorksOf systemId store
         |> List.map toArrowInfo
 
     { Nodes = nodes; Arrows = arrows }
@@ -47,8 +44,11 @@ let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
         works
         |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position)
 
+    let systemId =
+        DsQuery.getFlow flowId store |> Option.map (fun f -> f.ParentId) |> Option.defaultValue Guid.Empty
+
     let arrows =
-        DsQuery.arrowWorksOf flowId store
+        DsQuery.arrowWorksOf systemId store
         |> List.filter (fun a -> workIds.Contains a.SourceId && workIds.Contains a.TargetId)
         |> List.map toArrowInfo
 
@@ -57,7 +57,7 @@ let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
 let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
     match DsQuery.getWork workId store with
     | None -> { Nodes = []; Arrows = [] }
-    | Some work ->
+    | Some _ ->
         let calls = DsQuery.callsOf workId store
         let callSet = calls |> List.map (fun c -> c.Id) |> Set.ofList
 
@@ -66,7 +66,7 @@ let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
             |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position)
 
         let arrows =
-            DsQuery.arrowCallsOf work.ParentId store
+            DsQuery.arrowCallsOf workId store
             |> List.filter (fun a -> callSet.Contains a.SourceId && callSet.Contains a.TargetId)
             |> List.map toArrowInfo
 

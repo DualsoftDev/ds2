@@ -21,9 +21,10 @@ module internal DirectArrowOps =
             match resolveEndpoints replaceSource arrow.SourceId arrow.TargetId newEndpointId with
             | None -> false
             | Some(keepId, newSourceId, newTargetId) ->
-                match DsQuery.getWork newEndpointId store, DsQuery.getWork keepId store with
-                | Some newWork, Some keepWork
-                    when newWork.ParentId = arrow.ParentId && keepWork.ParentId = arrow.ParentId ->
+                // ArrowBetweenWorks.parentId = systemId — 새 endpoint도 같은 System에 속해야 함
+                match DsQuery.trySystemIdOfWork newEndpointId store, DsQuery.trySystemIdOfWork keepId store with
+                | Some newSysId, Some keepSysId
+                    when newSysId = arrow.ParentId && keepSysId = arrow.ParentId ->
                     let hasDuplicate =
                         DsQuery.arrowWorksOf arrow.ParentId store
                         |> List.exists (fun e -> e.Id <> arrow.Id && e.SourceId = newSourceId && e.TargetId = newTargetId)
@@ -39,20 +40,19 @@ module internal DirectArrowOps =
             match resolveEndpoints replaceSource arrow.SourceId arrow.TargetId newEndpointId with
             | None -> false
             | Some(keepId, newSourceId, newTargetId) ->
+                // ArrowBetweenCalls.parentId = workId — 새 endpoint도 같은 Work에 속해야 함
                 match DsQuery.getCall newEndpointId store, DsQuery.getCall keepId store with
-                | Some newCall, Some keepCall when newCall.ParentId = keepCall.ParentId ->
-                    match DsQuery.getWork newCall.ParentId store with
-                    | Some work when work.ParentId = arrow.ParentId ->
-                        let hasDuplicate =
-                            DsQuery.arrowCallsOf arrow.ParentId store
-                            |> List.exists (fun e -> e.Id <> arrow.Id && e.SourceId = newSourceId && e.TargetId = newTargetId)
-                        if hasDuplicate then false
-                        else
-                            store.TrackMutate(store.ArrowCalls, arrowId, fun a ->
-                                a.SourceId <- newSourceId
-                                a.TargetId <- newTargetId)
-                            true
-                    | _ -> false
+                | Some newCall, Some keepCall
+                    when newCall.ParentId = arrow.ParentId && keepCall.ParentId = arrow.ParentId ->
+                    let hasDuplicate =
+                        DsQuery.arrowCallsOf arrow.ParentId store
+                        |> List.exists (fun e -> e.Id <> arrow.Id && e.SourceId = newSourceId && e.TargetId = newTargetId)
+                    if hasDuplicate then false
+                    else
+                        store.TrackMutate(store.ArrowCalls, arrowId, fun a ->
+                            a.SourceId <- newSourceId
+                            a.TargetId <- newTargetId)
+                        true
                 | _ -> false
 
         match DsQuery.getArrowWork arrowId store, DsQuery.getArrowCall arrowId store with
@@ -107,13 +107,13 @@ type DsStoreArrowsExtensions =
         else
             StoreLog.debug($"count={links.Length}, arrowType={arrowType}")
             store.WithTransaction("Connect Selected Nodes In Order", fun () ->
-                for (entityKind, flowId, sourceId, targetId) in links do
+                for (entityKind, parentId, sourceId, targetId) in links do
                     match entityKind with
                     | EntityKind.Work ->
-                        let arrow = ArrowBetweenWorks(flowId, sourceId, targetId, arrowType)
+                        let arrow = ArrowBetweenWorks(parentId, sourceId, targetId, arrowType)
                         store.TrackAdd(store.ArrowWorks, arrow)
                     | EntityKind.Call ->
-                        let arrow = ArrowBetweenCalls(flowId, sourceId, targetId, arrowType)
+                        let arrow = ArrowBetweenCalls(parentId, sourceId, targetId, arrowType)
                         store.TrackAdd(store.ArrowCalls, arrow)
                     | _ -> ())
             store.EmitRefreshAndHistory()
