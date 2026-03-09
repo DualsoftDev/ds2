@@ -17,6 +17,7 @@ public partial class MainWindow : Window
         DataContext = _vm;
         _vm.FocusNameEditorRequested = FocusNameEditorControl;
         _vm.CenterOnNodeRequested = id => Canvas.CenterOnNode(id);
+        _vm.GetViewportCenterRequested = () => Canvas.GetViewportCenter();
     }
 
     private void Exit_Click(object sender, RoutedEventArgs e) => Close();
@@ -64,6 +65,7 @@ public partial class MainWindow : Window
         else if (EntityTypes.IsCanvasOpenable(node.EntityType))
         {
             _vm.OpenCanvasTab(node.Id, node.EntityType);
+            item.IsExpanded = !item.IsExpanded;
             e.Handled = true;
         }
         else if (node.EntityType == EntityKind.ApiDef)

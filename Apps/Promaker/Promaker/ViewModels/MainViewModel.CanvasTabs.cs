@@ -32,7 +32,7 @@ public partial class MainViewModel
         ActiveTab = tab;
     }
 
-    public void OpenCanvasTab(Guid entityId, EntityKind entityType)
+    public void OpenCanvasTab(Guid entityId, EntityKind entityType, bool expandTree = false)
     {
         if (!TryEditorRef(
                 () => _store.TryOpenTabForEntityOrNull(entityType, entityId),
@@ -40,6 +40,8 @@ public partial class MainViewModel
             return;
 
         OpenTab(info.Kind, info.RootId, info.Title);
+        if (expandTree)
+            ExpandNodeAndAncestors(entityId);
     }
 
     public Action<Guid>? CenterOnNodeRequested { get; set; }

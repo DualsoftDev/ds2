@@ -101,6 +101,25 @@ type DsStoreArrowsExtensions =
         success
 
     [<Extension>]
+    static member UpdateArrowType(store: DsStore, arrowId: Guid, newArrowType: ArrowType) : bool =
+        StoreLog.debug($"arrowId={arrowId}, newArrowType={newArrowType}")
+        match DsQuery.getArrowWork arrowId store with
+        | Some arrow when arrow.ArrowType <> newArrowType ->
+            store.WithTransaction("화살표 타입 변경", fun () ->
+                store.TrackMutate(store.ArrowWorks, arrowId, fun a -> a.ArrowType <- newArrowType))
+            store.EmitRefreshAndHistory()
+            true
+        | Some _ -> false
+        | None ->
+            match DsQuery.getArrowCall arrowId store with
+            | Some arrow when arrow.ArrowType <> newArrowType ->
+                store.WithTransaction("화살표 타입 변경", fun () ->
+                    store.TrackMutate(store.ArrowCalls, arrowId, fun a -> a.ArrowType <- newArrowType))
+                store.EmitRefreshAndHistory()
+                true
+            | _ -> false
+
+    [<Extension>]
     static member ConnectSelectionInOrder(store: DsStore, orderedNodeIds: seq<Guid>, arrowType: ArrowType) : int =
         let links = ConnectionQueries.orderedArrowLinksForSelection store orderedNodeIds
         if links.IsEmpty then 0

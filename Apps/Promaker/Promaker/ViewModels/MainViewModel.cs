@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Ds2.Core;
 using Ds2.UI.Core;
 using log4net;
 
@@ -53,6 +54,9 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _isDirty;
     [ObservableProperty] private int _currentHistoryIndex;
     [ObservableProperty] private ArrowNode? _selectedArrow;
+
+    public Xywh? PendingAddPosition { get; set; }
+    public Func<System.Windows.Point>? GetViewportCenterRequested { get; set; }
 
     public Action? FocusNameEditorRequested { get; set; }
 

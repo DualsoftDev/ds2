@@ -1,7 +1,10 @@
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using Ds2.Core;
+using Ds2.UI.Core;
 using Promaker.ViewModels;
 
 namespace Promaker.Controls;
@@ -27,6 +30,7 @@ public partial class EditorCanvas : UserControl
     private Guid? _connectSource;
     private Point _connectSourcePos;
     private ArrowReconnectState? _arrowReconnect;
+    private Point _lastContextMenuCanvasPos;
 
     private sealed class DragItem(EntityNode node, double originX, double originY)
     {
@@ -57,8 +61,40 @@ public partial class EditorCanvas : UserControl
 
     private MainViewModel? VM => DataContext as MainViewModel;
 
-    private void AddWork_Click(object sender, RoutedEventArgs e) => VM?.AddWorkCommand.Execute(null);
-    private void AddCall_Click(object sender, RoutedEventArgs e) => VM?.AddCallCommand.Execute(null);
+    private void OnContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        _lastContextMenuCanvasPos = Mouse.GetPosition(MainCanvas);
+    }
+
+    private void AddWork_Click(object sender, RoutedEventArgs e)
+    {
+        if (VM is null) return;
+        VM.PendingAddPosition = new Xywh(
+            (int)_lastContextMenuCanvasPos.X, (int)_lastContextMenuCanvasPos.Y,
+            UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight);
+        VM.AddWorkCommand.Execute(null);
+    }
+
+    private void AddCall_Click(object sender, RoutedEventArgs e)
+    {
+        if (VM is null) return;
+        VM.PendingAddPosition = new Xywh(
+            (int)_lastContextMenuCanvasPos.X, (int)_lastContextMenuCanvasPos.Y,
+            UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight);
+        VM.AddCallCommand.Execute(null);
+    }
+
+    public Point GetViewportCenter()
+    {
+        var viewW = RootGrid.ActualWidth;
+        var viewH = RootGrid.ActualHeight;
+        if (viewW <= 0 || viewH <= 0)
+            return new Point(UiDefaults.DefaultNodeX, UiDefaults.DefaultNodeY);
+
+        var canvasX = (viewW / 2 - PanTransform.X) / _zoom;
+        var canvasY = (viewH / 2 - PanTransform.Y) / _zoom;
+        return new Point(canvasX, canvasY);
+    }
 
     private static Rect BuildRect(Point p1, Point p2)
     {

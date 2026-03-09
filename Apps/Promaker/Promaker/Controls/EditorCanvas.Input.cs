@@ -45,7 +45,7 @@ public partial class EditorCanvas
 
             if (e.ClickCount == 2 && node.EntityType == EntityKind.Work)
             {
-                VM.OpenCanvasTab(nodeId, EntityKind.Work);
+                VM.OpenCanvasTab(nodeId, EntityKind.Work, expandTree: true);
                 e.Handled = true;
                 return;
             }
@@ -225,6 +225,36 @@ public partial class EditorCanvas
         if (arrow is not null)
             VM.SelectArrowFromCanvas(arrow, ctrlPressed);
 
+        e.Handled = true;
+    }
+
+    private void Arrow_RightClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: Guid arrowId } || VM is null) return;
+
+        var arrow = VM.CanvasArrows.FirstOrDefault(a => a.Id == arrowId);
+        if (arrow is null) return;
+
+        VM.ClearNodeSelection();
+        VM.SelectArrowFromCanvas(arrow, ctrlPressed: false);
+
+        var isWorkMode = VM.ActiveTab?.Kind != TabKind.Work;
+        var menu = new System.Windows.Controls.ContextMenu();
+
+        var changeType = new System.Windows.Controls.MenuItem { Header = "Change Arrow Type" };
+        changeType.Click += (_, _) =>
+        {
+            if (!TryPromptArrowType(isWorkMode ? EntityKind.Work : EntityKind.Call, out var newType))
+                return;
+            VM.TryUpdateArrowType(arrowId, newType);
+        };
+        menu.Items.Add(changeType);
+
+        var remove = new System.Windows.Controls.MenuItem { Header = "Remove Arrow" };
+        remove.Click += (_, _) => VM.DeleteSelectedCommand.Execute(null);
+        menu.Items.Add(remove);
+
+        menu.IsOpen = true;
         e.Handled = true;
     }
 
