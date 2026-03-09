@@ -56,7 +56,7 @@ public partial class MainWindow : Window
         if (!ReferenceEquals(item, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject))) return;
         if (item.DataContext is not EntityNode node) return;
 
-        if (node.EntityType is EntityKind.Work or EntityKind.Call)
+        if (node.EntityType == EntityKind.Call)
         {
             _vm.OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
             e.Handled = true;

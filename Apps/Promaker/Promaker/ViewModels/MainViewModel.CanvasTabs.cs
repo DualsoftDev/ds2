@@ -62,6 +62,14 @@ public partial class MainViewModel
     }
 
     [RelayCommand]
+    private void FocusSelectedInCanvas()
+    {
+        if (SelectedNode is not { } node) return;
+        if (node.EntityType is not (EntityKind.Work or EntityKind.Call)) return;
+        OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
+    }
+
+    [RelayCommand]
     private void CloseTab(CanvasTab? tab)
     {
         if (tab is null) return;
