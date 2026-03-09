@@ -141,6 +141,7 @@
             <MenuItem Header="Copy" Command="{Binding CopySelectedCommand}"/>
             <MenuItem Header="Paste" Command="{Binding PasteCopiedCommand}"/>
             <Separator/>
+            <MenuItem Header="Focus in Canvas" Command="{Binding FocusSelectedInCanvasCommand}"/>
             <MenuItem Header="Rename..." Click="Rename_Click"/>
             <MenuItem Header="Delete" Command="{Binding DeleteSelectedCommand}" Foreground="{DynamicResource RedAccentBrush}"/>
         </ContextMenu>
