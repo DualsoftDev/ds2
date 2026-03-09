@@ -22,7 +22,7 @@ public partial class ApiDefEditDialog : Window
     {
         InitializeComponent();
 
-        var noneItem = new WorkDropdownItem(Guid.Empty, "(없음)", isNone: true);
+        var noneItem = new WorkDropdownItem(Guid.NewGuid(), "(없음)", isNone: true);
         _workItems = new[] { noneItem }.Concat(works).ToList();
 
         TxWorkCombo.ItemsSource = _workItems;

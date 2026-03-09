@@ -51,6 +51,11 @@ let private parseStatus4 (s: string) : Status4 =
     | true, v -> v
     | _ -> Status4.Ready
 
+let private tryParseGuid (s: string) : Guid option =
+    match Guid.TryParse(s) with
+    | true, v -> Some v
+    | _ -> None
+
 // ── 변환 계층 ──────────────────────────────────────────────────────────────
 
 let private smcToArrowCall (smc: SubmodelElementCollection) (workId: Guid) : ArrowBetweenCalls option =
@@ -96,17 +101,21 @@ let private smcToWork
     : (Work * Call list * ArrowBetweenCalls list) option =
     try
         // FlowGuid로 parentId 설정
-        let flowId = getProp smc FlowGuid_ |> Option.map Guid.Parse |> Option.defaultValue Guid.Empty
-        let work = Work("", flowId)
-        getProp smc Guid_   |> Option.iter (fun g -> work.Id <- Guid.Parse g)
-        getProp smc Name_   |> Option.iter (fun n -> work.Name <- n)
-        fromJsonProp<WorkProperties> smc Properties_  |> Option.iter (fun p -> work.Properties <- p)
-        fromJsonProp<Xywh option>    smc Position_    |> Option.flatten |> Option.iter (fun pos -> work.Position <- Some pos)
-        getProp smc Status_ |> Option.iter (fun s -> work.Status4 <- parseStatus4 s)
+        match getProp smc FlowGuid_ |> Option.bind tryParseGuid with
+        | None ->
+            log.Warn("smcToWork: FlowGuid missing or invalid. Skip work node.")
+            None
+        | Some flowId ->
+            let work = Work("", flowId)
+            getProp smc Guid_   |> Option.iter (fun g -> work.Id <- Guid.Parse g)
+            getProp smc Name_   |> Option.iter (fun n -> work.Name <- n)
+            fromJsonProp<WorkProperties> smc Properties_  |> Option.iter (fun p -> work.Properties <- p)
+            fromJsonProp<Xywh option>    smc Position_    |> Option.flatten |> Option.iter (fun pos -> work.Position <- Some pos)
+            getProp smc Status_ |> Option.iter (fun s -> work.Status4 <- parseStatus4 s)
 
-        let calls      = getChildSmlSmcs smc Calls_  |> List.choose (fun c -> smcToCall c work.Id)
-        let arrowCalls = getChildSmlSmcs smc Arrows_ |> List.choose (fun a -> smcToArrowCall a work.Id)
-        Some (work, calls, arrowCalls)
+            let calls      = getChildSmlSmcs smc Calls_  |> List.choose (fun c -> smcToCall c work.Id)
+            let arrowCalls = getChildSmlSmcs smc Arrows_ |> List.choose (fun a -> smcToArrowCall a work.Id)
+            Some (work, calls, arrowCalls)
     with ex -> log.Warn($"smcToWork 실패: {ex.Message}", ex); None
 
 let private smcToFlow

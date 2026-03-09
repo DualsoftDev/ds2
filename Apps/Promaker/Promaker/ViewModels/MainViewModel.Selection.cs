@@ -14,8 +14,6 @@ public partial class MainViewModel
     {
         var orderedKeys = EnumerateVisibleActiveTreeNodes().Select(ToKey).ToList();
         UpdateNodeSelection(node, ctrlPressed, shiftPressed, orderedKeys);
-        if (node is not null)
-            ExpandNodeAndAncestors(node.Id);
     }
 
     public void SelectNodeFromCanvas(EntityNode? node, bool ctrlPressed, bool shiftPressed)

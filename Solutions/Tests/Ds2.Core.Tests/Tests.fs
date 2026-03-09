@@ -51,6 +51,24 @@ module WorkTests =
         Assert.Equal("TestWork", work.Name)
         Assert.Equal(flowId, work.ParentId)
 
+module CallTests =
+
+    [<Fact>]
+    let ``Call Name setter allows alias-only rename with same ApiName`` () =
+        let call = Call("Dev", "Api", Guid.NewGuid())
+        call.Name <- "NewDev.Api"
+        Assert.Equal("NewDev", call.DevicesAlias)
+        Assert.Equal("Api", call.ApiName)
+        Assert.Equal("NewDev.Api", call.Name)
+
+    [<Fact>]
+    let ``Call Name setter rejects ApiName change`` () =
+        let call = Call("Dev", "Api", Guid.NewGuid())
+        let ex = Assert.Throws<ArgumentException>(fun () -> call.Name <- "Dev.OtherApi")
+        Assert.Contains("ApiName 변경을 허용하지 않습니다", ex.Message)
+        Assert.Equal("Dev", call.DevicesAlias)
+        Assert.Equal("Api", call.ApiName)
+
 /// 엔티티 좌표 테스트
 module EntityPositionTests =
 

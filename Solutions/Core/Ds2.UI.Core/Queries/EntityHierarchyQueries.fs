@@ -72,6 +72,18 @@ let tryOpenTabForEntity (store: DsStore) (entityKind: EntityKind) (entityId: Gui
         lookupEntity store kind entityId
         |> Option.map (fun (id, name) -> { Kind = kind; RootId = id; Title = name }))
 
+/// Work → 부모 Flow 탭, Call → 부모 Work 탭을 반환
+let tryOpenParentTab (store: DsStore) (entityKind: EntityKind) (entityId: Guid) : TabOpenInfo option =
+    let parentKind =
+        match entityKind with
+        | EntityKind.Call -> Some EntityKind.Work
+        | EntityKind.Work -> Some EntityKind.Flow
+        | _ -> None
+    parentKind
+    |> Option.bind (fun pk ->
+        parentIdOf store entityKind entityId
+        |> Option.bind (fun parentId -> tryOpenTabForEntity store pk parentId))
+
 let tabTitle (store: DsStore) (tabKind: TabKind) (rootId: Guid) : string option =
     lookupEntity store tabKind rootId |> Option.map snd
 

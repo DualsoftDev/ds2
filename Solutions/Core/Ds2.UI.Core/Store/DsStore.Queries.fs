@@ -32,6 +32,11 @@ type DsStoreQueriesExtensions =
         |> Option.toObj
 
     [<Extension>]
+    static member TryOpenParentTabOrNull(store: DsStore, entityKind: EntityKind, entityId: Guid) : TabOpenInfo =
+        EntityHierarchyQueries.tryOpenParentTab store entityKind entityId
+        |> Option.toObj
+
+    [<Extension>]
     static member FlowIdsForTab(store: DsStore, kind: TabKind, rootId: Guid) : Guid list =
         EntityHierarchyQueries.flowIdsForTab store kind rootId
 

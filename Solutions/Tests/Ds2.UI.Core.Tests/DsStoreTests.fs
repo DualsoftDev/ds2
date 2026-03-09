@@ -223,7 +223,8 @@ module RenameTests =
         Assert.Equal("Dev", call.DevicesAlias)
         Assert.Equal("Api", call.ApiName)
 
-        store.RenameEntity(call.Id, EntityKind.Call, "NewDev")
+        // UI는 전체 이름("NewDev.Api")을 전달 — RenameEntity가 alias만 추출
+        store.RenameEntity(call.Id, EntityKind.Call, "NewDev.Api")
         Assert.Equal("NewDev", call.DevicesAlias)
         Assert.Equal("Api", call.ApiName)  // ApiName 불변
         Assert.Equal("NewDev.Api", call.Name)
@@ -235,7 +236,7 @@ module RenameTests =
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
         let call = store.Calls |> Seq.head |> (fun kv -> kv.Value)
 
-        store.RenameEntity(call.Id, EntityKind.Call, "Dev")  // same alias → no-op
+        store.RenameEntity(call.Id, EntityKind.Call, "Dev.Api")  // same alias → no-op
         // Undo should undo AddCallsWithDevice, not a rename (rename was no-op)
         store.Undo()
         Assert.Empty(store.Calls)
@@ -454,6 +455,38 @@ module PanelTests =
         Assert.False(reverted.Properties.IsPush)
         Assert.Equal(0, reverted.Properties.Period)
 
+    [<Fact>]
+    let ``UpdateConditionApiCallOutputSpec updates selected condition api call`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+
+        let call = store.Calls.Values |> Seq.head
+        let sourceApiCallId = call.ApiCalls |> Seq.head |> fun ac -> ac.Id
+
+        store.AddCallCondition(call.Id, CallConditionType.Common)
+        let condId = store.Calls.[call.Id].CallConditions |> Seq.head |> fun cc -> cc.Id
+
+        let added = store.AddApiCallsToConditionBatch(call.Id, condId, [ sourceApiCallId ])
+        Assert.Equal(1, added)
+
+        let conditionApiCallId =
+            store.Calls.[call.Id].CallConditions
+            |> Seq.head
+            |> fun cc -> cc.Conditions |> Seq.head |> fun ac -> ac.Id
+
+        let changed = store.UpdateConditionApiCallOutputSpec(call.Id, condId, conditionApiCallId, 4, "123")
+        Assert.True(changed)
+
+        let updatedSpec =
+            store.Calls.[call.Id].CallConditions
+            |> Seq.head
+            |> fun cc -> cc.Conditions |> Seq.find (fun ac -> ac.Id = conditionApiCallId) |> fun ac -> ac.OutputSpec
+
+        match updatedSpec with
+        | Int32Value (Single v) -> Assert.Equal(123, v)
+        | _ -> Assert.Fail("OutputSpec should be Int32Value(Single 123)")
+
 // =============================================================================
 // File I/O
 // =============================================================================
@@ -510,6 +543,16 @@ module DeviceTests =
         let passiveSystems = DsQuery.passiveSystemsOf project.Id store
         Assert.True(passiveSystems.Length > 0)
         Assert.Equal(2, store.Calls.Count)
+
+    [<Fact>]
+    let ``AddCallsWithDevice with createDeviceSystem validates project id`` () =
+        let store = createStore ()
+        let _, _, _, work = setupBasicHierarchy store
+        let ex =
+            Assert.Throws<InvalidOperationException>(fun () ->
+                store.AddCallsWithDevice(Guid.Empty, work.Id, [ "Dev.Api" ], true))
+        Assert.Contains("Project not found", ex.Message)
+        Assert.Empty(store.Calls)
 
 // =============================================================================
 // Panel — typed period / timeout (int ms)

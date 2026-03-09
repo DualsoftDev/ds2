@@ -51,6 +51,21 @@ public partial class EditorCanvas
         ZoomText.Text = $"{(int)(_zoom * 100)}%";
     }
 
+    public void CenterOnNode(Guid nodeId)
+    {
+        var node = VM?.CanvasNodes.FirstOrDefault(n => n.Id == nodeId);
+        if (node is null) return;
+
+        var viewW = RootGrid.ActualWidth;
+        var viewH = RootGrid.ActualHeight;
+        if (viewW <= 0 || viewH <= 0) return;
+
+        var centerX = node.X + node.Width / 2;
+        var centerY = node.Y + node.Height / 2;
+        PanTransform.X = viewW / 2 - centerX * _zoom;
+        PanTransform.Y = viewH / 2 - centerY * _zoom;
+    }
+
     private void OnZoomIn(object sender, RoutedEventArgs e) => ApplyZoom(_zoom + ZoomStep);
     private void OnZoomOut(object sender, RoutedEventArgs e) => ApplyZoom(_zoom - ZoomStep);
     private void OnResetZoom(object sender, RoutedEventArgs e) => ApplyZoom(1.0);

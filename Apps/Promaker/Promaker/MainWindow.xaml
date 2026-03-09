@@ -155,6 +155,7 @@
         <KeyBinding Gesture="Ctrl+O" Command="{Binding OpenFileCommand}"/>
         <KeyBinding Gesture="Ctrl+N" Command="{Binding NewProjectCommand}"/>
         <KeyBinding Gesture="Delete" Command="{Binding DeleteSelectedCommand}"/>
+        <KeyBinding Key="F2" Command="{Binding FocusNameEditorCommand}"/>
     </Window.InputBindings>
 
     <Grid>
@@ -242,7 +243,8 @@
                         <TabItem x:Name="ControlTreeTab" Header="Control">
                             <TreeView x:Name="ControlTree"
                                       ItemsSource="{Binding ControlTreeRoots}"
-                                      SelectedItemChanged="Tree_SelectedItemChanged">
+                                      SelectedItemChanged="Tree_SelectedItemChanged"
+                                      PreviewMouseDown="Tree_PreviewMouseDown">
                                 <TreeView.ItemContainerStyle>
                                     <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
                                 </TreeView.ItemContainerStyle>
@@ -258,7 +260,8 @@
                         <TabItem x:Name="DeviceTreeTab" Header="Device">
                             <TreeView x:Name="DeviceTree"
                                       ItemsSource="{Binding DeviceTreeRoots}"
-                                      SelectedItemChanged="Tree_SelectedItemChanged">
+                                      SelectedItemChanged="Tree_SelectedItemChanged"
+                                      PreviewMouseDown="Tree_PreviewMouseDown">
                                 <TreeView.ItemContainerStyle>
                                     <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
                                 </TreeView.ItemContainerStyle>
@@ -357,7 +360,7 @@
                 </Border>
 
                 <!-- Canvas -->
-                <ctrl:EditorCanvas Grid.Row="1" DataContext="{Binding}"/>
+                <ctrl:EditorCanvas x:Name="Canvas" Grid.Row="1" DataContext="{Binding}"/>
 
                 <!-- 탭 없을 때 빈 상태 표시 -->
                 <Border Grid.Row="1" Background="{DynamicResource CanvasBackgroundBrush}"
@@ -400,7 +403,8 @@
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBox x:Name="NameEditor" Text="{Binding NameEditorText, UpdateSourceTrigger=PropertyChanged}"
-                                         Padding="6,4" FontSize="12"/>
+                                         Padding="6,4" FontSize="12"
+                                         KeyDown="NameEditor_KeyDown"/>
                                 <Button Grid.Column="1" Content="✓" Style="{StaticResource DarkButton}"
                                         Margin="4,0,0,0" Click="ApplyName_Click" Padding="8,4"
                                         IsEnabled="{Binding IsNameDirty}"/>
@@ -503,7 +507,11 @@
                                              Padding="6,4"
                                              FontSize="12"
                                              ToolTip="{x:Static core:Labels.PeriodFormat}"
-                                             MaxLength="9"/>
+                                             MaxLength="9">
+                                        <TextBox.InputBindings>
+                                            <KeyBinding Key="Enter" Command="{Binding ApplyWorkPeriodCommand}"/>
+                                        </TextBox.InputBindings>
+                                    </TextBox>
                                     <Button Grid.Column="1"
                                             Content="✓"
                                             Style="{StaticResource DarkButton}"
@@ -526,7 +534,11 @@
                                     </Grid.ColumnDefinitions>
                                     <TextBox Grid.Column="0"
                                              Text="{Binding CallTimeoutMs, UpdateSourceTrigger=PropertyChanged, TargetNullValue=''}"
-                                             Padding="6,4"/>
+                                             Padding="6,4">
+                                        <TextBox.InputBindings>
+                                            <KeyBinding Key="Enter" Command="{Binding ApplyCallTimeoutCommand}"/>
+                                        </TextBox.InputBindings>
+                                    </TextBox>
                                     <Button Grid.Column="1"
                                             Content="✓"
                                             Style="{StaticResource DarkButton}"
