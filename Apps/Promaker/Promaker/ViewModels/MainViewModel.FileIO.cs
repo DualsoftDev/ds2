@@ -26,6 +26,8 @@ public partial class MainViewModel
     [RelayCommand]
     private void OpenFile()
     {
+        if (!ConfirmDiscardChanges()) return;
+
         var dlg = new OpenFileDialog { Filter = "JSON Files (*.json)|*.json|All Files (*.*)|*.*" };
         if (dlg.ShowDialog() != true) return;
 
@@ -75,6 +77,8 @@ public partial class MainViewModel
     [RelayCommand]
     private void ImportAasx()
     {
+        if (!ConfirmDiscardChanges()) return;
+
         var dlg = new OpenFileDialog { Filter = "AASX Files (*.aasx)|*.aasx" };
         if (dlg.ShowDialog() != true) return;
 

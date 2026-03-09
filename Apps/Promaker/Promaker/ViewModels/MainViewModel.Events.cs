@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Ds2.UI.Core;
 
 namespace Promaker.ViewModels;
@@ -62,9 +63,13 @@ public partial class MainViewModel
                 return;
 
             case EditorEvent.WorkPropsChanged:
-            case EditorEvent.CallPropsChanged:
             case EditorEvent.ApiDefPropsChanged:
                 RefreshPropertyPanel();
+                return;
+
+            case EditorEvent.CallPropsChanged cp:
+                RefreshPropertyPanel();
+                RefreshCallConditionBadge(cp.id);
                 return;
 
             case EditorEvent.ArrowWorkAdded:
@@ -95,6 +100,15 @@ public partial class MainViewModel
         Log.Warn($"Unhandled event: {evt.GetType().Name}");
         StatusText = $"[WARN] Unhandled event: {evt.GetType().Name}";
         RequestRebuildAll();
+    }
+
+    private void RefreshCallConditionBadge(Guid callId)
+    {
+        var node = CanvasNodes.FirstOrDefault(n => n.Id == callId);
+        if (node is null) return;
+
+        if (TryEditorRef(() => _store.GetCallConditionTypes(callId), out var types))
+            node.UpdateConditionTypes(types);
     }
 
     private void ApplyEntityRename(Guid entityId, string newName)

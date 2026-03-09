@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.UI.Core;
 using log4net;
+using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
 
@@ -67,7 +68,12 @@ public partial class MainViewModel : ObservableObject
             FocusNameEditorRequested?.Invoke();
     }
 
-    [RelayCommand] private void NewProject() => Reset();
+    [RelayCommand]
+    private void NewProject()
+    {
+        if (!ConfirmDiscardChanges()) return;
+        Reset();
+    }
     [RelayCommand(CanExecute = nameof(CanUndo))]
     private void Undo() => TryEditorAction(() => _store.Undo());
     [RelayCommand(CanExecute = nameof(CanRedo))]
@@ -101,6 +107,20 @@ public partial class MainViewModel : ObservableObject
         RebuildAll();
         UpdateTitle();
         StatusText = "Ready";
+    }
+
+    /// IsDirty일 때 저장 여부 확인. true=계속 진행, false=취소.
+    private bool ConfirmDiscardChanges()
+    {
+        if (!IsDirty) return true;
+
+        var result = DialogHelpers.AskSaveChanges();
+        if (result == System.Windows.MessageBoxResult.Yes)
+        {
+            SaveFile();
+            return true;
+        }
+        return result == System.Windows.MessageBoxResult.No;
     }
 
     private void UpdateTitle()

@@ -22,6 +22,8 @@ type CanvasNodeInfo = {
     Y: float
     Width: float
     Height: float
+    /// Call 노드의 조건 타입들 (Work 노드는 빈 리스트)
+    ConditionTypes: CallConditionType list
 }
 
 type CanvasArrowInfo = {
