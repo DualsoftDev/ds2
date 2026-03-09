@@ -13,6 +13,8 @@ public partial class EditorCanvas
 {
     private void OnMouseDown(object sender, MouseButtonEventArgs e)
     {
+        Focus();
+
         if (e.MiddleButton == MouseButtonState.Pressed)
         {
             _isPanning = true;
@@ -25,8 +27,9 @@ public partial class EditorCanvas
 
         if (e.LeftButton != MouseButtonState.Pressed) return;
 
-        var ctrlPressed = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
-        var shiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
+        // 캔버스에서 Shift는 Ctrl과 동일하게 토글 선택 (range 선택은 2D에서 무의미)
+        var ctrlPressed = (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) != ModifierKeys.None;
+        const bool shiftPressed = false;
 
         if (TryGetNodeFromElement(e.OriginalSource as DependencyObject, out var nodeId, out var border) && VM is not null)
         {

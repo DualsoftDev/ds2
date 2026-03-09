@@ -56,8 +56,12 @@ type Call [<JsonConstructor>] internal (devicesAlias: string, apiName: string, p
                 invalidArg (nameof value)
                     $"Call 이름 형식 오류: '{value}'. 올바른 형식: 'DevicesAlias.ApiName'"
             | idx ->
-                this.DevicesAlias <- value[..idx - 1]
-                this.ApiName      <- value[idx + 1..]
+                let alias = value[..idx - 1]
+                let apiName = value[idx + 1..]
+                if this.ApiName <> apiName then
+                    invalidArg (nameof value)
+                        $"Call Name setter는 ApiName 변경을 허용하지 않습니다. 기존='{this.ApiName}', 입력='{apiName}'"
+                this.DevicesAlias <- alias
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 

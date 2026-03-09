@@ -77,8 +77,18 @@ module internal DirectPanelOps =
         store.TrackRemove(store.ApiCalls, apiCallId)
 
     /// TrackMutate 내부에서 조건(CallCondition) 탐색
-    let findCondition (c: Call) (condId: Guid) =
-        c.CallConditions |> Seq.find (fun cc -> cc.Id = condId)
+    let tryFindCondition (c: Call) (condId: Guid) =
+        c.CallConditions |> Seq.tryFind (fun cc -> cc.Id = condId)
+
+    let requireCondition (callId: Guid) (c: Call) (condId: Guid) =
+        match tryFindCondition c condId with
+        | Some cond -> cond
+        | None -> invalidOp $"CallCondition not found. callId={callId}, condId={condId}"
+
+    let requireApiCallInCondition (callId: Guid) (condId: Guid) (cond: CallCondition) (apiCallId: Guid) =
+        match cond.Conditions |> Seq.tryFind (fun ac -> ac.Id = apiCallId) with
+        | Some apiCall -> apiCall
+        | None -> invalidOp $"ApiCall not found in condition. callId={callId}, condId={condId}, apiCallId={apiCallId}"
 
     let toApiDefPanelItem (apiDef: ApiDef) =
         ApiDefPanelItem(
@@ -351,7 +361,7 @@ type DsStorePanelExtensions =
             StoreLog.debug($"callId={callId}, condId={condId}, count={sources.Length}")
             StoreLog.requireCallCondition(store, callId, condId) |> ignore
             DirectPanelOps.mutateCallProps store callId "조건에 ApiCall 추가" (fun c ->
-                let cond = DirectPanelOps.findCondition c condId
+                let cond = DirectPanelOps.requireCondition callId c condId
                 for src in sources do
                     let copy = src.DeepCopy()
                     copy.Id <- src.Id
@@ -364,7 +374,8 @@ type DsStorePanelExtensions =
         let cond = StoreLog.requireCallCondition(store, callId, condId)
         StoreLog.requireApiCallInCondition(cond, apiCallId) |> ignore
         DirectPanelOps.mutateCallProps store callId "조건에서 ApiCall 제거" (fun c ->
-            (DirectPanelOps.findCondition c condId).Conditions.RemoveAll(fun ac -> ac.Id = apiCallId) |> ignore)
+            let targetCond = DirectPanelOps.requireCondition callId c condId
+            targetCond.Conditions.RemoveAll(fun ac -> ac.Id = apiCallId) |> ignore)
 
     [<Extension>]
     static member UpdateConditionApiCallOutputSpec(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid, outTypeIndex: int, outText: string) : bool =
@@ -374,7 +385,8 @@ type DsStorePanelExtensions =
         let newSpec = PropertyPanelValueSpec.parseFromPanel outTypeIndex outText
         if ac.OutputSpec <> newSpec then
             DirectPanelOps.mutateCallProps store callId "조건 OutputSpec 변경" (fun c ->
-                let ac = (DirectPanelOps.findCondition c condId).Conditions |> Seq.find (fun a -> a.Id = apiCallId)
-                ac.OutputSpec <- newSpec)
+                let targetCond = DirectPanelOps.requireCondition callId c condId
+                let targetApiCall = DirectPanelOps.requireApiCallInCondition callId condId targetCond apiCallId
+                targetApiCall.OutputSpec <- newSpec)
             true
         else false

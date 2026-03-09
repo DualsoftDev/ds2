@@ -54,6 +54,15 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private int _currentHistoryIndex;
     [ObservableProperty] private ArrowNode? _selectedArrow;
 
+    public Action? FocusNameEditorRequested { get; set; }
+
+    [RelayCommand]
+    private void FocusNameEditor()
+    {
+        if (SelectedNode is not null)
+            FocusNameEditorRequested?.Invoke();
+    }
+
     [RelayCommand] private void NewProject() => Reset();
     [RelayCommand(CanExecute = nameof(CanUndo))]
     private void Undo() => TryEditorAction(() => _store.Undo());

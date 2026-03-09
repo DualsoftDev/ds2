@@ -15,6 +15,8 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = _vm;
+        _vm.FocusNameEditorRequested = FocusNameEditorControl;
+        _vm.CenterOnNodeRequested = id => Canvas.CenterOnNode(id);
     }
 
     private void Exit_Click(object sender, RoutedEventArgs e) => Close();
@@ -29,6 +31,12 @@ public partial class MainWindow : Window
 
     private void Tree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         => HandleTreeSelectionChanged(ResolveTreePane(sender), e.NewValue);
+
+    private void Tree_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is TreeView tree)
+            tree.Focus();
+    }
 
     private void TreeViewItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         => HandleTreeItemMouseDown(ResolveTreePane(sender), sender, e, requireModifiers: true);
@@ -48,7 +56,12 @@ public partial class MainWindow : Window
         if (!ReferenceEquals(item, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject))) return;
         if (item.DataContext is not EntityNode node) return;
 
-        if (EntityTypes.IsCanvasOpenable(node.EntityType))
+        if (node.EntityType is EntityKind.Work or EntityKind.Call)
+        {
+            _vm.OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
+            e.Handled = true;
+        }
+        else if (EntityTypes.IsCanvasOpenable(node.EntityType))
         {
             _vm.OpenCanvasTab(node.Id, node.EntityType);
             e.Handled = true;
@@ -92,19 +105,33 @@ public partial class MainWindow : Window
     private void Rename_Click(object sender, RoutedEventArgs e)
     {
         if (_vm.SelectedNode is null) return;
-
-        var newName = _vm.NameEditorText.Trim();
-        if (!string.IsNullOrEmpty(newName) && newName != _vm.SelectedNode.Name)
-            _vm.RenameSelectedCommand.Execute(newName);
+        FocusNameEditorControl();
     }
 
-    private void ApplyName_Click(object sender, RoutedEventArgs e)
+    private void ApplyName_Click(object sender, RoutedEventArgs e) => ApplyName();
+
+    private void NameEditor_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            ApplyName();
+            e.Handled = true;
+        }
+    }
+
+    private void ApplyName()
     {
         if (_vm.SelectedNode is null) return;
 
         var newName = _vm.NameEditorText.Trim();
         if (!string.IsNullOrEmpty(newName))
             _vm.RenameSelectedCommand.Execute(newName);
+    }
+
+    private void FocusNameEditorControl()
+    {
+        NameEditor.Focus();
+        NameEditor.SelectAll();
     }
 
     private static T? FindAncestor<T>(DependencyObject? source) where T : DependencyObject
@@ -151,7 +178,6 @@ public partial class MainWindow : Window
         if (requireModifiers && !ctrlPressed && !shiftPressed) return;
 
         _vm.SelectNodeFromTree(node, ctrlPressed, shiftPressed);
-        item.Focus();
         e.Handled = true;
     }
 }

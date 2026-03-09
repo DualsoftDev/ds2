@@ -1,6 +1,5 @@
 using System;
 using CommunityToolkit.Mvvm.Input;
-using Ds2.Core;
 using Ds2.UI.Core;
 using System.Windows.Threading;
 
@@ -41,6 +40,25 @@ public partial class MainViewModel
             return;
 
         OpenTab(info.Kind, info.RootId, info.Title);
+    }
+
+    public Action<Guid>? CenterOnNodeRequested { get; set; }
+
+    public void OpenParentCanvasAndFocusNode(Guid entityId, EntityKind entityType)
+    {
+        if (!TryEditorRef(
+                () => _store.TryOpenParentTabOrNull(entityType, entityId),
+                out var info))
+            return;
+
+        OpenTab(info.Kind, info.RootId, info.Title);
+        RequestRebuildAll(() =>
+        {
+            CenterOnNodeRequested?.Invoke(entityId);
+            var node = CanvasNodes.FirstOrDefault(n => n.Id == entityId);
+            if (node is not null)
+                SelectNodeFromCanvas(node, ctrlPressed: false, shiftPressed: false);
+        });
     }
 
     [RelayCommand]

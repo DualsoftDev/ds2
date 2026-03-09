@@ -201,7 +201,44 @@ module WorkflowTests =
 /// AASX 라운드트립 통합 테스트
 module AasxRoundTripTests =
 
+    open AasCore.Aas3_0
     open Ds2.UI.Core
+    open Ds2.Aasx.AasxSemantics
+
+    let private removeFlowGuidProperties (env: Environment) =
+        let rec visitCollection (smc: SubmodelElementCollection) =
+            if smc.Value <> null then
+                let toRemove =
+                    smc.Value
+                    |> Seq.choose (function
+                        | :? Property as p when p.IdShort = FlowGuid_ -> Some (p :> ISubmodelElement)
+                        | _ -> None)
+                    |> Seq.toList
+                for item in toRemove do
+                    smc.Value.Remove(item) |> ignore
+
+                for child in smc.Value do
+                    match child with
+                    | :? SubmodelElementCollection as c -> visitCollection c
+                    | :? SubmodelElementList as l when l.Value <> null ->
+                        for li in l.Value do
+                            match li with
+                            | :? SubmodelElementCollection as lc -> visitCollection lc
+                            | _ -> ()
+                    | _ -> ()
+
+        if env.Submodels <> null then
+            for sm in env.Submodels do
+                if sm.SubmodelElements <> null then
+                    for elem in sm.SubmodelElements do
+                        match elem with
+                        | :? SubmodelElementCollection as c -> visitCollection c
+                        | :? SubmodelElementList as l when l.Value <> null ->
+                            for li in l.Value do
+                                match li with
+                                | :? SubmodelElementCollection as lc -> visitCollection lc
+                                | _ -> ()
+                        | _ -> ()
 
     [<Fact>]
     let ``AASX round-trip preserves ArrowBetweenCalls with parentId = workId`` () =
@@ -269,6 +306,33 @@ module AasxRoundTripTests =
             // parentId = systemId
             let restoredSystemId = store2.Systems.Values |> Seq.head |> fun s -> s.Id
             Assert.Equal(restoredSystemId, restoredArrow.ParentId)
+        finally
+            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+
+    [<Fact>]
+    let ``AASX import skips Work when FlowGuid is missing`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("P")
+        let systemId = store.AddSystem("S", projectId, true)
+        let flowId = store.AddFlow("F", systemId)
+        let workId = store.AddWork("W", flowId)
+        store.AddCallsWithDevice(projectId, workId, [ "Dev.Api" ], true)
+
+        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported, "Export should succeed")
+
+            let env = Ds2.Aasx.AasxFileIO.readEnvironment path
+            Assert.True(env.IsSome, "Environment should be readable")
+            removeFlowGuidProperties env.Value
+            Ds2.Aasx.AasxFileIO.writeEnvironment env.Value path
+
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed even if malformed work exists")
+            Assert.Empty(store2.Works)
+            Assert.Empty(store2.Calls)
         finally
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 
