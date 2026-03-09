@@ -5,7 +5,7 @@ open Ds2.Core
 
 let private defaultPos = Xywh(UiDefaults.DefaultNodeX, UiDefaults.DefaultNodeY, UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight)
 
-let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) (parentId: Guid) (pos: Xywh option) =
+let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) (parentId: Guid) (pos: Xywh option) (conditionTypes: CallConditionType list) =
     let p = pos |> Option.defaultValue defaultPos
     { Id = id
       EntityKind = entityKind
@@ -14,7 +14,8 @@ let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) 
       X = float p.X
       Y = float p.Y
       Width = float p.W
-      Height = float p.H }
+      Height = float p.H
+      ConditionTypes = conditionTypes }
 
 let private toArrowInfo (a: DsArrow) : CanvasArrowInfo =
     { Id = a.Id; SourceId = a.SourceId; TargetId = a.TargetId; ArrowType = a.ArrowType }
@@ -28,7 +29,7 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
         flowIds
         |> List.collect (fun flowId ->
             DsQuery.worksOf flowId store
-            |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position))
+            |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position []))
 
     let arrows =
         DsQuery.arrowWorksOf systemId store
@@ -42,7 +43,7 @@ let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
 
     let nodes =
         works
-        |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position)
+        |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [])
 
     let arrows =
         match DsQuery.getFlow flowId store with
@@ -61,9 +62,16 @@ let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
         let calls = DsQuery.callsOf workId store
         let callSet = calls |> List.map (fun c -> c.Id) |> Set.ofList
 
+        let conditionTypesOf (c: Call) =
+            c.CallConditions
+            |> Seq.choose (fun cc -> cc.Type)
+            |> Seq.distinct
+            |> Seq.sort
+            |> Seq.toList
+
         let nodes =
             calls
-            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position)
+            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position (conditionTypesOf c))
 
         let arrows =
             DsQuery.arrowCallsOf workId store

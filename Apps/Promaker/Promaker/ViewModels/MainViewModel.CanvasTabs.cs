@@ -100,13 +100,15 @@ public partial class MainViewModel
 
         foreach (var n in content.Nodes)
         {
-            CanvasNodes.Add(new EntityNode(n.Id, n.EntityKind, n.Name, n.ParentId)
+            var node = new EntityNode(n.Id, n.EntityKind, n.Name, n.ParentId)
             {
                 X = n.X,
                 Y = n.Y,
                 Width = n.Width,
                 Height = n.Height
-            });
+            };
+            node.UpdateConditionTypes(n.ConditionTypes);
+            CanvasNodes.Add(node);
         }
 
         foreach (var a in content.Arrows)

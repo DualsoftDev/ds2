@@ -168,26 +168,14 @@ public partial class MainViewModel
     }
 
     [RelayCommand]
-    private void AddCondition(CallConditionType type)
-    {
-        if (!TryGetSelectedCall(out var selectedCall)) return;
-
-        if (!TryEditorAction(() => _store.AddCallCondition(selectedCall.Id, type)))
-            return;
-
-        RefreshCallPanel(selectedCall.Id);
-    }
+    private void AddCondition(CallConditionType type) =>
+        CallPanelAction(id => _store.AddCallCondition(id, type));
 
     [RelayCommand]
     private void RemoveCallCondition(CallConditionItem? item)
     {
-        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (item is null) return;
-
-        if (!TryEditorAction(() => _store.RemoveCallCondition(selectedCall.Id, item.ConditionId)))
-            return;
-
-        RefreshCallPanel(selectedCall.Id);
+        CallPanelAction(id => _store.RemoveCallCondition(id, item.ConditionId));
     }
 
     [RelayCommand]
@@ -233,13 +221,8 @@ public partial class MainViewModel
     [RelayCommand]
     private void RemoveConditionApiCall(ConditionApiCallRow? row)
     {
-        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (row is null) return;
-
-        if (!TryEditorAction(() => _store.RemoveApiCallFromCondition(selectedCall.Id, row.ConditionId, row.ApiCallId)))
-            return;
-
-        RefreshCallPanel(selectedCall.Id);
+        CallPanelAction(id => _store.RemoveApiCallFromCondition(id, row.ConditionId, row.ApiCallId));
     }
 
     [RelayCommand]
@@ -290,6 +273,14 @@ public partial class MainViewModel
 
     private bool TryGetSelectedCall([NotNullWhen(true)] out EntityNode? selectedCall) =>
         TryGetSelectedNode(EntityKind.Call, out selectedCall);
+
+    /// TryGetSelectedCall → TryEditorAction → RefreshCallPanel 공통 패턴
+    private void CallPanelAction(Action<Guid> storeAction)
+    {
+        if (!TryGetSelectedCall(out var selectedCall)) return;
+        if (!TryEditorAction(() => storeAction(selectedCall.Id))) return;
+        RefreshCallPanel(selectedCall.Id);
+    }
 
     private void RefreshCallPanel(Guid callId)
     {

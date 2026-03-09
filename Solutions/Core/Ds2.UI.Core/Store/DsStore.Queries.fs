@@ -58,6 +58,18 @@ type DsStoreQueriesExtensions =
         store.TryGetAddedEntityId(evt)
         |> Option.toNullable
 
+    // ─── CanvasProjection (단건 쿼리) ─────────────────────────────────
+    [<Extension>]
+    static member GetCallConditionTypes(store: DsStore, callId: Guid) : CallConditionType list =
+        match DsQuery.getCall callId store with
+        | Some call ->
+            call.CallConditions
+            |> Seq.choose (fun cc -> cc.Type)
+            |> Seq.distinct
+            |> Seq.sort
+            |> Seq.toList
+        | None -> []
+
     // ─── ArrowPathCalculator ─────────────────────────────────────────
     [<Extension>]
     static member GetFlowArrowPaths(store: DsStore, flowId: Guid) : Map<Guid, ArrowPathCalculator.ArrowVisual> =

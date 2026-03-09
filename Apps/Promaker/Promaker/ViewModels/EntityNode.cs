@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Ds2.Core;
 using Ds2.UI.Core;
 
 namespace Promaker.ViewModels;
@@ -29,7 +31,27 @@ public partial class EntityNode : ObservableObject
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private int _selectionOrder;
 
+    [ObservableProperty] private bool _hasAutoCondition;
+    [ObservableProperty] private bool _hasCommonCondition;
+    [ObservableProperty] private bool _hasActiveCondition;
+
     public ObservableCollection<EntityNode> Children { get; } = [];
+
+    public void UpdateConditionTypes(IEnumerable<CallConditionType> types)
+    {
+        HasAutoCondition = false;
+        HasCommonCondition = false;
+        HasActiveCondition = false;
+        foreach (var t in types)
+        {
+            switch (t)
+            {
+                case CallConditionType.Auto: HasAutoCondition = true; break;
+                case CallConditionType.Common: HasCommonCondition = true; break;
+                case CallConditionType.Active: HasActiveCondition = true; break;
+            }
+        }
+    }
 
     public override string ToString() => $"[{EntityType}] {Name}";
 }

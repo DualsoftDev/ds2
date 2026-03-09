@@ -137,6 +137,7 @@
                                             MaxWidth="150"/>
                                         </Viewbox>
                                     </Border>
+                                    <!-- Selection order badge (top-right) -->
                                     <Border HorizontalAlignment="Right"
                                             VerticalAlignment="Top"
                                             Margin="0,-8,-8,0"
@@ -153,6 +154,32 @@
                                                    FontSize="10"
                                                    FontWeight="Bold"/>
                                     </Border>
+                                    <!-- Condition badges (top-left) -->
+                                    <StackPanel HorizontalAlignment="Left"
+                                                VerticalAlignment="Top"
+                                                Orientation="Horizontal"
+                                                Margin="-4,-8,0,0">
+                                        <Border Width="18" Height="18" CornerRadius="9"
+                                                Background="#E08000"
+                                                Visibility="{Binding HasAutoCondition, Converter={StaticResource BoolToVis}}"
+                                                Margin="0,0,2,0">
+                                            <TextBlock Text="A" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Foreground="White" FontSize="10" FontWeight="Bold"/>
+                                        </Border>
+                                        <Border Width="18" Height="18" CornerRadius="9"
+                                                Background="#2E8B57"
+                                                Visibility="{Binding HasCommonCondition, Converter={StaticResource BoolToVis}}"
+                                                Margin="0,0,2,0">
+                                            <TextBlock Text="C" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Foreground="White" FontSize="10" FontWeight="Bold"/>
+                                        </Border>
+                                        <Border Width="18" Height="18" CornerRadius="9"
+                                                Background="#808080"
+                                                Visibility="{Binding HasActiveCondition, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="T" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Foreground="White" FontSize="10" FontWeight="Bold"/>
+                                        </Border>
+                                    </StackPanel>
                                 </Grid>
                                 <DataTemplate.Triggers>
                                     <!-- Work: orange border -->
