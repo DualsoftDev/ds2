@@ -44,7 +44,7 @@ let private getChildSmlSmcs (smc: SubmodelElementCollection) (idShort: string) :
 let private parseArrowType (s: string) : ArrowType =
     match Enum.TryParse<ArrowType>(s) with
     | true, v -> v
-    | _ -> ArrowType.None
+    | _ -> ArrowType.Unspecified
 
 let private parseStatus4 (s: string) : Status4 =
     match Enum.TryParse<Status4>(s) with
@@ -58,7 +58,7 @@ let private smcToArrowCall (smc: SubmodelElementCollection) (workId: Guid) : Arr
         match getProp smc Source_ |> Option.map Guid.Parse, getProp smc Target_ |> Option.map Guid.Parse with
         | Some sourceId, Some targetId ->
             let id        = getProp smc Guid_ |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
-            let arrowType = getProp smc Type_  |> Option.map parseArrowType |> Option.defaultValue ArrowType.None
+            let arrowType = getProp smc Type_  |> Option.map parseArrowType |> Option.defaultValue ArrowType.Unspecified
             let arrow = ArrowBetweenCalls(workId, sourceId, targetId, arrowType)
             arrow.Id <- id
             Some arrow
@@ -70,7 +70,7 @@ let private smcToArrowWork (smc: SubmodelElementCollection) (systemId: Guid) : A
         match getProp smc Source_ |> Option.map Guid.Parse, getProp smc Target_ |> Option.map Guid.Parse with
         | Some sourceId, Some targetId ->
             let id        = getProp smc Guid_ |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
-            let arrowType = getProp smc Type_  |> Option.map parseArrowType |> Option.defaultValue ArrowType.None
+            let arrowType = getProp smc Type_  |> Option.map parseArrowType |> Option.defaultValue ArrowType.Unspecified
             let arrow = ArrowBetweenWorks(systemId, sourceId, targetId, arrowType)
             arrow.Id <- id
             Some arrow

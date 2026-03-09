@@ -2,7 +2,7 @@ namespace Ds2.Core
 
 /// Arrow relation semantics between nodes.
 type ArrowType =
-    | None        = 0
+    | Unspecified = 0
     | Start       = 1
     | Reset       = 2
     | StartReset  = 3

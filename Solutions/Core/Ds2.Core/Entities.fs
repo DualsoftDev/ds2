@@ -1,109 +1,117 @@
 namespace Ds2.Core
 
 open System
-open System.Text.Json
+open System.Text.Json.Serialization
 
 // =============================================================================
 // 엔티티
 // =============================================================================
 
-type Project(name) =
+// Project와 DsSystem의 상호참조(and) 제거
+// 이유: 두 타입은 실제 서로를 참조하지 않음
+type Project [<JsonConstructor>] internal (name) =
     inherit DsEntity(name)
-    member val Properties = ProjectProperties() with get, set
-    member val ActiveSystemIds = ResizeArray<Guid>() with get, set
-    member val PassiveSystemIds = ResizeArray<Guid>() with get, set
+    member val Properties      = ProjectProperties()   with get, set
+    member val ActiveSystemIds = ResizeArray<Guid>()   with get, set
+    member val PassiveSystemIds = ResizeArray<Guid>()  with get, set
 
-and DsSystem(name) =
+type DsSystem [<JsonConstructor>] internal (name) =
     inherit DsEntity(name)
     member val Properties = SystemProperties() with get, set
-    member val IRI : string option = None with get, set
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> DsSystem
+    member val IRI : string option = None      with get, set
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
-type Flow(name, parentId) =
+type Flow [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
     member val Properties = FlowProperties() with get, set
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> Flow
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
-type Work(name, parentId) =
+type Work [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
-    member val Properties = WorkProperties() with get, set
-    member val Status4   : Status4 = Status4.Ready with get, set
-    member val Position  : Xywh option = None with get, set
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> Work
+    member val Properties = WorkProperties()    with get, set
+    member val Status4    : Status4 = Status4.Ready with get, set
+    member val Position   : Xywh option = None  with get, set
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
-type Call(devicesAlias: string, apiName: string, parentId: Guid) =
+// Call, ApiCall, CallCondition, ApiDef 은 실제 상호참조가 있어 and 유지
+//   Call         → ApiCall, CallCondition
+//   CallCondition → ApiCall
+type Call [<JsonConstructor>] internal (devicesAlias: string, apiName: string, parentId: Guid) =
     inherit DsChild("", parentId)
-    member val Properties     = CallProperties() with get, set
-    member val Status4        : Status4 = Status4.Ready with get, set
-    member val Position       : Xywh option = None with get, set
-    member val ApiCalls       = ResizeArray<ApiCall>() with get, set
+    member val Properties     = CallProperties()             with get, set
+    member val Status4        : Status4 = Status4.Ready      with get, set
+    member val Position       : Xywh option = None           with get, set
+    member val ApiCalls       = ResizeArray<ApiCall>()       with get, set
     member val CallConditions = ResizeArray<CallCondition>() with get, set
     /// 저장된 Device 별칭 — '.'을 포함할 수 없음
     member val DevicesAlias   = devicesAlias with get, set
-    /// 저장된 ApiDef 이름 — '.'을 포함할 수 없음, Rename 대상이 아님
-    member val ApiName        = apiName with get, set
+    /// 저장된 ApiDef 이름 — Rename 대상이 아님, ApiDef에 연동
+    member val ApiName        = apiName      with get, set
 
-    /// Name = DevicesAlias + "." + ApiName
-    /// Rename 시에는 DevicesAlias만 변경됨 (ApiName은 ApiDef에 연동)
     override this.Name
-        with get() = this.DevicesAlias + "." + this.ApiName
-        and  set(value) =
-            let dotIdx = value.IndexOf('.')
-            this.DevicesAlias <-
-                if dotIdx > 0 then value[..dotIdx-1]
-                elif dotIdx = 0 then ""
-                else value
+        with get() = $"{this.DevicesAlias}.{this.ApiName}"
+        and  set value =
+            match value.IndexOf('.') with
+            | -1  ->
+                invalidArg (nameof value)
+                    $"Call 이름 형식 오류: '{value}'. 올바른 형식: 'DevicesAlias.ApiName'"
+            | idx ->
+                this.DevicesAlias <- value[..idx - 1]
+                this.ApiName      <- value[idx + 1..]
 
-and ApiCall(name) =
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
+
+and ApiCall [<JsonConstructor>] internal (name) =
     inherit DsEntity(name)
-    member val InTag  : IOTag option = None with get, set
-    member val OutTag : IOTag option = None with get, set
-    member val ApiDefId : Guid option = None with get, set
-    member val InputSpec  : ValueSpec = UndefinedValue with get, set
-    member val OutputSpec : ValueSpec = UndefinedValue with get, set
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> ApiCall
+    member val InTag      : IOTag option  = None           with get, set
+    member val OutTag     : IOTag option  = None           with get, set
+    member val ApiDefId   : Guid option   = None           with get, set
+    member val InputSpec  : ValueSpec     = UndefinedValue with get, set
+    member val OutputSpec : ValueSpec     = UndefinedValue with get, set
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
-and CallCondition() =
-    member val Id         : Guid              = Guid.NewGuid() with get, set
-    member val Type : CallConditionType option = None with get, set
-    member val Conditions = ResizeArray<ApiCall>() with get, set
+and CallCondition [<JsonConstructor>] internal () =
+    member val Id         : Guid                      = Guid.NewGuid() with get, set
+    member val Type       : CallConditionType option  = None           with get, set
+    member val Conditions = ResizeArray<ApiCall>()                     with get, set
     member val IsOR       = false with get, set
     member val IsRising   = false with get, set
-    member this.DeepCopy() = DeepCopyHelper.jsonClone<CallCondition>(this)
+    // CallCondition은 DsEntity 비상속 → jsonClone (ID 보존)
+    member this.DeepCopy() = DeepCopyHelper.jsonClone<CallCondition> this
 
-and ApiDef(name, parentId) =
+and ApiDef [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
     member val Properties = ApiDefProperties() with get, set
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> ApiDef
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 // =============================================================================
 // Arrow
 // =============================================================================
 
-type ArrowBetweenWorks(parentId, sourceId, targetId, arrowType) =
+type ArrowBetweenWorks [<JsonConstructor>] internal (parentId, sourceId, targetId, arrowType) =
     inherit DsArrow(parentId, sourceId, targetId, arrowType)
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> ArrowBetweenWorks
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
-type ArrowBetweenCalls(parentId, sourceId, targetId, arrowType) =
+type ArrowBetweenCalls [<JsonConstructor>] internal (parentId, sourceId, targetId, arrowType) =
     inherit DsArrow(parentId, sourceId, targetId, arrowType)
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> ArrowBetweenCalls
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 // =============================================================================
 // Hardware Component
 // =============================================================================
 
-type HwButton(name, parentId) =
+type HwButton    [<JsonConstructor>] internal (name, parentId) =
     inherit HwComponent(name, parentId)
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> HwButton
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
-type HwLamp(name, parentId) =
+type HwLamp      [<JsonConstructor>] internal (name, parentId) =
     inherit HwComponent(name, parentId)
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> HwLamp
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
-type HwCondition(name, parentId) =
+type HwCondition [<JsonConstructor>] internal (name, parentId) =
     inherit HwComponent(name, parentId)
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> HwCondition
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
-type HwAction(name, parentId) =
+type HwAction    [<JsonConstructor>] internal (name, parentId) =
     inherit HwComponent(name, parentId)
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity(this) :?> HwAction
+    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
