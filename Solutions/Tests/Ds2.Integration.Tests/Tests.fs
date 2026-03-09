@@ -310,7 +310,7 @@ module AasxRoundTripTests =
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 
     [<Fact>]
-    let ``AASX import skips Work when FlowGuid is missing`` () =
+    let ``AASX import fails when Work FlowGuid is missing and keeps store unchanged`` () =
         let store = DsStore()
         let projectId = store.AddProject("P")
         let systemId = store.AddSystem("S", projectId, true)
@@ -329,10 +329,25 @@ module AasxRoundTripTests =
             Ds2.Aasx.AasxFileIO.writeEnvironment env.Value path
 
             let store2 = DsStore()
+            let baseProjectId = store2.AddProject("BaseP")
+            let baseSystemId = store2.AddSystem("BaseS", baseProjectId, true)
+            let baseFlowId = store2.AddFlow("BaseF", baseSystemId)
+            store2.AddWork("BaseW", baseFlowId) |> ignore
+
+            let beforeCounts = (store2.Projects.Count, store2.Systems.Count, store2.Flows.Count, store2.Works.Count, store2.Calls.Count)
+
             let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
-            Assert.True(imported, "Import should succeed even if malformed work exists")
-            Assert.Empty(store2.Works)
-            Assert.Empty(store2.Calls)
+
+            Assert.False(imported, "Import should fail when Work.FlowGuid is missing")
+
+            let afterCounts = (store2.Projects.Count, store2.Systems.Count, store2.Flows.Count, store2.Works.Count, store2.Calls.Count)
+            Assert.Equal(beforeCounts, afterCounts)
+
+            let hasBaseProject = store2.Projects.Values |> Seq.exists (fun p -> p.Name = "BaseP")
+            let hasBaseWork = store2.Works.Values |> Seq.exists (fun w -> w.Name = "BaseW")
+            Assert.True(hasBaseProject, "Existing project data should remain untouched")
+            Assert.True(hasBaseWork, "Existing work data should remain untouched")
         finally
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+
 

@@ -111,6 +111,13 @@ public partial class MainViewModel
         return changed;
     }
 
+    public bool TryUpdateArrowType(Guid arrowId, ArrowType newArrowType) =>
+        TryEditorFunc(
+            () => _store.UpdateArrowType(arrowId, newArrowType),
+            out bool _,
+            fallback: false,
+            statusOverride: "[ERROR] Failed to change arrow type.");
+
     public bool TryConnectNodesFromCanvas(Guid sourceId, Guid targetId, ArrowType arrowType)
     {
         if (!TryEditorFunc(

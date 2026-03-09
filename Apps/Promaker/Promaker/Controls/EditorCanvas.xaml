@@ -17,7 +17,8 @@
           MouseWheel="OnMouseWheel"
           MouseDown="OnMouseDown"
           MouseMove="OnMouseMove"
-          MouseUp="OnMouseUp">
+          MouseUp="OnMouseUp"
+          ContextMenuOpening="OnContextMenuOpening">
         <Grid.ContextMenu>
             <ContextMenu>
                 <MenuItem Header="Add Work" Click="AddWork_Click"/>
@@ -65,7 +66,8 @@
                                     <Path Data="{Binding PathGeometry}"
                                           Stroke="Transparent" StrokeThickness="20"
                                           Tag="{Binding Id}"
-                                          MouseLeftButtonDown="Arrow_MouseDown"/>
+                                          MouseLeftButtonDown="Arrow_MouseDown"
+                                          MouseRightButtonDown="Arrow_RightClick"/>
                                     <Ellipse Width="10"
                                              Height="10"
                                              Fill="{DynamicResource AccentBrush}"

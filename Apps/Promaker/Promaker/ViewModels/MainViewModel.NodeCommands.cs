@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using CommunityToolkit.Mvvm.Input;
+using Ds2.Core;
 using Ds2.UI.Core;
 using Promaker.Dialogs;
 
@@ -38,8 +39,14 @@ public partial class MainViewModel
     private void AddWork()
     {
         var flowId = ResolveTargetId(EntityKind.Flow, TabKind.Flow);
-        if (flowId is { } id)
-            TryEditorAction(() => _store.AddWork("NewWork", id));
+        if (flowId is not { } id) return;
+
+        if (!TryEditorFunc(() => _store.AddWork("NewWork", id), out Guid workId, fallback: Guid.Empty))
+            return;
+        if (workId == Guid.Empty) return;
+
+        var pos = ConsumeAddPosition();
+        TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(workId, pos)]));
     }
 
     [RelayCommand]
@@ -65,19 +72,41 @@ public partial class MainViewModel
         if (dialog.ShowDialog() != true)
             return;
 
+        var basePos = ConsumeAddPosition();
+
         if (dialog.IsDeviceMode)
         {
+            var existingIds = CanvasNodes.Select(n => n.Id).ToHashSet();
             TryEditorAction(
                 () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true));
+            RequestRebuildAll(() =>
+            {
+                var newCalls = CanvasNodes
+                    .Where(n => n.EntityType == EntityKind.Call && !existingIds.Contains(n.Id))
+                    .ToList();
+                if (newCalls.Count > 0)
+                {
+                    var requests = newCalls
+                        .Select((n, i) => new MoveEntityRequest(n.Id, CascadePosition(basePos, i)))
+                        .ToList();
+                    TryMoveEntitiesFromCanvas(requests);
+                }
+            });
         }
         else
         {
-            TryEditorAction(
-                () => _store.AddCallWithLinkedApiDefs(
-                    targetWorkId,
-                    dialog.DevicesAlias,
-                    dialog.ApiName,
-                    dialog.SelectedApiDefs.Select(m => m.ApiDefId)));
+            if (TryEditorFunc(
+                    () => _store.AddCallWithLinkedApiDefs(
+                        targetWorkId,
+                        dialog.DevicesAlias,
+                        dialog.ApiName,
+                        dialog.SelectedApiDefs.Select(m => m.ApiDefId)),
+                    out Guid callId,
+                    fallback: Guid.Empty)
+                && callId != Guid.Empty)
+            {
+                TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(callId, basePos)]));
+            }
         }
     }
 
@@ -198,6 +227,42 @@ public partial class MainViewModel
             return null;
 
         return (EntityHierarchyQueries.entityKindForTabKind(tab.Kind), tab.RootId);
+    }
+
+    private const int CascadeOffset = 30;
+
+    private Xywh ConsumeAddPosition()
+    {
+        var pos = PendingAddPosition;
+        PendingAddPosition = null;
+
+        if (pos is { } p)
+            return CascadePosition(p, 0);
+
+        if (GetViewportCenterRequested?.Invoke() is { } center)
+            return CascadePosition(
+                new Xywh(
+                    (int)center.X - UiDefaults.DefaultNodeWidth / 2,
+                    (int)center.Y - UiDefaults.DefaultNodeHeight / 2,
+                    UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight),
+                0);
+
+        return UiDefaults.createDefaultNodeBounds();
+    }
+
+    private Xywh CascadePosition(Xywh basePos, int index)
+    {
+        var x = basePos.X + CascadeOffset * index;
+        var y = basePos.Y + CascadeOffset * index;
+
+        while (CanvasNodes.Any(n =>
+                   Math.Abs(n.X - x) < 10 && Math.Abs(n.Y - y) < 10))
+        {
+            x += CascadeOffset;
+            y += CascadeOffset;
+        }
+
+        return new Xywh(x, y, basePos.W, basePos.H);
     }
 
     private Guid? ResolveTargetId(EntityKind selectedEntityType, TabKind activeTabKind)

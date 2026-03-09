@@ -56,6 +56,28 @@ let private tryParseGuid (s: string) : Guid option =
     | true, v -> Some v
     | _ -> None
 
+let private describeSmc (smc: SubmodelElementCollection) : string =
+    let guidText = getProp smc Guid_ |> Option.defaultValue "<missing>"
+    let nameText = getProp smc Name_ |> Option.defaultValue "<missing>"
+    $"Guid={guidText}, Name={nameText}"
+
+let private parseStrictList
+    (ownerLabel: string)
+    (itemLabel: string)
+    (items: SubmodelElementCollection list)
+    (parser: SubmodelElementCollection -> 'T option)
+    : 'T list option =
+    let rec loop acc rest =
+        match rest with
+        | [] -> Some(List.rev acc)
+        | smc :: tail ->
+            match parser smc with
+            | Some value -> loop (value :: acc) tail
+            | None ->
+                log.Error($"AASX import failed: invalid {itemLabel} under {ownerLabel} ({describeSmc smc}).")
+                None
+    loop [] items
+
 // ── 변환 계층 ──────────────────────────────────────────────────────────────
 
 let private smcToArrowCall (smc: SubmodelElementCollection) (workId: Guid) : ArrowBetweenCalls option =
@@ -103,7 +125,9 @@ let private smcToWork
         // FlowGuid로 parentId 설정
         match getProp smc FlowGuid_ |> Option.bind tryParseGuid with
         | None ->
-            log.Warn("smcToWork: FlowGuid missing or invalid. Skip work node.")
+            let workGuid = getProp smc Guid_ |> Option.defaultValue "<missing>"
+            let workName = getProp smc Name_ |> Option.defaultValue "<missing>"
+            log.Error($"AASX import failed: Work FlowGuid missing or invalid (WorkGuid={workGuid}, WorkName={workName}).")
             None
         | Some flowId ->
             let work = Work("", flowId)
@@ -142,33 +166,57 @@ let private smcToApiDef (smc: SubmodelElementCollection) (systemId: Guid) : ApiD
 let private smcToSystem (smc: SubmodelElementCollection)
     : (DsSystem * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) option =
     try
-        // Name 또는 Guid 없는 SMC는 IRI 참조용 빈 항목 — 파싱 생략
         let name = getProp smc Name_
         let guid = getProp smc Guid_
-        if name.IsNone && guid.IsNone then None
+        if name.IsNone && guid.IsNone then
+            log.Error($"AASX import failed: System entry missing Name and Guid ({describeSmc smc}).")
+            None
         else
-        let system = DsSystem("")
-        guid |> Option.iter (fun g -> system.Id <- Guid.Parse g)
-        name |> Option.iter (fun n -> system.Name <- n)
-        fromJsonProp<SystemProperties> smc Properties_ |> Option.iter (fun p -> system.Properties <- p)
-        let iri = getProp smc IRI_ |> Option.bind (fun s -> if String.IsNullOrEmpty s then None else Some s)
-        system.IRI <- iri
+            let system = DsSystem("")
+            guid |> Option.iter (fun g -> system.Id <- Guid.Parse g)
+            name |> Option.iter (fun n -> system.Name <- n)
+            fromJsonProp<SystemProperties> smc Properties_ |> Option.iter (fun p -> system.Properties <- p)
+            let iri = getProp smc IRI_ |> Option.bind (fun s -> if String.IsNullOrEmpty s then None else Some s)
+            system.IRI <- iri
 
-        let flows = getChildSmlSmcs smc Flows_ |> List.choose (fun f -> smcToFlow f system.Id)
+            let systemLabel = $"System '{system.Name}' ({system.Id})"
 
-        // Works は System レベルで平坦化 (各 Work に FlowGuid あり)
-        let workResults = getChildSmlSmcs smc Works_ |> List.choose smcToWork
-        let works      = workResults |> List.map     (fun (w, _, _)   -> w)
-        let calls      = workResults |> List.collect (fun (_, cs, _)  -> cs)
-        let arrowCalls = workResults |> List.collect (fun (_, _, acs) -> acs)
+            match parseStrictList systemLabel "Flow" (getChildSmlSmcs smc Flows_) (fun f -> smcToFlow f system.Id) with
+            | None -> None
+            | Some flows ->
+                match parseStrictList systemLabel "Work" (getChildSmlSmcs smc Works_) smcToWork with
+                | None -> None
+                | Some workResults ->
+                    let works      = workResults |> List.map     (fun (w, _, _)   -> w)
+                    let calls      = workResults |> List.collect (fun (_, cs, _)  -> cs)
+                    let arrowCalls = workResults |> List.collect (fun (_, _, acs) -> acs)
 
-        // ArrowBetweenWorks: parentId = systemId
-        let arrowWorks =
-            getChildSmlSmcs smc Arrows_
-            |> List.choose (fun a -> smcToArrowWork a system.Id)
+                    match parseStrictList systemLabel "ArrowBetweenWorks" (getChildSmlSmcs smc Arrows_) (fun a -> smcToArrowWork a system.Id) with
+                    | None -> None
+                    | Some arrowWorks ->
+                        match parseStrictList systemLabel "ApiDef" (getChildSmlSmcs smc ApiDefs_) (fun a -> smcToApiDef a system.Id) with
+                        | None -> None
+                        | Some apiDefs ->
+                            let flowIds = flows |> List.map (fun f -> f.Id) |> Set.ofList
+                            let workIds = works |> List.map (fun w -> w.Id) |> Set.ofList
+                            let callIds = calls |> List.map (fun c -> c.Id) |> Set.ofList
 
-        let apiDefs = getChildSmlSmcs smc ApiDefs_ |> List.choose (fun a -> smcToApiDef a system.Id)
-        Some (system, flows, works, calls, arrowCalls, arrowWorks, apiDefs)
+                            match works |> List.tryFind (fun w -> not (Set.contains w.ParentId flowIds)) with
+                            | Some invalidWork ->
+                                log.Error($"AASX import failed: Work '{invalidWork.Name}' ({invalidWork.Id}) references missing Flow ({invalidWork.ParentId}) in {systemLabel}.")
+                                None
+                            | None ->
+                                match arrowCalls |> List.tryFind (fun a -> not (Set.contains a.ParentId workIds && Set.contains a.SourceId callIds && Set.contains a.TargetId callIds)) with
+                                | Some invalidArrowCall ->
+                                    log.Error($"AASX import failed: ArrowBetweenCalls ({invalidArrowCall.Id}) has invalid references in {systemLabel}. ParentWork={invalidArrowCall.ParentId}, SourceCall={invalidArrowCall.SourceId}, TargetCall={invalidArrowCall.TargetId}.")
+                                    None
+                                | None ->
+                                    match arrowWorks |> List.tryFind (fun a -> a.ParentId <> system.Id || not (Set.contains a.SourceId workIds && Set.contains a.TargetId workIds)) with
+                                    | Some invalidArrowWork ->
+                                        log.Error($"AASX import failed: ArrowBetweenWorks ({invalidArrowWork.Id}) has invalid references in {systemLabel}. ParentSystem={invalidArrowWork.ParentId}, SourceWork={invalidArrowWork.SourceId}, TargetWork={invalidArrowWork.TargetId}.")
+                                        None
+                                    | None ->
+                                        Some (system, flows, works, calls, arrowCalls, arrowWorks, apiDefs)
     with ex -> log.Warn($"smcToSystem 실패: {ex.Message}", ex); None
 
 let private populateStore
@@ -198,9 +246,15 @@ let private populateStore
         arrowWorks |> List.iter (fun a -> store.DirectWrite(store.ArrowWorks, a))
         apiDefs    |> List.iter (fun d -> store.DirectWrite(store.ApiDefs, d)))
 
+let private parseSystemsStrict
+    (ownerLabel: string)
+    (systemSmcs: SubmodelElementCollection list)
+    : (DsSystem * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) list option =
+    parseStrictList ownerLabel "System" systemSmcs smcToSystem
+
 let private submodelToProjectStore (sm: ISubmodel) : (Project * DsStore) option =
     try
-        if sm = null || sm.SubmodelElements = null || sm.SubmodelElements.Count = 0 then 
+        if sm = null || sm.SubmodelElements = null || sm.SubmodelElements.Count = 0 then
             None
         else
             sm.SubmodelElements
@@ -211,21 +265,31 @@ let private submodelToProjectStore (sm: ISubmodel) : (Project * DsStore) option 
                     getProp pSmc Name_ |> Option.iter (fun n -> project.Name <- n)
                     fromJsonProp<ProjectProperties> pSmc Properties_ |> Option.iter (fun p -> project.Properties <- p)
 
-                    let activeSystems  = getChildSmlSmcs pSmc ActiveSystems_    |> List.choose smcToSystem
-                    // DeviceReferences_ 우선, 없으면 구버전 PassiveSystems_ 폴백
-                    let passiveSystems =
-                        let fromNew = getChildSmlSmcs pSmc DeviceReferences_ |> List.choose smcToSystem
-                        if fromNew.IsEmpty then
-                            getChildSmlSmcs pSmc PassiveSystems_ |> List.choose smcToSystem
-                        else fromNew
+                    match parseSystemsStrict $"Project '{project.Name}' ActiveSystems" (getChildSmlSmcs pSmc ActiveSystems_) with
+                    | None -> None
+                    | Some activeSystems ->
+                        let passiveSmcsFromDeviceRefs = getChildSmlSmcs pSmc DeviceReferences_
+                        let passiveOwnerLabel =
+                            if passiveSmcsFromDeviceRefs.IsEmpty then
+                                $"Project '{project.Name}' PassiveSystems"
+                            else
+                                $"Project '{project.Name}' DeviceReferences"
+                        let passiveSmcs =
+                            if passiveSmcsFromDeviceRefs.IsEmpty then
+                                getChildSmlSmcs pSmc PassiveSystems_
+                            else
+                                passiveSmcsFromDeviceRefs
 
-                    let store = DsStore()
-                    store.DirectWrite(store.Projects, project)
-                    populateStore store project true  activeSystems
-                    populateStore store project false passiveSystems
-                    Some (project, store)
+                        match parseSystemsStrict passiveOwnerLabel passiveSmcs with
+                        | None -> None
+                        | Some passiveSystems ->
+                            let store = DsStore()
+                            store.DirectWrite(store.Projects, project)
+                            populateStore store project true activeSystems
+                            populateStore store project false passiveSystems
+                            Some (project, store)
                 | _ -> None)
-    with ex -> log.Warn($"submodelToProjectStore 실패: {ex.Message}", ex); None
+    with ex -> log.Warn($"submodelToProjectStore failed: {ex.Message}", ex); None
 
 // ── 진입점 ─────────────────────────────────────────────────────────────────
 
