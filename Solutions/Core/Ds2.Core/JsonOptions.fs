@@ -5,59 +5,22 @@ open System.Text.Json.Serialization
 
 module JsonOptions =
 
-    type private JsonOptionsProfile =
-        | ProjectSerialization
-        | DeepCopy
-
-    type private JsonOptionsConfig =
-        { WriteIndented: bool
-          PropertyNamingPolicy: JsonNamingPolicy option
-          PropertyNameCaseInsensitive: bool
-          DefaultIgnoreCondition: JsonIgnoreCondition option
-          IncludeFields: bool }
-
-    let private configFor profile =
-        match profile with
-        | ProjectSerialization ->
-            { WriteIndented = true
-              PropertyNamingPolicy = Some JsonNamingPolicy.CamelCase
-              PropertyNameCaseInsensitive = true
-              DefaultIgnoreCondition = Some JsonIgnoreCondition.WhenWritingNull
-              IncludeFields = true }
-        | DeepCopy ->
-            { WriteIndented = false
-              PropertyNamingPolicy = None
-              PropertyNameCaseInsensitive = false
-              DefaultIgnoreCondition = None
-              IncludeFields = false }
-
     let private addFSharpConverter (options: JsonSerializerOptions) =
-        let fsharpOptions =
-            JsonFSharpOptions
-                .Default()
-                .WithIncludeRecordProperties(true)
-        options.Converters.Add(JsonFSharpConverter(fsharpOptions))
+        options.Converters.Add(
+            JsonFSharpConverter(
+                JsonFSharpOptions.Default().WithIncludeRecordProperties(true)))
         options
 
-    let private createOptions profile =
-        let config = configFor profile
-        let options = JsonSerializerOptions()
-        options.WriteIndented <- config.WriteIndented
-        options.PropertyNameCaseInsensitive <- config.PropertyNameCaseInsensitive
-        options.IncludeFields <- config.IncludeFields
-
-        match config.PropertyNamingPolicy with
-        | Some naming -> options.PropertyNamingPolicy <- naming
-        | None -> ()
-
-        match config.DefaultIgnoreCondition with
-        | Some ignoreCondition -> options.DefaultIgnoreCondition <- ignoreCondition
-        | None -> ()
-
-        addFSharpConverter options
-
+    /// 파일 저장/로드용 옵션 — camelCase, null 필드 제외, pretty-print
     let createProjectSerializationOptions () =
-        createOptions ProjectSerialization
+        let o = JsonSerializerOptions()
+        o.WriteIndented               <- true
+        o.PropertyNamingPolicy        <- JsonNamingPolicy.CamelCase
+        o.PropertyNameCaseInsensitive <- true
+        o.DefaultIgnoreCondition      <- JsonIgnoreCondition.WhenWritingNull
+        o.IncludeFields               <- true
+        addFSharpConverter o
 
+    /// DeepCopy / Undo 백업용 옵션 — 최소 설정, 성능 우선
     let createDeepCopyOptions () =
-        createOptions DeepCopy
+        addFSharpConverter (JsonSerializerOptions())

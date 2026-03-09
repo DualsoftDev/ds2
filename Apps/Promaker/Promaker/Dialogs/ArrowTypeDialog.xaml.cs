@@ -34,7 +34,7 @@ public partial class ArrowTypeDialog : Window
 
     private static ArrowType NormalizeArrowTypeForMode(ArrowType arrowType, bool isWorkMode)
     {
-        if (arrowType == ArrowType.None)
+        if (arrowType == ArrowType.Unspecified)
             return ArrowType.Start;
 
         if (!isWorkMode && (arrowType == ArrowType.Reset || arrowType == ArrowType.StartReset || arrowType == ArrowType.ResetReset))

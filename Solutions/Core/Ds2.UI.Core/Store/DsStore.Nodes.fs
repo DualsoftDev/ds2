@@ -388,23 +388,38 @@ type DsStoreNodesExtensions =
     // ─── Rename ──────────────────────────────────────────────────────
     [<Extension>]
     static member RenameEntity(store: DsStore, id: Guid, entityKind: EntityKind, newName: string) =
-        match DsQuery.tryGetName store entityKind id with
-        | Some oldName when oldName <> newName ->
-            StoreLog.debug($"id={id}, kind={entityKind}, oldName={oldName} → newName={newName}")
+        // Call은 DevicesAlias만 변경 — ApiName은 ApiDef에 연동되므로 Rename 대상 아님
+        let oldName, isChanged =
+            match entityKind with
+            | EntityKind.Call ->
+                match store.Calls.TryGetValue(id) with
+                | true, c  -> Some c.DevicesAlias, c.DevicesAlias <> newName
+                | false, _ -> None, false
+            | _ ->
+                let n = DsQuery.tryGetName store entityKind id
+                n, n |> Option.map (fun o -> o <> newName) |> Option.defaultValue false
+        match oldName with
+        | Some _ when isChanged ->
+            StoreLog.debug($"id={id}, kind={entityKind}, newName={newName}")
             store.WithTransaction($"이름 변경 → \"{newName}\"", fun () ->
                 match entityKind with
                 | EntityKind.Project   -> store.TrackMutate(store.Projects, id, fun e -> e.Name <- newName)
                 | EntityKind.System    -> store.TrackMutate(store.Systems, id, fun e -> e.Name <- newName)
                 | EntityKind.Flow      -> store.TrackMutate(store.Flows, id, fun e -> e.Name <- newName)
                 | EntityKind.Work      -> store.TrackMutate(store.Works, id, fun e -> e.Name <- newName)
-                | EntityKind.Call      -> store.TrackMutate(store.Calls, id, fun e -> e.Name <- newName)
+                | EntityKind.Call      -> store.TrackMutate(store.Calls, id, fun e -> e.DevicesAlias <- newName)
                 | EntityKind.ApiDef    -> store.TrackMutate(store.ApiDefs, id, fun e -> e.Name <- newName)
                 | EntityKind.Button    -> store.TrackMutate(store.HwButtons, id, fun e -> e.Name <- newName)
                 | EntityKind.Lamp      -> store.TrackMutate(store.HwLamps, id, fun e -> e.Name <- newName)
                 | EntityKind.Condition -> store.TrackMutate(store.HwConditions, id, fun e -> e.Name <- newName)
                 | EntityKind.Action    -> store.TrackMutate(store.HwActions, id, fun e -> e.Name <- newName)
                 | _                    -> failwithf "Unknown entity kind: %A" entityKind)
-            store.EmitAndHistory(EntityRenamed(id, newName))
+            // Call은 DevicesAlias만 변경 → 실제 표시명(DevicesAlias.ApiName) 조회
+            let displayName =
+                match entityKind with
+                | EntityKind.Call -> store.Calls.[id].Name
+                | _ -> newName
+            store.EmitAndHistory(EntityRenamed(id, displayName))
         | Some _ -> () // 이름 변경 없음
         | None ->
             StoreLog.warn($"Entity not found. kind={entityKind}, id={id}")

@@ -214,6 +214,32 @@ module RenameTests =
         store.Undo() // should undo AddProject directly (rename no-op must not push)
         Assert.False(store.Projects.ContainsKey(project.Id))
 
+    [<Fact>]
+    let ``RenameEntity for Call changes only DevicesAlias`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+        let call = store.Calls |> Seq.head |> (fun kv -> kv.Value)
+        Assert.Equal("Dev", call.DevicesAlias)
+        Assert.Equal("Api", call.ApiName)
+
+        store.RenameEntity(call.Id, EntityKind.Call, "NewDev")
+        Assert.Equal("NewDev", call.DevicesAlias)
+        Assert.Equal("Api", call.ApiName)  // ApiName 불변
+        Assert.Equal("NewDev.Api", call.Name)
+
+    [<Fact>]
+    let ``RenameEntity for Call with same alias is no-op`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+        let call = store.Calls |> Seq.head |> (fun kv -> kv.Value)
+
+        store.RenameEntity(call.Id, EntityKind.Call, "Dev")  // same alias → no-op
+        // Undo should undo AddCallsWithDevice, not a rename (rename was no-op)
+        store.Undo()
+        Assert.Empty(store.Calls)
+
 // =============================================================================
 // Arrows
 // =============================================================================

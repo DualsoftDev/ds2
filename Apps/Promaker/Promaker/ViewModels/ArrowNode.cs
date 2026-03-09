@@ -90,7 +90,7 @@ public partial class ArrowNode : ObservableObject
         if (points.Count < 2)
             return Geometry.Empty;
 
-        if (arrowType is ArrowType.None or ArrowType.Group)
+        if (arrowType is ArrowType.Unspecified or ArrowType.Group)
             return Geometry.Empty;
 
         if (!TryGetDirection(points, fromEnd: true, out var endDirection))

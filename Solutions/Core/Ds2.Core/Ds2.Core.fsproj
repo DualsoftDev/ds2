@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Enum.fs" />
     <Compile Include="Class.fs" />
     <Compile Include="Properties.fs" />
