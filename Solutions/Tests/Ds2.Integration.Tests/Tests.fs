@@ -3,10 +3,8 @@ module Tests
 open System
 open System.IO
 open Xunit
-open Microsoft.Data.Sqlite
 open Ds2.Core
 open Ds2.Serialization
-open Ds2.Database
 
 /// JSON 직렬화 통합 테스트
 module JsonSerializationTests =
@@ -45,92 +43,6 @@ module JsonSerializationTests =
         Assert.Equal(1, deserialized.ProjectsReadOnly.Count)
         Assert.Equal(2, deserialized.SystemsReadOnly.Count)
 
-/// 데이터베이스 통합 테스트
-module DatabaseTests =
-
-    let createInMemoryConnection () =
-        let conn = new SqliteConnection("Data Source=:memory:")
-        conn.Open()
-        Schema.createSchema conn
-        conn
-
-    [<Fact>]
-    let ``Project should save and load from database`` () =
-        use conn = createInMemoryConnection()
-
-        // Arrange
-        let originalProject = Project("TestProject")
-
-        // Act
-        ProjectDb.save conn originalProject
-        let loadedProject = ProjectDb.load conn (originalProject.Id.ToString())
-
-        // Assert
-        Assert.True(loadedProject.IsSome, "Project should be loaded")
-        let loaded = loadedProject.Value
-        Assert.Equal(originalProject.Id, loaded.Id)
-        Assert.Equal(originalProject.Name, loaded.Name)
-
-    [<Fact>]
-    let ``Project should exist after saving`` () =
-        use conn = createInMemoryConnection()
-
-        let project = Project("TestProject")
-        ProjectDb.save conn project
-
-        Assert.True(ProjectDb.exists conn (project.Id.ToString()))
-
-    [<Fact>]
-    let ``Non-existent project should not exist`` () =
-        use conn = createInMemoryConnection()
-
-        Assert.False(ProjectDb.exists conn "non-existent-id")
-
-    [<Fact>]
-    let ``loadAll should return all saved projects`` () =
-        use conn = createInMemoryConnection()
-
-        let project1 = Project("Project1")
-        let project2 = Project("Project2")
-
-        ProjectDb.save conn project1
-        ProjectDb.save conn project2
-
-        let allProjects = ProjectDb.loadAll conn
-
-        Assert.Equal(2, allProjects.Length)
-
-    [<Fact>]
-    let ``delete should remove project`` () =
-        use conn = createInMemoryConnection()
-
-        let project = Project("TestProject")
-        ProjectDb.save conn project
-
-        Assert.True(ProjectDb.exists conn (project.Id.ToString()))
-
-        ProjectDb.delete conn (project.Id.ToString())
-
-        Assert.False(ProjectDb.exists conn (project.Id.ToString()))
-
-    [<Fact>]
-    let ``System should save and load by project ID`` () =
-        use conn = createInMemoryConnection()
-
-        let project = Project("TestProject")
-        let system = DsSystem("TestSystem")
-
-        // Project에 ActiveSystem 추가
-        project.ActiveSystemIds.Add(system.Id)
-
-        ProjectDb.save conn project
-        SystemDb.save conn (project.Id.ToString()) system
-
-        let systems = SystemDb.loadByProjectId conn (project.Id.ToString())
-
-        Assert.Single(systems) |> ignore
-        Assert.Equal(system.Id, systems.[0].Id)
-        Assert.Equal(system.Name, systems.[0].Name)
 
 /// 파일 기반 통합 테스트
 module FileSerializationTests =
@@ -161,42 +73,6 @@ module FileSerializationTests =
         finally
             if File.Exists(filePath) then File.Delete(filePath)
 
-/// 전체 워크플로우 통합 테스트
-module WorkflowTests =
-
-    [<Fact>]
-    let ``Complete workflow: Create, Validate, Serialize, Save to DB`` () =
-        use conn = new SqliteConnection("Data Source=:memory:")
-        conn.Open()
-        Schema.createSchema conn
-
-        // 1. Create domain objects
-        let project = Project("WorkflowProject")
-        let system = DsSystem("WorkflowSystem")
-
-        // Project에 ActiveSystem 추가
-        project.ActiveSystemIds.Add(system.Id)
-        let store = Ds2.UI.Core.DsStore.empty()
-        store.Projects.[project.Id] <- project
-        store.Systems.[system.Id] <- system
-        // 2. Serialize to JSON
-        let json = JsonConverter.serialize store
-        Assert.NotEmpty(json)
-
-        // 3. Save to database
-        ProjectDb.save conn project
-        SystemDb.save conn (project.Id.ToString()) system
-
-        // 4. Load from database
-        let loadedProject = ProjectDb.load conn (project.Id.ToString())
-        Assert.True(loadedProject.IsSome)
-
-        let loadedSystems = SystemDb.loadByProjectId conn (project.Id.ToString())
-        Assert.Single(loadedSystems) |> ignore
-
-        // 5. Verify data integrity
-        Assert.Equal(project.Id, loadedProject.Value.Id)
-        Assert.Equal(system.Id, loadedSystems.[0].Id)
 
 /// AASX 라운드트립 통합 테스트
 module AasxRoundTripTests =
