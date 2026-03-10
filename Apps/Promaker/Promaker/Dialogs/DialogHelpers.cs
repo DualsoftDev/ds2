@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 
 namespace Promaker.Dialogs;
 
@@ -6,6 +7,28 @@ internal static class DialogHelpers
 {
     internal static void Warn(string message) =>
         MessageBox.Show(message, "입력 오류", MessageBoxButton.OK, MessageBoxImage.Warning);
+
+    internal static string? PromptName(string title, string defaultName)
+    {
+        var dialog = new Window
+        {
+            Title = title, Width = 350, Height = 150, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = Application.Current.MainWindow, ResizeMode = ResizeMode.NoResize
+        };
+        var textBox = new TextBox { Text = defaultName, Margin = new Thickness(12, 12, 12, 0) };
+        textBox.SelectAll();
+        var okButton = new Button { Content = "OK", Width = 80, Margin = new Thickness(0, 8, 12, 12), HorizontalAlignment = HorizontalAlignment.Right, IsDefault = true };
+        if (Application.Current.TryFindResource("DarkButton") is Style darkStyle)
+            okButton.Style = darkStyle;
+        string? result = null;
+        okButton.Click += (_, _) => { result = textBox.Text.Trim(); dialog.DialogResult = true; };
+        var panel = new StackPanel();
+        panel.Children.Add(textBox);
+        panel.Children.Add(okButton);
+        dialog.Content = panel;
+        dialog.Loaded += (_, _) => { textBox.Focus(); };
+        return dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(result) ? result : null;
+    }
 
     /// <summary>
     /// 저장되지 않은 변경이 있을 때 확인 팝업.

@@ -293,34 +293,34 @@ module internal DirectPasteOps =
 
     let dispatchPaste
         (store: DsStore) (copiedEntityKind: EntityKind) (copiedIds: Guid list)
-        (targetEntityKind: EntityKind) (targetEntityId: Guid) : int =
+        (targetEntityKind: EntityKind) (targetEntityId: Guid) : Guid list =
         match copiedEntityKind with
         | EntityKind.Flow ->
             let sourceFlows = copiedIds |> List.choose (fun id -> DsQuery.getFlow id store)
-            if sourceFlows.IsEmpty then 0
+            if sourceFlows.IsEmpty then []
             else
-                sourceFlows |> List.sumBy (fun sf ->
+                sourceFlows |> List.map (fun sf ->
                     let targetSystemId =
                         EntityHierarchyQueries.resolveTarget store EntityKind.System targetEntityKind targetEntityId
                         |> Option.defaultValue sf.ParentId
-                    pasteFlowToSystem store sf targetSystemId |> ignore; 1)
+                    pasteFlowToSystem store sf targetSystemId)
         | EntityKind.Work ->
             let sourceWorks = copiedIds |> List.choose (fun id -> DsQuery.getWork id store)
-            if sourceWorks.IsEmpty then 0
+            if sourceWorks.IsEmpty then []
             else
                 let targetFlowId =
                     EntityHierarchyQueries.resolveTarget store EntityKind.Flow targetEntityKind targetEntityId
                     |> Option.defaultValue sourceWorks.Head.ParentId
-                pasteWorksToFlowBatch store sourceWorks targetFlowId |> List.length
+                pasteWorksToFlowBatch store sourceWorks targetFlowId
         | EntityKind.Call ->
             let sourceCalls = copiedIds |> List.choose (fun id -> DsQuery.getCall id store)
-            if sourceCalls.IsEmpty then 0
+            if sourceCalls.IsEmpty then []
             else
                 let targetWorkId =
                     EntityHierarchyQueries.resolveTarget store EntityKind.Work targetEntityKind targetEntityId
                     |> Option.defaultValue sourceCalls.Head.ParentId
-                pasteCallsToWorkBatch store sourceCalls targetWorkId |> List.length
-        | _ -> 0
+                pasteCallsToWorkBatch store sourceCalls targetWorkId
+        | _ -> []
 
 // =============================================================================
 // DsStore Paste 확장
@@ -332,16 +332,16 @@ type DsStorePasteExtensions =
     [<Extension>]
     static member PasteEntities
         (store: DsStore, copiedEntityKind: EntityKind, copiedEntityIds: seq<Guid>,
-         targetEntityKind: EntityKind, targetEntityId: Guid) : int =
+         targetEntityKind: EntityKind, targetEntityId: Guid) : Guid list =
         let ids = copiedEntityIds |> Seq.distinct |> Seq.toList
-        if not (PasteResolvers.isCopyableEntityKind copiedEntityKind) || ids.IsEmpty then 0
+        if not (PasteResolvers.isCopyableEntityKind copiedEntityKind) || ids.IsEmpty then []
         else
             StoreLog.debug($"kind={copiedEntityKind}, count={ids.Length}, targetKind={targetEntityKind}, targetId={targetEntityId}")
-            let mutable count = 0
+            let mutable pastedIds = []
             store.WithTransaction($"Paste {copiedEntityKind}s", fun () ->
-                count <- DirectPasteOps.dispatchPaste store copiedEntityKind ids targetEntityKind targetEntityId)
-            if count > 0 then store.EmitRefreshAndHistory()
-            count
+                pastedIds <- DirectPasteOps.dispatchPaste store copiedEntityKind ids targetEntityKind targetEntityId)
+            if not pastedIds.IsEmpty then store.EmitRefreshAndHistory()
+            pastedIds
 
     [<Extension>]
     static member ValidateCopySelection(store: DsStore, keys: seq<SelectionKey>) : CopyValidationResult =

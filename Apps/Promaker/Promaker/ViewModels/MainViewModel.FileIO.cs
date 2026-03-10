@@ -1,6 +1,7 @@
 using System;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
+using Ds2.UI.Core;
 using Microsoft.Win32;
 using Promaker.Dialogs;
 
@@ -50,10 +51,13 @@ public partial class MainViewModel
     {
         if (_currentFilePath is null)
         {
+            var projects = DsQuery.allProjects(_store);
+            var suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
             var dlg = new SaveFileDialog
             {
                 Filter = "JSON Files (*.json)|*.json|All Files (*.*)|*.*",
-                DefaultExt = ".json"
+                DefaultExt = ".json",
+                FileName = suggestedName
             };
 
             if (dlg.ShowDialog() != true) return;

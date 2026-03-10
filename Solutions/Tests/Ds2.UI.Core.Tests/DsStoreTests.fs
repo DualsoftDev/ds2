@@ -299,19 +299,21 @@ module ArrowTests =
 module PasteTests =
 
     [<Fact>]
-    let ``PasteEntities copies flow to same system`` () =
+    let ``PasteEntities copies flow and returns new flow id`` () =
         let store = createStore ()
         let _, system, flow, _ = setupBasicHierarchy store
-        let count = store.PasteEntities(EntityKind.Flow, [ flow.Id ], EntityKind.System, system.Id)
-        Assert.Equal(1, count)
+        let pastedIds = store.PasteEntities(EntityKind.Flow, [ flow.Id ], EntityKind.System, system.Id)
+        Assert.Equal(1, pastedIds.Length)
+        Assert.NotEqual(flow.Id, pastedIds.Head)
         Assert.Equal(2, DsQuery.flowsOf system.Id store |> List.length)
 
     [<Fact>]
-    let ``PasteEntities copies works to same flow`` () =
+    let ``PasteEntities copies works and returns new work ids`` () =
         let store = createStore ()
         let _, _, flow, work = setupBasicHierarchy store
-        let count = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id)
-        Assert.Equal(1, count)
+        let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id)
+        Assert.Equal(1, pastedIds.Length)
+        Assert.NotEqual(work.Id, pastedIds.Head)
         Assert.Equal(2, DsQuery.worksOf flow.Id store |> List.length)
 
     [<Fact>]
