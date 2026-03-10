@@ -9,7 +9,6 @@ open System.Runtime.CompilerServices
 [<assembly: AssemblyFileVersion("2.0.0.0")>]
 [<assembly: InternalsVisibleTo("Ds2.UI.Core")>]
 [<assembly: InternalsVisibleTo("Ds2.Aasx")>]
-[<assembly: InternalsVisibleTo("Ds2.Database")>]
 [<assembly: InternalsVisibleTo("Ds2.Core.Tests")>]
 [<assembly: InternalsVisibleTo("Ds2.Integration.Tests")>]
 [<assembly: InternalsVisibleTo("Ds2.UI.Core.Tests")>]

@@ -2,6 +2,7 @@ namespace rec Ds2.UI.Core
 
 open System
 open System.Collections.Generic
+open System.Collections.ObjectModel
 open Ds2.Core
 open log4net
 
@@ -30,20 +31,20 @@ type DsStore() =
     member val HwConditions = Dictionary<Guid, HwCondition>()       with get, set
     member val HwActions    = Dictionary<Guid, HwAction>()          with get, set
 
-    // ─── ReadOnly 뷰 ───
-    member this.ProjectsReadOnly     : IReadOnlyDictionary<Guid, Project>           = this.Projects     :> IReadOnlyDictionary<_, _>
-    member this.SystemsReadOnly      : IReadOnlyDictionary<Guid, DsSystem>          = this.Systems      :> IReadOnlyDictionary<_, _>
-    member this.FlowsReadOnly        : IReadOnlyDictionary<Guid, Flow>              = this.Flows        :> IReadOnlyDictionary<_, _>
-    member this.WorksReadOnly        : IReadOnlyDictionary<Guid, Work>              = this.Works        :> IReadOnlyDictionary<_, _>
-    member this.CallsReadOnly        : IReadOnlyDictionary<Guid, Call>              = this.Calls        :> IReadOnlyDictionary<_, _>
-    member this.ApiDefsReadOnly      : IReadOnlyDictionary<Guid, ApiDef>            = this.ApiDefs      :> IReadOnlyDictionary<_, _>
-    member this.ApiCallsReadOnly     : IReadOnlyDictionary<Guid, ApiCall>           = this.ApiCalls     :> IReadOnlyDictionary<_, _>
-    member this.ArrowWorksReadOnly   : IReadOnlyDictionary<Guid, ArrowBetweenWorks> = this.ArrowWorks   :> IReadOnlyDictionary<_, _>
-    member this.ArrowCallsReadOnly   : IReadOnlyDictionary<Guid, ArrowBetweenCalls> = this.ArrowCalls   :> IReadOnlyDictionary<_, _>
-    member this.HwButtonsReadOnly    : IReadOnlyDictionary<Guid, HwButton>          = this.HwButtons    :> IReadOnlyDictionary<_, _>
-    member this.HwLampsReadOnly      : IReadOnlyDictionary<Guid, HwLamp>            = this.HwLamps      :> IReadOnlyDictionary<_, _>
-    member this.HwConditionsReadOnly : IReadOnlyDictionary<Guid, HwCondition>       = this.HwConditions :> IReadOnlyDictionary<_, _>
-    member this.HwActionsReadOnly    : IReadOnlyDictionary<Guid, HwAction>          = this.HwActions    :> IReadOnlyDictionary<_, _>
+    // ─── ReadOnly 뷰 (ReadOnlyDictionary wrapper — 다운캐스트로 쓰기 불가) ───
+    member this.ProjectsReadOnly     : IReadOnlyDictionary<Guid, Project>           = ReadOnlyDictionary(this.Projects)
+    member this.SystemsReadOnly      : IReadOnlyDictionary<Guid, DsSystem>          = ReadOnlyDictionary(this.Systems)
+    member this.FlowsReadOnly        : IReadOnlyDictionary<Guid, Flow>              = ReadOnlyDictionary(this.Flows)
+    member this.WorksReadOnly        : IReadOnlyDictionary<Guid, Work>              = ReadOnlyDictionary(this.Works)
+    member this.CallsReadOnly        : IReadOnlyDictionary<Guid, Call>              = ReadOnlyDictionary(this.Calls)
+    member this.ApiDefsReadOnly      : IReadOnlyDictionary<Guid, ApiDef>            = ReadOnlyDictionary(this.ApiDefs)
+    member this.ApiCallsReadOnly     : IReadOnlyDictionary<Guid, ApiCall>           = ReadOnlyDictionary(this.ApiCalls)
+    member this.ArrowWorksReadOnly   : IReadOnlyDictionary<Guid, ArrowBetweenWorks> = ReadOnlyDictionary(this.ArrowWorks)
+    member this.ArrowCallsReadOnly   : IReadOnlyDictionary<Guid, ArrowBetweenCalls> = ReadOnlyDictionary(this.ArrowCalls)
+    member this.HwButtonsReadOnly    : IReadOnlyDictionary<Guid, HwButton>          = ReadOnlyDictionary(this.HwButtons)
+    member this.HwLampsReadOnly      : IReadOnlyDictionary<Guid, HwLamp>            = ReadOnlyDictionary(this.HwLamps)
+    member this.HwConditionsReadOnly : IReadOnlyDictionary<Guid, HwCondition>       = ReadOnlyDictionary(this.HwConditions)
+    member this.HwActionsReadOnly    : IReadOnlyDictionary<Guid, HwAction>          = ReadOnlyDictionary(this.HwActions)
 
     static member empty() = DsStore()
 
