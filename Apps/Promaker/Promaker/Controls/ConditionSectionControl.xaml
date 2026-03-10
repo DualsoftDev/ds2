@@ -67,7 +67,10 @@
                                 <ItemsControl ItemsSource="{Binding Items}" Margin="8,2,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid Margin="0,1">
+                                            <Grid Margin="0,1"
+                                                  Background="Transparent"
+                                                  Cursor="Hand"
+                                                  MouseLeftButtonDown="ApiCallRow_MouseLeftButtonDown">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto"/>
                                                     <ColumnDefinition Width="*"/>

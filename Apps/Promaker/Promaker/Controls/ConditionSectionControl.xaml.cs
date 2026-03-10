@@ -84,6 +84,13 @@ public partial class ConditionSectionControl : UserControl
             typeof(ConditionSectionControl),
             new PropertyMetadata(null));
 
+    public static readonly DependencyProperty NavigateConditionApiCallCommandProperty =
+        DependencyProperty.Register(
+            nameof(NavigateConditionApiCallCommand),
+            typeof(ICommand),
+            typeof(ConditionSectionControl),
+            new PropertyMetadata(null));
+
     public ConditionSectionControl()
     {
         InitializeComponent();
@@ -153,5 +160,17 @@ public partial class ConditionSectionControl : UserControl
     {
         get => (ICommand?)GetValue(EditConditionApiCallSpecCommandProperty);
         set => SetValue(EditConditionApiCallSpecCommandProperty, value);
+    }
+
+    public ICommand? NavigateConditionApiCallCommand
+    {
+        get => (ICommand?)GetValue(NavigateConditionApiCallCommandProperty);
+        set => SetValue(NavigateConditionApiCallCommandProperty, value);
+    }
+
+    private void ApiCallRow_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2 && sender is FrameworkElement { DataContext: { } row })
+            NavigateConditionApiCallCommand?.Execute(row);
     }
 }

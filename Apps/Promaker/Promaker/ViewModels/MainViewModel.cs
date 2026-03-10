@@ -56,6 +56,13 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private int _currentHistoryIndex;
     [ObservableProperty] private ArrowNode? _selectedArrow;
 
+    public static bool IsDebugBuild =>
+#if DEBUG
+        true;
+#else
+        false;
+#endif
+
     public Xywh? PendingAddPosition { get; set; }
     public Func<System.Windows.Point>? GetViewportCenterRequested { get; set; }
 
