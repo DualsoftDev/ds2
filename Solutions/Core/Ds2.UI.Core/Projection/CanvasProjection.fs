@@ -5,7 +5,7 @@ open Ds2.Core
 
 let private defaultPos = Xywh(UiDefaults.DefaultNodeX, UiDefaults.DefaultNodeY, UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight)
 
-let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) (parentId: Guid) (pos: Xywh option) (conditionTypes: CallConditionType list) =
+let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) (parentId: Guid) (pos: Xywh option) (conditionTypes: CallConditionType list) (isGhost: bool) =
     let p = pos |> Option.defaultValue defaultPos
     { Id = id
       EntityKind = entityKind
@@ -15,7 +15,8 @@ let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) 
       Y = float p.Y
       Width = float p.W
       Height = float p.H
-      ConditionTypes = conditionTypes }
+      ConditionTypes = conditionTypes
+      IsGhost = isGhost }
 
 let private toArrowInfo (a: DsArrow) : CanvasArrowInfo =
     { Id = a.Id; SourceId = a.SourceId; TargetId = a.TargetId; ArrowType = a.ArrowType }
@@ -29,7 +30,7 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
         flowIds
         |> List.collect (fun flowId ->
             DsQuery.worksOf flowId store
-            |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position []))
+            |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] false))
 
     let arrows =
         DsQuery.arrowWorksOf systemId store
@@ -41,19 +42,37 @@ let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
     let works = DsQuery.worksOf flowId store
     let workIds = works |> List.map (fun w -> w.Id) |> Set.ofList
 
-    let nodes =
+    let localNodes =
         works
-        |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [])
+        |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] false)
 
-    let arrows =
+    // 타 Flow의 Work와 연결된 화살표 + 고스트 Work 수집
+    let allArrows, ghostNodes =
         match DsQuery.getFlow flowId store with
-        | None -> []
+        | None -> [], []
         | Some flow ->
-            DsQuery.arrowWorksOf flow.ParentId store
-            |> List.filter (fun a -> workIds.Contains a.SourceId && workIds.Contains a.TargetId)
-            |> List.map toArrowInfo
+            let systemArrows = DsQuery.arrowWorksOf flow.ParentId store
+            // 이 Flow의 Work가 한쪽이라도 포함된 화살표
+            let relevantArrows =
+                systemArrows
+                |> List.filter (fun a -> workIds.Contains a.SourceId || workIds.Contains a.TargetId)
 
-    { Nodes = nodes; Arrows = arrows }
+            // 외부 Work ID 수집
+            let externalIds =
+                relevantArrows
+                |> List.collect (fun a -> [a.SourceId; a.TargetId])
+                |> List.filter (fun id -> not (workIds.Contains id))
+                |> List.distinct
+
+            let ghosts =
+                externalIds
+                |> List.choose (fun id -> DsQuery.getWork id store)
+                |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] true)
+
+            let arrows = relevantArrows |> List.map toArrowInfo
+            arrows, ghosts
+
+    { Nodes = localNodes @ ghostNodes; Arrows = allArrows }
 
 let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
     match DsQuery.getWork workId store with
@@ -71,7 +90,7 @@ let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
 
         let nodes =
             calls
-            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position (conditionTypesOf c))
+            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position (conditionTypesOf c) false)
 
         let arrows =
             DsQuery.arrowCallsOf workId store

@@ -24,6 +24,8 @@ type CanvasNodeInfo = {
     Height: float
     /// Call 노드의 조건 타입들 (Work 노드는 빈 리스트)
     ConditionTypes: CallConditionType list
+    /// 타 Flow의 Work가 화살표로 연결되어 고스트로 표시되는 경우 true
+    IsGhost: bool
 }
 
 type CanvasArrowInfo = {

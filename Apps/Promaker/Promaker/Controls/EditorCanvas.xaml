@@ -229,6 +229,11 @@
                                                 Value="{DynamicResource NodeCallSelectedBackgroundBrush}"/>
                                         <Setter TargetName="NodeBorder" Property="CornerRadius" Value="20"/>
                                     </MultiDataTrigger>
+                                    <!-- Ghost node: semi-transparent + dashed border -->
+                                    <DataTrigger Binding="{Binding IsGhost}" Value="True">
+                                        <Setter TargetName="NodeBorder" Property="Opacity" Value="0.45"/>
+                                        <Setter TargetName="NodeBorder" Property="BorderThickness" Value="1.5"/>
+                                    </DataTrigger>
                                 </DataTemplate.Triggers>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
