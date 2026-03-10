@@ -56,6 +56,7 @@ public partial class MainViewModel
         OpenTab(info.Kind, info.RootId, info.Title);
         RequestRebuildAll(() =>
         {
+            ExpandNodeAndAncestors(entityId);
             CenterOnNodeRequested?.Invoke(entityId);
             var node = CanvasNodes.FirstOrDefault(n => n.Id == entityId);
             if (node is not null)

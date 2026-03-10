@@ -735,6 +735,7 @@
                                                 AddConditionApiCallCommand="{Binding DataContext.AddConditionApiCallCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                 RemoveConditionApiCallCommand="{Binding DataContext.RemoveConditionApiCallCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                 EditConditionApiCallSpecCommand="{Binding DataContext.EditConditionApiCallSpecCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                NavigateConditionApiCallCommand="{Binding DataContext.NavigateConditionApiCallCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                 AddCommandParameter="{Binding ConditionType}"/>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
@@ -742,9 +743,11 @@
                                 <Separator Margin="0,12"/>
                             </StackPanel>
 
-                            <TextBlock Text="ID" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,2"/>
-                            <TextBox Text="{Binding SelectedNode.Id, Mode=OneWay}" IsReadOnly="True"
-                                     Padding="6,4" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                            <StackPanel Visibility="{Binding IsDebugBuild, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="ID" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,2"/>
+                                <TextBox Text="{Binding SelectedNode.Id, Mode=OneWay}" IsReadOnly="True"
+                                         Padding="6,4" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                            </StackPanel>
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>

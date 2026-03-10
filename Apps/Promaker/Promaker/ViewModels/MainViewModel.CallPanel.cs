@@ -266,6 +266,38 @@ public partial class MainViewModel
     }
 
     [RelayCommand]
+    private void NavigateConditionApiCall(ConditionApiCallRow? row)
+    {
+        if (row is null) return;
+
+        if (!TryEditorRef(
+                () => _store.FindCallsByApiCallId(row.ApiCallId),
+                out var callTuples))
+            return;
+
+        var calls = callTuples
+            .Select(t => (Id: t.Item1, Name: t.Item2))
+            .ToList();
+
+        if (calls.Count == 0)
+        {
+            StatusText = "No Call references this ApiCall.";
+            return;
+        }
+
+        if (calls.Count == 1)
+        {
+            OpenParentCanvasAndFocusNode(calls[0].Id, EntityKind.Call);
+            return;
+        }
+
+        DialogHelpers.PickCallFromList(
+            $"ApiCall을 참조하는 Call ({calls.Count}개)",
+            calls,
+            callId => OpenParentCanvasAndFocusNode(callId, EntityKind.Call));
+    }
+
+    [RelayCommand]
     private void ToggleConditionIsOR(CallConditionItem? item) => ToggleConditionSetting(item, toggleIsOR: true);
 
     [RelayCommand]

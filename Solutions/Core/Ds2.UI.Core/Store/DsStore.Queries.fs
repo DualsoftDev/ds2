@@ -70,6 +70,17 @@ type DsStoreQueriesExtensions =
             |> Seq.toList
         | None -> []
 
+    // ─── ApiCall → Call 역참조 쿼리 ──────────────────────────────────
+    [<Extension>]
+    static member FindCallsByApiCallId(store: DsStore, apiCallId: Guid) : struct(Guid * string) list =
+        store.CallsReadOnly.Values
+        |> Seq.filter (fun call ->
+            call.ApiCalls |> Seq.exists (fun ac -> ac.Id = apiCallId) ||
+            call.CallConditions |> Seq.exists (fun cc ->
+                cc.Conditions |> Seq.exists (fun ac -> ac.Id = apiCallId)))
+        |> Seq.map (fun call -> struct(call.Id, call.Name))
+        |> Seq.toList
+
     // ─── ArrowPathCalculator ─────────────────────────────────────────
     [<Extension>]
     static member GetFlowArrowPaths(store: DsStore, flowId: Guid) : Map<Guid, ArrowPathCalculator.ArrowVisual> =

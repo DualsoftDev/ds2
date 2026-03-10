@@ -1,5 +1,8 @@
+using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 
 namespace Promaker.Dialogs;
 
@@ -28,6 +31,42 @@ internal static class DialogHelpers
         dialog.Content = panel;
         dialog.Loaded += (_, _) => { textBox.Focus(); };
         return dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(result) ? result : null;
+    }
+
+    internal static Guid? PickCallFromList(string title, IReadOnlyList<(Guid Id, string Name)> calls,
+        Action<Guid> onNavigate)
+    {
+        var dialog = new Window
+        {
+            Title = title, Width = 380, Height = 300,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = Application.Current.MainWindow, ResizeMode = ResizeMode.CanResize,
+            MinWidth = 280, MinHeight = 200
+        };
+
+        var listBox = new ListBox
+        {
+            Margin = new Thickness(8),
+            DisplayMemberPath = "Name",
+            FontSize = 13
+        };
+
+        foreach (var call in calls)
+            listBox.Items.Add(new { call.Id, call.Name });
+
+        listBox.MouseDoubleClick += (_, e) =>
+        {
+            if (listBox.SelectedItem is not null)
+            {
+                var id = ((dynamic)listBox.SelectedItem).Id;
+                onNavigate((Guid)id);
+                dialog.Close();
+            }
+        };
+
+        dialog.Content = listBox;
+        dialog.ShowDialog();
+        return null;
     }
 
     /// <summary>
