@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
 using Ds2.UI.Core;
@@ -9,6 +10,12 @@ namespace Promaker.ViewModels;
 
 public partial class MainViewModel
 {
+    private const string FileFilter =
+        "All Supported (*.json;*.aasx)|*.json;*.aasx|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx";
+
+    private static bool IsAasx(string path) =>
+        Path.GetExtension(path).Equals(".aasx", StringComparison.OrdinalIgnoreCase);
+
     private bool TryRunFileOperation(string operation, Action action, Func<Exception, string> warnMessage)
     {
         try
@@ -29,21 +36,46 @@ public partial class MainViewModel
     {
         if (!ConfirmDiscardChanges()) return;
 
-        var dlg = new OpenFileDialog { Filter = "JSON Files (*.json)|*.json|All Files (*.*)|*.*" };
+        var dlg = new OpenFileDialog { Filter = FileFilter };
         if (dlg.ShowDialog() != true) return;
 
         var fileName = dlg.FileName;
-        TryRunFileOperation(
-            $"Open file '{fileName}'",
-            () =>
-            {
-                _store.LoadFromFile(fileName);
-                _currentFilePath = fileName;
-                IsDirty = false;
-                UpdateTitle();
-                Log.Info($"File opened: {fileName}");
-            },
-            ex => $"Failed to open file: {ex.Message}");
+
+        if (IsAasx(fileName))
+        {
+            TryRunFileOperation(
+                $"Open AASX '{fileName}'",
+                () =>
+                {
+                    if (!AasxImporter.importIntoStore(_store, fileName))
+                    {
+                        Log.Warn($"AASX open failed: empty result ({fileName})");
+                        DialogHelpers.Warn("Failed to open AASX file.");
+                        return;
+                    }
+
+                    _currentFilePath = null;
+                    IsDirty = false;
+                    UpdateTitle();
+                    Log.Info($"AASX opened: {fileName}");
+                    StatusText = $"Opened: {Path.GetFileName(fileName)}";
+                },
+                ex => $"Failed to open AASX: {ex.Message}");
+        }
+        else
+        {
+            TryRunFileOperation(
+                $"Open file '{fileName}'",
+                () =>
+                {
+                    _store.LoadFromFile(fileName);
+                    _currentFilePath = fileName;
+                    IsDirty = false;
+                    UpdateTitle();
+                    Log.Info($"File opened: {fileName}");
+                },
+                ex => $"Failed to open file: {ex.Message}");
+        }
     }
 
     [RelayCommand]
@@ -55,7 +87,7 @@ public partial class MainViewModel
             var suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
             var dlg = new SaveFileDialog
             {
-                Filter = "JSON Files (*.json)|*.json|All Files (*.*)|*.*",
+                Filter = FileFilter,
                 DefaultExt = ".json",
                 FileName = suggestedName
             };
@@ -65,73 +97,40 @@ public partial class MainViewModel
         }
 
         var filePath = _currentFilePath;
-        TryRunFileOperation(
-            $"Save file '{filePath}'",
-            () =>
-            {
-                _store.SaveToFile(filePath);
-                IsDirty = false;
-                UpdateTitle();
-                StatusText = "Saved.";
-                Log.Info($"File saved: {filePath}");
-            },
-            ex => $"Failed to save file: {ex.Message}");
-    }
 
-    [RelayCommand]
-    private void ImportAasx()
-    {
-        if (!ConfirmDiscardChanges()) return;
-
-        var dlg = new OpenFileDialog { Filter = "AASX Files (*.aasx)|*.aasx" };
-        if (dlg.ShowDialog() != true) return;
-
-        var fileName = dlg.FileName;
-        TryRunFileOperation(
-            $"Import AASX '{fileName}'",
-            () =>
-            {
-                if (!AasxImporter.importIntoStore(_store, fileName))
-                {
-                    Log.Warn($"AASX import failed: empty result ({fileName})");
-                    DialogHelpers.Warn("Failed to import AASX.");
-                    return;
-                }
-
-                _currentFilePath = null;
-                IsDirty = false;
-                UpdateTitle();
-                Log.Info($"AASX imported: {fileName}");
-                StatusText = $"AASX import completed: {System.IO.Path.GetFileName(fileName)}";
-            },
-            ex => $"Failed to import AASX: {ex.Message}");
-    }
-
-    [RelayCommand]
-    private void ExportAasx()
-    {
-        var dlg = new SaveFileDialog
+        if (IsAasx(filePath))
         {
-            Filter = "AASX Files (*.aasx)|*.aasx",
-            DefaultExt = ".aasx"
-        };
-        if (dlg.ShowDialog() != true) return;
-
-        var fileName = dlg.FileName;
-        TryRunFileOperation(
-            $"Export AASX '{fileName}'",
-            () =>
-            {
-                if (!AasxExporter.exportFromStore(_store, fileName))
+            TryRunFileOperation(
+                $"Save AASX '{filePath}'",
+                () =>
                 {
-                    Log.Warn($"AASX export failed: no project ({fileName})");
-                    DialogHelpers.Warn("No project available for export.");
-                    return;
-                }
+                    if (!AasxExporter.exportFromStore(_store, filePath))
+                    {
+                        Log.Warn($"AASX save failed: no project ({filePath})");
+                        DialogHelpers.Warn("No project available for AASX save.");
+                        return;
+                    }
 
-                Log.Info($"AASX exported: {fileName}");
-                StatusText = $"AASX export completed: {System.IO.Path.GetFileName(fileName)}";
-            },
-            ex => $"Failed to export AASX: {ex.Message}");
+                    IsDirty = false;
+                    UpdateTitle();
+                    StatusText = "Saved.";
+                    Log.Info($"AASX saved: {filePath}");
+                },
+                ex => $"Failed to save AASX: {ex.Message}");
+        }
+        else
+        {
+            TryRunFileOperation(
+                $"Save file '{filePath}'",
+                () =>
+                {
+                    _store.SaveToFile(filePath);
+                    IsDirty = false;
+                    UpdateTitle();
+                    StatusText = "Saved.";
+                    Log.Info($"File saved: {filePath}");
+                },
+                ex => $"Failed to save file: {ex.Message}");
+        }
     }
 }

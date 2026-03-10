@@ -174,9 +174,6 @@
                 <MenuItem Header="Open..." Command="{Binding OpenFileCommand}" InputGestureText="Ctrl+O"/>
                 <MenuItem Header="Save" Command="{Binding SaveFileCommand}" InputGestureText="Ctrl+S"/>
                 <Separator/>
-                <MenuItem Header="AASX 임포트..." Command="{Binding ImportAasxCommand}"/>
-                <MenuItem Header="AASX 익스포트..." Command="{Binding ExportAasxCommand}"/>
-                <Separator/>
                 <MenuItem Header="Exit" Click="Exit_Click"/>
             </MenuItem>
             <MenuItem Header="Edit">

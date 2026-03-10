@@ -31,6 +31,8 @@ public partial class EntityNode : ObservableObject
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private int _selectionOrder;
 
+    [ObservableProperty] private bool _isGhost;
+
     [ObservableProperty] private bool _hasAutoCondition;
     [ObservableProperty] private bool _hasCommonCondition;
     [ObservableProperty] private bool _hasActiveCondition;

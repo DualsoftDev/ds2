@@ -106,7 +106,8 @@ public partial class MainViewModel
                 X = n.X,
                 Y = n.Y,
                 Width = n.Width,
-                Height = n.Height
+                Height = n.Height,
+                IsGhost = n.IsGhost
             };
             node.UpdateConditionTypes(n.ConditionTypes);
             CanvasNodes.Add(node);
