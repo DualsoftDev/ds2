@@ -12,24 +12,32 @@ namespace Promaker.ViewModels;
 public partial class MainViewModel
 {
     [RelayCommand]
-    private void AddProject() =>
-        TryEditorAction(() => _store.AddProject("NewProject"));
+    private void AddProject()
+    {
+        var name = DialogHelpers.PromptName("New Project", "NewProject");
+        if (name is null) return;
+        TryEditorAction(() => _store.AddProject(name));
+    }
 
     [RelayCommand]
     private void AddSystem()
     {
+        var name = DialogHelpers.PromptName("New System", "NewSystem");
+        if (name is null) return;
         var (selType, selId, tabKind, tabRoot) = SnapshotContext();
         TryEditorAction(() => _store.AddSystemResolved(
-            "NewSystem", _activeTreePane == TreePaneKind.Control,
+            name, _activeTreePane == TreePaneKind.Control,
             selType, selId, tabKind, tabRoot));
     }
 
     [RelayCommand]
     private void AddFlow()
     {
+        var name = DialogHelpers.PromptName("New Flow", "NewFlow");
+        if (name is null) return;
         var (selType, selId, tabKind, tabRoot) = SnapshotContext();
         TryEditorAction(() => _store.AddFlowResolved(
-            "NewFlow", selType, selId, tabKind, tabRoot));
+            name, selType, selId, tabKind, tabRoot));
     }
 
     private (EntityKind? SelectedEntityKind, Guid? SelectedEntityId, TabKind? ActiveTabKind, Guid? ActiveTabRootId) SnapshotContext() =>
@@ -41,7 +49,10 @@ public partial class MainViewModel
         var flowId = ResolveTargetId(EntityKind.Flow, TabKind.Flow);
         if (flowId is not { } id) return;
 
-        if (!TryEditorFunc(() => _store.AddWork("NewWork", id), out Guid workId, fallback: Guid.Empty))
+        var name = DialogHelpers.PromptName("New Work", "NewWork");
+        if (name is null) return;
+
+        if (!TryEditorFunc(() => _store.AddWork(name, id), out Guid workId, fallback: Guid.Empty))
             return;
         if (workId == Guid.Empty) return;
 
@@ -204,18 +215,26 @@ public partial class MainViewModel
             return;
         }
 
-        if (!TryEditorFunc(
+        if (!TryEditorRef(
                 () => _store.PasteEntities(
                     batchType,
                     _clipboardSelection.Select(k => k.Id),
                     target.Value.EntityType,
                     target.Value.EntityId),
-                out int pastedCount,
-                fallback: 0))
+                out var pastedIds))
             return;
 
-        if (pastedCount > 0)
-            StatusText = $"Pasted {pastedCount} {batchType}(s).";
+        if (pastedIds.Length > 0)
+        {
+            StatusText = $"Pasted {pastedIds.Length} {batchType}(s).";
+            var idSet = new HashSet<Guid>(pastedIds);
+            RequestRebuildAll(() =>
+            {
+                ClearNodeSelection();
+                foreach (var node in CanvasNodes.Where(n => idSet.Contains(n.Id)))
+                    SelectNodeFromCanvas(node, ctrlPressed: true, shiftPressed: false);
+            });
+        }
     }
 
     private (EntityKind EntityType, Guid EntityId)? ResolvePasteTarget()

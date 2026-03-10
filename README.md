@@ -35,7 +35,7 @@ Promaker 프로젝트는 다음 세 가지를 설계를 중심으로 **Seqeunce 
 ║  ┌──────────────── Ds2.UI.Core  (F#) ─────────────────────────────────────┐  ║
 ║  │                                                                        │  ║
 ║  │  Core:  DsStore (컬렉션 + Undo/Redo + 이벤트 + File I/O)              │  ║
-║  │         DsQuery.*  ValidationRules                                     │  ║
+║  │         DsQuery.*                                                      │  ║
 ║  │                                                                        │  ║
 ║  │  Extensions ([<Extension>] C# 확장 메서드):                             │  ║
 ║  │       DsStore.Queries  — 읽기 전용 쿼리/프로젝션 위임                  │  ║
@@ -182,7 +182,7 @@ Apps/Promaker/
 | 2 | `Commands/UndoRedoManager.fs` | 비제네릭 `UndoRedoManager(maxSize)` — `LinkedList<UndoTransaction>` 기반 undo/redo 스택 관리, maxSize O(1) trim. `UndoLabels`/`RedoLabels` 프로퍼티로 레이블 목록 노출 |
 | 4 | `Core/DsStore.fs` | `DsStore` 타입 (13개 Dictionary 컬렉션 + ReadOnly 뷰 + 증분 Undo/Redo + 이벤트 발행 + File I/O). `WithTransaction(label, action)` — 증분 UndoRecord 기반 트랜잭션. `TrackAdd`/`TrackRemove`/`TrackMutate`/`TrackGuidSetAdd`/`TrackGuidSetRemove` — dict 조작 + UndoRecord 기록을 하나로 묶는 Track 헬퍼. `RewireApiCallReferences` — Undo/Redo 후 Call↔ApiCall 참조 재연결. `DirectWrite` — 비 Undo 직접 쓰기 (AASX 임포트용). `Undo`/`Redo`/`UndoTo`/`RedoTo`. `LoadFromFile`/`SaveToFile`/`ReplaceStore` |
 | 4 | `Core/DsQuery.fs` | `DsQuery.*` — 엔티티 조회 쿼리 (`getXxx`, `allXxxs`, `xxxsOf`) |
-| 5 | `Core/ValidationRules.fs` | 이름 · 주소 · 값 검증 규칙 (`ProjectValidation`, `OneToOneValidation` 등) |
+| 5 | *(삭제됨)* | — |
 | 7 | `Geometry/ArrowPathCalculator.fs` | Work/Call 캔버스 화살표 polyline 경로 계산 (직교 꺾임) |
 | 8 | `Projection/ViewTypes.fs` | `TreeNodeInfo` · `CanvasNodeInfo` · `SelectionKey` · `DeviceApiDefOption` · `CallApiCallPanelItem` · `CallConditionPanelItem` 등 뷰/패널 전용 레코드 |
 | 9 | `Projection/PropertyPanelValueSpec.fs` | `PropertyPanelValueSpec` — ValueSpec 타입 인덱스 ↔ DU 변환, 텍스트 파싱 (`specFromTypeIndex`, `tryParseAs`) |
