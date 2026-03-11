@@ -128,6 +128,9 @@ public sealed class CallConditionItem
         Items = panel.Items
             .Select(x => new ConditionApiCallRow(callId, panel.ConditionId, x))
             .ToList();
+        Children = panel.Children
+            .Select(c => new CallConditionItem(callId, c))
+            .ToList();
     }
 
     public Guid               CallId        { get; }
@@ -136,6 +139,7 @@ public sealed class CallConditionItem
     public bool               IsOR          { get; }
     public bool               IsRising      { get; }
     public IReadOnlyList<ConditionApiCallRow> Items { get; }
+    public IReadOnlyList<CallConditionItem> Children { get; }
 }
 
 public sealed class ConditionApiCallRow

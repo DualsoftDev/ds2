@@ -100,7 +100,10 @@ public partial class ConditionDropDialog : Window
 
         ApiCallChoices.Clear();
         foreach (var choice in choices)
+        {
+            choice.IsSelected = true;
             ApiCallChoices.Add(choice);
+        }
 
         DroppedCallLabel.Text = $"Call: {callNode.Name} ({choices.Count}개 ApiCall)";
         ApiCallItemsControl.ItemsSource = ApiCallChoices;

@@ -178,9 +178,11 @@ type CallConditionApiCallItem
 [<Sealed>]
 type CallConditionPanelItem
     (conditionId: Guid, conditionType: CallConditionType,
-     isOR: bool, isRising: bool, items: CallConditionApiCallItem list) =
+     isOR: bool, isRising: bool, items: CallConditionApiCallItem list,
+     children: CallConditionPanelItem list) =
     member _.ConditionId   = conditionId
     member _.ConditionType = conditionType
     member _.IsOR          = isOR
     member _.IsRising      = isRising
     member _.Items         = items
+    member _.Children      = children

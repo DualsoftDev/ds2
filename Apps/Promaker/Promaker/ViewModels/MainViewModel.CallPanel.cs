@@ -184,11 +184,10 @@ public partial class MainViewModel
     [RelayCommand]
     private void AddConditionApiCall(CallConditionItem? item)
     {
-        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (item is null) return;
 
         var conditionId = item.ConditionId;
-        var callId = selectedCall.Id;
+        var callId = item.CallId;
 
         var dialog = new ConditionDropDialog();
         dialog.ShowNonModal(
@@ -302,6 +301,16 @@ public partial class MainViewModel
             $"ApiCall을 참조하는 Call ({calls.Count}개)",
             calls,
             callId => OpenParentCanvasAndFocusNode(callId, EntityKind.Call));
+    }
+
+    [RelayCommand]
+    private void AddChildCondition(CallConditionItem? item)
+    {
+        if (item is null) return;
+        if (!TryEditorAction(
+                () => _store.AddChildCondition(item.CallId, item.ConditionId, isOR: false)))
+            return;
+        RefreshCallPanel(item.CallId);
     }
 
     [RelayCommand]

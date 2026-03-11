@@ -234,14 +234,16 @@ let private populateStore
 
         flows |> List.iter (fun f -> store.DirectWrite(store.Flows, f))
         works |> List.iter (fun w -> store.DirectWrite(store.Works, w))
+        let rec registerConditionApiCalls (cond: CallCondition) =
+            cond.Conditions
+            |> Seq.filter (fun apiCall -> not (store.ApiCalls.ContainsKey(apiCall.Id)))
+            |> Seq.iter (fun apiCall -> store.DirectWrite(store.ApiCalls, apiCall))
+            cond.Children |> Seq.iter registerConditionApiCalls
+
         calls |> List.iter (fun call ->
             store.DirectWrite(store.Calls, call)
             call.ApiCalls |> Seq.iter (fun apiCall -> store.DirectWrite(store.ApiCalls, apiCall))
-            call.CallConditions
-            |> Seq.iter (fun cond ->
-                cond.Conditions
-                |> Seq.filter (fun apiCall -> not (store.ApiCalls.ContainsKey(apiCall.Id)))
-                |> Seq.iter (fun apiCall -> store.DirectWrite(store.ApiCalls, apiCall))))
+            call.CallConditions |> Seq.iter registerConditionApiCalls)
         arrowCalls |> List.iter (fun a -> store.DirectWrite(store.ArrowCalls, a))
         arrowWorks |> List.iter (fun a -> store.DirectWrite(store.ArrowWorks, a))
         apiDefs    |> List.iter (fun d -> store.DirectWrite(store.ApiDefs, d)))

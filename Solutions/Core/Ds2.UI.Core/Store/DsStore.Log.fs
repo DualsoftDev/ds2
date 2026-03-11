@@ -54,12 +54,17 @@ type internal StoreLog private () =
         | Some x -> x
         | None -> StoreLog.fail(op, errMsg)
 
+    static member private tryFindConditionRec (conditions: CallCondition seq) (condId: Guid) : CallCondition option =
+        conditions |> Seq.tryPick (fun cc ->
+            if cc.Id = condId then Some cc
+            else StoreLog.tryFindConditionRec cc.Children condId)
+
     static member requireCallCondition(store: DsStore, callId: Guid, condId: Guid, [<CallerMemberName>] ?op: string) : CallCondition =
         let op = StoreLog.resolve op
         let call = StoreLog.requireCall(store, callId, op)
-        StoreLog.requireInSeq(
-            call.CallConditions, (fun cc -> cc.Id = condId), 
-            $"CallCondition not found. callId={callId}, condId={condId}", op)
+        match StoreLog.tryFindConditionRec call.CallConditions condId with
+        | Some cc -> cc
+        | None -> StoreLog.fail(op, $"CallCondition not found. callId={callId}, condId={condId}")
 
     static member requireApiCallInCall(call: Call, apiCallId: Guid, [<CallerMemberName>] ?op: string) =
         StoreLog.requireInSeq(
