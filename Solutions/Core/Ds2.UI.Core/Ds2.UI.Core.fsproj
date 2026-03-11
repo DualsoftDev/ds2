@@ -11,6 +11,7 @@
     <Compile Include="Commands\UndoRedoManager.fs" />
     <Compile Include="Store\DsStore.fs" />
     <Compile Include="Core\DsQuery.fs" />
+    <Compile Include="Queries\CallConditionQueries.fs" />
     <Compile Include="Geometry\ArrowPathCalculator.fs" />
     <Compile Include="Projection\ViewTypes.fs" />
     <Compile Include="Projection\PropertyPanelValueSpec.fs" />
