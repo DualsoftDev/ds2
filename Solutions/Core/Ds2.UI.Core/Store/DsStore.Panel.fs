@@ -76,9 +76,14 @@ module internal DirectPanelOps =
         store.TrackMutate(store.Calls, call.Id, fun c -> c.ApiCalls.RemoveAll(fun ac -> ac.Id = apiCallId) |> ignore)
         store.TrackRemove(store.ApiCalls, apiCallId)
 
-    /// TrackMutate 내부에서 조건(CallCondition) 탐색
+    /// 재귀적 조건 탐색 (중첩 Children 지원)
+    let rec tryFindConditionRec (conditions: ResizeArray<CallCondition>) (condId: Guid) : CallCondition option =
+        conditions |> Seq.tryPick (fun cc ->
+            if cc.Id = condId then Some cc
+            else tryFindConditionRec cc.Children condId)
+
     let tryFindCondition (c: Call) (condId: Guid) =
-        c.CallConditions |> Seq.tryFind (fun cc -> cc.Id = condId)
+        tryFindConditionRec c.CallConditions condId
 
     let requireCondition (callId: Guid) (c: Call) (condId: Guid) =
         match tryFindCondition c condId with
@@ -318,15 +323,15 @@ type DsStorePanelExtensions =
     // ─── Call Conditions ───────────────────────────────────────────
     [<Extension>]
     static member GetCallConditionsForPanel(store: DsStore, callId: Guid) : CallConditionPanelItem list =
+        let rec toPanel (cond: CallCondition) : CallConditionPanelItem =
+            let items = cond.Conditions |> Seq.map (DirectPanelOps.toConditionApiCallItem store) |> Seq.toList
+            let children = cond.Children |> Seq.map toPanel |> Seq.toList
+            CallConditionPanelItem(
+                cond.Id,
+                (cond.Type |> Option.defaultValue CallConditionType.Auto),
+                cond.IsOR, cond.IsRising, items, children)
         DirectPanelOps.withCallOrEmpty store callId (fun call ->
-            call.CallConditions
-            |> Seq.map (fun cond ->
-                let items = cond.Conditions |> Seq.map (DirectPanelOps.toConditionApiCallItem store) |> Seq.toList
-                CallConditionPanelItem(
-                    cond.Id,
-                    (cond.Type |> Option.defaultValue CallConditionType.Auto),
-                    cond.IsOR, cond.IsRising, items))
-            |> Seq.toList)
+            call.CallConditions |> Seq.map toPanel |> Seq.toList)
 
     [<Extension>]
     static member AddCallCondition(store: DsStore, callId: Guid, condType: CallConditionType) =
@@ -339,8 +344,20 @@ type DsStorePanelExtensions =
     static member RemoveCallCondition(store: DsStore, callId: Guid, conditionId: Guid) =
         StoreLog.debug($"callId={callId}, conditionId={conditionId}")
         StoreLog.requireCallCondition(store, callId, conditionId) |> ignore
-        DirectPanelOps.mutateCallProps store callId "조건 삭제" (fun c ->
-            c.CallConditions.RemoveAll(fun cc -> cc.Id = conditionId) |> ignore)
+        let rec removeRec (list: ResizeArray<CallCondition>) =
+            if list.RemoveAll(fun cc -> cc.Id = conditionId) = 0 then
+                list |> Seq.iter (fun cc -> removeRec cc.Children)
+        DirectPanelOps.mutateCallProps store callId "조건 삭제" (fun c -> removeRec c.CallConditions)
+
+    /// 기존 조건 안에 하위 조건 추가
+    [<Extension>]
+    static member AddChildCondition(store: DsStore, callId: Guid, parentCondId: Guid, isOR: bool) =
+        StoreLog.debug($"callId={callId}, parentCondId={parentCondId}, isOR={isOR}")
+        StoreLog.requireCallCondition(store, callId, parentCondId) |> ignore
+        let child = CallCondition(IsOR = isOR)
+        DirectPanelOps.mutateCallProps store callId "하위 조건 추가" (fun c ->
+            let parent = DirectPanelOps.requireCondition callId c parentCondId
+            parent.Children.Add(child))
 
     [<Extension>]
     static member UpdateCallConditionSettings(store: DsStore, callId: Guid, condId: Guid, isOR: bool, isRising: bool) : bool =

@@ -84,6 +84,13 @@ public partial class ConditionSectionControl : UserControl
             typeof(ConditionSectionControl),
             new PropertyMetadata(null));
 
+    public static readonly DependencyProperty AddChildConditionCommandProperty =
+        DependencyProperty.Register(
+            nameof(AddChildConditionCommand),
+            typeof(ICommand),
+            typeof(ConditionSectionControl),
+            new PropertyMetadata(null));
+
     public static readonly DependencyProperty NavigateConditionApiCallCommandProperty =
         DependencyProperty.Register(
             nameof(NavigateConditionApiCallCommand),
@@ -162,6 +169,12 @@ public partial class ConditionSectionControl : UserControl
         set => SetValue(EditConditionApiCallSpecCommandProperty, value);
     }
 
+    public ICommand? AddChildConditionCommand
+    {
+        get => (ICommand?)GetValue(AddChildConditionCommandProperty);
+        set => SetValue(AddChildConditionCommandProperty, value);
+    }
+
     public ICommand? NavigateConditionApiCallCommand
     {
         get => (ICommand?)GetValue(NavigateConditionApiCallCommandProperty);
@@ -172,5 +185,11 @@ public partial class ConditionSectionControl : UserControl
     {
         if (e.ClickCount == 2 && sender is FrameworkElement { DataContext: { } row })
             NavigateConditionApiCallCommand?.Execute(row);
+    }
+
+    private void AddConditionHint_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: { } conditionItem })
+            AddConditionApiCallCommand?.Execute(conditionItem);
     }
 }

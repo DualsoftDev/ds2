@@ -734,6 +734,7 @@
                                                 RemoveConditionApiCallCommand="{Binding DataContext.RemoveConditionApiCallCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                 EditConditionApiCallSpecCommand="{Binding DataContext.EditConditionApiCallSpecCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                 NavigateConditionApiCallCommand="{Binding DataContext.NavigateConditionApiCallCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                AddChildConditionCommand="{Binding DataContext.AddChildConditionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                 AddCommandParameter="{Binding ConditionType}"/>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>

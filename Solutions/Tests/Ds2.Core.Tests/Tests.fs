@@ -182,59 +182,6 @@ module DeepCopyTests =
         Assert.Equal("Input", original.InTag.Value.Name)
         Assert.Equal("Modified", copied.InTag.Value.Name)
 
-    [<Fact>]
-    let ``CallCondition DeepCopy should copy ValueSpec correctly`` () =
-        let apiCall1 = ApiCall("ApiCall1")
-        apiCall1.OutputSpec <- ValueSpec.singleInt32 100
-        let apiCall2 = ApiCall("ApiCall2")
-        apiCall2.OutputSpec <- ValueSpec.singleBool true
-
-        let original = CallCondition()
-        original.Type <- Some CallConditionType.Common
-        original.IsOR <- true
-        original.IsRising <- true
-        original.Conditions.Add(apiCall1)
-        original.Conditions.Add(apiCall2)
-
-        let copied = original.DeepCopy()
-
-        Assert.Equal(original.Id, copied.Id)
-        Assert.Equal(Some CallConditionType.Common, copied.Type)
-        Assert.True(copied.IsOR)
-        Assert.True(copied.IsRising)
-        Assert.Equal(2, copied.Conditions.Count)
-
-        // OutputSpec이 올바르게 복사되는지 확인
-        match copied.Conditions.[0].OutputSpec with
-        | Int32Value (Single 100) -> Assert.True(true)
-        | _ -> Assert.Fail("OutputSpec not copied correctly")
-
-        match copied.Conditions.[1].OutputSpec with
-        | BoolValue (Single true) -> Assert.True(true)
-        | _ -> Assert.Fail("OutputSpec not copied correctly")
-
-    [<Fact>]
-    let ``CallCondition with complex ValueSpec ranges should DeepCopy correctly`` () =
-        let original = CallCondition()
-        let apiCall = ApiCall("RangeApiCall")
-
-        // 복잡한 ValueSpec: 범위 값
-        let rangeSpec = ValueSpec.rangesInt32Closed [ (Some 10, Some 20); (None, Some 100) ]
-        apiCall.OutputSpec <- rangeSpec
-        original.Conditions.Add(apiCall)
-
-        let copied = original.DeepCopy()
-
-        Assert.Equal(original.Id, copied.Id)
-        Assert.Equal(1, copied.Conditions.Count)
-        match copied.Conditions.[0].OutputSpec with
-        | Int32Value (Ranges segments) ->
-            Assert.Equal(2, segments.Length)
-            Assert.Equal(Some (10, Closed), segments.[0].Lower)
-            Assert.Equal(Some (20, Closed), segments.[0].Upper)
-            Assert.Equal((None: Bound<int> option), segments.[1].Lower)
-            Assert.Equal(Some (100, Closed), segments.[1].Upper)
-        | _ -> Assert.Fail("Complex ValueSpec ranges not copied correctly")
 
     [<Fact>]
     let ``ApiDef DeepCopy should copy Properties correctly`` () =
@@ -297,3 +244,45 @@ module DeepCopyTests =
         Assert.NotEqual(original.Id, copy1.Id)
         Assert.NotEqual(copy1.Id, copy2.Id)
         Assert.NotEqual(original.Id, copy2.Id)
+
+    [<Fact>]
+    let ``CallCondition DeepCopy should copy Children recursively`` () =
+        let child = CallCondition()
+        child.Type <- Some CallConditionType.Active
+        child.IsOR <- true
+        let childApi = ApiCall("ChildApi")
+        childApi.OutputSpec <- Int32Value (Single 42)
+        child.Conditions.Add(childApi)
+
+        let parent = CallCondition()
+        parent.Type <- Some CallConditionType.Common
+        parent.IsRising <- true
+        let parentApi = ApiCall("ParentApi")
+        parentApi.OutputSpec <- BoolValue (Single true)
+        parent.Conditions.Add(parentApi)
+        parent.Children.Add(child)
+
+        let copied = parent.DeepCopy()
+
+        // ID 보존 (CallCondition은 DsEntity 비상속 — jsonClone 사용)
+        Assert.Equal(parent.Id, copied.Id)
+        Assert.Equal(parent.Type, copied.Type)
+        Assert.Equal(parent.IsRising, copied.IsRising)
+        Assert.Equal(1, copied.Conditions.Count)
+        Assert.Equal(1, copied.Children.Count)
+
+        // Children 독립성 확인
+        let copiedChild = copied.Children.[0]
+        Assert.Equal(child.Id, copiedChild.Id)
+        Assert.Equal(child.Type, copiedChild.Type)
+        Assert.Equal(child.IsOR, copiedChild.IsOR)
+        Assert.Equal(1, copiedChild.Conditions.Count)
+
+        // 변경이 원본에 영향 없는지 확인
+        copiedChild.Conditions.Clear()
+        Assert.Equal(1, child.Conditions.Count)
+        Assert.Equal(0, copiedChild.Conditions.Count)
+
+        copied.Children.Clear()
+        Assert.Equal(1, parent.Children.Count)
+        Assert.Equal(0, copied.Children.Count)

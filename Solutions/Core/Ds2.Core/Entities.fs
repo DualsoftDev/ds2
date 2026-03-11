@@ -78,6 +78,7 @@ and CallCondition [<JsonConstructor>] internal () =
     member val Id         : Guid                      = Guid.NewGuid() with get, set
     member val Type       : CallConditionType option  = None           with get, set
     member val Conditions = ResizeArray<ApiCall>()                     with get, set
+    member val Children   = ResizeArray<CallCondition>()               with get, set
     member val IsOR       = false with get, set
     member val IsRising   = false with get, set
     // CallCondition은 DsEntity 비상속 → jsonClone (ID 보존)

@@ -75,6 +75,21 @@ let private assertXywhEqual (expected: Xywh option) (actual: Xywh option) =
     | _ ->
         Assert.True(false, sprintf "Xywh option mismatch. expected=%A actual=%A" expected actual)
 
+let rec private assertConditionsEqual (expected: ResizeArray<CallCondition>) (actual: ResizeArray<CallCondition>) =
+    let e = expected |> Seq.toList
+    let a = actual |> Seq.toList
+    Assert.Equal(e.Length, a.Length)
+    List.iter2 (fun (ec: CallCondition) (ac: CallCondition) ->
+        Assert.Equal(ec.Id, ac.Id)
+        Assert.Equal(ec.Type, ac.Type)
+        Assert.Equal(ec.IsOR, ac.IsOR)
+        Assert.Equal(ec.IsRising, ac.IsRising)
+        let eConds = ec.Conditions |> Seq.toList
+        let aConds = ac.Conditions |> Seq.toList
+        Assert.Equal(eConds.Length, aConds.Length)
+        List.iter2 assertApiCallEqual eConds aConds
+        assertConditionsEqual ec.Children ac.Children) e a
+
 module JsonOptionsFactoryTests =
 
     [<Fact>]
@@ -249,20 +264,7 @@ module JsonRoundTripTests =
         List.iter2 (fun (eApi: ApiCall) (aApi: ApiCall) ->
             assertApiCallEqual eApi aApi) expectedApiCalls actualApiCalls
 
-        let expectedConditions = call.CallConditions |> Seq.toList
-        let actualConditions = actual.CallConditions |> Seq.toList
-        Assert.Equal(expectedConditions.Length, actualConditions.Length)
-        List.iter2 (fun (e: CallCondition) (a: CallCondition) ->
-            Assert.Equal(e.Id, a.Id)
-            Assert.Equal(e.Type, a.Type)
-            Assert.Equal(e.IsOR, a.IsOR)
-            Assert.Equal(e.IsRising, a.IsRising)
-            let eItems: ApiCall list = e.Conditions |> Seq.toList
-            let aItems: ApiCall list = a.Conditions |> Seq.toList
-            Assert.Equal(eItems.Length, aItems.Length)
-            List.iter2 (fun (eApi: ApiCall) (aApi: ApiCall) ->
-                assertApiCallEqual eApi aApi) eItems aItems
-        ) expectedConditions actualConditions
+        assertConditionsEqual call.CallConditions actual.CallConditions
 
     [<Fact>]
     let ``JsonConverter should roundtrip non-project entities with all writable fields`` () =
