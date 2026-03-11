@@ -184,6 +184,33 @@ module RemoveTests =
         Assert.Equal(0, store.Calls.Count)
 
     [<Fact>]
+    let ``RemoveEntities keeps nested condition api call reference alive`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true)
+
+        let sourceCall = DsQuery.callsOf work.Id store |> List.find (fun c -> c.Name = "Src.Api")
+        let targetCall = DsQuery.callsOf work.Id store |> List.find (fun c -> c.Name = "Target.Api")
+        let sourceApiCallId = sourceCall.ApiCalls |> Seq.head |> fun ac -> ac.Id
+
+        store.AddCallCondition(targetCall.Id, CallConditionType.Common)
+        let parentCondition = targetCall.CallConditions |> Seq.head
+        store.AddChildCondition(targetCall.Id, parentCondition.Id, false)
+        let childCondition = parentCondition.Children |> Seq.head
+
+        let added = store.AddApiCallsToConditionBatch(targetCall.Id, childCondition.Id, [ sourceApiCallId ])
+        Assert.Equal(1, added)
+
+        store.RemoveEntities([ (EntityKind.Call, sourceCall.Id) ])
+
+        Assert.True(store.ApiCalls.ContainsKey(sourceApiCallId))
+        let nestedApiCallId =
+            childCondition.Conditions
+            |> Seq.head
+            |> fun apiCall -> apiCall.Id
+        Assert.Equal(sourceApiCallId, nestedApiCallId)
+
+    [<Fact>]
     let ``Undo restores deleted entities`` () =
         let store = createStore ()
         let project, _, _, _ = setupBasicHierarchy store
@@ -530,6 +557,45 @@ module QueryTests =
         let result = store.TryOpenTabForEntity(EntityKind.System, system.Id)
         Assert.True(result.IsSome)
         Assert.Equal(TabKind.System, result.Value.Kind)
+
+    [<Fact>]
+    let ``GetCallConditionTypes includes nested child condition types`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+
+        let call = DsQuery.callsOf work.Id store |> List.head
+        store.AddCallCondition(call.Id, CallConditionType.Common)
+        let parentCondition = call.CallConditions |> Seq.head
+        store.AddChildCondition(call.Id, parentCondition.Id, false)
+        let childCondition = parentCondition.Children |> Seq.head
+        childCondition.Type <- Some CallConditionType.Active
+
+        let result = store.GetCallConditionTypes(call.Id)
+
+        Assert.Equal<CallConditionType list>([ CallConditionType.Common; CallConditionType.Active ], result)
+
+    [<Fact>]
+    let ``FindCallsByApiCallId finds nested child condition reference`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true)
+
+        let sourceCall = DsQuery.callsOf work.Id store |> List.find (fun c -> c.Name = "Src.Api")
+        let targetCall = DsQuery.callsOf work.Id store |> List.find (fun c -> c.Name = "Target.Api")
+        let sourceApiCallId = sourceCall.ApiCalls |> Seq.head |> fun ac -> ac.Id
+
+        store.AddCallCondition(targetCall.Id, CallConditionType.Common)
+        let parentCondition = targetCall.CallConditions |> Seq.head
+        store.AddChildCondition(targetCall.Id, parentCondition.Id, false)
+        let childCondition = parentCondition.Children |> Seq.head
+        store.AddApiCallsToConditionBatch(targetCall.Id, childCondition.Id, [ sourceApiCallId ]) |> ignore
+        store.RemoveEntities([ (EntityKind.Call, sourceCall.Id) ])
+
+        let result = store.FindCallsByApiCallId(sourceApiCallId)
+        let struct (callId, callName) = Assert.Single(result)
+        Assert.Equal(targetCall.Id, callId)
+        Assert.Equal(targetCall.Name, callName)
 
 // =============================================================================
 // Device (AddCallsWithDevice)

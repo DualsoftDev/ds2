@@ -239,12 +239,6 @@ type DsStorePanelExtensions =
         |> Option.toObj
 
     [<Extension>]
-    static member GetAllApiCallsForPanel(store: DsStore) : CallApiCallPanelItem list =
-        DsQuery.allApiCalls store
-        |> List.map (DirectPanelOps.toCallApiCallPanelItem store)
-        |> List.sortBy (fun item -> item.ApiDefDisplayName, item.Name)
-
-    [<Extension>]
     static member AddApiCallFromPanel
         (store: DsStore, callId: Guid, apiDefId: Guid, apiCallName: string,
          outputAddress: string, inputAddress: string,

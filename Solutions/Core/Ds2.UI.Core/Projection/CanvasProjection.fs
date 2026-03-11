@@ -81,16 +81,9 @@ let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
         let calls = DsQuery.callsOf workId store
         let callSet = calls |> List.map (fun c -> c.Id) |> Set.ofList
 
-        let conditionTypesOf (c: Call) =
-            c.CallConditions
-            |> Seq.choose (fun cc -> cc.Type)
-            |> Seq.distinct
-            |> Seq.sort
-            |> Seq.toList
-
         let nodes =
             calls
-            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position (conditionTypesOf c) false)
+            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position (CallConditionQueries.conditionTypes c) false)
 
         let arrows =
             DsQuery.arrowCallsOf workId store

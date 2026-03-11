@@ -24,11 +24,7 @@ module internal CascadeRemove =
 
     let private collectReferencedApiCallIds (store: DsStore) =
         store.Calls.Values
-        |> Seq.collect (fun c ->
-            seq {
-                yield! c.ApiCalls |> Seq.map (fun ac -> ac.Id)
-                yield! c.CallConditions |> Seq.collect (fun cc -> cc.Conditions |> Seq.map (fun ac -> ac.Id))
-            })
+        |> Seq.collect CallConditionQueries.referencedApiCallIds
         |> Set.ofSeq
 
     let removeOrphanApiCalls (store: DsStore) =

@@ -41,10 +41,6 @@ type DsStoreQueriesExtensions =
         EntityHierarchyQueries.flowIdsForTab store kind rootId
 
     [<Extension>]
-    static member TabTitle(store: DsStore, kind: TabKind, rootId: Guid) : string option =
-        EntityHierarchyQueries.tabTitle store kind rootId
-
-    [<Extension>]
     static member TabTitleOrNull(store: DsStore, kind: TabKind, rootId: Guid) : string =
         EntityHierarchyQueries.tabTitle store kind rootId
         |> Option.toObj
@@ -62,22 +58,14 @@ type DsStoreQueriesExtensions =
     [<Extension>]
     static member GetCallConditionTypes(store: DsStore, callId: Guid) : CallConditionType list =
         match DsQuery.getCall callId store with
-        | Some call ->
-            call.CallConditions
-            |> Seq.choose (fun cc -> cc.Type)
-            |> Seq.distinct
-            |> Seq.sort
-            |> Seq.toList
+        | Some call -> CallConditionQueries.conditionTypes call
         | None -> []
 
     // ─── ApiCall → Call 역참조 쿼리 ──────────────────────────────────
     [<Extension>]
     static member FindCallsByApiCallId(store: DsStore, apiCallId: Guid) : struct(Guid * string) list =
         store.CallsReadOnly.Values
-        |> Seq.filter (fun call ->
-            call.ApiCalls |> Seq.exists (fun ac -> ac.Id = apiCallId) ||
-            call.CallConditions |> Seq.exists (fun cc ->
-                cc.Conditions |> Seq.exists (fun ac -> ac.Id = apiCallId)))
+        |> Seq.filter (CallConditionQueries.containsApiCallReference apiCallId)
         |> Seq.map (fun call -> struct(call.Id, call.Name))
         |> Seq.toList
 
@@ -102,4 +90,3 @@ type DsStoreQueriesExtensions =
     [<Extension>]
     static member ApplyNodeSelection(_store: DsStore, currentSelection, anchor: SelectionKey, target: SelectionKey, ctrlPressed, shiftPressed, orderedKeys) : NodeSelectionResult =
         SelectionQueries.applyNodeSelection currentSelection (Option.ofObj anchor) (Option.ofObj target) ctrlPressed shiftPressed orderedKeys
-
