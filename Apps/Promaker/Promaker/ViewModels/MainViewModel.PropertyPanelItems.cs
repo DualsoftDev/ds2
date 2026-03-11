@@ -118,17 +118,19 @@ public sealed class DeviceApiDefOptionItem(
 
 public sealed class CallConditionItem
 {
-    public CallConditionItem(CallConditionPanelItem panel)
+    public CallConditionItem(Guid callId, CallConditionPanelItem panel)
     {
+        CallId        = callId;
         ConditionId   = panel.ConditionId;
         ConditionType = panel.ConditionType;
         IsOR          = panel.IsOR;
         IsRising      = panel.IsRising;
         Items = panel.Items
-            .Select(x => new ConditionApiCallRow(panel.ConditionId, x))
+            .Select(x => new ConditionApiCallRow(callId, panel.ConditionId, x))
             .ToList();
     }
 
+    public Guid               CallId        { get; }
     public Guid               ConditionId   { get; }
     public CallConditionType ConditionType  { get; }
     public bool               IsOR          { get; }
@@ -138,8 +140,9 @@ public sealed class CallConditionItem
 
 public sealed class ConditionApiCallRow
 {
-    public ConditionApiCallRow(Guid conditionId, CallConditionApiCallItem item)
+    public ConditionApiCallRow(Guid callId, Guid conditionId, CallConditionApiCallItem item)
     {
+        CallId               = callId;
         ConditionId          = conditionId;
         ApiCallId            = item.ApiCallId;
         ApiCallName          = item.ApiCallName;
@@ -148,6 +151,7 @@ public sealed class ConditionApiCallRow
         OutputSpecTypeIndex  = item.OutputSpecTypeIndex;
     }
 
+    public Guid   CallId               { get; }
     public Guid   ConditionId          { get; }
     public Guid   ApiCallId            { get; }
     public string ApiCallName          { get; }
