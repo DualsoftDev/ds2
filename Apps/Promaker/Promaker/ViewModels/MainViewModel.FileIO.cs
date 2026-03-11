@@ -54,7 +54,7 @@ public partial class MainViewModel
                         return;
                     }
 
-                    _currentFilePath = null;
+                    _currentFilePath = fileName;
                     IsDirty = false;
                     UpdateTitle();
                     Log.Info($"AASX opened: {fileName}");
