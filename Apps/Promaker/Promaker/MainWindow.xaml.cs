@@ -1,3 +1,4 @@
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -10,6 +11,8 @@ namespace Promaker;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _vm = new();
+    private Point _treeDragStartPoint;
+    private bool _treeDragCandidate;
 
     public MainWindow()
     {
@@ -40,7 +43,21 @@ public partial class MainWindow : Window
     }
 
     private void TreeViewItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        => HandleTreeItemMouseDown(ResolveTreePane(sender), sender, e, requireModifiers: true);
+    {
+        // 드래그 후보 기록 (Call 항목만)
+        if (sender is TreeViewItem { DataContext: EntityNode node }
+            && node.EntityType == EntityKind.Call)
+        {
+            _treeDragStartPoint = e.GetPosition(null);
+            _treeDragCandidate = true;
+        }
+        else
+        {
+            _treeDragCandidate = false;
+        }
+
+        HandleTreeItemMouseDown(ResolveTreePane(sender), sender, e, requireModifiers: true);
+    }
 
     private void TreeViewItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
         => HandleTreeItemMouseDown(ResolveTreePane(sender), sender, e, requireModifiers: false);
@@ -181,5 +198,25 @@ public partial class MainWindow : Window
 
         _vm.SelectNodeFromTree(node, ctrlPressed, shiftPressed);
         e.Handled = true;
+    }
+
+    // ── Tree → Condition 드래그-드롭 ──
+
+    private void TreeViewItem_PreviewMouseMove_Drag(object sender, MouseEventArgs e)
+    {
+        if (!_treeDragCandidate || e.LeftButton != MouseButtonState.Pressed) return;
+
+        var pos = e.GetPosition(null);
+        var diff = pos - _treeDragStartPoint;
+        if (Math.Abs(diff.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(diff.Y) < SystemParameters.MinimumVerticalDragDistance)
+            return;
+
+        if (sender is not TreeViewItem { DataContext: EntityNode node }) return;
+        if (node.EntityType != EntityKind.Call) return;
+
+        _treeDragCandidate = false;
+        var data = new DataObject("ConditionCallNode", node);
+        DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy);
     }
 }

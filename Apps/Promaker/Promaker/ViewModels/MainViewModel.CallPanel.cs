@@ -184,38 +184,52 @@ public partial class MainViewModel
         if (!TryGetSelectedCall(out var selectedCall)) return;
         if (item is null) return;
 
-        if (!TryEditorRef(
-                () => _store.GetAllApiCallsForPanel(),
-                out var allApiCalls))
-            return;
+        var conditionId = item.ConditionId;
+        var callId = selectedCall.Id;
 
-        var choices = allApiCalls
-            .Select(x => new ConditionApiCallPickerDialog.ApiCallChoice(
-                x.ApiCallId, $"{x.ApiDefDisplayName} / {x.Name}"))
-            .ToList();
-
-        if (choices.Count == 0)
+        var dialog = new ConditionDropDialog();
+        dialog.ShowNonModal(results =>
         {
-            StatusText = "No ApiCall is available in this project.";
-            return;
-        }
+            var totalAdded = 0;
+            foreach (var result in results)
+            {
+                if (!TryEditorRef(
+                        () => _store.GetCallApiCallsForPanel(result.CallId),
+                        out var apiCallRows))
+                    continue;
 
-        var dialog = new ConditionApiCallPickerDialog(choices);
-        if (!ShowOwnedDialog(dialog) || dialog.SelectedApiCallIds.Count == 0)
-            return;
+                var apiCallIds = apiCallRows.Select(r => r.ApiCallId).ToList();
+                if (apiCallIds.Count == 0) continue;
 
-        if (!TryEditorFunc(
-                () => _store.AddApiCallsToConditionBatch(
-                    selectedCall.Id, item.ConditionId,
-                    dialog.SelectedApiCallIds),
-                out var added,
-                fallback: 0))
-            return;
+                if (!TryEditorFunc(
+                        () => _store.AddApiCallsToConditionBatch(
+                            callId, conditionId, apiCallIds),
+                        out var added,
+                        fallback: 0))
+                    continue;
 
-        RefreshCallPanel(selectedCall.Id);
-        var failCount = dialog.SelectedApiCallIds.Count - added;
-        if (failCount > 0)
-            StatusText = $"{failCount} ApiCall(s) failed to add to condition.";
+                totalAdded += added;
+
+                // 다이얼로그에서 입력한 ValueSpec을 각 ApiCall에 적용
+                if (!string.IsNullOrEmpty(result.SpecText))
+                {
+                    foreach (var apiCallId in apiCallIds)
+                        TryEditorFunc(
+                            () => _store.UpdateConditionApiCallOutputSpec(
+                                callId, conditionId, apiCallId,
+                                result.SpecTypeIndex, result.SpecText),
+                            out _,
+                            fallback: false);
+                }
+            }
+
+            if (totalAdded > 0)
+                RefreshCallPanel(callId);
+
+            StatusText = totalAdded > 0
+                ? $"{totalAdded} ApiCall(s) added to condition."
+                : "No ApiCalls were added.";
+        });
     }
 
     [RelayCommand]
