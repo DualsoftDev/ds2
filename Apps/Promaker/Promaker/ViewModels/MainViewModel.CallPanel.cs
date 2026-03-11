@@ -175,7 +175,10 @@ public partial class MainViewModel
     private void RemoveCallCondition(CallConditionItem? item)
     {
         if (item is null) return;
-        CallPanelAction(id => _store.RemoveCallCondition(id, item.ConditionId));
+        if (!TryEditorAction(
+                () => _store.RemoveCallCondition(item.CallId, item.ConditionId)))
+            return;
+        RefreshCallPanel(item.CallId);
     }
 
     [RelayCommand]
@@ -188,61 +191,52 @@ public partial class MainViewModel
         var callId = selectedCall.Id;
 
         var dialog = new ConditionDropDialog();
-        dialog.ShowNonModal(results =>
-        {
-            var totalAdded = 0;
-            foreach (var result in results)
+        dialog.ShowNonModal(
+            // Call 드롭 시 해당 Call의 ApiCall 목록 제공
+            droppedCallId =>
             {
                 if (!TryEditorRef(
-                        () => _store.GetCallApiCallsForPanel(result.CallId),
-                        out var apiCallRows))
-                    continue;
+                        () => _store.GetCallApiCallsForPanel(droppedCallId),
+                        out var rows))
+                    return Array.Empty<ConditionApiCallChoice>();
 
-                var apiCallIds = apiCallRows.Select(r => r.ApiCallId).ToList();
-                if (apiCallIds.Count == 0) continue;
-
+                return rows
+                    .Select(r => new ConditionApiCallChoice(
+                        r.ApiCallId, $"{r.ApiDefDisplayName} / {r.Name}"))
+                    .ToArray();
+            },
+            // 확인 시 선택된 ApiCall ID들로 조건 등록
+            selectedApiCallIds =>
+            {
                 if (!TryEditorFunc(
                         () => _store.AddApiCallsToConditionBatch(
-                            callId, conditionId, apiCallIds),
+                            callId, conditionId, selectedApiCallIds),
                         out var added,
                         fallback: 0))
-                    continue;
+                    return;
 
-                totalAdded += added;
+                if (added > 0)
+                    RefreshCallPanel(callId);
 
-                // 다이얼로그에서 입력한 ValueSpec을 각 ApiCall에 적용
-                if (!string.IsNullOrEmpty(result.SpecText))
-                {
-                    foreach (var apiCallId in apiCallIds)
-                        TryEditorFunc(
-                            () => _store.UpdateConditionApiCallOutputSpec(
-                                callId, conditionId, apiCallId,
-                                result.SpecTypeIndex, result.SpecText),
-                            out _,
-                            fallback: false);
-                }
-            }
-
-            if (totalAdded > 0)
-                RefreshCallPanel(callId);
-
-            StatusText = totalAdded > 0
-                ? $"{totalAdded} ApiCall(s) added to condition."
-                : "No ApiCalls were added.";
-        });
+                StatusText = added > 0
+                    ? $"{added} ApiCall(s) added to condition."
+                    : "No ApiCalls were added.";
+            });
     }
 
     [RelayCommand]
     private void RemoveConditionApiCall(ConditionApiCallRow? row)
     {
         if (row is null) return;
-        CallPanelAction(id => _store.RemoveApiCallFromCondition(id, row.ConditionId, row.ApiCallId));
+        if (!TryEditorAction(
+                () => _store.RemoveApiCallFromCondition(row.CallId, row.ConditionId, row.ApiCallId)))
+            return;
+        RefreshCallPanel(row.CallId);
     }
 
     [RelayCommand]
     private void EditConditionApiCallSpec(ConditionApiCallRow? row)
     {
-        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (row is null) return;
 
         var dialog = new ValueSpecDialog(row.OutputSpecText, row.OutputSpecTypeIndex, "Edit Output ValueSpec");
@@ -251,32 +245,31 @@ public partial class MainViewModel
 
         if (!TryEditorFunc(
                 () => _store.UpdateConditionApiCallOutputSpec(
-                    selectedCall.Id, row.ConditionId, row.ApiCallId,
-                    row.OutputSpecTypeIndex, dialog.ValueSpecText),
+                    row.CallId, row.ConditionId, row.ApiCallId,
+                    dialog.TypeIndex, dialog.ValueSpecText),
                 out var updated,
                 fallback: false))
             return;
 
         if (!updated) return;
-        RefreshCallPanel(selectedCall.Id);
+        RefreshCallPanel(row.CallId);
     }
 
     private void ToggleConditionSetting(CallConditionItem? item, bool toggleIsOR)
     {
-        if (!TryGetSelectedCall(out var selectedCall)) return;
         if (item is null) return;
 
         var newIsOR    = toggleIsOR ? !item.IsOR : item.IsOR;
         var newIsRising = toggleIsOR ? item.IsRising : !item.IsRising;
 
         if (!TryEditorFunc(
-                () => _store.UpdateCallConditionSettings(selectedCall.Id, item.ConditionId, newIsOR, newIsRising),
+                () => _store.UpdateCallConditionSettings(item.CallId, item.ConditionId, newIsOR, newIsRising),
                 out var updated,
                 fallback: false))
             return;
 
         if (!updated) return;
-        RefreshCallPanel(selectedCall.Id);
+        RefreshCallPanel(item.CallId);
     }
 
     [RelayCommand]
@@ -369,7 +362,7 @@ public partial class MainViewModel
         {
             var target = FindConditionSection(cond.ConditionType)
                          ?? FindConditionSection(CallConditionType.Common);
-            target?.Conditions.Add(new CallConditionItem(cond));
+            target?.Conditions.Add(new CallConditionItem(callId, cond));
         }
     }
 

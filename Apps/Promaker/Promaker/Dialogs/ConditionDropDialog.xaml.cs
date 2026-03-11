@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Media;
 using Ds2.Core;
 using Ds2.UI.Core;
@@ -14,19 +13,22 @@ namespace Promaker.Dialogs;
 public partial class ConditionDropDialog : Window
 {
     private Brush? _originalBorderBrush;
-    private Action<IReadOnlyList<ConditionDropResult>>? _onConfirmed;
+    private Func<Guid, IReadOnlyList<ConditionApiCallChoice>>? _apiCallProvider;
+    private Action<IReadOnlyList<Guid>>? _onConfirmed;
 
     public ConditionDropDialog()
     {
         InitializeComponent();
-        ConditionListBox.ItemsSource = AddedItems;
     }
 
-    public ObservableCollection<ConditionDropItem> AddedItems { get; } = [];
+    public ObservableCollection<ConditionApiCallChoice> ApiCallChoices { get; } = [];
 
-    /// 비모달로 열기 — 확인 시 콜백 호출
-    public void ShowNonModal(Action<IReadOnlyList<ConditionDropResult>> onConfirmed)
+    /// 비모달로 열기 — Call 드롭 시 ApiCall 목록 조회 + 확인 시 콜백
+    public void ShowNonModal(
+        Func<Guid, IReadOnlyList<ConditionApiCallChoice>> apiCallProvider,
+        Action<IReadOnlyList<Guid>> onConfirmed)
     {
+        _apiCallProvider = apiCallProvider;
         _onConfirmed = onConfirmed;
         Topmost = true;
         Show();
@@ -71,7 +73,7 @@ public partial class ConditionDropDialog : Window
         if (!e.Data.GetDataPresent("ConditionCallNode")) return;
         if (e.Data.GetData("ConditionCallNode") is not EntityNode { EntityType: EntityKind.Call } callNode) return;
 
-        ShowValueSpecPanel(callNode);
+        LoadApiCallsForCall(callNode);
         e.Handled = true;
     }
 
@@ -81,84 +83,70 @@ public partial class ConditionDropDialog : Window
         DropTargetBorder.BorderThickness = new Thickness(1);
     }
 
-    // ── ValueSpec 편집 ──
+    // ── ApiCall 리스트 표시 ──
 
-    private EntityNode? _pendingCallNode;
-
-    private void ShowValueSpecPanel(EntityNode callNode)
+    private void LoadApiCallsForCall(EntityNode callNode)
     {
-        _pendingCallNode = callNode;
-        SelectedApiCallText.Text = $"Call: {callNode.Name}";
-        SpecEditor.LoadFrom("", ValueSpecTypeIndex.Undefined);
-        ValueSpecPanel.Visibility = Visibility.Visible;
-    }
+        if (_apiCallProvider is null) return;
 
-    private void ConfirmAdd_Click(object sender, RoutedEventArgs e)
-    {
-        if (_pendingCallNode is null) return;
-
-        var specText = SpecEditor.GetText();
-        var typeIndex = SpecEditor.GetTypeIndex();
-
-        AddedItems.Add(new ConditionDropItem(
-            _pendingCallNode.Id,
-            _pendingCallNode.Name,
-            specText,
-            typeIndex));
-
-        _pendingCallNode = null;
-        ValueSpecPanel.Visibility = Visibility.Collapsed;
-        UpdateListVisibility();
-        OkButton.IsEnabled = AddedItems.Count > 0;
-    }
-
-    private void CancelAdd_Click(object sender, RoutedEventArgs e)
-    {
-        _pendingCallNode = null;
-        ValueSpecPanel.Visibility = Visibility.Collapsed;
-    }
-
-    private void RemoveItem_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { DataContext: ConditionDropItem item })
+        var choices = _apiCallProvider(callNode.Id);
+        if (choices.Count == 0)
         {
-            AddedItems.Remove(item);
-            UpdateListVisibility();
-            OkButton.IsEnabled = AddedItems.Count > 0;
+            DroppedCallLabel.Text = $"Call: {callNode.Name} — ApiCall 없음";
+            ApiCallListPanel.Visibility = Visibility.Visible;
+            EmptyHintPanel.Visibility = Visibility.Collapsed;
+            return;
         }
+
+        ApiCallChoices.Clear();
+        foreach (var choice in choices)
+            ApiCallChoices.Add(choice);
+
+        DroppedCallLabel.Text = $"Call: {callNode.Name} ({choices.Count}개 ApiCall)";
+        ApiCallItemsControl.ItemsSource = ApiCallChoices;
+
+        EmptyHintPanel.Visibility = Visibility.Collapsed;
+        ApiCallListPanel.Visibility = Visibility.Visible;
+        SelectAllButton.Visibility = Visibility.Visible;
+        UpdateOkEnabled();
     }
 
-    private void UpdateListVisibility()
+    private void ApiCallCheckBox_Changed(object sender, RoutedEventArgs e) => UpdateOkEnabled();
+
+    private void SelectAll_Click(object sender, RoutedEventArgs e)
     {
-        var hasItems = AddedItems.Count > 0;
-        ConditionListBox.Visibility = hasItems ? Visibility.Visible : Visibility.Collapsed;
-        EmptyHintPanel.Visibility = hasItems ? Visibility.Collapsed : Visibility.Visible;
+        var allSelected = ApiCallChoices.All(c => c.IsSelected);
+        foreach (var choice in ApiCallChoices)
+            choice.IsSelected = !allSelected;
+
+        // rebind to refresh CheckBox state
+        ApiCallItemsControl.ItemsSource = null;
+        ApiCallItemsControl.ItemsSource = ApiCallChoices;
+        UpdateOkEnabled();
+    }
+
+    private void UpdateOkEnabled()
+    {
+        OkButton.IsEnabled = ApiCallChoices.Any(c => c.IsSelected);
     }
 
     private void OK_Click(object sender, RoutedEventArgs e)
     {
-        if (AddedItems.Count == 0) return;
-        var results = AddedItems
-            .Select(x => new ConditionDropResult(x.ApiCallId, x.SpecTypeIndex, x.SpecText))
+        var selectedIds = ApiCallChoices
+            .Where(c => c.IsSelected)
+            .Select(c => c.ApiCallId)
             .ToList();
-        _onConfirmed?.Invoke(results);
+        if (selectedIds.Count == 0) return;
+        _onConfirmed?.Invoke(selectedIds);
         Close();
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => Close();
 }
 
-public sealed class ConditionDropItem(Guid apiCallId, string displayName, string specText, int specTypeIndex)
+public sealed class ConditionApiCallChoice(Guid apiCallId, string displayName)
 {
     public Guid ApiCallId { get; } = apiCallId;
     public string DisplayName { get; } = displayName;
-    public string SpecText { get; } = specText;
-    public int SpecTypeIndex { get; } = specTypeIndex;
-}
-
-public sealed class ConditionDropResult(Guid callId, int specTypeIndex, string specText)
-{
-    public Guid CallId { get; } = callId;
-    public int SpecTypeIndex { get; } = specTypeIndex;
-    public string SpecText { get; } = specText;
+    public bool IsSelected { get; set; }
 }
