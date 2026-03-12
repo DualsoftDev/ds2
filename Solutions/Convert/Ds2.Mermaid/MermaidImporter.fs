@@ -33,14 +33,37 @@ module MermaidImporter =
         match level with
         | SystemLevel -> Some parentId
         | FlowLevel ->
-            // parentId = flowId, Flow.ParentId = systemId
             store.FlowsReadOnly.TryGetValue(parentId)
             |> function
                 | true, flow -> Some flow.ParentId
                 | _ -> None
         | WorkLevel ->
-            // parentId = workId → Work.ParentId = flowId → Flow.ParentId = systemId
             DsQuery.trySystemIdOfWork parentId store
+
+    /// parentId에서 projectId 조회 (Device auto-creation용)
+    let private resolveProjectId (store: DsStore) (level: ImportLevel) (parentId: Guid) : Guid option =
+        match level with
+        | SystemLevel ->
+            store.ProjectsReadOnly.Values
+            |> Seq.tryFind (fun p ->
+                p.ActiveSystemIds.Contains(parentId) || p.PassiveSystemIds.Contains(parentId))
+            |> Option.map (fun p -> p.Id)
+        | FlowLevel ->
+            store.FlowsReadOnly.TryGetValue(parentId)
+            |> function
+                | true, flow ->
+                    store.ProjectsReadOnly.Values
+                    |> Seq.tryFind (fun p ->
+                        p.ActiveSystemIds.Contains(flow.ParentId) || p.PassiveSystemIds.Contains(flow.ParentId))
+                    |> Option.map (fun p -> p.Id)
+                | _ -> None
+        | WorkLevel ->
+            DsQuery.trySystemIdOfWork parentId store
+            |> Option.bind (fun sysId ->
+                store.ProjectsReadOnly.Values
+                |> Seq.tryFind (fun p ->
+                    p.ActiveSystemIds.Contains(sysId) || p.PassiveSystemIds.Contains(sysId))
+                |> Option.map (fun p -> p.Id))
 
     /// Mermaid 그래프를 DsStore에 임포트 (WithTransaction으로 Undo 1회 보장)
     let importIntoStore (store: DsStore) (graph: MermaidGraph) (level: ImportLevel) (parentId: Guid) : Result<unit, string list> =
@@ -50,23 +73,24 @@ module MermaidImporter =
         | Valid ->
 
         let hasSubgraphs = not graph.Subgraphs.IsEmpty
+        let projectId = resolveProjectId store level parentId
 
         store.WithTransaction("Mermaid 임포트", fun () ->
             match level with
             | SystemLevel when hasSubgraphs ->
-                MermaidMapper.mapToSystem store parentId graph |> ignore
+                MermaidMapper.mapToSystem store parentId projectId graph |> ignore
             | SystemLevel ->
                 MermaidMapper.mapToSystemFlat store parentId graph |> ignore
             | FlowLevel ->
                 match resolveSystemId store level parentId with
                 | Some systemId when hasSubgraphs ->
-                    MermaidMapper.mapToFlow store parentId systemId graph |> ignore
+                    MermaidMapper.mapToFlow store parentId systemId projectId graph |> ignore
                 | Some systemId ->
                     MermaidMapper.mapToFlowFlat store parentId systemId graph |> ignore
                 | None ->
                     failwith $"Flow({parentId})에서 System을 찾을 수 없습니다"
             | WorkLevel ->
-                MermaidMapper.mapToWork store parentId graph |> ignore
+                MermaidMapper.mapToWork store parentId projectId graph |> ignore
         )
 
         store.EmitRefreshAndHistory()

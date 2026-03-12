@@ -17,7 +17,7 @@ module Constants =
         let FlowchartDirection = Regex(@"^\s*flowchart\s+(TD|LR|RL|BT)\s*$", RegexOptions.Compiled ||| RegexOptions.IgnoreCase)
 
         /// 서브그래프 시작 패턴
-        let SubgraphStart = Regex(@"^\s*subgraph\s+(\S+)(?:\s*\[""([^""]+)""\])?\s*$", RegexOptions.Compiled)
+        let SubgraphStart = Regex(@"^\s*subgraph\s+([^\s\[]+)(?:\s*\[""([^""]+)""\])?\s*$", RegexOptions.Compiled)
 
         /// 서브그래프 끝 패턴
         let SubgraphEnd = Regex(@"^\s*end\s*$", RegexOptions.Compiled ||| RegexOptions.IgnoreCase)

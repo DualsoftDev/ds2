@@ -136,21 +136,33 @@ public partial class MainViewModel
     {
         if (_currentFilePath is null)
         {
-            var projects = DsQuery.allProjects(_store);
-            var suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
-            var dlg = new SaveFileDialog
-            {
-                Filter = FileFilter,
-                DefaultExt = ".json",
-                FileName = suggestedName
-            };
-
-            if (dlg.ShowDialog() != true) return;
-            _currentFilePath = dlg.FileName;
+            SaveFileAs();
+            return;
         }
 
-        var filePath = _currentFilePath;
+        SaveToPath(_currentFilePath);
+    }
 
+    [RelayCommand]
+    private void SaveFileAs()
+    {
+        var projects = DsQuery.allProjects(_store);
+        var suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
+        var dlg = new SaveFileDialog
+        {
+            Filter = FileFilter,
+            DefaultExt = ".json",
+            FileName = suggestedName
+        };
+
+        if (dlg.ShowDialog() != true) return;
+
+        _currentFilePath = dlg.FileName;
+        SaveToPath(_currentFilePath);
+    }
+
+    private void SaveToPath(string filePath)
+    {
         if (IsAasx(filePath))
         {
             TryRunFileOperation(

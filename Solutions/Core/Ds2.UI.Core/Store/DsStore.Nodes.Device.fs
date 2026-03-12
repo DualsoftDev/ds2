@@ -163,6 +163,26 @@ module internal DirectDeviceOps =
 
             buildWorkArrows store finalState
 
+    /// 이미 생성된 Call 목록에 대해 Device System + ApiDef + ApiCall 연결.
+    /// WithTransaction 내부에서 호출해야 함.
+    let linkCallsToDevices (store: DsStore) (projectId: Guid) (flowName: string) (calls: (Call * string) list) =
+        if calls.IsEmpty then ()
+        else
+            let finalState =
+                calls
+                |> List.fold (fun state (call, callName) ->
+                    let apiName = call.ApiName
+                    if String.IsNullOrEmpty apiName then state
+                    else
+                        let devAlias = call.DevicesAlias
+                        let system, withSystem = ensureSystem store projectId flowName devAlias state
+                        let withWork = ensurePendingWork devAlias apiName system.Id store withSystem
+                        let apiDef, withApiDef = ensureApiDef store system apiName withWork
+                        createAndRegisterApiCall store call callName apiDef.Id
+                        withApiDef
+                ) initialState
+            buildWorkArrows store finalState
+
     let addCallWithLinkedApiDefs (store: DsStore) (workId: Guid) (devicesAlias: string) (apiName: string) (apiDefIds: Guid seq) : Guid =
         let call = Call(devicesAlias, apiName, workId)
         store.TrackAdd(store.Calls, call)
