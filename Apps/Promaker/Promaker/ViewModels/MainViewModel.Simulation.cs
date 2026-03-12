@@ -2,32 +2,50 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.UI.Core;
 using Ds2.Runtime.Sim.Engine;
 using Ds2.Runtime.Sim.Engine.Core;
 using Ds2.Runtime.Sim.Model;
 using Ds2.Runtime.Sim.Report;
+using Ds2.Runtime.Sim.Report.Exporters;
+using Ds2.Runtime.Sim.Report.Model;
 using log4net;
+using Microsoft.Win32;
 
 namespace Promaker.ViewModels;
 
-/// <summary>
-/// 시뮬레이션 제어 (Start/Pause/Stop/Reset) + 상태 모니터 + 이벤트 로그
-/// </summary>
+/// <summary>????? ??? ?? ??? ?????.</summary>
 public partial class MainViewModel
 {
     private static readonly ILog SimLog = LogManager.GetLogger("Simulation");
+
+    private static class SimText
+    {
+        public const string Resumed = "????? ??";
+        public const string Started = "????? ??";
+        public const string Paused = "????? ????";
+        public const string Stopped = "????? ??";
+        public const string Completed = "????? ??";
+        public const string Reset = "????? ??";
+        public const string ResetLog = "????? ?? (F5/??)";
+        public const string ReportEmpty = "??? ????? ???? ????.";
+        public const string ReportDialogTitle = "????? ??? ????";
+
+        public static string SimulationError(string message) => $"????? ??: {message}";
+        public static string ManualWorkStarted(string name) => $"Work ?? ??: {name}";
+        public static string ManualWorkReset(string name) => $"Work ?? ??: {name}";
+        public static string ReportSaved(string path) => $"??? ?? ??: {path}";
+        public static string ReportSaveFailed(string message) => $"??? ?? ??: {message}";
+        public static string ReportError(string message) => $"??? ??: {message}";
+        public static string StateCode(Status4 state) => state.ToString()[..1];
+    }
 
     private ISimulationEngine? _simEngine;
     private DateTime _simStartTime;
     private readonly List<StateChangeRecord> _stateChangeRecords = [];
     private readonly StateCache _stateCache = new();
-
-    // ── Observable Properties ──────────────────────────────────────────
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
@@ -54,13 +72,9 @@ public partial class MainViewModel
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
     private SimWorkItem? _selectedSimWork;
 
-    // ── Collections ────────────────────────────────────────────────────
-
     public ObservableCollection<SimNodeRow> SimNodes { get; } = [];
     public ObservableCollection<string> SimEventLog { get; } = [];
     public ObservableCollection<SimWorkItem> SimWorkItems { get; } = [];
-
-    // ── Commands ───────────────────────────────────────────────────────
 
     [RelayCommand(CanExecute = nameof(CanStartSimulation))]
     private void StartSimulation()
@@ -69,7 +83,7 @@ public partial class MainViewModel
         {
             _simEngine?.Resume();
             IsSimPaused = false;
-            StatusText = "시뮬레이션 재개";
+            StatusText = SimText.Resumed;
             return;
         }
 
@@ -92,13 +106,12 @@ public partial class MainViewModel
             ApplySimStateToCanvas();
             IsSimulating = true;
             IsSimPaused = false;
-            StatusText = "시뮬레이션 시작";
-            AddSimLog("시뮬레이션 시작");
+            SetSimStatus(SimText.Started, SimText.Started);
         }
         catch (Exception ex)
         {
-            SimLog.Error("시뮬레이션 시작 실패", ex);
-            StatusText = $"시뮬레이션 오류: {ex.Message}";
+            SimLog.Error("????? ?? ??", ex);
+            StatusText = SimText.SimulationError(ex.Message);
         }
     }
 
@@ -109,8 +122,7 @@ public partial class MainViewModel
     {
         _simEngine?.Pause();
         IsSimPaused = true;
-        StatusText = "시뮬레이션 일시정지";
-        AddSimLog("시뮬레이션 일시정지");
+        SetSimStatus(SimText.Paused, SimText.Paused);
     }
 
     private bool CanPauseSimulation() => IsSimulating && !IsSimPaused;
@@ -122,8 +134,7 @@ public partial class MainViewModel
         ClearSimStateFromCanvas();
         IsSimulating = false;
         IsSimPaused = false;
-        StatusText = "시뮬레이션 중지";
-        AddSimLog("시뮬레이션 중지");
+        SetSimStatus(SimText.Stopped, SimText.Stopped);
     }
 
     private bool CanStopSimulation() => IsSimulating;
@@ -132,8 +143,7 @@ public partial class MainViewModel
     private void ResetSimulation()
     {
         _simEngine?.Reset();
-        StatusText = "시뮬레이션 리셋";
-        AddSimLog("시뮬레이션 리셋 (F→H→R)");
+        SetSimStatus(SimText.Reset, SimText.ResetLog);
     }
 
     private bool CanResetSimulation() => IsSimulating;
@@ -148,7 +158,7 @@ public partial class MainViewModel
         if (currentState == Status4.Going) return;
 
         engine.ForceWorkState(guid, Status4.Going);
-        AddSimLog($"Work 수동 시작: {selectedWork.Name}");
+        AddSimLog(SimText.ManualWorkStarted(selectedWork.Name));
     }
 
     [RelayCommand(CanExecute = nameof(CanForceWork))]
@@ -157,12 +167,10 @@ public partial class MainViewModel
         if (!TryGetSelectedSimWork(out var engine, out var selectedWork)) return;
 
         engine.ForceWorkState(selectedWork.Guid, Status4.Ready);
-        AddSimLog($"Work 수동 리셋: {selectedWork.Name}");
+        AddSimLog(SimText.ManualWorkReset(selectedWork.Name));
     }
 
     private bool CanForceWork() => IsSimulating && !IsSimPaused && SelectedSimWork is not null;
-
-    // ── Speed / TimeIgnore ─────────────────────────────────────────────
 
     partial void OnSimSpeedChanged(double value)
     {
@@ -174,19 +182,18 @@ public partial class MainViewModel
         _simEngine?.SetTimeIgnore(value);
     }
 
-    // ── Engine Events → UI ─────────────────────────────────────────────
-
-    // ── SimNodes 초기화/갱신 ───────────────────────────────────────────
-
-    // ── Report Data 수집 ───────────────────────────────────────────────
-
-    // ── 헬퍼 ───────────────────────────────────────────────────────────
-
     private void AddSimLog(string message)
     {
         var ts = _simEngine?.State.Clock.ToString(@"hh\:mm\:ss\.fff") ?? "00:00:00.000";
         SimEventLog.Insert(0, $"[{ts}] {message}");
         if (SimEventLog.Count > 500) SimEventLog.RemoveAt(SimEventLog.Count - 1);
+    }
+
+    private void SetSimStatus(string statusText, string? logText = null)
+    {
+        StatusText = statusText;
+        if (!string.IsNullOrWhiteSpace(logText))
+            AddSimLog(logText);
     }
 
     private bool TryGetSelectedSimWork(
@@ -207,15 +214,71 @@ public partial class MainViewModel
         IsSimPaused = false;
         _stateCache.Clear();
     }
+
+    [RelayCommand]
+    private void ExportReportCsv() => ExportReportAs(ExportFormat.Csv);
+
+    [RelayCommand]
+    private void ExportReportXlsx() => ExportReportAs(ExportFormat.Excel);
+
+    [RelayCommand]
+    private void ExportReportHtml() => ExportReportAs(ExportFormat.Html);
+
+    private void ExportReportAs(ExportFormat format)
+    {
+        var report = BuildReport();
+        if (report.Entries.IsEmpty)
+        {
+            StatusText = SimText.ReportEmpty;
+            return;
+        }
+
+        var filter = ExportHelper.getFilter(format);
+        var ext = ExportHelper.getExtension(format);
+
+        var dlg = new SaveFileDialog
+        {
+            Title = SimText.ReportDialogTitle,
+            Filter = filter,
+            DefaultExt = ext,
+            FileName = $"SimReport_{DateTime.Now:yyyyMMdd_HHmmss}{ext}"
+        };
+
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            var options = new ExportOptions
+            {
+                Format = format,
+                FilePath = dlg.FileName,
+                IncludeGanttChart = true,
+                IncludeSummary = true,
+                IncludeDetails = true,
+                PixelsPerSecond = 10.0
+            };
+            var result = ReportService.export(report, options);
+
+            if (result.IsSuccess)
+                StatusText = SimText.ReportSaved(dlg.FileName);
+            else if (result.IsError)
+                StatusText = SimText.ReportSaveFailed(((ExportResult.Error)result).message);
+        }
+        catch (Exception ex)
+        {
+            SimLog.Error("??? ???? ??", ex);
+            StatusText = SimText.ReportError(ex.Message);
+        }
+    }
 }
 
-/// <summary>Work 선택 ComboBox 항목</summary>
+/// <summary>Work ?? ???? ?????.</summary>
 public record SimWorkItem(Guid Guid, string Name)
 {
     public override string ToString() => Name;
 }
 
-/// <summary>시뮬레이션 상태 모니터 행</summary>
+/// <summary>????? ?? ?? ??? ????.</summary>
 public partial class SimNodeRow : ObservableObject
 {
     public Guid NodeGuid { get; init; }

@@ -63,79 +63,68 @@ type EventDrivenEngine(index: SimIndex) =
 
     // ── 상태 전이 ────────────────────────────────────────────────────
 
-    let applyTransition nodeType (nodeGuid: Guid) newState =
-        let result = stateManager.ApplyTransition(nodeType, nodeGuid, newState, shouldSkipCall)
+    // ── 공용 헬퍼 ──
+
+    let scheduleCallTransitions workGuid targetState excludeState =
+        let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
+        for cg in callGuids do
+            let cs = stateManager.GetCallState(cg)
+            if cs <> targetState && cs <> excludeState && not (stateManager.IsCallPending(cg)) then
+                stateManager.MarkCallPending(cg)
+                scheduler.ScheduleNow(ScheduledEventType.CallTransition(cg, targetState), ScheduledEvent.PriorityStateChange) |> ignore
+
+    let scheduleWorkIfReady workGuid targetState =
+        if stateManager.GetWorkState(workGuid) = Status4.Ready && not (stateManager.IsWorkPending(workGuid)) then
+            stateManager.MarkWorkPending(workGuid)
+            scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, targetState), ScheduledEvent.PriorityStateChange) |> ignore
+
+    // ── Work 상태 전이 ──
+
+    let applyWorkTransition (workGuid: Guid) newState =
+        let result = stateManager.ApplyWorkTransition(workGuid, newState)
         if not result.HasChanged then () else
-
-        let oldState = result.OldState
-        let actualNewState = result.ActualNewState
-        let isSkipped = result.IsSkipped
         let clock = TimeSpan.FromMilliseconds(float scheduler.CurrentTimeMs)
-
-        // Call F -> IOValues 업데이트
-        if nodeType = NodeTypeCall && actualNewState = Status4.Finish then
-            setCallIOValues nodeGuid
-
-        // UI 이벤트 (Clock 포함)
-        match nodeType with
-        | NodeTypeWork ->
-            workStateChangedEvent.Trigger({
-                WorkGuid = nodeGuid; WorkName = result.NodeName
-                PreviousState = oldState; NewState = actualNewState; Clock = clock })
-        | NodeTypeCall ->
-            callStateChangedEvent.Trigger({
-                CallGuid = nodeGuid; CallName = result.NodeName
-                PreviousState = oldState; NewState = actualNewState; IsSkipped = isSkipped; Clock = clock })
-        | _ -> ()
-
-        // ── 내부 Call 상태 일괄 전이 헬퍼 ──
-        let scheduleCallTransitions targetState excludeState =
-            let callGuids = SimIndex.findOrEmpty nodeGuid index.WorkCallGuids
-            for cg in callGuids do
-                let cs = stateManager.GetCallState(cg)
-                if cs <> targetState && cs <> excludeState && not (stateManager.IsPending(NodeTypeCall, cg)) then
-                    stateManager.MarkPending(NodeTypeCall, cg)
-                    scheduler.ScheduleNow(ScheduledEventType.CallTransition(cg, targetState), ScheduledEvent.PriorityStateChange) |> ignore
-
-        // ── Work 상태 전이 스케줄 헬퍼 ──
-        let scheduleWorkIfReady workGuid targetState =
-            if stateManager.GetWorkState(workGuid) = Status4.Ready && not (stateManager.IsPending(NodeTypeWork, workGuid)) then
-                stateManager.MarkPending(NodeTypeWork, workGuid)
-                scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, targetState), ScheduledEvent.PriorityStateChange) |> ignore
-
-        // 후속 이벤트 스케줄
-        match nodeType, actualNewState with
-        | NodeTypeWork, s when s = Status4.Going ->
-            let callGuids = SimIndex.findOrEmpty nodeGuid index.WorkCallGuids
+        workStateChangedEvent.Trigger({
+            WorkGuid = workGuid; WorkName = result.NodeName
+            PreviousState = result.OldState; NewState = result.ActualNewState; Clock = clock })
+        match result.ActualNewState with
+        | Status4.Going ->
+            let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
             if callGuids.IsEmpty then
-                let duration = index.WorkDuration |> Map.tryFind nodeGuid |> Option.defaultValue 0.0
+                let duration = index.WorkDuration |> Map.tryFind workGuid |> Option.defaultValue 0.0
                 if timeIgnore then
-                    scheduler.ScheduleNow(ScheduledEventType.DurationComplete nodeGuid, ScheduledEvent.PriorityDurationCheck) |> ignore
+                    scheduler.ScheduleNow(ScheduledEventType.DurationComplete workGuid, ScheduledEvent.PriorityDurationCheck) |> ignore
                 else
                     let delayMs = max 1L (int64 duration)
-                    scheduler.ScheduleAfter(ScheduledEventType.DurationComplete nodeGuid, delayMs, ScheduledEvent.PriorityDurationCheck) |> ignore
+                    scheduler.ScheduleAfter(ScheduledEventType.DurationComplete workGuid, delayMs, ScheduledEvent.PriorityDurationCheck) |> ignore
             scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
-
-        | NodeTypeWork, s when s = Status4.Finish ->
+        | Status4.Finish ->
             scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
+        | Status4.Homing ->
+            scheduleCallTransitions workGuid Status4.Homing Status4.Homing
+            scheduler.ScheduleAfter(ScheduledEventType.HomingComplete workGuid, 1L, ScheduledEvent.PriorityStateChange) |> ignore
+        | Status4.Ready ->
+            scheduleCallTransitions workGuid Status4.Ready Status4.Ready
+        | _ -> ()
 
-        | NodeTypeWork, s when s = Status4.Homing ->
-            scheduleCallTransitions Status4.Homing Status4.Homing
-            scheduler.ScheduleAfter(ScheduledEventType.HomingComplete nodeGuid, 1L, ScheduledEvent.PriorityStateChange) |> ignore
+    // ── Call 상태 전이 ──
 
-        | NodeTypeWork, s when s = Status4.Ready ->
-            scheduleCallTransitions Status4.Ready Status4.Ready
-
-        | NodeTypeCall, s when s = Status4.Homing -> ()
-
-        | NodeTypeCall, s when s = Status4.Going ->
-            SimIndex.txWorkGuids index nodeGuid |> List.iter (fun txGuid -> scheduleWorkIfReady txGuid Status4.Going)
+    let applyCallTransition (callGuid: Guid) newState =
+        let result = stateManager.ApplyCallTransition(callGuid, newState, shouldSkipCall)
+        if not result.HasChanged then () else
+        let clock = TimeSpan.FromMilliseconds(float scheduler.CurrentTimeMs)
+        if result.ActualNewState = Status4.Finish then setCallIOValues callGuid
+        callStateChangedEvent.Trigger({
+            CallGuid = callGuid; CallName = result.NodeName
+            PreviousState = result.OldState; NewState = result.ActualNewState; IsSkipped = result.IsSkipped; Clock = clock })
+        match result.ActualNewState with
+        | Status4.Going ->
+            SimIndex.txWorkGuids index callGuid |> List.iter (fun txGuid -> scheduleWorkIfReady txGuid Status4.Going)
             scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
-
-        | NodeTypeCall, s when s = Status4.Finish ->
-            if not isSkipped then
-                setRxWorkIOValues nodeGuid
-                SimIndex.rxWorkGuids index nodeGuid |> List.iter (fun rxGuid -> scheduleWorkIfReady rxGuid Status4.Finish)
+        | Status4.Finish ->
+            if not result.IsSkipped then
+                setRxWorkIOValues callGuid
+                SimIndex.rxWorkGuids index callGuid |> List.iter (fun rxGuid -> scheduleWorkIfReady rxGuid Status4.Finish)
             scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
         | _ -> ()
 
@@ -144,13 +133,13 @@ type EventDrivenEngine(index: SimIndex) =
     let evaluateConditions () =
         // 시작 가능한 Work
         for workGuid in index.AllWorkGuids do
-            if stateManager.GetWorkState(workGuid) = Status4.Ready && canStartWork workGuid && not (stateManager.IsPending(NodeTypeWork, workGuid)) then
-                stateManager.MarkPending(NodeTypeWork, workGuid)
+            if stateManager.GetWorkState(workGuid) = Status4.Ready && canStartWork workGuid && not (stateManager.IsWorkPending(workGuid)) then
+                stateManager.MarkWorkPending(workGuid)
                 scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, Status4.Going), ScheduledEvent.PriorityStateChange) |> ignore
 
         // 리셋 가능한 Work (F->H, 라이징 에지)
         for workGuid in index.AllWorkGuids do
-            if stateManager.GetWorkState(workGuid) = Status4.Finish && not (stateManager.IsPending(NodeTypeWork, workGuid)) then
+            if stateManager.GetWorkState(workGuid) = Status4.Finish && not (stateManager.IsWorkPending(workGuid)) then
                 match Map.tryFind workGuid index.WorkSystemName, Map.tryFind workGuid index.WorkName with
                 | Some sysName, Some wName ->
                     let allSameKeyPreds =
@@ -174,7 +163,7 @@ type EventDrivenEngine(index: SimIndex) =
                             match Map.tryFind pg index.WorkSystemName, Map.tryFind pg index.WorkName with
                             | Some pSys, Some pName ->
                                 stateManager.AddResetTrigger((pSys, pName), targetKey)
-                                stateManager.MarkPending(NodeTypeWork, workGuid)
+                                stateManager.MarkWorkPending(workGuid)
                                 scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, Status4.Homing), ScheduledEvent.PriorityStateChange) |> ignore
                             | _ -> ()
                         | None -> ()
@@ -188,24 +177,24 @@ type EventDrivenEngine(index: SimIndex) =
                 if stateManager.GetCallState(callGuid) = Status4.Ready
                    && stateManager.GetWorkState(workGuid) = Status4.Going
                    && canStartCall callGuid
-                   && not (stateManager.IsPending(NodeTypeCall, callGuid)) then
-                    stateManager.MarkPending(NodeTypeCall, callGuid)
+                   && not (stateManager.IsCallPending(callGuid)) then
+                    stateManager.MarkCallPending(callGuid)
                     scheduler.ScheduleNow(ScheduledEventType.CallTransition(callGuid, Status4.Going), ScheduledEvent.PriorityStateChange) |> ignore
             | None -> ()
 
         // 완료 가능한 Call
         for callGuid in index.AllCallGuids do
-            if stateManager.GetCallState(callGuid) = Status4.Going && canCompleteCall callGuid && not (stateManager.IsPending(NodeTypeCall, callGuid)) then
-                stateManager.MarkPending(NodeTypeCall, callGuid)
+            if stateManager.GetCallState(callGuid) = Status4.Going && canCompleteCall callGuid && not (stateManager.IsCallPending(callGuid)) then
+                stateManager.MarkCallPending(callGuid)
                 scheduler.ScheduleNow(ScheduledEventType.CallTransition(callGuid, Status4.Finish), ScheduledEvent.PriorityStateChange) |> ignore
 
         // 모든 Call 완료된 Work -> F
         for workGuid in index.AllWorkGuids do
-            if stateManager.GetWorkState(workGuid) = Status4.Going && not (stateManager.IsPending(NodeTypeWork, workGuid)) then
+            if stateManager.GetWorkState(workGuid) = Status4.Going && not (stateManager.IsWorkPending(workGuid)) then
                 let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
                 if not callGuids.IsEmpty then
                     if callGuids |> List.forall (fun cg -> stateManager.GetCallState(cg) = Status4.Finish) then
-                        stateManager.MarkPending(NodeTypeWork, workGuid)
+                        stateManager.MarkWorkPending(workGuid)
                         scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, Status4.Finish), ScheduledEvent.PriorityStateChange) |> ignore
 
     // ── 이벤트 처리 ──────────────────────────────────────────────────
@@ -213,18 +202,18 @@ type EventDrivenEngine(index: SimIndex) =
     let processEvent (event: ScheduledEvent) =
         match event.EventType with
         | ScheduledEventType.WorkTransition(wg, ts) ->
-            stateManager.ClearPending(NodeTypeWork, wg)
-            applyTransition NodeTypeWork wg ts
+            stateManager.ClearWorkPending(wg)
+            applyWorkTransition wg ts
         | ScheduledEventType.CallTransition(cg, ts) ->
-            stateManager.ClearPending(NodeTypeCall, cg)
-            applyTransition NodeTypeCall cg ts
+            stateManager.ClearCallPending(cg)
+            applyCallTransition cg ts
         | ScheduledEventType.DurationComplete wg ->
             if stateManager.GetWorkState(wg) = Status4.Going then
                 if (SimIndex.findOrEmpty wg index.WorkCallGuids).IsEmpty then
-                    applyTransition NodeTypeWork wg Status4.Finish
+                    applyWorkTransition wg Status4.Finish
         | ScheduledEventType.HomingComplete wg ->
             if stateManager.GetWorkState(wg) = Status4.Homing then
-                applyTransition NodeTypeWork wg Status4.Ready
+                applyWorkTransition wg Status4.Ready
         | ScheduledEventType.EvaluateConditions ->
             evaluateConditions()
 
@@ -289,7 +278,7 @@ type EventDrivenEngine(index: SimIndex) =
         this.Stop()
         for workGuid in index.AllWorkGuids do
             if stateManager.GetWorkState(workGuid) = Status4.Finish then
-                applyTransition NodeTypeWork workGuid Status4.Homing
+                applyWorkTransition workGuid Status4.Homing
         for workGuid in index.AllWorkGuids do
             let ws = stateManager.GetWorkState(workGuid)
             if ws <> Status4.Ready && ws <> Status4.Homing then
@@ -299,7 +288,7 @@ type EventDrivenEngine(index: SimIndex) =
                 stateManager.ForceCallState(callGuid, Status4.Ready)
         for workGuid in index.AllWorkGuids do
             if stateManager.GetWorkState(workGuid) = Status4.Homing then
-                applyTransition NodeTypeWork workGuid Status4.Ready
+                applyWorkTransition workGuid Status4.Ready
         scheduler.Clear()
         stateManager.Reset()
 

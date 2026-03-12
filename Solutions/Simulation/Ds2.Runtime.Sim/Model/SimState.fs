@@ -3,14 +3,6 @@ namespace Ds2.Runtime.Sim.Model
 open System
 open Ds2.Core
 
-/// 노드 타입 리터럴 상수
-[<AutoOpen>]
-module NodeTypes =
-    [<Literal>]
-    let NodeTypeWork = "work"
-    [<Literal>]
-    let NodeTypeCall = "call"
-
 /// 시뮬레이션 상태 (Running/Paused/Stopped)
 type SimulationStatus =
     | Running
@@ -64,20 +56,18 @@ module SimState =
         SkippedCalls = Set.empty
     }
 
-    let setState nodeType (nodeGuid: Guid) state simState =
-        match nodeType with
-        | NodeTypeWork ->
-            let progress =
-                match state with
-                | Status4.Ready -> 0.0
-                | Status4.Finish -> 1.0
-                | _ -> simState.WorkProgress |> Map.tryFind nodeGuid |> Option.defaultValue 0.0
-            { simState with
-                WorkStates = simState.WorkStates.Add(nodeGuid, state)
-                WorkProgress = simState.WorkProgress.Add(nodeGuid, progress) }
-        | NodeTypeCall ->
-            { simState with CallStates = simState.CallStates.Add(nodeGuid, state) }
-        | _ -> simState
+    let setWorkState (guid: Guid) state simState =
+        let progress =
+            match state with
+            | Status4.Ready -> 0.0
+            | Status4.Finish -> 1.0
+            | _ -> simState.WorkProgress |> Map.tryFind guid |> Option.defaultValue 0.0
+        { simState with
+            WorkStates = simState.WorkStates.Add(guid, state)
+            WorkProgress = simState.WorkProgress.Add(guid, progress) }
+
+    let setCallState (guid: Guid) state simState =
+        { simState with CallStates = simState.CallStates.Add(guid, state) }
 
     let setIOValue (apiCallGuid: Guid) (value: string) simState =
         { simState with IOValues = simState.IOValues.Add(apiCallGuid, value) }

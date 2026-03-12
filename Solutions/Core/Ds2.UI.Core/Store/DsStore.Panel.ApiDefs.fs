@@ -4,12 +4,20 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 
+module internal PanelApiDefOps =
+    let toApiDefPanelItem (apiDef: ApiDef) =
+        ApiDefPanelItem(
+            apiDef.Id, apiDef.Name, apiDef.Properties.IsPush,
+            apiDef.Properties.TxGuid, apiDef.Properties.RxGuid,
+            apiDef.Properties.Period,
+            apiDef.Properties.Description |> Option.defaultValue "")
+
 [<Extension>]
 type DsStorePanelApiDefExtensions =
     [<Extension>]
     static member GetApiDefsForSystem(store: DsStore, systemId: Guid) : ApiDefPanelItem list =
         DsQuery.apiDefsOf systemId store
-        |> List.map DirectPanelOps.toApiDefPanelItem
+        |> List.map PanelApiDefOps.toApiDefPanelItem
 
     [<Extension>]
     static member GetWorksForSystem(store: DsStore, systemId: Guid) : WorkDropdownItem list =
@@ -20,7 +28,7 @@ type DsStorePanelApiDefExtensions =
     [<Extension>]
     static member TryGetApiDefForEdit(store: DsStore, apiDefId: Guid) : (Guid * ApiDefPanelItem) option =
         DsQuery.getApiDef apiDefId store
-        |> Option.map (fun apiDef -> apiDef.ParentId, DirectPanelOps.toApiDefPanelItem apiDef)
+        |> Option.map (fun apiDef -> apiDef.ParentId, PanelApiDefOps.toApiDefPanelItem apiDef)
 
     [<Extension>]
     static member TryGetApiDefForEditOrNull(store: DsStore, apiDefId: Guid) : ApiDefEditInfo =

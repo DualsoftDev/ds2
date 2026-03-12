@@ -159,10 +159,6 @@
                             <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
                             <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                         </Trigger>
-                        <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource AccentBrush}"/>
-                            <Setter TargetName="ItemBorder" Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}"/>
-                        </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
