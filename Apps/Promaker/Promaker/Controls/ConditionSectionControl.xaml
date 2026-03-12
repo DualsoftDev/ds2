@@ -32,7 +32,7 @@
                            Foreground="{DynamicResource AccentBrush}"
                            Margin="4,0"/>
                 <Button Grid.Column="3"
-                        Content="v"
+                        Content="✎"
                         ToolTip="Edit OutputSpec"
                         Style="{DynamicResource InlineListButton}"
                         Command="{Binding EditConditionApiCallSpecCommand, ElementName=Root}"

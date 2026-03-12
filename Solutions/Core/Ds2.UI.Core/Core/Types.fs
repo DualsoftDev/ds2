@@ -42,7 +42,7 @@ module Labels =
     [<Literal>]
     let Push         = "Push"
     [<Literal>]
-    let Poll         = "Poll"
+    let Normal       = "Normal"
     [<Literal>]
     let ApiDef       = "ApiDef"
     [<Literal>]

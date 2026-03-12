@@ -24,9 +24,15 @@
     <Compile Include="Store\DsStore.Log.fs" />
     <Compile Include="Store\DsStore.Paste.fs" />
     <Compile Include="Store\DsStore.Queries.fs" />
+    <Compile Include="Store\DsStore.Nodes.Remove.fs" />
+    <Compile Include="Store\DsStore.Nodes.Device.fs" />
     <Compile Include="Store\DsStore.Nodes.fs" />
     <Compile Include="Store\DsStore.Arrows.fs" />
     <Compile Include="Store\DsStore.Panel.fs" />
+    <Compile Include="Store\DsStore.Panel.Time.fs" />
+    <Compile Include="Store\DsStore.Panel.ApiDefs.fs" />
+    <Compile Include="Store\DsStore.Panel.ApiCalls.fs" />
+    <Compile Include="Store\DsStore.Panel.Conditions.fs" />
   </ItemGroup>
 
   <ItemGroup>
