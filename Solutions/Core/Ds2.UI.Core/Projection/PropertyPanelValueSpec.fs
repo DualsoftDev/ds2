@@ -36,24 +36,21 @@ module ValueSpecTypeIndex =
 
 module internal PropertyPanelValueSpec =
 
-    let private formatBound toText (value, boundType) =
-        let openToken, closeToken =
-            match boundType with
-            | BoundType.Open -> "(", ")"
-            | BoundType.Closed -> "[", "]"
-        $"{openToken}{toText value}{closeToken}"
-
-    let private formatBoundOr toText noneText boundOpt =
-        boundOpt
-        |> Option.map (formatBound toText)
-        |> Option.defaultValue noneText
-
-    let private formatRangeSegment toText (segment: RangeSegment<'T>) =
-        let lower = formatBoundOr toText "(-inf)" segment.Lower
-        let upper = formatBoundOr toText "(+inf)" segment.Upper
-        $"{lower}..{upper}"
-
     let private formatTyped toText (spec: ValueSpec<'T>) =
+        let formatBound toText (value, boundType) =
+            let openToken, closeToken =
+                match boundType with
+                | BoundType.Open -> "(", ")"
+                | BoundType.Closed -> "[", "]"
+            $"{openToken}{toText value}{closeToken}"
+        let formatBoundOr toText noneText boundOpt =
+            boundOpt
+            |> Option.map (formatBound toText)
+            |> Option.defaultValue noneText
+        let formatRangeSegment toText (segment: RangeSegment<'T>) =
+            let lower = formatBoundOr toText "(-inf)" segment.Lower
+            let upper = formatBoundOr toText "(+inf)" segment.Upper
+            $"{lower}..{upper}"
         match spec with
         | Undefined -> "Undefined"
         | Single v -> toText v
@@ -63,19 +60,18 @@ module internal PropertyPanelValueSpec =
             |> List.map (formatRangeSegment toText)
             |> String.concat "; "
 
-    // 실수 포맷 시 정수 값("10")에 소수점(".0")을 보장하여 LoadFromText 역파싱 오인식 방지
-    let private ensureDecimalPoint (s: string) =
-        if
-            s.Equals("NaN", StringComparison.OrdinalIgnoreCase)
-            || s.Equals("Infinity", StringComparison.OrdinalIgnoreCase)
-            || s.Equals("+Infinity", StringComparison.OrdinalIgnoreCase)
-            || s.Equals("-Infinity", StringComparison.OrdinalIgnoreCase)
-        then
-            s
-        elif s.Contains('.') || s.Contains('E') || s.Contains('e') then s
-        else s + ".0"
-
     let format (valueSpec: ValueSpec) =
+        // 실수 포맷 시 정수 값("10")에 소수점(".0")을 보장하여 LoadFromText 역파싱 오인식 방지
+        let ensureDecimalPoint (s: string) =
+            if
+                s.Equals("NaN", StringComparison.OrdinalIgnoreCase)
+                || s.Equals("Infinity", StringComparison.OrdinalIgnoreCase)
+                || s.Equals("+Infinity", StringComparison.OrdinalIgnoreCase)
+                || s.Equals("-Infinity", StringComparison.OrdinalIgnoreCase)
+            then
+                s
+            elif s.Contains('.') || s.Contains('E') || s.Contains('e') then s
+            else s + ".0"
         match valueSpec with
         | UndefinedValue    -> "Undefined"
         | BoolValue  spec   -> formatTyped (fun v -> if v then "true" else "false") spec
@@ -90,17 +86,6 @@ module internal PropertyPanelValueSpec =
         | Float32Value spec -> formatTyped (fun (v: float32) -> ensureDecimalPoint (v.ToString("G9",  CultureInfo.InvariantCulture))) spec
         | Float64Value spec -> formatTyped (fun (v: float)   -> ensureDecimalPoint (v.ToString("G17", CultureInfo.InvariantCulture))) spec
         | StringValue spec  -> formatTyped id spec
-
-    let private inferFromText (raw: string) =
-        match Boolean.TryParse(raw) with
-        | true, b -> Some(ValueSpec.singleBool b)
-        | _ ->
-            match Int64.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture) with
-            | true, i -> Some(ValueSpec.singleInt64 i)
-            | _ ->
-                match Double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture) with
-                | true, d -> Some(ValueSpec.singleFloat64 d)
-                | _ -> Some(ValueSpec.singleString raw)
 
     let dataTypeIndex (spec: ValueSpec) =
         match spec with
@@ -134,30 +119,38 @@ module internal PropertyPanelValueSpec =
         | ValueSpecTypeIndex.String  -> StringValue  (Single "")
         | _                          -> UndefinedValue
 
-    // TryParse 공통 헬퍼 — Single/Multiple 모두 처리
-    let private tryParseAll (tryParse: string -> bool * 'a) (wrap: 'a list -> ValueSpec) (parts: string list) =
-        let parsed = parts |> List.choose (fun s -> match tryParse s with true, v -> Some v | _ -> None)
-        if parsed.Length = parts.Length then Some(wrap parsed) else None
-
-    // .NET TryParse 오버로드 해소용 래퍼
-    let private parseBool    (s: string) = Boolean.TryParse(s)
-    let private parseInt8    (s: string) = SByte.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)
-    let private parseInt16   (s: string) = Int16.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)
-    let private parseInt32   (s: string) = Int32.TryParse(s,  NumberStyles.Integer, CultureInfo.InvariantCulture)
-    let private parseInt64   (s: string) = Int64.TryParse(s,  NumberStyles.Integer, CultureInfo.InvariantCulture)
-    let private parseUInt8   (s: string) = Byte.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)
-    let private parseUInt16  (s: string) = UInt16.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)
-    let private parseUInt32  (s: string) = UInt32.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)
-    let private parseUInt64  (s: string) = UInt64.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)
-    let private parseFloat32 (s: string) = Single.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture)
-    let private parseFloat64 (s: string) = Double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture)
-
-    // Single/Multiple 통합 래퍼: isMultiple 여부에 따라 wrap 함수 선택
-    let private wrapAs isMultiple (multiWrap: 'a list -> ValueSpec) (singleWrap: 'a -> ValueSpec) : 'a list -> ValueSpec =
-        if isMultiple then multiWrap else (List.head >> singleWrap)
-
     // 힌트 타입으로 파싱 시도, 실패 시 타입 추론으로 폴백
     let tryParseAs (hint: ValueSpec) (text: string) =
+        let inferFromText (raw: string) =
+            match Boolean.TryParse(raw) with
+            | true, b -> Some(ValueSpec.singleBool b)
+            | _ ->
+                match Int64.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                | true, i -> Some(ValueSpec.singleInt64 i)
+                | _ ->
+                    match Double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture) with
+                    | true, d -> Some(ValueSpec.singleFloat64 d)
+                    | _ -> Some(ValueSpec.singleString raw)
+        // TryParse 공통 헬퍼 — Single/Multiple 모두 처리
+        let tryParseAll (tryParse: string -> bool * 'a) (wrap: 'a list -> ValueSpec) (parts: string list) =
+            let parsed = parts |> List.choose (fun s -> match tryParse s with true, v -> Some v | _ -> None)
+            if parsed.Length = parts.Length then Some(wrap parsed) else None
+        // .NET TryParse 오버로드 해소용 래퍼
+        let parseBool    (s: string) = Boolean.TryParse(s)
+        let parseInt8    (s: string) = SByte.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)
+        let parseInt16   (s: string) = Int16.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)
+        let parseInt32   (s: string) = Int32.TryParse(s,  NumberStyles.Integer, CultureInfo.InvariantCulture)
+        let parseInt64   (s: string) = Int64.TryParse(s,  NumberStyles.Integer, CultureInfo.InvariantCulture)
+        let parseUInt8   (s: string) = Byte.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)
+        let parseUInt16  (s: string) = UInt16.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)
+        let parseUInt32  (s: string) = UInt32.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)
+        let parseUInt64  (s: string) = UInt64.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture)
+        let parseFloat32 (s: string) = Single.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture)
+        let parseFloat64 (s: string) = Double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture)
+        // Single/Multiple 통합 래퍼
+        let wrapAs isMultiple (multiWrap: 'a list -> ValueSpec) (singleWrap: 'a -> ValueSpec) : 'a list -> ValueSpec =
+            if isMultiple then multiWrap else (List.head >> singleWrap)
+
         let raw = text.Trim()
         if String.IsNullOrWhiteSpace(raw) || raw.Equals("undefined", StringComparison.OrdinalIgnoreCase) then
             Some UndefinedValue

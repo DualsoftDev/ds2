@@ -41,10 +41,6 @@ type ValueSpec =
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module ValueSpec =
 
-    let private boundClosed<'T> (value: 'T) : Bound<'T> = (value, Closed)
-    let private segment<'T> (lower: Bound<'T> option) (upper: Bound<'T> option) : RangeSegment<'T> =
-        { Lower = lower; Upper = upper }
-
     let singleBool    (value: bool)    = BoolValue    (Single value)
     let singleInt8    (value: sbyte)   = Int8Value    (Single value)
     let singleInt16   (value: int16)   = Int16Value   (Single value)
@@ -62,8 +58,74 @@ module ValueSpec =
 
     // 닫힌 구간 튜플 입력: (하한 option, 상한 option)
     let rangesInt32Closed (segments: (int option * int option) list) : ValueSpec =
+        let boundClosed (value: 'T) : Bound<'T> = (value, Closed)
+        let segment (lower: Bound<'T> option) (upper: Bound<'T> option) : RangeSegment<'T> = { Lower = lower; Upper = upper }
         segments
         |> List.map (fun (lower, upper) ->
             segment (lower |> Option.map boundClosed) (upper |> Option.map boundClosed))
         |> rangesInt32
 
+    // ── 값 추출 ────────────────────────────────────────────────────
+
+    /// Single 케이스의 값을 문자열로 추출 (없으면 "true")
+    let toDefaultString (spec: ValueSpec) : string =
+        match spec with
+        | UndefinedValue -> "true"
+        | BoolValue    (Single v) -> string v
+        | Int8Value    (Single v) -> string v
+        | Int16Value   (Single v) -> string v
+        | Int32Value   (Single v) -> string v
+        | Int64Value   (Single v) -> string v
+        | UInt8Value   (Single v) -> string v
+        | UInt16Value  (Single v) -> string v
+        | UInt32Value  (Single v) -> string v
+        | UInt64Value  (Single v) -> string v
+        | Float32Value (Single v) -> string v
+        | Float64Value (Single v) -> string v
+        | StringValue  (Single v) -> v
+        | _ -> "true"
+
+    /// BoolValue(Single false)인지 확인
+    let isFalse (spec: ValueSpec) : bool =
+        match spec with
+        | BoolValue (Single false) -> true
+        | _ -> false
+
+    // ── 값 평가 ────────────────────────────────────────────────────
+
+    /// ValueSpec DU와 현재 문자열 값 비교
+    let evaluate (valueSpec: ValueSpec) (currentValue: string) : bool =
+        let inRange (value: 'T) (segment: RangeSegment<'T>) =
+            let lowerOk =
+                match segment.Lower with
+                | None -> true
+                | Some (bound, Closed) -> value >= bound
+                | Some (bound, Open) -> value > bound
+            let upperOk =
+                match segment.Upper with
+                | None -> true
+                | Some (bound, Closed) -> value <= bound
+                | Some (bound, Open) -> value < bound
+            lowerOk && upperOk
+        let containsTyped (value: 'T) (spec: ValueSpec<'T>) =
+            match spec with
+            | Undefined -> true
+            | Single v -> v = value
+            | Multiple vs -> vs |> List.contains value
+            | Ranges segments -> segments |> List.exists (inRange value)
+        let inline tryParse parser spec = 
+            match parser currentValue with true, v -> containsTyped v spec | _ -> false
+        match valueSpec with
+        | UndefinedValue   -> true
+        | BoolValue    spec -> tryParse Boolean.TryParse spec
+        | Int8Value    spec -> tryParse SByte.TryParse   spec
+        | Int16Value   spec -> tryParse Int16.TryParse   spec
+        | Int32Value   spec -> tryParse Int32.TryParse   spec
+        | Int64Value   spec -> tryParse Int64.TryParse   spec
+        | UInt8Value   spec -> tryParse Byte.TryParse    spec
+        | UInt16Value  spec -> tryParse UInt16.TryParse  spec
+        | UInt32Value  spec -> tryParse UInt32.TryParse  spec
+        | UInt64Value  spec -> tryParse UInt64.TryParse  spec
+        | Float32Value spec -> tryParse Single.TryParse  spec
+        | Float64Value spec -> tryParse Double.TryParse  spec
+        | StringValue  spec -> containsTyped currentValue spec

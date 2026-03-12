@@ -32,9 +32,6 @@ module internal DirectDeviceOps =
         let _, apiName = parseCallName callName
         not (String.IsNullOrEmpty apiName)
 
-    let private shouldCreate (create: bool) (apiName: string) =
-        create && not (String.IsNullOrEmpty apiName)
-
     let private ensureSystem (store: DsStore) (projectId: Guid) (flowName: string) (devAlias: string) (state: DeviceBatchState) =
         let systemName = $"{flowName}_{devAlias}"
         match Map.tryFind systemName state.PendingSystems with
@@ -155,7 +152,7 @@ module internal DirectDeviceOps =
                     let call = Call(devAlias, apiName, workId)
                     store.TrackAdd(store.Calls, call)
 
-                    if not (shouldCreate createDeviceSystem apiName) then state
+                    if not (createDeviceSystem && not (String.IsNullOrEmpty apiName)) then state
                     else
                         let system, withSystem = ensureSystem store projectId flowName devAlias state
                         let withWork = ensurePendingWork devAlias apiName system.Id store withSystem

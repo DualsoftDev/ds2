@@ -3,9 +3,8 @@ module Ds2.UI.Core.CanvasProjection
 open System
 open Ds2.Core
 
-let private defaultPos = Xywh(UiDefaults.DefaultNodeX, UiDefaults.DefaultNodeY, UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight)
-
 let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) (parentId: Guid) (pos: Xywh option) (conditionTypes: CallConditionType list) (isGhost: bool) =
+    let defaultPos = Xywh(UiDefaults.DefaultNodeX, UiDefaults.DefaultNodeY, UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight)
     let p = pos |> Option.defaultValue defaultPos
     { Id = id
       EntityKind = entityKind

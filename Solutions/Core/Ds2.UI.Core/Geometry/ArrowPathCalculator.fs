@@ -8,33 +8,16 @@ type ArrowVisual = {
     Points: (float * float) list
 }
 
-// --- 유틸 함수 ---
-
-let private edgeMidpoints (r: Xywh) =
-    let x, y, w, h = float r.X, float r.Y, float r.W, float r.H
-    [| x + w / 2.0, y             // Top
-       x + w / 2.0, y + h         // Bottom
-       x,           y + h / 2.0   // Left
-       x + w,       y + h / 2.0 |] // Right
-
-let private dist2 (x1, y1) (x2, y2) =
-    (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)
-
-let private compressPoints (points: (float * float) list) =
-    let rec loop acc rest =
-        match acc, rest with
-        | _, [] -> List.rev acc
-        | [], p :: tail -> loop [ p ] tail
-        | prev :: _, p :: tail ->
-            if prev = p then loop acc tail
-            else loop (p :: acc) tail
-
-    loop [] points
-
-// --- 도킹 포인트 선택 ---
-
 /// source/target 4변의 중점들에서 최단 거리의 점을 선택
 let chooseDockPoints (source: Xywh) (target: Xywh) =
+    let edgeMidpoints (r: Xywh) =
+        let x, y, w, h = float r.X, float r.Y, float r.W, float r.H
+        [| x + w / 2.0, y             // Top
+           x + w / 2.0, y + h         // Bottom
+           x,           y + h / 2.0   // Left
+           x + w,       y + h / 2.0 |] // Right
+    let dist2 (x1, y1) (x2, y2) =
+        (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)
     let srcPts = edgeMidpoints source
     let tgtPts = edgeMidpoints target
     let mutable bestSrc = srcPts.[0]
@@ -49,13 +32,18 @@ let chooseDockPoints (source: Xywh) (target: Xywh) =
                 bestTgt <- t
     bestSrc, bestTgt
 
-// --- 경로 계산 ---
-
-
 /// source->target 직교(polyline) 경로 + 화살표 헤드 계산
 let computePath (source: Xywh) (target: Xywh) : ArrowVisual =
+    let compressPoints (points: (float * float) list) =
+        let rec loop acc rest =
+            match acc, rest with
+            | _, [] -> List.rev acc
+            | [], p :: tail -> loop [ p ] tail
+            | prev :: _, p :: tail ->
+                if prev = p then loop acc tail
+                else loop (p :: acc) tail
+        loop [] points
     let (sx, sy), (tx, ty) = chooseDockPoints source target
-
     let rawPoints =
         if abs (tx - sx) >= abs (ty - sy) then
             let mx = (sx + tx) / 2.0
@@ -63,32 +51,18 @@ let computePath (source: Xywh) (target: Xywh) : ArrowVisual =
         else
             let my = (sy + ty) / 2.0
             [ (sx, sy); (sx, my); (tx, my); (tx, ty) ]
-
     let points = compressPoints rawPoints
     { Points = points }
 
 // --- Flow 단위 일괄 계산 ---
-
-let private buildNodePositions (store: DsStore) (flowId: Guid) =
-    let positions = Collections.Generic.Dictionary<Guid, Xywh>()
-    for work in DsQuery.worksOf flowId store do
-        match work.Position with
-        | Some pos -> positions.[work.Id] <- pos
-        | None -> positions.[work.Id] <- UiDefaults.createDefaultNodeBounds ()
-        for call in DsQuery.callsOf work.Id store do
-            match call.Position with
-            | Some pos -> positions.[call.Id] <- pos
-            | None -> positions.[call.Id] <- UiDefaults.createDefaultNodeBounds ()
-    positions
-
-let private positionOrDefault (posOpt: Xywh option) =
-    defaultArg posOpt (UiDefaults.createDefaultNodeBounds ())
 
 let private tryResolveNodePosition
     (store: DsStore)
     (positions: Collections.Generic.Dictionary<Guid, Xywh>)
     (nodeId: Guid)
     : Xywh option =
+    let positionOrDefault (posOpt: Xywh option) =
+        defaultArg posOpt (UiDefaults.createDefaultNodeBounds ())
     match positions.TryGetValue nodeId with
     | true, pos -> Some pos
     | _ ->
@@ -109,14 +83,22 @@ let private addArrowPaths
 
 /// Flow 내 모든 화살표 경로 일괄 계산
 let computeFlowArrowPaths (store: DsStore) (flowId: Guid) : Map<Guid, ArrowVisual> =
-    let positions = buildNodePositions store flowId
+    let positions =
+        let dict = Collections.Generic.Dictionary<Guid, Xywh>()
+        for work in DsQuery.worksOf flowId store do
+            match work.Position with
+            | Some pos -> dict.[work.Id] <- pos
+            | None -> dict.[work.Id] <- UiDefaults.createDefaultNodeBounds ()
+            for call in DsQuery.callsOf work.Id store do
+                match call.Position with
+                | Some pos -> dict.[call.Id] <- pos
+                | None -> dict.[call.Id] <- UiDefaults.createDefaultNodeBounds ()
+        dict
     let result = Collections.Generic.Dictionary<Guid, ArrowVisual>()
-    // ArrowBetweenWorks: parentId = systemId
     match DsQuery.getFlow flowId store with
     | Some flow ->
         addArrowPaths store positions result (DsQuery.arrowWorksOf flow.ParentId store |> List.map (fun a -> a :> DsArrow))
     | None -> ()
-    // ArrowBetweenCalls: parentId = workId → 각 work별로 수집
     let works = DsQuery.worksOf flowId store
     for work in works do
         addArrowPaths store positions result (DsQuery.arrowCallsOf work.Id store |> List.map (fun a -> a :> DsArrow))

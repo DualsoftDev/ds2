@@ -51,11 +51,6 @@ let private parseStatus4 (s: string) : Status4 =
     | true, v -> v
     | _ -> Status4.Ready
 
-let private tryParseGuid (s: string) : Guid option =
-    match Guid.TryParse(s) with
-    | true, v -> Some v
-    | _ -> None
-
 let private describeSmc (smc: SubmodelElementCollection) : string =
     let guidText = getProp smc Guid_ |> Option.defaultValue "<missing>"
     let nameText = getProp smc Name_ |> Option.defaultValue "<missing>"
@@ -123,6 +118,7 @@ let private smcToWork
     : (Work * Call list * ArrowBetweenCalls list) option =
     try
         // FlowGuid로 parentId 설정
+        let tryParseGuid (s: string) = match Guid.TryParse(s) with true, v -> Some v | _ -> None
         match getProp smc FlowGuid_ |> Option.bind tryParseGuid with
         | None ->
             let workGuid = getProp smc Guid_ |> Option.defaultValue "<missing>"

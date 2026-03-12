@@ -10,33 +10,31 @@ open log4net
 
 let private log = LogManager.GetLogger("Ds2.Aasx.AasxFileIO")
 
-/// AASX ZIP에서 aasx-origin.rels를 파싱하여 AAS 파일 경로를 반환합니다.
-let private resolveAasPath (archive: ZipArchive) : string option =
-    let relsEntry = archive.GetEntry("aasx/_rels/aasx-origin.rels")
-    if relsEntry = null then None
-    else
-        use stream = relsEntry.Open()
-        use reader = new IO.StreamReader(stream, Encoding.UTF8)
-        let xml = reader.ReadToEnd()
-        let doc = Xml.XmlDocument()
-        doc.LoadXml(xml)
-        let nsm = Xml.XmlNamespaceManager(doc.NameTable)
-        nsm.AddNamespace("r", "http://schemas.openxmlformats.org/package/2006/relationships")
-        let node =
-            doc.SelectSingleNode(
-                "//r:Relationship[@Type='http://www.admin-shell.io/aasx/relationships/aas-spec']",
-                nsm)
-        if node = null then None
-        else
-            let target = node.Attributes.["Target"].Value.TrimStart('/')
-            Some target
-
 /// AASX ZIP에서 Environment를 읽어 반환합니다.
 let readEnvironment (path: string) : Environment option =
     try
         use fileStream = new FileStream(path, FileMode.Open, FileAccess.Read)
         use archive = new ZipArchive(fileStream, ZipArchiveMode.Read)
-        resolveAasPath archive
+        let resolveAasPath () =
+            let relsEntry = archive.GetEntry("aasx/_rels/aasx-origin.rels")
+            if relsEntry = null then None
+            else
+                use stream = relsEntry.Open()
+                use reader = new IO.StreamReader(stream, Encoding.UTF8)
+                let xml = reader.ReadToEnd()
+                let doc = Xml.XmlDocument()
+                doc.LoadXml(xml)
+                let nsm = Xml.XmlNamespaceManager(doc.NameTable)
+                nsm.AddNamespace("r", "http://schemas.openxmlformats.org/package/2006/relationships")
+                let node =
+                    doc.SelectSingleNode(
+                        "//r:Relationship[@Type='http://www.admin-shell.io/aasx/relationships/aas-spec']",
+                        nsm)
+                if node = null then None
+                else
+                    let target = node.Attributes.["Target"].Value.TrimStart('/')
+                    Some target
+        resolveAasPath ()
         |> Option.bind (fun aasPath ->
             let entry = archive.GetEntry(aasPath)
             if entry = null then None
@@ -62,13 +60,6 @@ let private writeTextEntry (archive: ZipArchive) (entryName: string) (content: s
     use writer = new StreamWriter(entry.Open(), Encoding.UTF8)
     writer.Write(content)
 
-let private writeXmlEntry (archive: ZipArchive) (entryName: string) (env: Environment) =
-    let entry = archive.CreateEntry(entryName)
-    use stream = entry.Open()
-    let settings = XmlWriterSettings(Indent = true, Encoding = Encoding.UTF8)
-    use xmlWriter = XmlWriter.Create(stream, settings)
-    Xmlization.Serialize.To(env, xmlWriter)
-
 /// Environment를 AASX ZIP으로 저장합니다 (XML 직렬화).
 let writeEnvironment (env: Environment) (path: string) : unit =
     use fileStream = new FileStream(path, FileMode.Create)
@@ -93,4 +84,10 @@ let writeEnvironment (env: Environment) (path: string) : unit =
   <Relationship Type="http://www.admin-shell.io/aasx/relationships/aas-spec" Target="/aasx/aas/aas.aas.xml" Id="R40528201d6544e91" />
 </Relationships>"""
 
-    writeXmlEntry archive "aasx/aas/aas.aas.xml" env
+    let writeXmlEntry (entryName: string) =
+        let entry = archive.CreateEntry(entryName)
+        use stream = entry.Open()
+        let settings = XmlWriterSettings(Indent = true, Encoding = Encoding.UTF8)
+        use xmlWriter = XmlWriter.Create(stream, settings)
+        Xmlization.Serialize.To(env, xmlWriter)
+    writeXmlEntry "aasx/aas/aas.aas.xml"

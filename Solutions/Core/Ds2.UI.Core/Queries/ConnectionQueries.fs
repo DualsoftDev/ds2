@@ -18,18 +18,6 @@ let hasArrowKeyExcept
         exceptId <> Some arrow.Id &&
         arrowKeyOf arrow = expectedKey)
 
-/// Work → (EntityKind.Work, systemId, workId)
-/// Call → (EntityKind.Call, workId, callId)
-let private resolveOrderedNodeContext (store: DsStore) (nodeId: Guid) : (EntityKind * Guid * Guid) option =
-    match DsQuery.getWork nodeId store with
-    | Some work ->
-        DsQuery.trySystemIdOfWork work.Id store
-        |> Option.map (fun systemId -> (EntityKind.Work, systemId, work.Id))
-    | None ->
-        match DsQuery.getCall nodeId store with
-        | Some call -> Some (EntityKind.Call, call.ParentId, call.Id)
-        | None -> None
-
 /// Ordered multi-selection -> connectable arrow links.
 /// Result tuple: (entityKind, parentId, sourceId, targetId)
 ///   Work arrow: parentId = systemId
@@ -40,6 +28,16 @@ let orderedArrowLinksForSelection
     (arrowType: ArrowType)
     : (EntityKind * Guid * Guid * Guid) list =
 
+    let resolveOrderedNodeContext (nodeId: Guid) : (EntityKind * Guid * Guid) option =
+        match DsQuery.getWork nodeId store with
+        | Some work ->
+            DsQuery.trySystemIdOfWork work.Id store
+            |> Option.map (fun systemId -> (EntityKind.Work, systemId, work.Id))
+        | None ->
+            match DsQuery.getCall nodeId store with
+            | Some call -> Some (EntityKind.Call, call.ParentId, call.Id)
+            | None -> None
+
     let distinctIds =
         let seen = System.Collections.Generic.HashSet<Guid>()
         orderedNodeIds
@@ -48,7 +46,7 @@ let orderedArrowLinksForSelection
 
     let orderedContexts =
         distinctIds
-        |> List.choose (resolveOrderedNodeContext store)
+        |> List.choose resolveOrderedNodeContext
 
     // 기존 화살표를 (Source, Target, ArrowType)으로 프리빌드 — 동일 타입만 중복 제외
     let existingWorkArrows =
