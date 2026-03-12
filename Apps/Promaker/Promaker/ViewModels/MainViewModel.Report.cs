@@ -15,7 +15,7 @@ public partial class MainViewModel
 {
     private void RecordStateChange(string nodeId, string nodeName, string nodeType, string systemId, Status4 state)
     {
-        var stateStr = NodeMatching.nodeStateToString(state);
+        var stateStr = state.ToString()[..1];
         _stateChangeRecords.Add(
             new StateChangeRecord(nodeId, nodeName, nodeType, systemId, stateStr, DateTime.Now));
     }
