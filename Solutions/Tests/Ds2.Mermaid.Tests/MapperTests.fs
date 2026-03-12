@@ -237,3 +237,127 @@ let ``ArrowLabel → ArrowType 변환`` () =
     Assert.Equal(ArrowType.StartReset, MermaidMapper.mapArrowType StartReset)
     Assert.Equal(ArrowType.Start, MermaidMapper.mapArrowType StartEdge)
     Assert.Equal(ArrowType.Reset, MermaidMapper.mapArrowType ResetEdge)
+
+// ─── System 레벨 — Passive subgraph ───
+
+let private mermaidWithPassiveDevices =
+    """
+flowchart TD
+    subgraph STN1["STN1"]
+        STN1_Work1["Work1"]
+        STN1_Work2["Work2"]
+    end
+    subgraph STN2["STN2"]
+        STN2_Work3["Work3"]
+    end
+    STN1_Work1 -->|Reset| STN1_Work2
+    subgraph Devices["Passive Devices"]
+        Device1["Device1"]
+        Device2["Device2"]
+    end
+"""
+
+[<Fact>]
+let ``System 레벨 — Passive subgraph → Device Tree에 빈 passive system 생성`` () =
+    let store = createStore()
+    let projectId, systemId = setupProject store
+
+    match MermaidParser.parse mermaidWithPassiveDevices with
+    | Error e -> Assert.Fail($"파싱 실패: {e}")
+    | Ok graph ->
+
+    let result = MermaidImporter.importIntoStore store graph SystemLevel systemId
+    Assert.True(Result.isOk result)
+
+    // Active Flow 2개 (STN1, STN2 — Devices는 passive이므로 Flow 안 됨)
+    let flows = store.Flows.Values |> Seq.filter (fun f -> f.ParentId = systemId) |> Seq.toList
+    Assert.Equal(2, flows.Length)
+
+    // Work 3개 (Work1, Work2, Work3)
+    let works = store.Works.Values |> Seq.toList
+    Assert.True(works.Length >= 3)
+
+    // Passive Device System 2개 (Device1, Device2)
+    let project = store.Projects.[projectId]
+    let passiveSystems = project.PassiveSystemIds |> Seq.choose (fun id -> store.Systems.TryGetValue(id) |> function true, s -> Some s | _ -> None) |> Seq.toList
+    Assert.Equal(2, passiveSystems.Length)
+    Assert.Contains(passiveSystems, fun s -> s.Name = "Device1")
+    Assert.Contains(passiveSystems, fun s -> s.Name = "Device2")
+
+    // ArrowBetweenWorks (STN1 내 Reset)
+    let arrows = store.ArrowWorks.Values |> Seq.filter (fun a -> a.ParentId = systemId) |> Seq.toList
+    Assert.True(arrows.Length >= 1)
+
+[<Fact>]
+let ``System 레벨 Passive Undo — 전체 롤백`` () =
+    let store = createStore()
+    let _, systemId = setupProject store
+    let beforeSystemCount = store.Systems.Count
+
+    match MermaidParser.parse mermaidWithPassiveDevices with
+    | Error e -> Assert.Fail($"파싱 실패: {e}")
+    | Ok graph ->
+
+    MermaidImporter.importIntoStore store graph SystemLevel systemId |> ignore
+    Assert.True(store.Systems.Count > beforeSystemCount)
+
+    store.Undo()
+    Assert.Equal(beforeSystemCount, store.Systems.Count)
+
+// ─── Device auto-creation (Work 레벨) ───
+
+[<Fact>]
+let ``Work 레벨 — Device.ApiName 형식 Call이면 Device System 자동 생성`` () =
+    let store = createStore()
+    let projectId, systemId, flowId, workId = setupProjectWithWork store
+
+    let mermaid = """
+graph TD
+    A["SV.ON"]
+    B["SV.OFF"]
+    A --> B
+"""
+    match MermaidParser.parse mermaid with
+    | Error e -> Assert.Fail($"파싱 실패: {e}")
+    | Ok graph ->
+
+    MermaidImporter.importIntoStore store graph WorkLevel workId |> ignore
+
+    // Call 2개
+    let calls = store.Calls.Values |> Seq.filter (fun c -> c.ParentId = workId) |> Seq.toList
+    Assert.Equal(2, calls.Length)
+
+    // Device System 생성 확인 (TestFlow_SV)
+    let project = store.Projects.Values |> Seq.head
+    let passiveSystems = project.PassiveSystemIds |> Seq.choose (fun id -> store.Systems.TryGetValue(id) |> function true, s -> Some s | _ -> None) |> Seq.toList
+    Assert.True(passiveSystems.Length >= 1)
+
+    // ApiDef 생성 확인
+    let apiDefs = store.ApiDefs.Values |> Seq.toList
+    Assert.True(apiDefs.Length >= 2)  // ON, OFF
+
+    // ApiCall 연결 확인
+    let apiCalls = store.ApiCalls.Values |> Seq.toList
+    Assert.True(apiCalls.Length >= 2)
+
+// ─── 인라인 노드 정의 (naming bug fix) ───
+
+[<Fact>]
+let ``인라인 노드 정의 — Arrow에서 A["Label"] 형식도 노드로 등록`` () =
+    let mermaid = """
+graph TD
+    A["SV.ON"] --> B["SV.OFF"]
+"""
+    match MermaidParser.parse mermaid with
+    | Error e -> Assert.Fail($"파싱 실패: {e}")
+    | Ok graph ->
+
+    // 노드 2개가 등록되어야 함
+    Assert.Equal(2, graph.GlobalNodes.Length)
+    Assert.Contains(graph.GlobalNodes, fun n -> n.Id = "A" && n.Label = "SV.ON")
+    Assert.Contains(graph.GlobalNodes, fun n -> n.Id = "B" && n.Label = "SV.OFF")
+
+    // Edge는 ID 기준
+    Assert.Equal(1, graph.GlobalEdges.Length)
+    Assert.Equal("A", graph.GlobalEdges.[0].SourceId)
+    Assert.Equal("B", graph.GlobalEdges.[0].TargetId)

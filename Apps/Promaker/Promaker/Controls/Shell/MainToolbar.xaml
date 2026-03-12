@@ -35,13 +35,42 @@
                         <TextBlock Text="불러오기" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                     </StackPanel>
                 </Button>
-                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding SaveFileCommand}"
-                        ToolTip="저장 (Ctrl+S)">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xE74E;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
-                        <TextBlock Text="저장" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Button>
+                <Grid VerticalAlignment="Stretch">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" Style="{StaticResource SlimToolbarButton}" Command="{Binding SaveFileCommand}"
+                            ToolTip="저장 (Ctrl+S)" Padding="8,2,2,2">
+                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                            <TextBlock Text="&#xE74E;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
+                            <TextBlock Text="저장" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Button>
+                    <ToggleButton x:Name="SaveMenuToggle" Grid.Column="1"
+                                  Style="{StaticResource SlimToggleButton}"
+                                  ToolTip="다른 이름으로 저장"
+                                  Padding="2,0" MinWidth="14" Width="14">
+                        <TextBlock Text="&#xE70D;" FontFamily="Segoe MDL2 Assets" FontSize="8"
+                                   VerticalAlignment="Bottom" Margin="0,0,0,6"/>
+                    </ToggleButton>
+                    <Popup IsOpen="{Binding IsChecked, ElementName=SaveMenuToggle, Mode=TwoWay}"
+                           StaysOpen="False"
+                           Placement="Bottom"
+                           PlacementTarget="{Binding ElementName=SaveMenuToggle}"
+                           DataContext="{Binding DataContext, ElementName=ThisControl}">
+                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="4"
+                                MinWidth="160">
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveFileAsCommand}" Click="CloseSavePopup">
+                                <TextBlock Text="다른 이름으로 저장..." VerticalAlignment="Center"/>
+                            </Button>
+                        </Border>
+                    </Popup>
+                </Grid>
 
                 <!-- ① 구분선 좌우 Margin 6,0 (기존 4,0 대비 1.5배) -->
                 <Border Width="1" Height="36" Margin="6,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>

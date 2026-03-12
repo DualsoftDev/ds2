@@ -31,33 +31,56 @@ module MermaidMapper =
     let private subgraphName (sg: MermaidSubgraph) : string =
         sg.DisplayName |> Option.defaultValue sg.Id
 
+    /// "Passive Devices" 서브그래프 판별
+    let private isPassiveSubgraph (sg: MermaidSubgraph) : bool =
+        let name = (subgraphName sg).ToLowerInvariant()
+        name.Contains("passive") || name.Contains("device")
+
     // ═══════════════════════════════════════════════════
     // System 2-depth: subgraph → Flow, node → Work
+    // Passive subgraph → Device Tree에 빈 passive system
     // ═══════════════════════════════════════════════════
 
-    let mapToSystem (store: DsStore) (systemId: Guid) (graph: MermaidGraph) : (string * string) list =
+    let mapToSystem (store: DsStore) (systemId: Guid) (projectId: Guid option) (graph: MermaidGraph) : (string * string) list =
         let ignored = ResizeArray<string * string>()
+        let nodeToWorkId = Dictionary<string, Guid>()
 
         for sg in graph.Subgraphs do
-            let flow = Flow(subgraphName sg, systemId)
-            store.TrackAdd(store.Flows, flow)
+            if isPassiveSubgraph sg then
+                // Passive subgraph: 각 노드 → 빈 passive system (Device Tree)
+                match projectId with
+                | Some pid ->
+                    for node in sg.Nodes do
+                        let system = DsSystem(node.Label)
+                        store.TrackAdd(store.Systems, system)
+                        store.TrackMutate(store.Projects, pid, fun p ->
+                            p.PassiveSystemIds.Add(system.Id))
+                | None -> ()
+            else
+                // Active subgraph → Flow + Works
+                let flow = Flow(subgraphName sg, systemId)
+                store.TrackAdd(store.Flows, flow)
 
-            let nodeToWork = Dictionary<string, Guid>()
+                for node in sg.Nodes do
+                    let work = Work(node.Label, flow.Id)
+                    store.TrackAdd(store.Works, work)
+                    nodeToWorkId.[node.Id] <- work.Id
 
-            for node in sg.Nodes do
-                let work = Work(node.Label, flow.Id)
-                store.TrackAdd(store.Works, work)
-                nodeToWork.[node.Id] <- work.Id
+                for edge in sg.InternalEdges do
+                    match nodeToWorkId.TryGetValue(edge.SourceId), nodeToWorkId.TryGetValue(edge.TargetId) with
+                    | (true, srcId), (true, tgtId) ->
+                        let arrow = ArrowBetweenWorks(systemId, srcId, tgtId, mapArrowType edge.Label)
+                        store.TrackAdd(store.ArrowWorks, arrow)
+                    | _ -> ()
 
-            for edge in sg.InternalEdges do
-                match nodeToWork.TryGetValue(edge.SourceId), nodeToWork.TryGetValue(edge.TargetId) with
-                | (true, srcId), (true, tgtId) ->
-                    let arrow = ArrowBetweenWorks(systemId, srcId, tgtId, mapArrowType edge.Label)
-                    store.TrackAdd(store.ArrowWorks, arrow)
-                | _ -> ()
-
+        // Global edges → cross-flow ArrowBetweenWorks (같은 System 내)
         for edge in graph.GlobalEdges do
-            ignored.Add($"{edge.SourceId} → {edge.TargetId}", "Flow 간 화살표는 지원하지 않습니다")
+            match nodeToWorkId.TryGetValue(edge.SourceId), nodeToWorkId.TryGetValue(edge.TargetId) with
+            | (true, srcId), (true, tgtId) ->
+                let arrow = ArrowBetweenWorks(systemId, srcId, tgtId, mapArrowType edge.Label)
+                store.TrackAdd(store.ArrowWorks, arrow)
+            | _ ->
+                ignored.Add($"{edge.SourceId} → {edge.TargetId}", "매핑할 수 없는 edge")
 
         ignored |> Seq.toList
 
@@ -81,11 +104,16 @@ module MermaidMapper =
     // Flow 2-depth: subgraph → Work, node → Call
     // ═══════════════════════════════════════════════════
 
-    let mapToFlow (store: DsStore) (flowId: Guid) (systemId: Guid) (graph: MermaidGraph) : (string * string) list =
+    let mapToFlow (store: DsStore) (flowId: Guid) (systemId: Guid) (projectId: Guid option) (graph: MermaidGraph) : (string * string) list =
         let ignored = ResizeArray<string * string>()
         let nodeToCallId = Dictionary<string, Guid>()
         let nodeToWorkId = Dictionary<string, Guid>()
         let createdWorkArrows = HashSet<Guid * Guid>()
+        let createdCalls = ResizeArray<Call * string>()
+
+        let flowName =
+            store.FlowsReadOnly.TryGetValue(flowId)
+            |> function true, f -> f.Name | _ -> ""
 
         for sg in graph.Subgraphs do
             let work = Work(subgraphName sg, flowId)
@@ -97,6 +125,8 @@ module MermaidMapper =
                 store.TrackAdd(store.Calls, call)
                 nodeToCallId.[node.Id] <- call.Id
                 nodeToWorkId.[node.Id] <- work.Id
+                if apiName <> "" then
+                    createdCalls.Add(call, node.Label)
 
             for edge in sg.InternalEdges do
                 match nodeToCallId.TryGetValue(edge.SourceId), nodeToCallId.TryGetValue(edge.TargetId) with
@@ -115,6 +145,12 @@ module MermaidMapper =
             | (true, _), (true, _) -> ()
             | _ ->
                 ignored.Add($"{edge.SourceId} → {edge.TargetId}", "매핑할 수 없는 edge")
+
+        // Device auto-creation
+        match projectId with
+        | Some pid when createdCalls.Count > 0 ->
+            DirectDeviceOps.linkCallsToDevices store pid flowName (createdCalls |> Seq.toList)
+        | _ -> ()
 
         ignored |> Seq.toList
 
@@ -143,14 +179,25 @@ module MermaidMapper =
     // Work 1-depth: GlobalNode → Call, GlobalEdge → ArrowBetweenCalls
     // ═══════════════════════════════════════════════════
 
-    let mapToWork (store: DsStore) (workId: Guid) (graph: MermaidGraph) : (string * string) list =
+    let mapToWork (store: DsStore) (workId: Guid) (projectId: Guid option) (graph: MermaidGraph) : (string * string) list =
         let nodeToCallId = Dictionary<string, Guid>()
+        let createdCalls = ResizeArray<Call * string>()
+
+        let flowName =
+            store.WorksReadOnly.TryGetValue(workId)
+            |> function
+                | true, w ->
+                    store.FlowsReadOnly.TryGetValue(w.ParentId)
+                    |> function true, f -> f.Name | _ -> ""
+                | _ -> ""
 
         for node in graph.GlobalNodes do
             let devicesAlias, apiName = splitCallName node.Label
             let call = Call(devicesAlias, apiName, workId)
             store.TrackAdd(store.Calls, call)
             nodeToCallId.[node.Id] <- call.Id
+            if apiName <> "" then
+                createdCalls.Add(call, node.Label)
 
         for edge in graph.GlobalEdges do
             match nodeToCallId.TryGetValue(edge.SourceId), nodeToCallId.TryGetValue(edge.TargetId) with
@@ -158,6 +205,12 @@ module MermaidMapper =
                 let arrow = ArrowBetweenCalls(workId, srcId, tgtId, mapArrowType edge.Label)
                 store.TrackAdd(store.ArrowCalls, arrow)
             | _ -> ()
+
+        // Device auto-creation
+        match projectId with
+        | Some pid when createdCalls.Count > 0 ->
+            DirectDeviceOps.linkCallsToDevices store pid flowName (createdCalls |> Seq.toList)
+        | _ -> ()
 
         []
 
@@ -171,14 +224,19 @@ module MermaidMapper =
 
         match level with
         | SystemLevel when not graph.Subgraphs.IsEmpty ->
-            // 2-depth
-            let flowNames = graph.Subgraphs |> List.map subgraphName
-            let workNames = graph.Subgraphs |> List.collect (fun sg -> sg.Nodes |> List.map (fun n -> n.Label))
-            let arrowWorksCount = graph.Subgraphs |> List.sumBy (fun sg -> sg.InternalEdges.Length)
-            for edge in graph.GlobalEdges do
-                ignored.Add($"{edge.SourceId} → {edge.TargetId}", "Flow 간 화살표 미지원")
+            // 2-depth: active subgraph → Flow/Work, passive subgraph → Device System
+            let activeSubgraphs, passiveSubgraphs =
+                graph.Subgraphs |> List.partition (fun sg -> not (isPassiveSubgraph sg))
+            let flowNames = activeSubgraphs |> List.map subgraphName
+            let workNames = activeSubgraphs |> List.collect (fun sg -> sg.Nodes |> List.map (fun n -> n.Label))
+            let deviceNames = passiveSubgraphs |> List.collect (fun sg -> sg.Nodes |> List.map (fun n -> n.Label))
+            let arrowWorksCount =
+                (activeSubgraphs |> List.sumBy (fun sg -> sg.InternalEdges.Length))
+                + graph.GlobalEdges.Length
             {
                 Level = SystemLevel
+                SystemNames = []
+                DeviceSystemNames = deviceNames
                 FlowNames = flowNames
                 WorkNames = workNames
                 CallNames = []
@@ -195,6 +253,8 @@ module MermaidMapper =
                 ignored.Add($"{edge.SourceId} → {edge.TargetId}", "Flow 간 화살표 미지원")
             {
                 Level = SystemLevel
+                SystemNames = []
+                DeviceSystemNames = []
                 FlowNames = flowNames
                 WorkNames = []
                 CallNames = []
@@ -216,6 +276,8 @@ module MermaidMapper =
                     arrowWorksCount <- arrowWorksCount + 1
             {
                 Level = FlowLevel
+                SystemNames = []
+                DeviceSystemNames = []
                 FlowNames = []
                 WorkNames = workNames
                 CallNames = callNames
@@ -231,6 +293,8 @@ module MermaidMapper =
             let arrowWorksCount = graph.GlobalEdges.Length
             {
                 Level = FlowLevel
+                SystemNames = []
+                DeviceSystemNames = []
                 FlowNames = []
                 WorkNames = workNames
                 CallNames = []
@@ -246,6 +310,8 @@ module MermaidMapper =
             let arrowCallsCount = graph.GlobalEdges.Length
             {
                 Level = WorkLevel
+                SystemNames = []
+                DeviceSystemNames = []
                 FlowNames = []
                 WorkNames = []
                 CallNames = callNames
@@ -254,3 +320,4 @@ module MermaidMapper =
                 IgnoredEdges = ignored |> Seq.toList
                 Warnings = warnings |> Seq.toList
             }
+

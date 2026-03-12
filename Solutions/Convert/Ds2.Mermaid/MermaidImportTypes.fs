@@ -17,6 +17,8 @@ type DepthInfo = {
 /// 프리뷰 정보 (다이얼로그에 표시)
 type ImportPreview = {
     Level: ImportLevel
+    SystemNames: string list
+    DeviceSystemNames: string list
     FlowNames: string list
     WorkNames: string list
     CallNames: string list

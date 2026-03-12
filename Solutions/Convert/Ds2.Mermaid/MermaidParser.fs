@@ -44,6 +44,21 @@ module MermaidParser =
         | None ->
             { state with GlobalNodes = node :: state.GlobalNodes }
 
+    /// Arrow 소스/타겟에서 인라인 노드 정의 처리: A["Label"] → ID="A", 노드 자동 등록
+    let private resolveInlineNode (state: ParserState) (raw: string) : ParserState * string =
+        match raw.IndexOf("[\"") with
+        | -1 -> state, raw
+        | idx ->
+            let nodeId = raw.[..idx - 1]
+            let endIdx = raw.LastIndexOf("\"]")
+            if endIdx <= idx + 2 then state, raw
+            else
+                let label = raw.[idx + 2 .. endIdx - 1]
+                let newState =
+                    if state.AllNodeIds.Contains(nodeId) then state
+                    else addNodeToSubgraph state nodeId label
+                newState, nodeId
+
     /// 엣지를 추가 (서브그래프 내부 또는 글로벌)
     let private addEdge (state: ParserState) (source: string) (target: string) (style: MermaidArrowStyle) (label: ArrowLabel) : ParserState =
         let edge = {
@@ -111,15 +126,19 @@ module MermaidParser =
             addNodeToSubgraph state id label
 
         | SolidArrowToken (source, target, labelOpt) ->
+            let state, src = resolveInlineNode state source
+            let state, tgt = resolveInlineNode state target
             let label = parseArrowLabel labelOpt
-            addEdge state source target Solid label
+            addEdge state src tgt Solid label
 
         | DashedArrowToken (source, target, labelOpt) ->
+            let state, src = resolveInlineNode state source
+            let state, tgt = resolveInlineNode state target
             let label =
                 match labelOpt with
                 | Some "autoPre" | Some "AutoPre" -> AutoPre
                 | _ -> parseArrowLabel labelOpt
-            addEdge state source target Dashed label
+            addEdge state src tgt Dashed label
 
         | CommentToken _ | EmptyLineToken ->
             state
