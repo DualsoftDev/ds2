@@ -10,6 +10,7 @@
     <Compile Include="TestHelpers.fs" />
     <Compile Include="DsStoreTests.fs" />
     <Compile Include="ViewProjectionTests.fs" />
+    <Compile Include="SimulationTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -24,6 +25,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
+    <ProjectReference Include="..\..\Simulation\Ds2.Runtime.Sim\Ds2.Runtime.Sim.fsproj" />
+    <ProjectReference Include="..\..\Simulation\Ds2.Runtime.Sim.Report\Ds2.Runtime.Sim.Report.fsproj" />
   </ItemGroup>
 
 </Project>

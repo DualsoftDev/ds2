@@ -88,6 +88,10 @@ public partial class MainViewModel : ObservableObject
 
     private void Reset()
     {
+        DisposeSimEngine();
+        SimNodes.Clear();
+        SimEventLog.Clear();
+
         _store = new DsStore();
         WireEvents();
 

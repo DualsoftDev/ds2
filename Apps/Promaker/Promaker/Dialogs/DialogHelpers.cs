@@ -20,14 +20,21 @@ internal static class DialogHelpers
         };
         var textBox = new TextBox { Text = defaultName, Margin = new Thickness(12, 12, 12, 0) };
         textBox.SelectAll();
-        var okButton = new Button { Content = "OK", Width = 80, Margin = new Thickness(0, 8, 12, 12), HorizontalAlignment = HorizontalAlignment.Right, IsDefault = true };
+        var okButton = new Button { Content = "OK", Width = 80, Margin = new Thickness(0, 8, 0, 12), IsDefault = true };
+        var cancelButton = new Button { Content = "Cancel", Width = 80, Margin = new Thickness(8, 8, 12, 12), IsCancel = true };
         if (Application.Current.TryFindResource("DarkButton") is Style darkStyle)
+        {
             okButton.Style = darkStyle;
+            cancelButton.Style = darkStyle;
+        }
         string? result = null;
         okButton.Click += (_, _) => { result = textBox.Text.Trim(); dialog.DialogResult = true; };
+        var buttonPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttonPanel.Children.Add(okButton);
+        buttonPanel.Children.Add(cancelButton);
         var panel = new StackPanel();
         panel.Children.Add(textBox);
-        panel.Children.Add(okButton);
+        panel.Children.Add(buttonPanel);
         dialog.Content = panel;
         dialog.Loaded += (_, _) => { textBox.Focus(); };
         return dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(result) ? result : null;

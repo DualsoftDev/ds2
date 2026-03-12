@@ -36,6 +36,24 @@ file static class ConverterHelpers
             [EntityKind.Action] = "!"
         };
 
+    private static readonly IReadOnlyDictionary<Status4, string> StatusBrushKeys =
+        new Dictionary<Status4, string>
+        {
+            [Status4.Ready]  = "SimulationReadyBrush",
+            [Status4.Going]  = "SimulationGoingBrush",
+            [Status4.Finish] = "SimulationFinishBrush",
+            [Status4.Homing] = "SimulationHomingBrush"
+        };
+
+    private static readonly IReadOnlyDictionary<Status4, string> StatusTexts =
+        new Dictionary<Status4, string>
+        {
+            [Status4.Ready]  = "R",
+            [Status4.Going]  = "G",
+            [Status4.Finish] = "F",
+            [Status4.Homing] = "H"
+        };
+
     public static Brush ResolveBrush(string key)
     {
         var app = Application.Current;
@@ -50,6 +68,16 @@ file static class ConverterHelpers
     public static string ResolveEntityIcon(EntityKind entityType) =>
         EntityIcons.TryGetValue(entityType, out var icon)
             ? icon
+            : "?";
+
+    public static string ResolveStatusBrushKey(Status4 status) =>
+        StatusBrushKeys.TryGetValue(status, out var key)
+            ? key
+            : "SimulationHomingBrush";
+
+    public static string ResolveStatusText(Status4 status) =>
+        StatusTexts.TryGetValue(status, out var text)
+            ? text
             : "?";
 }
 
@@ -146,6 +174,28 @@ public sealed class EntityTypeToIconConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         => ConverterHelpers.ResolveEntityIcon(value is EntityKind ek ? ek : EntityKind.Project);
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
+public sealed class Status4ToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is Status4 s
+            ? ConverterHelpers.ResolveBrush(ConverterHelpers.ResolveStatusBrushKey(s))
+            : ConverterHelpers.ResolveBrush("SimulationHomingBrush");
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
+public sealed class Status4ToStringConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value is Status4 s
+            ? ConverterHelpers.ResolveStatusText(s)
+            : "?";
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => Binding.DoNothing;

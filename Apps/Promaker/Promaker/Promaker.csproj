@@ -26,6 +26,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Simulation\Ds2.Runtime.Sim\Ds2.Runtime.Sim.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Simulation\Ds2.Runtime.Sim.Report\Ds2.Runtime.Sim.Report.fsproj" />
   </ItemGroup>
 
 </Project>

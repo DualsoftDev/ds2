@@ -37,6 +37,9 @@ public partial class EntityNode : ObservableObject
     [ObservableProperty] private bool _hasCommonCondition;
     [ObservableProperty] private bool _hasActiveCondition;
 
+    /// 시뮬레이션 상태 (null = 비시뮬)
+    [ObservableProperty] private Status4? _simState;
+
     public ObservableCollection<EntityNode> Children { get; } = [];
 
     public void UpdateConditionTypes(IEnumerable<CallConditionType> types)

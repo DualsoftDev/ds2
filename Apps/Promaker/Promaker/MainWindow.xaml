@@ -166,6 +166,8 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="200" MinHeight="80"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Menu Bar -->
@@ -174,6 +176,8 @@
                 <MenuItem Header="New Project" Command="{Binding NewProjectCommand}" InputGestureText="Ctrl+N"/>
                 <MenuItem Header="Open..." Command="{Binding OpenFileCommand}" InputGestureText="Ctrl+O"/>
                 <MenuItem Header="Save" Command="{Binding SaveFileCommand}" InputGestureText="Ctrl+S"/>
+                <Separator/>
+                <MenuItem Header="Export Report..." Command="{Binding ExportReportCommand}"/>
                 <Separator/>
                 <MenuItem Header="Exit" Click="Exit_Click"/>
             </MenuItem>
@@ -212,6 +216,27 @@
                 <Button Content="+ Call" Style="{StaticResource RibbonButton}" Command="{Binding AddCallCommand}"/>
                 <Separator/>
                 <Button Content="Delete" Style="{StaticResource RibbonButton}" Command="{Binding DeleteSelectedCommand}" Foreground="{DynamicResource RedAccentBrush}"/>
+                <Separator/>
+                <Button Content="Simulate" Style="{StaticResource RibbonButton}" Command="{Binding StartSimulationCommand}" Foreground="#32CD32"/>
+                <Button Content="Pause" Style="{StaticResource RibbonButton}" Command="{Binding PauseSimulationCommand}"/>
+                <Button Content="Stop" Style="{StaticResource RibbonButton}" Command="{Binding StopSimulationCommand}" Foreground="{DynamicResource RedAccentBrush}"/>
+                <Button Content="Reset" Style="{StaticResource RibbonButton}" Command="{Binding ResetSimulationCommand}"/>
+                <Separator/>
+                <TextBlock Text="Speed:" VerticalAlignment="Center" Margin="4,0"/>
+                <ComboBox SelectedValue="{Binding SimSpeed}" SelectedValuePath="Tag" Width="60" VerticalAlignment="Center">
+                    <ComboBoxItem Content="0.5x" Tag="0.5"/>
+                    <ComboBoxItem Content="1x" Tag="1.0" IsSelected="True"/>
+                    <ComboBoxItem Content="2x" Tag="2.0"/>
+                    <ComboBoxItem Content="5x" Tag="5.0"/>
+                    <ComboBoxItem Content="10x" Tag="10.0"/>
+                </ComboBox>
+                <CheckBox Content="TimeIgnore" IsChecked="{Binding SimTimeIgnore}" VerticalAlignment="Center" Margin="8,0"/>
+                <Separator/>
+                <TextBlock Text="Work:" VerticalAlignment="Center" Margin="4,0"/>
+                <ComboBox ItemsSource="{Binding SimWorkItems}" SelectedItem="{Binding SelectedSimWork}"
+                          Width="150" VerticalAlignment="Center"/>
+                <Button Content="Work Start" Style="{StaticResource RibbonButton}" Command="{Binding ForceWorkStartCommand}" Foreground="#32CD32"/>
+                <Button Content="Work Reset" Style="{StaticResource RibbonButton}" Command="{Binding ForceWorkResetCommand}" Foreground="{DynamicResource OrangeAccentBrush}"/>
             </ToolBar>
         </ToolBarTray>
 
@@ -753,8 +778,65 @@
             </Border>
         </Grid>
 
+        <!-- Simulation Panel Splitter -->
+        <GridSplitter Grid.Row="3" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+
+        <!-- Simulation Panel (상시 표시) -->
+        <Border Grid.Row="4"
+                Background="{DynamicResource SecondaryBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
+            <TabControl>
+                <TabItem Header="Status Monitor">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Orientation="Horizontal" Margin="8,4">
+                            <TextBlock Text="Clock: " Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding SimClock}" Foreground="#4fc3f7" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <DataGrid Grid.Row="1" ItemsSource="{Binding SimNodes}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                  Background="{DynamicResource SecondaryBackgroundBrush}"
+                                  RowBackground="{DynamicResource SecondaryBackgroundBrush}"
+                                  AlternatingRowBackground="{DynamicResource TertiaryBackgroundBrush}"
+                                  Foreground="{DynamicResource PrimaryTextBrush}"
+                                  BorderThickness="0">
+                            <DataGrid.Resources>
+                                <conv:Status4ToBrushConverter x:Key="Status4ToBrush"/>
+                                <conv:Status4ToStringConverter x:Key="Status4ToStr"/>
+                            </DataGrid.Resources>
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="System" Binding="{Binding SystemName}" Width="120"/>
+                                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding NodeType}" Width="60"/>
+                                <DataGridTemplateColumn Header="State" Width="60">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding State, Converter={StaticResource Status4ToStr}}"
+                                                       Foreground="{Binding State, Converter={StaticResource Status4ToBrush}}"
+                                                       FontWeight="Bold" HorizontalAlignment="Center"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </TabItem>
+                <TabItem Header="Event Log">
+                    <ListBox ItemsSource="{Binding SimEventLog}"
+                             Background="{DynamicResource SecondaryBackgroundBrush}"
+                             Foreground="{DynamicResource PrimaryTextBrush}"
+                             FontFamily="Consolas" FontSize="11"
+                             BorderThickness="0"/>
+                </TabItem>
+            </TabControl>
+        </Border>
+
         <!-- StatusBar -->
-        <StatusBar Grid.Row="3">
+        <StatusBar Grid.Row="5">
             <StatusBarItem>
                 <TextBlock Text="{Binding StatusText}"/>
             </StatusBarItem>

@@ -3,6 +3,21 @@ module Ds2.UI.Core.ConnectionQueries
 open System
 open Ds2.Core
 
+let arrowKey (sourceId: Guid) (targetId: Guid) (arrowType: ArrowType) =
+    struct (sourceId, targetId, arrowType)
+
+let arrowKeyOf (arrow: #DsArrow) =
+    arrowKey arrow.SourceId arrow.TargetId arrow.ArrowType
+
+let hasArrowKeyExcept
+    (expectedKey: struct(Guid * Guid * ArrowType))
+    (exceptId: Guid option)
+    (arrows: seq<#DsArrow>) =
+    arrows
+    |> Seq.exists (fun arrow ->
+        exceptId <> Some arrow.Id &&
+        arrowKeyOf arrow = expectedKey)
+
 /// Work → (EntityKind.Work, systemId, workId)
 /// Call → (EntityKind.Call, workId, callId)
 let private resolveOrderedNodeContext (store: DsStore) (nodeId: Guid) : (EntityKind * Guid * Guid) option =
@@ -22,6 +37,7 @@ let private resolveOrderedNodeContext (store: DsStore) (nodeId: Guid) : (EntityK
 let orderedArrowLinksForSelection
     (store: DsStore)
     (orderedNodeIds: seq<Guid>)
+    (arrowType: ArrowType)
     : (EntityKind * Guid * Guid * Guid) list =
 
     let distinctIds =
@@ -34,15 +50,15 @@ let orderedArrowLinksForSelection
         distinctIds
         |> List.choose (resolveOrderedNodeContext store)
 
-    // 기존 화살표를 HashSet으로 프리빌드 — O(1) 중복 체크
+    // 기존 화살표를 (Source, Target, ArrowType)으로 프리빌드 — 동일 타입만 중복 제외
     let existingWorkArrows =
         DsQuery.allArrowWorks store
-        |> List.map (fun a -> struct (a.SourceId, a.TargetId))
+        |> List.map arrowKeyOf
         |> System.Collections.Generic.HashSet
 
     let existingCallArrows =
         DsQuery.allArrowCalls store
-        |> List.map (fun a -> struct (a.SourceId, a.TargetId))
+        |> List.map arrowKeyOf
         |> System.Collections.Generic.HashSet
 
     orderedContexts
@@ -53,11 +69,11 @@ let orderedArrowLinksForSelection
         else
             match sourceType with
             | EntityKind.Work when sourceParent = targetParent ->
-                // 같은 System에 속한 Work끼리만 연결
-                if existingWorkArrows.Contains(struct (sourceId, targetId)) then None
+                // 같은 System에 속한 Work끼리만 연결, 동일 소스+타겟+타입만 중복
+                if existingWorkArrows.Contains(arrowKey sourceId targetId arrowType) then None
                 else Some (sourceType, sourceParent, sourceId, targetId)
             | EntityKind.Call when sourceParent = targetParent ->
-                // 같은 Work에 속한 Call끼리만 연결
-                if existingCallArrows.Contains(struct (sourceId, targetId)) then None
+                // 같은 Work에 속한 Call끼리만 연결, 동일 소스+타겟+타입만 중복
+                if existingCallArrows.Contains(arrowKey sourceId targetId arrowType) then None
                 else Some (sourceType, sourceParent, sourceId, targetId)
             | _ -> None)
