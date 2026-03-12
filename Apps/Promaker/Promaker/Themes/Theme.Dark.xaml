@@ -39,6 +39,13 @@
     <Color x:Key="WarningColor">#FF9800</Color>
     <Color x:Key="ErrorColor">#F44336</Color>
     <Color x:Key="InfoColor">#2196F3</Color>
+    <Color x:Key="SimulationReadyColor">#32CD32</Color>
+    <Color x:Key="SimulationGoingColor">#FFA500</Color>
+    <Color x:Key="SimulationFinishColor">#1E90FF</Color>
+    <Color x:Key="SimulationHomingColor">#808080</Color>
+    <Color x:Key="SimulationGoingBackgroundColor">#44FFA500</Color>
+    <Color x:Key="SimulationFinishBackgroundColor">#441E90FF</Color>
+    <Color x:Key="SimulationHomingBackgroundColor">#44808080</Color>
 
     <!-- Icon Colors -->
     <Color x:Key="IconOrangeColor">#FFA726</Color>
@@ -88,6 +95,13 @@
     <SolidColorBrush x:Key="IconRedBrush" Color="{StaticResource IconRedColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="IconGrayBrush" Color="{StaticResource IconGrayColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="IconGreenBrush" Color="{StaticResource IconGreenColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationReadyBrush" Color="{StaticResource SimulationReadyColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationGoingBrush" Color="{StaticResource SimulationGoingColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationFinishBrush" Color="{StaticResource SimulationFinishColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationHomingBrush" Color="{StaticResource SimulationHomingColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationGoingBackgroundBrush" Color="{StaticResource SimulationGoingBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationFinishBackgroundBrush" Color="{StaticResource SimulationFinishBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationHomingBackgroundBrush" Color="{StaticResource SimulationHomingBackgroundColor}" po:Freeze="False"/>
 
     <!-- TreeView Arrow Brush -->
     <SolidColorBrush x:Key="TreeViewArrowBrush" Color="{StaticResource TreeViewArrowColor}" po:Freeze="False"/>
@@ -633,8 +647,8 @@
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
-    <!-- ComboBox -->
-    <Style TargetType="ComboBox">
+    <!-- ComboBox (shared setters) -->
+    <Style x:Key="DarkComboBoxStyle" TargetType="ComboBox">
         <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
@@ -666,9 +680,61 @@
         </Setter>
     </Style>
 
+    <!-- ComboBox implicit -->
+    <Style TargetType="ComboBox" BasedOn="{StaticResource DarkComboBoxStyle}"/>
+
+    <!-- ToolBar 내부 ComboBox (ToolBar가 implicit style 무시하므로 별도 key 필요) -->
+    <Style x:Key="{x:Static ToolBar.ComboBoxStyleKey}" TargetType="ComboBox" BasedOn="{StaticResource DarkComboBoxStyle}"/>
+
+    <!-- ComboBoxItem -->
+    <Style TargetType="ComboBoxItem">
+        <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        <Setter Property="Padding" Value="6,4"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+            </Trigger>
+            <Trigger Property="IsHighlighted" Value="True">
+                <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- CheckBox -->
     <Style TargetType="CheckBox">
         <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border x:Name="checkBorder" Width="16" Height="16"
+                                Background="{DynamicResource TertiaryBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1" CornerRadius="2" Margin="0,0,6,0">
+                            <Path x:Name="checkMark" Data="M 2 6 L 6 10 L 12 2"
+                                  Stroke="{DynamicResource AccentTextBrush}" StrokeThickness="2"
+                                  Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ContentPresenter VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="checkBorder" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                            <Setter TargetName="checkBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            <Setter TargetName="checkMark" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="checkBorder" Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- ListBox -->
@@ -676,6 +742,78 @@
         <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
         <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+    </Style>
+
+    <!-- ListBoxItem -->
+    <Style TargetType="ListBoxItem">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        <Setter Property="Padding" Value="4,2"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- DataGrid -->
+    <Style TargetType="DataGrid">
+        <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="RowBackground" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+        <Setter Property="AlternatingRowBackground" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+        <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
+    </Style>
+
+    <!-- DataGridColumnHeader -->
+    <Style TargetType="DataGridColumnHeader">
+        <Setter Property="Background" Value="{DynamicResource PanelHeaderBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="BorderThickness" Value="0,0,1,1"/>
+        <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+
+    <!-- DataGridCell -->
+    <Style TargetType="DataGridCell">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="4,2"/>
+        <Style.Triggers>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- DataGridRow -->
+    <Style TargetType="DataGridRow">
+        <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- DataGridRowHeader -->
+    <Style TargetType="DataGridRowHeader">
+        <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="Width" Value="0"/>
     </Style>
 
 </ResourceDictionary>

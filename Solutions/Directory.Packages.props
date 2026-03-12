@@ -44,4 +44,9 @@
   <ItemGroup>
     <PackageVersion Include="log4net" Version="2.0.17" />
   </ItemGroup>
+
+  <!-- 리포트 -->
+  <ItemGroup>
+    <PackageVersion Include="ClosedXML" Version="0.104.2" />
+  </ItemGroup>
 </Project>

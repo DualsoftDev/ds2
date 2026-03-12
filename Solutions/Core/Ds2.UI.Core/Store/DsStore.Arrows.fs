@@ -25,9 +25,10 @@ module internal DirectArrowOps =
                 match DsQuery.trySystemIdOfWork newEndpointId store, DsQuery.trySystemIdOfWork keepId store with
                 | Some newSysId, Some keepSysId
                     when newSysId = arrow.ParentId && keepSysId = arrow.ParentId ->
+                    let expectedKey = ConnectionQueries.arrowKey newSourceId newTargetId arrow.ArrowType
                     let hasDuplicate =
                         DsQuery.arrowWorksOf arrow.ParentId store
-                        |> List.exists (fun e -> e.Id <> arrow.Id && e.SourceId = newSourceId && e.TargetId = newTargetId)
+                        |> ConnectionQueries.hasArrowKeyExcept expectedKey (Some arrow.Id)
                     if hasDuplicate then false
                     else
                         store.TrackMutate(store.ArrowWorks, arrowId, fun a ->
@@ -44,9 +45,10 @@ module internal DirectArrowOps =
                 match DsQuery.getCall newEndpointId store, DsQuery.getCall keepId store with
                 | Some newCall, Some keepCall
                     when newCall.ParentId = arrow.ParentId && keepCall.ParentId = arrow.ParentId ->
+                    let expectedKey = ConnectionQueries.arrowKey newSourceId newTargetId arrow.ArrowType
                     let hasDuplicate =
                         DsQuery.arrowCallsOf arrow.ParentId store
-                        |> List.exists (fun e -> e.Id <> arrow.Id && e.SourceId = newSourceId && e.TargetId = newTargetId)
+                        |> ConnectionQueries.hasArrowKeyExcept expectedKey (Some arrow.Id)
                     if hasDuplicate then false
                     else
                         store.TrackMutate(store.ArrowCalls, arrowId, fun a ->
@@ -121,7 +123,7 @@ type DsStoreArrowsExtensions =
 
     [<Extension>]
     static member ConnectSelectionInOrder(store: DsStore, orderedNodeIds: seq<Guid>, arrowType: ArrowType) : int =
-        let links = ConnectionQueries.orderedArrowLinksForSelection store orderedNodeIds
+        let links = ConnectionQueries.orderedArrowLinksForSelection store orderedNodeIds arrowType
         if links.IsEmpty then 0
         else
             StoreLog.debug($"count={links.Length}, arrowType={arrowType}")

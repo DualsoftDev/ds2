@@ -309,6 +309,70 @@ module ArrowTests =
         Assert.Equal(system.Id, arrow.ParentId)
 
     [<Fact>]
+    let ``ConnectSelectionInOrder allows different ArrowType between same nodes`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        let count1 = store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start)
+        Assert.Equal(1, count1)
+        // 같은 소스/타겟이지만 다른 타입 → 허용
+        let count2 = store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Reset)
+        Assert.Equal(1, count2)
+        Assert.Equal(2, store.ArrowWorks.Count)
+
+    [<Fact>]
+    let ``ConnectSelectionInOrder blocks same ArrowType between same nodes`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        let count1 = store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start)
+        Assert.Equal(1, count1)
+        // 동일 소스/타겟/타입 → 중복 차단
+        let count2 = store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start)
+        Assert.Equal(0, count2)
+        Assert.Equal(1, store.ArrowWorks.Count)
+
+    [<Fact>]
+    let ``ReconnectArrow allows different ArrowType between same nodes`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        let work3 = addWork store "W3" flow.Id
+
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work1.Id; work3.Id ], ArrowType.Reset) |> ignore
+
+        let arrowToReconnect =
+            store.ArrowWorks.Values
+            |> Seq.find (fun arrow -> arrow.SourceId = work1.Id && arrow.TargetId = work3.Id && arrow.ArrowType = ArrowType.Reset)
+
+        let changed = store.ReconnectArrow(arrowToReconnect.Id, false, work2.Id)
+
+        Assert.True(changed)
+        Assert.Equal(2, store.ArrowWorks.Count)
+        Assert.Contains(store.ArrowWorks.Values, fun arrow -> arrow.SourceId = work1.Id && arrow.TargetId = work2.Id && arrow.ArrowType = ArrowType.Start)
+        Assert.Contains(store.ArrowWorks.Values, fun arrow -> arrow.SourceId = work1.Id && arrow.TargetId = work2.Id && arrow.ArrowType = ArrowType.Reset)
+
+    [<Fact>]
+    let ``ReconnectArrow blocks same ArrowType between same nodes`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        let work3 = addWork store "W3" flow.Id
+
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work1.Id; work3.Id ], ArrowType.Start) |> ignore
+
+        let arrowToReconnect =
+            store.ArrowWorks.Values
+            |> Seq.find (fun arrow -> arrow.SourceId = work1.Id && arrow.TargetId = work3.Id && arrow.ArrowType = ArrowType.Start)
+
+        let changed = store.ReconnectArrow(arrowToReconnect.Id, false, work2.Id)
+
+        Assert.False(changed)
+        Assert.Contains(store.ArrowWorks.Values, fun arrow -> arrow.Id = arrowToReconnect.Id && arrow.TargetId = work3.Id)
+
+    [<Fact>]
     let ``RemoveArrows deletes arrows`` () =
         let store = createStore ()
         let _, _, flow, work1 = setupBasicHierarchy store
@@ -604,13 +668,37 @@ module QueryTests =
 module DeviceTests =
 
     [<Fact>]
-    let ``AddCallsWithDevice creates device system`` () =
+    let ``AddCallsWithDevice creates device system with ResetReset arrows`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1"; "Dev.Api2" ], true)
         let passiveSystems = DsQuery.passiveSystemsOf project.Id store
         Assert.True(passiveSystems.Length > 0)
         Assert.Equal(2, store.Calls.Count)
+        // Device System 내부 Work 간 ResetReset 화살표가 자동 생성되어야 함
+        let devSystem = passiveSystems |> List.head
+        let arrows = DsQuery.arrowWorksOf devSystem.Id store
+        let resetArrows = arrows |> List.filter (fun a -> a.ArrowType = ArrowType.ResetReset)
+        Assert.Equal(1, resetArrows.Length)
+
+    [<Fact>]
+    let ``AddCallsWithDevice on existing device system still creates ResetReset arrows`` () =
+        let store = createStore ()
+        let project, _, flow, work = setupBasicHierarchy store
+        // 첫 번째 호출: 시스템 생성 + Api1 Work 생성
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1" ], true)
+        let passiveSystems = DsQuery.passiveSystemsOf project.Id store
+        Assert.Equal(1, passiveSystems.Length)
+        let devSystem = passiveSystems |> List.head
+        // 이 시점에 Work 1개 → pairwise 없으므로 ResetReset 0개
+        let arrowsBefore = DsQuery.arrowWorksOf devSystem.Id store |> List.filter (fun a -> a.ArrowType = ArrowType.ResetReset)
+        Assert.Equal(0, arrowsBefore.Length)
+        // 두 번째 호출: 같은 Flow의 다른 Work → 같은 Device System에 Api2 추가
+        let work2Id = store.AddWork("Work2", flow.Id)
+        store.AddCallsWithDevice(project.Id, work2Id, [ "Dev.Api2" ], true)
+        // 기존 시스템에 Work 2개 → ResetReset 1개 생성되어야 함
+        let arrowsAfter = DsQuery.arrowWorksOf devSystem.Id store |> List.filter (fun a -> a.ArrowType = ArrowType.ResetReset)
+        Assert.Equal(1, arrowsAfter.Length)
 
     [<Fact>]
     let ``AddCallsWithDevice with createDeviceSystem validates project id`` () =

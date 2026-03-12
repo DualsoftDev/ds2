@@ -143,7 +143,23 @@ module internal DirectDeviceOps =
         | None ->
             match DsQuery.passiveSystemsOf projectId store |> List.tryFind (fun s -> s.Name = systemName) with
             | Some existing ->
-                existing, { state with PendingSystems = Map.add systemName existing state.PendingSystems }
+                let flow = DsQuery.flowsOf existing.Id store |> List.head
+                let existingWorks = DsQuery.worksOf flow.Id store
+                let existingWorkOrder =
+                    Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []
+                    |> List.append existingWorks
+                let existingPendingWorks =
+                    existingWorks
+                    |> List.fold (fun acc w -> Map.add (w.Name, existing.Id) w acc)
+                        state.PendingWorks
+                existing, {
+                    state with
+                        PendingSystems = Map.add systemName existing state.PendingSystems
+                        PendingFlows = Map.add devAlias flow state.PendingFlows
+                        NewSystemIds = Set.add existing.Id state.NewSystemIds
+                        PendingWorkOrderRev = Map.add devAlias existingWorkOrder state.PendingWorkOrderRev
+                        PendingWorks = existingPendingWorks
+                }
             | None ->
                 let system = DsSystem(systemName)
                 let flow = Flow($"{devAlias}_Flow", system.Id)
@@ -164,8 +180,14 @@ module internal DirectDeviceOps =
         if not (Set.contains systemId state.NewSystemIds) || Map.containsKey key state.PendingWorks then state
         else
             let flow = Map.find devAlias state.PendingFlows
-            let work = Work(apiName, flow.Id)
-            store.TrackAdd(store.Works, work)
+            // 기존 시스템에 이미 같은 이름의 Work가 있으면 재사용, 없으면 생성
+            let work =
+                DsQuery.worksOf flow.Id store
+                |> List.tryFind (fun w -> w.Name = apiName)
+                |> Option.defaultWith (fun () ->
+                    let w = Work(apiName, flow.Id)
+                    store.TrackAdd(store.Works, w)
+                    w)
             let current = Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []
             { state with
                 PendingWorks = Map.add key work state.PendingWorks
@@ -183,8 +205,9 @@ module internal DirectDeviceOps =
                 let apiDef = ApiDef(apiName, system.Id)
                 match Map.tryFind key state.PendingWorks with
                 | Some work ->
-                    apiDef.Properties.IsPush <- true
+                    apiDef.Properties.IsPush <- false
                     apiDef.Properties.TxGuid <- Some work.Id
+                    apiDef.Properties.RxGuid <- Some work.Id
                 | None -> ()
                 store.TrackAdd(store.ApiDefs, apiDef)
                 apiDef, { state with PendingApiDefs = Map.add key apiDef state.PendingApiDefs }
@@ -203,12 +226,19 @@ module internal DirectDeviceOps =
             | None -> ()
             | Some flow ->
                 let systemId = flow.ParentId
+                let existingArrows = DsQuery.arrowWorksOf systemId store
                 workOrderRev
                 |> List.rev
                 |> List.pairwise
                 |> List.iter (fun (src, dst) ->
-                    let arrow = ArrowBetweenWorks(systemId, src.Id, dst.Id, ArrowType.ResetReset)
-                    store.TrackAdd(store.ArrowWorks, arrow)))
+                    let alreadyExists =
+                        existingArrows |> List.exists (fun a ->
+                            a.ArrowType = ArrowType.ResetReset &&
+                            ((a.SourceId = src.Id && a.TargetId = dst.Id) ||
+                             (a.SourceId = dst.Id && a.TargetId = src.Id)))
+                    if not alreadyExists then
+                        let arrow = ArrowBetweenWorks(systemId, src.Id, dst.Id, ArrowType.ResetReset)
+                        store.TrackAdd(store.ArrowWorks, arrow)))
 
     let addCallsWithDevice (store: DsStore) (projectId: Guid) (workId: Guid) (callNames: string list) (createDeviceSystem: bool) =
         if callNames.IsEmpty then ()

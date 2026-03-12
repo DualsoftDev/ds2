@@ -13,7 +13,7 @@
     </UserControl.Resources>
 
     <Grid x:Name="RootGrid" ClipToBounds="True"
-          Background="Transparent"
+          Background="{DynamicResource PrimaryBackgroundBrush}"
           MouseWheel="OnMouseWheel"
           MouseDown="OnMouseDown"
           MouseMove="OnMouseMove"
@@ -233,6 +233,26 @@
                                     <DataTrigger Binding="{Binding IsGhost}" Value="True">
                                         <Setter TargetName="NodeBorder" Property="Opacity" Value="0.45"/>
                                         <Setter TargetName="NodeBorder" Property="BorderThickness" Value="1.5"/>
+                                    </DataTrigger>
+                                    <!-- Simulation state overlays (highest priority — last wins) -->
+                                    <DataTrigger Binding="{Binding SimState}" Value="Ready">
+                                        <Setter TargetName="NodeBorder" Property="BorderBrush" Value="{DynamicResource SimulationReadyBrush}"/>
+                                        <Setter TargetName="NodeBorder" Property="BorderThickness" Value="2"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SimState}" Value="Going">
+                                        <Setter TargetName="NodeBorder" Property="Background" Value="{DynamicResource SimulationGoingBackgroundBrush}"/>
+                                        <Setter TargetName="NodeBorder" Property="BorderBrush" Value="{DynamicResource SimulationGoingBrush}"/>
+                                        <Setter TargetName="NodeBorder" Property="BorderThickness" Value="3"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SimState}" Value="Finish">
+                                        <Setter TargetName="NodeBorder" Property="Background" Value="{DynamicResource SimulationFinishBackgroundBrush}"/>
+                                        <Setter TargetName="NodeBorder" Property="BorderBrush" Value="{DynamicResource SimulationFinishBrush}"/>
+                                        <Setter TargetName="NodeBorder" Property="BorderThickness" Value="2"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding SimState}" Value="Homing">
+                                        <Setter TargetName="NodeBorder" Property="Background" Value="{DynamicResource SimulationHomingBackgroundBrush}"/>
+                                        <Setter TargetName="NodeBorder" Property="BorderBrush" Value="{DynamicResource SimulationHomingBrush}"/>
+                                        <Setter TargetName="NodeBorder" Property="BorderThickness" Value="2"/>
                                     </DataTrigger>
                                 </DataTemplate.Triggers>
                             </DataTemplate>

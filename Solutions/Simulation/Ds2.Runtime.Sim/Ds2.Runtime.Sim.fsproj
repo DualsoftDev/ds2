@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Model\SimState.fs" />
+    <Compile Include="Model\NodeMatching.fs" />
+    <Compile Include="Model\SimulationNodeInfo.fs" />
+    <Compile Include="Engine\Scheduler\ScheduledEvent.fs" />
+    <Compile Include="Engine\Scheduler\EventScheduler.fs" />
+    <Compile Include="Engine\Core\SimIndex.fs" />
+    <Compile Include="Engine\Core\ValueSpecEvaluator.fs" />
+    <Compile Include="Engine\Core\WorkConditionChecker.fs" />
+    <Compile Include="Engine\Core\StateManager.fs" />
+    <Compile Include="Engine\ISimulationEngine.fs" />
+    <Compile Include="Engine\EventDrivenEngine.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="log4net" />
+  </ItemGroup>
+
+</Project>

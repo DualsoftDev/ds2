@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
 using Ds2.UI.Core;
@@ -59,6 +60,7 @@ public partial class MainViewModel
                     UpdateTitle();
                     Log.Info($"AASX opened: {fileName}");
                     StatusText = $"Opened: {Path.GetFileName(fileName)}";
+                    RequestRebuildAll(AfterFileLoad);
                 },
                 ex => $"Failed to open AASX: {ex.Message}");
         }
@@ -73,8 +75,32 @@ public partial class MainViewModel
                     IsDirty = false;
                     UpdateTitle();
                     Log.Info($"File opened: {fileName}");
+                    StatusText = $"Opened: {Path.GetFileName(fileName)}";
+                    RequestRebuildAll(AfterFileLoad);
                 },
                 ex => $"Failed to open file: {ex.Message}");
+        }
+    }
+
+    private void AfterFileLoad()
+    {
+        // Control Tree 전체 확장
+        ExpandAllNodes(ControlTreeRoots);
+
+        var firstSystem = TreeNodeSearch
+            .EnumerateNodes(ControlTreeRoots)
+            .FirstOrDefault(node => node.EntityType == EntityKind.System);
+
+        if (firstSystem is not null)
+            OpenCanvasTab(firstSystem.Id, firstSystem.EntityType);
+    }
+
+    private static void ExpandAllNodes(IEnumerable<EntityNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            node.IsExpanded = true;
+            ExpandAllNodes(node.Children);
         }
     }
 
