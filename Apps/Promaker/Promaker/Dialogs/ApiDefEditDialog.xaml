@@ -34,10 +34,10 @@
                 <TextBlock Text="타입"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            VerticalAlignment="Center" Margin="0,0,12,0"/>
-                <RadioButton x:Name="PushRadio" Content="{x:Static core:Labels.Push}"
+                <RadioButton x:Name="NormalRadio" Content="{x:Static core:Labels.Normal}"
                              Foreground="{DynamicResource PrimaryTextBrush}"
                              IsChecked="True" Margin="0,0,12,0"/>
-                <RadioButton x:Name="PollRadio" Content="{x:Static core:Labels.Poll}"
+                <RadioButton x:Name="PushRadio" Content="{x:Static core:Labels.Push}"
                              Foreground="{DynamicResource PrimaryTextBrush}"/>
             </StackPanel>
 

@@ -12,7 +12,7 @@ public partial class ApiDefEditDialog : Window
 
     // 출력
     public string ApiDefName { get; private set; } = string.Empty;
-    public bool IsPush { get; private set; } = true;
+    public bool IsPush { get; private set; } = false;
     public Guid? TxWorkId { get; private set; }
     public Guid? RxWorkId { get; private set; }
     public int Period { get; private set; }
@@ -31,8 +31,8 @@ public partial class ApiDefEditDialog : Window
         if (existing is not null)
         {
             NameBox.Text = existing.Name;
+            NormalRadio.IsChecked = !existing.IsPush;
             PushRadio.IsChecked = existing.IsPush;
-            PollRadio.IsChecked = !existing.IsPush;
             PeriodBox.Text = existing.Period.ToString();
             DescriptionBox.Text = existing.Description;
 
@@ -68,7 +68,7 @@ public partial class ApiDefEditDialog : Window
         }
 
         ApiDefName = name;
-        IsPush = PushRadio.IsChecked == true;
+        IsPush = PushRadio.IsChecked == true; // Normal=false, Push=true
         Period = period;
         Description = DescriptionBox.Text.Trim();
 

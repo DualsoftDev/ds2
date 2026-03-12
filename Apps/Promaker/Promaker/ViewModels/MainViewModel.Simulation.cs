@@ -176,103 +176,9 @@ public partial class MainViewModel
 
     // ── Engine Events → UI ─────────────────────────────────────────────
 
-    private void WireSimEvents()
-    {
-        if (_simEngine is null) return;
-
-        _simEngine.WorkStateChanged += (_, args) =>
-            _dispatcher.BeginInvoke(() => OnWorkStateChanged(args));
-
-        _simEngine.CallStateChanged += (_, args) =>
-            _dispatcher.BeginInvoke(() => OnCallStateChanged(args));
-
-        _simEngine.SimulationStatusChanged += (_, args) =>
-            _dispatcher.BeginInvoke(() => OnSimStatusChanged(args));
-    }
-
-    private void OnWorkStateChanged(WorkStateChangedArgs args)
-    {
-        ApplyNodeStateChange(args.WorkGuid, args.NewState, args.WorkName, "Work", GetWorkSystemName(args.WorkGuid));
-    }
-
-    private void OnCallStateChanged(CallStateChangedArgs args)
-    {
-        var suffix = args.IsSkipped ? " (Skip)" : "";
-        ApplyNodeStateChange(args.CallGuid, args.NewState, args.CallName + suffix, "Call", GetCallSystemName(args.CallGuid));
-    }
-
-    private void OnSimStatusChanged(SimulationStatusChangedArgs args)
-    {
-        if (args.NewStatus == SimulationStatus.Stopped)
-        {
-            IsSimulating = false;
-            IsSimPaused = false;
-            AddSimLog("시뮬레이션 완료");
-        }
-    }
-
     // ── SimNodes 초기화/갱신 ───────────────────────────────────────────
 
-    private void InitSimNodes()
-    {
-        SimNodes.Clear();
-        SimWorkItems.Clear();
-        SelectedSimWork = null;
-        _stateCache.Clear();
-        if (_simEngine is null) return;
-
-        var idx = _simEngine.Index;
-        foreach (var workGuid in idx.AllWorkGuids)
-        {
-            var wName = idx.WorkName.TryFind(workGuid);
-            var wSysName = idx.WorkSystemName.TryFind(workGuid);
-            if (wName == null || wSysName == null) continue;
-
-            AddSimNode(workGuid, wName.Value, "Work", wSysName.Value);
-
-            if (idx.ActiveSystemNames.Contains(wSysName.Value))
-                SimWorkItems.Add(new SimWorkItem(workGuid, wName.Value));
-
-            _stateCache.Set(workGuid, Status4.Ready);
-
-            var callGuids = idx.WorkCallGuids.TryFind(workGuid);
-            if (callGuids != null)
-            {
-                foreach (var callGuid in callGuids.Value)
-                {
-                    var call = DsQuery.getCall(callGuid, _store);
-                    if (call != null)
-                    {
-                        AddSimNode(callGuid, $"  ㄴ {call.Value.Name}", "Call", wSysName.Value);
-                        _stateCache.Set(callGuid, Status4.Ready);
-                    }
-                }
-            }
-        }
-    }
-
-    private void UpdateSimNodeState(Guid nodeGuid, Status4 newState)
-    {
-        var row = SimNodes.FirstOrDefault(n => n.NodeGuid == nodeGuid);
-        if (row is not null) row.State = newState;
-
-        var canvasNode = CanvasNodes.FirstOrDefault(n => n.Id == nodeGuid);
-        if (canvasNode is not null) canvasNode.SimState = newState;
-    }
-
-    private void ApplySimStateToCanvas()
-    {
-        SetCanvasSimState(Status4.Ready, static node =>
-            node.EntityType == EntityKind.Work || node.EntityType == EntityKind.Call);
-    }
-
-    private void ClearSimStateFromCanvas()
-    {
-        SetCanvasSimState(null, static _ => true);
-    }
-
     // ── Report Data 수집 ───────────────────────────────────────────────
-
 
     // ── 헬퍼 ───────────────────────────────────────────────────────────
 
@@ -281,57 +187,6 @@ public partial class MainViewModel
         var ts = _simEngine?.State.Clock.ToString(@"hh\:mm\:ss\.fff") ?? "00:00:00.000";
         SimEventLog.Insert(0, $"[{ts}] {message}");
         if (SimEventLog.Count > 500) SimEventLog.RemoveAt(SimEventLog.Count - 1);
-    }
-
-    private void UpdateSimClock()
-    {
-        if (_simEngine is not null)
-            SimClock = _simEngine.State.Clock.ToString(@"hh\:mm\:ss\.fff");
-    }
-
-    private string GetWorkSystemName(Guid workGuid)
-    {
-        if (_simEngine is null) return "";
-        var opt = _simEngine.Index.WorkSystemName.TryFind(workGuid);
-        return opt != null ? opt.Value : "";
-    }
-
-    private string GetCallSystemName(Guid callGuid)
-    {
-        if (_simEngine is null) return "";
-        var workOpt = _simEngine.Index.CallWorkGuid.TryFind(callGuid);
-        if (workOpt == null) return "";
-        var sysOpt = _simEngine.Index.WorkSystemName.TryFind(workOpt.Value);
-        return sysOpt != null ? sysOpt.Value : "";
-    }
-
-    private void ApplyNodeStateChange(Guid nodeGuid, Status4 newState, string nodeName, string nodeType, string systemName)
-    {
-        _stateCache.Set(nodeGuid, newState);
-        UpdateSimNodeState(nodeGuid, newState);
-        RecordStateChange(nodeGuid.ToString(), nodeName, nodeType, systemName, newState);
-        UpdateSimClock();
-    }
-
-    private void AddSimNode(Guid nodeGuid, string name, string nodeType, string systemName)
-    {
-        SimNodes.Add(new SimNodeRow
-        {
-            NodeGuid = nodeGuid,
-            Name = name,
-            NodeType = nodeType,
-            SystemName = systemName,
-            State = Status4.Ready
-        });
-    }
-
-    private void SetCanvasSimState(Status4? state, Func<EntityNode, bool> predicate)
-    {
-        foreach (var node in CanvasNodes)
-        {
-            if (predicate(node))
-                node.SimState = state;
-        }
     }
 
     private bool TryGetSelectedSimWork(
