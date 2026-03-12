@@ -15,42 +15,40 @@ public partial class MainViewModel
         _stateCache.Clear();
         if (_simEngine is null) return;
 
-        var idx = _simEngine.Index;
-        foreach (var workGuid in idx.AllWorkGuids)
+        var index = _simEngine.Index;
+        foreach (var workGuid in index.AllWorkGuids)
         {
-            var wName = idx.WorkName.TryFind(workGuid);
-            var wSysName = idx.WorkSystemName.TryFind(workGuid);
-            if (wName == null || wSysName == null) continue;
+            var workName = index.WorkName.TryFind(workGuid);
+            var systemName = index.WorkSystemName.TryFind(workGuid);
+            if (workName == null || systemName == null) continue;
 
-            AddSimNode(workGuid, wName.Value, "Work", wSysName.Value);
+            AddSimNode(workGuid, workName.Value, "Work", systemName.Value);
 
-            if (idx.ActiveSystemNames.Contains(wSysName.Value))
-                SimWorkItems.Add(new SimWorkItem(workGuid, wName.Value));
+            if (index.ActiveSystemNames.Contains(systemName.Value))
+                SimWorkItems.Add(new SimWorkItem(workGuid, workName.Value));
 
             _stateCache.Set(workGuid, Status4.Ready);
 
-            var callGuids = idx.WorkCallGuids.TryFind(workGuid);
-            if (callGuids != null)
+            var callGuids = index.WorkCallGuids.TryFind(workGuid);
+            if (callGuids == null) continue;
+
+            foreach (var callGuid in callGuids.Value)
             {
-                foreach (var callGuid in callGuids.Value)
-                {
-                    var call = DsQuery.getCall(callGuid, _store);
-                    if (call != null)
-                    {
-                        AddSimNode(callGuid, $"  ㄴ {call.Value.Name}", "Call", wSysName.Value);
-                        _stateCache.Set(callGuid, Status4.Ready);
-                    }
-                }
+                var call = DsQuery.getCall(callGuid, _store);
+                if (call == null) continue;
+
+                AddSimNode(callGuid, $"  - {call.Value.Name}", "Call", systemName.Value);
+                _stateCache.Set(callGuid, Status4.Ready);
             }
         }
     }
 
     private void UpdateSimNodeState(Guid nodeGuid, Status4 newState)
     {
-        var row = SimNodes.FirstOrDefault(n => n.NodeGuid == nodeGuid);
+        var row = SimNodes.FirstOrDefault(node => node.NodeGuid == nodeGuid);
         if (row is not null) row.State = newState;
 
-        var canvasNode = CanvasNodes.FirstOrDefault(n => n.Id == nodeGuid);
+        var canvasNode = CanvasNodes.FirstOrDefault(node => node.Id == nodeGuid);
         if (canvasNode is not null) canvasNode.SimState = newState;
     }
 

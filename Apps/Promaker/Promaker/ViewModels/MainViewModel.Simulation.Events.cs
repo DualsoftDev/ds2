@@ -38,7 +38,7 @@ public partial class MainViewModel
         {
             IsSimulating = false;
             IsSimPaused = false;
-            AddSimLog("시뮬레이션 완료");
+            AddSimLog(SimText.Completed);
         }
     }
 
