@@ -1,0 +1,77 @@
+using System;
+using Ds2.Core;
+using Ds2.Runtime.Sim.Engine;
+using Ds2.Runtime.Sim.Model;
+using Ds2.UI.Core;
+
+namespace Promaker.ViewModels;
+
+public partial class SimulationPanelState
+{
+    private void WireSimEvents()
+    {
+        if (_simEngine is null) return;
+
+        _simEngine.WorkStateChanged += (_, args) =>
+            _dispatcher.BeginInvoke(() => OnWorkStateChanged(args));
+
+        _simEngine.CallStateChanged += (_, args) =>
+            _dispatcher.BeginInvoke(() => OnCallStateChanged(args));
+
+        _simEngine.SimulationStatusChanged += (_, args) =>
+            _dispatcher.BeginInvoke(() => OnSimStatusChanged(args));
+    }
+
+    private void OnWorkStateChanged(WorkStateChangedArgs args)
+    {
+        ApplyNodeStateChange(args.WorkGuid, args.NewState, args.WorkName, EntityKind.Work, GetSystemName(EntityKind.Work, args.WorkGuid));
+    }
+
+    private void OnCallStateChanged(CallStateChangedArgs args)
+    {
+        var suffix = args.IsSkipped ? " (Skip)" : "";
+        ApplyNodeStateChange(args.CallGuid, args.NewState, args.CallName + suffix, EntityKind.Call, GetSystemName(EntityKind.Call, args.CallGuid));
+    }
+
+    private void OnSimStatusChanged(SimulationStatusChangedArgs args)
+    {
+        if (args.NewStatus == SimulationStatus.Stopped)
+        {
+            IsSimulating = false;
+            IsSimPaused = false;
+            AddSimLog(SimText.Completed);
+        }
+    }
+
+    private void UpdateSimClock()
+    {
+        if (_simEngine is not null)
+            SimClock = _simEngine.State.Clock.ToString(@"hh\:mm\:ss\.fff");
+    }
+
+    private string GetSystemName(EntityKind kind, Guid entityGuid)
+    {
+        if (_simEngine is null) return "";
+
+        if (kind == EntityKind.Work)
+        {
+            var systemName = _simEngine.Index.WorkSystemName.TryFind(entityGuid);
+            return systemName?.Value ?? "";
+        }
+
+        var workGuid = _simEngine.Index.CallWorkGuid.TryFind(entityGuid);
+        if (workGuid == null) return "";
+
+        var callSystemName = _simEngine.Index.WorkSystemName.TryFind(workGuid.Value);
+        return callSystemName?.Value ?? "";
+    }
+
+    private void ApplyNodeStateChange(Guid nodeGuid, Status4 newState, string nodeName, EntityKind nodeKind, string systemName)
+    {
+        _stateCache.Set(nodeGuid, newState);
+        UpdateSimNodeState(nodeGuid, newState);
+        GanttChart.UpdateNodeState(nodeGuid, newState, DateTime.Now);
+        RecordStateChange(nodeGuid.ToString(), nodeName, nodeKind.ToString(), systemName, newState);
+        UpdateSimClock();
+    }
+}

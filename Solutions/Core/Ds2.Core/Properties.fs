@@ -38,9 +38,11 @@ type PropertiesBase<'T when 'T :> PropertiesBase<'T>>() =
 // =============================================================================
 type ProjectProperties() =
     inherit PropertiesBase<ProjectProperties>()
-    member val Author   : string option          = None with get, set
-    member val DateTime : DateTimeOffset option  = None with get, set
-    member val Version  : string option          = None with get, set
+    member val Author       : string option         = None with get, set
+    member val DateTime     : DateTimeOffset option = None with get, set
+    member val Version      : string option         = None with get, set
+    member val IriPrefix    : string option         = None with get, set
+    member val GlobalAssetId: string option         = None with get, set
 
 type SystemProperties() =
     inherit PropertiesBase<SystemProperties>()

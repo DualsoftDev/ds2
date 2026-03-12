@@ -26,7 +26,7 @@ module StateSegment =
         | "G" -> "Going"
         | "F" -> "Finish"
         | "H" -> "Homing"
-        | _ -> "Unknown"
+        | _   -> "Unknown"
 
     /// 상태에 따른 HTML 색상 반환
     let getColor state =
@@ -35,7 +35,7 @@ module StateSegment =
         | "G" -> "#FFA500"  // Orange
         | "F" -> "#1E90FF"  // DodgerBlue
         | "H" -> "#808080"  // Gray
-        | _ -> "#808080"
+        | _   -> "#808080"
 
     /// 세그먼트 생성
     let create (state: string) (startTime: DateTime) (endTime: DateTime option) =
@@ -170,10 +170,10 @@ type ExportOptions = {
 module ExportOptions =
     /// 기본 옵션
     let defaults format filePath = {
-        Format = format
-        FilePath = filePath
+        Format            = format
+        FilePath          = filePath
         IncludeGanttChart = true
-        IncludeSummary = true
-        IncludeDetails = true
-        PixelsPerSecond = 10.0
+        IncludeSummary    = true
+        IncludeDetails    = true
+        PixelsPerSecond   = 10.0
     }

@@ -1,0 +1,158 @@
+<UserControl x:Class="Promaker.Controls.GanttChartControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource TertiaryBackgroundBrush}">
+
+    <UserControl.Resources>
+        <Style x:Key="RowLabelStyle" TargetType="Border">
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="0,0,1,1"/>
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid x:Name="RootGrid">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="140"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="24"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 좌상단: 이름 헤더 -->
+        <Border Grid.Column="0" Grid.Row="0"
+                Background="{DynamicResource PanelHeaderBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,0,1,1">
+            <TextBlock Text="Work / Call"
+                       Foreground="{DynamicResource SecondaryTextBrush}"
+                       FontSize="10" FontWeight="SemiBold"
+                       VerticalAlignment="Center" HorizontalAlignment="Center"/>
+        </Border>
+
+        <!-- 우상단: 시간 눈금자 -->
+        <Border Grid.Column="1" Grid.Row="0"
+                Background="{DynamicResource PanelHeaderBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,0,0,1"
+                ClipToBounds="True">
+            <Canvas x:Name="TimeRulerCanvas"/>
+        </Border>
+
+        <!-- 좌측: 행 라벨 -->
+        <ScrollViewer Grid.Column="0" Grid.Row="1"
+                      x:Name="LabelScrollViewer"
+                      VerticalScrollBarVisibility="Hidden"
+                      HorizontalScrollBarVisibility="Disabled"
+                      ScrollChanged="OnLabelScrollChanged">
+            <ItemsControl x:Name="RowLabelsControl"
+                          ItemsSource="{Binding Entries}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Height="{Binding RowHeight}"
+                                Style="{StaticResource RowLabelStyle}"
+                                Background="{Binding RowBackground}"
+                                Margin="0,0,0,2"
+                                Tag="{Binding}"
+                                MouseLeftButtonDown="OnRowLabelMouseDown"
+                                Cursor="Hand">
+                            <Grid Margin="{Binding IndentMargin}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Path x:Name="ExpandedIcon" Grid.Column="0"
+                                      Width="10" Height="10" Margin="2,0,4,0"
+                                      Fill="{DynamicResource SecondaryTextBrush}"
+                                      Stretch="Uniform" VerticalAlignment="Center"
+                                      Data="M7,10L12,15L17,10H7Z"
+                                      Visibility="Collapsed"/>
+                                <Path x:Name="CollapsedIcon" Grid.Column="0"
+                                      Width="10" Height="10" Margin="2,0,4,0"
+                                      Fill="{DynamicResource SecondaryTextBrush}"
+                                      Stretch="Uniform" VerticalAlignment="Center"
+                                      Data="M10,17L15,12L10,7V17Z"
+                                      Visibility="Collapsed"/>
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding DisplayName}"
+                                           Foreground="{DynamicResource PrimaryTextBrush}"
+                                           FontSize="10" VerticalAlignment="Center"
+                                           Padding="4,0" TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding Name}"/>
+                            </Grid>
+                        </Border>
+                        <DataTemplate.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsWork}" Value="True"/>
+                                    <Condition Binding="{Binding IsExpanded}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="ExpandedIcon" Property="Visibility" Value="Visible"/>
+                            </MultiDataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsWork}" Value="True"/>
+                                    <Condition Binding="{Binding IsExpanded}" Value="False"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="CollapsedIcon" Property="Visibility" Value="Visible"/>
+                            </MultiDataTrigger>
+                            <DataTrigger Binding="{Binding IsVisible}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- 우측: 타임라인 캔버스 -->
+        <Border Grid.Column="1" Grid.Row="1" ClipToBounds="True"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0">
+            <Grid>
+                <ScrollViewer x:Name="TimelineScrollViewer"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto"
+                              ScrollChanged="OnTimelineScrollChanged">
+                    <Canvas x:Name="TimelineCanvas"
+                            Background="Transparent" ClipToBounds="False"
+                            MouseWheel="OnTimelineMouseWheel"
+                            MouseLeftButtonDown="OnTimelineMouseDown"
+                            MouseMove="OnTimelineMouseMove"
+                            MouseLeftButtonUp="OnTimelineMouseUp"/>
+                </ScrollViewer>
+                <Canvas x:Name="CurrentTimeOverlay" IsHitTestVisible="False" ClipToBounds="True">
+                    <Line x:Name="CurrentTimeLine" Y1="0"
+                          Stroke="#FF4444" StrokeThickness="2" StrokeDashArray="4,2"/>
+                </Canvas>
+            </Grid>
+        </Border>
+
+        <!-- 툴팁 팝업 -->
+        <Popup x:Name="TooltipPopup" AllowsTransparency="True"
+               PlacementTarget="{Binding ElementName=TimelineCanvas}"
+               Placement="Mouse" HorizontalOffset="10" VerticalOffset="10">
+            <Border Background="{DynamicResource TertiaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="3" Padding="8,6">
+                <StackPanel x:Name="TooltipContent" MinWidth="120">
+                    <TextBlock x:Name="TooltipTitle" FontWeight="SemiBold" FontSize="11"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    <Separator Margin="0,4" Background="{DynamicResource BorderBrush}"/>
+                    <TextBlock x:Name="TooltipState" FontSize="10"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <TextBlock x:Name="TooltipTime" FontSize="10" FontFamily="Consolas"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <TextBlock x:Name="TooltipDuration" FontSize="10" FontFamily="Consolas"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                </StackPanel>
+            </Border>
+        </Popup>
+    </Grid>
+</UserControl>

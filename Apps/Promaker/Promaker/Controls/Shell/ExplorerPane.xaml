@@ -1,0 +1,171 @@
+<UserControl x:Class="Promaker.Controls.ExplorerPane"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Promaker.ViewModels"
+             xmlns:conv="clr-namespace:Promaker.Presentation">
+    <UserControl.Resources>
+        <conv:EntityTypeToIconConverter x:Key="TypeToIcon"/>
+        <conv:EntityTypeToBrushConverter x:Key="TypeToBrush"/>
+        <conv:PositiveIntToVisibilityConverter x:Key="PositiveIntToVis"/>
+        <conv:BindingProxy x:Key="Proxy" Data="{Binding}"/>
+
+        <Style x:Key="TreeViewItemBaseStyle" TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+            <EventSetter Event="MouseDoubleClick" Handler="TreeViewItem_MouseDoubleClick"/>
+        </Style>
+
+        <Style x:Key="TreeViewItemInteractiveStyle" TargetType="TreeViewItem" BasedOn="{StaticResource TreeViewItemBaseStyle}">
+            <EventSetter Event="PreviewMouseLeftButtonDown" Handler="TreeViewItem_PreviewMouseLeftButtonDown"/>
+            <EventSetter Event="PreviewMouseRightButtonDown" Handler="TreeViewItem_PreviewMouseRightButtonDown"/>
+            <EventSetter Event="PreviewMouseMove" Handler="TreeViewItem_PreviewMouseMove_Drag"/>
+        </Style>
+
+        <HierarchicalDataTemplate x:Key="EntityTreeItemTemplate"
+                                  DataType="{x:Type vm:EntityNode}"
+                                  ItemsSource="{Binding Children}">
+            <Border x:Name="TreeItemBorder" CornerRadius="3" Padding="2,1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Width="18" Height="18" CornerRadius="3" Margin="0,0,6,0"
+                            Background="{Binding EntityType, Converter={StaticResource TypeToBrush}}">
+                        <TextBlock Text="{Binding EntityType, Converter={StaticResource TypeToIcon}}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   FontSize="10" FontWeight="Bold" Foreground="White"/>
+                    </Border>
+                    <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
+                    <Border Grid.Column="2"
+                            Margin="6,0,0,0"
+                            Padding="5,0"
+                            CornerRadius="8"
+                            MinWidth="16"
+                            HorizontalAlignment="Right"
+                            Background="{DynamicResource AccentBrush}"
+                            Visibility="{Binding SelectionOrder, Converter={StaticResource PositiveIntToVis}}">
+                        <TextBlock Text="{Binding SelectionOrder}"
+                                   Foreground="White"
+                                   FontSize="10"
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+                </Grid>
+            </Border>
+            <HierarchicalDataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsTreeSelected}" Value="True">
+                    <Setter TargetName="TreeItemBorder" Property="Background" Value="{DynamicResource SelectedBrush}"/>
+                </DataTrigger>
+            </HierarchicalDataTemplate.Triggers>
+        </HierarchicalDataTemplate>
+
+        <ContextMenu x:Key="EntityTreeContextMenu"
+                     x:Shared="False"
+                     DataContext="{Binding Data, Source={StaticResource Proxy}}">
+            <MenuItem Tag="AddProject" Header="Add Project" Command="{Binding AddProjectCommand}"/>
+            <MenuItem Tag="AddSystem" Header="Add System" Command="{Binding AddSystemCommand}"/>
+            <MenuItem Tag="AddFlow" Header="Add Flow" Command="{Binding AddFlowCommand}"/>
+            <MenuItem Tag="AddWork" Header="Add Work" Command="{Binding AddWorkCommand}"/>
+            <MenuItem Tag="AddCall" Header="Add Call" Command="{Binding AddCallCommand}"/>
+            <Separator Tag="SepAdd"/>
+            <MenuItem Tag="Import" Header="불러오기 (JSON/AASX)..." Command="{Binding OpenFileCommand}"/>
+            <MenuItem Tag="ImportMermaid" Header="Mermaid 불러오기..." Command="{Binding ImportMermaidCommand}"/>
+            <Separator Tag="SepImport"/>
+            <MenuItem Tag="Copy" Header="Copy" Command="{Binding CopySelectedCommand}"/>
+            <MenuItem Tag="Paste" Header="Paste" Command="{Binding PasteCopiedCommand}"/>
+            <Separator Tag="SepEdit"/>
+            <MenuItem Tag="FocusCanvas" Header="Focus in Canvas" Command="{Binding Canvas.FocusSelectedInCanvasCommand}"/>
+            <MenuItem Tag="Rename" Header="Rename..." Command="{Binding FocusNameEditorCommand}"/>
+            <MenuItem Tag="Delete" Header="Delete" Command="{Binding DeleteSelectedCommand}" Foreground="{DynamicResource RedAccentBrush}"/>
+        </ContextMenu>
+    </UserControl.Resources>
+
+    <Border Style="{StaticResource PanelContainer}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="4"/>
+                <RowDefinition Height="160" MinHeight="60"/>
+            </Grid.RowDefinitions>
+            <Border Style="{StaticResource PanelHeader}">
+                <TextBlock Text="Explorer" FontWeight="SemiBold" FontSize="12"/>
+            </Border>
+
+            <TabControl Grid.Row="1" x:Name="TreeTabs" SelectionChanged="TreeTabs_SelectionChanged">
+                <TabItem x:Name="ControlTreeTab" Header="Control">
+                    <TreeView x:Name="ControlTree"
+                              ItemsSource="{Binding ControlTreeRoots}"
+                              SelectedItemChanged="Tree_SelectedItemChanged"
+                              PreviewMouseDown="Tree_PreviewMouseDown"
+                              ContextMenuOpening="Tree_ContextMenuOpening">
+                        <TreeView.ItemContainerStyle>
+                            <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
+                        </TreeView.ItemContainerStyle>
+                        <TreeView.ItemTemplate>
+                            <StaticResource ResourceKey="EntityTreeItemTemplate"/>
+                        </TreeView.ItemTemplate>
+                        <TreeView.ContextMenu>
+                            <StaticResource ResourceKey="EntityTreeContextMenu"/>
+                        </TreeView.ContextMenu>
+                    </TreeView>
+                </TabItem>
+
+                <TabItem x:Name="DeviceTreeTab" Header="Device">
+                    <TreeView x:Name="DeviceTree"
+                              ItemsSource="{Binding DeviceTreeRoots}"
+                              SelectedItemChanged="Tree_SelectedItemChanged"
+                              PreviewMouseDown="Tree_PreviewMouseDown"
+                              ContextMenuOpening="Tree_ContextMenuOpening">
+                        <TreeView.ItemContainerStyle>
+                            <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
+                        </TreeView.ItemContainerStyle>
+                        <TreeView.ItemTemplate>
+                            <StaticResource ResourceKey="EntityTreeItemTemplate"/>
+                        </TreeView.ItemTemplate>
+                        <TreeView.ContextMenu>
+                            <StaticResource ResourceKey="EntityTreeContextMenu"/>
+                        </TreeView.ContextMenu>
+                    </TreeView>
+                </TabItem>
+            </TabControl>
+
+            <GridSplitter Grid.Row="2" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+
+            <Grid Grid.Row="3">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Border Style="{StaticResource PanelHeader}">
+                    <TextBlock Text="History" FontWeight="SemiBold" FontSize="12"/>
+                </Border>
+                <ListBox Grid.Row="1"
+                         x:Name="HistoryListBox"
+                         ItemsSource="{Binding HistoryItems}"
+                         SelectedIndex="{Binding CurrentHistoryIndex, Mode=OneWay}"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         MouseDoubleClick="HistoryListBox_MouseDoubleClick">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Label}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsRedo}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                                <Setter Property="TextDecorations" Value="Strikethrough"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

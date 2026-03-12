@@ -1,0 +1,98 @@
+<Window x:Class="Promaker.Dialogs.ProjectPropertiesDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="프로젝트 속성"
+        Width="480" Height="460"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1">
+        <Grid Margin="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- 섹션 헤더: AAS 메타데이터 -->
+            <TextBlock Grid.Row="0" Text="AAS 메타데이터"
+                       FontSize="13" FontWeight="SemiBold"
+                       Foreground="{DynamicResource PrimaryTextBrush}"
+                       Margin="0,0,0,10"/>
+
+            <!-- IRI Prefix -->
+            <StackPanel Grid.Row="1" Margin="0,0,0,8">
+                <TextBlock Text="IRI Prefix"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,0,0,2"/>
+                <TextBox x:Name="IriPrefixBox" Padding="6,4"/>
+            </StackPanel>
+
+            <!-- Global Asset ID -->
+            <StackPanel Grid.Row="2" Margin="0,0,0,8">
+                <TextBlock Text="Global Asset ID"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,0,0,2"/>
+                <TextBox x:Name="GlobalAssetIdBox" Padding="6,4"/>
+                <TextBlock Text="비어 있으면 IRI Prefix + 프로젝트 이름으로 자동 생성됩니다"
+                           FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,2,0,0" FontStyle="Italic"/>
+            </StackPanel>
+
+            <!-- 구분선 -->
+            <Border Grid.Row="3" Height="1" Margin="0,4,0,12"
+                    Background="{DynamicResource BorderBrush}"/>
+
+            <!-- 섹션 헤더: 일반 -->
+            <TextBlock Grid.Row="4" Text="일반"
+                       FontSize="13" FontWeight="SemiBold"
+                       Foreground="{DynamicResource PrimaryTextBrush}"
+                       Margin="0,0,0,10"/>
+
+            <!-- Author -->
+            <StackPanel Grid.Row="5" Margin="0,0,0,8">
+                <TextBlock Text="작성자"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,0,0,2"/>
+                <TextBox x:Name="AuthorBox" Padding="6,4"/>
+            </StackPanel>
+
+            <!-- Version -->
+            <StackPanel Grid.Row="6" Margin="0,0,0,8">
+                <TextBlock Text="버전"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,0,0,2"/>
+                <TextBox x:Name="VersionBox" Padding="6,4"/>
+            </StackPanel>
+
+            <!-- Description -->
+            <StackPanel Grid.Row="7" Margin="0,0,0,8">
+                <TextBlock Text="설명"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,0,0,2"/>
+                <TextBox x:Name="DescriptionBox" Padding="6,4"
+                         AcceptsReturn="True" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         MinHeight="50"/>
+            </StackPanel>
+
+            <!-- Buttons -->
+            <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right"
+                        Margin="0,10,0,0">
+                <Button Content="확인" Style="{StaticResource DarkButton}"
+                        Padding="12,4" Margin="0,0,4,0"
+                        Click="Ok_Click" IsDefault="True"/>
+                <Button Content="취소" Style="{StaticResource DarkButton}"
+                        Padding="12,4" IsCancel="True"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

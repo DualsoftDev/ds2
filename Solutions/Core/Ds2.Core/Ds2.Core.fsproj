@@ -10,6 +10,8 @@
     <Compile Include="Enum.fs" />
     <Compile Include="Class.fs" />
     <Compile Include="Properties.fs" />
+    <Compile Include="Nameplate.fs" />
+    <Compile Include="HandoverDocumentation.fs" />
     <Compile Include="ValueSpec.fs" />
     <Compile Include="JsonOptions.fs" />
     <Compile Include="AbstractClass.fs" />
