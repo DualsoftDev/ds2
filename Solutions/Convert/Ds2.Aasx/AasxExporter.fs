@@ -4,6 +4,7 @@ open System
 open AasCore.Aas3_0
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
+open Ds2.Aasx.AasxConceptDescriptions
 open Ds2.Aasx.AasxFileIO
 open Ds2.UI.Core
 
@@ -12,7 +13,7 @@ open Ds2.UI.Core
 let private mkProp (idShort: string) (value: string) : ISubmodelElement =
     let p = Property(valueType = DataTypeDefXsd.String)
     p.IdShort <- idShort
-    p.Value <- value
+    p.Value <- if isNull value then "" else value
     p :> ISubmodelElement
 
 let private mkJsonProp<'T> (idShort: string) (obj: 'T) : ISubmodelElement =
@@ -29,6 +30,32 @@ let private mkSml (idShort: string) (items: ISubmodelElement list) : ISubmodelEl
     sml.IdShort <- idShort
     sml.Value <- ResizeArray<ISubmodelElement>(items)
     sml :> ISubmodelElement
+
+let private mkSmlProp (idShort: string) (items: ISubmodelElement list) : ISubmodelElement =
+    let sml = SubmodelElementList(typeValueListElement = AasSubmodelElements.Property)
+    sml.IdShort <- idShort
+    sml.Value <- ResizeArray<ISubmodelElement>(items)
+    sml :> ISubmodelElement
+
+/// MultiLanguageProperty — 단일 언어(en)만 지원
+let private mkMlp (idShort: string) (value: string) : ISubmodelElement =
+    let mlp = MultiLanguageProperty()
+    mlp.IdShort <- idShort
+    let v = if isNull value then "" else value
+    mlp.Value <- ResizeArray<ILangStringTextType>([LangStringTextType("en", v) :> ILangStringTextType])
+    mlp :> ISubmodelElement
+
+let private mkSemanticRef (semanticId: string) : IReference =
+    Reference(
+        ReferenceTypes.ExternalReference,
+        ResizeArray<IKey>([Key(KeyTypes.GlobalReference, semanticId) :> IKey])) :> IReference
+
+let private mkSubmodel (id: string) (idShort: string) (semanticId: string) (elems: ISubmodelElement list) : Submodel =
+    let sm = Submodel(id = id)
+    sm.IdShort <- idShort
+    sm.SemanticId <- mkSemanticRef semanticId
+    sm.SubmodelElements <- ResizeArray<ISubmodelElement>(elems)
+    sm
 
 // ── 변환 계층 ──────────────────────────────────────────────────────────────
 
@@ -136,6 +163,140 @@ let private systemToSmc (store: DsStore) (system: DsSystem) (isActive: bool) : I
         mkSml Works_             works
     ]
 
+// ── Nameplate → AAS Submodel (IDTA 02006-3-0) ──────────────────────────────
+
+let private phoneToSmc (phone: PhoneInfo) : ISubmodelElement =
+    mkSmc "Phone" [
+        mkMlp  "TelephoneNumber" phone.TelephoneNumber
+        mkProp "TypeOfTelephone" phone.TypeOfTelephone
+    ]
+
+let private faxToSmc (fax: FaxInfo) : ISubmodelElement =
+    mkSmc "Fax" [
+        mkMlp  "FaxNumber"       fax.FaxNumber
+        mkProp "TypeOfFaxNumber" fax.TypeOfFaxNumber
+    ]
+
+let private emailToSmc (email: EmailInfo) : ISubmodelElement =
+    mkSmc "Email" [
+        mkProp "EmailAddress"       email.EmailAddress
+        mkMlp  "PublicKey"          email.PublicKey
+        mkProp "TypeOfEmailAddress" email.TypeOfEmailAddress
+    ]
+
+let private addressToSmc (addr: AddressInfo) : ISubmodelElement =
+    mkSmc "AddressInformation" [
+        mkMlp  "Street"       addr.Street
+        mkMlp  "Zipcode"      addr.Zipcode
+        mkMlp  "CityTown"     addr.CityTown
+        mkProp "NationalCode" addr.NationalCode
+        phoneToSmc addr.Phone
+        faxToSmc   addr.Fax
+        emailToSmc addr.Email
+    ]
+
+let private markingToSmc (m: MarkingInfo) : ISubmodelElement =
+    mkSmc "Marking" [
+        mkProp "MarkingName"                         m.MarkingName
+        mkProp "DesignationOfCertificateOrApproval"  m.DesignationOfCertificateOrApproval
+        mkProp "IssueDate"                           m.IssueDate
+        mkProp "ExpiryDate"                          m.ExpiryDate
+        mkProp "MarkingFile"                         m.MarkingFile
+        mkMlp  "MarkingAdditionalText"               m.MarkingAdditionalText
+    ]
+
+let private nameplateToSubmodel (np: Nameplate) (projectId: Guid) : Submodel =
+    let elems : ISubmodelElement list = [
+        // 필수 요소
+        mkProp "URIOfTheProduct"                np.URIOfTheProduct
+        mkMlp  "ManufacturerName"               np.ManufacturerName
+        mkMlp  "ManufacturerProductDesignation" np.ManufacturerProductDesignation
+        addressToSmc np.AddressInformation
+        mkProp "OrderCodeOfManufacturer"        np.OrderCodeOfManufacturer
+        // 선택 요소
+        mkMlp  "ManufacturerProductRoot"        np.ManufacturerProductRoot
+        mkMlp  "ManufacturerProductFamily"      np.ManufacturerProductFamily
+        mkProp "ManufacturerProductType"        np.ManufacturerProductType
+        mkProp "ProductArticleNumberOfManufacturer" np.ProductArticleNumberOfManufacturer
+        mkProp "SerialNumber"                   np.SerialNumber
+        mkProp "YearOfConstruction"             np.YearOfConstruction
+        mkProp "DateOfManufacture"              np.DateOfManufacture
+        mkProp "HardwareVersion"                np.HardwareVersion
+        mkProp "FirmwareVersion"                np.FirmwareVersion
+        mkProp "SoftwareVersion"                np.SoftwareVersion
+        mkProp "CountryOfOrigin"                np.CountryOfOrigin
+        mkProp "UniqueFacilityIdentifier"       np.UniqueFacilityIdentifier
+        mkProp "CompanyLogo"                    np.CompanyLogo
+    ]
+    let markingsElems =
+        if np.Markings.Count > 0 then
+            [ mkSml "Markings" (np.Markings |> Seq.map markingToSmc |> Seq.toList) ]
+        else []
+    mkSubmodel
+        $"urn:dualsoft:nameplate:{projectId}"
+        NameplateSubmodelIdShort
+        NameplateSemanticId
+        (elems @ markingsElems)
+
+// ── HandoverDocumentation → AAS Submodel (IDTA 02004-1-2) ──────────────────
+
+let private documentIdToSmc (did: DocumentId) : ISubmodelElement =
+    mkSmc "DocumentId" [
+        mkProp "DocumentDomainId" did.DocumentDomainId
+        mkProp "ValueId"          did.ValueId
+        mkProp "IsPrimary"        (did.IsPrimary.ToString().ToLowerInvariant())
+    ]
+
+let private documentClassToSmc (dc: DocumentClassification) : ISubmodelElement =
+    mkSmc "DocumentClassification" [
+        mkProp "ClassId"               dc.ClassId
+        mkProp "ClassName"             dc.ClassName
+        mkProp "ClassificationSystem"  dc.ClassificationSystem
+    ]
+
+let private documentVersionToSmc (dv: DocumentVersion) : ISubmodelElement =
+    let baseElems : ISubmodelElement list = [
+        if dv.Languages.Count > 0 then
+            mkSmlProp "Languages" (dv.Languages |> Seq.map (fun lang -> mkProp "Language" lang) |> Seq.toList)
+        mkProp "DocumentVersionId"       dv.DocumentVersionId
+        mkProp "Title"                   dv.Title
+        mkProp "SubTitle"                dv.SubTitle
+        mkProp "Summary"                 dv.Summary
+        mkProp "KeyWords"                dv.KeyWords
+        mkProp "SetDate"                 dv.SetDate
+        mkProp "StatusSetDate"           dv.StatusSetDate
+        mkProp "StatusValue"             dv.StatusValue
+        mkProp "OrganizationName"        dv.OrganizationName
+        mkProp "OrganizationOfficialName" dv.OrganizationOfficialName
+        mkProp "Role"                    dv.Role
+        if dv.DigitalFiles.Count > 0 then
+            mkSmlProp "DigitalFiles" (dv.DigitalFiles |> Seq.map (fun f -> mkProp "DigitalFile" f) |> Seq.toList)
+        mkProp "PreviewFile"             dv.PreviewFile
+    ]
+    mkSmc "DocumentVersion" baseElems
+
+let private documentToSmc (doc: Document) : ISubmodelElement =
+    let elems : ISubmodelElement list = [
+        if doc.DocumentIds.Count > 0 then
+            mkSml "DocumentIds" (doc.DocumentIds |> Seq.map documentIdToSmc |> Seq.toList)
+        if doc.DocumentClassifications.Count > 0 then
+            mkSml "DocumentClassifications" (doc.DocumentClassifications |> Seq.map documentClassToSmc |> Seq.toList)
+        if doc.DocumentVersions.Count > 0 then
+            mkSml "DocumentVersions" (doc.DocumentVersions |> Seq.map documentVersionToSmc |> Seq.toList)
+    ]
+    mkSmc "Document" elems
+
+let private documentationToSubmodel (hd: HandoverDocumentation) (projectId: Guid) : Submodel =
+    let elems : ISubmodelElement list = [
+        if hd.Documents.Count > 0 then
+            mkSml "Documents" (hd.Documents |> Seq.map documentToSmc |> Seq.toList)
+    ]
+    mkSubmodel
+        $"urn:dualsoft:documentation:{projectId}"
+        DocumentationSubmodelIdShort
+        DocumentationSemanticId
+        elems
+
 // ── 진입점 ─────────────────────────────────────────────────────────────────
 
 let internal exportToSubmodel (store: DsStore) (project: Project) : Submodel =
@@ -154,25 +315,58 @@ let internal exportToSubmodel (store: DsStore) (project: Project) : Submodel =
 
     let sm = Submodel(id = project.Id.ToString())
     sm.IdShort <- SubmodelIdShort
-    sm.SemanticId <- Reference(
-        ReferenceTypes.ExternalReference,
-        ResizeArray<IKey>([Key(KeyTypes.GlobalReference, SubmodelSemanticId) :> IKey]))
+    sm.SemanticId <- mkSemanticRef SubmodelSemanticId
     sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
     sm
 
+/// IriPrefix 기반 Shell ID 생성 (Ev2 동일)
+let private resolveIriPrefix (project: Project) : string =
+    project.Properties.IriPrefix
+    |> Option.defaultValue DefaultIriPrefix
+
+/// GlobalAssetId 해석 — 설정값이 없으면 IriPrefix + "assetId/" + ProjectName
+let private resolveGlobalAssetId (project: Project) : string =
+    match project.Properties.GlobalAssetId with
+    | Some id when not (String.IsNullOrWhiteSpace id) -> id
+    | _ -> $"{resolveIriPrefix project}assetId/{project.Name}"
+
 let internal exportToAasxFile (store: DsStore) (project: Project) (outputPath: string) : unit =
+    let iriPrefix = resolveIriPrefix project
+
+    // 메인 프로젝트 Submodel
     let sm = exportToSubmodel store project
-    let key = Key(KeyTypes.Submodel, sm.Id) :> IKey
-    let smRef = Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
-    let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = $"urn:ds2:asset:{project.Id}")
-    let shell = AssetAdministrationShell(id = $"urn:ds2:shell:{project.Id}", assetInformation = assetInfo)
+    let mkSmRef (submodel: Submodel) : IReference =
+        let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
+        Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
+
+    let submodels = ResizeArray<ISubmodel>([sm :> ISubmodel])
+    let smRefs = ResizeArray<IReference>([mkSmRef sm])
+
+    // Nameplate Submodel (항상 포함 — Ev2 동일)
+    let npSm = nameplateToSubmodel project.Nameplate project.Id
+    submodels.Add(npSm :> ISubmodel)
+    smRefs.Add(mkSmRef npSm)
+
+    // Documentation Submodel (항상 포함 — Ev2 동일)
+    let docSm = documentationToSubmodel project.HandoverDocumentation project.Id
+    submodels.Add(docSm :> ISubmodel)
+    smRefs.Add(mkSmRef docSm)
+
+    // Shell — IriPrefix 기반 ID
+    let globalAssetId = resolveGlobalAssetId project
+    let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
+    let shell = AssetAdministrationShell(id = $"{iriPrefix}shell/{project.Name}", assetInformation = assetInfo)
     shell.IdShort <- "ProjectShell"
-    shell.Submodels <- ResizeArray<IReference>([smRef])
+    shell.Submodels <- smRefs
+
+    // ConceptDescriptions (Nameplate + Documentation)
+    let conceptDescs = createAllConceptDescriptions true true
+
     let env =
         Environment(
-            submodels = ResizeArray<ISubmodel>([sm :> ISubmodel]),
+            submodels = submodels,
             assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
-            conceptDescriptions = null)
+            conceptDescriptions = conceptDescs)
     writeEnvironment env outputPath
 
 /// Export helper for UI callers that should not access Project entity directly.

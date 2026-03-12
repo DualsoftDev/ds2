@@ -11,9 +11,11 @@ open System.Text.Json.Serialization
 // 이유: 두 타입은 실제 서로를 참조하지 않음
 type Project [<JsonConstructor>] internal (name) =
     inherit DsEntity(name)
-    member val Properties      = ProjectProperties()   with get, set
-    member val ActiveSystemIds = ResizeArray<Guid>()   with get, set
-    member val PassiveSystemIds = ResizeArray<Guid>()  with get, set
+    member val Properties             = ProjectProperties()        with get, set
+    member val ActiveSystemIds        = ResizeArray<Guid>()        with get, set
+    member val PassiveSystemIds       = ResizeArray<Guid>()        with get, set
+    member val Nameplate              = Nameplate()                with get, set
+    member val HandoverDocumentation  = HandoverDocumentation()    with get, set
 
 type DsSystem [<JsonConstructor>] internal (name) =
     inherit DsEntity(name)

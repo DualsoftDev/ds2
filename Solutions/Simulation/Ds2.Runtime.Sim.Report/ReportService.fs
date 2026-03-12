@@ -7,17 +7,16 @@ open Ds2.Runtime.Sim.Report.Exporters
 
 /// 상태 변경 기록 (간트차트용)
 type StateChangeRecord = {
-    NodeId: string
-    NodeName: string
-    NodeType: string
-    SystemId: string
-    State: string
-    Timestamp: DateTime
+    NodeId    : string
+    NodeName  : string
+    NodeType  : string
+    SystemId  : string
+    State     : string
+    Timestamp : DateTime
 }
 
 /// 리포트 서비스 - 시뮬레이션 결과 리포트 생성 및 내보내기
 module ReportService =
-
     let private createSegments (endTime: DateTime) (stateHistory: (string * DateTime) list) =
         let transitions =
             stateHistory
@@ -98,8 +97,8 @@ module ReportService =
         match Path.GetExtension(filePath).ToLowerInvariant() with
         | ".html" | ".htm" -> Html
         | ".xlsx" | ".xls" -> Excel
-        | ".csv" -> Csv
-        | _ -> Csv
+        | ".csv"           -> Csv
+        | _                -> Csv
 
     /// 파일 확장자에 따라 자동 내보내기
     let exportAuto (report: SimulationReport) (filePath: string) =

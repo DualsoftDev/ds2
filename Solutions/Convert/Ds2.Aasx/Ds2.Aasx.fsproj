@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <Compile Include="AasxSemantics.fs" />
+    <Compile Include="AasxConceptDescriptions.fs" />
     <Compile Include="AasxFileIO.fs" />
     <Compile Include="AasxExporter.fs" />
     <Compile Include="AasxImporter.fs" />

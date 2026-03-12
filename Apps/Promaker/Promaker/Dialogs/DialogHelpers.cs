@@ -8,8 +8,18 @@ namespace Promaker.Dialogs;
 
 internal static class DialogHelpers
 {
+    internal static bool ShowOwnedDialog(Window dialog)
+    {
+        dialog.Owner = Application.Current.MainWindow;
+        dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        return dialog.ShowDialog() == true;
+    }
+
     internal static void Warn(string message) =>
-        MessageBox.Show(message, "입력 오류", MessageBoxButton.OK, MessageBoxImage.Warning);
+        ShowThemedMessageBox(message, "경고", MessageBoxButton.OK, "⚠");
+
+    internal static void Info(string message) =>
+        ShowThemedMessageBox(message, "알림", MessageBoxButton.OK, "ℹ");
 
     internal static string? PromptName(string title, string defaultName)
     {
@@ -76,14 +86,112 @@ internal static class DialogHelpers
         return null;
     }
 
-    /// <summary>
-    /// 저장되지 않은 변경이 있을 때 확인 팝업.
-    /// Yes=저장 후 계속, No=저장 안 하고 계속, Cancel=취소.
-    /// </summary>
     internal static MessageBoxResult AskSaveChanges() =>
-        MessageBox.Show(
+        ShowThemedMessageBox(
             "현재 프로젝트에 저장되지 않은 변경이 있습니다.\n저장하시겠습니까?",
             "저장 확인",
             MessageBoxButton.YesNoCancel,
-            MessageBoxImage.Question);
+            "?");
+
+    private static MessageBoxResult ShowThemedMessageBox(
+        string message, string title, MessageBoxButton buttons, string icon)
+    {
+        var result = MessageBoxResult.None;
+
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 380,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = Application.Current.MainWindow,
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false
+        };
+
+        var darkButtonStyle = Application.Current.TryFindResource("DarkButton") as Style;
+
+        var iconBlock = new TextBlock
+        {
+            Text = icon,
+            FontSize = 28,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 0, 12, 0)
+        };
+
+        var messageBlock = new TextBlock
+        {
+            Text = message,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13
+        };
+
+        var contentPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(16, 16, 16, 12)
+        };
+        contentPanel.Children.Add(iconBlock);
+        contentPanel.Children.Add(messageBlock);
+
+        var buttonPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(16, 0, 16, 16)
+        };
+
+        Button MakeButton(string content, MessageBoxResult value, bool isDefault = false, bool isCancel = false)
+        {
+            var btn = new Button
+            {
+                Content = content,
+                MinWidth = 70,
+                Padding = new Thickness(12, 4, 12, 4),
+                Margin = new Thickness(4, 0, 0, 0),
+                IsDefault = isDefault,
+                IsCancel = isCancel
+            };
+            if (darkButtonStyle is not null) btn.Style = darkButtonStyle;
+            btn.Click += (_, _) => { result = value; dialog.DialogResult = true; };
+            return btn;
+        }
+
+        switch (buttons)
+        {
+            case MessageBoxButton.YesNoCancel:
+                buttonPanel.Children.Add(MakeButton("예(Y)", MessageBoxResult.Yes, isDefault: true));
+                buttonPanel.Children.Add(MakeButton("아니요(N)", MessageBoxResult.No));
+                buttonPanel.Children.Add(MakeButton("취소", MessageBoxResult.Cancel, isCancel: true));
+                break;
+            case MessageBoxButton.YesNo:
+                buttonPanel.Children.Add(MakeButton("예(Y)", MessageBoxResult.Yes, isDefault: true));
+                buttonPanel.Children.Add(MakeButton("아니요(N)", MessageBoxResult.No, isCancel: true));
+                break;
+            case MessageBoxButton.OKCancel:
+                buttonPanel.Children.Add(MakeButton("확인", MessageBoxResult.OK, isDefault: true));
+                buttonPanel.Children.Add(MakeButton("취소", MessageBoxResult.Cancel, isCancel: true));
+                break;
+            default:
+                buttonPanel.Children.Add(MakeButton("확인", MessageBoxResult.OK, isDefault: true, isCancel: true));
+                break;
+        }
+
+        var root = new Border
+        {
+            Background = (System.Windows.Media.Brush?)Application.Current.TryFindResource("SecondaryBackgroundBrush")
+                         ?? System.Windows.SystemColors.WindowBrush
+        };
+        var mainPanel = new StackPanel();
+        mainPanel.Children.Add(contentPanel);
+        mainPanel.Children.Add(buttonPanel);
+        root.Child = mainPanel;
+        dialog.Content = root;
+
+        if (dialog.ShowDialog() != true && result == MessageBoxResult.None)
+            result = buttons == MessageBoxButton.OK ? MessageBoxResult.OK : MessageBoxResult.Cancel;
+
+        return result;
+    }
 }

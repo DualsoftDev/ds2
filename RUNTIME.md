@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-03-09 (TabExists 제거, findApiDefs 간소화, TryEditorRef 전환, 데드 코드 삭제)
+Last Sync: 2026-03-13 (AASX 메타데이터, Panel 파일 통합)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -147,7 +147,7 @@ cascadeRemoveProject
 
 **backup**: 모든 `TrackRemove`는 `DeepCopyHelper.backupEntityAs<'T>`(원본 GUID 유지 JSON 클론)로 자동 백업을 생성합니다. 제네릭 형태로 서브타입 필드를 완전히 보존합니다.
 
-주요 구현: `Extensions/DsStore.Nodes.fs` (`CascadeRemove` 내부 모듈)
+주요 구현: `Store/DsStore.Nodes.fs` (`CascadeRemove` 내부 모듈)
 
 ### 2.5 Call Conditions
 
@@ -379,7 +379,7 @@ pasteCallsToWorkBatch(sourceCalls, targetWorkId)
   → Device System 정상 생성 + ApiDefId 매핑 보장
 ```
 
-주요 구현: `Extensions/DsStore.Paste.fs` (`PasteResolvers` + `DirectPasteOps`)
+주요 구현: `Store/DsStore.Paste.fs` (`PasteResolvers` + `DirectPasteOps`)
 
 ---
 
@@ -516,7 +516,7 @@ store.LoadFromFile(path)
 
 ## 7. 선택 동기화
 
-- 캔버스 선택 ↔ 트리 선택은 단일 경로(`MainViewModel.Selection.cs`)에서 처리
+- 캔버스 선택 ↔ 트리 선택은 단일 경로(`SelectionState.cs`)에서 처리
 - Ctrl 다중 선택, Shift 범위 선택, 박스(드래그) 선택 지원
 - 선택 정렬·범위 판정은 F# `SelectionQueries`에서 처리, C#에서 중복 구현하지 않음
 - 선택 변경 시 `SelectionChanged` 이벤트 → 속성 패널 갱신
@@ -533,15 +533,24 @@ store.LoadFromFile(path)
 ### 8.2 익스포트 흐름
 
 ```
-MainViewModel.ExportAasxCommand (C#)
-  → _store.Projects.Values.FirstOrDefault()  ← 프로젝트 취득
-  → AasxExporter.exportToAasxFile(_store, project, path)  ← F# 직접 호출
-      → exportToSubmodel: Project 계층 → AAS Submodel
+FileCommands.SaveFile (C#)
+  → 확장자 `.aasx` 분기
+  → AasxExporter.exportFromStore(_store, path)  ← F# 직접 호출
+      → exportToSubmodel: Project 계층 → AAS Submodel (Ds2SequenceControlSubmodel)
             Call → SMC
             Work → SMC (Calls SML + ArrowsBetweenCalls SML)
             Flow → SMC (Works SML + ArrowsBetweenWorks SML)
             DsSystem → SMC (Flows SML + ApiDefs SML, IsActiveSystem 플래그)
             Project → 최상위 SMC
+      → exportNameplateSubmodel: Project.Nameplate → Nameplate Submodel
+            IDTA 02006-3-0 표준 준수
+            프로젝트 명판 정보 (제조사, 제품명, 시리얼번호 등)
+      → exportHandoverDocumentationSubmodel: Project.HandoverDocumentation → HandoverDocumentation Submodel
+            IDTA 02004-1-2 표준 준수
+            인수인계 문서 (Document + DocumentVersion SMC)
+      → ConceptDescription 41개 자동 생성
+            Nameplate IRDI 35개 + Documentation IRDI 6개
+      → IriPrefix 기반 Shell ID 생성, GlobalAssetId 자동 해석
       → writeEnvironment env path  ← AASX ZIP 생성 (XML 직렬화)
 ```
 
@@ -552,42 +561,61 @@ MainViewModel.ExportAasxCommand (C#)
 ### 8.3 임포트 흐름
 
 ```
-MainViewModel.ImportAasxCommand (C#)
-  → AasxImporter.importFromAasxFile(path)  ← F# 직접 호출 → DsStore option
-      → readEnvironment path  ← AASX ZIP 열기 (XML/JSON 자동 판별)
-      → Submodel → Project + 모든 엔티티 재구성
-            SMC → Call (ApiCalls/CallConditions JSON 역직렬화)
-            SMC → Work → Calls + ArrowBetweenCalls
-            SMC → Flow → Works + ArrowBetweenWorks
-            SMC → DsSystem (isActive 플래그로 ActiveSystemIds/PassiveSystemIds 분류)
-            Submodel → Project + DsStore
-      → 새 DsStore 직접 구성 (store.DirectWrite로 컬렉션 채움)
-  → FSharpOption<DsStore>.get_IsSome(storeOpt) 검사
-  → _store.ReplaceStore(storeOpt.Value)  ← DsStore.ReplaceStore: store 교체 + StoreRefreshed 발행
-  → _currentFilePath = null, IsDirty = false, UpdateTitle()
+FileCommands.OpenFile (C#)
+  → 확장자 `.aasx` 분기
+  → AasxImporter.importIntoStore(_store, path)  ← F# 직접 호출 → bool
+      → importFromAasxFile(path)  ← 내부 변환 함수
+            → readEnvironment path  ← AASX ZIP 열기 (XML/JSON 자동 판별)
+            → Ds2SequenceControlSubmodel → Project + 모든 엔티티 재구성
+                  SMC → Call (ApiCalls/CallConditions JSON 역직렬화)
+                  SMC → Work → Calls + ArrowBetweenCalls
+                  SMC → Flow → Works + ArrowBetweenWorks
+                  SMC → DsSystem (isActive 플래그로 ActiveSystemIds/PassiveSystemIds 분류)
+                  Submodel → Project + DsStore
+            → Nameplate Submodel → Project.Nameplate (IDTA 02006-3-0)
+                  Nameplate SMC 항목 → Project.Nameplate 레코드 필드로 매핑
+            → HandoverDocumentation Submodel → Project.HandoverDocumentation (IDTA 02004-1-2)
+                  Document/DocumentVersion SMC → Project.HandoverDocumentation 레코드 필드로 매핑
+            → 새 DsStore 직접 구성 (store.DirectWrite로 컬렉션 채움)
+      → importIntoStore: _store.ReplaceStore(imported) + bool 반환
+  → _currentFilePath = fileName, IsDirty = false, UpdateTitle(), RequestRebuildAll(AfterFileLoad)
 ```
 
 ### 8.4 AASX 파일 구조 (ds2 전용)
 
 ```
 Environment
-└── AssetAdministrationShell (id="urn:ds2:shell:{projectId}")
-└── Submodel (idShort="Ds2SequenceControlSubmodel")
-    └── SMC (Project)
-        ├── Property "Name", "Guid", "Properties" (JSON)
-        ├── SML "ActiveSystems"
-        │   └── SMC (DsSystem, IsActiveSystem="true")
-        │       ├── SML "Flows"
-        │       │   └── SMC (Flow)
-        │       │       ├── SML "Works"
-        │       │       │   └── SMC (Work)
-        │       │       │       ├── SML "Calls"
-        │       │       │       │   └── SMC (Call) — ApiCalls/CallConditions as JSON
-        │       │       │       └── SML "ArrowsBetweenCalls"
-        │       │       └── SML "ArrowsBetweenWorks"
-        │       └── SML "ApiDefs"
-        └── SML "PassiveSystems"
-            └── SMC (DsSystem, IsActiveSystem="false")
+└── AssetAdministrationShell (id="{iriPrefix}{projectId}" 또는 "urn:ds2:shell:{projectId}")
+│   └── GlobalAssetId: iriPrefix + projectId 또는 자동 해석
+│
+├── Submodel (idShort="Ds2SequenceControlSubmodel")
+│   └── SMC (Project)
+│       ├── Property "Name", "Guid", "Properties" (JSON)
+│       ├── SML "ActiveSystems"
+│       │   └── SMC (DsSystem, IsActiveSystem="true")
+│       │       ├── SML "Flows"
+│       │       │   └── SMC (Flow)
+│       │       │       ├── SML "Works"
+│       │       │       │   └── SMC (Work)
+│       │       │       │       ├── SML "Calls"
+│       │       │       │       │   └── SMC (Call) — ApiCalls/CallConditions as JSON
+│       │       │       │       └── SML "ArrowsBetweenCalls"
+│       │       │       └── SML "ArrowsBetweenWorks"
+│       │       └── SML "ApiDefs"
+│       └── SML "PassiveSystems"
+│           └── SMC (DsSystem, IsActiveSystem="false")
+│
+├── Submodel (idShort="Nameplate", IDTA 02006-3-0)
+│   └── Property "ManufacturerName", "ManufacturerProductDesignation", ...
+│       (Project.Nameplate 레코드 필드 매핑)
+│
+├── Submodel (idShort="HandoverDocumentation", IDTA 02004-1-2)
+│   └── SML "Document"
+│       └── SMC "DocumentVersion" — 인수인계 문서 정보
+│
+└── ConceptDescription × 41
+    ├── Nameplate IRDI × 35
+    └── Documentation IRDI × 6
 ```
 
 ### 8.5 ReplaceStore
@@ -699,7 +727,7 @@ let private log = LogManager.GetLogger("Ds2.Aasx.AasxImporter")
 #### C# — MainViewModel (partial class 공유)
 
 `MainViewModel.cs`에 `private static readonly ILog Log` 선언.
-모든 partial 파일(`Events.cs`, `FileIO.cs`, `NodeCommands.cs` 등)은 같은 partial class이므로 별도 선언 없이 `Log` 공유.
+모든 partial 파일(`Shell/EventHandling.cs`, `Shell/FileCommands.cs`, `NodeCommands.cs` 등)은 같은 partial class이므로 별도 선언 없이 `Log` 공유.
 
 | 지점 | 레벨 | 메시지 형태 |
 |------|------|------------|

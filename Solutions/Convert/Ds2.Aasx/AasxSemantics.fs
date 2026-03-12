@@ -2,6 +2,17 @@ module Ds2.Aasx.AasxSemantics
 
 let [<Literal>] SubmodelIdShort      = "SequenceControlSubmodel"
 let [<Literal>] SubmodelSemanticId   = "https://dualsoft.com/aas/submodel"
+
+// Digital Nameplate (IDTA 02006-3-0) 상수
+let [<Literal>] NameplateSubmodelIdShort  = "Nameplate"
+let [<Literal>] NameplateSemanticId       = "https://admin-shell.io/zvei/nameplate/3/0/Nameplate"
+
+// Handover Documentation (IDTA 02004-1-2) 상수
+let [<Literal>] DocumentationSubmodelIdShort = "HandoverDocumentation"
+let [<Literal>] DocumentationSemanticId      = "0173-1#01-AHF578#001"
+
+// IRI 기본값
+let [<Literal>] DefaultIriPrefix = "http://your-company.com/"
 let [<Literal>] Name_                = "Name"
 let [<Literal>] Guid_                = "Guid"
 let [<Literal>] Properties_          = "Properties"

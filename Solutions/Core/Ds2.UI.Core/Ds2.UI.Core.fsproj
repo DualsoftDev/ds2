@@ -29,10 +29,7 @@
     <Compile Include="Store\DsStore.Nodes.fs" />
     <Compile Include="Store\DsStore.Arrows.fs" />
     <Compile Include="Store\DsStore.Panel.fs" />
-    <Compile Include="Store\DsStore.Panel.Time.fs" />
-    <Compile Include="Store\DsStore.Panel.ApiDefs.fs" />
-    <Compile Include="Store\DsStore.Panel.ApiCalls.fs" />
-    <Compile Include="Store\DsStore.Panel.Conditions.fs" />
+    <Compile Include="Store\DsStore.Panel.Api.fs" />
   </ItemGroup>
 
   <ItemGroup>
