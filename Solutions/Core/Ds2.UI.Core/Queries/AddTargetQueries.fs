@@ -54,20 +54,6 @@ let private systemIdsOfProject (project: Project) =
     |> Seq.distinct
     |> Seq.toList
 
-let private tryResolveSystemFromSelectedEntity
-    (store: DsStore)
-    (selectedEntityKind: EntityKind option)
-    (selectedEntityId: Guid option)
-    : Guid option =
-    match selectedEntityKind, selectedEntityId with
-    | Some EntityKind.Project, Some projectId ->
-        DsQuery.getProject projectId store
-        |> Option.bind (fun project ->
-            match systemIdsOfProject project with
-            | [ systemId ] -> Some systemId
-            | _ -> None)
-    | _ -> resolveFromEntity EntityHierarchyQueries.tryFindSystemIdForEntity store selectedEntityKind selectedEntityId
-
 /// Add Flow target resolver for UI. Priority:
 /// 1) selected entity context, 2) active tab context, 3) single system in store.
 let tryResolveAddFlowTarget
@@ -79,7 +65,14 @@ let tryResolveAddFlowTarget
     : Guid option =
 
     let fromSelection =
-        tryResolveSystemFromSelectedEntity store selectedEntityKind selectedEntityId
+        match selectedEntityKind, selectedEntityId with
+        | Some EntityKind.Project, Some projectId ->
+            DsQuery.getProject projectId store
+            |> Option.bind (fun project ->
+                match systemIdsOfProject project with
+                | [ systemId ] -> Some systemId
+                | _ -> None)
+        | _ -> resolveFromEntity EntityHierarchyQueries.tryFindSystemIdForEntity store selectedEntityKind selectedEntityId
 
     let fromTab =
         resolveFromActiveTab EntityHierarchyQueries.tryFindSystemIdForEntity store activeTabKind activeTabRootId

@@ -59,15 +59,14 @@ let private lookupEntity (store: DsStore) (tabKind: TabKind) (id: Guid) : (Guid 
     | TabKind.Work   -> DsQuery.getWork   id store |> Option.map (fun w -> w.Id, w.Name)
     | _              -> None
 
-let private tabKindForEntityKind entityKind =
-    match entityKind with
-    | EntityKind.System -> Some TabKind.System
-    | EntityKind.Flow   -> Some TabKind.Flow
-    | EntityKind.Work   -> Some TabKind.Work
-    | _                 -> None
-
 let tryOpenTabForEntity (store: DsStore) (entityKind: EntityKind) (entityId: Guid) : TabOpenInfo option =
-    tabKindForEntityKind entityKind
+    let tabKindForEntityKind =
+        match entityKind with
+        | EntityKind.System -> Some TabKind.System
+        | EntityKind.Flow   -> Some TabKind.Flow
+        | EntityKind.Work   -> Some TabKind.Work
+        | _                 -> None
+    tabKindForEntityKind
     |> Option.bind (fun kind ->
         lookupEntity store kind entityId
         |> Option.map (fun (id, name) -> { Kind = kind; RootId = id; Title = name }))

@@ -60,7 +60,7 @@ type StateManager(index: SimIndex, initialTickMs: int) =
                 if isSkipped then state <- { state with SkippedCalls = state.SkippedCalls.Add(nodeGuid) }
                 elif actualNewState = Status4.Ready then state <- { state with SkippedCalls = state.SkippedCalls.Remove(nodeGuid) }
             if nodeType = NodeTypeWork && oldState = Status4.Going then
-                match index.WorkSystemName |> Map.tryFind nodeGuid, index.WorkName |> Map.tryFind nodeGuid with
+                match Map.tryFind nodeGuid index.WorkSystemName, Map.tryFind nodeGuid index.WorkName with
                 | Some sysName, Some wName ->
                     let predKey = (sysName, wName)
                     workGTriggeredResets <- workGTriggeredResets |> Set.filter (fun (pk, _) -> pk <> predKey)

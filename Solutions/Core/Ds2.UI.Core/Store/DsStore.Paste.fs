@@ -33,10 +33,9 @@ module internal DirectPasteOps =
         TargetFlowName: string
     }
 
-    let private cloneIOTag (tagOpt: IOTag option) : IOTag option =
-        tagOpt |> Option.map (fun t -> IOTag(t.Name, t.Address, t.Description))
-
     let private cloneApiCall (sourceApiCall: ApiCall) (mapApiDefId: Guid option -> Guid option) : ApiCall =
+        let cloneIOTag (tagOpt: IOTag option) : IOTag option =
+            tagOpt |> Option.map (fun t -> IOTag(t.Name, t.Address, t.Description))
         let cloned = ApiCall(sourceApiCall.Name)
         cloned.InTag      <- cloneIOTag sourceApiCall.InTag
         cloned.OutTag     <- cloneIOTag sourceApiCall.OutTag
@@ -47,10 +46,6 @@ module internal DirectPasteOps =
 
     let private mergeGuidMap (baseMap: Map<Guid, Guid>) (additions: Map<Guid, Guid>) =
         Map.fold (fun acc k v -> Map.add k v acc) baseMap additions
-
-    let private isPassiveSystemId (store: DsStore) (systemId: Guid) : bool =
-        DsQuery.allProjects store
-        |> List.exists (fun p -> p.PassiveSystemIds.Contains(systemId))
 
     let private collectArrowsWithinSet
         (getArrows: Guid -> DsStore -> 'a list)
@@ -125,7 +120,9 @@ module internal DirectPasteOps =
             |> Seq.tryPick (fun ac ->
                 ac.ApiDefId
                 |> Option.bind (fun aid -> DsQuery.getApiDef aid store)
-                |> Option.bind (fun d -> if isPassiveSystemId store d.ParentId then Some d.ParentId else None))
+                |> Option.bind (fun d ->
+                    if DsQuery.allProjects store |> List.exists (fun p -> p.PassiveSystemIds.Contains(d.ParentId))
+                    then Some d.ParentId else None))
         match sourceSystemIdOpt with
         | None ->
             copyApiCallsWithMapping store sourceCall targetCallId id
@@ -136,13 +133,6 @@ module internal DirectPasteOps =
             copyApiCallsWithMapping store sourceCall targetCallId (fun srcIdOpt ->
                 srcIdOpt |> Option.bind (fun id -> Map.tryFind id apiDefMapping) |> Option.orElse srcIdOpt)
             newState
-
-    let private detectCopyContext (store: DsStore) (sourceCall: Call) (targetWorkId: Guid) : CallCopyContext =
-        if sourceCall.ParentId = targetWorkId then SameWork
-        else
-            match DsQuery.getWork targetWorkId store, DsQuery.getWork sourceCall.ParentId store with
-            | Some tw, Some sw when tw.ParentId = sw.ParentId -> DifferentWork
-            | _ -> DifferentFlow
 
     let private replayWorkArrows (store: DsStore) (targetSystemId: Guid)
         (sourceWorkArrows: ArrowBetweenWorks list) (workMap: Map<Guid, Guid>) =
@@ -202,11 +192,6 @@ module internal DirectPasteOps =
             projectIdOpt |> Option.map (fun pid ->
                 { Store = store; ProjectId = pid; TargetFlowName = targetFlow.Name })
 
-    let private makeDeviceFlowCtxDirect (store: DsStore) (targetSystemId: Guid) (targetFlowName: string) : DeviceFlowCtx option =
-        EntityHierarchyQueries.findProjectOfSystem store targetSystemId
-        |> Option.map (fun projectId ->
-            { Store = store; ProjectId = projectId; TargetFlowName = targetFlowName })
-
     let private pasteWorkToFlow
         (store: DsStore) (sourceWork: Work) (targetFlowId: Guid)
         (deviceState: DevicePasteState) (deviceFlowCtxOpt: DeviceFlowCtx option)
@@ -229,7 +214,10 @@ module internal DirectPasteOps =
     let pasteFlowToSystem (store: DsStore) (sourceFlow: Flow) (targetSystemId: Guid) : Guid =
         let pastedFlow = Flow(sourceFlow.Name, targetSystemId)
         store.TrackAdd(store.Flows, pastedFlow)
-        let deviceFlowCtxOpt = makeDeviceFlowCtxDirect store targetSystemId pastedFlow.Name
+        let deviceFlowCtxOpt =
+            EntityHierarchyQueries.findProjectOfSystem store targetSystemId
+            |> Option.map (fun projectId ->
+                { Store = store; ProjectId = projectId; TargetFlowName = pastedFlow.Name })
         let sourceSystemId = sourceFlow.ParentId
         let sourceWorkArrows = DsQuery.arrowWorksOf sourceSystemId store
         let sourceWorks = DsQuery.worksOf sourceFlow.Id store
@@ -283,7 +271,12 @@ module internal DirectPasteOps =
         let callMap, pastedIdsRev, _ =
             sourceCalls
             |> List.fold (fun (cm, ids, ds) sc ->
-                let context = detectCopyContext store sc targetWorkId
+                let context =
+                    if sc.ParentId = targetWorkId then SameWork
+                    else
+                        match DsQuery.getWork targetWorkId store, DsQuery.getWork sc.ParentId store with
+                        | Some tw, Some sw when tw.ParentId = sw.ParentId -> DifferentWork
+                        | _ -> DifferentFlow
                 let ctxOpt = match context with DifferentFlow -> deviceFlowCtxForDiffFlow | _ -> None
                 let pc, nds = pasteCallToWork store context sc targetWorkId ds ctxOpt
                 Map.add sc.Id pc.Id cm, pc.Id :: ids, nds

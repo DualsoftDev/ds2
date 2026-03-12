@@ -18,13 +18,11 @@ module internal CascadeRemove =
         arrowsFor store.ArrowCallsReadOnly (fun a -> a.SourceId) (fun a -> a.TargetId) callIds
 
 
-    let private collectReferencedApiCallIds (store: DsStore) =
-        store.Calls.Values
-        |> Seq.collect CallConditionQueries.referencedApiCallIds
-        |> Set.ofSeq
-
     let removeOrphanApiCalls (store: DsStore) =
-        let referencedIds = collectReferencedApiCallIds store
+        let referencedIds =
+            store.Calls.Values
+            |> Seq.collect CallConditionQueries.referencedApiCallIds
+            |> Set.ofSeq
         let orphanIds =
             store.ApiCalls.Keys
             |> Seq.filter (fun id -> not (referencedIds.Contains id))

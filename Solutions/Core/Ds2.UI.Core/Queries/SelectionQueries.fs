@@ -3,12 +3,6 @@ module Ds2.UI.Core.SelectionQueries
 open System
 open System.Collections.Generic
 
-let private distinctSelectionKeys (keys: seq<SelectionKey>) =
-    let seen = HashSet<SelectionKey>()
-    keys
-    |> Seq.filter seen.Add
-    |> Seq.toList
-
 let orderCanvasSelectionKeys (nodes: seq<CanvasSelectionCandidate>) : SelectionKey list =
     nodes
     |> Seq.sortWith (fun left right ->
@@ -71,37 +65,6 @@ let orderCanvasSelectionKeysForBox
     |> Seq.map (fun (key, _, _, _, _, _) -> key)
     |> Seq.toList
 
-let private tryFindSelectionIndex (orderedKeys: SelectionKey array) (target: SelectionKey) =
-    orderedKeys
-    |> Array.tryFindIndex (fun key -> key = target)
-
-let private tryApplyRangeSelection
-    (anchor: SelectionKey option)
-    (targetKey: SelectionKey)
-    (additive: bool)
-    (currentSelection: SelectionKey list)
-    (orderedKeys: SelectionKey array)
-    : SelectionKey list option =
-
-    match anchor with
-    | None -> None
-    | Some anchorKey ->
-        match tryFindSelectionIndex orderedKeys anchorKey, tryFindSelectionIndex orderedKeys targetKey with
-        | Some startIndex, Some endIndex ->
-            let fromIndex = min startIndex endIndex
-            let toIndex = max startIndex endIndex
-            let seed = if additive then currentSelection else []
-            let result = ResizeArray<SelectionKey>(seed)
-            let seen = HashSet<SelectionKey>(seed)
-
-            for index = fromIndex to toIndex do
-                let key = orderedKeys.[index]
-                if seen.Add(key) then
-                    result.Add(key)
-
-            Some (result |> Seq.toList)
-        | _ -> None
-
 let applyNodeSelection
     (currentSelection: seq<SelectionKey>)
     (anchor: SelectionKey option)
@@ -111,7 +74,9 @@ let applyNodeSelection
     (orderedKeys: seq<SelectionKey>)
     : NodeSelectionResult =
 
-    let current = distinctSelectionKeys currentSelection
+    let current =
+        let seen = HashSet<SelectionKey>()
+        currentSelection |> Seq.filter seen.Add |> Seq.toList
 
     match target with
     | None ->
@@ -122,9 +87,29 @@ let applyNodeSelection
     | Some targetKey ->
         let ordered = orderedKeys |> Seq.toArray
 
+        let tryApplyRangeSelection () : SelectionKey list option =
+            let tryFindSelectionIndex (t: SelectionKey) =
+                ordered |> Array.tryFindIndex (fun key -> key = t)
+            match anchor with
+            | None -> None
+            | Some anchorKey ->
+                match tryFindSelectionIndex anchorKey, tryFindSelectionIndex targetKey with
+                | Some startIndex, Some endIndex ->
+                    let fromIndex = min startIndex endIndex
+                    let toIndex = max startIndex endIndex
+                    let seed = if ctrlPressed then current else []
+                    let result = ResizeArray<SelectionKey>(seed)
+                    let seen = HashSet<SelectionKey>(seed)
+                    for index = fromIndex to toIndex do
+                        let key = ordered.[index]
+                        if seen.Add(key) then
+                            result.Add(key)
+                    Some (result |> Seq.toList)
+                | _ -> None
+
         let rangeApplied =
             if shiftPressed then
-                tryApplyRangeSelection anchor targetKey ctrlPressed current ordered
+                tryApplyRangeSelection ()
             else
                 None
 

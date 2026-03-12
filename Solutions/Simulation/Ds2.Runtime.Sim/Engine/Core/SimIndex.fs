@@ -53,48 +53,27 @@ module SimIndex =
         mutable CallActiveConditions: Map<Guid, ConditionEntry list>
     }
 
-    let private emptyBuildState () = {
-        AllWorkGuids = []
-        AllCallGuids = []
-        WorkCallGuids = Map.empty
-        WorkStartPreds = Map.empty
-        WorkResetPreds = Map.empty
-        WorkDuration = Map.empty
-        WorkSystemName = Map.empty
-        WorkName = Map.empty
-        CallStartPreds = Map.empty
-        CallWorkGuid = Map.empty
-        CallApiCallGuids = Map.empty
-        CallAutoConditions = Map.empty
-        CallCommonConditions = Map.empty
-        CallActiveConditions = Map.empty
-    }
-
-    let private findOrEmpty key map =
+    let findOrEmpty key map =
         map |> Map.tryFind key |> Option.defaultValue []
 
-    let private groupSourcesByTarget arrowTypes getArrowType getSourceId getTargetId arrows =
-        arrows
-        |> List.filter (fun arrow -> List.contains (getArrowType arrow) arrowTypes)
-        |> List.groupBy getTargetId
-        |> List.map (fun (targetId, groupedArrows) ->
-            targetId, groupedArrows |> List.map getSourceId)
-        |> Map.ofList
+    // ── 타입별 조회 헬퍼 ─────────────────────────────────────────────
 
-    let private groupTargetsBySource arrowTypes getArrowType getSourceId getTargetId arrows =
-        arrows
-        |> List.filter (fun arrow -> List.contains (getArrowType arrow) arrowTypes)
-        |> List.groupBy getSourceId
-        |> List.map (fun (sourceId, groupedArrows) ->
-            sourceId, groupedArrows |> List.map getTargetId)
-        |> Map.ofList
+    /// ApiCall → ApiDef → property Guid 체인 (TxGuid/RxGuid 공용)
+    let private resolveApiDefGuids (store: DsStore) (apiCallGuids: Guid list) (propGetter: ApiDefProperties -> Guid option) =
+        apiCallGuids |> List.choose (fun apiCallId ->
+            DsQuery.getApiCall apiCallId store
+            |> Option.bind (fun ac -> ac.ApiDefId)
+            |> Option.bind (fun defId -> DsQuery.getApiDef defId store)
+            |> Option.bind (fun def -> propGetter def.Properties))
 
-    let private mergeGroupedMaps maps =
-        maps
-        |> List.collect Map.toList
-        |> List.groupBy fst
-        |> List.map (fun (key, groupedValues) -> key, groupedValues |> List.collect snd)
-        |> Map.ofList
+    /// Call의 ApiCall들에서 TxWork Guid 목록 추출
+    let txWorkGuids (index: SimIndex) (callGuid: Guid) =
+        resolveApiDefGuids index.Store (findOrEmpty callGuid index.CallApiCallGuids) (fun p -> p.TxGuid)
+
+    /// Call의 ApiCall들에서 RxWork Guid 목록 추출
+    let rxWorkGuids (index: SimIndex) (callGuid: Guid) =
+        resolveApiDefGuids index.Store (findOrEmpty callGuid index.CallApiCallGuids) (fun p -> p.RxGuid)
+
 
     let private convertConditions (store: DsStore) (conditions: CallCondition seq) : ConditionEntry list =
         conditions
@@ -117,31 +96,6 @@ module SimIndex =
         |> Seq.filter (fun cc -> cc.Type = Some conditionType)
         |> convertConditions store
 
-    let private addCallData (state: BuildState) (store: DsStore) (work: Work) (callStartPreds: Map<Guid, Guid list>) (call: Call) =
-        let apiCallIds = call.ApiCalls |> Seq.map (fun apiCall -> apiCall.Id) |> Seq.toList
-
-        state.CallApiCallGuids <- state.CallApiCallGuids.Add(call.Id, apiCallIds)
-        state.CallStartPreds <- state.CallStartPreds.Add(call.Id, findOrEmpty call.Id callStartPreds)
-        state.CallWorkGuid <- state.CallWorkGuid.Add(call.Id, work.Id)
-        state.CallAutoConditions <- state.CallAutoConditions.Add(call.Id, conditionSpecs store CallConditionType.Auto call)
-        state.CallCommonConditions <- state.CallCommonConditions.Add(call.Id, conditionSpecs store CallConditionType.Common call)
-        state.CallActiveConditions <- state.CallActiveConditions.Add(call.Id, conditionSpecs store CallConditionType.Active call)
-        state.AllCallGuids <- call.Id :: state.AllCallGuids
-
-    let private addWorkData (state: BuildState) (system: DsSystem) (work: Work) (callGuids: Guid list) (workStartPreds: Map<Guid, Guid list>) (workResetPreds: Map<Guid, Guid list>) =
-        let duration =
-            work.Properties.Period
-            |> Option.map (fun ts -> ts.TotalMilliseconds)
-            |> Option.defaultValue 0.0
-
-        state.WorkCallGuids <- state.WorkCallGuids.Add(work.Id, callGuids)
-        state.WorkStartPreds <- state.WorkStartPreds.Add(work.Id, findOrEmpty work.Id workStartPreds)
-        state.WorkResetPreds <- state.WorkResetPreds.Add(work.Id, findOrEmpty work.Id workResetPreds)
-        state.WorkDuration <- state.WorkDuration.Add(work.Id, duration)
-        state.WorkSystemName <- state.WorkSystemName.Add(work.Id, system.Name)
-        state.WorkName <- state.WorkName.Add(work.Id, work.Name)
-        state.AllWorkGuids <- work.Id :: state.AllWorkGuids
-
     /// DsStore에서 SimIndex 빌드
     let build (store: DsStore) (tickMs: int) : SimIndex =
         let project = DsQuery.allProjects store |> List.tryHead
@@ -156,31 +110,61 @@ module SimIndex =
             | Some p -> DsQuery.projectSystemsOf p.Id store
             | None -> []
 
-        let state = emptyBuildState ()
+        let state = {
+            AllWorkGuids = []; AllCallGuids = []
+            WorkCallGuids = Map.empty; WorkStartPreds = Map.empty; WorkResetPreds = Map.empty
+            WorkDuration = Map.empty; WorkSystemName = Map.empty; WorkName = Map.empty
+            CallStartPreds = Map.empty; CallWorkGuid = Map.empty; CallApiCallGuids = Map.empty
+            CallAutoConditions = Map.empty; CallCommonConditions = Map.empty; CallActiveConditions = Map.empty
+        }
+
+        let groupArrows arrowTypes getArrowType keySelector valueSelector arrows =
+            arrows
+            |> List.filter (fun arrow -> List.contains (getArrowType arrow) arrowTypes)
+            |> List.groupBy keySelector
+            |> List.map (fun (key, grouped) -> key, grouped |> List.map valueSelector)
+            |> Map.ofList
+        let mergeGroupedMaps maps =
+            maps
+            |> List.collect Map.toList
+            |> List.groupBy fst
+            |> List.map (fun (key, groupedValues) -> key, groupedValues |> List.collect snd)
+            |> Map.ofList
+
+        let addCallData (work: Work) (callStartPreds: Map<Guid, Guid list>) (call: Call) =
+            let apiCallIds = call.ApiCalls |> Seq.map (fun apiCall -> apiCall.Id) |> Seq.toList
+            state.CallApiCallGuids <- state.CallApiCallGuids.Add(call.Id, apiCallIds)
+            state.CallStartPreds <- state.CallStartPreds.Add(call.Id, findOrEmpty call.Id callStartPreds)
+            state.CallWorkGuid <- state.CallWorkGuid.Add(call.Id, work.Id)
+            state.CallAutoConditions <- state.CallAutoConditions.Add(call.Id, conditionSpecs store CallConditionType.Auto call)
+            state.CallCommonConditions <- state.CallCommonConditions.Add(call.Id, conditionSpecs store CallConditionType.Common call)
+            state.CallActiveConditions <- state.CallActiveConditions.Add(call.Id, conditionSpecs store CallConditionType.Active call)
+            state.AllCallGuids <- call.Id :: state.AllCallGuids
+
+        let addWorkData (system: DsSystem) (work: Work) (callGuids: Guid list) (workStartPreds: Map<Guid, Guid list>) (workResetPreds: Map<Guid, Guid list>) =
+            let duration =
+                work.Properties.Period
+                |> Option.map (fun ts -> ts.TotalMilliseconds)
+                |> Option.defaultValue 0.0
+            state.WorkCallGuids <- state.WorkCallGuids.Add(work.Id, callGuids)
+            state.WorkStartPreds <- state.WorkStartPreds.Add(work.Id, findOrEmpty work.Id workStartPreds)
+            state.WorkResetPreds <- state.WorkResetPreds.Add(work.Id, findOrEmpty work.Id workResetPreds)
+            state.WorkDuration <- state.WorkDuration.Add(work.Id, duration)
+            state.WorkSystemName <- state.WorkSystemName.Add(work.Id, system.Name)
+            state.WorkName <- state.WorkName.Add(work.Id, work.Name)
+            state.AllWorkGuids <- work.Id :: state.AllWorkGuids
 
         for system in allSystems do
             let workArrows = DsQuery.arrowWorksOf system.Id store
+            let wType = fun (a: ArrowBetweenWorks) -> a.ArrowType
+            let wSrc  = fun (a: ArrowBetweenWorks) -> a.SourceId
+            let wTgt  = fun (a: ArrowBetweenWorks) -> a.TargetId
             let wStartPreds =
-                groupSourcesByTarget
-                    [ ArrowType.Start; ArrowType.StartReset ]
-                    (fun (arrow: ArrowBetweenWorks) -> arrow.ArrowType)
-                    (fun arrow -> arrow.SourceId)
-                    (fun arrow -> arrow.TargetId)
-                    workArrows
+                groupArrows [ ArrowType.Start; ArrowType.StartReset ] wType wTgt wSrc workArrows
             let wResetPreds =
                 mergeGroupedMaps [
-                    groupSourcesByTarget
-                        [ ArrowType.Reset; ArrowType.ResetReset ]
-                        (fun (arrow: ArrowBetweenWorks) -> arrow.ArrowType)
-                        (fun arrow -> arrow.SourceId)
-                        (fun arrow -> arrow.TargetId)
-                        workArrows
-                    groupTargetsBySource
-                        [ ArrowType.StartReset; ArrowType.ResetReset ]
-                        (fun (arrow: ArrowBetweenWorks) -> arrow.ArrowType)
-                        (fun arrow -> arrow.SourceId)
-                        (fun arrow -> arrow.TargetId)
-                        workArrows
+                    groupArrows [ ArrowType.Reset; ArrowType.ResetReset ] wType wTgt wSrc workArrows
+                    groupArrows [ ArrowType.StartReset; ArrowType.ResetReset ] wType wSrc wTgt workArrows
                 ]
 
             let flows = DsQuery.flowsOf system.Id store
@@ -189,19 +173,17 @@ module SimIndex =
                 for work in works do
                     let calls = DsQuery.callsOf work.Id store
                     let callArrows = DsQuery.arrowCallsOf work.Id store
+                    let cType = fun (a: ArrowBetweenCalls) -> a.ArrowType
+                    let cSrc  = fun (a: ArrowBetweenCalls) -> a.SourceId
+                    let cTgt  = fun (a: ArrowBetweenCalls) -> a.TargetId
                     let cStartPreds =
-                        groupSourcesByTarget
-                            [ ArrowType.Start; ArrowType.StartReset ]
-                            (fun (arrow: ArrowBetweenCalls) -> arrow.ArrowType)
-                            (fun arrow -> arrow.SourceId)
-                            (fun arrow -> arrow.TargetId)
-                            callArrows
+                        groupArrows [ ArrowType.Start; ArrowType.StartReset ] cType cTgt cSrc callArrows
 
                     let callGuids = calls |> List.map (fun c -> c.Id)
                     for call in calls do
-                        addCallData state store work cStartPreds call
+                        addCallData work cStartPreds call
 
-                    addWorkData state system work callGuids wStartPreds wResetPreds
+                    addWorkData system work callGuids wStartPreds wResetPreds
 
         log.Debug($"SimIndex built: {state.AllWorkGuids.Length} works, {state.AllCallGuids.Length} calls")
 
@@ -227,13 +209,9 @@ module SimIndex =
 
     /// RET 방향 Call인지 확인
     let isCallRetDirection (index: SimIndex) (callGuid: Guid) : bool =
-        index.CallApiCallGuids |> Map.tryFind callGuid |> Option.defaultValue []
-        |> List.exists (fun apiCallGuid ->
-            DsQuery.getApiCall apiCallGuid index.Store
-            |> Option.bind (fun apiCall -> apiCall.ApiDefId)
-            |> Option.bind (fun apiDefId -> DsQuery.getApiDef apiDefId index.Store)
-            |> Option.bind (fun apiDef -> apiDef.Properties.RxGuid)
-            |> Option.bind (fun rxGuid -> DsQuery.getWork rxGuid index.Store)
+        rxWorkGuids index callGuid
+        |> List.exists (fun rxGuid ->
+            DsQuery.getWork rxGuid index.Store
             |> Option.map (fun work -> work.Name.ToUpperInvariant().Contains("RET"))
             |> Option.defaultValue false)
 
@@ -241,13 +219,7 @@ module SimIndex =
         index.AllCallGuids |> List.filter (isCallRetDirection index) |> Set.ofList
 
     let findInitialFlagRxWorkGuids (index: SimIndex) : Set<Guid> =
-        let initialCallGuids = findInitialFlagCallGuids index
-        initialCallGuids |> Set.toSeq
-        |> Seq.collect (fun callGuid ->
-            index.CallApiCallGuids |> Map.tryFind callGuid |> Option.defaultValue []
-            |> List.choose (fun apiCallGuid ->
-                DsQuery.getApiCall apiCallGuid index.Store
-                |> Option.bind (fun apiCall -> apiCall.ApiDefId)
-                |> Option.bind (fun apiDefId -> DsQuery.getApiDef apiDefId index.Store)
-                |> Option.bind (fun apiDef -> apiDef.Properties.RxGuid)))
+        findInitialFlagCallGuids index
+        |> Set.toSeq
+        |> Seq.collect (fun callGuid -> rxWorkGuids index callGuid)
         |> Set.ofSeq

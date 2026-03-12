@@ -20,10 +20,9 @@ module internal DirectPanelOps =
             Some apiDef.Id, $"{dev}.{apiDef.Name}"
         | None -> None, "(unlinked)"
 
-    let private tagAddress (tagOpt: IOTag option) =
-        tagOpt |> Option.map (fun t -> t.Address) |> Option.defaultValue ""
-
     let toCallApiCallPanelItem (store: DsStore) (apiCall: ApiCall) : CallApiCallPanelItem =
+        let tagAddress (tagOpt: IOTag option) =
+            tagOpt |> Option.map (fun t -> t.Address) |> Option.defaultValue ""
         let apiDefId, apiDefDisplayName = resolveApiDefDisplay store apiCall.ApiDefId
         CallApiCallPanelItem(
             apiCall.Id, apiCall.Name, apiDefId, apiDefDisplayName,

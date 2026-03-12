@@ -41,27 +41,25 @@ type EventDrivenEngine(index: SimIndex) =
 
     /// Call F 시 ApiCall의 InputSpec을 IO값으로 설정
     let setCallIOValues (callGuid: Guid) =
-        index.CallApiCallGuids |> Map.tryFind callGuid |> Option.defaultValue []
+        SimIndex.findOrEmpty callGuid index.CallApiCallGuids
         |> List.iter (fun apiCallId ->
             DsQuery.getApiCall apiCallId index.Store
             |> Option.iter (fun apiCall ->
-                let value = ValueSpecEvaluator.toDefaultString apiCall.InputSpec
-                stateManager.SetIOValue(apiCallId, value)))
+                stateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)))
 
-    /// Call F → RxWork에 IO값 설정
+    /// Call F → RxWork에 IO값 설정 (RxGuid가 있는 ApiCall만)
     let setRxWorkIOValues (callGuid: Guid) =
-        index.CallApiCallGuids |> Map.tryFind callGuid |> Option.defaultValue []
+        SimIndex.findOrEmpty callGuid index.CallApiCallGuids
         |> List.iter (fun apiCallId ->
             DsQuery.getApiCall apiCallId index.Store
             |> Option.iter (fun apiCall ->
-                match apiCall.ApiDefId with
-                | Some apiDefId ->
-                    DsQuery.getApiDef apiDefId index.Store
-                    |> Option.iter (fun apiDef ->
-                        apiDef.Properties.RxGuid |> Option.iter (fun _rxGuid ->
-                            let value = ValueSpecEvaluator.toDefaultString apiCall.InputSpec
-                            stateManager.SetIOValue(apiCallId, value)))
-                | None -> ()))
+                let hasRx =
+                    apiCall.ApiDefId
+                    |> Option.bind (fun defId -> DsQuery.getApiDef defId index.Store)
+                    |> Option.bind (fun def -> def.Properties.RxGuid)
+                    |> Option.isSome
+                if hasRx then
+                    stateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)))
 
     // ── 상태 전이 ────────────────────────────────────────────────────
 
@@ -90,10 +88,25 @@ type EventDrivenEngine(index: SimIndex) =
                 PreviousState = oldState; NewState = actualNewState; IsSkipped = isSkipped; Clock = clock })
         | _ -> ()
 
+        // ── 내부 Call 상태 일괄 전이 헬퍼 ──
+        let scheduleCallTransitions targetState excludeState =
+            let callGuids = SimIndex.findOrEmpty nodeGuid index.WorkCallGuids
+            for cg in callGuids do
+                let cs = stateManager.GetCallState(cg)
+                if cs <> targetState && cs <> excludeState && not (stateManager.IsPending(NodeTypeCall, cg)) then
+                    stateManager.MarkPending(NodeTypeCall, cg)
+                    scheduler.ScheduleNow(ScheduledEventType.CallTransition(cg, targetState), ScheduledEvent.PriorityStateChange) |> ignore
+
+        // ── Work 상태 전이 스케줄 헬퍼 ──
+        let scheduleWorkIfReady workGuid targetState =
+            if stateManager.GetWorkState(workGuid) = Status4.Ready && not (stateManager.IsPending(NodeTypeWork, workGuid)) then
+                stateManager.MarkPending(NodeTypeWork, workGuid)
+                scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, targetState), ScheduledEvent.PriorityStateChange) |> ignore
+
         // 후속 이벤트 스케줄
         match nodeType, actualNewState with
         | NodeTypeWork, s when s = Status4.Going ->
-            let callGuids = index.WorkCallGuids |> Map.tryFind nodeGuid |> Option.defaultValue []
+            let callGuids = SimIndex.findOrEmpty nodeGuid index.WorkCallGuids
             if callGuids.IsEmpty then
                 let duration = index.WorkDuration |> Map.tryFind nodeGuid |> Option.defaultValue 0.0
                 if timeIgnore then
@@ -107,57 +120,22 @@ type EventDrivenEngine(index: SimIndex) =
             scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
 
         | NodeTypeWork, s when s = Status4.Homing ->
-            // H 진입: 내부 Call들을 R로 정리
-            let callGuids = index.WorkCallGuids |> Map.tryFind nodeGuid |> Option.defaultValue []
-            for callGuid in callGuids do
-                if stateManager.GetCallState(callGuid) <> Status4.Ready && not (stateManager.IsPending(NodeTypeCall, callGuid)) then
-                    stateManager.MarkPending(NodeTypeCall, callGuid)
-                    scheduler.ScheduleNow(ScheduledEventType.CallTransition(callGuid, Status4.Ready), ScheduledEvent.PriorityStateChange) |> ignore
-            // H->R 스케줄 (최소 1ms)
+            scheduleCallTransitions Status4.Homing Status4.Homing
             scheduler.ScheduleAfter(ScheduledEventType.HomingComplete nodeGuid, 1L, ScheduledEvent.PriorityStateChange) |> ignore
 
         | NodeTypeWork, s when s = Status4.Ready ->
-            // 내부 Call 리셋
-            let callGuids = index.WorkCallGuids |> Map.tryFind nodeGuid |> Option.defaultValue []
-            for callGuid in callGuids do
-                if stateManager.GetCallState(callGuid) <> Status4.Ready && not (stateManager.IsPending(NodeTypeCall, callGuid)) then
-                    stateManager.MarkPending(NodeTypeCall, callGuid)
-                    scheduler.ScheduleNow(ScheduledEventType.CallTransition(callGuid, Status4.Ready), ScheduledEvent.PriorityStateChange) |> ignore
+            scheduleCallTransitions Status4.Ready Status4.Ready
+
+        | NodeTypeCall, s when s = Status4.Homing -> ()
 
         | NodeTypeCall, s when s = Status4.Going ->
-            // TxWork G 스케줄
-            index.CallApiCallGuids |> Map.tryFind nodeGuid |> Option.defaultValue []
-            |> List.iter (fun apiCallId ->
-                DsQuery.getApiCall apiCallId index.Store
-                |> Option.iter (fun apiCall ->
-                    match apiCall.ApiDefId with
-                    | Some apiDefId ->
-                        DsQuery.getApiDef apiDefId index.Store
-                        |> Option.iter (fun apiDef ->
-                            apiDef.Properties.TxGuid |> Option.iter (fun txGuid ->
-                                if stateManager.GetWorkState(txGuid) = Status4.Ready && not (stateManager.IsPending(NodeTypeWork, txGuid)) then
-                                    stateManager.MarkPending(NodeTypeWork, txGuid)
-                                    scheduler.ScheduleNow(ScheduledEventType.WorkTransition(txGuid, Status4.Going), ScheduledEvent.PriorityStateChange) |> ignore))
-                    | None -> ()))
+            SimIndex.txWorkGuids index nodeGuid |> List.iter (fun txGuid -> scheduleWorkIfReady txGuid Status4.Going)
             scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
 
         | NodeTypeCall, s when s = Status4.Finish ->
-            // RxWork F 스케줄
             if not isSkipped then
                 setRxWorkIOValues nodeGuid
-                index.CallApiCallGuids |> Map.tryFind nodeGuid |> Option.defaultValue []
-                |> List.iter (fun apiCallId ->
-                    DsQuery.getApiCall apiCallId index.Store
-                    |> Option.iter (fun apiCall ->
-                        match apiCall.ApiDefId with
-                        | Some apiDefId ->
-                            DsQuery.getApiDef apiDefId index.Store
-                            |> Option.iter (fun apiDef ->
-                                apiDef.Properties.RxGuid |> Option.iter (fun rxGuid ->
-                                    if stateManager.GetWorkState(rxGuid) = Status4.Ready && not (stateManager.IsPending(NodeTypeWork, rxGuid)) then
-                                        stateManager.MarkPending(NodeTypeWork, rxGuid)
-                                        scheduler.ScheduleNow(ScheduledEventType.WorkTransition(rxGuid, Status4.Finish), ScheduledEvent.PriorityStateChange) |> ignore))
-                        | None -> ()))
+                SimIndex.rxWorkGuids index nodeGuid |> List.iter (fun rxGuid -> scheduleWorkIfReady rxGuid Status4.Finish)
             scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
         | _ -> ()
 
@@ -173,27 +151,27 @@ type EventDrivenEngine(index: SimIndex) =
         // 리셋 가능한 Work (F->H, 라이징 에지)
         for workGuid in index.AllWorkGuids do
             if stateManager.GetWorkState(workGuid) = Status4.Finish && not (stateManager.IsPending(NodeTypeWork, workGuid)) then
-                match index.WorkSystemName |> Map.tryFind workGuid, index.WorkName |> Map.tryFind workGuid with
+                match Map.tryFind workGuid index.WorkSystemName, Map.tryFind workGuid index.WorkName with
                 | Some sysName, Some wName ->
                     let allSameKeyPreds =
                         index.AllWorkGuids
                         |> List.filter (fun wg ->
-                            index.WorkSystemName |> Map.tryFind wg = Some sysName &&
-                            index.WorkName |> Map.tryFind wg = Some wName)
-                        |> List.collect (fun wg -> index.WorkResetPreds |> Map.tryFind wg |> Option.defaultValue [])
+                            Map.tryFind wg index.WorkSystemName = Some sysName &&
+                            Map.tryFind wg index.WorkName = Some wName)
+                        |> List.collect (fun wg -> SimIndex.findOrEmpty wg index.WorkResetPreds)
                         |> List.distinct
                     if not allSameKeyPreds.IsEmpty then
                         let targetKey = (sysName, wName)
                         let untriggered =
                             allSameKeyPreds |> List.tryFind (fun pg ->
-                                match index.WorkSystemName |> Map.tryFind pg, index.WorkName |> Map.tryFind pg with
+                                match Map.tryFind pg index.WorkSystemName, Map.tryFind pg index.WorkName with
                                 | Some pSys, Some pName ->
                                     stateManager.GetWorkState(pg) = Status4.Going &&
                                     not (stateManager.IsResetTriggered((pSys, pName), targetKey))
                                 | _ -> false)
                         match untriggered with
                         | Some pg ->
-                            match index.WorkSystemName |> Map.tryFind pg, index.WorkName |> Map.tryFind pg with
+                            match Map.tryFind pg index.WorkSystemName, Map.tryFind pg index.WorkName with
                             | Some pSys, Some pName ->
                                 stateManager.AddResetTrigger((pSys, pName), targetKey)
                                 stateManager.MarkPending(NodeTypeWork, workGuid)
@@ -224,7 +202,7 @@ type EventDrivenEngine(index: SimIndex) =
         // 모든 Call 완료된 Work -> F
         for workGuid in index.AllWorkGuids do
             if stateManager.GetWorkState(workGuid) = Status4.Going && not (stateManager.IsPending(NodeTypeWork, workGuid)) then
-                let callGuids = index.WorkCallGuids |> Map.tryFind workGuid |> Option.defaultValue []
+                let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
                 if not callGuids.IsEmpty then
                     if callGuids |> List.forall (fun cg -> stateManager.GetCallState(cg) = Status4.Finish) then
                         stateManager.MarkPending(NodeTypeWork, workGuid)
@@ -242,8 +220,8 @@ type EventDrivenEngine(index: SimIndex) =
             applyTransition NodeTypeCall cg ts
         | ScheduledEventType.DurationComplete wg ->
             if stateManager.GetWorkState(wg) = Status4.Going then
-                let callGuids = index.WorkCallGuids |> Map.tryFind wg |> Option.defaultValue []
-                if callGuids.IsEmpty then applyTransition NodeTypeWork wg Status4.Finish
+                if (SimIndex.findOrEmpty wg index.WorkCallGuids).IsEmpty then
+                    applyTransition NodeTypeWork wg Status4.Finish
         | ScheduledEventType.HomingComplete wg ->
             if stateManager.GetWorkState(wg) = Status4.Homing then
                 applyTransition NodeTypeWork wg Status4.Ready

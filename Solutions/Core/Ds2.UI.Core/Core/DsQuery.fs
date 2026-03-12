@@ -208,20 +208,19 @@ module DsQuery =
     // 엔티티 이름 접근 (EntityKind 기반)
     // ─────────────────────────────────────────────────────────────────────────
 
-    let private tryGetEntity (store: DsStore) (entityKind: EntityKind) (id: Guid) : DsEntity option =
-        match entityKind with
-        | EntityKind.Project   -> getProject   id store |> Option.map (fun e -> e :> DsEntity)
-        | EntityKind.System    -> getSystem    id store |> Option.map (fun e -> e :> DsEntity)
-        | EntityKind.Flow      -> getFlow      id store |> Option.map (fun e -> e :> DsEntity)
-        | EntityKind.Work      -> getWork      id store |> Option.map (fun e -> e :> DsEntity)
-        | EntityKind.Call      -> getCall      id store |> Option.map (fun e -> e :> DsEntity)
-        | EntityKind.ApiDef    -> getApiDef    id store |> Option.map (fun e -> e :> DsEntity)
-        | EntityKind.Button    -> getButton    id store |> Option.map (fun e -> e :> DsEntity)
-        | EntityKind.Lamp      -> getLamp      id store |> Option.map (fun e -> e :> DsEntity)
-        | EntityKind.Condition -> getCondition id store |> Option.map (fun e -> e :> DsEntity)
-        | EntityKind.Action    -> getAction    id store |> Option.map (fun e -> e :> DsEntity)
-        | _                    -> None
-
     /// <summary>EntityKind + ID로 엔티티 이름 조회</summary>
     let tryGetName (store: DsStore) (entityKind: EntityKind) (id: Guid) : string option =
-        tryGetEntity store entityKind id |> Option.map (fun e -> e.Name)
+        let entity =
+            match entityKind with
+            | EntityKind.Project   -> getProject   id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.System    -> getSystem    id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Flow      -> getFlow      id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Work      -> getWork      id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Call      -> getCall      id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.ApiDef    -> getApiDef    id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Button    -> getButton    id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Lamp      -> getLamp      id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Condition -> getCondition id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Action    -> getAction    id store |> Option.map (fun e -> e :> DsEntity)
+            | _                    -> None
+        entity |> Option.map (fun e -> e.Name)
