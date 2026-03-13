@@ -87,8 +87,7 @@ public partial class ExplorerPane : UserControl
 
             var visible = tag switch
             {
-                "AddProject"  => !hasProject && kind is null,
-                "AddSystem"   => hasProject && !hasSystem && kind is null or EntityKind.Project,
+                "AddSystem"   => hasProject && kind is null or EntityKind.Project,
                 "AddFlow"     => kind is EntityKind.System,
                 "AddWork"     => kind is EntityKind.Flow,
                 "AddCall"     => kind is EntityKind.Work,
@@ -99,7 +98,7 @@ public partial class ExplorerPane : UserControl
                 "FocusCanvas" => kind is EntityKind.Work or EntityKind.Call,
                 "Rename"      => kind is EntityKind.Project or EntityKind.System or EntityKind.Flow
                                      or EntityKind.Work or EntityKind.Call,
-                "Delete"      => kind is EntityKind.Project or EntityKind.System or EntityKind.Flow
+                "Delete"      => kind is EntityKind.System or EntityKind.Flow
                                      or EntityKind.Work or EntityKind.Call,
                 _ => true // Separator 등은 일단 표시
             };

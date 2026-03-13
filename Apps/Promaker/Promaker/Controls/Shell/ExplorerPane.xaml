@@ -64,7 +64,6 @@
         <ContextMenu x:Key="EntityTreeContextMenu"
                      x:Shared="False"
                      DataContext="{Binding Data, Source={StaticResource Proxy}}">
-            <MenuItem Tag="AddProject" Header="Add Project" Command="{Binding AddProjectCommand}"/>
             <MenuItem Tag="AddSystem" Header="Add System" Command="{Binding AddSystemCommand}"/>
             <MenuItem Tag="AddFlow" Header="Add Flow" Command="{Binding AddFlowCommand}"/>
             <MenuItem Tag="AddWork" Header="Add Work" Command="{Binding AddWorkCommand}"/>

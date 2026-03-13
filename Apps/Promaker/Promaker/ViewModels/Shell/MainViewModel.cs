@@ -87,6 +87,7 @@ public partial class MainViewModel : ObservableObject
             return;
 
         Reset();
+        TryEditorAction(() => _store.AddProject("NewProject"));
     }
 
     [RelayCommand(CanExecute = nameof(CanUndo))]

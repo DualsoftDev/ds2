@@ -47,7 +47,7 @@ public partial class MainViewModel
 
         if (addedId is { } id)
         {
-            RequestRebuildAll(() => Selection.ExpandNodeAndAncestors(id));
+            RequestRebuildAll(() => Selection.ExpandAndSelectNode(id));
             return;
         }
 

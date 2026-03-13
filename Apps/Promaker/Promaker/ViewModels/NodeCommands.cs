@@ -12,14 +12,6 @@ namespace Promaker.ViewModels;
 public partial class MainViewModel
 {
     [RelayCommand]
-    private void AddProject()
-    {
-        var name = DialogHelpers.PromptName("New Project", "NewProject");
-        if (name is null) return;
-        TryEditorAction(() => _store.AddProject(name));
-    }
-
-    [RelayCommand]
     private void AddSystem()
     {
         var name = DialogHelpers.PromptName("New System", "NewSystem");
@@ -133,12 +125,14 @@ public partial class MainViewModel
 
         if (Selection.OrderedNodeSelection.Count > 0)
         {
-            var selections = Selection.OrderedNodeSelection.Select(k => Tuple.Create(k.EntityKind, k.Id));
+            var selections = Selection.OrderedNodeSelection
+                .Where(k => k.EntityKind != EntityKind.Project)
+                .Select(k => Tuple.Create(k.EntityKind, k.Id));
             TryEditorAction(() => _store.RemoveEntities(selections));
             return;
         }
 
-        if (SelectedNode is { } node)
+        if (SelectedNode is { EntityType: not EntityKind.Project } node)
             TryEditorAction(
                 () => _store.RemoveEntities(new[] { Tuple.Create(node.EntityType, node.Id) }));
     }
