@@ -211,8 +211,9 @@ module internal DirectPasteOps =
             ) (Map.empty, deviceState)
         pastedWork, callMap, finalDeviceState
 
-    let pasteFlowToSystem (store: DsStore) (sourceFlow: Flow) (targetSystemId: Guid) : Guid =
-        let pastedFlow = Flow(sourceFlow.Name, targetSystemId)
+    let pasteFlowToSystem (store: DsStore) (sourceFlow: Flow) (targetSystemId: Guid) (newNameOpt: string option) : Guid =
+        let flowName = newNameOpt |> Option.defaultValue sourceFlow.Name
+        let pastedFlow = Flow(flowName, targetSystemId)
         store.TrackAdd(store.Flows, pastedFlow)
         let deviceFlowCtxOpt =
             EntityHierarchyQueries.findProjectOfSystem store targetSystemId
@@ -296,7 +297,7 @@ module internal DirectPasteOps =
                     let targetSystemId =
                         EntityHierarchyQueries.resolveTarget store EntityKind.System targetEntityKind targetEntityId
                         |> Option.defaultValue sf.ParentId
-                    pasteFlowToSystem store sf targetSystemId)
+                    pasteFlowToSystem store sf targetSystemId None)
         | EntityKind.Work ->
             let sourceWorks = copiedIds |> List.choose (fun id -> DsQuery.getWork id store)
             if sourceWorks.IsEmpty then []
@@ -321,6 +322,21 @@ module internal DirectPasteOps =
 
 [<Extension>]
 type DsStorePasteExtensions =
+
+    [<Extension>]
+    static member PasteFlowWithRename
+        (store: DsStore, sourceFlowId: Guid, targetSystemId: Guid, newFlowName: string) : Guid option =
+        match DsQuery.getFlow sourceFlowId store with
+        | None -> None
+        | Some sourceFlow ->
+            StoreLog.debug($"PasteFlowWithRename: {sourceFlow.Name} → {newFlowName}, targetSystem={targetSystemId}")
+            let mutable pastedId = Guid.Empty
+            store.WithTransaction($"Paste Flow '{newFlowName}'", fun () ->
+                pastedId <- DirectPasteOps.pasteFlowToSystem store sourceFlow targetSystemId (Some newFlowName))
+            if pastedId <> Guid.Empty then
+                store.EmitRefreshAndHistory()
+                Some pastedId
+            else None
 
     [<Extension>]
     static member PasteEntities

@@ -2,7 +2,7 @@ using System.Windows;
 using System.Windows.Media;
 using Ds2.Core;
 
-namespace Promaker;
+namespace Promaker.Presentation;
 
 internal static class Status4Visuals
 {

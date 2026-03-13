@@ -11,6 +11,13 @@ namespace Promaker.ViewModels;
 
 public partial class MainViewModel
 {
+    private readonly record struct SiblingSnapshot(
+        HashSet<Guid> Ids,
+        IReadOnlyList<(int X, int Y)> Positions)
+    {
+        public static SiblingSnapshot Empty { get; } = new([], []);
+    }
+
     [RelayCommand]
     private void AddSystem()
     {
@@ -49,8 +56,8 @@ public partial class MainViewModel
         if (workId == Guid.Empty) return;
 
         var basePos = ConsumeAddPosition();
-        var siblings = GetSiblingPositions(TabKind.Flow, id);
-        var pos = CascadePosition(basePos, 0, siblings);
+        var siblings = GetSiblingSnapshot(TabKind.Flow, id);
+        var pos = CascadePosition(basePos, 0, siblings.Positions);
         TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(workId, pos)]));
     }
 
@@ -78,19 +85,18 @@ public partial class MainViewModel
             return;
 
         var rawPos = ConsumeAddPosition();
-        var siblings = GetSiblingPositions(TabKind.Work, targetWorkId);
+        var siblings = GetSiblingSnapshot(TabKind.Work, targetWorkId);
 
         if (dialog.IsDeviceMode)
         {
-            var beforeIds = GetSiblingNodeIds(TabKind.Work, targetWorkId);
             TryEditorAction(
                 () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true));
-            var newCallIds = GetSiblingNodeIds(TabKind.Work, targetWorkId)
-                .Where(id => !beforeIds.Contains(id))
+            var newCallIds = GetSiblingSnapshot(TabKind.Work, targetWorkId).Ids
+                .Where(id => !siblings.Ids.Contains(id))
                 .ToList();
             if (newCallIds.Count > 0)
             {
-                var assigned = new List<(int X, int Y)>(siblings);
+                var assigned = new List<(int X, int Y)>(siblings.Positions);
                 var requests = new List<MoveEntityRequest>();
                 for (var i = 0; i < newCallIds.Count; i++)
                 {
@@ -113,7 +119,7 @@ public partial class MainViewModel
                     fallback: Guid.Empty)
                 && callId != Guid.Empty)
             {
-                var pos = CascadePosition(rawPos, 0, siblings);
+                var pos = CascadePosition(rawPos, 0, siblings.Positions);
                 TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(callId, pos)]));
             }
         }
@@ -215,6 +221,13 @@ public partial class MainViewModel
             return;
         }
 
+        // Flow 붙여넣기: 새 이름 입력 다이얼로그
+        if (batchType == EntityKind.Flow)
+        {
+            PasteFlowsWithRename(target.Value);
+            return;
+        }
+
         if (!TryEditorRef(
                 () => _store.PasteEntities(
                     batchType,
@@ -227,6 +240,44 @@ public partial class MainViewModel
         if (pastedIds.Length > 0)
         {
             StatusText = $"Pasted {pastedIds.Length} {batchType}(s).";
+            var idSet = new HashSet<Guid>(pastedIds);
+            RequestRebuildAll(() =>
+            {
+                Selection.ClearNodeSelection();
+                foreach (var node in Canvas.CanvasNodes.Where(n => idSet.Contains(n.Id)))
+                    Selection.SelectNodeFromCanvas(node, ctrlPressed: true, shiftPressed: false);
+            });
+        }
+    }
+
+    private void PasteFlowsWithRename((EntityKind EntityType, Guid EntityId) target)
+    {
+        var pastedIds = new List<Guid>();
+        var targetSystemIdOpt = EntityHierarchyQueries.resolveTarget(
+            _store, EntityKind.System, target.EntityType, target.EntityId);
+
+        foreach (var key in _clipboardSelection)
+        {
+            if (!_store.FlowsReadOnly.TryGetValue(key.Id, out var srcFlow))
+                continue;
+
+            var newName = DialogHelpers.PromptName("Flow 복사 — 새 이름", srcFlow.Name);
+            if (newName is null) return; // 취소 시 전체 중단
+
+            var sysId = targetSystemIdOpt != null ? targetSystemIdOpt.Value : srcFlow.ParentId;
+
+            if (!TryEditorRef(
+                    () => _store.PasteFlowWithRename(key.Id, sysId, newName),
+                    out var resultOpt))
+                return;
+
+            if (resultOpt != null)
+                pastedIds.Add(resultOpt.Value);
+        }
+
+        if (pastedIds.Count > 0)
+        {
+            StatusText = $"Pasted {pastedIds.Count} Flow(s).";
             var idSet = new HashSet<Guid>(pastedIds);
             RequestRebuildAll(() =>
             {
@@ -272,28 +323,16 @@ public partial class MainViewModel
             UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight);
     }
 
-    private HashSet<Guid> GetSiblingNodeIds(TabKind tabKind, Guid rootId)
+    private SiblingSnapshot GetSiblingSnapshot(TabKind tabKind, Guid rootId)
     {
         if (!TryEditorRef(
                 () => _store.CanvasContentForTab(tabKind, rootId),
                 out var content))
-            return [];
+            return SiblingSnapshot.Empty;
 
-        return content.Nodes
-            .Select(n => n.Id)
-            .ToHashSet();
-    }
-
-    private IReadOnlyList<(int X, int Y)> GetSiblingPositions(TabKind tabKind, Guid rootId)
-    {
-        if (!TryEditorRef(
-                () => _store.CanvasContentForTab(tabKind, rootId),
-                out var content))
-            return [];
-
-        return content.Nodes
-            .Select(n => ((int)n.X, (int)n.Y))
-            .ToList();
+        return new SiblingSnapshot(
+            content.Nodes.Select(n => n.Id).ToHashSet(),
+            content.Nodes.Select(n => ((int)n.X, (int)n.Y)).ToList());
     }
 
     private Xywh CascadePosition(Xywh basePos, int index, IReadOnlyList<(int X, int Y)>? storePositions = null)
