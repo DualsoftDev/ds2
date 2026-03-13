@@ -77,8 +77,16 @@ public partial class ArrowNode : ObservableObject
         using (var ctx = geo.Open())
         {
             ctx.BeginFigure(points[0], false, false);
-            for (var i = 1; i < points.Count; i++)
-                ctx.LineTo(points[i], true, false);
+            if (points.Count == 4)
+            {
+                // Cubic Bezier: [start, cp1, cp2, end]
+                ctx.BezierTo(points[1], points[2], points[3], true, false);
+            }
+            else
+            {
+                for (var i = 1; i < points.Count; i++)
+                    ctx.LineTo(points[i], true, false);
+            }
         }
 
         geo.Freeze();

@@ -16,6 +16,7 @@
     <Compile Include="Projection\ViewTypes.fs" />
     <Compile Include="Projection\PropertyPanelValueSpec.fs" />
     <Compile Include="Projection\TreeProjection.fs" />
+    <Compile Include="Projection\CanvasLayout.fs" />
     <Compile Include="Projection\CanvasProjection.fs" />
     <Compile Include="Queries\EntityHierarchyQueries.fs" />
     <Compile Include="Queries\AddTargetQueries.fs" />
