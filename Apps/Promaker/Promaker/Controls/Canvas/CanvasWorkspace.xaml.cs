@@ -19,7 +19,7 @@ public partial class CanvasWorkspace : UserControl
 
     public void CenterOnNode(Guid id) => Canvas.CenterOnNode(id);
 
-    public Point GetViewportCenter() => Canvas.GetViewportCenter();
+    public Point? GetViewportCenter() => Canvas.GetViewportCenter();
 
     private void TabHeader_MouseDown(object sender, MouseButtonEventArgs e)
     {

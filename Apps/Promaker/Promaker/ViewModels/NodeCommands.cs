@@ -48,7 +48,9 @@ public partial class MainViewModel
             return;
         if (workId == Guid.Empty) return;
 
-        var pos = ConsumeAddPosition();
+        var basePos = ConsumeAddPosition();
+        var siblings = GetSiblingPositions(TabKind.Flow, id);
+        var pos = CascadePosition(basePos, 0, siblings);
         TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(workId, pos)]));
     }
 
@@ -75,26 +77,29 @@ public partial class MainViewModel
         if (dialog.ShowDialog() != true)
             return;
 
-        var basePos = ConsumeAddPosition();
+        var rawPos = ConsumeAddPosition();
+        var siblings = GetSiblingPositions(TabKind.Work, targetWorkId);
 
         if (dialog.IsDeviceMode)
         {
-            var existingIds = Canvas.CanvasNodes.Select(n => n.Id).ToHashSet();
+            var beforeIds = GetSiblingNodeIds(TabKind.Work, targetWorkId);
             TryEditorAction(
                 () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true));
-            RequestRebuildAll(() =>
+            var newCallIds = GetSiblingNodeIds(TabKind.Work, targetWorkId)
+                .Where(id => !beforeIds.Contains(id))
+                .ToList();
+            if (newCallIds.Count > 0)
             {
-                var newCalls = Canvas.CanvasNodes
-                    .Where(n => n.EntityType == EntityKind.Call && !existingIds.Contains(n.Id))
-                    .ToList();
-                if (newCalls.Count > 0)
+                var assigned = new List<(int X, int Y)>(siblings);
+                var requests = new List<MoveEntityRequest>();
+                for (var i = 0; i < newCallIds.Count; i++)
                 {
-                    var requests = newCalls
-                        .Select((n, i) => new MoveEntityRequest(n.Id, CascadePosition(basePos, i)))
-                        .ToList();
-                    TryMoveEntitiesFromCanvas(requests);
+                    var pos = CascadePosition(rawPos, i, assigned);
+                    requests.Add(new MoveEntityRequest(newCallIds[i], pos));
+                    assigned.Add((pos.X, pos.Y));
                 }
-            });
+                TryEditorAction(() => _store.MoveEntities(requests));
+            }
         }
         else
         {
@@ -108,7 +113,8 @@ public partial class MainViewModel
                     fallback: Guid.Empty)
                 && callId != Guid.Empty)
             {
-                TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(callId, basePos)]));
+                var pos = CascadePosition(rawPos, 0, siblings);
+                TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(callId, pos)]));
             }
         }
     }
@@ -243,6 +249,8 @@ public partial class MainViewModel
     }
 
     private const int CascadeOffset = 30;
+    private const int DefaultViewportCenterX = 1300;
+    private const int DefaultViewportCenterY = 1000;
 
     private Xywh ConsumeAddPosition()
     {
@@ -250,26 +258,57 @@ public partial class MainViewModel
         PendingAddPosition = null;
 
         if (pos is { } p)
-            return CascadePosition(p, 0);
+            return p;
 
         if (Canvas.GetViewportCenterRequested?.Invoke() is { } center)
-            return CascadePosition(
-                new Xywh(
-                    (int)center.X - UiDefaults.DefaultNodeWidth / 2,
-                    (int)center.Y - UiDefaults.DefaultNodeHeight / 2,
-                    UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight),
-                0);
+            return new Xywh(
+                (int)center.X - UiDefaults.DefaultNodeWidth / 2,
+                (int)center.Y - UiDefaults.DefaultNodeHeight / 2,
+                UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight);
 
-        return UiDefaults.createDefaultNodeBounds();
+        return new Xywh(
+            DefaultViewportCenterX - UiDefaults.DefaultNodeWidth / 2,
+            DefaultViewportCenterY - UiDefaults.DefaultNodeHeight / 2,
+            UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight);
     }
 
-    private Xywh CascadePosition(Xywh basePos, int index)
+    private HashSet<Guid> GetSiblingNodeIds(TabKind tabKind, Guid rootId)
+    {
+        if (!TryEditorRef(
+                () => _store.CanvasContentForTab(tabKind, rootId),
+                out var content))
+            return [];
+
+        return content.Nodes
+            .Select(n => n.Id)
+            .ToHashSet();
+    }
+
+    private IReadOnlyList<(int X, int Y)> GetSiblingPositions(TabKind tabKind, Guid rootId)
+    {
+        if (!TryEditorRef(
+                () => _store.CanvasContentForTab(tabKind, rootId),
+                out var content))
+            return [];
+
+        return content.Nodes
+            .Select(n => ((int)n.X, (int)n.Y))
+            .ToList();
+    }
+
+    private Xywh CascadePosition(Xywh basePos, int index, IReadOnlyList<(int X, int Y)>? storePositions = null)
     {
         var x = basePos.X + CascadeOffset * index;
         var y = basePos.Y + CascadeOffset * index;
 
-        while (Canvas.CanvasNodes.Any(n =>
-                   Math.Abs(n.X - x) < 10 && Math.Abs(n.Y - y) < 10))
+        bool HasOverlap(int cx, int cy)
+        {
+            if (Canvas.CanvasNodes.Any(n => Math.Abs(n.X - cx) < 10 && Math.Abs(n.Y - cy) < 10))
+                return true;
+            return storePositions?.Any(p => Math.Abs(p.X - cx) < 10 && Math.Abs(p.Y - cy) < 10) == true;
+        }
+
+        while (HasOverlap(x, y))
         {
             x += CascadeOffset;
             y += CascadeOffset;

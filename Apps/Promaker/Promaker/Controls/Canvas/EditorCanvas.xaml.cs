@@ -84,12 +84,12 @@ public partial class EditorCanvas : UserControl
         VM.AddCallCommand.Execute(null);
     }
 
-    public Point GetViewportCenter()
+    public Point? GetViewportCenter()
     {
         var viewW = RootGrid.ActualWidth;
         var viewH = RootGrid.ActualHeight;
         if (viewW <= 0 || viewH <= 0)
-            return new Point(UiDefaults.DefaultNodeX, UiDefaults.DefaultNodeY);
+            return null;
 
         var canvasX = (viewW / 2 - PanTransform.X) / _zoom;
         var canvasY = (viewH / 2 - PanTransform.Y) / _zoom;
