@@ -5,8 +5,6 @@ using System.Windows.Data;
 using System.Windows.Media;
 using Ds2.Core;
 using Ds2.UI.Core;
-using Promaker;
-
 namespace Promaker.Presentation;
 
 file static class ConverterHelpers

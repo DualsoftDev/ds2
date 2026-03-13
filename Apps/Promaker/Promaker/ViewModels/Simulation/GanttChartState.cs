@@ -6,7 +6,7 @@ using System.Windows;
 using System.Windows.Media;
 using Ds2.Core;
 using Ds2.UI.Core;
-using Promaker;
+using Promaker.Presentation;
 
 namespace Promaker.ViewModels;
 
