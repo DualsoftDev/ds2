@@ -45,6 +45,89 @@ module CanvasProjectionTests =
         let content = store.CanvasContentForTab(TabKind.Flow, flow.Id)
         Assert.NotEmpty(content.Nodes)
 
+module ArrowPathCalculatorTests =
+
+    [<Fact>]
+    let ``chooseDockPoints uses edge intersection instead of fixed face midpoint`` () =
+        let source = Xywh(0, 0, 100, 100)
+        let target = Xywh(200, 100, 100, 100)
+
+        let (sx, sy), (tx, ty) = ArrowPathCalculator.chooseDockPoints source target
+
+        Assert.Equal(100.0, sx, 5)
+        Assert.Equal(75.0, sy, 5)
+        Assert.Equal(200.0, tx, 5)
+        Assert.Equal(125.0, ty, 5)
+
+    [<Fact>]
+    let ``chooseDockPoints can connect through matching rectangle corners`` () =
+        let source = Xywh(0, 0, 100, 100)
+        let target = Xywh(200, 200, 100, 100)
+
+        let (sx, sy), (tx, ty) = ArrowPathCalculator.chooseDockPoints source target
+
+        Assert.Equal(100.0, sx, 5)
+        Assert.Equal(100.0, sy, 5)
+        Assert.Equal(200.0, tx, 5)
+        Assert.Equal(200.0, ty, 5)
+
+    [<Fact>]
+    let ``computePath starts and ends on the chosen dock points`` () =
+        let source = Xywh(0, 0, 100, 60)
+        let target = Xywh(280, 0, 100, 60)
+
+        let (dockStartX, dockStartY), (dockEndX, dockEndY) =
+            ArrowPathCalculator.chooseDockPoints source target
+
+        let visual = ArrowPathCalculator.computePath source target
+        let points = visual.Points |> Seq.toList
+
+        Assert.Equal(4, points.Length)
+
+        let startX, startY = points.[0]
+        let endX, endY = points.[3]
+
+        Assert.Equal(dockStartX, startX, 5)
+        Assert.Equal(dockStartY, startY, 5)
+        Assert.Equal(dockEndX, endX, 5)
+        Assert.Equal(dockEndY, endY, 5)
+
+    [<Fact>]
+    let ``computePath keeps nearby same-row nodes almost straight`` () =
+        let source = Xywh(0, 0, 100, 60)
+        let target = Xywh(130, 0, 100, 60)
+
+        let visual = ArrowPathCalculator.computePath source target
+        let points = visual.Points |> Seq.toList
+
+        Assert.Equal(4, points.Length)
+
+        let _, startY = points.[0]
+        let _, cp1Y = points.[1]
+        let _, cp2Y = points.[2]
+        let _, endY = points.[3]
+
+        Assert.Equal(startY, cp1Y, 5)
+        Assert.Equal(endY, cp2Y, 5)
+
+    [<Fact>]
+    let ``computePath keeps curve lift for distant same-row nodes`` () =
+        let source = Xywh(0, 0, 100, 60)
+        let target = Xywh(280, 0, 100, 60)
+
+        let visual = ArrowPathCalculator.computePath source target
+        let points = visual.Points |> Seq.toList
+
+        Assert.Equal(4, points.Length)
+
+        let _, startY = points.[0]
+        let _, cp1Y = points.[1]
+        let _, cp2Y = points.[2]
+        let _, endY = points.[3]
+
+        Assert.NotEqual(startY, cp1Y)
+        Assert.NotEqual(endY, cp2Y)
+
 module PropertyPanelValueSpecTests =
 
     [<Fact>]

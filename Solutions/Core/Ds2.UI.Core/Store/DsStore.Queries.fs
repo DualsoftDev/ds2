@@ -69,6 +69,12 @@ type DsStoreQueriesExtensions =
         |> Seq.map (fun call -> struct(call.Id, call.Name))
         |> Seq.toList
 
+    // ─── CanvasLayout ──────────────────────────────────────────────────
+    [<Extension>]
+    static member ComputeAutoLayout(store: DsStore, kind: TabKind, rootId: Guid) : MoveEntityRequest list =
+        let content = CanvasProjection.canvasContentForTab store kind rootId
+        CanvasLayout.computeLayout content
+
     // ─── ArrowPathCalculator ─────────────────────────────────────────
     [<Extension>]
     static member GetFlowArrowPaths(store: DsStore, flowId: Guid) : Map<Guid, ArrowPathCalculator.ArrowVisual> =
