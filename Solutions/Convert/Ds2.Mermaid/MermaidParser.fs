@@ -18,7 +18,7 @@ module MermaidParser =
         Errors: ParseError list
     }
 
-    let private initialState = {
+    let private createInitialState () = {
         Direction = None
         CurrentSubgraph = None
         Subgraphs = []
@@ -46,18 +46,17 @@ module MermaidParser =
 
     /// Arrow 소스/타겟에서 인라인 노드 정의 처리: A["Label"] → ID="A", 노드 자동 등록
     let private resolveInlineNode (state: ParserState) (raw: string) : ParserState * string =
-        match raw.IndexOf("[\"") with
-        | -1 -> state, raw
-        | idx ->
-            let nodeId = raw.[..idx - 1]
-            let endIdx = raw.LastIndexOf("\"]")
-            if endIdx <= idx + 2 then state, raw
-            else
-                let label = raw.[idx + 2 .. endIdx - 1]
-                let newState =
-                    if state.AllNodeIds.Contains(nodeId) then state
-                    else addNodeToSubgraph state nodeId label
-                newState, nodeId
+        let trimmed = raw.Trim()
+        let m = Patterns.NodeWithLabel.Match(trimmed)
+        if not m.Success then
+            state, trimmed
+        else
+            let nodeId = m.Groups.[1].Value
+            let label = m.Groups.[2].Value
+            let newState =
+                if state.AllNodeIds.Contains(nodeId) then state
+                else addNodeToSubgraph state nodeId label
+            newState, nodeId
 
     /// 엣지를 추가 (서브그래프 내부 또는 글로벌)
     let private addEdge (state: ParserState) (source: string) (target: string) (style: MermaidArrowStyle) (label: ArrowLabel) : ParserState =
@@ -182,7 +181,7 @@ module MermaidParser =
 
         let finalState =
             significantTokens
-            |> List.fold processToken initialState
+            |> List.fold processToken (createInitialState ())
 
         let finalState =
             match finalState.CurrentSubgraph with

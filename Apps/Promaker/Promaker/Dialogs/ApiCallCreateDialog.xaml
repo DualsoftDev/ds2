@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Add ApiCall"
         Width="440"
-        Height="400"
+        Height="340"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
@@ -12,8 +12,6 @@
             BorderThickness="1">
         <Grid Margin="12">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -35,17 +33,7 @@
                       Margin="0,0,0,8"
                       Padding="6,4"/>
 
-            <TextBlock Grid.Row="2"
-                       Text="Name"
-                       Margin="0,0,0,2"
-                       FontSize="11"
-                       Foreground="{DynamicResource SecondaryTextBrush}"/>
-            <TextBox Grid.Row="3"
-                     x:Name="ApiCallNameTextBox"
-                     Margin="0,0,0,8"
-                     Padding="6,4"/>
-
-            <Grid Grid.Row="4" Margin="0,0,0,8">
+            <Grid Grid.Row="2" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="*"/>
@@ -69,12 +57,12 @@
             </Grid>
 
             <!-- Out Spec -->
-            <TextBlock Grid.Row="5"
+            <TextBlock Grid.Row="3"
                        Text="Out Spec"
                        Margin="0,0,0,2"
                        FontSize="11"
                        Foreground="{DynamicResource SecondaryTextBrush}"/>
-            <Grid Grid.Row="6" Margin="0,0,0,8">
+            <Grid Grid.Row="4" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
@@ -83,22 +71,24 @@
                          x:Name="OutValueSpecTextBox"
                          Padding="6,4"
                          IsReadOnly="True"
-                         ToolTip="'...' 버튼으로 편집"/>
+                         ToolTip="✎ 버튼으로 편집"/>
                 <Button Grid.Column="1"
-                        Content="..."
+                        Content="✎"
                         Style="{StaticResource DarkButton}"
                         Margin="4,0,0,0"
-                        Padding="10,4"
+                        Padding="6,2"
+                        MinWidth="24"
+                        Height="22"
                         Click="EditOutValueSpec_Click"/>
             </Grid>
 
             <!-- In Spec -->
-            <TextBlock Grid.Row="7"
+            <TextBlock Grid.Row="5"
                        Text="In Spec"
                        Margin="0,0,0,2"
                        FontSize="11"
                        Foreground="{DynamicResource SecondaryTextBrush}"/>
-            <Grid Grid.Row="8" Margin="0,0,0,6">
+            <Grid Grid.Row="6" Margin="0,0,0,6">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
@@ -107,22 +97,24 @@
                          x:Name="InValueSpecTextBox"
                          Padding="6,4"
                          IsReadOnly="True"
-                         ToolTip="'...' 버튼으로 편집"/>
+                         ToolTip="✎ 버튼으로 편집"/>
                 <Button Grid.Column="1"
-                        Content="..."
+                        Content="✎"
                         Style="{StaticResource DarkButton}"
                         Margin="4,0,0,0"
-                        Padding="10,4"
+                        Padding="6,2"
+                        MinWidth="24"
+                        Height="22"
                         Click="EditInValueSpec_Click"/>
             </Grid>
 
-            <TextBlock Grid.Row="9"
+            <TextBlock Grid.Row="7"
                        x:Name="HintText"
                        Margin="0,0,0,0"
                        FontSize="11"
                        Foreground="{DynamicResource SecondaryTextBrush}"/>
 
-            <StackPanel Grid.Row="10"
+            <StackPanel Grid.Row="8"
                         Orientation="Horizontal"
                         HorizontalAlignment="Right"
                         Margin="0,10,0,0">

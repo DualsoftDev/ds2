@@ -114,6 +114,41 @@ flowchart LR
         Assert.Fail($"파싱 실패: {errors}")
 
 [<Fact>]
+let ``인라인 노드 정의 양쪽 파싱 - source와 target 모두 노드로 등록`` () =
+    let mermaid = """
+graph TD
+    A["SV.ON"] --> B["SV.OFF"]
+"""
+    match MermaidParser.parse mermaid with
+    | Ok graph ->
+        Assert.Equal(2, graph.GlobalNodes.Length)
+        Assert.Contains(graph.GlobalNodes, fun n -> n.Id = "A" && n.Label = "SV.ON")
+        Assert.Contains(graph.GlobalNodes, fun n -> n.Id = "B" && n.Label = "SV.OFF")
+        graph.GlobalEdges |> Assert.Single |> ignore
+    | Error errors ->
+        Assert.Fail($"파싱 실패: {errors}")
+
+[<Fact>]
+let ``반복 파싱 간 inline node state가 공유되지 않음`` () =
+    let mermaid = """
+graph TD
+    A["SV.ON"] --> B["SV.OFF"]
+"""
+
+    let assertGraph result =
+        match result with
+        | Ok graph ->
+            Assert.Equal(2, graph.GlobalNodes.Length)
+            Assert.Contains(graph.GlobalNodes, fun n -> n.Id = "A" && n.Label = "SV.ON")
+            Assert.Contains(graph.GlobalNodes, fun n -> n.Id = "B" && n.Label = "SV.OFF")
+            graph.GlobalEdges |> Assert.Single |> ignore
+        | Error errors ->
+            Assert.Fail($"파싱 실패: {errors}")
+
+    MermaidParser.parse mermaid |> assertGraph
+    MermaidParser.parse mermaid |> assertGraph
+
+[<Fact>]
 let ``depth 분석 — subgraph 있으면 2-depth`` () =
     let mermaid = """
 graph TD
