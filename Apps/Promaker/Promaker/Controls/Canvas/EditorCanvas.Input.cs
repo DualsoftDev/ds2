@@ -211,6 +211,13 @@ public partial class EditorCanvas
         {
             VM?.DeleteSelectedCommand.Execute(null);
             e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.L && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            VM?.AutoLayoutCommand.Execute(null);
+            e.Handled = true;
         }
     }
 

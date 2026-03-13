@@ -123,6 +123,14 @@
                     </Popup>
                 </Grid>
 
+                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding AutoLayoutCommand}"
+                        ToolTip="자동 재배치 (Ctrl+L)">
+                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                        <TextBlock Text="&#xF0E2;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
+                        <TextBlock Text="재배치" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </StackPanel>
+                </Button>
+
                 <Border Width="1" Height="36" Margin="6,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
 
                 <!-- 그룹4: Delete -->
