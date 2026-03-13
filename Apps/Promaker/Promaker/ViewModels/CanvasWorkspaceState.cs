@@ -28,7 +28,7 @@ public partial class CanvasWorkspaceState : ObservableObject
     [ObservableProperty] private CanvasTab? _activeTab;
 
     public Action<Guid>? CenterOnNodeRequested { get; set; }
-    public Func<Point>? GetViewportCenterRequested { get; set; }
+    public Func<Point?>? GetViewportCenterRequested { get; set; }
 
     partial void OnActiveTabChanged(CanvasTab? value)
     {
