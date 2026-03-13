@@ -356,6 +356,21 @@ public partial class MainViewModel
         return new Xywh(x, y, basePos.W, basePos.H);
     }
 
+    [RelayCommand]
+    private void AutoLayout()
+    {
+        if (Canvas.ActiveTab is not { } tab) return;
+
+        if (!TryEditorRef(
+                () => _store.ComputeAutoLayout(tab.Kind, tab.RootId),
+                out var requests))
+            return;
+
+        if (requests.IsEmpty) return;
+
+        TryEditorAction(() => _store.MoveEntities(requests));
+    }
+
     private Guid? ResolveTargetId(EntityKind selectedEntityType, TabKind activeTabKind)
     {
         if (SelectedNode is { EntityType: var type } node && type == selectedEntityType)

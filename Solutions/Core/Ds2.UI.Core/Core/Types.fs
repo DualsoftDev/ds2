@@ -28,7 +28,7 @@ type UndoTransaction = {
 /// UI.Core에서 한 번 정의 → C# XAML 자동 전파.
 module Labels =
     [<Literal>]
-    let WorkPeriod   = "Work Period"
+    let WorkPeriod   = "Work Duration"
     [<Literal>]
     let PeriodFormat = "밀리초(ms) 단위 정수"
     [<Literal>]
