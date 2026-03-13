@@ -106,9 +106,6 @@
                                 Padding="4"
                                 MinWidth="130">
                             <StackPanel Orientation="Vertical">
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddProjectCommand}" Click="CloseAddPopup">
-                                    <TextBlock Text="Project" VerticalAlignment="Center"/>
-                                </Button>
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddSystemCommand}" Click="CloseAddPopup">
                                     <TextBlock Text="System" VerticalAlignment="Center"/>
                                 </Button>

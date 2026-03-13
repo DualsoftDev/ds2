@@ -223,6 +223,17 @@ public class SelectionState
         }
     }
 
+    public void ExpandAndSelectNode(Guid nodeId)
+    {
+        ExpandNodeAndAncestors(nodeId);
+
+        var node = TreeNodeSearch.EnumerateNodes(EnumerateTreeRoots())
+            .FirstOrDefault(n => n.Id == nodeId);
+        if (node is null) return;
+
+        SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
+    }
+
     public HashSet<SelectionKey> GetExpandedKeys() =>
         EnumerateTreeNodes()
             .Where(n => n.IsExpanded)
