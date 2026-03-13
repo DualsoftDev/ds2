@@ -24,6 +24,31 @@ type TokenizedLine = {
 /// Mermaid 렉서 모듈
 module MermaidLexer =
 
+    let private tryParseArrowToken (trimmed: string) : MermaidToken option =
+        let parseWithArrow (arrow: string) (makeToken: string * string * string option -> MermaidToken) =
+            let arrowIdx = trimmed.IndexOf(arrow, StringComparison.Ordinal)
+            if arrowIdx < 0 then
+                None
+            else
+                let source = trimmed[.. arrowIdx - 1].Trim()
+                let remainder = trimmed[(arrowIdx + arrow.Length) ..].Trim()
+                if String.IsNullOrWhiteSpace(source) || String.IsNullOrWhiteSpace(remainder) then
+                    None
+                elif remainder.StartsWith("|", StringComparison.Ordinal) then
+                    let labelEnd = remainder.IndexOf("|", 1, StringComparison.Ordinal)
+                    if labelEnd <= 1 || labelEnd >= remainder.Length - 1 then
+                        None
+                    else
+                        let label = remainder[1 .. labelEnd - 1]
+                        let target = remainder[(labelEnd + 1) ..].Trim()
+                        if String.IsNullOrWhiteSpace(target) then None
+                        else Some (makeToken (source, target, Some label))
+                else
+                    Some (makeToken (source, remainder, None))
+
+        parseWithArrow "-.->" DashedArrowToken
+        |> Option.orElseWith (fun () -> parseWithArrow "-->" SolidArrowToken)
+
     /// 단일 라인을 토큰으로 변환
     let tokenizeLine (lineNumber: int) (line: string) : TokenizedLine =
         let trimmed = line.Trim()
@@ -54,24 +79,14 @@ module MermaidLexer =
                 SubgraphStart (id, displayName)
             elif Patterns.SubgraphEnd.IsMatch(trimmed) then
                 SubgraphEnd
-            elif Patterns.LabeledSolidArrow.IsMatch(trimmed) then
-                let m = Patterns.LabeledSolidArrow.Match(trimmed)
-                SolidArrowToken (m.Groups.[1].Value, m.Groups.[3].Value, Some m.Groups.[2].Value)
-            elif Patterns.SolidArrow.IsMatch(trimmed) then
-                let m = Patterns.SolidArrow.Match(trimmed)
-                SolidArrowToken (m.Groups.[1].Value, m.Groups.[2].Value, None)
-            elif Patterns.LabeledDashedArrow.IsMatch(trimmed) then
-                let m = Patterns.LabeledDashedArrow.Match(trimmed)
-                let label = if m.Groups.[2].Success then Some m.Groups.[2].Value else None
-                DashedArrowToken (m.Groups.[1].Value, m.Groups.[3].Value, label)
-            elif Patterns.DashedArrow.IsMatch(trimmed) then
-                let m = Patterns.DashedArrow.Match(trimmed)
-                DashedArrowToken (m.Groups.[1].Value, m.Groups.[2].Value, None)
-            elif Patterns.NodeWithLabel.IsMatch(trimmed) then
-                let m = Patterns.NodeWithLabel.Match(trimmed)
-                NodeDef (m.Groups.[1].Value, m.Groups.[2].Value)
             else
-                UnknownToken trimmed
+                match tryParseArrowToken trimmed with
+                | Some arrowToken -> arrowToken
+                | None when Patterns.NodeWithLabel.IsMatch(trimmed) ->
+                    let m = Patterns.NodeWithLabel.Match(trimmed)
+                    NodeDef (m.Groups.[1].Value, m.Groups.[2].Value)
+                | None ->
+                    UnknownToken trimmed
 
         { LineNumber = lineNumber; OriginalText = line; Token = token }
 

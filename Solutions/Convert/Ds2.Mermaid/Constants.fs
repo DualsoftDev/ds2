@@ -10,6 +10,8 @@ module Constants =
     module Patterns =
         open System.Text.RegularExpressions
 
+        let private InlineNodeOrId = @"(?:[^\s\[]+\[""[^""]+""\]|[^\s]+)"
+
         /// 그래프 방향 패턴
         let GraphDirection = Regex(@"^\s*graph\s+(TD|LR|RL|BT)\s*$", RegexOptions.Compiled ||| RegexOptions.IgnoreCase)
 
@@ -26,16 +28,16 @@ module Constants =
         let NodeWithLabel = Regex(@"^\s*(\S+)\[""([^""]+)""\]\s*$", RegexOptions.Compiled)
 
         /// 라벨 있는 실선 화살표: Source -->|Label| Target
-        let LabeledSolidArrow = Regex(@"^\s*(\S+)\s*-->\|([^|]+)\|\s*(\S+)\s*$", RegexOptions.Compiled)
+        let LabeledSolidArrow = Regex(@"^\s*(" + InlineNodeOrId + @")\s*-->\|([^|]+)\|\s*(" + InlineNodeOrId + @")\s*$", RegexOptions.Compiled)
 
         /// 라벨 없는 실선 화살표: Source --> Target
-        let SolidArrow = Regex(@"^\s*(\S+)\s*-->\s*(\S+)\s*$", RegexOptions.Compiled)
+        let SolidArrow = Regex(@"^\s*(" + InlineNodeOrId + @")\s*-->\s*(" + InlineNodeOrId + @")\s*$", RegexOptions.Compiled)
 
         /// 라벨 있는 점선 화살표: Source -.->|Label| Target
-        let LabeledDashedArrow = Regex(@"^\s*(\S+)\s*-\.->(?:\|([^|]+)\|)?\s*(\S+)\s*$", RegexOptions.Compiled)
+        let LabeledDashedArrow = Regex(@"^\s*(" + InlineNodeOrId + @")\s*-\.->(?:\|([^|]+)\|)?\s*(" + InlineNodeOrId + @")\s*$", RegexOptions.Compiled)
 
         /// 라벨 없는 점선 화살표: Source -.-> Target
-        let DashedArrow = Regex(@"^\s*(\S+)\s*-\.->\s*(\S+)\s*$", RegexOptions.Compiled)
+        let DashedArrow = Regex(@"^\s*(" + InlineNodeOrId + @")\s*-\.->\s*(" + InlineNodeOrId + @")\s*$", RegexOptions.Compiled)
 
         /// 주석 패턴
         let Comment = Regex(@"^\s*%%.*$", RegexOptions.Compiled)
