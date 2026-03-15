@@ -18,7 +18,7 @@ public partial class GanttChartControl
     private void OnRenderTick()
     {
         if (_viewModel == null) return;
-        if (_viewModel.IsRunning) _viewModel.CurrentTime = DateTime.Now;
+        if (_viewModel.IsRunning) _viewModel.CurrentTime = _viewModel.AdjustedNow;
         RenderTimeline();
         RenderTimeRuler();
         UpdateCurrentTimeIndicator();

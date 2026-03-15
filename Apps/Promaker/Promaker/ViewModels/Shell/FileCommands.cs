@@ -13,10 +13,13 @@ namespace Promaker.ViewModels;
 public partial class MainViewModel
 {
     private const string FileFilter =
-        "All Supported (*.json;*.aasx)|*.json;*.aasx|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx";
+        "All Supported (*.json;*.aasx;*.md)|*.json;*.aasx;*.md|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx|Mermaid Files (*.md)|*.md";
 
     private static bool IsAasx(string path) =>
         Path.GetExtension(path).Equals(".aasx", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsMermaid(string path) =>
+        Path.GetExtension(path).Equals(".md", StringComparison.OrdinalIgnoreCase);
 
     private bool TryRunFileOperation(string operation, Action action, Func<Exception, string> warnMessage)
     {
@@ -43,7 +46,30 @@ public partial class MainViewModel
 
         var fileName = dlg.FileName;
 
-        if (IsAasx(fileName))
+        if (IsMermaid(fileName))
+        {
+            TryRunFileOperation(
+                $"Open Mermaid '{fileName}'",
+                () =>
+                {
+                    var result = Ds2.Mermaid.MermaidImporter.loadProjectFromFile(fileName);
+                    if (result.IsError)
+                    {
+                        DialogHelpers.Warn($"Mermaid 불러오기 실패:\n{string.Join("\n", result.ErrorValue)}");
+                        return;
+                    }
+
+                    _store.ReplaceStore(result.ResultValue);
+                    _currentFilePath = fileName;
+                    IsDirty = false;
+                    UpdateTitle();
+                    Log.Info($"Mermaid opened: {fileName}");
+                    StatusText = $"Opened: {Path.GetFileName(fileName)}";
+                    RequestRebuildAll(AfterFileLoad);
+                },
+                ex => $"Mermaid 불러오기 실패: {ex.Message}");
+        }
+        else if (IsAasx(fileName))
         {
             TryRunFileOperation(
                 $"Open AASX '{fileName}'",
@@ -163,7 +189,28 @@ public partial class MainViewModel
 
     private void SaveToPath(string filePath)
     {
-        if (IsAasx(filePath))
+        if (IsMermaid(filePath))
+        {
+            TryRunFileOperation(
+                $"Save Mermaid '{filePath}'",
+                () =>
+                {
+                    var result = Ds2.Mermaid.MermaidExporter.saveProjectToFile(_store, filePath);
+                    if (result.IsError)
+                    {
+                        DialogHelpers.Warn(result.ErrorValue);
+                        return;
+                    }
+
+                    _currentFilePath = filePath;
+                    IsDirty = false;
+                    UpdateTitle();
+                    StatusText = "Saved.";
+                    Log.Info($"Mermaid saved: {filePath}");
+                },
+                ex => $"Mermaid 저장 실패: {ex.Message}");
+        }
+        else if (IsAasx(filePath))
         {
             TryRunFileOperation(
                 $"Save AASX '{filePath}'",

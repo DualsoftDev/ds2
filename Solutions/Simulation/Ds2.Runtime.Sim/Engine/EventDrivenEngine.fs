@@ -265,6 +265,12 @@ type EventDrivenEngine(index: SimIndex) =
         if status = Paused then
             status <- Running
             simulationStatusChangedEvent.Trigger({ PreviousStatus = Paused; NewStatus = Running })
+            // Pause 시 while 루프가 종료되어 스레드가 죽었으므로 새 스레드 시작
+            let tokenSource = new CancellationTokenSource()
+            cts <- Some tokenSource
+            let t = Thread(ThreadStart(fun () -> simulationLoop tokenSource.Token))
+            t.IsBackground <- true; t.Name <- "EventDrivenEngine"; t.Start()
+            engineThread <- Some t
 
     member _.Stop() =
         if status <> Stopped then

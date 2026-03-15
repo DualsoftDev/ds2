@@ -81,8 +81,38 @@ graph TD
     | Error errors ->
         Assert.Fail($"파싱 실패: {errors}")
 
+
 [<Fact>]
-let ``점선 화살표 — autoPre 분류`` () =
+let ``노드 라벨에서 조건 참조 추출`` () =
+    let mermaid = """
+graph TD
+    subgraph W ["Work"]
+        A["Call_A"]
+        B["Call_B<br>Auto: Call_A"]
+        C["Call_C<br>Common: Call_A, Call_B<br>Active: Call_A"]
+    end
+"""
+    match MermaidParser.parse mermaid with
+    | Ok graph ->
+        let nodes = graph.Subgraphs.[0].Nodes
+        // A: 조건 없음
+        let nodeA = nodes |> List.find (fun n -> n.Label = "Call_A")
+        Assert.Empty(nodeA.AutoConditionRefs)
+        Assert.Empty(nodeA.CommonConditionRefs)
+        Assert.Empty(nodeA.ActiveConditionRefs)
+        // B: Auto 조건
+        let nodeB = nodes |> List.find (fun n -> n.Label = "Call_B")
+        Assert.Equal(1, nodeB.AutoConditionRefs.Length)
+        Assert.Equal("Call_A", nodeB.AutoConditionRefs.[0])
+        // C: Common + Active 조건
+        let nodeC = nodes |> List.find (fun n -> n.Label = "Call_C")
+        Assert.Equal(2, nodeC.CommonConditionRefs.Length)
+        Assert.Equal(1, nodeC.ActiveConditionRefs.Length)
+    | Error errors ->
+        Assert.Fail($"파싱 실패: {errors}")
+
+[<Fact>]
+let ``점선 화살표 — autoPre 호환 (Legacy Ev2)`` () =
     let mermaid = """
 graph TD
     subgraph W ["Work"]
@@ -165,7 +195,7 @@ graph TD
         Assert.True(depth.HasSubgraphs)
         Assert.Equal(2, depth.SubgraphCount)
         let levels = MermaidAnalyzer.availableLevels depth
-        Assert.Equal(2, levels.Length)  // SystemLevel, FlowLevel
+        Assert.Equal(2, levels.Length)  // SystemLevel + FlowLevel
         Assert.Contains(SystemLevel, levels)
         Assert.Contains(FlowLevel, levels)
     | Error errors ->

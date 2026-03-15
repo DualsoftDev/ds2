@@ -113,16 +113,16 @@ type DsStorePanelApiCallExtensions =
 
     [<Extension>]
     static member AddApiCallFromPanel
-        (store: DsStore, callId: Guid, apiDefId: Guid, apiCallName: string,
+        (store: DsStore, callId: Guid, apiDefId: Guid,
          outputAddress: string, inputAddress: string,
          outTypeIndex: int, outText: string, inTypeIndex: int, inText: string)
         : Guid =
-        StoreLog.debug($"callId={callId}, apiDefId={apiDefId}, name={apiCallName}")
+        StoreLog.debug($"callId={callId}, apiDefId={apiDefId}")
         let apiDef = StoreLog.requireApiDef(store, apiDefId)
         let call = StoreLog.requireCall(store, callId)
         let outputSpec = PropertyPanelValueSpec.parseFromPanel outTypeIndex outText
         let inputSpec = PropertyPanelValueSpec.parseFromPanel inTypeIndex inText
-        let apiCall = DirectPanelOps.buildApiCall apiDef apiDef.Name apiCallName outputAddress inputAddress None inputSpec outputSpec
+        let apiCall = DirectPanelOps.buildApiCall apiDef apiDef.Name None outputAddress inputAddress None inputSpec outputSpec
         DirectPanelOps.withTransactionCallProps store callId "ApiCall 추가" (fun () ->
             DirectPanelOps.addApiCallToStore store call apiCall)
         apiCall.Id
@@ -139,7 +139,7 @@ type DsStorePanelApiCallExtensions =
         StoreLog.requireApiCallInCall(call, apiCallId)
         let outputSpec = PropertyPanelValueSpec.parseFromPanel outTypeIndex outText
         let inputSpec = PropertyPanelValueSpec.parseFromPanel inTypeIndex inText
-        let updated = DirectPanelOps.buildApiCall newApiDef "" apiCallName outputAddress inputAddress (Some apiCallId) inputSpec outputSpec
+        let updated = DirectPanelOps.buildApiCall newApiDef "" (Some apiCallName) outputAddress inputAddress (Some apiCallId) inputSpec outputSpec
         DirectPanelOps.withTransactionCallProps store callId "Update ApiCall" (fun () ->
             DirectPanelOps.removeApiCallFromStore store call apiCallId
             DirectPanelOps.addApiCallToStore store call updated)

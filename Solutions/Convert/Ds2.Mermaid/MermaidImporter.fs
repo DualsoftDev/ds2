@@ -31,7 +31,7 @@ module MermaidImporter =
     /// parentId에서 systemId 조회 (Flow/Work 레벨용)
     let private resolveSystemId (store: DsStore) (level: ImportLevel) (parentId: Guid) : Guid option =
         match level with
-        | SystemLevel -> Some parentId
+        | SystemLevel -> None // System 레벨에서는 불필요
         | FlowLevel ->
             store.FlowsReadOnly.TryGetValue(parentId)
             |> function
@@ -42,28 +42,21 @@ module MermaidImporter =
 
     /// parentId에서 projectId 조회 (Device auto-creation용)
     let private resolveProjectId (store: DsStore) (level: ImportLevel) (parentId: Guid) : Guid option =
-        match level with
-        | SystemLevel ->
+        let findProject systemId =
             store.ProjectsReadOnly.Values
             |> Seq.tryFind (fun p ->
-                p.ActiveSystemIds.Contains(parentId) || p.PassiveSystemIds.Contains(parentId))
+                p.ActiveSystemIds.Contains(systemId) || p.PassiveSystemIds.Contains(systemId))
             |> Option.map (fun p -> p.Id)
+        match level with
+        | SystemLevel -> Some parentId // parentId가 곧 projectId
         | FlowLevel ->
             store.FlowsReadOnly.TryGetValue(parentId)
             |> function
-                | true, flow ->
-                    store.ProjectsReadOnly.Values
-                    |> Seq.tryFind (fun p ->
-                        p.ActiveSystemIds.Contains(flow.ParentId) || p.PassiveSystemIds.Contains(flow.ParentId))
-                    |> Option.map (fun p -> p.Id)
+                | true, flow -> findProject flow.ParentId
                 | _ -> None
         | WorkLevel ->
             DsQuery.trySystemIdOfWork parentId store
-            |> Option.bind (fun sysId ->
-                store.ProjectsReadOnly.Values
-                |> Seq.tryFind (fun p ->
-                    p.ActiveSystemIds.Contains(sysId) || p.PassiveSystemIds.Contains(sysId))
-                |> Option.map (fun p -> p.Id))
+            |> Option.bind findProject
 
     /// Mermaid 그래프를 DsStore에 임포트 (WithTransaction으로 Undo 1회 보장)
     let importIntoStore (store: DsStore) (graph: MermaidGraph) (level: ImportLevel) (parentId: Guid) : Result<unit, string list> =
@@ -77,10 +70,8 @@ module MermaidImporter =
 
         store.WithTransaction("Mermaid 임포트", fun () ->
             match level with
-            | SystemLevel when hasSubgraphs ->
-                MermaidMapper.mapToSystem store parentId projectId graph |> ignore
             | SystemLevel ->
-                MermaidMapper.mapToSystemFlat store parentId graph |> ignore
+                MermaidMapper.mapToSystem store parentId graph |> ignore
             | FlowLevel ->
                 match resolveSystemId store level parentId with
                 | Some systemId when hasSubgraphs ->
@@ -95,3 +86,19 @@ module MermaidImporter =
 
         store.EmitRefreshAndHistory()
         Ok ()
+
+    /// Mermaid 파일을 프로젝트로 불러오기 (새 DsStore 생성 후 반환)
+    let loadProjectFromFile (filePath: string) : Result<DsStore, string list> =
+        match parseFile filePath with
+        | Error errors -> Error errors
+        | Ok graph ->
+
+        let projectName =
+            Path.GetFileNameWithoutExtension(filePath)
+
+        let newStore = DsStore()
+        let projectId = newStore.AddProject(projectName)
+
+        match importIntoStore newStore graph SystemLevel projectId with
+        | Error errors -> Error errors
+        | Ok () -> Ok newStore

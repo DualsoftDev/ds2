@@ -92,7 +92,7 @@ public partial class ExplorerPane : UserControl
                 "AddWork"     => kind is EntityKind.Flow,
                 "AddCall"     => kind is EntityKind.Work,
                 "Import"      => isDeviceTree && kind is null or EntityKind.DeviceRoot,
-                "ImportMermaid" => !isDeviceTree && kind is EntityKind.System or EntityKind.Flow or EntityKind.Work,
+                "ImportMermaid" => !isDeviceTree && kind is EntityKind.Flow or EntityKind.Work,
                 "Copy"        => kind is EntityKind.Flow or EntityKind.Work or EntityKind.Call,
                 "Paste"       => kind is EntityKind.System or EntityKind.Flow or EntityKind.Work,
                 "FocusCanvas" => kind is EntityKind.Work or EntityKind.Call,

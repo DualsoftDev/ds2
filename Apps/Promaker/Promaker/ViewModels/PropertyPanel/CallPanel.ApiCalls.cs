@@ -44,7 +44,6 @@ public partial class PropertyPanelState
                 () => Store.AddApiCallFromPanel(
                     selectedCall.Id,
                     selectedApiDefId,
-                    "",
                     dialog.OutputAddress,
                     dialog.InputAddress,
                     dialog.OutTypeIndex, dialog.OutSpecText,

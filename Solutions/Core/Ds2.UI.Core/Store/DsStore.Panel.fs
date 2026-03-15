@@ -39,13 +39,14 @@ module internal DirectPanelOps =
             PropertyPanelValueSpec.dataTypeIndex apiCall.OutputSpec)
 
     let buildApiCall
-        (apiDef: ApiDef) (fallbackName: string) (apiCallName: string)
+        (apiDef: ApiDef) (fallbackName: string) (apiCallNameOpt: string option)
         (outputAddress: string) (inputAddress: string) (apiCallId: Guid option)
         (inputSpec: ValueSpec) (outputSpec: ValueSpec)
         : ApiCall =
         let resolvedName =
-            if String.IsNullOrWhiteSpace(apiCallName) then fallbackName
-            else apiCallName.Trim()
+            match apiCallNameOpt with
+            | Some apiCallName when not (String.IsNullOrWhiteSpace(apiCallName)) -> apiCallName.Trim()
+            | _ -> fallbackName
         let apiCall = ApiCall(resolvedName)
         apiCall.ApiDefId <- Some apiDef.Id
         match apiCallId with
