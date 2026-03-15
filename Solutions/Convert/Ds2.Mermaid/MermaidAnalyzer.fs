@@ -3,11 +3,27 @@ namespace Ds2.Mermaid
 /// Mermaid 그래프 depth 분석 및 검증
 module MermaidAnalyzer =
 
+    /// 서브그래프의 최대 depth 계산
+    let rec private maxSubgraphDepth (sg: MermaidSubgraph) : int =
+        if sg.Children.IsEmpty then 1
+        else 1 + (sg.Children |> List.map maxSubgraphDepth |> List.max)
+
+    /// 재귀적으로 전체 노드 수 계산
+    let rec private countAllNodes (sg: MermaidSubgraph) : int =
+        sg.Nodes.Length + (sg.Children |> List.sumBy countAllNodes)
+
     /// MermaidGraph에서 depth 정보 분석
     let analyzeDepth (graph: MermaidGraph) : DepthInfo =
-        let subgraphNodes = graph.Subgraphs |> List.sumBy (fun sg -> sg.Nodes.Length)
+        let hasSubgraphs = not graph.Subgraphs.IsEmpty
+        let hasNested = graph.Subgraphs |> List.exists (fun sg -> not sg.Children.IsEmpty)
+        let maxDepth =
+            if graph.Subgraphs.IsEmpty then 0
+            else graph.Subgraphs |> List.map maxSubgraphDepth |> List.max
+        let subgraphNodes = graph.Subgraphs |> List.sumBy countAllNodes
         {
-            HasSubgraphs = not graph.Subgraphs.IsEmpty
+            HasSubgraphs = hasSubgraphs
+            HasNestedSubgraphs = hasNested
+            MaxDepth = maxDepth
             SubgraphCount = graph.Subgraphs.Length
             TotalNodeCount = subgraphNodes + graph.GlobalNodes.Length
             GlobalEdgeCount = graph.GlobalEdges.Length
@@ -15,26 +31,30 @@ module MermaidAnalyzer =
 
     /// 주어진 depth에서 사용 가능한 ImportLevel 목록
     let availableLevels (depth: DepthInfo) : ImportLevel list =
-        if depth.HasSubgraphs then
-            // 2-depth: System과 Flow만 가능 (Work는 1-depth만 지원)
+        if depth.HasNestedSubgraphs then
+            [ SystemLevel ]
+        elif depth.HasSubgraphs then
             [ SystemLevel; FlowLevel ]
         else
-            // 1-depth: 모두 가능
-            [ SystemLevel; FlowLevel; WorkLevel ]
+            [ FlowLevel; WorkLevel ]
 
     /// 그래프 구조 검증
     let validate (graph: MermaidGraph) (level: ImportLevel) : ValidationResult =
         let errors = ResizeArray<string>()
+        let depth = analyzeDepth graph
 
-        // Work 레벨은 subgraph가 있으면 거부
-        if level = WorkLevel && not graph.Subgraphs.IsEmpty then
-            errors.Add("Work 레벨은 1-depth(subgraph 없음)만 지원합니다.")
+        match level with
+        | SystemLevel ->
+            if not depth.HasSubgraphs then
+                errors.Add("System 레벨은 subgraph가 필요합니다.")
+        | FlowLevel ->
+            if depth.HasNestedSubgraphs then
+                errors.Add("Flow 레벨은 중첩 subgraph를 지원하지 않습니다. System 레벨을 사용하세요.")
+        | WorkLevel ->
+            if depth.HasSubgraphs then
+                errors.Add("Work 레벨은 1-depth(subgraph 없음)만 지원합니다.")
 
-        // 노드가 하나도 없으면 거부
-        let totalNodes =
-            (graph.Subgraphs |> List.sumBy (fun sg -> sg.Nodes.Length))
-            + graph.GlobalNodes.Length
-        if totalNodes = 0 then
+        if depth.TotalNodeCount = 0 && not depth.HasSubgraphs then
             errors.Add("임포트할 노드가 없습니다.")
 
         if errors.Count = 0 then Valid

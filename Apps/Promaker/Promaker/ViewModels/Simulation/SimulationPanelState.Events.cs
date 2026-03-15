@@ -70,7 +70,7 @@ public partial class SimulationPanelState
     {
         _stateCache.Set(nodeGuid, newState);
         UpdateSimNodeState(nodeGuid, newState);
-        GanttChart.UpdateNodeState(nodeGuid, newState, DateTime.Now);
+        GanttChart.UpdateNodeState(nodeGuid, newState, GanttChart.AdjustedNow);
         RecordStateChange(nodeGuid.ToString(), nodeName, nodeKind.ToString(), systemName, newState);
         UpdateSimClock();
     }

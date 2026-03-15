@@ -54,16 +54,10 @@ public partial class MermaidImportDialog : Window
         var preview = MermaidMapper.buildPreview(_graph, level);
 
         var sb = new StringBuilder();
-        var systemNames = preview.SystemNames.ToList();
-        var deviceNames = preview.DeviceSystemNames.ToList();
         var flowNames = preview.FlowNames.ToList();
         var workNames = preview.WorkNames.ToList();
         var callNames = preview.CallNames.ToList();
 
-        if (systemNames.Count > 0)
-            sb.AppendLine($"System {systemNames.Count}개: {string.Join(", ", systemNames)}");
-        if (deviceNames.Count > 0)
-            sb.AppendLine($"Device System {deviceNames.Count}개: {string.Join(", ", deviceNames)}");
         if (flowNames.Count > 0)
             sb.AppendLine($"Flow {flowNames.Count}개: {string.Join(", ", flowNames)}");
         if (workNames.Count > 0)
@@ -103,7 +97,6 @@ public partial class MermaidImportDialog : Window
     }
 
     private static string LevelToString(ImportLevel level) =>
-        level.IsSystemLevel ? "System 레벨 (Flow/Work 생성)"
-        : level.IsFlowLevel ? "Flow 레벨 (Work/Call 생성)"
+        level.IsFlowLevel ? "Flow 레벨 (Work/Call 생성)"
         : "Work 레벨 (Call 생성)";
 }

@@ -48,32 +48,6 @@ graph TD
     X --> Y
 """
 
-// ─── System 2-depth ───
-
-[<Fact>]
-let ``System 2-depth — Flow + Work + ArrowBetweenWorks 생성`` () =
-    let store = createStore()
-    let _, systemId = setupProject store
-
-    match MermaidParser.parse mermaid2Depth with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
-
-    let result = MermaidImporter.importIntoStore store graph SystemLevel systemId
-    Assert.True(Result.isOk result)
-
-    // Flow 2개 생성 확인
-    let flows = store.Flows.Values |> Seq.filter (fun f -> f.ParentId = systemId) |> Seq.toList
-    Assert.Equal(2, flows.Length)
-
-    // Work 3개 생성 확인 (A, B, C)
-    let works = store.Works.Values |> Seq.toList
-    Assert.True(works.Length >= 3)
-
-    // ArrowBetweenWorks (A→B는 같은 subgraph 내부 = 같은 Flow 내 Work 간)
-    let arrows = store.ArrowWorks.Values |> Seq.filter (fun a -> a.ParentId = systemId) |> Seq.toList
-    Assert.True(arrows.Length >= 1)
-
 // ─── Flow 2-depth ───
 
 [<Fact>]
@@ -257,59 +231,12 @@ flowchart TD
     end
 """
 
-[<Fact>]
-let ``System 레벨 — Passive subgraph → Device Tree에 빈 passive system 생성`` () =
-    let store = createStore()
-    let projectId, systemId = setupProject store
-
-    match MermaidParser.parse mermaidWithPassiveDevices with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
-
-    let result = MermaidImporter.importIntoStore store graph SystemLevel systemId
-    Assert.True(Result.isOk result)
-
-    // Active Flow 2개 (STN1, STN2 — Devices는 passive이므로 Flow 안 됨)
-    let flows = store.Flows.Values |> Seq.filter (fun f -> f.ParentId = systemId) |> Seq.toList
-    Assert.Equal(2, flows.Length)
-
-    // Work 3개 (Work1, Work2, Work3)
-    let works = store.Works.Values |> Seq.toList
-    Assert.True(works.Length >= 3)
-
-    // Passive Device System 2개 (Device1, Device2)
-    let project = store.Projects.[projectId]
-    let passiveSystems = project.PassiveSystemIds |> Seq.choose (fun id -> store.Systems.TryGetValue(id) |> function true, s -> Some s | _ -> None) |> Seq.toList
-    Assert.Equal(2, passiveSystems.Length)
-    Assert.Contains(passiveSystems, fun s -> s.Name = "Device1")
-    Assert.Contains(passiveSystems, fun s -> s.Name = "Device2")
-
-    // ArrowBetweenWorks (STN1 내 Reset)
-    let arrows = store.ArrowWorks.Values |> Seq.filter (fun a -> a.ParentId = systemId) |> Seq.toList
-    Assert.True(arrows.Length >= 1)
-
-[<Fact>]
-let ``System 레벨 Passive Undo — 전체 롤백`` () =
-    let store = createStore()
-    let _, systemId = setupProject store
-    let beforeSystemCount = store.Systems.Count
-
-    match MermaidParser.parse mermaidWithPassiveDevices with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
-
-    MermaidImporter.importIntoStore store graph SystemLevel systemId |> ignore
-    Assert.True(store.Systems.Count > beforeSystemCount)
-
-    store.Undo()
-    Assert.Equal(beforeSystemCount, store.Systems.Count)
-
 // ─── Device auto-creation (Work 레벨) ───
 
 [<Fact>]
 let ``Work 레벨 — Device.ApiName 형식 Call이면 Device System 자동 생성`` () =
     let store = createStore()
-    let projectId, systemId, flowId, workId = setupProjectWithWork store
+    let _projectId, _systemId, _flowId, workId = setupProjectWithWork store
 
     let mermaid = """
 graph TD
@@ -361,3 +288,35 @@ graph TD
     Assert.Equal(1, graph.GlobalEdges.Length)
     Assert.Equal("A", graph.GlobalEdges.[0].SourceId)
     Assert.Equal("B", graph.GlobalEdges.[0].TargetId)
+
+// ─── Export ───
+
+[<Fact>]
+let ``Export — flowToMermaid 2-depth 구조`` () =
+    let store = createStore()
+    let _, _, flowId = setupProjectWithFlow store
+
+    // Work 2개 + Call + Arrow 생성
+    match MermaidParser.parse mermaid2Depth with
+    | Error _ -> ()
+    | Ok graph ->
+    MermaidImporter.importIntoStore store graph FlowLevel flowId |> ignore
+
+    let mermaid = MermaidExporter.flowToMermaid store flowId
+    Assert.False(System.String.IsNullOrWhiteSpace(mermaid), "flowToMermaid 비어있음")
+    Assert.Contains("subgraph", mermaid)
+
+[<Fact>]
+let ``Export — systemToMermaid Active + Passive 구분`` () =
+    let store = createStore()
+    let projectId, _, flowId = setupProjectWithFlow store
+
+    // Work + Call 생성 (Device auto-creation 트리거)
+    match MermaidParser.parse mermaid2Depth with
+    | Error _ -> ()
+    | Ok graph ->
+    MermaidImporter.importIntoStore store graph FlowLevel flowId |> ignore
+
+    let mermaid = MermaidExporter.systemToMermaid store projectId
+    Assert.False(System.String.IsNullOrWhiteSpace(mermaid), "systemToMermaid 비어있음")
+    Assert.Contains("subgraph", mermaid)

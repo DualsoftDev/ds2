@@ -44,7 +44,6 @@ public partial class MainViewModel
         // 선택 노드에 맞는 기본 레벨
         var defaultLevel = kind switch
         {
-            EntityKind.System => ImportLevel.SystemLevel,
             EntityKind.Flow => ImportLevel.FlowLevel,
             EntityKind.Work => ImportLevel.WorkLevel,
             _ => allLevels.First()

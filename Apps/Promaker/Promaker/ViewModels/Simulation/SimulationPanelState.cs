@@ -109,6 +109,7 @@ public partial class SimulationPanelState : ObservableObject
         if (IsSimulating && IsSimPaused)
         {
             _simEngine?.Resume();
+            GanttChart.IsRunning = true;
             IsSimPaused = false;
             _setStatusText(SimText.Resumed);
             return;
@@ -153,6 +154,7 @@ public partial class SimulationPanelState : ObservableObject
     private void PauseSimulation()
     {
         _simEngine?.Pause();
+        GanttChart.IsRunning = false;
         IsSimPaused = true;
         SetSimStatus(SimText.Paused, SimText.Paused);
     }
@@ -176,6 +178,12 @@ public partial class SimulationPanelState : ObservableObject
     private void ResetSimulation()
     {
         _simEngine?.Reset();
+        GanttChart.IsRunning = false;
+        GanttChart.Reset(DateTime.Now);
+        InitGanttEntries();
+        ClearSimStateFromCanvas();
+        _stateCache.Clear();
+        SimClock = "00:00:00.000";
         SetSimStatus(SimText.Reset, SimText.ResetLog);
     }
 

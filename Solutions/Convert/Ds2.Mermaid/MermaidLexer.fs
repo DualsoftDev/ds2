@@ -10,7 +10,9 @@ type MermaidToken =
     | NodeDef of id: string * label: string
     | SolidArrowToken of source: string * target: string * label: string option
     | DashedArrowToken of source: string * target: string * label: string option
+    | CircleArrowToken of source: string * target: string * label: string option
     | CommentToken of string
+    | PassiveMarker
     | EmptyLineToken
     | UnknownToken of string
 
@@ -47,6 +49,7 @@ module MermaidLexer =
                     Some (makeToken (source, remainder, None))
 
         parseWithArrow "-.->" DashedArrowToken
+        |> Option.orElseWith (fun () -> parseWithArrow "o--o" CircleArrowToken)
         |> Option.orElseWith (fun () -> parseWithArrow "-->" SolidArrowToken)
 
     /// 단일 라인을 토큰으로 변환
@@ -58,7 +61,11 @@ module MermaidLexer =
                 EmptyLineToken
             elif Patterns.Comment.IsMatch(trimmed) then
                 let m = Patterns.Comment.Match(trimmed)
-                CommentToken (if m.Groups.Count > 1 then m.Groups.[1].Value else "")
+                let commentText = if m.Groups.Count > 1 then m.Groups.[1].Value.Trim() else ""
+                if commentText.Equals("[Passive]", StringComparison.OrdinalIgnoreCase) then
+                    PassiveMarker
+                else
+                    CommentToken commentText
             elif Patterns.GraphDirection.IsMatch(trimmed) then
                 let m = Patterns.GraphDirection.Match(trimmed)
                 match parseDirection m.Groups.[1].Value with
@@ -96,7 +103,7 @@ module MermaidLexer =
         |> Array.mapi (fun i line -> tokenizeLine (i + 1) line)
         |> Array.toList
 
-    /// 노드 라벨에서 commonPre 조건 추출
+    /// 노드 라벨에서 commonPre 조건 추출 (Legacy Ev2 형식: [commonPre(NODE_ID)]LABEL)
     let extractCommonConditions (label: string) : string list * string =
         let m = Patterns.CommonPre.Match(label)
         if m.Success then
@@ -106,10 +113,48 @@ module MermaidLexer =
         else
             ([], label)
 
+    /// 노드 라벨에서 ds2 조건 참조 추출 (형식: CallName<br>Auto: src1, src2<br>Common: src3)
+    /// 반환: (actualLabel, autoRefs, commonRefs, activeRefs)
+    let extractConditionRefs (label: string) : string * string list * string list * string list =
+        let parts = label.Split([| "<br>" |], StringSplitOptions.None)
+        if parts.Length <= 1 then
+            (label, [], [], [])
+        else
+            let actualLabel = parts.[0].Trim()
+            let mutable autoRefs = []
+            let mutable commonRefs = []
+            let mutable activeRefs = []
+
+            for i in 1 .. parts.Length - 1 do
+                let part = parts.[i].Trim()
+                let parseNames (prefix: string) =
+                    if part.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) then
+                        let names =
+                            part.[prefix.Length..]
+                                .Split([| ',' |], StringSplitOptions.RemoveEmptyEntries)
+                            |> Array.map (fun s -> s.Trim())
+                            |> Array.filter (fun s -> s <> "")
+                            |> Array.toList
+                        Some names
+                    else None
+
+                match parseNames "Auto: " with
+                | Some names -> autoRefs <- names
+                | None ->
+                    match parseNames "Common: " with
+                    | Some names -> commonRefs <- names
+                    | None ->
+                        match parseNames "Active: " with
+                        | Some names -> activeRefs <- names
+                        | None -> ()
+
+            (actualLabel, autoRefs, commonRefs, activeRefs)
+
     /// 유효한 토큰만 필터링 (빈 줄, 주석 제외)
     let filterSignificantTokens (tokens: TokenizedLine list) : TokenizedLine list =
         tokens
         |> List.filter (fun t ->
             match t.Token with
             | EmptyLineToken | CommentToken _ -> false
+            | PassiveMarker -> true
             | _ -> true)

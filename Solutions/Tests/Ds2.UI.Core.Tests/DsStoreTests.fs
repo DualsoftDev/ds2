@@ -523,6 +523,30 @@ module PanelTests =
         Assert.True(row.IsNone)
 
     [<Fact>]
+    let ``AddApiCallFromPanel uses ApiDef name when panel no longer supplies api call name`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let system = addSystem store "S" project.Id false
+        let flow = addFlow store "F" system.Id
+        let work = addWork store "W" flow.Id
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Seed.Api" ], true)
+        let callId = store.Calls.Values |> Seq.head |> fun call -> call.Id
+        let apiDef = addApiDef store "DeviceApi" system.Id
+
+        let createdId =
+            store.AddApiCallFromPanel(
+                callId,
+                apiDef.Id,
+                "out-addr",
+                "in-addr",
+                0, "",
+                0, "")
+
+        let created = store.ApiCalls.[createdId]
+        Assert.Equal("DeviceApi", created.Name)
+        Assert.Equal(Some apiDef.Id, created.ApiDefId)
+
+    [<Fact>]
     let ``UpdateApiDef changes name and properties atomically`` () =
         let store = createStore ()
         let project = addProject store "P"

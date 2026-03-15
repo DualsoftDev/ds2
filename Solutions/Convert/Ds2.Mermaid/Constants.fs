@@ -10,8 +10,6 @@ module Constants =
     module Patterns =
         open System.Text.RegularExpressions
 
-        let private InlineNodeOrId = @"(?:[^\s\[]+\[""[^""]+""\]|[^\s]+)"
-
         /// 그래프 방향 패턴
         let GraphDirection = Regex(@"^\s*graph\s+(TD|LR|RL|BT)\s*$", RegexOptions.Compiled ||| RegexOptions.IgnoreCase)
 
@@ -27,20 +25,8 @@ module Constants =
         /// 노드 정의 패턴: NodeId["Label"]
         let NodeWithLabel = Regex(@"^\s*(\S+)\[""([^""]+)""\]\s*$", RegexOptions.Compiled)
 
-        /// 라벨 있는 실선 화살표: Source -->|Label| Target
-        let LabeledSolidArrow = Regex(@"^\s*(" + InlineNodeOrId + @")\s*-->\|([^|]+)\|\s*(" + InlineNodeOrId + @")\s*$", RegexOptions.Compiled)
-
-        /// 라벨 없는 실선 화살표: Source --> Target
-        let SolidArrow = Regex(@"^\s*(" + InlineNodeOrId + @")\s*-->\s*(" + InlineNodeOrId + @")\s*$", RegexOptions.Compiled)
-
-        /// 라벨 있는 점선 화살표: Source -.->|Label| Target
-        let LabeledDashedArrow = Regex(@"^\s*(" + InlineNodeOrId + @")\s*-\.->(?:\|([^|]+)\|)?\s*(" + InlineNodeOrId + @")\s*$", RegexOptions.Compiled)
-
-        /// 라벨 없는 점선 화살표: Source -.-> Target
-        let DashedArrow = Regex(@"^\s*(" + InlineNodeOrId + @")\s*-\.->\s*(" + InlineNodeOrId + @")\s*$", RegexOptions.Compiled)
-
         /// 주석 패턴
-        let Comment = Regex(@"^\s*%%.*$", RegexOptions.Compiled)
+        let Comment = Regex(@"^\s*%%\s*(.*?)$", RegexOptions.Compiled)
 
         /// commonPre 추출 패턴: [commonPre(CONDITION)]LABEL
         let CommonPre = Regex(@"^\[commonPre\(([^)]+)\)\](.+)$", RegexOptions.Compiled)
@@ -54,12 +40,15 @@ module Constants =
         | None -> NoLabel
         | Some s ->
             match s.ToLowerInvariant().Trim() with
+            | "reset" -> Interlock
             | "interlock" -> Interlock
             | "selfreset" -> SelfReset
             | "startreset" -> StartReset
             | "startedge" -> StartEdge
             | "resetedge" -> ResetEdge
             | "autopre" -> AutoPre
+            | "resetreset" -> ResetReset
+            | "group" -> Group
             | other -> Custom other
 
     /// 그래프 방향 문자열 파싱

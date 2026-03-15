@@ -146,16 +146,33 @@ public class GanttChartState : INotifyPropertyChanged
     }
 
     private bool _isRunning;
+    private DateTime _pausedAt;
+    private TimeSpan _totalPausedDuration = TimeSpan.Zero;
+
     public bool IsRunning
     {
         get => _isRunning;
-        set { _isRunning = value; Notify(); }
+        set
+        {
+            if (_isRunning == value) return;
+            if (!value)
+                _pausedAt = DateTime.Now;  // Pause 시점 기록
+            else if (_pausedAt != default)
+                _totalPausedDuration += DateTime.Now - _pausedAt;  // Resume 시 누적 보정
+            _isRunning = value;
+            Notify();
+        }
     }
+
+    /// <summary>Pause 누적 시간을 보정한 현재 시각</summary>
+    public DateTime AdjustedNow => DateTime.Now - _totalPausedDuration;
 
     public void Reset(DateTime startTime)
     {
         StartTime = startTime;
         CurrentTime = startTime;
+        _totalPausedDuration = TimeSpan.Zero;
+        _pausedAt = default;
         Entries.Clear();
         HorizontalOffset = 0;
         VerticalOffset = 0;

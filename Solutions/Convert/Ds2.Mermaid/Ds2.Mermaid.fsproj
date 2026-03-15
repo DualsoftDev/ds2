@@ -14,6 +14,7 @@
     <Compile Include="MermaidAnalyzer.fs" />
     <Compile Include="MermaidMapper.fs" />
     <Compile Include="MermaidImporter.fs" />
+    <Compile Include="MermaidExporter.fs" />
   </ItemGroup>
 
   <ItemGroup>

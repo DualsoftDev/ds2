@@ -21,6 +21,8 @@ type ArrowLabel =
     | StartEdge
     | ResetEdge
     | AutoPre
+    | ResetReset
+    | Group
     | Custom of string
 
 /// Mermaid 노드 정의
@@ -29,8 +31,14 @@ type MermaidNode = {
     Id: string
     /// 표시 라벨 (예: "CAR_BT_SV.ON")
     Label: string
-    /// commonPre에서 추출한 조건 목록
+    /// commonPre에서 추출한 조건 목록 (Legacy Ev2: 노드 ID 리스트)
     CommonConditions: string list
+    /// Auto 조건 소스 Call 이름 목록
+    AutoConditionRefs: string list
+    /// Common 조건 소스 Call 이름 목록
+    CommonConditionRefs: string list
+    /// Active 조건 소스 Call 이름 목록
+    ActiveConditionRefs: string list
 }
 
 /// Mermaid 엣지 정의
@@ -45,7 +53,7 @@ type MermaidEdge = {
     Label: ArrowLabel
 }
 
-/// Mermaid 서브그래프 정의
+/// Mermaid 서브그래프 정의 (중첩 지원)
 type MermaidSubgraph = {
     /// 서브그래프 ID (예: "CARTYPE_차종초기화")
     Id: string
@@ -55,13 +63,17 @@ type MermaidSubgraph = {
     Nodes: MermaidNode list
     /// 서브그래프 내부 엣지들
     InternalEdges: MermaidEdge list
+    /// 중첩 서브그래프 (System > Flow > Work 등)
+    Children: MermaidSubgraph list
+    /// Passive(Device) System 여부
+    IsPassive: bool
 }
 
 /// 파싱된 Mermaid 그래프 전체
 type MermaidGraph = {
     /// 그래프 방향
     Direction: MermaidDirection
-    /// 모든 서브그래프 (2-depth 구조)
+    /// 모든 서브그래프 (중첩 구조 지원)
     Subgraphs: MermaidSubgraph list
     /// 서브그래프 밖의 글로벌 노드 (1-depth 구조)
     GlobalNodes: MermaidNode list
