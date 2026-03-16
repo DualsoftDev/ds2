@@ -92,6 +92,8 @@ public partial class ExplorerPane : UserControl
                 "AddWork"     => kind is EntityKind.Flow,
                 "AddCall"     => kind is EntityKind.Work,
                 "Import"      => isDeviceTree && kind is null or EntityKind.DeviceRoot,
+                "ImportCsv"   => kind is null or EntityKind.Project or EntityKind.DeviceRoot,
+                "ExportCsv"   => hasProject && kind is null or EntityKind.Project or EntityKind.DeviceRoot,
                 "ImportMermaid" => !isDeviceTree && kind is EntityKind.Flow or EntityKind.Work,
                 "Copy"        => kind is EntityKind.Flow or EntityKind.Work or EntityKind.Call,
                 "Paste"       => kind is EntityKind.System or EntityKind.Flow or EntityKind.Work,
