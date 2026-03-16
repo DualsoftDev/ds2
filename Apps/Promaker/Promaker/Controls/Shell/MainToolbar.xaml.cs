@@ -16,6 +16,11 @@ public partial class MainToolbar : UserControl
         SaveMenuToggle.IsChecked = false;
     }
 
+    private void CloseToolPopup(object sender, RoutedEventArgs e)
+    {
+        ToolToggleBtn.IsChecked = false;
+    }
+
     // Report 팝업 내 메뉴 클릭 시 팝업 닫기
     private void CloseReportPopup(object sender, RoutedEventArgs e)
     {
