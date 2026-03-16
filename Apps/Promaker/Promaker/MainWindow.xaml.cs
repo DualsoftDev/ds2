@@ -13,6 +13,7 @@ public partial class MainWindow : Window
         DataContext = _vm;
         _vm.FocusNameEditorRequested = PropertyPane.FocusNameEditorControl;
         _vm.Canvas.CenterOnNodeRequested = WorkspacePane.CenterOnNode;
+        _vm.Canvas.FitToViewZoomOutRequested = WorkspacePane.FitToViewZoomOut;
         _vm.Canvas.GetViewportCenterRequested = WorkspacePane.GetViewportCenter;
     }
 

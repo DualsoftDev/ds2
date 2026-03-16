@@ -369,6 +369,7 @@ public partial class MainViewModel
         if (requests.IsEmpty) return;
 
         TryEditorAction(() => _store.MoveEntities(requests));
+        RequestRebuildAll(() => Canvas.FitToViewZoomOutRequested?.Invoke());
     }
 
     private Guid? ResolveTargetId(EntityKind selectedEntityType, TabKind activeTabKind)

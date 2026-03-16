@@ -51,6 +51,35 @@ public partial class EditorCanvas
         ZoomText.Text = $"{(int)(_zoom * 100)}%";
     }
 
+    public void FitToViewZoomOut()
+    {
+        if (VM is null || VM.Canvas.CanvasNodes.Count == 0) return;
+
+        double minX = double.MaxValue, minY = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue;
+
+        foreach (var n in VM.Canvas.CanvasNodes)
+        {
+            minX = Math.Min(minX, n.X);
+            minY = Math.Min(minY, n.Y);
+            maxX = Math.Max(maxX, n.X + n.Width);
+            maxY = Math.Max(maxY, n.Y + n.Height);
+        }
+
+        var contentW = maxX - minX + 100;
+        var contentH = maxY - minY + 100;
+        var viewW = RootGrid.ActualWidth;
+        var viewH = RootGrid.ActualHeight;
+        if (viewW <= 0 || viewH <= 0) return;
+
+        _zoom = Math.Clamp(Math.Min(viewW / contentW, viewH / contentH), MinZoom, 1.0);
+        ZoomTransform.ScaleX = _zoom;
+        ZoomTransform.ScaleY = _zoom;
+        PanTransform.X = (viewW - contentW * _zoom) / 2 - minX * _zoom + 50 * _zoom;
+        PanTransform.Y = (viewH - contentH * _zoom) / 2 - minY * _zoom + 50 * _zoom;
+        ZoomText.Text = $"{(int)(_zoom * 100)}%";
+    }
+
     public void CenterOnNode(Guid nodeId)
     {
         var node = VM?.Canvas.CanvasNodes.FirstOrDefault(n => n.Id == nodeId);

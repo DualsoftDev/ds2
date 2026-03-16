@@ -18,6 +18,7 @@ public partial class CanvasWorkspace : UserControl
     private MainViewModel? ViewModel => DataContext as MainViewModel;
 
     public void CenterOnNode(Guid id) => Canvas.CenterOnNode(id);
+    public void FitToViewZoomOut() => Canvas.FitToViewZoomOut();
 
     public Point? GetViewportCenter() => Canvas.GetViewportCenter();
 
