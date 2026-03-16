@@ -15,11 +15,12 @@ public partial class MainViewModel
     private const string FileFilter =
         "All Supported (*.json;*.aasx;*.md)|*.json;*.aasx;*.md|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx|Mermaid Files (*.md)|*.md";
 
-    private static bool IsAasx(string path) =>
-        Path.GetExtension(path).Equals(".aasx", StringComparison.OrdinalIgnoreCase);
+    private static bool HasExtension(string path, string extension) =>
+        Path.GetExtension(path).Equals(extension, StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsMermaid(string path) =>
-        Path.GetExtension(path).Equals(".md", StringComparison.OrdinalIgnoreCase);
+    private static bool IsAasx(string path) => HasExtension(path, ".aasx");
+
+    private static bool IsMermaid(string path) => HasExtension(path, ".md");
 
     private bool TryRunFileOperation(string operation, Action action, Func<Exception, string> warnMessage)
     {
@@ -34,6 +35,46 @@ public partial class MainViewModel
             DialogHelpers.Warn(warnMessage(ex));
             return false;
         }
+    }
+
+    private static string JoinLines(IEnumerable<string> lines) => string.Join("\n", lines);
+
+    private static bool TryGetResult<T, TError>(FSharpResult<T, TError> result, Func<TError, string> formatError, out T value)
+    {
+        if (result.IsError)
+        {
+            DialogHelpers.Warn(formatError(result.ErrorValue));
+            value = default!;
+            return false;
+        }
+
+        value = result.ResultValue;
+        return true;
+    }
+
+    private void CompleteOpen(string filePath, string kind)
+    {
+        _currentFilePath = filePath;
+        IsDirty = false;
+        UpdateTitle();
+        Log.Info($"{kind} opened: {filePath}");
+        StatusText = $"Opened: {Path.GetFileName(filePath)}";
+        RequestRebuildAll(AfterFileLoad);
+    }
+
+    private void ReplaceOpenedStore(string filePath, DsStore store, string kind)
+    {
+        _store.ReplaceStore(store);
+        CompleteOpen(filePath, kind);
+    }
+
+    private void CompleteSave(string filePath, string kind)
+    {
+        _currentFilePath = filePath;
+        IsDirty = false;
+        UpdateTitle();
+        StatusText = "Saved.";
+        Log.Info($"{kind} saved: {filePath}");
     }
 
     [RelayCommand]
@@ -52,20 +93,13 @@ public partial class MainViewModel
                 $"Open Mermaid '{fileName}'",
                 () =>
                 {
-                    var result = Ds2.Mermaid.MermaidImporter.loadProjectFromFile(fileName);
-                    if (result.IsError)
-                    {
-                        DialogHelpers.Warn($"Mermaid 불러오기 실패:\n{string.Join("\n", result.ErrorValue)}");
+                    if (!TryGetResult(
+                            Ds2.Mermaid.MermaidImporter.loadProjectFromFile(fileName),
+                            errors => $"Mermaid 불러오기 실패:\n{JoinLines(errors)}",
+                            out var store))
                         return;
-                    }
 
-                    _store.ReplaceStore(result.ResultValue);
-                    _currentFilePath = fileName;
-                    IsDirty = false;
-                    UpdateTitle();
-                    Log.Info($"Mermaid opened: {fileName}");
-                    StatusText = $"Opened: {Path.GetFileName(fileName)}";
-                    RequestRebuildAll(AfterFileLoad);
+                    ReplaceOpenedStore(fileName, store, "Mermaid");
                 },
                 ex => $"Mermaid 불러오기 실패: {ex.Message}");
         }
@@ -82,12 +116,7 @@ public partial class MainViewModel
                         return;
                     }
 
-                    _currentFilePath = fileName;
-                    IsDirty = false;
-                    UpdateTitle();
-                    Log.Info($"AASX opened: {fileName}");
-                    StatusText = $"Opened: {Path.GetFileName(fileName)}";
-                    RequestRebuildAll(AfterFileLoad);
+                    CompleteOpen(fileName, "AASX");
                 },
                 ex => $"Failed to open AASX: {ex.Message}");
         }
@@ -98,12 +127,7 @@ public partial class MainViewModel
                 () =>
                 {
                     _store.LoadFromFile(fileName);
-                    _currentFilePath = fileName;
-                    IsDirty = false;
-                    UpdateTitle();
-                    Log.Info($"File opened: {fileName}");
-                    StatusText = $"Opened: {Path.GetFileName(fileName)}";
-                    RequestRebuildAll(AfterFileLoad);
+                    CompleteOpen(fileName, "File");
                 },
                 ex => $"Failed to open file: {ex.Message}");
         }
@@ -195,18 +219,13 @@ public partial class MainViewModel
                 $"Save Mermaid '{filePath}'",
                 () =>
                 {
-                    var result = Ds2.Mermaid.MermaidExporter.saveProjectToFile(_store, filePath);
-                    if (result.IsError)
-                    {
-                        DialogHelpers.Warn(result.ErrorValue);
+                    if (!TryGetResult(
+                            Ds2.Mermaid.MermaidExporter.saveProjectToFile(_store, filePath),
+                            error => error,
+                            out _))
                         return;
-                    }
 
-                    _currentFilePath = filePath;
-                    IsDirty = false;
-                    UpdateTitle();
-                    StatusText = "Saved.";
-                    Log.Info($"Mermaid saved: {filePath}");
+                    CompleteSave(filePath, "Mermaid");
                 },
                 ex => $"Mermaid 저장 실패: {ex.Message}");
         }
@@ -223,10 +242,7 @@ public partial class MainViewModel
                         return;
                     }
 
-                    IsDirty = false;
-                    UpdateTitle();
-                    StatusText = "Saved.";
-                    Log.Info($"AASX saved: {filePath}");
+                    CompleteSave(filePath, "AASX");
                 },
                 ex => $"Failed to save AASX: {ex.Message}");
         }
@@ -237,10 +253,7 @@ public partial class MainViewModel
                 () =>
                 {
                     _store.SaveToFile(filePath);
-                    IsDirty = false;
-                    UpdateTitle();
-                    StatusText = "Saved.";
-                    Log.Info($"File saved: {filePath}");
+                    CompleteSave(filePath, "File");
                 },
                 ex => $"Failed to save file: {ex.Message}");
         }
