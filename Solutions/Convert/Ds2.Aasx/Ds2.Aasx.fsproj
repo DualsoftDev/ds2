@@ -7,10 +7,17 @@
 
   <ItemGroup>
     <Compile Include="AasxSemantics.fs" />
-    <Compile Include="AasxConceptDescriptions.fs" />
+    <Compile Include="Concepts\Catalog.fs" />
+    <Compile Include="Concepts\Builder.fs" />
     <Compile Include="AasxFileIO.fs" />
-    <Compile Include="AasxExporter.fs" />
-    <Compile Include="AasxImporter.fs" />
+    <Compile Include="Import\Core.fs" />
+    <Compile Include="Import\Graph.fs" />
+    <Compile Include="Import\Metadata.fs" />
+    <Compile Include="Import\Entry.fs" />
+    <Compile Include="Export\Core.fs" />
+    <Compile Include="Export\Graph.fs" />
+    <Compile Include="Export\Metadata.fs" />
+    <Compile Include="Export\Entry.fs" />
   </ItemGroup>
 
   <ItemGroup>

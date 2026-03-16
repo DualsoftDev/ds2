@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -41,17 +42,18 @@ public partial class IoBatchSettingsDialog : Window
         var work = WorkFilterBox.Text;
         var call = CallFilterBox.Text;
 
-        if (!string.IsNullOrEmpty(flow) && !row.Flow.Contains(flow, System.StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(flow) && !row.Flow.Contains(flow, StringComparison.OrdinalIgnoreCase))
             return false;
-        if (!string.IsNullOrEmpty(work) && !row.Work.Contains(work, System.StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(work) && !row.Work.Contains(work, StringComparison.OrdinalIgnoreCase))
             return false;
-        if (!string.IsNullOrEmpty(call) && !row.Call.Contains(call, System.StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(call) && !row.Call.Contains(call, StringComparison.OrdinalIgnoreCase))
             return false;
 
         return true;
     }
 
-    public IReadOnlyList<IoBatchRow> EditedRows => _rows.ToList();
+    public IReadOnlyList<IoBatchRow> ChangedRows =>
+        _rows.Where(r => r.IsChanged).ToList();
 
     private void Row_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -125,7 +127,8 @@ public sealed class IoBatchRow : BatchRowBase
     private string _outSymbol;
     private string _memo;
 
-    public IoBatchRow(Guid callId, Guid apiCallId, string flow, string work, string call, string inAddress, string inSymbol, string outAddress, string outSymbol, string memo)
+    public IoBatchRow(Guid callId, Guid apiCallId, string flow, string work, string call,
+                      string inAddress, string inSymbol, string outAddress, string outSymbol, string memo)
     {
         CallId = callId;
         ApiCallId = apiCallId;
@@ -137,6 +140,10 @@ public sealed class IoBatchRow : BatchRowBase
         _outAddress = outAddress;
         _outSymbol = outSymbol;
         _memo = memo;
+        OriginalInAddress = inAddress;
+        OriginalInSymbol = inSymbol;
+        OriginalOutAddress = outAddress;
+        OriginalOutSymbol = outSymbol;
     }
 
     public Guid CallId { get; }
@@ -144,6 +151,11 @@ public sealed class IoBatchRow : BatchRowBase
     public string Flow { get; }
     public string Work { get; }
     public string Call { get; }
+
+    public string OriginalInAddress { get; }
+    public string OriginalInSymbol { get; }
+    public string OriginalOutAddress { get; }
+    public string OriginalOutSymbol { get; }
 
     public string InAddress
     {
@@ -174,4 +186,10 @@ public sealed class IoBatchRow : BatchRowBase
         get => _memo;
         set => SetField(ref _memo, value);
     }
+
+    public bool IsChanged =>
+        !string.Equals(InAddress, OriginalInAddress, StringComparison.Ordinal) ||
+        !string.Equals(InSymbol, OriginalInSymbol, StringComparison.Ordinal) ||
+        !string.Equals(OutAddress, OriginalOutAddress, StringComparison.Ordinal) ||
+        !string.Equals(OutSymbol, OriginalOutSymbol, StringComparison.Ordinal);
 }

@@ -287,7 +287,7 @@ public partial class EditorCanvas
         VM.Selection.ClearNodeSelection();
         VM.Selection.SelectArrowFromCanvas(arrow, ctrlPressed: false);
 
-        var isWorkMode = VM.Canvas.ActiveTab?.Kind != TabKind.Work;
+        var isWorkMode = VM.Canvas.ActiveTab?.Kind == TabKind.Work;
         var menu = new System.Windows.Controls.ContextMenu();
 
         var changeType = new System.Windows.Controls.MenuItem { Header = "Change Arrow Type" };

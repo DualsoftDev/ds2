@@ -286,3 +286,47 @@ module DeepCopyTests =
         copied.Children.Clear()
         Assert.Equal(1, parent.Children.Count)
         Assert.Equal(0, copied.Children.Count)
+
+    [<Fact>]
+    let ``Call DeepCopy should copy ApiCalls and CallConditions independently`` () =
+        let workId = Guid.NewGuid()
+        let original = Call("DevAlias", "ApiName", workId)
+        original.Properties.Timeout <- Some (TimeSpan.FromSeconds(5.0))
+        original.Position <- Some (Xywh(10, 20, 100, 50))
+
+        let apiCall = ApiCall("TestApiCall")
+        apiCall.OutputSpec <- Int32Value (Single 99)
+        apiCall.InTag <- Some (IOTag("In", "Addr1", ""))
+        original.ApiCalls.Add(apiCall)
+
+        let cond = CallCondition()
+        cond.Type <- Some CallConditionType.Auto
+        let condApi = ApiCall("CondApi")
+        cond.Conditions.Add(condApi)
+        original.CallConditions.Add(cond)
+
+        let copied = original.DeepCopy()
+
+        // 기본 속성
+        Assert.NotEqual(original.Id, copied.Id)
+        Assert.Equal(workId, copied.ParentId)
+        Assert.Equal("DevAlias", copied.DevicesAlias)
+        Assert.Equal("ApiName", copied.ApiName)
+        Assert.Equal(original.Properties.Timeout, copied.Properties.Timeout)
+        Assert.True(copied.Position.IsSome)
+
+        // ApiCalls 복사 (jsonClone은 내부 ApiCall ID 보존)
+        Assert.Equal(1, copied.ApiCalls.Count)
+        Assert.Equal(original.ApiCalls.[0].Id, copied.ApiCalls.[0].Id)
+        Assert.Equal("TestApiCall", copied.ApiCalls.[0].Name)
+        Assert.Equal(Int32Value (Single 99), copied.ApiCalls.[0].OutputSpec)
+
+        // CallConditions 복사
+        Assert.Equal(1, copied.CallConditions.Count)
+        Assert.Equal(1, copied.CallConditions.[0].Conditions.Count)
+
+        // 독립성 확인
+        copied.ApiCalls.Clear()
+        copied.CallConditions.Clear()
+        Assert.Equal(1, original.ApiCalls.Count)
+        Assert.Equal(1, original.CallConditions.Count)

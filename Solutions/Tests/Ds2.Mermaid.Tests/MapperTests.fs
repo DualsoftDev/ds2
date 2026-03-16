@@ -211,25 +211,53 @@ let ``ArrowLabel → ArrowType 변환`` () =
     Assert.Equal(ArrowType.StartReset, MermaidMapper.mapArrowType StartReset)
     Assert.Equal(ArrowType.Start, MermaidMapper.mapArrowType StartEdge)
     Assert.Equal(ArrowType.Reset, MermaidMapper.mapArrowType ResetEdge)
+    Assert.Equal(ArrowType.ResetReset, MermaidMapper.mapArrowType ResetReset)
+    Assert.Equal(ArrowType.Group, MermaidMapper.mapArrowType Group)
+    Assert.Equal(ArrowType.Start, MermaidMapper.mapArrowType AutoPre)
+    Assert.Equal(ArrowType.Start, MermaidMapper.mapArrowType (Custom "anything"))
 
-// ─── System 레벨 — Passive subgraph ───
+// ─── System 레벨 Import ───
 
-let private mermaidWithPassiveDevices =
-    """
-flowchart TD
-    subgraph STN1["STN1"]
-        STN1_Work1["Work1"]
-        STN1_Work2["Work2"]
+[<Fact>]
+let ``SystemLevel Import — subgraph가 System으로 매핑`` () =
+    let store = createStore()
+    let projectId, _ = setupProject store
+
+    // 3-depth: System > Flow > Work > Call(node)
+    let mermaid = """
+graph TD
+    subgraph STN1["Station1"]
+        subgraph F1["Flow1"]
+            subgraph W1["Work1"]
+                A["Dev.ON"]
+                B["Dev.OFF"]
+                A --> B
+            end
+        end
     end
-    subgraph STN2["STN2"]
-        STN2_Work3["Work3"]
-    end
-    STN1_Work1 -->|Reset| STN1_Work2
-    subgraph Devices["Passive Devices"]
-        Device1["Device1"]
-        Device2["Device2"]
+    subgraph STN2["Station2"]
+        subgraph F2["Flow2"]
+            subgraph W2["Work2"]
+                C["Dev.Run"]
+            end
+        end
     end
 """
+    match MermaidParser.parse mermaid with
+    | Error e -> Assert.Fail($"파싱 실패: {e}")
+    | Ok graph ->
+
+    MermaidImporter.importIntoStore store graph SystemLevel projectId |> ignore
+
+    let project = store.Projects.[projectId]
+    // 기존 TestSystem + STN1 + STN2 = 3 active systems
+    Assert.True(project.ActiveSystemIds.Count >= 3)
+
+    // System 2개, Flow 2개, Work 2개, Call 3개
+    Assert.True(store.Systems.Count >= 3)
+    Assert.True(store.Flows.Count >= 3)  // 기존 TestFlow + F1 + F2
+    Assert.True(store.Works.Count >= 3)  // 기존 TestWork + W1 + W2
+    Assert.True(store.Calls.Count >= 3)
 
 // ─── Device auto-creation (Work 레벨) ───
 
@@ -320,3 +348,60 @@ let ``Export — systemToMermaid Active + Passive 구분`` () =
     let mermaid = MermaidExporter.systemToMermaid store projectId
     Assert.False(System.String.IsNullOrWhiteSpace(mermaid), "systemToMermaid 비어있음")
     Assert.Contains("subgraph", mermaid)
+
+[<Fact>]
+let ``Export and import — duplicate call names keep condition source by node id`` () =
+    let store = createStore()
+    let projectId, _, flowId = setupProjectWithFlow store
+
+    let sourceAId = store.AddWork("SourceA", flowId)
+    let sourceBId = store.AddWork("SourceB", flowId)
+    let targetId = store.AddWork("TargetWork", flowId)
+
+    store.AddCallsWithDevice(projectId, sourceAId, [ "Dev.Api" ], true)
+    store.AddCallsWithDevice(projectId, sourceBId, [ "Dev.Api" ], true)
+    store.AddCallsWithDevice(projectId, targetId, [ "Target.Do" ], true)
+
+    let sourceACall = DsQuery.callsOf sourceAId store |> List.head
+    let targetCall = DsQuery.callsOf targetId store |> List.head
+    let sourceAApiCall = sourceACall.ApiCalls |> Seq.head
+
+    store.AddCallCondition(targetCall.Id, CallConditionType.Common)
+    let conditionId =
+        store.Calls[targetCall.Id].CallConditions
+        |> Seq.head
+        |> fun condition -> condition.Id
+
+    store.AddApiCallsToConditionBatch(targetCall.Id, conditionId, [ sourceAApiCall.Id ]) |> ignore
+
+    let mermaid = MermaidExporter.flowToMermaid store flowId
+
+    let importedStore = createStore()
+    let _, _, importedFlowId = setupProjectWithFlow importedStore
+
+    match MermaidParser.parse mermaid with
+    | Error e -> Assert.Fail($"파싱 실패: {e}")
+    | Ok graph ->
+        let result = MermaidImporter.importIntoStore importedStore graph FlowLevel importedFlowId
+        Assert.True(Result.isOk result)
+
+    let importedTargetWork =
+        importedStore.Works.Values
+        |> Seq.find (fun work -> work.ParentId = importedFlowId && work.Name = "TargetWork")
+
+    let importedTargetCall =
+        importedStore.Calls.Values
+        |> Seq.find (fun call -> call.ParentId = importedTargetWork.Id && call.Name = "Target.Do")
+
+    let importedCondition =
+        importedStore.Calls.[importedTargetCall.Id].CallConditions
+        |> Seq.head
+
+    let importedSourceApiCall = importedCondition.Conditions |> Seq.head
+
+    let importedSourceCall =
+        importedStore.Calls.Values
+        |> Seq.find (fun call -> call.ApiCalls |> Seq.exists (fun apiCall -> apiCall.Id = importedSourceApiCall.Id))
+
+    let importedSourceWork = importedStore.Works.[importedSourceCall.ParentId]
+    Assert.Equal("SourceA", importedSourceWork.Name)

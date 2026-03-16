@@ -135,8 +135,8 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Flow" Binding="{Binding Col1}" Width="120" IsReadOnly="True"/>
-                            <DataGridTextColumn Header="Work" Binding="{Binding Col2}" Width="*" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Flow" Binding="{Binding FlowName}" Width="120" IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Work" Binding="{Binding WorkName}" Width="*" IsReadOnly="True"/>
                             <DataGridTextColumn Header="Duration (ms)" Binding="{Binding Duration, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                         </DataGrid.Columns>
                     </DataGrid>
@@ -195,7 +195,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Text="미리보기 전용 UI. 변경 사항은 이 팝업 내에서만 유지됩니다."
+                <TextBlock Text="변경된 행만 프로젝트에 반영됩니다."
                            VerticalAlignment="Center"
                            Foreground="{DynamicResource SecondaryTextBrush}"/>
 

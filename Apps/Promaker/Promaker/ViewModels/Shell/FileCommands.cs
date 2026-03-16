@@ -60,6 +60,7 @@ public partial class MainViewModel
                     }
 
                     _store.ReplaceStore(result.ResultValue);
+                    PrepareForLoadedStore();
                     _currentFilePath = fileName;
                     IsDirty = false;
                     UpdateTitle();
@@ -82,6 +83,7 @@ public partial class MainViewModel
                         return;
                     }
 
+                    PrepareForLoadedStore();
                     _currentFilePath = fileName;
                     IsDirty = false;
                     UpdateTitle();
@@ -98,6 +100,7 @@ public partial class MainViewModel
                 () =>
                 {
                     _store.LoadFromFile(fileName);
+                    PrepareForLoadedStore();
                     _currentFilePath = fileName;
                     IsDirty = false;
                     UpdateTitle();
@@ -160,17 +163,27 @@ public partial class MainViewModel
     [RelayCommand]
     private void SaveFile()
     {
+        TrySaveFile();
+    }
+
+    private bool TrySaveFile()
+    {
         if (_currentFilePath is null)
         {
-            SaveFileAs();
-            return;
+            return TrySaveFileAs();
         }
 
         SaveToPath(_currentFilePath);
+        return true;
     }
 
     [RelayCommand]
     private void SaveFileAs()
+    {
+        TrySaveFileAs();
+    }
+
+    private bool TrySaveFileAs()
     {
         var projects = DsQuery.allProjects(_store);
         var suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
@@ -181,68 +194,82 @@ public partial class MainViewModel
             FileName = suggestedName
         };
 
-        if (dlg.ShowDialog() != true) return;
+        if (dlg.ShowDialog() != true) return false;
 
         _currentFilePath = dlg.FileName;
         SaveToPath(_currentFilePath);
+        return true;
     }
 
-    private void SaveToPath(string filePath)
+    private bool SaveToPath(string filePath)
     {
         if (IsMermaid(filePath))
         {
-            TryRunFileOperation(
-                $"Save Mermaid '{filePath}'",
-                () =>
-                {
-                    var result = Ds2.Mermaid.MermaidExporter.saveProjectToFile(_store, filePath);
-                    if (result.IsError)
+            try
+            {
+                var result = Ds2.Mermaid.MermaidExporter.saveProjectToFile(_store, filePath);
+                return SaveOutcomeFlow.TryCompleteMermaidSave(
+                    result,
+                    DialogHelpers.Warn,
+                    () =>
                     {
-                        DialogHelpers.Warn(result.ErrorValue);
-                        return;
-                    }
-
-                    _currentFilePath = filePath;
-                    IsDirty = false;
-                    UpdateTitle();
-                    StatusText = "Saved.";
-                    Log.Info($"Mermaid saved: {filePath}");
-                },
-                ex => $"Mermaid 저장 실패: {ex.Message}");
+                        _currentFilePath = filePath;
+                        IsDirty = false;
+                        UpdateTitle();
+                        StatusText = "Saved.";
+                        Log.Info($"Mermaid saved: {filePath}");
+                    });
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Save Mermaid '{filePath}' failed", ex);
+                DialogHelpers.Warn($"Mermaid 저장 실패: {ex.Message}");
+                return false;
+            }
         }
-        else if (IsAasx(filePath))
+
+        if (IsAasx(filePath))
         {
-            TryRunFileOperation(
-                $"Save AASX '{filePath}'",
-                () =>
-                {
-                    if (!AasxExporter.exportFromStore(_store, filePath))
+            try
+            {
+                var exported = AasxExporter.exportFromStore(_store, filePath);
+                if (!exported)
+                    Log.Warn($"AASX save failed: no project ({filePath})");
+
+                return SaveOutcomeFlow.TryCompleteAasxSave(
+                    exported,
+                    DialogHelpers.Warn,
+                    "No project available for AASX save.",
+                    () =>
                     {
-                        Log.Warn($"AASX save failed: no project ({filePath})");
-                        DialogHelpers.Warn("No project available for AASX save.");
-                        return;
-                    }
-
-                    IsDirty = false;
-                    UpdateTitle();
-                    StatusText = "Saved.";
-                    Log.Info($"AASX saved: {filePath}");
-                },
-                ex => $"Failed to save AASX: {ex.Message}");
+                        IsDirty = false;
+                        UpdateTitle();
+                        StatusText = "Saved.";
+                        Log.Info($"AASX saved: {filePath}");
+                    });
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Save AASX '{filePath}' failed", ex);
+                DialogHelpers.Warn($"Failed to save AASX: {ex.Message}");
+                return false;
+            }
         }
-        else
+
+        try
         {
-            TryRunFileOperation(
-                $"Save file '{filePath}'",
-                () =>
-                {
-                    _store.SaveToFile(filePath);
-                    IsDirty = false;
-                    UpdateTitle();
-                    StatusText = "Saved.";
-                    Log.Info($"File saved: {filePath}");
-                },
-                ex => $"Failed to save file: {ex.Message}");
+            _store.SaveToFile(filePath);
+            IsDirty = false;
+            UpdateTitle();
+            StatusText = "Saved.";
+            Log.Info($"File saved: {filePath}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Save file '{filePath}' failed", ex);
+            DialogHelpers.Warn($"Failed to save file: {ex.Message}");
+            return false;
         }
     }
 }

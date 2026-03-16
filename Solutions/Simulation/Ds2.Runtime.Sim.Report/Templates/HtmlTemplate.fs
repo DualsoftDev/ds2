@@ -103,11 +103,7 @@ module HtmlTemplate =
         for entry in report.Entries do
             sb.Append("            <div class=\"timeline-row\" style=\"width: " + string (int chartWidth) + "px;\">\n") |> ignore
             for segment in entry.Segments do
-                let startSec = (segment.StartTime - report.Metadata.StartTime).TotalSeconds
-                let endSec =
-                    match segment.EndTime with
-                    | Some et -> (et - report.Metadata.StartTime).TotalSeconds
-                    | None -> totalDuration
+                let startSec, endSec, _ = StateSegment.timeRange report.Metadata.StartTime totalDuration segment
                 let x = startSec * pixelsPerSecond
                 let width = max 2.0 ((endSec - startSec) * pixelsPerSecond)
                 let title = segment.StateFullName + ": " + (sprintf "%.2f" startSec) + "s - " + (sprintf "%.2f" endSec) + "s (" + (sprintf "%.2f" (endSec - startSec)) + "s)"
@@ -146,12 +142,7 @@ module HtmlTemplate =
         let mutable rowNo = 1
         for entry in report.Entries do
             for segment in entry.Segments do
-                let startSec = (segment.StartTime - report.Metadata.StartTime).TotalSeconds
-                let endSec =
-                    match segment.EndTime with
-                    | Some et -> (et - report.Metadata.StartTime).TotalSeconds
-                    | None -> report.Metadata.TotalDuration.TotalSeconds
-                let duration = endSec - startSec
+                let startSec, endSec, duration = StateSegment.timeRange report.Metadata.StartTime report.Metadata.TotalDuration.TotalSeconds segment
                 sb.Append("            <tr><td>" + string rowNo + "</td><td>" + entry.Type + "</td><td>" + (WebUtility.HtmlEncode entry.Name) + "</td><td>" + (WebUtility.HtmlEncode entry.SystemId) + "</td><td class=\"state-" + segment.State + "\">" + segment.StateFullName + "</td><td>" + (sprintf "%.2f" startSec) + "</td><td>" + (sprintf "%.2f" endSec) + "</td><td>" + (sprintf "%.2f" duration) + "</td></tr>\n") |> ignore
                 rowNo <- rowNo + 1
 

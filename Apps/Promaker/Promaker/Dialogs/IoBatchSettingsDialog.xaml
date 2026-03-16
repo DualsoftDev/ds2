@@ -208,7 +208,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Text="미리보기 전용 UI. 변경 사항은 이 팝업 내에서만 유지됩니다."
+                <TextBlock Text="변경된 행만 프로젝트에 반영됩니다."
                            VerticalAlignment="Center"
                            Foreground="{DynamicResource SecondaryTextBrush}"/>
 

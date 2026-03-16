@@ -8,13 +8,15 @@
   <ItemGroup>
     <Compile Include="Types.fs" />
     <Compile Include="Constants.fs" />
-    <Compile Include="MermaidLexer.fs" />
-    <Compile Include="MermaidParser.fs" />
-    <Compile Include="MermaidImportTypes.fs" />
-    <Compile Include="MermaidAnalyzer.fs" />
-    <Compile Include="MermaidMapper.fs" />
-    <Compile Include="MermaidImporter.fs" />
-    <Compile Include="MermaidExporter.fs" />
+    <Compile Include="Import\Lexer.fs" />
+    <Compile Include="Import\Parser.fs" />
+    <Compile Include="Import\ImportTypes.fs" />
+    <Compile Include="Import\Analyzer.fs" />
+    <Compile Include="Import\MapperCommon.fs" />
+    <Compile Include="Import\MapperTargets.fs" />
+    <Compile Include="Import\Mapper.fs" />
+    <Compile Include="Import\Importer.fs" />
+    <Compile Include="Export\Exporter.fs" />
   </ItemGroup>
 
   <ItemGroup>

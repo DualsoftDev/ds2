@@ -37,9 +37,11 @@ public partial class SimulationPanelState
     {
         if (args.NewStatus == SimulationStatus.Stopped)
         {
+            GanttChart.IsRunning = false;
             IsSimulating = false;
             IsSimPaused = false;
             AddSimLog(SimText.Completed);
+            UpdateSimClock();
         }
     }
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -11,9 +12,20 @@ namespace Promaker.Controls;
 
 public partial class GanttChartControl
 {
+    // ── 엘리먼트 풀 (Children.Clear() 대신 재사용) ──
+    private readonly List<Rectangle> _rowBgPool = new();
+    private readonly List<Line> _rowLinePool = new();
+    private readonly List<Rectangle> _barPool = new();
+    private readonly List<Line> _rulerTickPool = new();
+    private readonly List<TextBlock> _rulerLabelPool = new();
+
     private void StartRendering() => _renderTimer.Start();
 
-    private void StopRendering() => _renderTimer.Stop();
+    private void StopRendering(bool clearVisuals = false)
+    {
+        _renderTimer.Stop();
+        if (clearVisuals) ClearPools();
+    }
 
     private void OnRenderTick()
     {
@@ -28,18 +40,105 @@ public partial class GanttChartControl
     {
         Dispatcher.InvokeAsync(() =>
         {
-            if (_viewModel is { IsRunning: true }) _viewModel.CurrentTime = DateTime.Now;
+            if (_viewModel is { IsRunning: true }) _viewModel.CurrentTime = _viewModel.AdjustedNow;
             RenderTimeline();
             RenderTimeRuler();
             UpdateCurrentTimeIndicator();
         }, DispatcherPriority.Render);
     }
 
+    // ── 풀 헬퍼 ──
+
+    private Rectangle GetOrCreateRowBg(int index)
+    {
+        if (index < _rowBgPool.Count)
+        {
+            _rowBgPool[index].Visibility = Visibility.Visible;
+            return _rowBgPool[index];
+        }
+        var rect = new Rectangle();
+        _rowBgPool.Add(rect);
+        TimelineCanvas.Children.Add(rect);
+        return rect;
+    }
+
+    private Line GetOrCreateRowLine(int index)
+    {
+        if (index < _rowLinePool.Count)
+        {
+            _rowLinePool[index].Visibility = Visibility.Visible;
+            return _rowLinePool[index];
+        }
+        var line = new Line { StrokeThickness = 0.5 };
+        _rowLinePool.Add(line);
+        TimelineCanvas.Children.Add(line);
+        return line;
+    }
+
+    private Rectangle GetOrCreateBar(int index)
+    {
+        if (index < _barPool.Count)
+        {
+            _barPool[index].Visibility = Visibility.Visible;
+            return _barPool[index];
+        }
+        var bar = new Rectangle { RadiusX = 2, RadiusY = 2, Cursor = Cursors.Hand };
+        bar.MouseEnter += OnBarMouseEnter;
+        bar.MouseLeave += OnBarMouseLeave;
+        _barPool.Add(bar);
+        TimelineCanvas.Children.Add(bar);
+        return bar;
+    }
+
+    private Line GetOrCreateRulerTick(int index)
+    {
+        if (index < _rulerTickPool.Count)
+        {
+            _rulerTickPool[index].Visibility = Visibility.Visible;
+            return _rulerTickPool[index];
+        }
+        var tick = new Line { StrokeThickness = 1 };
+        _rulerTickPool.Add(tick);
+        TimeRulerCanvas.Children.Add(tick);
+        return tick;
+    }
+
+    private TextBlock GetOrCreateRulerLabel(int index)
+    {
+        if (index < _rulerLabelPool.Count)
+        {
+            _rulerLabelPool[index].Visibility = Visibility.Visible;
+            return _rulerLabelPool[index];
+        }
+        var label = new TextBlock { FontSize = 9 };
+        _rulerLabelPool.Add(label);
+        TimeRulerCanvas.Children.Add(label);
+        return label;
+    }
+
+    private static void HideRemaining<T>(List<T> pool, int activeCount) where T : UIElement
+    {
+        for (int i = activeCount; i < pool.Count; i++)
+            pool[i].Visibility = Visibility.Collapsed;
+    }
+
+    /// 시뮬 리셋 시 풀 전체 정리
+    internal void ClearPools()
+    {
+        _rowBgPool.Clear();
+        _rowLinePool.Clear();
+        _barPool.Clear();
+        _rulerTickPool.Clear();
+        _rulerLabelPool.Clear();
+        TimelineCanvas.Children.Clear();
+        TimeRulerCanvas.Children.Clear();
+    }
+
+    // ── 렌더링 ──
+
     private void RenderTimeline()
     {
         if (_viewModel == null || _viewModel.Entries.Count == 0) return;
-
-        TimelineCanvas.Children.Clear();
 
         double y = 0;
         double totalSeconds = Math.Max(_viewModel.TotalDuration.TotalSeconds, 1);
@@ -49,32 +148,28 @@ public partial class GanttChartControl
         TimelineCanvas.Width = Math.Max(totalWidth + 100, TimelineScrollViewer.ActualWidth);
         TimelineCanvas.Height = Math.Max(totalHeight, TimelineScrollViewer.ActualHeight);
 
+        var borderBrush = Application.Current.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray;
+        int rowIdx = 0, lineIdx = 0, barIdx = 0;
+
         foreach (var entry in _viewModel.Entries)
         {
             if (!entry.IsVisible) continue;
             entry.YOffset = y;
             double rowHeight = entry.RowHeight;
 
-            var rowBackground = new Rectangle
-            {
-                Width = TimelineCanvas.Width,
-                Height = rowHeight,
-                Fill = entry.RowBackground
-            };
-            Canvas.SetLeft(rowBackground, 0);
-            Canvas.SetTop(rowBackground, y);
-            TimelineCanvas.Children.Add(rowBackground);
+            var rowBg = GetOrCreateRowBg(rowIdx++);
+            rowBg.Width = TimelineCanvas.Width;
+            rowBg.Height = rowHeight;
+            rowBg.Fill = entry.RowBackground;
+            Canvas.SetLeft(rowBg, 0);
+            Canvas.SetTop(rowBg, y);
 
-            var rowLine = new Line
-            {
-                X1 = 0,
-                X2 = TimelineCanvas.Width,
-                Y1 = y + rowHeight,
-                Y2 = y + rowHeight,
-                Stroke = Application.Current.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray,
-                StrokeThickness = 0.5
-            };
-            TimelineCanvas.Children.Add(rowLine);
+            var rowLine = GetOrCreateRowLine(lineIdx++);
+            rowLine.X1 = 0;
+            rowLine.X2 = TimelineCanvas.Width;
+            rowLine.Y1 = y + rowHeight;
+            rowLine.Y2 = y + rowHeight;
+            rowLine.Stroke = borderBrush;
 
             foreach (var segment in entry.Segments)
             {
@@ -83,32 +178,26 @@ public partial class GanttChartControl
                 double width = (segmentEndTime - segment.StartTime).TotalSeconds * _viewModel.PixelsPerSecond;
                 if (width < 2) width = 2;
 
-                var bar = new Rectangle
-                {
-                    Width = width,
-                    Height = rowHeight - 4,
-                    Fill = segment.StateBrush,
-                    RadiusX = 2,
-                    RadiusY = 2,
-                    Tag = new BarTagInfo { Entry = entry, Segment = segment },
-                    Cursor = Cursors.Hand
-                };
-                bar.MouseEnter += OnBarMouseEnter;
-                bar.MouseLeave += OnBarMouseLeave;
-
+                var bar = GetOrCreateBar(barIdx++);
+                bar.Width = width;
+                bar.Height = rowHeight - 4;
+                bar.Fill = segment.StateBrush;
+                bar.Tag = new BarTagInfo { Entry = entry, Segment = segment };
                 Canvas.SetLeft(bar, startX);
                 Canvas.SetTop(bar, y + 2);
-                TimelineCanvas.Children.Add(bar);
             }
 
             y += rowHeight + RowGap;
         }
+
+        HideRemaining(_rowBgPool, rowIdx);
+        HideRemaining(_rowLinePool, lineIdx);
+        HideRemaining(_barPool, barIdx);
     }
 
     private void RenderTimeRuler()
     {
         if (_viewModel == null) return;
-        TimeRulerCanvas.Children.Clear();
 
         double totalSeconds = Math.Max(_viewModel.TotalDuration.TotalSeconds, 1);
         double pixelsPerSecond = _viewModel.PixelsPerSecond;
@@ -123,32 +212,30 @@ public partial class GanttChartControl
         double startSec = Math.Floor(offset / pixelsPerSecond / tickInterval) * tickInterval;
         double endSec = totalSeconds + tickInterval;
 
+        var tickBrush = Application.Current.TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray;
+        int tickIdx = 0, labelIdx = 0;
+
         for (double sec = startSec; sec <= endSec; sec += tickInterval)
         {
             double x = sec * pixelsPerSecond - offset;
             if (x < -50 || x > viewportWidth + 50) continue;
 
-            var tick = new Line
-            {
-                X1 = x,
-                Y1 = 18,
-                X2 = x,
-                Y2 = 24,
-                Stroke = Application.Current.TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray,
-                StrokeThickness = 1
-            };
-            TimeRulerCanvas.Children.Add(tick);
+            var tick = GetOrCreateRulerTick(tickIdx++);
+            tick.X1 = x;
+            tick.Y1 = 18;
+            tick.X2 = x;
+            tick.Y2 = 24;
+            tick.Stroke = tickBrush;
 
-            var label = new TextBlock
-            {
-                Text = FormatTime(TimeSpan.FromSeconds(sec)),
-                FontSize = 9,
-                Foreground = Application.Current.TryFindResource("SecondaryTextBrush") as Brush ?? Brushes.Gray
-            };
+            var label = GetOrCreateRulerLabel(labelIdx++);
+            label.Text = FormatTime(TimeSpan.FromSeconds(sec));
+            label.Foreground = tickBrush;
             Canvas.SetLeft(label, x + 3);
             Canvas.SetTop(label, 4);
-            TimeRulerCanvas.Children.Add(label);
         }
+
+        HideRemaining(_rulerTickPool, tickIdx);
+        HideRemaining(_rulerLabelPool, labelIdx);
     }
 
     private void UpdateCurrentTimeIndicator()

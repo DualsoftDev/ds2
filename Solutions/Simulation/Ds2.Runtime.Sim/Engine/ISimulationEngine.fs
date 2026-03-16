@@ -34,10 +34,8 @@ type ISimulationEngine =
     abstract GetCallState: callGuid: Guid -> Status4 option
 
     // 설정
-    abstract SetSpeedMultiplier: multiplier: float -> unit
-    abstract GetSpeedMultiplier: unit -> float
-    abstract SetTimeIgnore: ignore: bool -> unit
-    abstract GetTimeIgnore: unit -> bool
+    abstract SpeedMultiplier: float with get, set
+    abstract TimeIgnore: bool with get, set
 
     // 외부 신호
     abstract InjectIOValue: apiCallGuid: Guid * value: string -> unit

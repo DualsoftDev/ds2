@@ -55,9 +55,7 @@ type internal StoreLog private () =
         | None -> StoreLog.fail(op, errMsg)
 
     static member private tryFindConditionRec (conditions: CallCondition seq) (condId: Guid) : CallCondition option =
-        conditions |> Seq.tryPick (fun cc ->
-            if cc.Id = condId then Some cc
-            else StoreLog.tryFindConditionRec cc.Children condId)
+        DsQuery.tryFindConditionRec conditions condId
 
     static member requireCallCondition(store: DsStore, callId: Guid, condId: Guid, [<CallerMemberName>] ?op: string) : CallCondition =
         let op = StoreLog.resolve op

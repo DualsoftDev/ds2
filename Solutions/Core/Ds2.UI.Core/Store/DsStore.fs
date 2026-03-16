@@ -217,6 +217,12 @@ type DsStore() =
     member this.UndoTo(steps: int) = this.RunBatch(this.Undo, steps)
     member this.RedoTo(steps: int) = this.RunBatch(this.Redo, steps)
 
+    /// Undo/Redo 스택을 비우고 HistoryChanged 이벤트를 발행한다.
+    /// NewProject 등에서 초기 상태를 clean으로 만들 때 사용.
+    member this.ClearHistory() =
+        undoManager.Clear()
+        this.EmitHistoryChanged()
+
     // ═════════════════════════════════════════════════════════════════════════
     // 파일 I/O
     // ═════════════════════════════════════════════════════════════════════════
@@ -227,7 +233,7 @@ type DsStore() =
             log.Info($"저장 완료: {path}")
         with ex ->
             log.Error($"저장 실패: {path} — {ex.Message}", ex)
-            raise (InvalidOperationException($"저장 실패: {ex.Message}", ex))
+            reraise()
 
     member private this.ReplaceAllCollections(source: DsStore) =
         let replace (src: Dictionary<Guid, 'T>) (dst: Dictionary<Guid, 'T>) =
@@ -251,6 +257,7 @@ type DsStore() =
     member private this.ApplyNewStore(newStore: DsStore, contextLabel: string) =
         try
             this.ReplaceAllCollections(newStore)
+            this.RewireApiCallReferences()
             undoManager.Clear()
             log.Info($"Store applied: {contextLabel}")
             this.EmitRefreshAndHistory()

@@ -30,12 +30,7 @@ type CsvExporter() =
             let mutable rowNo = 1
             for entry in report.Entries do
                 for segment in entry.Segments do
-                    let startSec = (segment.StartTime - report.Metadata.StartTime).TotalSeconds
-                    let endSec =
-                        match segment.EndTime with
-                        | Some et -> (et - report.Metadata.StartTime).TotalSeconds
-                        | None -> report.Metadata.TotalDuration.TotalSeconds
-                    let duration = endSec - startSec
+                    let startSec, endSec, duration = StateSegment.timeRange report.Metadata.StartTime report.Metadata.TotalDuration.TotalSeconds segment
 
                     sb.AppendLine(sprintf "%d,%s,%s,%s,%s,%s,%.2f,%.2f,%.2f"
                         rowNo

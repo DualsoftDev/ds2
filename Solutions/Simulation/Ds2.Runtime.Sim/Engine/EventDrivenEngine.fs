@@ -12,8 +12,6 @@ open Ds2.Runtime.Sim.Engine.Scheduler
 /// H 상태 구현: F->H (내부 Call R 정리) -> H->R (최소 1ms)
 type EventDrivenEngine(index: SimIndex) =
 
-    static let _log = log4net.LogManager.GetLogger(typeof<EventDrivenEngine>)
-
     let mutable status = Stopped
     let scheduler = EventScheduler()
 
@@ -22,6 +20,10 @@ type EventDrivenEngine(index: SimIndex) =
 
     let mutable engineThread: Thread option = None
     let mutable cts: CancellationTokenSource option = None
+
+    let disposeCurrentCts () =
+        cts |> Option.iter (fun c -> c.Dispose())
+        cts <- None
 
     let stateManager = StateManager(index, index.TickMs)
 
@@ -140,34 +142,26 @@ type EventDrivenEngine(index: SimIndex) =
         // 리셋 가능한 Work (F->H, 라이징 에지)
         for workGuid in index.AllWorkGuids do
             if stateManager.GetWorkState(workGuid) = Status4.Finish && not (stateManager.IsWorkPending(workGuid)) then
-                match Map.tryFind workGuid index.WorkSystemName, Map.tryFind workGuid index.WorkName with
-                | Some sysName, Some wName ->
-                    let allSameKeyPreds =
-                        index.AllWorkGuids
-                        |> List.filter (fun wg ->
-                            Map.tryFind wg index.WorkSystemName = Some sysName &&
-                            Map.tryFind wg index.WorkName = Some wName)
-                        |> List.collect (fun wg -> SimIndex.findOrEmpty wg index.WorkResetPreds)
-                        |> List.distinct
-                    if not allSameKeyPreds.IsEmpty then
-                        let targetKey = (sysName, wName)
-                        let untriggered =
-                            allSameKeyPreds |> List.tryFind (fun pg ->
-                                match Map.tryFind pg index.WorkSystemName, Map.tryFind pg index.WorkName with
-                                | Some pSys, Some pName ->
-                                    stateManager.GetWorkState(pg) = Status4.Going &&
-                                    not (stateManager.IsResetTriggered((pSys, pName), targetKey))
-                                | _ -> false)
-                        match untriggered with
-                        | Some pg ->
+                match WorkConditionChecker.collectResetPreds index workGuid with
+                | Some (sysName, wName, resetPreds) ->
+                    let targetKey = (sysName, wName)
+                    let untriggered =
+                        resetPreds |> List.tryFind (fun pg ->
                             match Map.tryFind pg index.WorkSystemName, Map.tryFind pg index.WorkName with
                             | Some pSys, Some pName ->
-                                stateManager.AddResetTrigger((pSys, pName), targetKey)
-                                stateManager.MarkWorkPending(workGuid)
-                                scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, Status4.Homing), ScheduledEvent.PriorityStateChange) |> ignore
-                            | _ -> ()
-                        | None -> ()
-                | _ -> ()
+                                stateManager.GetWorkState(pg) = Status4.Going &&
+                                not (stateManager.IsResetTriggered((pSys, pName), targetKey))
+                            | _ -> false)
+                    match untriggered with
+                    | Some pg ->
+                        match Map.tryFind pg index.WorkSystemName, Map.tryFind pg index.WorkName with
+                        | Some pSys, Some pName ->
+                            stateManager.AddResetTrigger((pSys, pName), targetKey)
+                            stateManager.MarkWorkPending(workGuid)
+                            scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, Status4.Homing), ScheduledEvent.PriorityStateChange) |> ignore
+                        | _ -> ()
+                    | None -> ()
+                | None -> ()
 
         // 시작 가능한 Call
         for callGuid in index.AllCallGuids do
@@ -222,7 +216,7 @@ type EventDrivenEngine(index: SimIndex) =
     let simulationLoop (ct: CancellationToken) =
         let mutable lastRealTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
 
-        while not ct.IsCancellationRequested && status = Running do
+        while not ct.IsCancellationRequested && Volatile.Read(&status) = Running do
             let nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             let realDelta = nowMs - lastRealTimeMs
             lastRealTimeMs <- nowMs
@@ -231,14 +225,14 @@ type EventDrivenEngine(index: SimIndex) =
             let targetMs = scheduler.CurrentTimeMs + simDelta
 
             for event in scheduler.AdvanceTo(targetMs) do
-                if status = Running then processEvent event
+                if Volatile.Read(&status) = Running then processEvent event
 
             Thread.Sleep(1)
 
     // ===== Public API =====
 
     member _.State = stateManager.GetState()
-    member _.Status = status
+    member _.Status = Volatile.Read(&status)
     member _.Index = index
 
     [<CLIEvent>] member _.WorkStateChanged = workStateChangedEvent.Publish
@@ -246,10 +240,12 @@ type EventDrivenEngine(index: SimIndex) =
     [<CLIEvent>] member _.SimulationStatusChanged = simulationStatusChangedEvent.Publish
 
     member this.Start() =
-        if status = Running then () else
-        status <- Running
-        simulationStatusChangedEvent.Trigger({ PreviousStatus = Stopped; NewStatus = Running })
+        if Volatile.Read(&status) = Running then () else
+        let prev = Volatile.Read(&status)
+        Volatile.Write(&status, Running)
+        simulationStatusChangedEvent.Trigger({ PreviousStatus = prev; NewStatus = Running })
         scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
+        disposeCurrentCts()
         let tokenSource = new CancellationTokenSource()
         cts <- Some tokenSource
         let t = Thread(ThreadStart(fun () -> simulationLoop tokenSource.Token))
@@ -257,15 +253,17 @@ type EventDrivenEngine(index: SimIndex) =
         engineThread <- Some t
 
     member _.Pause() =
-        if status = Running then
-            status <- Paused
+        if Volatile.Read(&status) = Running then
+            Volatile.Write(&status, Paused)
             simulationStatusChangedEvent.Trigger({ PreviousStatus = Running; NewStatus = Paused })
 
     member _.Resume() =
-        if status = Paused then
-            status <- Running
+        if Volatile.Read(&status) = Paused then
+            // 이전 스레드가 while 탈출 후 종료될 때까지 대기
+            engineThread |> Option.iter (fun t -> t.Join(1000) |> ignore)
+            disposeCurrentCts()
+            Volatile.Write(&status, Running)
             simulationStatusChangedEvent.Trigger({ PreviousStatus = Paused; NewStatus = Running })
-            // Pause 시 while 루프가 종료되어 스레드가 죽었으므로 새 스레드 시작
             let tokenSource = new CancellationTokenSource()
             cts <- Some tokenSource
             let t = Thread(ThreadStart(fun () -> simulationLoop tokenSource.Token))
@@ -273,12 +271,14 @@ type EventDrivenEngine(index: SimIndex) =
             engineThread <- Some t
 
     member _.Stop() =
-        if status <> Stopped then
-            status <- Stopped
+        if Volatile.Read(&status) <> Stopped then
+            let prev = Volatile.Read(&status)
+            Volatile.Write(&status, Stopped)
             cts |> Option.iter (fun c -> c.Cancel())
             engineThread |> Option.iter (fun t -> t.Join(1000) |> ignore)
-            cts <- None; engineThread <- None
-            simulationStatusChangedEvent.Trigger({ PreviousStatus = Running; NewStatus = Stopped })
+            disposeCurrentCts()
+            engineThread <- None
+            simulationStatusChangedEvent.Trigger({ PreviousStatus = prev; NewStatus = Stopped })
 
     member this.Reset() =
         this.Stop()
@@ -316,10 +316,13 @@ type EventDrivenEngine(index: SimIndex) =
     member _.GetWorkState(workGuid) = stateManager.GetState().WorkStates.TryFind(workGuid)
     member _.GetCallState(callGuid) = stateManager.GetState().CallStates.TryFind(callGuid)
 
-    member _.SetSpeedMultiplier(m) = speedMultiplier <- max 0.1 (min 1000.0 m)
-    member _.SetTimeIgnore(i) = timeIgnore <- i
-    member _.GetSpeedMultiplier() = speedMultiplier
-    member _.GetTimeIgnore() = timeIgnore
+    member _.SpeedMultiplier
+        with get() = speedMultiplier
+        and set(m) = speedMultiplier <- max 0.1 (min 1000.0 m)
+
+    member _.TimeIgnore
+        with get() = timeIgnore
+        and set(i) = timeIgnore <- i
 
     member _.InjectIOValue(apiCallGuid, value) =
         stateManager.SetIOValue(apiCallGuid, value)
@@ -339,10 +342,12 @@ type EventDrivenEngine(index: SimIndex) =
         member this.ForceCallState(cg, ns) = this.ForceCallState(cg, ns)
         member this.GetWorkState(wg) = this.GetWorkState(wg)
         member this.GetCallState(cg) = this.GetCallState(cg)
-        member this.SetSpeedMultiplier(m) = this.SetSpeedMultiplier(m)
-        member this.GetSpeedMultiplier() = this.GetSpeedMultiplier()
-        member this.SetTimeIgnore(i) = this.SetTimeIgnore(i)
-        member this.GetTimeIgnore() = this.GetTimeIgnore()
+        member this.SpeedMultiplier
+            with get() = this.SpeedMultiplier
+            and set(v) = this.SpeedMultiplier <- v
+        member this.TimeIgnore
+            with get() = this.TimeIgnore
+            and set(v) = this.TimeIgnore <- v
         member this.InjectIOValue(a, v) = this.InjectIOValue(a, v)
         [<CLIEvent>] member this.WorkStateChanged = this.WorkStateChanged
         [<CLIEvent>] member this.CallStateChanged = this.CallStateChanged
