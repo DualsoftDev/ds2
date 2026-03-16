@@ -72,7 +72,48 @@
                     </Popup>
                 </Grid>
 
-                <!-- ① 구분선 좌우 Margin 6,0 (기존 4,0 대비 1.5배) -->
+                <!-- 모델 드롭다운: I/O, Duration -->
+                <Grid VerticalAlignment="Stretch">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <ToggleButton x:Name="ModelToggleBtn" Grid.Column="0" Style="{StaticResource SlimToggleButton}" ToolTip="모델 설정" Padding="8,2,2,2">
+                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                            <TextBlock Text="&#xE943;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
+                            <TextBlock Text="모델" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton Grid.Column="1"
+                                  IsChecked="{Binding IsChecked, ElementName=ModelToggleBtn, Mode=TwoWay}"
+                                  Style="{StaticResource SlimToggleButton}"
+                                  Padding="2,0" MinWidth="14" Width="14">
+                        <TextBlock Text="&#xE70D;" FontFamily="Segoe MDL2 Assets" FontSize="8"
+                                   VerticalAlignment="Bottom" Margin="0,0,0,6"/>
+                    </ToggleButton>
+                    <Popup IsOpen="{Binding IsChecked, ElementName=ModelToggleBtn, Mode=TwoWay}"
+                           StaysOpen="False"
+                           Placement="Bottom"
+                           PlacementTarget="{Binding ElementName=ModelToggleBtn}"
+                           DataContext="{Binding DataContext, ElementName=ThisControl}">
+                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="4"
+                                MinWidth="160">
+                            <StackPanel Orientation="Vertical">
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseModelPopup">
+                                    <TextBlock Text="I/O" VerticalAlignment="Center"/>
+                                </Button>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenDurationBatchDialogCommand}" Click="CloseModelPopup">
+                                    <TextBlock Text="Duration" VerticalAlignment="Center"/>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+                </Grid>
+
                 <Border Width="1" Height="36" Margin="6,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
 
                 <!-- 그룹2: Edit — 범용 버튼, 아이콘만 표시 / 툴팁으로 설명 -->
@@ -85,43 +126,6 @@
                     <TextBlock Text="&#xE7A6;" FontFamily="Segoe MDL2 Assets" FontSize="18"/>
                 </Button>
 
-
-                <!-- 그룹3: Add 드롭다운 -->
-                <Grid VerticalAlignment="Stretch">
-                    <ToggleButton x:Name="AddToggleBtn" Style="{StaticResource SlimToggleButton}" ToolTip="Add">
-                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                            <TextBlock Text="&#xE109;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
-                            <TextBlock Text="추가" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                        </StackPanel>
-                    </ToggleButton>
-                    <Popup IsOpen="{Binding IsChecked, ElementName=AddToggleBtn, Mode=TwoWay}"
-                           StaysOpen="False"
-                           Placement="Bottom"
-                           PlacementTarget="{Binding ElementName=AddToggleBtn}"
-                           DataContext="{Binding DataContext, ElementName=ThisControl}">
-                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="4"
-                                Padding="4"
-                                MinWidth="130">
-                            <StackPanel Orientation="Vertical">
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddSystemCommand}" Click="CloseAddPopup">
-                                    <TextBlock Text="System" VerticalAlignment="Center"/>
-                                </Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddFlowCommand}" Click="CloseAddPopup">
-                                    <TextBlock Text="Flow" VerticalAlignment="Center"/>
-                                </Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddWorkCommand}" Click="CloseAddPopup">
-                                    <TextBlock Text="Work" VerticalAlignment="Center"/>
-                                </Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddCallCommand}" Click="CloseAddPopup">
-                                    <TextBlock Text="Call" VerticalAlignment="Center"/>
-                                </Button>
-                            </StackPanel>
-                        </Border>
-                    </Popup>
-                </Grid>
 
                 <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding AutoLayoutCommand}"
                         ToolTip="자동 재배치 (Ctrl+L)">

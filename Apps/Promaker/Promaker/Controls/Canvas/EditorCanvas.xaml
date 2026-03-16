@@ -45,6 +45,11 @@
 
                 <!-- Node layer -->
                 <Canvas x:Name="MainCanvas" Width="3000" Height="2000">
+                    <!-- Grid background -->
+                    <Rectangle Width="3000" Height="2000"
+                               Fill="{DynamicResource CanvasGridPatternBrush}"
+                               Panel.ZIndex="0" IsHitTestVisible="False"/>
+
                     <!-- Arrow layer (below nodes) -->
                     <ItemsControl ItemsSource="{Binding Canvas.CanvasArrows}" Panel.ZIndex="20">
                         <ItemsControl.ItemsPanel>

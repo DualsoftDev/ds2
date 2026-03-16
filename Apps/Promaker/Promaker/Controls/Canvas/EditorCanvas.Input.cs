@@ -134,6 +134,32 @@ public partial class EditorCanvas
             item.Node.X = Math.Max(0, item.OriginX + dx);
             item.Node.Y = Math.Max(0, item.OriginY + dy);
         }
+
+        UpdateDragArrows(_drag.Items);
+    }
+
+    private void UpdateDragArrows(IReadOnlyList<DragItem> dragItems)
+    {
+        if (VM is null) return;
+
+        var dragNodeIds = new HashSet<Guid>(dragItems.Select(d => d.Node.Id));
+        var nodes = VM.Canvas.CanvasNodes;
+
+        foreach (var arrow in VM.Canvas.CanvasArrows)
+        {
+            if (!dragNodeIds.Contains(arrow.SourceId) && !dragNodeIds.Contains(arrow.TargetId))
+                continue;
+
+            var srcNode = nodes.FirstOrDefault(n => n.Id == arrow.SourceId);
+            var tgtNode = nodes.FirstOrDefault(n => n.Id == arrow.TargetId);
+            if (srcNode is null || tgtNode is null) continue;
+
+            var srcRect = new Xywh((int)srcNode.X, (int)srcNode.Y, (int)srcNode.Width, (int)srcNode.Height);
+            var tgtRect = new Xywh((int)tgtNode.X, (int)tgtNode.Y, (int)tgtNode.Width, (int)tgtNode.Height);
+
+            var visual = ArrowPathCalculator.computePath(srcRect, tgtRect);
+            arrow.UpdateFromVisual(visual);
+        }
     }
 
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
@@ -166,6 +192,9 @@ public partial class EditorCanvas
 
         if (VM is not null)
         {
+            const int gridSize = 120;
+            const int snapY = 40;
+            var ctrlHeld = (Keyboard.Modifiers & ModifierKeys.Control) != ModifierKeys.None;
             var requests = new List<MoveEntityRequest>();
 
             foreach (var item in _drag.Items)
@@ -177,10 +206,23 @@ public partial class EditorCanvas
                 if (!moved)
                     continue;
 
+                var finalX = item.Node.X;
+                var finalY = item.Node.Y;
+                if (!ctrlHeld)
+                {
+                    finalX = Math.Round(finalX / gridSize) * gridSize;
+                    finalY = Math.Round(finalY / snapY) * snapY;
+                }
+                finalX = Math.Max(0, finalX);
+                finalY = Math.Max(0, finalY);
+
+                item.Node.X = finalX;
+                item.Node.Y = finalY;
+
                 requests.Add(
                     new MoveEntityRequest(
                         item.Node.Id,
-                        new Xywh((int)item.Node.X, (int)item.Node.Y, (int)item.Node.Width, (int)item.Node.Height)));
+                        new Xywh((int)finalX, (int)finalY, (int)item.Node.Width, (int)item.Node.Height)));
             }
 
             if (requests.Count > 0)

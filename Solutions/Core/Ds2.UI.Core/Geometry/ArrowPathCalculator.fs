@@ -138,14 +138,14 @@ let private buildRouteProfile (source: Xywh) (target: Xywh) (srcOff: float) (tgt
                 CandidateScales = [ 1.0 ]
             }
         else
-            let preferredLift = if dx >= 0.0 then -1.0 else 1.0
-            let baseLift = preferredLift * clamp 24.0 72.0 (dist * 0.10)
+            let liftDir = if dx >= 0.0 then -1.0 else 1.0
+            let liftBase = liftDir * clamp 24.0 72.0 (dist * 0.10) + laneBias
             {
                 StartPadding = 0.0
                 EndPadding = 0.0
                 HandleLength = clamp 32.0 120.0 (dist * 0.34)
-                BaseShift = baseLift + laneBias
-                CandidateShifts = [ 0.0; 18.0; -18.0; 36.0; -36.0; 54.0; -54.0 ]
+                BaseShift = 0.0
+                CandidateShifts = [ 0.0; liftBase; -liftBase; liftBase * 1.5; -liftBase * 1.5 ]
                 CandidateScales = [ 1.0; 1.2; 1.45; 1.8 ]
             }
     | VerticalFlow ->
@@ -159,28 +159,28 @@ let private buildRouteProfile (source: Xywh) (target: Xywh) (srcOff: float) (tgt
                 CandidateScales = [ 1.0 ]
             }
         else
-            let preferredLift = if dy >= 0.0 then 1.0 else -1.0
-            let baseLift = preferredLift * clamp 24.0 72.0 (dist * 0.10)
+            let liftDir = if dy >= 0.0 then 1.0 else -1.0
+            let liftBase = liftDir * clamp 24.0 72.0 (dist * 0.10) + laneBias
             {
                 StartPadding = 0.0
                 EndPadding = 0.0
                 HandleLength = clamp 32.0 120.0 (dist * 0.34)
-                BaseShift = baseLift + laneBias
-                CandidateShifts = [ 0.0; 18.0; -18.0; 36.0; -36.0; 54.0; -54.0 ]
+                BaseShift = 0.0
+                CandidateShifts = [ 0.0; liftBase; -liftBase; liftBase * 1.5; -liftBase * 1.5 ]
                 CandidateScales = [ 1.0; 1.2; 1.45; 1.8 ]
             }
     | DiagonalBridge ->
-        let preferredLift =
+        let liftDir =
             if abs dy >= abs dx then
                 if dy >= 0.0 then 1.0 else -1.0
             else if dx >= 0.0 then -1.0 else 1.0
-        let baseLift = preferredLift * clamp 10.0 34.0 (dist * 0.05)
+        let liftBase = liftDir * clamp 10.0 34.0 (dist * 0.05) + laneBias * 0.85
         {
             StartPadding = 0.0
             EndPadding = 0.0
             HandleLength = clamp 26.0 90.0 (dist * 0.28)
-            BaseShift = baseLift + laneBias * 0.85
-            CandidateShifts = [ 0.0; 14.0; -14.0; 28.0; -28.0; 42.0; -42.0 ]
+            BaseShift = 0.0
+            CandidateShifts = [ 0.0; liftBase; -liftBase; liftBase * 1.5; -liftBase * 1.5 ]
             CandidateScales = [ 1.0; 1.2; 1.45 ]
         }
 

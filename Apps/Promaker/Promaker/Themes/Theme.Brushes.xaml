@@ -21,6 +21,21 @@
     <SolidColorBrush x:Key="HoverBackgroundBrush" Color="{StaticResource HoverBackgroundColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="CanvasBackgroundBrush" Color="{StaticResource CanvasBackgroundColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="CanvasGridBrush" Color="{StaticResource CanvasGridColor}" po:Freeze="False"/>
+    <DrawingBrush x:Key="CanvasGridPatternBrush" TileMode="Tile" Viewport="0,0,120,120" ViewportUnits="Absolute">
+        <DrawingBrush.Drawing>
+            <GeometryDrawing>
+                <GeometryDrawing.Pen>
+                    <Pen Brush="{StaticResource CanvasGridBrush}" Thickness="0.5"/>
+                </GeometryDrawing.Pen>
+                <GeometryDrawing.Geometry>
+                    <GeometryGroup>
+                        <LineGeometry StartPoint="120,0" EndPoint="120,120"/>
+                        <LineGeometry StartPoint="0,120" EndPoint="120,120"/>
+                    </GeometryGroup>
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
+        </DrawingBrush.Drawing>
+    </DrawingBrush>
     <SolidColorBrush x:Key="SelectedBrush" Color="{StaticResource SelectedColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="ShadowBrush" Color="{StaticResource ShadowColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="CloseButtonHoverBrush" Color="{StaticResource CloseButtonHoverColor}" po:Freeze="False"/>
