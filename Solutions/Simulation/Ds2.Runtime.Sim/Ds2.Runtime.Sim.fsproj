@@ -7,7 +7,7 @@
 
   <ItemGroup>
     <Compile Include="Model\SimState.fs" />
-<Compile Include="Model\SimulationNodeInfo.fs" />
+<Compile Include="Model\StateCache.fs" />
     <Compile Include="Engine\Scheduler\ScheduledEvent.fs" />
     <Compile Include="Engine\Scheduler\EventScheduler.fs" />
     <Compile Include="Engine\Core\SimIndex.fs" />

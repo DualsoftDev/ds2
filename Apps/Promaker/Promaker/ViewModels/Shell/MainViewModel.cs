@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Windows;
 using System.Windows.Threading;
@@ -88,6 +89,9 @@ public partial class MainViewModel : ObservableObject
 
         Reset();
         TryEditorAction(() => _store.AddProject("NewProject"));
+        _store.ClearHistory();
+        IsDirty = false;
+        UpdateTitle();
     }
 
     [RelayCommand(CanExecute = nameof(CanUndo))]
@@ -132,13 +136,7 @@ public partial class MainViewModel : ObservableObject
             return true;
 
         var result = DialogHelpers.AskSaveChanges();
-        if (result == System.Windows.MessageBoxResult.Yes)
-        {
-            SaveFile();
-            return true;
-        }
-
-        return result == System.Windows.MessageBoxResult.No;
+        return DiscardChangesFlow.ShouldProceed(result, TrySaveFileDuringDiscardCheck);
     }
 
     private void UpdateTitle()
@@ -148,81 +146,87 @@ public partial class MainViewModel : ObservableObject
         Title = $"Ds2 Promaker{file}{dirty}";
     }
 
-    public sealed class CanvasHost
+    internal void PrepareForLoadedStore()
     {
-        private readonly MainViewModel _owner;
-
-        public CanvasHost(MainViewModel owner)
-        {
-            _owner = owner;
-        }
-
-        public DsStore Store => _owner._store;
-        public SelectionState Selection => _owner.Selection;
-        public EntityNode? SelectedNode => _owner.SelectedNode;
-        public ObservableCollection<EntityNode> ControlTreeRoots => _owner.ControlTreeRoots;
-        public ObservableCollection<EntityNode> DeviceTreeRoots => _owner.DeviceTreeRoots;
-
-        public bool TryFunc<T>(Func<T> func, out T value, T fallback, string? statusOverride = null) =>
-            _owner.TryEditorFunc(func, out value, fallback, statusOverride: statusOverride);
-
-        public bool TryRef<T>(Func<T> func, out T value, string? statusOverride = null) where T : class
-        {
-            if (_owner.TryEditorRef(func, out var resolved, statusOverride: statusOverride))
-            {
-                value = resolved;
-                return true;
-            }
-
-            value = null!;
-            return false;
-        }
-
-        public void RequestRebuildAll(Action? afterRebuild = null) => _owner.RequestRebuildAll(afterRebuild);
-
-        public void SetStatusText(string text) => _owner.StatusText = text;
-
-        public void ExpandNodeAndAncestors(Guid nodeId) => _owner.Selection.ExpandNodeAndAncestors(nodeId);
-
-        public void SelectNodeFromCanvas(EntityNode node, bool ctrlPressed, bool shiftPressed) =>
-            _owner.Selection.SelectNodeFromCanvas(node, ctrlPressed, shiftPressed);
+        Simulation.ResetForNewStore();
+        _clipboardSelection.Clear();
+        Selection.Reset();
+        Canvas.Reset();
+        SelectedNode = null;
+        SelectedArrow = null;
     }
 
-    public sealed class PropertyPanelHost
+    private bool TrySaveFileDuringDiscardCheck()
     {
-        private readonly MainViewModel _owner;
-
-        public PropertyPanelHost(MainViewModel owner)
+        try
         {
-            _owner = owner;
+            return TrySaveFile();
         }
-
-        public EntityNode? SelectedNode => _owner.SelectedNode;
-        public DsStore Store => _owner._store;
-
-        public bool TryAction(Action action) => _owner.TryEditorAction(action);
-
-        public bool TryFunc<T>(Func<T> func, out T value, T fallback) =>
-            _owner.TryEditorFunc(func, out value, fallback);
-
-        public bool TryRef<T>(Func<T> func, out T value) where T : class
+        catch (Exception ex)
         {
-            if (_owner.TryEditorRef(func, out var resolved))
-            {
-                value = resolved;
-                return true;
-            }
-
-            value = null!;
+            Log.Error("Save failed during discard check", ex);
+            DialogHelpers.Warn($"저장 실패: {ex.Message}");
             return false;
         }
+    }
 
-        public void SetStatusText(string text) => _owner.StatusText = text;
+    public abstract class HostBase
+    {
+        protected readonly MainViewModel Owner;
 
-        public void RenameSelected(string newName) => _owner.RenameSelectedCommand.Execute(newName);
+        protected HostBase(MainViewModel owner)
+        {
+            Owner = owner;
+        }
+
+        public DsStore Store => Owner._store;
+
+        public bool TryAction(Action action, string? statusOverride = null) =>
+            Owner.TryEditorAction(action, statusOverride: statusOverride);
+
+        public bool TryFunc<T>(Func<T> func, out T value, T fallback, string? statusOverride = null) =>
+            Owner.TryEditorFunc(func, out value, fallback, statusOverride: statusOverride);
+
+        public bool TryRef<T>(Func<T> func, [NotNullWhen(true)] out T? value, string? statusOverride = null)
+            where T : class =>
+            Owner.TryEditorRef(func, out value, statusOverride: statusOverride);
+
+        public void RequestRebuildAll(Action? afterRebuild = null) => Owner.RequestRebuildAll(afterRebuild);
+
+        public void SetStatusText(string text) => Owner.StatusText = text;
+    }
+
+    public sealed class CanvasHost : HostBase
+    {
+        public CanvasHost(MainViewModel owner)
+            : base(owner)
+        {
+        }
+
+        public SelectionState Selection => Owner.Selection;
+        public EntityNode? SelectedNode => Owner.SelectedNode;
+        public ObservableCollection<EntityNode> ControlTreeRoots => Owner.ControlTreeRoots;
+        public ObservableCollection<EntityNode> DeviceTreeRoots => Owner.DeviceTreeRoots;
+
+        public void ExpandNodeAndAncestors(Guid nodeId) => Owner.Selection.ExpandNodeAndAncestors(nodeId);
+
+        public void SelectNodeFromCanvas(EntityNode node, bool ctrlPressed, bool shiftPressed) =>
+            Owner.Selection.SelectNodeFromCanvas(node, ctrlPressed, shiftPressed);
+    }
+
+    public sealed class PropertyPanelHost : HostBase
+    {
+        public PropertyPanelHost(MainViewModel owner)
+            : base(owner)
+        {
+        }
+
+        public EntityNode? SelectedNode => Owner.SelectedNode;
+
+        public void RenameSelected(string newName) => Owner.RenameSelectedCommand.Execute(newName);
 
         public void OpenParentCanvasAndFocusNode(Guid entityId, EntityKind entityKind) =>
-            _owner.Canvas.OpenParentCanvasAndFocusNode(entityId, entityKind);
+            Owner.Canvas.OpenParentCanvasAndFocusNode(entityId, entityKind);
 
         public bool ShowOwnedDialog(Window dialog)
         {
@@ -233,37 +237,29 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    public sealed class SelectionHost
+    public sealed class SelectionHost : HostBase
     {
-        private readonly MainViewModel _owner;
-
         public SelectionHost(MainViewModel owner)
+            : base(owner)
         {
-            _owner = owner;
         }
 
-        public DsStore Store => _owner._store;
-        public ObservableCollection<EntityNode> ControlTreeRoots => _owner.ControlTreeRoots;
-        public ObservableCollection<EntityNode> DeviceTreeRoots => _owner.DeviceTreeRoots;
-        public ObservableCollection<EntityNode> CanvasNodes => _owner.Canvas.CanvasNodes;
-        public ObservableCollection<ArrowNode> CanvasArrows => _owner.Canvas.CanvasArrows;
+        public ObservableCollection<EntityNode> ControlTreeRoots => Owner.ControlTreeRoots;
+        public ObservableCollection<EntityNode> DeviceTreeRoots => Owner.DeviceTreeRoots;
+        public ObservableCollection<EntityNode> CanvasNodes => Owner.Canvas.CanvasNodes;
+        public ObservableCollection<ArrowNode> CanvasArrows => Owner.Canvas.CanvasArrows;
 
         public EntityNode? SelectedNode
         {
-            get => _owner.SelectedNode;
-            set => _owner.SelectedNode = value;
+            get => Owner.SelectedNode;
+            set => Owner.SelectedNode = value;
         }
 
         public ArrowNode? SelectedArrow
         {
-            get => _owner.SelectedArrow;
-            set => _owner.SelectedArrow = value;
+            get => Owner.SelectedArrow;
+            set => Owner.SelectedArrow = value;
         }
-
-        public void SetStatusText(string text) => _owner.StatusText = text;
-
-        public bool TryFunc<T>(Func<T> func, out T value, T fallback, string? statusOverride = null) =>
-            _owner.TryEditorFunc(func, out value, fallback, statusOverride: statusOverride);
     }
 
     [RelayCommand]

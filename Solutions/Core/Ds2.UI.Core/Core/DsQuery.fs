@@ -224,3 +224,9 @@ module DsQuery =
             | EntityKind.Action    -> getAction    id store |> Option.map (fun e -> e :> DsEntity)
             | _                    -> None
         entity |> Option.map (fun e -> e.Name)
+
+    /// CallCondition 트리에서 ID로 재귀 검색
+    let rec tryFindConditionRec (conditions: CallCondition seq) (condId: Guid) : CallCondition option =
+        conditions |> Seq.tryPick (fun cc ->
+            if cc.Id = condId then Some cc
+            else tryFindConditionRec cc.Children condId)

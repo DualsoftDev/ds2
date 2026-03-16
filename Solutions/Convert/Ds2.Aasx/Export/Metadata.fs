@@ -1,0 +1,147 @@
+namespace Ds2.Aasx
+
+open System
+open AasCore.Aas3_0
+open Ds2.Core
+open Ds2.Aasx.AasxSemantics
+open Ds2.Aasx.AasxConceptDescriptions
+open Ds2.Aasx.AasxFileIO
+open Ds2.UI.Core
+
+module internal AasxExportMetadata =
+
+    open AasxExportCore
+
+    let phoneToSmc (phone: PhoneInfo) : ISubmodelElement =
+        mkSmc "Phone" [
+            mkMlp  "TelephoneNumber" phone.TelephoneNumber
+            mkProp "TypeOfTelephone" phone.TypeOfTelephone
+        ]
+
+    let faxToSmc (fax: FaxInfo) : ISubmodelElement =
+        mkSmc "Fax" [
+            mkMlp  "FaxNumber"       fax.FaxNumber
+            mkProp "TypeOfFaxNumber" fax.TypeOfFaxNumber
+        ]
+
+    let emailToSmc (email: EmailInfo) : ISubmodelElement =
+        mkSmc "Email" [
+            mkProp "EmailAddress"       email.EmailAddress
+            mkMlp  "PublicKey"          email.PublicKey
+            mkProp "TypeOfEmailAddress" email.TypeOfEmailAddress
+        ]
+
+    let addressToSmc (addr: AddressInfo) : ISubmodelElement =
+        mkSmc "AddressInformation" [
+            mkMlp  "Street"       addr.Street
+            mkMlp  "Zipcode"      addr.Zipcode
+            mkMlp  "CityTown"     addr.CityTown
+            mkProp "NationalCode" addr.NationalCode
+            phoneToSmc addr.Phone
+            faxToSmc   addr.Fax
+            emailToSmc addr.Email
+        ]
+
+    let markingToSmc (m: MarkingInfo) : ISubmodelElement =
+        mkSmc "Marking" [
+            mkProp "MarkingName"                         m.MarkingName
+            mkProp "DesignationOfCertificateOrApproval"  m.DesignationOfCertificateOrApproval
+            mkProp "IssueDate"                           m.IssueDate
+            mkProp "ExpiryDate"                          m.ExpiryDate
+            mkProp "MarkingFile"                         m.MarkingFile
+            mkMlp  "MarkingAdditionalText"               m.MarkingAdditionalText
+        ]
+
+    let nameplateToSubmodel (np: Nameplate) (projectId: Guid) : Submodel =
+        let elems : ISubmodelElement list = [
+            // 필수 요소
+            mkProp "URIOfTheProduct"                np.URIOfTheProduct
+            mkMlp  "ManufacturerName"               np.ManufacturerName
+            mkMlp  "ManufacturerProductDesignation" np.ManufacturerProductDesignation
+            addressToSmc np.AddressInformation
+            mkProp "OrderCodeOfManufacturer"        np.OrderCodeOfManufacturer
+            // 선택 요소
+            mkMlp  "ManufacturerProductRoot"        np.ManufacturerProductRoot
+            mkMlp  "ManufacturerProductFamily"      np.ManufacturerProductFamily
+            mkProp "ManufacturerProductType"        np.ManufacturerProductType
+            mkProp "ProductArticleNumberOfManufacturer" np.ProductArticleNumberOfManufacturer
+            mkProp "SerialNumber"                   np.SerialNumber
+            mkProp "YearOfConstruction"             np.YearOfConstruction
+            mkProp "DateOfManufacture"              np.DateOfManufacture
+            mkProp "HardwareVersion"                np.HardwareVersion
+            mkProp "FirmwareVersion"                np.FirmwareVersion
+            mkProp "SoftwareVersion"                np.SoftwareVersion
+            mkProp "CountryOfOrigin"                np.CountryOfOrigin
+            mkProp "UniqueFacilityIdentifier"       np.UniqueFacilityIdentifier
+            mkProp "CompanyLogo"                    np.CompanyLogo
+        ]
+        let markingsElems =
+            if np.Markings.Count > 0 then
+                [ mkSml "Markings" (np.Markings |> Seq.map markingToSmc |> Seq.toList) ]
+            else []
+        mkSubmodel
+            $"urn:dualsoft:nameplate:{projectId}"
+            NameplateSubmodelIdShort
+            NameplateSemanticId
+            (elems @ markingsElems)
+
+    // ── HandoverDocumentation → AAS Submodel (IDTA 02004-1-2) ──────────────────
+
+    let documentIdToSmc (did: DocumentId) : ISubmodelElement =
+        mkSmc "DocumentId" [
+            mkProp "DocumentDomainId" did.DocumentDomainId
+            mkProp "ValueId"          did.ValueId
+            mkProp "IsPrimary"        (did.IsPrimary.ToString().ToLowerInvariant())
+        ]
+
+    let documentClassToSmc (dc: DocumentClassification) : ISubmodelElement =
+        mkSmc "DocumentClassification" [
+            mkProp "ClassId"               dc.ClassId
+            mkProp "ClassName"             dc.ClassName
+            mkProp "ClassificationSystem"  dc.ClassificationSystem
+        ]
+
+    let documentVersionToSmc (dv: DocumentVersion) : ISubmodelElement =
+        let baseElems : ISubmodelElement list = [
+            if dv.Languages.Count > 0 then
+                mkSmlProp "Languages" (dv.Languages |> Seq.map (fun lang -> mkProp "Language" lang) |> Seq.toList)
+            mkProp "DocumentVersionId"       dv.DocumentVersionId
+            mkProp "Title"                   dv.Title
+            mkProp "SubTitle"                dv.SubTitle
+            mkProp "Summary"                 dv.Summary
+            mkProp "KeyWords"                dv.KeyWords
+            mkProp "SetDate"                 dv.SetDate
+            mkProp "StatusSetDate"           dv.StatusSetDate
+            mkProp "StatusValue"             dv.StatusValue
+            mkProp "OrganizationName"        dv.OrganizationName
+            mkProp "OrganizationOfficialName" dv.OrganizationOfficialName
+            mkProp "Role"                    dv.Role
+            if dv.DigitalFiles.Count > 0 then
+                mkSmlProp "DigitalFiles" (dv.DigitalFiles |> Seq.map (fun f -> mkProp "DigitalFile" f) |> Seq.toList)
+            mkProp "PreviewFile"             dv.PreviewFile
+        ]
+        mkSmc "DocumentVersion" baseElems
+
+    let documentToSmc (doc: Document) : ISubmodelElement =
+        let elems : ISubmodelElement list = [
+            if doc.DocumentIds.Count > 0 then
+                mkSml "DocumentIds" (doc.DocumentIds |> Seq.map documentIdToSmc |> Seq.toList)
+            if doc.DocumentClassifications.Count > 0 then
+                mkSml "DocumentClassifications" (doc.DocumentClassifications |> Seq.map documentClassToSmc |> Seq.toList)
+            if doc.DocumentVersions.Count > 0 then
+                mkSml "DocumentVersions" (doc.DocumentVersions |> Seq.map documentVersionToSmc |> Seq.toList)
+        ]
+        mkSmc "Document" elems
+
+    let documentationToSubmodel (hd: HandoverDocumentation) (projectId: Guid) : Submodel =
+        let elems : ISubmodelElement list = [
+            if hd.Documents.Count > 0 then
+                mkSml "Documents" (hd.Documents |> Seq.map documentToSmc |> Seq.toList)
+        ]
+        mkSubmodel
+            $"urn:dualsoft:documentation:{projectId}"
+            DocumentationSubmodelIdShort
+            DocumentationSemanticId
+            elems
+
+    // ── 진입점 ─────────────────────────────────────────────────────────────────

@@ -20,31 +20,38 @@ module WorkConditionChecker =
                     | Some sysName, Some wName -> Some (sysName, wName)
                     | _ -> None)
                 |> List.distinct
-            predecessorKeys |> combiner (fun (sysName, wName) ->
-                index.AllWorkGuids |> List.exists (fun wg ->
-                    Map.tryFind wg index.WorkSystemName = Some sysName &&
-                    Map.tryFind wg index.WorkName = Some wName &&
-                    Map.tryFind wg state.WorkStates = Some targetState))
+            predecessorKeys |> combiner (fun key ->
+                index.WorkGuidsByKey
+                |> Map.tryFind key
+                |> Option.defaultValue []
+                |> List.exists (fun wg -> Map.tryFind wg state.WorkStates = Some targetState))
 
     /// Work 시작 가능 여부 (PredecessorStart 모두 F)
     let canStartWork (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
         let preds = SimIndex.findOrEmpty workGuid index.WorkStartPreds
         checkPredecessorCondition index state preds Status4.Finish List.forall
 
-    /// Work 리셋 가능 여부 (PredecessorReset 중 하나라도 G)
-    let canResetWork (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
+    /// 같은 (SystemName, WorkName) 키를 공유하는 모든 Work의 ResetPreds 수집
+    let collectResetPreds (index: SimIndex) (workGuid: Guid) : (string * string * Guid list) option =
         match Map.tryFind workGuid index.WorkSystemName, Map.tryFind workGuid index.WorkName with
         | Some sysName, Some wName ->
-            let allSameKeyPreds =
-                index.AllWorkGuids
-                |> List.filter (fun wg ->
-                    Map.tryFind wg index.WorkSystemName = Some sysName &&
-                    Map.tryFind wg index.WorkName = Some wName)
+            let sameKeyGuids =
+                index.WorkGuidsByKey
+                |> Map.tryFind (sysName, wName)
+                |> Option.defaultValue []
+            let preds =
+                sameKeyGuids
                 |> List.collect (fun wg -> SimIndex.findOrEmpty wg index.WorkResetPreds)
                 |> List.distinct
-            if allSameKeyPreds.IsEmpty then false
-            else checkPredecessorCondition index state allSameKeyPreds Status4.Going List.exists
-        | _ -> false
+            if preds.IsEmpty then None
+            else Some (sysName, wName, preds)
+        | _ -> None
+
+    /// Work 리셋 가능 여부 (PredecessorReset 중 하나라도 G)
+    let canResetWork (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
+        match collectResetPreds index workGuid with
+        | Some (_, _, preds) -> checkPredecessorCondition index state preds Status4.Going List.exists
+        | None -> false
 
     /// 조건 스펙 평가 (RxWork 상태 + ValueSpec 비교)
     let checkConditionSpec (state: SimState) (spec: ConditionEntry) : bool =

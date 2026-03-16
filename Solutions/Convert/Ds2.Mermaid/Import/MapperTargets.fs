@@ -5,66 +5,9 @@ open System.Collections.Generic
 open Ds2.Core
 open Ds2.UI.Core
 
-/// Mermaid 그래프를 DsStore 엔티티로 변환하는 매퍼.
-/// 모든 함수는 WithTransaction 내부에서 호출되어야 함 (TrackAdd 직접 사용).
-module MermaidMapper =
+module internal MermaidMapperTargets =
 
-    /// ArrowLabel → ds2 ArrowType 변환
-    let mapArrowType (label: ArrowLabel) : ArrowType =
-        match label with
-        | NoLabel     -> ArrowType.Start
-        | Interlock   -> ArrowType.Reset
-        | SelfReset   -> ArrowType.Reset
-        | StartReset  -> ArrowType.StartReset
-        | StartEdge   -> ArrowType.Start
-        | ResetEdge   -> ArrowType.Reset
-        | AutoPre     -> ArrowType.Start
-        | ResetReset  -> ArrowType.ResetReset
-        | Group       -> ArrowType.Group
-        | Custom _    -> ArrowType.Start
-
-    /// Mermaid 노드 라벨에서 Call 이름 분리
-    let private splitCallName (label: string) : string * string =
-        match label.IndexOf('.') with
-        | -1  -> ("imported", label)
-        | idx -> (label.[..idx - 1], label.[idx + 1..])
-
-    /// 노드의 조건 참조를 CallCondition으로 복원
-    let private restoreConditions
-        (store: DsStore) (targetCall: Call)
-        (callNameToId: Dictionary<string, Guid>)
-        (node: MermaidNode) =
-        let addCondition (condType: CallConditionType) (sourceNames: string list) =
-            if sourceNames.IsEmpty then ()
-            else
-                let cond = CallCondition()
-                cond.Type <- Some condType
-                for srcName in sourceNames do
-                    match callNameToId.TryGetValue(srcName) with
-                    | true, srcCallId ->
-                        match store.CallsReadOnly.TryGetValue(srcCallId) with
-                        | true, srcCall ->
-                            // source Call에 ApiCall이 있으면 첫 번째를 사용, 없으면 생성
-                            let apiCall =
-                                if srcCall.ApiCalls.Count > 0 then
-                                    srcCall.ApiCalls.[0]
-                                else
-                                    let ac = ApiCall(srcCall.Name)
-                                    srcCall.ApiCalls.Add(ac)
-                                    ac
-                            cond.Conditions.Add(apiCall)
-                        | _ -> ()
-                    | _ -> ()
-                if cond.Conditions.Count > 0 then
-                    targetCall.CallConditions.Add(cond)
-
-        addCondition CallConditionType.Auto   node.AutoConditionRefs
-        addCondition CallConditionType.Common node.CommonConditionRefs
-        addCondition CallConditionType.Active node.ActiveConditionRefs
-
-    /// subgraph 표시 이름 결정
-    let private subgraphName (sg: MermaidSubgraph) : string =
-        sg.DisplayName |> Option.defaultValue sg.Id
+    open MermaidMapperCommon
 
     // ═══════════════════════════════════════════════════
     // Flow 2-depth: subgraph → Work, node → Call
@@ -76,8 +19,23 @@ module MermaidMapper =
         let nodeToWorkId = Dictionary<string, Guid>()
         let createdWorkArrows = HashSet<Guid * Guid>()
         let createdCalls = ResizeArray<Call * string>()
-        let callNameToId = Dictionary<string, Guid>()
+        let callNameGroups = Dictionary<string, ResizeArray<Guid>>()
         let allNodes = ResizeArray<MermaidNode * Call>()
+
+        let addCallName callId callName =
+            match callNameGroups.TryGetValue(callName) with
+            | true, ids -> ids.Add(callId)
+            | _ ->
+                let ids = ResizeArray<Guid>()
+                ids.Add(callId)
+                callNameGroups.[callName] <- ids
+
+        let buildUniqueNameMap () =
+            let map = Dictionary<string, Guid>()
+            for KeyValue(name, ids) in callNameGroups do
+                if ids.Count = 1 then
+                    map.[name] <- ids.[0]
+            map
 
         let flowName =
             store.FlowsReadOnly.TryGetValue(flowId)
@@ -93,7 +51,7 @@ module MermaidMapper =
                 store.TrackAdd(store.Calls, call)
                 nodeToCallId.[node.Id] <- call.Id
                 nodeToWorkId.[node.Id] <- work.Id
-                callNameToId.[call.Name] <- call.Id
+                addCallName call.Id call.Name
                 allNodes.Add(node, call)
                 if apiName <> "" then
                     createdCalls.Add(call, node.Label)
@@ -106,8 +64,9 @@ module MermaidMapper =
                 | _ -> ()
 
         // 조건 참조 복원 (모든 Call 생성 후)
+        let uniqueNameToCallId = buildUniqueNameMap ()
         for node, call in allNodes do
-            restoreConditions store call callNameToId node
+            restoreConditions store call nodeToCallId uniqueNameToCallId node
 
         // GlobalEdge → ArrowBetweenWorks (Work 간 연결, 중복 방지)
         for edge in graph.GlobalEdges do
@@ -156,8 +115,23 @@ module MermaidMapper =
     let mapToWork (store: DsStore) (workId: Guid) (projectId: Guid option) (graph: MermaidGraph) : (string * string) list =
         let nodeToCallId = Dictionary<string, Guid>()
         let createdCalls = ResizeArray<Call * string>()
-        let callNameToId = Dictionary<string, Guid>()
+        let callNameGroups = Dictionary<string, ResizeArray<Guid>>()
         let allNodes = ResizeArray<MermaidNode * Call>()
+
+        let addCallName callId callName =
+            match callNameGroups.TryGetValue(callName) with
+            | true, ids -> ids.Add(callId)
+            | _ ->
+                let ids = ResizeArray<Guid>()
+                ids.Add(callId)
+                callNameGroups.[callName] <- ids
+
+        let buildUniqueNameMap () =
+            let map = Dictionary<string, Guid>()
+            for KeyValue(name, ids) in callNameGroups do
+                if ids.Count = 1 then
+                    map.[name] <- ids.[0]
+            map
 
         let flowName =
             store.WorksReadOnly.TryGetValue(workId)
@@ -172,7 +146,7 @@ module MermaidMapper =
             let call = Call(devicesAlias, apiName, workId)
             store.TrackAdd(store.Calls, call)
             nodeToCallId.[node.Id] <- call.Id
-            callNameToId.[call.Name] <- call.Id
+            addCallName call.Id call.Name
             allNodes.Add(node, call)
             if apiName <> "" then
                 createdCalls.Add(call, node.Label)
@@ -185,8 +159,9 @@ module MermaidMapper =
             | _ -> ()
 
         // 조건 참조 복원 (모든 Call 생성 후)
+        let uniqueNameToCallId = buildUniqueNameMap ()
         for node, call in allNodes do
-            restoreConditions store call callNameToId node
+            restoreConditions store call nodeToCallId uniqueNameToCallId node
 
         // Device auto-creation
         match projectId with
@@ -205,8 +180,24 @@ module MermaidMapper =
         let subgraphToWorkId = Dictionary<string, Guid>()
         /// (Call * callLabel * flowName)
         let activeCreatedCalls = ResizeArray<Call * string * string>()
-        let callNameToId = Dictionary<string, Guid>()
+        let nodeToCallId = Dictionary<string, Guid>()
+        let callNameGroups = Dictionary<string, ResizeArray<Guid>>()
         let allNodes = ResizeArray<MermaidNode * Call>()
+
+        let addCallName callId callName =
+            match callNameGroups.TryGetValue(callName) with
+            | true, ids -> ids.Add(callId)
+            | _ ->
+                let ids = ResizeArray<Guid>()
+                ids.Add(callId)
+                callNameGroups.[callName] <- ids
+
+        let buildUniqueNameMap () =
+            let map = Dictionary<string, Guid>()
+            for KeyValue(name, ids) in callNameGroups do
+                if ids.Count = 1 then
+                    map.[name] <- ids.[0]
+            map
 
         for systemSg in graph.Subgraphs do
             // depth 1 → System (Active or Passive)
@@ -230,14 +221,12 @@ module MermaidMapper =
                     store.TrackAdd(store.Works, work)
                     subgraphToWorkId.[workSg.Id] <- work.Id
 
-                    let nodeToCallId = Dictionary<string, Guid>()
-
                     for node in workSg.Nodes do
                         let devicesAlias, apiName = splitCallName node.Label
                         let call = Call(devicesAlias, apiName, work.Id)
                         store.TrackAdd(store.Calls, call)
                         nodeToCallId.[node.Id] <- call.Id
-                        callNameToId.[call.Name] <- call.Id
+                        addCallName call.Id call.Name
                         allNodes.Add(node, call)
                         if apiName <> "" && not systemSg.IsPassive then
                             activeCreatedCalls.Add(call, node.Label, flowDisplayName)
@@ -250,8 +239,9 @@ module MermaidMapper =
                         | _ -> ()
 
         // 조건 참조 복원 (모든 Call 생성 후)
+        let uniqueNameToCallId = buildUniqueNameMap ()
         for node, call in allNodes do
-            restoreConditions store call callNameToId node
+            restoreConditions store call nodeToCallId uniqueNameToCallId node
 
         // GlobalEdges → ArrowBetweenWorks (subgraph ID = Work ID)
         for edge in graph.GlobalEdges do
@@ -362,4 +352,3 @@ module MermaidMapper =
                 IgnoredEdges = ignored |> Seq.toList
                 Warnings = warnings |> Seq.toList
             }
-

@@ -39,23 +39,34 @@ module internal DirectDeviceOps =
         | None ->
             match DsQuery.passiveSystemsOf projectId store |> List.tryFind (fun s -> s.Name = systemName) with
             | Some existing ->
-                let flow = DsQuery.flowsOf existing.Id store |> List.head
-                let existingWorks = DsQuery.worksOf flow.Id store
-                let existingWorkOrder =
-                    Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []
-                    |> List.append existingWorks
-                let existingPendingWorks =
-                    existingWorks
-                    |> List.fold (fun acc w -> Map.add (w.Name, existing.Id) w acc)
-                        state.PendingWorks
-                existing, {
-                    state with
-                        PendingSystems = Map.add systemName existing state.PendingSystems
-                        PendingFlows = Map.add devAlias flow state.PendingFlows
-                        NewSystemIds = Set.add existing.Id state.NewSystemIds
-                        PendingWorkOrderRev = Map.add devAlias existingWorkOrder state.PendingWorkOrderRev
-                        PendingWorks = existingPendingWorks
-                }
+                match DsQuery.flowsOf existing.Id store with
+                | flow :: _ ->
+                    let existingWorks = DsQuery.worksOf flow.Id store
+                    let existingWorkOrder =
+                        Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []
+                        |> List.append existingWorks
+                    let existingPendingWorks =
+                        existingWorks
+                        |> List.fold (fun acc w -> Map.add (w.Name, existing.Id) w acc)
+                            state.PendingWorks
+                    existing, {
+                        state with
+                            PendingSystems = Map.add systemName existing state.PendingSystems
+                            PendingFlows = Map.add devAlias flow state.PendingFlows
+                            NewSystemIds = Set.add existing.Id state.NewSystemIds
+                            PendingWorkOrderRev = Map.add devAlias existingWorkOrder state.PendingWorkOrderRev
+                            PendingWorks = existingPendingWorks
+                    }
+                | [] ->
+                    // Flow 없는 기존 System — Flow를 새로 생성
+                    let flow = Flow($"{devAlias}_Flow", existing.Id)
+                    store.TrackAdd(store.Flows, flow)
+                    existing, {
+                        state with
+                            PendingSystems = Map.add systemName existing state.PendingSystems
+                            PendingFlows = Map.add devAlias flow state.PendingFlows
+                            NewSystemIds = Set.add existing.Id state.NewSystemIds
+                    }
             | None ->
                 let system = DsSystem(systemName)
                 let flow = Flow($"{devAlias}_Flow", system.Id)
@@ -190,4 +201,32 @@ module internal DirectDeviceOps =
         |> Seq.choose (fun id -> DsQuery.getApiDef id store)
         |> Seq.iter (fun apiDef ->
             createAndRegisterApiCall store call $"{devicesAlias}.{apiDef.Name}" apiDef.Id)
+        call.Id
+
+    /// ApiCall 복제 모드: 1개 Call + N개 Device System/ApiDef/ApiCall 생성.
+    /// deviceAliases = ["Conv_1"; "Conv_2"; ...], apiName = "ADV"
+    /// → Call(Conv, ADV) 안에 ApiCall(Conv_1.ADV), ApiCall(Conv_2.ADV) 각각 별도 Device System에 연결.
+    let addCallWithMultipleDevices
+        (store: DsStore) (projectId: Guid) (workId: Guid)
+        (callDevicesAlias: string) (apiName: string) (deviceAliases: string list) : Guid =
+        let call = Call(callDevicesAlias, apiName, workId)
+        store.TrackAdd(store.Calls, call)
+
+        let flowName =
+            DsQuery.getWork workId store
+            |> Option.bind (fun w -> DsQuery.getFlow w.ParentId store)
+            |> Option.map (fun f -> f.Name)
+            |> Option.defaultValue ""
+
+        let finalState =
+            deviceAliases
+            |> List.fold (fun state devAlias ->
+                let system, withSystem = ensureSystem store projectId flowName devAlias state
+                let withWork = ensurePendingWork devAlias apiName system.Id store withSystem
+                let apiDef, withApiDef = ensureApiDef store system apiName withWork
+                createAndRegisterApiCall store call $"{devAlias}.{apiName}" apiDef.Id
+                withApiDef
+            ) initialState
+
+        buildWorkArrows store finalState
         call.Id

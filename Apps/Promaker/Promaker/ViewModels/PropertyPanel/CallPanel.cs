@@ -11,11 +11,46 @@ public partial class PropertyPanelState
     private bool TryGetSelectedCall([NotNullWhen(true)] out EntityNode? selectedCall) =>
         TryGetSelectedNode(EntityKind.Call, out selectedCall);
 
+    private bool TryGetSelectedCallId(out Guid callId)
+    {
+        if (TryGetSelectedCall(out var selectedCall))
+        {
+            callId = selectedCall.Id;
+            return true;
+        }
+
+        callId = Guid.Empty;
+        return false;
+    }
+
+    private bool TryRunCallMutation(Action<Guid> mutation, string successText, Action<Guid>? afterSuccess = null)
+    {
+        if (!TryGetSelectedCallId(out var callId)) return false;
+        if (!_host.TryAction(() => mutation(callId))) return false;
+
+        afterSuccess?.Invoke(callId);
+        _host.SetStatusText(successText);
+        return true;
+    }
+
+    private bool TryRunCallQuery<T>(Func<Guid, T> query, out Guid callId, out T value, T fallback)
+    {
+        if (!TryGetSelectedCallId(out var resolvedCallId))
+        {
+            callId = Guid.Empty;
+            value = fallback;
+            return false;
+        }
+
+        callId = resolvedCallId;
+        return _host.TryFunc(() => query(resolvedCallId), out value, fallback);
+    }
+
     private void CallPanelAction(Action<Guid> storeAction)
     {
-        if (!TryGetSelectedCall(out var selectedCall)) return;
-        if (!_host.TryAction(() => storeAction(selectedCall.Id))) return;
-        RefreshCallPanel(selectedCall.Id);
+        if (!TryGetSelectedCallId(out var callId)) return;
+        if (!_host.TryAction(() => storeAction(callId))) return;
+        RefreshCallPanel(callId);
     }
 
     private void RefreshCallPanel(Guid callId)

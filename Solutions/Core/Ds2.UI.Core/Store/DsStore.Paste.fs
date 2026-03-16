@@ -111,28 +111,40 @@ module internal DirectPasteOps =
         for apiCall in sourceCall.ApiCalls do
             store.TrackMutate(store.Calls, targetCallId, fun c -> c.ApiCalls.Add(apiCall))
 
+    let private tryFindPassiveSystemId (store: DsStore) (apiDefIdOpt: Guid option) : Guid option =
+        apiDefIdOpt
+        |> Option.bind (fun aid -> DsQuery.getApiDef aid store)
+        |> Option.bind (fun d ->
+            if DsQuery.allProjects store |> List.exists (fun p -> p.PassiveSystemIds.Contains(d.ParentId))
+            then Some d.ParentId else None)
+
     let private copyApiCallsAcrossFlows
         (store: DsStore) (projectId: Guid) (targetFlowName: string)
         (sourceCall: Call) (targetCallId: Guid) (state: DevicePasteState)
         : DevicePasteState =
-        let sourceSystemIdOpt =
-            sourceCall.ApiCalls
-            |> Seq.tryPick (fun ac ->
-                ac.ApiDefId
-                |> Option.bind (fun aid -> DsQuery.getApiDef aid store)
-                |> Option.bind (fun d ->
-                    if DsQuery.allProjects store |> List.exists (fun p -> p.PassiveSystemIds.Contains(d.ParentId))
-                    then Some d.ParentId else None))
-        match sourceSystemIdOpt with
-        | None ->
-            copyApiCallsWithMapping store sourceCall targetCallId id
-            state
-        | Some sourceSystemId ->
-            let devAlias = sourceCall.DevicesAlias
-            let newState, apiDefMapping = ensureTargetDeviceSystem store projectId targetFlowName devAlias sourceSystemId state
-            copyApiCallsWithMapping store sourceCall targetCallId (fun srcIdOpt ->
-                srcIdOpt |> Option.bind (fun id -> Map.tryFind id apiDefMapping) |> Option.orElse srcIdOpt)
-            newState
+        // 각 ApiCall별로 Device System이 다를 수 있으므로 ApiCall 단위로 매핑
+        sourceCall.ApiCalls
+        |> Seq.fold (fun accState (apiCall: ApiCall) ->
+            let sourceSystemIdOpt = tryFindPassiveSystemId store apiCall.ApiDefId
+            match sourceSystemIdOpt with
+            | None ->
+                let copied = cloneApiCall apiCall id
+                store.TrackAdd(store.ApiCalls, copied)
+                store.TrackMutate(store.Calls, targetCallId, fun c -> c.ApiCalls.Add(copied))
+                accState
+            | Some sourceSystemId ->
+                let devAlias =
+                    // ApiCall 이름에서 devAlias 추출 (Conv_1.ADV → Conv_1)
+                    match apiCall.Name.IndexOf('.') with
+                    | -1 -> sourceCall.DevicesAlias
+                    | idx -> apiCall.Name.[..idx - 1]
+                let newState, apiDefMapping = ensureTargetDeviceSystem store projectId targetFlowName devAlias sourceSystemId accState
+                let copied = cloneApiCall apiCall (fun srcIdOpt ->
+                    srcIdOpt |> Option.bind (fun id -> Map.tryFind id apiDefMapping) |> Option.orElse srcIdOpt)
+                store.TrackAdd(store.ApiCalls, copied)
+                store.TrackMutate(store.Calls, targetCallId, fun c -> c.ApiCalls.Add(copied))
+                newState
+        ) state
 
     let private replayWorkArrows (store: DsStore) (targetSystemId: Guid)
         (sourceWorkArrows: ArrowBetweenWorks list) (workMap: Map<Guid, Guid>) =

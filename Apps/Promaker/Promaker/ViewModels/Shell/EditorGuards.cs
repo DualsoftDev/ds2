@@ -81,13 +81,6 @@ public partial class MainViewModel
         return false;
     }
 
-    /// ObservableCollection 전체 교체 (Clear + AddRange)
-    private static void ReplaceAll<T>(ObservableCollection<T> collection, IEnumerable<T> items)
-    {
-        collection.Clear();
-        foreach (var item in items)
-            collection.Add(item);
-    }
 
     private bool TryGetSelectedNode(EntityKind entityType, [NotNullWhen(true)] out EntityNode? node)
     {

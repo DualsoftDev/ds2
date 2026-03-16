@@ -1,0 +1,71 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using Ds2.Core;
+using Ds2.UI.Core;
+using Promaker.ViewModels;
+using Xunit;
+
+namespace Promaker.Tests;
+
+public sealed class MainViewModelTests
+{
+    [Fact]
+    public void PrepareForLoadedStore_clears_canvas_selection_and_simulation_state()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var nodeId = Guid.NewGuid();
+            var arrowId = Guid.NewGuid();
+
+            var node = new EntityNode(nodeId, EntityKind.Work, "Work1");
+            var arrow = new ArrowNode(arrowId, nodeId, Guid.NewGuid(), ArrowType.Start);
+
+            vm.Canvas.OpenTabs.Add(new CanvasTab(Guid.NewGuid(), TabKind.System, "System"));
+            vm.Canvas.CanvasNodes.Add(node);
+            vm.Canvas.CanvasArrows.Add(arrow);
+
+            vm.Selection.SelectNodeFromCanvas(node, ctrlPressed: false, shiftPressed: false);
+            vm.Selection.SelectArrowFromCanvas(arrow, ctrlPressed: false);
+
+            vm.Simulation.HasReportData = true;
+            vm.Simulation.SimNodes.Add(new SimNodeRow
+            {
+                NodeGuid = nodeId,
+                Name = "Work1",
+                NodeType = "Work",
+                SystemName = "SystemA",
+                State = Status4.Going
+            });
+            vm.Simulation.SimEventLog.Add("log");
+            vm.Simulation.SimWorkItems.Add(new SimWorkItem(nodeId, "Work1"));
+            vm.Simulation.SelectedSimWork = vm.Simulation.SimWorkItems[0];
+            vm.Simulation.GanttChart.AddEntry(nodeId, "Work1", EntityKind.Work);
+
+            var clipboard = (List<SelectionKey>)typeof(MainViewModel)
+                .GetField("_clipboardSelection", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(vm)!;
+            clipboard.Add(new SelectionKey(Guid.NewGuid(), EntityKind.Work));
+
+            vm.SelectedNode = node;
+            vm.SelectedArrow = arrow;
+
+            vm.PrepareForLoadedStore();
+
+            Assert.Null(vm.SelectedNode);
+            Assert.Null(vm.SelectedArrow);
+            Assert.Empty(vm.Canvas.OpenTabs);
+            Assert.Empty(vm.Canvas.CanvasNodes);
+            Assert.Empty(vm.Canvas.CanvasArrows);
+            Assert.Empty(vm.Selection.OrderedNodeSelection);
+            Assert.Empty(vm.Selection.OrderedArrowSelection);
+            Assert.Empty(clipboard);
+            Assert.False(vm.Simulation.HasReportData);
+            Assert.Empty(vm.Simulation.SimNodes);
+            Assert.Empty(vm.Simulation.SimEventLog);
+            Assert.Empty(vm.Simulation.SimWorkItems);
+            Assert.Empty(vm.Simulation.GanttChart.Entries);
+        });
+    }
+}

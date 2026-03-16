@@ -1,19 +1,27 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
 using Ds2.UI.Core;
 
 namespace Promaker.Dialogs;
+
+public enum CallCreateMode { CallReplication, ApiCallReplication, ApiDefPicker }
 
 public partial class CallCreateDialog : Window
 {
     private readonly Func<string, IReadOnlyList<ApiDefMatch>> _findApiDefsByName;
 
-    // Device 모드 출력
-    public bool IsDeviceMode { get; private set; }
+    // ─── 공통 출력 ───
+    public CallCreateMode Mode { get; private set; }
+
+    // ─── 기본 탭: Call 복제 출력 ───
     public IReadOnlyList<string> CallNames { get; private set; } = [];
 
-    // ApiDef 연결 모드 출력
+    // ─── 기본 탭: ApiCall 복제 출력 ───
+    public string CallDevicesAlias { get; private set; } = string.Empty;
+    public string CallApiName { get; private set; } = string.Empty;
+    public IReadOnlyList<string> DeviceAliases { get; private set; } = [];
+
+    // ─── 고급 탭: ApiDef 연결 출력 ───
     public IReadOnlyList<ApiDefMatch> SelectedApiDefs { get; private set; } = [];
     public string DevicesAlias { get; private set; } = string.Empty;
     public string ApiName { get; private set; } = string.Empty;
@@ -24,46 +32,44 @@ public partial class CallCreateDialog : Window
         InitializeComponent();
         Loaded += (_, _) =>
         {
-            DeviceAliasTextBox.Focus();
+            BasicAliasTextBox.Focus();
             RefreshApiDefList();
         };
     }
 
-    private void OnRadioChanged(object sender, RoutedEventArgs e)
-    {
-        if (DeviceModePanel is null || ApiDefPickerPanel is null) return;
-
-        bool deviceMode = RadioDeviceMode.IsChecked == true;
-        DeviceModePanel.Visibility = deviceMode ? Visibility.Visible : Visibility.Collapsed;
-        ApiDefPickerPanel.Visibility = deviceMode ? Visibility.Collapsed : Visibility.Visible;
-
-        if (deviceMode)
-            DeviceAliasTextBox.Focus();
-        else
-            ApiNameFilterBox.Focus();
-    }
-
+    // ─── 프리셋 ───
     private void OnPresetChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (DeviceApiNameTextBox is null) return;
+        if (BasicApiNameTextBox is null) return;
 
         if (PresetComboBox.SelectedItem is ComboBoxItem item)
         {
             var tag = item.Tag?.ToString();
             if (tag == "USER")
             {
-                DeviceApiNameTextBox.IsEnabled = true;
-                DeviceApiNameTextBox.Text = "";
-                DeviceApiNameTextBox.Focus();
+                BasicApiNameTextBox.IsEnabled = true;
+                BasicApiNameTextBox.Text = "";
+                BasicApiNameTextBox.Focus();
             }
             else
             {
-                DeviceApiNameTextBox.IsEnabled = false;
-                DeviceApiNameTextBox.Text = tag ?? "";
+                BasicApiNameTextBox.IsEnabled = false;
+                BasicApiNameTextBox.Text = tag ?? "";
             }
         }
     }
 
+    // ─── 복제 모드 라디오 ───
+    private void OnReplicationRadioChanged(object sender, RoutedEventArgs e)
+    {
+        if (CallReplicationPanel is null || ApiCallReplicationPanel is null) return;
+
+        bool isCallMode = RadioCallReplication.IsChecked == true;
+        CallReplicationPanel.IsEnabled = isCallMode;
+        ApiCallReplicationPanel.IsEnabled = !isCallMode;
+    }
+
+    // ─── 고급 탭: ApiDef 검색 ───
     private void OnApiNameFilterChanged(object sender, TextChangedEventArgs e)
     {
         RefreshApiDefList();
@@ -71,25 +77,26 @@ public partial class CallCreateDialog : Window
 
     private void RefreshApiDefList()
     {
-        var apiNameFilter = ApiNameFilterBox?.Text?.Trim() ?? string.Empty;
+        var apiNameFilter = AdvApiNameFilterBox?.Text?.Trim() ?? string.Empty;
         var matches = _findApiDefsByName(apiNameFilter);
         ApiDefListBox.ItemsSource = matches;
         if (matches.Count > 0)
             ApiDefListBox.SelectedIndex = 0;
     }
 
+    // ─── 추가 버튼 ───
     private void Add_Click(object sender, RoutedEventArgs e)
     {
-        if (RadioDeviceMode.IsChecked == true)
-            CommitDeviceMode();
+        if (ModeTabControl.SelectedIndex == 0)
+            CommitBasicTab();
         else
-            CommitApiDefPickerMode();
+            CommitAdvancedTab();
     }
 
-    private void CommitDeviceMode()
+    private void CommitBasicTab()
     {
-        var alias = DeviceAliasTextBox.Text.Trim();
-        var apiDefText = DeviceApiNameTextBox.Text.Trim();
+        var alias = BasicAliasTextBox.Text.Trim();
+        var apiDefText = BasicApiNameTextBox.Text.Trim();
 
         if (string.IsNullOrEmpty(alias))
         {
@@ -117,7 +124,16 @@ public partial class CallCreateDialog : Window
         {
             DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return;
         }
-        if (!int.TryParse(DeviceCountTextBox.Text.Trim(), out int count) || count < 1 || count > 100)
+
+        if (RadioCallReplication.IsChecked == true)
+            CommitCallReplication(alias, apiNames);
+        else
+            CommitApiCallReplication(alias, apiNames);
+    }
+
+    private void CommitCallReplication(string alias, List<string> apiNames)
+    {
+        if (!int.TryParse(CallCountTextBox.Text.Trim(), out int count) || count < 1 || count > 100)
         {
             DialogHelpers.Warn("개수는 1~100 사이의 숫자를 입력해주세요."); return;
         }
@@ -131,14 +147,53 @@ public partial class CallCreateDialog : Window
             foreach (var apiName in apiNames)
                 names.Add($"{dev}.{apiName}");
 
-        IsDeviceMode = true;
+        Mode = CallCreateMode.CallReplication;
         CallNames = names;
         DialogResult = true;
     }
 
-    private void CommitApiDefPickerMode()
+    private void CommitApiCallReplication(string alias, List<string> apiNames)
     {
-        var alias = AliasFilterBox.Text.Trim();
+        if (!int.TryParse(ApiCallCountTextBox.Text.Trim(), out int count) || count < 1 || count > 100)
+        {
+            DialogHelpers.Warn("개수는 1~100 사이의 숫자를 입력해주세요."); return;
+        }
+
+        // ApiCall 복제: apiNames 각각에 대해 1개 Call 생성
+        // 여러 ApiName이면 여러 Call이 생기되, 각 Call 안에 count개 ApiCall
+        var deviceAliases = count == 1
+            ? [alias]
+            : Enumerable.Range(1, count).Select(i => $"{alias}_{i}").ToList();
+
+        // 편의상 첫 번째 apiName 기준. 여러 apiName → 여러 Call.
+        // 각 Call별로 DeviceAliases를 동일하게 사용.
+        if (apiNames.Count == 1)
+        {
+            Mode = CallCreateMode.ApiCallReplication;
+            CallDevicesAlias = alias;
+            CallApiName = apiNames[0];
+            DeviceAliases = deviceAliases;
+            DialogResult = true;
+        }
+        else
+        {
+            // 여러 ApiName + ApiCall 복제: apiName별로 별도 Call
+            // CallNames로 모든 조합을 전달하되, DeviceAliases도 함께 전달
+            Mode = CallCreateMode.ApiCallReplication;
+            CallDevicesAlias = alias;
+            CallApiName = apiNames[0]; // 첫 번째 (multi는 별도 처리)
+            DeviceAliases = deviceAliases;
+
+            // multi-apiName은 CallNames에도 기록 (NodeCommands에서 분기)
+            var names = apiNames.Select(n => $"{alias}.{n}").ToList();
+            CallNames = names;
+            DialogResult = true;
+        }
+    }
+
+    private void CommitAdvancedTab()
+    {
+        var alias = AdvAliasFilterBox.Text.Trim();
         if (string.IsNullOrEmpty(alias))
         {
             DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return;
@@ -148,7 +203,7 @@ public partial class CallCreateDialog : Window
             DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return;
         }
 
-        var apiName = ApiNameFilterBox.Text.Trim();
+        var apiName = AdvApiNameFilterBox.Text.Trim();
         if (string.IsNullOrEmpty(apiName))
         {
             DialogHelpers.Warn("ApiName을 입력해주세요."); return;
@@ -161,15 +216,14 @@ public partial class CallCreateDialog : Window
         var selected = ApiDefListBox.SelectedItems.OfType<ApiDefMatch>().ToList();
         if (selected.Count == 0)
         {
-            DialogHelpers.Warn("ApiDef를 선택해주세요.\n\nDevice System이 없으면 '프리셋 모드'로 먼저 생성해주세요."); return;
+            DialogHelpers.Warn("ApiDef를 선택해주세요.\n\nDevice System이 없으면 '기본' 탭에서 먼저 생성해주세요."); return;
         }
 
-        IsDeviceMode = false;
+        Mode = CallCreateMode.ApiDefPicker;
         SelectedApiDefs = selected;
         DevicesAlias = alias;
         ApiName = apiName;
         CallNames = [$"{alias}.{apiName}"];
         DialogResult = true;
     }
-
 }

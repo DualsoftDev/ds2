@@ -93,12 +93,7 @@ type ExcelExporter() =
         let mutable row = 2
         for entry in report.Entries do
             for segment in entry.Segments do
-                let startSec = (segment.StartTime - report.Metadata.StartTime).TotalSeconds
-                let endSec =
-                    match segment.EndTime with
-                    | Some et -> (et - report.Metadata.StartTime).TotalSeconds
-                    | None -> report.Metadata.TotalDuration.TotalSeconds
-                let duration = endSec - startSec
+                let startSec, endSec, duration = StateSegment.timeRange report.Metadata.StartTime report.Metadata.TotalDuration.TotalSeconds segment
 
                 setText (ws.Cell(row, 1)) (string rowNo)
                 setText (ws.Cell(row, 2)) entry.Type
@@ -144,11 +139,7 @@ type ExcelExporter() =
 
             // 세그먼트를 셀 색상으로 표시
             for segment in entry.Segments do
-                let startSec = (segment.StartTime - report.Metadata.StartTime).TotalSeconds
-                let endSec =
-                    match segment.EndTime with
-                    | Some et -> (et - report.Metadata.StartTime).TotalSeconds
-                    | None -> totalDuration
+                let startSec, endSec, _ = StateSegment.timeRange report.Metadata.StartTime totalDuration segment
 
                 let startCol = int (startSec / timeScale) + 2
                 let endCol = int (endSec / timeScale) + 2

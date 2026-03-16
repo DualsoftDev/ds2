@@ -87,40 +87,89 @@ public partial class MainViewModel
         var rawPos = ConsumeAddPosition();
         var siblings = GetSiblingSnapshot(TabKind.Work, targetWorkId);
 
-        if (dialog.IsDeviceMode)
+        switch (dialog.Mode)
         {
-            TryEditorAction(
-                () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true));
-            var newCallIds = GetSiblingSnapshot(TabKind.Work, targetWorkId).Ids
-                .Where(id => !siblings.Ids.Contains(id))
-                .ToList();
-            if (newCallIds.Count > 0)
+            case CallCreateMode.CallReplication:
             {
-                var assigned = new List<(int X, int Y)>(siblings.Positions);
-                var requests = new List<MoveEntityRequest>();
-                for (var i = 0; i < newCallIds.Count; i++)
+                TryEditorAction(
+                    () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true));
+                var newCallIds = GetSiblingSnapshot(TabKind.Work, targetWorkId).Ids
+                    .Where(id => !siblings.Ids.Contains(id))
+                    .ToList();
+                if (newCallIds.Count > 0)
                 {
-                    var pos = CascadePosition(rawPos, i, assigned);
-                    requests.Add(new MoveEntityRequest(newCallIds[i], pos));
-                    assigned.Add((pos.X, pos.Y));
+                    var assigned = new List<(int X, int Y)>(siblings.Positions);
+                    var requests = new List<MoveEntityRequest>();
+                    for (var i = 0; i < newCallIds.Count; i++)
+                    {
+                        var pos = CascadePosition(rawPos, i, assigned);
+                        requests.Add(new MoveEntityRequest(newCallIds[i], pos));
+                        assigned.Add((pos.X, pos.Y));
+                    }
+                    TryEditorAction(() => _store.MoveEntities(requests));
                 }
-                TryEditorAction(() => _store.MoveEntities(requests));
+                break;
             }
-        }
-        else
-        {
-            if (TryEditorFunc(
-                    () => _store.AddCallWithLinkedApiDefs(
-                        targetWorkId,
-                        dialog.DevicesAlias,
-                        dialog.ApiName,
-                        dialog.SelectedApiDefs.Select(m => m.ApiDefId)),
-                    out Guid callId,
-                    fallback: Guid.Empty)
-                && callId != Guid.Empty)
+            case CallCreateMode.ApiCallReplication:
             {
-                var pos = CascadePosition(rawPos, 0, siblings.Positions);
-                TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(callId, pos)]));
+                if (dialog.CallNames.Count > 1)
+                {
+                    // multi-apiName: apiName별로 각각 AddCallWithMultipleDevicesResolved 호출
+                    var newCallIds = new List<Guid>();
+                    foreach (var fullName in dialog.CallNames)
+                    {
+                        var apiName = fullName.Contains('.') ? fullName[(fullName.IndexOf('.') + 1)..] : fullName;
+                        if (TryEditorFunc(
+                                () => _store.AddCallWithMultipleDevicesResolved(
+                                    EntityKind.Work, targetWorkId, targetWorkId,
+                                    dialog.CallDevicesAlias, apiName, dialog.DeviceAliases),
+                                out Guid cid, fallback: Guid.Empty) && cid != Guid.Empty)
+                            newCallIds.Add(cid);
+                    }
+                    if (newCallIds.Count > 0)
+                    {
+                        var assigned = new List<(int X, int Y)>(siblings.Positions);
+                        var requests = new List<MoveEntityRequest>();
+                        for (var i = 0; i < newCallIds.Count; i++)
+                        {
+                            var pos = CascadePosition(rawPos, i, assigned);
+                            requests.Add(new MoveEntityRequest(newCallIds[i], pos));
+                            assigned.Add((pos.X, pos.Y));
+                        }
+                        TryEditorAction(() => _store.MoveEntities(requests));
+                    }
+                }
+                else
+                {
+                    // single apiName
+                    if (TryEditorFunc(
+                            () => _store.AddCallWithMultipleDevicesResolved(
+                                EntityKind.Work, targetWorkId, targetWorkId,
+                                dialog.CallDevicesAlias, dialog.CallApiName, dialog.DeviceAliases),
+                            out Guid callId, fallback: Guid.Empty) && callId != Guid.Empty)
+                    {
+                        var pos = CascadePosition(rawPos, 0, siblings.Positions);
+                        TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(callId, pos)]));
+                    }
+                }
+                break;
+            }
+            case CallCreateMode.ApiDefPicker:
+            {
+                if (TryEditorFunc(
+                        () => _store.AddCallWithLinkedApiDefs(
+                            targetWorkId,
+                            dialog.DevicesAlias,
+                            dialog.ApiName,
+                            dialog.SelectedApiDefs.Select(m => m.ApiDefId)),
+                        out Guid callId,
+                        fallback: Guid.Empty)
+                    && callId != Guid.Empty)
+                {
+                    var pos = CascadePosition(rawPos, 0, siblings.Positions);
+                    TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(callId, pos)]));
+                }
+                break;
             }
         }
     }
@@ -237,17 +286,7 @@ public partial class MainViewModel
                 out var pastedIds))
             return;
 
-        if (pastedIds.Length > 0)
-        {
-            StatusText = $"Pasted {pastedIds.Length} {batchType}(s).";
-            var idSet = new HashSet<Guid>(pastedIds);
-            RequestRebuildAll(() =>
-            {
-                Selection.ClearNodeSelection();
-                foreach (var node in Canvas.CanvasNodes.Where(n => idSet.Contains(n.Id)))
-                    Selection.SelectNodeFromCanvas(node, ctrlPressed: true, shiftPressed: false);
-            });
-        }
+        ApplyPasteSelection(pastedIds, $"Pasted {pastedIds.Length} {batchType}(s).");
     }
 
     private void PasteFlowsWithRename((EntityKind EntityType, Guid EntityId) target)
@@ -275,17 +314,7 @@ public partial class MainViewModel
                 pastedIds.Add(resultOpt.Value);
         }
 
-        if (pastedIds.Count > 0)
-        {
-            StatusText = $"Pasted {pastedIds.Count} Flow(s).";
-            var idSet = new HashSet<Guid>(pastedIds);
-            RequestRebuildAll(() =>
-            {
-                Selection.ClearNodeSelection();
-                foreach (var node in Canvas.CanvasNodes.Where(n => idSet.Contains(n.Id)))
-                    Selection.SelectNodeFromCanvas(node, ctrlPressed: true, shiftPressed: false);
-            });
-        }
+        ApplyPasteSelection(pastedIds, $"Pasted {pastedIds.Count} Flow(s).");
     }
 
     private (EntityKind EntityType, Guid EntityId)? ResolvePasteTarget()
@@ -297,6 +326,21 @@ public partial class MainViewModel
             return null;
 
         return (EntityHierarchyQueries.entityKindForTabKind(tab.Kind), tab.RootId);
+    }
+
+    private void ApplyPasteSelection(IReadOnlyCollection<Guid> pastedIds, string statusText)
+    {
+        if (pastedIds.Count == 0)
+            return;
+
+        StatusText = statusText;
+        var idSet = pastedIds.ToHashSet();
+        RequestRebuildAll(() =>
+        {
+            Selection.ClearNodeSelection();
+            foreach (var node in Canvas.CanvasNodes.Where(n => idSet.Contains(n.Id)))
+                Selection.SelectNodeFromCanvas(node, ctrlPressed: true, shiftPressed: false);
+        });
     }
 
     private const int CascadeOffset = 30;

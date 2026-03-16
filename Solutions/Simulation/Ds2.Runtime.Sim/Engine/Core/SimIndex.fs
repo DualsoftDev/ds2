@@ -28,6 +28,8 @@ type SimIndex = {
     CallAutoConditions: Map<Guid, ConditionEntry list>
     CallCommonConditions: Map<Guid, ConditionEntry list>
     CallActiveConditions: Map<Guid, ConditionEntry list>
+    /// (SystemName, WorkName) → 같은 키를 공유하는 Work Guid 목록 (O(1) 조회용)
+    WorkGuidsByKey: Map<string * string, Guid list>
     ActiveSystemNames: Set<string>
     TickMs: int
 }
@@ -187,6 +189,16 @@ module SimIndex =
 
         log.Debug($"SimIndex built: {state.AllWorkGuids.Length} works, {state.AllCallGuids.Length} calls")
 
+        let workGuidsByKey =
+            state.AllWorkGuids
+            |> List.choose (fun wg ->
+                match Map.tryFind wg state.WorkSystemName, Map.tryFind wg state.WorkName with
+                | Some sn, Some wn -> Some ((sn, wn), wg)
+                | _ -> None)
+            |> List.groupBy fst
+            |> List.map (fun (key, grouped) -> key, grouped |> List.map snd)
+            |> Map.ofList
+
         { Store = store
           AllWorkGuids = state.AllWorkGuids |> List.rev
           AllCallGuids = state.AllCallGuids |> List.rev
@@ -202,6 +214,7 @@ module SimIndex =
           CallAutoConditions = state.CallAutoConditions
           CallCommonConditions = state.CallCommonConditions
           CallActiveConditions = state.CallActiveConditions
+          WorkGuidsByKey = workGuidsByKey
           ActiveSystemNames = activeSystemNames
           TickMs = tickMs }
 

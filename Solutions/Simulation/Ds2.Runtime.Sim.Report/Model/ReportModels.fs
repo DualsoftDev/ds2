@@ -37,6 +37,15 @@ module StateSegment =
         | "H" -> "#808080"  // Gray
         | _   -> "#808080"
 
+    /// 세그먼트의 startSec / endSec / duration 계산 (리포트 시작 기준)
+    let timeRange (reportStartTime: DateTime) (totalDurationSec: float) (segment: StateSegment) : float * float * float =
+        let startSec = (segment.StartTime - reportStartTime).TotalSeconds
+        let endSec =
+            match segment.EndTime with
+            | Some et -> (et - reportStartTime).TotalSeconds
+            | None -> totalDurationSec
+        (startSec, endSec, endSec - startSec)
+
     /// 세그먼트 생성
     let create (state: string) (startTime: DateTime) (endTime: DateTime option) =
         let duration =

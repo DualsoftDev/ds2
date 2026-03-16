@@ -2,6 +2,7 @@ namespace Ds2.Mermaid
 
 open System
 open System.Text
+open System.Text.RegularExpressions
 open System.Collections.Generic
 open Ds2.Core
 open Ds2.UI.Core
@@ -9,18 +10,12 @@ open Ds2.UI.Core
 /// DsStore → Mermaid flowchart 변환 모듈
 module MermaidExporter =
 
+    let private sanitizePattern = Regex(@"[\s\-\.:/\\()\[\]{}<>""']", RegexOptions.Compiled)
+
     /// ID에서 Mermaid 예약어와 특수문자 제거
     let private sanitizeId (id: string) : string =
         if String.IsNullOrWhiteSpace(id) then "unknown"
-        else
-            id
-                .Replace(" ", "_").Replace("-", "_").Replace(".", "_")
-                .Replace(":", "_").Replace("/", "_").Replace("\\", "_")
-                .Replace("(", "_").Replace(")", "_")
-                .Replace("[", "_").Replace("]", "_")
-                .Replace("{", "_").Replace("}", "_")
-                .Replace("<", "_").Replace(">", "_")
-                .Replace("\"", "_").Replace("'", "_")
+        else sanitizePattern.Replace(id, "_")
 
     /// 화살표를 Mermaid 문자열로 출력
     let private emitArrow (sb: StringBuilder) (indent: string) (sourceId: string) (targetId: string) (arrowType: ArrowType) =
@@ -33,7 +28,11 @@ module MermaidExporter =
         | _                    -> sb.AppendLine($"{indent}{sourceId} --> {targetId}")                   |> ignore
 
     /// Call의 조건을 라벨 suffix로 생성 (예: "<br>Auto: src1, src2<br>Common: src3")
-    let private buildConditionSuffix (store: DsStore) (call: Call) : string =
+    let private buildConditionSuffix
+        (store: DsStore)
+        (callIdToNodeId: Dictionary<Guid, string>)
+        (call: Call)
+        : string =
         let grouped = Dictionary<CallConditionType, ResizeArray<string>>()
 
         for cond in call.CallConditions do
@@ -46,7 +45,11 @@ module MermaidExporter =
                         if srcCall.ApiCalls |> Seq.exists (fun ac -> ac.Id = apiCall.Id) then
                             if not (grouped.ContainsKey(condType)) then
                                 grouped.[condType] <- ResizeArray<string>()
-                            grouped.[condType].Add(srcCall.Name)
+                            let refKey =
+                                match callIdToNodeId.TryGetValue(srcCall.Id) with
+                                | true, nodeId -> nodeId
+                                | _ -> srcCall.Name
+                            grouped.[condType].Add(refKey)
             | None -> ()
 
         let sb = StringBuilder()
@@ -74,12 +77,15 @@ module MermaidExporter =
         sb.AppendLine($"""{indent}subgraph {workId}["{work.Name}"]""") |> ignore
         let innerIndent = indent + "    "
 
-        // Call 노드 생성 (조건 정보를 라벨에 포함)
         let calls = DsQuery.callsOf work.Id store
         for call in calls do
             let nodeId = sanitizeId $"{prefix}_{workName}_{call.Name}"
             callIdToNodeId.[call.Id] <- nodeId
-            let condSuffix = buildConditionSuffix store call
+
+        // Call 노드 생성 (조건 정보를 라벨에 포함)
+        for call in calls do
+            let nodeId = callIdToNodeId.[call.Id]
+            let condSuffix = buildConditionSuffix store callIdToNodeId call
             sb.AppendLine($"""{innerIndent}{nodeId}["{call.Name}{condSuffix}"]""") |> ignore
 
         // Call 간 화살표 (ArrowBetweenCalls)

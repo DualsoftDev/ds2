@@ -26,9 +26,20 @@ public partial class GanttChartControl : UserControl
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
         SizeChanged += (_, _) => InvalidateTimeline();
+        Unloaded += OnUnloaded;
 
         _renderTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _renderTimer.Tick += (_, _) => OnRenderTick();
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        _renderTimer.Stop();
+        if (_viewModel != null)
+        {
+            _viewModel.Entries.CollectionChanged -= OnEntriesChanged;
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        }
     }
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)

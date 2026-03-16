@@ -16,7 +16,9 @@
     <Compile Include="Projection\ViewTypes.fs" />
     <Compile Include="Projection\PropertyPanelValueSpec.fs" />
     <Compile Include="Projection\TreeProjection.fs" />
-    <Compile Include="Projection\CanvasLayout.fs" />
+    <Compile Include="Projection\CanvasLayout\LayeringAndOrdering.fs" />
+    <Compile Include="Projection\CanvasLayout\Placement.fs" />
+    <Compile Include="Projection\CanvasLayout\Entry.fs" />
     <Compile Include="Projection\CanvasProjection.fs" />
     <Compile Include="Queries\EntityHierarchyQueries.fs" />
     <Compile Include="Queries\AddTargetQueries.fs" />
@@ -31,6 +33,7 @@
     <Compile Include="Store\DsStore.Arrows.fs" />
     <Compile Include="Store\DsStore.Panel.fs" />
     <Compile Include="Store\DsStore.Panel.Api.fs" />
+    <Compile Include="Store\DsStore.Panel.Batch.fs" />
   </ItemGroup>
 
   <ItemGroup>

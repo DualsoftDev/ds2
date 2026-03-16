@@ -99,7 +99,7 @@ module MermaidLexer =
 
     /// 전체 내용을 토큰 목록으로 변환
     let tokenize (content: string) : TokenizedLine list =
-        content.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
+        content.Split([| "\r\n"; "\n"; "\r" |], StringSplitOptions.RemoveEmptyEntries)
         |> Array.mapi (fun i line -> tokenizeLine (i + 1) line)
         |> Array.toList
 
@@ -156,5 +156,4 @@ module MermaidLexer =
         |> List.filter (fun t ->
             match t.Token with
             | EmptyLineToken | CommentToken _ -> false
-            | PassiveMarker -> true
             | _ -> true)

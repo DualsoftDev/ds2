@@ -29,7 +29,7 @@ public partial class SimulationPanelState : ObservableObject
     private readonly ObservableCollection<EntityNode> _canvasNodes;
     private readonly Action<string> _setStatusText;
     private ISimulationEngine? _simEngine;
-    private DateTime _simStartTime;
+    private DateTime _simStartTime = DateTime.Now;
     private readonly List<StateChangeRecord> _stateChangeRecords = [];
     private readonly StateCache _stateCache = new();
 
@@ -178,12 +178,10 @@ public partial class SimulationPanelState : ObservableObject
     private void ResetSimulation()
     {
         _simEngine?.Reset();
-        GanttChart.IsRunning = false;
-        GanttChart.Reset(DateTime.Now);
+        _simStartTime = DateTime.Now;
+        ApplySimulationResetUiState(clearCollections: false);
+        GanttChart.Reset(_simStartTime);
         InitGanttEntries();
-        ClearSimStateFromCanvas();
-        _stateCache.Clear();
-        SimClock = "00:00:00.000";
         SetSimStatus(SimText.Reset, SimText.ResetLog);
     }
 
@@ -215,12 +213,12 @@ public partial class SimulationPanelState : ObservableObject
 
     partial void OnSimSpeedChanged(double value)
     {
-        _simEngine?.SetSpeedMultiplier(value);
+        if (_simEngine is { } engine) engine.SpeedMultiplier = value;
     }
 
     partial void OnSimTimeIgnoreChanged(bool value)
     {
-        _simEngine?.SetTimeIgnore(value);
+        if (_simEngine is { } engine) engine.TimeIgnore = value;
     }
 
     [RelayCommand(CanExecute = nameof(CanExportReport))]
@@ -237,13 +235,9 @@ public partial class SimulationPanelState : ObservableObject
     public void ResetForNewStore()
     {
         DisposeSimEngine();
-        SimNodes.Clear();
-        SimEventLog.Clear();
-        SimWorkItems.Clear();
-        SelectedSimWork = null;
-        SimClock = "00:00:00.000";
-        HasReportData = false;
-        GanttChart.Reset(DateTime.Now);
+        _simStartTime = DateTime.Now;
+        ApplySimulationResetUiState(clearCollections: true);
+        GanttChart.Reset(_simStartTime);
     }
 
     private void AddSimLog(string message)
@@ -277,6 +271,37 @@ public partial class SimulationPanelState : ObservableObject
         IsSimulating = false;
         IsSimPaused = false;
         _stateCache.Clear();
+    }
+
+    private void ApplySimulationResetUiState(bool clearCollections)
+    {
+        GanttChart.IsRunning = false;
+        _stateChangeRecords.Clear();
+        HasReportData = false;
+        SimClock = "00:00:00.000";
+        SelectedSimWork = null;
+        IsSimulating = false;
+        IsSimPaused = false;
+        _stateCache.Clear();
+        ClearSimStateFromCanvas();
+
+        if (clearCollections)
+        {
+            SimNodes.Clear();
+            SimEventLog.Clear();
+            SimWorkItems.Clear();
+            return;
+        }
+
+        SimEventLog.Clear();
+        foreach (var row in SimNodes)
+            row.State = Status4.Ready;
+    }
+
+    private DateTime CurrentSimulationTimestamp()
+    {
+        var clock = _simEngine?.State.Clock ?? TimeSpan.Zero;
+        return _simStartTime + clock;
     }
 
     private void ExportReportAs(ExportFormat format)
@@ -329,15 +354,20 @@ public partial class SimulationPanelState : ObservableObject
     private void RecordStateChange(string nodeId, string nodeName, string nodeType, string systemId, Status4 state)
     {
         var stateString = SimText.StateCode(state);
+        var timestamp = CurrentSimulationTimestamp();
         _stateChangeRecords.Add(
-            new StateChangeRecord(nodeId, nodeName, nodeType, systemId, stateString, DateTime.Now));
+            new StateChangeRecord(nodeId, nodeName, nodeType, systemId, stateString, timestamp));
         HasReportData = _stateChangeRecords.Count > 0;
     }
 
     private SimulationReport BuildReport()
     {
         if (_stateChangeRecords.Count == 0) return ReportService.empty();
-        return ReportService.fromStateChanges(_simStartTime, DateTime.Now, _stateChangeRecords);
+
+        var currentTime = CurrentSimulationTimestamp();
+        var lastRecordTime = _stateChangeRecords[^1].Timestamp;
+        var endTime = currentTime >= lastRecordTime ? currentTime : lastRecordTime;
+        return ReportService.fromStateChanges(_simStartTime, endTime, _stateChangeRecords);
     }
 }
 

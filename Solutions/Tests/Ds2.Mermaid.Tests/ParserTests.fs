@@ -200,3 +200,103 @@ graph TD
         Assert.Contains(FlowLevel, levels)
     | Error errors ->
         Assert.Fail($"파싱 실패: {errors}")
+
+[<Fact>]
+let ``닫히지 않은 subgraph — 자동 종료 후 성공`` () =
+    let mermaid = """
+graph TD
+    subgraph F1
+        A["NodeA"]
+"""
+    match MermaidParser.parse mermaid with
+    | Ok graph ->
+        Assert.Equal(1, graph.Subgraphs.Length)
+        Assert.Equal(1, graph.Subgraphs.[0].Nodes.Length)
+    | Error _ ->
+        Assert.Fail("닫히지 않은 subgraph는 자동 종료되어야 함")
+
+[<Fact>]
+let ``알 수 없는 direction — 기본값 TD 사용`` () =
+    let mermaid = """
+graph XX
+    subgraph S
+        A["NodeA"]
+    end
+"""
+    match MermaidParser.parse mermaid with
+    | Ok graph ->
+        Assert.Equal(TD, graph.Direction)
+    | Error _ ->
+        Assert.Fail("알 수 없는 direction이면 기본값 사용해야 함")
+
+[<Fact>]
+let ``노드 없는 내용 — EmptyGraph 에러`` () =
+    let mermaid = """
+graph TD
+    %% 주석만 있음
+"""
+    match MermaidParser.parse mermaid with
+    | Ok _ -> Assert.Fail("노드 없는 내용인데 성공함")
+    | Error errors ->
+        Assert.Contains(errors, fun e -> e = EmptyGraph)
+
+[<Fact>]
+let ``Circle 화살표 — Group 라벨`` () =
+    let mermaid = """
+graph TD
+    subgraph S
+        A["NodeA"]
+        B["NodeB"]
+        A o--o B
+    end
+"""
+    match MermaidParser.parse mermaid with
+    | Ok graph ->
+        let edges = graph.Subgraphs.[0].InternalEdges
+        Assert.True(edges.Length >= 1)
+        Assert.Equal(Group, edges.[0].Label)
+    | Error errors ->
+        Assert.Fail($"파싱 실패: {errors}")
+
+[<Fact>]
+let ``3-depth Mermaid — 중첩 subgraph`` () =
+    let mermaid = """
+graph TD
+    subgraph System ["시스템"]
+        subgraph Flow ["플로우"]
+            A["WorkA"]
+            B["WorkB"]
+            A --> B
+        end
+    end
+"""
+    match MermaidParser.parse mermaid with
+    | Ok graph ->
+        Assert.Equal(1, graph.Subgraphs.Length)
+        Assert.Equal(1, graph.Subgraphs.[0].Children.Length)
+        let flow = graph.Subgraphs.[0].Children.[0]
+        Assert.Equal(2, flow.Nodes.Length)
+    | Error errors ->
+        Assert.Fail($"파싱 실패: {errors}")
+
+[<Fact>]
+let ``Passive 마커 이후 subgraph는 IsPassive`` () =
+    let mermaid = """
+graph TD
+    subgraph Active ["Active"]
+        A["NodeA"]
+    end
+    %% [Passive]
+    subgraph Device ["Device"]
+        B["NodeB"]
+    end
+"""
+    match MermaidParser.parse mermaid with
+    | Ok graph ->
+        Assert.Equal(2, graph.Subgraphs.Length)
+        let active = graph.Subgraphs |> List.find (fun sg -> sg.Id = "Active")
+        let device = graph.Subgraphs |> List.find (fun sg -> sg.Id = "Device")
+        Assert.False(active.IsPassive)
+        Assert.True(device.IsPassive)
+    | Error errors ->
+        Assert.Fail($"파싱 실패: {errors}")

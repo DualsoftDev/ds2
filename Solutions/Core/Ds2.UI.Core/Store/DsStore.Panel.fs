@@ -72,11 +72,8 @@ module internal DirectPanelOps =
         store.TrackMutate(store.Calls, call.Id, fun current -> current.ApiCalls.RemoveAll(fun apiCall -> apiCall.Id = apiCallId) |> ignore)
         store.TrackRemove(store.ApiCalls, apiCallId)
 
-    let rec tryFindConditionRec (conditions: ResizeArray<CallCondition>) (condId: Guid) : CallCondition option =
-        conditions
-        |> Seq.tryPick (fun condition ->
-            if condition.Id = condId then Some condition
-            else tryFindConditionRec condition.Children condId)
+    let tryFindConditionRec (conditions: ResizeArray<CallCondition>) (condId: Guid) : CallCondition option =
+        DsQuery.tryFindConditionRec conditions condId
 
     let tryFindCondition (call: Call) (condId: Guid) =
         tryFindConditionRec call.CallConditions condId
