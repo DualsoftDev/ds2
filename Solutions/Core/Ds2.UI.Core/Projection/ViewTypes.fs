@@ -147,7 +147,9 @@ type CallApiCallPanelItem
         name: string,
         apiDefId: Guid option,
         apiDefDisplayName: string,
+        outputTagName: string,
         outputAddress: string,
+        inputTagName: string,
         inputAddress: string,
         valueSpecText: string,
         inputValueSpecText: string,
@@ -159,7 +161,9 @@ type CallApiCallPanelItem
     member _.ApiDefId = apiDefId
     member _.ApiDefIdOrNull = apiDefId |> Option.toNullable
     member _.ApiDefDisplayName = apiDefDisplayName
+    member _.OutputTagName = outputTagName
     member _.OutputAddress = outputAddress
+    member _.InputTagName = inputTagName
     member _.InputAddress = inputAddress
     member _.ValueSpecText = valueSpecText
     member _.InputValueSpecText = inputValueSpecText

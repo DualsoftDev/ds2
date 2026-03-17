@@ -80,17 +80,17 @@ public partial class IoBatchSettingsDialog : Window
         {
             switch (fieldName)
             {
-                case "In Address":
-                    row.InAddress = value;
-                    break;
-                case "In Symbol":
-                    row.InSymbol = value;
+                case "Out tag":
+                    row.OutSymbol = value;
                     break;
                 case "Out Address":
                     row.OutAddress = value;
                     break;
-                case "Out Symbol":
-                    row.OutSymbol = value;
+                case "In tag":
+                    row.InSymbol = value;
+                    break;
+                case "In Address":
+                    row.InAddress = value;
                     break;
                 case "Memo":
                     row.Memo = value;

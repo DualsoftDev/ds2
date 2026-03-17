@@ -46,7 +46,11 @@ module Labels =
     [<Literal>]
     let ApiDef       = "ApiDef"
     [<Literal>]
+    let OutTag       = "Out tag"
+    [<Literal>]
     let OutAddress   = "Out address"
+    [<Literal>]
+    let InTag        = "In tag"
     [<Literal>]
     let InAddress    = "In address"
     [<Literal>]
