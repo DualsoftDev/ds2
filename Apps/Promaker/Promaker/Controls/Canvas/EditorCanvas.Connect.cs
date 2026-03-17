@@ -54,7 +54,7 @@ public partial class EditorCanvas
 
     private bool TryPromptArrowType(EntityKind sourceEntityType, out ArrowType arrowType)
     {
-        var dialog = new ArrowTypeDialog(isWorkMode: sourceEntityType == EntityKind.Work);
+        var dialog = new ArrowTypeDialog(isWorkMode: EntityKindRules.isWorkArrowMode(sourceEntityType));
 
         if (Window.GetWindow(this) is { } owner)
             dialog.Owner = owner;

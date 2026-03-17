@@ -64,7 +64,7 @@ public class SelectionState
             SelectNodeFromCanvas(node, ctrlPressed, shiftPressed);
 
         var dragNodes = _host.CanvasNodes
-            .Where(n => n.IsSelected && n.EntityType is EntityKind.Work or EntityKind.Call)
+            .Where(n => n.IsSelected && EntityKindRules.isDraggableKind(n.EntityType))
             .ToList();
 
         if (dragNodes.Count == 0 || dragNodes.All(n => n.Id != node.Id))

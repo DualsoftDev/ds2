@@ -43,7 +43,7 @@ public partial class EditorCanvas
             var node = VM.Canvas.CanvasNodes.FirstOrDefault(n => n.Id == nodeId);
             if (node is null) return;
 
-            if (e.ClickCount == 2 && node.EntityType == EntityKind.Work)
+            if (e.ClickCount == 2 && EntityKindRules.canOpenAsTab(node.EntityType))
             {
                 VM.Canvas.OpenCanvasTab(nodeId, EntityKind.Work, expandTree: true);
                 e.Handled = true;
@@ -192,8 +192,6 @@ public partial class EditorCanvas
 
         if (VM is not null)
         {
-            const int gridSize = 120;
-            const int snapY = 40;
             var ctrlHeld = (Keyboard.Modifiers & ModifierKeys.Control) != ModifierKeys.None;
             var requests = new List<MoveEntityRequest>();
 
@@ -206,15 +204,7 @@ public partial class EditorCanvas
                 if (!moved)
                     continue;
 
-                var finalX = item.Node.X;
-                var finalY = item.Node.Y;
-                if (!ctrlHeld)
-                {
-                    finalX = Math.Round(finalX / gridSize) * gridSize;
-                    finalY = Math.Round(finalY / snapY) * snapY;
-                }
-                finalX = Math.Max(0, finalX);
-                finalY = Math.Max(0, finalY);
+                var (finalX, finalY) = EntityKindRules.snapToGrid(item.Node.X, item.Node.Y, ctrlHeld);
 
                 item.Node.X = finalX;
                 item.Node.Y = finalY;
@@ -287,7 +277,7 @@ public partial class EditorCanvas
         VM.Selection.ClearNodeSelection();
         VM.Selection.SelectArrowFromCanvas(arrow, ctrlPressed: false);
 
-        var isWorkMode = VM.Canvas.ActiveTab?.Kind != TabKind.Work;
+        var isWorkMode = VM.Canvas.ActiveTab is { } tab && EntityKindRules.isWorkArrowModeForTab(tab.Kind);
         var menu = new System.Windows.Controls.ContextMenu();
 
         var changeType = new System.Windows.Controls.MenuItem { Header = "Change Arrow Type" };

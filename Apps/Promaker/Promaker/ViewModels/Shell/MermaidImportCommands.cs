@@ -21,7 +21,7 @@ public partial class MainViewModel
         if (node is null) return;
 
         var kind = node.EntityType;
-        if (kind is not (EntityKind.System or EntityKind.Flow or EntityKind.Work))
+        if (!EntityKindRules.canImportMermaid(kind))
             return;
 
         // 1. 파일 선택

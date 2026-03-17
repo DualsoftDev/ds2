@@ -246,6 +246,20 @@ type DsStorePanelConditionExtensions =
             let targetCond = DirectPanelOps.requireCondition callId c condId
             targetCond.Conditions.RemoveAll(fun ac -> ac.Id = apiCallId) |> ignore)
 
+    /// 프로젝트 속성 일괄 변경 (Undo 지원)
+    [<Extension>]
+    static member UpdateProjectProperties(store: DsStore, iriPrefix: string, globalAssetId: string, author: string, version: string, description: string) =
+        StoreLog.debug($"UpdateProjectProperties iri={iriPrefix}")
+        let project = DsQuery.allProjects store |> List.head
+        let toOpt (s: string) = if System.String.IsNullOrEmpty(s) then None else Some s
+        store.WithTransaction("프로젝트 속성 변경", fun () ->
+            store.TrackMutate(store.Projects, project.Id, fun p ->
+                p.Properties.IriPrefix     <- toOpt iriPrefix
+                p.Properties.GlobalAssetId <- toOpt globalAssetId
+                p.Properties.Author        <- toOpt author
+                p.Properties.Version       <- toOpt version
+                p.Properties.Description   <- toOpt description))
+
     [<Extension>]
     static member UpdateConditionApiCallOutputSpec(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid, outTypeIndex: int, outText: string) : bool =
         StoreLog.debug($"callId={callId}, condId={condId}, apiCallId={apiCallId}")
