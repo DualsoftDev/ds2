@@ -53,6 +53,8 @@
     <Color x:Key="IconRedColor">#FF6B9D</Color>
     <Color x:Key="IconGrayColor">#B0BEC5</Color>
     <Color x:Key="IconGreenColor">#4CAF50</Color>
+    <Color x:Key="IconPurpleColor">#AB47BC</Color>
+    <Color x:Key="IconDarkGrayColor">#010101</Color>
 
     <!-- TreeView Arrow Color -->
     <Color x:Key="TreeViewArrowColor">#FFFFFF</Color>

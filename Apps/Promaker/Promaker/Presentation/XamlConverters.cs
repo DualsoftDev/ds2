@@ -16,7 +16,9 @@ file static class ConverterHelpers
             [EntityKind.Call] = "NodeCallBackgroundBrush",
             [EntityKind.Flow] = "AccentBrush",
             [EntityKind.System] = "OrangeAccentBrush",
-            [EntityKind.Project] = "GreenAccentBrush"
+            [EntityKind.Project] = "GreenAccentBrush",
+            [EntityKind.DeviceRoot] = "IconDarkGrayBrush",
+            [EntityKind.ApiDefCategory] = "IconPurpleBrush"
         };
 
     private static readonly IReadOnlyDictionary<EntityKind, string> EntityIcons =
@@ -31,7 +33,9 @@ file static class ConverterHelpers
             [EntityKind.Button] = "B",
             [EntityKind.Lamp] = "L",
             [EntityKind.Condition] = "?",
-            [EntityKind.Action] = "!"
+            [EntityKind.Action] = "!",
+            [EntityKind.DeviceRoot] = "⚙",
+            [EntityKind.ApiDefCategory] = "⇆"
         };
 
     public static Brush ResolveBrush(string key)
