@@ -14,7 +14,7 @@ x86/
 bld/
 [Ll]og/
 [Ll]ogs/
-
+[Dd]ocs/
 # Visual Studio
 .vs/
 .vscode/
