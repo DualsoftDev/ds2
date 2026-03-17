@@ -189,11 +189,13 @@ type DsStore() =
         match pop() with
         | None -> ()
         | Some tx ->
-            apply tx.Records
-            this.RewireApiCallReferences()
-            push(tx)
-            log.Debug($"{label}: {tx.Label}")
-            this.EmitRefreshAndHistory()
+            try
+                apply tx.Records
+                this.RewireApiCallReferences()
+                push(tx)
+                log.Debug($"{label}: {tx.Label}")
+            finally
+                this.EmitRefreshAndHistory()
 
     member this.Undo() =
         this.ApplyTransaction(undoManager.PopUndo, undoManager.PushRedo,

@@ -111,9 +111,6 @@ public partial class CanvasWorkspaceState : ObservableObject
             return;
         }
 
-        // 노드가 모두 같은 좌표에 몰려있으면 자동 배치 (Mermaid 임포트 등)
-        _host.TryAction(() => Store.AutoLayoutIfNeeded(ActiveTab.Kind, ActiveTab.RootId));
-
         if (!_host.TryRef(
                 () => Store.CanvasContentForTab(ActiveTab.Kind, ActiveTab.RootId),
                 out var content,
@@ -160,6 +157,10 @@ public partial class CanvasWorkspaceState : ObservableObject
             ActiveTab = existing;
             return;
         }
+
+        // 새 탭을 처음 열 때만 자동 배치 (Mermaid 임포트 등)
+        // RefreshCanvasForActiveTab에서 하면 Undo 시 매번 트리거되어 Undo/Redo 스택을 망침
+        _host.TryAction(() => Store.AutoLayoutIfNeeded(kind, rootId));
 
         var tab = new CanvasTab(rootId, kind, title);
         OpenTabs.Add(tab);
