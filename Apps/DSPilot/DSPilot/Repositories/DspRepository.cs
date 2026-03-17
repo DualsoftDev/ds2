@@ -47,6 +47,10 @@ public class DspRepository : IDspRepository
 
             _logger.LogInformation("Creating DSP database schema...");
 
+            // Schema validation and recreation for all tables
+            await EnsureTableSchemaAsync(connection, "Flow", GetFlowColumns());
+            await EnsureTableSchemaAsync(connection, "Call", GetCallColumns());
+
             // Create Flow table
             const string createFlowTable = @"
 CREATE TABLE IF NOT EXISTS Flow (
@@ -54,6 +58,7 @@ CREATE TABLE IF NOT EXISTS Flow (
     FlowName TEXT UNIQUE NOT NULL,
     MT INTEGER,
     WT INTEGER,
+    CT INTEGER,
     State TEXT,
     MovingStartName TEXT,
     MovingEndName TEXT,
@@ -112,6 +117,7 @@ SELECT
     c.ErrorText,
     f.MT,
     f.WT,
+    f.CT,
     f.State AS FlowState,
     c.CreatedAt,
     c.UpdatedAt
@@ -156,6 +162,104 @@ CREATE TRIGGER IF NOT EXISTS update_call_updated_at
         }
     }
 
+    /// <summary>
+    /// 테이블 스키마 검증 및 필요시 재생성
+    /// </summary>
+    private async Task EnsureTableSchemaAsync(SqliteConnection connection, string tableName, HashSet<string> expectedColumns)
+    {
+        var tableExists = await connection.QueryFirstOrDefaultAsync<int>(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=@TableName",
+            new { TableName = tableName }) > 0;
+
+        if (!tableExists)
+        {
+            _logger.LogInformation("Table '{TableName}' does not exist, will be created", tableName);
+            return;
+        }
+
+        // 기존 테이블의 컬럼 조회
+        var columns = await connection.QueryAsync<dynamic>($"PRAGMA table_info({tableName})");
+        var actualColumns = columns.Select(c => ((string)c.name).ToLowerInvariant()).ToHashSet();
+
+        // 스키마 비교
+        var expectedLower = expectedColumns.Select(c => c.ToLowerInvariant()).ToHashSet();
+
+        if (!actualColumns.SetEquals(expectedLower))
+        {
+            _logger.LogWarning(
+                "Table '{TableName}' schema mismatch. Expected columns: [{Expected}], Actual: [{Actual}]. Dropping and recreating...",
+                tableName,
+                string.Join(", ", expectedColumns),
+                string.Join(", ", actualColumns));
+
+            // Drop table and related objects
+            await DropTableAndDependenciesAsync(connection, tableName);
+        }
+        else
+        {
+            _logger.LogDebug("Table '{TableName}' schema is up to date", tableName);
+        }
+    }
+
+    /// <summary>
+    /// 테이블 및 종속 객체 삭제
+    /// </summary>
+    private async Task DropTableAndDependenciesAsync(SqliteConnection connection, string tableName)
+    {
+        // Drop triggers
+        var triggers = await connection.QueryAsync<string>(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name=@TableName",
+            new { TableName = tableName });
+
+        foreach (var trigger in triggers)
+        {
+            await connection.ExecuteAsync($"DROP TRIGGER IF EXISTS {trigger}");
+            _logger.LogInformation("Dropped trigger '{TriggerName}'", trigger);
+        }
+
+        // Drop indexes
+        var indexes = await connection.QueryAsync<string>(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=@TableName AND name NOT LIKE 'sqlite_%'",
+            new { TableName = tableName });
+
+        foreach (var index in indexes)
+        {
+            await connection.ExecuteAsync($"DROP INDEX IF EXISTS {index}");
+            _logger.LogInformation("Dropped index '{IndexName}'", index);
+        }
+
+        // Drop views that depend on this table
+        if (tableName == "Flow" || tableName == "Call")
+        {
+            await connection.ExecuteAsync("DROP VIEW IF EXISTS CallFlowView");
+            _logger.LogInformation("Dropped view 'CallFlowView'");
+        }
+
+        // Drop table
+        await connection.ExecuteAsync($"DROP TABLE IF EXISTS {tableName}");
+        _logger.LogInformation("Dropped table '{TableName}'", tableName);
+    }
+
+    /// <summary>
+    /// Flow 테이블 예상 컬럼 목록
+    /// </summary>
+    private HashSet<string> GetFlowColumns() => new()
+    {
+        "Id", "FlowName", "MT", "WT", "CT", "State",
+        "MovingStartName", "MovingEndName", "CreatedAt", "UpdatedAt"
+    };
+
+    /// <summary>
+    /// Call 테이블 예상 컬럼 목록
+    /// </summary>
+    private HashSet<string> GetCallColumns() => new()
+    {
+        "Id", "CallName", "ApiCall", "WorkName", "FlowName",
+        "Next", "Prev", "AutoPre", "CommonPre", "State", "ProgressRate",
+        "PreviousGoingTime", "AverageGoingTime", "StdDevGoingTime", "GoingCount",
+        "Device", "ErrorText", "CreatedAt", "UpdatedAt"
+    };
+
     /// <inheritdoc />
     public async Task<int> BulkInsertFlowsAsync(List<DspFlowEntity> flows)
     {
@@ -166,11 +270,12 @@ CREATE TRIGGER IF NOT EXISTS update_call_updated_at
         try
         {
             const string sql = @"
-INSERT INTO Flow (FlowName, MT, WT, State, MovingStartName, MovingEndName)
-VALUES (@FlowName, @MT, @WT, @State, @MovingStartName, @MovingEndName)
+INSERT INTO Flow (FlowName, MT, WT, CT, State, MovingStartName, MovingEndName)
+VALUES (@FlowName, @MT, @WT, @CT, @State, @MovingStartName, @MovingEndName)
 ON CONFLICT (FlowName) DO UPDATE SET
     MT = COALESCE(excluded.MT, Flow.MT),
     WT = COALESCE(excluded.WT, Flow.WT),
+    CT = COALESCE(excluded.CT, Flow.CT),
     State = excluded.State,
     MovingStartName = excluded.MovingStartName,
     MovingEndName = excluded.MovingEndName,
@@ -249,6 +354,17 @@ ON CONFLICT (CallName, FlowName) DO UPDATE SET
     }
 
     /// <inheritdoc />
+    public async Task<(string WorkName, string FlowName)?> GetCallInfoAsync(string callName)
+    {
+        using var connection = CreateConnection();
+
+        const string sql = "SELECT WorkName, FlowName FROM Call WHERE CallName = @CallName LIMIT 1";
+        var result = await connection.QueryFirstOrDefaultAsync<(string WorkName, string FlowName)>(sql, new { CallName = callName });
+
+        return result.WorkName != null && result.FlowName != null ? result : null;
+    }
+
+    /// <inheritdoc />
     public async Task<bool> UpdateCallStateAsync(string callName, string state)
     {
         using var connection = CreateConnection();
@@ -318,6 +434,40 @@ WHERE FlowName = @FlowName";
     }
 
     /// <inheritdoc />
+    public async Task<bool> UpdateFlowMetricsAsync(
+        string flowName,
+        int? mt,
+        int? wt,
+        int? ct,
+        string? movingStartName,
+        string? movingEndName)
+    {
+        using var connection = CreateConnection();
+
+        const string sql = @"
+UPDATE Flow
+SET MT = @MT,
+    WT = @WT,
+    CT = @CT,
+    MovingStartName = @MovingStartName,
+    MovingEndName = @MovingEndName,
+    UpdatedAt = datetime('now')
+WHERE FlowName = @FlowName";
+
+        var result = await connection.ExecuteAsync(sql, new
+        {
+            MT = mt,
+            WT = wt,
+            CT = ct,
+            MovingStartName = movingStartName,
+            MovingEndName = movingEndName,
+            FlowName = flowName
+        });
+
+        return result > 0;
+    }
+
+    /// <inheritdoc />
     public async Task<bool> ClearAllDataAsync()
     {
         try
@@ -364,4 +514,5 @@ ORDER BY FlowName, CallName";
         var results = await connection.QueryAsync<CallStatisticsDto>(sql);
         return results.ToList();
     }
+
 }

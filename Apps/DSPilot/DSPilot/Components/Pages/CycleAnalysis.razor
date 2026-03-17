@@ -1,0 +1,1033 @@
+@page "/cycle"
+@using DSPilot.Models.Analysis
+@using DSPilot.Services
+@inject CycleAnalysisService CycleAnalysisService
+@inject DsProjectService ProjectService
+@inject ILogger<DSPilot.Components.Pages.CycleAnalysis> Logger
+
+<PageTitle>Timeline 분석 - Gantt Chart</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Timeline 분석 - Gantt Chart</MudText>
+<MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-4">
+    Flow의 Call 실행 타임라인을 시간 범위 기준으로 Gantt 차트로 시각화합니다.
+</MudText>
+
+@if (!ProjectService.IsLoaded)
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-4">
+        프로젝트가 로드되지 않았습니다. DS 프로젝트를 먼저 로드해주세요.
+    </MudAlert>
+}
+else
+{
+    <MudPaper Class="pa-4 mb-4">
+        <MudText Typo="Typo.h6" Class="mb-2">Flow 선택</MudText>
+        <MudSelect T="string" Label="Flow 선택" @bind-Value="_selectedFlow" Variant="Variant.Outlined" Class="mb-4">
+            @foreach (var flow in ProjectService.GetAllFlows())
+            {
+                <MudSelectItem Value="@flow.Name">@flow.Name</MudSelectItem>
+            }
+        </MudSelect>
+
+        <MudText Typo="Typo.h6" Class="mb-2 mt-4">시간 범위 선택 모드</MudText>
+        <MudRadioGroup T="string" @bind-Value="_timeRangeMode" Class="mb-4">
+            <MudRadio T="string" Value=@("quick") Color="Color.Primary">빠른 선택 (최근 N초)</MudRadio>
+            <MudRadio T="string" Value=@("custom") Color="Color.Primary">정밀 선택 (시작/종료 지정)</MudRadio>
+        </MudRadioGroup>
+
+        @if (_timeRangeMode == "quick")
+        {
+            <MudSlider T="int" @bind-Value="_timeRangeSeconds" Min="10" Max="300" Step="10"
+                       Color="Color.Primary" Class="mb-4">
+                최근 @_timeRangeSeconds 초
+            </MudSlider>
+        }
+        else
+        {
+            <div class="d-flex gap-4 mb-4">
+                <MudDatePicker Label="시작 날짜" @bind-Date="_customStartTime"
+                               DateFormat="yyyy-MM-dd" Editable="true"
+                               Variant="Variant.Outlined" Class="flex-grow-1" />
+                <MudTimePicker Label="시작 시각" @bind-Time="StartTime"
+                               Editable="true" AmPm="false"
+                               Variant="Variant.Outlined" Class="flex-grow-1" />
+            </div>
+            <div class="d-flex gap-4 mb-4">
+                <MudDatePicker Label="종료 날짜" @bind-Date="_customEndTime"
+                               DateFormat="yyyy-MM-dd" Editable="true"
+                               Variant="Variant.Outlined" Class="flex-grow-1" />
+                <MudTimePicker Label="종료 시각" @bind-Time="EndTime"
+                               Editable="true" AmPm="false"
+                               Variant="Variant.Outlined" Class="flex-grow-1" />
+            </div>
+            <div class="d-flex gap-2 mb-4">
+                <MudButton Variant="Variant.Text" Color="Color.Secondary" Size="Size.Small"
+                           OnClick="@(() => SetTimeRangePreset(60))">최근 1분</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Secondary" Size="Size.Small"
+                           OnClick="@(() => SetTimeRangePreset(300))">최근 5분</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Secondary" Size="Size.Small"
+                           OnClick="@(() => SetTimeRangePreset(600))">최근 10분</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Secondary" Size="Size.Small"
+                           OnClick="@(() => SetTimeRangePreset(1800))">최근 30분</MudButton>
+            </div>
+        }
+
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   OnClick="LoadTimelineAsync" Disabled="@_isLoadingGantt" FullWidth="true">
+            @if (_isLoadingGantt)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                <MudText Class="ml-2">로딩 중...</MudText>
+            }
+            else
+            {
+                <MudText>타임라인 로드</MudText>
+            }
+        </MudButton>
+    </MudPaper>
+
+    @if (_isLoadingGantt)
+    {
+        <MudPaper Class="pa-4 d-flex justify-center align-center" Style="min-height: 200px;">
+            <MudProgressCircular Size="Size.Large" Indeterminate="true" />
+        </MudPaper>
+    }
+    else if (_ganttData != null)
+    {
+        <MudPaper Class="pa-4">
+            <MudText Typo="Typo.h6" Class="mb-2">
+                Gantt Chart - @_ganttData.FlowName
+            </MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+                Time Range: @_ganttData.StartTime.ToString("HH:mm:ss") ~ @_ganttData.EndTime?.ToString("HH:mm:ss")
+                (@_ganttData.CT ms) | Items: @_ganttData.RenderedEventCount / @_ganttData.TotalEventCount | Lanes: @_ganttData.TotalLanes
+            </MudText>
+
+            <!-- Chart Controls -->
+            <MudExpansionPanels Class="mb-4">
+                <MudExpansionPanel Text="⚙️ 차트 설정 및 분석 옵션">
+                    <MudGrid>
+                        <!-- Row 1: Zoom and Buttons -->
+                        <MudItem xs="12" md="6">
+                            <MudSlider T="int" @bind-Value="_chartZoomLevel" Min="50" Max="300" Step="10" Color="Color.Primary">
+                                차트 확대/축소: @_chartZoomLevel%
+                            </MudSlider>
+                        </MudItem>
+                        <MudItem xs="12" md="6" Style="display: flex; gap: 8px; align-items: center;">
+                            <MudButton Variant="Variant.Outlined" Color="@(_showLongestGap ? Color.Primary : Color.Default)"
+                                       OnClick="ToggleLongestGapHighlight" Size="Size.Small" FullWidth="true">
+                                @(_showLongestGap ? "GAP 하이라이트 끄기" : "최대 GAP 하이라이트")
+                            </MudButton>
+                            @if (_selectedItem != null)
+                            {
+                                <MudButton Variant="Variant.Outlined" Color="Color.Secondary"
+                                           OnClick="ClearSelection" Size="Size.Small" FullWidth="true">
+                                    선택 해제
+                                </MudButton>
+                            }
+                        </MudItem>
+
+                        <!-- Row 2: GAP Analysis Mode -->
+                        <MudItem xs="12" md="6">
+                            <MudText Typo="Typo.subtitle2" Class="mb-2">GAP 분석 모드</MudText>
+                            <MudRadioGroup T="GapAnalysisMode" @bind-Value="_gapAnalysisMode">
+                                <MudRadio T="GapAnalysisMode" Value="GapAnalysisMode.SameLane" Color="Color.Primary" Dense="true">
+                                    같은 레이어 (기본)
+                                </MudRadio>
+                                <MudRadio T="GapAnalysisMode" Value="GapAnalysisMode.SameCall" Color="Color.Primary" Dense="true">
+                                    같은 Call 반복
+                                </MudRadio>
+                                <MudRadio T="GapAnalysisMode" Value="GapAnalysisMode.SameGroup" Color="Color.Primary" Dense="true">
+                                    같은 Work 그룹
+                                </MudRadio>
+                            </MudRadioGroup>
+                        </MudItem>
+
+                        <!-- Row 3: Sort Mode -->
+                        <MudItem xs="12" md="6">
+                            <MudText Typo="Typo.subtitle2" Class="mb-2">차트 정렬</MudText>
+                            <MudSelect T="ChartSortMode" @bind-Value="_chartSortMode" Variant="Variant.Outlined" Dense="true">
+                                <MudSelectItem Value="ChartSortMode.ByLane">레이어 기준 (기본)</MudSelectItem>
+                                <MudSelectItem Value="ChartSortMode.ByTime">시간순</MudSelectItem>
+                                <MudSelectItem Value="ChartSortMode.ByCallName">Call 이름순</MudSelectItem>
+                                <MudSelectItem Value="ChartSortMode.ByGapSize">GAP 크기순</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                    </MudGrid>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+
+            <!-- Selected Item Info Panel -->
+            @if (_selectedItem != null)
+            {
+                <MudPaper Class="pa-4 mb-4" Style="background-color: #fff3e0; border-left: 4px solid #FF5722;">
+                    <MudText Typo="Typo.h6" Color="Color.Primary" Class="mb-3">
+                        📊 선택된 아이템 분석
+                    </MudText>
+
+                    <MudGrid>
+                        <MudItem xs="12" md="6">
+                            <MudText Typo="Typo.subtitle2" Color="Color.Default" Class="mb-2">
+                                <strong>기본 정보</strong>
+                            </MudText>
+                            <MudText Typo="Typo.body2">• Call: <strong>@_selectedItem.CallName</strong></MudText>
+                            <MudText Typo="Typo.body2">• Work: @_selectedItem.WorkName</MudText>
+                            <MudText Typo="Typo.body2">• Tag: @_selectedItem.TagName [@_selectedItem.TagAddress]</MudText>
+                            <MudText Typo="Typo.body2">
+                                • Event Type: <strong>@(_selectedItem.EventType == DSPilot.Models.Analysis.IOEventType.InTag ? "InTag (Input)" : "OutTag (Output)")</strong>
+                            </MudText>
+                            <MudText Typo="Typo.body2">• Timestamp: @_selectedItem.GoingStartTime.ToString("HH:mm:ss.fff")</MudText>
+                            <MudText Typo="Typo.body2">• Lane: @_selectedItem.Lane / @_ganttData.TotalLanes</MudText>
+                        </MudItem>
+
+                        <MudItem xs="12" md="6">
+                            <MudText Typo="Typo.subtitle2" Color="Color.Default" Class="mb-2">
+                                <strong>🔗 연결 정보</strong>
+                            </MudText>
+                            @if (_previousItem != null)
+                            {
+                                <MudText Typo="Typo.body2" Style="color: #FF9800;">
+                                    ← 이전 신호: <strong>@_previousItem.CallName</strong> (GAP: <strong>@_gapToPrevious.ToString("F0")ms</strong>)
+                                </MudText>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">← 이전 신호: 없음 (레이어 시작)</MudText>
+                            }
+
+                            @if (_nextItem != null)
+                            {
+                                <MudText Typo="Typo.body2" Style="color: #4CAF50;">
+                                    → 다음 신호: <strong>@_nextItem.CallName</strong> (GAP: <strong>@_gapToNext.ToString("F0")ms</strong>)
+                                </MudText>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.body2" Color="Color.Secondary">→ 다음 신호: 없음 (레이어 끝)</MudText>
+                            }
+
+                            <MudDivider Class="my-2" />
+
+                            <MudText Typo="Typo.subtitle2" Color="Color.Default" Class="mb-2">
+                                <strong>📈 통계</strong>
+                            </MudText>
+                            @{
+                                var laneItems = _ganttData.Items.Where(i => i.Lane == _selectedItem.Lane).ToList();
+                                var totalOnLane = laneItems.Count;
+                                var positionOnLane = laneItems.OrderBy(i => i.GoingStartTime).ToList().IndexOf(_selectedItem) + 1;
+                                var percentComplete = _ganttData.Items.Count > 0 ? (_selectedItemIndex + 1) * 100.0 / _ganttData.Items.Count : 0;
+                            }
+                            <MudText Typo="Typo.body2">• 레이어 내 위치: @positionOnLane / @totalOnLane</MudText>
+                            <MudText Typo="Typo.body2">• 전체 이벤트 중: #@(_selectedItemIndex + 1) (@percentComplete.ToString("F1")%)</MudText>
+                            @if (_gapToPrevious > 0 && _gapToNext > 0)
+                            {
+                                var avgGap = (_gapToPrevious + _gapToNext) / 2.0;
+                                <MudText Typo="Typo.body2">• 평균 주변 GAP: @avgGap.ToString("F0")ms</MudText>
+                            }
+
+                            <MudDivider Class="my-2" />
+
+                            <MudText Typo="Typo.subtitle2" Color="Color.Default" Class="mb-2">
+                                <strong>🔄 사이클 분석</strong>
+                            </MudText>
+                            @{
+                                // Calculate cycle statistics for same Call
+                                var sameCallItems = _ganttData.Items
+                                    .Where(i => i.CallName == _selectedItem.CallName)
+                                    .OrderBy(i => i.GoingStartTime)
+                                    .ToList();
+
+                                var cycleCount = sameCallItems.Count;
+                                var cycleIndex = sameCallItems.IndexOf(_selectedItem) + 1;
+
+                                if (cycleCount > 1)
+                                {
+                                    // Calculate cycle times (intervals between same Call occurrences)
+                                    var cycleTimes = new List<double>();
+                                    for (int i = 1; i < sameCallItems.Count; i++)
+                                    {
+                                        var prevStart = sameCallItems[i - 1].GoingStartTime;
+                                        var currentStart = sameCallItems[i].GoingStartTime;
+                                        cycleTimes.Add((currentStart - prevStart).TotalMilliseconds);
+                                    }
+
+                                    if (cycleTimes.Any())
+                                    {
+                                        var avgCycleTime = cycleTimes.Average();
+                                        var minCycleTime = cycleTimes.Min();
+                                        var maxCycleTime = cycleTimes.Max();
+
+                                        <MudText Typo="Typo.body2">• Call 발생 횟수: @cycleCount 회</MudText>
+                                        <MudText Typo="Typo.body2">• 현재 사이클: #@cycleIndex / @cycleCount</MudText>
+                                        <MudText Typo="Typo.body2">• 평균 사이클 타임: @avgCycleTime.ToString("F0")ms</MudText>
+                                        <MudText Typo="Typo.body2">• 최소/최대: @minCycleTime.ToString("F0")ms / @maxCycleTime.ToString("F0")ms</MudText>
+
+                                        if (cycleIndex < cycleCount)
+                                        {
+                                            var nextCycleTime = (sameCallItems[cycleIndex].GoingStartTime - _selectedItem.GoingStartTime).TotalMilliseconds;
+                                            <MudText Typo="Typo.body2" Style="color: #2196F3;">
+                                                • 다음 사이클까지: <strong>@nextCycleTime.ToString("F0")ms</strong>
+                                            </MudText>
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.body2" Color="Color.Secondary">• 단일 발생 (사이클 없음)</MudText>
+                                }
+                            }
+                        </MudItem>
+                    </MudGrid>
+                </MudPaper>
+            }
+
+            @if (_ganttData.Items.Any())
+            {
+                @if (_ganttData.IsTruncated)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">
+                        이벤트가 많아 화면 프리징을 막기 위해 최근 순서 기준 @_ganttData.RenderedEventCount 개만 렌더했습니다.
+                    </MudAlert>
+                }
+
+                <!-- Legend -->
+                <div style="margin-bottom: 16px; display: flex; gap: 16px; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 20px; height: 20px; background-color: #2196F3; border: 1px solid #333; border-radius: 3px;"></div>
+                        <span style="font-size: 14px;">InTag (Input)</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 20px; height: 20px; background-color: #4CAF50; border: 1px solid #333; border-radius: 3px;"></div>
+                        <span style="font-size: 14px;">OutTag (Output)</span>
+                    </div>
+                </div>
+
+                <div style="overflow-x: auto;">
+                    @RenderGanttChart(_ganttData)
+                </div>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Info">
+                    이 시간 범위에는 IO 이벤트가 없습니다.
+                </MudAlert>
+            }
+        </MudPaper>
+    }
+    else if (!_isLoadingGantt && !string.IsNullOrEmpty(_selectedFlow))
+    {
+        <MudPaper Class="pa-4">
+            <MudText Typo="Typo.body1" Color="Color.Info">
+                Flow를 선택하고 "타임라인 로드" 버튼을 클릭하여 Gantt 차트를 확인하세요.
+            </MudText>
+        </MudPaper>
+    }
+}
+
+@code {
+    private string _selectedFlow = string.Empty;
+    private string _timeRangeMode = "quick";  // "quick" or "custom"
+    private int _timeRangeSeconds = 60;  // 빠른 선택 모드용
+    private DateTime? _customStartTime = DateTime.Now.AddMinutes(-1);  // 정밀 선택 모드용
+    private DateTime? _customEndTime = DateTime.Now;
+    private bool _isLoadingGantt = false;
+    private DSPilot.Services.GanttChartData? _ganttData = null;
+
+    // Chart controls
+    private int _chartZoomLevel = 100;  // 50% ~ 300%
+    private bool _showLongestGap = false;
+    private (DateTime Start, DateTime End, double DurationMs)? _longestGap = null;
+
+    // Item selection and analysis
+    private GanttChartItem? _selectedItem = null;
+    private int _selectedItemIndex = -1;
+    private GanttChartItem? _previousItem = null;
+    private GanttChartItem? _nextItem = null;
+    private double _gapToPrevious = 0;
+    private double _gapToNext = 0;
+
+    // GAP analysis and sorting options
+    private GapAnalysisMode _gapAnalysisMode = GapAnalysisMode.SameLane;
+    private ChartSortMode _chartSortMode = ChartSortMode.ByLane;
+
+    private enum GapAnalysisMode
+    {
+        SameLane,      // 같은 레이어 내 이전/다음 (기본)
+        SameCall,      // 같은 Call의 이전/다음 발생
+        SameGroup      // 같은 Work/Flow 그룹 내 모든 태그
+    }
+
+    private enum ChartSortMode
+    {
+        ByLane,        // 레이어 기준 (기본)
+        ByTime,        // 시간순
+        ByCallName,    // Call 이름순
+        ByGapSize      // GAP 크기순 (큰 것부터)
+    }
+
+    // Helper properties for time picker binding
+    private TimeSpan? StartTime
+    {
+        get => _customStartTime?.TimeOfDay;
+        set
+        {
+            if (_customStartTime.HasValue && value.HasValue)
+            {
+                _customStartTime = _customStartTime.Value.Date.Add(value.Value);
+            }
+        }
+    }
+
+    private TimeSpan? EndTime
+    {
+        get => _customEndTime?.TimeOfDay;
+        set
+        {
+            if (_customEndTime.HasValue && value.HasValue)
+            {
+                _customEndTime = _customEndTime.Value.Date.Add(value.Value);
+            }
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        if (ProjectService.IsLoaded)
+        {
+            var flows = ProjectService.GetAllFlows();
+            if (flows.Any())
+            {
+                _selectedFlow = flows.First().Name;
+            }
+        }
+    }
+
+    private void SetTimeRangePreset(int seconds)
+    {
+        _customEndTime = DateTime.Now;
+        _customStartTime = _customEndTime.Value.AddSeconds(-seconds);
+    }
+
+    private async Task LoadTimelineAsync()
+    {
+        if (string.IsNullOrEmpty(_selectedFlow))
+        {
+            return;
+        }
+
+        _isLoadingGantt = true;
+        _ganttData = null;
+        StateHasChanged();
+
+        try
+        {
+            // 모드에 따라 시간 범위 계산
+            DateTime startTime, endTime;
+            if (_timeRangeMode == "quick")
+            {
+                endTime = DateTime.Now;
+                startTime = endTime.AddSeconds(-_timeRangeSeconds);
+            }
+            else
+            {
+                if (!_customStartTime.HasValue || !_customEndTime.HasValue)
+                {
+                    Logger.LogWarning("Custom time range not set");
+                    return;
+                }
+                startTime = _customStartTime.Value;
+                endTime = _customEndTime.Value;
+            }
+
+            // 시간 범위 검증
+            if (startTime >= endTime)
+            {
+                Logger.LogWarning("Invalid time range: start >= end");
+                return;
+            }
+
+            Logger.LogInformation(
+                "Loading timeline for Flow '{FlowName}' from {Start} to {End} (Mode: {Mode})",
+                _selectedFlow, startTime, endTime, _timeRangeMode);
+
+            // 시간 범위 기반 IO 이벤트 조회
+            _ganttData = await CycleAnalysisService.GetIOEventsInTimeRangeAsync(_selectedFlow, startTime, endTime);
+
+            Logger.LogInformation(
+                "Loaded timeline for Flow '{FlowName}': {Items} items in {Lanes} lanes",
+                _selectedFlow, _ganttData.Items.Count, _ganttData.TotalLanes);
+
+            // Calculate longest gap
+            CalculateLongestGap();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load timeline");
+            _ganttData = null;
+        }
+        finally
+        {
+            _isLoadingGantt = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CalculateLongestGap()
+    {
+        _longestGap = null;
+
+        if (_ganttData == null || _ganttData.Items.Count < 2)
+            return;
+
+        // Sort items by timestamp
+        var sortedItems = _ganttData.Items
+            .OrderBy(item => item.GoingStartTime)
+            .ToList();
+
+        double maxGapDuration = 0;
+        DateTime maxGapStart = DateTime.MinValue;
+        DateTime maxGapEnd = DateTime.MinValue;
+
+        for (int i = 0; i < sortedItems.Count - 1; i++)
+        {
+            var currentEnd = sortedItems[i].FinishTime ?? sortedItems[i].GoingStartTime;
+            var nextStart = sortedItems[i + 1].GoingStartTime;
+
+            var gapDuration = (nextStart - currentEnd).TotalMilliseconds;
+
+            if (gapDuration > maxGapDuration)
+            {
+                maxGapDuration = gapDuration;
+                maxGapStart = currentEnd;
+                maxGapEnd = nextStart;
+            }
+        }
+
+        if (maxGapDuration > 0)
+        {
+            _longestGap = (maxGapStart, maxGapEnd, maxGapDuration);
+            Logger.LogInformation(
+                "Longest GAP: {Duration:F0}ms from {Start:HH:mm:ss.fff} to {End:HH:mm:ss.fff}",
+                maxGapDuration, maxGapStart, maxGapEnd);
+        }
+    }
+
+    private void ToggleLongestGapHighlight()
+    {
+        _showLongestGap = !_showLongestGap;
+        StateHasChanged();
+    }
+
+    private void SelectItem(GanttChartItem item, int itemIndex)
+    {
+        if (_ganttData == null) return;
+
+        _selectedItem = item;
+        _selectedItemIndex = itemIndex;
+
+        // Find previous and next items based on GAP analysis mode
+        List<GanttChartItem> relevantItems;
+
+        switch (_gapAnalysisMode)
+        {
+            case GapAnalysisMode.SameLane:
+                // 같은 레이어 내 아이템들
+                relevantItems = _ganttData.Items
+                    .Where(i => i.Lane == item.Lane)
+                    .OrderBy(i => i.GoingStartTime)
+                    .ToList();
+                break;
+
+            case GapAnalysisMode.SameCall:
+                // 같은 Call 이름의 아이템들 (반복 패턴 분석)
+                relevantItems = _ganttData.Items
+                    .Where(i => i.CallName == item.CallName)
+                    .OrderBy(i => i.GoingStartTime)
+                    .ToList();
+                break;
+
+            case GapAnalysisMode.SameGroup:
+                // 같은 Work 그룹 내 모든 아이템들
+                relevantItems = _ganttData.Items
+                    .Where(i => i.WorkName == item.WorkName)
+                    .OrderBy(i => i.GoingStartTime)
+                    .ToList();
+                break;
+
+            default:
+                relevantItems = new List<GanttChartItem>();
+                break;
+        }
+
+        var currentIndex = relevantItems.IndexOf(item);
+
+        // Find previous and next items
+        _previousItem = currentIndex > 0 ? relevantItems[currentIndex - 1] : null;
+        _nextItem = currentIndex < relevantItems.Count - 1 ? relevantItems[currentIndex + 1] : null;
+
+        // Calculate GAPs
+        if (_previousItem != null)
+        {
+            var prevEnd = _previousItem.FinishTime ?? _previousItem.GoingStartTime;
+            _gapToPrevious = (item.GoingStartTime - prevEnd).TotalMilliseconds;
+        }
+        else
+        {
+            _gapToPrevious = 0;
+        }
+
+        if (_nextItem != null)
+        {
+            var currentEnd = item.FinishTime ?? item.GoingStartTime;
+            _gapToNext = (_nextItem.GoingStartTime - currentEnd).TotalMilliseconds;
+        }
+        else
+        {
+            _gapToNext = 0;
+        }
+
+        Logger.LogInformation(
+            "Selected item: {CallName} at {Time:HH:mm:ss.fff}, Mode: {Mode}, GAP to prev: {GapPrev:F0}ms, GAP to next: {GapNext:F0}ms",
+            item.CallName, item.GoingStartTime, _gapAnalysisMode, _gapToPrevious, _gapToNext);
+
+        StateHasChanged();
+    }
+
+    private void ClearSelection()
+    {
+        _selectedItem = null;
+        _selectedItemIndex = -1;
+        _previousItem = null;
+        _nextItem = null;
+        _gapToPrevious = 0;
+        _gapToNext = 0;
+        StateHasChanged();
+    }
+
+    private List<GanttChartItem> CalculateGapSortedItems(List<GanttChartItem> items)
+    {
+        // Calculate GAP after each item
+        var itemsWithGap = items.OrderBy(i => i.GoingStartTime).Select((item, index) =>
+        {
+            double gapAfter = 0;
+            if (index < items.Count - 1)
+            {
+                var nextItem = items.OrderBy(i => i.GoingStartTime).ElementAt(index + 1);
+                var currentEnd = item.FinishTime ?? item.GoingStartTime;
+                gapAfter = (nextItem.GoingStartTime - currentEnd).TotalMilliseconds;
+            }
+            return new { Item = item, GapAfter = gapAfter };
+        }).ToList();
+
+        // Sort by GAP size (descending)
+        return itemsWithGap
+            .OrderByDescending(x => x.GapAfter)
+            .Select(x => x.Item)
+            .ToList();
+    }
+
+    private RenderFragment RenderGanttChart(DSPilot.Services.GanttChartData data) => builder =>
+    {
+        // Apply sorting based on chart sort mode
+        var sortedItems = _chartSortMode switch
+        {
+            ChartSortMode.ByTime => data.Items.OrderBy(i => i.GoingStartTime).ToList(),
+            ChartSortMode.ByCallName => data.Items.OrderBy(i => i.CallName).ThenBy(i => i.GoingStartTime).ToList(),
+            ChartSortMode.ByGapSize => CalculateGapSortedItems(data.Items),
+            _ => data.Items // ByLane (default)
+        };
+
+        // Chart dimensions and scaling
+        const int leftMargin = 220;
+        const int rightMargin = 20;
+        const int topMargin = 40;
+        const int bottomMargin = 40;
+        const int laneHeight = 40;
+        const int barHeight = 30;
+
+        // 실제 이벤트 발생 시간 범위 사용 (이벤트가 있는 구간만 표시)
+        var chartStartTime = data.ActualEventStartTime ?? data.StartTime;
+        var chartEndTime = data.ActualEventEndTime ?? (data.EndTime ?? data.StartTime.AddSeconds(1));
+
+        // 약간의 여유 공간 추가 (전후 5%)
+        var timeRange = (chartEndTime - chartStartTime).TotalMilliseconds;
+        var margin = timeRange * 0.05;
+        chartStartTime = chartStartTime.AddMilliseconds(-margin);
+        chartEndTime = chartEndTime.AddMilliseconds(margin);
+
+        var cycleTime = Math.Max((int)(chartEndTime - chartStartTime).TotalMilliseconds, 1);
+        var basePlotWidth = GetChartPlotWidth(cycleTime);
+        var plotWidth = (int)(basePlotWidth * (_chartZoomLevel / 100.0));  // Apply zoom level
+        var totalWidth = leftMargin + plotWidth + rightMargin;
+        var totalHeight = topMargin + (data.TotalLanes * laneHeight) + bottomMargin;
+        var xScale = plotWidth / (double)cycleTime;
+
+        var seq = 0;
+
+        // SVG container
+        builder.OpenElement(seq++, "svg");
+        builder.AddAttribute(seq++, "width", totalWidth);
+        builder.AddAttribute(seq++, "height", totalHeight);
+        builder.AddAttribute(seq++, "style", "border: 1px solid #e0e0e0; border-radius: 4px; background-color: #fafafa;");
+
+        // Title
+        builder.OpenElement(seq++, "text");
+        builder.AddAttribute(seq++, "x", 10);
+        builder.AddAttribute(seq++, "y", 20);
+        builder.AddAttribute(seq++, "font-size", "14");
+        builder.AddAttribute(seq++, "font-weight", "bold");
+        builder.AddAttribute(seq++, "fill", "#333");
+        builder.AddContent(seq++, $"Timeline: {chartStartTime:HH:mm:ss.fff} → {chartEndTime:HH:mm:ss.fff} ({cycleTime} ms)");
+        builder.CloseElement(); // text
+
+        // Draw time axis (X-axis)
+        builder.OpenElement(seq++, "line");
+        builder.AddAttribute(seq++, "x1", leftMargin);
+        builder.AddAttribute(seq++, "y1", topMargin);
+        builder.AddAttribute(seq++, "x2", leftMargin + plotWidth);
+        builder.AddAttribute(seq++, "y2", topMargin);
+        builder.AddAttribute(seq++, "stroke", "#666");
+        builder.AddAttribute(seq++, "stroke-width", "2");
+        builder.CloseElement(); // line
+
+        // Draw time markers
+        var timeStep = GetTimeAxisStep(cycleTime);
+        for (int t = 0; t <= cycleTime; t += timeStep)
+        {
+            var x = leftMargin + (int)(t * xScale);
+            var actualTime = chartStartTime.AddMilliseconds(t);
+
+            // Tick mark
+            builder.OpenElement(seq++, "line");
+            builder.AddAttribute(seq++, "x1", x);
+            builder.AddAttribute(seq++, "y1", topMargin - 5);
+            builder.AddAttribute(seq++, "x2", x);
+            builder.AddAttribute(seq++, "y2", topMargin);
+            builder.AddAttribute(seq++, "stroke", "#666");
+            builder.AddAttribute(seq++, "stroke-width", "1");
+            builder.CloseElement(); // line
+
+            // Time label (actual time in HH:mm:ss.fff format)
+            builder.OpenElement(seq++, "text");
+            builder.AddAttribute(seq++, "x", x);
+            builder.AddAttribute(seq++, "y", topMargin - 10);
+            builder.AddAttribute(seq++, "font-size", "10");
+            builder.AddAttribute(seq++, "text-anchor", "middle");
+            builder.AddAttribute(seq++, "fill", "#666");
+            builder.AddContent(seq++, actualTime.ToString("HH:mm:ss.fff"));
+            builder.CloseElement(); // text
+
+            // Grid line
+            builder.OpenElement(seq++, "line");
+            builder.AddAttribute(seq++, "x1", x);
+            builder.AddAttribute(seq++, "y1", topMargin);
+            builder.AddAttribute(seq++, "x2", x);
+            builder.AddAttribute(seq++, "y2", topMargin + (data.TotalLanes * laneHeight));
+            builder.AddAttribute(seq++, "stroke", "#e0e0e0");
+            builder.AddAttribute(seq++, "stroke-width", "1");
+            builder.AddAttribute(seq++, "stroke-dasharray", "2,2");
+            builder.CloseElement(); // line
+        }
+
+        // Draw lanes
+        for (int lane = 0; lane < data.TotalLanes; lane++)
+        {
+            var y = topMargin + (lane * laneHeight);
+            var laneLabel = lane < data.LaneLabels.Count
+                ? data.LaneLabels[lane]
+                : $"Lane {lane}";
+
+            // Lane separator
+            builder.OpenElement(seq++, "line");
+            builder.AddAttribute(seq++, "x1", leftMargin);
+            builder.AddAttribute(seq++, "y1", y);
+            builder.AddAttribute(seq++, "x2", leftMargin + plotWidth);
+            builder.AddAttribute(seq++, "y2", y);
+            builder.AddAttribute(seq++, "stroke", "#ddd");
+            builder.AddAttribute(seq++, "stroke-width", "1");
+            builder.CloseElement(); // line
+
+            // Lane label
+            builder.OpenElement(seq++, "text");
+            builder.AddAttribute(seq++, "x", 5);
+            builder.AddAttribute(seq++, "y", y + (laneHeight / 2) + 5);
+            builder.AddAttribute(seq++, "font-size", "10");
+            builder.AddAttribute(seq++, "fill", "#666");
+            builder.AddContent(seq++, laneLabel);
+            builder.CloseElement(); // text
+        }
+
+        // Draw longest GAP highlight if enabled
+        if (_showLongestGap && _longestGap.HasValue)
+        {
+            var gapStart = _longestGap.Value.Start;
+            var gapEnd = _longestGap.Value.End;
+            var gapDuration = _longestGap.Value.DurationMs;
+
+            // Calculate GAP position on chart
+            var gapStartOffset = (gapStart - chartStartTime).TotalMilliseconds;
+            var gapEndOffset = (gapEnd - chartStartTime).TotalMilliseconds;
+
+            if (gapStartOffset < cycleTime && gapEndOffset > 0)
+            {
+                var gapX = leftMargin + (int)(Math.Max(0, gapStartOffset) * xScale);
+                var gapWidth = (int)((Math.Min(gapEndOffset, cycleTime) - Math.Max(0, gapStartOffset)) * xScale);
+
+                // Highlight rectangle (semi-transparent yellow)
+                builder.OpenElement(seq++, "rect");
+                builder.AddAttribute(seq++, "x", gapX);
+                builder.AddAttribute(seq++, "y", topMargin);
+                builder.AddAttribute(seq++, "width", gapWidth);
+                builder.AddAttribute(seq++, "height", data.TotalLanes * laneHeight);
+                builder.AddAttribute(seq++, "fill", "rgba(255, 193, 7, 0.3)");  // Semi-transparent amber
+                builder.AddAttribute(seq++, "stroke", "#FFC107");
+                builder.AddAttribute(seq++, "stroke-width", "2");
+                builder.AddAttribute(seq++, "stroke-dasharray", "5,5");
+                builder.CloseElement(); // rect
+
+                // GAP label
+                var labelX = gapX + (gapWidth / 2);
+                var labelY = topMargin - 5;
+
+                builder.OpenElement(seq++, "text");
+                builder.AddAttribute(seq++, "x", labelX);
+                builder.AddAttribute(seq++, "y", labelY);
+                builder.AddAttribute(seq++, "font-size", "11");
+                builder.AddAttribute(seq++, "font-weight", "bold");
+                builder.AddAttribute(seq++, "text-anchor", "middle");
+                builder.AddAttribute(seq++, "fill", "#F57C00");
+                builder.AddContent(seq++, $"최대 GAP: {gapDuration:F0}ms");
+                builder.CloseElement(); // text
+
+                // Tooltip for GAP region
+                builder.OpenElement(seq++, "title");
+                builder.AddContent(seq++, $@"최대 GAP 구간
+시작: {gapStart:HH:mm:ss.fff}
+종료: {gapEnd:HH:mm:ss.fff}
+지속시간: {gapDuration:F0}ms");
+                builder.CloseElement(); // title
+            }
+        }
+
+        // Draw event bars
+        var itemIndex = 0;
+        foreach (var item in sortedItems)
+        {
+            var currentItemIndex = itemIndex++;
+            var isSelected = _selectedItem == item;
+
+            // Calculate actual event time and offset from chart start
+            var actualEventTime = data.StartTime.AddMilliseconds(item.RelativeStart);
+            var offsetFromChartStart = (actualEventTime - chartStartTime).TotalMilliseconds;
+            var x = leftMargin + (int)(offsetFromChartStart * xScale);
+            var y = topMargin + (item.Lane * laneHeight) + ((laneHeight - barHeight) / 2);
+
+            // Calculate bar width based on duration
+            var durationMs = (item.RelativeEnd ?? item.RelativeStart + 50) - item.RelativeStart;
+            var width = Math.Max(3, (int)(durationMs * xScale));
+
+            // Event type color
+            var color = item.EventType == DSPilot.Models.Analysis.IOEventType.InTag ? "#2196F3" : "#4CAF50";
+            var label = item.EventType == DSPilot.Models.Analysis.IOEventType.InTag ? "In" : "Out";
+
+            // Event group (for tooltip and click)
+            builder.OpenElement(seq++, "g");
+            builder.AddAttribute(seq++, "style", "cursor: pointer;");
+            builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(
+                this, () => SelectItem(item, currentItemIndex)));
+
+            // Tooltip
+            builder.OpenElement(seq++, "title");
+            builder.AddContent(seq++, $@"{item.CallName} ({item.WorkName})
+IOTag: {item.TagName} [{item.TagAddress}]
+Event: {label}Tag
+Offset: {offsetFromChartStart:F0} ms
+Timestamp: {item.GoingStartTime:HH:mm:ss.fff}
+Click to analyze");
+            builder.CloseElement(); // title
+
+            // Bar rectangle
+            builder.OpenElement(seq++, "rect");
+            builder.AddAttribute(seq++, "x", x);
+            builder.AddAttribute(seq++, "y", y);
+            builder.AddAttribute(seq++, "width", width);
+            builder.AddAttribute(seq++, "height", barHeight);
+            builder.AddAttribute(seq++, "fill", color);
+            builder.AddAttribute(seq++, "stroke", isSelected ? "#FF5722" : "#333");  // Red border if selected
+            builder.AddAttribute(seq++, "stroke-width", isSelected ? "3" : "1");
+            builder.AddAttribute(seq++, "rx", "3");
+            builder.AddAttribute(seq++, "style", isSelected ? "filter: drop-shadow(0 0 6px rgba(255, 87, 34, 0.8));" : "transition: opacity 0.2s;");
+            if (!isSelected)
+            {
+                builder.AddAttribute(seq++, "onmouseover", "this.style.opacity='0.7'");
+                builder.AddAttribute(seq++, "onmouseout", "this.style.opacity='1'");
+            }
+            builder.CloseElement(); // rect
+
+            // Call name label (if space available)
+            if (width > 30)
+            {
+                builder.OpenElement(seq++, "text");
+                builder.AddAttribute(seq++, "x", x + 5);
+                builder.AddAttribute(seq++, "y", y + (barHeight / 2) + 4);
+                builder.AddAttribute(seq++, "font-size", "9");
+                builder.AddAttribute(seq++, "fill", "white");
+                builder.AddAttribute(seq++, "font-weight", "bold");
+                builder.AddAttribute(seq++, "pointer-events", "none");
+                builder.AddContent(seq++, $"{item.CallName}");
+                builder.CloseElement(); // text
+            }
+
+            builder.CloseElement(); // g (event group)
+        }
+
+        // Draw arrows and GAP labels for selected item
+        if (_selectedItem != null && _ganttData != null)
+        {
+            var selectedActualTime = data.StartTime.AddMilliseconds(_selectedItem.RelativeStart);
+            var selectedOffsetFromChartStart = (selectedActualTime - chartStartTime).TotalMilliseconds;
+            var selectedX = leftMargin + (int)(selectedOffsetFromChartStart * xScale);
+            var selectedY = topMargin + (_selectedItem.Lane * laneHeight) + (laneHeight / 2);
+
+            // Arrow to previous item
+            if (_previousItem != null)
+            {
+                var prevActualTime = data.StartTime.AddMilliseconds(_previousItem.RelativeStart);
+                var prevOffsetFromChartStart = (prevActualTime - chartStartTime).TotalMilliseconds;
+                var prevX = leftMargin + (int)(prevOffsetFromChartStart * xScale);
+                var prevDurationMs = (_previousItem.RelativeEnd ?? _previousItem.RelativeStart + 50) - _previousItem.RelativeStart;
+                var prevWidth = Math.Max(3, (int)(prevDurationMs * xScale));
+                var prevEndX = prevX + prevWidth;
+                var prevY = topMargin + (_previousItem.Lane * laneHeight) + (laneHeight / 2);
+
+                // Arrow line
+                builder.OpenElement(seq++, "line");
+                builder.AddAttribute(seq++, "x1", prevEndX);
+                builder.AddAttribute(seq++, "y1", prevY);
+                builder.AddAttribute(seq++, "x2", selectedX);
+                builder.AddAttribute(seq++, "y2", selectedY);
+                builder.AddAttribute(seq++, "stroke", "#FF9800");
+                builder.AddAttribute(seq++, "stroke-width", "2");
+                builder.AddAttribute(seq++, "stroke-dasharray", "5,3");
+                builder.AddAttribute(seq++, "marker-end", "url(#arrowhead)");
+                builder.CloseElement(); // line
+
+                // GAP label
+                var midX = (prevEndX + selectedX) / 2;
+                var midY = (prevY + selectedY) / 2 - 10;
+                builder.OpenElement(seq++, "text");
+                builder.AddAttribute(seq++, "x", midX);
+                builder.AddAttribute(seq++, "y", midY);
+                builder.AddAttribute(seq++, "font-size", "10");
+                builder.AddAttribute(seq++, "font-weight", "bold");
+                builder.AddAttribute(seq++, "text-anchor", "middle");
+                builder.AddAttribute(seq++, "fill", "#FF9800");
+                builder.AddAttribute(seq++, "style", "background: white; padding: 2px;");
+                builder.AddContent(seq++, $"← GAP: {_gapToPrevious:F0}ms");
+                builder.CloseElement(); // text
+            }
+
+            // Arrow to next item
+            if (_nextItem != null)
+            {
+                var nextActualTime = data.StartTime.AddMilliseconds(_nextItem.RelativeStart);
+                var nextOffsetFromChartStart = (nextActualTime - chartStartTime).TotalMilliseconds;
+                var nextX = leftMargin + (int)(nextOffsetFromChartStart * xScale);
+                var nextY = topMargin + (_nextItem.Lane * laneHeight) + (laneHeight / 2);
+
+                var selectedDurationMs = (_selectedItem.RelativeEnd ?? _selectedItem.RelativeStart + 50) - _selectedItem.RelativeStart;
+                var selectedWidth = Math.Max(3, (int)(selectedDurationMs * xScale));
+                var selectedEndX = selectedX + selectedWidth;
+
+                // Arrow line
+                builder.OpenElement(seq++, "line");
+                builder.AddAttribute(seq++, "x1", selectedEndX);
+                builder.AddAttribute(seq++, "y1", selectedY);
+                builder.AddAttribute(seq++, "x2", nextX);
+                builder.AddAttribute(seq++, "y2", nextY);
+                builder.AddAttribute(seq++, "stroke", "#4CAF50");
+                builder.AddAttribute(seq++, "stroke-width", "2");
+                builder.AddAttribute(seq++, "stroke-dasharray", "5,3");
+                builder.AddAttribute(seq++, "marker-end", "url(#arrowhead-green)");
+                builder.CloseElement(); // line
+
+                // GAP label
+                var midX = (selectedEndX + nextX) / 2;
+                var midY = (selectedY + nextY) / 2 - 10;
+                builder.OpenElement(seq++, "text");
+                builder.AddAttribute(seq++, "x", midX);
+                builder.AddAttribute(seq++, "y", midY);
+                builder.AddAttribute(seq++, "font-size", "10");
+                builder.AddAttribute(seq++, "font-weight", "bold");
+                builder.AddAttribute(seq++, "text-anchor", "middle");
+                builder.AddAttribute(seq++, "fill", "#4CAF50");
+                builder.AddContent(seq++, $"GAP: {_gapToNext:F0}ms →");
+                builder.CloseElement(); // text
+            }
+        }
+
+        // Define arrow markers
+        builder.OpenElement(seq++, "defs");
+
+        // Orange arrowhead for previous
+        builder.OpenElement(seq++, "marker");
+        builder.AddAttribute(seq++, "id", "arrowhead");
+        builder.AddAttribute(seq++, "markerWidth", "10");
+        builder.AddAttribute(seq++, "markerHeight", "10");
+        builder.AddAttribute(seq++, "refX", "9");
+        builder.AddAttribute(seq++, "refY", "3");
+        builder.AddAttribute(seq++, "orient", "auto");
+        builder.OpenElement(seq++, "polygon");
+        builder.AddAttribute(seq++, "points", "0 0, 10 3, 0 6");
+        builder.AddAttribute(seq++, "fill", "#FF9800");
+        builder.CloseElement(); // polygon
+        builder.CloseElement(); // marker
+
+        // Green arrowhead for next
+        builder.OpenElement(seq++, "marker");
+        builder.AddAttribute(seq++, "id", "arrowhead-green");
+        builder.AddAttribute(seq++, "markerWidth", "10");
+        builder.AddAttribute(seq++, "markerHeight", "10");
+        builder.AddAttribute(seq++, "refX", "9");
+        builder.AddAttribute(seq++, "refY", "3");
+        builder.AddAttribute(seq++, "orient", "auto");
+        builder.OpenElement(seq++, "polygon");
+        builder.AddAttribute(seq++, "points", "0 0, 10 3, 0 6");
+        builder.AddAttribute(seq++, "fill", "#4CAF50");
+        builder.CloseElement(); // polygon
+        builder.CloseElement(); // marker
+
+        builder.CloseElement(); // defs
+
+        builder.CloseElement(); // svg
+    };
+
+    private static int GetChartPlotWidth(int cycleTimeMs)
+    {
+        if (cycleTimeMs <= 2000)
+            return 900;
+        if (cycleTimeMs <= 10000)
+            return 1200;
+        if (cycleTimeMs <= 60000)
+            return 1500;
+
+        return 1800;
+    }
+
+    private static int GetTimeAxisStep(int cycleTimeMs)
+    {
+        var rawStep = Math.Max(cycleTimeMs / 10, 1);
+        var magnitude = Math.Pow(10, Math.Floor(Math.Log10(rawStep)));
+        var normalized = rawStep / magnitude;
+
+        var niceStep = normalized switch
+        {
+            <= 1 => 1,
+            <= 2 => 2,
+            <= 5 => 5,
+            _ => 10
+        };
+
+        return (int)(niceStep * magnitude);
+    }
+}

@@ -108,6 +108,27 @@ public class DsProjectService
 
     public DsStore GetStore() => _store;
 
+    /// <summary>
+    /// Flow의 첫 번째 Call을 가져옵니다 (Head Call)
+    /// </summary>
+    public Call? GetHeadCall(Guid flowId)
+    {
+        var works = GetWorks(flowId);
+        if (works.Count == 0) return null;
+
+        var firstWork = works[0];
+        var calls = GetCalls(firstWork.Id);
+        return calls.Count > 0 ? calls[0] : null;
+    }
+
+    /// <summary>
+    /// Flow 이름으로 Flow 객체 찾기
+    /// </summary>
+    public Flow? GetFlowByName(string flowName)
+    {
+        return GetAllFlows().FirstOrDefault(f => f.Name == flowName);
+    }
+
     public List<(double X, double Y)> ComputeArrowPath(Xywh source, Xywh target)
     {
         var visual = Ds2.UI.Core.ArrowPathCalculator.computePath(source, target);

@@ -1,15 +1,14 @@
+using DSPilot.Engine;
 using DSPilot.Models.Dsp;
 
 namespace DSPilot.Services;
 
 /// <summary>
-/// PLC 태그 상태 추적 서비스 - 엣지 감지를 위한 이전 값 저장
+/// PLC 태그 상태 추적 서비스 (F# EdgeDetection 사용)
 /// </summary>
 public class PlcTagStateTrackerService
 {
     private readonly ILogger<PlcTagStateTrackerService> _logger;
-
-    // TagName → TagEdgeState 매핑
     private readonly Dictionary<string, TagEdgeState> _tagStates = new();
 
     public PlcTagStateTrackerService(ILogger<PlcTagStateTrackerService> logger)
@@ -18,19 +17,22 @@ public class PlcTagStateTrackerService
     }
 
     /// <summary>
-    /// 태그 값 업데이트 및 엣지 상태 반환
+    /// 태그 값 업데이트 및 엣지 상태 반환 (F# EdgeDetection 사용)
     /// </summary>
     public TagEdgeState UpdateTagValue(string tagName, string newValue)
     {
         if (!_tagStates.TryGetValue(tagName, out var state))
         {
             // 첫 번째 업데이트
+            var edgeType = EdgeDetection.detectEdge(null, newValue);
+
             state = new TagEdgeState
             {
                 TagName = tagName,
-                PreviousValue = "0",  // 초기값
+                PreviousValue = "0",
                 CurrentValue = newValue,
-                LastUpdateTime = DateTime.Now
+                LastUpdateTime = DateTime.Now,
+                EdgeType = edgeType
             };
             _tagStates[tagName] = state;
 
@@ -38,17 +40,19 @@ public class PlcTagStateTrackerService
         }
         else
         {
-            // 기존 값 업데이트
+            // F# EdgeDetection 사용
+            var edgeType = EdgeDetection.detectEdge(state.CurrentValue, newValue);
+
             state.PreviousValue = state.CurrentValue;
             state.CurrentValue = newValue;
             state.LastUpdateTime = DateTime.Now;
+            state.EdgeType = edgeType;
 
-            // 엣지 감지 로깅
-            if (state.IsRisingEdge())
+            if (EdgeDetection.isRising(edgeType))
             {
                 _logger.LogDebug("Tag '{TagName}': Rising edge detected (0 → 1)", tagName);
             }
-            else if (state.IsFallingEdge())
+            else if (EdgeDetection.isFalling(edgeType))
             {
                 _logger.LogDebug("Tag '{TagName}': Falling edge detected (1 → 0)", tagName);
             }

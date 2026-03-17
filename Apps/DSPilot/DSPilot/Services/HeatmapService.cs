@@ -1,10 +1,12 @@
-using DSPilot.Models.Heatmap;
+using DSPilot.Engine;
+using static DSPilot.Engine.Models;
 using DSPilot.Repositories;
+using Microsoft.FSharp.Collections;
 
 namespace DSPilot.Services;
 
 /// <summary>
-/// Heatmap 데이터 처리 및 색상 코드 할당 서비스
+/// Heatmap 데이터 처리 서비스 (F# Performance 및 Models 모듈 사용)
 /// </summary>
 public class HeatmapService
 {
@@ -35,16 +37,17 @@ public class HeatmapService
                 return new List<FlowHeatmapGroup>();
             }
 
-            // 2. CallHeatmapItem으로 변환
-            var items = statistics.Select(s => new CallHeatmapItem
-            {
-                CallName = s.CallName,
-                FlowName = s.FlowName,
-                WorkName = s.WorkName,
-                AverageGoingTime = s.AverageGoingTime,
-                StdDevGoingTime = s.StdDevGoingTime,
-                GoingCount = s.GoingCount
-            }).ToList();
+            // 2. CallHeatmapItem으로 변환 (F# record)
+            var items = statistics.Select(s => new CallHeatmapItem(
+                s.CallName,
+                s.FlowName,
+                s.WorkName,
+                s.AverageGoingTime,
+                s.StdDevGoingTime,
+                s.GoingCount,
+                0.0, // PerformanceScore will be calculated
+                ""   // ColorClass will be assigned
+            )).ToList();
 
             // 3. 성능 점수 계산
             CalculatePerformanceScores(items);
@@ -55,12 +58,11 @@ public class HeatmapService
             // 5. Flow별로 그룹화
             var groups = items
                 .GroupBy(item => item.FlowName)
-                .Select(g => new FlowHeatmapGroup
-                {
-                    FlowName = g.Key,
-                    Calls = g.OrderBy(c => c.CallName).ToList(),
-                    IsExpanded = true
-                })
+                .Select(g => new FlowHeatmapGroup(
+                    g.Key,
+                    ListModule.OfSeq(g.OrderBy(c => c.CallName)),
+                    true
+                ))
                 .OrderBy(g => g.FlowName)
                 .ToList();
 
@@ -79,121 +81,74 @@ public class HeatmapService
     }
 
     /// <summary>
-    /// 성능 점수 계산 (0-100, 높을수록 좋음)
-    /// 가중치: 평균 시간 70%, 변동계수 30%
+    /// 성능 점수 계산 (F# Performance 모듈 사용)
     /// </summary>
     private void CalculatePerformanceScores(List<CallHeatmapItem> items)
     {
         if (items.Count == 0) return;
 
-        // 정규화를 위한 최소/최대값 계산
-        var minAvg = items.Min(i => i.AverageGoingTime);
-        var maxAvg = items.Max(i => i.AverageGoingTime);
-        var minCV = items.Min(i => i.CoefficientOfVariation);
-        var maxCV = items.Max(i => i.CoefficientOfVariation);
+        // F# 함수 호출을 위한 데이터 변환 (C# value tuple → F# Tuple)
+        var data = items.Select(i => Tuple.Create(i.AverageGoingTime, i.CoefficientOfVariation)).ToList();
+        var fsharpList = ListModule.OfSeq(data);
 
-        foreach (var item in items)
+        var scores = Performance.calculatePerformanceScores(fsharpList);
+        var scoreList = ListModule.ToArray(scores);
+
+        // F# record는 불변이므로 새 인스턴스 생성
+        for (int i = 0; i < items.Count; i++)
         {
-            // 평균 시간 점수 (낮을수록 좋음 → 역정규화)
-            var avgScore = maxAvg > minAvg
-                ? (1 - (item.AverageGoingTime - minAvg) / (maxAvg - minAvg)) * 100
-                : 100;
-
-            // 변동계수 점수 (낮을수록 좋음 → 역정규화)
-            var cvScore = maxCV > minCV
-                ? (1 - (item.CoefficientOfVariation - minCV) / (maxCV - minCV)) * 100
-                : 100;
-
-            // 가중 평균 (평균 시간 70%, 변동계수 30%)
-            item.PerformanceScore = avgScore * 0.7 + cvScore * 0.3;
+            items[i] = new CallHeatmapItem(
+                items[i].CallName,
+                items[i].FlowName,
+                items[i].WorkName,
+                items[i].AverageGoingTime,
+                items[i].StdDevGoingTime,
+                items[i].GoingCount,
+                scoreList[i],
+                items[i].ColorClass
+            );
         }
     }
 
     /// <summary>
-    /// 선택된 메트릭에 따라 색상 클래스 할당
+    /// 선택된 메트릭에 따라 색상 클래스 할당 (F# Performance 모듈 사용)
     /// </summary>
     private void AssignColorClasses(List<CallHeatmapItem> items, HeatmapMetric metric)
     {
         if (items.Count == 0) return;
 
-        // 메트릭 값 추출
         var values = items.Select(i => i.GetMetricValue(metric)).ToList();
         var minValue = values.Min();
         var maxValue = values.Max();
 
-        foreach (var item in items)
+        // F# record는 불변이므로 새 인스턴스 생성
+        for (int i = 0; i < items.Count; i++)
         {
-            var value = item.GetMetricValue(metric);
+            var value = items[i].GetMetricValue(metric);
+            var colorClass = Performance.assignColorClass(metric, value, minValue, maxValue);
 
-            // 정규화 (0-1 범위)
-            var normalized = maxValue > minValue
-                ? (value - minValue) / (maxValue - minValue)
-                : 0.5;
-
-            // 성능 점수는 높을수록 좋음 (녹색)
-            // 나머지 메트릭은 낮을수록 좋음 (녹색)
-            if (metric == HeatmapMetric.PerformanceScore)
-            {
-                item.ColorClass = GetColorClassForPerformance(normalized);
-            }
-            else
-            {
-                item.ColorClass = GetColorClassForTime(normalized);
-            }
+            items[i] = new CallHeatmapItem(
+                items[i].CallName,
+                items[i].FlowName,
+                items[i].WorkName,
+                items[i].AverageGoingTime,
+                items[i].StdDevGoingTime,
+                items[i].GoingCount,
+                items[i].PerformanceScore,
+                colorClass
+            );
         }
     }
 
     /// <summary>
-    /// 성능 점수용 색상 클래스 (높을수록 녹색)
+    /// 메트릭 표시 이름 반환 (F# Performance 모듈 사용)
     /// </summary>
-    private string GetColorClassForPerformance(double normalized)
-    {
-        return normalized switch
-        {
-            >= 0.8 => "heatmap-excellent",   // 80-100: 진한 녹색
-            >= 0.6 => "heatmap-good",        // 60-80: 연한 녹색
-            >= 0.4 => "heatmap-fair",        // 40-60: 노란색
-            >= 0.2 => "heatmap-poor",        // 20-40: 주황색
-            _ => "heatmap-critical"          // 0-20: 빨간색
-        };
-    }
+    public static string GetMetricDisplayName(HeatmapMetric metric) =>
+        Performance.getMetricDisplayName(metric);
 
     /// <summary>
-    /// 시간/변동성 메트릭용 색상 클래스 (낮을수록 녹색)
+    /// 메트릭 값 포맷 (F# Performance 모듈 사용)
     /// </summary>
-    private string GetColorClassForTime(double normalized)
-    {
-        return normalized switch
-        {
-            <= 0.2 => "heatmap-excellent",   // 0-20: 진한 녹색 (빠름/안정적)
-            <= 0.4 => "heatmap-good",        // 20-40: 연한 녹색
-            <= 0.6 => "heatmap-fair",        // 40-60: 노란색
-            <= 0.8 => "heatmap-poor",        // 60-80: 주황색
-            _ => "heatmap-critical"          // 80-100: 빨간색 (느림/불안정)
-        };
-    }
-
-    /// <summary>
-    /// 메트릭 표시 이름 반환
-    /// </summary>
-    public static string GetMetricDisplayName(HeatmapMetric metric) => metric switch
-    {
-        HeatmapMetric.AverageTime => "평균 시간 (ms)",
-        HeatmapMetric.StdDeviation => "표준편차 (ms)",
-        HeatmapMetric.CoefficientOfVariation => "변동계수 (CV)",
-        HeatmapMetric.PerformanceScore => "성능 점수",
-        _ => "Unknown"
-    };
-
-    /// <summary>
-    /// 메트릭 값 포맷 (소수점 처리)
-    /// </summary>
-    public static string FormatMetricValue(HeatmapMetric metric, double value) => metric switch
-    {
-        HeatmapMetric.AverageTime => $"{value:F0}",
-        HeatmapMetric.StdDeviation => $"{value:F0}",
-        HeatmapMetric.CoefficientOfVariation => $"{value:F2}",
-        HeatmapMetric.PerformanceScore => $"{value:F0}",
-        _ => value.ToString()
-    };
+    public static string FormatMetricValue(HeatmapMetric metric, double value) =>
+        Performance.formatMetricValue(metric, value);
 }

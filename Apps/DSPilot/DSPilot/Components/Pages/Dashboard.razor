@@ -5,7 +5,6 @@
 
 <PageTitle>Dashboard - DSPilot</PageTitle>
 
-<div style="display: flex; flex-direction: column; height: 100%; overflow: hidden;">
 @if (!ProjectService.IsLoaded)
 {
     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
@@ -14,7 +13,7 @@
 }
 else
 {
-    <div style="flex-shrink: 0;">
+    <div>
         <MudGrid Spacing="3">
             <MudItem xs="12" sm="6" md="3">
                 <MudCard Elevation="2" Style="border-top: 4px solid #0A1E5A; border-radius: 8px;">
@@ -67,7 +66,7 @@ else
     </div>
 
     @* 실시간 상태 카드 *@
-    <div style="flex-shrink: 0;" class="mt-3">
+    <div class="mt-3">
         <MudGrid Spacing="3">
             <MudItem xs="12" sm="6" md="3">
                 <MudCard Elevation="2" Style="border-top: 4px solid #9E9E9E; border-radius: 8px;">
@@ -118,15 +117,15 @@ else
 
     @if (ErrorCallCount > 0)
     {
-        <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mt-2" Style="flex-shrink: 0;">
+        <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mt-2">
             @ErrorCallCount call(s) in error state
         </MudAlert>
     }
 
     @* Flow별 가동시간 도넛 차트 *@
-    <MudText Typo="Typo.h6" Class="mt-3 mb-2" Style="font-weight: 600; color: #0A1E5A; flex-shrink: 0;">Flow Operation Time</MudText>
-    <MudCard Elevation="2" Style="border-radius: 8px; flex: 1; min-height: 0; overflow: auto;">
-        <MudCardContent Style="height: 100%;">
+    <MudText Typo="Typo.h6" Class="mt-3 mb-2" Style="font-weight: 600; color: #0A1E5A;">Flow Operation Time</MudText>
+    <MudCard Elevation="2" Style="border-radius: 8px; max-height: 600px; overflow: auto;">
+        <MudCardContent>
             @if (_flowTimeInfos.Count == 0)
             {
                 <MudText Typo="Typo.body2" Style="color: #7D8282;">No flow time data available.</MudText>
@@ -183,7 +182,6 @@ else
         </MudCardContent>
     </MudCard>
 }
-</div>
 
 @code {
     private Ds2.Core.Project? _project;

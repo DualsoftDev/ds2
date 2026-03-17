@@ -30,6 +30,8 @@ builder.Services.AddSingleton<IDspRepository, DspRepository>();
 builder.Services.AddSingleton<PlcToCallMapperService>();
 builder.Services.AddSingleton<PlcTagStateTrackerService>();
 builder.Services.AddSingleton<CallStatisticsService>();
+builder.Services.AddSingleton<IFlowMetricsService, FlowMetricsService>();
+builder.Services.AddScoped<CycleAnalysisService>();
 builder.Services.AddHostedService<DspDatabaseService>();
 
 var app = builder.Build();

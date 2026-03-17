@@ -1,5 +1,6 @@
 @page "/heatmap"
-@using DSPilot.Models.Heatmap
+@using DSPilot.Engine
+@using static DSPilot.Engine.Models
 @using DSPilot.Services
 @inject HeatmapService HeatmapService
 @inject ILogger<Heatmap> Logger
@@ -22,7 +23,7 @@
                            Variant="Variant.Outlined"
                            AdornmentIcon="@Icons.Material.Filled.BarChart"
                            AdornmentColor="Color.Primary">
-                    @foreach (HeatmapMetric metric in Enum.GetValues(typeof(HeatmapMetric)))
+                    @foreach (var metric in AvailableMetrics)
                     {
                         <MudSelectItem Value="@metric">
                             @HeatmapService.GetMetricDisplayName(metric)
@@ -175,6 +176,15 @@
         ? AllGroups
         : AllGroups.Where(g => g.FlowName.Contains(FlowFilter, StringComparison.OrdinalIgnoreCase)).ToList();
 
+    // F# discriminated union 값들을 직접 나열
+    private readonly List<HeatmapMetric> AvailableMetrics = new()
+    {
+        HeatmapMetric.AverageTime,
+        HeatmapMetric.StdDeviation,
+        HeatmapMetric.CoefficientOfVariation,
+        HeatmapMetric.PerformanceScore
+    };
+
     private HeatmapMetric _selectedMetric = HeatmapMetric.PerformanceScore;
     private HeatmapMetric SelectedMetric
     {
@@ -231,13 +241,15 @@
 
     private double GetFlowAverageValue(FlowHeatmapGroup group)
     {
-        return SelectedMetric switch
-        {
-            HeatmapMetric.AverageTime => group.FlowAverageTime,
-            HeatmapMetric.StdDeviation => group.FlowAverageStdDev,
-            HeatmapMetric.PerformanceScore => group.FlowAverageScore,
-            HeatmapMetric.CoefficientOfVariation => group.Calls.Average(c => c.CoefficientOfVariation),
-            _ => 0
-        };
+        if (SelectedMetric.Equals(HeatmapMetric.AverageTime))
+            return group.FlowAverageTime;
+        else if (SelectedMetric.Equals(HeatmapMetric.StdDeviation))
+            return group.FlowAverageStdDev;
+        else if (SelectedMetric.Equals(HeatmapMetric.PerformanceScore))
+            return group.FlowAverageScore;
+        else if (SelectedMetric.Equals(HeatmapMetric.CoefficientOfVariation))
+            return group.Calls.Average(c => c.CoefficientOfVariation);
+        else
+            return 0;
     }
 }

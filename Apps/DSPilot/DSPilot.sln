@@ -15,13 +15,12 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Convert", "Convert", "{F2C5
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Aasx", "..\..\solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj", "{7D2A6D5A-CE82-49AC-AFAE-2A052557F49B}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "DSPilot.Engine", "DSPilot.Engine\DSPilot.Engine.fsproj", "{3BE435DB-A466-5F39-0855-533E966C106A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
-	EndGlobalSection
-	GlobalSection(SolutionProperties) = preSolution
-		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{11BEE139-3BAC-422B-AA70-B0449A800D7C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -40,6 +39,13 @@ Global
 		{7D2A6D5A-CE82-49AC-AFAE-2A052557F49B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7D2A6D5A-CE82-49AC-AFAE-2A052557F49B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7D2A6D5A-CE82-49AC-AFAE-2A052557F49B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3BE435DB-A466-5F39-0855-533E966C106A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3BE435DB-A466-5F39-0855-533E966C106A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3BE435DB-A466-5F39-0855-533E966C106A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3BE435DB-A466-5F39-0855-533E966C106A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{36FDB475-EAF2-429B-82CA-83705031445A} = {641EFE74-7E3F-4801-9203-9AA0C40F7C87}

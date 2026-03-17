@@ -13,17 +13,20 @@ public class DspDatabaseService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly DsProjectService _projectService;
     private readonly PlcToCallMapperService _mapper;
+    private readonly IFlowMetricsService _flowMetricsService;
 
     public DspDatabaseService(
         ILogger<DspDatabaseService> logger,
         IServiceScopeFactory scopeFactory,
         DsProjectService projectService,
-        PlcToCallMapperService mapper)
+        PlcToCallMapperService mapper,
+        IFlowMetricsService flowMetricsService)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _projectService = projectService;
         _mapper = mapper;
+        _flowMetricsService = flowMetricsService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -55,6 +58,9 @@ public class DspDatabaseService : BackgroundService
             // 4. PlcToCallMapper 초기화
             _mapper.Initialize();
 
+            // 5. FlowMetricsService 초기화 (MovingStartName/MovingEndName 설정)
+            await _flowMetricsService.InitializeAsync();
+
             _logger.LogInformation("DSP Database Service initialized successfully");
         }
         catch (Exception ex)
@@ -83,6 +89,7 @@ public class DspDatabaseService : BackgroundService
                 State = "Ready",
                 MT = null,
                 WT = null,
+                CT = null,
                 MovingStartName = null,
                 MovingEndName = null
             }).ToList();
