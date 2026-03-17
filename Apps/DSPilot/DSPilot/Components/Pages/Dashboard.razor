@@ -168,7 +168,7 @@ else
                                 <MudChart ChartType="ChartType.Donut"
                                           InputData="@(new double[] { Math.Max(mt, 0), Math.Max(wt, 0) })"
                                           InputLabels="@(new[] { $"MT ({mt})", $"WT ({wt})" })"
-                                          ChartPalette="@(new[] { "#42A5F5", "#FFA726" })"
+                                          ChartOptions="@_mtWtChartOptions"
                                           Width="90px"
                                           Height="90px"
                                           Class="mt-1" />
@@ -194,6 +194,10 @@ else
     private int _workCount;
     private List<FlowTimeInfo> _flowTimeInfos = [];
     private DspDbSnapshot _dbSnapshot = new();
+    private static readonly ChartOptions _mtWtChartOptions = new()
+    {
+        ChartPalette = ["#42A5F5", "#FFA726"]
+    };
 
     private int ErrorCallCount => _dbSnapshot.Calls.Count(c => c.State.Equals("Error", StringComparison.OrdinalIgnoreCase));
 
