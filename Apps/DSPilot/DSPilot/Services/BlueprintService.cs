@@ -127,6 +127,20 @@ public class BlueprintService : IDisposable
         return JsonSerializer.Serialize(_layout, new JsonSerializerOptions { WriteIndented = true });
     }
 
+    public void LoadLayoutJson(string json)
+    {
+        var imported = JsonSerializer.Deserialize<BlueprintLayout>(json)
+            ?? throw new InvalidOperationException("Invalid layout JSON");
+        _layout.GridColumns = imported.GridColumns;
+        _layout.GridRows = imported.GridRows;
+        _layout.OffsetX = imported.OffsetX;
+        _layout.OffsetY = imported.OffsetY;
+        _layout.OffsetRight = imported.OffsetRight;
+        _layout.OffsetBottom = imported.OffsetBottom;
+        _layout.FlowPlacements = imported.FlowPlacements;
+        Save();
+    }
+
     private void ScheduleSave()
     {
         _debounceTimer?.Dispose();

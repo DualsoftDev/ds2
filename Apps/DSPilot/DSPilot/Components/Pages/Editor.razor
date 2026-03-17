@@ -11,6 +11,14 @@
 <div class="d-flex align-center mb-4">
     <MudText Typo="Typo.h5" Style="font-weight: 600; color: #0A1E5A;">Editor</MudText>
     <MudSpacer />
+    <MudFileUpload T="IBrowserFile" Accept=".json" FilesChanged="ImportJson" MaximumFileCount="1" Class="mr-2">
+        <ActivatorContent>
+            <MudButton Variant="Variant.Outlined" Color="Color.Warning"
+                       StartIcon="@Icons.Material.Filled.FileUpload">
+                Import JSON
+            </MudButton>
+        </ActivatorContent>
+    </MudFileUpload>
     <MudButton Variant="Variant.Outlined" Color="Color.Success" Class="mr-2"
                StartIcon="@Icons.Material.Filled.FileDownload"
                OnClick="ExportJson">
@@ -445,6 +453,37 @@ else
         BlueprintService.RemovePlacement(flowId);
         Snackbar.Add("Removed.", Severity.Info);
         StateHasChanged();
+    }
+
+    private async Task ImportJson(IBrowserFile file)
+    {
+        if (file == null) return;
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var reader = new System.IO.StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+            BlueprintService.LoadLayoutJson(json);
+
+            // Sync local grid fields
+            _gridColumns = BlueprintService.Layout.GridColumns;
+            _gridRows = BlueprintService.Layout.GridRows;
+            _offsetX = BlueprintService.Layout.OffsetX;
+            _offsetY = BlueprintService.Layout.OffsetY;
+            _offsetRight = BlueprintService.Layout.OffsetRight;
+            _offsetBottom = BlueprintService.Layout.OffsetBottom;
+
+            var layout = BlueprintService.Layout;
+            await JS.InvokeVoidAsync("canvasInterop.updateGrid",
+                layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
+                layout.OffsetX, layout.OffsetY);
+
+            Snackbar.Add("JSON imported.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Import failed: {ex.Message}", Severity.Error);
+        }
     }
 
     private async Task ExportJson()

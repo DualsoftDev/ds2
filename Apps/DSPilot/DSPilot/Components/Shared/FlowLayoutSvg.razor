@@ -23,6 +23,17 @@
         var innerW = pw - pad * 2;
         var innerH = ph - pad * 2;
 
+        var hasMtWt = mtWt != null;
+        var mt = mtWt?.Mt ?? 0;
+        var wt = mtWt?.Wt ?? 0;
+        var total = mt + wt;
+        var barX = px + pad + 10;
+        var barY = py + pad + innerH / 2 - 2;
+        var barW = innerW - 20;
+        var barH = 10;
+        var mtW = total > 0 ? (int)(barW * ((double)mt / total)) : 0;
+        var wtW = total > 0 ? barW - mtW : 0;
+
         <g>
             <rect x="@(px + pad)" y="@(py + pad)"
                   width="@innerW" height="@innerH"
@@ -41,42 +52,18 @@
                 @subtitle
             </text>
 
-            @if (mtWt != null)
-            {
-                var (mt, wt) = mtWt.Value;
-                var total = mt + wt;
-                var barX = px + pad + 10;
-                var barY = py + pad + innerH / 2 - 2;
-                var barW = innerW - 20;
-                var barH = 10;
-
-                @* background *@
-                <rect x="@barX" y="@barY" width="@barW" height="@barH" rx="3" ry="3"
-                      fill="rgba(0,0,0,0.2)" />
-
-                @if (total > 0)
-                {
-                    var mtW = (int)(barW * ((double)mt / total));
-                    var wtW = barW - mtW;
-
-                    @if (mtW > 0)
-                    {
-                        <rect x="@barX" y="@barY" width="@mtW" height="@barH"
-                              rx="3" ry="3" fill="#42A5F5" />
-                    }
-                    @if (wtW > 0)
-                    {
-                        <rect x="@(barX + mtW)" y="@barY" width="@wtW" height="@barH"
-                              rx="3" ry="3" fill="#FFA726" />
-                    }
-                }
-
-                <text x="@(px + pw / 2)" y="@(barY + barH + 14)"
-                      text-anchor="middle" fill="rgba(255,255,255,0.8)"
-                      font-size="8">
-                    MT:@mt  WT:@wt
-                </text>
-            }
+            @* MT/WT bar *@
+            <rect x="@barX" y="@barY" width="@barW" height="@barH" rx="3" ry="3"
+                  fill="rgba(0,0,0,0.2)" opacity="@(hasMtWt ? 1 : 0)" />
+            <rect x="@barX" y="@barY" width="@mtW" height="@barH"
+                  rx="3" ry="3" fill="#42A5F5" opacity="@(mtW > 0 ? 1 : 0)" />
+            <rect x="@(barX + mtW)" y="@barY" width="@wtW" height="@barH"
+                  rx="3" ry="3" fill="#FFA726" opacity="@(wtW > 0 ? 1 : 0)" />
+            <text x="@(px + pw / 2)" y="@(barY + barH + 14)"
+                  text-anchor="middle" fill="rgba(255,255,255,0.8)"
+                  font-size="8" opacity="@(hasMtWt ? 1 : 0)">
+                MT:@mt  WT:@wt
+            </text>
 
             <text x="@(px + pw / 2)" y="@(py + pad + innerH - 6)"
                   text-anchor="middle" fill="rgba(255,255,255,0.7)"

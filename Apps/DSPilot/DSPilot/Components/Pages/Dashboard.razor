@@ -135,6 +135,8 @@ else
                 <div style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; align-content: flex-start;">
                     @foreach (var flowInfo in _flowTimeInfos)
                     {
+                        var mtWt = GetFlowMtWt(flowInfo.FlowName);
+
                         <div style="display: flex; flex-direction: column; align-items: center; min-width: 160px; flex: 1 1 160px; max-width: 220px; padding: 8px;">
                             <MudText Typo="Typo.subtitle2" Style="font-weight: 600; color: #0A1E5A;">
                                 @flowInfo.FlowName
@@ -155,6 +157,24 @@ else
                                     @flowInfo.WorkCount Works
                                 </MudText>
                             </div>
+
+                            @if (mtWt != null)
+                            {
+                                var mt = mtWt.Value.Mt;
+                                var wt = mtWt.Value.Wt;
+                                var total = mt + wt;
+
+                                <MudChart ChartType="ChartType.Donut"
+                                          InputData="@(new double[] { Math.Max(mt, 0), Math.Max(wt, 0) })"
+                                          InputLabels="@(new[] { $"MT ({mt})", $"WT ({wt})" })"
+                                          ChartPalette="@(new[] { "#42A5F5", "#FFA726" })"
+                                          Width="90px"
+                                          Height="90px"
+                                          Class="mt-1" />
+                                <MudText Typo="Typo.caption" Style="color: #7D8282;" Class="mt-1">
+                                    MT: @mt / WT: @wt
+                                </MudText>
+                            }
                         </div>
                     }
                 </div>
@@ -243,6 +263,15 @@ else
                 _flowTimeInfos.Add(info);
             }
         }
+    }
+
+    private (int Mt, int Wt)? GetFlowMtWt(string flowName)
+    {
+        var flowState = _dbSnapshot.Flows
+            .FirstOrDefault(f => f.FlowName == flowName);
+        if (flowState?.MT == null && flowState?.WT == null)
+            return null;
+        return (flowState.MT ?? 0, flowState.WT ?? 0);
     }
 
     private static string FormatTime(TimeSpan ts)
