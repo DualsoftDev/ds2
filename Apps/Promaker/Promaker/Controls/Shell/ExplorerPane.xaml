@@ -2,7 +2,8 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Promaker.ViewModels"
-             xmlns:conv="clr-namespace:Promaker.Presentation">
+             xmlns:conv="clr-namespace:Promaker.Presentation"
+             xmlns:help="clr-namespace:Promaker.Help">
     <UserControl.Resources>
         <conv:EntityTypeToIconConverter x:Key="TypeToIcon"/>
         <conv:EntityTypeToBrushConverter x:Key="TypeToBrush"/>
@@ -92,7 +93,12 @@
                 <RowDefinition Height="160" MinHeight="60"/>
             </Grid.RowDefinitions>
             <Border Style="{StaticResource PanelHeader}">
-                <TextBlock Text="Explorer" FontWeight="SemiBold" FontSize="12"/>
+                <Grid>
+                    <TextBlock Text="Explorer" FontWeight="SemiBold" FontSize="12"/>
+                    <Button Style="{StaticResource HelpButton}" HorizontalAlignment="Right"
+                            Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                            CommandParameter="explorer"/>
+                </Grid>
             </Border>
 
             <TabControl Grid.Row="1" x:Name="TreeTabs" SelectionChanged="TreeTabs_SelectionChanged">
@@ -141,7 +147,12 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
                 <Border Style="{StaticResource PanelHeader}">
-                    <TextBlock Text="History" FontWeight="SemiBold" FontSize="12"/>
+                    <Grid>
+                        <TextBlock Text="History" FontWeight="SemiBold" FontSize="12"/>
+                        <Button Style="{StaticResource HelpButton}" HorizontalAlignment="Right"
+                                Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                                CommandParameter="history"/>
+                    </Grid>
                 </Border>
                 <ListBox Grid.Row="1"
                          x:Name="HistoryListBox"

@@ -1,11 +1,12 @@
 <UserControl x:Class="Promaker.Controls.MainToolbar"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:help="clr-namespace:Promaker.Help"
              x:Name="ThisControl">
     <Border Background="{DynamicResource TertiaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="0,0,0,1"
-            Height="72">
+            Height="78">
         <ScrollViewer HorizontalScrollBarVisibility="Hidden"
                       VerticalScrollBarVisibility="Disabled"
                       Focusable="False">
@@ -17,7 +18,12 @@
                 <Border Style="{StaticResource ToolbarGroup}">
                     <DockPanel>
                         <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
-                            <TextBlock Text="파일" Style="{StaticResource ToolbarGroupLabel}"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="파일" Style="{StaticResource ToolbarGroupLabel}"/>
+                                <Button Style="{StaticResource HelpButton}"
+                                        Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                                        CommandParameter="file"/>
+                            </StackPanel>
                         </Border>
                         <StackPanel Orientation="Horizontal" Margin="4,3,4,2">
                             <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding NewProjectCommand}"
@@ -74,7 +80,12 @@
                 <Border Style="{StaticResource ToolbarGroup}">
                     <DockPanel>
                         <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
-                            <TextBlock Text="편집" Style="{StaticResource ToolbarGroupLabel}"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="편집" Style="{StaticResource ToolbarGroupLabel}"/>
+                                <Button Style="{StaticResource HelpButton}"
+                                        Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                                        CommandParameter="edit"/>
+                            </StackPanel>
                         </Border>
                         <StackPanel Orientation="Horizontal" Margin="4,3,4,2">
                             <!-- 취소 -->
@@ -193,15 +204,20 @@
                 <StackPanel x:Name="SimulationTools"
                             Orientation="Horizontal"
                             VerticalAlignment="Stretch"
-                            DataContext="{Binding Simulation}"
-                            IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
+                            DataContext="{Binding Simulation}">
 
                     <Border Style="{StaticResource ToolbarGroup}">
                         <DockPanel>
                             <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
-                                <TextBlock Text="시뮬레이션" Style="{StaticResource ToolbarGroupLabel}"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="시뮬레이션" Style="{StaticResource ToolbarGroupLabel}"/>
+                                    <Button Style="{StaticResource HelpButton}"
+                                            Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                                            CommandParameter="simulation"/>
+                                </StackPanel>
                             </Border>
-                            <StackPanel Orientation="Horizontal" Margin="4,3,4,2">
+                            <StackPanel Orientation="Horizontal" Margin="4,3,4,2"
+                                        IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
                                 <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding StartSimulationCommand}"
                                         ToolTip="시뮬레이션 시작">
                                     <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
@@ -244,9 +260,15 @@
                     <Border Style="{StaticResource ToolbarGroup}">
                         <DockPanel>
                             <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
-                                <TextBlock Text="공정 제어" Style="{StaticResource ToolbarGroupLabel}"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="공정 제어" Style="{StaticResource ToolbarGroupLabel}"/>
+                                    <Button Style="{StaticResource HelpButton}"
+                                            Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                                            CommandParameter="process-control"/>
+                                </StackPanel>
                             </Border>
-                            <StackPanel Orientation="Horizontal" Margin="4,3,4,2">
+                            <StackPanel Orientation="Horizontal" Margin="4,3,4,2"
+                                        IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
                                 <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,4,0">
                                     <TextBlock Text="속도" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,2"/>
                                     <ComboBox SelectedValue="{Binding SimSpeed}" SelectedValuePath="Tag"
@@ -310,7 +332,12 @@
                 <Border Style="{StaticResource ToolbarGroup}">
                     <DockPanel>
                         <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
-                            <TextBlock Text="도구" Style="{StaticResource ToolbarGroupLabel}"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="도구" Style="{StaticResource ToolbarGroupLabel}"/>
+                                <Button Style="{StaticResource HelpButton}"
+                                        Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                                        CommandParameter="tools"/>
+                            </StackPanel>
                         </Border>
                         <StackPanel Orientation="Horizontal" Margin="4,3,4,2">
                             <!-- 리포트 드롭다운 -->

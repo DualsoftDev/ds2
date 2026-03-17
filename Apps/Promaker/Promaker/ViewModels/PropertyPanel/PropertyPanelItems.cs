@@ -195,4 +195,11 @@ public sealed class ConditionSectionItem : ObservableObject
     public string AddToolTip { get; }
     public ObservableCollection<CallConditionItem> Conditions { get; } = [];
     public string Header => $"{Title} [{Conditions.Count}]";
+    public string HelpTopic => ConditionType switch
+    {
+        CallConditionType.AutoAux     => "condition-auto-aux",
+        CallConditionType.ComAux      => "condition-com-aux",
+        CallConditionType.SkipUnmatch => "condition-skip-unmatch",
+        _                             => "condition"
+    };
 }
