@@ -1,152 +1,254 @@
-# Promaker
-
-Last Sync: 2026-03-17 (CSV 변환기, AASX/Mermaid 모듈 분리, CallCreate TabControl 개편, ApiCall 복제 모드, Promaker.Tests)
-
-## 프로젝트 목표
-
-Promaker 프로젝트는 다음 세 가지 설계를 중심으로 **Sequence control editor**를 구현 중입니다.
-
-- **편집 코어(F#) 분리**: 추가/삭제/이동/연결/복사/붙여넣기의 로직을 F# 레이어에 집중시켜 UI 기술이 바뀌어도 재사용 가능
-- **증분 UndoRecord 기반 Undo/Redo**: 변경된 엔티티만 클로저 기반 UndoRecord로 추적, Undo 1회 = 1 사용자 제스처 보장
-- **레이어 경계 강제**: C#(WPF)는 wiring·binding·rendering만, 편집 상태 변경은 반드시 F# `DsStore` 확장 메서드 경유
+<p align="center">
+  <h1 align="center">Promaker</h1>
+  <p align="center">
+    <strong>Sequence Control Editor</strong> built with F# core + WPF UI on .NET 9.0
+  </p>
+  <p align="center">
+    <a href="#아키텍처">Architecture</a> · <a href="#엔티티-관계도">Entities</a> · <a href="#빌드-및-테스트">Build</a> · <a href="RUNTIME.md">Runtime Docs</a>
+  </p>
+</p>
 
 ---
 
-## 아키텍처 조감도
+> **Last Sync:** 2026-03-17 — CSV 변환기, AASX/Mermaid 모듈 분리, CallCreate TabControl 개편, ApiCall 복제 모드, Promaker.Tests
 
+## 핵심 설계 원칙
+
+```mermaid
+mindmap
+  root((Promaker))
+    편집 코어 분리
+      F# 레이어에 로직 집중
+      UI 기술 변경에도 재사용
+    증분 Undo/Redo
+      변경 엔티티만 클로저 추적
+      1 Undo = 1 사용자 제스처
+    레이어 경계 강제
+      C#은 wiring/binding/rendering만
+      상태 변경은 F# DsStore 경유
 ```
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                              Promaker 전체 구조                               ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║                                                                              ║
-║  ┌──────────────── Promaker  (C#, WPF) ────────────────────────────┐  ║
-║  │                                                                        │  ║
-║  │  MainWindow  │  EditorCanvas (Input/Select/Nav/Connect)                │  ║
-║  │  ViewModels  │  Dialogs                                                │  ║
-║  │                                                                        │  ║
-║  │          역할: wiring / binding / rendering 만 담당                     │  ║
-║  │          금지: 직접 Store 수정, 자체 Undo 스택, 비즈니스 로직            │  ║
-║  └────────────────────────┬───────────────────────────────────────────────┘  ║
-║                           │ 편집: store.Xxx(...)       ▲ EditorEvent         ║
-║           ┌───────────────┘ 조회: store.Query/Projection                     ║
-║           │                                           │ (StoreRefreshed 등)  ║
-║           │               ┌───────────────────────────┘                      ║
-║           ▼               ▼                                                  ║
-║  ┌──────────────── Ds2.UI.Core  (F#) ─────────────────────────────────────┐  ║
-║  │                                                                        │  ║
-║  │  Core:  DsStore (컬렉션 + Undo/Redo + 이벤트 + File I/O)              │  ║
-║  │         DsQuery.*                                                      │  ║
-║  │                                                                        │  ║
-║  │  Store/ ([<Extension>] C# 확장 메서드):                                │  ║
-║  │       DsStore.Queries  — 읽기 전용 쿼리/프로젝션 위임                  │  ║
-║  │       DsStore.Nodes + Nodes.Device + Nodes.Remove — CRUD/이동/삭제    │  ║
-║  │       DsStore.Arrows   — 화살표 연결/제거/재연결                        │  ║
-║  │       DsStore.Panel + Panel.Api + Panel.Batch — 속성/일괄 편집        │  ║
-║  │       DsStore.Paste    — 복사/붙여넣기                                  │  ║
-║  │                                                                        │  ║
-║  │  Projection: TreeProjection  CanvasProjection                          │  ║
-║  │              (Store → 트리/캔버스 뷰 데이터)                            │  ║
-║  │                                                                        │  ║
-║  │  Queries:   EntityHierarchy  Selection  Connection  AddTarget          │  ║
-║  │                                                                        │  ║
-║  └────────────────────────┬───────────────────────────────────────────────┘  ║
-║                           │ entity 타입 참조                                  ║
-║                           ▼                                                  ║
-║  ┌──────────────── Ds2.Core  (F#) ────────────────────────────────────────┐  ║
-║  │                                                                        │  ║
-║  │  Entities:  Project / DsSystem / Flow / Work / Call                    │  ║
-║  │             ApiCall / ApiDef / HW components                           │  ║
-║  │  Serialization:  JsonConverter  JsonOptions  DeepCopyHelper            │  ║
-║  │  Types:  Properties / Enum / Class / ValueSpec                         │  ║
-║  │                                                                        │  ║
-║  └────────────────────────────────────────────────────────────────────────┘  ║
-║                                                                              ║
-║  ┌──────────── Ds2.Aasx  (F#) ──────────────────────────────────────────────┐  ║
-║  │  Import/ Export/ Concepts/ 디렉토리 분리 (12개 모듈)                       │  ║
-║  │  → Ds2.Core + Ds2.UI.Core 양쪽 참조  ← UI.Core에서는 참조 없음 (순환 방지) │  ║
-║  └──────────────────────────────────────────────────────────────────────────┘  ║
-║                                                                              ║
-║  ┌──────────── Ds2.Mermaid / Ds2.CSV  (F#) ────────────────────────────────┐  ║
-║  │  Mermaid: Import/ (Lexer→Parser→Mapper→Importer) + Export/ (Exporter)    │  ║
-║  │  CSV: CsvTypes → CsvParser → CsvMapper → CsvImporter / CsvExporter      │  ║
-║  └──────────────────────────────────────────────────────────────────────────┘  ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+
+---
+
+## 아키텍처
+
+### 전체 구조
+
+```mermaid
+block-beta
+  columns 1
+
+  block:UI["🖥️ Promaker (C#, WPF)"]
+    columns 4
+    MW["MainWindow"] EC["EditorCanvas"] VM["ViewModels"] DLG["Dialogs"]
+  end
+
+  space
+
+  block:UICORE["⚙️ Ds2.UI.Core (F#) — 편집 코어"]
+    columns 4
+    DS["DsStore\n13 Dictionaries\nUndo/Redo\nEvents & File I/O"]
+    ST["Store Extensions\nNodes · Arrows\nPanel · Paste"]
+    PJ["Projections\nTreeProjection\nCanvasProjection"]
+    QR["Queries\nHierarchy\nSelection\nConnection"]
+  end
+
+  space
+
+  block:CORE["📦 Ds2.Core (F#) — 순수 도메인"]
+    columns 4
+    ENT["Entities\nProject · System\nFlow · Work · Call"]
+    TYP["Types\nProperties\nEnum · Class"]
+    VS["ValueSpec\nBool·Int·Float\nString·Range"]
+    SER["Serialization\nJsonConverter\nDeepCopyHelper"]
+  end
+
+  UI --> UICORE
+  UICORE --> CORE
 ```
 
 ### 레이어 의존 방향
 
-```
-Promaker  →  Ds2.UI.Core  →  Ds2.Core
-     (C#, WPF)        (F#)            (F#)
-         │                ▲
-         ├──►  Ds2.Aasx ──┘ (+ Ds2.UI.Core 참조)
-         ├──►  Ds2.Mermaid ─┘
-         ├──►  Ds2.CSV ────┘
-         └──►  Ds2.Core (도메인 타입 직접 참조: ValueSpec 등)
+```mermaid
+graph LR
+  PM["<b>Promaker</b><br/><sub>C#, WPF</sub>"]
+  UIC["<b>Ds2.UI.Core</b><br/><sub>F#, 편집 코어</sub>"]
+  CORE["<b>Ds2.Core</b><br/><sub>F#, 도메인</sub>"]
+  AASX["<b>Ds2.Aasx</b><br/><sub>F#, AASX I/O</sub>"]
+  MER["<b>Ds2.Mermaid</b><br/><sub>F#, Mermaid 변환</sub>"]
+  CSV["<b>Ds2.CSV</b><br/><sub>F#, CSV I/O</sub>"]
+
+  PM -->|편집 API| UIC
+  PM -->|도메인 타입| CORE
+  PM --> AASX
+  PM --> MER
+  PM --> CSV
+  UIC --> CORE
+  AASX --> UIC
+  AASX --> CORE
+  MER --> UIC
+  MER --> CORE
+  CSV --> UIC
+  CSV --> CORE
+
+  style PM fill:#4a90d9,color:#fff,stroke:#2c5f8a
+  style UIC fill:#7b68ee,color:#fff,stroke:#5a4db5
+  style CORE fill:#6b8e23,color:#fff,stroke:#4a6319
+  style AASX fill:#cd853f,color:#fff,stroke:#8b5e2b
+  style MER fill:#cd853f,color:#fff,stroke:#8b5e2b
+  style CSV fill:#cd853f,color:#fff,stroke:#8b5e2b
 ```
 
-상위 레이어는 하위 레이어만 의존합니다.
-`Ds2.Aasx`는 `Promaker`에서 직접 참조되며 `Ds2.UI.Core → Ds2.Aasx` 순환 의존은 없습니다.
-`Promaker`는 `Ds2.Core`를 직접 참조합니다 — 도메인 타입(`ValueSpec` 등)을 C#에서 직접 사용하기 위함.
-C#용 공유 타입(`EntityKind`, `MoveEntityRequest`, `TabKind` 등)은 `Ds2.UI.Core/Core/Types.fs`에서 정의됩니다.
-`Ds2.UI.Core`의 편집 확장 메서드는 `Extensions/` (5개 확장 파일) → `Store/` (10개 확장 파일)로 확장되었습니다.
+> - 상위 레이어는 하위 레이어만 의존합니다
+> - `Ds2.UI.Core → Ds2.Aasx` 순환 의존은 없습니다
+> - C#용 공유 타입(`EntityKind`, `TabKind` 등)은 `Ds2.UI.Core/Core/Types.fs`에서 정의
 
 ---
 
 ## 엔티티 관계도
 
-```
-Project
- ├─[Active]──► DsSystem ──► Flow ──► Work ─────────────────► Call
- │                  │                         .ApiCalls[]       │  .ApiDefId
- │                  └── ArrowBetweenWorks          ArrowBetweenCalls   │
- │                                                                    │
- └─[Passive]─► DsSystem (Device) ◄────────────────────────────────────┘
-                   ├── ApiDef  ◄── ApiCall.ApiDefId 로 연결
-                   ├── HwButton
-                   ├── HwLamp
-                   ├── HwCondition
-                   └── HwAction
+```mermaid
+erDiagram
+    Project ||--o{ DsSystem : "contains (Active)"
+    Project ||--o{ DsSystem : "contains (Passive/Device)"
 
-Call.Name = DevicesAlias + "." + ApiName   (computed, Rename 시 DevicesAlias만 변경)
-ApiCall   = ApiDef 실행 1건 (OutTag 주소 / InTag 주소 / OutputSpec / InputSpec 포함)
-CallCondition = Call 동작 조건 1건 (Active/Auto/Common 타입, IsOR, IsRising, 조건 ApiCall 목록)
+    DsSystem ||--o{ Flow : contains
+    DsSystem ||--o{ ArrowBetweenWorks : owns
+    DsSystem ||--o{ ApiDef : "defines (Device)"
+    DsSystem ||--o{ HwButton : "has (Device)"
+    DsSystem ||--o{ HwLamp : "has (Device)"
+    DsSystem ||--o{ HwCondition : "has (Device)"
+    DsSystem ||--o{ HwAction : "has (Device)"
+
+    Flow ||--o{ Work : contains
+
+    Work ||--o{ Call : contains
+    Work ||--o{ ArrowBetweenCalls : owns
+
+    Call ||--o{ ApiCall : "has (.ApiCalls[])"
+    Call ||--o{ CallCondition : "has conditions"
+    Call }o--|| DsSystem : "references (.ApiDefId → Device)"
+
+    ApiCall }o--|| ApiDef : "linked by .ApiDefId"
+
+    CallCondition ||--o{ ApiCall : "condition targets"
 ```
 
-- **Active System**: 제어 흐름 트리 (Flow → Work → Call)
-- **Passive System**: 장치 정의 트리 (ApiDef, HW 컴포넌트)
-- **ArrowBetweenWorks**: DsSystem의 자식, Work-Work 연결선 (parentId = systemId)
-- **ArrowBetweenCalls**: Work의 자식, Call-Call 연결선 (parentId = workId)
+### 엔티티 설명
+
+| 구분 | 설명 |
+|:-----|:-----|
+| **Active System** | 제어 흐름 트리 — `Flow → Work → Call` |
+| **Passive System** | 장치 정의 트리 — `ApiDef`, HW 컴포넌트 |
+| **ArrowBetweenWorks** | DsSystem의 자식, Work↔Work 연결선 (`parentId = systemId`) |
+| **ArrowBetweenCalls** | Work의 자식, Call↔Call 연결선 (`parentId = workId`) |
+| **Call.Name** | `DevicesAlias + "." + ApiName` (computed, Rename 시 DevicesAlias만 변경) |
+| **ApiCall** | ApiDef 실행 1건 (OutTag/InTag 주소, OutputSpec/InputSpec 포함) |
+| **CallCondition** | Call 동작 조건 (Active/Auto/Common 타입, IsOR, IsRising, 조건 ApiCall 목록) |
+
+---
+
+## 편집 흐름
+
+하나의 편집 동작이 시스템을 통과하는 전체 경로:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant WPF as Promaker (C#)<br/>EditorCanvas / MainViewModel
+    participant Ext as Ds2.UI.Core (F#)<br/>Store Extensions
+    participant Undo as UndoRedoManager
+    participant Event as EditorEvent
+
+    User->>WPF: 입력 (키보드 / 마우스 / 메뉴)
+    WPF->>Ext: store.Xxx(...) 호출
+
+    rect rgb(240, 248, 255)
+        Note over Ext: WithTransaction(label, action)
+        Ext->>Ext: TrackAdd / TrackRemove / TrackMutate
+        Note over Ext: 실패 시 UndoRecord 역순 실행 → 자동 복원
+    end
+
+    Ext->>Undo: UndoTransaction 기록
+
+    Ext->>Event: 이벤트 발행
+
+    Event-->>WPF: StoreRefreshed → UI 전체 재구성
+    Event-->>WPF: HistoryChanged → Undo/Redo 버튼 갱신
+    Event-->>WPF: SelectionChanged → 속성 패널 갱신
+
+    WPF->>WPF: RebuildAll → WPF 바인딩 갱신 → 화면 반영
+```
+
+### 증분 Undo/Redo 설계
+
+```mermaid
+graph TD
+    subgraph "Track 헬퍼"
+        TA["TrackAdd"] --> UR["UndoRecord 생성"]
+        TR["TrackRemove"] --> UR
+        TM["TrackMutate"] --> UR
+        TG["TrackGuidSetAdd/Remove"] --> UR
+    end
+
+    UR --> WT["WithTransaction<br/>여러 Track → 1 UndoTransaction"]
+    WT -->|성공| US["Undo Stack에 push"]
+    WT -->|실패| RB["UndoRecord 역순 실행 → 롤백"]
+
+    US --> UNDO["Undo 실행"]
+    UNDO --> RW["RewireApiCallReferences<br/>Call↔ApiCall 참조 재연결"]
+
+    style WT fill:#e8f5e9,stroke:#388e3c
+    style RB fill:#ffebee,stroke:#c62828
+```
+
+> **제약**: `store.GetProject(id).Name <- "new"` 같은 직접 필드 수정은 Undo 추적 불가. 변경은 반드시 `store.메서드()` 경유
+>
+> 상세 내용: [`RUNTIME.md`](RUNTIME.md)
 
 ---
 
 ## 솔루션 구조
 
-```text
-BuildAll/                  # 빌드 산출물 배포 스크립트
-ExternalDlls/              # 외부 DLL (NuGet 외 수동 참조)
-Solutions/
-  Ds2.sln
-  Core/
-    Ds2.Core/              # 순수 도메인 타입 (Entities, Properties, Enum, ValueSpec, JsonConverter, Nameplate, HandoverDocumentation)
-    Ds2.UI.Core/           # 편집 코어(F#) — 28개 모듈 (DsStore + Store/ + Projection + Queries)
-  Convert/
-    Ds2.Aasx/              # AASX I/O(F#) — Import/Export/Concepts 디렉토리 분리 (12개 모듈)
-    Ds2.Mermaid/           # Mermaid 다이어그램 변환(F#) — Import/Export 디렉토리 분리 (11개 모듈)
-    Ds2.CSV/               # CSV 가져오기/내보내기(F#) — 5개 모듈
-  Backend/
-    Ds2.Database/          # 데이터 계층
-  Simulation/              # 시뮬레이션 엔진 프로젝트
-  Tests/
-    Ds2.Core.Tests/        # Core 단위 테스트 (26개)
-    Ds2.UI.Core.Tests/     # UI.Core 단위 테스트 (102개: DsStore + ViewProjection + Simulation)
-    Ds2.Integration.Tests/ # 통합 테스트 (6개)
-    Ds2.Mermaid.Tests/     # Mermaid 변환 테스트 (30개)
-    Promaker.Tests/        # Promaker ViewModel 테스트 (10개, C#)
+```mermaid
+graph TD
+    subgraph Solutions["Solutions/Ds2.sln"]
+        direction TB
 
-Apps/Promaker/
-  Promaker.sln
-  Promaker/                # WPF UI(C#) — 어셈블리명 Promaker, namespace Promaker.*
+        subgraph Core["Core/"]
+            DC["Ds2.Core<br/><sub>순수 도메인 타입<br/>9개 모듈</sub>"]
+            DUC["Ds2.UI.Core<br/><sub>편집 코어 F#<br/>28개 모듈</sub>"]
+        end
+
+        subgraph Convert["Convert/"]
+            AASX["Ds2.Aasx<br/><sub>AASX I/O<br/>12개 모듈</sub>"]
+            MER["Ds2.Mermaid<br/><sub>Mermaid 변환<br/>11개 모듈</sub>"]
+            CSV["Ds2.CSV<br/><sub>CSV I/O<br/>5개 모듈</sub>"]
+        end
+
+        subgraph Sim["Simulation/"]
+            SIM["Ds2.Runtime.Sim<br/><sub>시뮬레이션 엔진</sub>"]
+        end
+
+        subgraph Tests["Tests/"]
+            T1["Core.Tests<br/><sub>26개</sub>"]
+            T2["UI.Core.Tests<br/><sub>102개</sub>"]
+            T3["Integration.Tests<br/><sub>6개</sub>"]
+            T4["Mermaid.Tests<br/><sub>30개</sub>"]
+            T5["Promaker.Tests<br/><sub>10개</sub>"]
+        end
+    end
+
+    subgraph Apps["Apps/Promaker/Promaker.sln"]
+        PM["Promaker<br/><sub>WPF UI (C#)<br/>63+ files</sub>"]
+    end
+
+    style Solutions fill:#f8f9fa,stroke:#dee2e6
+    style Apps fill:#f8f9fa,stroke:#dee2e6
+    style Core fill:#e3f2fd,stroke:#90caf9
+    style Convert fill:#fff3e0,stroke:#ffcc80
+    style Sim fill:#e8f5e9,stroke:#a5d6a7
+    style Tests fill:#fce4ec,stroke:#ef9a9a
 ```
 
 테스트 합계: **174개** (26 Core + 102 UI.Core + 6 Integration + 30 Mermaid + 10 Promaker)
@@ -155,7 +257,8 @@ Apps/Promaker/
 
 ## 파일 구조 및 역할
 
-### 루트
+<details>
+<summary><b>📄 루트 문서</b></summary>
 
 | 파일 | 역할 |
 |------|------|
@@ -163,62 +266,61 @@ Apps/Promaker/
 | `RUNTIME.md` | CRUD · Undo/Redo · JSON 직렬화 동작 상세 |
 | `.editorconfig` | 코드 스타일/포맷 기본 규칙 |
 
----
+</details>
 
-### Ds2.Core — 순수 도메인 타입 (Store/Query/Mutation 없음)
+<details>
+<summary><b>📦 Ds2.Core — 순수 도메인 타입</b> (Store/Query/Mutation 없음)</summary>
 
 | 파일 | 역할 |
 |------|------|
-| `AbstractClass.fs` | `DsEntity` 추상 베이스 타입, `DeepCopyHelper` (backupEntityAs&lt;'T&gt; / jsonCloneEntity) |
+| `AbstractClass.fs` | `DsEntity` 추상 베이스 타입, `DeepCopyHelper` |
 | `Entities.fs` | Project · DsSystem · Flow · Work · Call · ApiDef · ApiCall · HW 엔티티 정의 |
 | `Properties.fs` | WorkProperties · CallProperties · ApiDefProperties 등 속성 모델 |
 | `Enum.fs` | `Status4`, `CallType`, `ArrowType`, `CallConditionType` 도메인 열거형 |
 | `Class.fs` | `IOTag`, `Xywh` 등 값 타입 클래스 |
 | `ValueSpec.fs` | `ValueSpec` DU (None / Bool / Int / Float / String / Range 등) |
-| `Nameplate.fs` | AASX Nameplate Submodel 데이터 타입 (제조사 정보, 시리얼번호 등) |
-| `HandoverDocumentation.fs` | AASX HandoverDocumentation Submodel 데이터 타입 (문서 참조, 파일 링크 등) |
+| `Nameplate.fs` | AASX Nameplate Submodel 데이터 타입 |
+| `HandoverDocumentation.fs` | AASX HandoverDocumentation Submodel 데이터 타입 |
 | `JsonConverter.fs` | `System.Text.Json` 기반 직렬화 옵션 및 커스텀 컨버터 |
 
----
+</details>
 
----
-
-### Ds2.UI.Core — 편집 코어 (F#)
-
-컴파일 순서 = 의존 순서입니다. 위 파일을 아래 파일에서만 의존합니다.
+<details>
+<summary><b>⚙️ Ds2.UI.Core — 편집 코어 (F#)</b> — 컴파일 순서 = 의존 순서</summary>
 
 | # | 파일 | 역할 |
-|---|------|------|
-| 1 | `Core/Types.fs` | `UndoRecord`/`UndoTransaction`, `Labels`, `UiDefaults`, `EntityKind` int enum, `MoveEntityRequest`, `EditorEvent` DU, `CallCopyContext` DU, `TabKind` |
-| 2 | `Commands/UndoRedoManager.fs` | 비제네릭 `UndoRedoManager(maxSize)` — `LinkedList<UndoTransaction>` 기반 undo/redo 스택 관리, maxSize O(1) trim. `UndoLabels`/`RedoLabels` 프로퍼티로 레이블 목록 노출 |
-| 4 | `Core/DsStore.fs` | `DsStore` 타입 (13개 Dictionary 컬렉션 + ReadOnly 뷰 + 증분 Undo/Redo + 이벤트 발행 + File I/O). `WithTransaction(label, action)` — 증분 UndoRecord 기반 트랜잭션. `TrackAdd`/`TrackRemove`/`TrackMutate`/`TrackGuidSetAdd`/`TrackGuidSetRemove` — dict 조작 + UndoRecord 기록을 하나로 묶는 Track 헬퍼. `RewireApiCallReferences` — Undo/Redo 후 Call↔ApiCall 참조 재연결. `DirectWrite` — 비 Undo 직접 쓰기 (AASX 임포트용). `Undo`/`Redo`/`UndoTo`/`RedoTo`. `LoadFromFile`/`SaveToFile`/`ReplaceStore` |
-| 4 | `Core/DsQuery.fs` | `DsQuery.*` — 엔티티 조회 쿼리 (`getXxx`, `allXxxs`, `xxxsOf`) |
+|:---:|------|------|
+| 1 | `Core/Types.fs` | `UndoRecord`/`UndoTransaction`, `Labels`, `EntityKind`, `EditorEvent` DU, `TabKind` |
+| 2 | `Commands/UndoRedoManager.fs` | `LinkedList<UndoTransaction>` 기반 undo/redo 스택 관리 |
+| 3 | `Core/DsStore.fs` | `DsStore` 타입 — 13개 Dictionary + Undo/Redo + 이벤트 + File I/O |
+| 4 | `Core/DsQuery.fs` | 엔티티 조회 쿼리 (`getXxx`, `allXxxs`, `xxxsOf`) |
 | 5 | `Queries/CallConditionQueries.fs` | CallCondition 조회 쿼리 |
 | 6 | `Geometry/ArrowPathCalculator.fs` | 화살표 polyline 경로 계산 (직교 꺾임) |
-| 7 | `Projection/ViewTypes.fs` | `TreeNodeInfo` · `CanvasNodeInfo` · `SelectionKey` · 패널 전용 레코드 |
-| 8 | `Projection/PropertyPanelValueSpec.fs` | ValueSpec 포맷/파싱 — internal |
+| 7 | `Projection/ViewTypes.fs` | `TreeNodeInfo` · `CanvasNodeInfo` · `SelectionKey` |
+| 8 | `Projection/PropertyPanelValueSpec.fs` | ValueSpec 포맷/파싱 |
 | 9 | `Projection/TreeProjection.fs` | Store → 트리 데이터 변환 |
-| 10-12 | `Projection/CanvasLayout/{LayeringAndOrdering,Placement,Entry}.fs` | 자동 배치 (계층 분류 → 좌표 계산 → 진입점) |
+| 10–12 | `Projection/CanvasLayout/*.fs` | 자동 배치 (Layering → Placement → Entry) |
 | 13 | `Projection/CanvasProjection.fs` | Store → 캔버스 콘텐츠 변환 |
 | 14 | `Queries/EntityHierarchyQueries.fs` | 계층 역탐색, 탭 정보 해석 |
 | 15 | `Queries/AddTargetQueries.fs` | Add System/Flow 대상 해석 |
 | 16 | `Queries/SelectionQueries.fs` | 선택 정렬/범위/Ctrl+Shift |
 | 17 | `Queries/ConnectionQueries.fs` | 화살표 연결 대상 해석, 순서 연결 |
-| | **[Store/ — `[<Extension>]` C# 확장 메서드]** | |
-| 18 | `Store/DsStore.Log.fs` | 공유 로깅 + require 헬퍼 (`StoreLog` 모듈) |
-| 19 | `Store/DsStore.Paste.fs` | 붙여넣기 — `copyApiCallsAcrossFlows`: ApiCall별 Device System 독립 매핑 |
-| 20 | `Store/DsStore.Queries.fs` | 읽기 전용 쿼리 래퍼 (Projection/Queries에 위임) |
-| 21 | `Store/DsStore.Nodes.Remove.fs` | 캐스케이드 삭제 — `CascadeRemove` 내부 모듈 |
-| 22 | `Store/DsStore.Nodes.Device.fs` | 디바이스/HW CRUD — `DirectDeviceOps` + `addCallWithMultipleDevices` (ApiCall 복제) |
-| 23 | `Store/DsStore.Nodes.fs` | CRUD/이동/삭제 — `AddCallsWithDevice`, **`AddCallWithMultipleDevicesResolved`** (1 Call + N ApiCall), `AddCallWithLinkedApiDefs` |
-| 24 | `Store/DsStore.Arrows.fs` | 화살표 — RemoveArrows, ReconnectArrow, ConnectSelectionInOrder |
+| | **Store/ — `[<Extension>]` C# 확장 메서드** | |
+| 18 | `Store/DsStore.Log.fs` | 공유 로깅 + require 헬퍼 |
+| 19 | `Store/DsStore.Paste.fs` | 붙여넣기 — ApiCall별 Device System 독립 매핑 |
+| 20 | `Store/DsStore.Queries.fs` | 읽기 전용 쿼리 래퍼 |
+| 21 | `Store/DsStore.Nodes.Remove.fs` | 캐스케이드 삭제 |
+| 22 | `Store/DsStore.Nodes.Device.fs` | 디바이스/HW CRUD + ApiCall 복제 |
+| 23 | `Store/DsStore.Nodes.fs` | CRUD/이동/삭제 — `AddCallWithMultipleDevicesResolved` |
+| 24 | `Store/DsStore.Arrows.fs` | 화살표 — RemoveArrows, ReconnectArrow |
 | 25 | `Store/DsStore.Panel.fs` | 속성 패널 — Time/Conditions CRUD |
 | 26 | `Store/DsStore.Panel.Api.fs` | ApiDef/ApiCall CRUD |
 | 27 | `Store/DsStore.Panel.Batch.fs` | Duration/IO 일괄 편집 |
 
----
+</details>
 
-### Ds2.Aasx — AASX I/O (F#, Import/Export/Concepts 디렉토리 분리)
+<details>
+<summary><b>🔄 Ds2.Aasx — AASX I/O (F#)</b></summary>
 
 | 파일 | 역할 |
 |------|------|
@@ -235,95 +337,85 @@ Apps/Promaker/
 | `Concepts/Builder.fs` | ConceptDescription 빌더 |
 | `Concepts/Catalog.fs` | 41개 IRDI 카탈로그 |
 
----
+</details>
 
-### Promaker — WPF UI (C#)
+<details>
+<summary><b>🖥️ Promaker — WPF UI (C#)</b></summary>
+
+#### ViewModels/Shell/
 
 | 파일 | 역할 |
 |------|------|
-| `App.xaml / App.xaml.cs` | 앱 리소스 루트 및 시작/종료 코드. `OnStartup`에서 log4net.config 로딩, `DispatcherUnhandledException` FATAL 로깅 처리 |
-| `log4net.config` | log4net 설정 파일 (RollingFile + DebugAppender). 빌드 시 출력 폴더로 복사 (`PreserveNewest`) |
-| `MainWindow.xaml` | 메인 화면 레이아웃 (트리 패널 / 캔버스 탭 / 속성 패널) |
-| `MainWindow.xaml.cs` | 트리·탭·메뉴 이벤트 wiring, `DsStore` 확장 메서드 호출 진입 |
-| **ViewModels/Shell/** | |
-| `ViewModels/Shell/MainViewModel.cs` | 핵심 필드/컬렉션/프로퍼티, 생성자, NewProject/Undo/Redo, Reset, UpdateTitle |
-| `ViewModels/Shell/EditorGuards.cs` | `TryEditorAction` / `TryEditorFunc` / `TryEditorRef` — DsStore 확장 메서드 호출 공통 예외 처리 가드. `TryMoveEntitiesFromCanvas`, `TryReconnectArrowFromCanvas`, `TryConnectNodesFromCanvas` Canvas 공용 메서드 |
-| `ViewModels/Shell/EventHandling.cs` | `WireEvents` + `HandleEvent` + `ApplyEntityRename` + `ActionObserver<T>` |
-| `ViewModels/Shell/FileCommands.cs` | JSON/AASX/Mermaid Open/Save — `TryRunFileOperation`/`CompleteOpen`/`CompleteSave` 헬퍼 |
-| `ViewModels/Shell/SaveOutcomeFlow.cs` | Mermaid/AASX 저장 결과 처리 정적 유틸리티 |
-| `ViewModels/Shell/MermaidImportCommands.cs` | Mermaid 다이어그램 가져오기 커맨드 |
-| `ViewModels/Shell/CsvCommands.cs` | CSV 가져오기/내보내기 커맨드 |
-| `ViewModels/Shell/DurationBatchCommands.cs` | Duration 일괄 설정 커맨드 |
-| `ViewModels/Shell/IoBatchCommands.cs` | I/O 태그 일괄 설정 커맨드 |
-| `ViewModels/Shell/DiscardChangesFlow.cs` | 미저장 변경사항 확인/폐기 흐름 |
-| **ViewModels/PropertyPanel/** | |
-| `ViewModels/PropertyPanel/PropertyPanelState.cs` | 속성 패널 공용 Collections/Properties + ApplyWorkPeriod + RefreshPropertyPanel + RequireSelectedAs + ShowOwnedDialog |
-| `ViewModels/PropertyPanel/PropertyPanelItems.cs` | 속성 패널 보조 뷰모델 타입: `CallApiCallItem`, `DeviceApiDefOptionItem`, `CallConditionItem`, `ConditionApiCallRow`, `ConditionSectionItem` |
-| `ViewModels/PropertyPanel/CallPanel.cs` | Call 속성 패널 기본 — ApplyCallTimeout, RefreshCallPanel |
-| `ViewModels/PropertyPanel/CallPanel.ApiCalls.cs` | ApiCall CRUD 메서드 |
-| `ViewModels/PropertyPanel/CallPanel.Conditions.cs` | CallCondition CRUD 메서드, ReloadConditions, 섹션 헬퍼 |
-| `ViewModels/PropertyPanel/SystemPanel.cs` | System 속성 패널 — ApiDef CRUD 3개, RefreshSystemPanel, EditApiDefNode |
-| **ViewModels/Simulation/** | |
-| `ViewModels/Simulation/SimulationPanelState.cs` | 시뮬레이션 패널 상태 (기본 필드/프로퍼티) |
-| `ViewModels/Simulation/SimulationPanelState.Canvas.cs` | 시뮬레이션 캔버스 렌더링 상태 |
-| `ViewModels/Simulation/SimulationPanelState.Events.cs` | 시뮬레이션 이벤트 처리 |
-| `ViewModels/Simulation/GanttChartState.cs` | Gantt 차트 뷰모델 상태 |
-| **ViewModels/ (루트)** | |
-| `ViewModels/ArrowNode.cs` | 화살표 뷰모델 (Geometry 계산, 화살촉 타입별 렌더링) |
-| `ViewModels/CanvasTab.cs` | `CanvasTab` ObservableObject + `TreePaneKind` enum |
-| `ViewModels/CanvasWorkspaceState.cs` | 캔버스 워크스페이스 상태 관리 |
-| `ViewModels/EntityNode.cs` | 트리/캔버스 노드 뷰모델 |
-| `ViewModels/NodeCommands.cs` | AddProject/System/Flow/Work/Call, Delete, Rename, Copy(혼합 타입/부모 금지 경고), Paste(System 대상 경고) + 타겟 결정 헬퍼 |
-| `ViewModels/SelectionState.cs` | 트리·캔버스 선택 동기화 |
-| `ViewModels/TreeNodeSearch.cs` | 트리 탐색 정적 유틸리티 |
-| **Controls/Canvas/** | |
-| `Controls/Canvas/EditorCanvas.xaml(.cs)` | 캔버스 UI 템플릿 및 공통 상수/헬퍼, AddWork/AddCall 클릭 |
-| `Controls/Canvas/EditorCanvas.Input.cs` | 마우스·키보드 입력 처리 (드래그 이동, Delete, 연결 시작) |
-| `Controls/Canvas/EditorCanvas.Selection.cs` | 박스 선택, 화살표 선택 |
-| `Controls/Canvas/EditorCanvas.Navigation.cs` | 줌·패닝, FitToView |
-| `Controls/Canvas/EditorCanvas.Connect.cs` | 화살표 연결 시작/완료/취소 |
-| `Controls/Canvas/CanvasWorkspace.xaml(.cs)` | 탭별 캔버스 워크스페이스 컨테이너 |
-| **Controls/PropertyPanel/** | |
-| `Controls/PropertyPanel/PropertyPanel.xaml(.cs)` | 속성 패널 루트 UserControl |
-| `Controls/PropertyPanel/ConditionSectionControl.xaml(.cs)` | CallCondition 섹션(Active/Auto/Common) 공통 UserControl (Header, AddToolTip, Conditions 바인딩) |
-| `Controls/PropertyPanel/ValueSpecEditorControl.xaml(.cs)` | ValueSpec 인라인 편집 컨트롤 |
-| **Controls/Shell/** | |
-| `Controls/Shell/ExplorerPane.xaml(.cs)` | 좌측 탐색기 패널 (트리 뷰) |
-| `Controls/Shell/MainToolbar.xaml(.cs)` | 상단 툴바 |
-| **Controls/Simulation/** | |
-| `Controls/Simulation/SimulationPanel.xaml(.cs)` | 시뮬레이션 패널 UserControl |
-| `Controls/Simulation/GanttChartControl.xaml(.cs)` | Gantt 차트 컨트롤 (partial 포함) |
-| **Dialogs/** | |
-| `Dialogs/ApiCallCreateDialog.xaml(.cs)` | ApiCall 생성 다이얼로그 |
-| `Dialogs/ApiCallSpecDialog.xaml(.cs)` | ApiCall InTag/OutTag/ValueSpec 편집 다이얼로그 |
-| `Dialogs/ApiDefEditDialog.xaml(.cs)` | ApiDef 속성 편집 다이얼로그 |
-| `Dialogs/ArrowTypeDialog.xaml(.cs)` | 화살표 유형 선택 다이얼로그 (Start / Reset / StartReset / ResetReset / Group) |
-| `Dialogs/CallCreateDialog.xaml(.cs)` | Call 생성 — TabControl(기본/고급) + `CallCreateMode`(CallReplication/ApiCallReplication/ApiDefPicker) |
-| `Dialogs/ConditionApiCallPickerDialog.xaml(.cs)` | 조건 ApiCall 선택 다이얼로그 |
-| `Dialogs/ConditionDropDialog.xaml(.cs)` | 조건 드래그-드롭 처리 다이얼로그 |
-| `Dialogs/BatchDialogHelper.cs` | Duration/IO 일괄 설정 공통 헬퍼 |
-| `Dialogs/DurationBatchDialog.xaml(.cs)` | Duration 일괄 설정 다이얼로그 |
-| `Dialogs/IoBatchSettingsDialog.xaml(.cs)` | I/O 태그 일괄 설정 다이얼로그 |
-| `Dialogs/CsvExportDialog.xaml(.cs)` | CSV 내보내기 옵션 다이얼로그 |
-| `Dialogs/CsvImportDialog.xaml(.cs)` | CSV 불러오기 다이얼로그 (미리보기 + 매핑) |
-| `Dialogs/MermaidImportDialog.xaml(.cs)` | Mermaid 텍스트 가져오기 다이얼로그 |
-| `Dialogs/ProjectPropertiesDialog.xaml(.cs)` | 프로젝트 속성 편집 다이얼로그 |
-| `Dialogs/ValueSpecDialog.xaml(.cs)` | ValueSpec 독립 편집 다이얼로그 |
-| **Presentation/** | |
-| `Presentation/Status4Visuals.cs` | Status4 → WPF 브러시 키/브러시/단축 코드/표시명 변환 |
-| `Presentation/XamlConverters.cs` | WPF 바인딩용 IValueConverter 구현체 모음 |
-| **Themes/** | |
-| `Themes/Theme.Dark.xaml` | 다크 테마 최상위 머지 딕셔너리 |
-| `Themes/Theme.Brushes.xaml` | 브러시 리소스 정의 |
-| `Themes/Theme.Colors.xaml` | 색상 팔레트 정의 |
-| `Themes/Theme.Controls.Core.xaml` | 핵심 컨트롤(Button, TextBox 등) 스타일 |
-| `Themes/Theme.Controls.Forms.xaml` | 폼/입력 컨트롤 스타일 |
-| `Themes/Theme.Controls.Navigation.xaml` | 탐색/트리/탭 컨트롤 스타일 |
-| `Themes/Theme.Controls.xaml` | 기타 컨트롤 스타일 |
+| `MainViewModel.cs` | 핵심 필드/컬렉션, NewProject/Undo/Redo, Reset, UpdateTitle |
+| `EditorGuards.cs` | DsStore 확장 메서드 호출 공통 예외 처리 가드 |
+| `EventHandling.cs` | `WireEvents` + `HandleEvent` + `ApplyEntityRename` |
+| `FileCommands.cs` | JSON/AASX/Mermaid Open/Save |
+| `SaveOutcomeFlow.cs` | Mermaid/AASX 저장 결과 처리 |
+| `MermaidImportCommands.cs` | Mermaid 다이어그램 가져오기 |
+| `CsvCommands.cs` | CSV 가져오기/내보내기 |
+| `DurationBatchCommands.cs` | Duration 일괄 설정 |
+| `IoBatchCommands.cs` | I/O 태그 일괄 설정 |
+| `DiscardChangesFlow.cs` | 미저장 변경사항 확인/폐기 흐름 |
 
----
+#### ViewModels/PropertyPanel/
 
-### 테스트 프로젝트
+| 파일 | 역할 |
+|------|------|
+| `PropertyPanelState.cs` | 속성 패널 공용 Collections/Properties |
+| `PropertyPanelItems.cs` | 보조 뷰모델 타입 (`CallApiCallItem`, `CallConditionItem` 등) |
+| `CallPanel.cs` | Call 속성 패널 — ApplyCallTimeout, RefreshCallPanel |
+| `CallPanel.ApiCalls.cs` | ApiCall CRUD 메서드 |
+| `CallPanel.Conditions.cs` | CallCondition CRUD, ReloadConditions |
+| `SystemPanel.cs` | System 속성 패널 — ApiDef CRUD |
+
+#### ViewModels/Simulation/
+
+| 파일 | 역할 |
+|------|------|
+| `SimulationPanelState.cs` | 시뮬레이션 패널 상태 |
+| `SimulationPanelState.Canvas.cs` | 시뮬레이션 캔버스 렌더링 |
+| `SimulationPanelState.Events.cs` | 시뮬레이션 이벤트 처리 |
+| `GanttChartState.cs` | Gantt 차트 뷰모델 상태 |
+
+#### Controls/
+
+| 파일 | 역할 |
+|------|------|
+| `Canvas/EditorCanvas.xaml(.cs)` | 캔버스 UI + AddWork/AddCall 클릭 |
+| `Canvas/EditorCanvas.Input.cs` | 마우스·키보드 입력 (드래그, Delete, 연결) |
+| `Canvas/EditorCanvas.Selection.cs` | 박스 선택, 화살표 선택 |
+| `Canvas/EditorCanvas.Navigation.cs` | 줌·패닝, FitToView |
+| `Canvas/EditorCanvas.Connect.cs` | 화살표 연결 시작/완료/취소 |
+| `PropertyPanel/PropertyPanel.xaml(.cs)` | 속성 패널 루트 UserControl |
+| `PropertyPanel/ConditionSectionControl.xaml(.cs)` | CallCondition 섹션 공통 UserControl |
+| `PropertyPanel/ValueSpecEditorControl.xaml(.cs)` | ValueSpec 인라인 편집 컨트롤 |
+| `Shell/ExplorerPane.xaml(.cs)` | 좌측 탐색기 패널 (트리 뷰) |
+| `Shell/MainToolbar.xaml(.cs)` | 상단 툴바 |
+| `Simulation/SimulationPanel.xaml(.cs)` | 시뮬레이션 패널 |
+| `Simulation/GanttChartControl.xaml(.cs)` | Gantt 차트 컨트롤 |
+
+#### Dialogs/
+
+| 파일 | 역할 |
+|------|------|
+| `CallCreateDialog.xaml(.cs)` | Call 생성 — CallReplication/ApiCallReplication/ApiDefPicker 모드 |
+| `ApiCallCreateDialog.xaml(.cs)` | ApiCall 생성 |
+| `ApiCallSpecDialog.xaml(.cs)` | ApiCall InTag/OutTag/ValueSpec 편집 |
+| `ApiDefEditDialog.xaml(.cs)` | ApiDef 속성 편집 |
+| `ArrowTypeDialog.xaml(.cs)` | 화살표 유형 선택 (Start/Reset/StartReset/Group) |
+| `ConditionApiCallPickerDialog.xaml(.cs)` | 조건 ApiCall 선택 |
+| `DurationBatchDialog.xaml(.cs)` | Duration 일괄 설정 |
+| `IoBatchSettingsDialog.xaml(.cs)` | I/O 태그 일괄 설정 |
+| `CsvExportDialog.xaml(.cs)` | CSV 내보내기 옵션 |
+| `CsvImportDialog.xaml(.cs)` | CSV 불러오기 (미리보기 + 매핑) |
+| `MermaidImportDialog.xaml(.cs)` | Mermaid 텍스트 가져오기 |
+| `ProjectPropertiesDialog.xaml(.cs)` | 프로젝트 속성 편집 |
+| `ValueSpecDialog.xaml(.cs)` | ValueSpec 독립 편집 |
+
+</details>
+
+<details>
+<summary><b>🧪 테스트 프로젝트</b></summary>
 
 | 파일 | 역할 |
 |------|------|
@@ -335,50 +427,16 @@ Apps/Promaker/
 | `Ds2.Integration.Tests/Tests.fs` | 통합 시나리오 테스트 (6개) |
 | `Ds2.Mermaid.Tests/Tests.fs` | Mermaid 변환 단위 테스트 (16개) |
 
----
-
-## 편집 한 동작의 전체 경로
-
-```
-사용자 입력 (키보드 / 마우스 / 메뉴)
-    │
-    ▼  C# — EditorCanvas / MainViewModel
-    │  편집 입력 해석 → store.Xxx(...) 호출
-    │  조회/탭/투영 계산은 store.BuildTrees() / store.CanvasContentForTab() 등
-    │
-    ▼  F# — DsStore Extensions ([<Extension>] 메서드)
-    │  store.WithTransaction(label, fun () -> Track 헬퍼로 증분 변경)
-    │  → TrackAdd/TrackRemove/TrackMutate가 UndoRecord 기록
-    │  → 실패 시 기록된 UndoRecord를 역순 실행하여 자동 복원 + reraise
-    │
-    ▼  F# — UndoRedoManager(100)
-    │  undoStack.AddFirst(UndoTransaction) / redoStack.Clear
-    │
-    ▼  F# — DsStore: EditorEvent 발행
-    │  StoreRefreshed       → UI 전체 재구성
-    │  HistoryChanged       → History 패널 갱신 + Undo/Redo 버튼 상태 갱신
-    │  SelectionChanged     → 속성 패널 갱신
-    │
-    ▼  C# — MainViewModel.HandleEvent(event)
-       RebuildAll → WPF 바인딩 갱신 → 화면 반영
-```
-
-### 증분 UndoRecord 기반 Undo 설계
-
-변경된 엔티티만 클로저 기반 `UndoRecord`로 추적합니다. Undo 시 기록된 클로저를 역순 실행하여 복원합니다.
-
-- **Track 헬퍼**: `TrackAdd`/`TrackRemove`/`TrackMutate`/`TrackGuidSetAdd`/`TrackGuidSetRemove` — Dictionary 조작 + UndoRecord 기록을 하나로 묶어 Record 누락 방지
-- **WithTransaction**: 여러 Track 호출을 하나의 `UndoTransaction`으로 묶음. 실패 시 기록된 UndoRecord를 역순 Undo로 자동 롤백
-- **RewireApiCallReferences**: Undo/Redo 후 Call↔ApiCall 공유 참조 재연결 (deep copy로 인스턴스 불일치 해소)
-- **제약**: 외부에서 `store.GetProject(id).Name <- "new"` 직접 필드 수정 시 Undo 추적 불가. 변경은 반드시 `store.메서드()` 경유
-
-> 상세 내용: [`RUNTIME.md`](RUNTIME.md)
+</details>
 
 ---
 
 ## 로깅 (log4net)
 
 log4net 2.0.17이 F#+C# 전 레이어에 적용되어 있습니다.
+
+<details>
+<summary><b>로깅 설정 상세</b></summary>
 
 ### 초기화
 
@@ -397,37 +455,32 @@ log4net.config 파일이 없으면 로깅 없이 앱이 정상 실행됩니다.
 ### 로거별 레벨 전략
 
 | 지점 | 레벨 | 예시 |
-|------|------|------|
-| 앱 시작/종료 | INFO | `=== Promaker startup ===` |
-| 전역 미처리 예외 | FATAL | `DispatcherUnhandledException` + 스택 트레이스 |
-| EditorEvent 구독자 에러 | ERROR | `EditorEvent 구독자 에러` + 예외 |
-| JSON 파일 열기/저장 성공 | INFO | `파일 열기/저장 완료: {path}` |
-| JSON 파일 열기/저장 실패 | ERROR | 예외 포함 |
-| AASX import/export 성공 | INFO | 경로 포함 |
-| AASX import 빈 결과 | WARN | |
-| AASX import ReplaceStore 실패 | ERROR | 예외 포함 → DialogHelpers.Warn |
-| AASX export 실패 | WARN / ERROR | |
-| AASX 내부 파싱 실패 (`AasxImporter`) | WARN | 9곳 `with _ -> None` → 함수명 + 예외 포함 |
-| AASX ZIP 읽기 실패 | WARN | 예외 객체 포함 (stack trace) |
-| AASX Submodels null / Submodel IdShort 불일치 | WARN | 경로 포함 |
-| Unhandled EditorEvent | WARN | `Unhandled event: {타입명}` |
-| `SaveToFile` 성공 | INFO | `저장 완료: {path}` |
-| `SaveToFile` 실패 | ERROR | 예외 포함 (재throw) |
-| `WithTransaction` 성공 | DEBUG | `Executed: {label}` |
-| `WithTransaction` 실패 | ERROR | `Transaction failed: {label} — {msg}` + 예외 |
-| Undo/Redo 성공 | DEBUG | `Undo: {명령 레이블}` / `Redo: …` |
-| Undo/Redo 실패 | ERROR | 예외 포함 |
-| `ApplyNewStore` 성공 | INFO | `Store applied: {context}` |
-| `ApplyNewStore` 실패 | ERROR | 예외 포함 |
-| AASX ZIP 읽기 실패 | WARN | `AASX 읽기 실패: {msg}` (기존 silent failure 개선) |
+|------|:----:|------|
+| 앱 시작/종료 | `INFO` | `=== Promaker startup ===` |
+| 전역 미처리 예외 | `FATAL` | `DispatcherUnhandledException` + 스택 트레이스 |
+| EditorEvent 구독자 에러 | `ERROR` | `EditorEvent 구독자 에러` + 예외 |
+| JSON 파일 열기/저장 성공 | `INFO` | `파일 열기/저장 완료: {path}` |
+| JSON 파일 열기/저장 실패 | `ERROR` | 예외 포함 |
+| AASX import/export 성공 | `INFO` | 경로 포함 |
+| AASX import 빈 결과 | `WARN` | |
+| AASX import ReplaceStore 실패 | `ERROR` | 예외 포함 → DialogHelpers.Warn |
+| AASX export 실패 | `WARN`/`ERROR` | |
+| AASX 내부 파싱 실패 | `WARN` | 함수명 + 예외 포함 |
+| AASX ZIP 읽기 실패 | `WARN` | 예외 객체 포함 |
+| `WithTransaction` 성공 | `DEBUG` | `Executed: {label}` |
+| `WithTransaction` 실패 | `ERROR` | `Transaction failed: {label}` + 예외 |
+| Undo/Redo 성공 | `DEBUG` | `Undo: {명령 레이블}` |
+| Undo/Redo 실패 | `ERROR` | 예외 포함 |
 
 ### 패키지 적용 범위
 
 | 프로젝트 | 로거 선언 방식 |
 |---------|-------------|
 | `Ds2.UI.Core` (F#) | `LogManager.GetLogger(typedefof<DsStore>)` |
-| `Ds2.Aasx` (F#) | `LogManager.GetLogger("Ds2.Aasx.AasxFileIO")` / `LogManager.GetLogger("Ds2.Aasx.AasxImporter")` |
+| `Ds2.Aasx` (F#) | `LogManager.GetLogger("Ds2.Aasx.AasxFileIO")` |
 | `Promaker` (C#) | `LogManager.GetLogger(typeof(App))` / `typeof(MainViewModel)` |
+
+</details>
 
 ---
 
@@ -447,15 +500,16 @@ dotnet test Solutions/Ds2.sln -nologo
 ## 관련 문서
 
 | 문서 | 내용 |
-|------|------|
-| `RUNTIME.md` | CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제 동작 상세 |
+|:-----|:-----|
+| [`RUNTIME.md`](RUNTIME.md) | CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제 동작 상세 |
 
 ---
 
 ## License and Notices
 
-- **License:** Apache License 2.0 (see `LICENSE`)
-- **Notice:** Project notices and attribution information (see `NOTICE`)
-- **Patent information:** See `PATENTS.md` and the official page:
-  http://dualsoft.co.kr/HelpDS/patents/patents.html
-- **Commercial services / enterprise support:** See `COMMERCIAL.md`
+| | |
+|:--|:--|
+| **License** | Apache License 2.0 — see [`LICENSE`](LICENSE) |
+| **Notice** | Project notices and attribution — see [`NOTICE`](NOTICE) |
+| **Patents** | See [`PATENTS.md`](PATENTS.md) and [dualsoft.co.kr/HelpDS/patents](http://dualsoft.co.kr/HelpDS/patents/patents.html) |
+| **Commercial** | Enterprise support — see [`COMMERCIAL.md`](COMMERCIAL.md) |
