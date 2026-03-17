@@ -75,6 +75,7 @@ type DsStoreQueriesExtensions =
         let content = CanvasProjection.canvasContentForTab store kind rootId
         CanvasLayout.computeLayout content
 
+
     // ─── ArrowPathCalculator ─────────────────────────────────────────
     [<Extension>]
     static member GetFlowArrowPaths(store: DsStore, flowId: Guid) : Map<Guid, ArrowPathCalculator.ArrowVisual> =
