@@ -59,6 +59,8 @@
     <SolidColorBrush x:Key="IconRedBrush" Color="{StaticResource IconRedColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="IconGrayBrush" Color="{StaticResource IconGrayColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="IconGreenBrush" Color="{StaticResource IconGreenColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="IconPurpleBrush" Color="{StaticResource IconPurpleColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="IconDarkGrayBrush" Color="{StaticResource IconDarkGrayColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="SimulationReadyBrush" Color="{StaticResource SimulationReadyColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="SimulationGoingBrush" Color="{StaticResource SimulationGoingColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="SimulationFinishBrush" Color="{StaticResource SimulationFinishColor}" po:Freeze="False"/>
