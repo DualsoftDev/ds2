@@ -1,6 +1,7 @@
 @page "/chart"
 @inject DsProjectService ProjectService
 @inject DspDbService DbService
+@inject NavigationManager Nav
 @implements IDisposable
 
 <PageTitle>상세정보 - DSPilot</PageTitle>
@@ -19,12 +20,14 @@ else
         <MudCardContent Class="pa-3">
             <MudGrid Spacing="2">
                 <MudItem xs="12" sm="6" md="3">
-                    <MudTextField @bind-Value="_searchText" Placeholder="Call / Work 검색"
+                    <MudTextField Value="_searchText" ValueChanged="@((string v) => SetFilter(search: v))"
+                                  Placeholder="Call / Work 검색"
                                   Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
                                   Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
                 </MudItem>
                 <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="string" @bind-Value="_selectedFlow" Label="Flow" Variant="Variant.Outlined"
+                    <MudSelect T="string" Value="_selectedFlow" ValueChanged="@((string v) => SetFilter(flow: v))"
+                               Label="Flow" Variant="Variant.Outlined"
                                Margin="Margin.Dense" Clearable="true">
                         @foreach (var flow in _flowNames)
                         {
@@ -33,7 +36,8 @@ else
                     </MudSelect>
                 </MudItem>
                 <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="string" @bind-Value="_selectedState" Label="State" Variant="Variant.Outlined"
+                    <MudSelect T="string" Value="_selectedState" ValueChanged="@((string v) => SetFilter(state: v))"
+                               Label="State" Variant="Variant.Outlined"
                                Margin="Margin.Dense" Clearable="true">
                         @foreach (var state in _stateOptions)
                         {
@@ -42,7 +46,8 @@ else
                     </MudSelect>
                 </MudItem>
                 <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="string" @bind-Value="_selectedDevice" Label="Device" Variant="Variant.Outlined"
+                    <MudSelect T="string" Value="_selectedDevice" ValueChanged="@((string v) => SetFilter(device: v))"
+                               Label="Device" Variant="Variant.Outlined"
                                Margin="Margin.Dense" Clearable="true">
                         @foreach (var device in _deviceNames)
                         {
@@ -110,6 +115,18 @@ else
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "flow")]
+    public string? QueryFlow { get; set; }
+
+    [SupplyParameterFromQuery(Name = "state")]
+    public string? QueryState { get; set; }
+
+    [SupplyParameterFromQuery(Name = "device")]
+    public string? QueryDevice { get; set; }
+
+    [SupplyParameterFromQuery(Name = "search")]
+    public string? QuerySearch { get; set; }
+
     private DspDbSnapshot _dbSnapshot = new();
 
     private string _searchText = "";
@@ -155,6 +172,53 @@ else
         _dbSnapshot = DbService.Snapshot;
         DbService.OnDataChanged += OnDbDataChanged;
         UpdateFilterOptions();
+    }
+
+    protected override void OnParametersSet()
+    {
+        _selectedFlow = QueryFlow;
+        _selectedState = QueryState;
+        _selectedDevice = QueryDevice;
+        _searchText = QuerySearch ?? "";
+    }
+
+    private void SetFilter(string? flow = "\0", string? state = "\0",
+                            string? device = "\0", string? search = "\0")
+    {
+        if (flow != "\0") _selectedFlow = string.IsNullOrEmpty(flow) ? null : flow;
+        if (state != "\0") _selectedState = string.IsNullOrEmpty(state) ? null : state;
+        if (device != "\0") _selectedDevice = string.IsNullOrEmpty(device) ? null : device;
+        if (search != "\0") _searchText = search ?? "";
+
+        UpdateUrl();
+    }
+
+    private void UpdateUrl()
+    {
+        var queryParams = new Dictionary<string, object?>();
+
+        if (!string.IsNullOrEmpty(_selectedFlow))
+            queryParams["flow"] = _selectedFlow;
+        else
+            queryParams["flow"] = null;
+
+        if (!string.IsNullOrEmpty(_selectedState))
+            queryParams["state"] = _selectedState;
+        else
+            queryParams["state"] = null;
+
+        if (!string.IsNullOrEmpty(_selectedDevice))
+            queryParams["device"] = _selectedDevice;
+        else
+            queryParams["device"] = null;
+
+        if (!string.IsNullOrWhiteSpace(_searchText))
+            queryParams["search"] = _searchText;
+        else
+            queryParams["search"] = null;
+
+        var uri = Nav.GetUriWithQueryParameters(queryParams);
+        Nav.NavigateTo(uri, replace: true);
     }
 
     private async void OnDbDataChanged()

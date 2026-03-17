@@ -1,4 +1,5 @@
 @inject DsProjectService ProjectService
+@inject NavigationManager Nav
 
 <MudNavMenu Color="Color.Primary">
     <MudNavLink Href="/" Match="NavLinkMatch.All">
@@ -50,7 +51,11 @@
                                          width: 0; height: 50%;
                                          border-left: 1px solid #ccc;"></span>
                         }
-                        <MudText Typo="Typo.body2" Style="color: #424242;">@flow.Name</MudText>
+                        <MudLink Typo="Typo.body2" Underline="Underline.None"
+                                 Style="color: #424242; cursor: pointer;"
+                                 OnClick="@(() => Nav.NavigateTo($"/chart?flow={Uri.EscapeDataString(flow.Name)}"))">
+                            @flow.Name
+                        </MudLink>
                     </div>
                 }
             </div>
