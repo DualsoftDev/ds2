@@ -295,6 +295,7 @@ public partial class MainViewModel : ObservableObject
         foreach (var label in redoList)
             HistoryItems.Add(new HistoryPanelItem(label, isRedo: true));
         CurrentHistoryIndex = undoList.Count;
+        AddSystemCommand.NotifyCanExecuteChanged();
     }
 
     private void RebuildAll()
