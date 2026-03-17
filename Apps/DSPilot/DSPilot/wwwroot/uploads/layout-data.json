@@ -2,10 +2,12 @@
   "BlueprintImagePath": "uploads/blueprint.png",
   "CanvasWidth": 1585,
   "CanvasHeight": 704,
-  "GridColumns": 10,
+  "GridColumns": 9,
   "GridRows": 6,
   "OffsetX": 38,
-  "OffsetY": 3,
+  "OffsetY": 15,
+  "OffsetRight": 58,
+  "OffsetBottom": 54,
   "FlowPlacements": [
     {
       "FlowId": "ca4e7b88-20ac-4a55-b35f-5e52968db30f",
@@ -138,26 +140,6 @@
       "RowSpan": 1
     },
     {
-      "FlowId": "45f51346-cc10-42be-9afe-0bdd7e615f1d",
-      "SystemId": "ac4c6d5b-b9c1-4ee0-857a-b92c0db3e251",
-      "FlowName": "TurnZone",
-      "SystemName": "DsCSV_0317",
-      "Col": 3,
-      "Row": 5,
-      "ColSpan": 1,
-      "RowSpan": 1
-    },
-    {
-      "FlowId": "51b5f643-b1e5-42a8-bb77-640fd3ea96d4",
-      "SystemId": "ac4c6d5b-b9c1-4ee0-857a-b92c0db3e251",
-      "FlowName": "Turn Zone#2",
-      "SystemName": "DsCSV_0317",
-      "Col": 3,
-      "Row": 6,
-      "ColSpan": 1,
-      "RowSpan": 1
-    },
-    {
       "FlowId": "cb5a2015-4e5f-44de-a719-f4e1839259a8",
       "SystemId": "ac4c6d5b-b9c1-4ee0-857a-b92c0db3e251",
       "FlowName": "Slider Conveyor",
@@ -186,8 +168,28 @@
       "Row": 2,
       "ColSpan": 1,
       "RowSpan": 1
+    },
+    {
+      "FlowId": "45f51346-cc10-42be-9afe-0bdd7e615f1d",
+      "SystemId": "ac4c6d5b-b9c1-4ee0-857a-b92c0db3e251",
+      "FlowName": "TurnZone",
+      "SystemName": "DsCSV_0317",
+      "Col": 3,
+      "Row": 4,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "51b5f643-b1e5-42a8-bb77-640fd3ea96d4",
+      "SystemId": "ac4c6d5b-b9c1-4ee0-857a-b92c0db3e251",
+      "FlowName": "Turn Zone#2",
+      "SystemName": "DsCSV_0317",
+      "Col": 3,
+      "Row": 5,
+      "ColSpan": 1,
+      "RowSpan": 1
     }
   ],
-  "CellWidth": 154,
-  "CellHeight": 116
+  "CellWidth": 165,
+  "CellHeight": 105
 }

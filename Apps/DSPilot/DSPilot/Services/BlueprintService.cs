@@ -3,12 +3,13 @@ using DSPilot.Models;
 
 namespace DSPilot.Services;
 
-public class BlueprintService
+public class BlueprintService : IDisposable
 {
     private readonly string _uploadsDir;
     private readonly string _layoutFilePath;
     private readonly ILogger<BlueprintService> _logger;
     private BlueprintLayout _layout = new();
+    private Timer? _debounceTimer;
 
     public BlueprintLayout Layout => _layout;
     public long ImageVersion { get; private set; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -107,18 +108,18 @@ public class BlueprintService
         if (existing != null)
             _layout.FlowPlacements.Remove(existing);
         _layout.FlowPlacements.Add(placement);
-        Save();
+        ScheduleSave();
     }
 
     public void RemovePlacement(Guid flowId)
     {
         _layout.FlowPlacements.RemoveAll(p => p.FlowId == flowId);
-        Save();
+        ScheduleSave();
     }
 
     public void SaveLayout()
     {
-        Save();
+        ScheduleSave();
     }
 
     public string GetLayoutJson()
@@ -126,10 +127,29 @@ public class BlueprintService
         return JsonSerializer.Serialize(_layout, new JsonSerializerOptions { WriteIndented = true });
     }
 
+    private void ScheduleSave()
+    {
+        _debounceTimer?.Dispose();
+        _debounceTimer = new Timer(_ => Save(), null, 500, Timeout.Infinite);
+    }
+
     private void Save()
     {
-        var json = JsonSerializer.Serialize(_layout, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(_layoutFilePath, json);
+        try
+        {
+            var json = JsonSerializer.Serialize(_layout, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(_layoutFilePath, json);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save layout data");
+        }
+    }
+
+    public void Dispose()
+    {
+        _debounceTimer?.Dispose();
+        Save(); // flush pending changes
     }
 
     private void Load()

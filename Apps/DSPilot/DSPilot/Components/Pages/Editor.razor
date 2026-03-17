@@ -105,7 +105,7 @@ else
                         <MudText Typo="Typo.overline" Class="px-2 mt-1" Color="Color.Secondary">
                             @sys.Name
                         </MudText>
-                        @foreach (var flow in ProjectService.GetFlows(sys.Id))
+                        @foreach (var flow in _systemFlows.GetValueOrDefault(sys.Id, []))
                         {
                             var placed = BlueprintService.Layout.FlowPlacements.Any(p => p.FlowId == flow.Id);
                             <div draggable="@(!placed ? "true" : "false")"
@@ -195,8 +195,7 @@ else
 
         @* Canvas *@
         <MudItem xs="12" md="8" lg="9">
-            <div @ondragover="OnDragOver"
-                 @ondragover:preventDefault="true"
+            <div @ondragover:preventDefault="true"
                  @ondrop="OnDrop"
                  @ondrop:preventDefault="true"
                  style="height: calc(100vh - 120px);">
@@ -289,6 +288,7 @@ else
 
 @code {
     private List<Ds2.Core.DsSystem> _systems = [];
+    private Dictionary<Guid, List<Ds2.Core.Flow>> _systemFlows = [];
     private Dictionary<Guid, (string SystemName, string FlowName, Guid SystemId)> _flowInfo = [];
     private DotNetObjectReference<Editor>? _dotNetRef;
     private Guid? _dragFlowId;
@@ -310,7 +310,9 @@ else
         _systems = ProjectService.GetActiveSystems();
         foreach (var sys in _systems)
         {
-            foreach (var flow in ProjectService.GetFlows(sys.Id))
+            var flows = ProjectService.GetFlows(sys.Id);
+            _systemFlows[sys.Id] = flows;
+            foreach (var flow in flows)
             {
                 _flowInfo[flow.Id] = (sys.Name, flow.Name, sys.Id);
             }
@@ -371,8 +373,6 @@ else
             {
                 Snackbar.Add("Blueprint uploaded.", Severity.Success);
             }
-
-            StateHasChanged();
         }
         catch (Exception ex)
         {
@@ -381,8 +381,6 @@ else
     }
 
     private void OnDragStart(Guid flowId) => _dragFlowId = flowId;
-
-    private void OnDragOver(DragEventArgs e) { }
 
     private void OnDrop(DragEventArgs e)
     {

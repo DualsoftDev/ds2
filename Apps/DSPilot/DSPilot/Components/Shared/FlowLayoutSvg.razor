@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     style="display: block; @Style"
+     viewBox="0 0 @CanvasWidth @CanvasHeight"
+     preserveAspectRatio="none">
+
+    @if (!string.IsNullOrEmpty(ImagePath))
+    {
+        <image href="@(ImagePath)?v=@(ImageVersion)"
+               x="0" y="0" width="@CanvasWidth" height="@CanvasHeight" opacity="0.3" />
+    }
+
+    @foreach (var fp in Placements)
+    {
+        var color = GetColor?.Invoke(fp) ?? "#9E9E9E";
+        var subtitle = GetSubtitle?.Invoke(fp) ?? "";
+        var stateLabel = GetStateLabel?.Invoke(fp) ?? "";
+        var px = OffsetX + fp.Col * CellWidth;
+        var py = OffsetY + fp.Row * CellHeight;
+        var pw = fp.ColSpan * CellWidth;
+        var ph = fp.RowSpan * CellHeight;
+        var pad = 4;
+
+        <g>
+            <rect x="@(px + pad)" y="@(py + pad)"
+                  width="@(pw - pad * 2)" height="@(ph - pad * 2)"
+                  rx="6" ry="6"
+                  fill="@color" fill-opacity="0.85"
+                  stroke="@color" stroke-width="2" />
+            <text x="@(px + pw / 2)" y="@(py + ph / 2 - 10)"
+                  text-anchor="middle" fill="white"
+                  font-size="13" font-weight="600">
+                @fp.FlowName
+            </text>
+            <text x="@(px + pw / 2)" y="@(py + ph / 2 + 6)"
+                  text-anchor="middle" fill="rgba(255,255,255,0.8)"
+                  font-size="10">
+                @subtitle
+            </text>
+            <text x="@(px + pw / 2)" y="@(py + ph / 2 + 22)"
+                  text-anchor="middle" fill="rgba(255,255,255,0.7)"
+                  font-size="9">
+                @stateLabel
+            </text>
+        </g>
+    }
+</svg>
+
+@code {
+    [Parameter] public string Style { get; set; } = "";
+    [Parameter] public int CanvasWidth { get; set; }
+    [Parameter] public int CanvasHeight { get; set; }
+    [Parameter] public string? ImagePath { get; set; }
+    [Parameter] public long ImageVersion { get; set; }
+    [Parameter] public int OffsetX { get; set; }
+    [Parameter] public int OffsetY { get; set; }
+    [Parameter] public int CellWidth { get; set; }
+    [Parameter] public int CellHeight { get; set; }
+    [Parameter] public List<FlowPlacement> Placements { get; set; } = [];
+    [Parameter] public Func<FlowPlacement, string>? GetColor { get; set; }
+    [Parameter] public Func<FlowPlacement, string>? GetSubtitle { get; set; }
+    [Parameter] public Func<FlowPlacement, string>? GetStateLabel { get; set; }
+}
