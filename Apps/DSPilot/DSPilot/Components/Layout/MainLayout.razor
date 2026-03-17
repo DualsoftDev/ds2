@@ -1,5 +1,6 @@
 @inherits LayoutComponentBase
 @inject DsProjectService ProjectService
+@inject NavigationManager Nav
 
 <MudThemeProvider Theme="_theme" />
 <MudPopoverProvider />
@@ -7,14 +8,14 @@
 <MudSnackbarProvider />
 
 <MudLayout>
-    <MudAppBar Elevation="4" Color="Color.Primary" Fixed="true">
+    <MudAppBar Elevation="1" Style="background: #FFFFFF; color: #0A1E5A;" Fixed="true">
         <MudIconButton Icon="@Icons.Material.Filled.Menu"
                        Color="Color.Inherit"
                        Edge="Edge.Start"
                        OnClick="ToggleDrawer" />
-        <MudImage Src="images/logo.png" Height="28" Class="mr-3" Alt="DSPilot Logo" />
-        <MudSpacer />
-        <MudText Typo="Typo.h5" Style="font-weight: 700;">@_projectName</MudText>
+        <div style="display: flex; align-items: center; cursor: pointer;" @onclick="@(() => Nav.NavigateTo("/"))">
+            <MudImage Src="images/logo.png" Height="28" Class="mr-3" Alt="DSPilot Logo" />
+        </div>
         <MudSpacer />
     </MudAppBar>
 
@@ -25,8 +26,8 @@
         <NavMenu />
     </MudDrawer>
 
-    <MudMainContent>
-        <MudContainer MaxWidth="MaxWidth.False" Class="pa-6 mt-2">
+    <MudMainContent Style="height: 100vh; overflow: hidden;">
+        <MudContainer MaxWidth="MaxWidth.False" Class="pa-4" Style="height: 100%; display: flex; flex-direction: column; overflow: hidden;">
             @Body
         </MudContainer>
     </MudMainContent>
@@ -47,8 +48,8 @@
             Success = "#4CAF50",
             Background = "#F5F5F5",
             Surface = "#FFFFFF",
-            AppbarBackground = "#0A1E5A",
-            AppbarText = "#FFFFFF",
+            AppbarBackground = "#FFFFFF",
+            AppbarText = "#0A1E5A",
             DrawerBackground = "#FFFFFF",
             DrawerText = "#212121",
             DrawerIcon = "#0A1E5A",

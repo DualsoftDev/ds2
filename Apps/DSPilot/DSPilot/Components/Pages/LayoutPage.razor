@@ -22,31 +22,84 @@ else if (string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
 }
 else
 {
-    <MudPaper Elevation="2" Class="pa-0" Style="overflow: hidden; border-radius: 8px;">
-        <div style="position: relative; width: 100%; max-height: calc(100vh - 160px);
-                    aspect-ratio: @BlueprintService.Layout.CanvasWidth / @BlueprintService.Layout.CanvasHeight;">
+    <MudPaper Elevation="2" Class="pa-0" Style="overflow: hidden; border-radius: 8px; display: inline-block;">
+        <svg xmlns="http://www.w3.org/2000/svg"
+             style="display: block; width: 100%; max-height: calc(100vh - 160px);"
+             viewBox="0 0 @_cw @_ch"
+             preserveAspectRatio="xMidYMid meet">
 
-            <img src="@(BlueprintService.Layout.BlueprintImagePath)?v=@(BlueprintService.ImageVersion)"
-                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-                        opacity: 0.3;" alt="Blueprint" />
+            <image href="@(BlueprintService.Layout.BlueprintImagePath)?v=@(BlueprintService.ImageVersion)"
+                   x="0" y="0" width="@_cw" height="@_ch" opacity="0.3" />
 
+            @foreach (var fp in BlueprintService.Layout.FlowPlacements)
+            {
+                var color = GetSystemColor(fp.SystemId);
+                var px = _ox + fp.Col * _cellW;
+                var py = _oy + fp.Row * _cellH;
+                var pw = fp.ColSpan * _cellW;
+                var ph = fp.RowSpan * _cellH;
+                var pad = 4;
+
+                <g>
+                    <rect x="@(px + pad)" y="@(py + pad)"
+                          width="@(pw - pad * 2)" height="@(ph - pad * 2)"
+                          rx="6" ry="6"
+                          fill="@color" fill-opacity="0.85"
+                          stroke="@color" stroke-width="2" />
+                    <text x="@(px + pw / 2)" y="@(py + ph / 2 - 4)"
+                          text-anchor="middle" fill="white"
+                          font-size="13" font-weight="600">
+                        @fp.FlowName
+                    </text>
+                    <text x="@(px + pw / 2)" y="@(py + ph / 2 + 14)"
+                          text-anchor="middle" fill="rgba(255,255,255,0.8)"
+                          font-size="10">
+                        @fp.SystemName (@GetWorkCount(fp.FlowId) works)
+                    </text>
+                </g>
+            }
+        </svg>
+    </MudPaper>
+
+    <div class="d-flex justify-center mt-2">
+        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                   StartIcon="@Icons.Material.Filled.Fullscreen"
+                   OnClick="@(() => _fullViewOpen = true)">
+            전체보기
+        </MudButton>
+    </div>
+}
+
+<MudFab Style="position: fixed; bottom: 32px; right: 32px; z-index: 100;"
+        Color="Color.Secondary"
+        StartIcon="@Icons.Material.Filled.Edit"
+        OnClick="@(() => Nav.NavigateTo("/editor"))" />
+
+<MudDialog @bind-Visible="_fullViewOpen" Options="_fullViewOptions">
+    <TitleContent>
+        <div class="d-flex align-center">
+            <MudIcon Icon="@Icons.Material.Filled.Fullscreen" Class="mr-2" />
+            <MudText Typo="Typo.h6">Layout - 전체보기</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+        {
             <svg xmlns="http://www.w3.org/2000/svg"
-                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"
-                 viewBox="0 0 @BlueprintService.Layout.CanvasWidth @BlueprintService.Layout.CanvasHeight"
-                 preserveAspectRatio="xMinYMin meet">
+                 style="display: block; width: 100%; max-height: calc(90vh - 120px);"
+                 viewBox="0 0 @_cw @_ch"
+                 preserveAspectRatio="xMidYMid meet">
 
-                @{
-                    var cellW = BlueprintService.Layout.CellWidth;
-                    var cellH = BlueprintService.Layout.CellHeight;
-                }
+                <image href="@(BlueprintService.Layout.BlueprintImagePath)?v=@(BlueprintService.ImageVersion)"
+                       x="0" y="0" width="@_cw" height="@_ch" opacity="0.3" />
 
                 @foreach (var fp in BlueprintService.Layout.FlowPlacements)
                 {
                     var color = GetSystemColor(fp.SystemId);
-                    var px = fp.Col * cellW;
-                    var py = fp.Row * cellH;
-                    var pw = fp.ColSpan * cellW;
-                    var ph = fp.RowSpan * cellH;
+                    var px = fp.Col * _cellW;
+                    var py = fp.Row * _cellH;
+                    var pw = fp.ColSpan * _cellW;
+                    var ph = fp.RowSpan * _cellH;
                     var pad = 4;
 
                     <g>
@@ -68,79 +121,6 @@ else
                     </g>
                 }
             </svg>
-        </div>
-    </MudPaper>
-
-    <div class="d-flex justify-center mt-2">
-        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
-                   StartIcon="@Icons.Material.Filled.Fullscreen"
-                   OnClick="OpenFullView">
-            전체보기
-        </MudButton>
-    </div>
-}
-
-<MudFab Style="position: fixed; bottom: 32px; right: 32px; z-index: 100;"
-        Color="Color.Secondary"
-        StartIcon="@Icons.Material.Filled.Edit"
-        OnClick="@(() => Nav.NavigateTo("/editor"))" />
-
-<MudDialog @bind-Visible="_fullViewOpen" Options="_fullViewOptions">
-    <TitleContent>
-        <div class="d-flex align-center">
-            <MudIcon Icon="@Icons.Material.Filled.Fullscreen" Class="mr-2" />
-            <MudText Typo="Typo.h6">Layout - 전체보기</MudText>
-        </div>
-    </TitleContent>
-    <DialogContent>
-        @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
-        {
-            <div style="position: relative; width: 100%;
-                        aspect-ratio: @BlueprintService.Layout.CanvasWidth / @BlueprintService.Layout.CanvasHeight;">
-
-                <img src="@(BlueprintService.Layout.BlueprintImagePath)?v=@(BlueprintService.ImageVersion)"
-                     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-                            opacity: 0.3;" alt="Blueprint" />
-
-                <svg xmlns="http://www.w3.org/2000/svg"
-                     style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"
-                     viewBox="0 0 @BlueprintService.Layout.CanvasWidth @BlueprintService.Layout.CanvasHeight"
-                     preserveAspectRatio="xMinYMin meet">
-
-                    @{
-                        var dCellW = BlueprintService.Layout.CellWidth;
-                        var dCellH = BlueprintService.Layout.CellHeight;
-                    }
-
-                    @foreach (var fp in BlueprintService.Layout.FlowPlacements)
-                    {
-                        var color = GetSystemColor(fp.SystemId);
-                        var px = fp.Col * dCellW;
-                        var py = fp.Row * dCellH;
-                        var pw = fp.ColSpan * dCellW;
-                        var ph = fp.RowSpan * dCellH;
-                        var pad = 4;
-
-                        <g>
-                            <rect x="@(px + pad)" y="@(py + pad)"
-                                  width="@(pw - pad * 2)" height="@(ph - pad * 2)"
-                                  rx="6" ry="6"
-                                  fill="@color" fill-opacity="0.85"
-                                  stroke="@color" stroke-width="2" />
-                            <text x="@(px + pw / 2)" y="@(py + ph / 2 - 4)"
-                                  text-anchor="middle" fill="white"
-                                  font-size="13" font-weight="600">
-                                @fp.FlowName
-                            </text>
-                            <text x="@(px + pw / 2)" y="@(py + ph / 2 + 14)"
-                                  text-anchor="middle" fill="rgba(255,255,255,0.8)"
-                                  font-size="10">
-                                @fp.SystemName (@GetWorkCount(fp.FlowId) works)
-                            </text>
-                        </g>
-                    }
-                </svg>
-            </div>
         }
     </DialogContent>
     <DialogActions>
@@ -151,6 +131,7 @@ else
 @code {
     private readonly Dictionary<Guid, int> _systemColorIndex = [];
     private bool _fullViewOpen;
+    private int _cw, _ch, _cellW, _cellH, _ox, _oy;
 
     private static readonly DialogOptions _fullViewOptions = new()
     {
@@ -162,6 +143,17 @@ else
 
     private static readonly string[] SystemColors =
         ["#0A1E5A", "#FA002D", "#0569A0", "#009BB4", "#4CAF50"];
+
+    protected override void OnParametersSet()
+    {
+        var layout = BlueprintService.Layout;
+        _cw = layout.CanvasWidth;
+        _ch = layout.CanvasHeight;
+        _cellW = layout.CellWidth;
+        _cellH = layout.CellHeight;
+        _ox = layout.OffsetX;
+        _oy = layout.OffsetY;
+    }
 
     private int GetWorkCount(Guid flowId) => ProjectService.GetWorks(flowId).Count;
 

@@ -7,6 +7,8 @@ public class BlueprintLayout
     public int CanvasHeight { get; set; } = 800;
     public int GridColumns { get; set; } = 6;
     public int GridRows { get; set; } = 4;
+    public int OffsetX { get; set; }
+    public int OffsetY { get; set; }
     public List<FlowPlacement> FlowPlacements { get; set; } = [];
 
     public int CellWidth => GridColumns > 0 ? CanvasWidth / GridColumns : 200;

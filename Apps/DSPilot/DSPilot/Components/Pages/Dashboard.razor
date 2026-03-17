@@ -3,7 +3,7 @@
 
 <PageTitle>Dashboard - DSPilot</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-4" Style="font-weight: 600; color: #0A1E5A;">Dashboard</MudText>
+<MudText Typo="Typo.h5" Class="mb-2" Style="font-weight: 600; color: #0A1E5A; flex-shrink: 0;">Dashboard</MudText>
 
 @if (!ProjectService.IsLoaded)
 {
@@ -13,95 +13,97 @@
 }
 else
 {
-    <MudGrid Spacing="4">
-        <MudItem xs="12" sm="6" md="3">
-            <MudCard Elevation="2" Style="border-top: 4px solid #0A1E5A; border-radius: 8px;">
-                <MudCardContent Class="d-flex flex-column align-center pa-6">
-                    <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Size="Size.Large" Style="color: #0A1E5A;" />
-                    <MudText Typo="Typo.h4" Class="mt-3" Style="font-weight: 700; color: #0A1E5A;">
-                        @(_project?.Name ?? "-")
-                    </MudText>
-                    <MudText Typo="Typo.body2" Style="color: #7D8282;">Project</MudText>
-                </MudCardContent>
-            </MudCard>
-        </MudItem>
-
-        <MudItem xs="12" sm="6" md="3">
-            <MudCard Elevation="2" Style="border-top: 4px solid #FA002D; border-radius: 8px;">
-                <MudCardContent Class="d-flex flex-column align-center pa-6">
-                    <MudIcon Icon="@Icons.Material.Filled.DeviceHub" Size="Size.Large" Style="color: #FA002D;" />
-                    <MudText Typo="Typo.h4" Class="mt-3" Style="font-weight: 700; color: #212121;">
-                        @_systemCount
-                    </MudText>
-                    <MudText Typo="Typo.body2" Style="color: #7D8282;">Systems</MudText>
-                </MudCardContent>
-            </MudCard>
-        </MudItem>
-
-        <MudItem xs="12" sm="6" md="3">
-            <MudCard Elevation="2" Style="border-top: 4px solid #0569A0; border-radius: 8px;">
-                <MudCardContent Class="d-flex flex-column align-center pa-6">
-                    <MudIcon Icon="@Icons.Material.Filled.AltRoute" Size="Size.Large" Style="color: #0569A0;" />
-                    <MudText Typo="Typo.h4" Class="mt-3" Style="font-weight: 700; color: #212121;">
-                        @_flowCount
-                    </MudText>
-                    <MudText Typo="Typo.body2" Style="color: #7D8282;">Flows</MudText>
-                </MudCardContent>
-            </MudCard>
-        </MudItem>
-
-        <MudItem xs="12" sm="6" md="3">
-            <MudCard Elevation="2" Style="border-top: 4px solid #009BB4; border-radius: 8px;">
-                <MudCardContent Class="d-flex flex-column align-center pa-6">
-                    <MudIcon Icon="@Icons.Material.Filled.Work" Size="Size.Large" Style="color: #009BB4;" />
-                    <MudText Typo="Typo.h4" Class="mt-3" Style="font-weight: 700; color: #212121;">
-                        @_workCount
-                    </MudText>
-                    <MudText Typo="Typo.body2" Style="color: #7D8282;">Works</MudText>
-                </MudCardContent>
-            </MudCard>
-        </MudItem>
-    </MudGrid>
-
-    @* Flow별 가동시간 도넛 차트 *@
-    <MudText Typo="Typo.h6" Class="mt-6 mb-3" Style="font-weight: 600; color: #0A1E5A;">Flow Operation Time</MudText>
-    <MudGrid Spacing="4">
-        @foreach (var flowInfo in _flowTimeInfos)
-        {
-            <MudItem xs="12" sm="6" md="4" lg="3">
-                <MudCard Elevation="2" Style="border-radius: 8px;">
-                    <MudCardContent Class="d-flex flex-column align-center">
-                        <MudText Typo="Typo.subtitle1" Style="font-weight: 600; color: #0A1E5A;">
-                            @flowInfo.FlowName
+    <div style="flex-shrink: 0;">
+        <MudGrid Spacing="3">
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard Elevation="2" Style="border-top: 4px solid #0A1E5A; border-radius: 8px;">
+                    <MudCardContent Class="d-flex flex-column align-center pa-4">
+                        <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Size="Size.Large" Style="color: #0A1E5A;" />
+                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #0A1E5A;">
+                            @(_project?.Name ?? "-")
                         </MudText>
-                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">
-                            @flowInfo.SystemName
-                        </MudText>
-                        <MudChart ChartType="ChartType.Donut"
-                                  InputData="@flowInfo.ChartData"
-                                  InputLabels="@flowInfo.ChartLabels"
-                                  Width="200px"
-                                  Height="200px" />
-                        <div class="d-flex flex-column align-center mt-2">
-                            <MudText Typo="Typo.body2">
-                                Total: <b>@flowInfo.TotalTime</b>
-                            </MudText>
-                            <MudText Typo="Typo.caption" Style="color: #7D8282;">
-                                @flowInfo.WorkCount Works
-                            </MudText>
-                        </div>
+                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Project</MudText>
                     </MudCardContent>
                 </MudCard>
             </MudItem>
-        }
-    </MudGrid>
 
-    @if (_flowTimeInfos.Count == 0)
-    {
-        <MudAlert Severity="Severity.Normal" Variant="Variant.Text" Class="mt-2">
-            No flow time data available.
-        </MudAlert>
-    }
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard Elevation="2" Style="border-top: 4px solid #FA002D; border-radius: 8px;">
+                    <MudCardContent Class="d-flex flex-column align-center pa-4">
+                        <MudIcon Icon="@Icons.Material.Filled.DeviceHub" Size="Size.Large" Style="color: #FA002D;" />
+                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
+                            @_systemCount
+                        </MudText>
+                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Systems</MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard Elevation="2" Style="border-top: 4px solid #0569A0; border-radius: 8px;">
+                    <MudCardContent Class="d-flex flex-column align-center pa-4">
+                        <MudIcon Icon="@Icons.Material.Filled.AltRoute" Size="Size.Large" Style="color: #0569A0;" />
+                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
+                            @_flowCount
+                        </MudText>
+                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Flows</MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard Elevation="2" Style="border-top: 4px solid #009BB4; border-radius: 8px;">
+                    <MudCardContent Class="d-flex flex-column align-center pa-4">
+                        <MudIcon Icon="@Icons.Material.Filled.Work" Size="Size.Large" Style="color: #009BB4;" />
+                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
+                            @_workCount
+                        </MudText>
+                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Works</MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        </MudGrid>
+    </div>
+
+    @* Flow별 가동시간 도넛 차트 *@
+    <MudText Typo="Typo.h6" Class="mt-3 mb-2" Style="font-weight: 600; color: #0A1E5A; flex-shrink: 0;">Flow Operation Time</MudText>
+    <MudCard Elevation="2" Style="border-radius: 8px; flex: 1; min-height: 0; overflow: auto;">
+        <MudCardContent Style="height: 100%;">
+            @if (_flowTimeInfos.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Style="color: #7D8282;">No flow time data available.</MudText>
+            }
+            else
+            {
+                <div style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; align-content: flex-start;">
+                    @foreach (var flowInfo in _flowTimeInfos)
+                    {
+                        <div style="display: flex; flex-direction: column; align-items: center; min-width: 160px; flex: 1 1 160px; max-width: 220px; padding: 8px;">
+                            <MudText Typo="Typo.subtitle2" Style="font-weight: 600; color: #0A1E5A;">
+                                @flowInfo.FlowName
+                            </MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">
+                                @flowInfo.SystemName
+                            </MudText>
+                            <MudChart ChartType="ChartType.Donut"
+                                      InputData="@flowInfo.ChartData"
+                                      InputLabels="@flowInfo.ChartLabels"
+                                      Width="130px"
+                                      Height="130px" />
+                            <div class="d-flex flex-column align-center mt-1">
+                                <MudText Typo="Typo.body2">
+                                    Total: <b>@flowInfo.TotalTime</b>
+                                </MudText>
+                                <MudText Typo="Typo.caption" Style="color: #7D8282;">
+                                    @flowInfo.WorkCount Works
+                                </MudText>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </MudCardContent>
+    </MudCard>
 }
 
 @code {

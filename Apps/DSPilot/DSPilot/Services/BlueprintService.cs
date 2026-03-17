@@ -69,6 +69,11 @@ public class BlueprintService
         Save();
     }
 
+    public string GetLayoutJson()
+    {
+        return JsonSerializer.Serialize(_layout, new JsonSerializerOptions { WriteIndented = true });
+    }
+
     private void Save()
     {
         var json = JsonSerializer.Serialize(_layout, new JsonSerializerOptions { WriteIndented = true });
