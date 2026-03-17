@@ -25,9 +25,9 @@ type SimIndex = {
     CallStartPreds: Map<Guid, Guid list>
     CallWorkGuid: Map<Guid, Guid>
     CallApiCallGuids: Map<Guid, Guid list>
-    CallAutoConditions: Map<Guid, ConditionEntry list>
-    CallCommonConditions: Map<Guid, ConditionEntry list>
-    CallActiveConditions: Map<Guid, ConditionEntry list>
+    CallAutoAuxConditions: Map<Guid, ConditionEntry list>
+    CallComAuxConditions: Map<Guid, ConditionEntry list>
+    CallSkipUnmatchConditions: Map<Guid, ConditionEntry list>
     /// (SystemName, WorkName) → 같은 키를 공유하는 Work Guid 목록 (O(1) 조회용)
     WorkGuidsByKey: Map<string * string, Guid list>
     ActiveSystemNames: Set<string>
@@ -50,9 +50,9 @@ module SimIndex =
         mutable CallStartPreds: Map<Guid, Guid list>
         mutable CallWorkGuid: Map<Guid, Guid>
         mutable CallApiCallGuids: Map<Guid, Guid list>
-        mutable CallAutoConditions: Map<Guid, ConditionEntry list>
-        mutable CallCommonConditions: Map<Guid, ConditionEntry list>
-        mutable CallActiveConditions: Map<Guid, ConditionEntry list>
+        mutable CallAutoAuxConditions: Map<Guid, ConditionEntry list>
+        mutable CallComAuxConditions: Map<Guid, ConditionEntry list>
+        mutable CallSkipUnmatchConditions: Map<Guid, ConditionEntry list>
     }
 
     let findOrEmpty key map =
@@ -117,7 +117,7 @@ module SimIndex =
             WorkCallGuids = Map.empty; WorkStartPreds = Map.empty; WorkResetPreds = Map.empty
             WorkDuration = Map.empty; WorkSystemName = Map.empty; WorkName = Map.empty
             CallStartPreds = Map.empty; CallWorkGuid = Map.empty; CallApiCallGuids = Map.empty
-            CallAutoConditions = Map.empty; CallCommonConditions = Map.empty; CallActiveConditions = Map.empty
+            CallAutoAuxConditions = Map.empty; CallComAuxConditions = Map.empty; CallSkipUnmatchConditions = Map.empty
         }
 
         let groupArrows arrowTypes getArrowType keySelector valueSelector arrows =
@@ -138,9 +138,9 @@ module SimIndex =
             state.CallApiCallGuids <- state.CallApiCallGuids.Add(call.Id, apiCallIds)
             state.CallStartPreds <- state.CallStartPreds.Add(call.Id, findOrEmpty call.Id callStartPreds)
             state.CallWorkGuid <- state.CallWorkGuid.Add(call.Id, work.Id)
-            state.CallAutoConditions <- state.CallAutoConditions.Add(call.Id, conditionSpecs store CallConditionType.Auto call)
-            state.CallCommonConditions <- state.CallCommonConditions.Add(call.Id, conditionSpecs store CallConditionType.Common call)
-            state.CallActiveConditions <- state.CallActiveConditions.Add(call.Id, conditionSpecs store CallConditionType.Active call)
+            state.CallAutoAuxConditions <- state.CallAutoAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.AutoAux call)
+            state.CallComAuxConditions <- state.CallComAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.ComAux call)
+            state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, conditionSpecs store CallConditionType.SkipUnmatch call)
             state.AllCallGuids <- call.Id :: state.AllCallGuids
 
         let addWorkData (system: DsSystem) (work: Work) (callGuids: Guid list) (workStartPreds: Map<Guid, Guid list>) (workResetPreds: Map<Guid, Guid list>) =
@@ -211,9 +211,9 @@ module SimIndex =
           CallStartPreds = state.CallStartPreds
           CallWorkGuid = state.CallWorkGuid
           CallApiCallGuids = state.CallApiCallGuids
-          CallAutoConditions = state.CallAutoConditions
-          CallCommonConditions = state.CallCommonConditions
-          CallActiveConditions = state.CallActiveConditions
+          CallAutoAuxConditions = state.CallAutoAuxConditions
+          CallComAuxConditions = state.CallComAuxConditions
+          CallSkipUnmatchConditions = state.CallSkipUnmatchConditions
           WorkGuidsByKey = workGuidsByKey
           ActiveSystemNames = activeSystemNames
           TickMs = tickMs }

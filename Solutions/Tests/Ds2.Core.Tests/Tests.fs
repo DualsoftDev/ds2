@@ -248,14 +248,14 @@ module DeepCopyTests =
     [<Fact>]
     let ``CallCondition DeepCopy should copy Children recursively`` () =
         let child = CallCondition()
-        child.Type <- Some CallConditionType.Active
+        child.Type <- Some CallConditionType.SkipUnmatch
         child.IsOR <- true
         let childApi = ApiCall("ChildApi")
         childApi.OutputSpec <- Int32Value (Single 42)
         child.Conditions.Add(childApi)
 
         let parent = CallCondition()
-        parent.Type <- Some CallConditionType.Common
+        parent.Type <- Some CallConditionType.ComAux
         parent.IsRising <- true
         let parentApi = ApiCall("ParentApi")
         parentApi.OutputSpec <- BoolValue (Single true)
@@ -300,7 +300,7 @@ module DeepCopyTests =
         original.ApiCalls.Add(apiCall)
 
         let cond = CallCondition()
-        cond.Type <- Some CallConditionType.Auto
+        cond.Type <- Some CallConditionType.AutoAux
         let condApi = ApiCall("CondApi")
         cond.Conditions.Add(condApi)
         original.CallConditions.Add(cond)

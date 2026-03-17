@@ -177,7 +177,7 @@ cascadeRemoveProject
 
 ### 2.5 Call Conditions
 
-Call 노드에는 **ActiveTrigger / AutoCondition / CommonCondition** 세 종류의 조건을 붙일 수 있습니다.
+Call 노드에는 **SkipUnmatch / AutoAux / ComAux** 세 종류의 조건을 붙일 수 있습니다.
 
 #### 조건 구조
 
@@ -186,7 +186,7 @@ Call
  └── CallConditions[]
        └── CallCondition
              ├── Id       (Guid — 조건 식별)
-             ├── Type     (Active=0 / Auto=1 / Common=2)
+             ├── Type     (AutoAux=0 / ComAux=1 / SkipUnmatch=2)
              ├── IsOR     (bool — AND/OR 결합 방식)
              ├── IsRising (bool — 상승 엣지 트리거)
              └── Conditions[]   (ApiCall 목록 — 조건 기대값)
@@ -215,7 +215,7 @@ Call 선택
   → GetCallConditionsForPanel(callId)
   → CallConditionPanelItem list (ConditionId, Type, IsOR, IsRising, Items[])
   → C# RefreshCallPanel:
-       ActiveTriggers / AutoConditions / CommonConditions ObservableCollection 갱신
+       SkipUnmatch / AutoAux / ComAux ObservableCollection 갱신
 ```
 
 #### CRUD API 요약

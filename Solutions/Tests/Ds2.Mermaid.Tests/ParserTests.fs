@@ -88,8 +88,8 @@ let ``노드 라벨에서 조건 참조 추출`` () =
 graph TD
     subgraph W ["Work"]
         A["Call_A"]
-        B["Call_B<br>Auto: Call_A"]
-        C["Call_C<br>Common: Call_A, Call_B<br>Active: Call_A"]
+        B["Call_B<br>AutoAux: Call_A"]
+        C["Call_C<br>ComAux: Call_A, Call_B<br>SkipUnmatch: Call_A"]
     end
 """
     match MermaidParser.parse mermaid with
@@ -97,17 +97,17 @@ graph TD
         let nodes = graph.Subgraphs.[0].Nodes
         // A: 조건 없음
         let nodeA = nodes |> List.find (fun n -> n.Label = "Call_A")
-        Assert.Empty(nodeA.AutoConditionRefs)
-        Assert.Empty(nodeA.CommonConditionRefs)
-        Assert.Empty(nodeA.ActiveConditionRefs)
+        Assert.Empty(nodeA.AutoAuxConditionRefs)
+        Assert.Empty(nodeA.ComAuxConditionRefs)
+        Assert.Empty(nodeA.SkipUnmatchConditionRefs)
         // B: Auto 조건
         let nodeB = nodes |> List.find (fun n -> n.Label = "Call_B")
-        Assert.Equal(1, nodeB.AutoConditionRefs.Length)
-        Assert.Equal("Call_A", nodeB.AutoConditionRefs.[0])
+        Assert.Equal(1, nodeB.AutoAuxConditionRefs.Length)
+        Assert.Equal("Call_A", nodeB.AutoAuxConditionRefs.[0])
         // C: Common + Active 조건
         let nodeC = nodes |> List.find (fun n -> n.Label = "Call_C")
-        Assert.Equal(2, nodeC.CommonConditionRefs.Length)
-        Assert.Equal(1, nodeC.ActiveConditionRefs.Length)
+        Assert.Equal(2, nodeC.ComAuxConditionRefs.Length)
+        Assert.Equal(1, nodeC.SkipUnmatchConditionRefs.Length)
     | Error errors ->
         Assert.Fail($"파싱 실패: {errors}")
 

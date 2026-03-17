@@ -96,7 +96,7 @@ module SimIndexTests =
         let apiDef = store.ApiDefs[apiDefId]
         apiDef.Properties.RxGuid <- Some rxWork.Id
 
-        store.AddCallCondition(targetCall.Id, CallConditionType.Common)
+        store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
         let conditionId =
             store.Calls[targetCall.Id].CallConditions
             |> Seq.head
@@ -105,7 +105,7 @@ module SimIndexTests =
         store.AddApiCallsToConditionBatch(targetCall.Id, conditionId, [ sourceApiCall.Id ]) |> ignore
 
         let index = SimIndex.build store 10
-        let specs = index.CallCommonConditions[targetCall.Id]
+        let specs = index.CallComAuxConditions[targetCall.Id]
 
         Assert.Single(specs) |> ignore
         Assert.Equal(rxWork.Id, specs[0].RxWorkGuid)

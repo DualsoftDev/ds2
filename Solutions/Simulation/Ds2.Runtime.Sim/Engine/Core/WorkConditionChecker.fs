@@ -68,13 +68,13 @@ module WorkConditionChecker =
                 | None -> true
             | _ -> false
 
-    /// ActiveTriggers Skip 여부
+    /// SkipUnmatch: ValueSpec 기준 unmatch 시 Going 없이 Finish로 skip
     let shouldSkipCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
-        let activeSpecs = SimIndex.findOrEmpty callGuid index.CallActiveConditions
-        if activeSpecs.IsEmpty then false
-        else not (activeSpecs |> List.forall (checkConditionSpec state))
+        let skipSpecs = SimIndex.findOrEmpty callGuid index.CallSkipUnmatchConditions
+        if skipSpecs.IsEmpty then false
+        else not (skipSpecs |> List.forall (checkConditionSpec state))
 
-    /// Call 시작 가능 여부 (Work G + 선행 Call F + Auto/Common 조건)
+    /// Call 시작 가능 여부 (Work G + 선행 Call F + AutoAux/ComAux 조건)
     let canStartCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
         let callWork = Map.tryFind callGuid index.CallWorkGuid
         let callPreds = SimIndex.findOrEmpty callGuid index.CallStartPreds
@@ -84,10 +84,10 @@ module WorkConditionChecker =
         if not basicOk then false
         elif shouldSkipCall index state callGuid then true
         else
-            let autoSpecs = SimIndex.findOrEmpty callGuid index.CallAutoConditions
-            let commonSpecs = SimIndex.findOrEmpty callGuid index.CallCommonConditions
-            (autoSpecs |> List.forall (checkConditionSpec state)) &&
-            (commonSpecs |> List.forall (checkConditionSpec state))
+            let autoAuxSpecs = SimIndex.findOrEmpty callGuid index.CallAutoAuxConditions
+            let comAuxSpecs = SimIndex.findOrEmpty callGuid index.CallComAuxConditions
+            (autoAuxSpecs |> List.forall (checkConditionSpec state)) &&
+            (comAuxSpecs |> List.forall (checkConditionSpec state))
 
     /// Call 완료 가능 여부 (RxWork 모두 F)
     let canCompleteCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
