@@ -44,15 +44,17 @@ mindmap
 block-beta
   columns 1
 
-  block:UI["🖥️ Promaker (C#, WPF)"]
+  block:UI
     columns 4
+    UITITLE["🖥️ Promaker (C#, WPF)"]:4
     MW["MainWindow"] EC["EditorCanvas"] VM["ViewModels"] DLG["Dialogs"]
   end
 
   space
 
-  block:UICORE["⚙️ Ds2.UI.Core (F#) — 편집 코어"]
+  block:UICORE
     columns 4
+    UICORETITLE["⚙️ Ds2.UI.Core (F#) — 편집 코어"]:4
     DS["DsStore\n13 Dictionaries\nUndo/Redo\nEvents & File I/O"]
     ST["Store Extensions\nNodes · Arrows\nPanel · Paste"]
     PJ["Projections\nTreeProjection\nCanvasProjection"]
@@ -61,8 +63,9 @@ block-beta
 
   space
 
-  block:CORE["📦 Ds2.Core (F#) — 순수 도메인"]
+  block:CORE
     columns 4
+    CORETITLE["📦 Ds2.Core (F#) — 순수 도메인"]:4
     ENT["Entities\nProject · System\nFlow · Work · Call"]
     TYP["Types\nProperties\nEnum · Class"]
     VS["ValueSpec\nBool·Int·Float\nString·Range"]
@@ -77,12 +80,12 @@ block-beta
 
 ```mermaid
 graph LR
-  PM["<b>Promaker</b><br/><sub>C#, WPF</sub>"]
-  UIC["<b>Ds2.UI.Core</b><br/><sub>F#, 편집 코어</sub>"]
-  CORE["<b>Ds2.Core</b><br/><sub>F#, 도메인</sub>"]
-  AASX["<b>Ds2.Aasx</b><br/><sub>F#, AASX I/O</sub>"]
-  MER["<b>Ds2.Mermaid</b><br/><sub>F#, Mermaid 변환</sub>"]
-  CSV["<b>Ds2.CSV</b><br/><sub>F#, CSV I/O</sub>"]
+  PM["<b>Promaker</b><br/>C#, WPF"]
+  UIC["<b>Ds2.UI.Core</b><br/>F#, 편집 코어"]
+  CORE["<b>Ds2.Core</b><br/>F#, 도메인"]
+  AASX["<b>Ds2.Aasx</b><br/>F#, AASX I/O"]
+  MER["<b>Ds2.Mermaid</b><br/>F#, Mermaid 변환"]
+  CSV["<b>Ds2.CSV</b><br/>F#, CSV I/O"]
 
   PM -->|편집 API| UIC
   PM -->|도메인 타입| CORE
