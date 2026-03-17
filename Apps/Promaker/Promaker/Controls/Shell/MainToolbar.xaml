@@ -5,333 +5,392 @@
     <Border Background="{DynamicResource TertiaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="0,0,0,1"
-            Height="58">
+            Height="72">
         <ScrollViewer HorizontalScrollBarVisibility="Hidden"
                       VerticalScrollBarVisibility="Disabled"
                       Focusable="False">
             <StackPanel Orientation="Horizontal"
                         VerticalAlignment="Stretch"
-                        Margin="4,0">
+                        Margin="2,0">
 
-                <!-- 그룹1: File — 범용 버튼, 아이콘만 표시 / 툴팁으로 설명 -->
-                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding NewProjectCommand}"
-                        ToolTip="새 파일 (Ctrl+N)">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
-                        <TextBlock Text="새 파일" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Button>
-                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding OpenFileCommand}"
-                        ToolTip="불러오기 (Ctrl+O)">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <Canvas Width="18" Height="16" HorizontalAlignment="Center">
-                            <!-- 폴더 뒷면 (탭 + 우측 세로선만, y=7에서 끊음) -->
-                            <Path Data="M 0,15 L 0,1 L 7,1 L 9,4 L 17,4 L 17,7" Fill="Transparent"
-                                  Stroke="{DynamicResource PrimaryTextBrush}" StrokeThickness="1.2"/>
-                            <!-- 폴더 앞면 (평행사변형, 채움 없음) -->
-                            <Path Data="M 0,15 L 4,7 L 21,7 L 17,15 Z"
-                                  Stroke="{DynamicResource PrimaryTextBrush}" StrokeThickness="1.2"/>
-                        </Canvas>
-                        <TextBlock Text="불러오기" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Button>
-                <Grid VerticalAlignment="Stretch">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0" Style="{StaticResource SlimToolbarButton}" Command="{Binding SaveFileCommand}"
-                            ToolTip="저장 (Ctrl+S)" Padding="8,2,2,2">
-                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                            <TextBlock Text="&#xE74E;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
-                            <TextBlock Text="저장" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                        </StackPanel>
-                    </Button>
-                    <ToggleButton x:Name="SaveMenuToggle" Grid.Column="1"
-                                  Style="{StaticResource SlimToggleButton}"
-                                  ToolTip="다른 이름으로 저장"
-                                  Padding="2,0" MinWidth="14" Width="14">
-                        <TextBlock Text="&#xE70D;" FontFamily="Segoe MDL2 Assets" FontSize="8"
-                                   VerticalAlignment="Bottom" Margin="0,0,0,6"/>
-                    </ToggleButton>
-                    <Popup IsOpen="{Binding IsChecked, ElementName=SaveMenuToggle, Mode=TwoWay}"
-                           StaysOpen="False"
-                           Placement="Bottom"
-                           PlacementTarget="{Binding ElementName=SaveMenuToggle}"
-                           DataContext="{Binding DataContext, ElementName=ThisControl}">
-                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="4"
-                                Padding="4"
-                                MinWidth="160">
-                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveFileAsCommand}" Click="CloseSavePopup">
-                                <TextBlock Text="다른 이름으로 저장..." VerticalAlignment="Center"/>
+                <!-- ═══ 파일 그룹 ═══ -->
+                <Border Style="{StaticResource ToolbarGroup}">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
+                            <TextBlock Text="파일" Style="{StaticResource ToolbarGroupLabel}"/>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Margin="4,3,4,2">
+                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding NewProjectCommand}"
+                                    ToolTip="새 파일 (Ctrl+N)">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconNewFile}"/>
+                                    <TextBlock Text="새 파일" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                </StackPanel>
                             </Button>
-                        </Border>
-                    </Popup>
-                </Grid>
-
-                <!-- 모델 드롭다운: I/O, Duration -->
-                <Grid VerticalAlignment="Stretch">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <ToggleButton x:Name="ModelToggleBtn" Grid.Column="0" Style="{StaticResource SlimToggleButton}" ToolTip="모델 설정" Padding="8,2,2,2">
-                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                            <TextBlock Text="&#xE943;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
-                            <TextBlock Text="모델" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding OpenFileCommand}"
+                                    ToolTip="불러오기 (Ctrl+O)">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconFolderOpen}"/>
+                                    <TextBlock Text="불러오기" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Button>
+                            <Grid VerticalAlignment="Stretch">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Style="{StaticResource SlimToolbarButton}" Command="{Binding SaveFileCommand}"
+                                        ToolTip="저장 (Ctrl+S)" Padding="8,2,2,2">
+                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                        <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconSave}"/>
+                                        <TextBlock Text="저장" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </Button>
+                                <ToggleButton x:Name="SaveMenuToggle" Grid.Column="1"
+                                              Style="{StaticResource SlimToggleButton}"
+                                              ToolTip="다른 이름으로 저장"
+                                              Padding="2,0" MinWidth="14" Width="14">
+                                    <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconChevronDown}"
+                                          Width="10" Height="10" Margin="0,0,0,6" VerticalAlignment="Bottom"/>
+                                </ToggleButton>
+                                <Popup IsOpen="{Binding IsChecked, ElementName=SaveMenuToggle, Mode=TwoWay}"
+                                       StaysOpen="False" Placement="Bottom"
+                                       PlacementTarget="{Binding ElementName=SaveMenuToggle}"
+                                       DataContext="{Binding DataContext, ElementName=ThisControl}">
+                                    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="160">
+                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveFileAsCommand}" Click="CloseSavePopup">
+                                            <TextBlock Text="다른 이름으로 저장..." VerticalAlignment="Center"/>
+                                        </Button>
+                                    </Border>
+                                </Popup>
+                            </Grid>
                         </StackPanel>
-                    </ToggleButton>
-                    <ToggleButton Grid.Column="1"
-                                  IsChecked="{Binding IsChecked, ElementName=ModelToggleBtn, Mode=TwoWay}"
-                                  Style="{StaticResource SlimToggleButton}"
-                                  Padding="2,0" MinWidth="14" Width="14">
-                        <TextBlock Text="&#xE70D;" FontFamily="Segoe MDL2 Assets" FontSize="8"
-                                   VerticalAlignment="Bottom" Margin="0,0,0,6"/>
-                    </ToggleButton>
-                    <Popup IsOpen="{Binding IsChecked, ElementName=ModelToggleBtn, Mode=TwoWay}"
-                           StaysOpen="False"
-                           Placement="Bottom"
-                           PlacementTarget="{Binding ElementName=ModelToggleBtn}"
-                           DataContext="{Binding DataContext, ElementName=ThisControl}">
-                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="4"
-                                Padding="4"
-                                MinWidth="160">
-                            <StackPanel Orientation="Vertical">
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseModelPopup">
-                                    <TextBlock Text="I/O" VerticalAlignment="Center"/>
-                                </Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenDurationBatchDialogCommand}" Click="CloseModelPopup">
-                                    <TextBlock Text="Duration" VerticalAlignment="Center"/>
-                                </Button>
-                            </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- ═══ 편집 그룹 ═══ -->
+                <Border Style="{StaticResource ToolbarGroup}">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
+                            <TextBlock Text="편집" Style="{StaticResource ToolbarGroupLabel}"/>
                         </Border>
-                    </Popup>
-                </Grid>
+                        <StackPanel Orientation="Horizontal" Margin="4,3,4,2">
+                            <!-- 취소 -->
+                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding UndoCommand}"
+                                    ToolTip="실행취소 (Ctrl+Z)">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconUndo}"/>
+                                    <TextBlock Text="취소" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Button>
+                            <!-- 복원 -->
+                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding RedoCommand}"
+                                    ToolTip="다시실행 (Ctrl+Y)">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconRedo}"/>
+                                    <TextBlock Text="복원" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Button>
+                            <!-- 추가 -->
+                            <ToggleButton x:Name="AddToggleBtn" Style="{StaticResource SlimToggleButton}" ToolTip="추가">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Canvas Width="18" Height="18" HorizontalAlignment="Center">
+                                        <!-- 큐브 (우상단 잘림) -->
+                                        <Path Data="M 2,6 L 9,2 L 10,2.6 M 16,8 L 16,13 L 9,17 L 2,13 L 2,6 L 9,10 L 9,17 M 9,10 L 12.5,8"
+                                              Stroke="{DynamicResource GreenAccentBrush}" StrokeThickness="1.3" Fill="Transparent"
+                                              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                        <!-- + (잘린 우상단) -->
+                                        <Line X1="15" Y1="0.5" X2="15" Y2="5.5" Stroke="{DynamicResource GreenAccentBrush}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                        <Line X1="12.5" Y1="3" X2="17.5" Y2="3" Stroke="{DynamicResource GreenAccentBrush}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                    </Canvas>
+                                    <TextBlock Text="추가" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"
+                                               Foreground="{DynamicResource GreenAccentBrush}"/>
+                                </StackPanel>
+                            </ToggleButton>
+                            <Popup IsOpen="{Binding IsChecked, ElementName=AddToggleBtn, Mode=TwoWay}"
+                                   StaysOpen="False" Placement="Bottom"
+                                   PlacementTarget="{Binding ElementName=AddToggleBtn}"
+                                   DataContext="{Binding DataContext, ElementName=ThisControl}">
+                                <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="160">
+                                    <StackPanel Orientation="Vertical">
+                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddSystemCommand}" Click="CloseAddPopup">
+                                            <TextBlock Text="System" VerticalAlignment="Center"/>
+                                        </Button>
+                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddFlowCommand}" Click="CloseAddPopup">
+                                            <TextBlock Text="Flow" VerticalAlignment="Center"/>
+                                        </Button>
+                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddWorkCommand}" Click="CloseAddPopup">
+                                            <TextBlock Text="Work" VerticalAlignment="Center"/>
+                                        </Button>
+                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddCallCommand}" Click="CloseAddPopup">
+                                            <TextBlock Text="Call" VerticalAlignment="Center"/>
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+                            </Popup>
+                            <!-- 삭제 -->
+                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding DeleteSelectedCommand}"
+                                    ToolTip="삭제">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconTrash}"
+                                          Stroke="{DynamicResource RedAccentBrush}"/>
+                                    <TextBlock Text="삭제" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"
+                                               Foreground="{DynamicResource RedAccentBrush}"/>
+                                </StackPanel>
+                            </Button>
+                            <!-- 일괄편집 -->
+                            <ToggleButton x:Name="ModelToggleBtn" Style="{StaticResource SlimToggleButton}"
+                                          ToolTip="일괄 편집 (I/O, Duration)">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Canvas Width="18" Height="18" HorizontalAlignment="Center">
+                                        <Path Data="M 3,1 L 13,1 13,17 3,17 Z" Stroke="{DynamicResource PrimaryTextBrush}"
+                                              StrokeThickness="1.3" Fill="Transparent" StrokeLineJoin="Round"/>
+                                        <Line X1="5.5" Y1="5" X2="10.5" Y2="5" Stroke="{DynamicResource PrimaryTextBrush}" StrokeThickness="1"/>
+                                        <Line X1="5.5" Y1="8" X2="10.5" Y2="8" Stroke="{DynamicResource PrimaryTextBrush}" StrokeThickness="1"/>
+                                        <Line X1="5.5" Y1="11" X2="8.5" Y2="11" Stroke="{DynamicResource PrimaryTextBrush}" StrokeThickness="1"/>
+                                        <Path Data="M 12,8 L 17,3 18,4 13,9 Z" Stroke="{DynamicResource GreenAccentBrush}"
+                                              StrokeThickness="1.2" Fill="Transparent" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                    </Canvas>
+                                    <TextBlock Text="일괄편집" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </ToggleButton>
+                            <Popup IsOpen="{Binding IsChecked, ElementName=ModelToggleBtn, Mode=TwoWay}"
+                                   StaysOpen="False" Placement="Bottom"
+                                   PlacementTarget="{Binding ElementName=ModelToggleBtn}"
+                                   DataContext="{Binding DataContext, ElementName=ThisControl}">
+                                <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="160">
+                                    <StackPanel Orientation="Vertical">
+                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseModelPopup">
+                                            <TextBlock Text="I/O" VerticalAlignment="Center"/>
+                                        </Button>
+                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenDurationBatchDialogCommand}" Click="CloseModelPopup">
+                                            <TextBlock Text="Duration" VerticalAlignment="Center"/>
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+                            </Popup>
+                            <!-- 재배치 -->
+                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding AutoLayoutCommand}"
+                                    ToolTip="자동 재배치 (Ctrl+L)">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconGrid}"/>
+                                    <TextBlock Text="재배치" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
 
-                <Border Width="1" Height="36" Margin="6,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
-
-                <!-- 그룹2: Edit — 범용 버튼, 아이콘만 표시 / 툴팁으로 설명 -->
-                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding UndoCommand}"
-                        ToolTip="실행취소 (Ctrl+Z)">
-                    <TextBlock Text="&#xE7A7;" FontFamily="Segoe MDL2 Assets" FontSize="18"/>
-                </Button>
-                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding RedoCommand}"
-                        ToolTip="다시실행 (Ctrl+Y)">
-                    <TextBlock Text="&#xE7A6;" FontFamily="Segoe MDL2 Assets" FontSize="18"/>
-                </Button>
-
-
-                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding AutoLayoutCommand}"
-                        ToolTip="자동 재배치 (Ctrl+L)">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xF0E2;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
-                        <TextBlock Text="재배치" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Button>
-
-                <Border Width="1" Height="36" Margin="6,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
-
-                <!-- 그룹4: Delete -->
-                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding DeleteSelectedCommand}"
-                        ToolTip="삭제">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"
-                                   Foreground="{DynamicResource RedAccentBrush}"/>
-                        <TextBlock Text="삭제" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"
-                                   Foreground="{DynamicResource RedAccentBrush}"/>
-                    </StackPanel>
-                </Button>
-
-                <Border Width="1" Height="36" Margin="6,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
-
+                <!-- ═══ 시뮬레이션 그룹 (DataContext = Simulation) ═══ -->
                 <StackPanel x:Name="SimulationTools"
                             Orientation="Horizontal"
                             VerticalAlignment="Stretch"
                             DataContext="{Binding Simulation}">
 
-                <!-- 그룹5: Simulation
-                     ④ '실행' 버튼: PrimaryActionButton 스타일 + 아이콘 20px(약 11% 확대) + 채도 낮은 초록 배경 -->
-                <Button Style="{StaticResource PrimaryActionButton}" Command="{Binding StartSimulationCommand}"
-                        ToolTip="시뮬레이션 실행" Margin="0,3">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets" FontSize="20" HorizontalAlignment="Center"/>
-                        <TextBlock Text="실행" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Button>
-                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding PauseSimulationCommand}" ToolTip="일시정지">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xE769;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
-                        <TextBlock Text="일시정지" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Button>
-                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding StopSimulationCommand}" ToolTip="정지">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xE71A;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"
-                                   Foreground="{DynamicResource RedAccentBrush}"/>
-                        <TextBlock Text="정지" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"
-                                   Foreground="{DynamicResource RedAccentBrush}"/>
-                    </StackPanel>
-                </Button>
-                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding ResetSimulationCommand}" ToolTip="초기화">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
-                        <TextBlock Text="초기화" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Button>
-
-                <Border Width="1" Height="36" Margin="6,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
-
-                <!-- 그룹6: Sim Controls -->
-                <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="4,0">
-                    <TextBlock Text="속도" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                    <ComboBox SelectedValue="{Binding SimSpeed}" SelectedValuePath="Tag"
-                              Width="60" FontSize="11">
-                        <ComboBoxItem Content="0.5x" Tag="0.5"/>
-                        <ComboBoxItem Content="1x"   Tag="1.0" IsSelected="True"/>
-                        <ComboBoxItem Content="2x"   Tag="2.0"/>
-                        <ComboBoxItem Content="5x"   Tag="5.0"/>
-                        <ComboBoxItem Content="10x"  Tag="10.0"/>
-                    </ComboBox>
-                </StackPanel>
-
-                <ToggleButton Style="{StaticResource SlimToggleButton}"
-                              IsChecked="{Binding SimTimeIgnore}" ToolTip="시간 무시" Margin="2,0">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xE823;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
-                        <TextBlock Text="시간무시" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </ToggleButton>
-
-                <Border Width="1" Height="36" Margin="6,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
-
-                <!-- 그룹7: Work 강제 제어 -->
-                <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="4,0">
-                    <TextBlock Text="Work" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                    <ComboBox ItemsSource="{Binding SimWorkItems}" SelectedItem="{Binding SelectedSimWork}"
-                              Width="140" FontSize="11"/>
-                </StackPanel>
-
-                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding ForceWorkStartCommand}" ToolTip="Work 강제 실행">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center" Foreground="#32CD32"/>
-                        <TextBlock Text="Work 실행" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0" Foreground="#32CD32"/>
-                    </StackPanel>
-                </Button>
-                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding ForceWorkResetCommand}" ToolTip="Work 강제 초기화">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"
-                                   Foreground="{DynamicResource OrangeAccentBrush}"/>
-                        <TextBlock Text="Work 초기화" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"
-                                   Foreground="{DynamicResource OrangeAccentBrush}"/>
-                    </StackPanel>
-                </Button>
-
-                <Border Width="1" Height="36" Margin="6,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
-
-                <!-- 그룹8: Report 내보내기 드롭다운 -->
-                <Grid VerticalAlignment="Stretch">
-                    <ToggleButton x:Name="ReportToggleBtn"
-                                  Style="{StaticResource SlimToggleButton}"
-                                  ToolTip="리포트 내보내기"
-                                  IsEnabled="{Binding HasReportData}">
-                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                            <Canvas Width="18" Height="18" HorizontalAlignment="Center">
-                                <!-- 문서 본체 (투명 배경, 테마 테두리) -->
-                                <Path Data="M 2,0 L 12,0 L 16,4 L 16,18 L 2,18 Z" Fill="Transparent"
-                                      Stroke="{DynamicResource PrimaryTextBrush}" StrokeThickness="1.2"/>
-                                <!-- 접힌 모서리 (삼각형 채움) -->
-                                <Path Data="M 12,0 L 12,4 L 16,4 Z" Fill="{DynamicResource TertiaryBackgroundBrush}"
-                                      Stroke="{DynamicResource PrimaryTextBrush}" StrokeThickness="1.0"/>
-                                <!-- 막대 그래프 3개 -->
-                                <Rectangle Canvas.Left="4.5" Canvas.Top="10" Width="2.5" Height="5.5"
-                                           Fill="#E85050" RadiusX="0.5" RadiusY="0.5"/>
-                                <Rectangle Canvas.Left="7.8" Canvas.Top="7" Width="2.5" Height="8.5"
-                                           Fill="#F0A030" RadiusX="0.5" RadiusY="0.5"/>
-                                <Rectangle Canvas.Left="11.1" Canvas.Top="8.5" Width="2.5" Height="7"
-                                           Fill="#40C060" RadiusX="0.5" RadiusY="0.5"/>
-                            </Canvas>
-                            <TextBlock Text="리포트" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                        </StackPanel>
-                    </ToggleButton>
-                    <Popup IsOpen="{Binding IsChecked, ElementName=ReportToggleBtn, Mode=TwoWay}"
-                           StaysOpen="False"
-                           Placement="Bottom"
-                           PlacementTarget="{Binding ElementName=ReportToggleBtn}"
-                           DataContext="{Binding DataContext, ElementName=SimulationTools}">
-                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="4"
-                                Padding="4"
-                                MinWidth="130">
-                            <StackPanel Orientation="Vertical">
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ExportReportCsvCommand}" Click="CloseReportPopup">
-                                    <TextBlock Text="CSV (.csv)" VerticalAlignment="Center"/>
+                    <Border Style="{StaticResource ToolbarGroup}">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
+                                <TextBlock Text="시뮬레이션" Style="{StaticResource ToolbarGroupLabel}"/>
+                            </Border>
+                            <StackPanel Orientation="Horizontal" Margin="4,3,4,2">
+                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding StartSimulationCommand}"
+                                        ToolTip="시뮬레이션 시작">
+                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                        <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconPlay}"
+                                              Stroke="#32CD32"/>
+                                        <TextBlock Text="시작" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"
+                                                   Foreground="#32CD32"/>
+                                    </StackPanel>
                                 </Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ExportReportXlsxCommand}" Click="CloseReportPopup">
-                                    <TextBlock Text="Excel (.xlsx)" VerticalAlignment="Center"/>
+                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding PauseSimulationCommand}"
+                                        ToolTip="일시정지">
+                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                        <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconPause}"/>
+                                        <TextBlock Text="일시정지" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                    </StackPanel>
                                 </Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ExportReportHtmlCommand}" Click="CloseReportPopup">
-                                    <TextBlock Text="HTML (.html)" VerticalAlignment="Center"/>
+                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding StopSimulationCommand}"
+                                        ToolTip="정지">
+                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                        <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconStop}"
+                                              Stroke="{DynamicResource RedAccentBrush}"/>
+                                        <TextBlock Text="정지" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"
+                                                   Foreground="{DynamicResource RedAccentBrush}"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding ResetSimulationCommand}"
+                                        ToolTip="초기화">
+                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                        <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconRefresh}"
+                                              Stroke="{DynamicResource OrangeAccentBrush}"/>
+                                        <TextBlock Text="초기화" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"
+                                                   Foreground="{DynamicResource OrangeAccentBrush}"/>
+                                    </StackPanel>
                                 </Button>
                             </StackPanel>
-                        </Border>
-                    </Popup>
-                </Grid>
+                        </DockPanel>
+                    </Border>
 
-                <Border Width="1" Height="36" Margin="6,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
+                    <!-- ═══ 공정 제어 그룹 ═══ -->
+                    <Border Style="{StaticResource ToolbarGroup}">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
+                                <TextBlock Text="공정 제어" Style="{StaticResource ToolbarGroupLabel}"/>
+                            </Border>
+                            <StackPanel Orientation="Horizontal" Margin="4,3,4,2">
+                                <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,4,0">
+                                    <TextBlock Text="속도" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,2"/>
+                                    <ComboBox SelectedValue="{Binding SimSpeed}" SelectedValuePath="Tag"
+                                              Width="56" FontSize="11">
+                                        <ComboBoxItem Content="0.5x" Tag="0.5"/>
+                                        <ComboBoxItem Content="1x"   Tag="1.0" IsSelected="True"/>
+                                        <ComboBoxItem Content="2x"   Tag="2.0"/>
+                                        <ComboBoxItem Content="5x"   Tag="5.0"/>
+                                        <ComboBoxItem Content="10x"  Tag="10.0"/>
+                                    </ComboBox>
+                                </StackPanel>
+                                <ToggleButton Style="{StaticResource SlimToggleButton}"
+                                              IsChecked="{Binding SimTimeIgnore}" ToolTip="시간 무시" Margin="2,0">
+                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                        <!-- 시계 + 빨간 금지표시 -->
+                                        <Canvas Width="18" Height="18" HorizontalAlignment="Center" Margin="0,1,0,-1">
+                                            <Path Data="M 9,2 A 6,6 0 0 1 15,8 A 6,6 0 0 1 9,14 A 6,6 0 0 1 3,8 A 6,6 0 0 1 9,2 M 9,4.5 L 9,8.5 11,10"
+                                                  Stroke="{DynamicResource PrimaryTextBrush}" StrokeThickness="1" Fill="Transparent"
+                                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                            <Ellipse Canvas.Left="0" Canvas.Top="-1" Width="18" Height="18"
+                                                     Stroke="#E85050" StrokeThickness="1.8" Fill="Transparent"/>
+                                            <Line X1="3.5" Y1="14" X2="14.5" Y2="2"
+                                                  Stroke="#E85050" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                        </Canvas>
+                                        <TextBlock Text="시간무시" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </ToggleButton>
 
-                <!-- 그룹9: Tool -->
-                <Grid VerticalAlignment="Stretch"
-                      DataContext="{Binding DataContext, ElementName=ThisControl}">
-                    <ToggleButton x:Name="ToolToggleBtn"
-                                  Style="{StaticResource SlimToggleButton}"
-                                  ToolTip="도구">
-                        <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                            <TextBlock Text="&#xE90F;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Tool" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                        </StackPanel>
-                    </ToggleButton>
-                    <Popup IsOpen="{Binding IsChecked, ElementName=ToolToggleBtn, Mode=TwoWay}"
-                           StaysOpen="False"
-                           Placement="Bottom"
-                           PlacementTarget="{Binding ElementName=ToolToggleBtn}"
-                           DataContext="{Binding DataContext, ElementName=ThisControl}">
-                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="4"
-                                Padding="4"
-                                MinWidth="160">
-                            <StackPanel Orientation="Vertical">
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseToolPopup">
-                                    <TextBlock Text="CSV 불러오기..." VerticalAlignment="Center"/>
+                                <Border Width="1" Height="28" Margin="4,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
+
+                                <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,4,0">
+                                    <TextBlock Text="Work" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,2"/>
+                                    <ComboBox ItemsSource="{Binding SimWorkItems}" SelectedItem="{Binding SelectedSimWork}"
+                                              Width="130" FontSize="11"/>
+                                </StackPanel>
+                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding ForceWorkStartCommand}"
+                                        ToolTip="Work 실행">
+                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                        <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconPlay}"
+                                              Stroke="#32CD32"/>
+                                        <TextBlock Text="실행" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"
+                                                   Foreground="#32CD32"/>
+                                    </StackPanel>
                                 </Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ExportCsvCommand}" Click="CloseToolPopup">
-                                    <TextBlock Text="CSV 내보내기..." VerticalAlignment="Center"/>
+                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding ForceWorkResetCommand}"
+                                        ToolTip="Work 리셋">
+                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                        <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconRefresh}"
+                                              Stroke="{DynamicResource OrangeAccentBrush}"/>
+                                        <TextBlock Text="리셋" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"
+                                                   Foreground="{DynamicResource OrangeAccentBrush}"/>
+                                    </StackPanel>
                                 </Button>
                             </StackPanel>
-                        </Border>
-                    </Popup>
-                </Grid>
-
-                <!-- 그룹10: 설정 -->
-                <Button Style="{StaticResource SlimToolbarButton}"
-                        Command="{Binding DataContext.ShowProjectSettingsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                        ToolTip="프로젝트 속성">
-                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="18" HorizontalAlignment="Center"/>
-                        <TextBlock Text="설정" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Button>
+                        </DockPanel>
+                    </Border>
 
                 </StackPanel>
+
+                <!-- ═══ 도구 그룹 ═══ -->
+                <Border Style="{StaticResource ToolbarGroup}">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
+                            <TextBlock Text="도구" Style="{StaticResource ToolbarGroupLabel}"/>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Margin="4,3,4,2">
+                            <!-- 리포트 드롭다운 -->
+                            <Grid VerticalAlignment="Stretch">
+                                <ToggleButton x:Name="ReportToggleBtn"
+                                              Style="{StaticResource SlimToggleButton}"
+                                              ToolTip="리포트 내보내기"
+                                              IsEnabled="{Binding Simulation.HasReportData}">
+                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                        <Canvas Width="18" Height="18" HorizontalAlignment="Center">
+                                            <Path Data="M 2,1 L 11,1 15,5 15,17 2,17 Z M 11,1 L 11,5 15,5"
+                                                  Stroke="{DynamicResource PrimaryTextBrush}" StrokeThickness="1.2" Fill="Transparent"
+                                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                            <Rectangle Canvas.Left="4.5" Canvas.Top="9" Width="2.5" Height="5.5"
+                                                       Stroke="#E85050" StrokeThickness="0.9" Fill="Transparent" RadiusX="0.5" RadiusY="0.5"/>
+                                            <Rectangle Canvas.Left="7.8" Canvas.Top="7" Width="2.5" Height="7.5"
+                                                       Stroke="#F0A030" StrokeThickness="0.9" Fill="Transparent" RadiusX="0.5" RadiusY="0.5"/>
+                                            <Rectangle Canvas.Left="11" Canvas.Top="8" Width="2.5" Height="6.5"
+                                                       Stroke="#40C060" StrokeThickness="0.9" Fill="Transparent" RadiusX="0.5" RadiusY="0.5"/>
+                                        </Canvas>
+                                        <TextBlock Text="리포트" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </ToggleButton>
+                                <Popup IsOpen="{Binding IsChecked, ElementName=ReportToggleBtn, Mode=TwoWay}"
+                                       StaysOpen="False" Placement="Bottom"
+                                       PlacementTarget="{Binding ElementName=ReportToggleBtn}"
+                                       DataContext="{Binding DataContext, ElementName=ThisControl}">
+                                    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="130">
+                                        <StackPanel Orientation="Vertical">
+                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportCsvCommand}" Click="CloseReportPopup">
+                                                <TextBlock Text="CSV (.csv)" VerticalAlignment="Center"/>
+                                            </Button>
+                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportXlsxCommand}" Click="CloseReportPopup">
+                                                <TextBlock Text="Excel (.xlsx)" VerticalAlignment="Center"/>
+                                            </Button>
+                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportHtmlCommand}" Click="CloseReportPopup">
+                                                <TextBlock Text="HTML (.html)" VerticalAlignment="Center"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                            <Grid VerticalAlignment="Stretch"
+                                  DataContext="{Binding DataContext, ElementName=ThisControl}">
+                                <ToggleButton x:Name="ToolToggleBtn"
+                                              Style="{StaticResource SlimToggleButton}"
+                                              ToolTip="도구">
+                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                        <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconToolbox}"/>
+                                        <TextBlock Text="CSV" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </ToggleButton>
+                                <Popup IsOpen="{Binding IsChecked, ElementName=ToolToggleBtn, Mode=TwoWay}"
+                                       StaysOpen="False" Placement="Bottom"
+                                       PlacementTarget="{Binding ElementName=ToolToggleBtn}"
+                                       DataContext="{Binding DataContext, ElementName=ThisControl}">
+                                    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="160">
+                                        <StackPanel Orientation="Vertical">
+                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseToolPopup">
+                                                <TextBlock Text="CSV 불러오기..." VerticalAlignment="Center"/>
+                                            </Button>
+                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ExportCsvCommand}" Click="CloseToolPopup">
+                                                <TextBlock Text="CSV 내보내기..." VerticalAlignment="Center"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                            <Button Style="{StaticResource SlimToolbarButton}"
+                                    Command="{Binding DataContext.ShowProjectSettingsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    ToolTip="프로젝트 속성">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Style="{StaticResource ToolbarIcon}" Data="{StaticResource IconGear}"/>
+                                    <TextBlock Text="설정" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
 
             </StackPanel>
         </ScrollViewer>
