@@ -7,7 +7,7 @@
     <Color x:Key="SecondaryBackgroundColor">#32353A</Color>
     <Color x:Key="TertiaryBackgroundColor">#3A3D42</Color>
     <Color x:Key="PanelHeaderColor">#434548</Color>
-    <Color x:Key="BorderColor">#4A4D52</Color>
+    <Color x:Key="BorderColor">#5A5D62</Color>
     <Color x:Key="PrimaryTextColor">#E8E8E8</Color>
     <Color x:Key="SecondaryTextColor">#B8B8B8</Color>
     <Color x:Key="DisabledTextColor">#808080</Color>
