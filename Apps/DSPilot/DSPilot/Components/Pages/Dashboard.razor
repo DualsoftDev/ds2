@@ -1,9 +1,9 @@
 @page "/"
 @inject DsProjectService ProjectService
+@inject DspDbService DbService
+@implements IDisposable
 
 <PageTitle>Dashboard - DSPilot</PageTitle>
-
-<MudText Typo="Typo.h5" Class="mb-2" Style="font-weight: 600; color: #0A1E5A; flex-shrink: 0;">Dashboard</MudText>
 
 @if (!ProjectService.IsLoaded)
 {
@@ -65,6 +65,63 @@ else
         </MudGrid>
     </div>
 
+    @* 실시간 상태 카드 *@
+    <div style="flex-shrink: 0;" class="mt-3">
+        <MudGrid Spacing="3">
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard Elevation="2" Style="border-top: 4px solid #9E9E9E; border-radius: 8px;">
+                    <MudCardContent Class="d-flex flex-column align-center pa-4">
+                        <MudIcon Icon="@Icons.Material.Filled.Pause" Size="Size.Large" Style="color: #9E9E9E;" />
+                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
+                            @_dbSnapshot.Flows.Count(f => string.IsNullOrEmpty(f.State) || f.State.Equals("Ready", StringComparison.OrdinalIgnoreCase))
+                        </MudText>
+                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Ready</MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard Elevation="2" Style="border-top: 4px solid #4CAF50; border-radius: 8px;">
+                    <MudCardContent Class="d-flex flex-column align-center pa-4">
+                        <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Large" Style="color: #4CAF50;" />
+                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
+                            @_dbSnapshot.Flows.Count(f => f.State.Equals("Going", StringComparison.OrdinalIgnoreCase))
+                        </MudText>
+                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Going</MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard Elevation="2" Style="border-top: 4px solid #2196F3; border-radius: 8px;">
+                    <MudCardContent Class="d-flex flex-column align-center pa-4">
+                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Large" Style="color: #2196F3;" />
+                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
+                            @_dbSnapshot.Flows.Count(f => f.State.Equals("Done", StringComparison.OrdinalIgnoreCase))
+                        </MudText>
+                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Done</MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudCard Elevation="2" Style="border-top: 4px solid #FA002D; border-radius: 8px;">
+                    <MudCardContent Class="d-flex flex-column align-center pa-4">
+                        <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Size="Size.Large" Style="color: #FA002D;" />
+                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
+                            @_dbSnapshot.Flows.Count(f => f.State.Equals("Error", StringComparison.OrdinalIgnoreCase))
+                        </MudText>
+                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Error</MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        </MudGrid>
+    </div>
+
+    @if (ErrorCallCount > 0)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mt-2" Style="flex-shrink: 0;">
+            @ErrorCallCount call(s) in error state
+        </MudAlert>
+    }
+
     @* Flow별 가동시간 도넛 차트 *@
     <MudText Typo="Typo.h6" Class="mt-3 mb-2" Style="font-weight: 600; color: #0A1E5A; flex-shrink: 0;">Flow Operation Time</MudText>
     <MudCard Elevation="2" Style="border-radius: 8px; flex: 1; min-height: 0; overflow: auto;">
@@ -114,9 +171,15 @@ else
     private int _flowCount;
     private int _workCount;
     private List<FlowTimeInfo> _flowTimeInfos = [];
+    private DspDbSnapshot _dbSnapshot = new();
+
+    private int ErrorCallCount => _dbSnapshot.Calls.Count(c => c.State.Equals("Error", StringComparison.OrdinalIgnoreCase));
 
     protected override void OnInitialized()
     {
+        _dbSnapshot = DbService.Snapshot;
+        DbService.OnDataChanged += OnDbDataChanged;
+
         if (!ProjectService.IsLoaded) return;
 
         _project = ProjectService.GetProject();
@@ -127,6 +190,17 @@ else
         _workCount = ProjectService.GetTotalWorkCount();
 
         BuildFlowTimeInfos();
+    }
+
+    private async void OnDbDataChanged()
+    {
+        _dbSnapshot = DbService.Snapshot;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        DbService.OnDataChanged -= OnDbDataChanged;
     }
 
     private void BuildFlowTimeInfos()

@@ -9,10 +9,12 @@ public class BlueprintLayout
     public int GridRows { get; set; } = 4;
     public int OffsetX { get; set; }
     public int OffsetY { get; set; }
+    public int OffsetRight { get; set; }
+    public int OffsetBottom { get; set; }
     public List<FlowPlacement> FlowPlacements { get; set; } = [];
 
-    public int CellWidth => GridColumns > 0 ? CanvasWidth / GridColumns : 200;
-    public int CellHeight => GridRows > 0 ? CanvasHeight / GridRows : 200;
+    public int CellWidth => GridColumns > 0 ? (CanvasWidth - OffsetX - OffsetRight) / GridColumns : 200;
+    public int CellHeight => GridRows > 0 ? (CanvasHeight - OffsetY - OffsetBottom) / GridRows : 200;
 }
 
 public class FlowPlacement

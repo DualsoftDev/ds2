@@ -64,23 +64,30 @@ else
                     <MudText Typo="Typo.h6" Style="color: #0A1E5A; font-weight: 600;">Grid</MudText>
                 </MudCardHeader>
                 <MudCardContent>
-                    <MudNumericField T="int" @bind-Value="_gridColumns"
+                    <MudNumericField T="int" Value="_gridColumns"
+                                     ValueChanged="v => OnGridChanged(() => _gridColumns = v)"
                                      Label="Columns" Variant="Variant.Outlined"
-                                     Min="2" Max="20" />
-                    <MudNumericField T="int" @bind-Value="_gridRows"
+                                     Min="2" Max="20" Immediate="true" />
+                    <MudNumericField T="int" Value="_gridRows"
+                                     ValueChanged="v => OnGridChanged(() => _gridRows = v)"
                                      Label="Rows" Variant="Variant.Outlined"
-                                     Min="2" Max="20" Class="mt-2" />
+                                     Min="2" Max="20" Class="mt-2" Immediate="true" />
                     <div class="d-flex gap-2 mt-2">
-                        <MudNumericField T="int" @bind-Value="_offsetX"
-                                         Label="Offset X" Variant="Variant.Outlined" />
-                        <MudNumericField T="int" @bind-Value="_offsetY"
-                                         Label="Offset Y" Variant="Variant.Outlined" />
+                        <MudNumericField T="int" Value="_offsetX"
+                                         ValueChanged="v => OnGridChanged(() => _offsetX = v)"
+                                         Label="Left" Variant="Variant.Outlined" Immediate="true" />
+                        <MudNumericField T="int" Value="_offsetY"
+                                         ValueChanged="v => OnGridChanged(() => _offsetY = v)"
+                                         Label="Top" Variant="Variant.Outlined" Immediate="true" />
                     </div>
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="mt-2"
-                               OnClick="ApplyGridSettings" FullWidth="true"
-                               StartIcon="@Icons.Material.Filled.GridOn">
-                        Apply
-                    </MudButton>
+                    <div class="d-flex gap-2 mt-2">
+                        <MudNumericField T="int" Value="_offsetRight"
+                                         ValueChanged="v => OnGridChanged(() => _offsetRight = v)"
+                                         Label="Right" Variant="Variant.Outlined" Immediate="true" />
+                        <MudNumericField T="int" Value="_offsetBottom"
+                                         ValueChanged="v => OnGridChanged(() => _offsetBottom = v)"
+                                         Label="Bottom" Variant="Variant.Outlined" Immediate="true" />
+                    </div>
                     <MudText Typo="Typo.caption" Class="mt-1" Style="color: #7D8282;">
                         Cell: @(BlueprintService.Layout.CellWidth) x @(BlueprintService.Layout.CellHeight) px
                     </MudText>
@@ -188,16 +195,17 @@ else
 
         @* Canvas *@
         <MudItem xs="12" md="8" lg="9">
-            <MudPaper Elevation="2" Class="pa-0" Style="overflow: hidden; border-radius: 8px;">
-                <div @ondragover="OnDragOver"
-                     @ondragover:preventDefault="true"
-                     @ondrop="OnDrop"
-                     @ondrop:preventDefault="true">
+            <div @ondragover="OnDragOver"
+                 @ondragover:preventDefault="true"
+                 @ondrop="OnDrop"
+                 @ondrop:preventDefault="true"
+                 style="height: calc(100vh - 120px);">
 
                     <svg id="editor-svg" xmlns="http://www.w3.org/2000/svg"
-                         style="display: block; width: 100%;"
+                         style="display: block; height: 100%; max-width: 100%;
+                                aspect-ratio: @BlueprintService.Layout.CanvasWidth / @BlueprintService.Layout.CanvasHeight;"
                          viewBox="0 0 @BlueprintService.Layout.CanvasWidth @BlueprintService.Layout.CanvasHeight"
-                         preserveAspectRatio="xMidYMid meet">
+                         preserveAspectRatio="none">
 
                         @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
                         {
@@ -274,8 +282,7 @@ else
                             </g>
                         }
                     </svg>
-                </div>
-            </MudPaper>
+            </div>
         </MudItem>
     </MudGrid>
 }
@@ -290,6 +297,8 @@ else
     private int _gridRows;
     private int _offsetX;
     private int _offsetY;
+    private int _offsetRight;
+    private int _offsetBottom;
 
     private static readonly string[] SystemColors =
         ["#0A1E5A", "#FA002D", "#0569A0", "#009BB4", "#4CAF50"];
@@ -310,6 +319,8 @@ else
         _gridRows = BlueprintService.Layout.GridRows;
         _offsetX = BlueprintService.Layout.OffsetX;
         _offsetY = BlueprintService.Layout.OffsetY;
+        _offsetRight = BlueprintService.Layout.OffsetRight;
+        _offsetBottom = BlueprintService.Layout.OffsetBottom;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -324,19 +335,20 @@ else
         }
     }
 
-    private async Task ApplyGridSettings()
+    private async Task OnGridChanged(Action assign)
     {
+        assign();
         BlueprintService.Layout.GridColumns = _gridColumns;
         BlueprintService.Layout.GridRows = _gridRows;
         BlueprintService.Layout.OffsetX = _offsetX;
         BlueprintService.Layout.OffsetY = _offsetY;
+        BlueprintService.Layout.OffsetRight = _offsetRight;
+        BlueprintService.Layout.OffsetBottom = _offsetBottom;
         BlueprintService.SaveLayout();
         var layout = BlueprintService.Layout;
         await JS.InvokeVoidAsync("canvasInterop.updateGrid",
             layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
             layout.OffsetX, layout.OffsetY);
-        Snackbar.Add($"Grid: {_gridColumns} x {_gridRows}", Severity.Success);
-        StateHasChanged();
     }
 
     private async Task OnBlueprintFileSelected(IBrowserFile file)
@@ -345,37 +357,27 @@ else
         try
         {
             using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
-            await BlueprintService.SaveBlueprintImageAsync(stream, file.Name);
-            Snackbar.Add("Blueprint uploaded.", Severity.Success);
-            StateHasChanged();
+            var (w, h) = await BlueprintService.SaveBlueprintImageAsync(stream, file.Name);
 
-            await Task.Delay(300);
-            await DetectImageSize();
+            if (w > 0 && h > 0)
+            {
+                Snackbar.Add($"Blueprint uploaded. Canvas: {w} x {h}", Severity.Success);
+                var layout = BlueprintService.Layout;
+                await JS.InvokeVoidAsync("canvasInterop.updateGrid",
+                    layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
+                    layout.OffsetX, layout.OffsetY);
+            }
+            else
+            {
+                Snackbar.Add("Blueprint uploaded.", Severity.Success);
+            }
+
+            StateHasChanged();
         }
         catch (Exception ex)
         {
             Snackbar.Add($"Upload failed: {ex.Message}", Severity.Error);
         }
-    }
-
-    private async Task DetectImageSize()
-    {
-        try
-        {
-            var size = await JS.InvokeAsync<ImageSize?>("canvasInterop.getImageSize", "#blueprint-img");
-            if (size != null && size.Width > 0 && size.Height > 0)
-            {
-                BlueprintService.Layout.CanvasWidth = size.Width;
-                BlueprintService.Layout.CanvasHeight = size.Height;
-                BlueprintService.SaveLayout();
-                var layout = BlueprintService.Layout;
-                await JS.InvokeVoidAsync("canvasInterop.updateGrid",
-                    layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows);
-                Snackbar.Add($"Canvas: {size.Width} x {size.Height}", Severity.Info);
-                StateHasChanged();
-            }
-        }
-        catch { }
     }
 
     private void OnDragStart(Guid flowId) => _dragFlowId = flowId;
@@ -468,11 +470,5 @@ else
     {
         try { await JS.InvokeVoidAsync("canvasInterop.dispose"); } catch { }
         _dotNetRef?.Dispose();
-    }
-
-    private class ImageSize
-    {
-        public int Width { get; set; }
-        public int Height { get; set; }
     }
 }

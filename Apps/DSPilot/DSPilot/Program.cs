@@ -9,6 +9,7 @@ builder.Services.AddRazorComponents()
 builder.Services.AddMudServices();
 builder.Services.AddSingleton<DsProjectService>();
 builder.Services.AddSingleton<BlueprintService>();
+builder.Services.AddSingleton<DspDbService>();
 
 var app = builder.Build();
 

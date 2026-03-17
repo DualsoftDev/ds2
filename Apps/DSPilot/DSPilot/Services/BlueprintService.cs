@@ -31,7 +31,6 @@ public class BlueprintService
         var safeName = $"blueprint{ext}";
         var filePath = Path.Combine(_uploadsDir, safeName);
 
-        // Save to temp memory to read dimensions, then write to file
         using var ms = new MemoryStream();
         await stream.CopyToAsync(ms);
         ms.Position = 0;
@@ -43,9 +42,62 @@ public class BlueprintService
 
         _layout.BlueprintImagePath = $"uploads/{safeName}";
         ImageVersion = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        Save();
 
-        // Return (0,0) - actual dimensions will be detected via JS in the browser
+        // Detect image dimensions from file header
+        var (w, h) = ReadImageDimensions(filePath);
+        if (w > 0 && h > 0)
+        {
+            _layout.CanvasWidth = w;
+            _layout.CanvasHeight = h;
+        }
+
+        Save();
+        return (w, h);
+    }
+
+    private static (int Width, int Height) ReadImageDimensions(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        var header = new byte[24];
+        if (stream.Read(header, 0, 24) < 24) return (0, 0);
+
+        // PNG: 89 50 4E 47 ... IHDR chunk has width/height at offset 16-23
+        if (header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47)
+        {
+            var width = (header[16] << 24) | (header[17] << 16) | (header[18] << 8) | header[19];
+            var height = (header[20] << 24) | (header[21] << 16) | (header[22] << 8) | header[23];
+            return (width, height);
+        }
+
+        // JPEG: FF D8 ... find SOF0 (FFC0) or SOF2 (FFC2) marker
+        if (header[0] == 0xFF && header[1] == 0xD8)
+        {
+            stream.Position = 2;
+            while (stream.Position < stream.Length - 8)
+            {
+                var b = stream.ReadByte();
+                if (b != 0xFF) continue;
+                var marker = stream.ReadByte();
+                if (marker == 0xC0 || marker == 0xC2)
+                {
+                    var buf = new byte[7];
+                    if (stream.Read(buf, 0, 7) < 7) break;
+                    var height2 = (buf[3] << 8) | buf[4];
+                    var width2 = (buf[5] << 8) | buf[6];
+                    return (width2, height2);
+                }
+                else if (marker == 0xD9 || marker == 0xDA) break; // EOI or SOS
+                else
+                {
+                    var lenBuf = new byte[2];
+                    if (stream.Read(lenBuf, 0, 2) < 2) break;
+                    var len = (lenBuf[0] << 8) | lenBuf[1];
+                    if (len < 2) break;
+                    stream.Position += len - 2;
+                }
+            }
+        }
+
         return (0, 0);
     }
 
