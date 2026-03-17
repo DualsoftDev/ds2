@@ -87,6 +87,27 @@ public class DsProjectService
         return GetAllFlows().Sum(f => GetWorks(f.Id).Count);
     }
 
+    public List<Call> GetCalls(Guid workId)
+    {
+        return [.. DsQuery.callsOf(workId, _store)];
+    }
+
+    public List<Call> GetAllCalls()
+    {
+        var allCalls = new List<Call>();
+        foreach (var flow in GetAllFlows())
+        {
+            var works = GetWorks(flow.Id);
+            foreach (var work in works)
+            {
+                allCalls.AddRange(GetCalls(work.Id));
+            }
+        }
+        return allCalls;
+    }
+
+    public DsStore GetStore() => _store;
+
     public List<(double X, double Y)> ComputeArrowPath(Xywh source, Xywh target)
     {
         var visual = Ds2.UI.Core.ArrowPathCalculator.computePath(source, target);

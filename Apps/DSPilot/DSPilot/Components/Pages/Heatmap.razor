@@ -1,0 +1,243 @@
+@page "/heatmap"
+@using DSPilot.Models.Heatmap
+@using DSPilot.Services
+@inject HeatmapService HeatmapService
+@inject ILogger<Heatmap> Logger
+
+<PageTitle>동작편차</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="mt-4">
+    <MudText Typo="Typo.h4" GutterBottom="true">동작편차</MudText>
+    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-4">
+        Call별 실행 통계를 시각적으로 분석합니다. 색상이 진할수록 성능 이슈가 있을 수 있습니다.
+    </MudText>
+
+    @* 필터 및 컨트롤 패널 *@
+    <MudPaper Class="pa-4 mb-4" Elevation="2">
+        <MudGrid>
+            <MudItem xs="12" sm="6" md="4">
+                <MudSelect T="HeatmapMetric"
+                           Label="표시 메트릭"
+                           @bind-Value="SelectedMetric"
+                           Variant="Variant.Outlined"
+                           AdornmentIcon="@Icons.Material.Filled.BarChart"
+                           AdornmentColor="Color.Primary">
+                    @foreach (HeatmapMetric metric in Enum.GetValues(typeof(HeatmapMetric)))
+                    {
+                        <MudSelectItem Value="@metric">
+                            @HeatmapService.GetMetricDisplayName(metric)
+                        </MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="4">
+                <MudTextField @bind-Value="FlowFilter"
+                              Label="Flow 필터"
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              Placeholder="Flow 이름 검색..."
+                              Clearable="true" />
+            </MudItem>
+
+            <MudItem xs="12" sm="12" md="4" Class="d-flex align-center">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Refresh"
+                           OnClick="LoadDataAsync"
+                           Class="mr-2">
+                    새로고침
+                </MudButton>
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Secondary"
+                           StartIcon="@(AllExpanded ? Icons.Material.Filled.UnfoldLess : Icons.Material.Filled.UnfoldMore)"
+                           OnClick="ToggleAllGroups">
+                    @(AllExpanded ? "모두 접기" : "모두 펼치기")
+                </MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @* 로딩 표시 *@
+    @if (IsLoading)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-4" />
+    }
+
+    @* 데이터 없음 *@
+    @if (!IsLoading && FilteredGroups.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-4">
+            표시할 데이터가 없습니다. PLC 데이터가 수집되면 자동으로 표시됩니다.
+        </MudAlert>
+    }
+
+    @* Heatmap 범례 *@
+    @if (!IsLoading && FilteredGroups.Count > 0)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="1">
+            <MudText Typo="Typo.subtitle2" Class="mb-2">범례</MudText>
+            <MudGrid>
+                <MudItem xs="12" Class="d-flex flex-wrap align-center">
+                    <div class="heatmap-legend-item">
+                        <div class="heatmap-cell heatmap-excellent"></div>
+                        <MudText Typo="Typo.caption">우수</MudText>
+                    </div>
+                    <div class="heatmap-legend-item">
+                        <div class="heatmap-cell heatmap-good"></div>
+                        <MudText Typo="Typo.caption">양호</MudText>
+                    </div>
+                    <div class="heatmap-legend-item">
+                        <div class="heatmap-cell heatmap-fair"></div>
+                        <MudText Typo="Typo.caption">보통</MudText>
+                    </div>
+                    <div class="heatmap-legend-item">
+                        <div class="heatmap-cell heatmap-poor"></div>
+                        <MudText Typo="Typo.caption">개선 필요</MudText>
+                    </div>
+                    <div class="heatmap-legend-item">
+                        <div class="heatmap-cell heatmap-critical"></div>
+                        <MudText Typo="Typo.caption">심각</MudText>
+                    </div>
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+    }
+
+    @* Flow 그룹별 Heatmap *@
+    @foreach (var group in FilteredGroups)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudGrid>
+                <MudItem xs="12">
+                    <div class="d-flex align-center justify-space-between">
+                        <div class="d-flex align-center">
+                            <MudIconButton Icon="@(group.IsExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                           Size="Size.Small"
+                                           OnClick="@(() => group.IsExpanded = !group.IsExpanded)" />
+                            <MudText Typo="Typo.h6">@group.FlowName</MudText>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Class="ml-2">
+                                @group.CallCount Calls
+                            </MudChip>
+                        </div>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            평균: @HeatmapService.FormatMetricValue(SelectedMetric, GetFlowAverageValue(group))
+                        </MudText>
+                    </div>
+                </MudItem>
+
+                @if (group.IsExpanded)
+                {
+                    <MudItem xs="12">
+                        <MudTable Items="@group.Calls"
+                                  Dense="true"
+                                  Hover="true"
+                                  Breakpoint="Breakpoint.Sm"
+                                  Class="heatmap-table">
+                            <HeaderContent>
+                                <MudTh>Call</MudTh>
+                                <MudTh>Work</MudTh>
+                                <MudTh Style="text-align: center;">평균 (ms)</MudTh>
+                                <MudTh Style="text-align: center;">표준편차 (ms)</MudTh>
+                                <MudTh Style="text-align: center;">변동계수</MudTh>
+                                <MudTh Style="text-align: center;">성능점수</MudTh>
+                                <MudTh Style="text-align: center;">실행횟수</MudTh>
+                                <MudTh Style="text-align: center;">@HeatmapService.GetMetricDisplayName(SelectedMetric)</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Call">@context.CallName</MudTd>
+                                <MudTd DataLabel="Work">@context.WorkName</MudTd>
+                                <MudTd DataLabel="평균" Style="text-align: center;">@($"{context.AverageGoingTime:F0}")</MudTd>
+                                <MudTd DataLabel="표준편차" Style="text-align: center;">@($"{context.StdDevGoingTime:F0}")</MudTd>
+                                <MudTd DataLabel="변동계수" Style="text-align: center;">@($"{context.CoefficientOfVariation:F2}")</MudTd>
+                                <MudTd DataLabel="성능점수" Style="text-align: center;">@($"{context.PerformanceScore:F0}")</MudTd>
+                                <MudTd DataLabel="실행횟수" Style="text-align: center;">@context.GoingCount</MudTd>
+                                <MudTd DataLabel="Heatmap" Style="text-align: center;">
+                                    <MudTooltip Text="@context.GetTooltipText()">
+                                        <div class="heatmap-cell @context.ColorClass">
+                                            @HeatmapService.FormatMetricValue(SelectedMetric, context.GetMetricValue(SelectedMetric))
+                                        </div>
+                                    </MudTooltip>
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    </MudItem>
+                }
+            </MudGrid>
+        </MudPaper>
+    }
+</MudContainer>
+
+@code {
+    private List<FlowHeatmapGroup> AllGroups { get; set; } = new();
+    private List<FlowHeatmapGroup> FilteredGroups => string.IsNullOrWhiteSpace(FlowFilter)
+        ? AllGroups
+        : AllGroups.Where(g => g.FlowName.Contains(FlowFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private HeatmapMetric _selectedMetric = HeatmapMetric.PerformanceScore;
+    private HeatmapMetric SelectedMetric
+    {
+        get => _selectedMetric;
+        set
+        {
+            if (_selectedMetric != value)
+            {
+                _selectedMetric = value;
+                _ = LoadDataAsync(); // 메트릭 변경 시 재계산
+            }
+        }
+    }
+
+    private string FlowFilter { get; set; } = string.Empty;
+    private bool IsLoading { get; set; } = false;
+    private bool AllExpanded { get; set; } = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        IsLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            AllGroups = await HeatmapService.GetHeatmapDataAsync(SelectedMetric);
+            Logger.LogInformation("Heatmap data loaded: {Count} flow groups", AllGroups.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load heatmap data");
+            AllGroups = new List<FlowHeatmapGroup>();
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleAllGroups()
+    {
+        AllExpanded = !AllExpanded;
+        foreach (var group in AllGroups)
+        {
+            group.IsExpanded = AllExpanded;
+        }
+    }
+
+    private double GetFlowAverageValue(FlowHeatmapGroup group)
+    {
+        return SelectedMetric switch
+        {
+            HeatmapMetric.AverageTime => group.FlowAverageTime,
+            HeatmapMetric.StdDeviation => group.FlowAverageStdDev,
+            HeatmapMetric.PerformanceScore => group.FlowAverageScore,
+            HeatmapMetric.CoefficientOfVariation => group.Calls.Average(c => c.CoefficientOfVariation),
+            _ => 0
+        };
+    }
+}

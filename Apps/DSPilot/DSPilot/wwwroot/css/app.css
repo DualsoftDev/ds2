@@ -23,3 +23,71 @@ html, body {
 .blueprint-canvas svg rect:hover {
     filter: brightness(1.15);
 }
+
+/* Heatmap 색상 코드 스타일 */
+.heatmap-cell {
+    display: inline-block;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-weight: 600;
+    text-align: center;
+    min-width: 80px;
+    color: #fff;
+    transition: all 0.2s ease;
+}
+
+.heatmap-cell:hover {
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* 우수: 진한 녹색 */
+.heatmap-excellent {
+    background: linear-gradient(135deg, #2E7D32, #388E3C);
+}
+
+/* 양호: 연한 녹색 */
+.heatmap-good {
+    background: linear-gradient(135deg, #66BB6A, #81C784);
+}
+
+/* 보통: 노란색 */
+.heatmap-fair {
+    background: linear-gradient(135deg, #FFA726, #FFB74D);
+    color: #333;
+}
+
+/* 개선 필요: 주황색 */
+.heatmap-poor {
+    background: linear-gradient(135deg, #F57C00, #FB8C00);
+}
+
+/* 심각: 빨간색 */
+.heatmap-critical {
+    background: linear-gradient(135deg, #C62828, #D32F2F);
+}
+
+/* Heatmap 범례 스타일 */
+.heatmap-legend-item {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 16px;
+    margin-bottom: 8px;
+}
+
+.heatmap-legend-item .heatmap-cell {
+    width: 60px;
+    height: 32px;
+    margin-right: 8px;
+    font-size: 0;
+    min-width: unset;
+}
+
+/* Heatmap 테이블 스타일 */
+.heatmap-table .mud-table-cell {
+    padding: 8px;
+}
+
+.heatmap-table .mud-table-row:hover {
+    background-color: rgba(0, 0, 0, 0.02);
+}
