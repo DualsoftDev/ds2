@@ -42,38 +42,29 @@ mindmap
 
 ```mermaid
 block-beta
-  columns 1
+  columns 4
 
-  block:UI
-    columns 4
-    UITITLE["🖥️ Promaker (C#, WPF)"]:4
-    MW["MainWindow"] EC["EditorCanvas"] VM["ViewModels"] DLG["Dialogs"]
-  end
+  UITITLE["🖥️ Promaker (C# · WPF)"]:4
+  MW["MainWindow"] EC["EditorCanvas"] VM["ViewModels"] DLG["Dialogs"]
 
-  space
+  space:4
 
-  block:UICORE
-    columns 4
-    UICORETITLE["⚙️ Ds2.UI.Core (F#) — 편집 코어"]:4
-    DS["DsStore\n13 Dictionaries\nUndo/Redo\nEvents & File I/O"]
-    ST["Store Extensions\nNodes · Arrows\nPanel · Paste"]
-    PJ["Projections\nTreeProjection\nCanvasProjection"]
-    QR["Queries\nHierarchy\nSelection\nConnection"]
-  end
+  UICORETITLE["⚙️ Ds2.UI.Core (F# · 편집 코어)"]:4
+  DS["DsStore\n13 Dictionaries\nUndo/Redo\nEvents & File I/O"]
+  ST["Store Extensions\nNodes · Arrows\nPanel · Paste"]
+  PJ["Projections\nTreeProjection\nCanvasProjection"]
+  QR["Queries\nHierarchy\nSelection\nConnection"]
 
-  space
+  space:4
 
-  block:CORE
-    columns 4
-    CORETITLE["📦 Ds2.Core (F#) — 순수 도메인"]:4
-    ENT["Entities\nProject · System\nFlow · Work · Call"]
-    TYP["Types\nProperties\nEnum · Class"]
-    VS["ValueSpec\nBool·Int·Float\nString·Range"]
-    SER["Serialization\nJsonConverter\nDeepCopyHelper"]
-  end
+  CORETITLE["📦 Ds2.Core (F# · 순수 도메인)"]:4
+  ENT["Entities\nProject · System\nFlow · Work · Call"]
+  TYP["Types\nProperties\nEnum · Class"]
+  VS["ValueSpec\nBool·Int·Float\nString·Range"]
+  SER["Serialization\nJsonConverter\nDeepCopyHelper"]
 
-  UI --> UICORE
-  UICORE --> CORE
+  UITITLE --> UICORETITLE
+  UICORETITLE --> CORETITLE
 ```
 
 ### 레이어 의존 방향
