@@ -46,6 +46,7 @@ block-beta
 
   block:UI["🖥️ Promaker (C#, WPF)"]
     columns 4
+    space:4
     MW["MainWindow"] EC["EditorCanvas"] VM["ViewModels"] DLG["Dialogs"]
   end
 
@@ -53,6 +54,7 @@ block-beta
 
   block:UICORE["⚙️ Ds2.UI.Core (F#) — 편집 코어"]
     columns 4
+    space:4
     DS["DsStore\n13 Dictionaries\nUndo/Redo\nEvents & File I/O"]
     ST["Store Extensions\nNodes · Arrows\nPanel · Paste"]
     PJ["Projections\nTreeProjection\nCanvasProjection"]
@@ -63,6 +65,7 @@ block-beta
 
   block:CORE["📦 Ds2.Core (F#) — 순수 도메인"]
     columns 4
+    space:4
     ENT["Entities\nProject · System\nFlow · Work · Call"]
     TYP["Types\nProperties\nEnum · Class"]
     VS["ValueSpec\nBool·Int·Float\nString·Range"]
