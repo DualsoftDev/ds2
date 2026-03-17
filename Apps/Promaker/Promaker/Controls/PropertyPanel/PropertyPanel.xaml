@@ -5,6 +5,7 @@
              xmlns:ctrl="clr-namespace:Promaker.Controls"
              xmlns:conv="clr-namespace:Promaker.Presentation"
              xmlns:core="clr-namespace:Ds2.UI.Core;assembly=Ds2.UI.Core"
+             xmlns:help="clr-namespace:Promaker.Help"
              x:Name="PanelRoot">
     <UserControl.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
@@ -23,7 +24,12 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
             <Border Style="{StaticResource PanelHeader}">
-                <TextBlock Text="Properties" FontWeight="SemiBold" FontSize="12"/>
+                <Grid>
+                    <TextBlock Text="Properties" FontWeight="SemiBold" FontSize="12"/>
+                    <Button Style="{StaticResource HelpButton}" HorizontalAlignment="Right"
+                            Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                            CommandParameter="properties"/>
+                </Grid>
             </Border>
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
@@ -381,6 +387,7 @@
                                 <DataTemplate DataType="{x:Type vm:ConditionSectionItem}">
                                     <ctrl:ConditionSectionControl
                                         HeaderText="{Binding Header}"
+                                        HelpTopic="{Binding HelpTopic}"
                                         AddToolTip="{Binding AddToolTip}"
                                         ItemsSource="{Binding Conditions}"
                                         AddCommand="{Binding DataContext.AddConditionCommand, ElementName=PanelRoot}"

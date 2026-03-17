@@ -91,6 +91,13 @@ public partial class ConditionSectionControl : UserControl
             typeof(ConditionSectionControl),
             new PropertyMetadata(null));
 
+    public static readonly DependencyProperty HelpTopicProperty =
+        DependencyProperty.Register(
+            nameof(HelpTopic),
+            typeof(string),
+            typeof(ConditionSectionControl),
+            new PropertyMetadata(string.Empty));
+
     public static readonly DependencyProperty NavigateConditionApiCallCommandProperty =
         DependencyProperty.Register(
             nameof(NavigateConditionApiCallCommand),
@@ -173,6 +180,12 @@ public partial class ConditionSectionControl : UserControl
     {
         get => (ICommand?)GetValue(AddChildConditionCommandProperty);
         set => SetValue(AddChildConditionCommandProperty, value);
+    }
+
+    public string HelpTopic
+    {
+        get => (string)GetValue(HelpTopicProperty);
+        set => SetValue(HelpTopicProperty, value);
     }
 
     public ICommand? NavigateConditionApiCallCommand
