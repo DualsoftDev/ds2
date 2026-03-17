@@ -11,6 +11,7 @@ builder.Services.AddMudServices();
 builder.Services.AddSingleton<DsProjectService>();
 builder.Services.AddSingleton<BlueprintService>();
 builder.Services.AddSingleton<HeatmapService>();
+builder.Services.AddSingleton<DspDbService>();
 
 // PLC 데이터 읽기 서비스 등록
 builder.Services.AddSingleton<IPlcRepository, PlcRepository>();
