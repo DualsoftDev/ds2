@@ -285,10 +285,30 @@
                                             </DataGridTextColumn.ElementStyle>
                                         </DataGridTextColumn>
 
+                                        <DataGridTemplateColumn Header="{x:Static core:Labels.OutTag}" Width="*">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBox Text="{Binding OutputTagName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             Padding="4,2"
+                                                             Margin="0,1,0,1"/>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+
                                         <DataGridTemplateColumn Header="{x:Static core:Labels.OutAddress}" Width="*">
                                             <DataGridTemplateColumn.CellTemplate>
                                                 <DataTemplate>
                                                     <TextBox Text="{Binding OutputAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             Padding="4,2"
+                                                             Margin="0,1,0,1"/>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+
+                                        <DataGridTemplateColumn Header="{x:Static core:Labels.InTag}" Width="*">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBox Text="{Binding InputTagName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                              Padding="4,2"
                                                              Margin="0,1,0,1"/>
                                                 </DataTemplate>

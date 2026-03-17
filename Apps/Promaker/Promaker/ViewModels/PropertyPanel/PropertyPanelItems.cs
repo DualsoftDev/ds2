@@ -12,14 +12,18 @@ public sealed class CallApiCallItem : ObservableObject
 {
     private readonly Guid? _originalApiDefId;
     private readonly string _originalName;
+    private readonly string _originalOutputTagName;
     private readonly string _originalOutputAddress;
+    private readonly string _originalInputTagName;
     private readonly string _originalInputAddress;
     private readonly string _originalValueSpecText;
     private readonly string _originalInputValueSpecText;
 
     private Guid? _apiDefId;
     private string _name;
+    private string _outputTagName;
     private string _outputAddress;
+    private string _inputTagName;
     private string _inputAddress;
     private string _valueSpecText;
     private string _inputValueSpecText;
@@ -30,7 +34,9 @@ public sealed class CallApiCallItem : ObservableObject
         string name,
         Guid? apiDefId,
         string apiDefDisplayName,
+        string outputTagName,
         string outputAddress,
+        string inputTagName,
         string inputAddress,
         string valueSpecText,
         string inputValueSpecText,
@@ -44,14 +50,18 @@ public sealed class CallApiCallItem : ObservableObject
 
         _apiDefId                   = apiDefId;
         _name                       = name;
+        _outputTagName              = outputTagName;
         _outputAddress              = outputAddress;
+        _inputTagName               = inputTagName;
         _inputAddress               = inputAddress;
         _valueSpecText              = valueSpecText;
         _inputValueSpecText         = inputValueSpecText;
 
         _originalApiDefId           = _apiDefId;
         _originalName               = _name;
+        _originalOutputTagName      = _outputTagName;
         _originalOutputAddress      = _outputAddress;
+        _originalInputTagName       = _inputTagName;
         _originalInputAddress       = _inputAddress;
         _originalValueSpecText      = _valueSpecText;
         _originalInputValueSpecText = _inputValueSpecText;
@@ -59,7 +69,9 @@ public sealed class CallApiCallItem : ObservableObject
 
     public static CallApiCallItem FromPanel(CallApiCallPanelItem row) =>
         new(row.ApiCallId, row.Name, row.ApiDefIdOrNull,
-            row.ApiDefDisplayName, row.OutputAddress, row.InputAddress,
+            row.ApiDefDisplayName,
+            row.OutputTagName, row.OutputAddress,
+            row.InputTagName, row.InputAddress,
             row.ValueSpecText, row.InputValueSpecText,
             row.OutputSpecTypeIndex, row.InputSpecTypeIndex);
 
@@ -75,7 +87,9 @@ public sealed class CallApiCallItem : ObservableObject
     }
 
     public string Name            { get => _name;            set => SetStr(ref _name, value); }
+    public string OutputTagName   { get => _outputTagName;   set => SetStr(ref _outputTagName, value); }
     public string OutputAddress   { get => _outputAddress;   set => SetStr(ref _outputAddress, value); }
+    public string InputTagName    { get => _inputTagName;    set => SetStr(ref _inputTagName, value); }
     public string InputAddress    { get => _inputAddress;    set => SetStr(ref _inputAddress, value); }
     public string ValueSpecText   { get => _valueSpecText;   set => SetStr(ref _valueSpecText, value); }
     public string InputValueSpecText { get => _inputValueSpecText; set => SetStr(ref _inputValueSpecText, value); }
@@ -97,7 +111,9 @@ public sealed class CallApiCallItem : ObservableObject
         IsDirty =
             _originalApiDefId != _apiDefId ||
             !String.Equals(_originalName, _name, StringComparison.Ordinal) ||
+            !String.Equals(_originalOutputTagName, _outputTagName, StringComparison.Ordinal) ||
             !String.Equals(_originalOutputAddress, _outputAddress, StringComparison.Ordinal) ||
+            !String.Equals(_originalInputTagName, _inputTagName, StringComparison.Ordinal) ||
             !String.Equals(_originalInputAddress, _inputAddress, StringComparison.Ordinal) ||
             !String.Equals(_originalValueSpecText, _valueSpecText, StringComparison.Ordinal) ||
             !String.Equals(_originalInputValueSpecText, _inputValueSpecText, StringComparison.Ordinal);

@@ -7,6 +7,9 @@ open Ds2.Core
 // ─── Internal helpers shared by all Panel extensions ─────────────────
 
 module internal DirectPanelOps =
+    let private tagName (tagOpt: IOTag option) =
+        tagOpt |> Option.map (fun tag -> tag.Name) |> Option.defaultValue ""
+
     let private tagAddress (tagOpt: IOTag option) =
         tagOpt |> Option.map (fun tag -> tag.Address) |> Option.defaultValue ""
 
@@ -25,7 +28,8 @@ module internal DirectPanelOps =
         let apiDefId, apiDefDisplayName = resolveApiDefDisplay store apiCall.ApiDefId
         CallApiCallPanelItem(
             apiCall.Id, apiCall.Name, apiDefId, apiDefDisplayName,
-            tagAddress apiCall.OutTag, tagAddress apiCall.InTag,
+            tagName apiCall.OutTag, tagAddress apiCall.OutTag,
+            tagName apiCall.InTag, tagAddress apiCall.InTag,
             PropertyPanelValueSpec.format apiCall.OutputSpec,
             PropertyPanelValueSpec.format apiCall.InputSpec,
             PropertyPanelValueSpec.dataTypeIndex apiCall.OutputSpec,
@@ -40,7 +44,9 @@ module internal DirectPanelOps =
 
     let buildApiCall
         (apiDef: ApiDef) (fallbackName: string) (apiCallNameOpt: string option)
-        (outputAddress: string) (inputAddress: string) (apiCallId: Guid option)
+        (outputTagName: string) (outputAddress: string)
+        (inputTagName: string) (inputAddress: string)
+        (apiCallId: Guid option)
         (inputSpec: ValueSpec) (outputSpec: ValueSpec)
         : ApiCall =
         let resolvedName =
@@ -52,10 +58,12 @@ module internal DirectPanelOps =
         match apiCallId with
         | Some id -> apiCall.Id <- id
         | None -> ()
-        if not (String.IsNullOrWhiteSpace(outputAddress)) then
-            apiCall.OutTag <- Some(IOTag("Out", outputAddress.Trim(), ""))
-        if not (String.IsNullOrWhiteSpace(inputAddress)) then
-            apiCall.InTag <- Some(IOTag("In", inputAddress.Trim(), ""))
+        let hasOut = not (String.IsNullOrWhiteSpace(outputAddress)) || not (String.IsNullOrWhiteSpace(outputTagName))
+        let hasIn  = not (String.IsNullOrWhiteSpace(inputAddress))  || not (String.IsNullOrWhiteSpace(inputTagName))
+        if hasOut then
+            apiCall.OutTag <- Some(IOTag((if isNull outputTagName then "" else outputTagName.Trim()), (if isNull outputAddress then "" else outputAddress.Trim()), ""))
+        if hasIn then
+            apiCall.InTag <- Some(IOTag((if isNull inputTagName then "" else inputTagName.Trim()), (if isNull inputAddress then "" else inputAddress.Trim()), ""))
         apiCall.InputSpec <- inputSpec
         apiCall.OutputSpec <- outputSpec
         apiCall

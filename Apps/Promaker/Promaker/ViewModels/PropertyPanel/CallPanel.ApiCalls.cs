@@ -42,8 +42,8 @@ public partial class PropertyPanelState
                 selectedCallId => Store.AddApiCallFromPanel(
                     selectedCallId,
                     selectedApiDefId,
-                    dialog.OutputAddress,
-                    dialog.InputAddress,
+                    "", dialog.OutputAddress,
+                    "", dialog.InputAddress,
                     dialog.OutTypeIndex, dialog.OutSpecText,
                     dialog.InTypeIndex, dialog.InSpecText),
                 out var callId,
@@ -87,7 +87,9 @@ public partial class PropertyPanelState
         if (!_host.TryFunc(
                 () => Store.UpdateApiCallFromPanel(
                     callId, item.ApiCallId, apiDefId,
-                    item.Name, item.OutputAddress, item.InputAddress,
+                    item.Name,
+                    item.OutputTagName, item.OutputAddress,
+                    item.InputTagName, item.InputAddress,
                     outTypeIndex, outSpecText, inTypeIndex, inSpecText),
                 out var updated,
                 fallback: false))

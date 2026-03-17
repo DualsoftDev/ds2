@@ -114,7 +114,8 @@ type DsStorePanelApiCallExtensions =
     [<Extension>]
     static member AddApiCallFromPanel
         (store: DsStore, callId: Guid, apiDefId: Guid,
-         outputAddress: string, inputAddress: string,
+         outputTagName: string, outputAddress: string,
+         inputTagName: string, inputAddress: string,
          outTypeIndex: int, outText: string, inTypeIndex: int, inText: string)
         : Guid =
         StoreLog.debug($"callId={callId}, apiDefId={apiDefId}")
@@ -122,7 +123,7 @@ type DsStorePanelApiCallExtensions =
         let call = StoreLog.requireCall(store, callId)
         let outputSpec = PropertyPanelValueSpec.parseFromPanel outTypeIndex outText
         let inputSpec = PropertyPanelValueSpec.parseFromPanel inTypeIndex inText
-        let apiCall = DirectPanelOps.buildApiCall apiDef apiDef.Name None outputAddress inputAddress None inputSpec outputSpec
+        let apiCall = DirectPanelOps.buildApiCall apiDef apiDef.Name None outputTagName outputAddress inputTagName inputAddress None inputSpec outputSpec
         DirectPanelOps.withTransactionCallProps store callId "ApiCall 추가" (fun () ->
             DirectPanelOps.addApiCallToStore store call apiCall)
         apiCall.Id
@@ -130,7 +131,8 @@ type DsStorePanelApiCallExtensions =
     [<Extension>]
     static member UpdateApiCallFromPanel
         (store: DsStore, callId: Guid, apiCallId: Guid, apiDefId: Guid, apiCallName: string,
-         outputAddress: string, inputAddress: string,
+         outputTagName: string, outputAddress: string,
+         inputTagName: string, inputAddress: string,
          outTypeIndex: int, outText: string, inTypeIndex: int, inText: string)
         : bool =
         StoreLog.debug($"callId={callId}, apiCallId={apiCallId}, apiDefId={apiDefId}")
@@ -139,7 +141,7 @@ type DsStorePanelApiCallExtensions =
         StoreLog.requireApiCallInCall(call, apiCallId)
         let outputSpec = PropertyPanelValueSpec.parseFromPanel outTypeIndex outText
         let inputSpec = PropertyPanelValueSpec.parseFromPanel inTypeIndex inText
-        let updated = DirectPanelOps.buildApiCall newApiDef "" (Some apiCallName) outputAddress inputAddress (Some apiCallId) inputSpec outputSpec
+        let updated = DirectPanelOps.buildApiCall newApiDef "" (Some apiCallName) outputTagName outputAddress inputTagName inputAddress (Some apiCallId) inputSpec outputSpec
         DirectPanelOps.withTransactionCallProps store callId "Update ApiCall" (fun () ->
             DirectPanelOps.removeApiCallFromStore store call apiCallId
             DirectPanelOps.addApiCallToStore store call updated)
