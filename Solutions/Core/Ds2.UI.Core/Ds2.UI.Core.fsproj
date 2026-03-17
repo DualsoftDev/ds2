@@ -22,6 +22,7 @@
     <Compile Include="Projection\CanvasProjection.fs" />
     <Compile Include="Queries\EntityHierarchyQueries.fs" />
     <Compile Include="Queries\AddTargetQueries.fs" />
+    <Compile Include="Queries\EntityKindRules.fs" />
     <Compile Include="Queries\SelectionQueries.fs" />
     <Compile Include="Queries\ConnectionQueries.fs" />
     <Compile Include="Store\DsStore.Log.fs" />

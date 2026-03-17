@@ -167,14 +167,12 @@ public partial class MainViewModel
         if (!DialogHelpers.ShowOwnedDialog(dlg)) return;
 
         TryEditorAction(() =>
-        {
-            var props = project.Properties;
-            props.IriPrefix     = string.IsNullOrEmpty(dlg.ResultIriPrefix)     ? null : FSharpOption<string>.Some(dlg.ResultIriPrefix!);
-            props.GlobalAssetId = string.IsNullOrEmpty(dlg.ResultGlobalAssetId) ? null : FSharpOption<string>.Some(dlg.ResultGlobalAssetId!);
-            props.Author        = string.IsNullOrEmpty(dlg.ResultAuthor)        ? null : FSharpOption<string>.Some(dlg.ResultAuthor!);
-            props.Version       = string.IsNullOrEmpty(dlg.ResultVersion)       ? null : FSharpOption<string>.Some(dlg.ResultVersion!);
-            props.Description   = string.IsNullOrEmpty(dlg.ResultDescription)   ? null : FSharpOption<string>.Some(dlg.ResultDescription!);
-        });
+            _store.UpdateProjectProperties(
+                dlg.ResultIriPrefix ?? "",
+                dlg.ResultGlobalAssetId ?? "",
+                dlg.ResultAuthor ?? "",
+                dlg.ResultVersion ?? "",
+                dlg.ResultDescription ?? ""));
         StatusText = "프로젝트 속성이 변경되었습니다.";
     }
 
