@@ -94,7 +94,8 @@
                                 </StackPanel>
                             </Button>
                             <!-- 추가 -->
-                            <ToggleButton x:Name="AddToggleBtn" Style="{StaticResource SlimToggleButton}" ToolTip="추가">
+                            <ToggleButton x:Name="AddToggleBtn" Style="{StaticResource SlimToggleButton}" ToolTip="추가"
+                                              IsEnabled="{Binding HasProject}">
                                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                                     <Canvas Width="18" Height="18" HorizontalAlignment="Center">
                                         <!-- 큐브 (우상단 잘림) -->
@@ -144,7 +145,8 @@
                             </Button>
                             <!-- 일괄편집 -->
                             <ToggleButton x:Name="ModelToggleBtn" Style="{StaticResource SlimToggleButton}"
-                                          ToolTip="일괄 편집 (I/O, Duration)">
+                                          ToolTip="일괄 편집 (I/O, Duration)"
+                                          IsEnabled="{Binding HasProject}">
                                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                                     <Canvas Width="18" Height="18" HorizontalAlignment="Center">
                                         <Path Data="M 3,1 L 13,1 13,17 3,17 Z" Stroke="{DynamicResource PrimaryTextBrush}"
@@ -191,7 +193,8 @@
                 <StackPanel x:Name="SimulationTools"
                             Orientation="Horizontal"
                             VerticalAlignment="Stretch"
-                            DataContext="{Binding Simulation}">
+                            DataContext="{Binding Simulation}"
+                            IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
 
                     <Border Style="{StaticResource ToolbarGroup}">
                         <DockPanel>

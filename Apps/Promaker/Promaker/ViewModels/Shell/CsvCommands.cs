@@ -15,6 +15,7 @@ public partial class MainViewModel
         _store.ReplaceStore(store);
         _currentFilePath = null;
         IsDirty = false;
+        HasProject = true;
         UpdateTitle();
         Log.Info($"CSV imported: {sourceName}");
         StatusText = $"CSV 불러오기 완료 ({sourceName})";
@@ -80,17 +81,10 @@ public partial class MainViewModel
             ex => $"CSV 불러오기 실패: {ex.Message}");
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasProject))]
     private void ExportCsv()
     {
-        var projects = DsQuery.allProjects(_store);
-        if (projects.IsEmpty)
-        {
-            DialogHelpers.Warn("프로젝트가 없습니다.");
-            return;
-        }
-
-        var project = projects.Head;
+        var project = DsQuery.allProjects(_store).Head;
         var dialog = new CsvExportDialog(
             project.Name,
             BuildCsvExportPreview(_store),

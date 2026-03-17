@@ -20,6 +20,7 @@ public partial class MainViewModel
 
     private bool CanAddSystem()
     {
+        if (!HasProject) return false;
         var projects = DsQuery.allProjects(_store);
         if (projects.IsEmpty) return true;
         var activeSystems = DsQuery.activeSystemsOf(projects.Head.Id, _store);
@@ -37,7 +38,7 @@ public partial class MainViewModel
             selType, selId, tabKind, tabRoot));
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasProject))]
     private void AddFlow()
     {
         var name = DialogHelpers.PromptName("New Flow", "NewFlow");
@@ -50,7 +51,7 @@ public partial class MainViewModel
     private (EntityKind? SelectedEntityKind, Guid? SelectedEntityId, TabKind? ActiveTabKind, Guid? ActiveTabRootId) SnapshotContext() =>
         (SelectedNode?.EntityType, SelectedNode?.Id, Canvas.ActiveTab?.Kind, Canvas.ActiveTab?.RootId);
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasProject))]
     private void AddWork()
     {
         var flowId = ResolveTargetId(EntityKind.Flow, TabKind.Flow);
@@ -69,7 +70,7 @@ public partial class MainViewModel
         TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(workId, pos)]));
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasProject))]
     private void AddCall()
     {
         var workId = ResolveTargetId(EntityKind.Work, TabKind.Work);
@@ -182,7 +183,7 @@ public partial class MainViewModel
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasProject))]
     private void DeleteSelected()
     {
         if (Selection.OrderedArrowSelection.Count > 0)
@@ -408,7 +409,7 @@ public partial class MainViewModel
         return new Xywh(x, y, basePos.W, basePos.H);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasProject))]
     private void AutoLayout()
     {
         if (Canvas.ActiveTab is not { } tab) return;
