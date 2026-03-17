@@ -44,7 +44,15 @@ echo Mode:
 echo   %MODE_LABEL%
 echo.
 
-echo [1/4] Restore...
+echo [1/5] Version bump...
+powershell -Command "$f = '%PROJECT_FILE%'; [xml]$x = Get-Content $f; $pg = $x.SelectSingleNode('//PropertyGroup'); $v = [version]$pg.SelectSingleNode('Version').InnerText; $nv = '{0}.{1}.{2}.{3}' -f $v.Major,$v.Minor,$v.Build,($v.Revision+1); $pg.SelectSingleNode('Version').InnerText = $nv; $pg.SelectSingleNode('AssemblyVersion').InnerText = $nv; $pg.SelectSingleNode('FileVersion').InnerText = $nv; $x.Save($f); Write-Host ('  ' + $nv)"
+if errorlevel 1 (
+    echo [ERROR] Version bump failed.
+    exit /b 1
+)
+echo.
+
+echo [2/5] Restore...
 dotnet restore "%PROJECT_FILE%" --verbosity quiet
 if errorlevel 1 (
     echo [ERROR] Restore failed.
@@ -52,7 +60,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo [2/4] Publish...
+echo [3/5] Publish...
 dotnet publish "%PROJECT_FILE%" -c Release -r win-x64 --self-contained %SELF_CONTAINED% -o "%PUBLISH_DIR%" -p:DebugType=none -p:DebugSymbols=false
 if errorlevel 1 (
     echo [ERROR] Publish failed.
@@ -67,7 +75,7 @@ if not exist "!ISCC_PATH!" (
     exit /b 1
 )
 
-echo [3/4] Build installer...
+echo [4/5] Build installer...
 "!ISCC_PATH!" /DPublishDir="%PUBLISH_DIR%" /DSelfContainedMode="%SELF_CONTAINED%" /DOutputSuffix="%OUTPUT_SUFFIX%" "%SETUP_FILE%"
 if errorlevel 1 (
     echo [ERROR] Installer build failed.
@@ -75,20 +83,23 @@ if errorlevel 1 (
 )
 echo.
 
-echo [4/4] Done.
+echo [5/5] Zip...
+powershell -Command "$exe = (Get-ChildItem '%OUTPUT_DIR%\Promaker_Setup_*%OUTPUT_SUFFIX%.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1); $zip = $exe.FullName -replace '\.exe$','.zip'; Compress-Archive -Path $exe.FullName -DestinationPath $zip -Force; Write-Host ('  ' + $zip)"
+if errorlevel 1 (
+    echo [ERROR] Zip failed.
+    exit /b 1
+)
+echo.
+
+echo ========================================
+echo   Done.
+echo ========================================
 echo Publish folder:
 echo   %PUBLISH_DIR%
 echo Installer output:
 echo   %OUTPUT_DIR%
 echo.
-echo Tip:
-if /I "%SELF_CONTAINED%"=="true" (
-    echo   This installer bundles the .NET runtime.
-) else (
-    echo   This installer requires .NET 9 Desktop Runtime on the target machine.
-)
-echo.
 
-dir /b "%OUTPUT_DIR%\*.exe" 2>nul
+dir /b "%OUTPUT_DIR%\Promaker_Setup_*%OUTPUT_SUFFIX%.*" 2>nul
 
 endlocal
