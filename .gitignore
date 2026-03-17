@@ -80,3 +80,8 @@ scripts/scratch/
 
 # Samples
 [Ss]amples/
+
+# Installer build artifacts
+Apps/Promaker/Installer/Output/
+Apps/Promaker/Installer/TestInstall/
+Apps/Promaker/Installer/IconCheck/

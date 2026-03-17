@@ -6,6 +6,10 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>Promaker</RootNamespace>
     <AssemblyName>Promaker</AssemblyName>
+    <Version>0.0.0.1</Version>
+    <AssemblyVersion>0.0.0.1</AssemblyVersion>
+    <FileVersion>0.0.0.1</FileVersion>
+    <ApplicationIcon>Assets\PromakerTemp.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <OtherFlags></OtherFlags>
@@ -21,6 +25,10 @@
     <None Update="log4net.config">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\PromakerTemp.ico" />
   </ItemGroup>
 
   <ItemGroup>
