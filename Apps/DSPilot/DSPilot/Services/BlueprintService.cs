@@ -11,6 +11,7 @@ public class BlueprintService
     private BlueprintLayout _layout = new();
 
     public BlueprintLayout Layout => _layout;
+    public long ImageVersion { get; private set; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
     public BlueprintService(IWebHostEnvironment env, ILogger<BlueprintService> logger)
     {
@@ -41,6 +42,7 @@ public class BlueprintService
         }
 
         _layout.BlueprintImagePath = $"uploads/{safeName}";
+        ImageVersion = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         Save();
 
         // Return (0,0) - actual dimensions will be detected via JS in the browser

@@ -179,9 +179,9 @@ else
         <MudItem xs="12" md="8" lg="9">
             <MudPaper Elevation="2" Class="pa-0" Style="overflow: auto; border-radius: 8px;">
                 <div id="editor-drop-zone" class="blueprint-canvas"
-                     style="position: relative;
-                            width: @(BlueprintService.Layout.CanvasWidth)px;
-                            height: @(BlueprintService.Layout.CanvasHeight)px;"
+                     style="position: relative; width: 100%;
+                            max-width: @(BlueprintService.Layout.CanvasWidth)px;
+                            aspect-ratio: @BlueprintService.Layout.CanvasWidth / @BlueprintService.Layout.CanvasHeight;"
                      @ondragover="OnDragOver"
                      @ondragover:preventDefault="true"
                      @ondrop="OnDrop"
@@ -189,10 +189,10 @@ else
 
                     @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
                     {
-                        <img id="blueprint-img" src="@BlueprintService.Layout.BlueprintImagePath"
+                        <img id="blueprint-img" src="@(BlueprintService.Layout.BlueprintImagePath)?v=@(BlueprintService.ImageVersion)"
                              style="position: absolute; top: 0; left: 0;
                                     width: 100%; height: 100%;
-                                    object-fit: contain; opacity: 0.3;
+                                    opacity: 0.3;
                                     pointer-events: none;"
                              alt="Blueprint" />
                     }
@@ -208,9 +208,9 @@ else
                     }
 
                     <svg id="editor-svg" xmlns="http://www.w3.org/2000/svg"
-                         style="position: absolute; top: 0; left: 0;"
-                         width="@BlueprintService.Layout.CanvasWidth"
-                         height="@BlueprintService.Layout.CanvasHeight">
+                         style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"
+                         viewBox="0 0 @BlueprintService.Layout.CanvasWidth @BlueprintService.Layout.CanvasHeight"
+                         preserveAspectRatio="xMinYMin meet">
 
                         @{
                             var cellW = BlueprintService.Layout.CellWidth;
