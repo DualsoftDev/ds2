@@ -47,14 +47,9 @@ public class DspRepository : IDspRepository
 
             _logger.LogInformation("Creating DSP database schema...");
 
-            // Drop existing tables
-            await connection.ExecuteAsync("DROP TABLE IF EXISTS Call;");
-            await connection.ExecuteAsync("DROP TABLE IF EXISTS Flow;");
-            await connection.ExecuteAsync("DROP VIEW IF EXISTS CallFlowView;");
-
             // Create Flow table
             const string createFlowTable = @"
-CREATE TABLE Flow (
+CREATE TABLE IF NOT EXISTS Flow (
     Id INTEGER PRIMARY KEY AUTOINCREMENT,
     FlowName TEXT UNIQUE NOT NULL,
     MT INTEGER,
@@ -69,7 +64,7 @@ CREATE TABLE Flow (
 
             // Create Call table (with statistics fields)
             const string createCallTable = @"
-CREATE TABLE Call (
+CREATE TABLE IF NOT EXISTS Call (
     Id INTEGER PRIMARY KEY AUTOINCREMENT,
     CallName TEXT NOT NULL,
     ApiCall TEXT NOT NULL,
@@ -96,7 +91,7 @@ CREATE TABLE Call (
 
             // Create CallFlowView
             const string createView = @"
-CREATE VIEW CallFlowView AS
+CREATE VIEW IF NOT EXISTS CallFlowView AS
 SELECT
     c.Id,
     c.CallName,
@@ -134,7 +129,7 @@ ORDER BY c.Id;";
 
             // Create Triggers
             const string createFlowTrigger = @"
-CREATE TRIGGER update_flow_updated_at
+CREATE TRIGGER IF NOT EXISTS update_flow_updated_at
     AFTER UPDATE ON Flow
     FOR EACH ROW
     BEGIN
@@ -143,7 +138,7 @@ CREATE TRIGGER update_flow_updated_at
             await connection.ExecuteAsync(createFlowTrigger);
 
             const string createCallTrigger = @"
-CREATE TRIGGER update_call_updated_at
+CREATE TRIGGER IF NOT EXISTS update_call_updated_at
     AFTER UPDATE ON Call
     FOR EACH ROW
     BEGIN
@@ -174,8 +169,8 @@ CREATE TRIGGER update_call_updated_at
 INSERT INTO Flow (FlowName, MT, WT, State, MovingStartName, MovingEndName)
 VALUES (@FlowName, @MT, @WT, @State, @MovingStartName, @MovingEndName)
 ON CONFLICT (FlowName) DO UPDATE SET
-    MT = excluded.MT,
-    WT = excluded.WT,
+    MT = COALESCE(excluded.MT, Flow.MT),
+    WT = COALESCE(excluded.WT, Flow.WT),
     State = excluded.State,
     MovingStartName = excluded.MovingStartName,
     MovingEndName = excluded.MovingEndName,
