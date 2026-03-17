@@ -1,14 +1,20 @@
-<p align="center">
-  <h1 align="center">Promaker</h1>
-  <p align="center">
-    <strong>Sequence Control Editor</strong> built with F# core + WPF UI on .NET 9.0
-  </p>
-  <p align="center">
-    <a href="#아키텍처">Architecture</a> · <a href="#엔티티-관계도">Entities</a> · <a href="#빌드-및-테스트">Build</a> · <a href="RUNTIME.md">Runtime Docs</a>
-  </p>
-</p>
+<div align="center">
+
+# Promaker
+
+**Sequence Control Editor** built with F# core + WPF UI on .NET 9.0
+
+[![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![F#](https://img.shields.io/badge/F%23-Core_Engine-378BBA?logo=fsharp&logoColor=white)](https://fsharp.org/)
+[![C#](https://img.shields.io/badge/C%23-WPF_UI-239120?logo=csharp&logoColor=white)](https://learn.microsoft.com/dotnet/csharp/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-174_passing-brightgreen)](#빌드-및-테스트)
 
 ---
+
+[Architecture](#아키텍처) · [Entities](#엔티티-관계도) · [Build](#빌드-및-테스트) · [Runtime Docs](RUNTIME.md)
+
+</div>
 
 > **Last Sync:** 2026-03-17 — CSV 변환기, AASX/Mermaid 모듈 분리, CallCreate TabControl 개편, ApiCall 복제 모드, Promaker.Tests
 
