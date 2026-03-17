@@ -33,7 +33,8 @@ else
                        Placements="BlueprintService.Layout.FlowPlacements"
                        GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
                        GetSubtitle="@(fp => $"{fp.SystemName} ({GetWorkCount(fp.FlowId)} works)")"
-                       GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))" />
+                       GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
+                       GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))" />
 
         <div class="d-flex justify-center gap-3 flex-wrap" style="flex: 0 0 auto; padding: 4px 0;">
             @foreach (var (label, clr) in _stateLegend)
@@ -75,7 +76,8 @@ else
                            Placements="BlueprintService.Layout.FlowPlacements"
                            GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
                            GetSubtitle="@(fp => $"{fp.SystemName} ({GetWorkCount(fp.FlowId)} works)")"
-                           GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))" />
+                           GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
+                           GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))" />
         }
     </DialogContent>
     <DialogActions>
@@ -166,6 +168,15 @@ else
         var flowState = _dbSnapshot.Flows
             .FirstOrDefault(f => f.FlowName == flowName);
         return flowState?.State ?? "";
+    }
+
+    private (int Mt, int Wt)? GetFlowMtWt(string flowName)
+    {
+        var flowState = _dbSnapshot.Flows
+            .FirstOrDefault(f => f.FlowName == flowName);
+        if (flowState?.MT == null && flowState?.WT == null)
+            return null;
+        return (flowState.MT ?? 0, flowState.WT ?? 0);
     }
 
     private string GetSystemColor(Guid systemId)
