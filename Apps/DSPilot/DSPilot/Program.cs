@@ -4,6 +4,14 @@ using DSPilot.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// 진단 모드 체크
+if (args.Contains("--diagnose"))
+{
+    var dbPath = builder.Configuration["PlcDatabase:SourceDbPath"] ?? "sample/db/DsDB.sqlite3";
+    DSPilot.DiagnosticTool.DiagnosePlcDatabase(dbPath);
+    return;
+}
+
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 

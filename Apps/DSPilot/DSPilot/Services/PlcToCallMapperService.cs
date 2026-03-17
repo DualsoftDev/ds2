@@ -169,11 +169,13 @@ public class PlcToCallMapperService
     /// 태그 값 변경에 따른 Call 상태 결정
     /// </summary>
     /// <param name="tagName">태그 이름</param>
+    /// <param name="tagAddress">태그 주소 (Address 기반 매핑 시 사용)</param>
     /// <param name="edgeState">엣지 상태 (라이징/폴링)</param>
     /// <param name="currentCallState">현재 Call 상태</param>
     /// <returns>(새 상태, 상태 변경 여부)</returns>
     public (string NewState, bool StateChanged) DetermineCallState(
         string tagName,
+        string tagAddress,
         TagEdgeState edgeState,
         string currentCallState)
     {
@@ -183,9 +185,14 @@ public class PlcToCallMapperService
             return (currentCallState, false);
         }
 
-        if (!_tagToCallMap.TryGetValue(tagName, out var mapping))
+        // TagMatchMode에 따라 올바른 키 선택
+        var tagKey = _tagMatchMode.Equals("Address", StringComparison.OrdinalIgnoreCase)
+            ? tagAddress
+            : tagName;
+
+        if (!_tagToCallMap.TryGetValue(tagKey, out var mapping))
         {
-            _logger.LogDebug("Tag '{TagName}' not mapped to any Call", tagName);
+            _logger.LogDebug("Tag '{TagName}' (Address: '{TagAddress}') not mapped to any Call", tagName, tagAddress);
             return (currentCallState, false);
         }
 

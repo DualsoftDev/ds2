@@ -89,6 +89,14 @@ public class PlcRepository : IPlcRepository
     {
         using var connection = CreateConnection();
 
+        // DB에 UTC 시간으로 저장되어 있으므로 UTC로 변환
+        var sinceUtc = sinceDateTime.Kind == DateTimeKind.Local
+            ? sinceDateTime.ToUniversalTime()
+            : sinceDateTime;
+
+        // ISO 8601 형식으로 문자열 변환 (DB에 "Z" 접미사로 저장되어 있음)
+        var sinceStr = sinceUtc.ToString("yyyy-MM-dd HH:mm:ss.fffffff") + "Z";
+
         const string sql = @"
             SELECT
                 id as Id,
@@ -99,7 +107,7 @@ public class PlcRepository : IPlcRepository
             WHERE dateTime > @SinceDateTime
             ORDER BY dateTime ASC, id ASC";
 
-        var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new { SinceDateTime = sinceDateTime });
+        var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new { SinceDateTime = sinceStr });
         var result = logs.ToList();
 
         _logger.LogDebug("Retrieved {Count} new logs since {DateTime}", result.Count, sinceDateTime);
@@ -111,6 +119,24 @@ public class PlcRepository : IPlcRepository
     public async Task<List<PlcTagLogEntity>> GetLogsInRangeAsync(DateTime startExclusive, DateTime endInclusive)
     {
         using var connection = CreateConnection();
+
+        // DB에 UTC 시간으로 저장되어 있으므로 UTC로 변환
+        var startUtc = startExclusive.Kind == DateTimeKind.Local
+            ? startExclusive.ToUniversalTime()
+            : startExclusive;
+        var endUtc = endInclusive.Kind == DateTimeKind.Local
+            ? endInclusive.ToUniversalTime()
+            : endInclusive;
+
+        // ISO 8601 형식으로 문자열 변환 (DB에 "Z" 접미사로 저장되어 있음)
+        var startStr = startUtc.ToString("yyyy-MM-dd HH:mm:ss.fffffff") + "Z";
+        var endStr = endUtc.ToString("yyyy-MM-dd HH:mm:ss.fffffff") + "Z";
+
+        _logger.LogInformation("🔍 GetLogsInRangeAsync: Local ({LocalStart} ~ {LocalEnd}] → UTC ({UtcStart} ~ {UtcEnd}]",
+            startExclusive.ToString("HH:mm:ss.fff"),
+            endInclusive.ToString("HH:mm:ss.fff"),
+            startStr,
+            endStr);
 
         const string sql = @"
             SELECT
@@ -125,17 +151,15 @@ public class PlcRepository : IPlcRepository
 
         var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new
         {
-            StartExclusive = startExclusive,
-            EndInclusive = endInclusive
+            StartExclusive = startStr,
+            EndInclusive = endStr
         });
 
         var result = logs.ToList();
 
-        _logger.LogDebug(
-            "Retrieved {Count} logs in range ({StartExclusive} ~ {EndInclusive}]",
-            result.Count,
-            startExclusive,
-            endInclusive);
+        _logger.LogInformation(
+            "📊 Retrieved {Count} logs",
+            result.Count);
 
         return result;
     }
@@ -146,9 +170,22 @@ public class PlcRepository : IPlcRepository
         using var connection = CreateConnection();
 
         const string sql = "SELECT MIN(dateTime) FROM plcTagLog";
-        var result = await connection.ExecuteScalarAsync<DateTime?>(sql);
-        _logger.LogDebug("GetOldestLogDateTimeAsync returned: {Result}", result);
-        return result;
+        var resultStr = await connection.ExecuteScalarAsync<string>(sql);
+
+        if (string.IsNullOrEmpty(resultStr))
+        {
+            _logger.LogInformation("📅 GetOldestLogDateTimeAsync: NULL");
+            return null;
+        }
+
+        // DB에서 UTC 문자열로 저장되어 있으므로 UTC로 파싱 후 로컬 시간으로 변환
+        var utcDateTime = DateTime.Parse(resultStr, null, System.Globalization.DateTimeStyles.RoundtripKind);
+        var localDateTime = utcDateTime.ToLocalTime();
+
+        _logger.LogInformation("📅 GetOldestLogDateTimeAsync: {UtcResult} (UTC) → {LocalResult} (Local)",
+            resultStr, localDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+
+        return localDateTime;
     }
 
     /// <inheritdoc />
@@ -157,9 +194,22 @@ public class PlcRepository : IPlcRepository
         using var connection = CreateConnection();
 
         const string sql = "SELECT MAX(dateTime) FROM plcTagLog";
-        var result = await connection.ExecuteScalarAsync<DateTime?>(sql);
-        _logger.LogDebug("GetLatestLogDateTimeAsync returned: {Result}", result);
-        return result;
+        var resultStr = await connection.ExecuteScalarAsync<string>(sql);
+
+        if (string.IsNullOrEmpty(resultStr))
+        {
+            _logger.LogInformation("📅 GetLatestLogDateTimeAsync: NULL");
+            return null;
+        }
+
+        // DB에서 UTC 문자열로 저장되어 있으므로 UTC로 파싱 후 로컬 시간으로 변환
+        var utcDateTime = DateTime.Parse(resultStr, null, System.Globalization.DateTimeStyles.RoundtripKind);
+        var localDateTime = utcDateTime.ToLocalTime();
+
+        _logger.LogInformation("📅 GetLatestLogDateTimeAsync: {UtcResult} (UTC) → {LocalResult} (Local)",
+            resultStr, localDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+
+        return localDateTime;
     }
 
     /// <inheritdoc />

@@ -35,7 +35,10 @@ public class PlcDataReaderService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _logger.LogInformation("========================================");
         _logger.LogInformation("PLC Data Reader Service starting...");
+        _logger.LogInformation("Simulation Mode Config: {SimMode}", _simulationMode);
+        _logger.LogInformation("========================================");
 
         // 초기화 및 연결 테스트
         if (!await InitializeAsync())
@@ -43,6 +46,8 @@ public class PlcDataReaderService : BackgroundService
             _logger.LogError("Failed to initialize PLC Data Reader Service");
             return;
         }
+
+        _logger.LogInformation("InitializeAsync completed successfully");
 
         if (!await WaitForMapperInitializationAsync(stoppingToken))
         {
@@ -97,6 +102,7 @@ public class PlcDataReaderService : BackgroundService
             var tags = await repository.GetAllTagsAsync();
             var totalLogs = await repository.GetTotalLogCountAsync();
 
+            _logger.LogInformation("========================================");
             _logger.LogInformation("Database initialized successfully");
             _logger.LogInformation("Found {PlcCount} PLCs, {TagCount} tags, {LogCount} total logs",
                 plcs.Count, tags.Count, totalLogs);
@@ -109,6 +115,7 @@ public class PlcDataReaderService : BackgroundService
             }
 
             _logger.LogInformation("Simulation Mode: {Mode}", _simulationMode);
+            _logger.LogInformation("========================================");
 
             if (_simulationMode)
             {
@@ -324,6 +331,7 @@ public class PlcDataReaderService : BackgroundService
                 // 5. 새 상태 결정
                 var (newState, stateChanged) = mapper.DetermineCallState(
                     tag.Name,
+                    tag.Address,
                     edgeState,
                     currentCallState
                 );
