@@ -1,8 +1,7 @@
 <div align="center">
 
-# Promaker
+# DS2 Sequence Control Editor
 
-**Sequence Control Editor** built with F# core + WPF UI on .NET 9.0
 
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![F#](https://img.shields.io/badge/F%23-Core_Engine-378BBA?logo=fsharp&logoColor=white)](https://fsharp.org/)
