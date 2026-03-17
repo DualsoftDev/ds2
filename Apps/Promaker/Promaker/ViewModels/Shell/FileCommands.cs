@@ -56,6 +56,7 @@ public partial class MainViewModel
     {
         _currentFilePath = filePath;
         IsDirty = false;
+        HasProject = true;
         UpdateTitle();
         Log.Info($"{kind} opened: {filePath}");
         StatusText = $"Opened: {Path.GetFileName(filePath)}";
@@ -158,17 +159,10 @@ public partial class MainViewModel
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasProject))]
     private void ShowProjectSettings()
     {
-        var projects = DsQuery.allProjects(_store);
-        if (projects.IsEmpty)
-        {
-            DialogHelpers.Warn("프로젝트가 없습니다.");
-            return;
-        }
-
-        var project = projects.Head;
+        var project = DsQuery.allProjects(_store).Head;
         var dlg = new ProjectPropertiesDialog(project.Properties);
         if (!DialogHelpers.ShowOwnedDialog(dlg)) return;
 
@@ -184,7 +178,7 @@ public partial class MainViewModel
         StatusText = "프로젝트 속성이 변경되었습니다.";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasProject))]
     private void SaveFile()
     {
         TrySaveFile();
@@ -200,7 +194,7 @@ public partial class MainViewModel
         return SaveToPath(_currentFilePath);
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasProject))]
     private void SaveFileAs()
     {
         TrySaveFileAs();
