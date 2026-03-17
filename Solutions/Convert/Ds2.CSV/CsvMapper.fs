@@ -15,11 +15,13 @@ module internal CsvMapper =
         |> Option.map (fun project -> project.Id)
 
     let private addBucketItem
-        (buckets: Dictionary<string, ResizeArray<Call * string * string option * string option>>)
+        (buckets: Dictionary<string, ResizeArray<Call * string * string option * string option * string option * string option>>)
         (flowName: string)
         (call: Call)
         (callLabel: string)
+        (inName: string option)
         (inAddress: string option)
+        (outName: string option)
         (outAddress: string option) =
         let bucket =
             match buckets.TryGetValue(flowName) with
@@ -28,12 +30,12 @@ module internal CsvMapper =
                 let created = ResizeArray()
                 buckets.[flowName] <- created
                 created
-        bucket.Add(call, callLabel, inAddress, outAddress)
+        bucket.Add(call, callLabel, inName, inAddress, outName, outAddress)
 
     let mapToSystem (store: DsStore) (projectId: Guid) (systemId: Guid) (document: CsvDocument) =
         let flows = Dictionary<string, Flow>()
         let works = Dictionary<Guid * string, Work>()
-        let callsByFlow = Dictionary<string, ResizeArray<Call * string * string option * string option>>()
+        let callsByFlow = Dictionary<string, ResizeArray<Call * string * string option * string option * string option * string option>>()
 
         for entry in document.Entries do
             let flow =
@@ -59,23 +61,27 @@ module internal CsvMapper =
             store.TrackAdd(store.Calls, call)
 
             let callLabel = $"{call.DevicesAlias}.{call.ApiName}"
-            addBucketItem callsByFlow entry.FlowName call callLabel entry.InAddress entry.OutAddress
+            addBucketItem callsByFlow entry.FlowName call callLabel entry.InName entry.InAddress entry.OutName entry.OutAddress
 
         for KeyValue(flowName, calls) in callsByFlow do
             let linkedCalls =
                 calls
-                |> Seq.map (fun (call, label, _, _) -> call, label)
+                |> Seq.map (fun (call, label, _, _, _, _) -> call, label)
                 |> Seq.toList
 
             DirectDeviceOps.linkCallsToDevices store projectId flowName linkedCalls
 
-            for call, _, inAddress, outAddress in calls do
-                if call.ApiCalls.Count > 0 && (inAddress.IsSome || outAddress.IsSome) then
+            for call, _, inName, inAddress, outName, outAddress in calls do
+                if call.ApiCalls.Count > 0 && (inName.IsSome || inAddress.IsSome || outName.IsSome || outAddress.IsSome) then
                     let apiCall = call.ApiCalls.[0]
                     store.TrackMutate(store.ApiCalls, apiCall.Id, fun current ->
-                        match outAddress with
-                        | Some address -> current.OutTag <- Some(IOTag("Out", address, ""))
-                        | None -> ()
-                        match inAddress with
-                        | Some address -> current.InTag <- Some(IOTag("In", address, ""))
-                        | None -> ())
+                        match inName, inAddress with
+                        | Some name, Some address -> current.InTag <- Some(IOTag(name, address, ""))
+                        | None, Some address -> current.InTag <- Some(IOTag("In", address, ""))
+                        | Some _, None -> ()
+                        | None, None -> ()
+                        match outName, outAddress with
+                        | Some name, Some address -> current.OutTag <- Some(IOTag(name, address, ""))
+                        | None, Some address -> current.OutTag <- Some(IOTag("Out", address, ""))
+                        | Some _, None -> ()
+                        | None, None -> ())

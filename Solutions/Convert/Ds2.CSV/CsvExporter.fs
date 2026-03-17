@@ -20,17 +20,20 @@ module CsvExporter =
     let private tagAddress (tag: IOTag option) =
         tag |> Option.map (fun current -> current.Address) |> Option.defaultValue ""
 
+    let private tagName (tag: IOTag option) =
+        tag |> Option.map (fun current -> current.Name) |> Option.defaultValue ""
+
     let private appendCallRows (builder: StringBuilder) (flowName: string) (workName: string) (call: Call) =
-        let appendRow (inAddress: string) (outAddress: string) =
+        let appendRow (inName: string) (inAddress: string) (outName: string) (outAddress: string) =
             builder.AppendLine(
-                $"{escape flowName},{escape workName},{escape call.DevicesAlias},{escape call.ApiName},{escape inAddress},{escape outAddress}")
+                $"{escape flowName},{escape workName},{escape call.DevicesAlias},{escape call.ApiName},{escape inName},{escape inAddress},{escape outName},{escape outAddress}")
             |> ignore
 
         if call.ApiCalls.Count = 0 then
-            appendRow "" ""
+            appendRow "" "" "" ""
         else
             for apiCall in call.ApiCalls do
-                appendRow (tagAddress apiCall.InTag) (tagAddress apiCall.OutTag)
+                appendRow (tagName apiCall.InTag) (tagAddress apiCall.InTag) (tagName apiCall.OutTag) (tagAddress apiCall.OutTag)
 
     let private appendSystemRows (store: DsStore) (systemId: Guid) (builder: StringBuilder) =
         for flow in DsQuery.flowsOf systemId store do
@@ -40,13 +43,13 @@ module CsvExporter =
 
     let systemToCsv (store: DsStore) (systemId: Guid) : string =
         let builder = StringBuilder()
-        builder.AppendLine("flow,work,device,api,in,out") |> ignore
+        builder.AppendLine("Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress") |> ignore
         appendSystemRows store systemId builder
         builder.ToString()
 
     let projectToCsv (store: DsStore) (projectId: Guid) : string =
         let builder = StringBuilder()
-        builder.AppendLine("flow,work,device,api,in,out") |> ignore
+        builder.AppendLine("Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress") |> ignore
         for system in DsQuery.activeSystemsOf projectId store do
             appendSystemRows store system.Id builder
         builder.ToString()

@@ -8,12 +8,14 @@ module CsvParser =
 
     type private EntryAccumulator = {
         Row         : CsvRow
-        mutable InTag : string option
-        mutable OutTag: string option
+        mutable InName : string option
+        mutable InTag  : string option
+        mutable OutName: string option
+        mutable OutTag : string option
         SourceLines : ResizeArray<int>
     }
 
-    let private expectedHeader = [ "flow"; "work"; "device"; "api"; "in"; "out" ]
+    let private expectedHeader = [ "flow"; "work"; "device"; "api"; "inname"; "inaddress"; "outname"; "outaddress" ]
 
     let private trim (value: string) =
         if isNull value then "" else value.Trim()
@@ -143,10 +145,10 @@ module CsvParser =
                         match splitCsvLine lineNumber line with
                         | Error error ->
                             parseErrors.Add(error)
-                        | Ok values when values.Length <> 6 ->
+                        | Ok values when values.Length <> 8 ->
                             parseErrors.Add({
                                 LineNumber = lineNumber
-                                Message = $"expected 6 columns but found {values.Length}"
+                                Message = $"expected 8 columns but found {values.Length}"
                             })
                         | Ok values ->
                             let flowName = trim values.[0]
@@ -173,8 +175,10 @@ module CsvParser =
                                     WorkName = workName
                                     DeviceName = deviceName
                                     ApiName = trim values.[3]
-                                    InAddress = trim values.[4]
-                                    OutAddress = trim values.[5]
+                                    InName = trim values.[4]
+                                    InAddress = trim values.[5]
+                                    OutName = trim values.[6]
+                                    OutAddress = trim values.[7]
                                     LineNumber = lineNumber
                                 })
 
@@ -186,23 +190,33 @@ module CsvParser =
 
                         for row in rows do
                             let key = (row.FlowName, row.WorkName, row.DeviceName, row.ApiName)
-                            let incomingIn = toOption row.InAddress
-                            let incomingOut = toOption row.OutAddress
+                            let incomingInName = toOption row.InName
+                            let incomingInAddress = toOption row.InAddress
+                            let incomingOutName = toOption row.OutName
+                            let incomingOutAddress = toOption row.OutAddress
 
                             match groups.TryGetValue(key) with
                             | true, existing ->
                                 existing.SourceLines.Add(row.LineNumber)
-                                match mergeAddress "in" row.LineNumber existing.InTag incomingIn with
+                                match mergeAddress "inName" row.LineNumber existing.InName incomingInName with
+                                | Error error -> parseErrors.Add(error)
+                                | Ok value -> existing.InName <- value
+                                match mergeAddress "inAddress" row.LineNumber existing.InTag incomingInAddress with
                                 | Error error -> parseErrors.Add(error)
                                 | Ok value -> existing.InTag <- value
-                                match mergeAddress "out" row.LineNumber existing.OutTag incomingOut with
+                                match mergeAddress "outName" row.LineNumber existing.OutName incomingOutName with
+                                | Error error -> parseErrors.Add(error)
+                                | Ok value -> existing.OutName <- value
+                                match mergeAddress "outAddress" row.LineNumber existing.OutTag incomingOutAddress with
                                 | Error error -> parseErrors.Add(error)
                                 | Ok value -> existing.OutTag <- value
                             | false, _ ->
                                 let acc = {
                                     Row = row
-                                    InTag = incomingIn
-                                    OutTag = incomingOut
+                                    InName = incomingInName
+                                    InTag = incomingInAddress
+                                    OutName = incomingOutName
+                                    OutTag = incomingOutAddress
                                     SourceLines = ResizeArray([ row.LineNumber ])
                                 }
                                 groups.[key] <- acc
@@ -220,7 +234,9 @@ module CsvParser =
                                     DeviceAlias = resolveDeviceAlias acc.Row.DeviceName
                                     ApiName = resolveApiName acc.Row.ApiName acc.InTag acc.OutTag
                                     IsSyntheticApi = String.IsNullOrWhiteSpace(acc.Row.ApiName)
+                                    InName = acc.InName
                                     InAddress = acc.InTag
+                                    OutName = acc.OutName
                                     OutAddress = acc.OutTag
                                     SourceLines = acc.SourceLines |> Seq.toList
                                 })

@@ -53,12 +53,12 @@ public partial class MainViewModel
                 DsQuery.worksOf(flow.Id, store).Sum(work => DsQuery.callsOf(work.Id, store).Length)));
 
         var sb = new StringBuilder();
-        sb.AppendLine($"Project: {project.Name}");
-        sb.AppendLine($"Active System {activeSystems.Length}개");
-        sb.AppendLine($"Flow {flowCount}개");
-        sb.AppendLine($"Work {workCount}개");
-        sb.AppendLine($"Call {callCount}개");
-        sb.Append("CSV에는 Active System 계층만 저장됩니다.");
+        sb.AppendLine($"✓ Active System: {activeSystems.Length}개");
+        sb.AppendLine($"✓ Flow: {flowCount}개");
+        sb.AppendLine($"✓ Work: {workCount}개");
+        sb.AppendLine($"✓ Call: {callCount}개");
+        sb.AppendLine();
+        sb.Append($"총 {callCount}개의 항목이 CSV로 내보내집니다.");
         return sb.ToString();
     }
 

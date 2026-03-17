@@ -5,7 +5,9 @@ type CsvRow = {
     WorkName   : string
     DeviceName : string
     ApiName    : string
+    InName     : string
     InAddress  : string
+    OutName    : string
     OutAddress : string
     LineNumber : int
 }
@@ -17,7 +19,9 @@ type CsvEntry = {
     DeviceAlias : string
     ApiName     : string
     IsSyntheticApi: bool
+    InName      : string option
     InAddress   : string option
+    OutName     : string option
     OutAddress  : string option
     SourceLines : int list
 }
