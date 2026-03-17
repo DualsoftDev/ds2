@@ -138,7 +138,14 @@ public partial class GanttChartControl
 
     private void RenderTimeline()
     {
-        if (_viewModel == null || _viewModel.Entries.Count == 0) return;
+        if (_viewModel == null) return;
+        if (_viewModel.Entries.Count == 0)
+        {
+            HideRemaining(_rowBgPool, 0);
+            HideRemaining(_rowLinePool, 0);
+            HideRemaining(_barPool, 0);
+            return;
+        }
 
         double y = 0;
         double totalSeconds = Math.Max(_viewModel.TotalDuration.TotalSeconds, 1);
@@ -198,6 +205,12 @@ public partial class GanttChartControl
     private void RenderTimeRuler()
     {
         if (_viewModel == null) return;
+        if (_viewModel.Entries.Count == 0)
+        {
+            HideRemaining(_rulerTickPool, 0);
+            HideRemaining(_rulerLabelPool, 0);
+            return;
+        }
 
         double totalSeconds = Math.Max(_viewModel.TotalDuration.TotalSeconds, 1);
         double pixelsPerSecond = _viewModel.PixelsPerSecond;

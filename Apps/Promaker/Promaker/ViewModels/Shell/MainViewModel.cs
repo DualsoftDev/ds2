@@ -55,6 +55,20 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(RedoCommand))]
     private bool _canRedo;
     [ObservableProperty] private bool _isDirty;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SaveFileCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SaveFileAsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ShowProjectSettingsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AddSystemCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AddFlowCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AddWorkCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AddCallCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AutoLayoutCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportCsvCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenIoBatchDialogCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenDurationBatchDialogCommand))]
+    private bool _hasProject;
     [ObservableProperty] private int _currentHistoryIndex;
     [ObservableProperty] private ArrowNode? _selectedArrow;
 
@@ -91,6 +105,7 @@ public partial class MainViewModel : ObservableObject
         TryEditorAction(() => _store.AddProject("NewProject"));
         _store.ClearHistory();
         IsDirty = false;
+        HasProject = true;
         UpdateTitle();
     }
 
@@ -111,6 +126,7 @@ public partial class MainViewModel : ObservableObject
 
         _currentFilePath = null;
         IsDirty = false;
+        HasProject = false;
         CanUndo = false;
         CanRedo = false;
         HistoryItems.Clear();

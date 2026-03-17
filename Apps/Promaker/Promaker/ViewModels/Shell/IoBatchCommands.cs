@@ -9,7 +9,7 @@ namespace Promaker.ViewModels;
 
 public partial class MainViewModel
 {
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasProject))]
     private void OpenIoBatchDialog()
     {
         var storeRows = _store.GetAllApiCallIORows();
