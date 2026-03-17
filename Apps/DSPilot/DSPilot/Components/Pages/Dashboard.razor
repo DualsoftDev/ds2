@@ -1,0 +1,190 @@
+@page "/"
+@inject DsProjectService ProjectService
+
+<PageTitle>Dashboard - DSPilot</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-4" Style="font-weight: 600; color: #0A1E5A;">Dashboard</MudText>
+
+@if (!ProjectService.IsLoaded)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+        No project loaded. Configure the AASX file path in <code>appsettings.json</code> to get started.
+    </MudAlert>
+}
+else
+{
+    <MudGrid Spacing="4">
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2" Style="border-top: 4px solid #0A1E5A; border-radius: 8px;">
+                <MudCardContent Class="d-flex flex-column align-center pa-6">
+                    <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Size="Size.Large" Style="color: #0A1E5A;" />
+                    <MudText Typo="Typo.h4" Class="mt-3" Style="font-weight: 700; color: #0A1E5A;">
+                        @(_project?.Name ?? "-")
+                    </MudText>
+                    <MudText Typo="Typo.body2" Style="color: #7D8282;">Project</MudText>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2" Style="border-top: 4px solid #FA002D; border-radius: 8px;">
+                <MudCardContent Class="d-flex flex-column align-center pa-6">
+                    <MudIcon Icon="@Icons.Material.Filled.DeviceHub" Size="Size.Large" Style="color: #FA002D;" />
+                    <MudText Typo="Typo.h4" Class="mt-3" Style="font-weight: 700; color: #212121;">
+                        @_systemCount
+                    </MudText>
+                    <MudText Typo="Typo.body2" Style="color: #7D8282;">Systems</MudText>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2" Style="border-top: 4px solid #0569A0; border-radius: 8px;">
+                <MudCardContent Class="d-flex flex-column align-center pa-6">
+                    <MudIcon Icon="@Icons.Material.Filled.AltRoute" Size="Size.Large" Style="color: #0569A0;" />
+                    <MudText Typo="Typo.h4" Class="mt-3" Style="font-weight: 700; color: #212121;">
+                        @_flowCount
+                    </MudText>
+                    <MudText Typo="Typo.body2" Style="color: #7D8282;">Flows</MudText>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="3">
+            <MudCard Elevation="2" Style="border-top: 4px solid #009BB4; border-radius: 8px;">
+                <MudCardContent Class="d-flex flex-column align-center pa-6">
+                    <MudIcon Icon="@Icons.Material.Filled.Work" Size="Size.Large" Style="color: #009BB4;" />
+                    <MudText Typo="Typo.h4" Class="mt-3" Style="font-weight: 700; color: #212121;">
+                        @_workCount
+                    </MudText>
+                    <MudText Typo="Typo.body2" Style="color: #7D8282;">Works</MudText>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+
+    @* Flow별 가동시간 도넛 차트 *@
+    <MudText Typo="Typo.h6" Class="mt-6 mb-3" Style="font-weight: 600; color: #0A1E5A;">Flow Operation Time</MudText>
+    <MudGrid Spacing="4">
+        @foreach (var flowInfo in _flowTimeInfos)
+        {
+            <MudItem xs="12" sm="6" md="4" lg="3">
+                <MudCard Elevation="2" Style="border-radius: 8px;">
+                    <MudCardContent Class="d-flex flex-column align-center">
+                        <MudText Typo="Typo.subtitle1" Style="font-weight: 600; color: #0A1E5A;">
+                            @flowInfo.FlowName
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">
+                            @flowInfo.SystemName
+                        </MudText>
+                        <MudChart ChartType="ChartType.Donut"
+                                  InputData="@flowInfo.ChartData"
+                                  InputLabels="@flowInfo.ChartLabels"
+                                  Width="200px"
+                                  Height="200px" />
+                        <div class="d-flex flex-column align-center mt-2">
+                            <MudText Typo="Typo.body2">
+                                Total: <b>@flowInfo.TotalTime</b>
+                            </MudText>
+                            <MudText Typo="Typo.caption" Style="color: #7D8282;">
+                                @flowInfo.WorkCount Works
+                            </MudText>
+                        </div>
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        }
+    </MudGrid>
+
+    @if (_flowTimeInfos.Count == 0)
+    {
+        <MudAlert Severity="Severity.Normal" Variant="Variant.Text" Class="mt-2">
+            No flow time data available.
+        </MudAlert>
+    }
+}
+
+@code {
+    private Ds2.Core.Project? _project;
+    private List<Ds2.Core.DsSystem> _activeSystems = [];
+    private List<Ds2.Core.DsSystem> _passiveSystems = [];
+    private int _systemCount;
+    private int _flowCount;
+    private int _workCount;
+    private List<FlowTimeInfo> _flowTimeInfos = [];
+
+    protected override void OnInitialized()
+    {
+        if (!ProjectService.IsLoaded) return;
+
+        _project = ProjectService.GetProject();
+        _activeSystems = ProjectService.GetActiveSystems();
+        _passiveSystems = ProjectService.GetPassiveSystems();
+        _systemCount = _activeSystems.Count + _passiveSystems.Count;
+        _flowCount = ProjectService.GetAllFlows().Count;
+        _workCount = ProjectService.GetTotalWorkCount();
+
+        BuildFlowTimeInfos();
+    }
+
+    private void BuildFlowTimeInfos()
+    {
+        foreach (var system in _activeSystems)
+        {
+            var flows = ProjectService.GetFlows(system.Id);
+            foreach (var flow in flows)
+            {
+                var works = ProjectService.GetWorks(flow.Id);
+                if (works.Count == 0) continue;
+
+                var info = new FlowTimeInfo
+                {
+                    FlowName = flow.Name,
+                    SystemName = system.Name,
+                    WorkCount = works.Count
+                };
+
+                var labels = new List<string>();
+                var data = new List<double>();
+                var totalSeconds = 0.0;
+
+                foreach (var work in works)
+                {
+                    var period = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.get_IsSome(work.Properties.Period)
+                        ? work.Properties.Period.Value
+                        : TimeSpan.Zero;
+                    var seconds = period.TotalSeconds;
+                    if (seconds <= 0) seconds = 1; // minimum 1s for display
+                    labels.Add(work.Name);
+                    data.Add(seconds);
+                    totalSeconds += period.TotalSeconds;
+                }
+
+                info.ChartLabels = labels.ToArray();
+                info.ChartData = data.ToArray();
+                info.TotalTime = FormatTime(TimeSpan.FromSeconds(totalSeconds));
+
+                _flowTimeInfos.Add(info);
+            }
+        }
+    }
+
+    private static string FormatTime(TimeSpan ts)
+    {
+        if (ts.TotalHours >= 1)
+            return $"{ts.TotalHours:F1}h";
+        if (ts.TotalMinutes >= 1)
+            return $"{ts.TotalMinutes:F1}m";
+        return $"{ts.TotalSeconds:F1}s";
+    }
+
+    private class FlowTimeInfo
+    {
+        public string FlowName { get; set; } = "";
+        public string SystemName { get; set; } = "";
+        public int WorkCount { get; set; }
+        public string TotalTime { get; set; } = "0s";
+        public double[] ChartData { get; set; } = [];
+        public string[] ChartLabels { get; set; } = [];
+    }
+}

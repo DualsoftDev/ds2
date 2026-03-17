@@ -1,0 +1,95 @@
+@page "/chart"
+@inject DsProjectService ProjectService
+
+<PageTitle>상세정보 - DSPilot</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-4" Style="font-weight: 600; color: #0A1E5A;">상세정보</MudText>
+
+@if (!ProjectService.IsLoaded)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        No project loaded.
+    </MudAlert>
+}
+else
+{
+    <MudGrid Spacing="4">
+        <MudItem xs="12" md="8">
+            <MudCard Elevation="2" Style="border-radius: 8px;">
+                <MudCardHeader>
+                    <MudText Typo="Typo.h6" Style="color: #0A1E5A; font-weight: 600;">Works per Flow</MudText>
+                </MudCardHeader>
+                <MudCardContent>
+                    @if (_flowLabels.Length > 0)
+                    {
+                        <MudChart ChartType="ChartType.Bar"
+                                  ChartSeries="@_barSeries"
+                                  XAxisLabels="@_flowLabels"
+                                  Width="100%"
+                                  Height="400px"
+                                  ChartOptions="@_barOptions" />
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Style="color: #7D8282;">No flow data available.</MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" md="4">
+            <MudCard Elevation="2" Style="border-radius: 8px;">
+                <MudCardHeader>
+                    <MudText Typo="Typo.h6" Style="color: #0A1E5A; font-weight: 600;">Flows per System</MudText>
+                </MudCardHeader>
+                <MudCardContent>
+                    @if (_systemFlowData.Length > 0)
+                    {
+                        <MudChart ChartType="ChartType.Donut"
+                                  InputData="@_systemFlowData"
+                                  InputLabels="@_systemLabels"
+                                  Width="100%"
+                                  Height="300px"
+                                  ChartOptions="@_donutOptions" />
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Style="color: #7D8282;">No system data available.</MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private string[] _flowLabels = [];
+    private List<ChartSeries> _barSeries = [];
+    private ChartOptions _barOptions = new()
+    {
+        YAxisTicks = 1,
+        MaxNumYAxisTicks = 10
+    };
+
+    private double[] _systemFlowData = [];
+    private string[] _systemLabels = [];
+    private ChartOptions _donutOptions = new();
+
+    protected override void OnInitialized()
+    {
+        if (!ProjectService.IsLoaded) return;
+
+        var allFlows = ProjectService.GetAllFlows();
+        _flowLabels = allFlows.Select(f => f.Name).ToArray();
+        var workCounts = allFlows.Select(f => (double)ProjectService.GetWorks(f.Id).Count).ToArray();
+
+        _barSeries =
+        [
+            new ChartSeries { Name = "Works", Data = workCounts }
+        ];
+
+        var systems = ProjectService.GetActiveSystems();
+        _systemLabels = systems.Select(s => s.Name).ToArray();
+        _systemFlowData = systems.Select(s => (double)ProjectService.GetFlows(s.Id).Count).ToArray();
+    }
+}

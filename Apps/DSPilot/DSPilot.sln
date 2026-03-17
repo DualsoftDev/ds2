@@ -1,0 +1,49 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DSPilot", "DSPilot\DSPilot.csproj", "{11BEE139-3BAC-422B-AA70-B0449A800D7C}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Core", "Core", "{641EFE74-7E3F-4801-9203-9AA0C40F7C87}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Core", "..\..\solutions\Core\Ds2.Core\Ds2.Core.fsproj", "{36FDB475-EAF2-429B-82CA-83705031445A}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.UI.Core", "..\..\solutions\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj", "{BAB07900-3088-4EF2-9FE8-F6816AB73DB9}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Convert", "Convert", "{F2C503E0-6751-49F1-981B-885B86F7190A}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Aasx", "..\..\solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj", "{7D2A6D5A-CE82-49AC-AFAE-2A052557F49B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{11BEE139-3BAC-422B-AA70-B0449A800D7C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{11BEE139-3BAC-422B-AA70-B0449A800D7C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{11BEE139-3BAC-422B-AA70-B0449A800D7C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{11BEE139-3BAC-422B-AA70-B0449A800D7C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{36FDB475-EAF2-429B-82CA-83705031445A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{36FDB475-EAF2-429B-82CA-83705031445A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{36FDB475-EAF2-429B-82CA-83705031445A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{36FDB475-EAF2-429B-82CA-83705031445A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BAB07900-3088-4EF2-9FE8-F6816AB73DB9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BAB07900-3088-4EF2-9FE8-F6816AB73DB9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BAB07900-3088-4EF2-9FE8-F6816AB73DB9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BAB07900-3088-4EF2-9FE8-F6816AB73DB9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7D2A6D5A-CE82-49AC-AFAE-2A052557F49B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7D2A6D5A-CE82-49AC-AFAE-2A052557F49B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7D2A6D5A-CE82-49AC-AFAE-2A052557F49B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7D2A6D5A-CE82-49AC-AFAE-2A052557F49B}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{36FDB475-EAF2-429B-82CA-83705031445A} = {641EFE74-7E3F-4801-9203-9AA0C40F7C87}
+		{BAB07900-3088-4EF2-9FE8-F6816AB73DB9} = {641EFE74-7E3F-4801-9203-9AA0C40F7C87}
+		{7D2A6D5A-CE82-49AC-AFAE-2A052557F49B} = {F2C503E0-6751-49F1-981B-885B86F7190A}
+	EndGlobalSection
+EndGlobal

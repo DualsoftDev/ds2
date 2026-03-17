@@ -1,0 +1,71 @@
+{
+  "BlueprintImagePath": "uploads/blueprint.png",
+  "CanvasWidth": 3802,
+  "CanvasHeight": 1986,
+  "GridColumns": 14,
+  "GridRows": 13,
+  "FlowPlacements": [
+    {
+      "FlowId": "68e7dea4-401d-49bb-9c01-bf9997a216dd",
+      "SystemId": "ac4c6d5b-b9c1-4ee0-857a-b92c0db3e251",
+      "FlowName": "CoolZone#2",
+      "SystemName": "DsCSV_0317",
+      "Col": 5,
+      "Row": 3,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "4f58e787-81c0-4d10-83a7-2da96b33636a",
+      "SystemId": "ac4c6d5b-b9c1-4ee0-857a-b92c0db3e251",
+      "FlowName": "RD Sold\u0060#2",
+      "SystemName": "DsCSV_0317",
+      "Col": 4,
+      "Row": 3,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "fbeaa5b6-37fa-4647-a4a9-10858f1ff157",
+      "SystemId": "ac4c6d5b-b9c1-4ee0-857a-b92c0db3e251",
+      "FlowName": "Diverter#1",
+      "SystemName": "DsCSV_0317",
+      "Col": 1,
+      "Row": 3,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "3a0f32b9-cbb5-46b1-a4f8-efd295830088",
+      "SystemId": "ac4c6d5b-b9c1-4ee0-857a-b92c0db3e251",
+      "FlowName": "Diverter#2",
+      "SystemName": "DsCSV_0317",
+      "Col": 2,
+      "Row": 3,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "0e5bedbc-8439-49ce-a7f1-78191d1755f5",
+      "SystemId": "ac4c6d5b-b9c1-4ee0-857a-b92c0db3e251",
+      "FlowName": "BCR Zone",
+      "SystemName": "DsCSV_0317",
+      "Col": 0,
+      "Row": 3,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "2a60d8b3-5448-47ba-873c-2d12f95b5515",
+      "SystemId": "ac4c6d5b-b9c1-4ee0-857a-b92c0db3e251",
+      "FlowName": "Diverter#3",
+      "SystemName": "DsCSV_0317",
+      "Col": 3,
+      "Row": 3,
+      "ColSpan": 1,
+      "RowSpan": 1
+    }
+  ],
+  "CellWidth": 271,
+  "CellHeight": 152
+}

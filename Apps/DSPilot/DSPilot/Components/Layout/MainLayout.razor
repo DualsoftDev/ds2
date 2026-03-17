@@ -1,0 +1,84 @@
+@inherits LayoutComponentBase
+@inject DsProjectService ProjectService
+
+<MudThemeProvider Theme="_theme" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="4" Color="Color.Primary" Fixed="true">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu"
+                       Color="Color.Inherit"
+                       Edge="Edge.Start"
+                       OnClick="ToggleDrawer" />
+        <MudImage Src="images/logo.png" Height="28" Class="mr-3" Alt="DSPilot Logo" />
+        <MudSpacer />
+        <MudText Typo="Typo.h5" Style="font-weight: 700;">@_projectName</MudText>
+        <MudSpacer />
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen"
+               ClipMode="DrawerClipMode.Always"
+               Elevation="2"
+               Variant="DrawerVariant.Responsive">
+        <MudDrawerHeader>
+            <MudText Typo="Typo.h6" Color="Color.Primary">Menu</MudText>
+        </MudDrawerHeader>
+        <NavMenu />
+    </MudDrawer>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.False" Class="pa-6 mt-2">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    private bool _drawerOpen = true;
+
+    private readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = "#0A1E5A",
+            Secondary = "#FA002D",
+            Tertiary = "#0569A0",
+            Info = "#009BB4",
+            Success = "#4CAF50",
+            Background = "#F5F5F5",
+            Surface = "#FFFFFF",
+            AppbarBackground = "#0A1E5A",
+            AppbarText = "#FFFFFF",
+            DrawerBackground = "#FFFFFF",
+            DrawerText = "#212121",
+            DrawerIcon = "#0A1E5A",
+            TextPrimary = "#212121",
+            TextSecondary = "#7D8282",
+            ActionDefault = "#0A1E5A",
+        },
+        Typography = new Typography
+        {
+            Default = new DefaultTypography
+            {
+                FontFamily = ["Noto Sans KR", "sans-serif"]
+            }
+        },
+        LayoutProperties = new LayoutProperties
+        {
+            DrawerWidthLeft = "260px"
+        }
+    };
+
+    private string _projectName = "DSPilot";
+
+    protected override void OnInitialized()
+    {
+        var project = ProjectService.GetProject();
+        if (project != null)
+            _projectName = project.Name;
+    }
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+}

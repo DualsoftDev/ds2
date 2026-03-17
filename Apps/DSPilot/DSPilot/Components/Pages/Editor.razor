@@ -1,0 +1,456 @@
+@page "/editor"
+@inject DsProjectService ProjectService
+@inject BlueprintService BlueprintService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@implements IAsyncDisposable
+
+<PageTitle>Editor - DSPilot</PageTitle>
+
+<div class="d-flex align-center mb-4">
+    <MudText Typo="Typo.h5" Style="font-weight: 600; color: #0A1E5A;">Editor</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.ArrowBack"
+               OnClick="@(() => Nav.NavigateTo("/layout"))">
+        Layout
+    </MudButton>
+</div>
+
+@if (!ProjectService.IsLoaded)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        No project loaded.
+    </MudAlert>
+}
+else
+{
+    <MudGrid Spacing="4">
+        <MudItem xs="12" md="4" lg="3">
+            @* Blueprint Upload *@
+            <MudCard Elevation="2" Class="mb-4" Style="border-radius: 8px;">
+                <MudCardHeader>
+                    <MudText Typo="Typo.h6" Style="color: #0A1E5A; font-weight: 600;">Blueprint Image</MudText>
+                </MudCardHeader>
+                <MudCardContent>
+                    <MudFileUpload T="IBrowserFile" Accept=".png,.jpg,.jpeg"
+                                   FilesChanged="OnBlueprintFileSelected"
+                                   MaximumFileCount="1">
+                        <ActivatorContent>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.CloudUpload">
+                                Upload
+                            </MudButton>
+                        </ActivatorContent>
+                    </MudFileUpload>
+                    @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+                    {
+                        <MudText Typo="Typo.caption" Class="mt-2" Style="color: #7D8282;">
+                            @(BlueprintService.Layout.CanvasWidth) x @(BlueprintService.Layout.CanvasHeight) px
+                        </MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+
+            @* Grid Settings *@
+            <MudCard Elevation="2" Class="mb-4" Style="border-radius: 8px;">
+                <MudCardHeader>
+                    <MudText Typo="Typo.h6" Style="color: #0A1E5A; font-weight: 600;">Grid</MudText>
+                </MudCardHeader>
+                <MudCardContent>
+                    <MudNumericField T="int" @bind-Value="_gridColumns"
+                                     Label="Columns" Variant="Variant.Outlined"
+                                     Min="2" Max="20" />
+                    <MudNumericField T="int" @bind-Value="_gridRows"
+                                     Label="Rows" Variant="Variant.Outlined"
+                                     Min="2" Max="20" Class="mt-2" />
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="mt-2"
+                               OnClick="ApplyGridSettings" FullWidth="true"
+                               StartIcon="@Icons.Material.Filled.GridOn">
+                        Apply
+                    </MudButton>
+                    <MudText Typo="Typo.caption" Class="mt-1" Style="color: #7D8282;">
+                        Cell: @(BlueprintService.Layout.CellWidth) x @(BlueprintService.Layout.CellHeight) px
+                    </MudText>
+                </MudCardContent>
+            </MudCard>
+
+            @* Flow List *@
+            <MudCard Elevation="2" Class="mb-4" Style="border-radius: 8px;">
+                <MudCardHeader>
+                    <MudText Typo="Typo.h6" Style="color: #0A1E5A; font-weight: 600;">Flows</MudText>
+                </MudCardHeader>
+                <MudCardContent Class="pa-2">
+                    @foreach (var sys in _systems)
+                    {
+                        <MudText Typo="Typo.overline" Class="px-2 mt-1" Color="Color.Secondary">
+                            @sys.Name
+                        </MudText>
+                        @foreach (var flow in ProjectService.GetFlows(sys.Id))
+                        {
+                            var placed = BlueprintService.Layout.FlowPlacements.Any(p => p.FlowId == flow.Id);
+                            <div draggable="@(!placed ? "true" : "false")"
+                                 @ondragstart="() => OnDragStart(flow.Id)"
+                                 style="padding: 6px 10px; margin: 2px 0; border-radius: 4px;
+                                        background: @(placed ? "#f0f0f0" : "#e8ecf4");
+                                        color: @(placed ? "#bbb" : "#0A1E5A");
+                                        cursor: @(placed ? "default" : "grab");
+                                        font-size: 0.85rem; font-weight: 500;
+                                        border-left: 3px solid @(placed ? "#ddd" : "#0A1E5A");">
+                                @flow.Name
+                                @if (placed)
+                                {
+                                    <span style="float: right; font-size: 0.7rem; color: #aaa;">placed</span>
+                                }
+                            </div>
+                        }
+                    }
+                </MudCardContent>
+            </MudCard>
+
+            @* Placed Flows *@
+            <MudCard Elevation="2" Style="border-radius: 8px;">
+                <MudCardHeader>
+                    <MudText Typo="Typo.h6" Style="color: #0A1E5A; font-weight: 600;">
+                        Placed (@BlueprintService.Layout.FlowPlacements.Count)
+                    </MudText>
+                </MudCardHeader>
+                <MudCardContent Class="pa-0">
+                    @if (BlueprintService.Layout.FlowPlacements.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Class="pa-4" Style="color: #7D8282;">
+                            Drag flows onto the grid.
+                        </MudText>
+                    }
+                    else
+                    {
+                        <MudSimpleTable Dense="true" Hover="true">
+                            <thead>
+                                <tr>
+                                    <th>Flow</th>
+                                    <th>Col</th>
+                                    <th>Row</th>
+                                    <th>W</th>
+                                    <th>H</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var fp in BlueprintService.Layout.FlowPlacements)
+                                {
+                                    <tr>
+                                        <td style="font-size: 0.8rem;">@fp.FlowName</td>
+                                        <td>
+                                            <input type="number" value="@fp.Col" min="0" max="@(_gridColumns - 1)"
+                                                   style="width: 40px; border: 1px solid #ddd; border-radius: 3px; padding: 2px;"
+                                                   @onchange="e => OnCellChanged(fp, nameof(fp.Col), e)" />
+                                        </td>
+                                        <td>
+                                            <input type="number" value="@fp.Row" min="0" max="@(_gridRows - 1)"
+                                                   style="width: 40px; border: 1px solid #ddd; border-radius: 3px; padding: 2px;"
+                                                   @onchange="e => OnCellChanged(fp, nameof(fp.Row), e)" />
+                                        </td>
+                                        <td>
+                                            <input type="number" value="@fp.ColSpan" min="1" max="@(_gridColumns)"
+                                                   style="width: 40px; border: 1px solid #ddd; border-radius: 3px; padding: 2px;"
+                                                   @onchange="e => OnCellChanged(fp, nameof(fp.ColSpan), e)" />
+                                        </td>
+                                        <td>
+                                            <input type="number" value="@fp.RowSpan" min="1" max="@(_gridRows)"
+                                                   style="width: 40px; border: 1px solid #ddd; border-radius: 3px; padding: 2px;"
+                                                   @onchange="e => OnCellChanged(fp, nameof(fp.RowSpan), e)" />
+                                        </td>
+                                        <td>
+                                            <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                           Size="Size.Small" Color="Color.Error"
+                                                           OnClick="@(() => RemovePlacement(fp.FlowId))" />
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
+        @* Canvas *@
+        <MudItem xs="12" md="8" lg="9">
+            <MudPaper Elevation="2" Class="pa-0" Style="overflow: auto; border-radius: 8px;">
+                <div id="editor-drop-zone" class="blueprint-canvas"
+                     style="position: relative;
+                            width: @(BlueprintService.Layout.CanvasWidth)px;
+                            height: @(BlueprintService.Layout.CanvasHeight)px;"
+                     @ondragover="OnDragOver"
+                     @ondragover:preventDefault="true"
+                     @ondrop="OnDrop"
+                     @ondrop:preventDefault="true">
+
+                    @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+                    {
+                        <img id="blueprint-img" src="@BlueprintService.Layout.BlueprintImagePath"
+                             style="position: absolute; top: 0; left: 0;
+                                    width: 100%; height: 100%;
+                                    object-fit: contain; opacity: 0.3;
+                                    pointer-events: none;"
+                             alt="Blueprint" />
+                    }
+                    else
+                    {
+                        <div style="position: absolute; top: 0; left: 0;
+                                    width: 100%; height: 100%;
+                                    background: #f5f5f5; display: flex;
+                                    align-items: center; justify-content: center;
+                                    pointer-events: none;">
+                            <span style="color: #ccc; font-size: 1.2rem;">Upload a blueprint image</span>
+                        </div>
+                    }
+
+                    <svg id="editor-svg" xmlns="http://www.w3.org/2000/svg"
+                         style="position: absolute; top: 0; left: 0;"
+                         width="@BlueprintService.Layout.CanvasWidth"
+                         height="@BlueprintService.Layout.CanvasHeight">
+
+                        @{
+                            var cellW = BlueprintService.Layout.CellWidth;
+                            var cellH = BlueprintService.Layout.CellHeight;
+                        }
+
+                        @* Grid lines *@
+                        @for (int c = 0; c <= _gridColumns; c++)
+                        {
+                            var x = c * cellW;
+                            <line x1="@x" y1="0" x2="@x"
+                                  y2="@BlueprintService.Layout.CanvasHeight"
+                                  stroke="#bbb" stroke-width="@(c == 0 || c == _gridColumns ? 1 : 0.5)"
+                                  stroke-dasharray="@(c == 0 || c == _gridColumns ? "0" : "4,4")" />
+                        }
+                        @for (int r = 0; r <= _gridRows; r++)
+                        {
+                            var y = r * cellH;
+                            <line x1="0" y1="@y"
+                                  x2="@BlueprintService.Layout.CanvasWidth" y2="@y"
+                                  stroke="#bbb" stroke-width="@(r == 0 || r == _gridRows ? 1 : 0.5)"
+                                  stroke-dasharray="@(r == 0 || r == _gridRows ? "0" : "4,4")" />
+                        }
+
+                        @* Flow nodes *@
+                        @foreach (var fp in BlueprintService.Layout.FlowPlacements)
+                        {
+                            var color = GetSystemColor(fp.SystemId);
+                            var px = fp.Col * cellW;
+                            var py = fp.Row * cellH;
+                            var pw = fp.ColSpan * cellW;
+                            var ph = fp.RowSpan * cellH;
+                            var pad = 4;
+
+                            <g data-flow-id="@fp.FlowId"
+                               data-col="@fp.Col" data-row="@fp.Row"
+                               data-colspan="@fp.ColSpan" data-rowspan="@fp.RowSpan"
+                               style="cursor: grab;">
+                                <rect x="@(px + pad)" y="@(py + pad)"
+                                      width="@(pw - pad * 2)" height="@(ph - pad * 2)"
+                                      rx="6" ry="6"
+                                      fill="@color" fill-opacity="0.9"
+                                      stroke="@color" stroke-width="2" />
+                                <text x="@(px + pw / 2)" y="@(py + ph / 2 - 4)"
+                                      text-anchor="middle" fill="white"
+                                      font-size="13" font-weight="600"
+                                      style="pointer-events: none;">
+                                    @fp.FlowName
+                                </text>
+                                <text x="@(px + pw / 2)" y="@(py + ph / 2 + 14)"
+                                      text-anchor="middle" fill="rgba(255,255,255,0.7)"
+                                      font-size="10"
+                                      style="pointer-events: none;">
+                                    @fp.SystemName
+                                </text>
+                            </g>
+                        }
+                    </svg>
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private List<Ds2.Core.DsSystem> _systems = [];
+    private Dictionary<Guid, (string SystemName, string FlowName, Guid SystemId)> _flowInfo = [];
+    private DotNetObjectReference<Editor>? _dotNetRef;
+    private Guid? _dragFlowId;
+
+    private int _gridColumns;
+    private int _gridRows;
+
+    private static readonly string[] SystemColors =
+        ["#0A1E5A", "#FA002D", "#0569A0", "#009BB4", "#4CAF50"];
+    private readonly Dictionary<Guid, int> _systemColorIndex = [];
+
+    protected override void OnInitialized()
+    {
+        if (!ProjectService.IsLoaded) return;
+        _systems = ProjectService.GetActiveSystems();
+        foreach (var sys in _systems)
+        {
+            foreach (var flow in ProjectService.GetFlows(sys.Id))
+            {
+                _flowInfo[flow.Id] = (sys.Name, flow.Name, sys.Id);
+            }
+        }
+        _gridColumns = BlueprintService.Layout.GridColumns;
+        _gridRows = BlueprintService.Layout.GridRows;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && ProjectService.IsLoaded)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            var layout = BlueprintService.Layout;
+            await JS.InvokeVoidAsync("canvasInterop.init",
+                _dotNetRef, "editor-svg", layout.CellWidth, layout.CellHeight,
+                layout.GridColumns, layout.GridRows);
+        }
+    }
+
+    private async Task ApplyGridSettings()
+    {
+        BlueprintService.Layout.GridColumns = _gridColumns;
+        BlueprintService.Layout.GridRows = _gridRows;
+        BlueprintService.SaveLayout();
+        var layout = BlueprintService.Layout;
+        await JS.InvokeVoidAsync("canvasInterop.updateGrid",
+            layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows);
+        Snackbar.Add($"Grid: {_gridColumns} x {_gridRows}", Severity.Success);
+        StateHasChanged();
+    }
+
+    private async Task OnBlueprintFileSelected(IBrowserFile file)
+    {
+        if (file == null) return;
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            await BlueprintService.SaveBlueprintImageAsync(stream, file.Name);
+            Snackbar.Add("Blueprint uploaded.", Severity.Success);
+            StateHasChanged();
+
+            await Task.Delay(300);
+            await DetectImageSize();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Upload failed: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task DetectImageSize()
+    {
+        try
+        {
+            var size = await JS.InvokeAsync<ImageSize?>("canvasInterop.getImageSize", "#blueprint-img");
+            if (size != null && size.Width > 0 && size.Height > 0)
+            {
+                BlueprintService.Layout.CanvasWidth = size.Width;
+                BlueprintService.Layout.CanvasHeight = size.Height;
+                BlueprintService.SaveLayout();
+                var layout = BlueprintService.Layout;
+                await JS.InvokeVoidAsync("canvasInterop.updateGrid",
+                    layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows);
+                Snackbar.Add($"Canvas: {size.Width} x {size.Height}", Severity.Info);
+                StateHasChanged();
+            }
+        }
+        catch { }
+    }
+
+    private void OnDragStart(Guid flowId) => _dragFlowId = flowId;
+
+    private void OnDragOver(DragEventArgs e) { }
+
+    private void OnDrop(DragEventArgs e)
+    {
+        if (_dragFlowId == null) return;
+        var flowId = _dragFlowId.Value;
+        _dragFlowId = null;
+
+        if (!_flowInfo.TryGetValue(flowId, out var info)) return;
+        if (BlueprintService.Layout.FlowPlacements.Any(p => p.FlowId == flowId)) return;
+
+        var cellW = BlueprintService.Layout.CellWidth;
+        var cellH = BlueprintService.Layout.CellHeight;
+        var col = Math.Clamp((int)(e.OffsetX / cellW), 0, _gridColumns - 1);
+        var row = Math.Clamp((int)(e.OffsetY / cellH), 0, _gridRows - 1);
+
+        var placement = new FlowPlacement
+        {
+            FlowId = flowId,
+            SystemId = info.SystemId,
+            FlowName = info.FlowName,
+            SystemName = info.SystemName,
+            Col = col,
+            Row = row,
+            ColSpan = 1,
+            RowSpan = 1
+        };
+
+        BlueprintService.UpdatePlacement(placement);
+        Snackbar.Add($"Placed: {info.FlowName} [{col},{row}]", Severity.Success);
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnNodeDropped(string flowIdStr, int col, int row)
+    {
+        if (!Guid.TryParse(flowIdStr, out var flowId)) return;
+        var existing = BlueprintService.Layout.FlowPlacements.FirstOrDefault(p => p.FlowId == flowId);
+        if (existing == null) return;
+
+        existing.Col = col;
+        existing.Row = row;
+        BlueprintService.UpdatePlacement(existing);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnCellChanged(FlowPlacement fp, string field, ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var val)) return;
+        switch (field)
+        {
+            case nameof(FlowPlacement.Col): fp.Col = Math.Clamp(val, 0, _gridColumns - 1); break;
+            case nameof(FlowPlacement.Row): fp.Row = Math.Clamp(val, 0, _gridRows - 1); break;
+            case nameof(FlowPlacement.ColSpan): fp.ColSpan = Math.Clamp(val, 1, _gridColumns - fp.Col); break;
+            case nameof(FlowPlacement.RowSpan): fp.RowSpan = Math.Clamp(val, 1, _gridRows - fp.Row); break;
+        }
+        BlueprintService.UpdatePlacement(fp);
+        StateHasChanged();
+    }
+
+    private void RemovePlacement(Guid flowId)
+    {
+        BlueprintService.RemovePlacement(flowId);
+        Snackbar.Add("Removed.", Severity.Info);
+        StateHasChanged();
+    }
+
+    private string GetSystemColor(Guid systemId)
+    {
+        if (!_systemColorIndex.ContainsKey(systemId))
+            _systemColorIndex[systemId] = _systemColorIndex.Count % SystemColors.Length;
+        return SystemColors[_systemColorIndex[systemId]];
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("canvasInterop.dispose"); } catch { }
+        _dotNetRef?.Dispose();
+    }
+
+    private class ImageSize
+    {
+        public int Width { get; set; }
+        public int Height { get; set; }
+    }
+}

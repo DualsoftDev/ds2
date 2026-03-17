@@ -1,0 +1,69 @@
+@inject DsProjectService ProjectService
+
+<MudNavMenu Color="Color.Primary">
+    <MudNavLink Href="/" Match="NavLinkMatch.All"
+                Icon="@Icons.Material.Filled.Dashboard">
+        대시보드
+    </MudNavLink>
+    <MudNavLink Href="/layout" Match="NavLinkMatch.Prefix"
+                Icon="@Icons.Material.Filled.AccountTree">
+        레이아웃
+    </MudNavLink>
+    <MudNavLink Href="/chart" Match="NavLinkMatch.Prefix"
+                Icon="@Icons.Material.Filled.BarChart">
+        상세정보
+    </MudNavLink>
+
+    <MudDivider Class="my-2" />
+
+    <MudText Typo="Typo.overline" Class="px-4 mt-2" Color="Color.Secondary">
+        FLOWS
+    </MudText>
+
+    @if (!ProjectService.IsLoaded)
+    {
+        <MudText Typo="Typo.caption" Class="px-4 py-2" Color="Color.Tertiary">
+            No project loaded
+        </MudText>
+    }
+    else
+    {
+        @foreach (var systemFlows in _systemFlowMap)
+        {
+            <MudNavGroup Title="@systemFlows.Key"
+                         Icon="@Icons.Material.Filled.Folder"
+                         Expanded="true">
+                @foreach (var flow in systemFlows.Value)
+                {
+                    <MudNavLink>
+                        <div class="d-flex align-center">
+                            <MudIcon Icon="@Icons.Material.Filled.AltRoute"
+                                     Size="Size.Small"
+                                     Color="Color.Tertiary" />
+                            <MudText Typo="Typo.body2" Class="ml-2">@flow.Name</MudText>
+                        </div>
+                    </MudNavLink>
+                }
+            </MudNavGroup>
+        }
+    }
+</MudNavMenu>
+
+@code {
+    private Dictionary<string, List<Ds2.Core.Flow>> _systemFlowMap = new();
+
+    protected override void OnInitialized()
+    {
+        if (!ProjectService.IsLoaded) return;
+
+        var systems = ProjectService.GetActiveSystems();
+        foreach (var system in systems)
+        {
+            var flows = ProjectService.GetFlows(system.Id);
+            if (flows.Count > 0)
+            {
+                _systemFlowMap[system.Name] = flows;
+            }
+        }
+    }
+}
