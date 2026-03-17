@@ -1,4 +1,5 @@
 using Dapper;
+using DSPilot.Engine;
 using DSPilot.Models.Plc;
 using Microsoft.Data.Sqlite;
 using System.Data;
@@ -89,13 +90,8 @@ public class PlcRepository : IPlcRepository
     {
         using var connection = CreateConnection();
 
-        // DB에 UTC 시간으로 저장되어 있으므로 UTC로 변환
-        var sinceUtc = sinceDateTime.Kind == DateTimeKind.Local
-            ? sinceDateTime.ToUniversalTime()
-            : sinceDateTime;
-
-        // ISO 8601 형식으로 문자열 변환 (DB에 "Z" 접미사로 저장되어 있음)
-        var sinceStr = sinceUtc.ToString("yyyy-MM-dd HH:mm:ss.fffffff") + "Z";
+        // F# QueryHelpers 사용
+        var sinceStr = QueryHelpers.toSqliteUtcString(sinceDateTime);
 
         const string sql = @"
             SELECT
@@ -120,17 +116,9 @@ public class PlcRepository : IPlcRepository
     {
         using var connection = CreateConnection();
 
-        // DB에 UTC 시간으로 저장되어 있으므로 UTC로 변환
-        var startUtc = startExclusive.Kind == DateTimeKind.Local
-            ? startExclusive.ToUniversalTime()
-            : startExclusive;
-        var endUtc = endInclusive.Kind == DateTimeKind.Local
-            ? endInclusive.ToUniversalTime()
-            : endInclusive;
-
-        // ISO 8601 형식으로 문자열 변환 (DB에 "Z" 접미사로 저장되어 있음)
-        var startStr = startUtc.ToString("yyyy-MM-dd HH:mm:ss.fffffff") + "Z";
-        var endStr = endUtc.ToString("yyyy-MM-dd HH:mm:ss.fffffff") + "Z";
+        // F# QueryHelpers 사용
+        var startStr = QueryHelpers.toSqliteUtcString(startExclusive);
+        var endStr = QueryHelpers.toSqliteUtcString(endInclusive);
 
         _logger.LogInformation("🔍 GetLogsInRangeAsync: Local ({LocalStart} ~ {LocalEnd}] → UTC ({UtcStart} ~ {UtcEnd}]",
             startExclusive.ToString("HH:mm:ss.fff"),
@@ -178,12 +166,14 @@ public class PlcRepository : IPlcRepository
             return null;
         }
 
-        // DB에서 UTC 문자열로 저장되어 있으므로 UTC로 파싱 후 로컬 시간으로 변환
-        var utcDateTime = DateTime.Parse(resultStr, null, System.Globalization.DateTimeStyles.RoundtripKind);
-        var localDateTime = utcDateTime.ToLocalTime();
+        // F# QueryHelpers 사용 (FSharpOption → nullable)
+        var fsharpOption = QueryHelpers.fromSqliteUtcString(resultStr);
+        var localDateTime = Microsoft.FSharp.Core.FSharpOption<DateTime>.get_IsSome(fsharpOption)
+            ? fsharpOption.Value
+            : (DateTime?)null;
 
         _logger.LogInformation("📅 GetOldestLogDateTimeAsync: {UtcResult} (UTC) → {LocalResult} (Local)",
-            resultStr, localDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            resultStr, localDateTime?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "NULL");
 
         return localDateTime;
     }
@@ -202,12 +192,14 @@ public class PlcRepository : IPlcRepository
             return null;
         }
 
-        // DB에서 UTC 문자열로 저장되어 있으므로 UTC로 파싱 후 로컬 시간으로 변환
-        var utcDateTime = DateTime.Parse(resultStr, null, System.Globalization.DateTimeStyles.RoundtripKind);
-        var localDateTime = utcDateTime.ToLocalTime();
+        // F# QueryHelpers 사용 (FSharpOption → nullable)
+        var fsharpOption = QueryHelpers.fromSqliteUtcString(resultStr);
+        var localDateTime = Microsoft.FSharp.Core.FSharpOption<DateTime>.get_IsSome(fsharpOption)
+            ? fsharpOption.Value
+            : (DateTime?)null;
 
         _logger.LogInformation("📅 GetLatestLogDateTimeAsync: {UtcResult} (UTC) → {LocalResult} (Local)",
-            resultStr, localDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            resultStr, localDateTime?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "NULL");
 
         return localDateTime;
     }
@@ -272,5 +264,224 @@ public class PlcRepository : IPlcRepository
             _logger.LogError(ex, "Database connection test failed");
             return false;
         }
+    }
+
+    public async Task<List<PlcTagLogEntity>> GetTagLogsByAddressInRangeAsync(
+        string address, DateTime startTime, DateTime endTime)
+    {
+        using var connection = CreateConnection();
+        var startStr = QueryHelpers.toSqliteUtcString(startTime);
+        var endStr = QueryHelpers.toSqliteUtcString(endTime);
+
+        const string sql = @"
+SELECT l.Id, l.PlcTagId, l.DateTime, l.Value
+FROM plcTagLog l
+INNER JOIN plcTag t ON l.PlcTagId = t.Id
+WHERE t.Address = @Address
+  AND l.DateTime >= @StartTime
+  AND l.DateTime <= @EndTime
+ORDER BY l.DateTime ASC";
+
+        var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new
+        {
+            Address = address,
+            StartTime = startStr,
+            EndTime = endStr
+        });
+
+        return logs.ToList();
+    }
+
+    public async Task<List<PlcTagLogEntity>> GetMultipleTagLogsInRangeAsync(
+        List<string> addresses, DateTime startTime, DateTime endTime)
+    {
+        if (addresses.Count == 0) return new List<PlcTagLogEntity>();
+
+        using var connection = CreateConnection();
+        var startStr = QueryHelpers.toSqliteUtcString(startTime);
+        var endStr = QueryHelpers.toSqliteUtcString(endTime);
+
+        const string sql = @"
+SELECT
+    l.Id AS Id,
+    l.PlcTagId AS PlcTagId,
+    l.DateTime AS DateTime,
+    l.Value AS Value,
+    t.Name AS TagName,
+    t.Address AS Address
+FROM plcTagLog l
+INNER JOIN plcTag t ON l.PlcTagId = t.Id
+WHERE t.Address IN @Addresses
+  AND l.DateTime >= @StartTime
+  AND l.DateTime <= @EndTime
+ORDER BY l.DateTime ASC";
+
+        var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new
+        {
+            Addresses = addresses,
+            StartTime = startStr,
+            EndTime = endStr
+        });
+
+        var logs = rows.Select(row => new PlcTagLogEntity
+        {
+            Id = row.Id,
+            PlcTagId = row.PlcTagId,
+            DateTime = ParseSqliteDateTime(row.DateTime),
+            Value = row.Value,
+            PlcTag = new PlcTagEntity
+            {
+                Name = row.TagName,
+                Address = row.Address
+            }
+        }).ToList();
+
+        return logs;
+    }
+
+    public async Task<List<PlcTagLogEntity>> GetMultipleTagRisingEdgesInRangeAsync(
+        List<string> addresses, DateTime startTime, DateTime endTime)
+    {
+        if (addresses.Count == 0) return new List<PlcTagLogEntity>();
+
+        using var connection = CreateConnection();
+        var startStr = QueryHelpers.toSqliteUtcString(startTime);
+        var endStr = QueryHelpers.toSqliteUtcString(endTime);
+
+        const string sql = @"
+WITH ordered_logs AS (
+    SELECT
+        l.Id AS Id,
+        l.PlcTagId AS PlcTagId,
+        l.DateTime AS DateTime,
+        l.Value AS Value,
+        t.Name AS TagName,
+        t.Address AS Address,
+        CASE
+            WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+            ELSE '0'
+        END AS NormalizedValue,
+        LAG(
+            CASE
+                WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+                ELSE '0'
+            END
+        ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM plcTagLog l
+    INNER JOIN plcTag t ON l.PlcTagId = t.Id
+    WHERE t.Address IN @Addresses
+      AND l.DateTime >= @StartTime
+      AND l.DateTime <= @EndTime
+)
+SELECT
+    Id,
+    PlcTagId,
+    DateTime,
+    Value,
+    TagName,
+    Address
+FROM ordered_logs
+WHERE coalesce(PreviousNormalizedValue, '0') = '0'
+  AND NormalizedValue = '1'
+ORDER BY DateTime ASC, Id ASC";
+
+        var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new
+        {
+            Addresses = addresses,
+            StartTime = startStr,
+            EndTime = endStr
+        });
+
+        return rows.Select(row => new PlcTagLogEntity
+        {
+            Id = row.Id,
+            PlcTagId = row.PlcTagId,
+            DateTime = ParseSqliteDateTime(row.DateTime),
+            Value = row.Value,
+            PlcTag = new PlcTagEntity
+            {
+                Name = row.TagName,
+                Address = row.Address
+            }
+        }).ToList();
+    }
+
+    public async Task<List<DateTime>> FindRisingEdgesAsync(
+        string address, DateTime startTime, DateTime endTime)
+    {
+        using var connection = CreateConnection();
+        var startStr = QueryHelpers.toSqliteUtcString(startTime);
+        var endStr = QueryHelpers.toSqliteUtcString(endTime);
+
+        const string sql = @"
+WITH ordered_logs AS (
+    SELECT
+        l.Id AS Id,
+        l.DateTime AS DateTime,
+        CASE
+            WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+            ELSE '0'
+        END AS NormalizedValue,
+        LAG(
+            CASE
+                WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+                ELSE '0'
+            END
+        ) OVER (PARTITION BY l.PlcTagId ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM plcTagLog l
+    INNER JOIN plcTag t ON l.PlcTagId = t.Id
+    WHERE t.Address = @Address
+      AND l.DateTime >= @StartTime
+      AND l.DateTime <= @EndTime
+)
+SELECT
+    Id,
+    DateTime
+FROM ordered_logs
+WHERE coalesce(PreviousNormalizedValue, '0') = '0'
+  AND NormalizedValue = '1'
+ORDER BY DateTime ASC, Id ASC";
+
+        var rows = await connection.QueryAsync<PlcTagDateTimeRow>(sql, new
+        {
+            Address = address,
+            StartTime = startStr,
+            EndTime = endStr
+        });
+
+        return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
+    }
+
+
+    private static DateTime ParseSqliteDateTime(string value)
+    {
+        var fsharpOption = QueryHelpers.fromSqliteUtcString(value);
+        if (Microsoft.FSharp.Core.FSharpOption<DateTime>.get_IsSome(fsharpOption))
+            return fsharpOption.Value;
+
+        return DateTime.Parse(value);
+    }
+
+    private sealed class PlcTagLogAddressRow
+    {
+        public int Id { get; set; }
+        public int PlcTagId { get; set; }
+        public string DateTime { get; set; } = string.Empty;
+        public string? Value { get; set; }
+        public string TagName { get; set; } = string.Empty;
+        public string Address { get; set; } = string.Empty;
+    }
+
+    private sealed class PlcTagLogValueRow
+    {
+        public int Id { get; set; }
+        public string DateTime { get; set; } = string.Empty;
+        public string? Value { get; set; }
+    }
+
+    private sealed class PlcTagDateTimeRow
+    {
+        public int Id { get; set; }
+        public string DateTime { get; set; } = string.Empty;
     }
 }

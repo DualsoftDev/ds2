@@ -28,6 +28,11 @@ public interface IDspRepository
     Task<string> GetCallStateAsync(string callName);
 
     /// <summary>
+    /// Call 정보 조회 (WorkName, FlowName 포함)
+    /// </summary>
+    Task<(string WorkName, string FlowName)?> GetCallInfoAsync(string callName);
+
+    /// <summary>
     /// Call 상태 업데이트
     /// </summary>
     Task<bool> UpdateCallStateAsync(string callName, string state);
@@ -46,6 +51,17 @@ public interface IDspRepository
     /// Flow 상태 업데이트
     /// </summary>
     Task<bool> UpdateFlowStateAsync(string flowName, string state);
+
+    /// <summary>
+    /// Flow 메트릭 업데이트 (MT, WT, CT, MovingStartName, MovingEndName)
+    /// </summary>
+    Task<bool> UpdateFlowMetricsAsync(
+        string flowName,
+        int? mt,
+        int? wt,
+        int? ct,
+        string? movingStartName,
+        string? movingEndName);
 
     /// <summary>
     /// 전체 데이터 삭제 (재초기화용)

@@ -1,10 +1,11 @@
 using Ds2.Core;
+using DSPilot.Engine;
 using DSPilot.Models.Dsp;
 
 namespace DSPilot.Services;
 
 /// <summary>
-/// PLC 태그와 Call 매핑 서비스 - 상태 전환 로직 포함
+/// PLC 태그와 Call 매핑 서비스 (F# StateTransition 사용)
 /// </summary>
 public class PlcToCallMapperService
 {
@@ -166,13 +167,8 @@ public class PlcToCallMapperService
     }
 
     /// <summary>
-    /// 태그 값 변경에 따른 Call 상태 결정
+    /// 태그 값 변경에 따른 Call 상태 결정 (F# StateTransition 사용)
     /// </summary>
-    /// <param name="tagName">태그 이름</param>
-    /// <param name="tagAddress">태그 주소 (Address 기반 매핑 시 사용)</param>
-    /// <param name="edgeState">엣지 상태 (라이징/폴링)</param>
-    /// <param name="currentCallState">현재 Call 상태</param>
-    /// <returns>(새 상태, 상태 변경 여부)</returns>
     public (string NewState, bool StateChanged) DetermineCallState(
         string tagName,
         string tagAddress,
@@ -185,48 +181,36 @@ public class PlcToCallMapperService
             return (currentCallState, false);
         }
 
-        // TagMatchMode에 따라 올바른 키 선택
         var tagKey = _tagMatchMode.Equals("Address", StringComparison.OrdinalIgnoreCase)
             ? tagAddress
             : tagName;
 
         if (!_tagToCallMap.TryGetValue(tagKey, out var mapping))
         {
-            _logger.LogDebug("Tag '{TagName}' (Address: '{TagAddress}') not mapped to any Call", tagName, tagAddress);
             return (currentCallState, false);
         }
 
         var (call, apiCall, isInTag) = mapping;
         var (inTag, outTag) = _callTagMap[call.Name];
+        var hasInTag = !string.IsNullOrEmpty(inTag);
 
-        // 규칙 1: OUT 태그 라이징 → Going
-        if (!isInTag && edgeState.IsRisingEdge())
+        // F# StateTransition 사용
+        var (newState, stateChanged) = StateTransition.tryTransition(
+            currentCallState,
+            isInTag,
+            hasInTag,
+            edgeState.EdgeType
+        );
+
+        if (stateChanged)
         {
+            var newStateStr = StateTransition.stateToString(newState);
             _logger.LogInformation(
-                "Call '{CallName}': OUT tag '{TagName}' rising edge → Going",
-                call.Name, tagName);
-            return ("Going", true);
+                "Call '{CallName}': State transition {OldState} → {NewState} (Tag: {TagName}, Edge: {EdgeType})",
+                call.Name, currentCallState, newStateStr, tagName, edgeState.EdgeType);
+            return (newStateStr, true);
         }
 
-        // 규칙 2: IN 태그 라이징 → Finish (현재 Going 상태일 때만)
-        if (isInTag && edgeState.IsRisingEdge() && currentCallState == "Going")
-        {
-            _logger.LogInformation(
-                "Call '{CallName}': IN tag '{TagName}' rising edge → Finish",
-                call.Name, tagName);
-            return ("Finish", true);
-        }
-
-        // 규칙 3: IN 태그 없고 OUT 폴링 → Finish (현재 Going 상태일 때만)
-        if (!isInTag && string.IsNullOrEmpty(inTag) && edgeState.IsFallingEdge() && currentCallState == "Going")
-        {
-            _logger.LogInformation(
-                "Call '{CallName}': OUT tag '{TagName}' falling edge (no IN tag) → Finish",
-                call.Name, tagName);
-            return ("Finish", true);
-        }
-
-        // 상태 변화 없음
         return (currentCallState, false);
     }
 

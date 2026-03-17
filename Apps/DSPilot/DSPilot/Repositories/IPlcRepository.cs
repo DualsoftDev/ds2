@@ -65,4 +65,44 @@ public interface IPlcRepository
     /// 연결 테스트
     /// </summary>
     Task<bool> TestConnectionAsync();
+
+    /// <summary>
+    /// 특정 태그 주소의 시간 범위 로그 조회
+    /// </summary>
+    /// <param name="address">태그 주소 (예: X10A0)</param>
+    /// <param name="startTime">시작 시각</param>
+    /// <param name="endTime">종료 시각</param>
+    /// <returns>시간 범위 내 로그 목록</returns>
+    Task<List<PlcTagLogEntity>> GetTagLogsByAddressInRangeAsync(
+        string address, DateTime startTime, DateTime endTime);
+
+    /// <summary>
+    /// 여러 태그의 시간 범위 로그 일괄 조회 (성능 최적화)
+    /// </summary>
+    /// <param name="addresses">태그 주소 목록</param>
+    /// <param name="startTime">시작 시각</param>
+    /// <param name="endTime">종료 시각</param>
+    /// <returns>시간 범위 내 로그 목록</returns>
+    Task<List<PlcTagLogEntity>> GetMultipleTagLogsInRangeAsync(
+        List<string> addresses, DateTime startTime, DateTime endTime);
+
+    /// <summary>
+    /// 여러 태그의 Rising Edge(0→1) 로그만 시간 범위로 조회
+    /// </summary>
+    /// <param name="addresses">태그 주소 목록</param>
+    /// <param name="startTime">시작 시각</param>
+    /// <param name="endTime">종료 시각</param>
+    /// <returns>시간 범위 내 Rising Edge 로그 목록</returns>
+    Task<List<PlcTagLogEntity>> GetMultipleTagRisingEdgesInRangeAsync(
+        List<string> addresses, DateTime startTime, DateTime endTime);
+
+    /// <summary>
+    /// 특정 태그의 Rising Edge (0→1) 시점 찾기
+    /// </summary>
+    /// <param name="address">태그 주소</param>
+    /// <param name="startTime">시작 시각</param>
+    /// <param name="endTime">종료 시각</param>
+    /// <returns>Rising Edge 발생 시각 목록</returns>
+    Task<List<DateTime>> FindRisingEdgesAsync(
+        string address, DateTime startTime, DateTime endTime);
 }

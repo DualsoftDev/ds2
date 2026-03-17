@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Types.fs" />
+    <Compile Include="Statistics.fs" />
+    <Compile Include="EdgeDetection.fs" />
+    <Compile Include="StateTransition.fs" />
+    <Compile Include="Performance.fs" />
+    <Compile Include="CycleAnalysis.fs" />
+    <Compile Include="QueryHelpers.fs" />
+    <Compile Include="Models.fs" />
+    <Compile Include="FlowAnalysis.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
+  </ItemGroup>
+
+</Project>

@@ -26,6 +26,11 @@ public class DspFlowEntity
     public int? WT { get; set; }
 
     /// <summary>
+    /// Cycle Time (ms) - MT + WT
+    /// </summary>
+    public int? CT { get; set; }
+
+    /// <summary>
     /// Flow 상태 (Going/Ready)
     /// </summary>
     public string? State { get; set; }

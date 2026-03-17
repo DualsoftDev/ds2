@@ -1,3 +1,4 @@
+using DSPilot.Models.Dsp;
 using DSPilot.Models.Plc;
 using DSPilot.Repositories;
 
@@ -12,6 +13,7 @@ public class PlcDataReaderService : BackgroundService
     private readonly ILogger<PlcDataReaderService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IConfiguration _configuration;
+    private readonly IFlowMetricsService _flowMetricsService;
     private readonly bool _simulationMode;
     private readonly TimeSpan _simulationWindow = TimeSpan.FromSeconds(1);
 
@@ -23,11 +25,13 @@ public class PlcDataReaderService : BackgroundService
     public PlcDataReaderService(
         ILogger<PlcDataReaderService> logger,
         IServiceScopeFactory scopeFactory,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IFlowMetricsService flowMetricsService)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _configuration = configuration;
+        _flowMetricsService = flowMetricsService;
         _simulationMode = _configuration.GetValue<bool>("PlcDatabase:SimulationMode");
 
         _lastReadTime = DateTime.Now;
@@ -306,10 +310,13 @@ public class PlcDataReaderService : BackgroundService
 
                 processedCount++;
 
-                // 2. 엣지 감지
-                var edgeState = stateTracker.UpdateTagValue(tag.Name, log.Value ?? "0");
+                // 2. 값 정규화 (boolean → "0"/"1")
+                var normalizedValue = NormalizeValue(log.Value);
 
-                // 3. Call 매핑 확인 (Name 또는 Address 기준)
+                // 3. 엣지 감지
+                var edgeState = stateTracker.UpdateTagValue(tag.Name, normalizedValue);
+
+                // 4. Call 매핑 확인 (Name 또는 Address 기준)
                 var callInfo = mapper.FindCallByTag(tag.Name, tag.Address);
                 if (callInfo == null)
                 {
@@ -325,10 +332,10 @@ public class PlcDataReaderService : BackgroundService
 
                 var call = callInfo.Value.Call;
 
-                // 4. 현재 Call 상태 조회
+                // 5. 현재 Call 상태 조회
                 var currentCallState = await dspRepo.GetCallStateAsync(call.Name);
 
-                // 5. 새 상태 결정
+                // 6. 새 상태 결정
                 var (newState, stateChanged) = mapper.DetermineCallState(
                     tag.Name,
                     tag.Address,
@@ -347,12 +354,16 @@ public class PlcDataReaderService : BackgroundService
 
                 stateChangedCount++;
 
-                // 6. 상태별 처리
+                // 7. 상태별 처리
                 if (newState == "Going")
                 {
                     // Going 시작 시간 기록
+                    var timestamp = DateTime.Now;
                     statistics.RecordGoingStart(call.Name);
                     await dspRepo.UpdateCallStateAsync(call.Name, "Going");
+
+                    // FlowMetricsService 이벤트 발생
+                    _flowMetricsService.OnCallGoingStarted(call.Name, timestamp);
 
                     _logger.LogInformation(
                         "Call '{CallName}': State changed Ready → Going (Tag: {TagName})",
@@ -361,7 +372,7 @@ public class PlcDataReaderService : BackgroundService
                 else if (newState == "Finish")
                 {
                     // Going 시간 계산 및 통계 업데이트
-                    var (goingTime, avg, stdDev) = statistics.RecordGoingFinish(call.Name);
+                    var (startTime, finishTime, goingTime, avg, stdDev) = statistics.RecordGoingFinish(call.Name);
 
                     await dspRepo.UpdateCallWithStatisticsAsync(
                         call.Name,
@@ -370,6 +381,9 @@ public class PlcDataReaderService : BackgroundService
                         avg,
                         stdDev
                     );
+
+                    // FlowMetricsService 이벤트 발생
+                    _flowMetricsService.OnCallFinished(call.Name, finishTime);
 
                     _logger.LogInformation(
                         "Call '{CallName}': State changed Going → Finish (Tag: {TagName}, Time: {Time}ms)",
@@ -391,6 +405,24 @@ public class PlcDataReaderService : BackgroundService
         _logger.LogDebug(
             "SaveToDspDatabase completed: {TotalLogs} logs, {ProcessedCount} processed, {MappedCount} mapped, {StateChangedCount} state changed",
             logs.Count, processedCount, mappedCount, stateChangedCount);
+    }
+
+    /// <summary>
+    /// PLC 값을 EdgeDetection이 인식할 수 있는 "0" 또는 "1"로 정규화
+    /// </summary>
+    private static string NormalizeValue(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return "0";
+
+        var lowerValue = value.Trim().ToLowerInvariant();
+
+        return lowerValue switch
+        {
+            "1" or "true" or "on" => "1",
+            "0" or "false" or "off" => "0",
+            _ => "0" // 기본값
+        };
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
