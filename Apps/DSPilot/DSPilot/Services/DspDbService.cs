@@ -19,9 +19,9 @@ public class DspDbService : IDisposable
     {
         _logger = logger;
 
-        var configPath = configuration["DsPilot:DatabasePath"];
+        var configPath = configuration["DspDatabase:Path"];
         _dbPath = !string.IsNullOrEmpty(configPath)
-            ? configPath
+            ? Environment.ExpandEnvironmentVariables(configPath)
             : Path.Combine(
                   Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                   "DSPilot", "dsp.db");
