@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-03-13 (AASX 메타데이터, Panel 파일 통합)
+Last Sync: 2026-03-17 (CSV 변환기, AASX/Mermaid 모듈 분리, ApiCall 복제 모드, 일괄편집, FileCommands 리팩토링)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -74,9 +74,33 @@ Last Sync: 2026-03-13 (AASX 메타데이터, Panel 파일 통합)
 | `AddWork` | Track 1건 | 캔버스 위치(Xywh) 포함 |
 | `AddCallsWithDevice` | WithTransaction 1건 | Passive System·ApiDef 자동 생성 + Call 일괄 추가를 하나의 Undo 단위로 기록 |
 | `AddCallWithLinkedApiDefs` | WithTransaction 1건 | 기존 ApiDef ID 목록 기반 Call 1개 + ApiCall N개 (Undo 1회 보장) |
+| `AddCallWithMultipleDevicesResolved` | WithTransaction 1건 | ApiCall 복제 모드: Call 1개 + N개 Device System의 ApiDef로 ApiCall N개 생성 (Undo 1회 보장) |
 | `ConnectSelectionInOrder` | WithTransaction 1건 | 선택 순서 기반 Work-Work 또는 Call-Call 화살표 N개 일괄 생성. 2-노드(단일 화살표) 포함 모두 이 진입점 사용. |
 | `AddApiDef` | Track 1건 | |
 | `AddApiCallFromPanel` | WithTransaction 1건 | |
+
+#### AddCallWithMultipleDevicesResolved (ApiCall 복제 모드)
+
+CallCreateDialog에서 "ApiCall 복제" 모드를 선택하면 하나의 Call에 여러 Device System의 ApiDef를 각각 가리키는 ApiCall N개를 일괄 생성합니다.
+
+```
+[C# — CallCreateDialog]
+ CallCreateMode.ApiCallReplication 선택
+  → 사용자: Call 이름 + 공통 ApiName + Device alias 목록 (체크박스)
+        │
+        ▼
+[C# — MainViewModel]
+ store.AddCallWithMultipleDevicesResolved(entityKind, entityId, workId, callDevicesAlias, apiName, deviceAliases)
+        │
+        ▼
+[F# — DsStore.Nodes.fs]
+ WithTransaction("Add Call (ApiCall 복제)", fun () ->
+   DirectDeviceOps.addCallWithMultipleDevices store projectId workId callDevicesAlias apiName aliases)
+  ├─ Call 1개 생성 (devicesAlias, apiName)
+  ├─ 각 alias에 대해:
+  │    Passive System `{alias}` 의 ApiDef 중 apiName 일치 → ApiCall 생성 → Call.ApiCalls에 추가
+  └─ Undo 1회로 전체 롤백 가능
+```
 
 ### 2.2 Read (Projection)
 
@@ -109,6 +133,8 @@ Store를 직접 읽지 않고 Projection을 통해 뷰 데이터를 얻습니다
 | 화살표 재연결 | `ReconnectArrow` | source 또는 target 교체 |
 | CallCondition IsOR/IsRising 변경 | `UpdateCallConditionSettings` | 변경 없으면 no-op(false 반환) |
 | 조건 ApiCall 기대값 변경 | `UpdateConditionApiCallOutputSpec` | ValueSpec 동일하면 no-op(false 반환) |
+| Work Duration 일괄변경 | `UpdateWorkDurationsBatch` | (workId, ms) 목록 → 단일 Undo 트랜잭션 |
+| ApiCall I/O 태그 일괄변경 | `UpdateApiCallIOTagsBatch` | (apiCallId, inAddr, inSym, outAddr, outSym) 목록 → 단일 Undo 트랜잭션 |
 
 ### 2.4 Delete
 
@@ -533,9 +559,10 @@ store.LoadFromFile(path)
 ### 8.2 익스포트 흐름
 
 ```
-FileCommands.SaveFile (C#)
+FileCommands.SaveToPath (C#)
   → 확장자 `.aasx` 분기
   → AasxExporter.exportFromStore(_store, path)  ← F# 직접 호출
+  → SaveOutcomeFlow.TryCompleteAasxSave(exported, warn, failMsg, onSuccess)
       → exportToSubmodel: Project 계층 → AAS Submodel (Ds2SequenceControlSubmodel)
             Call → SMC
             Work → SMC (Calls SML + ArrowsBetweenCalls SML)
@@ -563,6 +590,7 @@ FileCommands.SaveFile (C#)
 ```
 FileCommands.OpenFile (C#)
   → 확장자 `.aasx` 분기
+  → TryRunFileOperation("Open AASX", ...)
   → AasxImporter.importIntoStore(_store, path)  ← F# 직접 호출 → bool
       → importFromAasxFile(path)  ← 내부 변환 함수
             → readEnvironment path  ← AASX ZIP 열기 (XML/JSON 자동 판별)
@@ -578,7 +606,7 @@ FileCommands.OpenFile (C#)
                   Document/DocumentVersion SMC → Project.HandoverDocumentation 레코드 필드로 매핑
             → 새 DsStore 직접 구성 (store.DirectWrite로 컬렉션 채움)
       → importIntoStore: _store.ReplaceStore(imported) + bool 반환
-  → _currentFilePath = fileName, IsDirty = false, UpdateTitle(), RequestRebuildAll(AfterFileLoad)
+  → PrepareForLoadedStore() → CompleteOpen(fileName, "AASX") → RequestRebuildAll(AfterFileLoad)
 ```
 
 ### 8.4 AASX 파일 구조 (ds2 전용)
@@ -635,9 +663,192 @@ store.ReplaceStore(newStore: DsStore)
 
 ---
 
-## 9. 로깅 (log4net)
+## 9. Mermaid 임포트/익스포트
 
-### 9.1 초기화 흐름
+### 9.1 개요
+
+`Ds2.Mermaid` 프로젝트가 Mermaid `.md` 파일과 `DsStore` 간 양방향 변환을 담당합니다.
+파이프라인: `Lexer → Parser → Analyzer → MapperCommon → MapperTargets → Mapper → Importer` (임포트) / `Exporter` (익스포트).
+
+### 9.2 임포트 흐름
+
+```
+[C# — FileCommands.cs]
+ OpenFile()
+  └─ 확장자 `.md` 분기
+  └─ TryRunFileOperation(
+        MermaidImporter.loadProjectFromFile(fileName)  ← F# 직접 호출
+        → FSharpResult<DsStore, string list>
+        → TryGetResult로 에러 처리)
+        │
+        ▼
+[F# — Ds2.Mermaid.Import/]
+ loadProjectFromFile path : Result<DsStore, string list>
+  ├─ MermaidLexer.tokenize(text)        → Token list
+  ├─ MermaidParser.parse(tokens)        → MermaidAst
+  ├─ MermaidAnalyzer.analyze(ast)       → AnalyzedModel
+  ├─ MermaidMapper.mapToStore(model)    → DsStore
+  └─ 성공: Ok store / 실패: Error errorMessages
+        │
+        ▼
+[C# — FileCommands.cs]
+ PrepareForLoadedStore() → ReplaceOpenedStore(fileName, store, "Mermaid")
+  └─ _store.ReplaceStore(store)
+  └─ CompleteOpen(fileName, "Mermaid") — _currentFilePath/IsDirty/Title 갱신
+  └─ RequestRebuildAll(AfterFileLoad) — 트리 확장 + 첫 System 탭 열기
+```
+
+### 9.3 익스포트 흐름
+
+```
+[C# — FileCommands.cs]
+ SaveFile() → SaveToPath(filePath)
+  └─ 확장자 `.md` 분기
+  └─ MermaidExporter.saveProjectToFile(_store, filePath)  ← F# 직접 호출
+        → FSharpResult<unit, string>
+        │
+        ▼
+[C# — SaveOutcomeFlow.cs]
+ TryCompleteMermaidSave(result, warn, onSuccess)
+  ├─ result.IsError → warn(errorValue) + return false
+  └─ 성공 → CompleteSave(filePath, "Mermaid") + return true
+```
+
+---
+
+## 10. CSV 임포트/익스포트
+
+### 10.1 개요
+
+`Ds2.CSV` 프로젝트가 CSV 파일과 `DsStore` 간 양방향 변환을 담당합니다.
+파이프라인: `CsvTypes → CsvParser → CsvMapper → CsvImporter/CsvExporter` (5 모듈).
+
+### 10.2 임포트 흐름
+
+```
+[C# — CsvCommands.cs]
+ ImportCsv()
+  └─ ConfirmDiscardChanges() → TryRunFileOperation(
+        TryCreateCsvStore(out store, out sourceName))
+        │
+        ▼
+[C# — CsvImportDialog]
+ 사용자 입력: CSV 텍스트 또는 파일 + ProjectName + SystemName
+  → dialog.Document (파싱할 CSV 문자열)
+  → dialog.ProjectName, dialog.SystemName
+        │
+        ▼
+[F# — Ds2.CSV]
+ CsvImporter.loadProject(document, projectName, systemName) : Result<DsStore, string list>
+  ├─ CsvParser.parse(document) → CsvRow list
+  ├─ CsvMapper.mapToEntities(rows) → EntityTree
+  └─ DsStore 구성 (Project + System + Flow + Work + Call)
+        │
+        ▼
+[C# — CsvCommands.cs]
+ ImportCsvStore(store, sourceName)
+  └─ PrepareForLoadedStore()
+  └─ _store.ReplaceStore(store)
+  └─ _currentFilePath = null, IsDirty = false
+  └─ RequestRebuildAll(AfterFileLoad)
+```
+
+### 10.3 익스포트 흐름
+
+```
+[C# — CsvCommands.cs]
+ ExportCsv()
+  └─ CsvExportDialog(projectName, preview, suggestedFileName)
+  └─ TryRunFileOperation(
+        CsvExporter.saveProjectToFile(_store, outputPath))
+        │
+        ▼
+[F# — Ds2.CSV]
+ CsvExporter.saveProjectToFile(store, path) : Result<unit, string>
+  ├─ DsQuery로 Project → System → Flow → Work → Call 계층 순회
+  ├─ CSV 행 생성: Flow, Work, Call, DevicesAlias, ApiName 등
+  └─ File.WriteAllText(path, csvText)
+```
+
+---
+
+## 11. FileCommands 헬퍼 구조
+
+FileCommands.cs의 Open/Save 공통 코드는 헬퍼 메서드와 전용 Flow 클래스로 분리되어 있습니다.
+
+### 11.1 Open 헬퍼
+
+| 헬퍼 | 역할 |
+|------|------|
+| `TryRunFileOperation(operation, action, warnMessage)` | try-catch + Log.Error + DialogHelpers.Warn, bool 반환 |
+| `TryGetResult<T, TError>(result, formatError, out value)` | FSharpResult 분기: Error → Warn, Ok → out value |
+| `CompleteOpen(filePath, kind)` | `_currentFilePath` + `IsDirty` + `UpdateTitle` + `RequestRebuildAll(AfterFileLoad)` |
+| `ReplaceOpenedStore(filePath, store, kind)` | `_store.ReplaceStore(store)` + `CompleteOpen` |
+| `PrepareForLoadedStore()` | 로드 전 UI 정리 (MainViewModel.cs에 정의) |
+
+### 11.2 Save 헬퍼
+
+| 헬퍼 | 역할 |
+|------|------|
+| `CompleteSave(filePath, kind)` | `_currentFilePath` + `IsDirty` + `UpdateTitle` + StatusText + Log |
+| `SaveOutcomeFlow.TryCompleteMermaidSave` | `FSharpResult<unit, string>` → warn/success 분기 |
+| `SaveOutcomeFlow.TryCompleteAasxSave` | `bool exported` → warn/success 분기 |
+
+### 11.3 DiscardChangesFlow
+
+`ConfirmDiscardChanges()` 호출 시 사용자 선택에 따라:
+
+| MessageBoxResult | 동작 |
+|-----------------|------|
+| `Yes` | `TrySaveFile()` 호출 → 저장 성공 시만 true |
+| `No` | 변경 사항 버리고 true |
+| `Cancel` | false (동작 취소) |
+
+---
+
+## 12. 일괄편집 (Batch)
+
+### 12.1 Duration 일괄편집
+
+```
+[C# — DurationBatchCommands.cs]
+ OpenDurationBatchDialog()
+  └─ _store.GetAllWorkDurationRows() → WorkDurationBatchRow list
+  └─ DurationBatchDialog(rows) — DataGrid UI
+  └─ dialog.ChangedRows → (workId, ms) 변경분만 추출
+  └─ _store.UpdateWorkDurationsBatch(changes)
+        │
+        ▼
+[F# — DsStore.Panel.Batch.fs]
+ UpdateWorkDurationsBatch(changes: seq<struct(Guid * int)>)
+  └─ WithTransaction("Work Duration 일괄 변경", ...)
+  └─ TrackMutate per work → work.Properties.Period 변경
+  └─ EmitRefreshAndHistory()
+```
+
+### 12.2 I/O 태그 일괄편집
+
+```
+[C# — IoBatchCommands.cs]
+ OpenIoBatchDialog()
+  └─ _store.GetAllApiCallIORows() → ApiCallIOBatchRow list
+  └─ IoBatchSettingsDialog(rows) — DataGrid UI
+  └─ dialog.ChangedRows → (apiCallId, inAddr, inSym, outAddr, outSym) 변경분
+  └─ _store.UpdateApiCallIOTagsBatch(changes)
+        │
+        ▼
+[F# — DsStore.Panel.Batch.fs]
+ UpdateApiCallIOTagsBatch(changes: seq<struct(Guid * string * string * string * string)>)
+  └─ WithTransaction("I/O 태그 일괄 변경", ...)
+  └─ TrackMutate per apiCall → InTag/OutTag 변경
+  └─ EmitRefreshAndHistory()
+```
+
+---
+
+## 13. 로깅 (log4net)
+
+### 13.1 초기화 흐름
 
 ```
 앱 시작
@@ -654,7 +865,7 @@ store.ReplaceStore(newStore: DsStore)
       → Log.Info("=== Promaker shutdown ===")
 ```
 
-### 9.2 로그 파일
+### 13.2 로그 파일
 
 ```
 <실행 파일 위치>/logs/ds2_yyyyMMdd.log
@@ -664,7 +875,7 @@ store.ReplaceStore(newStore: DsStore)
 - **패턴**: `%date{yyyy-MM-dd HH:mm:ss.fff} [%-5level] %logger{1} — %message%newline%exception`
 - **Visual Studio**: `DebugAppender`로 출력 창에도 동시 출력 (패턴 단축)
 
-### 9.3 레이어별 로거와 레벨
+### 13.3 레이어별 로거와 레벨
 
 #### F# — DsStore.fs + DsStoreLog.fs
 
@@ -732,19 +943,20 @@ let private log = LogManager.GetLogger("Ds2.Aasx.AasxImporter")
 | 지점 | 레벨 | 메시지 형태 |
 |------|------|------------|
 | EditorEvent 구독자 에러 | ERROR | `EditorEvent 구독자 에러` + 예외 |
-| JSON 파일 열기 성공 | INFO | `파일 열기 완료: {path}` |
-| JSON 파일 열기 실패 | ERROR | `파일 열기 실패: {path}` + 예외 → DialogHelpers.Warn |
-| JSON 파일 저장 성공 | INFO | `파일 저장 완료: {path}` |
-| JSON 파일 저장 실패 | ERROR | `파일 저장 실패: {path}` + 예외 → DialogHelpers.Warn |
-| AASX import 성공 | INFO | `AASX import 완료: {path}` |
-| AASX import 빈 결과 | WARN | `AASX import 실패 (빈 결과): {path}` |
-| AASX import ReplaceStore 실패 | ERROR | `AASX import 실패 (ReplaceStore): {path}` + 예외 → DialogHelpers.Warn |
+| 파일 열기 성공 | INFO | `{kind} opened: {path}` (kind=File/AASX/Mermaid) |
+| 파일 열기 실패 | ERROR | `{operation} failed` + 예외 (TryRunFileOperation) |
+| 파일 저장 성공 | INFO | `{kind} saved: {path}` |
+| 파일 저장 실패 | ERROR | `Save {kind} '{path}' failed` + 예외 |
+| AASX open 빈 결과 | WARN | `AASX open failed: empty result ({path})` |
 | Unhandled EditorEvent | WARN | `Unhandled event: {evt.GetType().Name}` |
-| AASX export 성공 | INFO | `AASX export 완료: {path}` |
-| AASX export 프로젝트 없음 | WARN | `AASX export 실패: 프로젝트 없음 ({path})` |
-| AASX export 예외 | ERROR | `AASX export 실패: {path}` + 예외 → DialogHelpers.Warn |
+| Mermaid 열기 성공 | INFO | `Mermaid opened: {path}` |
+| Mermaid 저장 성공 | INFO | `Mermaid saved: {path}` |
+| Mermaid 열기/저장 실패 | ERROR | `{operation} failed` + 예외 → DialogHelpers.Warn |
+| CSV import 성공 | INFO | `CSV imported: {sourceName}` |
+| CSV export 성공 | INFO | `CSV exported: {path}` |
+| CSV import/export 실패 | ERROR | `{operation} failed` + 예외 → DialogHelpers.Warn |
 
-### 9.4 로깅 레벨 요약
+### 13.4 로깅 레벨 요약
 
 | 레벨 | 의미 | 지점 |
 |------|------|------|
