@@ -366,7 +366,7 @@ let ``Export and import — duplicate call names keep condition source by node i
     let targetCall = DsQuery.callsOf targetId store |> List.head
     let sourceAApiCall = sourceACall.ApiCalls |> Seq.head
 
-    store.AddCallCondition(targetCall.Id, CallConditionType.Common)
+    store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
     let conditionId =
         store.Calls[targetCall.Id].CallConditions
         |> Seq.head

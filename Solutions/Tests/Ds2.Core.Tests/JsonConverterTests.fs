@@ -229,7 +229,7 @@ module JsonRoundTripTests =
         apiBool.OutputSpec   <- boolSpec
 
         let condition = CallCondition()
-        condition.Type <- Some CallConditionType.Active
+        condition.Type <- Some CallConditionType.SkipUnmatch
         condition.IsOR <- true
         condition.IsRising <- true
         condition.Conditions.Add(apiFloat)

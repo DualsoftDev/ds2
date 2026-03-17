@@ -171,7 +171,7 @@ public partial class PropertyPanelState
         foreach (var cond in conditions)
         {
             var target = FindConditionSection(cond.ConditionType)
-                         ?? FindConditionSection(CallConditionType.Common);
+                         ?? FindConditionSection(CallConditionType.ComAux);
             target?.Conditions.Add(new CallConditionItem(callId, cond));
         }
     }
@@ -192,8 +192,8 @@ public partial class PropertyPanelState
     private void EnsureConditionSectionsInitialized()
     {
         if (ConditionSections.Count > 0) return;
-        ConditionSections.Add(new ConditionSectionItem(CallConditionType.Active, "ActiveTrigger", "Add ActiveTrigger"));
-        ConditionSections.Add(new ConditionSectionItem(CallConditionType.Auto, "AutoCondition", "Add AutoCondition"));
-        ConditionSections.Add(new ConditionSectionItem(CallConditionType.Common, "CommonCondition", "Add CommonCondition"));
+        ConditionSections.Add(new ConditionSectionItem(CallConditionType.SkipUnmatch, "SkipUnmatch", "Add SkipUnmatch"));
+        ConditionSections.Add(new ConditionSectionItem(CallConditionType.AutoAux, "AutoAux", "Add AutoAux"));
+        ConditionSections.Add(new ConditionSectionItem(CallConditionType.ComAux, "ComAux", "Add ComAux"));
     }
 }

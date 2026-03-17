@@ -180,7 +180,7 @@ type DsStorePanelConditionExtensions =
             let children = cond.Children |> Seq.map toPanel |> Seq.toList
             CallConditionPanelItem(
                 cond.Id,
-                (cond.Type |> Option.defaultValue CallConditionType.Auto),
+                (cond.Type |> Option.defaultValue CallConditionType.AutoAux),
                 cond.IsOR, cond.IsRising, items, children)
         DirectPanelOps.withCallOrEmpty store callId (fun call ->
             call.CallConditions |> Seq.map toPanel |> Seq.toList)

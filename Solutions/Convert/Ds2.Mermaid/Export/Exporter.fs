@@ -53,14 +53,14 @@ module MermaidExporter =
             | None -> ()
 
         let sb = StringBuilder()
-        for condType in [| CallConditionType.Auto; CallConditionType.Common; CallConditionType.Active |] do
+        for condType in [| CallConditionType.AutoAux; CallConditionType.ComAux; CallConditionType.SkipUnmatch |] do
             match grouped.TryGetValue(condType) with
             | true, names when names.Count > 0 ->
                 let prefix =
                     match condType with
-                    | CallConditionType.Auto   -> "Auto"
-                    | CallConditionType.Common -> "Common"
-                    | _                        -> "Active"
+                    | CallConditionType.AutoAux      -> "AutoAux"
+                    | CallConditionType.ComAux       -> "ComAux"
+                    | _                              -> "SkipUnmatch"
                 let joined = String.Join(", ", names)
                 sb.Append($"<br>{prefix}: {joined}") |> ignore
             | _ -> ()

@@ -113,17 +113,17 @@ module MermaidLexer =
         else
             ([], label)
 
-    /// 노드 라벨에서 ds2 조건 참조 추출 (형식: CallName<br>Auto: src1, src2<br>Common: src3)
-    /// 반환: (actualLabel, autoRefs, commonRefs, activeRefs)
+    /// 노드 라벨에서 ds2 조건 참조 추출 (형식: CallName<br>AutoAux: src1, src2<br>ComAux: src3)
+    /// 반환: (actualLabel, autoAuxRefs, comAuxRefs, skipUnmatchRefs)
     let extractConditionRefs (label: string) : string * string list * string list * string list =
         let parts = label.Split([| "<br>" |], StringSplitOptions.None)
         if parts.Length <= 1 then
             (label, [], [], [])
         else
             let actualLabel = parts.[0].Trim()
-            let mutable autoRefs = []
-            let mutable commonRefs = []
-            let mutable activeRefs = []
+            let mutable autoAuxRefs = []
+            let mutable comAuxRefs = []
+            let mutable skipUnmatchRefs = []
 
             for i in 1 .. parts.Length - 1 do
                 let part = parts.[i].Trim()
@@ -138,17 +138,17 @@ module MermaidLexer =
                         Some names
                     else None
 
-                match parseNames "Auto: " with
-                | Some names -> autoRefs <- names
+                match parseNames "AutoAux: " with
+                | Some names -> autoAuxRefs <- names
                 | None ->
-                    match parseNames "Common: " with
-                    | Some names -> commonRefs <- names
+                    match parseNames "ComAux: " with
+                    | Some names -> comAuxRefs <- names
                     | None ->
-                        match parseNames "Active: " with
-                        | Some names -> activeRefs <- names
+                        match parseNames "SkipUnmatch: " with
+                        | Some names -> skipUnmatchRefs <- names
                         | None -> ()
 
-            (actualLabel, autoRefs, commonRefs, activeRefs)
+            (actualLabel, autoAuxRefs, comAuxRefs, skipUnmatchRefs)
 
     /// 유효한 토큰만 필터링 (빈 줄, 주석 제외)
     let filterSignificantTokens (tokens: TokenizedLine list) : TokenizedLine list =

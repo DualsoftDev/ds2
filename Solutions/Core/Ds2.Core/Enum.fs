@@ -11,9 +11,9 @@ type ArrowType =
 
 /// Condition type for CallCondition entries.
 type CallConditionType =
-    | Auto   = 0
-    | Common = 1
-    | Active = 2
+    | AutoAux      = 0
+    | ComAux       = 1
+    | SkipUnmatch  = 2
 
 /// Runtime status for Work/Call.
 type Status4 =
