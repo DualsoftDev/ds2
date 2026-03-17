@@ -18,7 +18,15 @@ public partial class MainViewModel
         public static SiblingSnapshot Empty { get; } = new([], []);
     }
 
-    [RelayCommand]
+    private bool CanAddSystem()
+    {
+        var projects = DsQuery.allProjects(_store);
+        if (projects.IsEmpty) return true;
+        var activeSystems = DsQuery.activeSystemsOf(projects.Head.Id, _store);
+        return activeSystems.IsEmpty;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanAddSystem))]
     private void AddSystem()
     {
         var name = DialogHelpers.PromptName("New System", "NewSystem");
