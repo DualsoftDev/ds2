@@ -111,6 +111,9 @@ public partial class CanvasWorkspaceState : ObservableObject
             return;
         }
 
+        // 노드가 모두 같은 좌표에 몰려있으면 자동 배치 (Mermaid 임포트 등)
+        _host.TryAction(() => Store.AutoLayoutIfNeeded(ActiveTab.Kind, ActiveTab.RootId));
+
         if (!_host.TryRef(
                 () => Store.CanvasContentForTab(ActiveTab.Kind, ActiveTab.RootId),
                 out var content,

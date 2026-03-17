@@ -203,3 +203,15 @@ type DsStoreNodesExtensions =
         | None ->
             StoreLog.warn($"Entity not found. kind={entityKind}, id={id}")
             invalidOp $"Entity not found. kind={entityKind}, id={id}"
+
+    // ─── AutoLayout ────────────────────────────────────────────────────
+
+    /// 노드들이 모두 같은 좌표에 몰려있으면 자동 배치 적용 (Mermaid 임포트 등)
+    [<Extension>]
+    static member AutoLayoutIfNeeded(store: DsStore, kind: TabKind, rootId: Guid) : bool =
+        let content = CanvasProjection.canvasContentForTab store kind rootId
+        if CanvasLayout.needsAutoLayout content then
+            let requests = CanvasLayout.computeLayout content
+            DsStoreNodesExtensions.MoveEntities(store, requests) |> ignore
+            true
+        else false
