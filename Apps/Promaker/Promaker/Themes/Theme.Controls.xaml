@@ -4,5 +4,6 @@
         <ResourceDictionary Source="Theme.Controls.Core.xaml"/>
         <ResourceDictionary Source="Theme.Controls.Navigation.xaml"/>
         <ResourceDictionary Source="Theme.Controls.Forms.xaml"/>
+        <ResourceDictionary Source="Theme.Icons.xaml"/>
     </ResourceDictionary.MergedDictionaries>
 </ResourceDictionary>
