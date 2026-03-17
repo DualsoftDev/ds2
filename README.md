@@ -102,31 +102,32 @@ flowchart TB
 
 ## 엔티티 관계도
 
+**Active System — 제어 흐름**
+
 ```mermaid
 erDiagram
-    Project ||--o{ DsSystem : "contains (Active)"
-    Project ||--o{ DsSystem : "contains (Passive/Device)"
-
+    Project ||--o{ DsSystem : contains
     DsSystem ||--o{ Flow : contains
     DsSystem ||--o{ ArrowBetweenWorks : owns
+    Flow ||--o{ Work : contains
+    Work ||--o{ Call : contains
+    Work ||--o{ ArrowBetweenCalls : owns
+    Call ||--o{ ApiCall : "has (.ApiCalls[])"
+    Call ||--o{ CallCondition : "has conditions"
+    CallCondition ||--o{ ApiCall : "condition targets"
+```
+
+**Passive System — 장치 정의 및 연결**
+
+```mermaid
+erDiagram
     DsSystem ||--o{ ApiDef : "defines (Device)"
     DsSystem ||--o{ HwButton : "has (Device)"
     DsSystem ||--o{ HwLamp : "has (Device)"
     DsSystem ||--o{ HwCondition : "has (Device)"
     DsSystem ||--o{ HwAction : "has (Device)"
-
-    Flow ||--o{ Work : contains
-
-    Work ||--o{ Call : contains
-    Work ||--o{ ArrowBetweenCalls : owns
-
-    Call ||--o{ ApiCall : "has (.ApiCalls[])"
-    Call ||--o{ CallCondition : "has conditions"
     Call }o--|| DsSystem : "references (.ApiDefId → Device)"
-
     ApiCall }o--|| ApiDef : "linked by .ApiDefId"
-
-    CallCondition ||--o{ ApiCall : "condition targets"
 ```
 
 ### 엔티티 설명
