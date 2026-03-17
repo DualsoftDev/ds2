@@ -10,7 +10,7 @@ public partial class CsvExportDialog : Window
     {
         InitializeComponent();
 
-        ProjectText.Text = $"Project: {projectName}";
+        ProjectText.Text = $"📁 Project: {projectName}";
         PreviewText.Text = previewText;
         PathBox.Text = defaultFileName;
 

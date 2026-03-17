@@ -1,410 +1,400 @@
-﻿flow,work,device,api,in,out
-Diverter#1,Diverter#1,Diverter Cylinder,up,X10A0,Y10B0
-Diverter#1,Diverter#1,Diverter Cylinder,down,X10A1,Y10B1
-Diverter#1,Diverter#1,Pallet Detect,detect,X10A2,
-Diverter#1,Diverter#1,Pallet Move Check,detect,X10A3,
-Diverter#1,Diverter#1,Pallet Move Check#2,detect,X10A4,
-Diverter#1,Diverter#1,Power Moller Err Sig,detect,X10A5,
-Slider Conveyor,Slider Conveyor,Slide Conveyor Cylinder,fwd,X10A8,Y10B8
-Slider Conveyor,Slider Conveyor,Slide Conveyor Cylinder,bwd,X10A9,Y10B9
-Slider Conveyor,Slider Conveyor,BWD Detect,,X10AA,
-제품투입,제품투입,Pallet Up Cylinder,up,X10C0,Y10D0
-제품투입,제품투입,Pallet Down Cylinder,down,X10C1,Y10D1
-제품투입,제품투입,Product Lock Cylinder,lock,X10C2,Y10D2
-제품투입,제품투입,Product Unlock Cylinder,unlock,X10C3,Y10D3
-제품투입,제품투입,Pallet Detect,detect,X10C8,
-제품투입,제품투입,LD Detect,detect,X10C9,
-제품투입,제품투입,RD Detect,detect,X10CA,
-BCR Zone,BCR Zone,Pallet Cyliner,up,X10E0,Y10F0
-BCR Zone,BCR Zone,Pallet Cyliner,down,X10E1,Y10F1
-BCR Zone,BCR Zone,Product Cylinder,lock,X10E2,Y10F2
-BCR Zone,BCR Zone,Product Cylinder ,unlock,X10E3,Y10F3
-BCR Zone,BCR Zone,Pallet Detect,detect,X10E8,
-BCR Zone,BCR Zone,LD Detect,detect,X10E9,
-BCR Zone,BCR Zone,RD Detect ,detect,X10EA,
-BCR Zone,BCR Zone,Ionizer Busy Run/Stop State sig.,,X10ED,
-BCR Zone,BCR Zone,Ionizer Alarm Sig.,,X10EE,
-BCR Zone,BCR Zone,Ionizer Tip Clean Timer Alarm Sig.,,X10EF,
-LD Sold`#1,LD Sold`#1,Pallet Cylinder,up,X1100,Y1110
-LD Sold`#1,LD Sold`#1,Pallet Cylinder ,down,X1101,Y1111
-LD Sold`#1,LD Sold`#1,Clamp Cylinder#1,up,X1102,Y1112
-LD Sold`#1,LD Sold`#1,Clamp Cylinder#1,down,X1103,Y1113
-LD Sold`#1,LD Sold`#1,Clamp Cylinder#2,up,X1104,
-LD Sold`#1,LD Sold`#1,Clamp Cylinder#2,down,X1105,
-LD Sold`#1,LD Sold`#1,Pallet Detect ,detect,X1108,
-LD Sold`#1,LD Sold`#1,LD Detect #1,Detect #1,X1109,
-LD Sold`#1,LD Sold`#1,LD Detect #2,Detect #2,X110A,
-LD Solder,LD Solder,Door#1 Lock Detect,lock,X110C,Y111C
-LD Solder,LD Solder,Door#2 Lock Detect,lock,X110D,Y111D
-LD Solder,LD Solder,Door#3 Lock Detect,lock,X110E,Y111E
-LD Solder,LD Solder,Door#4 Lock Detect,lock,X110F,Y111F
-LD Sold`#2,LD Sold`#2,Pallet Cylinder ,up,X1120,Y1130
-LD Sold`#2,LD Sold`#2,Pallet Cylinder ,down,X1121,Y1131
-LD Sold`#2,LD Sold`#2,Clamp Cylinder#1 ,up,X1122,Y1132
-LD Sold`#2,LD Sold`#2,Clamp Cylinder#1 ,down,X1123,Y1133
-LD Sold`#2,LD Sold`#2,Pallet Detect Sensor,detect,X1128,
-LD Sold`#2,LD Sold`#2,LD Detect Sensor#1,Sensor#1,X1129,
-LD Sold`#2,LD Sold`#2,LD Detect Sensor#2,Sensor#2,X112A,
-Turn Zone#1,Turn Zone#1,Pallet Cylinder#1,up,X1140,Y1150
-Turn Zone#1,Turn Zone#1,Pallet Cylinder#1,down,X1141,Y1151
-Turn Zone#1,Turn Zone#1,Pallet Cylinder ,turn,X1144,Y1154
-Turn Zone#1,Turn Zone#1,Pallet Cylinder ,return,X1145,Y1155
-TurnZone,TurnZone,Pallet Detect,up,X1148,
-TurnZone,TurnZone,Door#1 Lock Detect,lock,X114C,
-TurnZone,TurnZone,Door#2 Lock Detect,lock,X114D,
-RD Sold`#1,RD Sold`#1,Pallet Cylinder ,up,X1160,
-RD Sold`#1,RD Sold`#1,Pallet Cylinder,down,X1161,
-RD Sold`#1,RD Sold`#1,Clamp Cylinder#1,up,X1162,
-RD Sold`#1,RD Sold`#1,Clamp Cylinder#1 ,down,X1163,
-RD Sold`#1,RD Sold`#1,Pallet Detect Sensor,detect,X1168,
-RD Sold`#1,RD Sold`#1,RD Detect Sensor#1,,X1169,
-RD Sold`#1,RD Sold`#1,RD Detect Sensor#2,,X116A,
-RD Solder,RD Solder,Door#1 Lock Det,lock,X116C,
-RD Solder,RD Solder,Door#2 Lock Det,lock,X116D,
-RD Solder,RD Solder,Door#3 Lock Det,lock,X116E,
-RD Solder,RD Solder,Door#4 Lock Det,lock,X116F,
-RD Sold`#2,RD Sold`#2,Pallet Cylinder ,up,X1180,
-RD Sold`#2,RD Sold`#2,Pallet Cylinder,down,X1181,
-RD Sold`#2,RD Sold`#2,Clamp Cylinder#1,up,X1182,
-RD Sold`#2,RD Sold`#2,Clamp Cylinder#1 ,down,X1183,
-RD Sold`#2,RD Sold`#2,Pallet Detect,detect,X1188,
-RD Sold`#2,RD Sold`#2,RD Detect Sensor#1,,X1189,
-RD Sold`#2,RD Sold`#2,RD Detect Sensor#2,,X118A,
-Diverter#2,Diverter#2,Diverter Cylinder,up,X11A0,
-Diverter#2,Diverter#2,Diverter Cylinder,down,X11A1,
-Diverter#2,Diverter#2,Pallet Detect,detect,X11A2,
-Diverter#2,Diverter#2,Pallet Move Check,detect,X11A3,
-Diverter#2,Diverter#2,Power Moller Err Sig,detect,X11A5,
-CoolZone#1,CoolZone#1,Pallet Detect,detect,X11A8,
-CoolZone#2,CoolZone#2,Pallet Detect,detect,X11AC,
-Check Zone#1,Check Zone#1,Pallet Up Cylinder,up,X11C0,Y11D0
-Check Zone#1,Check Zone#1,Pallet Down Cylinder,down,X11C1,Y11D1
-Check Zone#1,Check Zone#1,Product Lock Cylinder,lock,X11C2,Y11D2
-Check Zone#1,Check Zone#1,Product Unlock Cylinder,unlock,X11C3,Y11D3
-Check Zone#1,Check Zone#1,EMO Stop S/W,Stop S/W,X11C7,
-Check Zone#1,Check Zone#1,Pallet Detect,detect,X11C8,
-Check Zone#1,Check Zone#1,LD Detect,Detect,X11C9,
-Check Zone#1,Check Zone#1,RD Detect,Detect,X11CA,
-Diverter#3,Diverter#3,Diverter Cylinder,up,X11E0,Y11F0
-Diverter#3,Diverter#3,Diverter Cylinder,down,X11E1,Y11F1
-Diverter#3,Diverter#3,Pallet Detect ,detect,X11E2,Y11F2
-Diverter#3,Diverter#3,Pallet Move Check ,,X11E3,
-Diverter#3,Diverter#3,Pallet Move Check#2 ,,X11E4,
-Diverter#3,Diverter#3,Power Moller Err Sig,,X11E5,
-Turn Zone#2,Turn Zone#2,Pallet Up#1,up,X11E8,Y11F8
-Turn Zone#2,Turn Zone#2,Pallet Down#1,down,X11E9,Y11F9
-Turn Zone#2,Turn Zone#2,Pallet Up#2,up,X11EA,
-Turn Zone#2,Turn Zone#2,Pallet Down#2,down,X11EB,
-Turn Zone#2,Turn Zone#2,Pallet Turn,turn,X11EC,Y11FC
-Turn Zone#2,Turn Zone#2,Pallet Return,return,X11ED,Y11FD
-Turn Zone#2,Turn Zone#2,Pallet Detect,detect,X11EE,Y11FE
-Turn Zone#2,Turn Zone#2,Door Close Detect,Detect,X11EF,
-NG Zone,NG Zone,Pallet Up,up,X1220,Y1230
-NG Zone,NG Zone,Pallet Down,down,X1221,Y1231
-NG Zone,NG Zone,Product Lock Detect,lock,X1222,Y1232
-NG Zone,NG Zone,Product Unlock Detect,unlock,X1223,Y1233
-NG Zone,NG Zone,Door Lock Detect,lock,X1226,Y1236
-NG Zone,NG Zone,Pallet Detect,detect,X1227,
-NG Conveyor,NG Conveyor,Pitch Sensor#1,,X122A,
-NG Conveyor,NG Conveyor,Pitch Sensor#2,,X122B,
-NG Conveyor,NG Conveyor,Pitch Sensor#3,,X122C,
-NG Conveyor,NG Conveyor,Pitch Sensor#4,,X122D,
-NG Conveyor,NG Conveyor,Pitch Sensor#5,,X122E,
-NG Conveyor,NG Conveyor,Pitch Sensor#6,,X122F,
-NG Zone Transfer,NG Zone Transfer,LD Up,up,X1240,Y1250
-NG Zone Transfer,NG Zone Transfer,LD Down,down,X1241,Y1251
-NG Zone Transfer,NG Zone Transfer,RD Up,up,X1242,Y1252
-NG Zone Transfer,NG Zone Transfer,RD Down,down,X1243,Y1253
-NG Zone Transfer,NG Zone Transfer,FWD,fwd,X1244,Y1254
-NG Zone Transfer,NG Zone Transfer,BWD,bwd,X1245,Y1255
-NG Zone,NG Zone,LD Grip#1,grip,X1246,Y1256
-NG Zone,NG Zone,LD Ungrip#1,ungrip,X1247,Y1257
-NG Zone,NG Zone,LD Grip#2,grip,X1248,
-NG Zone,NG Zone,LD Ungrip#2,ungrip,X1249,
-NG Zone,NG Zone,RD Grip#1,grip,X124A,
-NG Zone,NG Zone,RD Ungrip#1,ungrip,X124B,
-NG Zone,NG Zone,RD Grip#2,grip,X124C,
-NG Zone,NG Zone,RD Ungrip#2,ungrip,X124D,
-NG Zone BCR Transfer,NG Zone BCR Transfer,FWD,fwd,X124E,Y125E
-NG Zone BCR Transfer,NG Zone BCR Transfer,BWD,bwd,X124F,Y125F
-Diverter#4,Diverter#4,Diverter Up,up,X1260,Y1270
-Diverter#4,Diverter#4,Diverter Down,down,X1261,Y1271
-Diverter#4,Diverter#4,Pallet Detect,fwd,X1262,Y1272
-Diverter#4,Diverter#4,Pallet OutCheck,,X1263,
-Diverter#4,Diverter#4,PowerMoller Err Sig.,,X1265,
-Buffer Zone#2,Buffer Zone#2,Pallet Detect,detect,X1268,
-Output Zone,Output Zone,Pallet Up,up,X1280,Y1290
-Output Zone,Output Zone,Pallet Down,down,X1281,Y1291
-Output Zone,Output Zone,Product Lock,lock,X1282,Y1292
-Output Zone,Output Zone,Product Unlock,unlock,X1283,Y1293
-Output Zone,Output Zone,EMO Stop S/W,,X1284,
-Output Zone,Output Zone,Pallet Detect,up,X1285,Y1294
-Output Zone,Output Zone,LD Detect,,X1286,
-Output Zone,Output Zone,RD Detect,,X1287,
-Slider Conveyor,Slider Conveyor,Side#1 FWD Sens,fwd,X128C,Y129C
-Slider Conveyor,Slider Conveyor,Side#1 BWD Sens,bwd,X128D,Y129D
-Slider Conveyor,Slider Conveyor,Side#2 FWD Sens,fwd,X128E,
-Slider Conveyor,Slider Conveyor,Side#2 BWD Sens,bwd,X128F,
-AOI,AOI,Pallet UP Sensor,up,X12C0,Y12D0
-AOI,AOI,Pallet Down Sensor,down,X12C1,Y12D1
-AOI,AOI,Inspec Pallet Move Sen,,X12C4,
-AOI,AOI,LD Detect Sensor,,X12C5,
-AOI,AOI,RD Detect Sensor,,X12C6,
-AOI,AOI,Pallet#1 Detect Sensor,detect,X12C7,Y12D4
-AOI,AOI,Pallet#2 Detect Sensor,detect,X12C8,Y12D5
-Buffer Zone#1,Buffer Zone#1,Stopper Up/Down,,X12CA,Y12DA
-EOL→PLC,EOL→PLC,Reacive Busy,,X12CC,
-EOL→PLC,EOL→PLC,Reacive Complete,,X12CD,
-EOL→PLC,EOL→PLC,Send Ready Bit,,X12CE,
-AOI→PLC,AOI→PLC,Load Able,,X12E0,
-AOI→PLC,AOI→PLC,Unload Able,,X12E1,
-AOI→PLC,AOI→PLC,Failed Unload Available,,X12E2,
-AOI→PLC,AOI→PLC,PIO Initial,,X12E3,
-AOI→PLC,AOI→PLC,PRG#1,,X12E4,
-AOI→PLC,AOI→PLC,PRG#2,,X12E5,
-AOI→PLC,AOI→PLC,PRG#4,,X12E6,
-AOI→PLC,AOI→PLC,PRG#8,,X12E7,
-AOI→PLC,AOI→PLC,PRG#16,,X12EA,
-AOI→PLC,AOI→PLC,Total Alarm,,X12EB,
-AOI→PLC,AOI→PLC,Debug Mode,,X12EC,
-AOI→PLC,AOI→PLC,2nd POS Able,,X12ED,
-Diverter#1,Diverter#1,Pallet Detect,detect,,Y10B2
-Diverter#1,Diverter#1,PowerMoller ,Run A,,Y10B5
-Diverter#1,Diverter#1,PowerMoller Run B,Run B,,Y10B6
-Diverter#1,Diverter#1,PowerMoller Reverse,Reverse,,Y10B7
-제품투입 Zone,제품투입 Zone,Stopper Up/Down SOL,detect,,Y10D4
-BCR Zone,BCR Zone,Stopper Up/Down,detect,,Y10F4
-BCR Zone,BCR Zone,Ionizer CDA On/Off SOL,,,Y10FE
-BCR Zone,BCR Zone,Ionizer Run/Stop Sig,,,Y10FF
-LD Sold`#1,LD Sold`#1,Stopper Up/Down,detect,,Y1116
-LD Sold`#2,LD Sold`#2,Stopper Up/Down,detect,,Y1136
-LD Sold`#2,LD Sold`#2,Vac On/Off,on,,Y1137
-Turn Zone#1,Turn Zone#1,Pallet Cylinder#1,up,,Y1150
-Turn Zone#1,Turn Zone#1,Pallet Cylinder#1,down,,Y1151
-Turn Zone#1,Turn Zone#1,Stopper Up/Down,up,,Y1156
-TurnZone,TurnZone,Door#1 Lock/Unlock,lock,,Y115C
-TurnZone,TurnZone,Door#2 Lock/Unlock,lock,,Y115D
-RD Sold`#1,RD Sold`#1,Pallet Up SOL,up,,Y1170
-RD Sold`#1,RD Sold`#1,Pallet Down SOL,down,,Y1171
-RD Sold`#1,RD Sold`#1,Clamp Up SOL,up,,Y1172
-RD Sold`#1,RD Sold`#1,Clamp Down SOL,down,,Y1173
-RD Sold`#1,RD Sold`#1,Stopper Up/Down,detect,,Y1176
-RD Sold`#1,RD Sold`#1,Vac On/Off,on,,Y1177
-RD Sold`#1,RD Sold`#1,Exhaust On/Off,on,,Y1178
-RD Solder,RD Solder,Door#1 Lock/Unlock,lock,,Y117C
-RD Solder,RD Solder,Door#2 Lock/Unlock,lock,,Y117D
-RD Solder,RD Solder,Door#3 Lock/Unlock,lock,,Y117E
-RD Solder,RD Solder,Door#4 Lock/Unlock,lock,,Y117F
-RD Sold`#2,RD Sold`#2,Pallet Cylinder ,up,,Y1190
-RD Sold`#2,RD Sold`#2,Pallet Cylinder,down,,Y1191
-RD Sold`#2,RD Sold`#2,Clamp Cylinder#1,up,,Y1192
-RD Sold`#2,RD Sold`#2,Clamp Cylinder#1 ,down,,Y1193
-RD Sold`#2,RD Sold`#2,Stopper Up/Down,detect,,Y1196
-RD Sold`#2,RD Sold`#2,Vac On/Off,on,,Y1197
-Diverter#2,Diverter#2,Diverter Cylinder,up,,Y11B0
-Diverter#2,Diverter#2,Diverter Cylinder,down,,Y11B1
-Diverter#2,Diverter#2,Pallet Detect,detect,,Y11B2
-Diverter#2,Diverter#2,PowerMoller Run A,Run A,,Y11B5
-Diverter#2,Diverter#2,PowerMoller Run B,Run B,,Y11B6
-Diverter#2,Diverter#2,PowerMoller Reverse,Reverse,,Y11B7
-CoolZone#1,CoolZone#1,Pallet Stopper Up/Down,detect,,Y11B8
-CoolZone#1,CoolZone#1,Fan Power On/Off,on,,Y11BB
-CoolZone#2,CoolZone#2,Pallet Stopper Up/Down,detect,,Y11BC
-CoolZone#2,CoolZone#2,Fan Power On/Off,on,,Y11BF
-Check Zone#1,Check Zone#1,Stopper Up/Down,detect,,Y11D4
-Check Zone#1,Check Zone#1,Ionizer CDA On,cda,,Y11DB
-Check Zone#1,Check Zone#1,Ionizer Power,ionizer,,Y11DC
-Diverter#3,Diverter#3,PowerMoller Run A, Run A,,Y11F5
-Diverter#3,Diverter#3,PowerMoller Run B, Run B,,Y11F6
-Diverter#3,Diverter#3,PowerMoller Reverse,Reverse,,Y11F7
-NG Zone,NG Zone,Stopper Up/Down SOL,detect,,Y1234
-NG Zone,NG Zone,Door Lock/Unlock,lock,,Y1236
-NG C/V,NG C/V,Speed Control CW RUN,,,Y123D
-NG C/V,NG C/V,Speed Control CCW RUN,,,Y123E
-NG C/V,NG C/V,Speed Control Power,,,Y123F
-NG Zone Transfer,NG Zone Transfer,RD Grip,grip,,Y125A
-NG Zone Transfer,NG Zone Transfer,RD Ungrip,ungrip,,Y125B
-Diverter#4,Diverter#4,PowerMoller Run A,Run A,,Y1275
-Diverter#4,Diverter#4,PowerMoller Run B,Run B,,Y1276
-Diverter#4,Diverter#4,PowerMoller Reverse,Reverse,,Y1277
-Buffer Zone#2,Buffer Zone#2,Stopper Up/Down,detect,,Y1278
-PLC→EOL,PLC→EOL,Send Ready,,,Y12DC
-PLC→EOL,PLC→EOL,Receive Busy,,,Y12DE
-PLC→EOL,PLC→EOL,Receive Complete,,,Y12DF
-PLC→AOI,PLC→AOI,Load Complete,,,Y12F0
-PLC→AOI,PLC→AOI,Unload Complete,,,Y12F1
-PLC→AOI,PLC→AOI,Position Complete,,,Y12F2
-PLC→AOI,PLC→AOI,PIO Initial,,,Y12F3
-PLC→AOI,PLC→AOI,PRG#1,,,Y12F4
-PLC→AOI,PLC→AOI,PRG#2,,,Y12F5
-PLC→AOI,PLC→AOI,PRG#4,,,Y12F6
-PLC→AOI,PLC→AOI,PRG#8,,,Y12F7
-PLC→AOI,PLC→AOI,PRG#16,,,Y12FA
-PLC→AOI,PLC→AOI,PRG#32,,,Y12FB
-PLC→AOI,PLC→AOI,Total Error,,,Y12FC
-PLC→AOI,PLC→AOI,Board Able,,,Y12FD
-PLC → LD#1,PLC → LD#1,Home,,,Y13B0
-PLC → LD#1,PLC → LD#1,Start,,,Y13B1
-PLC → LD#1,PLC → LD#1,P_Stop,,,Y13B2
-PLC → LD#1,PLC → LD#1,ERR Reset,,,Y13B3
-PLC → LD#1,PLC → LD#1,ISC Reset,,,Y13B4
-PLC → LD#1,PLC → LD#1,Emergency Stop,,,Y13B5
-PLC → LD#1,PLC → LD#1,PROG 0 호출요구,,,Y13B8
-PLC → LD#1,PLC → LD#1,PROG 1 선택1,,,Y13B9
-PLC → LD#1,PLC → LD#1,PROG 2 선택2,,,Y13BA
-PLC → LD#1,PLC → LD#1,PROG 4 선택4,,,Y13BB
-PLC → LD#2,PLC → LD#2,Home,,,Y13D0
-PLC → LD#2,PLC → LD#2,Start,,,Y13D1
-PLC → LD#2,PLC → LD#2,P_Stop,,,Y13D2
-PLC → LD#2,PLC → LD#2,ERR Reset,,,Y13D3
-PLC → LD#2,PLC → LD#2,ISC Reset,,,Y13D4
-PLC → LD#2,PLC → LD#2,Emergency Stop,,,Y13D5
-PLC → LD#2,PLC → LD#2,PROG 0 호출요구,,,Y13D8
-PLC → LD#2,PLC → LD#2,PROG 1 선택1,,,Y13D9
-PLC → LD#2,PLC → LD#2,PROG 2 선택2,,,Y13DA
-PLC → LD#2,PLC → LD#2,PROG 4 선택4,,,Y13DB
-PLC → RD#1,PLC → RD#1,Home,,,Y13F0
-PLC → RD#1,PLC → RD#1,Start,,,Y13F1
-PLC → RD#1,PLC → RD#1,P_Stop,,,Y13F2
-PLC → RD#1,PLC → RD#1,ERR Reset,,,Y13F3
-PLC → RD#1,PLC → RD#1,ISC Reset,,,Y13F4
-PLC → RD#1,PLC → RD#1,Emergency Stop,,,Y13F5
-PLC → RD#1,PLC → RD#1,PROG 0 호출요구,,,Y13F8
-PLC → RD#1,PLC → RD#1,PROG 1 선택1,,,Y13F9
-PLC → RD#1,PLC → RD#1,PROG 2 선택2,,,Y13FA
-PLC → RD#1,PLC → RD#1,PROG 4 선택4,,,Y13FB
-PLC → RD#2,PLC → RD#2,Home,,,Y1410
-PLC → RD#2,PLC → RD#2,Start,,,Y1411
-PLC → RD#2,PLC → RD#2,P_Stop,,,Y1412
-PLC → RD#2,PLC → RD#2,ERR Reset,,,Y1413
-PLC → RD#2,PLC → RD#2,ISC Reset,,,Y1414
-PLC → RD#2,PLC → RD#2,Emergency Stop,,,Y1415
-PLC → RD#2,PLC → RD#2,PROG 0 호출요구,,,Y1418
-PLC → RD#2,PLC → RD#2,PROG 1 선택1,,,Y1419
-PLC → RD#2,PLC → RD#2,PROG 2 선택2,,,Y141A
-PLC → RD#2,PLC → RD#2,PROG 4 선택4,,,Y141B
-BCR Zone,BCR Zone,LD BCR Trigger,,,Y14F0
-BCR Zone,BCR Zone,RD BCR Trigger,,,Y14F1
-BCR Zone,BCR Zone,LD QR-1 Trigger,,,Y14F2
-BCR Zone,BCR Zone,LD QR-2 Trigger,,,Y14F3
-NG Zone,NG Zone,LD BCR Trigger,,,Y1510
-NG Zone,NG Zone,RD BCR Trigger,,,Y1511
-Conveyor#1 INV,Conveyor#1 INV,CW Run Command,,,Y1620
-Conveyor#1 INV,Conveyor#1 INV,CCW Run Command,,,Y1621
-Conveyor#1 INV,Conveyor#1 INV,TerminalS3 Func,,,Y1622
-Conveyor#1 INV,Conveyor#1 INV,Error Reset,,,Y1623
-Conveyor#1 INV,Conveyor#1 INV,TerminalS5 Func,,,Y1624
-Conveyor#1 INV,Conveyor#1 INV,TerminalS6 Func,,,Y1625
-Conveyor#1 INV,Conveyor#1 INV,TerminalS7 Func,,,Y1626
-Conveyor#1 INV,Conveyor#1 INV,Output STOP,,,Y1629
-Conveyor#1 INV,Conveyor#1 INV,External ERR Sig,,,Y162A
-Conveyor#1 INV,Conveyor#1 INV,RPM/Hz Change,,,Y162B
-Conveyor#1 INV,Conveyor#1 INV,Monitor Command,,,Y162C
-Conveyor#1 INV,Conveyor#1 INV,Freq(Hz) Set CMD,,,Y162D
-Conveyor#1 INV,Conveyor#1 INV,Hz Set Commnd-2,,,Y162E
-Conveyor#1 INV,Conveyor#1 INV,CmndCode Execute,,,Y162F
-Conveyor#1 INV,Conveyor#1 INV,TerminalS1 Func,,,Y1634
-Conveyor#1 INV,Conveyor#1 INV,TerminalS2 Func,,,Y1635
-Conveyor#1 INV,Conveyor#1 INV,Error Reset (CC),,,Y163A
-Conveyor#2 INV,Conveyor#2 INV,CW Run Command,,,Y1640
-Conveyor#2 INV,Conveyor#2 INV,CCW Run Command,,,Y1641
-Conveyor#2 INV,Conveyor#2 INV,TerminalS3 Func,,,Y1642
-Conveyor#2 INV,Conveyor#2 INV,Error Reset,,,Y1643
-Conveyor#2 INV,Conveyor#2 INV,TerminalS5 Func,,,Y1644
-Conveyor#2 INV,Conveyor#2 INV,TerminalS6 Func,,,Y1645
-Conveyor#2 INV,Conveyor#2 INV,TerminalS7 Func,,,Y1646
-Conveyor#2 INV,Conveyor#2 INV,Output STOP,,,Y1649
-Conveyor#2 INV,Conveyor#2 INV,External ERR Sig,,,Y164A
-Conveyor#2 INV,Conveyor#2 INV,RPM/Hz Change,,,Y164B
-Conveyor#2 INV,Conveyor#2 INV,Monitor Command,,,Y164C
-Conveyor#2 INV,Conveyor#2 INV,Freq(Hz) Set CMD,,,Y164D
-Conveyor#2 INV,Conveyor#2 INV,Hz Set Commnd-2,,,Y164E
-Conveyor#2 INV,Conveyor#2 INV,CmndCode Execute,,,Y164F
-Conveyor#2 INV,Conveyor#2 INV,TerminalS1 Func,,,Y1654
-Conveyor#2 INV,Conveyor#2 INV,TerminalS2 Func,,,Y1655
-Conveyor#2 INV,Conveyor#2 INV,Error Reset (CC),,,Y165A
-Conveyor#3 INV,Conveyor#3 INV,CW Run Command,,,Y1660
-Conveyor#3 INV,Conveyor#3 INV,CCW Run Command,,,Y1661
-Conveyor#3 INV,Conveyor#3 INV,TerminalS3 Func,,,Y1662
-Conveyor#3 INV,Conveyor#3 INV,Error Reset,,,Y1663
-Conveyor#3 INV,Conveyor#3 INV,TerminalS5 Func,,,Y1664
-Conveyor#3 INV,Conveyor#3 INV,TerminalS6 Func,,,Y1665
-Conveyor#3 INV,Conveyor#3 INV,TerminalS7 Func,,,Y1666
-Conveyor#3 INV,Conveyor#3 INV,Output STOP,,,Y1669
-Conveyor#3 INV,Conveyor#3 INV,External ERR Sig,,,Y166A
-Conveyor#3 INV,Conveyor#3 INV,RPM/Hz Change,,,Y166B
-Conveyor#3 INV,Conveyor#3 INV,Monitor Command,,,Y166C
-Conveyor#3 INV,Conveyor#3 INV,Freq(Hz) Set CMD,,,Y166D
-Conveyor#3 INV,Conveyor#3 INV,Hz Set Commnd-2,,,Y166E
-Conveyor#3 INV,Conveyor#3 INV,CmndCode Execute,,,Y166F
-Conveyor#3 INV,Conveyor#3 INV,TerminalS1 Func,,,Y1674
-Conveyor#3 INV,Conveyor#3 INV,TerminalS2 Func,,,Y1675
-Conveyor#3 INV,Conveyor#3 INV,Error Reset (CC),,,Y167A
-Conveyor#4 INV,Conveyor#4 INV,CW Run Command,,,Y1680
-Conveyor#4 INV,Conveyor#4 INV,CCW Run Command,,,Y1681
-Conveyor#4 INV,Conveyor#4 INV,TerminalS3 Func,,,Y1682
-Conveyor#4 INV,Conveyor#4 INV,Error Reset,,,Y1683
-Conveyor#4 INV,Conveyor#4 INV,TerminalS5 Func,,,Y1684
-Conveyor#4 INV,Conveyor#4 INV,TerminalS6 Func,,,Y1685
-Conveyor#4 INV,Conveyor#4 INV,TerminalS7 Func,,,Y1686
-Conveyor#4 INV,Conveyor#4 INV,Output STOP,,,Y1689
-Conveyor#4 INV,Conveyor#4 INV,External ERR Sig,,,Y168A
-Conveyor#4 INV,Conveyor#4 INV,RPM/Hz Change,,,Y168B
-Conveyor#4 INV,Conveyor#4 INV,Monitor Command,,,Y168C
-Conveyor#4 INV,Conveyor#4 INV,Freq(Hz) Set CMD,,,Y168D
-Conveyor#4 INV,Conveyor#4 INV,Hz Set Commnd-2,,,Y168E
-Conveyor#4 INV,Conveyor#4 INV,CmndCode Execute,,,Y168F
-Conveyor#4 INV,Conveyor#4 INV,TerminalS1 Func,,,Y1694
-Conveyor#4 INV,Conveyor#4 INV,TerminalS2 Func,,,Y1695
-Conveyor#4 INV,Conveyor#4 INV,Error Reset (CC),,,Y169A
-Conveyor#5 INV,Conveyor#5 INV,CW Run Command,,,Y16A0
-Conveyor#5 INV,Conveyor#5 INV,CCW Run Command,,,Y16A1
-Conveyor#5 INV,Conveyor#5 INV,TerminalS3 Func,,,Y16A2
-Conveyor#5 INV,Conveyor#5 INV,Error Reset,,,Y16A3
-Conveyor#5 INV,Conveyor#5 INV,TerminalS5 Func,,,Y16A4
-Conveyor#5 INV,Conveyor#5 INV,TerminalS6 Func,,,Y16A5
-Conveyor#5 INV,Conveyor#5 INV,TerminalS7 Func,,,Y16A6
-Conveyor#5 INV,Conveyor#5 INV,Output STOP,,,Y16A9
-Conveyor#5 INV,Conveyor#5 INV,External ERR Sig,,,Y16AA
-Conveyor#5 INV,Conveyor#5 INV,RPM/Hz Change,,,Y16AB
-Conveyor#5 INV,Conveyor#5 INV,Monitor Command,,,Y16AC
-Conveyor#5 INV,Conveyor#5 INV,Freq(Hz) Set CMD,,,Y16AD
-Conveyor#5 INV,Conveyor#5 INV,Hz Set Commnd-2,,,Y16AE
-Conveyor#5 INV,Conveyor#5 INV,CmndCode Execute,,,Y16AF
-Conveyor#5 INV,Conveyor#5 INV,TerminalS1 Func,,,Y16B4
-Conveyor#5 INV,Conveyor#5 INV,TerminalS2 Func,,,Y16B5
-Conveyor#5 INV,Conveyor#5 INV,Error Reset (CC),,,Y16BA
-Conveyor#6 INV,Conveyor#6 INV,CW Run Command,,,Y16C0
-Conveyor#6 INV,Conveyor#6 INV,CCW Run Command,,,Y16C1
-Conveyor#6 INV,Conveyor#6 INV,TerminalS3 Func,,,Y16C2
-Conveyor#6 INV,Conveyor#6 INV,Error Reset,,,Y16C3
-Conveyor#6 INV,Conveyor#6 INV,TerminalS5 Func,,,Y16C4
-Conveyor#6 INV,Conveyor#6 INV,TerminalS6 Func,,,Y16C5
-Conveyor#6 INV,Conveyor#6 INV,TerminalS7 Func,,,Y16C6
-Conveyor#6 INV,Conveyor#6 INV,Output STOP,,,Y16C9
-Conveyor#6 INV,Conveyor#6 INV,External ERR Sig,,,Y16CA
-Conveyor#6 INV,Conveyor#6 INV,RPM/Hz Change,,,Y16CB
-Conveyor#6 INV,Conveyor#6 INV,Monitor Command,,,Y16CC
-Conveyor#6 INV,Conveyor#6 INV,Freq(Hz) Set CMD,,,Y16CD
-Conveyor#6 INV,Conveyor#6 INV,Hz Set Commnd-2,,,Y16CE
-Conveyor#6 INV,Conveyor#6 INV,CmndCode Execute,,,Y16CF
-Conveyor#6 INV,Conveyor#6 INV,TerminalS1 Func,,,Y16D4
-Conveyor#6 INV,Conveyor#6 INV,TerminalS2 Func,,,Y16D5
-Conveyor#6 INV,Conveyor#6 INV,Error Reset (CC),,,Y16DA
-Slide C/V INV,Slide C/V INV,CW Run Command,,,Y16E0
-Slide C/V INV,Slide C/V INV,CCW Run Command,,,Y16E1
-Slide C/V INV,Slide C/V INV,TerminalS3 Func,,,Y16E2
-Slide C/V INV,Slide C/V INV,Error Reset,,,Y16E3
-Slide C/V INV,Slide C/V INV,TerminalS5 Func,,,Y16E4
-Slide C/V INV,Slide C/V INV,TerminalS6 Func,,,Y16E5
-Slide C/V INV,Slide C/V INV,TerminalS7 Func,,,Y16E6
-Slide C/V INV,Slide C/V INV,Output STOP,,,Y16E9
-Slide C/V INV,Slide C/V INV,External ERR Sig,,,Y16EA
-Slide C/V INV,Slide C/V INV,RPM/Hz Change,,,Y16EB
-Slide C/V INV,Slide C/V INV,Monitor Command,,,Y16EC
-Slide C/V INV,Slide C/V INV,Freq(Hz) Set CMD,,,Y16ED
-Slide C/V INV,Slide C/V INV,Hz Set Commnd-2,,,Y16EE
-Slide C/V INV,Slide C/V INV,CmndCode Execute,,,Y16EF
-Slide C/V INV,Slide C/V INV,TerminalS1 Func,,,Y16F4
-Slide C/V INV,Slide C/V INV,TerminalS2 Func,,,Y16F5
-Slide C/V INV,Slide C/V INV,Error Reset (CC),,,Y16FA
+﻿Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress
+Diverter#1,Diverter#1,Diverter Cylinder,up,PLC 실제코멘트,X10A0,PLC 실제코멘트,Y10B0
+Diverter#1,Diverter#1,Diverter Cylinder,down,,X10A1,,Y10B1
+Diverter#1,Diverter#1,Pallet Detect,detect,,X10A2,,Y10B2
+Diverter#1,Diverter#1,Pallet Move Check,detect,,X10A3,,
+Diverter#1,Diverter#1,Pallet Move Check#2,detect,,X10A4,,
+Diverter#1,Diverter#1,Power Moller Err Sig,detect,,X10A5,,
+Diverter#1,Diverter#1,PowerMoller,Run A,,,,Y10B5
+Diverter#1,Diverter#1,PowerMoller Run B,Run B,,,,Y10B6
+Diverter#1,Diverter#1,PowerMoller Reverse,Reverse,,,,Y10B7
+Slider Conveyor,Slider Conveyor,Slide Conveyor Cylinder,fwd,,X10A8,,Y10B8
+Slider Conveyor,Slider Conveyor,Slide Conveyor Cylinder,bwd,,X10A9,,Y10B9
+Slider Conveyor,Slider Conveyor,BWD Detect,Signal_X10AA,,X10AA,,
+Slider Conveyor,Slider Conveyor,Side#1 FWD Sens,fwd,,X128C,,Y129C
+Slider Conveyor,Slider Conveyor,Side#1 BWD Sens,bwd,,X128D,,Y129D
+Slider Conveyor,Slider Conveyor,Side#2 FWD Sens,fwd,,X128E,,
+Slider Conveyor,Slider Conveyor,Side#2 BWD Sens,bwd,,X128F,,
+제품투입,제품투입,Pallet Up Cylinder,up,,X10C0,,Y10D0
+제품투입,제품투입,Pallet Down Cylinder,down,,X10C1,,Y10D1
+제품투입,제품투입,Product Lock Cylinder,lock,,X10C2,,Y10D2
+제품투입,제품투입,Product Unlock Cylinder,unlock,,X10C3,,Y10D3
+제품투입,제품투입,Pallet Detect,detect,,X10C8,,
+제품투입,제품투입,LD Detect,detect,,X10C9,,
+제품투입,제품투입,RD Detect,detect,,X10CA,,
+BCR Zone,BCR Zone,Pallet Cyliner,up,,X10E0,,Y10F0
+BCR Zone,BCR Zone,Pallet Cyliner,down,,X10E1,,Y10F1
+BCR Zone,BCR Zone,Product Cylinder,lock,,X10E2,,Y10F2
+BCR Zone,BCR Zone,Product Cylinder,unlock,,X10E3,,Y10F3
+BCR Zone,BCR Zone,Pallet Detect,detect,,X10E8,,
+BCR Zone,BCR Zone,LD Detect,detect,,X10E9,,
+BCR Zone,BCR Zone,RD Detect,detect,,X10EA,,
+BCR Zone,BCR Zone,Ionizer Busy Run/Stop State sig_,Signal_X10ED,,X10ED,,
+BCR Zone,BCR Zone,Ionizer Alarm Sig_,Signal_X10EE,,X10EE,,
+BCR Zone,BCR Zone,Ionizer Tip Clean Timer Alarm Sig_,Signal_X10EF,,X10EF,,
+BCR Zone,BCR Zone,Stopper Up/Down,detect,,,,Y10F4
+BCR Zone,BCR Zone,Ionizer CDA On/Off SOL,Signal_Y10FE,,,,Y10FE
+BCR Zone,BCR Zone,Ionizer Run/Stop Sig,Signal_Y10FF,,,,Y10FF
+BCR Zone,BCR Zone,LD BCR Trigger,Signal_Y14F0,,,,Y14F0
+BCR Zone,BCR Zone,RD BCR Trigger,Signal_Y14F1,,,,Y14F1
+BCR Zone,BCR Zone,LD QR-1 Trigger,Signal_Y14F2,,,,Y14F2
+BCR Zone,BCR Zone,LD QR-2 Trigger,Signal_Y14F3,,,,Y14F3
+LD Sold`#1,LD Sold`#1,Pallet Cylinder,up,,X1100,,Y1110
+LD Sold`#1,LD Sold`#1,Pallet Cylinder,down,,X1101,,Y1111
+LD Sold`#1,LD Sold`#1,Clamp Cylinder#1,up,,X1102,,Y1112
+LD Sold`#1,LD Sold`#1,Clamp Cylinder#1,down,,X1103,,Y1113
+LD Sold`#1,LD Sold`#1,Clamp Cylinder#2,up,,X1104,,
+LD Sold`#1,LD Sold`#1,Clamp Cylinder#2,down,,X1105,,
+LD Sold`#1,LD Sold`#1,Pallet Detect,detect,,X1108,,
+LD Sold`#1,LD Sold`#1,LD Detect #1,Detect #1,,X1109,,
+LD Sold`#1,LD Sold`#1,LD Detect #2,Detect #2,,X110A,,
+LD Sold`#1,LD Sold`#1,Stopper Up/Down,detect,,,,Y1116
+LD Solder,LD Solder,Door#1 Lock Detect,lock,,X110C,,Y111C
+LD Solder,LD Solder,Door#2 Lock Detect,lock,,X110D,,Y111D
+LD Solder,LD Solder,Door#3 Lock Detect,lock,,X110E,,Y111E
+LD Solder,LD Solder,Door#4 Lock Detect,lock,,X110F,,Y111F
+LD Sold`#2,LD Sold`#2,Pallet Cylinder,up,,X1120,,Y1130
+LD Sold`#2,LD Sold`#2,Pallet Cylinder,down,,X1121,,Y1131
+LD Sold`#2,LD Sold`#2,Clamp Cylinder#1,up,,X1122,,Y1132
+LD Sold`#2,LD Sold`#2,Clamp Cylinder#1,down,,X1123,,Y1133
+LD Sold`#2,LD Sold`#2,Pallet Detect Sensor,detect,,X1128,,
+LD Sold`#2,LD Sold`#2,LD Detect Sensor#1,Sensor#1,,X1129,,
+LD Sold`#2,LD Sold`#2,LD Detect Sensor#2,Sensor#2,,X112A,,
+LD Sold`#2,LD Sold`#2,Stopper Up/Down,detect,,,,Y1136
+LD Sold`#2,LD Sold`#2,Vac On/Off,on,,,,Y1137
+Turn Zone#1,Turn Zone#1,Pallet Cylinder#1,up,,X1140,,Y1150
+Turn Zone#1,Turn Zone#1,Pallet Cylinder#1,down,,X1141,,Y1151
+Turn Zone#1,Turn Zone#1,Pallet Cylinder,turn,,X1144,,Y1154
+Turn Zone#1,Turn Zone#1,Pallet Cylinder,return,,X1145,,Y1155
+Turn Zone#1,Turn Zone#1,Stopper Up/Down,up,,,,Y1156
+TurnZone,TurnZone,Pallet Detect,up,,X1148,,
+TurnZone,TurnZone,Door#1 Lock Detect,lock,,X114C,,
+TurnZone,TurnZone,Door#2 Lock Detect,lock,,X114D,,
+TurnZone,TurnZone,Door#1 Lock/Unlock,lock,,,,Y115C
+TurnZone,TurnZone,Door#2 Lock/Unlock,lock,,,,Y115D
+RD Sold`#1,RD Sold`#1,Pallet Cylinder,up,,X1160,,
+RD Sold`#1,RD Sold`#1,Pallet Cylinder,down,,X1161,,
+RD Sold`#1,RD Sold`#1,Clamp Cylinder#1,up,,X1162,,
+RD Sold`#1,RD Sold`#1,Clamp Cylinder#1,down,,X1163,,
+RD Sold`#1,RD Sold`#1,Pallet Detect Sensor,detect,,X1168,,
+RD Sold`#1,RD Sold`#1,RD Detect Sensor#1,Signal_X1169,,X1169,,
+RD Sold`#1,RD Sold`#1,RD Detect Sensor#2,Signal_X116A,,X116A,,
+RD Sold`#1,RD Sold`#1,Pallet Up SOL,up,,,,Y1170
+RD Sold`#1,RD Sold`#1,Pallet Down SOL,down,,,,Y1171
+RD Sold`#1,RD Sold`#1,Clamp Up SOL,up,,,,Y1172
+RD Sold`#1,RD Sold`#1,Clamp Down SOL,down,,,,Y1173
+RD Sold`#1,RD Sold`#1,Stopper Up/Down,detect,,,,Y1176
+RD Sold`#1,RD Sold`#1,Vac On/Off,on,,,,Y1177
+RD Sold`#1,RD Sold`#1,Exhaust On/Off,on,,,,Y1178
+RD Solder,RD Solder,Door#1 Lock Det,lock,,X116C,,
+RD Solder,RD Solder,Door#2 Lock Det,lock,,X116D,,
+RD Solder,RD Solder,Door#3 Lock Det,lock,,X116E,,
+RD Solder,RD Solder,Door#4 Lock Det,lock,,X116F,,
+RD Solder,RD Solder,Door#1 Lock/Unlock,lock,,,,Y117C
+RD Solder,RD Solder,Door#2 Lock/Unlock,lock,,,,Y117D
+RD Solder,RD Solder,Door#3 Lock/Unlock,lock,,,,Y117E
+RD Solder,RD Solder,Door#4 Lock/Unlock,lock,,,,Y117F
+RD Sold`#2,RD Sold`#2,Pallet Cylinder,up,,X1180,,Y1190
+RD Sold`#2,RD Sold`#2,Pallet Cylinder,down,,X1181,,Y1191
+RD Sold`#2,RD Sold`#2,Clamp Cylinder#1,up,,X1182,,Y1192
+RD Sold`#2,RD Sold`#2,Clamp Cylinder#1,down,,X1183,,Y1193
+RD Sold`#2,RD Sold`#2,Pallet Detect,detect,,X1188,,
+RD Sold`#2,RD Sold`#2,RD Detect Sensor#1,Signal_X1189,,X1189,,
+RD Sold`#2,RD Sold`#2,RD Detect Sensor#2,Signal_X118A,,X118A,,
+RD Sold`#2,RD Sold`#2,Stopper Up/Down,detect,,,,Y1196
+RD Sold`#2,RD Sold`#2,Vac On/Off,on,,,,Y1197
+Diverter#2,Diverter#2,Diverter Cylinder,up,,X11A0,,Y11B0
+Diverter#2,Diverter#2,Diverter Cylinder,down,,X11A1,,Y11B1
+Diverter#2,Diverter#2,Pallet Detect,detect,,X11A2,,Y11B2
+Diverter#2,Diverter#2,Pallet Move Check,detect,,X11A3,,
+Diverter#2,Diverter#2,Power Moller Err Sig,detect,,X11A5,,
+Diverter#2,Diverter#2,PowerMoller Run A,Run A,,,,Y11B5
+Diverter#2,Diverter#2,PowerMoller Run B,Run B,,,,Y11B6
+Diverter#2,Diverter#2,PowerMoller Reverse,Reverse,,,,Y11B7
+CoolZone#1,CoolZone#1,Pallet Detect,detect,,X11A8,,
+CoolZone#1,CoolZone#1,Pallet Stopper Up/Down,detect,,,,Y11B8
+CoolZone#1,CoolZone#1,Fan Power On/Off,on,,,,Y11BB
+CoolZone#2,CoolZone#2,Pallet Detect,detect,,X11AC,,
+CoolZone#2,CoolZone#2,Pallet Stopper Up/Down,detect,,,,Y11BC
+CoolZone#2,CoolZone#2,Fan Power On/Off,on,,,,Y11BF
+Check Zone#1,Check Zone#1,Pallet Up Cylinder,up,,X11C0,,Y11D0
+Check Zone#1,Check Zone#1,Pallet Down Cylinder,down,,X11C1,,Y11D1
+Check Zone#1,Check Zone#1,Product Lock Cylinder,lock,,X11C2,,Y11D2
+Check Zone#1,Check Zone#1,Product Unlock Cylinder,unlock,,X11C3,,Y11D3
+Check Zone#1,Check Zone#1,EMO Stop S/W,Stop S/W,,X11C7,,
+Check Zone#1,Check Zone#1,Pallet Detect,detect,,X11C8,,
+Check Zone#1,Check Zone#1,LD Detect,Detect,,X11C9,,
+Check Zone#1,Check Zone#1,RD Detect,Detect,,X11CA,,
+Check Zone#1,Check Zone#1,Stopper Up/Down,detect,,,,Y11D4
+Check Zone#1,Check Zone#1,Ionizer CDA On,cda,,,,Y11DB
+Check Zone#1,Check Zone#1,Ionizer Power,ionizer,,,,Y11DC
+Diverter#3,Diverter#3,Diverter Cylinder,up,,X11E0,,Y11F0
+Diverter#3,Diverter#3,Diverter Cylinder,down,,X11E1,,Y11F1
+Diverter#3,Diverter#3,Pallet Detect,detect,,X11E2,,Y11F2
+Diverter#3,Diverter#3,Pallet Move Check,Signal_X11E3,,X11E3,,
+Diverter#3,Diverter#3,Pallet Move Check#2,Signal_X11E4,,X11E4,,
+Diverter#3,Diverter#3,Power Moller Err Sig,Signal_X11E5,,X11E5,,
+Diverter#3,Diverter#3,PowerMoller Run A,Run A,,,,Y11F5
+Diverter#3,Diverter#3,PowerMoller Run B,Run B,,,,Y11F6
+Diverter#3,Diverter#3,PowerMoller Reverse,Reverse,,,,Y11F7
+Turn Zone#2,Turn Zone#2,Pallet Up#1,up,,X11E8,,Y11F8
+Turn Zone#2,Turn Zone#2,Pallet Down#1,down,,X11E9,,Y11F9
+Turn Zone#2,Turn Zone#2,Pallet Up#2,up,,X11EA,,
+Turn Zone#2,Turn Zone#2,Pallet Down#2,down,,X11EB,,
+Turn Zone#2,Turn Zone#2,Pallet Turn,turn,,X11EC,,Y11FC
+Turn Zone#2,Turn Zone#2,Pallet Return,return,,X11ED,,Y11FD
+Turn Zone#2,Turn Zone#2,Pallet Detect,detect,,X11EE,,Y11FE
+Turn Zone#2,Turn Zone#2,Door Close Detect,Detect,,X11EF,,
+NG Zone,NG Zone,Pallet Up,up,,X1220,,Y1230
+NG Zone,NG Zone,Pallet Down,down,,X1221,,Y1231
+NG Zone,NG Zone,Product Lock Detect,lock,,X1222,,Y1232
+NG Zone,NG Zone,Product Unlock Detect,unlock,,X1223,,Y1233
+NG Zone,NG Zone,Door Lock Detect,lock,,X1226,,Y1236
+NG Zone,NG Zone,Pallet Detect,detect,,X1227,,
+NG Zone,NG Zone,LD Grip#1,grip,,X1246,,Y1256
+NG Zone,NG Zone,LD Ungrip#1,ungrip,,X1247,,Y1257
+NG Zone,NG Zone,LD Grip#2,grip,,X1248,,
+NG Zone,NG Zone,LD Ungrip#2,ungrip,,X1249,,
+NG Zone,NG Zone,RD Grip#1,grip,,X124A,,
+NG Zone,NG Zone,RD Ungrip#1,ungrip,,X124B,,
+NG Zone,NG Zone,RD Grip#2,grip,,X124C,,
+NG Zone,NG Zone,RD Ungrip#2,ungrip,,X124D,,
+NG Zone,NG Zone,Stopper Up/Down SOL,detect,,,,Y1234
+NG Zone,NG Zone,Door Lock/Unlock,lock,,,,Y1236
+NG Zone,NG Zone,LD BCR Trigger,Signal_Y1510,,,,Y1510
+NG Zone,NG Zone,RD BCR Trigger,Signal_Y1511,,,,Y1511
+NG Conveyor,NG Conveyor,Pitch Sensor#1,Signal_X122A,,X122A,,
+NG Conveyor,NG Conveyor,Pitch Sensor#2,Signal_X122B,,X122B,,
+NG Conveyor,NG Conveyor,Pitch Sensor#3,Signal_X122C,,X122C,,
+NG Conveyor,NG Conveyor,Pitch Sensor#4,Signal_X122D,,X122D,,
+NG Conveyor,NG Conveyor,Pitch Sensor#5,Signal_X122E,,X122E,,
+NG Conveyor,NG Conveyor,Pitch Sensor#6,Signal_X122F,,X122F,,
+NG Zone Transfer,NG Zone Transfer,LD Up,up,,X1240,,Y1250
+NG Zone Transfer,NG Zone Transfer,LD Down,down,,X1241,,Y1251
+NG Zone Transfer,NG Zone Transfer,RD Up,up,,X1242,,Y1252
+NG Zone Transfer,NG Zone Transfer,RD Down,down,,X1243,,Y1253
+NG Zone Transfer,NG Zone Transfer,FWD,fwd,,X1244,,Y1254
+NG Zone Transfer,NG Zone Transfer,BWD,bwd,,X1245,,Y1255
+NG Zone Transfer,NG Zone Transfer,RD Grip,grip,,,,Y125A
+NG Zone Transfer,NG Zone Transfer,RD Ungrip,ungrip,,,,Y125B
+NG Zone BCR Transfer,NG Zone BCR Transfer,FWD,fwd,,X124E,,Y125E
+NG Zone BCR Transfer,NG Zone BCR Transfer,BWD,bwd,,X124F,,Y125F
+Diverter#4,Diverter#4,Diverter Up,up,,X1260,,Y1270
+Diverter#4,Diverter#4,Diverter Down,down,,X1261,,Y1271
+Diverter#4,Diverter#4,Pallet Detect,fwd,,X1262,,Y1272
+Diverter#4,Diverter#4,Pallet OutCheck,Signal_X1263,,X1263,,
+Diverter#4,Diverter#4,PowerMoller Err Sig_,Signal_X1265,,X1265,,
+Diverter#4,Diverter#4,PowerMoller Run A,Run A,,,,Y1275
+Diverter#4,Diverter#4,PowerMoller Run B,Run B,,,,Y1276
+Diverter#4,Diverter#4,PowerMoller Reverse,Reverse,,,,Y1277
+Buffer Zone#2,Buffer Zone#2,Pallet Detect,detect,,X1268,,
+Buffer Zone#2,Buffer Zone#2,Stopper Up/Down,detect,,,,Y1278
+Output Zone,Output Zone,Pallet Up,up,,X1280,,Y1290
+Output Zone,Output Zone,Pallet Down,down,,X1281,,Y1291
+Output Zone,Output Zone,Product Lock,lock,,X1282,,Y1292
+Output Zone,Output Zone,Product Unlock,unlock,,X1283,,Y1293
+Output Zone,Output Zone,EMO Stop S/W,Signal_X1284,,X1284,,
+Output Zone,Output Zone,Pallet Detect,up,,X1285,,Y1294
+Output Zone,Output Zone,LD Detect,Signal_X1286,,X1286,,
+Output Zone,Output Zone,RD Detect,Signal_X1287,,X1287,,
+AOI,AOI,Pallet UP Sensor,up,,X12C0,,Y12D0
+AOI,AOI,Pallet Down Sensor,down,,X12C1,,Y12D1
+AOI,AOI,Inspec Pallet Move Sen,Signal_X12C4,,X12C4,,
+AOI,AOI,LD Detect Sensor,Signal_X12C5,,X12C5,,
+AOI,AOI,RD Detect Sensor,Signal_X12C6,,X12C6,,
+AOI,AOI,Pallet#1 Detect Sensor,detect,,X12C7,,Y12D4
+AOI,AOI,Pallet#2 Detect Sensor,detect,,X12C8,,Y12D5
+Buffer Zone#1,Buffer Zone#1,Stopper Up/Down,Signal_Y12DA,,X12CA,,Y12DA
+EOL→PLC,EOL→PLC,Reacive Busy,Signal_X12CC,,X12CC,,
+EOL→PLC,EOL→PLC,Reacive Complete,Signal_X12CD,,X12CD,,
+EOL→PLC,EOL→PLC,Send Ready Bit,Signal_X12CE,,X12CE,,
+AOI→PLC,AOI→PLC,Load Able,Signal_X12E0,,X12E0,,
+AOI→PLC,AOI→PLC,Unload Able,Signal_X12E1,,X12E1,,
+AOI→PLC,AOI→PLC,Failed Unload Available,Signal_X12E2,,X12E2,,
+AOI→PLC,AOI→PLC,PIO Initial,Signal_X12E3,,X12E3,,
+AOI→PLC,AOI→PLC,PRG#1,Signal_X12E4,,X12E4,,
+AOI→PLC,AOI→PLC,PRG#2,Signal_X12E5,,X12E5,,
+AOI→PLC,AOI→PLC,PRG#4,Signal_X12E6,,X12E6,,
+AOI→PLC,AOI→PLC,PRG#8,Signal_X12E7,,X12E7,,
+AOI→PLC,AOI→PLC,PRG#16,Signal_X12EA,,X12EA,,
+AOI→PLC,AOI→PLC,Total Alarm,Signal_X12EB,,X12EB,,
+AOI→PLC,AOI→PLC,Debug Mode,Signal_X12EC,,X12EC,,
+AOI→PLC,AOI→PLC,2nd POS Able,Signal_X12ED,,X12ED,,
+제품투입 Zone,제품투입 Zone,Stopper Up/Down SOL,detect,,,,Y10D4
+NG C/V,NG C/V,Speed Control CW RUN,Signal_Y123D,,,,Y123D
+NG C/V,NG C/V,Speed Control CCW RUN,Signal_Y123E,,,,Y123E
+NG C/V,NG C/V,Speed Control Power,Signal_Y123F,,,,Y123F
+PLC→EOL,PLC→EOL,Send Ready,Signal_Y12DC,,,,Y12DC
+PLC→EOL,PLC→EOL,Receive Busy,Signal_Y12DE,,,,Y12DE
+PLC→EOL,PLC→EOL,Receive Complete,Signal_Y12DF,,,,Y12DF
+PLC→AOI,PLC→AOI,Load Complete,Signal_Y12F0,,,,Y12F0
+PLC→AOI,PLC→AOI,Unload Complete,Signal_Y12F1,,,,Y12F1
+PLC→AOI,PLC→AOI,Position Complete,Signal_Y12F2,,,,Y12F2
+PLC→AOI,PLC→AOI,PIO Initial,Signal_Y12F3,,,,Y12F3
+PLC→AOI,PLC→AOI,PRG#1,Signal_Y12F4,,,,Y12F4
+PLC→AOI,PLC→AOI,PRG#2,Signal_Y12F5,,,,Y12F5
+PLC→AOI,PLC→AOI,PRG#4,Signal_Y12F6,,,,Y12F6
+PLC→AOI,PLC→AOI,PRG#8,Signal_Y12F7,,,,Y12F7
+PLC→AOI,PLC→AOI,PRG#16,Signal_Y12FA,,,,Y12FA
+PLC→AOI,PLC→AOI,PRG#32,Signal_Y12FB,,,,Y12FB
+PLC→AOI,PLC→AOI,Total Error,Signal_Y12FC,,,,Y12FC
+PLC→AOI,PLC→AOI,Board Able,Signal_Y12FD,,,,Y12FD
+PLC → LD#1,PLC → LD#1,Home,Signal_Y13B0,,,,Y13B0
+PLC → LD#1,PLC → LD#1,Start,Signal_Y13B1,,,,Y13B1
+PLC → LD#1,PLC → LD#1,P_Stop,Signal_Y13B2,,,,Y13B2
+PLC → LD#1,PLC → LD#1,ERR Reset,Signal_Y13B3,,,,Y13B3
+PLC → LD#1,PLC → LD#1,ISC Reset,Signal_Y13B4,,,,Y13B4
+PLC → LD#1,PLC → LD#1,Emergency Stop,Signal_Y13B5,,,,Y13B5
+PLC → LD#1,PLC → LD#1,PROG 0 호출요구,Signal_Y13B8,,,,Y13B8
+PLC → LD#1,PLC → LD#1,PROG 1 선택1,Signal_Y13B9,,,,Y13B9
+PLC → LD#1,PLC → LD#1,PROG 2 선택2,Signal_Y13BA,,,,Y13BA
+PLC → LD#1,PLC → LD#1,PROG 4 선택4,Signal_Y13BB,,,,Y13BB
+PLC → LD#2,PLC → LD#2,Home,Signal_Y13D0,,,,Y13D0
+PLC → LD#2,PLC → LD#2,Start,Signal_Y13D1,,,,Y13D1
+PLC → LD#2,PLC → LD#2,P_Stop,Signal_Y13D2,,,,Y13D2
+PLC → LD#2,PLC → LD#2,ERR Reset,Signal_Y13D3,,,,Y13D3
+PLC → LD#2,PLC → LD#2,ISC Reset,Signal_Y13D4,,,,Y13D4
+PLC → LD#2,PLC → LD#2,Emergency Stop,Signal_Y13D5,,,,Y13D5
+PLC → LD#2,PLC → LD#2,PROG 0 호출요구,Signal_Y13D8,,,,Y13D8
+PLC → LD#2,PLC → LD#2,PROG 1 선택1,Signal_Y13D9,,,,Y13D9
+PLC → LD#2,PLC → LD#2,PROG 2 선택2,Signal_Y13DA,,,,Y13DA
+PLC → LD#2,PLC → LD#2,PROG 4 선택4,Signal_Y13DB,,,,Y13DB
+PLC → RD#1,PLC → RD#1,Home,Signal_Y13F0,,,,Y13F0
+PLC → RD#1,PLC → RD#1,Start,Signal_Y13F1,,,,Y13F1
+PLC → RD#1,PLC → RD#1,P_Stop,Signal_Y13F2,,,,Y13F2
+PLC → RD#1,PLC → RD#1,ERR Reset,Signal_Y13F3,,,,Y13F3
+PLC → RD#1,PLC → RD#1,ISC Reset,Signal_Y13F4,,,,Y13F4
+PLC → RD#1,PLC → RD#1,Emergency Stop,Signal_Y13F5,,,,Y13F5
+PLC → RD#1,PLC → RD#1,PROG 0 호출요구,Signal_Y13F8,,,,Y13F8
+PLC → RD#1,PLC → RD#1,PROG 1 선택1,Signal_Y13F9,,,,Y13F9
+PLC → RD#1,PLC → RD#1,PROG 2 선택2,Signal_Y13FA,,,,Y13FA
+PLC → RD#1,PLC → RD#1,PROG 4 선택4,Signal_Y13FB,,,,Y13FB
+PLC → RD#2,PLC → RD#2,Home,Signal_Y1410,,,,Y1410
+PLC → RD#2,PLC → RD#2,Start,Signal_Y1411,,,,Y1411
+PLC → RD#2,PLC → RD#2,P_Stop,Signal_Y1412,,,,Y1412
+PLC → RD#2,PLC → RD#2,ERR Reset,Signal_Y1413,,,,Y1413
+PLC → RD#2,PLC → RD#2,ISC Reset,Signal_Y1414,,,,Y1414
+PLC → RD#2,PLC → RD#2,Emergency Stop,Signal_Y1415,,,,Y1415
+PLC → RD#2,PLC → RD#2,PROG 0 호출요구,Signal_Y1418,,,,Y1418
+PLC → RD#2,PLC → RD#2,PROG 1 선택1,Signal_Y1419,,,,Y1419
+PLC → RD#2,PLC → RD#2,PROG 2 선택2,Signal_Y141A,,,,Y141A
+PLC → RD#2,PLC → RD#2,PROG 4 선택4,Signal_Y141B,,,,Y141B
+Conveyor#1 INV,Conveyor#1 INV,CW Run Command,Signal_Y1620,,,,Y1620
+Conveyor#1 INV,Conveyor#1 INV,CCW Run Command,Signal_Y1621,,,,Y1621
+Conveyor#1 INV,Conveyor#1 INV,TerminalS3 Func,Signal_Y1622,,,,Y1622
+Conveyor#1 INV,Conveyor#1 INV,Error Reset,Signal_Y1623,,,,Y1623
+Conveyor#1 INV,Conveyor#1 INV,TerminalS5 Func,Signal_Y1624,,,,Y1624
+Conveyor#1 INV,Conveyor#1 INV,TerminalS6 Func,Signal_Y1625,,,,Y1625
+Conveyor#1 INV,Conveyor#1 INV,TerminalS7 Func,Signal_Y1626,,,,Y1626
+Conveyor#1 INV,Conveyor#1 INV,Output STOP,Signal_Y1629,,,,Y1629
+Conveyor#1 INV,Conveyor#1 INV,External ERR Sig,Signal_Y162A,,,,Y162A
+Conveyor#1 INV,Conveyor#1 INV,RPM/Hz Change,Signal_Y162B,,,,Y162B
+Conveyor#1 INV,Conveyor#1 INV,Monitor Command,Signal_Y162C,,,,Y162C
+Conveyor#1 INV,Conveyor#1 INV,Freq(Hz) Set CMD,Signal_Y162D,,,,Y162D
+Conveyor#1 INV,Conveyor#1 INV,Hz Set Commnd-2,Signal_Y162E,,,,Y162E
+Conveyor#1 INV,Conveyor#1 INV,CmndCode Execute,Signal_Y162F,,,,Y162F
+Conveyor#1 INV,Conveyor#1 INV,TerminalS1 Func,Signal_Y1634,,,,Y1634
+Conveyor#1 INV,Conveyor#1 INV,TerminalS2 Func,Signal_Y1635,,,,Y1635
+Conveyor#1 INV,Conveyor#1 INV,Error Reset (CC),Signal_Y163A,,,,Y163A
+Conveyor#2 INV,Conveyor#2 INV,CW Run Command,Signal_Y1640,,,,Y1640
+Conveyor#2 INV,Conveyor#2 INV,CCW Run Command,Signal_Y1641,,,,Y1641
+Conveyor#2 INV,Conveyor#2 INV,TerminalS3 Func,Signal_Y1642,,,,Y1642
+Conveyor#2 INV,Conveyor#2 INV,Error Reset,Signal_Y1643,,,,Y1643
+Conveyor#2 INV,Conveyor#2 INV,TerminalS5 Func,Signal_Y1644,,,,Y1644
+Conveyor#2 INV,Conveyor#2 INV,TerminalS6 Func,Signal_Y1645,,,,Y1645
+Conveyor#2 INV,Conveyor#2 INV,TerminalS7 Func,Signal_Y1646,,,,Y1646
+Conveyor#2 INV,Conveyor#2 INV,Output STOP,Signal_Y1649,,,,Y1649
+Conveyor#2 INV,Conveyor#2 INV,External ERR Sig,Signal_Y164A,,,,Y164A
+Conveyor#2 INV,Conveyor#2 INV,RPM/Hz Change,Signal_Y164B,,,,Y164B
+Conveyor#2 INV,Conveyor#2 INV,Monitor Command,Signal_Y164C,,,,Y164C
+Conveyor#2 INV,Conveyor#2 INV,Freq(Hz) Set CMD,Signal_Y164D,,,,Y164D
+Conveyor#2 INV,Conveyor#2 INV,Hz Set Commnd-2,Signal_Y164E,,,,Y164E
+Conveyor#2 INV,Conveyor#2 INV,CmndCode Execute,Signal_Y164F,,,,Y164F
+Conveyor#2 INV,Conveyor#2 INV,TerminalS1 Func,Signal_Y1654,,,,Y1654
+Conveyor#2 INV,Conveyor#2 INV,TerminalS2 Func,Signal_Y1655,,,,Y1655
+Conveyor#2 INV,Conveyor#2 INV,Error Reset (CC),Signal_Y165A,,,,Y165A
+Conveyor#3 INV,Conveyor#3 INV,CW Run Command,Signal_Y1660,,,,Y1660
+Conveyor#3 INV,Conveyor#3 INV,CCW Run Command,Signal_Y1661,,,,Y1661
+Conveyor#3 INV,Conveyor#3 INV,TerminalS3 Func,Signal_Y1662,,,,Y1662
+Conveyor#3 INV,Conveyor#3 INV,Error Reset,Signal_Y1663,,,,Y1663
+Conveyor#3 INV,Conveyor#3 INV,TerminalS5 Func,Signal_Y1664,,,,Y1664
+Conveyor#3 INV,Conveyor#3 INV,TerminalS6 Func,Signal_Y1665,,,,Y1665
+Conveyor#3 INV,Conveyor#3 INV,TerminalS7 Func,Signal_Y1666,,,,Y1666
+Conveyor#3 INV,Conveyor#3 INV,Output STOP,Signal_Y1669,,,,Y1669
+Conveyor#3 INV,Conveyor#3 INV,External ERR Sig,Signal_Y166A,,,,Y166A
+Conveyor#3 INV,Conveyor#3 INV,RPM/Hz Change,Signal_Y166B,,,,Y166B
+Conveyor#3 INV,Conveyor#3 INV,Monitor Command,Signal_Y166C,,,,Y166C
+Conveyor#3 INV,Conveyor#3 INV,Freq(Hz) Set CMD,Signal_Y166D,,,,Y166D
+Conveyor#3 INV,Conveyor#3 INV,Hz Set Commnd-2,Signal_Y166E,,,,Y166E
+Conveyor#3 INV,Conveyor#3 INV,CmndCode Execute,Signal_Y166F,,,,Y166F
+Conveyor#3 INV,Conveyor#3 INV,TerminalS1 Func,Signal_Y1674,,,,Y1674
+Conveyor#3 INV,Conveyor#3 INV,TerminalS2 Func,Signal_Y1675,,,,Y1675
+Conveyor#3 INV,Conveyor#3 INV,Error Reset (CC),Signal_Y167A,,,,Y167A
+Conveyor#4 INV,Conveyor#4 INV,CW Run Command,Signal_Y1680,,,,Y1680
+Conveyor#4 INV,Conveyor#4 INV,CCW Run Command,Signal_Y1681,,,,Y1681
+Conveyor#4 INV,Conveyor#4 INV,TerminalS3 Func,Signal_Y1682,,,,Y1682
+Conveyor#4 INV,Conveyor#4 INV,Error Reset,Signal_Y1683,,,,Y1683
+Conveyor#4 INV,Conveyor#4 INV,TerminalS5 Func,Signal_Y1684,,,,Y1684
+Conveyor#4 INV,Conveyor#4 INV,TerminalS6 Func,Signal_Y1685,,,,Y1685
+Conveyor#4 INV,Conveyor#4 INV,TerminalS7 Func,Signal_Y1686,,,,Y1686
+Conveyor#4 INV,Conveyor#4 INV,Output STOP,Signal_Y1689,,,,Y1689
+Conveyor#4 INV,Conveyor#4 INV,External ERR Sig,Signal_Y168A,,,,Y168A
+Conveyor#4 INV,Conveyor#4 INV,RPM/Hz Change,Signal_Y168B,,,,Y168B
+Conveyor#4 INV,Conveyor#4 INV,Monitor Command,Signal_Y168C,,,,Y168C
+Conveyor#4 INV,Conveyor#4 INV,Freq(Hz) Set CMD,Signal_Y168D,,,,Y168D
+Conveyor#4 INV,Conveyor#4 INV,Hz Set Commnd-2,Signal_Y168E,,,,Y168E
+Conveyor#4 INV,Conveyor#4 INV,CmndCode Execute,Signal_Y168F,,,,Y168F
+Conveyor#4 INV,Conveyor#4 INV,TerminalS1 Func,Signal_Y1694,,,,Y1694
+Conveyor#4 INV,Conveyor#4 INV,TerminalS2 Func,Signal_Y1695,,,,Y1695
+Conveyor#4 INV,Conveyor#4 INV,Error Reset (CC),Signal_Y169A,,,,Y169A
+Conveyor#5 INV,Conveyor#5 INV,CW Run Command,Signal_Y16A0,,,,Y16A0
+Conveyor#5 INV,Conveyor#5 INV,CCW Run Command,Signal_Y16A1,,,,Y16A1
+Conveyor#5 INV,Conveyor#5 INV,TerminalS3 Func,Signal_Y16A2,,,,Y16A2
+Conveyor#5 INV,Conveyor#5 INV,Error Reset,Signal_Y16A3,,,,Y16A3
+Conveyor#5 INV,Conveyor#5 INV,TerminalS5 Func,Signal_Y16A4,,,,Y16A4
+Conveyor#5 INV,Conveyor#5 INV,TerminalS6 Func,Signal_Y16A5,,,,Y16A5
+Conveyor#5 INV,Conveyor#5 INV,TerminalS7 Func,Signal_Y16A6,,,,Y16A6
+Conveyor#5 INV,Conveyor#5 INV,Output STOP,Signal_Y16A9,,,,Y16A9
+Conveyor#5 INV,Conveyor#5 INV,External ERR Sig,Signal_Y16AA,,,,Y16AA
+Conveyor#5 INV,Conveyor#5 INV,RPM/Hz Change,Signal_Y16AB,,,,Y16AB
+Conveyor#5 INV,Conveyor#5 INV,Monitor Command,Signal_Y16AC,,,,Y16AC
+Conveyor#5 INV,Conveyor#5 INV,Freq(Hz) Set CMD,Signal_Y16AD,,,,Y16AD
+Conveyor#5 INV,Conveyor#5 INV,Hz Set Commnd-2,Signal_Y16AE,,,,Y16AE
+Conveyor#5 INV,Conveyor#5 INV,CmndCode Execute,Signal_Y16AF,,,,Y16AF
+Conveyor#5 INV,Conveyor#5 INV,TerminalS1 Func,Signal_Y16B4,,,,Y16B4
+Conveyor#5 INV,Conveyor#5 INV,TerminalS2 Func,Signal_Y16B5,,,,Y16B5
+Conveyor#5 INV,Conveyor#5 INV,Error Reset (CC),Signal_Y16BA,,,,Y16BA
+Conveyor#6 INV,Conveyor#6 INV,CW Run Command,Signal_Y16C0,,,,Y16C0
+Conveyor#6 INV,Conveyor#6 INV,CCW Run Command,Signal_Y16C1,,,,Y16C1
+Conveyor#6 INV,Conveyor#6 INV,TerminalS3 Func,Signal_Y16C2,,,,Y16C2
+Conveyor#6 INV,Conveyor#6 INV,Error Reset,Signal_Y16C3,,,,Y16C3
+Conveyor#6 INV,Conveyor#6 INV,TerminalS5 Func,Signal_Y16C4,,,,Y16C4
+Conveyor#6 INV,Conveyor#6 INV,TerminalS6 Func,Signal_Y16C5,,,,Y16C5
+Conveyor#6 INV,Conveyor#6 INV,TerminalS7 Func,Signal_Y16C6,,,,Y16C6
+Conveyor#6 INV,Conveyor#6 INV,Output STOP,Signal_Y16C9,,,,Y16C9
+Conveyor#6 INV,Conveyor#6 INV,External ERR Sig,Signal_Y16CA,,,,Y16CA
+Conveyor#6 INV,Conveyor#6 INV,RPM/Hz Change,Signal_Y16CB,,,,Y16CB
+Conveyor#6 INV,Conveyor#6 INV,Monitor Command,Signal_Y16CC,,,,Y16CC
+Conveyor#6 INV,Conveyor#6 INV,Freq(Hz) Set CMD,Signal_Y16CD,,,,Y16CD
+Conveyor#6 INV,Conveyor#6 INV,Hz Set Commnd-2,Signal_Y16CE,,,,Y16CE
+Conveyor#6 INV,Conveyor#6 INV,CmndCode Execute,Signal_Y16CF,,,,Y16CF
+Conveyor#6 INV,Conveyor#6 INV,TerminalS1 Func,Signal_Y16D4,,,,Y16D4
+Conveyor#6 INV,Conveyor#6 INV,TerminalS2 Func,Signal_Y16D5,,,,Y16D5
+Conveyor#6 INV,Conveyor#6 INV,Error Reset (CC),Signal_Y16DA,,,,Y16DA
+Slide C/V INV,Slide C/V INV,CW Run Command,Signal_Y16E0,,,,Y16E0
+Slide C/V INV,Slide C/V INV,CCW Run Command,Signal_Y16E1,,,,Y16E1
+Slide C/V INV,Slide C/V INV,TerminalS3 Func,Signal_Y16E2,,,,Y16E2
+Slide C/V INV,Slide C/V INV,Error Reset,Signal_Y16E3,,,,Y16E3
+Slide C/V INV,Slide C/V INV,TerminalS5 Func,Signal_Y16E4,,,,Y16E4
+Slide C/V INV,Slide C/V INV,TerminalS6 Func,Signal_Y16E5,,,,Y16E5
+Slide C/V INV,Slide C/V INV,TerminalS7 Func,Signal_Y16E6,,,,Y16E6
+Slide C/V INV,Slide C/V INV,Output STOP,Signal_Y16E9,,,,Y16E9
+Slide C/V INV,Slide C/V INV,External ERR Sig,Signal_Y16EA,,,,Y16EA
+Slide C/V INV,Slide C/V INV,RPM/Hz Change,Signal_Y16EB,,,,Y16EB
+Slide C/V INV,Slide C/V INV,Monitor Command,Signal_Y16EC,,,,Y16EC
+Slide C/V INV,Slide C/V INV,Freq(Hz) Set CMD,Signal_Y16ED,,,,Y16ED
+Slide C/V INV,Slide C/V INV,Hz Set Commnd-2,Signal_Y16EE,,,,Y16EE
+Slide C/V INV,Slide C/V INV,CmndCode Execute,Signal_Y16EF,,,,Y16EF
+Slide C/V INV,Slide C/V INV,TerminalS1 Func,Signal_Y16F4,,,,Y16F4
+Slide C/V INV,Slide C/V INV,TerminalS2 Func,Signal_Y16F5,,,,Y16F5
+Slide C/V INV,Slide C/V INV,Error Reset (CC),Signal_Y16FA,,,,Y16FA

@@ -12,6 +12,18 @@ using Microsoft.Win32;
 
 namespace Promaker.Dialogs;
 
+public class CsvRowViewModel
+{
+    public string FlowName { get; set; } = "";
+    public string WorkName { get; set; } = "";
+    public string DeviceName { get; set; } = "";
+    public string ApiName { get; set; } = "";
+    public string InName { get; set; } = "";
+    public string InAddress { get; set; } = "";
+    public string OutName { get; set; } = "";
+    public string OutAddress { get; set; } = "";
+}
+
 public partial class CsvImportDialog : Window
 {
     private const string DefaultImportedName = "csv_import";
@@ -62,16 +74,45 @@ public partial class CsvImportDialog : Window
 
     private void UpdatePreview(CsvImportPreview preview)
     {
-        var sb = new StringBuilder()
-            .AppendLine($"Flow {preview.FlowNames.Length}개")
-            .AppendLine($"Work {preview.WorkNames.Length}개")
-            .AppendLine($"Call {preview.CallNames.Length}개")
-            .AppendLine($"Passive Device System {preview.PassiveSystemNames.Length}개");
+        // Update DataGrid
+        if (_document != null)
+        {
+            var rows = _document.Entries.Take(100).Select(entry => new CsvRowViewModel
+            {
+                FlowName = entry.FlowName,
+                WorkName = entry.WorkName,
+                DeviceName = entry.DeviceName,
+                ApiName = entry.ApiName,
+                InName = FSharpOption<string>.get_IsSome(entry.InName) ? entry.InName.Value : "",
+                InAddress = FSharpOption<string>.get_IsSome(entry.InAddress) ? entry.InAddress.Value : "",
+                OutName = FSharpOption<string>.get_IsSome(entry.OutName) ? entry.OutName.Value : "",
+                OutAddress = FSharpOption<string>.get_IsSome(entry.OutAddress) ? entry.OutAddress.Value : ""
+            }).ToList();
 
-        AppendSample(sb, "Flow 예시", preview.FlowNames, 6);
-        AppendSample(sb, "Work 예시", preview.WorkNames, 6);
-        AppendSample(sb, "Call 예시", preview.CallNames, 6);
-        AppendSample(sb, "Passive 예시", preview.PassiveSystemNames, 4);
+            PreviewGrid.ItemsSource = rows;
+        }
+        else
+        {
+            PreviewGrid.ItemsSource = null;
+        }
+
+        // Update summary text
+        var sb = new StringBuilder()
+            .AppendLine($"✓ Flow: {preview.FlowNames.Length}개")
+            .AppendLine($"✓ Work: {preview.WorkNames.Length}개")
+            .AppendLine($"✓ Call: {preview.CallNames.Length}개")
+            .AppendLine($"✓ Passive Device System: {preview.PassiveSystemNames.Length}개")
+            .AppendLine();
+
+        AppendSample(sb, "Flow 샘플", preview.FlowNames, 5);
+        AppendSample(sb, "Work 샘플", preview.WorkNames, 5);
+        AppendSample(sb, "Call 샘플", preview.CallNames, 5);
+
+        if (_document != null && _document.Entries.Length > 100)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"※ 총 {_document.Entries.Length}개 항목 중 100개만 미리보기에 표시됩니다.");
+        }
 
         PreviewText.Text = sb.ToString().TrimEnd();
         ErrorBorder.Visibility = Visibility.Collapsed;
@@ -79,13 +120,14 @@ public partial class CsvImportDialog : Window
             preview.SyntheticApiCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         WarningText.Text =
             preview.SyntheticApiCount > 0
-                ? $"api 열이 비어 있는 {preview.SyntheticApiCount}개 항목은 Signal_<addr> 형식으로 보정되어 passive device가 생성됩니다."
+                ? $"⚠ Api 열이 비어 있는 {preview.SyntheticApiCount}개 항목은 Signal_<addr> 형식으로 자동 생성됩니다."
                 : "";
     }
 
     private void ResetPreview(string message)
     {
         _document = null;
+        PreviewGrid.ItemsSource = null;
         PreviewText.Text = message;
         ErrorBorder.Visibility = Visibility.Collapsed;
         WarningBorder.Visibility = Visibility.Collapsed;
@@ -94,6 +136,7 @@ public partial class CsvImportDialog : Window
     private void ShowErrors(IEnumerable<string> errors)
     {
         _document = null;
+        PreviewGrid.ItemsSource = null;
         ErrorBorder.Visibility = Visibility.Visible;
         ErrorText.Text = string.Join("\n", errors);
         WarningBorder.Visibility = Visibility.Collapsed;
@@ -147,6 +190,43 @@ public partial class CsvImportDialog : Window
 
         document = result.ResultValue;
         return true;
+    }
+
+    private void SaveSample_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new SaveFileDialog
+        {
+            Filter = "CSV Files (*.csv)|*.csv",
+            DefaultExt = ".csv",
+            FileName = "sample.csv"
+        };
+
+        if (picker.ShowDialog() != true)
+            return;
+
+        try
+        {
+            var sampleCsv = @"Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress
+Cutting,Load,Cylinder,Up,입력신호,X10A0,출력신호,Y10B0
+Cutting,Load,Sensor,Detect,,X10A2,,
+Cutting,Load,Motor,Run,,X10A3,,Y10B3
+Cutting,Unload,Cylinder,Down,하강신호,X10B0,하강출력,Y10C0
+Cutting,Unload,Conveyor,Forward,,,,Y10C1
+Assembly,PartIn,Gripper,Grip,그립신호,X20A0,그립출력,Y20B0
+Assembly,PartIn,Gripper,Release,릴리즈신호,X20A1,릴리즈출력,Y20B1
+Assembly,PartIn,Sensor,Detect,,X20A2,,
+Assembly,Process,Press,Down,프레스하강,X20C0,프레스출력,Y20D0
+Assembly,Process,Press,Up,프레스상승,X20C1,프레스상승출력,Y20D1
+Assembly,PartOut,Ejector,Push,,X20E0,,Y20F0
+Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
+
+            File.WriteAllText(picker.FileName, sampleCsv, Encoding.UTF8);
+            MessageBox.Show(this, $"샘플 CSV 파일이 저장되었습니다.\n\n{picker.FileName}", "샘플 저장 완료", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"샘플 저장 실패: {ex.Message}", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void Browse_Click(object sender, RoutedEventArgs e)
