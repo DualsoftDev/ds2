@@ -46,7 +46,7 @@ block-beta
 
   block:UI
     columns 4
-    UITITLE["🖥️ Promaker (C#, WPF)"]:4
+    UITITLE["🖥️ Promaker\n(C# · WPF)"]:4
     MW["MainWindow"] EC["EditorCanvas"] VM["ViewModels"] DLG["Dialogs"]
   end
 
@@ -54,7 +54,7 @@ block-beta
 
   block:UICORE
     columns 4
-    UICORETITLE["⚙️ Ds2.UI.Core (F#) — 편집 코어"]:4
+    UICORETITLE["⚙️ Ds2.UI.Core\n(F# · 편집 코어)"]:4
     DS["DsStore\n13 Dictionaries\nUndo/Redo\nEvents & File I/O"]
     ST["Store Extensions\nNodes · Arrows\nPanel · Paste"]
     PJ["Projections\nTreeProjection\nCanvasProjection"]
@@ -65,7 +65,7 @@ block-beta
 
   block:CORE
     columns 4
-    CORETITLE["📦 Ds2.Core (F#) — 순수 도메인"]:4
+    CORETITLE["📦 Ds2.Core\n(F# · 순수 도메인)"]:4
     ENT["Entities\nProject · System\nFlow · Work · Call"]
     TYP["Types\nProperties\nEnum · Class"]
     VS["ValueSpec\nBool·Int·Float\nString·Range"]
@@ -74,6 +74,10 @@ block-beta
 
   UI --> UICORE
   UICORE --> CORE
+
+  style UITITLE fill:#4a90d9,color:#fff,stroke:#2c5f8a
+  style UICORETITLE fill:#7b68ee,color:#fff,stroke:#5a4db5
+  style CORETITLE fill:#6b8e23,color:#fff,stroke:#4a6319
 ```
 
 ### 레이어 의존 방향
