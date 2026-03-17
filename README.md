@@ -41,62 +41,57 @@ mindmap
 ### 전체 구조
 
 ```mermaid
-block-beta
-  columns 4
+%%{init: {'theme': 'base', 'flowchart': {'curve': 'linear'}}}%%
+flowchart TD
+  subgraph PM_Layer["🖥️ Promaker (C# · WPF)"]
+    direction LR
+    MW["MainWindow"] --- EC["EditorCanvas"] --- VM["ViewModels"] --- DLG["Dialogs"]
+  end
 
-  UITITLE["🖥️ Promaker (C# · WPF)"]:4
-  MW["MainWindow"] EC["EditorCanvas"] VM["ViewModels"] DLG["Dialogs"]
+  subgraph UIC_Layer["⚙️ Ds2.UI.Core (F# · 편집 코어)"]
+    direction LR
+    DS["DsStore\n13 Dict · Undo/Redo\nEvents · File I/O"] --- ST["Store Extensions\nNodes · Arrows\nPanel · Paste"] --- PJ["Projections\nTree · Canvas"] --- QR["Queries\nHierarchy · Selection\nConnection"]
+  end
 
-  space:4
+  subgraph CORE_Layer["📦 Ds2.Core (F# · 순수 도메인)"]
+    direction LR
+    ENT["Entities\nProject · System\nFlow · Work · Call"] --- TYP["Types\nProperties\nEnum · Class"] --- VS["ValueSpec\nBool · Int · Float\nString · Range"] --- SER["Serialization\nJsonConverter\nDeepCopyHelper"]
+  end
 
-  UICORETITLE["⚙️ Ds2.UI.Core (F# · 편집 코어)"]:4
-  DS["DsStore\n13 Dictionaries\nUndo/Redo\nEvents & File I/O"]
-  ST["Store Extensions\nNodes · Arrows\nPanel · Paste"]
-  PJ["Projections\nTreeProjection\nCanvasProjection"]
-  QR["Queries\nHierarchy\nSelection\nConnection"]
-
-  space:4
-
-  CORETITLE["📦 Ds2.Core (F# · 순수 도메인)"]:4
-  ENT["Entities\nProject · System\nFlow · Work · Call"]
-  TYP["Types\nProperties\nEnum · Class"]
-  VS["ValueSpec\nBool·Int·Float\nString·Range"]
-  SER["Serialization\nJsonConverter\nDeepCopyHelper"]
-
-  UITITLE --> UICORETITLE
-  UICORETITLE --> CORETITLE
+  PM_Layer --> UIC_Layer
+  UIC_Layer --> CORE_Layer
 ```
 
 ### 레이어 의존 방향
 
 ```mermaid
-graph LR
+%%{init: {'theme': 'base', 'flowchart': {'curve': 'linear', 'rankSpacing': 60}}}%%
+flowchart TB
   PM["<b>Promaker</b><br/>C#, WPF"]
+
+  subgraph CONV["변환 레이어 (Converters)"]
+    direction LR
+    AASX["<b>Ds2.Aasx</b><br/>AASX I/O"]
+    MER["<b>Ds2.Mermaid</b><br/>Mermaid 변환"]
+    CSV["<b>Ds2.CSV</b><br/>CSV I/O"]
+  end
+
   UIC["<b>Ds2.UI.Core</b><br/>F#, 편집 코어"]
   CORE["<b>Ds2.Core</b><br/>F#, 도메인"]
-  AASX["<b>Ds2.Aasx</b><br/>F#, AASX I/O"]
-  MER["<b>Ds2.Mermaid</b><br/>F#, Mermaid 변환"]
-  CSV["<b>Ds2.CSV</b><br/>F#, CSV I/O"]
 
   PM -->|편집 API| UIC
   PM -->|도메인 타입| CORE
-  PM --> AASX
-  PM --> MER
-  PM --> CSV
+  PM --> AASX & MER & CSV
+  AASX & MER & CSV --> UIC
+  AASX & MER & CSV --> CORE
   UIC --> CORE
-  AASX --> UIC
-  AASX --> CORE
-  MER --> UIC
-  MER --> CORE
-  CSV --> UIC
-  CSV --> CORE
 
-  style PM fill:#4a90d9,color:#fff,stroke:#2c5f8a
-  style UIC fill:#7b68ee,color:#fff,stroke:#5a4db5
+  style PM   fill:#4a90d9,color:#fff,stroke:#2c5f8a
+  style UIC  fill:#7b68ee,color:#fff,stroke:#5a4db5
   style CORE fill:#6b8e23,color:#fff,stroke:#4a6319
   style AASX fill:#cd853f,color:#fff,stroke:#8b5e2b
-  style MER fill:#cd853f,color:#fff,stroke:#8b5e2b
-  style CSV fill:#cd853f,color:#fff,stroke:#8b5e2b
+  style MER  fill:#cd853f,color:#fff,stroke:#8b5e2b
+  style CSV  fill:#cd853f,color:#fff,stroke:#8b5e2b
 ```
 
 > - 상위 레이어는 하위 레이어만 의존합니다
