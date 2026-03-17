@@ -139,6 +139,9 @@ public partial class MainViewModel : ObservableObject
         return DiscardChangesFlow.ShouldProceed(result, TrySaveFileDuringDiscardCheck);
     }
 
+    /// <summary>Window Closing 이벤트에서 호출</summary>
+    public bool ConfirmDiscardChangesPublic() => ConfirmDiscardChanges();
+
     private void UpdateTitle()
     {
         var dirty = IsDirty ? " *" : "";
