@@ -4,7 +4,8 @@
         xmlns:ctrl="clr-namespace:Promaker.Controls"
         Title="{Binding Title}" Width="1280" Height="800"
         Icon="pack://application:,,,/Assets/PromakerTemp.ico"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        Closing="Window_Closing">
 
     <Window.InputBindings>
         <KeyBinding Gesture="Ctrl+Z" Command="{Binding UndoCommand}"/>
