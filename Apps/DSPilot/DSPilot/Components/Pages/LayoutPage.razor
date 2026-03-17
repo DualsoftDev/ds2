@@ -1,20 +1,22 @@
 @page "/layout"
 @inject DsProjectService ProjectService
 @inject BlueprintService BlueprintService
+@inject DspDbService DbService
 @inject NavigationManager Nav
+@implements IDisposable
 
 <PageTitle>Layout - DSPilot</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-4" Style="font-weight: 600; color: #0A1E5A;">Layout</MudText>
-
 @if (!ProjectService.IsLoaded)
 {
+    <MudText Typo="Typo.h5" Class="mb-2" Style="font-weight: 600; color: #0A1E5A;">Layout</MudText>
     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
         No project loaded.
     </MudAlert>
 }
 else if (string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
 {
+    <MudText Typo="Typo.h5" Class="mb-2" Style="font-weight: 600; color: #0A1E5A;">Layout</MudText>
     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
         No blueprint image registered. Go to the
         <MudLink Href="/editor">Editor</MudLink> page to upload one.
@@ -22,69 +24,33 @@ else if (string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
 }
 else
 {
-    <MudPaper Elevation="2" Class="pa-0" Style="overflow: auto; border-radius: 8px; position: relative;">
-        <div style="position: relative;
-                    width: @(BlueprintService.Layout.CanvasWidth)px;
-                    height: @(BlueprintService.Layout.CanvasHeight)px;">
+    <div style="display: flex; flex-direction: column; height: calc(100vh - 80px); align-items: center;">
+        <FlowLayoutSvg Style="@($"height: calc(100vh - 120px); max-width: 100%; aspect-ratio: {_cw} / {_ch};")"
+                       CanvasWidth="_cw" CanvasHeight="_ch"
+                       ImagePath="@BlueprintService.Layout.BlueprintImagePath"
+                       ImageVersion="BlueprintService.ImageVersion"
+                       OffsetX="_ox" OffsetY="_oy" CellWidth="_cellW" CellHeight="_cellH"
+                       Placements="BlueprintService.Layout.FlowPlacements"
+                       GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
+                       GetSubtitle="@(fp => $"{fp.SystemName} ({GetWorkCount(fp.FlowId)} works)")"
+                       GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
+                       GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))" />
 
-            <img src="@BlueprintService.Layout.BlueprintImagePath"
-                 style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-                        object-fit: contain; opacity: 0.3;" alt="Blueprint" />
-
-            <svg xmlns="http://www.w3.org/2000/svg"
-                 style="position: absolute; top: 0; left: 0;"
-                 width="@BlueprintService.Layout.CanvasWidth"
-                 height="@BlueprintService.Layout.CanvasHeight">
-
-                <defs>
-                    <marker id="arrowhead" markerWidth="10" markerHeight="7"
-                            refX="10" refY="3.5" orient="auto">
-                        <polygon points="0 0, 10 3.5, 0 7" fill="#0569A0" />
-                    </marker>
-                </defs>
-
-                @{
-                    var cellW = BlueprintService.Layout.CellWidth;
-                    var cellH = BlueprintService.Layout.CellHeight;
-                }
-
-                @foreach (var arrow in _arrowPaths)
-                {
-                    <path d="@arrow" fill="none" stroke="#0569A0"
-                          stroke-width="2" stroke-dasharray="6,3"
-                          marker-end="url(#arrowhead)" />
-                }
-
-                @foreach (var fp in BlueprintService.Layout.FlowPlacements)
-                {
-                    var color = GetSystemColor(fp.SystemId);
-                    var px = fp.Col * cellW;
-                    var py = fp.Row * cellH;
-                    var pw = fp.ColSpan * cellW;
-                    var ph = fp.RowSpan * cellH;
-                    var pad = 4;
-
-                    <g>
-                        <rect x="@(px + pad)" y="@(py + pad)"
-                              width="@(pw - pad * 2)" height="@(ph - pad * 2)"
-                              rx="6" ry="6"
-                              fill="@color" fill-opacity="0.85"
-                              stroke="@color" stroke-width="2" />
-                        <text x="@(px + pw / 2)" y="@(py + ph / 2 - 4)"
-                              text-anchor="middle" fill="white"
-                              font-size="13" font-weight="600">
-                            @fp.FlowName
-                        </text>
-                        <text x="@(px + pw / 2)" y="@(py + ph / 2 + 14)"
-                              text-anchor="middle" fill="rgba(255,255,255,0.8)"
-                              font-size="10">
-                            @fp.SystemName (@GetWorkCount(fp.FlowId) works)
-                        </text>
-                    </g>
-                }
-            </svg>
+        <div class="d-flex justify-center gap-3 flex-wrap" style="flex: 0 0 auto; padding: 4px 0;">
+            @foreach (var (label, clr) in _stateLegend)
+            {
+                <div class="d-flex align-center" style="gap: 4px;">
+                    <span style="width:12px;height:12px;border-radius:3px;background:@clr;display:inline-block;"></span>
+                    <MudText Typo="Typo.caption">@label</MudText>
+                </div>
+            }
+            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Fullscreen"
+                       OnClick="@(() => _fullViewOpen = true)">
+                전체보기
+            </MudButton>
         </div>
-    </MudPaper>
+    </div>
 }
 
 <MudFab Style="position: fixed; bottom: 32px; right: 32px; z-index: 100;"
@@ -92,62 +58,126 @@ else
         StartIcon="@Icons.Material.Filled.Edit"
         OnClick="@(() => Nav.NavigateTo("/editor"))" />
 
+<MudDialog @bind-Visible="_fullViewOpen" Options="_fullViewOptions">
+    <TitleContent>
+        <div class="d-flex align-center">
+            <MudIcon Icon="@Icons.Material.Filled.Fullscreen" Class="mr-2" />
+            <MudText Typo="Typo.h6">Layout - 전체보기</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+        {
+            <FlowLayoutSvg Style="@($"width: 100%; aspect-ratio: {_cw} / {_ch};")"
+                           CanvasWidth="_cw" CanvasHeight="_ch"
+                           ImagePath="@BlueprintService.Layout.BlueprintImagePath"
+                           ImageVersion="BlueprintService.ImageVersion"
+                           OffsetX="_ox" OffsetY="_oy" CellWidth="_cellW" CellHeight="_cellH"
+                           Placements="BlueprintService.Layout.FlowPlacements"
+                           GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
+                           GetSubtitle="@(fp => $"{fp.SystemName} ({GetWorkCount(fp.FlowId)} works)")"
+                           GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
+                           GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))" />
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _fullViewOpen = false)" Color="Color.Default">닫기</MudButton>
+    </DialogActions>
+</MudDialog>
+
 @code {
-    private List<Ds2.Core.DsSystem> _systems = [];
-    private List<string> _arrowPaths = [];
     private readonly Dictionary<Guid, int> _systemColorIndex = [];
+    private Dictionary<Guid, int> _workCounts = [];
+    private bool _fullViewOpen;
+    private int _cw, _ch, _cellW, _cellH, _ox, _oy;
+    private DspDbSnapshot _dbSnapshot = new();
+
+    private static readonly DialogOptions _fullViewOptions = new()
+    {
+        MaxWidth = MaxWidth.ExtraExtraLarge,
+        FullWidth = true,
+        CloseOnEscapeKey = true,
+        NoHeader = false
+    };
 
     private static readonly string[] SystemColors =
         ["#0A1E5A", "#FA002D", "#0569A0", "#009BB4", "#4CAF50"];
 
+    private static readonly (string Label, string Color)[] _stateLegend =
+    [
+        ("Ready", "#9E9E9E"), ("Going", "#4CAF50"), ("Done", "#2196F3"),
+        ("Error", "#F44336"), ("Pause", "#FF9800"), ("Abort", "#9C27B0")
+    ];
+
     protected override void OnInitialized()
     {
-        if (!ProjectService.IsLoaded) return;
-        _systems = ProjectService.GetActiveSystems();
-        ComputeArrows();
-    }
+        _dbSnapshot = DbService.Snapshot;
+        DbService.OnDataChanged += OnDbDataChanged;
 
-    private void ComputeArrows()
-    {
-        _arrowPaths.Clear();
-        var placements = BlueprintService.Layout.FlowPlacements;
-        var cellW = BlueprintService.Layout.CellWidth;
-        var cellH = BlueprintService.Layout.CellHeight;
+        var layout = BlueprintService.Layout;
+        _cw = layout.CanvasWidth;
+        _ch = layout.CanvasHeight;
+        _cellW = layout.CellWidth;
+        _cellH = layout.CellHeight;
+        _ox = layout.OffsetX;
+        _oy = layout.OffsetY;
 
-        var placementMap = placements.ToDictionary(p => p.FlowId);
-
-        foreach (var sys in _systems)
+        foreach (var fp in layout.FlowPlacements)
         {
-            var flows = ProjectService.GetFlows(sys.Id);
-            var placedFlows = flows.Where(f => placementMap.ContainsKey(f.Id)).ToList();
-
-            for (int i = 0; i < placedFlows.Count - 1; i++)
-            {
-                var src = placementMap[placedFlows[i].Id];
-                var tgt = placementMap[placedFlows[i + 1].Id];
-
-                var srcXywh = new Ds2.Core.Xywh(
-                    src.Col * cellW, src.Row * cellH,
-                    src.ColSpan * cellW, src.RowSpan * cellH);
-                var tgtXywh = new Ds2.Core.Xywh(
-                    tgt.Col * cellW, tgt.Row * cellH,
-                    tgt.ColSpan * cellW, tgt.RowSpan * cellH);
-
-                var points = ProjectService.ComputeArrowPath(srcXywh, tgtXywh);
-
-                if (points.Count == 4)
-                {
-                    var (sx, sy) = points[0];
-                    var (c1x, c1y) = points[1];
-                    var (c2x, c2y) = points[2];
-                    var (ex, ey) = points[3];
-                    _arrowPaths.Add($"M {sx:F0},{sy:F0} C {c1x:F0},{c1y:F0} {c2x:F0},{c2y:F0} {ex:F0},{ey:F0}");
-                }
-            }
+            if (!_workCounts.ContainsKey(fp.FlowId))
+                _workCounts[fp.FlowId] = ProjectService.GetWorks(fp.FlowId).Count;
         }
     }
 
-    private int GetWorkCount(Guid flowId) => ProjectService.GetWorks(flowId).Count;
+    private async void OnDbDataChanged()
+    {
+        _dbSnapshot = DbService.Snapshot;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        DbService.OnDataChanged -= OnDbDataChanged;
+    }
+
+    private int GetWorkCount(Guid flowId) =>
+        _workCounts.TryGetValue(flowId, out var count) ? count : 0;
+
+    private string GetFlowColor(string flowName, Guid systemId)
+    {
+        var flowState = _dbSnapshot.Flows
+            .FirstOrDefault(f => f.FlowName == flowName);
+
+        if (flowState == null)
+            return GetSystemColor(systemId);
+
+        return flowState.State?.ToLowerInvariant() switch
+        {
+            "ready" => "#9E9E9E",
+            "going" => "#4CAF50",
+            "done" => "#2196F3",
+            "error" => "#F44336",
+            "pause" => "#FF9800",
+            "abort" => "#9C27B0",
+            _ => "#9E9E9E",
+        };
+    }
+
+    private string GetFlowStateLabel(string flowName)
+    {
+        var flowState = _dbSnapshot.Flows
+            .FirstOrDefault(f => f.FlowName == flowName);
+        return flowState?.State ?? "";
+    }
+
+    private (int Mt, int Wt)? GetFlowMtWt(string flowName)
+    {
+        var flowState = _dbSnapshot.Flows
+            .FirstOrDefault(f => f.FlowName == flowName);
+        if (flowState?.MT == null && flowState?.WT == null)
+            return null;
+        return (flowState.MT ?? 0, flowState.WT ?? 0);
+    }
 
     private string GetSystemColor(Guid systemId)
     {

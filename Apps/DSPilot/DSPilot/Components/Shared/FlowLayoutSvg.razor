@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     style="display: block; @Style"
+     viewBox="0 0 @CanvasWidth @CanvasHeight"
+     preserveAspectRatio="none">
+
+    @if (!string.IsNullOrEmpty(ImagePath))
+    {
+        <image href="@(ImagePath)?v=@(ImageVersion)"
+               x="0" y="0" width="@CanvasWidth" height="@CanvasHeight" opacity="0.3" />
+    }
+
+    @foreach (var fp in Placements)
+    {
+        var color = GetColor?.Invoke(fp) ?? "#9E9E9E";
+        var subtitle = GetSubtitle?.Invoke(fp) ?? "";
+        var stateLabel = GetStateLabel?.Invoke(fp) ?? "";
+        var mtWt = GetMtWt?.Invoke(fp);
+        var px = OffsetX + fp.Col * CellWidth;
+        var py = OffsetY + fp.Row * CellHeight;
+        var pw = fp.ColSpan * CellWidth;
+        var ph = fp.RowSpan * CellHeight;
+        var pad = 4;
+        var innerW = pw - pad * 2;
+        var innerH = ph - pad * 2;
+
+        var hasMtWt = mtWt != null;
+        var mt = mtWt?.Mt ?? 0;
+        var wt = mtWt?.Wt ?? 0;
+        var total = mt + wt;
+        var barX = px + pad + 10;
+        var barY = py + pad + innerH / 2 - 2;
+        var barW = innerW - 20;
+        var barH = 10;
+        var mtW = total > 0 ? (int)(barW * ((double)mt / total)) : 0;
+        var wtW = total > 0 ? barW - mtW : 0;
+
+        <g>
+            <rect x="@(px + pad)" y="@(py + pad)"
+                  width="@innerW" height="@innerH"
+                  rx="6" ry="6"
+                  fill="@color" fill-opacity="0.85"
+                  stroke="@color" stroke-width="2" />
+
+            <text x="@(px + pw / 2)" y="@(py + pad + 18)"
+                  text-anchor="middle" fill="white"
+                  font-size="13" font-weight="600">
+                @fp.FlowName
+            </text>
+            <text x="@(px + pw / 2)" y="@(py + pad + 32)"
+                  text-anchor="middle" fill="rgba(255,255,255,0.75)"
+                  font-size="9">
+                @subtitle
+            </text>
+
+            @* MT/WT bar *@
+            <rect x="@barX" y="@barY" width="@barW" height="@barH" rx="3" ry="3"
+                  fill="rgba(0,0,0,0.2)" opacity="@(hasMtWt ? 1 : 0)" />
+            <rect x="@barX" y="@barY" width="@mtW" height="@barH"
+                  rx="3" ry="3" fill="#42A5F5" opacity="@(mtW > 0 ? 1 : 0)" />
+            <rect x="@(barX + mtW)" y="@barY" width="@wtW" height="@barH"
+                  rx="3" ry="3" fill="#FFA726" opacity="@(wtW > 0 ? 1 : 0)" />
+            <text x="@(px + pw / 2)" y="@(barY + barH + 14)"
+                  text-anchor="middle" fill="rgba(255,255,255,0.8)"
+                  font-size="8" opacity="@(hasMtWt ? 1 : 0)">
+                MT:@mt  WT:@wt
+            </text>
+
+            <text x="@(px + pw / 2)" y="@(py + pad + innerH - 6)"
+                  text-anchor="middle" fill="rgba(255,255,255,0.7)"
+                  font-size="9">
+                @stateLabel
+            </text>
+        </g>
+    }
+</svg>
+
+@code {
+    [Parameter] public string Style { get; set; } = "";
+    [Parameter] public int CanvasWidth { get; set; }
+    [Parameter] public int CanvasHeight { get; set; }
+    [Parameter] public string? ImagePath { get; set; }
+    [Parameter] public long ImageVersion { get; set; }
+    [Parameter] public int OffsetX { get; set; }
+    [Parameter] public int OffsetY { get; set; }
+    [Parameter] public int CellWidth { get; set; }
+    [Parameter] public int CellHeight { get; set; }
+    [Parameter] public List<FlowPlacement> Placements { get; set; } = [];
+    [Parameter] public Func<FlowPlacement, string>? GetColor { get; set; }
+    [Parameter] public Func<FlowPlacement, string>? GetSubtitle { get; set; }
+    [Parameter] public Func<FlowPlacement, string>? GetStateLabel { get; set; }
+    [Parameter] public Func<FlowPlacement, (int Mt, int Wt)?>? GetMtWt { get; set; }
+}

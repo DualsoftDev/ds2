@@ -1,5 +1,7 @@
 @page "/chart"
 @inject DsProjectService ProjectService
+@inject DspDbService DbService
+@implements IDisposable
 
 <PageTitle>상세정보 - DSPilot</PageTitle>
 
@@ -13,83 +15,188 @@
 }
 else
 {
-    <MudGrid Spacing="4">
-        <MudItem xs="12" md="8">
-            <MudCard Elevation="2" Style="border-radius: 8px;">
-                <MudCardHeader>
-                    <MudText Typo="Typo.h6" Style="color: #0A1E5A; font-weight: 600;">Works per Flow</MudText>
-                </MudCardHeader>
-                <MudCardContent>
-                    @if (_flowLabels.Length > 0)
-                    {
-                        <MudChart ChartType="ChartType.Bar"
-                                  ChartSeries="@_barSeries"
-                                  XAxisLabels="@_flowLabels"
-                                  Width="100%"
-                                  Height="400px"
-                                  ChartOptions="@_barOptions" />
-                    }
-                    else
-                    {
-                        <MudText Typo="Typo.body2" Style="color: #7D8282;">No flow data available.</MudText>
-                    }
-                </MudCardContent>
-            </MudCard>
-        </MudItem>
+    <MudCard Elevation="2" Style="border-radius: 8px;" Class="mb-4">
+        <MudCardContent Class="pa-3">
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6" md="3">
+                    <MudTextField @bind-Value="_searchText" Placeholder="Call / Work 검색"
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="string" @bind-Value="_selectedFlow" Label="Flow" Variant="Variant.Outlined"
+                               Margin="Margin.Dense" Clearable="true">
+                        @foreach (var flow in _flowNames)
+                        {
+                            <MudSelectItem Value="@flow">@flow</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="string" @bind-Value="_selectedState" Label="State" Variant="Variant.Outlined"
+                               Margin="Margin.Dense" Clearable="true">
+                        @foreach (var state in _stateOptions)
+                        {
+                            <MudSelectItem Value="@state">@state</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="string" @bind-Value="_selectedDevice" Label="Device" Variant="Variant.Outlined"
+                               Margin="Margin.Dense" Clearable="true">
+                        @foreach (var device in _deviceNames)
+                        {
+                            <MudSelectItem Value="@device">@device</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
+        </MudCardContent>
+    </MudCard>
 
-        <MudItem xs="12" md="4">
-            <MudCard Elevation="2" Style="border-radius: 8px;">
-                <MudCardHeader>
-                    <MudText Typo="Typo.h6" Style="color: #0A1E5A; font-weight: 600;">Flows per System</MudText>
-                </MudCardHeader>
-                <MudCardContent>
-                    @if (_systemFlowData.Length > 0)
-                    {
-                        <MudChart ChartType="ChartType.Donut"
-                                  InputData="@_systemFlowData"
-                                  InputLabels="@_systemLabels"
-                                  Width="100%"
-                                  Height="300px"
-                                  ChartOptions="@_donutOptions" />
-                    }
-                    else
-                    {
-                        <MudText Typo="Typo.body2" Style="color: #7D8282;">No system data available.</MudText>
-                    }
-                </MudCardContent>
-            </MudCard>
-        </MudItem>
-    </MudGrid>
+    <MudCard Elevation="2" Style="border-radius: 8px;">
+        <MudCardContent Class="pa-0">
+            <MudTable Items="@FilteredCalls" Dense="true" Hover="true" Striped="true" FixedHeader="true"
+                      Height="calc(100vh - 300px)" Breakpoint="Breakpoint.None">
+                <HeaderContent>
+                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.Id)">ID</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.CallName)">Call</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.FlowName)">Flow</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.WorkName)">Work</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.State)">State</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.ProgressRate)">Progress</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.GoingCount)">Count</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="@(new Func<CallState, object>(x => x.AverageGoingTime ?? 0))">Avg Time</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="@(new Func<CallState, object>(x => x.Device ?? string.Empty))">Device</MudTableSortLabel></MudTh>
+                    <MudTh>Error</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="ID">@context.Id</MudTd>
+                    <MudTd DataLabel="Call">@context.CallName</MudTd>
+                    <MudTd DataLabel="Flow">@context.FlowName</MudTd>
+                    <MudTd DataLabel="Work">@context.WorkName</MudTd>
+                    <MudTd DataLabel="State">
+                        <MudChip T="string" Size="Size.Small"
+                                 Style="@GetStateStyle(context.State)">
+                            @context.State
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Progress">
+                        <MudProgressLinear Value="@(context.ProgressRate * 100)" Color="Color.Primary"
+                                           Size="Size.Small" Rounded="true" Style="min-width: 60px;" />
+                    </MudTd>
+                    <MudTd DataLabel="Count">@context.GoingCount</MudTd>
+                    <MudTd DataLabel="Avg Time">@(context.AverageGoingTime?.ToString("F1") ?? "-")</MudTd>
+                    <MudTd DataLabel="Device">@(context.Device ?? "-")</MudTd>
+                    <MudTd DataLabel="Error">
+                        @if (!string.IsNullOrEmpty(context.ErrorText))
+                        {
+                            <MudTooltip Text="@context.ErrorText" Placement="Placement.Left">
+                                <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Color="Color.Error" Size="Size.Small" />
+                            </MudTooltip>
+                        }
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2" Style="color: #7D8282;">데이터가 없습니다.</MudText>
+                </NoRecordsContent>
+            </MudTable>
+        </MudCardContent>
+    </MudCard>
+
+    <MudText Typo="Typo.caption" Class="mt-2" Style="color: #7D8282;">
+        @FilteredCalls.Count() / @_dbSnapshot.Calls.Count calls | Updated: @_dbSnapshot.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+    </MudText>
 }
 
 @code {
-    private string[] _flowLabels = [];
-    private List<ChartSeries> _barSeries = [];
-    private ChartOptions _barOptions = new()
-    {
-        YAxisTicks = 1,
-        MaxNumYAxisTicks = 10
-    };
+    private DspDbSnapshot _dbSnapshot = new();
 
-    private double[] _systemFlowData = [];
-    private string[] _systemLabels = [];
-    private ChartOptions _donutOptions = new();
+    private string _searchText = "";
+    private string? _selectedFlow;
+    private string? _selectedState;
+    private string? _selectedDevice;
+
+    private List<string> _flowNames = [];
+    private List<string> _deviceNames = [];
+
+    private static readonly string[] _stateOptions =
+        ["Ready", "Going", "Done", "Error", "Pause", "Abort"];
+
+    private IEnumerable<CallState> FilteredCalls
+    {
+        get
+        {
+            IEnumerable<CallState> calls = _dbSnapshot.Calls;
+
+            if (!string.IsNullOrEmpty(_selectedFlow))
+                calls = calls.Where(c => c.FlowName == _selectedFlow);
+
+            if (!string.IsNullOrEmpty(_selectedState))
+                calls = calls.Where(c => c.State.Equals(_selectedState, StringComparison.OrdinalIgnoreCase));
+
+            if (!string.IsNullOrEmpty(_selectedDevice))
+                calls = calls.Where(c => c.Device == _selectedDevice);
+
+            if (!string.IsNullOrWhiteSpace(_searchText))
+            {
+                var search = _searchText.Trim();
+                calls = calls.Where(c =>
+                    c.CallName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    c.WorkName.Contains(search, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return calls;
+        }
+    }
 
     protected override void OnInitialized()
     {
-        if (!ProjectService.IsLoaded) return;
+        _dbSnapshot = DbService.Snapshot;
+        DbService.OnDataChanged += OnDbDataChanged;
+        UpdateFilterOptions();
+    }
 
-        var allFlows = ProjectService.GetAllFlows();
-        _flowLabels = allFlows.Select(f => f.Name).ToArray();
-        var workCounts = allFlows.Select(f => (double)ProjectService.GetWorks(f.Id).Count).ToArray();
+    private async void OnDbDataChanged()
+    {
+        _dbSnapshot = DbService.Snapshot;
+        UpdateFilterOptions();
+        await InvokeAsync(StateHasChanged);
+    }
 
-        _barSeries =
-        [
-            new ChartSeries { Name = "Works", Data = workCounts }
-        ];
+    private void UpdateFilterOptions()
+    {
+        _flowNames = _dbSnapshot.Calls
+            .Select(c => c.FlowName)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Distinct()
+            .OrderBy(n => n)
+            .ToList();
 
-        var systems = ProjectService.GetActiveSystems();
-        _systemLabels = systems.Select(s => s.Name).ToArray();
-        _systemFlowData = systems.Select(s => (double)ProjectService.GetFlows(s.Id).Count).ToArray();
+        _deviceNames = _dbSnapshot.Calls
+            .Select(c => c.Device)
+            .Where(d => !string.IsNullOrEmpty(d))
+            .Distinct()!
+            .OrderBy(d => d)
+            .ToList()!;
+    }
+
+    private static string GetStateStyle(string state) =>
+        $"background-color: {GetStateColor(state)}; color: white;";
+
+    private static string GetStateColor(string state) => state?.ToLowerInvariant() switch
+    {
+        "ready" => "#9E9E9E",
+        "going" => "#4CAF50",
+        "done" => "#2196F3",
+        "error" => "#F44336",
+        "pause" => "#FF9800",
+        "abort" => "#9C27B0",
+        _ => "#9E9E9E",
+    };
+
+    public void Dispose()
+    {
+        DbService.OnDataChanged -= OnDbDataChanged;
     }
 }

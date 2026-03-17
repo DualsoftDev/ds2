@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace DSPilot.Models;
 
 public class BlueprintLayout
@@ -7,10 +9,16 @@ public class BlueprintLayout
     public int CanvasHeight { get; set; } = 800;
     public int GridColumns { get; set; } = 6;
     public int GridRows { get; set; } = 4;
+    public int OffsetX { get; set; }
+    public int OffsetY { get; set; }
+    public int OffsetRight { get; set; }
+    public int OffsetBottom { get; set; }
     public List<FlowPlacement> FlowPlacements { get; set; } = [];
 
-    public int CellWidth => GridColumns > 0 ? CanvasWidth / GridColumns : 200;
-    public int CellHeight => GridRows > 0 ? CanvasHeight / GridRows : 200;
+    [JsonIgnore]
+    public int CellWidth => GridColumns > 0 ? (CanvasWidth - OffsetX - OffsetRight) / GridColumns : 200;
+    [JsonIgnore]
+    public int CellHeight => GridRows > 0 ? (CanvasHeight - OffsetY - OffsetBottom) / GridRows : 200;
 }
 
 public class FlowPlacement

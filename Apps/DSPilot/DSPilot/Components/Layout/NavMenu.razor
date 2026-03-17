@@ -1,16 +1,13 @@
 @inject DsProjectService ProjectService
 
 <MudNavMenu Color="Color.Primary">
-    <MudNavLink Href="/" Match="NavLinkMatch.All"
-                Icon="@Icons.Material.Filled.Dashboard">
+    <MudNavLink Href="/" Match="NavLinkMatch.All">
         대시보드
     </MudNavLink>
-    <MudNavLink Href="/layout" Match="NavLinkMatch.Prefix"
-                Icon="@Icons.Material.Filled.AccountTree">
+    <MudNavLink Href="/layout" Match="NavLinkMatch.Prefix">
         레이아웃
     </MudNavLink>
-    <MudNavLink Href="/chart" Match="NavLinkMatch.Prefix"
-                Icon="@Icons.Material.Filled.BarChart">
+    <MudNavLink Href="/chart" Match="NavLinkMatch.Prefix">
         상세정보
     </MudNavLink>
     <MudNavLink Href="/heatmap" Match="NavLinkMatch.Prefix"
@@ -34,21 +31,29 @@
     {
         @foreach (var systemFlows in _systemFlowMap)
         {
-            <MudNavGroup Title="@systemFlows.Key"
-                         Icon="@Icons.Material.Filled.Folder"
-                         Expanded="true">
-                @foreach (var flow in systemFlows.Value)
+            <MudText Typo="Typo.subtitle2" Class="px-4 mt-2">@systemFlows.Key</MudText>
+            <div style="margin-left: 24px; border-left: 1px solid #ccc;">
+                @{ var flowList = systemFlows.Value; }
+                @for (int i = 0; i < flowList.Count; i++)
                 {
-                    <MudNavLink>
-                        <div class="d-flex align-center">
-                            <MudIcon Icon="@Icons.Material.Filled.AltRoute"
-                                     Size="Size.Small"
-                                     Color="Color.Tertiary" />
-                            <MudText Typo="Typo.body2" Class="ml-2">@flow.Name</MudText>
-                        </div>
-                    </MudNavLink>
+                    var idx = i;
+                    var flow = flowList[idx];
+                    var isLast = idx == flowList.Count - 1;
+                    <div style="position: relative; padding: 4px 0 4px 16px;
+                                @(isLast ? "border-left: 1px solid transparent; margin-left: -1px;" : "")">
+                        <span style="position: absolute; left: -1px; top: 50%;
+                                     width: 12px; height: 0;
+                                     border-top: 1px solid #ccc;"></span>
+                        @if (isLast)
+                        {
+                            <span style="position: absolute; left: -1px; top: 0;
+                                         width: 0; height: 50%;
+                                         border-left: 1px solid #ccc;"></span>
+                        }
+                        <MudText Typo="Typo.body2" Style="color: #424242;">@flow.Name</MudText>
+                    </div>
                 }
-            </MudNavGroup>
+            </div>
         }
     }
 </MudNavMenu>

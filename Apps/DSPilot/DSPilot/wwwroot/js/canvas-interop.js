@@ -7,14 +7,18 @@ window.canvasInterop = {
     _cellH: 200,
     _cols: 6,
     _rows: 4,
+    _offsetX: 0,
+    _offsetY: 0,
 
-    init: function (dotNetRef, svgId, cellW, cellH, cols, rows) {
+    init: function (dotNetRef, svgId, cellW, cellH, cols, rows, offsetX, offsetY) {
         this._dotNetRef = dotNetRef;
         this._svgEl = document.getElementById(svgId);
         this._cellW = cellW || 200;
         this._cellH = cellH || 200;
         this._cols = cols || 6;
         this._rows = rows || 4;
+        this._offsetX = offsetX || 0;
+        this._offsetY = offsetY || 0;
 
         if (!this._svgEl) return;
 
@@ -28,11 +32,13 @@ window.canvasInterop = {
         this._svgEl.addEventListener('mouseleave', this._onMouseUpBound);
     },
 
-    updateGrid: function (cellW, cellH, cols, rows) {
+    updateGrid: function (cellW, cellH, cols, rows, offsetX, offsetY) {
         this._cellW = cellW || 200;
         this._cellH = cellH || 200;
         this._cols = cols || 6;
         this._rows = rows || 4;
+        this._offsetX = offsetX || 0;
+        this._offsetY = offsetY || 0;
     },
 
     getImageSize: function (imgSelector) {
@@ -54,16 +60,19 @@ window.canvasInterop = {
     },
 
     _getSvgPoint: function (evt) {
-        var rect = this._svgEl.getBoundingClientRect();
-        return {
-            x: evt.clientX - rect.left,
-            y: evt.clientY - rect.top
-        };
+        // Convert screen coords to SVG viewBox coords
+        var pt = this._svgEl.createSVGPoint();
+        pt.x = evt.clientX;
+        pt.y = evt.clientY;
+        var ctm = this._svgEl.getScreenCTM().inverse();
+        var svgPt = pt.matrixTransform(ctm);
+        return { x: svgPt.x, y: svgPt.y };
     },
 
     _pixelToCell: function (px, py) {
-        var col = Math.floor(px / this._cellW);
-        var row = Math.floor(py / this._cellH);
+        // Subtract offset before computing cell
+        var col = Math.floor((px - this._offsetX) / this._cellW);
+        var row = Math.floor((py - this._offsetY) / this._cellH);
         col = Math.max(0, Math.min(col, this._cols - 1));
         row = Math.max(0, Math.min(row, this._rows - 1));
         return { col: col, row: row };
@@ -120,6 +129,15 @@ window.canvasInterop = {
         var dx = (newCol - this._dragState.startCol) * this._cellW;
         var dy = (newRow - this._dragState.startRow) * this._cellH;
         this._dragState.groupEl.setAttribute('transform', 'translate(' + dx + ',' + dy + ')');
+    },
+
+    downloadFile: function (fileName, mimeType, base64) {
+        var link = document.createElement('a');
+        link.href = 'data:' + mimeType + ';base64,' + base64;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     },
 
     _onMouseUp: function (evt) {

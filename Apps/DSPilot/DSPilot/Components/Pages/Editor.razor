@@ -11,6 +11,19 @@
 <div class="d-flex align-center mb-4">
     <MudText Typo="Typo.h5" Style="font-weight: 600; color: #0A1E5A;">Editor</MudText>
     <MudSpacer />
+    <MudFileUpload T="IBrowserFile" Accept=".json" FilesChanged="ImportJson" MaximumFileCount="1" Class="mr-2">
+        <ActivatorContent>
+            <MudButton Variant="Variant.Outlined" Color="Color.Warning"
+                       StartIcon="@Icons.Material.Filled.FileUpload">
+                Import JSON
+            </MudButton>
+        </ActivatorContent>
+    </MudFileUpload>
+    <MudButton Variant="Variant.Outlined" Color="Color.Success" Class="mr-2"
+               StartIcon="@Icons.Material.Filled.FileDownload"
+               OnClick="ExportJson">
+        Export JSON
+    </MudButton>
     <MudButton Variant="Variant.Outlined" Color="Color.Primary"
                StartIcon="@Icons.Material.Filled.ArrowBack"
                OnClick="@(() => Nav.NavigateTo("/layout"))">
@@ -59,17 +72,30 @@ else
                     <MudText Typo="Typo.h6" Style="color: #0A1E5A; font-weight: 600;">Grid</MudText>
                 </MudCardHeader>
                 <MudCardContent>
-                    <MudNumericField T="int" @bind-Value="_gridColumns"
+                    <MudNumericField T="int" Value="_gridColumns"
+                                     ValueChanged="v => OnGridChanged(() => _gridColumns = v)"
                                      Label="Columns" Variant="Variant.Outlined"
-                                     Min="2" Max="20" />
-                    <MudNumericField T="int" @bind-Value="_gridRows"
+                                     Min="2" Max="20" Immediate="true" />
+                    <MudNumericField T="int" Value="_gridRows"
+                                     ValueChanged="v => OnGridChanged(() => _gridRows = v)"
                                      Label="Rows" Variant="Variant.Outlined"
-                                     Min="2" Max="20" Class="mt-2" />
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="mt-2"
-                               OnClick="ApplyGridSettings" FullWidth="true"
-                               StartIcon="@Icons.Material.Filled.GridOn">
-                        Apply
-                    </MudButton>
+                                     Min="2" Max="20" Class="mt-2" Immediate="true" />
+                    <div class="d-flex gap-2 mt-2">
+                        <MudNumericField T="int" Value="_offsetX"
+                                         ValueChanged="v => OnGridChanged(() => _offsetX = v)"
+                                         Label="Left" Variant="Variant.Outlined" Immediate="true" />
+                        <MudNumericField T="int" Value="_offsetY"
+                                         ValueChanged="v => OnGridChanged(() => _offsetY = v)"
+                                         Label="Top" Variant="Variant.Outlined" Immediate="true" />
+                    </div>
+                    <div class="d-flex gap-2 mt-2">
+                        <MudNumericField T="int" Value="_offsetRight"
+                                         ValueChanged="v => OnGridChanged(() => _offsetRight = v)"
+                                         Label="Right" Variant="Variant.Outlined" Immediate="true" />
+                        <MudNumericField T="int" Value="_offsetBottom"
+                                         ValueChanged="v => OnGridChanged(() => _offsetBottom = v)"
+                                         Label="Bottom" Variant="Variant.Outlined" Immediate="true" />
+                    </div>
                     <MudText Typo="Typo.caption" Class="mt-1" Style="color: #7D8282;">
                         Cell: @(BlueprintService.Layout.CellWidth) x @(BlueprintService.Layout.CellHeight) px
                     </MudText>
@@ -87,7 +113,7 @@ else
                         <MudText Typo="Typo.overline" Class="px-2 mt-1" Color="Color.Secondary">
                             @sys.Name
                         </MudText>
-                        @foreach (var flow in ProjectService.GetFlows(sys.Id))
+                        @foreach (var flow in _systemFlows.GetValueOrDefault(sys.Id, []))
                         {
                             var placed = BlueprintService.Layout.FlowPlacements.Any(p => p.FlowId == flow.Id);
                             <div draggable="@(!placed ? "true" : "false")"
@@ -177,70 +203,64 @@ else
 
         @* Canvas *@
         <MudItem xs="12" md="8" lg="9">
-            <MudPaper Elevation="2" Class="pa-0" Style="overflow: auto; border-radius: 8px;">
-                <div id="editor-drop-zone" class="blueprint-canvas"
-                     style="position: relative;
-                            width: @(BlueprintService.Layout.CanvasWidth)px;
-                            height: @(BlueprintService.Layout.CanvasHeight)px;"
-                     @ondragover="OnDragOver"
-                     @ondragover:preventDefault="true"
-                     @ondrop="OnDrop"
-                     @ondrop:preventDefault="true">
-
-                    @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
-                    {
-                        <img id="blueprint-img" src="@BlueprintService.Layout.BlueprintImagePath"
-                             style="position: absolute; top: 0; left: 0;
-                                    width: 100%; height: 100%;
-                                    object-fit: contain; opacity: 0.3;
-                                    pointer-events: none;"
-                             alt="Blueprint" />
-                    }
-                    else
-                    {
-                        <div style="position: absolute; top: 0; left: 0;
-                                    width: 100%; height: 100%;
-                                    background: #f5f5f5; display: flex;
-                                    align-items: center; justify-content: center;
-                                    pointer-events: none;">
-                            <span style="color: #ccc; font-size: 1.2rem;">Upload a blueprint image</span>
-                        </div>
-                    }
+            <div @ondragover:preventDefault="true"
+                 @ondrop="OnDrop"
+                 @ondrop:preventDefault="true"
+                 style="height: calc(100vh - 120px);">
 
                     <svg id="editor-svg" xmlns="http://www.w3.org/2000/svg"
-                         style="position: absolute; top: 0; left: 0;"
-                         width="@BlueprintService.Layout.CanvasWidth"
-                         height="@BlueprintService.Layout.CanvasHeight">
+                         style="display: block; height: 100%; max-width: 100%;
+                                aspect-ratio: @BlueprintService.Layout.CanvasWidth / @BlueprintService.Layout.CanvasHeight;"
+                         viewBox="0 0 @BlueprintService.Layout.CanvasWidth @BlueprintService.Layout.CanvasHeight"
+                         preserveAspectRatio="none">
+
+                        @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+                        {
+                            <image href="@(BlueprintService.Layout.BlueprintImagePath)?v=@(BlueprintService.ImageVersion)"
+                                   x="0" y="0"
+                                   width="@BlueprintService.Layout.CanvasWidth"
+                                   height="@BlueprintService.Layout.CanvasHeight"
+                                   opacity="0.3" />
+                        }
+                        else
+                        {
+                            <rect x="0" y="0"
+                                  width="@BlueprintService.Layout.CanvasWidth"
+                                  height="@BlueprintService.Layout.CanvasHeight"
+                                  fill="#f5f5f5" />
+                        }
 
                         @{
                             var cellW = BlueprintService.Layout.CellWidth;
                             var cellH = BlueprintService.Layout.CellHeight;
+                            var ox = BlueprintService.Layout.OffsetX;
+                            var oy = BlueprintService.Layout.OffsetY;
                         }
 
-                        @* Grid lines *@
+                        @* Grid lines (offset applied) *@
                         @for (int c = 0; c <= _gridColumns; c++)
                         {
-                            var x = c * cellW;
-                            <line x1="@x" y1="0" x2="@x"
-                                  y2="@BlueprintService.Layout.CanvasHeight"
+                            var x = ox + c * cellW;
+                            <line x1="@x" y1="@oy" x2="@x"
+                                  y2="@(oy + _gridRows * cellH)"
                                   stroke="#bbb" stroke-width="@(c == 0 || c == _gridColumns ? 1 : 0.5)"
                                   stroke-dasharray="@(c == 0 || c == _gridColumns ? "0" : "4,4")" />
                         }
                         @for (int r = 0; r <= _gridRows; r++)
                         {
-                            var y = r * cellH;
-                            <line x1="0" y1="@y"
-                                  x2="@BlueprintService.Layout.CanvasWidth" y2="@y"
+                            var y = oy + r * cellH;
+                            <line x1="@ox" y1="@y"
+                                  x2="@(ox + _gridColumns * cellW)" y2="@y"
                                   stroke="#bbb" stroke-width="@(r == 0 || r == _gridRows ? 1 : 0.5)"
                                   stroke-dasharray="@(r == 0 || r == _gridRows ? "0" : "4,4")" />
                         }
 
-                        @* Flow nodes *@
+                        @* Flow nodes (offset applied) *@
                         @foreach (var fp in BlueprintService.Layout.FlowPlacements)
                         {
                             var color = GetSystemColor(fp.SystemId);
-                            var px = fp.Col * cellW;
-                            var py = fp.Row * cellH;
+                            var px = ox + fp.Col * cellW;
+                            var py = oy + fp.Row * cellH;
                             var pw = fp.ColSpan * cellW;
                             var ph = fp.RowSpan * cellH;
                             var pad = 4;
@@ -269,20 +289,24 @@ else
                             </g>
                         }
                     </svg>
-                </div>
-            </MudPaper>
+            </div>
         </MudItem>
     </MudGrid>
 }
 
 @code {
     private List<Ds2.Core.DsSystem> _systems = [];
+    private Dictionary<Guid, List<Ds2.Core.Flow>> _systemFlows = [];
     private Dictionary<Guid, (string SystemName, string FlowName, Guid SystemId)> _flowInfo = [];
     private DotNetObjectReference<Editor>? _dotNetRef;
     private Guid? _dragFlowId;
 
     private int _gridColumns;
     private int _gridRows;
+    private int _offsetX;
+    private int _offsetY;
+    private int _offsetRight;
+    private int _offsetBottom;
 
     private static readonly string[] SystemColors =
         ["#0A1E5A", "#FA002D", "#0569A0", "#009BB4", "#4CAF50"];
@@ -294,13 +318,19 @@ else
         _systems = ProjectService.GetActiveSystems();
         foreach (var sys in _systems)
         {
-            foreach (var flow in ProjectService.GetFlows(sys.Id))
+            var flows = ProjectService.GetFlows(sys.Id);
+            _systemFlows[sys.Id] = flows;
+            foreach (var flow in flows)
             {
                 _flowInfo[flow.Id] = (sys.Name, flow.Name, sys.Id);
             }
         }
         _gridColumns = BlueprintService.Layout.GridColumns;
         _gridRows = BlueprintService.Layout.GridRows;
+        _offsetX = BlueprintService.Layout.OffsetX;
+        _offsetY = BlueprintService.Layout.OffsetY;
+        _offsetRight = BlueprintService.Layout.OffsetRight;
+        _offsetBottom = BlueprintService.Layout.OffsetBottom;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -311,20 +341,24 @@ else
             var layout = BlueprintService.Layout;
             await JS.InvokeVoidAsync("canvasInterop.init",
                 _dotNetRef, "editor-svg", layout.CellWidth, layout.CellHeight,
-                layout.GridColumns, layout.GridRows);
+                layout.GridColumns, layout.GridRows, layout.OffsetX, layout.OffsetY);
         }
     }
 
-    private async Task ApplyGridSettings()
+    private async Task OnGridChanged(Action assign)
     {
+        assign();
         BlueprintService.Layout.GridColumns = _gridColumns;
         BlueprintService.Layout.GridRows = _gridRows;
+        BlueprintService.Layout.OffsetX = _offsetX;
+        BlueprintService.Layout.OffsetY = _offsetY;
+        BlueprintService.Layout.OffsetRight = _offsetRight;
+        BlueprintService.Layout.OffsetBottom = _offsetBottom;
         BlueprintService.SaveLayout();
         var layout = BlueprintService.Layout;
         await JS.InvokeVoidAsync("canvasInterop.updateGrid",
-            layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows);
-        Snackbar.Add($"Grid: {_gridColumns} x {_gridRows}", Severity.Success);
-        StateHasChanged();
+            layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
+            layout.OffsetX, layout.OffsetY);
     }
 
     private async Task OnBlueprintFileSelected(IBrowserFile file)
@@ -333,12 +367,20 @@ else
         try
         {
             using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
-            await BlueprintService.SaveBlueprintImageAsync(stream, file.Name);
-            Snackbar.Add("Blueprint uploaded.", Severity.Success);
-            StateHasChanged();
+            var (w, h) = await BlueprintService.SaveBlueprintImageAsync(stream, file.Name);
 
-            await Task.Delay(300);
-            await DetectImageSize();
+            if (w > 0 && h > 0)
+            {
+                Snackbar.Add($"Blueprint uploaded. Canvas: {w} x {h}", Severity.Success);
+                var layout = BlueprintService.Layout;
+                await JS.InvokeVoidAsync("canvasInterop.updateGrid",
+                    layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
+                    layout.OffsetX, layout.OffsetY);
+            }
+            else
+            {
+                Snackbar.Add("Blueprint uploaded.", Severity.Success);
+            }
         }
         catch (Exception ex)
         {
@@ -346,29 +388,7 @@ else
         }
     }
 
-    private async Task DetectImageSize()
-    {
-        try
-        {
-            var size = await JS.InvokeAsync<ImageSize?>("canvasInterop.getImageSize", "#blueprint-img");
-            if (size != null && size.Width > 0 && size.Height > 0)
-            {
-                BlueprintService.Layout.CanvasWidth = size.Width;
-                BlueprintService.Layout.CanvasHeight = size.Height;
-                BlueprintService.SaveLayout();
-                var layout = BlueprintService.Layout;
-                await JS.InvokeVoidAsync("canvasInterop.updateGrid",
-                    layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows);
-                Snackbar.Add($"Canvas: {size.Width} x {size.Height}", Severity.Info);
-                StateHasChanged();
-            }
-        }
-        catch { }
-    }
-
     private void OnDragStart(Guid flowId) => _dragFlowId = flowId;
-
-    private void OnDragOver(DragEventArgs e) { }
 
     private void OnDrop(DragEventArgs e)
     {
@@ -435,6 +455,47 @@ else
         StateHasChanged();
     }
 
+    private async Task ImportJson(IBrowserFile file)
+    {
+        if (file == null) return;
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var reader = new System.IO.StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+            BlueprintService.LoadLayoutJson(json);
+
+            // Sync local grid fields
+            _gridColumns = BlueprintService.Layout.GridColumns;
+            _gridRows = BlueprintService.Layout.GridRows;
+            _offsetX = BlueprintService.Layout.OffsetX;
+            _offsetY = BlueprintService.Layout.OffsetY;
+            _offsetRight = BlueprintService.Layout.OffsetRight;
+            _offsetBottom = BlueprintService.Layout.OffsetBottom;
+
+            var layout = BlueprintService.Layout;
+            await JS.InvokeVoidAsync("canvasInterop.updateGrid",
+                layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
+                layout.OffsetX, layout.OffsetY);
+
+            Snackbar.Add("JSON imported.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Import failed: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task ExportJson()
+    {
+        var json = BlueprintService.GetLayoutJson();
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+        var base64 = Convert.ToBase64String(bytes);
+        await JS.InvokeVoidAsync("canvasInterop.downloadFile",
+            "layout-data.json", "application/json", base64);
+        Snackbar.Add("JSON exported.", Severity.Success);
+    }
+
     private string GetSystemColor(Guid systemId)
     {
         if (!_systemColorIndex.ContainsKey(systemId))
@@ -446,11 +507,5 @@ else
     {
         try { await JS.InvokeVoidAsync("canvasInterop.dispose"); } catch { }
         _dotNetRef?.Dispose();
-    }
-
-    private class ImageSize
-    {
-        public int Width { get; set; }
-        public int Height { get; set; }
     }
 }
