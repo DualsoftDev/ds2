@@ -48,25 +48,81 @@ module FlowAnalysis =
     }
 
     /// <summary>
+    /// Group arrow 평탄화
+    /// 예: A→B, B→C (Group), B→D, C→D이면
+    /// 결과: A→B, A→C, B→D, C→D
+    /// </summary>
+    let flattenGroupArrows (arrows: ArrowBetweenCalls list) : (Guid * Guid) list =
+        // Start arrow만 사용 (Group arrow는 그룹 관계 정의만 사용)
+        let startArrows = arrows |> List.filter (fun a -> a.ArrowType = enum 1)
+        let groupArrows = arrows |> List.filter (fun a -> a.ArrowType = enum 5)
+
+        if groupArrows.IsEmpty then
+            startArrows |> List.map (fun a -> (a.SourceId, a.TargetId))
+        else
+            // Group 관계 파악: X→{Y,Z} 형태로 Group arrow가 있으면
+            // X,Y,Z가 모두 같은 그룹에 속함
+            let groups =
+                groupArrows
+                |> List.groupBy (fun a -> a.SourceId)
+                |> List.map (fun (src, grpArrows) ->
+                    src :: (grpArrows |> List.map (fun a -> a.TargetId)))
+
+            // 각 노드가 속한 그룹 찾기
+            let nodeToGroup =
+                groups
+                |> List.mapi (fun idx members -> members |> List.map (fun m -> (m, (idx, members))))
+                |> List.concat
+                |> Map.ofList
+
+            // Start arrow 평탄화
+            startArrows
+            |> List.collect (fun arrow ->
+                let src = arrow.SourceId
+                let tgt = arrow.TargetId
+
+                // src가 그룹에 속하면 그룹 멤버 모두, 아니면 src만
+                let sources =
+                    match nodeToGroup.TryFind src with
+                    | Some (_, members) -> members
+                    | None -> [src]
+
+                // tgt가 그룹에 속하면 그룹 멤버 모두, 아니면 tgt만
+                let targets =
+                    match nodeToGroup.TryFind tgt with
+                    | Some (_, members) -> members
+                    | None -> [tgt]
+
+                // 모든 조합
+                [for s in sources do
+                    for t in targets do
+                        (s, t)])
+            |> List.distinct
+
+    /// <summary>
     /// Call DAG 구성
     /// - arrows: ArrowBetweenCalls list
     /// - calls: Call list
     /// - 각 Call의 in-degree, out-degree 계산
+    /// - Group arrow를 평탄화하여 처리
     /// </summary>
     let buildCallDag (calls: Call list) (arrows: ArrowBetweenCalls list) : CallDagNode list =
         let callIds = calls |> List.map (fun c -> c.Id) |> Set.ofList
 
+        // Group arrow 평탄화
+        let flattenedEdges = flattenGroupArrows arrows
+
         let inDegrees =
-            arrows
-            |> List.filter (fun a -> callIds.Contains a.TargetId)
-            |> List.groupBy (fun a -> a.TargetId)
+            flattenedEdges
+            |> List.filter (fun (_, targetId) -> callIds.Contains targetId)
+            |> List.groupBy snd
             |> List.map (fun (targetId, group) -> (targetId, group.Length))
             |> Map.ofList
 
         let outDegrees =
-            arrows
-            |> List.filter (fun a -> callIds.Contains a.SourceId)
-            |> List.groupBy (fun a -> a.SourceId)
+            flattenedEdges
+            |> List.filter (fun (sourceId, _) -> callIds.Contains sourceId)
+            |> List.groupBy fst
             |> List.map (fun (sourceId, group) -> (sourceId, group.Length))
             |> Map.ofList
 
@@ -81,8 +137,9 @@ module FlowAnalysis =
     /// <summary>
     /// DAG 순환 검증 (Kahn's Algorithm for Topological Sort)
     /// - 순환이 있으면 InvalidOperationException 발생
+    /// - 평탄화된 엣지 리스트 사용
     /// </summary>
-    let detectCycle (dag: CallDagNode list) (arrows: ArrowBetweenCalls list) : unit =
+    let detectCycle (dag: CallDagNode list) (flattenedEdges: (Guid * Guid) list) : unit =
         let callIdSet = dag |> List.map (fun n -> n.Call.Id) |> Set.ofList
 
         // in-degree 카운트 초기화
@@ -104,12 +161,12 @@ module FlowAnalysis =
             let currentId = queue.Dequeue()
             visitedCount <- visitedCount + 1
 
-            // 현재 노드에서 나가는 엣지들 처리
-            for arrow in arrows do
-                if arrow.SourceId = currentId && callIdSet.Contains arrow.TargetId then
-                    inDegreeCounts.[arrow.TargetId] <- inDegreeCounts.[arrow.TargetId] - 1
-                    if inDegreeCounts.[arrow.TargetId] = 0 then
-                        queue.Enqueue(arrow.TargetId)
+            // 현재 노드에서 나가는 엣지들 처리 (평탄화된 엣지 사용)
+            for (sourceId, targetId) in flattenedEdges do
+                if sourceId = currentId && callIdSet.Contains targetId then
+                    inDegreeCounts.[targetId] <- inDegreeCounts.[targetId] - 1
+                    if inDegreeCounts.[targetId] = 0 then
+                        queue.Enqueue(targetId)
 
         // 모든 노드를 방문하지 못했으면 순환이 존재
         if visitedCount <> dag.Length then
@@ -182,55 +239,30 @@ module FlowAnalysis =
                 MovingEndName = None
             }
         | Some repWork ->
-            let calls = DsQuery.callsOf repWork.Id store
-            let arrows = DsQuery.arrowCallsOf repWork.Id store
-
-            if calls.IsEmpty then
-                // 대표 Work에 Call이 없지만, 다른 Work에 Call이 있을 수 있음
-                if allCalls.IsEmpty then
-                    {
-                        FlowName = flow.Name
-                        FlowId = flow.Id
-                        RepresentativeWorkId = Some repWork.Id
-                        RepresentativeWorkName = Some repWork.Name
-                        HeadCalls = []
-                        TailCalls = []
-                        MovingStartName = None
-                        MovingEndName = None
-                    }
-                else
-                    // 전체 Call/Arrow로 DAG 구성
-                    let dag = buildCallDag allCalls allArrows
-                    detectCycle dag allArrows
-
-                    let headCalls = findHeadCalls dag
-                    let tailCalls = findTailCalls dag
-
-                    let movingStartName = headCalls |> List.tryHead |> Option.map (fun c -> c.Name)
-                    let movingEndName = tailCalls |> List.tryHead |> Option.map (fun c -> c.Name)
-
-                    {
-                        FlowName = flow.Name
-                        FlowId = flow.Id
-                        RepresentativeWorkId = Some repWork.Id
-                        RepresentativeWorkName = Some repWork.Name
-                        HeadCalls = headCalls
-                        TailCalls = tailCalls
-                        MovingStartName = movingStartName
-                        MovingEndName = movingEndName
-                    }
+            // 전체 Flow의 모든 Call과 Arrow를 사용하여 DAG 구성
+            // (대표 Work뿐만 아니라 모든 Work의 Call/Arrow 포함)
+            if allCalls.IsEmpty then
+                {
+                    FlowName = flow.Name
+                    FlowId = flow.Id
+                    RepresentativeWorkId = Some repWork.Id
+                    RepresentativeWorkName = Some repWork.Name
+                    HeadCalls = []
+                    TailCalls = []
+                    MovingStartName = None
+                    MovingEndName = None
+                }
             else
-                // DAG 구성
-                let dag = buildCallDag calls arrows
+                // 전체 Call/Arrow로 DAG 구성
+                let dag = buildCallDag allCalls allArrows
 
-                // 순환 검증 (예외 발생 가능)
-                detectCycle dag arrows
+                // Group arrow 평탄화 (순환 검증에 사용)
+                let flattenedEdges = flattenGroupArrows allArrows
+                detectCycle dag flattenedEdges
 
-                // Head/Tail 찾기
                 let headCalls = findHeadCalls dag
                 let tailCalls = findTailCalls dag
 
-                // MovingStartName/MovingEndName 결정
                 let movingStartName = headCalls |> List.tryHead |> Option.map (fun c -> c.Name)
                 let movingEndName = tailCalls |> List.tryHead |> Option.map (fun c -> c.Name)
 
