@@ -1,12 +1,132 @@
+using Ds2.Core;
+using Ds2.UI.Core;
+using DSPilot.Engine;
+using DSPilot.Services;
 using Microsoft.Data.Sqlite;
 
 namespace DSPilot;
 
 /// <summary>
-/// PLC 데이터베이스 진단 도구
+/// PLC 데이터베이스 및 Flow DAG 진단 도구
 /// </summary>
 public static class DiagnosticTool
 {
+    /// <summary>
+    /// Flow DAG 분석 결과를 상세히 출력
+    /// </summary>
+    public static void DiagnoseFlowDag(DsProjectService projectService, string? flowNameFilter = null)
+    {
+        Console.WriteLine("=== Flow DAG Analysis ===");
+        Console.WriteLine();
+
+        if (!projectService.IsLoaded)
+        {
+            Console.WriteLine("ERROR: Project not loaded");
+            return;
+        }
+
+        var allFlows = projectService.GetAllFlows()
+            .Where(f => !f.Name.EndsWith("_Flow", StringComparison.OrdinalIgnoreCase))
+            .Where(f => flowNameFilter == null || f.Name.Contains(flowNameFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        Console.WriteLine($"Analyzing {allFlows.Count} flows...");
+        Console.WriteLine();
+
+        var store = GetDsStore(projectService);
+
+        foreach (var flow in allFlows)
+        {
+            Console.WriteLine($"Flow: {flow.Name}");
+            Console.WriteLine("".PadLeft(80, '='));
+
+            var works = DsQuery.worksOf(flow.Id, store);
+            Console.WriteLine($"  Total Works: {works.Length}");
+
+            foreach (var work in works)
+            {
+                var calls = DsQuery.callsOf(work.Id, store);
+                var arrows = DsQuery.arrowCallsOf(work.Id, store);
+
+                Console.WriteLine($"\n  Work: {work.Name}");
+                Console.WriteLine($"    Calls: {calls.Length}");
+                foreach (var call in calls)
+                {
+                    Console.WriteLine($"      - {call.Name}");
+                }
+
+                Console.WriteLine($"    Arrows: {arrows.Length}");
+                foreach (var arrow in arrows)
+                {
+                    var sourceCall = calls.FirstOrDefault(c => c.Id == arrow.SourceId);
+                    var targetCall = calls.FirstOrDefault(c => c.Id == arrow.TargetId);
+                    var sourceName = sourceCall?.Name ?? $"[Unknown:{arrow.SourceId}]";
+                    var targetName = targetCall?.Name ?? $"[Unknown:{arrow.TargetId}]";
+                    Console.WriteLine($"      {sourceName} -> {targetName}");
+                }
+            }
+
+            // 전체 Call/Arrow 수집
+            var allCalls = works.SelectMany(w => DsQuery.callsOf(w.Id, store)).ToList();
+            var allArrows = works.SelectMany(w => DsQuery.arrowCallsOf(w.Id, store)).ToList();
+
+            Console.WriteLine($"\n  Total Calls (all Works): {allCalls.Count}");
+            Console.WriteLine($"  Total Arrows (all Works): {allArrows.Count}");
+
+            // FlowAnalysis 실행
+            try
+            {
+                var result = FlowAnalysis.analyzeFlow(flow, store);
+
+                Console.WriteLine($"\n  DAG Analysis Result:");
+                Console.WriteLine($"    Representative Work: {result.RepresentativeWorkName ?? "None"}");
+
+                // Head Call 정보
+                var headCallName = Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Call>.get_IsSome(result.HeadCall)
+                    ? result.HeadCall.Value.Name
+                    : "None";
+                Console.WriteLine($"    Head Call: {headCallName} (Total: {result.HeadCount})");
+
+                // Tail Call 정보
+                var tailCallName = Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Call>.get_IsSome(result.TailCall)
+                    ? result.TailCall.Value.Name
+                    : "None";
+                Console.WriteLine($"    Tail Call: {tailCallName} (Total: {result.TailCount})");
+
+                // 복수 Head/Tail 경고
+                if (result.HeadCount > 1)
+                    Console.WriteLine($"    [WARNING] Multiple heads detected, using first only");
+                if (result.TailCount > 1)
+                    Console.WriteLine($"    [WARNING] Multiple tails detected, using first only");
+
+                Console.WriteLine($"    MovingStartName: {result.MovingStartName ?? "None"}");
+                Console.WriteLine($"    MovingEndName: {result.MovingEndName ?? "None"}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"\n  ERROR: {ex.Message}");
+            }
+
+            Console.WriteLine();
+        }
+
+        Console.WriteLine("=== Analysis Complete ===");
+    }
+
+    private static DsStore GetDsStore(DsProjectService projectService)
+    {
+        var storeField = typeof(DsProjectService).GetField("_store",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        if (storeField == null)
+            throw new InvalidOperationException("Failed to access DsStore from DsProjectService");
+
+        var store = storeField.GetValue(projectService) as DsStore;
+        if (store == null)
+            throw new InvalidOperationException("DsStore is null");
+
+        return store;
+    }
     public static void DiagnosePlcDatabase(string dbPath)
     {
         Console.WriteLine("=== PLC Database Diagnostic ===");
