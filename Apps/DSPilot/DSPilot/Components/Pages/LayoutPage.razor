@@ -1,4 +1,16 @@
 @page "/layout"
+
+<style>
+    .fullview-exit-btn {
+        color: rgba(255,255,255,0.15) !important;
+        background: rgba(0,0,0,0.05) !important;
+        transition: color 0.2s, background 0.2s;
+    }
+    .fullview-exit-btn:hover {
+        color: white !important;
+        background: rgba(0,0,0,0.55) !important;
+    }
+</style>
 @inject DsProjectService ProjectService
 @inject BlueprintService BlueprintService
 @inject DspDbService DbService
@@ -44,8 +56,9 @@ else
                     <MudText Typo="Typo.caption">@label</MudText>
                 </div>
             }
-            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small"
+            <MudButton Variant="Variant.Outlined" Size="Size.Small"
                        StartIcon="@Icons.Material.Filled.Fullscreen"
+                       Style="border-color: #ccc; color: #555; background: #f5f5f5; border-radius: 8px;"
                        OnClick="@(() => _fullViewOpen = true)">
                 전체보기
             </MudButton>
@@ -53,37 +66,31 @@ else
     </div>
 }
 
-<MudFab Style="position: fixed; bottom: 32px; right: 32px; z-index: 100;"
-        Color="Color.Secondary"
+<MudFab Style="position: fixed; bottom: 32px; right: 32px; z-index: 100; background: #f5f5f5; color: #555;"
         StartIcon="@Icons.Material.Filled.Edit"
         OnClick="@(() => Nav.NavigateTo("/editor"))" />
 
-<MudDialog @bind-Visible="_fullViewOpen" Options="_fullViewOptions">
-    <TitleContent>
-        <div class="d-flex align-center">
-            <MudIcon Icon="@Icons.Material.Filled.Fullscreen" Class="mr-2" />
-            <MudText Typo="Typo.h6">Layout - 전체보기</MudText>
-        </div>
-    </TitleContent>
-    <DialogContent>
-        @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
-        {
-            <FlowLayoutSvg Style="@($"width: 100%; aspect-ratio: {_cw} / {_ch};")"
-                           CanvasWidth="_cw" CanvasHeight="_ch"
-                           ImagePath="@BlueprintService.Layout.BlueprintImagePath"
-                           ImageVersion="BlueprintService.ImageVersion"
-                           OffsetX="_ox" OffsetY="_oy" CellWidth="_cellW" CellHeight="_cellH"
-                           Placements="BlueprintService.Layout.FlowPlacements"
-                           GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
-                           GetSubtitle="@(fp => $"{fp.SystemName} ({GetWorkCount(fp.FlowId)} works)")"
-                           GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
-                           GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))" />
-        }
-    </DialogContent>
-    <DialogActions>
-        <MudButton OnClick="@(() => _fullViewOpen = false)" Color="Color.Default">닫기</MudButton>
-    </DialogActions>
-</MudDialog>
+@if (_fullViewOpen)
+{
+    <div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                background: #000; z-index: 9999; display: flex; align-items: center; justify-content: center;"
+         @onkeydown="OnFullViewKeyDown" tabindex="0">
+        <FlowLayoutSvg Style="@($"max-width: 100vw; max-height: 100vh; width: 100%; height: 100%; aspect-ratio: {_cw} / {_ch}; background: white;")"
+                       CanvasWidth="_cw" CanvasHeight="_ch"
+                       ImagePath="@BlueprintService.Layout.BlueprintImagePath"
+                       ImageVersion="BlueprintService.ImageVersion"
+                       OffsetX="_ox" OffsetY="_oy" CellWidth="_cellW" CellHeight="_cellH"
+                       Placements="BlueprintService.Layout.FlowPlacements"
+                       GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
+                       GetSubtitle="@(fp => $"{fp.SystemName} ({GetWorkCount(fp.FlowId)} works)")"
+                       GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
+                       GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))" />
+        <MudIconButton Icon="@Icons.Material.Filled.FullscreenExit"
+                       Class="fullview-exit-btn"
+                       Style="position: absolute; top: 12px; right: 12px; border-radius: 50%;"
+                       OnClick="@(() => _fullViewOpen = false)" />
+    </div>
+}
 
 @code {
     private readonly Dictionary<Guid, int> _systemColorIndex = [];
@@ -91,14 +98,6 @@ else
     private bool _fullViewOpen;
     private int _cw, _ch, _cellW, _cellH, _ox, _oy;
     private DspDbSnapshot _dbSnapshot = new();
-
-    private static readonly DialogOptions _fullViewOptions = new()
-    {
-        MaxWidth = MaxWidth.ExtraExtraLarge,
-        FullWidth = true,
-        CloseOnEscapeKey = true,
-        NoHeader = false
-    };
 
     private static readonly string[] SystemColors =
         ["#0A1E5A", "#FA002D", "#0569A0", "#009BB4", "#4CAF50"];
@@ -184,5 +183,11 @@ else
         if (!_systemColorIndex.ContainsKey(systemId))
             _systemColorIndex[systemId] = _systemColorIndex.Count % SystemColors.Length;
         return SystemColors[_systemColorIndex[systemId]];
+    }
+
+    private void OnFullViewKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+            _fullViewOpen = false;
     }
 }
