@@ -207,10 +207,15 @@
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Text="{Binding CallApiCallsHeader}"
-                                                   FontSize="11"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding CallApiCallsHeader}"
+                                                       FontSize="11"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                            <Button Style="{StaticResource HelpButton}"
+                                                    Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                                                    CommandParameter="apicalls"/>
+                                        </StackPanel>
                                         <Button Grid.Column="1"
                                                 Content="+"
                                                 ToolTip="Add ApiCall"

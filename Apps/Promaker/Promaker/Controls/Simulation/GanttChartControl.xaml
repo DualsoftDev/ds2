@@ -56,9 +56,9 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Height="{Binding RowHeight}"
+                        <Border x:Name="RowBorder"
+                                Height="{Binding RowHeight}"
                                 Style="{StaticResource RowLabelStyle}"
-                                Background="{Binding RowBackground}"
                                 Margin="0,0,0,2"
                                 Tag="{Binding}"
                                 MouseLeftButtonDown="OnRowLabelMouseDown"
@@ -103,6 +103,12 @@
                                 </MultiDataTrigger.Conditions>
                                 <Setter TargetName="CollapsedIcon" Property="Visibility" Value="Visible"/>
                             </MultiDataTrigger>
+                            <DataTrigger Binding="{Binding IsWork}" Value="True">
+                                <Setter TargetName="RowBorder" Property="Background" Value="{DynamicResource GanttWorkRowBackgroundBrush}"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsCall}" Value="True">
+                                <Setter TargetName="RowBorder" Property="Background" Value="{DynamicResource GanttCallRowBackgroundBrush}"/>
+                            </DataTrigger>
                             <DataTrigger Binding="{Binding IsVisible}" Value="False">
                                 <Setter Property="Visibility" Value="Collapsed"/>
                             </DataTrigger>

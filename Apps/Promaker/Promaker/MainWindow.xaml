@@ -3,7 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ctrl="clr-namespace:Promaker.Controls"
         xmlns:help="clr-namespace:Promaker.Help"
-        Title="{Binding Title}" Width="1280" Height="800"
+        Title="{Binding Title}" Width="1540" Height="800"
+        MinWidth="880" MinHeight="600"
         Icon="pack://application:,,,/Assets/PromakerTemp.ico"
         WindowStartupLocation="CenterScreen"
         Closing="Window_Closing">
