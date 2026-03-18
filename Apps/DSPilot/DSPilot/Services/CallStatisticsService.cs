@@ -1,4 +1,5 @@
 using DSPilot.Engine;
+using DSPilot.Repositories;
 using Microsoft.FSharp.Collections;
 
 namespace DSPilot.Services;
@@ -9,6 +10,7 @@ namespace DSPilot.Services;
 public class CallStatisticsService
 {
     private readonly ILogger<CallStatisticsService> _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     // CallName → Going 시작 시간
     private readonly Dictionary<string, DateTime> _goingStartTimes = new();
@@ -16,17 +18,43 @@ public class CallStatisticsService
     // CallName → Going 시간 히스토리
     private readonly Dictionary<string, List<int>> _goingTimeHistory = new();
 
-    public CallStatisticsService(ILogger<CallStatisticsService> logger)
+    // CallName → DB에서 로드한 기존 GoingCount
+    private readonly Dictionary<string, int> _baseGoingCount = new();
+
+    public CallStatisticsService(
+        ILogger<CallStatisticsService> logger,
+        IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
+        _scopeFactory = scopeFactory;
     }
 
     /// <summary>
     /// Going 상태 시작 기록
     /// </summary>
-    public void RecordGoingStart(string callName)
+    public async Task RecordGoingStartAsync(string callName)
     {
         _goingStartTimes[callName] = DateTime.Now;
+
+        // DB에서 기존 GoingCount 로드 (처음 한 번만)
+        if (!_baseGoingCount.ContainsKey(callName))
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var dspRepo = scope.ServiceProvider.GetRequiredService<IDspRepository>();
+
+            try
+            {
+                var callData = await dspRepo.GetCallByNameAsync(callName);
+                _baseGoingCount[callName] = callData?.GoingCount ?? 0;
+                _logger.LogDebug("Call '{CallName}': Loaded base GoingCount = {Count}", callName, _baseGoingCount[callName]);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to load base GoingCount for Call '{CallName}', defaulting to 0", callName);
+                _baseGoingCount[callName] = 0;
+            }
+        }
+
         _logger.LogDebug("Call '{CallName}': Going started", callName);
     }
 
@@ -60,23 +88,28 @@ public class CallStatisticsService
 
         // 업데이트된 샘플로 히스토리 갱신
         _goingTimeHistory[callName] = new List<int>(updatedSamples);
-        var goingCount = _goingTimeHistory[callName].Count;
+
+        // 세션 내 증가분 + DB의 기존 값
+        var sessionCount = _goingTimeHistory[callName].Count;
+        var baseCount = _baseGoingCount.TryGetValue(callName, out var bc) ? bc : 0;
+        var totalGoingCount = baseCount + sessionCount;
 
         _logger.LogInformation(
-            "Call '{CallName}': Going finished - Time={Time}ms, Avg={Avg:F0}ms, StdDev={StdDev:F0}ms (Samples={Count})",
-            callName, goingTime, average, stdDev, goingCount);
+            "Call '{CallName}': Going finished - Time={Time}ms, Avg={Avg:F0}ms, StdDev={StdDev:F0}ms (Session={Session}, Base={Base}, Total={Total})",
+            callName, goingTime, average, stdDev, sessionCount, baseCount, totalGoingCount);
 
-        return (startTime, finishTime, goingTime, average, stdDev, goingCount);
+        return (startTime, finishTime, goingTime, average, stdDev, totalGoingCount);
     }
 
     /// <summary>
-    /// 모든 통계 초기화
+    /// 모든 통계 초기화 (세션 데이터만 클리어, DB 기존 값은 유지)
     /// </summary>
     public void Reset()
     {
         _goingStartTimes.Clear();
         _goingTimeHistory.Clear();
-        _logger.LogInformation("All statistics cleared");
+        // _baseGoingCount는 유지 (DB 값)
+        _logger.LogInformation("Session statistics cleared (base GoingCount preserved)");
     }
 
     /// <summary>
