@@ -93,9 +93,11 @@
                 var bH = 11;
                 var bX = px + pad + innerW - bW - 3;
                 var bY = py + pad + 3 + bi * (bH + 2);
-                <rect x="@bX" y="@bY" width="@bW" height="@bH" rx="3" ry="3" fill="@bColor" />
-                <text x="@(bX + bW / 2)" y="@(bY + bH - 2)"
-                      text-anchor="middle" fill="white" font-size="8" font-weight="700">@bLabel</text>
+                <g>
+                    <rect x="@bX" y="@bY" width="@bW" height="@bH" rx="3" ry="3" fill="@bColor" />
+                    <text x="@(bX + bW / 2)" y="@(bY + bH - 2)"
+                          text-anchor="middle" fill="white" font-size="8" font-weight="700">@bLabel</text>
+                </g>
             }
         </g>
     }

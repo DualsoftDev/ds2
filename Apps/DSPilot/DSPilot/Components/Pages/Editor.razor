@@ -99,6 +99,16 @@ else
                     <MudText Typo="Typo.caption" Class="mt-1" Style="color: #7D8282;">
                         Cell: @(BlueprintService.Layout.CellWidth) x @(BlueprintService.Layout.CellHeight) px
                     </MudText>
+                    <MudDivider Class="my-2" />
+                    <MudText Typo="Typo.caption" Style="color: #7D8282;">드롭 기본 크기</MudText>
+                    <div class="d-flex gap-2 mt-1">
+                        <MudNumericField T="int" @bind-Value="_defaultColSpan"
+                                         Label="Span W" Variant="Variant.Outlined"
+                                         Min="1" Max="@_gridColumns" Immediate="true" />
+                        <MudNumericField T="int" @bind-Value="_defaultRowSpan"
+                                         Label="Span H" Variant="Variant.Outlined"
+                                         Min="1" Max="@_gridRows" Immediate="true" />
+                    </div>
                 </MudCardContent>
             </MudCard>
 
@@ -264,6 +274,10 @@ else
                             var pw = fp.ColSpan * cellW;
                             var ph = fp.RowSpan * cellH;
                             var pad = 4;
+                            var hasOverlap = IsOccupied(fp.Col, fp.Row, fp.ColSpan, fp.RowSpan, fp.FlowId);
+                            var strokeColor = hasOverlap ? "#e53935" : color;
+                            var strokeWidth = hasOverlap ? 3 : 2;
+                            var fillOpacity = hasOverlap ? "0.6" : "0.9";
 
                             <g data-flow-id="@fp.FlowId"
                                data-col="@fp.Col" data-row="@fp.Row"
@@ -272,8 +286,13 @@ else
                                 <rect x="@(px + pad)" y="@(py + pad)"
                                       width="@(pw - pad * 2)" height="@(ph - pad * 2)"
                                       rx="6" ry="6"
-                                      fill="@color" fill-opacity="0.9"
-                                      stroke="@color" stroke-width="2" />
+                                      fill="@color" fill-opacity="@fillOpacity"
+                                      stroke="@strokeColor" stroke-width="@strokeWidth" />
+                                @if (hasOverlap)
+                                {
+                                    <circle cx="@(px + pw - pad - 8)" cy="@(py + pad + 8)"
+                                            r="7" fill="#e53935" style="pointer-events: none;" />
+                                }
                                 <text x="@(px + pw / 2)" y="@(py + ph / 2 - 4)"
                                       text-anchor="middle" fill="white"
                                       font-size="13" font-weight="600"
@@ -307,6 +326,8 @@ else
     private int _offsetY;
     private int _offsetRight;
     private int _offsetBottom;
+    private int _defaultColSpan = 1;
+    private int _defaultRowSpan = 1;
 
     private static readonly string[] SystemColors =
         ["#0A1E5A", "#FA002D", "#0569A0", "#009BB4", "#4CAF50"];
@@ -399,10 +420,19 @@ else
         if (!_flowInfo.TryGetValue(flowId, out var info)) return;
         if (BlueprintService.Layout.FlowPlacements.Any(p => p.FlowId == flowId)) return;
 
-        var cellW = BlueprintService.Layout.CellWidth;
-        var cellH = BlueprintService.Layout.CellHeight;
-        var col = Math.Clamp((int)(e.OffsetX / cellW), 0, _gridColumns - 1);
-        var row = Math.Clamp((int)(e.OffsetY / cellH), 0, _gridRows - 1);
+        var layout = BlueprintService.Layout;
+        var cellW = layout.CellWidth;
+        var cellH = layout.CellHeight;
+        var col = Math.Clamp((int)((e.OffsetX - layout.OffsetX) / cellW), 0, _gridColumns - 1);
+        var row = Math.Clamp((int)((e.OffsetY - layout.OffsetY) / cellH), 0, _gridRows - 1);
+        var cs = Math.Clamp(_defaultColSpan, 1, _gridColumns - col);
+        var rs = Math.Clamp(_defaultRowSpan, 1, _gridRows - row);
+
+        if (IsOccupied(col, row, cs, rs))
+        {
+            Snackbar.Add($"해당 위치가 이미 점유되어 있습니다. [{col},{row}]", Severity.Warning);
+            return;
+        }
 
         var placement = new FlowPlacement
         {
@@ -412,12 +442,12 @@ else
             SystemName = info.SystemName,
             Col = col,
             Row = row,
-            ColSpan = 1,
-            RowSpan = 1
+            ColSpan = cs,
+            RowSpan = rs
         };
 
         BlueprintService.UpdatePlacement(placement);
-        Snackbar.Add($"Placed: {info.FlowName} [{col},{row}]", Severity.Success);
+        Snackbar.Add($"배치됨: {info.FlowName} [{col},{row}] {cs}x{rs}", Severity.Success);
         StateHasChanged();
     }
 
@@ -428,6 +458,13 @@ else
         var existing = BlueprintService.Layout.FlowPlacements.FirstOrDefault(p => p.FlowId == flowId);
         if (existing == null) return;
 
+        if (IsOccupied(col, row, existing.ColSpan, existing.RowSpan, flowId))
+        {
+            Snackbar.Add("해당 위치가 다른 블럭과 겹칩니다.", Severity.Warning);
+            InvokeAsync(StateHasChanged);
+            return;
+        }
+
         existing.Col = col;
         existing.Row = row;
         BlueprintService.UpdatePlacement(existing);
@@ -437,6 +474,7 @@ else
     private void OnCellChanged(FlowPlacement fp, string field, ChangeEventArgs e)
     {
         if (!int.TryParse(e.Value?.ToString(), out var val)) return;
+        var prev = (fp.Col, fp.Row, fp.ColSpan, fp.RowSpan);
         switch (field)
         {
             case nameof(FlowPlacement.Col): fp.Col = Math.Clamp(val, 0, _gridColumns - 1); break;
@@ -444,8 +482,28 @@ else
             case nameof(FlowPlacement.ColSpan): fp.ColSpan = Math.Clamp(val, 1, _gridColumns - fp.Col); break;
             case nameof(FlowPlacement.RowSpan): fp.RowSpan = Math.Clamp(val, 1, _gridRows - fp.Row); break;
         }
-        BlueprintService.UpdatePlacement(fp);
+        if (IsOccupied(fp.Col, fp.Row, fp.ColSpan, fp.RowSpan, fp.FlowId))
+        {
+            (fp.Col, fp.Row, fp.ColSpan, fp.RowSpan) = prev;
+            Snackbar.Add("해당 위치/크기가 다른 블럭과 겹칩니다.", Severity.Warning);
+        }
+        else
+        {
+            BlueprintService.UpdatePlacement(fp);
+        }
         StateHasChanged();
+    }
+
+    private bool IsOccupied(int col, int row, int colSpan, int rowSpan, Guid? excludeId = null)
+    {
+        foreach (var fp in BlueprintService.Layout.FlowPlacements)
+        {
+            if (excludeId.HasValue && fp.FlowId == excludeId.Value) continue;
+            bool colOverlap = col < fp.Col + fp.ColSpan && col + colSpan > fp.Col;
+            bool rowOverlap = row < fp.Row + fp.RowSpan && row + rowSpan > fp.Row;
+            if (colOverlap && rowOverlap) return true;
+        }
+        return false;
     }
 
     private void RemovePlacement(Guid flowId)

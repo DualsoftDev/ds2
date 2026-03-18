@@ -127,17 +127,26 @@ else
                         </div>
                     </div>
 
+                    @* 기본값 *@
+                    <div style="margin-left:auto; display:flex; align-items:flex-end;">
+                        <MudButton Size="Size.Small"
+                                   Variant="Variant.Outlined"
+                                   Color="Color.Default"
+                                   StartIcon="@Icons.Material.Filled.RestartAlt"
+                                   OnClick="ResetToDefault">기본값</MudButton>
+                    </div>
+
                 </div>
             </MudCardContent>
         </MudCard>
     }
 
     @* ── 위젯 그리드 ── *@
-    <div class="@($"dashboard-grid {(_direction == "horizontal" ? "grid-h" : "grid-v")}{(_isEditing ? " editing" : "")}")">
+    <div class="@GridClass">
         @foreach (var widgetId in _widgetOrder)
         {
             var wid = widgetId;
-            @if (!_hiddenWidgets.Contains(wid))
+            if (!_hiddenWidgets.Contains(wid))
             {
                 <div class="widget-container" style="@GetWidgetContainerStyle(wid)">
 
@@ -156,7 +165,8 @@ else
                                                        Placements="BlueprintService.Layout.FlowPlacements"
                                                        GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
                                                        GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
-                                                       GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))" />
+                                                       GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))"
+                                                       GetBadges="@(fp => GetFlowBadges(fp.FlowName))" />
                                     </div>
                                     <div class="d-flex justify-center gap-3 flex-wrap" style="padding:4px 0 2px; flex-shrink:0;">
                                         @foreach (var (label, clr) in _stateLegend)
@@ -280,7 +290,7 @@ else
         ["#0A1E5A", "#FA002D", "#0569A0", "#009BB4", "#4CAF50"];
     private static readonly (string Label, string Color)[] _stateLegend =
     [
-        ("Ready", "#9E9E9E"), ("Going", "#4CAF50"), ("Done", "#2196F3"),
+        ("Ready", "#9E9E9E"), ("Going", "#4CAF50"), ("Finish", "#2196F3"),
         ("Error", "#F44336"), ("Pause", "#FF9800"), ("Abort", "#9C27B0")
     ];
 
@@ -291,12 +301,15 @@ else
 
     // 대시보드 레이아웃 설정
     private bool _isEditing;
-    private List<string> _widgetOrder    = ["layout", "ct"];
+    private List<string> _widgetOrder    = ["ct", "layout"];
     private HashSet<string> _hiddenWidgets = [];
-    private string _direction            = "vertical";   // "horizontal" | "vertical"
-    private string _ratio                = "1:1";
+    private string _direction            = "horizontal";   // "horizontal" | "vertical"
+    private string _ratio                = "1:3";
 
     private static readonly string[] RatioOptions = ["1:3", "1:2", "1:1", "2:1", "3:1"];
+
+    private string GridClass =>
+        "dashboard-grid " + (_direction == "horizontal" ? "grid-h" : "grid-v") + (_isEditing ? " editing" : "");
 
     private static readonly Dictionary<string, string> WidgetTitles = new()
     {
@@ -377,6 +390,15 @@ else
 
     private void ToggleEdit() => _isEditing = !_isEditing;
 
+    private void ResetToDefault()
+    {
+        _direction     = "horizontal";
+        _widgetOrder   = ["ct", "layout"];
+        _ratio         = "1:3";
+        _hiddenWidgets = [];
+        _ = SaveLayoutAsync();
+    }
+
     private void SetDirection(string dir)
     {
         _direction = dir;
@@ -430,7 +452,7 @@ else
         if (s == null) return GetSystemColor(systemId);
         return s.State?.ToLowerInvariant() switch
         {
-            "ready" => "#9E9E9E", "going" => "#4CAF50", "done"  => "#2196F3",
+            "ready" => "#9E9E9E", "going" => "#4CAF50", "finish" => "#2196F3",
             "error" => "#F44336", "pause" => "#FF9800", "abort" => "#9C27B0",
             _ => "#9E9E9E",
         };
@@ -438,6 +460,13 @@ else
 
     private string GetFlowStateLabel(string flowName) =>
         _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == flowName)?.State ?? "";
+
+    private IEnumerable<(string Label, string Color)> GetFlowBadges(string flowName)
+    {
+        if (flowName == _maxCtName) yield return ("최대", "#ef5350");
+        if (flowName == _minCtName) yield return ("최소", "#26a69a");
+        if (flowName == _maxWtName) yield return ("대기↑", "#fb8c00");
+    }
 
     private string GetSystemColor(Guid systemId)
     {
