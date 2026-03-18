@@ -190,10 +190,15 @@ public class DspDbService : IDisposable
                 }
             }
 
+            // DB에서 중복 Id가 조회될 수 있으므로 제거 (마지막 값 유지)
+            calls = calls.GroupBy(c => c.Id).Select(g => g.Last()).ToList();
+
             // 실제 변경이 있을 때만 이벤트 발행 (불필요한 Blazor 렌더링 방지)
             // Dictionary 사용으로 O(N) 비교 (중첩 Any의 O(N²) 방지)
-            // Call Id를 고유 키로 사용 (같은 Flow에도 같은 이름의 Call이 여러 개 존재 가능)
-            var oldStateMap = _snapshot.Calls.ToDictionary(c => c.Id, c => c.State);
+            // GroupBy로 중복 Id 처리 (DB에 중복 데이터가 있을 경우 마지막 값 사용)
+            var oldStateMap = _snapshot.Calls
+                .GroupBy(c => c.Id)
+                .ToDictionary(g => g.Key, g => g.Last().State);
             bool hasChanged =
                 calls.Count != _snapshot.Calls.Count ||
                 flows.Count != _snapshot.Flows.Count ||
