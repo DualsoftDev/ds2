@@ -33,15 +33,15 @@ public class CallStatisticsService
     /// <summary>
     /// Going 종료 시 시간 계산 및 통계 업데이트 (F# Statistics 사용)
     /// </summary>
-    /// <returns>(시작 시간, 종료 시간, Going 시간, 평균, 표준편차)</returns>
-    public (DateTime? StartTime, DateTime FinishTime, int GoingTime, double Average, double StdDev) RecordGoingFinish(string callName)
+    /// <returns>(시작 시간, 종료 시간, Going 시간, 평균, 표준편차, 누적 횟수)</returns>
+    public (DateTime? StartTime, DateTime FinishTime, int GoingTime, double Average, double StdDev, int GoingCount) RecordGoingFinish(string callName)
     {
         var finishTime = DateTime.Now;
 
         if (!_goingStartTimes.TryGetValue(callName, out var startTime))
         {
             _logger.LogWarning("Call '{CallName}': No Going start time found", callName);
-            return (null, finishTime, 0, 0, 0);
+            return (null, finishTime, 0, 0, 0, 0);
         }
 
         var goingTime = (int)(finishTime - startTime).TotalMilliseconds;
@@ -60,12 +60,13 @@ public class CallStatisticsService
 
         // 업데이트된 샘플로 히스토리 갱신
         _goingTimeHistory[callName] = new List<int>(updatedSamples);
+        var goingCount = _goingTimeHistory[callName].Count;
 
         _logger.LogInformation(
             "Call '{CallName}': Going finished - Time={Time}ms, Avg={Avg:F0}ms, StdDev={StdDev:F0}ms (Samples={Count})",
-            callName, goingTime, average, stdDev, _goingTimeHistory[callName].Count);
+            callName, goingTime, average, stdDev, goingCount);
 
-        return (startTime, finishTime, goingTime, average, stdDev);
+        return (startTime, finishTime, goingTime, average, stdDev, goingCount);
     }
 
     /// <summary>

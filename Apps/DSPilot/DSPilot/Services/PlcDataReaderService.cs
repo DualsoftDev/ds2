@@ -1,3 +1,5 @@
+using System.Threading.Channels;
+using DSPilot.Models;
 using DSPilot.Models.Dsp;
 using DSPilot.Models.Plc;
 using DSPilot.Repositories;
@@ -14,6 +16,7 @@ public class PlcDataReaderService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IConfiguration _configuration;
     private readonly IFlowMetricsService _flowMetricsService;
+    private readonly ChannelWriter<CallStateChangedEvent> _eventWriter;
     private readonly bool _simulationMode;
     private readonly TimeSpan _simulationWindow = TimeSpan.FromSeconds(1);
 
@@ -26,12 +29,14 @@ public class PlcDataReaderService : BackgroundService
         ILogger<PlcDataReaderService> logger,
         IServiceScopeFactory scopeFactory,
         IConfiguration configuration,
-        IFlowMetricsService flowMetricsService)
+        IFlowMetricsService flowMetricsService,
+        DspDbService dspDbService)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _configuration = configuration;
         _flowMetricsService = flowMetricsService;
+        _eventWriter = dspDbService.EventWriter;
         _simulationMode = _configuration.GetValue<bool>("PlcDatabase:SimulationMode");
 
         _lastReadTime = DateTime.Now;
@@ -66,7 +71,7 @@ public class PlcDataReaderService : BackgroundService
         {
             try
             {
-                await ReadAndProcessDataAsync();
+                await ReadAndProcessDataAsync(stoppingToken);
                 await Task.Delay(intervalMs, stoppingToken);
             }
             catch (OperationCanceledException)
@@ -166,21 +171,21 @@ public class PlcDataReaderService : BackgroundService
     /// <summary>
     /// 데이터 읽기 및 처리
     /// </summary>
-    private async Task ReadAndProcessDataAsync()
+    private async Task ReadAndProcessDataAsync(CancellationToken stoppingToken = default)
     {
         using var scope = _scopeFactory.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IPlcRepository>();
 
         if (_simulationMode && !_simulationReplayCompleted)
         {
-            await ReplayHistoricalWindowAsync(repository);
+            await ReplayHistoricalWindowAsync(repository, stoppingToken);
             return;
         }
 
-        await ReadLiveDataAsync(repository);
+        await ReadLiveDataAsync(repository, stoppingToken);
     }
 
-    private async Task ReadLiveDataAsync(IPlcRepository repository)
+    private async Task ReadLiveDataAsync(IPlcRepository repository, CancellationToken stoppingToken = default)
     {
         var pollTime = DateTime.Now;
         var newLogs = await repository.GetNewLogsAsync(_lastReadTime);
@@ -188,7 +193,7 @@ public class PlcDataReaderService : BackgroundService
         if (newLogs.Count > 0)
         {
             LogReadBatch($"[LIVE {pollTime:HH:mm:ss}]", newLogs);
-            await SaveToDspDatabaseAsync(newLogs);
+            await SaveToDspDatabaseAsync(newLogs, stoppingToken);
             _totalLogsRead += newLogs.Count;
             _lastReadTime = newLogs.Max(log => log.DateTime);
         }
@@ -197,7 +202,7 @@ public class PlcDataReaderService : BackgroundService
     /// <summary>
     /// 과거 데이터를 1초 윈도우로 재생
     /// </summary>
-    private async Task ReplayHistoricalWindowAsync(IPlcRepository repository)
+    private async Task ReplayHistoricalWindowAsync(IPlcRepository repository, CancellationToken stoppingToken = default)
     {
         var windowStartExclusive = _lastReadTime;
         var windowEndInclusive = windowStartExclusive + _simulationWindow;
@@ -208,7 +213,7 @@ public class PlcDataReaderService : BackgroundService
             LogReadBatch(
                 $"[SIM {windowStartExclusive:yyyy-MM-dd HH:mm:ss.fff} ~ {windowEndInclusive:yyyy-MM-dd HH:mm:ss.fff}]",
                 replayLogs);
-            await SaveToDspDatabaseAsync(replayLogs);
+            await SaveToDspDatabaseAsync(replayLogs, stoppingToken);
             _totalLogsRead += replayLogs.Count;
         }
 
@@ -277,7 +282,7 @@ public class PlcDataReaderService : BackgroundService
     /// <summary>
     /// dsp.db에 저장 (엣지 감지 및 상태 전환 로직 포함)
     /// </summary>
-    private async Task SaveToDspDatabaseAsync(List<PlcTagLogEntity> logs)
+    private async Task SaveToDspDatabaseAsync(List<PlcTagLogEntity> logs, CancellationToken stoppingToken = default)
     {
         using var scope = _scopeFactory.CreateScope();
         var mapper = scope.ServiceProvider.GetRequiredService<PlcToCallMapperService>();
@@ -362,6 +367,13 @@ public class PlcDataReaderService : BackgroundService
                     statistics.RecordGoingStart(call.Name);
                     await dspRepo.UpdateCallStateAsync(call.Name, "Going");
 
+                    // 채널을 통해 UI에 즉시 Going 상태 전달 (DB 폴링 대기 불필요)
+                    await WriteEventAsync(new CallStateChangedEvent
+                    {
+                        CallName = call.Name,
+                        NewState = "Going",
+                    }, stoppingToken);
+
                     // FlowMetricsService 이벤트 발생
                     _flowMetricsService.OnCallGoingStarted(call.Name, timestamp);
 
@@ -372,7 +384,7 @@ public class PlcDataReaderService : BackgroundService
                 else if (newState == "Finish")
                 {
                     // Going 시간 계산 및 통계 업데이트
-                    var (startTime, finishTime, goingTime, avg, stdDev) = statistics.RecordGoingFinish(call.Name);
+                    var (startTime, finishTime, goingTime, avg, stdDev, goingCount) = statistics.RecordGoingFinish(call.Name);
 
                     await dspRepo.UpdateCallWithStatisticsAsync(
                         call.Name,
@@ -382,6 +394,16 @@ public class PlcDataReaderService : BackgroundService
                         stdDev
                     );
 
+                    // 채널을 통해 UI에 즉시 Finish 상태 전달
+                    await WriteEventAsync(new CallStateChangedEvent
+                    {
+                        CallName         = call.Name,
+                        NewState         = "Finish",
+                        PreviousGoingTime = goingTime,
+                        AverageGoingTime = avg,
+                        GoingCount       = goingCount,
+                    }, stoppingToken);
+
                     // FlowMetricsService 이벤트 발생
                     _flowMetricsService.OnCallFinished(call.Name, finishTime);
 
@@ -390,8 +412,16 @@ public class PlcDataReaderService : BackgroundService
                         call.Name, tag.Name, goingTime);
 
                     // Finish → Ready 자동 전환 (100ms 후)
-                    await Task.Delay(100);
+                    await Task.Delay(100, stoppingToken);
                     await dspRepo.UpdateCallStateAsync(call.Name, "Ready");
+
+                    // 채널을 통해 UI에 즉시 Ready 상태 전달
+                    await WriteEventAsync(new CallStateChangedEvent
+                    {
+                        CallName   = call.Name,
+                        NewState   = "Ready",
+                        GoingCount = goingCount,
+                    }, stoppingToken);
 
                     _logger.LogDebug("Call '{CallName}': State changed Finish → Ready", call.Name);
                 }
@@ -405,6 +435,26 @@ public class PlcDataReaderService : BackgroundService
         _logger.LogDebug(
             "SaveToDspDatabase completed: {TotalLogs} logs, {ProcessedCount} processed, {MappedCount} mapped, {StateChangedCount} state changed",
             logs.Count, processedCount, mappedCount, stateChangedCount);
+    }
+
+    /// <summary>
+    /// DspDbService 채널에 이벤트를 안전하게 발행한다.
+    /// 채널이 닫혀 있으면 (앱 종료 중) 무시한다.
+    /// </summary>
+    private async Task WriteEventAsync(CallStateChangedEvent evt, CancellationToken ct)
+    {
+        try
+        {
+            await _eventWriter.WriteAsync(evt, ct);
+        }
+        catch (ChannelClosedException)
+        {
+            // 앱 종료 중 — 무시
+        }
+        catch (OperationCanceledException)
+        {
+            // 서비스 중지 중 — 무시
+        }
     }
 
     /// <summary>
