@@ -82,8 +82,15 @@ public class DspDatabaseService : BackgroundService
     {
         try
         {
-            var flows = _projectService.GetAllFlows();
-            _logger.LogInformation("Loading {Count} flows from AASX...", flows.Count);
+            var allFlows = _projectService.GetAllFlows();
+            _logger.LogInformation("Total flows in AASX: {Count}", allFlows.Count);
+
+            // "_Flow" 접미사를 가진 Flow 제외 (실제 제조 Flow만 포함)
+            var flows = allFlows
+                .Where(f => !f.Name.EndsWith("_Flow", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            _logger.LogInformation("Filtered flows (excluding '*_Flow'): {Count}", flows.Count);
 
             // Flow 데이터 변환 및 삽입
             var flowEntities = flows.Select(f => new DspFlowEntity

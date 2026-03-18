@@ -48,8 +48,15 @@ public class FlowMetricsService : IFlowMetricsService
                 return;
             }
 
-            var flows = _projectService.GetAllFlows();
-            _logger.LogInformation("Analyzing {Count} flows...", flows.Count);
+            var allFlows = _projectService.GetAllFlows();
+            _logger.LogInformation("Total flows in AASX: {Count}", allFlows.Count);
+
+            // "_Flow" 접미사를 가진 Flow 제외 (실제 제조 Flow만 분석)
+            var flows = allFlows
+                .Where(f => !f.Name.EndsWith("_Flow", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            _logger.LogInformation("Analyzing {Count} flows (excluding '*_Flow')...", flows.Count);
 
             int successCount = 0;
             int failCount = 0;
@@ -58,18 +65,6 @@ public class FlowMetricsService : IFlowMetricsService
             {
                 try
                 {
-                    // Flow의 Call 개수 확인 (단일 Call Flow는 제외)
-                    var works = _projectService.GetWorks(flow.Id);
-                    var totalCallCount = works.Sum(w => _projectService.GetCalls(w.Id).Count);
-
-                    if (totalCallCount < 2)
-                    {
-                        _logger.LogDebug("Flow '{FlowName}' has only {Count} call(s), skipping metrics tracking",
-                            flow.Name, totalCallCount);
-                        successCount++;
-                        continue;
-                    }
-
                     // F# FlowAnalysis 모듈 사용
                     var store = GetDsStore();
                     var analysisResult = FlowAnalysis.analyzeFlow(flow, store);
@@ -89,13 +84,13 @@ public class FlowMetricsService : IFlowMetricsService
                             : null;
 #pragma warning restore CS8602
 
-                        // MovingStartName과 MovingEndName이 같으면 skip (단일 Call Flow)
-                        if (movingStartCallName == movingEndCallName)
+                        // 단일 Call Flow 여부 확인 (MovingStartName == MovingEndName)
+                        bool isSingleCallFlow = movingStartCallName == movingEndCallName;
+
+                        if (isSingleCallFlow && movingStartCallName != null)
                         {
-                            _logger.LogDebug("Flow '{FlowName}' has same MovingStart and MovingEnd ('{CallName}'), skipping metrics tracking",
+                            _logger.LogInformation("Flow '{FlowName}' is a single-Call Flow with Call '{CallName}'",
                                 flow.Name, movingStartCallName);
-                            successCount++;
-                            continue;
                         }
 
                         // FlowName.CallName 형식으로 고유하게 저장
@@ -135,6 +130,7 @@ public class FlowMetricsService : IFlowMetricsService
                             FlowName = flow.Name,
                             HeadCallName = headCallName,
                             TailCallName = tailCallName,
+                            IsSingleCallFlow = isSingleCallFlow,
                             CurrentCycleStart = null,
                             PreviousCycleFinish = null,
                             CurrentMT = null,
@@ -185,51 +181,101 @@ public class FlowMetricsService : IFlowMetricsService
             // Head Call이 Going 시작한 경우
             if (state.HeadCallName == callName)
             {
-                // 이전 사이클이 완료되었고 MT가 계산된 경우 WT/CT 계산 및 DB 업데이트
-                if (state.PreviousCycleFinish.HasValue && state.CurrentMT.HasValue)
+                // 단일 Call Flow의 경우: 바로 이전 Finish 시간과 비교하여 WT 계산
+                if (state.IsSingleCallFlow)
                 {
-                    var prevMT = state.CurrentMT.Value;
-                    var wt = (int)(timestamp - state.PreviousCycleFinish.Value).TotalMilliseconds;
-                    var ct = prevMT + wt;
-
-                    state.CurrentWT = wt;
-                    state.CurrentCT = ct;
-
-                    // DB 갱신 (비동기 작업을 Fire-and-Forget 방식으로 실행)
-                    _ = Task.Run(async () =>
+                    if (state.PreviousCycleFinish.HasValue && state.CurrentMT.HasValue)
                     {
-                        try
-                        {
-                            // FlowName.CallName 형식으로 고유하게 저장
-                            var movingStartName = state.HeadCallName != null
-                                ? $"{flowName}.{state.HeadCallName}"
-                                : null;
-                            var movingEndName = state.TailCallName != null
-                                ? $"{flowName}.{state.TailCallName}"
-                                : null;
+                        var prevMT = state.CurrentMT.Value;
+                        var wt = (int)(timestamp - state.PreviousCycleFinish.Value).TotalMilliseconds;
+                        var ct = prevMT + wt;
 
-                            await _dspRepository.UpdateFlowMetricsAsync(
-                                flowName,
-                                mt: prevMT,
-                                wt: wt,
-                                ct: ct,
-                                movingStartName: movingStartName,
-                                movingEndName: movingEndName);
+                        state.CurrentWT = wt;
+                        state.CurrentCT = ct;
 
-                            _logger.LogInformation(
-                                "Flow '{FlowName}' metrics updated: MT={MT}ms, WT={WT}ms, CT={CT}ms",
-                                flowName, prevMT, wt, ct);
-                        }
-                        catch (Exception ex)
+                        // DB 갱신
+                        _ = Task.Run(async () =>
                         {
-                            _logger.LogError(ex, "Failed to update metrics for Flow '{FlowName}'", flowName);
-                        }
-                    });
+                            try
+                            {
+                                var movingStartName = state.HeadCallName != null
+                                    ? $"{flowName}.{state.HeadCallName}"
+                                    : null;
+                                var movingEndName = state.TailCallName != null
+                                    ? $"{flowName}.{state.TailCallName}"
+                                    : null;
+
+                                await _dspRepository.UpdateFlowMetricsAsync(
+                                    flowName,
+                                    mt: prevMT,
+                                    wt: wt,
+                                    ct: ct,
+                                    movingStartName: movingStartName,
+                                    movingEndName: movingEndName);
+
+                                _logger.LogInformation(
+                                    "Single-Call Flow '{FlowName}' metrics updated: MT={MT}ms, WT={WT}ms, CT={CT}ms",
+                                    flowName, prevMT, wt, ct);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Failed to update metrics for single-Call Flow '{FlowName}'", flowName);
+                            }
+                        });
+                    }
+
+                    // 새 사이클 시작
+                    state.CurrentCycleStart = timestamp;
                 }
+                else
+                {
+                    // 다중 Call Flow: 기존 로직
+                    // 이전 사이클이 완료되었고 MT가 계산된 경우 WT/CT 계산 및 DB 업데이트
+                    if (state.PreviousCycleFinish.HasValue && state.CurrentMT.HasValue)
+                    {
+                        var prevMT = state.CurrentMT.Value;
+                        var wt = (int)(timestamp - state.PreviousCycleFinish.Value).TotalMilliseconds;
+                        var ct = prevMT + wt;
 
-                // 새 사이클 시작 (MT는 tail 완료 시 계산됨)
-                state.CurrentCycleStart = timestamp;
-                // CurrentMT는 유지 (다음 Head에서 사용)
+                        state.CurrentWT = wt;
+                        state.CurrentCT = ct;
+
+                        // DB 갱신 (비동기 작업을 Fire-and-Forget 방식으로 실행)
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                // FlowName.CallName 형식으로 고유하게 저장
+                                var movingStartName = state.HeadCallName != null
+                                    ? $"{flowName}.{state.HeadCallName}"
+                                    : null;
+                                var movingEndName = state.TailCallName != null
+                                    ? $"{flowName}.{state.TailCallName}"
+                                    : null;
+
+                                await _dspRepository.UpdateFlowMetricsAsync(
+                                    flowName,
+                                    mt: prevMT,
+                                    wt: wt,
+                                    ct: ct,
+                                    movingStartName: movingStartName,
+                                    movingEndName: movingEndName);
+
+                                _logger.LogInformation(
+                                    "Flow '{FlowName}' metrics updated: MT={MT}ms, WT={WT}ms, CT={CT}ms",
+                                    flowName, prevMT, wt, ct);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Failed to update metrics for Flow '{FlowName}'", flowName);
+                            }
+                        });
+                    }
+
+                    // 새 사이클 시작 (MT는 tail 완료 시 계산됨)
+                    state.CurrentCycleStart = timestamp;
+                    // CurrentMT는 유지 (다음 Head에서 사용)
+                }
             }
         }
         catch (Exception ex)
@@ -254,14 +300,23 @@ public class FlowMetricsService : IFlowMetricsService
             // Tail Call이 완료된 경우
             if (state.TailCallName == callName && state.CurrentCycleStart.HasValue)
             {
-                // MT 계산
+                // MT 계산 (Going 시작 → Finish 완료까지의 시간)
                 var mt = (int)(timestamp - state.CurrentCycleStart.Value).TotalMilliseconds;
                 state.CurrentMT = mt;
                 state.PreviousCycleFinish = timestamp;
 
-                _logger.LogDebug(
-                    "Flow '{FlowName}' cycle finished: MT={MT}ms",
-                    flowName, mt);
+                if (state.IsSingleCallFlow)
+                {
+                    _logger.LogDebug(
+                        "Single-Call Flow '{FlowName}' cycle finished: Call '{CallName}', MT={MT}ms",
+                        flowName, callName, mt);
+                }
+                else
+                {
+                    _logger.LogDebug(
+                        "Flow '{FlowName}' cycle finished: MT={MT}ms",
+                        flowName, mt);
+                }
             }
         }
         catch (Exception ex)
@@ -301,6 +356,7 @@ public class FlowCycleState
     public string FlowName { get; set; } = string.Empty;
     public string? HeadCallName { get; set; }
     public string? TailCallName { get; set; }
+    public bool IsSingleCallFlow { get; set; }
     public DateTime? CurrentCycleStart { get; set; }
     public DateTime? PreviousCycleFinish { get; set; }
     public int? CurrentMT { get; set; }
