@@ -43,43 +43,56 @@
     }
 
     /* ── CT 카드 디자인 ── */
-    /* 요약 헤더 영역 */
-    .ct-header-section {
-        padding: 12px 16px 14px;
-        background: #f5f5f5;
+    /* 요약 셀 3개 가로 배치 (데이터 있을 때만) */
+    .ct-summary-bar {
+        display: flex;
+        flex-direction: row;
         border-bottom: 1px solid rgba(0,0,0,0.12);
         flex-shrink: 0;
     }
-    .ct-summary-cards {
-        display: flex;
-        gap: 8px;
-    }
-    .ct-summary-card {
+    .ct-top-cell {
         flex: 1;
-        padding: 10px 12px;
-        border-radius: 6px;
-        background: #ffffff;
-        border: 1px solid rgba(0,0,0,0.10);
+        padding: 10px 14px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+        border-right: 1px solid rgba(0,0,0,0.12);
+        background: #fff;
+        min-width: 0;
     }
-    .ct-summary-card.danger  { border-left: 4px solid #ef5350; }
-    .ct-summary-card.warning { border-left: 4px solid #fb8c00; }
-    .ct-summary-card.success { border-left: 4px solid #26a69a; }
+    .ct-top-cell:last-child { border-right: none; }
+    .ct-top-cell.danger  { border-left: 3px solid #ef5350; }
+    .ct-top-cell.warning { border-left: 3px solid #fb8c00; }
+    .ct-top-cell.success { border-left: 3px solid #26a69a; }
+    .ct-summary-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+    }
+    .ct-top-cell.danger  .ct-summary-title { color: #ef5350; }
+    .ct-top-cell.warning .ct-summary-title { color: #fb8c00; }
+    .ct-top-cell.success .ct-summary-title { color: #26a69a; }
+    /* 배지 (차트 행 전용) */
+    .ct-badge-pill {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 10px;
+        font-size: 10px;
+        font-weight: 700;
+        color: white;
+        white-space: nowrap;
+        flex-shrink: 0;
+        line-height: 1.6;
+    }
     /* 차트 리스트 영역 */
     .ct-chart-section {
         padding: 10px 12px;
         overflow-y: auto;
         flex: 1;
         min-height: 0;
+        background: #fff;
     }
-    .ct-summary-title {
-        font-size: 13px;
-        font-weight: 700;
-        margin-bottom: 6px;
-        letter-spacing: 0.2px;
-    }
-    .ct-summary-card.danger  .ct-summary-title { color: #ef5350; }
-    .ct-summary-card.warning .ct-summary-title { color: #fb8c00; }
-    .ct-summary-card.success .ct-summary-title { color: #26a69a; }
     .ct-summary-sub {
         font-size: 14px;
         color: #1e293b;
@@ -87,36 +100,51 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        margin-bottom: 0;
-    }
-    .ct-summary-footer {
-        display: flex;
-        justify-content: flex-end;
-        margin-top: 8px;
+        min-width: 0;
     }
     .ct-summary-value {
-        font-size: 13px;
+        font-size: 11px;
         font-weight: 600;
         color: #64748b;
     }
-    /* CT 차트 행 */
+    /* CT 차트 행 — 2줄 카드 스타일 */
     .ct-chart-row {
         display: flex;
-        align-items: center;
-        padding: 4px 8px;
+        flex-direction: column;
+        padding: 7px 10px;
         border-radius: 6px;
-        margin-bottom: 2px;
+        margin-bottom: 3px;
+        border-left: 3px solid transparent;
+        background: #fafafa;
     }
     .ct-chart-row.highlighted {
-        background: rgba(0,0,0,0.03);
+        background: #fff;
+        border: 1px solid rgba(0,0,0,0.08);
+        border-left-width: 3px;
     }
-    .ct-chart-label {
-        width: 120px;
-        font-size: 12px;
+    /* 1줄: 카테고리 라벨 + 플로우 이름 */
+    .ct-row-header {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin-bottom: 4px;
+        min-width: 0;
+    }
+
+    .ct-row-name {
+        font-size: 13px;
+        color: #1e293b;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        padding-right: 6px;
+        flex: 1;
+        min-width: 0;
+    }
+    /* 2줄: 바 + 시간 */
+    .ct-row-footer {
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
     .ct-bar-track {
         flex: 1;
@@ -125,29 +153,15 @@
         border-radius: 10px;
         overflow: hidden;
         display: flex;
-        margin: 0 8px;
     }
-    .ct-bar-mt { background: #42A5F5; height: 100%; }
-    .ct-bar-wt { background: #FFA726; height: 100%; }
-    .ct-chart-value {
-        width: 60px;
-        font-size: 11px;
-        color: #7D8282;
-        text-align: right;
-    }
-    .ct-chart-badges {
-        width: 56px;
-        display: flex;
-        gap: 3px;
-        justify-content: flex-end;
-        padding-left: 4px;
-    }
-    .ct-badge {
-        font-size: 9px;
-        padding: 2px 5px;
-        border-radius: 8px;
-        color: white;
-        font-weight: 700;
+    .ct-bar-mt { background: #42A5F5; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .ct-bar-wt { background: #FFA726; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .ct-bar-pct { font-size: 9px; font-weight: 700; color: white; line-height: 1; white-space: nowrap; }
+    .ct-row-time {
+        font-size: 12px;
+        font-weight: 600;
+        color: #64748b;
+        white-space: nowrap;
     }
     .ct-section-title {
         font-size: 11px;
@@ -366,37 +380,51 @@ else
                     else if (wid == "ct")
                     {
                         <div class="ds-card">
+                            @* ── 헤더 (항상 표시, 도면 레이아웃 카드와 동일 높이) ── *@
+                            <div class="ds-card-header">
+                                <span class="ct-section-title">Time 분석</span>
+                                <div style="display:flex; align-items:center; gap:4px;">
+                                    <MudButton Size="Size.Small"
+                                               Variant="@(_sortField == "ct" ? Variant.Filled : Variant.Outlined)"
+                                               Color="Color.Primary"
+                                               OnClick="@(() => SetSort("ct"))">전체</MudButton>
+                                    <MudButton Size="Size.Small"
+                                               Variant="@(_sortField == "mt" ? Variant.Filled : Variant.Outlined)"
+                                               Color="Color.Primary"
+                                               OnClick="@(() => SetSort("mt"))">가동</MudButton>
+                                    <MudButton Size="Size.Small"
+                                               Variant="@(_sortField == "wt" ? Variant.Filled : Variant.Outlined)"
+                                               Color="Color.Primary"
+                                               OnClick="@(() => SetSort("wt"))">대기</MudButton>
+                                    <MudIconButton Icon="@(_sortDesc ? Icons.Material.Filled.ArrowDownward : Icons.Material.Filled.ArrowUpward)"
+                                                   Size="Size.Small" Color="Color.Default"
+                                                   title="@(_sortDesc ? "내림차순" : "오름차순")"
+                                                   OnClick="ToggleSortDir" />
+                                </div>
+                            </div>
+
+                            @* ── 요약 셀 (항상 표시) ── *@
+                            <div class="ct-summary-bar">
+                                <div class="ct-top-cell danger">
+                                    <span class="ct-summary-title">최대시간</span>
+                                    <span class="ct-summary-sub" title="@_maxCtName">@(_maxCtName ?? "-")</span>
+                                    <span class="ct-summary-value">@(_maxCtName != null ? FormatMs(_maxCtVal) : "--")</span>
+                                </div>
+                                <div class="ct-top-cell success">
+                                    <span class="ct-summary-title">최소시간</span>
+                                    <span class="ct-summary-sub" title="@_minCtName">@(_minCtName ?? "-")</span>
+                                    <span class="ct-summary-value">@(_minCtName != null ? FormatMs(_chartData.Min(f => f.CT)) : "--")</span>
+                                </div>
+                                <div class="ct-top-cell warning">
+                                    <span class="ct-summary-title">최대 대기율</span>
+                                    <span class="ct-summary-sub" title="@_maxWtName">@(_maxWtName ?? "-")</span>
+                                    <span class="ct-summary-value">@(_maxWtName != null ? $"{_chartData.FirstOrDefault(f => f.FlowName == _maxWtName).WTRatio * 100:F1}%" : "--")</span>
+                                </div>
+                            </div>
+
                             @if (_chartData.Count > 0)
                             {
-                                @* ── 상단: 요약 카드 ── *@
-                                <div class="ct-header-section">
-                                    <div class="ct-section-title" style="margin-bottom:10px;">Time 분석 · 가동+대기 내림차순</div>
-                                    <div class="ct-summary-cards">
-                                        <div class="ct-summary-card danger">
-                                            <div class="ct-summary-title">최대시간</div>
-                                            <div class="ct-summary-sub" title="@_maxCtName">@(_maxCtName ?? "-")</div>
-                                            <div class="ct-summary-footer">
-                                                <span class="ct-summary-value">@FormatMs(_maxCtVal)</span>
-                                            </div>
-                                        </div>
-                                        <div class="ct-summary-card success">
-                                            <div class="ct-summary-title">최소시간</div>
-                                            <div class="ct-summary-sub" title="@_minCtName">@(_minCtName ?? "-")</div>
-                                            <div class="ct-summary-footer">
-                                                <span class="ct-summary-value">@FormatMs(_chartData[^1].CT)</span>
-                                            </div>
-                                        </div>
-                                        <div class="ct-summary-card warning">
-                                            <div class="ct-summary-title">최대 대기율</div>
-                                            <div class="ct-summary-sub" title="@_maxWtName">@(_maxWtName ?? "-")</div>
-                                            <div class="ct-summary-footer">
-                                                <span class="ct-summary-value">@($"{_chartData.FirstOrDefault(f => f.FlowName == _maxWtName).WTRatio * 100:F1}%")</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                @* ── 하단: 차트 리스트 ── *@
+                                @* ── 차트 리스트 ── *@
                                 <div class="ct-chart-section">
                                     @foreach (var flow in _chartData)
                                     {
@@ -408,22 +436,28 @@ else
                                         var mtPct       = flow.CT > 0 ? flow.MT * 100.0 / flow.CT : 0;
                                         var wtPct       = 100.0 - mtPct;
                                         var accentColor = isMaxCT ? "#ef5350" : isMinCT ? "#26a69a" : isMaxWT ? "#fb8c00" : "";
-                                        var rowExtra    = highlighted ? $"outline:1.5px solid {accentColor};" : "";
-                                        <div class="ct-chart-row @(highlighted ? "highlighted" : "")" style="@rowExtra">
-                                            <div class="ct-chart-label" style="font-weight:@(highlighted ? "700" : "400")">
-                                                @flow.FlowName
+                                        var categoryLabel = isMaxCT ? "최대시간" : isMinCT ? "최소시간" : isMaxWT ? "최대대기" : "";
+                                        var borderStyle = highlighted ? $"border-left-color:{accentColor};" : "";
+                                        <div class="ct-chart-row @(highlighted ? "highlighted" : "")" style="@borderStyle">
+                                            <div class="ct-row-header">
+                                                @if (highlighted)
+                                                {
+                                                    <span class="ct-badge-pill" style="background:@accentColor;">@(isMaxCT ? "최대" : isMinCT ? "최소" : "대기")</span>
+                                                }
+                                                <span class="ct-row-name" style="font-weight:@(highlighted ? "700" : "500")">@flow.FlowName</span>
                                             </div>
-                                            <div class="ct-bar-track">
-                                                <div style="display:flex; height:100%; width:@(fillPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;">
-                                                    <div class="ct-bar-mt" style="width:@(mtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;"></div>
-                                                    <div class="ct-bar-wt" style="width:@(wtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;"></div>
+                                            <div class="ct-row-footer">
+                                                <div class="ct-bar-track">
+                                                    <div style="display:flex; height:100%; width:@(fillPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;">
+                                                        <div class="ct-bar-mt" style="width:@(mtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;">
+                                                            @if (mtPct >= 15) { <span class="ct-bar-pct">@($"{mtPct:F0}%")</span> }
+                                                        </div>
+                                                        <div class="ct-bar-wt" style="width:@(wtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;">
+                                                            @if (wtPct >= 15) { <span class="ct-bar-pct">@($"{wtPct:F0}%")</span> }
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <div class="ct-chart-value">@FormatMs(flow.CT)</div>
-                                            <div class="ct-chart-badges">
-                                                @if (isMaxCT) { <span class="ct-badge" style="background:#ef5350;">최대</span> }
-                                                @if (isMinCT) { <span class="ct-badge" style="background:#26a69a;">최소</span> }
-                                                @if (isMaxWT) { <span class="ct-badge" style="background:#fb8c00;">대기</span> }
+                                                <span class="ct-row-time">@FormatMs(flow.CT)</span>
                                             </div>
                                         </div>
                                     }
@@ -466,6 +500,10 @@ else
     private List<(string FlowName, int MT, int WT, int CT, double WTRatio)> _chartData = [];
     private string? _maxCtName, _minCtName, _maxWtName;
     private int _maxCtVal;
+
+    // 정렬 설정
+    private string _sortField = "ct";   // "ct" | "wt"
+    private bool   _sortDesc  = true;
 
     // 대시보드 레이아웃 설정
     private List<string> _widgetOrder    = ["ct", "layout"];
@@ -647,9 +685,21 @@ else
         return SystemColors[_systemColorIndex[systemId]];
     }
 
+    private void SetSort(string field)
+    {
+        _sortField = field;
+        UpdateChartCache();
+    }
+
+    private void ToggleSortDir()
+    {
+        _sortDesc = !_sortDesc;
+        UpdateChartCache();
+    }
+
     private void UpdateChartCache()
     {
-        _chartData = BlueprintService.Layout.FlowPlacements
+        var rows = BlueprintService.Layout.FlowPlacements
             .Select(fp =>
             {
                 var s = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == fp.FlowName);
@@ -657,12 +707,19 @@ else
                 return (fp.FlowName, mt, wt, ct, ct > 0 ? (double)wt / ct : 0.0);
             })
             .Where(f => f.ct > 0)
-            .OrderByDescending(f => f.ct)
             .ToList();
-        _maxCtName = _chartData.Count > 0 ? _chartData[0].FlowName : null;
-        _minCtName = _chartData.Count > 1 ? _chartData[^1].FlowName : null;
-        _maxWtName = _chartData.Count > 0 ? _chartData.OrderByDescending(f => f.WTRatio).First().FlowName : null;
-        _maxCtVal  = _chartData.Count > 0 ? _chartData[0].CT : 1;
+
+        // 배지용: 항상 CT 기준 최대/최소, WT비율 기준 최대 대기
+        _maxCtName = rows.Count > 0 ? rows.MaxBy(f => f.ct)!.FlowName : null;
+        _minCtName = rows.Count > 1 ? rows.MinBy(f => f.ct)!.FlowName : null;
+        _maxWtName = rows.Count > 0 ? rows.MaxBy(f => f.Item5)!.FlowName : null;
+        _maxCtVal  = rows.Count > 0 ? rows.Max(f => f.ct) : 1;
+
+        // 정렬 적용
+        _chartData = (_sortField == "wt" ? (_sortDesc ? rows.OrderByDescending(f => f.wt) : rows.OrderBy(f => f.wt))
+                    : _sortField == "mt" ? (_sortDesc ? rows.OrderByDescending(f => f.mt) : rows.OrderBy(f => f.mt))
+                    :                      (_sortDesc ? rows.OrderByDescending(f => f.ct) : rows.OrderBy(f => f.ct)))
+            .ToList();
     }
 
     private static string FormatMs(int ms)

@@ -47,8 +47,8 @@
         // ── 타이틀: 배지 영역 제외 너비에 맞게 폰트 크기 결정 ──
         var titleFS = Math.Max(9, (int)Math.Min(innerH * 0.19, innerW * 0.13));
         var titleY  = py + pad + (int)(innerH * 0.22);
-        // 중앙 정렬이므로 양쪽 대칭으로 여유 제외
-        var titleMaxW = Math.Max(20, innerW - badgeRightReserve * 2);
+        // 좌측 정렬: 우측 배지 영역 + 좌우 여백만 제외
+        var titleMaxW = Math.Max(20, innerW - badgeRightReserve - 12);
         // 글자 너비 추정: 한글/CJK ≈ 1.0em, 라틴/숫자 ≈ 0.65em
         var estTitleW = fp.FlowName.Sum(c => c > 0x7F ? (double)titleFS : titleFS * 0.65);
         if (estTitleW > titleMaxW)
@@ -80,7 +80,7 @@
         var pctFS    = Math.Max(6, (int)(donutR * 0.46));
         var mtMidAng = -Math.PI / 2.0 + Math.PI * mtFrac;
         var wtMidAng = -Math.PI / 2.0 + 2 * Math.PI * mtFrac + Math.PI * wtFrac;
-        var lblR     = donutR * 0.55; // 호 위가 아닌 안쪽에 배치
+        var lblR     = donutR * 1.0; // 아크(stroke) 중앙에 배치 — 흰 텍스트가 컬러 위에
         var mtLblX   = (donutCx + lblR * Math.Cos(mtMidAng)).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
         var mtLblY   = (donutCy + lblR * Math.Sin(mtMidAng) + pctFS * 0.38).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
         var wtLblX   = (donutCx + lblR * Math.Cos(wtMidAng)).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
@@ -128,7 +128,7 @@
                   fill="@color" />
 
             @* Flow 이름 *@
-            <SvgText X="@cx" Y="@titleY" TextAnchor="middle" Fill="#1e293b" FontSize="@titleFS" FontWeight="700" Content="@fp.FlowName" />
+            <SvgText X="@(px + pad + 6)" Y="@titleY" TextAnchor="start" Fill="#1e293b" FontSize="@titleFS" FontWeight="700" Content="@fp.FlowName" />
 
             @if (hasMtWt)
             {
@@ -154,17 +154,10 @@
                     }
                 </g>
 
-                @* 퍼센트 라벨 *@
-                @if (total > 0)
+                @* 도넛 중앙 전체 시간 *@
                 {
-                    @if (mtPct >= 6 && mtPct <= 94)
-                    {
-                        <SvgText X="@mtLblX" Y="@mtLblY" TextAnchor="middle" Fill="white" FontSize="@pctFS" FontWeight="700" Content="@($"{mtPct}%")" />
-                    }
-                    @if (wtPct >= 6 && wtPct <= 94)
-                    {
-                        <SvgText X="@wtLblX" Y="@wtLblY" TextAnchor="middle" Fill="white" FontSize="@pctFS" FontWeight="700" Content="@($"{wtPct}%")" />
-                    }
+                    var centerFS = Math.Max(6, (int)(donutR * 0.52));
+                    <SvgText X="@donutCx" Y="@(donutCy + (int)(centerFS * 0.38))" TextAnchor="middle" Fill="#1e293b" FontSize="@centerFS" FontWeight="700" Content="@FormatMs(total)" />
                 }
 
                 @* 우측 통계 (넓은 블럭 전용) *@
@@ -174,8 +167,6 @@
                     <SvgText X="@valX"   Y="@statsY1" TextAnchor="end" Fill="#1e293b" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(mt)" />
                     <SvgText X="@statsX" Y="@statsY2" Fill="#64748b" FontSize="@statsFS" Content="대기" />
                     <SvgText X="@valX"   Y="@statsY2" TextAnchor="end" Fill="#1e293b" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(wt)" />
-                    <SvgText X="@statsX" Y="@statsY3" Fill="#64748b" FontSize="@statsFS" Content="전체" />
-                    <SvgText X="@valX"   Y="@statsY3" TextAnchor="end" Fill="#1e293b" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(total)" />
                 }
             }
 
@@ -190,7 +181,7 @@
                 var bW       = bWidthsList[bi];
                 var bOffsetX = bWidthsList.Take(bi).Sum() + bi * bGap;
                 var bX       = px + pad + innerW - totalBadgeW - 4 + bOffsetX;
-                var bY       = py + pad + 6;
+                var bY       = titleY - (int)(titleFS * 0.36 + bH / 2.0);
                 <g>
                     <rect x="@bX" y="@bY" width="@bW" height="@bH" rx="6" ry="6" fill="@bColor" />
                     <SvgText X="@(bX + bW / 2)" Y="@(bY + bH - 3)" TextAnchor="middle" Fill="white" FontSize="8" FontWeight="700" Content="@bLabel" />
