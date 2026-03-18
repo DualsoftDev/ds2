@@ -86,3 +86,4 @@ Apps/Promaker/Installer/Output/
 Apps/Promaker/Installer/TestInstall/
 Apps/Promaker/Installer/IconCheck/
 Apps/DSPilot/DSPilot/sample/db/DsDB.sqlite3-shm
+Apps/DSPilot/DSPilot/sample/db/DsDB.sqlite3
