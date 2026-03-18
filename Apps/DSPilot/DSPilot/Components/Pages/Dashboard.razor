@@ -379,18 +379,18 @@ else
                                                 <span class="ct-summary-value">@FormatMs(_maxCtVal)</span>
                                             </div>
                                         </div>
-                                        <div class="ct-summary-card warning">
-                                            <div class="ct-summary-title">최대대기</div>
-                                            <div class="ct-summary-sub" title="@_maxWtName">@(_maxWtName ?? "-")</div>
-                                            <div class="ct-summary-footer">
-                                                <span class="ct-summary-value">@FormatMs(_chartData.FirstOrDefault(f => f.FlowName == _maxWtName).CT)</span>
-                                            </div>
-                                        </div>
                                         <div class="ct-summary-card success">
                                             <div class="ct-summary-title">최소시간</div>
                                             <div class="ct-summary-sub" title="@_minCtName">@(_minCtName ?? "-")</div>
                                             <div class="ct-summary-footer">
                                                 <span class="ct-summary-value">@FormatMs(_chartData[^1].CT)</span>
+                                            </div>
+                                        </div>
+                                        <div class="ct-summary-card warning">
+                                            <div class="ct-summary-title">최대 대기율</div>
+                                            <div class="ct-summary-sub" title="@_maxWtName">@(_maxWtName ?? "-")</div>
+                                            <div class="ct-summary-footer">
+                                                <span class="ct-summary-value">@($"{_chartData.FirstOrDefault(f => f.FlowName == _maxWtName).WTRatio * 100:F1}%")</span>
                                             </div>
                                         </div>
                                     </div>
@@ -423,7 +423,7 @@ else
                                             <div class="ct-chart-badges">
                                                 @if (isMaxCT) { <span class="ct-badge" style="background:#ef5350;">최대</span> }
                                                 @if (isMinCT) { <span class="ct-badge" style="background:#26a69a;">최소</span> }
-                                                @if (isMaxWT) { <span class="ct-badge" style="background:#fb8c00;">대기↑</span> }
+                                                @if (isMaxWT) { <span class="ct-badge" style="background:#fb8c00;">대기</span> }
                                             </div>
                                         </div>
                                     }
@@ -637,7 +637,7 @@ else
     {
         if (flowName == _maxCtName) yield return ("최대", "#ef5350");
         if (flowName == _minCtName) yield return ("최소", "#26a69a");
-        if (flowName == _maxWtName) yield return ("대기↑", "#fb8c00");
+        if (flowName == _maxWtName) yield return ("대기", "#fb8c00");
     }
 
     private string GetSystemColor(Guid systemId)

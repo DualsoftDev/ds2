@@ -35,9 +35,24 @@
         // 블럭 중앙 X
         var cx = px + pw / 2;
 
-        // ── 타이틀: 가로/세로 중 작은 쪽 기준으로 크기 제한 ──
+        // ── 배지 (타이틀 계산 전 로드) ──
+        var badges = GetBadges?.Invoke(fp)?.ToList() ?? new List<(string Label, string Color)>();
+        var bH         = 13;
+        var bGap       = 3;
+        var bWidthsList = badges.Select(b => b.Label.Length <= 2 ? 24 : 32).ToList();
+        var totalBadgeW = badges.Count > 0 ? bWidthsList.Sum() + (badges.Count - 1) * bGap : 0;
+        // 배지가 있으면 오른쪽 여유 = 가로 배치 전체 폭 + 여백
+        var badgeRightReserve = badges.Count > 0 ? totalBadgeW + 8 : 4;
+
+        // ── 타이틀: 배지 영역 제외 너비에 맞게 폰트 크기 결정 ──
         var titleFS = Math.Max(9, (int)Math.Min(innerH * 0.19, innerW * 0.13));
         var titleY  = py + pad + (int)(innerH * 0.22);
+        // 중앙 정렬이므로 양쪽 대칭으로 여유 제외
+        var titleMaxW = Math.Max(20, innerW - badgeRightReserve * 2);
+        // 글자 너비 추정: 한글/CJK ≈ 1.0em, 라틴/숫자 ≈ 0.65em
+        var estTitleW = fp.FlowName.Sum(c => c > 0x7F ? (double)titleFS : titleFS * 0.65);
+        if (estTitleW > titleMaxW)
+            titleFS = Math.Max(7, (int)(titleFS * titleMaxW / estTitleW));
 
         // ── 도넛 차트 ──
         // 좁은 블럭은 더 큰 비율로 도넛 허용, 넓은 블럭은 좌측에 제한
@@ -61,32 +76,35 @@
         var sWtDash = wtDash.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
         var sNegMt  = (-mtDash).ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
 
-        // 퍼센트 라벨 위치 (각 호의 중간 각도)
+        // 퍼센트 라벨 위치 — 호 안쪽(도넛 중심 방향 0.55배)에 배치
         var pctFS    = Math.Max(6, (int)(donutR * 0.46));
         var mtMidAng = -Math.PI / 2.0 + Math.PI * mtFrac;
         var wtMidAng = -Math.PI / 2.0 + 2 * Math.PI * mtFrac + Math.PI * wtFrac;
-        var mtLblX   = (donutCx + donutR * Math.Cos(mtMidAng)).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
-        var mtLblY   = (donutCy + donutR * Math.Sin(mtMidAng) + pctFS * 0.38).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
-        var wtLblX   = (donutCx + donutR * Math.Cos(wtMidAng)).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
-        var wtLblY   = (donutCy + donutR * Math.Sin(wtMidAng) + pctFS * 0.38).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+        var lblR     = donutR * 0.55; // 호 위가 아닌 안쪽에 배치
+        var mtLblX   = (donutCx + lblR * Math.Cos(mtMidAng)).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+        var mtLblY   = (donutCy + lblR * Math.Sin(mtMidAng) + pctFS * 0.38).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+        var wtLblX   = (donutCx + lblR * Math.Cos(wtMidAng)).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+        var wtLblY   = (donutCy + lblR * Math.Sin(wtMidAng) + pctFS * 0.38).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
         var mtPct    = total > 0 ? (int)Math.Round(mtFrac * 100) : 0;
         var wtPct    = 100 - mtPct;
 
-        // ── 통계 텍스트: minDim 기준으로 폰트 크기 제한 ──
-        var statsFS = Math.Max(7, (int)(minDim * 0.115));
-        var statsX  = px + pad + (int)(innerW * 0.44);
+        // ── 통계 텍스트: 도넛 오른쪽 기준으로 배치, 가용 너비로 폰트 제한 ──
+        var valX    = px + pad + innerW - 4;
+        // 도넛 오른쪽이되, 너무 왼쪽에 치우치지 않도록 50% 위치를 하한으로
+        var statsX  = Math.Max(donutCx + donutR + (int)(donutSW / 2.0) + 6,
+                               px + pad + (int)(innerW * 0.50));
+        // 라벨(2 Korean ≈ 2*fs) + 값(~4자 ≈ 2.6*fs) → 5*fs 기준으로 폰트 상한
+        var statsFS = Math.Min(
+            Math.Max(7, (int)(minDim * 0.115)),
+            Math.Max(7, (int)((valX - statsX) / 5.0)));
         var statsLH = (int)(innerH * 0.155);
         var statsY1 = donutCy - statsLH;
         var statsY2 = donutCy;
         var statsY3 = donutCy + statsLH;
-        var valX    = px + pad + innerW - 5;
 
         // ── 상태 라벨: minDim 기준 ──
         var stateFS = Math.Max(7, (int)(minDim * 0.10));
         var stateY  = py + pad + (int)(innerH * 0.91);
-
-        // ── 배지 ──
-        var badges = GetBadges?.Invoke(fp)?.ToList() ?? new List<(string Label, string Color)>();
 
         <defs>
             <clipPath id="@clipId">
@@ -152,11 +170,11 @@
                 @* 우측 통계 (넓은 블럭 전용) *@
                 @if (showStats)
                 {
-                    <SvgText X="@statsX" Y="@statsY1" Fill="#64748b" FontSize="@statsFS" Content="가동 시간:" />
+                    <SvgText X="@statsX" Y="@statsY1" Fill="#64748b" FontSize="@statsFS" Content="가동" />
                     <SvgText X="@valX"   Y="@statsY1" TextAnchor="end" Fill="#1e293b" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(mt)" />
-                    <SvgText X="@statsX" Y="@statsY2" Fill="#64748b" FontSize="@statsFS" Content="대기 시간:" />
+                    <SvgText X="@statsX" Y="@statsY2" Fill="#64748b" FontSize="@statsFS" Content="대기" />
                     <SvgText X="@valX"   Y="@statsY2" TextAnchor="end" Fill="#1e293b" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(wt)" />
-                    <SvgText X="@statsX" Y="@statsY3" Fill="#64748b" FontSize="@statsFS" Content="전체 시간:" />
+                    <SvgText X="@statsX" Y="@statsY3" Fill="#64748b" FontSize="@statsFS" Content="전체" />
                     <SvgText X="@valX"   Y="@statsY3" TextAnchor="end" Fill="#1e293b" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(total)" />
                 }
             }
@@ -164,15 +182,15 @@
             @* 상태 라벨 *@
             <SvgText X="@cx" Y="@stateY" TextAnchor="middle" Fill="#64748b" FontSize="@stateFS" Content="@stateLabel" />
 
-            @* 배지 (우상단) — pill 스타일 *@
+            @* 배지 (우상단) — pill 스타일, 가로 배치 *@
             @for (int bi = 0; bi < badges.Count; bi++)
             {
-                var bLabel = badges[bi].Label;
-                var bColor = badges[bi].Color;
-                var bW = bLabel.Length <= 2 ? 24 : 32;
-                var bH = 13;
-                var bX = px + pad + innerW - bW - 4;
-                var bY = py + pad + 6 + bi * (bH + 3);
+                var bLabel   = badges[bi].Label;
+                var bColor   = badges[bi].Color;
+                var bW       = bWidthsList[bi];
+                var bOffsetX = bWidthsList.Take(bi).Sum() + bi * bGap;
+                var bX       = px + pad + innerW - totalBadgeW - 4 + bOffsetX;
+                var bY       = py + pad + 6;
                 <g>
                     <rect x="@bX" y="@bY" width="@bW" height="@bH" rx="6" ry="6" fill="@bColor" />
                     <SvgText X="@(bX + bW / 2)" Y="@(bY + bH - 3)" TextAnchor="middle" Fill="white" FontSize="8" FontWeight="700" Content="@bLabel" />
