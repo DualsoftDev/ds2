@@ -45,7 +45,7 @@ else
                        OffsetX="_ox" OffsetY="_oy" CellWidth="_cellW" CellHeight="_cellH"
                        Placements="BlueprintService.Layout.FlowPlacements"
                        GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
-                       GetSubtitle="@(fp => $"{fp.SystemName} ({GetWorkCount(fp.FlowId)} works)")"
+
                        GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
                        GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))" />
 
@@ -83,7 +83,6 @@ else
                        OffsetX="_ox" OffsetY="_oy" CellWidth="_cellW" CellHeight="_cellH"
                        Placements="BlueprintService.Layout.FlowPlacements"
                        GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
-                       GetSubtitle="@(fp => $"{fp.SystemName} ({GetWorkCount(fp.FlowId)} works)")"
                        GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
                        GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))" />
         <MudIconButton Icon="@Icons.Material.Filled.FullscreenExit"
