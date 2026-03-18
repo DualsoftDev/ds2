@@ -26,8 +26,8 @@
         <NavMenu />
     </MudDrawer>
 
-    <MudMainContent Style="height: 100vh; overflow: auto;">
-        <MudContainer MaxWidth="MaxWidth.False" Class="pa-4" Style="min-height: 100%; display: flex; flex-direction: column;">
+    <MudMainContent Style="height: 100vh; overflow: auto; display: flex; flex-direction: column;">
+        <MudContainer MaxWidth="MaxWidth.False" Class="pa-4" Style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
             @Body
         </MudContainer>
     </MudMainContent>

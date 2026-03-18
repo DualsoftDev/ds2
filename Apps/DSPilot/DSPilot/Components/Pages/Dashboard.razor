@@ -15,20 +15,13 @@
         display: flex;
         gap: 12px;
         min-height: 0;
+        flex: 1;
     }
     .dashboard-grid.grid-h {
         flex-direction: row;
-        height: calc(100vh - 210px);
-    }
-    .dashboard-grid.grid-h.editing {
-        height: calc(100vh - 300px);
     }
     .dashboard-grid.grid-v {
         flex-direction: column;
-        height: calc(100vh - 210px);
-    }
-    .dashboard-grid.grid-v.editing {
-        height: calc(100vh - 300px);
     }
     .widget-container {
         min-width: 0;
@@ -48,6 +41,8 @@
         }
     }
 </style>
+
+<div style="display:flex; flex-direction:column; flex:1; min-height:0;">
 
 @if (!ProjectService.IsLoaded)
 {
@@ -265,8 +260,8 @@ else
     </div>
 }
 
-<div style="border-top:1px solid #e0e0e0; padding:8px 16px;
-            display:flex; justify-content:space-between; align-items:center;">
+<div style="margin-top:auto; border-top:1px solid #e0e0e0; padding:8px 16px;
+            display:flex; justify-content:space-between; align-items:center; background:#fff;">
     <MudButton Variant="@(_isEditing ? Variant.Filled : Variant.Outlined)"
                Color="@(_isEditing ? Color.Warning : Color.Default)"
                StartIcon="@(_isEditing ? Icons.Material.Filled.Check : Icons.Material.Filled.DashboardCustomize)"
@@ -278,6 +273,8 @@ else
                OnClick="@(() => Nav.NavigateTo("/editor"))">
         레이아웃 수정
     </MudButton>
+</div>
+
 </div>
 
 @code {
