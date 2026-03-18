@@ -47,9 +47,18 @@
     .ct-summary-bar {
         display: flex;
         flex-direction: row;
-        border-bottom: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12));
+        gap: 8px;
+        padding: 2px;
         flex-shrink: 0;
+        background: var(--mud-palette-background, #f5f5f5);
+        border-bottom: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12));
     }
+    .ct-summary-group {
+        display: flex;
+        gap: 2px;
+    }
+    .ct-summary-group.group-time { flex: 2; }
+    .ct-summary-group.group-wait { flex: 1; }
     .ct-top-cell {
         flex: 1;
         padding: 10px 14px;
@@ -57,11 +66,10 @@
         flex-direction: column;
         justify-content: center;
         gap: 4px;
-        border-right: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12));
         background: var(--mud-palette-surface, #fff);
+        border-radius: 4px;
         min-width: 0;
     }
-    .ct-top-cell:last-child { border-right: none; }
     .ct-top-cell.danger  { border-left: 3px solid #ef5350; }
     .ct-top-cell.warning { border-left: 3px solid #fb8c00; }
     .ct-top-cell.success { border-left: 3px solid #26a69a; }
@@ -405,20 +413,24 @@ else
 
                             @* ── 요약 셀 (항상 표시) ── *@
                             <div class="ct-summary-bar">
-                                <div class="ct-top-cell danger">
-                                    <span class="ct-summary-title">최대시간</span>
-                                    <span class="ct-summary-sub" title="@_maxCtName">@(_maxCtName ?? "-")</span>
-                                    <span class="ct-summary-value">@(_maxCtName != null ? FormatMs(_maxCtVal) : "--")</span>
+                                <div class="ct-summary-group group-time">
+                                    <div class="ct-top-cell danger">
+                                        <span class="ct-summary-title">최대시간</span>
+                                        <span class="ct-summary-sub" title="@_maxCtName">@(_maxCtName ?? "-")</span>
+                                        <span class="ct-summary-value">@(_maxCtName != null ? FormatMs(_maxCtVal) : "--")</span>
+                                    </div>
+                                    <div class="ct-top-cell success">
+                                        <span class="ct-summary-title">최소시간</span>
+                                        <span class="ct-summary-sub" title="@_minCtName">@(_minCtName ?? "-")</span>
+                                        <span class="ct-summary-value">@(_minCtName != null ? FormatMs(_chartData.Min(f => f.CT)) : "--")</span>
+                                    </div>
                                 </div>
-                                <div class="ct-top-cell success">
-                                    <span class="ct-summary-title">최소시간</span>
-                                    <span class="ct-summary-sub" title="@_minCtName">@(_minCtName ?? "-")</span>
-                                    <span class="ct-summary-value">@(_minCtName != null ? FormatMs(_chartData.Min(f => f.CT)) : "--")</span>
-                                </div>
-                                <div class="ct-top-cell warning">
-                                    <span class="ct-summary-title">최대 대기율</span>
-                                    <span class="ct-summary-sub" title="@_maxWtName">@(_maxWtName ?? "-")</span>
-                                    <span class="ct-summary-value">@(_maxWtName != null ? $"{_chartData.FirstOrDefault(f => f.FlowName == _maxWtName).WTRatio * 100:F1}%" : "--")</span>
+                                <div class="ct-summary-group group-wait">
+                                    <div class="ct-top-cell warning">
+                                        <span class="ct-summary-title">최대 대기율</span>
+                                        <span class="ct-summary-sub" title="@_maxWtName">@(_maxWtName ?? "-")</span>
+                                        <span class="ct-summary-value">@(_maxWtName != null ? $"{_chartData.FirstOrDefault(f => f.FlowName == _maxWtName).WTRatio * 100:F1}%" : "--")</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -440,11 +452,19 @@ else
                                         var borderStyle = highlighted ? $"border-left-color:{accentColor};" : "";
                                         <div class="ct-chart-row @(highlighted ? "highlighted" : "")" style="@borderStyle">
                                             <div class="ct-row-header">
-                                                @if (highlighted)
-                                                {
-                                                    <span class="ct-badge-pill" style="background:@accentColor;">@(isMaxCT ? "최대" : isMinCT ? "최소" : "대기")</span>
-                                                }
                                                 <span class="ct-row-name" style="font-weight:@(highlighted ? "700" : "500")">@flow.FlowName</span>
+                                                @if (isMaxCT)
+                                                {
+                                                    <span class="ct-badge-pill" style="background:#ef5350;">최대</span>
+                                                }
+                                                @if (isMinCT)
+                                                {
+                                                    <span class="ct-badge-pill" style="background:#26a69a;">최소</span>
+                                                }
+                                                @if (isMaxWT)
+                                                {
+                                                    <span class="ct-badge-pill" style="background:#fb8c00;">대기</span>
+                                                }
                                             </div>
                                             <div class="ct-row-footer">
                                                 <div class="ct-bar-track">
