@@ -11,182 +11,110 @@
                x="0" y="0" width="@CanvasWidth" height="@CanvasHeight" opacity="0.3" />
     }
 
-    @foreach (var fp in Placements)
+    @foreach (var b in _blockLayouts)
     {
-        var color      = GetColor?.Invoke(fp) ?? "#9E9E9E";
-        var stateLabel = GetStateLabel?.Invoke(fp) ?? "";
-        var mtWt       = GetMtWt?.Invoke(fp);
-        var px = OffsetX + fp.Col * CellWidth;
-        var py = OffsetY + fp.Row * CellHeight;
-        var pw = fp.ColSpan * CellWidth;
-        var ph = fp.RowSpan * CellHeight;
-        var pad    = 4;
-        var innerW = pw - pad * 2;
-        var innerH = ph - pad * 2;
-        var minDim = Math.Min(innerW, innerH);
-
-        // 좁은 블럭(1열)은 통계 텍스트 생략, 도넛을 중앙 배치
-        var showStats = innerW >= 130;
-        var clipId    = $"blk{fp.FlowName.GetHashCode() & 0x7FFFFFFF}";
-
-        var hasMtWt = mtWt != null;
-        var mt    = mtWt?.Mt ?? 0;
-        var wt    = mtWt?.Wt ?? 0;
-        var total = mt + wt;
-
-        // 블럭 중앙 X
-        var cx = px + pw / 2;
-
-        // ── 배지 (타이틀 계산 전 로드) ──
-        var badges = GetBadges?.Invoke(fp)?.ToList() ?? new List<(string Label, string Color)>();
-        var bH         = 13;
-        var bGap       = 3;
-        var bWidthsList = badges.Select(b => b.Label.Length <= 2 ? 24 : 32).ToList();
-        var totalBadgeW = badges.Count > 0 ? bWidthsList.Sum() + (badges.Count - 1) * bGap : 0;
-        // 배지가 있으면 오른쪽 여유 = 가로 배치 전체 폭 + 여백
-        var badgeRightReserve = badges.Count > 0 ? totalBadgeW + 8 : 4;
-
-        // ── 타이틀: 배지 영역 제외 너비에 맞게 폰트 크기 결정 ──
-        var titleFS = Math.Max(9, (int)Math.Min(innerH * 0.19, innerW * 0.13));
-        var titleY  = py + pad + (int)(innerH * 0.22);
-        // 좌측 정렬: 우측 배지 영역 + 좌우 여백만 제외
-        var titleMaxW = Math.Max(20, innerW - badgeRightReserve - 12);
-        // 글자 너비 추정: 한글/CJK ≈ 1.0em, 라틴/숫자 ≈ 0.65em
-        var estTitleW = fp.FlowName.Sum(c => c > 0x7F ? (double)titleFS : titleFS * 0.65);
-        if (estTitleW > titleMaxW)
-            titleFS = Math.Max(7, (int)(titleFS * titleMaxW / estTitleW));
-
-        // ── 도넛 차트 ──
-        // 좁은 블럭은 더 큰 비율로 도넛 허용, 넓은 블럭은 좌측에 제한
-        var donutMaxR = showStats ? innerW * 0.16 : innerW * 0.28;
-        var donutR    = (int)Math.Max(6, Math.Min(innerH * 0.26, donutMaxR));
-        var donutSW   = (int)Math.Max(4, donutR * 0.48);
-        // 좁은 블럭: 도넛 수평 중앙, 넓은 블럭: 좌측
-        var donutCx = showStats
-            ? px + pad + (int)(innerW * 0.22)
-            : px + pad + (int)(innerW * 0.50);
-        var donutCy = py + pad + (int)(innerH * 0.58);
-
-        var circ   = 2 * Math.PI * donutR;
-        var mtFrac = total > 0 ? (double)mt / total : (hasMtWt ? 1.0 : 0.0);
-        var wtFrac = 1.0 - mtFrac;
-        var mtDash = circ * mtFrac;
-        var wtDash = circ * wtFrac;
-
-        var sCirc   = circ.ToString("F1",   System.Globalization.CultureInfo.InvariantCulture);
-        var sMtDash = mtDash.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
-        var sWtDash = wtDash.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
-        var sNegMt  = (-mtDash).ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
-
-        // 퍼센트 라벨 위치 — 호 안쪽(도넛 중심 방향 0.55배)에 배치
-        var pctFS    = Math.Max(6, (int)(donutR * 0.46));
-        var mtMidAng = -Math.PI / 2.0 + Math.PI * mtFrac;
-        var wtMidAng = -Math.PI / 2.0 + 2 * Math.PI * mtFrac + Math.PI * wtFrac;
-        var lblR     = donutR * 1.0; // 아크(stroke) 중앙에 배치 — 흰 텍스트가 컬러 위에
-        var mtLblX   = (donutCx + lblR * Math.Cos(mtMidAng)).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
-        var mtLblY   = (donutCy + lblR * Math.Sin(mtMidAng) + pctFS * 0.38).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
-        var wtLblX   = (donutCx + lblR * Math.Cos(wtMidAng)).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
-        var wtLblY   = (donutCy + lblR * Math.Sin(wtMidAng) + pctFS * 0.38).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
-        var mtPct    = total > 0 ? (int)Math.Round(mtFrac * 100) : 0;
-        var wtPct    = 100 - mtPct;
-
-        // ── 통계 텍스트: 도넛 오른쪽 기준으로 배치, 가용 너비로 폰트 제한 ──
-        var valX    = px + pad + innerW - 4;
-        // 도넛 오른쪽이되, 너무 왼쪽에 치우치지 않도록 50% 위치를 하한으로
-        var statsX  = Math.Max(donutCx + donutR + (int)(donutSW / 2.0) + 6,
-                               px + pad + (int)(innerW * 0.50));
-        // 라벨(2 Korean ≈ 2*fs) + 값(~4자 ≈ 2.6*fs) → 5*fs 기준으로 폰트 상한
-        var statsFS = Math.Min(
-            Math.Max(7, (int)(minDim * 0.115)),
-            Math.Max(7, (int)((valX - statsX) / 5.0)));
-        var statsLH = (int)(innerH * 0.155);
-        var statsY1 = donutCy - statsLH;
-        var statsY2 = donutCy;
-        var statsY3 = donutCy + statsLH;
-
-        // ── 상태 라벨: minDim 기준 ──
-        var stateFS = Math.Max(7, (int)(minDim * 0.10));
-        var stateY  = py + pad + (int)(innerH * 0.91);
-
         <defs>
-            <clipPath id="@clipId">
-                <rect x="@(px + pad)" y="@(py + pad)" width="@innerW" height="@innerH" rx="8" ry="8" />
+            <clipPath id="@b.ClipId">
+                <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
+                      width="@b.InnerW" height="@b.InnerH" rx="8" ry="8" />
             </clipPath>
         </defs>
-        <g class="flow-block" clip-path="url(#@clipId)">
+        <g class="flow-block" clip-path="url(#@b.ClipId)">
             @* 배경: 흰 베이스 + 상태색 옅은 오버레이 + 테두리 *@
-            <rect x="@(px + pad)" y="@(py + pad)"
-                  width="@innerW" height="@innerH"
+            <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
+                  width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8"
                   style="fill: var(--mud-palette-surface, white)" />
-            <rect x="@(px + pad)" y="@(py + pad)"
-                  width="@innerW" height="@innerH"
+            <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
+                  width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8"
-                  fill="@color" fill-opacity="0.08"
-                  stroke="@color" stroke-width="1.5" />
+                  fill="@b.Color" fill-opacity="0.08"
+                  stroke="@b.Color" stroke-width="1.5" />
             @* 상단 4px 액센트 바 *@
-            <rect x="@(px + pad)" y="@(py + pad)"
-                  width="@innerW" height="4"
-                  fill="@color" />
+            <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
+                  width="@b.InnerW" height="4"
+                  fill="@b.Color" />
 
             @* Flow 이름 *@
-            <SvgText X="@(px + pad + 6)" Y="@titleY" TextAnchor="start" Fill="var(--mud-palette-text-primary, #1e293b)" FontSize="@titleFS" FontWeight="700" Content="@fp.FlowName" />
+            <SvgText X="@(b.Px + b.Pad + 6)" Y="@b.TitleY"
+                     TextAnchor="start"
+                     Fill="var(--mud-palette-text-primary, #1e293b)"
+                     FontSize="@b.TitleFS" FontWeight="700"
+                     Content="@b.FlowName" />
 
-            @if (hasMtWt)
+            @if (b.HasMtWt)
             {
                 @* 도넛 차트 (rotate -90° → 12시 방향 시작) *@
-                <g transform="rotate(-90 @donutCx @donutCy)">
+                <g transform="rotate(-90 @b.DonutCx @b.DonutCy)">
                     @* 배경 트랙 *@
-                    <circle cx="@donutCx" cy="@donutCy" r="@donutR"
-                            fill="none" style="stroke: var(--mud-palette-lines-default, rgba(0,0,0,0.10))" stroke-width="@donutSW" />
+                    <circle cx="@b.DonutCx" cy="@b.DonutCy" r="@b.DonutR"
+                            fill="none"
+                            style="stroke: var(--mud-palette-lines-default, rgba(0,0,0,0.10))"
+                            stroke-width="@b.DonutSW" />
                     @* MT(가동) 호 *@
-                    @if (mtDash > 0)
+                    @if (b.MtDash > 0)
                     {
-                        <circle cx="@donutCx" cy="@donutCy" r="@donutR"
-                                fill="none" stroke="#0569A0" stroke-width="@donutSW"
-                                stroke-dasharray="@sMtDash @sCirc" />
+                        <circle cx="@b.DonutCx" cy="@b.DonutCy" r="@b.DonutR"
+                                fill="none" stroke="#0569A0" stroke-width="@b.DonutSW"
+                                stroke-dasharray="@b.SMtDash @b.SCirc" />
                     }
                     @* WT(대기) 호 — MT 끝 지점에서 시작 *@
-                    @if (wtDash > 0)
+                    @if (b.WtDash > 0)
                     {
-                        <circle cx="@donutCx" cy="@donutCy" r="@donutR"
-                                fill="none" stroke="#FB8C00" stroke-width="@donutSW"
-                                stroke-dasharray="@sWtDash @sCirc"
-                                stroke-dashoffset="@sNegMt" />
+                        <circle cx="@b.DonutCx" cy="@b.DonutCy" r="@b.DonutR"
+                                fill="none" stroke="#FB8C00" stroke-width="@b.DonutSW"
+                                stroke-dasharray="@b.SWtDash @b.SCirc"
+                                stroke-dashoffset="@b.SNegMt" />
                     }
                 </g>
 
                 @* 도넛 중앙 전체 시간 *@
-                {
-                    var centerFS = Math.Max(6, (int)(donutR * 0.52));
-                    <SvgText X="@donutCx" Y="@(donutCy + (int)(centerFS * 0.38))" TextAnchor="middle" Fill="var(--mud-palette-text-primary, #1e293b)" FontSize="@centerFS" FontWeight="700" Content="@FormatMs(total)" />
-                }
+                <SvgText X="@b.DonutCx" Y="@b.CenterLabelY"
+                         TextAnchor="middle"
+                         Fill="var(--mud-palette-text-primary, #1e293b)"
+                         FontSize="@b.CenterFS" FontWeight="700"
+                         Content="@FormatMs(b.Total)" />
 
                 @* 우측 통계 (넓은 블럭 전용) *@
-                @if (showStats)
+                @if (b.ShowStats)
                 {
-                    <SvgText X="@statsX" Y="@statsY1" Fill="var(--mud-palette-text-secondary, #64748b)" FontSize="@statsFS" Content="가동" />
-                    <SvgText X="@valX"   Y="@statsY1" TextAnchor="end" Fill="var(--mud-palette-text-primary, #1e293b)" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(mt)" />
-                    <SvgText X="@statsX" Y="@statsY2" Fill="var(--mud-palette-text-secondary, #64748b)" FontSize="@statsFS" Content="대기" />
-                    <SvgText X="@valX"   Y="@statsY2" TextAnchor="end" Fill="var(--mud-palette-text-primary, #1e293b)" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(wt)" />
+                    <SvgText X="@b.StatsX" Y="@b.StatsY1"
+                             Fill="var(--mud-palette-text-secondary, #64748b)"
+                             FontSize="@b.StatsFS" Content="가동" />
+                    <SvgText X="@b.ValX" Y="@b.StatsY1" TextAnchor="end"
+                             Fill="var(--mud-palette-text-primary, #1e293b)"
+                             FontSize="@b.StatsFS" FontWeight="600"
+                             Content="@FormatMs(b.Mt)" />
+                    <SvgText X="@b.StatsX" Y="@b.StatsY2"
+                             Fill="var(--mud-palette-text-secondary, #64748b)"
+                             FontSize="@b.StatsFS" Content="대기" />
+                    <SvgText X="@b.ValX" Y="@b.StatsY2" TextAnchor="end"
+                             Fill="var(--mud-palette-text-primary, #1e293b)"
+                             FontSize="@b.StatsFS" FontWeight="600"
+                             Content="@FormatMs(b.Wt)" />
                 }
             }
 
             @* 상태 라벨 *@
-            <SvgText X="@cx" Y="@stateY" TextAnchor="middle" Fill="var(--mud-palette-text-secondary, #64748b)" FontSize="@stateFS" Content="@stateLabel" />
+            <SvgText X="@b.Cx" Y="@b.StateY" TextAnchor="middle"
+                     Fill="var(--mud-palette-text-secondary, #64748b)"
+                     FontSize="@b.StateFS" Content="@b.StateLabel" />
 
             @* 배지 (우상단) — pill 스타일, 가로 배치 *@
-            @for (int bi = 0; bi < badges.Count; bi++)
+            @for (int bi = 0; bi < b.Badges.Count; bi++)
             {
-                var bLabel   = badges[bi].Label;
-                var bColor   = badges[bi].Color;
-                var bW       = bWidthsList[bi];
-                var bOffsetX = bWidthsList.Take(bi).Sum() + bi * bGap;
-                var bX       = px + pad + innerW - totalBadgeW - 4 + bOffsetX;
-                var bY       = titleY - (int)(titleFS * 0.36 + bH / 2.0);
+                var badge   = b.Badges[bi];
+                var bW      = b.BWidthsList[bi];
+                var bOffsetX = b.BWidthsList.Take(bi).Sum() + bi * b.BGap;
+                var bX      = b.Px + b.Pad + b.InnerW - b.TotalBadgeW - 4 + bOffsetX;
+                var bY      = b.TitleY - (int)(b.TitleFS * 0.36 + b.BH / 2.0);
                 <g>
-                    <rect x="@bX" y="@bY" width="@bW" height="@bH" rx="6" ry="6" fill="@bColor" />
-                    <SvgText X="@(bX + bW / 2)" Y="@(bY + bH - 3)" TextAnchor="middle" Fill="white" FontSize="8" FontWeight="700" Content="@bLabel" />
+                    <rect x="@bX" y="@bY" width="@bW" height="@b.BH"
+                          rx="6" ry="6" fill="@badge.Color" />
+                    <SvgText X="@(bX + bW / 2)" Y="@(bY + b.BH - 3)"
+                             TextAnchor="middle" Fill="white"
+                             FontSize="8" FontWeight="700"
+                             Content="@badge.Label" />
                 </g>
             }
         </g>
@@ -194,6 +122,7 @@
 </svg>
 
 @code {
+    // ── Parameters ──
     [Parameter] public string Style { get; set; } = "";
     [Parameter] public int CanvasWidth { get; set; }
     [Parameter] public int CanvasHeight { get; set; }
@@ -205,11 +134,180 @@
     [Parameter] public int CellHeight { get; set; }
     [Parameter] public List<FlowPlacement> Placements { get; set; } = [];
     [Parameter] public Func<FlowPlacement, string>? GetColor { get; set; }
-    [Parameter] public Func<FlowPlacement, string>? GetSubtitle { get; set; }
     [Parameter] public Func<FlowPlacement, string>? GetStateLabel { get; set; }
     [Parameter] public Func<FlowPlacement, (int Mt, int Wt)?>? GetMtWt { get; set; }
     [Parameter] public Func<FlowPlacement, IEnumerable<(string Label, string Color)>>? GetBadges { get; set; }
 
+    // ── Pre-computed block layouts ──
+    private List<FlowBlockLayout> _blockLayouts = [];
+
+    protected override void OnParametersSet()
+    {
+        _blockLayouts = Placements.Select(ComputeSingleBlock).ToList();
+    }
+
+    // ── Layout record ──
+    private record FlowBlockLayout
+    {
+        // 데이터
+        public required string FlowName { get; init; }
+        public required string Color { get; init; }
+        public required string StateLabel { get; init; }
+        public required bool HasMtWt { get; init; }
+        public required int Mt { get; init; }
+        public required int Wt { get; init; }
+        public required int Total { get; init; }
+        public required List<(string Label, string Color)> Badges { get; init; }
+
+        // 블록 지오메트리
+        public required int Px { get; init; }
+        public required int Py { get; init; }
+        public required int Pad { get; init; }
+        public required int InnerW { get; init; }
+        public required int InnerH { get; init; }
+        public required string ClipId { get; init; }
+        public required bool ShowStats { get; init; }
+        public required int Cx { get; init; }
+
+        // 타이틀
+        public required int TitleFS { get; init; }
+        public required int TitleY { get; init; }
+
+        // 배지
+        public required int BH { get; init; }
+        public required int BGap { get; init; }
+        public required List<int> BWidthsList { get; init; }
+        public required int TotalBadgeW { get; init; }
+
+        // 도넛 차트
+        public required int DonutR { get; init; }
+        public required int DonutSW { get; init; }
+        public required int DonutCx { get; init; }
+        public required int DonutCy { get; init; }
+        public required double MtDash { get; init; }
+        public required double WtDash { get; init; }
+        public required string SCirc { get; init; }
+        public required string SMtDash { get; init; }
+        public required string SWtDash { get; init; }
+        public required string SNegMt { get; init; }
+
+        // 도넛 중앙 라벨
+        public required int CenterFS { get; init; }
+        public required int CenterLabelY { get; init; }
+
+        // 통계 텍스트
+        public required int ValX { get; init; }
+        public required int StatsX { get; init; }
+        public required int StatsFS { get; init; }
+        public required int StatsY1 { get; init; }
+        public required int StatsY2 { get; init; }
+
+        // 상태 라벨
+        public required int StateFS { get; init; }
+        public required int StateY { get; init; }
+    }
+
+    // ── 블록별 레이아웃 계산 ──
+    private FlowBlockLayout ComputeSingleBlock(FlowPlacement fp)
+    {
+        var color      = GetColor?.Invoke(fp) ?? "#9E9E9E";
+        var stateLabel = GetStateLabel?.Invoke(fp) ?? "";
+        var mtWt       = GetMtWt?.Invoke(fp);
+
+        // 블록 지오메트리
+        var px     = OffsetX + fp.Col * CellWidth;
+        var py     = OffsetY + fp.Row * CellHeight;
+        var pw     = fp.ColSpan * CellWidth;
+        var ph     = fp.RowSpan * CellHeight;
+        var pad    = 4;
+        var innerW = pw - pad * 2;
+        var innerH = ph - pad * 2;
+        var minDim = Math.Min(innerW, innerH);
+        var showStats = innerW >= 130;
+        var clipId    = $"blk{fp.FlowName.GetHashCode() & 0x7FFFFFFF}";
+        var cx        = px + pw / 2;
+
+        var hasMtWt = mtWt != null;
+        var mt    = mtWt?.Mt ?? 0;
+        var wt    = mtWt?.Wt ?? 0;
+        var total = mt + wt;
+
+        // 배지
+        var badges      = GetBadges?.Invoke(fp)?.ToList() ?? new List<(string Label, string Color)>();
+        var bH          = 13;
+        var bGap        = 3;
+        var bWidthsList = badges.Select(b => b.Label.Length <= 2 ? 24 : 32).ToList();
+        var totalBadgeW = badges.Count > 0 ? bWidthsList.Sum() + (badges.Count - 1) * bGap : 0;
+        var badgeRightReserve = badges.Count > 0 ? totalBadgeW + 8 : 4;
+
+        // 타이틀: 배지 영역 제외 너비에 맞게 폰트 크기 결정
+        var titleFS   = Math.Max(9, (int)Math.Min(innerH * 0.19, innerW * 0.13));
+        var titleY    = py + pad + (int)(innerH * 0.22);
+        var titleMaxW = Math.Max(20, innerW - badgeRightReserve - 12);
+        var estTitleW = fp.FlowName.Sum(c => c > 0x7F ? (double)titleFS : titleFS * 0.65);
+        if (estTitleW > titleMaxW)
+            titleFS = Math.Max(7, (int)(titleFS * titleMaxW / estTitleW));
+
+        // 도넛 차트 지오메트리
+        var donutMaxR = showStats ? innerW * 0.16 : innerW * 0.28;
+        var donutR    = (int)Math.Max(6, Math.Min(innerH * 0.26, donutMaxR));
+        var donutSW   = (int)Math.Max(4, donutR * 0.48);
+        var donutCx   = showStats
+            ? px + pad + (int)(innerW * 0.22)
+            : px + pad + (int)(innerW * 0.50);
+        var donutCy   = py + pad + (int)(innerH * 0.58);
+
+        var circ   = 2 * Math.PI * donutR;
+        var mtFrac = total > 0 ? (double)mt / total : (hasMtWt ? 1.0 : 0.0);
+        var wtFrac = 1.0 - mtFrac;
+        var mtDash = circ * mtFrac;
+        var wtDash = circ * wtFrac;
+
+        var inv     = System.Globalization.CultureInfo.InvariantCulture;
+        var sCirc   = circ.ToString("F1", inv);
+        var sMtDash = mtDash.ToString("F1", inv);
+        var sWtDash = wtDash.ToString("F1", inv);
+        var sNegMt  = (-mtDash).ToString("F1", inv);
+
+        // 도넛 중앙 라벨
+        var centerFS = Math.Max(6, (int)(donutR * 0.52));
+
+        // 통계 텍스트 위치
+        var valX    = px + pad + innerW - 4;
+        var statsX  = Math.Max(donutCx + donutR + (int)(donutSW / 2.0) + 6,
+                               px + pad + (int)(innerW * 0.50));
+        var statsFS = Math.Min(
+            Math.Max(7, (int)(minDim * 0.115)),
+            Math.Max(7, (int)((valX - statsX) / 5.0)));
+        var statsLH = (int)(innerH * 0.155);
+        var statsY1 = donutCy - statsLH;
+        var statsY2 = donutCy;
+
+        // 상태 라벨
+        var stateFS = Math.Max(7, (int)(minDim * 0.10));
+        var stateY  = py + pad + (int)(innerH * 0.91);
+
+        return new FlowBlockLayout
+        {
+            FlowName = fp.FlowName, Color = color, StateLabel = stateLabel,
+            HasMtWt = hasMtWt, Mt = mt, Wt = wt, Total = total,
+            Badges = badges,
+            Px = px, Py = py, Pad = pad,
+            InnerW = innerW, InnerH = innerH, ClipId = clipId,
+            ShowStats = showStats, Cx = cx,
+            TitleFS = titleFS, TitleY = titleY,
+            BH = bH, BGap = bGap, BWidthsList = bWidthsList, TotalBadgeW = totalBadgeW,
+            DonutR = donutR, DonutSW = donutSW, DonutCx = donutCx, DonutCy = donutCy,
+            MtDash = mtDash, WtDash = wtDash,
+            SCirc = sCirc, SMtDash = sMtDash, SWtDash = sWtDash, SNegMt = sNegMt,
+            CenterFS = centerFS, CenterLabelY = donutCy + (int)(centerFS * 0.38),
+            ValX = valX, StatsX = statsX, StatsFS = statsFS,
+            StatsY1 = statsY1, StatsY2 = statsY2,
+            StateFS = stateFS, StateY = stateY,
+        };
+    }
+
+    // ── 시간 포맷 ──
     private static string FormatMs(int ms)
     {
         if (ms <= 0) return "0s";
