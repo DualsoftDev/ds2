@@ -394,11 +394,42 @@ public class DspDbService : IDisposable
 
             // 실제 변경이 있을 때만 이벤트 발행 (불필요한 Blazor 렌더링 방지)
             // Dictionary 사용으로 O(N) 비교 (중첩 Any의 O(N²) 방지)
-            var oldStateMap = _snapshot.Calls.DistinctBy(d=>d.Id).ToDictionary(c => c.Id, c => c.State);
+            var oldCallsMap = _snapshot.Calls.DistinctBy(d=>d.Id).ToDictionary(c => c.Id);
+
+            // DB 폴링이 이벤트 채널의 최신 GoingCount를 덮어쓰지 않도록 보호
+            // 이벤트 채널로 업데이트된 GoingCount가 DB보다 크면 이벤트 값 유지
+            for (var i = 0; i < calls.Count; i++)
+            {
+                var call = calls[i];
+                if (oldCallsMap.TryGetValue(call.Id, out var oldCall))
+                {
+                    // 기존 스냅샷의 GoingCount가 DB에서 읽은 값보다 크면 (이벤트로 이미 증가됨)
+                    // DB 값을 무시하고 기존 값 유지
+                    if (oldCall.GoingCount > call.GoingCount)
+                    {
+                        calls[i] = new CallState
+                        {
+                            Id = call.Id,
+                            CallName = call.CallName,
+                            FlowName = call.FlowName,
+                            WorkName = call.WorkName,
+                            State = call.State,
+                            ProgressRate = call.ProgressRate,
+                            GoingCount = oldCall.GoingCount,  // 이벤트 채널의 최신 값 유지
+                            AverageGoingTime = call.AverageGoingTime,
+                            Device = call.Device,
+                            ErrorText = call.ErrorText
+                        };
+                    }
+                }
+            }
+
             bool hasChanged =
                 calls.Count != _snapshot.Calls.Count ||
                 flows.Count != _snapshot.Flows.Count ||
-                calls.Any(c => !oldStateMap.TryGetValue(c.Id, out var oldState) || oldState != c.State);
+                calls.Any(c => !oldCallsMap.TryGetValue(c.Id, out var oldCall) ||
+                              oldCall.State != c.State ||
+                              oldCall.GoingCount != c.GoingCount);
 
             if (!hasChanged) return;
 

@@ -440,23 +440,67 @@ public class CycleAnalysisService
 
         // Gantt 차트 렌더 수를 제한해 Blazor/SVG 프리징을 방지
         var totalEventCount = ioEvents.Count;
+
+        // Call별로 InTag와 OutTag를 매칭하여 실제 Going 시간 계산
+        var callEvents = ioEvents
+            .GroupBy(e => e.CallName)
+            .ToDictionary(g => g.Key, g => g.OrderBy(e => e.RelativeTimeMs).ToList());
+
         var renderedEvents = ioEvents
             .OrderBy(e => e.RelativeTimeMs)
             .Take(MaxRenderedGanttItems)
-            .Select(e => new GanttChartItem
+            .Select(e =>
             {
-                CallName = e.CallName,
-                WorkName = e.WorkName,
-                FlowName = e.FlowName,
-                TagName = e.TagName,
-                TagAddress = e.TagAddress,
-                RelativeStart = e.RelativeTimeMs,
-                RelativeEnd = e.RelativeTimeMs + 50,  // 이벤트를 작은 바로 표시 (50ms 너비)
-                Duration = 0,  // 순간 이벤트
-                Lane = 0,  // 레인은 나중에 할당
-                GoingStartTime = e.Timestamp,
-                FinishTime = e.Timestamp,
-                EventType = e.EventType
+                // 같은 Call의 이벤트 리스트
+                var eventsForCall = callEvents.GetValueOrDefault(e.CallName, new List<CallIOEvent>());
+
+                // InTag인 경우: 다음 OutTag까지의 시간을 Duration으로 설정
+                // OutTag인 경우: 이전 InTag부터의 시간을 Duration으로 설정
+                int? duration = null;
+                int? relativeEnd = null;
+                DateTime? finishTime = null;
+
+                if (e.EventType == IOEventType.InTag)
+                {
+                    // 현재 InTag 이후의 첫 번째 OutTag 찾기
+                    var nextOutTag = eventsForCall
+                        .FirstOrDefault(evt => evt.EventType == IOEventType.OutTag && evt.RelativeTimeMs > e.RelativeTimeMs);
+
+                    if (nextOutTag != null)
+                    {
+                        duration = nextOutTag.RelativeTimeMs - e.RelativeTimeMs;
+                        relativeEnd = nextOutTag.RelativeTimeMs;
+                        finishTime = nextOutTag.Timestamp;
+                    }
+                }
+                else // OutTag
+                {
+                    // 현재 OutTag 이전의 마지막 InTag 찾기
+                    var prevInTag = eventsForCall
+                        .LastOrDefault(evt => evt.EventType == IOEventType.InTag && evt.RelativeTimeMs < e.RelativeTimeMs);
+
+                    if (prevInTag != null)
+                    {
+                        duration = e.RelativeTimeMs - prevInTag.RelativeTimeMs;
+                        finishTime = e.Timestamp;
+                    }
+                }
+
+                return new GanttChartItem
+                {
+                    CallName = e.CallName,
+                    WorkName = e.WorkName,
+                    FlowName = e.FlowName,
+                    TagName = e.TagName,
+                    TagAddress = e.TagAddress,
+                    RelativeStart = e.RelativeTimeMs,
+                    RelativeEnd = relativeEnd ?? e.RelativeTimeMs,
+                    Duration = duration ?? 0,
+                    Lane = 0,  // 레인은 나중에 할당
+                    GoingStartTime = e.Timestamp,
+                    FinishTime = finishTime ?? e.Timestamp,
+                    EventType = e.EventType
+                };
             })
             .ToList();
 
