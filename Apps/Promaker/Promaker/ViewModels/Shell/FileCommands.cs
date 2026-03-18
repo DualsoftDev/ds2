@@ -32,18 +32,18 @@ public partial class MainViewModel
         catch (Exception ex)
         {
             Log.Error($"{operation} failed", ex);
-            DialogHelpers.Warn(warnMessage(ex));
+            _dialogService.ShowWarning(warnMessage(ex));
             return false;
         }
     }
 
     private static string JoinLines(IEnumerable<string> lines) => string.Join("\n", lines);
 
-    private static bool TryGetResult<T, TError>(FSharpResult<T, TError> result, Func<TError, string> formatError, out T value)
+    private bool TryGetResult<T, TError>(FSharpResult<T, TError> result, Func<TError, string> formatError, out T value)
     {
         if (result.IsError)
         {
-            DialogHelpers.Warn(formatError(result.ErrorValue));
+            _dialogService.ShowWarning(formatError(result.ErrorValue));
             value = default!;
             return false;
         }
@@ -114,7 +114,7 @@ public partial class MainViewModel
                     if (!AasxImporter.importIntoStore(_store, fileName))
                     {
                         Log.Warn($"AASX open failed: empty result ({fileName})");
-                        DialogHelpers.Warn("Failed to open AASX file.");
+                        _dialogService.ShowWarning("Failed to open AASX file.");
                         return;
                     }
 
@@ -164,7 +164,7 @@ public partial class MainViewModel
     {
         var project = DsQuery.allProjects(_store).Head;
         var dlg = new ProjectPropertiesDialog(project.Properties);
-        if (!DialogHelpers.ShowOwnedDialog(dlg)) return;
+        if (_dialogService.ShowDialog(dlg) != true) return;
 
         TryEditorAction(() =>
             _store.UpdateProjectProperties(
@@ -223,13 +223,13 @@ public partial class MainViewModel
                 var result = Ds2.Mermaid.MermaidExporter.saveProjectToFile(_store, filePath);
                 return SaveOutcomeFlow.TryCompleteMermaidSave(
                     result,
-                    DialogHelpers.Warn,
+                    _dialogService.ShowWarning,
                     () => CompleteSave(filePath, "Mermaid"));
             }
             catch (Exception ex)
             {
                 Log.Error($"Save Mermaid '{filePath}' failed", ex);
-                DialogHelpers.Warn($"Mermaid 저장 실패: {ex.Message}");
+                _dialogService.ShowWarning($"Mermaid 저장 실패: {ex.Message}");
                 return false;
             }
         }
@@ -244,14 +244,14 @@ public partial class MainViewModel
 
                 return SaveOutcomeFlow.TryCompleteAasxSave(
                     exported,
-                    DialogHelpers.Warn,
+                    _dialogService.ShowWarning,
                     "No project available for AASX save.",
                     () => CompleteSave(filePath, "AASX"));
             }
             catch (Exception ex)
             {
                 Log.Error($"Save AASX '{filePath}' failed", ex);
-                DialogHelpers.Warn($"Failed to save AASX: {ex.Message}");
+                _dialogService.ShowWarning($"Failed to save AASX: {ex.Message}");
                 return false;
             }
         }
@@ -265,7 +265,7 @@ public partial class MainViewModel
         catch (Exception ex)
         {
             Log.Error($"Save file '{filePath}' failed", ex);
-            DialogHelpers.Warn($"Failed to save file: {ex.Message}");
+            _dialogService.ShowWarning($"Failed to save file: {ex.Message}");
             return false;
         }
     }

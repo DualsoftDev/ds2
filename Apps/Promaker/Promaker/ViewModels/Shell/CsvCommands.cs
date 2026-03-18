@@ -28,7 +28,7 @@ public partial class MainViewModel
         sourceName = string.Empty;
 
         var dialog = new CsvImportDialog();
-        if (!DialogHelpers.ShowOwnedDialog(dialog))
+        if (_dialogService.ShowDialog(dialog) != true)
             return false;
 
         sourceName = dialog.SourceDisplayName;
@@ -90,7 +90,7 @@ public partial class MainViewModel
             BuildCsvExportPreview(_store),
             $"{project.Name}.csv");
 
-        if (!DialogHelpers.ShowOwnedDialog(dialog))
+        if (_dialogService.ShowDialog(dialog) != true)
             return;
 
         TryRunFileOperation(

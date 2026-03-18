@@ -7,6 +7,7 @@
     <UserControl.Resources>
         <conv:EntityTypeToIconConverter x:Key="TypeToIcon"/>
         <conv:EntityTypeToBrushConverter x:Key="TypeToBrush"/>
+        <conv:EntityTypeToForegroundConverter x:Key="TypeToForeground"/>
         <conv:PositiveIntToVisibilityConverter x:Key="PositiveIntToVis"/>
         <conv:BindingProxy x:Key="Proxy" Data="{Binding}"/>
 
@@ -35,7 +36,8 @@
                             Background="{Binding EntityType, Converter={StaticResource TypeToBrush}}">
                         <TextBlock Text="{Binding EntityType, Converter={StaticResource TypeToIcon}}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   FontSize="10" FontWeight="Bold" Foreground="White"/>
+                                   FontSize="10" FontWeight="Bold"
+                                   Foreground="{Binding EntityType, Converter={StaticResource TypeToForeground}}"/>
                     </Border>
                     <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
                     <Border Grid.Column="2"
@@ -47,7 +49,7 @@
                             Background="{DynamicResource AccentBrush}"
                             Visibility="{Binding SelectionOrder, Converter={StaticResource PositiveIntToVis}}">
                         <TextBlock Text="{Binding SelectionOrder}"
-                                   Foreground="White"
+                                   Foreground="{DynamicResource AccentTextBrush}"
                                    FontSize="10"
                                    FontWeight="Bold"
                                    HorizontalAlignment="Center"
@@ -89,8 +91,6 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
-                <RowDefinition Height="4"/>
-                <RowDefinition Height="160" MinHeight="60"/>
             </Grid.RowDefinitions>
             <Border Style="{StaticResource PanelHeader}">
                 <Grid>
@@ -138,46 +138,6 @@
                     </TreeView>
                 </TabItem>
             </TabControl>
-
-            <GridSplitter Grid.Row="2" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
-
-            <Grid Grid.Row="3">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-                <Border Style="{StaticResource PanelHeader}">
-                    <Grid>
-                        <TextBlock Text="History" FontWeight="SemiBold" FontSize="12"/>
-                        <Button Style="{StaticResource HelpButton}" HorizontalAlignment="Right"
-                                Command="{x:Static help:HelpNavigator.NavigateCommand}"
-                                CommandParameter="history"/>
-                    </Grid>
-                </Border>
-                <ListBox Grid.Row="1"
-                         x:Name="HistoryListBox"
-                         ItemsSource="{Binding HistoryItems}"
-                         SelectedIndex="{Binding CurrentHistoryIndex, Mode=OneWay}"
-                         ScrollViewer.VerticalScrollBarVisibility="Auto"
-                         MouseDoubleClick="HistoryListBox_MouseDoubleClick">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding Label}">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsRedo}" Value="True">
-                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
-                                                <Setter Property="TextDecorations" Value="Strikethrough"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </Grid>
         </Grid>
     </Border>
 </UserControl>

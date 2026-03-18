@@ -32,7 +32,7 @@ public partial class MainViewModel
         var parseResult = MermaidImporter.parseFile(dlg.FileName);
         if (parseResult.IsError)
         {
-            DialogHelpers.Warn($"Mermaid 파싱 실패:\n{string.Join("\n", parseResult.ErrorValue)}");
+            _dialogService.ShowWarning($"Mermaid 파싱 실패:\n{string.Join("\n", parseResult.ErrorValue)}");
             return;
         }
         var graph = parseResult.ResultValue;
@@ -57,7 +57,7 @@ public partial class MainViewModel
         var preview = new MermaidImportDialog(
             graph, depth, allLevels, defaultLevel, node.Name);
 
-        if (!DialogHelpers.ShowOwnedDialog(preview))
+        if (_dialogService.ShowDialog(preview) != true)
             return;
 
         var selectedLevel = preview.SelectedLevel;
@@ -70,7 +70,7 @@ public partial class MainViewModel
                 var result = MermaidImporter.importIntoStore(_store, graph, selectedLevel, node.Id);
                 if (result.IsError)
                 {
-                    DialogHelpers.Warn($"임포트 실패:\n{string.Join("\n", result.ErrorValue)}");
+                    _dialogService.ShowWarning($"임포트 실패:\n{string.Join("\n", result.ErrorValue)}");
                     return;
                 }
 

@@ -44,26 +44,36 @@
     <!-- ═══ Toolbar group wrapper ═══ -->
 
     <Style x:Key="ToolbarGroup" TargetType="Border">
-        <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
-        <Setter Property="BorderBrush" Value="#6C7C90"/>
-        <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="CornerRadius" Value="8"/>
-        <Setter Property="Margin" Value="4,6,4,6"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="CornerRadius" Value="0"/>
+        <Setter Property="Margin" Value="0,6"/>
         <Setter Property="Padding" Value="0"/>
-        <Setter Property="ClipToBounds" Value="True"/>
+        <Setter Property="ClipToBounds" Value="False"/>
+    </Style>
+
+    <Style x:Key="ToolbarGroupSeparator" TargetType="Border">
+        <Setter Property="Width" Value="1"/>
+        <Setter Property="Height" Value="58"/>
+        <Setter Property="Margin" Value="10,12"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Background" Value="{DynamicResource BorderBrush}"/>
+        <Setter Property="Opacity" Value="0.72"/>
     </Style>
 
     <Style x:Key="ToolbarGroupLabelBorder" TargetType="Border">
-        <Setter Property="Background" Value="#243245"/>
-        <Setter Property="CornerRadius" Value="0,0,7,7"/>
-        <Setter Property="Padding" Value="5,2,5,3"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="CornerRadius" Value="0"/>
+        <Setter Property="Padding" Value="0,3,0,0"/>
+        <Setter Property="Margin" Value="0,2,0,0"/>
     </Style>
 
     <Style x:Key="ToolbarGroupLabel" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="10"/>
+        <Setter Property="FontSize" Value="9.5"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
-        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
     </Style>
 
 </ResourceDictionary>

@@ -17,9 +17,16 @@ public partial class ExplorerPane : UserControl
     public ExplorerPane()
     {
         InitializeComponent();
+        ConfigureDebugPanels();
     }
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
+
+    private void ConfigureDebugPanels()
+    {
+        // History panel moved to MainWindow (right side below PropertyPanel)
+        // No debug panels to configure in ExplorerPane anymore
+    }
 
     private void TreeTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -123,13 +130,6 @@ public partial class ExplorerPane : UserControl
         // 마지막이 구분선이면 숨김
         if (lastVisibleSep is not null)
             lastVisibleSep.Visibility = Visibility.Collapsed;
-    }
-
-    private void HistoryListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
-    {
-        if (ViewModel is null) return;
-        if (HistoryListBox.SelectedItem is HistoryPanelItem item)
-            ViewModel.JumpToHistoryCommand.Execute(item);
     }
 
     private void TreeViewItem_MouseDoubleClick(object sender, MouseButtonEventArgs e)

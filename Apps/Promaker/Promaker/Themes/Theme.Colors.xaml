@@ -13,7 +13,7 @@
     <Color x:Key="DisabledTextColor">#808080</Color>
     <Color x:Key="AccentColor">#4F82C9</Color>
     <Color x:Key="AccentHoverColor">#69A0E5</Color>
-    <Color x:Key="AccentTextColor">#F0F0F0</Color>
+    <Color x:Key="AccentTextColor">#0D1926</Color>
     <Color x:Key="HoverBackgroundColor">#29405D</Color>
     <Color x:Key="CanvasBackgroundColor">#0F1A27</Color>
     <Color x:Key="CanvasGridColor">#35506A</Color>
@@ -93,5 +93,11 @@
 
     <!-- TreeView Arrow Color -->
     <Color x:Key="TreeViewArrowColor">#FFFFFF</Color>
+    <Color x:Key="ContrastDarkTextColor">#0D1926</Color>
+    <Color x:Key="AlwaysLightTextColor">#FFFFFF</Color>
+    <Color x:Key="IconOverlayTextColor">#1A202C</Color>
+    <Color x:Key="ConditionAutoBadgeColor">#A65B00</Color>
+    <Color x:Key="ConditionComBadgeColor">#2A7A4E</Color>
+    <Color x:Key="ConditionSkipBadgeColor">#596574</Color>
 
 </ResourceDictionary>
