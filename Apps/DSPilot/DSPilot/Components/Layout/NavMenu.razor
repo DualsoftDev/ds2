@@ -1,12 +1,14 @@
+@implements IDisposable
 @inject DsProjectService ProjectService
 @inject NavigationManager Nav
 @inject DashboardEditService EditService
 
 <MudNavMenu Color="Color.Primary">
-    <div style="display:flex; align-items:center;">
+    <div style="display:flex; align-items:center; border-radius:4px;
+                background: @(_isHome ? "rgba(var(--mud-palette-primary-rgb), 0.15)" : "transparent");">
         <MudNavLink Href="/" Match="NavLinkMatch.All"
                     Icon="@Icons.Material.Filled.SpaceDashboard"
-                    Style="flex:1; min-width:0;">
+                    Style="flex:1; min-width:0; background: transparent !important;">
             대시보드
         </MudNavLink>
         <MudButton Size="Size.Small"
@@ -76,9 +78,13 @@
 @code {
     private Dictionary<string, List<Ds2.Core.Flow>> _systemFlowMap = new();
     private string? _selectedFlow;
+    private bool _isHome;
 
     protected override void OnInitialized()
     {
+        _isHome = Nav.ToBaseRelativePath(Nav.Uri) is "" or "/";
+        Nav.LocationChanged += OnLocationChanged;
+
         if (!ProjectService.IsLoaded) return;
 
         var systems = ProjectService.GetActiveSystems();
@@ -90,6 +96,17 @@
                 _systemFlowMap[system.Name] = flows;
             }
         }
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        _isHome = Nav.ToBaseRelativePath(e.Location) is "" or "/";
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
     }
 
     private void SelectFlow(string flowName)

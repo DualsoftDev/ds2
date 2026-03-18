@@ -111,6 +111,20 @@ public class BlueprintService : IDisposable
         ScheduleSave();
     }
 
+    // 저장 없이 메모리만 업데이트 (Editor 즉시적용 전 임시상태용)
+    public void UpdatePlacementLocal(FlowPlacement placement)
+    {
+        var existing = _layout.FlowPlacements.FirstOrDefault(p => p.FlowId == placement.FlowId);
+        if (existing != null)
+            _layout.FlowPlacements.Remove(existing);
+        _layout.FlowPlacements.Add(placement);
+    }
+
+    public void RemovePlacementLocal(Guid flowId)
+    {
+        _layout.FlowPlacements.RemoveAll(p => p.FlowId == flowId);
+    }
+
     public void RemovePlacement(Guid flowId)
     {
         _layout.FlowPlacements.RemoveAll(p => p.FlowId == flowId);

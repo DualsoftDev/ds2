@@ -94,15 +94,23 @@
             </clipPath>
         </defs>
         <g clip-path="url(#@clipId)">
-            @* 배경 카드 *@
+            @* 배경: 흰 베이스 + 상태색 옅은 오버레이 + 테두리 *@
             <rect x="@(px + pad)" y="@(py + pad)"
                   width="@innerW" height="@innerH"
                   rx="8" ry="8"
-                  fill="@color" fill-opacity="0.85"
+                  fill="white" />
+            <rect x="@(px + pad)" y="@(py + pad)"
+                  width="@innerW" height="@innerH"
+                  rx="8" ry="8"
+                  fill="@color" fill-opacity="0.08"
                   stroke="@color" stroke-width="1.5" />
+            @* 상단 4px 액센트 바 *@
+            <rect x="@(px + pad)" y="@(py + pad)"
+                  width="@innerW" height="4"
+                  fill="@color" />
 
             @* Flow 이름 *@
-            <SvgText X="@cx" Y="@titleY" TextAnchor="middle" Fill="white" FontSize="@titleFS" FontWeight="700" Content="@fp.FlowName" />
+            <SvgText X="@cx" Y="@titleY" TextAnchor="middle" Fill="#1e293b" FontSize="@titleFS" FontWeight="700" Content="@fp.FlowName" />
 
             @if (hasMtWt)
             {
@@ -110,19 +118,19 @@
                 <g transform="rotate(-90 @donutCx @donutCy)">
                     @* 배경 트랙 *@
                     <circle cx="@donutCx" cy="@donutCy" r="@donutR"
-                            fill="none" stroke="rgba(0,0,0,0.20)" stroke-width="@donutSW" />
+                            fill="none" stroke="rgba(0,0,0,0.10)" stroke-width="@donutSW" />
                     @* MT(가동) 호 *@
                     @if (mtDash > 0)
                     {
                         <circle cx="@donutCx" cy="@donutCy" r="@donutR"
-                                fill="none" stroke="#4DB6AC" stroke-width="@donutSW"
+                                fill="none" stroke="#10b981" stroke-width="@donutSW"
                                 stroke-dasharray="@sMtDash @sCirc" />
                     }
                     @* WT(대기) 호 — MT 끝 지점에서 시작 *@
                     @if (wtDash > 0)
                     {
                         <circle cx="@donutCx" cy="@donutCy" r="@donutR"
-                                fill="none" stroke="#FFA726" stroke-width="@donutSW"
+                                fill="none" stroke="#f59e0b" stroke-width="@donutSW"
                                 stroke-dasharray="@sWtDash @sCirc"
                                 stroke-dashoffset="@sNegMt" />
                     }
@@ -144,30 +152,30 @@
                 @* 우측 통계 (넓은 블럭 전용) *@
                 @if (showStats)
                 {
-                    <SvgText X="@statsX" Y="@statsY1" Fill="rgba(255,255,255,0.70)" FontSize="@statsFS" Content="가동 시간:" />
-                    <SvgText X="@valX"   Y="@statsY1" TextAnchor="end" Fill="white" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(mt)" />
-                    <SvgText X="@statsX" Y="@statsY2" Fill="rgba(255,255,255,0.70)" FontSize="@statsFS" Content="대기 시간:" />
-                    <SvgText X="@valX"   Y="@statsY2" TextAnchor="end" Fill="white" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(wt)" />
-                    <SvgText X="@statsX" Y="@statsY3" Fill="rgba(255,255,255,0.70)" FontSize="@statsFS" Content="전체 시간:" />
-                    <SvgText X="@valX"   Y="@statsY3" TextAnchor="end" Fill="white" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(total)" />
+                    <SvgText X="@statsX" Y="@statsY1" Fill="#64748b" FontSize="@statsFS" Content="가동 시간:" />
+                    <SvgText X="@valX"   Y="@statsY1" TextAnchor="end" Fill="#1e293b" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(mt)" />
+                    <SvgText X="@statsX" Y="@statsY2" Fill="#64748b" FontSize="@statsFS" Content="대기 시간:" />
+                    <SvgText X="@valX"   Y="@statsY2" TextAnchor="end" Fill="#1e293b" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(wt)" />
+                    <SvgText X="@statsX" Y="@statsY3" Fill="#64748b" FontSize="@statsFS" Content="전체 시간:" />
+                    <SvgText X="@valX"   Y="@statsY3" TextAnchor="end" Fill="#1e293b" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(total)" />
                 }
             }
 
             @* 상태 라벨 *@
-            <SvgText X="@cx" Y="@stateY" TextAnchor="middle" Fill="rgba(255,255,255,0.80)" FontSize="@stateFS" Content="@stateLabel" />
+            <SvgText X="@cx" Y="@stateY" TextAnchor="middle" Fill="#64748b" FontSize="@stateFS" Content="@stateLabel" />
 
-            @* 배지 (우상단) *@
+            @* 배지 (우상단) — pill 스타일 *@
             @for (int bi = 0; bi < badges.Count; bi++)
             {
                 var bLabel = badges[bi].Label;
                 var bColor = badges[bi].Color;
-                var bW = bLabel.Length <= 2 ? 22 : 28;
-                var bH = 11;
-                var bX = px + pad + innerW - bW - 3;
-                var bY = py + pad + 3 + bi * (bH + 2);
+                var bW = bLabel.Length <= 2 ? 24 : 32;
+                var bH = 13;
+                var bX = px + pad + innerW - bW - 4;
+                var bY = py + pad + 6 + bi * (bH + 3);
                 <g>
-                    <rect x="@bX" y="@bY" width="@bW" height="@bH" rx="3" ry="3" fill="@bColor" />
-                    <SvgText X="@(bX + bW / 2)" Y="@(bY + bH - 2)" TextAnchor="middle" Fill="white" FontSize="8" FontWeight="700" Content="@bLabel" />
+                    <rect x="@bX" y="@bY" width="@bW" height="@bH" rx="6" ry="6" fill="@bColor" />
+                    <SvgText X="@(bX + bW / 2)" Y="@(bY + bH - 3)" TextAnchor="middle" Fill="white" FontSize="8" FontWeight="700" Content="@bLabel" />
                 </g>
             }
         </g>
