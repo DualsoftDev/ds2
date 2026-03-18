@@ -311,7 +311,7 @@ public class DspDbService : IDisposable
             var connStr = new SqliteConnectionStringBuilder
             {
                 DataSource = _dbPath,
-                Mode = SqliteOpenMode.ReadOnly,
+                Mode = SqliteOpenMode.ReadWriteCreate,
                 Cache = SqliteCacheMode.Shared
             }.ToString();
 
