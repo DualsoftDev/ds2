@@ -11,80 +11,152 @@
 
     @foreach (var fp in Placements)
     {
-        var color = GetColor?.Invoke(fp) ?? "#9E9E9E";
+        var color      = GetColor?.Invoke(fp) ?? "#9E9E9E";
         var stateLabel = GetStateLabel?.Invoke(fp) ?? "";
-        var mtWt = GetMtWt?.Invoke(fp);
+        var mtWt       = GetMtWt?.Invoke(fp);
         var px = OffsetX + fp.Col * CellWidth;
         var py = OffsetY + fp.Row * CellHeight;
         var pw = fp.ColSpan * CellWidth;
         var ph = fp.RowSpan * CellHeight;
-        var pad = 4;
+        var pad    = 4;
         var innerW = pw - pad * 2;
         var innerH = ph - pad * 2;
+        var minDim = Math.Min(innerW, innerH);
+
+        // 좁은 블럭(1열)은 통계 텍스트 생략, 도넛을 중앙 배치
+        var showStats = innerW >= 130;
+        var clipId    = $"blk{fp.FlowName.GetHashCode() & 0x7FFFFFFF}";
 
         var hasMtWt = mtWt != null;
-        var mt = mtWt?.Mt ?? 0;
-        var wt = mtWt?.Wt ?? 0;
+        var mt    = mtWt?.Mt ?? 0;
+        var wt    = mtWt?.Wt ?? 0;
         var total = mt + wt;
 
+        // 블럭 중앙 X
         var cx = px + pw / 2;
-        var nameY = py + pad + (int)(innerH * 0.24);
 
-        var barPad = 10;
-        var barX = px + pad + barPad;
-        var barW = innerW - barPad * 2;
-        var barH = 14;
-        var barY = py + pad + (int)(innerH * 0.44);
-        var mtW = total > 0 ? (int)(barW * ((double)mt / total)) : 0;
-        var wtW = total > 0 ? barW - mtW : 0;
-        var labelY = barY + barH + 13;
+        // ── 타이틀: 가로/세로 중 작은 쪽 기준으로 크기 제한 ──
+        var titleFS = Math.Max(9, (int)Math.Min(innerH * 0.19, innerW * 0.13));
+        var titleY  = py + pad + (int)(innerH * 0.22);
 
-        var stateY = py + pad + innerH - 6;
+        // ── 도넛 차트 ──
+        // 좁은 블럭은 더 큰 비율로 도넛 허용, 넓은 블럭은 좌측에 제한
+        var donutMaxR = showStats ? innerW * 0.16 : innerW * 0.28;
+        var donutR    = (int)Math.Max(6, Math.Min(innerH * 0.26, donutMaxR));
+        var donutSW   = (int)Math.Max(4, donutR * 0.48);
+        // 좁은 블럭: 도넛 수평 중앙, 넓은 블럭: 좌측
+        var donutCx = showStats
+            ? px + pad + (int)(innerW * 0.22)
+            : px + pad + (int)(innerW * 0.50);
+        var donutCy = py + pad + (int)(innerH * 0.58);
 
+        var circ   = 2 * Math.PI * donutR;
+        var mtFrac = total > 0 ? (double)mt / total : (hasMtWt ? 1.0 : 0.0);
+        var wtFrac = 1.0 - mtFrac;
+        var mtDash = circ * mtFrac;
+        var wtDash = circ * wtFrac;
+
+        var sCirc   = circ.ToString("F1",   System.Globalization.CultureInfo.InvariantCulture);
+        var sMtDash = mtDash.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+        var sWtDash = wtDash.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+        var sNegMt  = (-mtDash).ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+
+        // 퍼센트 라벨 위치 (각 호의 중간 각도)
+        var pctFS    = Math.Max(6, (int)(donutR * 0.46));
+        var mtMidAng = -Math.PI / 2.0 + Math.PI * mtFrac;
+        var wtMidAng = -Math.PI / 2.0 + 2 * Math.PI * mtFrac + Math.PI * wtFrac;
+        var mtLblX   = (donutCx + donutR * Math.Cos(mtMidAng)).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+        var mtLblY   = (donutCy + donutR * Math.Sin(mtMidAng) + pctFS * 0.38).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+        var wtLblX   = (donutCx + donutR * Math.Cos(wtMidAng)).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+        var wtLblY   = (donutCy + donutR * Math.Sin(wtMidAng) + pctFS * 0.38).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+        var mtPct    = total > 0 ? (int)Math.Round(mtFrac * 100) : 0;
+        var wtPct    = 100 - mtPct;
+
+        // ── 통계 텍스트: minDim 기준으로 폰트 크기 제한 ──
+        var statsFS = Math.Max(7, (int)(minDim * 0.115));
+        var statsX  = px + pad + (int)(innerW * 0.44);
+        var statsLH = (int)(innerH * 0.155);
+        var statsY1 = donutCy - statsLH;
+        var statsY2 = donutCy;
+        var statsY3 = donutCy + statsLH;
+        var valX    = px + pad + innerW - 5;
+
+        // ── 상태 라벨: minDim 기준 ──
+        var stateFS = Math.Max(7, (int)(minDim * 0.10));
+        var stateY  = py + pad + (int)(innerH * 0.91);
+
+        // ── 배지 ──
         var badges = GetBadges?.Invoke(fp)?.ToList() ?? new List<(string Label, string Color)>();
 
-        <g>
+        <defs>
+            <clipPath id="@clipId">
+                <rect x="@(px + pad)" y="@(py + pad)" width="@innerW" height="@innerH" rx="8" ry="8" />
+            </clipPath>
+        </defs>
+        <g clip-path="url(#@clipId)">
+            @* 배경 카드 *@
             <rect x="@(px + pad)" y="@(py + pad)"
                   width="@innerW" height="@innerH"
-                  rx="6" ry="6"
+                  rx="8" ry="8"
                   fill="@color" fill-opacity="0.85"
-                  stroke="@color" stroke-width="2" />
+                  stroke="@color" stroke-width="1.5" />
 
-            @* Flow Name *@
-            <text x="@cx" y="@nameY"
-                  text-anchor="middle" fill="white"
-                  font-size="13" font-weight="600">
-                @fp.FlowName
-            </text>
+            @* Flow 이름 *@
+            <SvgText X="@cx" Y="@titleY" TextAnchor="middle" Fill="white" FontSize="@titleFS" FontWeight="700" Content="@fp.FlowName" />
 
-            @* MT/WT Bar *@
-            <rect x="@barX" y="@barY" width="@barW" height="@barH" rx="3" ry="3"
-                  fill="rgba(0,0,0,0.25)" opacity="@(hasMtWt ? 1 : 0)" />
-            <rect x="@barX" y="@barY" width="@mtW" height="@barH"
-                  rx="3" ry="3" fill="#42A5F5" opacity="@(mtW > 0 ? 1 : 0)" />
-            <rect x="@(barX + mtW)" y="@barY" width="@wtW" height="@barH"
-                  rx="3" ry="3" fill="#FFA726" opacity="@(wtW > 0 ? 1 : 0)" />
+            @if (hasMtWt)
+            {
+                @* 도넛 차트 (rotate -90° → 12시 방향 시작) *@
+                <g transform="rotate(-90 @donutCx @donutCy)">
+                    @* 배경 트랙 *@
+                    <circle cx="@donutCx" cy="@donutCy" r="@donutR"
+                            fill="none" stroke="rgba(0,0,0,0.20)" stroke-width="@donutSW" />
+                    @* MT(가동) 호 *@
+                    @if (mtDash > 0)
+                    {
+                        <circle cx="@donutCx" cy="@donutCy" r="@donutR"
+                                fill="none" stroke="#4DB6AC" stroke-width="@donutSW"
+                                stroke-dasharray="@sMtDash @sCirc" />
+                    }
+                    @* WT(대기) 호 — MT 끝 지점에서 시작 *@
+                    @if (wtDash > 0)
+                    {
+                        <circle cx="@donutCx" cy="@donutCy" r="@donutR"
+                                fill="none" stroke="#FFA726" stroke-width="@donutSW"
+                                stroke-dasharray="@sWtDash @sCirc"
+                                stroke-dashoffset="@sNegMt" />
+                    }
+                </g>
 
-            @* 가동시간 / 대기시간 labels *@
-            <text x="@(barX + 3)" y="@labelY"
-                  fill="rgba(255,255,255,0.85)" font-size="8"
-                  opacity="@(hasMtWt ? 1 : 0)">
-                가동 @FormatMs(mt)
-            </text>
-            <text x="@(barX + barW - 3)" y="@labelY"
-                  text-anchor="end" fill="rgba(255,255,255,0.85)" font-size="8"
-                  opacity="@(hasMtWt ? 1 : 0)">
-                대기 @FormatMs(wt)
-            </text>
+                @* 퍼센트 라벨 *@
+                @if (total > 0)
+                {
+                    @if (mtPct >= 6 && mtPct <= 94)
+                    {
+                        <SvgText X="@mtLblX" Y="@mtLblY" TextAnchor="middle" Fill="white" FontSize="@pctFS" FontWeight="700" Content="@($"{mtPct}%")" />
+                    }
+                    @if (wtPct >= 6 && wtPct <= 94)
+                    {
+                        <SvgText X="@wtLblX" Y="@wtLblY" TextAnchor="middle" Fill="white" FontSize="@pctFS" FontWeight="700" Content="@($"{wtPct}%")" />
+                    }
+                }
 
-            @* State *@
-            <text x="@cx" y="@stateY"
-                  text-anchor="middle" fill="rgba(255,255,255,0.75)"
-                  font-size="9">
-                @stateLabel
-            </text>
+                @* 우측 통계 (넓은 블럭 전용) *@
+                @if (showStats)
+                {
+                    <SvgText X="@statsX" Y="@statsY1" Fill="rgba(255,255,255,0.70)" FontSize="@statsFS" Content="가동 시간:" />
+                    <SvgText X="@valX"   Y="@statsY1" TextAnchor="end" Fill="white" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(mt)" />
+                    <SvgText X="@statsX" Y="@statsY2" Fill="rgba(255,255,255,0.70)" FontSize="@statsFS" Content="대기 시간:" />
+                    <SvgText X="@valX"   Y="@statsY2" TextAnchor="end" Fill="white" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(wt)" />
+                    <SvgText X="@statsX" Y="@statsY3" Fill="rgba(255,255,255,0.70)" FontSize="@statsFS" Content="전체 시간:" />
+                    <SvgText X="@valX"   Y="@statsY3" TextAnchor="end" Fill="white" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(total)" />
+                }
+            }
 
-            @* CT 배지 (최대/최소/대기) *@
+            @* 상태 라벨 *@
+            <SvgText X="@cx" Y="@stateY" TextAnchor="middle" Fill="rgba(255,255,255,0.80)" FontSize="@stateFS" Content="@stateLabel" />
+
+            @* 배지 (우상단) *@
             @for (int bi = 0; bi < badges.Count; bi++)
             {
                 var bLabel = badges[bi].Label;
@@ -95,8 +167,7 @@
                 var bY = py + pad + 3 + bi * (bH + 2);
                 <g>
                     <rect x="@bX" y="@bY" width="@bW" height="@bH" rx="3" ry="3" fill="@bColor" />
-                    <text x="@(bX + bW / 2)" y="@(bY + bH - 2)"
-                          text-anchor="middle" fill="white" font-size="8" font-weight="700">@bLabel</text>
+                    <SvgText X="@(bX + bW / 2)" Y="@(bY + bH - 2)" TextAnchor="middle" Fill="white" FontSize="8" FontWeight="700" Content="@bLabel" />
                 </g>
             }
         </g>

@@ -17,6 +17,7 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddMudServices();
 builder.Services.AddSingleton<DsProjectService>();
+builder.Services.AddScoped<DashboardEditService>();
 builder.Services.AddSingleton<BlueprintService>();
 builder.Services.AddSingleton<HeatmapService>();
 builder.Services.AddSingleton<DspDbService>();

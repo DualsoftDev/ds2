@@ -5,6 +5,7 @@
 @inject BlueprintService BlueprintService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject DashboardEditService EditService
 @implements IDisposable
 
 <PageTitle>Dashboard - DSPilot</PageTitle>
@@ -45,8 +46,8 @@
     /* 요약 헤더 영역 */
     .ct-header-section {
         padding: 12px 16px 14px;
-        background: #f8fafc;
-        border-bottom: 1px solid #e2e8f0;
+        background: #f5f5f5;
+        border-bottom: 1px solid rgba(0,0,0,0.12);
         flex-shrink: 0;
     }
     .ct-summary-cards {
@@ -56,9 +57,9 @@
     .ct-summary-card {
         flex: 1;
         padding: 10px 12px;
-        border-radius: 8px;
+        border-radius: 6px;
         background: #ffffff;
-        border: 1px solid #e2e8f0;
+        border: 1px solid rgba(0,0,0,0.10);
     }
     .ct-summary-card.danger  { border-left: 4px solid #ef5350; }
     .ct-summary-card.warning { border-left: 4px solid #fb8c00; }
@@ -120,8 +121,7 @@
     .ct-bar-track {
         flex: 1;
         height: 10px;
-        background: #f1f5f9;
-        border: 1px solid #e2e8f0;
+        background: #eeeeee;
         border-radius: 10px;
         overflow: hidden;
         display: flex;
@@ -132,7 +132,7 @@
     .ct-chart-value {
         width: 60px;
         font-size: 11px;
-        color: #64748b;
+        color: #7D8282;
         text-align: right;
     }
     .ct-chart-badges {
@@ -151,7 +151,7 @@
     }
     .ct-section-title {
         font-size: 11px;
-        color: #64748b;
+        color: #7D8282;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -164,13 +164,14 @@
         min-height: 0;
         display: flex;
         flex-direction: column;
-        border: 1px solid #e2e8f0;
+        border: 1px solid rgba(0,0,0,0.12);
         background: #fff;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
     .ds-card-header {
         padding: 10px 16px;
-        background: #f8fafc;
-        border-bottom: 1px solid #e2e8f0;
+        background: #f5f5f5;
+        border-bottom: 1px solid rgba(0,0,0,0.12);
         flex-shrink: 0;
         display: flex;
         align-items: center;
@@ -196,25 +197,13 @@
         align-items: center;
         gap: 4px;
         font-size: 11px;
-        color: #64748b;
+        color: #7D8282;
         font-weight: 500;
     }
     .layout-legend-dot {
         width: 10px;
         height: 10px;
         border-radius: 3px;
-        flex-shrink: 0;
-    }
-    /* ── Footer ── */
-    .ds-footer {
-        margin-top: 12px;
-        border-radius: 8px;
-        border: 1px solid #e2e8f0;
-        background: #f8fafc;
-        padding: 8px 16px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
         flex-shrink: 0;
     }
 </style>
@@ -230,7 +219,7 @@
 else
 {
     @* ── 편집 모드 설정 패널 ── *@
-    @if (_isEditing)
+    @if (EditService.IsEditing)
     {
         <MudCard Elevation="1" Class="mb-3">
             <MudCardContent Class="pa-3">
@@ -327,14 +316,23 @@ else
                         <div class="ds-card">
                             <div class="ds-card-header">
                                 <span class="ct-section-title">도면 레이아웃</span>
-                                <div class="layout-legend">
-                                    @foreach (var (label, clr) in _stateLegend)
-                                    {
-                                        <div class="layout-legend-item">
-                                            <span class="layout-legend-dot" style="background:@clr;"></span>
-                                            @label
-                                        </div>
-                                    }
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <div class="layout-legend">
+                                        @foreach (var (label, clr) in _stateLegend)
+                                        {
+                                            <div class="layout-legend-item">
+                                                <span class="layout-legend-dot" style="background:@clr;"></span>
+                                                @label
+                                            </div>
+                                        }
+                                    </div>
+                                    <MudButton Size="Size.Small"
+                                                   Variant="Variant.Outlined"
+                                                   Color="Color.Primary"
+                                                   StartIcon="@Icons.Material.Filled.Edit"
+                                                   OnClick="@(() => Nav.NavigateTo("/editor"))">
+                                        편집
+                                    </MudButton>
                                 </div>
                             </div>
                             <div class="ds-card-body" style="align-items:center; justify-content:center;">
@@ -372,7 +370,7 @@ else
                             {
                                 @* ── 상단: 요약 카드 ── *@
                                 <div class="ct-header-section">
-                                    <div class="ct-section-title" style="margin-bottom:10px;">CT 분석 · 가동+대기 내림차순</div>
+                                    <div class="ct-section-title" style="margin-bottom:10px;">Time 분석 · 가동+대기 내림차순</div>
                                     <div class="ct-summary-cards">
                                         <div class="ct-summary-card danger">
                                             <div class="ct-summary-title">최대시간</div>
@@ -435,7 +433,7 @@ else
                             {
                                 <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:40px 0; color:#bdbdbd; flex:1;">
                                     <MudIcon Icon="@Icons.Material.Filled.BarChart" Style="font-size:48px;" />
-                                    <MudText Typo="Typo.body2">CT 데이터가 없습니다</MudText>
+                                    <MudText Typo="Typo.body2">Time 데이터가 없습니다</MudText>
                                 </div>
                             }
                         </div>
@@ -447,19 +445,6 @@ else
     </div>
 }
 
-<div class="ds-footer">
-    <MudButton Variant="@(_isEditing ? Variant.Filled : Variant.Outlined)"
-               Color="@(_isEditing ? Color.Warning : Color.Default)"
-               StartIcon="@(_isEditing ? Icons.Material.Filled.Check : Icons.Material.Filled.DashboardCustomize)"
-               OnClick="ToggleEdit">
-        @(_isEditing ? "수정 완료" : "대시보드 수정")
-    </MudButton>
-    <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-               StartIcon="@Icons.Material.Filled.Edit"
-               OnClick="@(() => Nav.NavigateTo("/editor"))">
-        레이아웃 수정
-    </MudButton>
-</div>
 
 </div>
 
@@ -474,7 +459,7 @@ else
     private static readonly (string Label, string Color)[] _stateLegend =
     [
         ("Ready", "#9E9E9E"), ("Going", "#4CAF50"), ("Finish", "#2196F3"),
-        ("Error", "#F44336"), ("Pause", "#FF9800"), ("Abort", "#9C27B0")
+        ("Error", "#F44336")
     ];
 
     // CT 차트 필드
@@ -483,7 +468,6 @@ else
     private int _maxCtVal;
 
     // 대시보드 레이아웃 설정
-    private bool _isEditing;
     private List<string> _widgetOrder    = ["ct", "layout"];
     private HashSet<string> _hiddenWidgets = [];
     private string _direction            = "horizontal";   // "horizontal" | "vertical"
@@ -492,12 +476,12 @@ else
     private static readonly string[] RatioOptions = ["1:3", "1:2", "1:1", "2:1", "3:1"];
 
     private string GridClass =>
-        "dashboard-grid " + (_direction == "horizontal" ? "grid-h" : "grid-v") + (_isEditing ? " editing" : "");
+        "dashboard-grid " + (_direction == "horizontal" ? "grid-h" : "grid-v") + (EditService.IsEditing ? " editing" : "");
 
     private static readonly Dictionary<string, string> WidgetTitles = new()
     {
         ["layout"] = "도면 레이아웃",
-        ["ct"]     = "CT 분석",
+        ["ct"]     = "Time 분석",
     };
     private static string GetWidgetTitle(string id) =>
         WidgetTitles.TryGetValue(id, out var t) ? t : id;
@@ -520,6 +504,7 @@ else
     {
         _dbSnapshot = DbService.Snapshot;
         DbService.OnDataChanged += OnDbDataChanged;
+        EditService.OnChanged += OnEditStateChanged;
 
         var layout = BlueprintService.Layout;
         _cw = layout.CanvasWidth; _ch = layout.CanvasHeight;
@@ -569,9 +554,13 @@ else
         await InvokeAsync(StateHasChanged);
     }
 
-    public void Dispose() => DbService.OnDataChanged -= OnDbDataChanged;
+    private async void OnEditStateChanged() => await InvokeAsync(StateHasChanged);
 
-    private void ToggleEdit() => _isEditing = !_isEditing;
+    public void Dispose()
+    {
+        DbService.OnDataChanged -= OnDbDataChanged;
+        EditService.OnChanged -= OnEditStateChanged;
+    }
 
     private void ResetToDefault()
     {
@@ -636,7 +625,7 @@ else
         return s.State?.ToLowerInvariant() switch
         {
             "ready" => "#9E9E9E", "going" => "#4CAF50", "finish" => "#2196F3",
-            "error" => "#F44336", "pause" => "#FF9800", "abort" => "#9C27B0",
+            "error" => "#F44336",
             _ => "#9E9E9E",
         };
     }

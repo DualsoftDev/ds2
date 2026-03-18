@@ -1,11 +1,23 @@
 @inject DsProjectService ProjectService
 @inject NavigationManager Nav
+@inject DashboardEditService EditService
 
 <MudNavMenu Color="Color.Primary">
-    <MudNavLink Href="/" Match="NavLinkMatch.All"
-                Icon="@Icons.Material.Filled.SpaceDashboard">
-        대시보드
-    </MudNavLink>
+    <div style="display:flex; align-items:center;">
+        <MudNavLink Href="/" Match="NavLinkMatch.All"
+                    Icon="@Icons.Material.Filled.SpaceDashboard"
+                    Style="flex:1; min-width:0;">
+            대시보드
+        </MudNavLink>
+        <MudButton Size="Size.Small"
+                   Variant="@(EditService.IsEditing ? Variant.Filled : Variant.Outlined)"
+                   Color="@(EditService.IsEditing ? Color.Warning : Color.Primary)"
+                   StartIcon="@(EditService.IsEditing ? Icons.Material.Filled.Check : Icons.Material.Filled.DashboardCustomize)"
+                   OnClick="EditService.Toggle"
+                   Style="margin:0 6px; padding:0 10px; min-width:0; font-size:11px; height:28px; border-radius:6px; flex-shrink:0;">
+            @(EditService.IsEditing ? "완료" : "편집")
+        </MudButton>
+    </div>
     <MudNavLink Href="/chart" Match="NavLinkMatch.Prefix"
                 Icon="@Icons.Material.Filled.BarChart">
         상세정보
