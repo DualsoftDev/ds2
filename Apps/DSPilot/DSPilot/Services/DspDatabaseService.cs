@@ -55,10 +55,13 @@ public class DspDatabaseService : BackgroundService
             // 3. AASX에서 초기 데이터 로드
             await InitializeFromAasxAsync(dspRepo);
 
-            // 4. PlcToCallMapper 초기화
+            // 4. 중복 데이터 정리 (초기화 후 한 번 더 실행)
+            await dspRepo.CleanupDatabaseAsync();
+
+            // 5. PlcToCallMapper 초기화
             _mapper.Initialize();
 
-            // 5. FlowMetricsService 초기화 (MovingStartName/MovingEndName 설정)
+            // 6. FlowMetricsService 초기화 (MovingStartName/MovingEndName 설정)
             await _flowMetricsService.InitializeAsync();
 
             _logger.LogInformation("DSP Database Service initialized successfully");
@@ -79,8 +82,15 @@ public class DspDatabaseService : BackgroundService
     {
         try
         {
-            var flows = _projectService.GetAllFlows();
-            _logger.LogInformation("Loading {Count} flows from AASX...", flows.Count);
+            var allFlows = _projectService.GetAllFlows();
+            _logger.LogInformation("Total flows in AASX: {Count}", allFlows.Count);
+
+            // "_Flow" 접미사를 가진 Flow 제외 (실제 제조 Flow만 포함)
+            var flows = allFlows
+                .Where(f => !f.Name.EndsWith("_Flow", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            _logger.LogInformation("Filtered flows (excluding '*_Flow'): {Count}", flows.Count);
 
             // Flow 데이터 변환 및 삽입
             var flowEntities = flows.Select(f => new DspFlowEntity
@@ -112,7 +122,7 @@ public class DspDatabaseService : BackgroundService
                         {
                             CallName = call.Name,
                             ApiCall = call.ApiCalls.Count > 0 ? call.ApiCalls[0].Name : call.ApiName,
-                            WorkName = work.Name,
+                            WorkName = flow.Name,  // Work 이름 대신 Flow 이름 사용
                             FlowName = flow.Name,
                             Next = null,  // TODO: Arrow 정보에서 추출 가능
                             Prev = null,

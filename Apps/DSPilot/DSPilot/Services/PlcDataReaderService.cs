@@ -337,10 +337,20 @@ public class PlcDataReaderService : BackgroundService
 
                 var call = callInfo.Value.Call;
 
-                // 5. 현재 Call 상태 조회
+                // 5. Call 정보 조회 (FlowName 포함)
+                var callInfoResult = await dspRepo.GetCallInfoAsync(call.Name);
+                if (callInfoResult == null)
+                {
+                    _logger.LogWarning("Call '{CallName}' not found in database", call.Name);
+                    continue;
+                }
+
+                var (workName, flowName) = callInfoResult.Value;
+
+                // 6. 현재 Call 상태 조회
                 var currentCallState = await dspRepo.GetCallStateAsync(call.Name);
 
-                // 6. 새 상태 결정
+                // 7. 새 상태 결정
                 var (newState, stateChanged) = mapper.DetermineCallState(
                     tag.Name,
                     tag.Address,
@@ -359,7 +369,7 @@ public class PlcDataReaderService : BackgroundService
 
                 stateChangedCount++;
 
-                // 7. 상태별 처리
+                // 8. 상태별 처리
                 if (newState == "Going")
                 {
                     // Going 시작 시간 기록
@@ -374,12 +384,12 @@ public class PlcDataReaderService : BackgroundService
                         NewState = "Going",
                     }, stoppingToken);
 
-                    // FlowMetricsService 이벤트 발생
-                    _flowMetricsService.OnCallGoingStarted(call.Name, timestamp);
+                    // FlowMetricsService 이벤트 발생 (FlowName과 CallName 함께 전달)
+                    _flowMetricsService.OnCallGoingStarted(flowName, call.Name, timestamp);
 
                     _logger.LogInformation(
-                        "Call '{CallName}': State changed Ready → Going (Tag: {TagName})",
-                        call.Name, tag.Name);
+                        "Call '{CallName}' (Flow: {FlowName}): State changed Ready → Going (Tag: {TagName})",
+                        call.Name, flowName, tag.Name);
                 }
                 else if (newState == "Finish")
                 {
@@ -404,12 +414,12 @@ public class PlcDataReaderService : BackgroundService
                         GoingCount       = goingCount,
                     }, stoppingToken);
 
-                    // FlowMetricsService 이벤트 발생
-                    _flowMetricsService.OnCallFinished(call.Name, finishTime);
+                    // FlowMetricsService 이벤트 발생 (FlowName과 CallName 함께 전달)
+                    _flowMetricsService.OnCallFinished(flowName, call.Name, finishTime);
 
                     _logger.LogInformation(
-                        "Call '{CallName}': State changed Going → Finish (Tag: {TagName}, Time: {Time}ms)",
-                        call.Name, tag.Name, goingTime);
+                        "Call '{CallName}' (Flow: {FlowName}): State changed Going → Finish (Tag: {TagName}, Time: {Time}ms)",
+                        call.Name, flowName, tag.Name, goingTime);
 
                     // Finish → Ready 자동 전환 (100ms 후)
                     await Task.Delay(100, stoppingToken);

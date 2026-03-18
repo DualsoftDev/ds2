@@ -842,9 +842,31 @@ else
             var x = leftMargin + (int)(offsetFromChartStart * xScale);
             var y = topMargin + (item.Lane * laneHeight) + ((laneHeight - barHeight) / 2);
 
-            // Calculate bar width based on duration
-            var durationMs = (item.RelativeEnd ?? item.RelativeStart + 50) - item.RelativeStart;
-            var width = Math.Max(3, (int)(durationMs * xScale));
+            // Calculate bar width based on actual Going duration
+            // 1순위: Duration 필드 사용 (미리 계산된 Going 시간)
+            // 2순위: RelativeEnd - RelativeStart
+            // 3순위: FinishTime - GoingStartTime (실제 타임스탬프 차이)
+            // Fallback: 최소 너비 3px
+            int durationMs;
+            if (item.Duration.HasValue && item.Duration.Value > 0)
+            {
+                durationMs = item.Duration.Value;
+            }
+            else if (item.RelativeEnd.HasValue)
+            {
+                durationMs = item.RelativeEnd.Value - item.RelativeStart;
+            }
+            else if (item.FinishTime.HasValue)
+            {
+                durationMs = (int)(item.FinishTime.Value - item.GoingStartTime).TotalMilliseconds;
+            }
+            else
+            {
+                durationMs = 0;
+            }
+
+            // 동작 시간이 없으면 최소 너비(3px)만 표시
+            var width = durationMs > 0 ? Math.Max(3, (int)(durationMs * xScale)) : 3;
 
             // Event type color
             var color = item.EventType == DSPilot.Models.Analysis.IOEventType.InTag ? "#2196F3" : "#4CAF50";

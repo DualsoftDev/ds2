@@ -89,10 +89,13 @@ CREATE TABLE IF NOT EXISTS Call (
     ErrorText TEXT,
     CreatedAt TEXT DEFAULT (datetime('now')),
     UpdatedAt TEXT DEFAULT (datetime('now')),
-    UNIQUE(CallName, FlowName),
+    UNIQUE(CallName, FlowName, WorkName),
     FOREIGN KEY(FlowName) REFERENCES Flow(FlowName) ON DELETE CASCADE
 );";
             await connection.ExecuteAsync(createCallTable);
+
+            // Clean up duplicate Call data if any exists
+            await CleanupDuplicateCallsAsync(connection);
 
             // Create CallFlowView
             const string createView = @"
@@ -184,13 +187,39 @@ CREATE TRIGGER IF NOT EXISTS update_call_updated_at
         // 스키마 비교
         var expectedLower = expectedColumns.Select(c => c.ToLowerInvariant()).ToHashSet();
 
+        bool needsRecreation = false;
+        string reason = "";
+
         if (!actualColumns.SetEquals(expectedLower))
         {
+            needsRecreation = true;
+            reason = $"Column mismatch. Expected: [{string.Join(", ", expectedColumns)}], Actual: [{string.Join(", ", actualColumns)}]";
+        }
+
+        // Call 테이블의 UNIQUE 제약조건 체크
+        if (tableName == "Call" && !needsRecreation)
+        {
+            var createTableSql = await connection.QueryFirstOrDefaultAsync<string>(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=@TableName",
+                new { TableName = tableName });
+
+            if (createTableSql != null)
+            {
+                // UNIQUE 제약조건 체크: CallName, FlowName, WorkName
+                if (!createTableSql.Contains("UNIQUE(CallName, FlowName, WorkName)", StringComparison.OrdinalIgnoreCase) &&
+                    !createTableSql.Contains("UNIQUE (CallName, FlowName, WorkName)", StringComparison.OrdinalIgnoreCase))
+                {
+                    needsRecreation = true;
+                    reason = "UNIQUE constraint changed to (CallName, FlowName, WorkName)";
+                }
+            }
+        }
+
+        if (needsRecreation)
+        {
             _logger.LogWarning(
-                "Table '{TableName}' schema mismatch. Expected columns: [{Expected}], Actual: [{Actual}]. Dropping and recreating...",
-                tableName,
-                string.Join(", ", expectedColumns),
-                string.Join(", ", actualColumns));
+                "Table '{TableName}' needs recreation. Reason: {Reason}. Dropping and recreating...",
+                tableName, reason);
 
             // Drop table and related objects
             await DropTableAndDependenciesAsync(connection, tableName);
@@ -238,6 +267,87 @@ CREATE TRIGGER IF NOT EXISTS update_call_updated_at
         // Drop table
         await connection.ExecuteAsync($"DROP TABLE IF EXISTS {tableName}");
         _logger.LogInformation("Dropped table '{TableName}'", tableName);
+    }
+
+    /// <summary>
+    /// 중복된 Call 데이터 정리 (CallName, FlowName, WorkName 기준으로 최신 것만 남김)
+    /// </summary>
+    private async Task CleanupDuplicateCallsAsync(SqliteConnection connection)
+    {
+        try
+        {
+            // 1. UNIQUE 제약조건 위반 중복 확인 (CallName, FlowName, WorkName)
+            var duplicateByUnique = await connection.ExecuteScalarAsync<int>(@"
+                SELECT COUNT(*) - COUNT(DISTINCT CallName || '|' || FlowName || '|' || WorkName)
+                FROM Call");
+
+            if (duplicateByUnique > 0)
+            {
+                _logger.LogWarning("Found {Count} records violating UNIQUE(CallName, FlowName, WorkName), cleaning up...",
+                    duplicateByUnique);
+
+                // 중복 제거: CallName, FlowName, WorkName이 같은 레코드 중 Id가 큰 것만 유지
+                var deletedCount = await connection.ExecuteAsync(@"
+                    DELETE FROM Call
+                    WHERE Id NOT IN (
+                        SELECT MAX(Id)
+                        FROM Call
+                        GROUP BY CallName, FlowName, WorkName
+                    )");
+
+                _logger.LogInformation("Deleted {Count} duplicate Call records (UNIQUE constraint violation)", deletedCount);
+            }
+
+            // 2. PRIMARY KEY 중복 확인 (Id) - 이론적으로 불가능하지만 DB 손상 시 발생 가능
+            var duplicateById = await connection.ExecuteScalarAsync<int>(@"
+                SELECT COUNT(*) - COUNT(DISTINCT Id)
+                FROM Call");
+
+            if (duplicateById > 0)
+            {
+                _logger.LogError("Found {Count} records with duplicate Id (PRIMARY KEY violation)! Database integrity issue detected.",
+                    duplicateById);
+
+                // Id 중복 확인 상세 로그
+                var duplicateIds = await connection.QueryAsync<int>(@"
+                    SELECT Id
+                    FROM Call
+                    GROUP BY Id
+                    HAVING COUNT(*) > 1
+                    LIMIT 10");
+
+                _logger.LogError("Duplicate Ids: {Ids}", string.Join(", ", duplicateIds));
+
+                // 임시 테이블로 복구: Id 중복 시 임의로 재번호 부여
+                await connection.ExecuteAsync(@"
+                    CREATE TEMP TABLE Call_Backup AS
+                    SELECT * FROM Call;
+
+                    DELETE FROM Call;
+
+                    INSERT INTO Call (CallName, ApiCall, WorkName, FlowName, Next, Prev, AutoPre, CommonPre,
+                                     State, ProgressRate, PreviousGoingTime, AverageGoingTime, StdDevGoingTime,
+                                     GoingCount, Device, ErrorText, CreatedAt, UpdatedAt)
+                    SELECT CallName, ApiCall, WorkName, FlowName, Next, Prev, AutoPre, CommonPre,
+                           State, ProgressRate, PreviousGoingTime, AverageGoingTime, StdDevGoingTime,
+                           GoingCount, Device, ErrorText, CreatedAt, UpdatedAt
+                    FROM Call_Backup
+                    GROUP BY CallName, FlowName, WorkName;
+
+                    DROP TABLE Call_Backup;
+                ");
+
+                _logger.LogWarning("Rebuilt Call table with new Ids to fix PRIMARY KEY violation");
+            }
+            else
+            {
+                _logger.LogDebug("No duplicate Call records found (DB integrity OK)");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to cleanup duplicate Call records");
+        }
     }
 
     /// <summary>
@@ -303,8 +413,21 @@ ON CONFLICT (FlowName) DO UPDATE SET
         using var transaction = connection.BeginTransaction();
         try
         {
+            // 입력 데이터에서 중복 제거 (CallName, FlowName, WorkName 기준)
+            var uniqueCalls = calls
+                .GroupBy(c => new { c.CallName, c.FlowName, c.WorkName })
+                .Select(g => g.First())
+                .ToList();
+
+            if (uniqueCalls.Count < calls.Count)
+            {
+                _logger.LogWarning(
+                    "Input data contains {DuplicateCount} duplicate calls (Total: {Total}, Unique: {Unique})",
+                    calls.Count - uniqueCalls.Count, calls.Count, uniqueCalls.Count);
+            }
+
             // Ensure Flows exist
-            var flowNames = calls.Select(c => c.FlowName).Distinct().ToList();
+            var flowNames = uniqueCalls.Select(c => c.FlowName).Distinct().ToList();
             foreach (var flowName in flowNames)
             {
                 await connection.ExecuteAsync(
@@ -317,9 +440,8 @@ ON CONFLICT (FlowName) DO UPDATE SET
             const string sql = @"
 INSERT INTO Call (CallName, ApiCall, WorkName, FlowName, Next, Prev, AutoPre, CommonPre, State, ProgressRate, Device)
 VALUES (@CallName, @ApiCall, @WorkName, @FlowName, @Next, @Prev, @AutoPre, @CommonPre, @State, @ProgressRate, @Device)
-ON CONFLICT (CallName, FlowName) DO UPDATE SET
+ON CONFLICT (CallName, FlowName, WorkName) DO UPDATE SET
     ApiCall = excluded.ApiCall,
-    WorkName = excluded.WorkName,
     Next = excluded.Next,
     Prev = excluded.Prev,
     AutoPre = excluded.AutoPre,
@@ -329,7 +451,7 @@ ON CONFLICT (CallName, FlowName) DO UPDATE SET
     Device = excluded.Device,
     UpdatedAt = datetime('now')";
 
-            var count = await connection.ExecuteAsync(sql, calls, transaction);
+            var count = await connection.ExecuteAsync(sql, uniqueCalls, transaction);
             transaction.Commit();
 
             _logger.LogInformation("Inserted {Count} calls into DSP database", count);
@@ -489,6 +611,28 @@ WHERE FlowName = @FlowName";
         {
             _logger.LogError(ex, "Failed to clear DSP database");
             return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task CleanupDatabaseAsync()
+    {
+        try
+        {
+            using var connection = CreateConnection();
+            await connection.OpenAsync();
+
+            _logger.LogInformation("Running database cleanup...");
+            await CleanupDuplicateCallsAsync(connection);
+
+            // VACUUM으로 DB 최적화
+            await connection.ExecuteAsync("VACUUM");
+
+            _logger.LogInformation("Database cleanup completed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to cleanup database");
         }
     }
 

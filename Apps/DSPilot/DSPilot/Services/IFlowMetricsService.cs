@@ -16,10 +16,10 @@ public interface IFlowMetricsService
     /// <summary>
     /// Call Going 시작 이벤트 처리
     /// </summary>
-    void OnCallGoingStarted(string callName, DateTime timestamp);
+    void OnCallGoingStarted(string flowName, string callName, DateTime timestamp);
 
     /// <summary>
     /// Call 완료 이벤트 처리
     /// </summary>
-    void OnCallFinished(string callName, DateTime timestamp);
+    void OnCallFinished(string flowName, string callName, DateTime timestamp);
 }

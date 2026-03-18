@@ -69,6 +69,11 @@ public interface IDspRepository
     Task<bool> ClearAllDataAsync();
 
     /// <summary>
+    /// 데이터베이스 정리 (중복 제거, 무결성 검사)
+    /// </summary>
+    Task CleanupDatabaseAsync();
+
+    /// <summary>
     /// Heatmap용 Call 통계 데이터 조회 (GoingCount > 0인 항목만)
     /// </summary>
     Task<List<CallStatisticsDto>> GetCallStatisticsAsync();

@@ -159,6 +159,15 @@ module FlowAnalysis =
     let analyzeFlow (flow: Flow) (store: DsStore) : FlowAnalysisResult =
         let works = DsQuery.worksOf flow.Id store
 
+        // 모든 Work의 모든 Call을 수집 (대표 Work뿐만 아니라 전체)
+        let allCalls =
+            works
+            |> List.collect (fun work -> DsQuery.callsOf work.Id store)
+
+        let allArrows =
+            works
+            |> List.collect (fun work -> DsQuery.arrowCallsOf work.Id store)
+
         match selectRepresentativeWork works store with
         | None ->
             // Work가 없는 경우
@@ -177,17 +186,39 @@ module FlowAnalysis =
             let arrows = DsQuery.arrowCallsOf repWork.Id store
 
             if calls.IsEmpty then
-                // Call이 없는 경우
-                {
-                    FlowName = flow.Name
-                    FlowId = flow.Id
-                    RepresentativeWorkId = Some repWork.Id
-                    RepresentativeWorkName = Some repWork.Name
-                    HeadCalls = []
-                    TailCalls = []
-                    MovingStartName = None
-                    MovingEndName = None
-                }
+                // 대표 Work에 Call이 없지만, 다른 Work에 Call이 있을 수 있음
+                if allCalls.IsEmpty then
+                    {
+                        FlowName = flow.Name
+                        FlowId = flow.Id
+                        RepresentativeWorkId = Some repWork.Id
+                        RepresentativeWorkName = Some repWork.Name
+                        HeadCalls = []
+                        TailCalls = []
+                        MovingStartName = None
+                        MovingEndName = None
+                    }
+                else
+                    // 전체 Call/Arrow로 DAG 구성
+                    let dag = buildCallDag allCalls allArrows
+                    detectCycle dag allArrows
+
+                    let headCalls = findHeadCalls dag
+                    let tailCalls = findTailCalls dag
+
+                    let movingStartName = headCalls |> List.tryHead |> Option.map (fun c -> c.Name)
+                    let movingEndName = tailCalls |> List.tryHead |> Option.map (fun c -> c.Name)
+
+                    {
+                        FlowName = flow.Name
+                        FlowId = flow.Id
+                        RepresentativeWorkId = Some repWork.Id
+                        RepresentativeWorkName = Some repWork.Name
+                        HeadCalls = headCalls
+                        TailCalls = tailCalls
+                        MovingStartName = movingStartName
+                        MovingEndName = movingEndName
+                    }
             else
                 // DAG 구성
                 let dag = buildCallDag calls arrows

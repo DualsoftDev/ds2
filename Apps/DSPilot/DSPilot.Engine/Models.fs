@@ -33,12 +33,28 @@ module Models =
 
         /// 툴팁 텍스트 생성
         member this.GetTooltipText() =
-            sprintf "%s\n평균: %.0fms\n표준편차: %.0fms\n변동계수: %.2f\n성능점수: %.0f\n실행횟수: %d"
+            let cvStatus =
+                if this.CoefficientOfVariation < 0.1 then "매우 안정적"
+                elif this.CoefficientOfVariation < 0.2 then "안정적"
+                elif this.CoefficientOfVariation < 0.3 then "보통"
+                elif this.CoefficientOfVariation < 0.5 then "불안정"
+                else "매우 불안정"
+
+            let scoreStatus =
+                if this.PerformanceScore >= 90.0 then "우수"
+                elif this.PerformanceScore >= 70.0 then "양호"
+                elif this.PerformanceScore >= 50.0 then "보통"
+                elif this.PerformanceScore >= 30.0 then "개선 필요"
+                else "심각"
+
+            sprintf "[%s]\n━━━━━━━━━━━━━━━━━━━━\n평균 실행시간: %.0f ms\n표준편차: %.0f ms\n변동계수: %.2f (%s)\n성능점수: %.0f/100 (%s)\n실행횟수: %d회\n━━━━━━━━━━━━━━━━━━━━\n💡 변동계수가 낮을수록 안정적입니다\n💡 성능점수가 높을수록 우수합니다"
                 this.CallName
                 this.AverageGoingTime
                 this.StdDevGoingTime
                 this.CoefficientOfVariation
+                cvStatus
                 this.PerformanceScore
+                scoreStatus
                 this.GoingCount
 
     /// Flow Heatmap 그룹 (F# record)
