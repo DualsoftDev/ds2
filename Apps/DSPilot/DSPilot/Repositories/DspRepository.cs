@@ -487,6 +487,22 @@ ON CONFLICT (CallName, FlowName, WorkName) DO UPDATE SET
     }
 
     /// <inheritdoc />
+    public async Task<DspCallEntity?> GetCallByNameAsync(string callName)
+    {
+        using var connection = CreateConnection();
+
+        const string sql = @"
+SELECT CallName, ApiCall, WorkName, FlowName, Next, Prev, AutoPre, CommonPre,
+       State, ProgressRate, Device, PreviousGoingTime, AverageGoingTime, StdDevGoingTime, GoingCount
+FROM Call
+WHERE CallName = @CallName
+LIMIT 1";
+
+        var result = await connection.QueryFirstOrDefaultAsync<DspCallEntity>(sql, new { CallName = callName });
+        return result;
+    }
+
+    /// <inheritdoc />
     public async Task<bool> UpdateCallStateAsync(string callName, string state)
     {
         using var connection = CreateConnection();

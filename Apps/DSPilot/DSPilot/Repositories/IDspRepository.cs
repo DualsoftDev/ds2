@@ -33,6 +33,11 @@ public interface IDspRepository
     Task<(string WorkName, string FlowName)?> GetCallInfoAsync(string callName);
 
     /// <summary>
+    /// Call 전체 데이터 조회 (GoingCount 등 포함)
+    /// </summary>
+    Task<DspCallEntity?> GetCallByNameAsync(string callName);
+
+    /// <summary>
     /// Call 상태 업데이트
     /// </summary>
     Task<bool> UpdateCallStateAsync(string callName, string state);

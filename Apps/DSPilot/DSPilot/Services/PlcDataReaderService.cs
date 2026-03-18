@@ -374,7 +374,7 @@ public class PlcDataReaderService : BackgroundService
                 {
                     // Going 시작 시간 기록
                     var timestamp = DateTime.Now;
-                    statistics.RecordGoingStart(call.Name);
+                    await statistics.RecordGoingStartAsync(call.Name);
                     await dspRepo.UpdateCallStateAsync(call.Name, "Going");
 
                     // 채널을 통해 UI에 즉시 Going 상태 전달 (DB 폴링 대기 불필요)
