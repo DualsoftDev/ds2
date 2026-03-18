@@ -5,13 +5,13 @@ html, body {
 }
 
 .mud-nav-link.active {
-    background-color: rgba(10, 30, 90, 0.08) !important;
-    border-left: 3px solid #0A1E5A !important;
+    background-color: color-mix(in srgb, var(--mud-palette-primary) 8%, transparent) !important;
+    border-left: 3px solid var(--mud-palette-primary) !important;
 }
 
 .mud-table-head th {
-    background-color: #F5F5F5 !important;
-    color: #0A1E5A !important;
+    background-color: var(--mud-palette-background, #F5F5F5) !important;
+    color: var(--mud-palette-primary, #0A1E5A) !important;
     font-weight: 600 !important;
 }
 
@@ -89,7 +89,7 @@ html, body {
 }
 
 .heatmap-table .mud-table-row:hover {
-    background-color: rgba(0, 0, 0, 0.02);
+    background-color: color-mix(in srgb, var(--mud-palette-text-primary) 2%, transparent);
 }
 
 /* ── 상태 구분: focus / hover / transition ── */
@@ -107,7 +107,7 @@ html, body {
     transition: background 0.15s ease;
 }
 .ct-chart-row:hover {
-    background: rgba(0, 0, 0, 0.04);
+    background: color-mix(in srgb, var(--mud-palette-text-primary) 4%, transparent);
 }
 
 /* FlowLayout SVG 블록 hover */
