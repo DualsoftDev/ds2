@@ -2,13 +2,13 @@
 @inject DsProjectService ProjectService
 @inject NavigationManager Nav
 
-<MudThemeProvider Theme="_theme" />
+<MudThemeProvider Theme="_theme" IsDarkMode="_isDarkMode" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
 <MudLayout>
-    <MudAppBar Elevation="1" Style="background: #FFFFFF; color: #0A1E5A;" Fixed="true">
+    <MudAppBar Elevation="1" Fixed="true">
         <MudIconButton Icon="@Icons.Material.Filled.Menu"
                        Color="Color.Inherit"
                        Edge="Edge.Start"
@@ -17,6 +17,10 @@
             <MudImage Src="images/logo.png" Height="28" Class="mr-3" Alt="DSPilot Logo" />
         </div>
         <MudSpacer />
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                       Color="Color.Inherit"
+                       OnClick="ToggleDarkMode"
+                       title="@(_isDarkMode ? "라이트 모드" : "다크 모드")" />
     </MudAppBar>
 
     <MudDrawer @bind-Open="_drawerOpen"
@@ -36,6 +40,7 @@
 
 @code {
     private bool _drawerOpen = true;
+    private bool _isDarkMode;
 
     private readonly MudTheme _theme = new()
     {
@@ -56,6 +61,24 @@
             TextPrimary = "#212121",
             TextSecondary = "#7D8282",
             ActionDefault = "#0A1E5A",
+        },
+        PaletteDark = new PaletteDark
+        {
+            Primary = "#4D7FD4",
+            Secondary = "#FF5A6E",
+            Tertiary = "#38A0D4",
+            Info = "#33C4D4",
+            Success = "#66D970",
+            Background = "#121212",
+            Surface = "#1E1E1E",
+            AppbarBackground = "#1E1E1E",
+            AppbarText = "#E0E0E0",
+            DrawerBackground = "#1E1E1E",
+            DrawerText = "#E0E0E0",
+            DrawerIcon = "#8AAEE0",
+            TextPrimary = "#E0E0E0",
+            TextSecondary = "#A0A4A4",
+            ActionDefault = "#8AAEE0",
         },
         Typography = new Typography
         {
@@ -80,4 +103,5 @@
     }
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+    private void ToggleDarkMode() => _isDarkMode = !_isDarkMode;
 }

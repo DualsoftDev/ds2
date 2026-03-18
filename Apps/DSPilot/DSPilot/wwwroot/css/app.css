@@ -6,7 +6,7 @@ html, body {
 
 .mud-nav-link.active {
     background-color: rgba(10, 30, 90, 0.08) !important;
-    border-left: 3px solid #FA002D !important;
+    border-left: 3px solid #0A1E5A !important;
 }
 
 .mud-table-head th {
@@ -90,4 +90,30 @@ html, body {
 
 .heatmap-table .mud-table-row:hover {
     background-color: rgba(0, 0, 0, 0.02);
+}
+
+/* ── 상태 구분: focus / hover / transition ── */
+
+/* 포커스 표시 (접근성) */
+[tabindex]:focus-visible,
+.mud-nav-link:focus-visible,
+.mud-button-root:focus-visible {
+    outline: 2px solid #0569A0;
+    outline-offset: 2px;
+}
+
+/* CT 차트 행 hover */
+.ct-chart-row {
+    transition: background 0.15s ease;
+}
+.ct-chart-row:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+/* FlowLayout SVG 블록 hover */
+.flow-block {
+    transition: filter 0.15s ease;
+}
+.flow-block:hover {
+    filter: brightness(1.06);
 }

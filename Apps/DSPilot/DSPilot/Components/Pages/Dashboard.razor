@@ -47,7 +47,7 @@
     .ct-summary-bar {
         display: flex;
         flex-direction: row;
-        border-bottom: 1px solid rgba(0,0,0,0.12);
+        border-bottom: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12));
         flex-shrink: 0;
     }
     .ct-top-cell {
@@ -57,8 +57,8 @@
         flex-direction: column;
         justify-content: center;
         gap: 4px;
-        border-right: 1px solid rgba(0,0,0,0.12);
-        background: #fff;
+        border-right: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12));
+        background: var(--mud-palette-surface, #fff);
         min-width: 0;
     }
     .ct-top-cell:last-child { border-right: none; }
@@ -66,7 +66,7 @@
     .ct-top-cell.warning { border-left: 3px solid #fb8c00; }
     .ct-top-cell.success { border-left: 3px solid #26a69a; }
     .ct-summary-title {
-        font-size: 11px;
+        font-size: 13px;
         font-weight: 700;
         letter-spacing: 0.2px;
     }
@@ -91,11 +91,11 @@
         overflow-y: auto;
         flex: 1;
         min-height: 0;
-        background: #fff;
+        background: var(--mud-palette-surface, #fff);
     }
     .ct-summary-sub {
         font-size: 14px;
-        color: #1e293b;
+        color: var(--mud-palette-text-primary, #1e293b);
         font-weight: 700;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -105,7 +105,7 @@
     .ct-summary-value {
         font-size: 11px;
         font-weight: 600;
-        color: #64748b;
+        color: var(--mud-palette-text-secondary, #64748b);
     }
     /* CT 차트 행 — 2줄 카드 스타일 */
     .ct-chart-row {
@@ -115,11 +115,11 @@
         border-radius: 6px;
         margin-bottom: 3px;
         border-left: 3px solid transparent;
-        background: #fafafa;
+        background: var(--mud-palette-background, #fafafa);
     }
     .ct-chart-row.highlighted {
-        background: #fff;
-        border: 1px solid rgba(0,0,0,0.08);
+        background: var(--mud-palette-surface, #fff);
+        border: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.08));
         border-left-width: 3px;
     }
     /* 1줄: 카테고리 라벨 + 플로우 이름 */
@@ -133,7 +133,7 @@
 
     .ct-row-name {
         font-size: 13px;
-        color: #1e293b;
+        color: var(--mud-palette-text-primary, #1e293b);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -149,23 +149,23 @@
     .ct-bar-track {
         flex: 1;
         height: 10px;
-        background: #eeeeee;
+        background: var(--mud-palette-lines-default, #eeeeee);
         border-radius: 10px;
         overflow: hidden;
         display: flex;
     }
-    .ct-bar-mt { background: #42A5F5; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .ct-bar-wt { background: #FFA726; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .ct-bar-mt { background: #0569A0; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .ct-bar-wt { background: #FB8C00; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .ct-bar-pct { font-size: 9px; font-weight: 700; color: white; line-height: 1; white-space: nowrap; }
     .ct-row-time {
         font-size: 12px;
         font-weight: 600;
-        color: #64748b;
+        color: var(--mud-palette-text-secondary, #64748b);
         white-space: nowrap;
     }
     .ct-section-title {
         font-size: 11px;
-        color: #7D8282;
+        color: var(--mud-palette-text-secondary, #7D8282);
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -178,14 +178,14 @@
         min-height: 0;
         display: flex;
         flex-direction: column;
-        border: 1px solid rgba(0,0,0,0.12);
-        background: #fff;
+        border: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12));
+        background: var(--mud-palette-surface, #fff);
         box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
     .ds-card-header {
         padding: 10px 16px;
-        background: #f5f5f5;
-        border-bottom: 1px solid rgba(0,0,0,0.12);
+        background: var(--mud-palette-background, #f5f5f5);
+        border-bottom: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12));
         flex-shrink: 0;
         display: flex;
         align-items: center;
@@ -211,7 +211,7 @@
         align-items: center;
         gap: 4px;
         font-size: 11px;
-        color: #7D8282;
+        color: var(--mud-palette-text-secondary, #7D8282);
         font-weight: 500;
     }
     .layout-legend-dot {
@@ -241,7 +241,7 @@ else
 
                     @* 배치 *@
                     <div>
-                        <div style="font-size:11px; color:#888; font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">배치</div>
+                        <div style="font-size:11px; color:var(--mud-palette-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">배치</div>
                         <div style="display:flex; gap:6px;">
                             <MudButton Size="Size.Small"
                                        Variant="@(_direction == "horizontal" ? Variant.Filled : Variant.Outlined)"
@@ -258,19 +258,19 @@ else
 
                     @* 순서 *@
                     <div>
-                        <div style="font-size:11px; color:#888; font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">순서</div>
-                        <div style="display:flex; align-items:center; gap:8px; background:#f5f5f5; border-radius:8px; padding:4px 12px;">
-                            <span style="font-size:13px; font-weight:600; color:#0A1E5A;">@GetWidgetTitle(_widgetOrder[0])</span>
+                        <div style="font-size:11px; color:var(--mud-palette-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">순서</div>
+                        <div style="display:flex; align-items:center; gap:8px; background:var(--mud-palette-background); border-radius:8px; padding:4px 12px;">
+                            <span style="font-size:13px; font-weight:600; color:var(--mud-palette-primary);">@GetWidgetTitle(_widgetOrder[0])</span>
                             <MudIconButton Icon="@(_direction == "horizontal" ? Icons.Material.Filled.SwapHoriz : Icons.Material.Filled.SwapVert)"
                                            Size="Size.Small" Color="Color.Primary"
                                            OnClick="SwapWidgets" />
-                            <span style="font-size:13px; font-weight:600; color:#0A1E5A;">@GetWidgetTitle(_widgetOrder[1])</span>
+                            <span style="font-size:13px; font-weight:600; color:var(--mud-palette-primary);">@GetWidgetTitle(_widgetOrder[1])</span>
                         </div>
                     </div>
 
                     @* 비율 *@
                     <div>
-                        <div style="font-size:11px; color:#888; font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                        <div style="font-size:11px; color:var(--mud-palette-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
                             @(_direction == "horizontal" ? "좌우 비율" : "상하 비율")
                         </div>
                         <div style="display:flex; gap:4px;">
@@ -287,7 +287,7 @@ else
 
                     @* 표시 *@
                     <div>
-                        <div style="font-size:11px; color:#888; font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">표시</div>
+                        <div style="font-size:11px; color:var(--mud-palette-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">표시</div>
                         <div style="display:flex; gap:6px;">
                             @foreach (var wid in _widgetOrder)
                             {
@@ -489,7 +489,7 @@ else
     private int _cw, _ch, _cellW, _cellH, _ox, _oy;
     private readonly Dictionary<Guid, int> _systemColorIndex = [];
     private static readonly string[] SystemColors =
-        ["#0A1E5A", "#FA002D", "#0569A0", "#009BB4", "#4CAF50"];
+        ["#0A1E5A", "#1A3A7A", "#2D5499", "#4070B8", "#5A8CD7"];
     private static readonly (string Label, string Color)[] _stateLegend =
     [
         ("Ready", "#9E9E9E"), ("Going", "#4CAF50"), ("Finish", "#2196F3"),

@@ -3,6 +3,8 @@
      viewBox="0 0 @CanvasWidth @CanvasHeight"
      preserveAspectRatio="none">
 
+    @* 도면 배경: 다크모드에서도 이미지가 잘 보이도록 밝은 배경 유지 *@
+    <rect x="0" y="0" width="@CanvasWidth" height="@CanvasHeight" fill="#f0f0f0" />
     @if (!string.IsNullOrEmpty(ImagePath))
     {
         <image href="@(ImagePath)?v=@(ImageVersion)"
@@ -111,12 +113,12 @@
                 <rect x="@(px + pad)" y="@(py + pad)" width="@innerW" height="@innerH" rx="8" ry="8" />
             </clipPath>
         </defs>
-        <g clip-path="url(#@clipId)">
+        <g class="flow-block" clip-path="url(#@clipId)">
             @* 배경: 흰 베이스 + 상태색 옅은 오버레이 + 테두리 *@
             <rect x="@(px + pad)" y="@(py + pad)"
                   width="@innerW" height="@innerH"
                   rx="8" ry="8"
-                  fill="white" />
+                  style="fill: var(--mud-palette-surface, white)" />
             <rect x="@(px + pad)" y="@(py + pad)"
                   width="@innerW" height="@innerH"
                   rx="8" ry="8"
@@ -128,7 +130,7 @@
                   fill="@color" />
 
             @* Flow 이름 *@
-            <SvgText X="@(px + pad + 6)" Y="@titleY" TextAnchor="start" Fill="#1e293b" FontSize="@titleFS" FontWeight="700" Content="@fp.FlowName" />
+            <SvgText X="@(px + pad + 6)" Y="@titleY" TextAnchor="start" Fill="var(--mud-palette-text-primary, #1e293b)" FontSize="@titleFS" FontWeight="700" Content="@fp.FlowName" />
 
             @if (hasMtWt)
             {
@@ -136,19 +138,19 @@
                 <g transform="rotate(-90 @donutCx @donutCy)">
                     @* 배경 트랙 *@
                     <circle cx="@donutCx" cy="@donutCy" r="@donutR"
-                            fill="none" stroke="rgba(0,0,0,0.10)" stroke-width="@donutSW" />
+                            fill="none" style="stroke: var(--mud-palette-lines-default, rgba(0,0,0,0.10))" stroke-width="@donutSW" />
                     @* MT(가동) 호 *@
                     @if (mtDash > 0)
                     {
                         <circle cx="@donutCx" cy="@donutCy" r="@donutR"
-                                fill="none" stroke="#10b981" stroke-width="@donutSW"
+                                fill="none" stroke="#0569A0" stroke-width="@donutSW"
                                 stroke-dasharray="@sMtDash @sCirc" />
                     }
                     @* WT(대기) 호 — MT 끝 지점에서 시작 *@
                     @if (wtDash > 0)
                     {
                         <circle cx="@donutCx" cy="@donutCy" r="@donutR"
-                                fill="none" stroke="#f59e0b" stroke-width="@donutSW"
+                                fill="none" stroke="#FB8C00" stroke-width="@donutSW"
                                 stroke-dasharray="@sWtDash @sCirc"
                                 stroke-dashoffset="@sNegMt" />
                     }
@@ -157,21 +159,21 @@
                 @* 도넛 중앙 전체 시간 *@
                 {
                     var centerFS = Math.Max(6, (int)(donutR * 0.52));
-                    <SvgText X="@donutCx" Y="@(donutCy + (int)(centerFS * 0.38))" TextAnchor="middle" Fill="#1e293b" FontSize="@centerFS" FontWeight="700" Content="@FormatMs(total)" />
+                    <SvgText X="@donutCx" Y="@(donutCy + (int)(centerFS * 0.38))" TextAnchor="middle" Fill="var(--mud-palette-text-primary, #1e293b)" FontSize="@centerFS" FontWeight="700" Content="@FormatMs(total)" />
                 }
 
                 @* 우측 통계 (넓은 블럭 전용) *@
                 @if (showStats)
                 {
-                    <SvgText X="@statsX" Y="@statsY1" Fill="#64748b" FontSize="@statsFS" Content="가동" />
-                    <SvgText X="@valX"   Y="@statsY1" TextAnchor="end" Fill="#1e293b" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(mt)" />
-                    <SvgText X="@statsX" Y="@statsY2" Fill="#64748b" FontSize="@statsFS" Content="대기" />
-                    <SvgText X="@valX"   Y="@statsY2" TextAnchor="end" Fill="#1e293b" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(wt)" />
+                    <SvgText X="@statsX" Y="@statsY1" Fill="var(--mud-palette-text-secondary, #64748b)" FontSize="@statsFS" Content="가동" />
+                    <SvgText X="@valX"   Y="@statsY1" TextAnchor="end" Fill="var(--mud-palette-text-primary, #1e293b)" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(mt)" />
+                    <SvgText X="@statsX" Y="@statsY2" Fill="var(--mud-palette-text-secondary, #64748b)" FontSize="@statsFS" Content="대기" />
+                    <SvgText X="@valX"   Y="@statsY2" TextAnchor="end" Fill="var(--mud-palette-text-primary, #1e293b)" FontSize="@statsFS" FontWeight="600" Content="@FormatMs(wt)" />
                 }
             }
 
             @* 상태 라벨 *@
-            <SvgText X="@cx" Y="@stateY" TextAnchor="middle" Fill="#64748b" FontSize="@stateFS" Content="@stateLabel" />
+            <SvgText X="@cx" Y="@stateY" TextAnchor="middle" Fill="var(--mud-palette-text-secondary, #64748b)" FontSize="@stateFS" Content="@stateLabel" />
 
             @* 배지 (우상단) — pill 스타일, 가로 배치 *@
             @for (int bi = 0; bi < badges.Count; bi++)
