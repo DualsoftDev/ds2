@@ -4,9 +4,50 @@
 @inject DspDbService DbService
 @inject BlueprintService BlueprintService
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>Dashboard - DSPilot</PageTitle>
+
+<style>
+    /* 그리드: 두 방향 모두 뷰포트 채움 */
+    .dashboard-grid {
+        display: flex;
+        gap: 12px;
+        min-height: 0;
+    }
+    .dashboard-grid.grid-h {
+        flex-direction: row;
+        height: calc(100vh - 210px);
+    }
+    .dashboard-grid.grid-h.editing {
+        height: calc(100vh - 300px);
+    }
+    .dashboard-grid.grid-v {
+        flex-direction: column;
+        height: calc(100vh - 210px);
+    }
+    .dashboard-grid.grid-v.editing {
+        height: calc(100vh - 300px);
+    }
+    .widget-container {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+    /* 모바일: 강제 단일 컬럼 */
+    @@media (max-width: 768px) {
+        .dashboard-grid.grid-h {
+            flex-direction: column !important;
+            height: auto !important;
+        }
+        .dashboard-grid.grid-h > .widget-container {
+            flex: 0 0 auto !important;
+            height: 60vh !important;
+        }
+    }
+</style>
 
 @if (!ProjectService.IsLoaded)
 {
@@ -16,275 +57,211 @@
 }
 else
 {
-    @* ── 도면 + CT 차트 (3:1 좌우 배치) ── *@
-    @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+    @* ── 편집 모드 설정 패널 ── *@
+    @if (_isEditing)
     {
-        <div style="display: flex; gap: 12px; margin-bottom: 12px; align-items: stretch;">
+        <MudCard Elevation="1" Class="mb-3">
+            <MudCardContent Class="pa-3">
+                <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;">
 
-            @* 도면 레이아웃 (3/4) *@
-            <MudCard Elevation="2" Style="flex: 3; border-radius: 8px; overflow: hidden;">
-                <MudCardContent Class="pa-3" Style="display: flex; flex-direction: column; align-items: center; height: 100%;">
-                    <FlowLayoutSvg Style="@($"height: 45vh; max-width: 100%; aspect-ratio: {_cw} / {_ch};")"
-                                   CanvasWidth="_cw" CanvasHeight="_ch"
-                                   ImagePath="@BlueprintService.Layout.BlueprintImagePath"
-                                   ImageVersion="BlueprintService.ImageVersion"
-                                   OffsetX="_ox" OffsetY="_oy" CellWidth="_cellW" CellHeight="_cellH"
-                                   Placements="BlueprintService.Layout.FlowPlacements"
-                                   GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
-                                   GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
-                                   GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))" />
-                    <div class="d-flex justify-center gap-3 flex-wrap" style="padding: 4px 0 2px;">
-                        @foreach (var (label, clr) in _stateLegend)
-                        {
-                            <div class="d-flex align-center" style="gap: 4px;">
-                                <span style="width:12px;height:12px;border-radius:3px;background:@clr;display:inline-block;"></span>
-                                <MudText Typo="Typo.caption">@label</MudText>
-                            </div>
-                        }
-                    </div>
-                </MudCardContent>
-            </MudCard>
-
-            @* CT 막대 그래프 (1/4) *@
-            @if (_chartData.Count > 0)
-            {
-                <MudCard Elevation="2" Style="flex: 1; border-radius: 8px; overflow: hidden;">
-                    <MudCardContent Class="pa-3" Style="height: 100%; overflow-y: auto;">
-                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap: wrap;">
-                            <MudText Typo="Typo.subtitle2" Style="font-weight:600; color:#0A1E5A;">
-                                CT 분석
-                            </MudText>
-                            <div style="display:flex; gap:4px; flex-wrap: wrap;">
-                                <span style="font-size:9px; padding:2px 6px; border-radius:10px; background:#ef5350; color:white;">최대</span>
-                                <span style="font-size:9px; padding:2px 6px; border-radius:10px; background:#26a69a; color:white;">최소</span>
-                                <span style="font-size:9px; padding:2px 6px; border-radius:10px; background:#fb8c00; color:white;">대기↑</span>
-                            </div>
+                    @* 배치 *@
+                    <div>
+                        <div style="font-size:11px; color:#888; font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">배치</div>
+                        <div style="display:flex; gap:6px;">
+                            <MudButton Size="Size.Small"
+                                       Variant="@(_direction == "horizontal" ? Variant.Filled : Variant.Outlined)"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.ViewColumn"
+                                       OnClick="@(() => SetDirection("horizontal"))">좌우</MudButton>
+                            <MudButton Size="Size.Small"
+                                       Variant="@(_direction == "vertical" ? Variant.Filled : Variant.Outlined)"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.ViewStream"
+                                       OnClick="@(() => SetDirection("vertical"))">상하</MudButton>
                         </div>
+                    </div>
 
-                        @foreach (var flow in _chartData)
-                        {
-                            var isMaxCT    = flow.FlowName == _maxCtName;
-                            var isMinCT    = flow.FlowName == _minCtName;
-                            var isMaxWT    = flow.FlowName == _maxWtName;
-                            var highlighted = isMaxCT || isMinCT || isMaxWT;
+                    @* 순서 *@
+                    <div>
+                        <div style="font-size:11px; color:#888; font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">순서</div>
+                        <div style="display:flex; align-items:center; gap:8px; background:#f5f5f5; border-radius:8px; padding:4px 12px;">
+                            <span style="font-size:13px; font-weight:600; color:#0A1E5A;">@GetWidgetTitle(_widgetOrder[0])</span>
+                            <MudIconButton Icon="@(_direction == "horizontal" ? Icons.Material.Filled.SwapHoriz : Icons.Material.Filled.SwapVert)"
+                                           Size="Size.Small" Color="Color.Primary"
+                                           OnClick="SwapWidgets" />
+                            <span style="font-size:13px; font-weight:600; color:#0A1E5A;">@GetWidgetTitle(_widgetOrder[1])</span>
+                        </div>
+                    </div>
 
-                            var fillPct = _maxCtVal > 0 ? flow.CT * 100.0 / _maxCtVal : 0;
-                            var mtPct   = flow.CT  > 0 ? flow.MT * 100.0 / flow.CT  : 0;
-                            var wtPct   = 100.0 - mtPct;
-
-                            var rowBorder = isMaxCT ? "outline:1.5px solid #ef5350;"
-                                          : isMinCT ? "outline:1.5px solid #26a69a;"
-                                          : isMaxWT ? "outline:1.5px solid #fb8c00;"
-                                          : "";
-
-                            <div style="margin-bottom:3px; padding:3px 4px; border-radius:6px;
-                                        @(highlighted ? "background:rgba(0,0,0,0.03); " + rowBorder : "")">
-                                <div style="font-size:11px; font-weight:@(highlighted ? "700" : "400");
-                                            overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-bottom:2px;">
-                                    @flow.FlowName
-                                </div>
-                                <div style="display:flex; align-items:center; gap:4px;">
-                                    <div style="flex:1; height:14px; background:#e9e9e9; border-radius:3px; overflow:hidden;">
-                                        <div style="@($"display:flex; height:100%; width:{fillPct:F1}%;")">
-                                            <div style="@($"width:{mtPct:F1}%; background:#42A5F5; height:100%;")"></div>
-                                            <div style="@($"width:{wtPct:F1}%; background:#FFA726; height:100%;")"></div>
-                                        </div>
-                                    </div>
-                                    <div style="font-size:10px; color:#555; white-space:nowrap; min-width:36px; text-align:right;">
-                                        @FormatMs(flow.CT)
-                                    </div>
-                                </div>
-                                @if (highlighted)
-                                {
-                                    <div style="display:flex; gap:3px; margin-top:2px;">
-                                        @if (isMaxCT) { <span style="font-size:8px; padding:1px 4px; border-radius:8px; background:#ef5350; color:white;">최대 CT</span> }
-                                        @if (isMinCT) { <span style="font-size:8px; padding:1px 4px; border-radius:8px; background:#26a69a; color:white;">최소 CT</span> }
-                                        @if (isMaxWT) { <span style="font-size:8px; padding:1px 4px; border-radius:8px; background:#fb8c00; color:white;">대기↑</span> }
-                                    </div>
-                                }
-                            </div>
-                        }
-                    </MudCardContent>
-                </MudCard>
-            }
-        </div>
-    }
-
-    <div>
-        <MudGrid Spacing="3">
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="2" Style="border-top: 4px solid #0A1E5A; border-radius: 8px;">
-                    <MudCardContent Class="d-flex flex-column align-center pa-4">
-                        <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Size="Size.Large" Style="color: #0A1E5A;" />
-                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #0A1E5A;">
-                            @(_project?.Name ?? "-")
-                        </MudText>
-                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Project</MudText>
-                    </MudCardContent>
-                </MudCard>
-            </MudItem>
-
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="2" Style="border-top: 4px solid #FA002D; border-radius: 8px;">
-                    <MudCardContent Class="d-flex flex-column align-center pa-4">
-                        <MudIcon Icon="@Icons.Material.Filled.DeviceHub" Size="Size.Large" Style="color: #FA002D;" />
-                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
-                            @_systemCount
-                        </MudText>
-                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Systems</MudText>
-                    </MudCardContent>
-                </MudCard>
-            </MudItem>
-
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="2" Style="border-top: 4px solid #0569A0; border-radius: 8px;">
-                    <MudCardContent Class="d-flex flex-column align-center pa-4">
-                        <MudIcon Icon="@Icons.Material.Filled.AltRoute" Size="Size.Large" Style="color: #0569A0;" />
-                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
-                            @_flowCount
-                        </MudText>
-                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Flows</MudText>
-                    </MudCardContent>
-                </MudCard>
-            </MudItem>
-
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="2" Style="border-top: 4px solid #009BB4; border-radius: 8px;">
-                    <MudCardContent Class="d-flex flex-column align-center pa-4">
-                        <MudIcon Icon="@Icons.Material.Filled.Work" Size="Size.Large" Style="color: #009BB4;" />
-                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
-                            @_workCount
-                        </MudText>
-                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Works</MudText>
-                    </MudCardContent>
-                </MudCard>
-            </MudItem>
-        </MudGrid>
-    </div>
-
-    @* 실시간 상태 카드 *@
-    <div class="mt-3">
-        <MudGrid Spacing="3">
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="2" Style="border-top: 4px solid #9E9E9E; border-radius: 8px;">
-                    <MudCardContent Class="d-flex flex-column align-center pa-4">
-                        <MudIcon Icon="@Icons.Material.Filled.Pause" Size="Size.Large" Style="color: #9E9E9E;" />
-                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
-                            @_dbSnapshot.Flows.Count(f => string.IsNullOrEmpty(f.State) || f.State.Equals("Ready", StringComparison.OrdinalIgnoreCase))
-                        </MudText>
-                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Ready</MudText>
-                    </MudCardContent>
-                </MudCard>
-            </MudItem>
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="2" Style="border-top: 4px solid #4CAF50; border-radius: 8px;">
-                    <MudCardContent Class="d-flex flex-column align-center pa-4">
-                        <MudIcon Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Large" Style="color: #4CAF50;" />
-                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
-                            @_dbSnapshot.Flows.Count(f => f.State.Equals("Going", StringComparison.OrdinalIgnoreCase))
-                        </MudText>
-                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Going</MudText>
-                    </MudCardContent>
-                </MudCard>
-            </MudItem>
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="2" Style="border-top: 4px solid #2196F3; border-radius: 8px;">
-                    <MudCardContent Class="d-flex flex-column align-center pa-4">
-                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Large" Style="color: #2196F3;" />
-                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
-                            @_dbSnapshot.Flows.Count(f => f.State.Equals("Done", StringComparison.OrdinalIgnoreCase))
-                        </MudText>
-                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Done</MudText>
-                    </MudCardContent>
-                </MudCard>
-            </MudItem>
-            <MudItem xs="12" sm="6" md="3">
-                <MudCard Elevation="2" Style="border-top: 4px solid #FA002D; border-radius: 8px;">
-                    <MudCardContent Class="d-flex flex-column align-center pa-4">
-                        <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Size="Size.Large" Style="color: #FA002D;" />
-                        <MudText Typo="Typo.h5" Class="mt-2" Style="font-weight: 700; color: #212121;">
-                            @_dbSnapshot.Flows.Count(f => f.State.Equals("Error", StringComparison.OrdinalIgnoreCase))
-                        </MudText>
-                        <MudText Typo="Typo.body2" Style="color: #7D8282;">Error</MudText>
-                    </MudCardContent>
-                </MudCard>
-            </MudItem>
-        </MudGrid>
-    </div>
-
-    @if (ErrorCallCount > 0)
-    {
-        <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="mt-2">
-            @ErrorCallCount call(s) in error state
-        </MudAlert>
-    }
-
-    @* Flow별 가동시간 도넛 차트 *@
-    <MudText Typo="Typo.h6" Class="mt-3 mb-2" Style="font-weight: 600; color: #0A1E5A;">Flow Operation Time</MudText>
-    <MudCard Elevation="2" Style="border-radius: 8px; max-height: 600px; overflow: auto;">
-        <MudCardContent>
-            @if (_flowTimeInfos.Count == 0)
-            {
-                <MudText Typo="Typo.body2" Style="color: #7D8282;">No flow time data available.</MudText>
-            }
-            else
-            {
-                <div style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; align-content: flex-start;">
-                    @foreach (var flowInfo in _flowTimeInfos)
-                    {
-                        var mtWt = GetFlowMtWt(flowInfo.FlowName);
-
-                        <div style="display: flex; flex-direction: column; align-items: center; min-width: 160px; flex: 1 1 160px; max-width: 220px; padding: 8px;">
-                            <MudText Typo="Typo.subtitle2" Style="font-weight: 600; color: #0A1E5A;">
-                                @flowInfo.FlowName
-                            </MudText>
-                            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">
-                                @flowInfo.SystemName
-                            </MudText>
-                            <MudChart ChartType="ChartType.Donut"
-                                      InputData="@flowInfo.ChartData"
-                                      InputLabels="@flowInfo.ChartLabels"
-                                      Width="130px"
-                                      Height="130px" />
-                            <div class="d-flex flex-column align-center mt-1">
-                                <MudText Typo="Typo.body2">
-                                    Total: <b>@flowInfo.TotalTime</b>
-                                </MudText>
-                                <MudText Typo="Typo.caption" Style="color: #7D8282;">
-                                    @flowInfo.WorkCount Works
-                                </MudText>
-                            </div>
-
-                            @if (mtWt != null)
+                    @* 비율 *@
+                    <div>
+                        <div style="font-size:11px; color:#888; font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                            @(_direction == "horizontal" ? "좌우 비율" : "상하 비율")
+                        </div>
+                        <div style="display:flex; gap:4px;">
+                            @foreach (var r in RatioOptions)
                             {
-                                var mt = mtWt.Value.Mt;
-                                var wt = mtWt.Value.Wt;
-                                var total = mt + wt;
-
-                                <MudChart ChartType="ChartType.Donut"
-                                          InputData="@(new double[] { Math.Max(mt, 0), Math.Max(wt, 0) })"
-                                          InputLabels="@(new[] { $"MT ({mt})", $"WT ({wt})" })"
-                                          ChartOptions="@_mtWtChartOptions"
-                                          Width="90px"
-                                          Height="90px"
-                                          Class="mt-1" />
-                                <MudText Typo="Typo.caption" Style="color: #7D8282;" Class="mt-1">
-                                    MT: @mt / WT: @wt
-                                </MudText>
+                                var ratio = r;
+                                <MudButton Size="Size.Small"
+                                           Variant="@(_ratio == ratio ? Variant.Filled : Variant.Outlined)"
+                                           Color="Color.Primary"
+                                           OnClick="@(() => SetRatio(ratio))">@ratio</MudButton>
                             }
                         </div>
+                    </div>
+
+                    @* 표시 *@
+                    <div>
+                        <div style="font-size:11px; color:#888; font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">표시</div>
+                        <div style="display:flex; gap:6px;">
+                            @foreach (var wid in _widgetOrder)
+                            {
+                                var w      = wid;
+                                var hidden = _hiddenWidgets.Contains(w);
+                                <MudButton Size="Size.Small"
+                                           Variant="@(hidden ? Variant.Outlined : Variant.Filled)"
+                                           Color="@(hidden ? Color.Default : Color.Primary)"
+                                           StartIcon="@(hidden ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                           OnClick="@(() => ToggleVisibility(w))">@GetWidgetTitle(w)</MudButton>
+                            }
+                        </div>
+                    </div>
+
+                </div>
+            </MudCardContent>
+        </MudCard>
+    }
+
+    @* ── 위젯 그리드 ── *@
+    <div class="@($"dashboard-grid {(_direction == "horizontal" ? "grid-h" : "grid-v")}{(_isEditing ? " editing" : "")}")">
+        @foreach (var widgetId in _widgetOrder)
+        {
+            var wid = widgetId;
+            @if (!_hiddenWidgets.Contains(wid))
+            {
+                <div class="widget-container" style="@GetWidgetContainerStyle(wid)">
+
+                    @if (wid == "layout")
+                    {
+                        <MudCard Elevation="2" Style="border-radius:8px; overflow:hidden; flex:1; min-height:0; display:flex; flex-direction:column;">
+                            <MudCardContent Class="pa-3" Style="flex:1; min-height:0; display:flex; flex-direction:column; align-items:center; overflow:hidden;">
+                                @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+                                {
+                                    <div style="flex:1; min-height:0; width:100%; display:flex; justify-content:center; align-items:center; overflow:hidden;">
+                                        <FlowLayoutSvg Style="@($"height:100%; max-width:100%; aspect-ratio:{_cw}/{_ch}; object-fit:contain;")"
+                                                       CanvasWidth="_cw" CanvasHeight="_ch"
+                                                       ImagePath="@BlueprintService.Layout.BlueprintImagePath"
+                                                       ImageVersion="BlueprintService.ImageVersion"
+                                                       OffsetX="_ox" OffsetY="_oy" CellWidth="_cellW" CellHeight="_cellH"
+                                                       Placements="BlueprintService.Layout.FlowPlacements"
+                                                       GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
+                                                       GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
+                                                       GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))" />
+                                    </div>
+                                    <div class="d-flex justify-center gap-3 flex-wrap" style="padding:4px 0 2px; flex-shrink:0;">
+                                        @foreach (var (label, clr) in _stateLegend)
+                                        {
+                                            <div class="d-flex align-center" style="gap:4px;">
+                                                <span style="@($"width:12px;height:12px;border-radius:3px;background:{clr};display:inline-block;")"></span>
+                                                <MudText Typo="Typo.caption">@label</MudText>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:#bdbdbd;">
+                                        <MudIcon Icon="@Icons.Material.Filled.Map" Style="font-size:48px;" />
+                                        <MudText Typo="Typo.body2">도면 이미지가 등록되지 않았습니다</MudText>
+                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Primary"
+                                                   OnClick="@(() => Nav.NavigateTo("/editor"))">레이아웃 수정</MudButton>
+                                    </div>
+                                }
+                            </MudCardContent>
+                        </MudCard>
                     }
+                    else if (wid == "ct")
+                    {
+                        <MudCard Elevation="2" Style="border-radius:8px; overflow:hidden; flex:1; min-height:0; display:flex; flex-direction:column;">
+                            <MudCardContent Class="pa-3" Style="flex:1; min-height:0; overflow-y:auto;">
+                                @if (_chartData.Count > 0)
+                                {
+                                    <MudText Typo="Typo.subtitle2" Style="font-weight:600; color:#0A1E5A; margin-bottom:8px; display:block;">CT 분석 (가동 + 대기, 내림차순)</MudText>
+
+                                    <div style="display:flex; gap:8px; margin-bottom:12px;">
+                                        <div style="flex:1; padding:8px 10px; border-radius:8px; background:#ffeaea; outline:1.5px solid #ef5350;">
+                                            <div style="font-size:9px; color:#ef5350; font-weight:700; margin-bottom:2px;">최대시간</div>
+                                            <div style="font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="@_maxCtName">@(_maxCtName ?? "-")</div>
+                                            <div style="font-size:12px; color:#555;">@FormatMs(_maxCtVal)</div>
+                                        </div>
+                                        <div style="flex:1; padding:8px 10px; border-radius:8px; background:#fff3e0; outline:1.5px solid #fb8c00;">
+                                            <div style="font-size:9px; color:#fb8c00; font-weight:700; margin-bottom:2px;">최대대기시간</div>
+                                            <div style="font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="@_maxWtName">@(_maxWtName ?? "-")</div>
+                                            <div style="font-size:12px; color:#555;">@FormatMs(_chartData.FirstOrDefault(f => f.FlowName == _maxWtName).CT)</div>
+                                        </div>
+                                        <div style="flex:1; padding:8px 10px; border-radius:8px; background:#e0f7f5; outline:1.5px solid #26a69a;">
+                                            <div style="font-size:9px; color:#26a69a; font-weight:700; margin-bottom:2px;">최소시간</div>
+                                            <div style="font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="@_minCtName">@(_minCtName ?? "-")</div>
+                                            <div style="font-size:12px; color:#555;">@FormatMs(_chartData[^1].CT)</div>
+                                        </div>
+                                    </div>
+
+                                    @foreach (var flow in _chartData)
+                                    {
+                                        var isMaxCT    = flow.FlowName == _maxCtName;
+                                        var isMinCT    = flow.FlowName == _minCtName;
+                                        var isMaxWT    = flow.FlowName == _maxWtName;
+                                        var highlighted = isMaxCT || isMinCT || isMaxWT;
+                                        var fillPct    = _maxCtVal > 0 ? flow.CT * 100.0 / _maxCtVal : 0;
+                                        var mtPct      = flow.CT > 0 ? flow.MT * 100.0 / flow.CT : 0;
+                                        var wtPct      = 100.0 - mtPct;
+                                        var rowBorder  = isMaxCT ? "outline:1.5px solid #ef5350;"
+                                                       : isMinCT ? "outline:1.5px solid #26a69a;"
+                                                       : isMaxWT ? "outline:1.5px solid #fb8c00;" : "";
+                                        var rowStyle   = $"display:flex; align-items:center; margin-bottom:3px; padding:3px 6px; border-radius:6px;{(highlighted ? " background:rgba(0,0,0,0.03); " + rowBorder : "")}";
+                                        <div style="@rowStyle">
+                                            <div style="@($"width:120px; font-size:12px; font-weight:{(highlighted ? "700" : "400")}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:6px;")">
+                                                @flow.FlowName
+                                            </div>
+                                            <div style="flex:1; height:18px; background:#e9e9e9; border-radius:4px; overflow:hidden; margin:0 8px;">
+                                                <div style="@($"display:flex; height:100%; width:{fillPct:F1}%;")">
+                                                    <div style="@($"width:{mtPct:F1}%; background:#42A5F5; height:100%;")"></div>
+                                                    <div style="@($"width:{wtPct:F1}%; background:#FFA726; height:100%;")"></div>
+                                                </div>
+                                            </div>
+                                            <div style="width:60px; font-size:11px; color:#555; text-align:right;">@FormatMs(flow.CT)</div>
+                                            <div style="width:80px; display:flex; gap:3px; justify-content:flex-end; padding-left:4px;">
+                                                @if (isMaxCT) { <span style="font-size:8px; padding:1px 4px; border-radius:8px; background:#ef5350; color:white;">최대</span> }
+                                                @if (isMinCT) { <span style="font-size:8px; padding:1px 4px; border-radius:8px; background:#26a69a; color:white;">최소</span> }
+                                                @if (isMaxWT) { <span style="font-size:8px; padding:1px 4px; border-radius:8px; background:#fb8c00; color:white;">대기↑</span> }
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                                else
+                                {
+                                    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:40px 0; color:#bdbdbd;">
+                                        <MudIcon Icon="@Icons.Material.Filled.BarChart" Style="font-size:48px;" />
+                                        <MudText Typo="Typo.body2">CT 데이터가 없습니다</MudText>
+                                    </div>
+                                }
+                            </MudCardContent>
+                        </MudCard>
+                    }
+
                 </div>
             }
-        </MudCardContent>
-    </MudCard>
+        }
+    </div>
 }
 
-<div style="border-top: 1px solid #e0e0e0; padding: 8px 16px;
-            display: flex; justify-content: space-between; align-items: center;">
-    <MudButton Variant="Variant.Outlined" Color="Color.Default"
-               StartIcon="@Icons.Material.Filled.DashboardCustomize">
-        대시보드 수정
+<div style="border-top:1px solid #e0e0e0; padding:8px 16px;
+            display:flex; justify-content:space-between; align-items:center;">
+    <MudButton Variant="@(_isEditing ? Variant.Filled : Variant.Outlined)"
+               Color="@(_isEditing ? Color.Warning : Color.Default)"
+               StartIcon="@(_isEditing ? Icons.Material.Filled.Check : Icons.Material.Filled.DashboardCustomize)"
+               OnClick="ToggleEdit">
+        @(_isEditing ? "수정 완료" : "대시보드 수정")
     </MudButton>
     <MudButton Variant="Variant.Outlined" Color="Color.Primary"
                StartIcon="@Icons.Material.Filled.Edit"
@@ -294,18 +271,7 @@ else
 </div>
 
 @code {
-    private Ds2.Core.Project? _project;
-    private List<Ds2.Core.DsSystem> _activeSystems = [];
-    private List<Ds2.Core.DsSystem> _passiveSystems = [];
-    private int _systemCount;
-    private int _flowCount;
-    private int _workCount;
-    private List<FlowTimeInfo> _flowTimeInfos = [];
     private DspDbSnapshot _dbSnapshot = new();
-    private static readonly ChartOptions _mtWtChartOptions = new()
-    {
-        ChartPalette = ["#42A5F5", "#FFA726"]
-    };
 
     // 도면 레이아웃 필드
     private int _cw, _ch, _cellW, _cellH, _ox, _oy;
@@ -323,7 +289,36 @@ else
     private string? _maxCtName, _minCtName, _maxWtName;
     private int _maxCtVal;
 
-    private int ErrorCallCount => _dbSnapshot.Calls.Count(c => c.State.Equals("Error", StringComparison.OrdinalIgnoreCase));
+    // 대시보드 레이아웃 설정
+    private bool _isEditing;
+    private List<string> _widgetOrder    = ["layout", "ct"];
+    private HashSet<string> _hiddenWidgets = [];
+    private string _direction            = "vertical";   // "horizontal" | "vertical"
+    private string _ratio                = "1:1";
+
+    private static readonly string[] RatioOptions = ["1:3", "1:2", "1:1", "2:1", "3:1"];
+
+    private static readonly Dictionary<string, string> WidgetTitles = new()
+    {
+        ["layout"] = "도면 레이아웃",
+        ["ct"]     = "CT 분석",
+    };
+    private static string GetWidgetTitle(string id) =>
+        WidgetTitles.TryGetValue(id, out var t) ? t : id;
+
+    /// <summary>
+    /// 비율에 따라 위젯 flex 스타일 반환.
+    /// horizontal → flex-basis(너비), vertical → flex(높이) 모두 동일 로직.
+    /// </summary>
+    private string GetWidgetContainerStyle(string widgetId)
+    {
+        var parts     = _ratio.Split(':');
+        var leftFlex  = int.Parse(parts[0]);
+        var rightFlex = int.Parse(parts[1]);
+        var isFirst   = _widgetOrder.Count > 0 && _widgetOrder[0] == widgetId;
+        var flex      = isFirst ? leftFlex : rightFlex;
+        return $"flex: {flex}; min-width: 0; min-height: 0;";
+    }
 
     protected override void OnInitialized()
     {
@@ -335,17 +330,40 @@ else
         _cellW = layout.CellWidth; _cellH = layout.CellHeight;
         _ox = layout.OffsetX; _oy = layout.OffsetY;
         UpdateChartCache();
+    }
 
-        if (!ProjectService.IsLoaded) return;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("localStorage.getItem", "dsp-dashboard-layout-v5");
+            if (json == null) return;
+            var doc = System.Text.Json.JsonDocument.Parse(json);
 
-        _project = ProjectService.GetProject();
-        _activeSystems = ProjectService.GetActiveSystems();
-        _passiveSystems = ProjectService.GetPassiveSystems();
-        _systemCount = _activeSystems.Count + _passiveSystems.Count;
-        _flowCount = ProjectService.GetAllFlows().Count;
-        _workCount = ProjectService.GetTotalWorkCount();
+            if (doc.RootElement.TryGetProperty("order", out var orderEl))
+            {
+                var loaded = orderEl.EnumerateArray()
+                    .Select(e => e.GetString()!)
+                    .Where(s => _widgetOrder.Contains(s))
+                    .ToList();
+                foreach (var w in _widgetOrder.Where(w => !loaded.Contains(w)))
+                    loaded.Add(w);
+                _widgetOrder = loaded;
+            }
+            if (doc.RootElement.TryGetProperty("hidden", out var hiddenEl))
+                _hiddenWidgets = hiddenEl.EnumerateArray()
+                    .Select(e => e.GetString()!)
+                    .Where(s => s != null)
+                    .ToHashSet();
+            if (doc.RootElement.TryGetProperty("direction", out var dirEl) && dirEl.GetString() is string dir)
+                _direction = dir;
+            if (doc.RootElement.TryGetProperty("ratio", out var ratioEl) && ratioEl.GetString() is string rat)
+                _ratio = rat;
 
-        BuildFlowTimeInfos();
+            StateHasChanged();
+        }
+        catch { }
     }
 
     private async void OnDbDataChanged()
@@ -355,103 +373,71 @@ else
         await InvokeAsync(StateHasChanged);
     }
 
-    public void Dispose()
+    public void Dispose() => DbService.OnDataChanged -= OnDbDataChanged;
+
+    private void ToggleEdit() => _isEditing = !_isEditing;
+
+    private void SetDirection(string dir)
     {
-        DbService.OnDataChanged -= OnDbDataChanged;
+        _direction = dir;
+        _ = SaveLayoutAsync();
     }
 
-    private void BuildFlowTimeInfos()
+    private void SetRatio(string ratio)
     {
-        foreach (var system in _activeSystems)
+        _ratio = ratio;
+        _ = SaveLayoutAsync();
+    }
+
+    private void SwapWidgets()
+    {
+        (_widgetOrder[0], _widgetOrder[1]) = (_widgetOrder[1], _widgetOrder[0]);
+        _ = SaveLayoutAsync();
+    }
+
+    private void ToggleVisibility(string widgetId)
+    {
+        if (!_hiddenWidgets.Add(widgetId)) _hiddenWidgets.Remove(widgetId);
+        _ = SaveLayoutAsync();
+    }
+
+    private async Task SaveLayoutAsync()
+    {
+        try
         {
-            var flows = ProjectService.GetFlows(system.Id);
-            foreach (var flow in flows)
+            var json = System.Text.Json.JsonSerializer.Serialize(new
             {
-                var works = ProjectService.GetWorks(flow.Id);
-                if (works.Count == 0) continue;
-
-                var info = new FlowTimeInfo
-                {
-                    FlowName = flow.Name,
-                    SystemName = system.Name,
-                    WorkCount = works.Count
-                };
-
-                var labels = new List<string>();
-                var data = new List<double>();
-                var totalSeconds = 0.0;
-
-                foreach (var work in works)
-                {
-                    var period = Microsoft.FSharp.Core.FSharpOption<TimeSpan>.get_IsSome(work.Properties.Period)
-                        ? work.Properties.Period.Value
-                        : TimeSpan.Zero;
-                    var seconds = period.TotalSeconds;
-                    if (seconds <= 0) seconds = 1; // minimum 1s for display
-                    labels.Add(work.Name);
-                    data.Add(seconds);
-                    totalSeconds += period.TotalSeconds;
-                }
-
-                info.ChartLabels = labels.ToArray();
-                info.ChartData = data.ToArray();
-                info.TotalTime = FormatTime(TimeSpan.FromSeconds(totalSeconds));
-
-                _flowTimeInfos.Add(info);
-            }
+                order     = _widgetOrder,
+                hidden    = _hiddenWidgets.ToList(),
+                direction = _direction,
+                ratio     = _ratio,
+            });
+            await JS.InvokeVoidAsync("localStorage.setItem", "dsp-dashboard-layout-v5", json);
         }
+        catch { }
     }
 
     private (int Mt, int Wt)? GetFlowMtWt(string flowName)
     {
-        var flowState = _dbSnapshot.Flows
-            .FirstOrDefault(f => f.FlowName == flowName);
-        if (flowState?.MT == null && flowState?.WT == null)
-            return null;
-        return (flowState.MT ?? 0, flowState.WT ?? 0);
+        var s = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == flowName);
+        if (s?.MT == null && s?.WT == null) return null;
+        return (s.MT ?? 0, s.WT ?? 0);
     }
 
-    private static string FormatTime(TimeSpan ts)
-    {
-        if (ts.TotalHours >= 1)
-            return $"{ts.TotalHours:F1}h";
-        if (ts.TotalMinutes >= 1)
-            return $"{ts.TotalMinutes:F1}m";
-        return $"{ts.TotalSeconds:F1}s";
-    }
-
-    private class FlowTimeInfo
-    {
-        public string FlowName { get; set; } = "";
-        public string SystemName { get; set; } = "";
-        public int WorkCount { get; set; }
-        public string TotalTime { get; set; } = "0s";
-        public double[] ChartData { get; set; } = [];
-        public string[] ChartLabels { get; set; } = [];
-    }
-
-    // 도면/CT 차트 헬퍼
     private string GetFlowColor(string flowName, Guid systemId)
     {
-        var flowState = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == flowName);
-        if (flowState == null) return GetSystemColor(systemId);
-        return flowState.State?.ToLowerInvariant() switch
+        var s = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == flowName);
+        if (s == null) return GetSystemColor(systemId);
+        return s.State?.ToLowerInvariant() switch
         {
-            "ready" => "#9E9E9E",
-            "going" => "#4CAF50",
-            "done"  => "#2196F3",
-            "error" => "#F44336",
-            "pause" => "#FF9800",
-            "abort" => "#9C27B0",
+            "ready" => "#9E9E9E", "going" => "#4CAF50", "done"  => "#2196F3",
+            "error" => "#F44336", "pause" => "#FF9800", "abort" => "#9C27B0",
             _ => "#9E9E9E",
         };
     }
 
-    private string GetFlowStateLabel(string flowName)
-    {
-        var flowState = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == flowName);
-        return flowState?.State ?? "";
-    }
+    private string GetFlowStateLabel(string flowName) =>
+        _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == flowName)?.State ?? "";
 
     private string GetSystemColor(Guid systemId)
     {
@@ -462,29 +448,20 @@ else
 
     private void UpdateChartCache()
     {
-        _chartData = GetChartData();
-        _maxCtName = _chartData.Count > 0 ? _chartData[0].FlowName : null;
-        _minCtName = _chartData.Count > 1 ? _chartData[^1].FlowName : null;
-        _maxWtName = _chartData.Count > 0
-            ? _chartData.OrderByDescending(f => f.WTRatio).First().FlowName
-            : null;
-        _maxCtVal = _chartData.Count > 0 ? _chartData[0].CT : 1;
-    }
-
-    private List<(string FlowName, int MT, int WT, int CT, double WTRatio)> GetChartData()
-    {
-        return BlueprintService.Layout.FlowPlacements
+        _chartData = BlueprintService.Layout.FlowPlacements
             .Select(fp =>
             {
-                var state = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == fp.FlowName);
-                var mt = state?.MT ?? 0;
-                var wt = state?.WT ?? 0;
-                var ct = mt + wt;
+                var s = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == fp.FlowName);
+                var mt = s?.MT ?? 0; var wt = s?.WT ?? 0; var ct = mt + wt;
                 return (fp.FlowName, mt, wt, ct, ct > 0 ? (double)wt / ct : 0.0);
             })
             .Where(f => f.ct > 0)
             .OrderByDescending(f => f.ct)
             .ToList();
+        _maxCtName = _chartData.Count > 0 ? _chartData[0].FlowName : null;
+        _minCtName = _chartData.Count > 1 ? _chartData[^1].FlowName : null;
+        _maxWtName = _chartData.Count > 0 ? _chartData.OrderByDescending(f => f.WTRatio).First().FlowName : null;
+        _maxCtVal  = _chartData.Count > 0 ? _chartData[0].CT : 1;
     }
 
     private static string FormatMs(int ms)
