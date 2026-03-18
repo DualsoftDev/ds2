@@ -72,6 +72,20 @@ public class FlowMetricsService : IFlowMetricsService
                     // 캐시 저장
                     _flowAnalysisCache[flow.Name] = analysisResult;
 
+                    // 복수 Head/Tail 경고
+                    if (analysisResult.HeadCount > 1)
+                    {
+                        _logger.LogWarning(
+                            "Flow '{FlowName}' has {HeadCount} head calls. Using first head only for cycle tracking.",
+                            flow.Name, analysisResult.HeadCount);
+                    }
+                    if (analysisResult.TailCount > 1)
+                    {
+                        _logger.LogWarning(
+                            "Flow '{FlowName}' has {TailCount} tail calls. Using first tail only for cycle tracking.",
+                            flow.Name, analysisResult.TailCount);
+                    }
+
                     // DB에 MovingStartName/MovingEndName 설정
                     if (analysisResult.MovingStartName != null || analysisResult.MovingEndName != null)
                     {

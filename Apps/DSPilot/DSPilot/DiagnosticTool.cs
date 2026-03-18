@@ -80,8 +80,25 @@ public static class DiagnosticTool
 
                 Console.WriteLine($"\n  DAG Analysis Result:");
                 Console.WriteLine($"    Representative Work: {result.RepresentativeWorkName ?? "None"}");
-                Console.WriteLine($"    Head Calls: {string.Join(", ", result.HeadCalls.Select(c => c.Name))}");
-                Console.WriteLine($"    Tail Calls: {string.Join(", ", result.TailCalls.Select(c => c.Name))}");
+
+                // Head Call 정보
+                var headCallName = Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Call>.get_IsSome(result.HeadCall)
+                    ? result.HeadCall.Value.Name
+                    : "None";
+                Console.WriteLine($"    Head Call: {headCallName} (Total: {result.HeadCount})");
+
+                // Tail Call 정보
+                var tailCallName = Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Call>.get_IsSome(result.TailCall)
+                    ? result.TailCall.Value.Name
+                    : "None";
+                Console.WriteLine($"    Tail Call: {tailCallName} (Total: {result.TailCount})");
+
+                // 복수 Head/Tail 경고
+                if (result.HeadCount > 1)
+                    Console.WriteLine($"    [WARNING] Multiple heads detected, using first only");
+                if (result.TailCount > 1)
+                    Console.WriteLine($"    [WARNING] Multiple tails detected, using first only");
+
                 Console.WriteLine($"    MovingStartName: {result.MovingStartName ?? "None"}");
                 Console.WriteLine($"    MovingEndName: {result.MovingEndName ?? "None"}");
             }

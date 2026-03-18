@@ -48,9 +48,10 @@ module FlowAnalysis =
     }
 
     /// <summary>
-    /// Group arrow 평탄화
-    /// 예: A→B, B→C (Group), B→D, C→D이면
-    /// 결과: A→B, A→C, B→D, C→D
+    /// Group arrow 평탄화 (Union-Find로 그룹 병합)
+    /// 예: A→B, B→C (Group), C→D (Group), D→E이면
+    /// - Group: [B, C, D] (Union-Find로 병합)
+    /// - 결과: A→B, A→C, A→D, B→E, C→E, D→E
     /// </summary>
     let flattenGroupArrows (arrows: ArrowBetweenCalls list) : (Guid * Guid) list =
         // Start arrow만 사용 (Group arrow는 그룹 관계 정의만 사용)
@@ -60,20 +61,43 @@ module FlowAnalysis =
         if groupArrows.IsEmpty then
             startArrows |> List.map (fun a -> (a.SourceId, a.TargetId))
         else
-            // Group 관계 파악: X→{Y,Z} 형태로 Group arrow가 있으면
-            // X,Y,Z가 모두 같은 그룹에 속함
-            let groups =
-                groupArrows
-                |> List.groupBy (fun a -> a.SourceId)
-                |> List.map (fun (src, grpArrows) ->
-                    src :: (grpArrows |> List.map (fun a -> a.TargetId)))
+            // Union-Find로 그룹 병합
+            let parent = Dictionary<Guid, Guid>()
 
-            // 각 노드가 속한 그룹 찾기
+            let rec find (x: Guid) =
+                if not (parent.ContainsKey x) then
+                    parent.[x] <- x
+                    x
+                elif parent.[x] = x then
+                    x
+                else
+                    let root = find parent.[x]
+                    parent.[x] <- root  // Path compression
+                    root
+
+            let union (x: Guid) (y: Guid) =
+                let rootX = find x
+                let rootY = find y
+                if rootX <> rootY then
+                    parent.[rootY] <- rootX
+
+            // Group arrow로 연결된 모든 노드를 같은 그룹으로 병합
+            for arrow in groupArrows do
+                union arrow.SourceId arrow.TargetId
+
+            // 각 루트별로 그룹 멤버 수집
+            let groupsByRoot =
+                parent.Keys
+                |> Seq.groupBy find
+                |> Seq.map (fun (root, members) -> (root, members |> Seq.toList))
+                |> dict
+
+            // 노드 → 그룹 멤버 리스트 매핑
             let nodeToGroup =
-                groups
-                |> List.mapi (fun idx members -> members |> List.map (fun m -> (m, (idx, members))))
-                |> List.concat
-                |> Map.ofList
+                groupsByRoot
+                |> Seq.collect (fun kvp ->
+                    kvp.Value |> List.map (fun node -> (node, kvp.Value)))
+                |> Map.ofSeq
 
             // Start arrow 평탄화
             startArrows
@@ -84,13 +108,13 @@ module FlowAnalysis =
                 // src가 그룹에 속하면 그룹 멤버 모두, 아니면 src만
                 let sources =
                     match nodeToGroup.TryFind src with
-                    | Some (_, members) -> members
+                    | Some members -> members
                     | None -> [src]
 
                 // tgt가 그룹에 속하면 그룹 멤버 모두, 아니면 tgt만
                 let targets =
                     match nodeToGroup.TryFind tgt with
-                    | Some (_, members) -> members
+                    | Some members -> members
                     | None -> [tgt]
 
                 // 모든 조합
@@ -173,24 +197,34 @@ module FlowAnalysis =
             invalidOp $"Cycle detected in Call DAG. Visited {visitedCount} out of {dag.Length} nodes."
 
     /// <summary>
-    /// Head Call 찾기 (in-degree = 0)
-    /// - 여러 개면 Name 오름차순 정렬
+    /// Head Call 찾기 (in-degree = 0인 노드 중 Name 오름차순 첫 번째)
+    /// - 복수 Head가 있으면 첫 번째만 선택 (병렬 시작점은 지원 안 함)
+    /// - 반환: (선택된 Head Call option, 전체 Head 수)
     /// </summary>
-    let findHeadCalls (dag: CallDagNode list) : Call list =
-        dag
-        |> List.filter (fun n -> n.InDegree = 0)
-        |> List.map (fun n -> n.Call)
-        |> List.sortBy (fun c -> c.Name)
+    let findHeadCall (dag: CallDagNode list) : Call option * int =
+        let heads =
+            dag
+            |> List.filter (fun n -> n.InDegree = 0)
+            |> List.map (fun n -> n.Call)
+            |> List.sortBy (fun c -> c.Name)
+
+        let headCall = heads |> List.tryHead
+        (headCall, heads.Length)
 
     /// <summary>
-    /// Tail Call 찾기 (out-degree = 0)
-    /// - 여러 개면 Name 오름차순 정렬
+    /// Tail Call 찾기 (out-degree = 0인 노드 중 Name 오름차순 첫 번째)
+    /// - 복수 Tail이 있으면 첫 번째만 선택 (병렬 종료점은 지원 안 함)
+    /// - 반환: (선택된 Tail Call option, 전체 Tail 수)
     /// </summary>
-    let findTailCalls (dag: CallDagNode list) : Call list =
-        dag
-        |> List.filter (fun n -> n.OutDegree = 0)
-        |> List.map (fun n -> n.Call)
-        |> List.sortBy (fun c -> c.Name)
+    let findTailCall (dag: CallDagNode list) : Call option * int =
+        let tails =
+            dag
+            |> List.filter (fun n -> n.OutDegree = 0)
+            |> List.map (fun n -> n.Call)
+            |> List.sortBy (fun c -> c.Name)
+
+        let tailCall = tails |> List.tryHead
+        (tailCall, tails.Length)
 
     /// <summary>
     /// Flow 분석 결과
@@ -200,8 +234,10 @@ module FlowAnalysis =
         FlowId: Guid
         RepresentativeWorkId: Guid option
         RepresentativeWorkName: string option
-        HeadCalls: Call list
-        TailCalls: Call list
+        HeadCall: Call option
+        TailCall: Call option
+        HeadCount: int
+        TailCount: int
         MovingStartName: string option
         MovingEndName: string option
     }
@@ -233,8 +269,10 @@ module FlowAnalysis =
                 FlowId = flow.Id
                 RepresentativeWorkId = None
                 RepresentativeWorkName = None
-                HeadCalls = []
-                TailCalls = []
+                HeadCall = None
+                TailCall = None
+                HeadCount = 0
+                TailCount = 0
                 MovingStartName = None
                 MovingEndName = None
             }
@@ -247,8 +285,10 @@ module FlowAnalysis =
                     FlowId = flow.Id
                     RepresentativeWorkId = Some repWork.Id
                     RepresentativeWorkName = Some repWork.Name
-                    HeadCalls = []
-                    TailCalls = []
+                    HeadCall = None
+                    TailCall = None
+                    HeadCount = 0
+                    TailCount = 0
                     MovingStartName = None
                     MovingEndName = None
                 }
@@ -260,19 +300,30 @@ module FlowAnalysis =
                 let flattenedEdges = flattenGroupArrows allArrows
                 detectCycle dag flattenedEdges
 
-                let headCalls = findHeadCalls dag
-                let tailCalls = findTailCalls dag
+                // Head/Tail Call 찾기 (단일 선택 + 전체 개수)
+                let (headCall, headCount) = findHeadCall dag
+                let (tailCall, tailCount) = findTailCall dag
 
-                let movingStartName = headCalls |> List.tryHead |> Option.map (fun c -> c.Name)
-                let movingEndName = tailCalls |> List.tryHead |> Option.map (fun c -> c.Name)
+                // 복수 Head/Tail 경고 (콘솔 출력)
+                if headCount > 1 then
+                    printfn "[WARNING] Flow '%s': %d heads found, using first '%s'"
+                        flow.Name headCount (headCall |> Option.map (fun c -> c.Name) |> Option.defaultValue "N/A")
+                if tailCount > 1 then
+                    printfn "[WARNING] Flow '%s': %d tails found, using first '%s'"
+                        flow.Name tailCount (tailCall |> Option.map (fun c -> c.Name) |> Option.defaultValue "N/A")
+
+                let movingStartName = headCall |> Option.map (fun c -> c.Name)
+                let movingEndName = tailCall |> Option.map (fun c -> c.Name)
 
                 {
                     FlowName = flow.Name
                     FlowId = flow.Id
                     RepresentativeWorkId = Some repWork.Id
                     RepresentativeWorkName = Some repWork.Name
-                    HeadCalls = headCalls
-                    TailCalls = tailCalls
+                    HeadCall = headCall
+                    TailCall = tailCall
+                    HeadCount = headCount
+                    TailCount = tailCount
                     MovingStartName = movingStartName
                     MovingEndName = movingEndName
                 }
