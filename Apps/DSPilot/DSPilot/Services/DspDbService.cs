@@ -192,12 +192,12 @@ public class DspDbService : IDisposable
 
             // 실제 변경이 있을 때만 이벤트 발행 (불필요한 Blazor 렌더링 방지)
             // Dictionary 사용으로 O(N) 비교 (중첩 Any의 O(N²) 방지)
-            // FlowName + CallName을 조합한 고유 키 사용 (같은 Call 이름이 여러 Flow에 존재 가능)
-            var oldStateMap = _snapshot.Calls.ToDictionary(c => $"{c.FlowName}:{c.CallName}", c => c.State);
+            // Call Id를 고유 키로 사용 (같은 Flow에도 같은 이름의 Call이 여러 개 존재 가능)
+            var oldStateMap = _snapshot.Calls.ToDictionary(c => c.Id, c => c.State);
             bool hasChanged =
                 calls.Count != _snapshot.Calls.Count ||
                 flows.Count != _snapshot.Flows.Count ||
-                calls.Any(c => !oldStateMap.TryGetValue($"{c.FlowName}:{c.CallName}", out var oldState) || oldState != c.State);
+                calls.Any(c => !oldStateMap.TryGetValue(c.Id, out var oldState) || oldState != c.State);
 
             if (!hasChanged) return;
 
