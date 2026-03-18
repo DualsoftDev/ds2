@@ -3,10 +3,6 @@
 
 <MudNavMenu Color="Color.Primary">
     <MudNavLink Href="/" Match="NavLinkMatch.All"
-                Icon="@Icons.Material.Filled.GridView">
-        레이아웃
-    </MudNavLink>
-    <MudNavLink Href="/dashboard" Match="NavLinkMatch.Prefix"
                 Icon="@Icons.Material.Filled.SpaceDashboard">
         대시보드
     </MudNavLink>
@@ -25,10 +21,6 @@
 
     <MudDivider Class="my-2" />
 
-    <MudText Typo="Typo.overline" Class="px-4 mt-2" Color="Color.Secondary">
-        FLOWS
-    </MudText>
-
     @if (!ProjectService.IsLoaded)
     {
         <MudText Typo="Typo.caption" Class="px-4 py-2" Color="Color.Tertiary">
@@ -39,30 +31,29 @@
     {
         @foreach (var systemFlows in _systemFlowMap)
         {
-            <MudText Typo="Typo.subtitle2" Class="px-4 mt-2">@systemFlows.Key</MudText>
-            <div style="margin-left: 24px; border-left: 1px solid #ccc;">
+            <MudText Typo="Typo.h6" Class="px-4 mt-2 mb-1" Style="font-weight:700;">@systemFlows.Key</MudText>
+            <div style="margin-left: 24px;">
                 @{ var flowList = systemFlows.Value; }
                 @for (int i = 0; i < flowList.Count; i++)
                 {
                     var idx = i;
                     var flow = flowList[idx];
                     var isLast = idx == flowList.Count - 1;
-                    <div style="position: relative; padding: 4px 0 4px 16px;
-                                @(isLast ? "border-left: 1px solid transparent; margin-left: -1px;" : "")">
-                        <span style="position: absolute; left: -1px; top: 50%;
-                                     width: 12px; height: 0;
-                                     border-top: 1px solid #ccc;"></span>
-                        @if (isLast)
-                        {
-                            <span style="position: absolute; left: -1px; top: 0;
-                                         width: 0; height: 50%;
-                                         border-left: 1px solid #ccc;"></span>
-                        }
-                        <MudLink Typo="Typo.body2" Underline="Underline.None"
-                                 Style="color: #424242; cursor: pointer;"
-                                 OnClick="@(() => Nav.NavigateTo($"/chart?flow={Uri.EscapeDataString(flow.Name)}"))">
+                    var isSelected = _selectedFlow == flow.Name;
+                    <div @onclick="@(() => SelectFlow(flow.Name))"
+                         style="position: relative; padding: 4px 0 4px 16px; cursor: pointer; border-radius: 4px;
+                                background: @(isSelected ? "rgba(var(--mud-palette-primary-rgb), 0.15)" : "transparent");">
+                        <span style="position: absolute; left: 0; top: 0;
+                                     width: 1px; height: @(isLast ? "50%" : "100%");
+                                     background: #ccc;"></span>
+                        <span style="position: absolute; left: 0; top: 50%;
+                                     width: 12px; height: 1px;
+                                     background: #ccc;"></span>
+                        <span style="font-size: 0.875rem;
+                                     font-weight: @(isSelected ? "700" : "400");
+                                     color: @(isSelected ? "var(--mud-palette-primary)" : "#424242");">
                             @flow.Name
-                        </MudLink>
+                        </span>
                     </div>
                 }
             </div>
@@ -72,6 +63,7 @@
 
 @code {
     private Dictionary<string, List<Ds2.Core.Flow>> _systemFlowMap = new();
+    private string? _selectedFlow;
 
     protected override void OnInitialized()
     {
@@ -86,5 +78,11 @@
                 _systemFlowMap[system.Name] = flows;
             }
         }
+    }
+
+    private void SelectFlow(string flowName)
+    {
+        _selectedFlow = flowName;
+        Nav.NavigateTo($"/chart?flow={Uri.EscapeDataString(flowName)}");
     }
 }

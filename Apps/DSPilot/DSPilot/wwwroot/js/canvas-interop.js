@@ -103,6 +103,22 @@ window.canvasInterop = {
         this._svgEl.style.cursor = 'grabbing';
     },
 
+    _checkOverlap: function (col, row, colSpan, rowSpan, excludeFlowId) {
+        var nodes = this._svgEl.querySelectorAll('[data-flow-id]');
+        for (var i = 0; i < nodes.length; i++) {
+            var n = nodes[i];
+            if (n.getAttribute('data-flow-id') === excludeFlowId) continue;
+            var nc = parseInt(n.getAttribute('data-col') || '0');
+            var nr = parseInt(n.getAttribute('data-row') || '0');
+            var ncs = parseInt(n.getAttribute('data-colspan') || '1');
+            var nrs = parseInt(n.getAttribute('data-rowspan') || '1');
+            var colOvlp = col < nc + ncs && col + colSpan > nc;
+            var rowOvlp = row < nr + nrs && row + rowSpan > nr;
+            if (colOvlp && rowOvlp) return true;
+        }
+        return false;
+    },
+
     _onMouseMove: function (evt) {
         if (!this._dragState) return;
         evt.preventDefault();
@@ -129,6 +145,16 @@ window.canvasInterop = {
         var dx = (newCol - this._dragState.startCol) * this._cellW;
         var dy = (newRow - this._dragState.startRow) * this._cellH;
         this._dragState.groupEl.setAttribute('transform', 'translate(' + dx + ',' + dy + ')');
+
+        // Overlap feedback: highlight rect red if target is occupied
+        var rect = this._dragState.groupEl.querySelector('rect');
+        if (rect) {
+            var overlaps = this._checkOverlap(newCol, newRow,
+                this._dragState.colSpan, this._dragState.rowSpan,
+                this._dragState.flowId);
+            rect.style.stroke = overlaps ? '#e53935' : '';
+            rect.style.strokeWidth = overlaps ? '4' : '';
+        }
     },
 
     downloadFile: function (fileName, mimeType, base64) {
@@ -145,6 +171,8 @@ window.canvasInterop = {
 
         this._svgEl.style.cursor = '';
         this._dragState.groupEl.setAttribute('transform', '');
+        var rect = this._dragState.groupEl.querySelector('rect');
+        if (rect) { rect.style.stroke = ''; rect.style.strokeWidth = ''; }
 
         var finalCol = this._dragState.currentCol;
         var finalRow = this._dragState.currentRow;

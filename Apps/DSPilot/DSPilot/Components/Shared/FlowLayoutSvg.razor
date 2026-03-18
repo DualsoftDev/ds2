@@ -41,6 +41,8 @@
 
         var stateY = py + pad + innerH - 6;
 
+        var badges = GetBadges?.Invoke(fp)?.ToList() ?? new List<(string Label, string Color)>();
+
         <g>
             <rect x="@(px + pad)" y="@(py + pad)"
                   width="@innerW" height="@innerH"
@@ -81,6 +83,22 @@
                   font-size="9">
                 @stateLabel
             </text>
+
+            @* CT 배지 (최대/최소/대기) *@
+            @for (int bi = 0; bi < badges.Count; bi++)
+            {
+                var bLabel = badges[bi].Label;
+                var bColor = badges[bi].Color;
+                var bW = bLabel.Length <= 2 ? 22 : 28;
+                var bH = 11;
+                var bX = px + pad + innerW - bW - 3;
+                var bY = py + pad + 3 + bi * (bH + 2);
+                <g>
+                    <rect x="@bX" y="@bY" width="@bW" height="@bH" rx="3" ry="3" fill="@bColor" />
+                    <text x="@(bX + bW / 2)" y="@(bY + bH - 2)"
+                          text-anchor="middle" fill="white" font-size="8" font-weight="700">@bLabel</text>
+                </g>
+            }
         </g>
     }
 </svg>
@@ -100,6 +118,7 @@
     [Parameter] public Func<FlowPlacement, string>? GetSubtitle { get; set; }
     [Parameter] public Func<FlowPlacement, string>? GetStateLabel { get; set; }
     [Parameter] public Func<FlowPlacement, (int Mt, int Wt)?>? GetMtWt { get; set; }
+    [Parameter] public Func<FlowPlacement, IEnumerable<(string Label, string Color)>>? GetBadges { get; set; }
 
     private static string FormatMs(int ms)
     {
