@@ -20,9 +20,6 @@ public class FlowMetricsService : IFlowMetricsService
     // Flow별 분석 결과 캐시
     private readonly ConcurrentDictionary<string, FlowAnalysis.FlowAnalysisResult> _flowAnalysisCache = new();
 
-    // Call Name -> Flow Name 매핑 (빠른 조회용)
-    private readonly ConcurrentDictionary<string, string> _callToFlowMap = new();
-
     // Flow별 사이클 상태 추적 (Phase 2)
     private readonly ConcurrentDictionary<string, FlowCycleState> _flowCycleStates = new();
 
@@ -61,6 +58,18 @@ public class FlowMetricsService : IFlowMetricsService
             {
                 try
                 {
+                    // Flow의 Call 개수 확인 (단일 Call Flow는 제외)
+                    var works = _projectService.GetWorks(flow.Id);
+                    var totalCallCount = works.Sum(w => _projectService.GetCalls(w.Id).Count);
+
+                    if (totalCallCount < 2)
+                    {
+                        _logger.LogDebug("Flow '{FlowName}' has only {Count} call(s), skipping metrics tracking",
+                            flow.Name, totalCallCount);
+                        successCount++;
+                        continue;
+                    }
+
                     // F# FlowAnalysis 모듈 사용
                     var store = GetDsStore();
                     var analysisResult = FlowAnalysis.analyzeFlow(flow, store);
@@ -68,28 +77,34 @@ public class FlowMetricsService : IFlowMetricsService
                     // 캐시 저장
                     _flowAnalysisCache[flow.Name] = analysisResult;
 
-                    // Call -> Flow 매핑 구축
-                    var works = _projectService.GetWorks(flow.Id);
-                    foreach (var work in works)
-                    {
-                        var calls = _projectService.GetCalls(work.Id);
-                        foreach (var call in calls)
-                        {
-                            _callToFlowMap[call.Name] = flow.Name;
-                        }
-                    }
-
                     // DB에 MovingStartName/MovingEndName 설정
                     if (analysisResult.MovingStartName != null || analysisResult.MovingEndName != null)
                     {
 #pragma warning disable CS8602 // F# Option interop - get_IsSome guarantees Value is not null
-                        var movingStartName = Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(analysisResult.MovingStartName)
+                        var movingStartCallName = Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(analysisResult.MovingStartName)
                             ? analysisResult.MovingStartName.Value
                             : null;
-                        var movingEndName = Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(analysisResult.MovingEndName)
+                        var movingEndCallName = Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(analysisResult.MovingEndName)
                             ? analysisResult.MovingEndName.Value
                             : null;
 #pragma warning restore CS8602
+
+                        // MovingStartName과 MovingEndName이 같으면 skip (단일 Call Flow)
+                        if (movingStartCallName == movingEndCallName)
+                        {
+                            _logger.LogDebug("Flow '{FlowName}' has same MovingStart and MovingEnd ('{CallName}'), skipping metrics tracking",
+                                flow.Name, movingStartCallName);
+                            successCount++;
+                            continue;
+                        }
+
+                        // FlowName.CallName 형식으로 고유하게 저장
+                        var movingStartName = movingStartCallName != null
+                            ? $"{flow.Name}.{movingStartCallName}"
+                            : null;
+                        var movingEndName = movingEndCallName != null
+                            ? $"{flow.Name}.{movingEndCallName}"
+                            : null;
 
                         await _dspRepository.UpdateFlowMetricsAsync(
                             flow.Name,
@@ -157,16 +172,10 @@ public class FlowMetricsService : IFlowMetricsService
     /// <summary>
     /// Phase 2: Call Going 시작 이벤트 처리
     /// </summary>
-    public void OnCallGoingStarted(string callName, DateTime timestamp)
+    public void OnCallGoingStarted(string flowName, string callName, DateTime timestamp)
     {
         try
         {
-            // Call이 어느 Flow에 속하는지 확인
-            if (!_callToFlowMap.TryGetValue(callName, out var flowName))
-            {
-                return; // 매핑되지 않은 Call은 무시
-            }
-
             // Flow의 사이클 상태 조회
             if (!_flowCycleStates.TryGetValue(flowName, out var state))
             {
@@ -176,42 +185,51 @@ public class FlowMetricsService : IFlowMetricsService
             // Head Call이 Going 시작한 경우
             if (state.HeadCallName == callName)
             {
-                // 이전 사이클 완료 시점이 있으면 WT 계산 가능
+                // 이전 사이클이 완료되었고 MT가 계산된 경우 WT/CT 계산 및 DB 업데이트
                 if (state.PreviousCycleFinish.HasValue && state.CurrentMT.HasValue)
                 {
+                    var prevMT = state.CurrentMT.Value;
                     var wt = (int)(timestamp - state.PreviousCycleFinish.Value).TotalMilliseconds;
-                    var ct = state.CurrentMT.Value + wt;
+                    var ct = prevMT + wt;
 
                     state.CurrentWT = wt;
                     state.CurrentCT = ct;
 
-                    // DB 갱신 (비동기 작업을 동기적으로 실행)
-                    Task.Run(async () =>
+                    // DB 갱신 (비동기 작업을 Fire-and-Forget 방식으로 실행)
+                    _ = Task.Run(async () =>
                     {
                         try
                         {
+                            // FlowName.CallName 형식으로 고유하게 저장
+                            var movingStartName = state.HeadCallName != null
+                                ? $"{flowName}.{state.HeadCallName}"
+                                : null;
+                            var movingEndName = state.TailCallName != null
+                                ? $"{flowName}.{state.TailCallName}"
+                                : null;
+
                             await _dspRepository.UpdateFlowMetricsAsync(
                                 flowName,
-                                mt: state.CurrentMT,
+                                mt: prevMT,
                                 wt: wt,
                                 ct: ct,
-                                movingStartName: state.HeadCallName,
-                                movingEndName: state.TailCallName);
+                                movingStartName: movingStartName,
+                                movingEndName: movingEndName);
 
-                            _logger.LogDebug(
+                            _logger.LogInformation(
                                 "Flow '{FlowName}' metrics updated: MT={MT}ms, WT={WT}ms, CT={CT}ms",
-                                flowName, state.CurrentMT, wt, ct);
+                                flowName, prevMT, wt, ct);
                         }
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Failed to update metrics for Flow '{FlowName}'", flowName);
                         }
-                    }).Wait();
+                    });
                 }
 
-                // 새 사이클 시작
+                // 새 사이클 시작 (MT는 tail 완료 시 계산됨)
                 state.CurrentCycleStart = timestamp;
-                state.CurrentMT = null; // 아직 tail이 완료되지 않음
+                // CurrentMT는 유지 (다음 Head에서 사용)
             }
         }
         catch (Exception ex)
@@ -223,16 +241,10 @@ public class FlowMetricsService : IFlowMetricsService
     /// <summary>
     /// Phase 2: Call 완료 이벤트 처리
     /// </summary>
-    public void OnCallFinished(string callName, DateTime timestamp)
+    public void OnCallFinished(string flowName, string callName, DateTime timestamp)
     {
         try
         {
-            // Call이 어느 Flow에 속하는지 확인
-            if (!_callToFlowMap.TryGetValue(callName, out var flowName))
-            {
-                return;
-            }
-
             // Flow의 사이클 상태 조회
             if (!_flowCycleStates.TryGetValue(flowName, out var state))
             {

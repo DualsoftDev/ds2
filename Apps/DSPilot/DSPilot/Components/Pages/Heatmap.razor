@@ -8,9 +8,17 @@
 <PageTitle>동작편차</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="mt-4">
-    <MudText Typo="Typo.h4" GutterBottom="true">동작편차</MudText>
+    <MudText Typo="Typo.h4" GutterBottom="true">
+        동작편차
+        <MudTooltip Text="각 Call의 실행 시간 통계를 분석하여 성능 이슈를 조기에 발견할 수 있습니다. 평균, 표준편차, 변동계수, 성능점수 등 다양한 메트릭으로 분석 가능합니다.">
+            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Color="Color.Primary" Style="cursor: help; margin-left: 8px;" />
+        </MudTooltip>
+    </MudText>
     <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-4">
         Call별 실행 통계를 시각적으로 분석합니다. 색상이 진할수록 성능 이슈가 있을 수 있습니다.
+        <MudTooltip Text="성능점수: 빠르고 안정적일수록 높음 (최고 100점) / 평균: 낮을수록 빠름 / 표준편차: 낮을수록 안정적 / 변동계수: 낮을수록 일관성 높음">
+            <MudIcon Icon="@Icons.Material.Filled.HelpOutline" Size="Size.Small" Color="Color.Secondary" Style="cursor: help; margin-left: 4px; vertical-align: middle;" />
+        </MudTooltip>
     </MudText>
 
     @* 필터 및 컨트롤 패널 *@
@@ -78,29 +86,43 @@
     @if (!IsLoading && FilteredGroups.Count > 0)
     {
         <MudPaper Class="pa-4 mb-4" Elevation="1">
-            <MudText Typo="Typo.subtitle2" Class="mb-2">범례</MudText>
+            <MudText Typo="Typo.subtitle2" Class="mb-2">
+                <MudTooltip Text="선택한 메트릭에 따라 색상이 자동으로 할당됩니다. 성능점수는 높을수록 좋고, 나머지는 낮을수록 좋습니다.">
+                    <span style="border-bottom: 1px dotted; cursor: help;">범례</span>
+                </MudTooltip>
+            </MudText>
             <MudGrid>
                 <MudItem xs="12" Class="d-flex flex-wrap align-center">
-                    <div class="heatmap-legend-item">
-                        <div class="heatmap-cell heatmap-excellent"></div>
-                        <MudText Typo="Typo.caption">우수</MudText>
-                    </div>
-                    <div class="heatmap-legend-item">
-                        <div class="heatmap-cell heatmap-good"></div>
-                        <MudText Typo="Typo.caption">양호</MudText>
-                    </div>
-                    <div class="heatmap-legend-item">
-                        <div class="heatmap-cell heatmap-fair"></div>
-                        <MudText Typo="Typo.caption">보통</MudText>
-                    </div>
-                    <div class="heatmap-legend-item">
-                        <div class="heatmap-cell heatmap-poor"></div>
-                        <MudText Typo="Typo.caption">개선 필요</MudText>
-                    </div>
-                    <div class="heatmap-legend-item">
-                        <div class="heatmap-cell heatmap-critical"></div>
-                        <MudText Typo="Typo.caption">심각</MudText>
-                    </div>
+                    <MudTooltip Text="성능점수 90점 이상 또는 변동계수 0.1 미만 - 매우 안정적이고 빠른 동작">
+                        <div class="heatmap-legend-item">
+                            <div class="heatmap-cell heatmap-excellent"></div>
+                            <MudText Typo="Typo.caption">우수</MudText>
+                        </div>
+                    </MudTooltip>
+                    <MudTooltip Text="성능점수 70-90점 또는 변동계수 0.1-0.2 - 양호한 성능">
+                        <div class="heatmap-legend-item">
+                            <div class="heatmap-cell heatmap-good"></div>
+                            <MudText Typo="Typo.caption">양호</MudText>
+                        </div>
+                    </MudTooltip>
+                    <MudTooltip Text="성능점수 50-70점 또는 변동계수 0.2-0.3 - 보통 수준의 성능">
+                        <div class="heatmap-legend-item">
+                            <div class="heatmap-cell heatmap-fair"></div>
+                            <MudText Typo="Typo.caption">보통</MudText>
+                        </div>
+                    </MudTooltip>
+                    <MudTooltip Text="성능점수 30-50점 또는 변동계수 0.3-0.5 - 개선이 필요한 수준">
+                        <div class="heatmap-legend-item">
+                            <div class="heatmap-cell heatmap-poor"></div>
+                            <MudText Typo="Typo.caption">개선 필요</MudText>
+                        </div>
+                    </MudTooltip>
+                    <MudTooltip Text="성능점수 30점 미만 또는 변동계수 0.5 이상 - 심각한 성능 문제, 즉시 점검 필요">
+                        <div class="heatmap-legend-item">
+                            <div class="heatmap-cell heatmap-critical"></div>
+                            <MudText Typo="Typo.caption">심각</MudText>
+                        </div>
+                    </MudTooltip>
                 </MudItem>
             </MudGrid>
         </MudPaper>
@@ -139,11 +161,31 @@
                             <HeaderContent>
                                 <MudTh>Call</MudTh>
                                 <MudTh>Work</MudTh>
-                                <MudTh Style="text-align: center;">평균 (ms)</MudTh>
-                                <MudTh Style="text-align: center;">표준편차 (ms)</MudTh>
-                                <MudTh Style="text-align: center;">변동계수</MudTh>
-                                <MudTh Style="text-align: center;">성능점수</MudTh>
-                                <MudTh Style="text-align: center;">실행횟수</MudTh>
+                                <MudTh Style="text-align: center;">
+                                    <MudTooltip Text="Call의 평균 실행 시간입니다. Going 상태가 시작되고 종료될 때까지의 평균 소요 시간을 밀리초 단위로 표시합니다.">
+                                        <span style="border-bottom: 1px dotted; cursor: help;">평균 (ms)</span>
+                                    </MudTooltip>
+                                </MudTh>
+                                <MudTh Style="text-align: center;">
+                                    <MudTooltip Text="실행 시간의 표준편차입니다. 값이 클수록 실행 시간의 변동이 크다는 의미로, 동작이 불안정할 수 있음을 나타냅니다.">
+                                        <span style="border-bottom: 1px dotted; cursor: help;">표준편차 (ms)</span>
+                                    </MudTooltip>
+                                </MudTh>
+                                <MudTh Style="text-align: center;">
+                                    <MudTooltip Text="변동계수 (CV)는 표준편차를 평균으로 나눈 값입니다. 실행 시간의 상대적 변동성을 나타내며, 0.1 미만은 안정적, 0.3 이상은 불안정한 것으로 판단합니다.">
+                                        <span style="border-bottom: 1px dotted; cursor: help;">변동계수</span>
+                                    </MudTooltip>
+                                </MudTh>
+                                <MudTh Style="text-align: center;">
+                                    <MudTooltip Text="평균 실행 시간과 변동계수를 종합하여 계산한 성능 점수입니다. 100점 만점이며, 점수가 높을수록 빠르고 안정적입니다. 90점 이상: 우수, 70-90: 양호, 50-70: 보통, 30-50: 개선 필요, 30점 미만: 심각">
+                                        <span style="border-bottom: 1px dotted; cursor: help;">성능점수</span>
+                                    </MudTooltip>
+                                </MudTh>
+                                <MudTh Style="text-align: center;">
+                                    <MudTooltip Text="Call이 Going 상태로 전환된 총 횟수입니다. 샘플 수가 많을수록 통계의 신뢰도가 높아집니다.">
+                                        <span style="border-bottom: 1px dotted; cursor: help;">실행횟수</span>
+                                    </MudTooltip>
+                                </MudTh>
                                 <MudTh Style="text-align: center;">@HeatmapService.GetMetricDisplayName(SelectedMetric)</MudTh>
                             </HeaderContent>
                             <RowTemplate>
