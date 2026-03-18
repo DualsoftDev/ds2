@@ -11,6 +11,9 @@ using Ds2.Core;
 using Ds2.UI.Core;
 using log4net;
 using Promaker.Dialogs;
+using Promaker.Presentation;
+using Promaker.Services;
+using Promaker.Resources;
 
 namespace Promaker.ViewModels;
 
@@ -26,15 +29,29 @@ public partial class MainViewModel : ObservableObject
     private bool _rebuildQueued;
     private readonly List<Action> _pendingRebuildActions = [];
 
+    // Services
+    private readonly IDialogService _dialogService;
+    private readonly IFileService _fileService;
+    private readonly IProjectService _projectService;
+
     public MainViewModel()
     {
         _dispatcher = Dispatcher.CurrentDispatcher;
         _store = new DsStore();
+
+        // Initialize services
+        _dialogService = new DialogService();
+        _fileService = new FileService();
+        _projectService = new ProjectService();
+
         Selection = new SelectionState(new SelectionHost(this));
         Canvas = new CanvasWorkspaceState(new CanvasHost(this));
         Simulation = new SimulationPanelState(() => _store, _dispatcher, Canvas.CanvasNodes, value => StatusText = value);
         PropertyPanel = new PropertyPanelState(new PropertyPanelHost(this));
         WireEvents();
+        LanguageManager.ApplySavedLanguage();
+        RefreshThemeState();
+        RefreshLanguageState();
     }
 
     public ObservableCollection<EntityNode> ControlTreeRoots { get; } = [];
@@ -69,6 +86,13 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(OpenIoBatchDialogCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenDurationBatchDialogCommand))]
     private bool _hasProject;
+    [ObservableProperty] private bool _isDarkTheme = ThemeManager.CurrentTheme == AppTheme.Dark;
+    [ObservableProperty] private string _themeButtonText = ThemeManager.CurrentTheme == AppTheme.Dark ? Strings.LightTheme : Strings.DarkTheme;
+    [ObservableProperty] private string _themeButtonGlyph = ThemeManager.CurrentTheme == AppTheme.Dark ? "☀" : "☾";
+    [ObservableProperty] private string _themeButtonToolTip = ThemeManager.CurrentTheme == AppTheme.Dark ? Strings.SwitchToLightTheme : Strings.SwitchToDarkTheme;
+    [ObservableProperty] private string _languageButtonText = LanguageManager.CurrentLanguage == AppLanguage.Korean ? "ENG" : "KOR";
+    [ObservableProperty] private string _languageButtonGlyph = "🌐";
+    [ObservableProperty] private string _languageButtonToolTip = LanguageManager.CurrentLanguage == AppLanguage.Korean ? "Switch to English" : "한국어로 전환";
     [ObservableProperty] private int _currentHistoryIndex;
     [ObservableProperty] private ArrowNode? _selectedArrow;
 
@@ -90,9 +114,51 @@ public partial class MainViewModel : ObservableObject
             FocusNameEditorRequested?.Invoke();
     }
 
+    [RelayCommand]
+    private void ToggleTheme()
+    {
+        ThemeManager.ToggleTheme();
+        RefreshThemeState();
+        StatusText = IsDarkTheme ? Strings.DarkThemeApplied : Strings.LightThemeApplied;
+    }
+
+    /// <summary>
+    /// 언어 전환 (Korean ↔ English)
+    /// TODO: Phase 1-5 완료 후 언어 버튼 활성화
+    /// - MainToolbar.xaml에서 Visibility="Collapsed" 제거
+    /// - 현재는 숨겨진 상태로 유지 (개발 진행 중)
+    /// </summary>
+    [RelayCommand]
+    private void ToggleLanguage()
+    {
+        LanguageManager.ToggleLanguage();
+        RefreshLanguageState();
+        RefreshThemeState(); // Refresh theme to update localized text
+        StatusText = LanguageManager.CurrentLanguage == AppLanguage.English
+            ? "English Language Applied"
+            : "한국어 적용";
+    }
+
     partial void OnSelectedNodeChanged(EntityNode? value)
     {
         PropertyPanel.SyncSelectedNode(value);
+    }
+
+    private void RefreshThemeState()
+    {
+        IsDarkTheme = ThemeManager.CurrentTheme == AppTheme.Dark;
+        ThemeButtonText = IsDarkTheme ? Strings.LightTheme : Strings.DarkTheme;
+        ThemeButtonGlyph = IsDarkTheme ? "☀" : "☾";
+        ThemeButtonToolTip = IsDarkTheme ? Strings.SwitchToLightTheme : Strings.SwitchToDarkTheme;
+    }
+
+    private void RefreshLanguageState()
+    {
+        LanguageButtonText = LanguageManager.CurrentLanguage == AppLanguage.Korean ? "ENG" : "KOR";
+        LanguageButtonGlyph = "🌐";
+        LanguageButtonToolTip = LanguageManager.CurrentLanguage == AppLanguage.Korean
+            ? "Switch to English"
+            : "한국어로 전환";
     }
 
     [RelayCommand]
@@ -151,7 +217,7 @@ public partial class MainViewModel : ObservableObject
         if (!IsDirty)
             return true;
 
-        var result = DialogHelpers.AskSaveChanges();
+        var result = _dialogService.AskSaveChanges();
         return DiscardChangesFlow.ShouldProceed(result, TrySaveFileDuringDiscardCheck);
     }
 
@@ -184,7 +250,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             Log.Error("Save failed during discard check", ex);
-            DialogHelpers.Warn($"저장 실패: {ex.Message}");
+            _dialogService.ShowWarning($"저장 실패: {ex.Message}");
             return false;
         }
     }

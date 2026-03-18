@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using log4net;
 using log4net.Config;
+using Promaker.Presentation;
 
 namespace Promaker;
 
@@ -43,6 +44,8 @@ public partial class App : Application
                 MessageBoxImage.Error);
             args.Handled = false;
         };
+
+        ThemeManager.ApplySavedTheme();
 
         Log.Info("=== Promaker startup ===");
         base.OnStartup(e);

@@ -81,6 +81,28 @@ public sealed class EntityTypeToBrushConverter : IValueConverter
         => Binding.DoNothing;
 }
 
+public sealed class EntityTypeToForegroundConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var kind = value is EntityKind ek ? ek : EntityKind.Project;
+        var key = kind switch
+        {
+            EntityKind.System => "ContrastDarkTextBrush",
+            EntityKind.Project => "ContrastDarkTextBrush",
+            EntityKind.Flow => "AccentTextBrush",
+            EntityKind.DeviceRoot => "AlwaysLightTextBrush",
+            EntityKind.ApiDefCategory => "AlwaysLightTextBrush",
+            _ => "PrimaryTextBrush"
+        };
+
+        return ConverterHelpers.ResolveBrush(key);
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
 public sealed class InvCountToVisibilityConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

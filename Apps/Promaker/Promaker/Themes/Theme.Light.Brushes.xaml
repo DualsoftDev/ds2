@@ -3,7 +3,7 @@
                     xmlns:po="http://schemas.microsoft.com/winfx/2006/xaml/presentation/options">
 
     <ResourceDictionary.MergedDictionaries>
-        <ResourceDictionary Source="Theme.Colors.xaml"/>
+        <ResourceDictionary Source="Theme.Light.Colors.xaml"/>
     </ResourceDictionary.MergedDictionaries>
 
     <!-- ===== Brushes ===== -->

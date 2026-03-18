@@ -20,7 +20,7 @@
 #endif
 
 #define AppExePath AddBackslash(PublishDir) + "Promaker.exe"
-#define SetupIconPath "..\Promaker\Assets\PromakerTemp.ico"
+#define SetupIconPath "..\Promaker\Assets\Promaker.ico"
 #define MyAppName "Promaker"
 #define MyAppVersion GetVersionNumbersString(AppExePath)
 #define MyAppPublisher "Dualsoft"

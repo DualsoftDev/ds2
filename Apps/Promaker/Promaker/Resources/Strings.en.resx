@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+
+  <!-- ========================================
+       공통 (Common)
+       ======================================== -->
+  <data name="AppTitle" xml:space="preserve">
+    <value>Ds2 Promaker</value>
+  </data>
+  <data name="Ready" xml:space="preserve">
+    <value>Ready</value>
+  </data>
+
+  <!-- ========================================
+       엔티티 생성 (Entity Creation)
+       ======================================== -->
+  <data name="NewProject" xml:space="preserve">
+    <value>New Project</value>
+  </data>
+  <data name="NewSystem" xml:space="preserve">
+    <value>New System</value>
+  </data>
+  <data name="NewFlow" xml:space="preserve">
+    <value>New Flow</value>
+  </data>
+  <data name="NewWork" xml:space="preserve">
+    <value>New Work</value>
+  </data>
+  <data name="NewCall" xml:space="preserve">
+    <value>New Call</value>
+  </data>
+
+  <!-- ========================================
+       파일 작업 (File Operations)
+       ======================================== -->
+  <data name="SaveFile" xml:space="preserve">
+    <value>Save File</value>
+  </data>
+  <data name="OpenFile" xml:space="preserve">
+    <value>Open File</value>
+  </data>
+  <data name="SaveFileAs" xml:space="preserve">
+    <value>Save As</value>
+  </data>
+  <data name="ConfirmSaveChanges" xml:space="preserve">
+    <value>There are unsaved changes in the current project.
+Do you want to save?</value>
+  </data>
+  <data name="SaveConfirmTitle" xml:space="preserve">
+    <value>Save Confirmation</value>
+  </data>
+
+  <!-- ========================================
+       Dialog 제목 (Dialog Titles)
+       ======================================== -->
+  <data name="ErrorTitle" xml:space="preserve">
+    <value>Error</value>
+  </data>
+  <data name="WarningTitle" xml:space="preserve">
+    <value>Warning</value>
+  </data>
+  <data name="InfoTitle" xml:space="preserve">
+    <value>Information</value>
+  </data>
+
+  <!-- ========================================
+       에러 메시지 (Error Messages)
+       ======================================== -->
+  <data name="FileSaveFailed" xml:space="preserve">
+    <value>Failed to Save File</value>
+  </data>
+  <data name="FileOpenFailed" xml:space="preserve">
+    <value>Failed to Open File</value>
+  </data>
+  <data name="SystemAddFailed" xml:space="preserve">
+    <value>Failed to Add System</value>
+  </data>
+  <data name="FlowAddFailed" xml:space="preserve">
+    <value>Failed to Add Flow</value>
+  </data>
+  <data name="WorkAddFailed" xml:space="preserve">
+    <value>Failed to Add Work</value>
+  </data>
+  <data name="CallAddFailed" xml:space="preserve">
+    <value>Failed to Add Call</value>
+  </data>
+  <data name="SelectFlow" xml:space="preserve">
+    <value>Please select a Flow</value>
+  </data>
+  <data name="SelectWork" xml:space="preserve">
+    <value>Please select a Work</value>
+  </data>
+
+  <!-- ========================================
+       테마 (Theme)
+       ======================================== -->
+  <data name="DarkTheme" xml:space="preserve">
+    <value>Dark</value>
+  </data>
+  <data name="LightTheme" xml:space="preserve">
+    <value>Light</value>
+  </data>
+  <data name="SwitchToDarkTheme" xml:space="preserve">
+    <value>Switch to Dark Theme</value>
+  </data>
+  <data name="SwitchToLightTheme" xml:space="preserve">
+    <value>Switch to Light Theme</value>
+  </data>
+  <data name="DarkThemeApplied" xml:space="preserve">
+    <value>Dark Theme Applied</value>
+  </data>
+  <data name="LightThemeApplied" xml:space="preserve">
+    <value>Light Theme Applied</value>
+  </data>
+
+  <!-- ========================================
+       MainToolbar - 메뉴 항목 (Menu Items)
+       ======================================== -->
+  <data name="Project" xml:space="preserve">
+    <value>Project</value>
+  </data>
+  <data name="NewFile" xml:space="preserve">
+    <value>New File</value>
+  </data>
+  <data name="Load" xml:space="preserve">
+    <value>Load</value>
+  </data>
+  <data name="Save" xml:space="preserve">
+    <value>Save</value>
+  </data>
+  <data name="SaveAs" xml:space="preserve">
+    <value>Save As...</value>
+  </data>
+  <data name="Edit" xml:space="preserve">
+    <value>Edit</value>
+  </data>
+  <data name="Undo" xml:space="preserve">
+    <value>Undo</value>
+  </data>
+  <data name="Redo" xml:space="preserve">
+    <value>Redo</value>
+  </data>
+  <data name="Add" xml:space="preserve">
+    <value>Add</value>
+  </data>
+  <data name="Delete" xml:space="preserve">
+    <value>Delete</value>
+  </data>
+  <data name="BatchEdit" xml:space="preserve">
+    <value>Batch Edit</value>
+  </data>
+  <data name="AutoLayout" xml:space="preserve">
+    <value>Auto Layout</value>
+  </data>
+  <data name="Simulation" xml:space="preserve">
+    <value>Simulation</value>
+  </data>
+  <data name="Start" xml:space="preserve">
+    <value>Start</value>
+  </data>
+  <data name="Pause" xml:space="preserve">
+    <value>Pause</value>
+  </data>
+  <data name="Stop" xml:space="preserve">
+    <value>Stop</value>
+  </data>
+  <data name="Reset" xml:space="preserve">
+    <value>Reset</value>
+  </data>
+  <data name="SimulationOptions" xml:space="preserve">
+    <value>Simulation Options</value>
+  </data>
+  <data name="Speed" xml:space="preserve">
+    <value>Speed</value>
+  </data>
+  <data name="IgnoreTime" xml:space="preserve">
+    <value>Ignore Time</value>
+  </data>
+  <data name="Execute" xml:space="preserve">
+    <value>Execute</value>
+  </data>
+  <data name="Tools" xml:space="preserve">
+    <value>Tools</value>
+  </data>
+  <data name="Report" xml:space="preserve">
+    <value>Report</value>
+  </data>
+  <data name="LoadCsv" xml:space="preserve">
+    <value>Load CSV...</value>
+  </data>
+  <data name="ExportCsv" xml:space="preserve">
+    <value>Export CSV...</value>
+  </data>
+  <data name="Settings" xml:space="preserve">
+    <value>Settings</value>
+  </data>
+
+  <!-- ========================================
+       MainToolbar - 툴팁 (Tooltips)
+       ======================================== -->
+  <data name="NewFileTooltip" xml:space="preserve">
+    <value>New File (Ctrl+N)</value>
+  </data>
+  <data name="LoadTooltip" xml:space="preserve">
+    <value>Load (Ctrl+O)</value>
+  </data>
+  <data name="SaveTooltip" xml:space="preserve">
+    <value>Save (Ctrl+S)</value>
+  </data>
+  <data name="UndoTooltip" xml:space="preserve">
+    <value>Undo (Ctrl+Z)</value>
+  </data>
+  <data name="RedoTooltip" xml:space="preserve">
+    <value>Redo (Ctrl+Y)</value>
+  </data>
+  <data name="DeleteTooltip" xml:space="preserve">
+    <value>Delete</value>
+  </data>
+  <data name="BatchEditTooltip" xml:space="preserve">
+    <value>Batch Edit (I/O, Duration)</value>
+  </data>
+  <data name="AutoLayoutTooltip" xml:space="preserve">
+    <value>Auto Layout (Ctrl+L)</value>
+  </data>
+  <data name="StartSimulationTooltip" xml:space="preserve">
+    <value>Start Simulation</value>
+  </data>
+  <data name="PauseSimulationTooltip" xml:space="preserve">
+    <value>Pause</value>
+  </data>
+  <data name="StopSimulationTooltip" xml:space="preserve">
+    <value>Stop</value>
+  </data>
+  <data name="ResetSimulationTooltip" xml:space="preserve">
+    <value>Reset</value>
+  </data>
+  <data name="IgnoreTimeTooltip" xml:space="preserve">
+    <value>Ignore Time</value>
+  </data>
+  <data name="ForceWorkStartTooltip" xml:space="preserve">
+    <value>Execute Work</value>
+  </data>
+  <data name="ForceWorkResetTooltip" xml:space="preserve">
+    <value>Reset Work</value>
+  </data>
+  <data name="ReportTooltip" xml:space="preserve">
+    <value>Export Report</value>
+  </data>
+  <data name="ProjectSettingsTooltip" xml:space="preserve">
+    <value>Project Settings</value>
+  </data>
+</root>
