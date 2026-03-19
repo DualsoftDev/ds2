@@ -87,23 +87,16 @@
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8"
                   fill="white" />
-            @* ② 상태색 좌측 액센트 바 *@
+            @* ② 상태색 상단 액센트 바 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
-                  width="4" height="@b.InnerH"
-                  rx="8" ry="0"
-                  fill="@b.Color" />
-            <clipPath id="left-bar-@b.ClipId">
-                <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
-                      width="4" height="@b.InnerH" rx="8" ry="8" />
-            </clipPath>
-            <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
-                  width="4" height="@b.InnerH"
-                  fill="@b.Color" clip-path="url(#left-bar-@b.ClipId)" />
+                  width="@b.InnerW" height="4"
+                  rx="8" ry="8"
+                  fill="@b.Color" clip-path="url(#@b.ClipId)" />
             @* ③ 상태색 테두리 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8" fill="none"
-                  stroke="@b.Color" stroke-width="1.5" stroke-opacity="0.30" />
+                  stroke="@b.Color" stroke-width="2" />
 
             @* ── 카드 내부 콘텐츠 (foreignObject — 최소 카드 기준 중앙 배치) ── *@
             <foreignObject x="@b.ContentX" y="@b.ContentY"
@@ -120,7 +113,7 @@
                                     @foreach (var badge in b.Badges)
                                     {
                                         <span class="fc-badge"
-                                              style="background: @ColorMix(badge.Color, 0.12); border-color: @ColorMix(badge.Color, 0.30); color: @badge.Color;">
+                                              style="background: rgba(255,255,255,0.90); border-color: rgba(255,255,255,0.60); color: @badge.Color;">
                                             @badge.Label
                                         </span>
                                     }
@@ -189,10 +182,6 @@
                             {
                                 <div class="fc-footer">@b.StateLabel</div>
                             }
-                        }
-                        else
-                        {
-                            <div class="fc-center-state">@b.StateLabel</div>
                         }
                     </div>
                 </div>

@@ -70,9 +70,9 @@
         border-radius: 4px;
         min-width: 0;
     }
-    .ct-top-cell.danger  { border-bottom: 3px solid #ef5350; }
-    .ct-top-cell.warning { border-bottom: 3px solid #fb8c00; }
-    .ct-top-cell.success { border-bottom: 3px solid #26a69a; }
+    .ct-top-cell.danger  { border-top: 3px solid #ef5350; }
+    .ct-top-cell.warning { border-top: 3px solid #fb8c00; }
+    .ct-top-cell.success { border-top: 3px solid #26a69a; }
     /* 최대/최소 통합 카드 */
     .ct-combined-cell {
         flex: 1;
@@ -91,8 +91,8 @@
         gap: 4px;
         min-width: 0;
     }
-    .ct-combined-half.danger  { border-bottom: 3px solid #ef5350; }
-    .ct-combined-half.success { border-bottom: 3px solid #26a69a; }
+    .ct-combined-half.danger  { border-top: 3px solid #ef5350; }
+    .ct-combined-half.success { border-top: 3px solid #26a69a; }
     .ct-combined-half + .ct-combined-half { border-left: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12)); }
     .ct-combined-half, .ct-top-cell { cursor: pointer; transition: box-shadow 0.15s; }
     .ct-combined-half:hover, .ct-top-cell:hover { box-shadow: inset 0 0 0 1.5px var(--mud-palette-lines-default, rgba(0,0,0,0.18)); }

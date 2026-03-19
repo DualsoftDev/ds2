@@ -6,8 +6,18 @@
 
 /* 루트: CSS 변수 --min-w, --min-h 를 받아 모든 사이징 통일 */
 .fc-cq {
+    all: initial;
     width: 100%;
     height: 100%;
+    box-sizing: border-box;
+}
+
+.fc-cq *,
+.fc-cq *::before,
+.fc-cq *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
 }
 
 .fc-root {
@@ -33,9 +43,8 @@
     flex: 0 0 calc(var(--min-h) * 0.25);
     max-height: calc(var(--min-h) * 0.25);
     padding: 0 calc(var(--min-w) * 0.04);
-    padding-left: calc(var(--min-w) * 0.06);
-    background: color-mix(in srgb, var(--state-color) 8%, white);
-    border-bottom: 1px solid color-mix(in srgb, var(--state-color) 15%, #e8e8e8);
+    background: var(--state-color);
+    border-bottom: none;
     gap: calc(var(--min-w) * 0.02);
     overflow: hidden;
     box-sizing: border-box;
@@ -47,7 +56,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: #222;
+    color: white;
     line-height: 1.15;
     flex: 1;
     min-width: 0;
@@ -179,15 +188,4 @@
     font-size: clamp(0.4rem, calc(var(--min-w) * 0.052), 1.0rem);
     flex-shrink: 0;
     padding: calc(var(--min-h) * 0.02) 0;
-}
-
-.fc-center-state {
-    flex: 0 0 calc(var(--min-h) * 0.75);
-    max-height: calc(var(--min-h) * 0.75);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 600;
-    color: var(--state-color);
-    font-size: clamp(0.45rem, calc(var(--min-w) * 0.06), 1.3rem);
 }
