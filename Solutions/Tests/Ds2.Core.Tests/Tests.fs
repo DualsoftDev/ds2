@@ -165,6 +165,17 @@ module DeepCopyTests =
         Assert.Equal(Some "Motion1", copied.Properties.Motion)
 
     [<Fact>]
+    let ``Work DeepCopy should preserve TokenRole`` () =
+        let flowId = Guid.NewGuid()
+        let original = Work("TokenWork", flowId)
+        original.TokenRole <- TokenRole.Source
+
+        let copied = original.DeepCopy()
+
+        Assert.NotEqual(original.Id, copied.Id)
+        Assert.Equal(TokenRole.Source, copied.TokenRole)
+
+    [<Fact>]
     let ``ApiCall DeepCopy should copy IOTag independently`` () =
         let original = ApiCall("TestApiCall")
         original.InTag <- Some (IOTag("Input", "Addr1", "Desc1"))

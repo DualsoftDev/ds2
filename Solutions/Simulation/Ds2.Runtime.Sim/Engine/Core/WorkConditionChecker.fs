@@ -26,10 +26,17 @@ module WorkConditionChecker =
                 |> Option.defaultValue []
                 |> List.exists (fun wg -> Map.tryFind wg state.WorkStates = Some targetState))
 
-    /// Work 시작 가능 여부 (PredecessorStart 모두 F)
+    /// 토큰이 필요한 Work에서 슬롯에 토큰이 있는지 확인
+    let tokenReady (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
+        match index.WorkTokenRole |> Map.tryFind workGuid with
+        | Some TokenRole.None | None -> true
+        | _ -> SimState.getWorkToken workGuid state |> Option.isSome
+
+    /// Work 시작 가능 여부 (PredecessorStart 모두 F + 토큰 조건)
     let canStartWork (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
         let preds = SimIndex.findOrEmpty workGuid index.WorkStartPreds
         checkPredecessorCondition index state preds Status4.Finish List.forall
+        && tokenReady index state workGuid
 
     /// 같은 (SystemName, WorkName) 키를 공유하는 모든 Work의 ResetPreds 수집
     let collectResetPreds (index: SimIndex) (workGuid: Guid) : (string * string * Guid list) option =

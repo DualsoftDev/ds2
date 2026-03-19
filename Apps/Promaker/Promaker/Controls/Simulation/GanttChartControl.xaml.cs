@@ -26,10 +26,26 @@ public partial class GanttChartControl : UserControl
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
         SizeChanged += (_, _) => InvalidateTimeline();
+        Loaded += OnLoaded;
         Unloaded += OnUnloaded;
 
         _renderTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _renderTimer.Tick += (_, _) => OnRenderTick();
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        // TabControl 탭 전환 시 재구독 + 렌더 타이머 복원
+        if (_viewModel != null)
+        {
+            _viewModel.Entries.CollectionChanged -= OnEntriesChanged;
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.Entries.CollectionChanged += OnEntriesChanged;
+            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+
+            if (_viewModel.IsRunning) StartRendering();
+            else InvalidateTimeline();
+        }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)

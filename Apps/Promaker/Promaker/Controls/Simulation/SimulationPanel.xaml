@@ -3,6 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:conv="clr-namespace:Promaker.Presentation"
              xmlns:ctrl="clr-namespace:Promaker.Controls">
+    <UserControl.Resources>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+    </UserControl.Resources>
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
         <TabControl>
@@ -18,7 +21,31 @@
                     </Grid.RowDefinitions>
                     <StackPanel Orientation="Horizontal" Margin="8,4">
                         <TextBlock Text="Clock: " Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding SimClock}" Foreground="{DynamicResource IconBlueBrush}" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding SimClock}" Foreground="{DynamicResource IconBlueBrush}" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0"/>
+
+                        <Border Width="1" Height="16" Margin="8,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
+                        <TextBlock Text="Token:" Foreground="#ffb74d" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox ItemsSource="{Binding TokenSourceWorks}"
+                                  SelectedItem="{Binding SelectedTokenSource}"
+                                  Background="{DynamicResource TertiaryBackgroundBrush}"
+                                  Foreground="{DynamicResource PrimaryTextBrush}"
+                                  BorderBrush="{DynamicResource BorderBrush}"
+                                  Width="140" Height="24" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <ComboBox ItemsSource="{Binding TokenSpecItems}"
+                                  SelectedItem="{Binding SelectedTokenSpec}"
+                                  Visibility="{Binding HasTokenSpecs, Converter={StaticResource BoolToVis}}"
+                                  Background="{DynamicResource TertiaryBackgroundBrush}"
+                                  Foreground="{DynamicResource PrimaryTextBrush}"
+                                  BorderBrush="{DynamicResource BorderBrush}"
+                                  Width="120" Height="24" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <Button Content="Seed" Command="{Binding SeedTokenCommand}"
+                                Style="{StaticResource DarkButton}"
+                                Background="#2a3a1a" Foreground="#81c784"
+                                Width="52" Height="24" FontSize="11" Padding="0" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <Button Content="Discard" Command="{Binding DiscardTokenCommand}"
+                                Style="{StaticResource DarkButton}"
+                                Background="#3a1a1a" Foreground="#ef9a9a"
+                                Width="60" Height="24" FontSize="11" Padding="0" VerticalAlignment="Center"/>
                     </StackPanel>
                     <DataGrid Grid.Row="1" ItemsSource="{Binding SimNodes}" AutoGenerateColumns="False"
                               IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
@@ -36,6 +63,8 @@
                             <DataGridTextColumn Header="System" Binding="{Binding SystemName}" Width="120"/>
                             <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
                             <DataGridTextColumn Header="Type" Binding="{Binding NodeType}" Width="60"/>
+                            <DataGridTextColumn Header="Token" Binding="{Binding TokenDisplay}" Width="60"
+                                                Foreground="#ffb74d" FontFamily="Consolas"/>
                             <DataGridTemplateColumn Header="State" Width="60">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>

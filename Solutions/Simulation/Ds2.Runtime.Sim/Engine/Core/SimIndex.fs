@@ -32,6 +32,10 @@ type SimIndex = {
     WorkGuidsByKey: Map<string * string, Guid list>
     ActiveSystemNames: Set<string>
     TickMs: int
+    // ── Token ──
+    WorkTokenRole: Map<Guid, TokenRole>
+    WorkTokenSuccessors: Map<Guid, Guid list>
+    TokenSourceGuids: Guid list
 }
 
 module SimIndex =
@@ -201,6 +205,10 @@ module SimIndex =
             | Some p -> DsQuery.projectSystemsOf p.Id store
             | None -> []
 
+        let mutable tokenRoleMap = Map.empty<Guid, TokenRole>
+        let mutable tokenSuccMap = Map.empty<Guid, Guid list>
+        let mutable tokenSources = []
+
         let state = {
             AllWorkGuids = []; AllCallGuids = []
             WorkCallGuids = Map.empty; WorkStartPreds = Map.empty; WorkResetPreds = Map.empty
@@ -261,6 +269,15 @@ module SimIndex =
             let workGroupArrows = workArrows |> List.filter (fun a -> a.ArrowType = ArrowType.Group)
             let wStartPreds, wResetPreds = expandWorkGroupArrows workGroupArrows wStartPreds wResetPreds
 
+            // ── Token successor 맵 (source → target list) ──
+            let wTokenSucc =
+                groupArrows [ ArrowType.Start; ArrowType.StartReset ] wType wSrc wTgt workArrows
+            tokenSuccMap <-
+                wTokenSucc
+                |> Map.fold (fun acc k v ->
+                    let existing = acc |> Map.tryFind k |> Option.defaultValue []
+                    acc.Add(k, existing @ v)) tokenSuccMap
+
             let flows = DsQuery.flowsOf system.Id store
             // Call Arrow: Work별 수집 후 합산 → Group 분해
             let allCallArrows =
@@ -285,6 +302,12 @@ module SimIndex =
                         addCallData work cStartPreds call
 
                     addWorkData system work callGuids wStartPreds wResetPreds
+
+                    // ── Token role/successor 수집 ──
+                    if work.TokenRole <> TokenRole.None then
+                        tokenRoleMap <- tokenRoleMap.Add(work.Id, work.TokenRole)
+                        if work.TokenRole = TokenRole.Source then
+                            tokenSources <- work.Id :: tokenSources
 
         log.Debug($"SimIndex built: {state.AllWorkGuids.Length} works, {state.AllCallGuids.Length} calls")
 
@@ -315,7 +338,10 @@ module SimIndex =
           CallSkipUnmatchConditions = state.CallSkipUnmatchConditions
           WorkGuidsByKey = workGuidsByKey
           ActiveSystemNames = activeSystemNames
-          TickMs = tickMs }
+          TickMs = tickMs
+          WorkTokenRole = tokenRoleMap
+          WorkTokenSuccessors = tokenSuccMap
+          TokenSourceGuids = tokenSources |> List.rev }
 
     // ── InitialFlag 헬퍼 ─────────────────────────────────────────────
 

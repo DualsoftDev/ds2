@@ -38,6 +38,7 @@ public partial class PropertyPanelState : ObservableObject
     [ObservableProperty] private bool _isCallSelected;
     [ObservableProperty] private bool _isSystemSelected;
     [ObservableProperty] private int? _workPeriodMs;
+    [ObservableProperty] private TokenRole _workTokenRole;
     [ObservableProperty] private int? _callTimeoutMs;
     [ObservableProperty] private CallApiCallItem? _selectedCallApiCall;
     [ObservableProperty] private string _nameEditorText = string.Empty;
@@ -52,6 +53,19 @@ public partial class PropertyPanelState : ObservableObject
 
     partial void OnNameEditorTextChanged(string value) =>
         IsNameDirty = !string.Equals(value.Trim(), SelectedNode?.Name ?? string.Empty, StringComparison.Ordinal);
+
+    private TokenRole _originalWorkTokenRole;
+
+    partial void OnWorkTokenRoleChanged(TokenRole value)
+    {
+        if (value != _originalWorkTokenRole && RequireSelectedAs(EntityKind.Work) is { } work)
+        {
+            if (_host.TryAction(() => Store.UpdateWorkTokenRole(work.Id, value)))
+                _originalWorkTokenRole = value;
+            else
+                WorkTokenRole = _originalWorkTokenRole;
+        }
+    }
 
     partial void OnWorkPeriodMsChanged(int? value) =>
         IsWorkPeriodDirty = value != _originalWorkPeriodMs;
@@ -76,11 +90,17 @@ public partial class PropertyPanelState : ObservableObject
         {
             _originalWorkPeriodMs = LoadOptionalMsFromStore(selected.Id, Store.GetWorkPeriodMsOrNull);
             WorkPeriodMs = _originalWorkPeriodMs;
+
+            var workOpt = Ds2.UI.Core.DsQuery.getWork(selected.Id, Store);
+            _originalWorkTokenRole = workOpt != null ? workOpt.Value.TokenRole : TokenRole.None;
+            WorkTokenRole = _originalWorkTokenRole;
         }
         else
         {
             _originalWorkPeriodMs = null;
             WorkPeriodMs = null;
+            _originalWorkTokenRole = TokenRole.None;
+            WorkTokenRole = TokenRole.None;
         }
 
         if (IsCallSelected && selected is not null)

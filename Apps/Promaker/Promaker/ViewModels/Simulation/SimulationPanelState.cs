@@ -75,6 +75,8 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ResetSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DiscardTokenCommand))]
     private bool _isSimulating;
 
     [ObservableProperty]
@@ -82,6 +84,7 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DiscardTokenCommand))]
     private bool _isSimPaused;
 
     [ObservableProperty] private double _simSpeed = 1.0;
@@ -96,6 +99,7 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DiscardTokenCommand))]
     private SimWorkItem? _selectedSimWork;
 
     public ObservableCollection<SimNodeRow> SimNodes { get; } = [];
@@ -123,6 +127,7 @@ public partial class SimulationPanelState : ObservableObject
 
             WireSimEvents();
             InitSimNodes();
+            InitTokenSources();
 
             _simStartTime = DateTime.Now;
             _stateChangeRecords.Clear();
@@ -285,6 +290,12 @@ public partial class SimulationPanelState : ObservableObject
         _stateCache.Clear();
         ClearSimStateFromCanvas();
 
+        TokenSourceWorks.Clear();
+        SelectedTokenSource = null;
+        TokenSpecItems.Clear();
+        SelectedTokenSpec = null;
+        HasTokenSpecs = false;
+
         if (clearCollections)
         {
             SimNodes.Clear();
@@ -295,7 +306,10 @@ public partial class SimulationPanelState : ObservableObject
 
         SimEventLog.Clear();
         foreach (var row in SimNodes)
+        {
             row.State = Status4.Ready;
+            row.TokenDisplay = "";
+        }
     }
 
     private DateTime CurrentSimulationTimestamp()
@@ -386,4 +400,5 @@ public partial class SimNodeRow : ObservableObject
     public string SystemName { get; init; } = "";
 
     [ObservableProperty] private Status4 _state;
+    [ObservableProperty] private string _tokenDisplay = "";
 }

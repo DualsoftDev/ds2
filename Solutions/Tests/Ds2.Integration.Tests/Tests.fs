@@ -226,4 +226,62 @@ module AasxRoundTripTests =
         finally
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 
+    [<Fact>]
+    let ``AASX round-trip preserves Work TokenRole`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("P")
+        let systemId = store.AddSystem("S", projectId, true)
+        let flowId = store.AddFlow("F", systemId)
+        let w1Id = store.AddWork("Source", flowId)
+        store.AddWork("Pass", flowId) |> ignore
+        let w3Id = store.AddWork("Ignore", flowId)
+
+        store.UpdateWorkTokenRole(w1Id, TokenRole.Source)
+        store.UpdateWorkTokenRole(w3Id, TokenRole.Ignore)
+
+        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported, "Export should succeed")
+
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed")
+
+            let findWork name = store2.Works.Values |> Seq.find (fun w -> w.Name = name)
+            Assert.Equal(TokenRole.Source, (findWork "Source").TokenRole)
+            Assert.Equal(TokenRole.None,   (findWork "Pass").TokenRole)
+            Assert.Equal(TokenRole.Ignore, (findWork "Ignore").TokenRole)
+        finally
+            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+
+    [<Fact>]
+    let ``AASX round-trip preserves Project TokenSpecs`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("P")
+        let systemId = store.AddSystem("S", projectId, true)
+        let flowId = store.AddFlow("F", systemId)
+        store.AddWork("W", flowId) |> ignore
+
+        let project = store.Projects.Values |> Seq.head
+        project.TokenSpecs.Add({ Id = 1; Label = "Avante"; Fields = Map.ofList [ "LotId", "LOT-001" ] })
+        project.TokenSpecs.Add({ Id = 2; Label = "Sonata"; Fields = Map.empty })
+
+        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported, "Export should succeed")
+
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed")
+
+            let project2 = store2.Projects.Values |> Seq.head
+            Assert.Equal(2, project2.TokenSpecs.Count)
+            Assert.Equal("Avante", project2.TokenSpecs[0].Label)
+            Assert.Equal("LOT-001", project2.TokenSpecs[0].Fields["LotId"])
+            Assert.Equal("Sonata", project2.TokenSpecs[1].Label)
+        finally
+            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+
 

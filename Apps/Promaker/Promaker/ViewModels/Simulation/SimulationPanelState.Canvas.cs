@@ -44,7 +44,11 @@ public partial class SimulationPanelState
 
     private void ClearSimStateFromCanvas()
     {
-        SetCanvasSimState(null, static _ => true);
+        foreach (var node in _canvasNodes)
+        {
+            node.SimState = null;
+            node.SimTokenDisplay = "";
+        }
     }
 
     private void AddSimNode(SimIndexedEntry entry)

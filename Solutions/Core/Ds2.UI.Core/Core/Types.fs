@@ -130,6 +130,7 @@ type EditorEvent =
 
     // --- 프로퍼티 변경 ---
     | EntityRenamed      of id: Guid * newName: string
+    | ProjectPropsChanged of id: Guid
     | WorkPropsChanged   of id: Guid
     | CallPropsChanged   of id: Guid
     | ApiDefPropsChanged of id: Guid

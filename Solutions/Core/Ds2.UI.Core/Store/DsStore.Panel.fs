@@ -156,6 +156,16 @@ type DsStorePanelTimeExtensions =
         DsStorePanelTimeExtensions.UpdateWorkPeriodMs(store, workId, Option.ofNullable periodMs)
 
     [<Extension>]
+    static member UpdateWorkTokenRole(store: DsStore, workId: Guid, role: TokenRole) =
+        StoreLog.debug($"workId={workId}, role={role}")
+        let work = StoreLog.requireWork(store, workId)
+        if work.TokenRole <> role then
+            store.WithTransaction("Work TokenRole 변경", fun () ->
+                store.TrackMutate(store.Works, workId, fun w -> w.TokenRole <- role))
+            store.EmitAndHistory(WorkPropsChanged workId)
+            store.EmitAndHistory(WorkPropsChanged workId)
+
+    [<Extension>]
     static member UpdateCallTimeoutMs(store: DsStore, callId: Guid, timeoutMs: int option) =
         StoreLog.debug($"callId={callId}, timeoutMs={timeoutMs}")
         let call = StoreLog.requireCall(store, callId)
@@ -168,6 +178,27 @@ type DsStorePanelTimeExtensions =
     [<Extension>]
     static member UpdateCallTimeoutMs(store: DsStore, callId: Guid, timeoutMs: Nullable<int>) =
         DsStorePanelTimeExtensions.UpdateCallTimeoutMs(store, callId, Option.ofNullable timeoutMs)
+
+// ─── TokenSpec ───────────────────────────────────────────────────────
+
+[<Extension>]
+type DsStorePanelTokenSpecExtensions =
+    [<Extension>]
+    static member GetTokenSpecs(store: DsStore) : TokenSpec list =
+        match DsQuery.allProjects store |> List.tryHead with
+        | Some project -> project.TokenSpecs |> Seq.toList
+        | None -> []
+
+    [<Extension>]
+    static member UpdateTokenSpecs(store: DsStore, specs: TokenSpec seq) =
+        let specList = specs |> Seq.toList
+        StoreLog.debug($"count={specList.Length}")
+        let project = DsQuery.allProjects store |> List.head
+        store.WithTransaction("TokenSpec 변경", fun () ->
+            store.TrackMutate(store.Projects, project.Id, fun p ->
+                p.TokenSpecs.Clear()
+                for spec in specList do p.TokenSpecs.Add(spec)))
+        store.EmitAndHistory(ProjectPropsChanged project.Id)
 
 // ─── Conditions ──────────────────────────────────────────────────────
 
