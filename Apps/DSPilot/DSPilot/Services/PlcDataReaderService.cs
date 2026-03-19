@@ -16,6 +16,7 @@ public class PlcDataReaderService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IConfiguration _configuration;
     private readonly IFlowMetricsService _flowMetricsService;
+    private readonly DspDbService _dspDbService;
     private readonly ChannelWriter<CallStateChangedEvent> _eventWriter;
     private readonly bool _simulationMode;
     private readonly TimeSpan _simulationWindow = TimeSpan.FromSeconds(1);
@@ -23,7 +24,7 @@ public class PlcDataReaderService : BackgroundService
     private DateTime _lastReadTime;
     private DateTime? _simulationReplayEndTime;
     private bool _simulationReplayCompleted;
-    private int _totalLogsRead = 0;
+    private int _totalLogsRead;
 
     public PlcDataReaderService(
         ILogger<PlcDataReaderService> logger,
@@ -36,11 +37,16 @@ public class PlcDataReaderService : BackgroundService
         _scopeFactory = scopeFactory;
         _configuration = configuration;
         _flowMetricsService = flowMetricsService;
+        _dspDbService = dspDbService;
         _eventWriter = dspDbService.EventWriter;
         _simulationMode = _configuration.GetValue<bool>("PlcDatabase:SimulationMode");
 
         _lastReadTime = DateTime.Now;
     }
+
+    // ──────────────────────────────────────────────
+    //  Lifecycle
+    // ──────────────────────────────────────────────
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -49,30 +55,11 @@ public class PlcDataReaderService : BackgroundService
         _logger.LogInformation("Simulation Mode Config: {SimMode}", _simulationMode);
         _logger.LogInformation("========================================");
 
-        // DB 파일 생성 대기 (PlcCaptureService가 DB를 생성할 때까지)
-        if (!await WaitForDatabaseCreationAsync(stoppingToken))
-        {
-            _logger.LogError("Database was not created. PLC Data Reader Service cannot start.");
-            return;
-        }
+        if (!await WaitForDatabaseCreationAsync(stoppingToken)) return;
+        if (!await InitializeAsync()) return;
+        if (!await WaitForMapperInitializationAsync(stoppingToken)) return;
 
-        // 초기화 및 연결 테스트
-        if (!await InitializeAsync())
-        {
-            _logger.LogError("Failed to initialize PLC Data Reader Service");
-            return;
-        }
-
-        _logger.LogInformation("InitializeAsync completed successfully");
-
-        if (!await WaitForMapperInitializationAsync(stoppingToken))
-        {
-            _logger.LogError("PLC Data Reader Service stopped before DSP mapper initialization");
-            return;
-        }
-
-        // Mapper InTag 매핑을 실제 PLC 태그와 비교하여 검증
-        await ValidateMapperTagsAsync();
+        await PostInitializeAsync();
 
         var intervalMs = _configuration.GetValue<int>("PlcDatabase:ReadIntervalMs", 1000);
         _logger.LogInformation("Read interval: {IntervalMs}ms", intervalMs);
@@ -86,37 +73,36 @@ public class PlcDataReaderService : BackgroundService
             }
             catch (OperationCanceledException)
             {
-                _logger.LogInformation("PLC Data Reader Service is stopping");
                 break;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error reading PLC data");
-                await Task.Delay(5000, stoppingToken); // 오류 시 5초 대기
+                await Task.Delay(5000, stoppingToken);
             }
         }
 
         _logger.LogInformation("PLC Data Reader Service stopped. Total logs read: {Count}", _totalLogsRead);
     }
 
-    /// <summary>
-    /// DB 파일 생성 대기 (PlcCaptureService가 DB를 생성할 때까지)
-    /// </summary>
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("PLC Data Reader Service is stopping gracefully...");
+        await base.StopAsync(cancellationToken);
+    }
+
+    // ──────────────────────────────────────────────
+    //  Initialization
+    // ──────────────────────────────────────────────
+
     private async Task<bool> WaitForDatabaseCreationAsync(CancellationToken stoppingToken)
     {
         var dbPath = _configuration["PlcDatabase:SourceDbPath"] ?? "sample/db/DsDB.sqlite3";
-
-        // 환경 변수 확장 (%APPDATA% 등)
         dbPath = Environment.ExpandEnvironmentVariables(dbPath);
-
-        // Windows 경로 구분자 정규화 (/ → \)
         dbPath = dbPath.Replace('/', Path.DirectorySeparatorChar);
 
-        // 상대 경로를 절대 경로로 변환
         if (!Path.IsPathRooted(dbPath))
-        {
             dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, dbPath);
-        }
 
         _logger.LogInformation("Waiting for database file to be created: {DbPath}", dbPath);
 
@@ -128,29 +114,22 @@ public class PlcDataReaderService : BackgroundService
             if (File.Exists(dbPath))
             {
                 _logger.LogInformation("Database file found: {DbPath}", dbPath);
-                // DB 파일이 완전히 생성될 때까지 추가 대기
                 await Task.Delay(1000, stoppingToken);
                 return true;
             }
 
             if (DateTime.Now - startTime > maxWaitTime)
             {
-                _logger.LogError("Timeout waiting for database file. File not found after {MaxWait} seconds: {DbPath}",
-                    maxWaitTime.TotalSeconds, dbPath);
+                _logger.LogError("Timeout waiting for database file: {DbPath}", dbPath);
                 return false;
             }
 
-            _logger.LogDebug("Database file not found yet. Waiting... ({Elapsed}s elapsed)",
-                (DateTime.Now - startTime).TotalSeconds);
             await Task.Delay(1000, stoppingToken);
         }
 
         return false;
     }
 
-    /// <summary>
-    /// 초기화 및 연결 테스트
-    /// </summary>
     private async Task<bool> InitializeAsync()
     {
         try
@@ -158,64 +137,25 @@ public class PlcDataReaderService : BackgroundService
             using var scope = _scopeFactory.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<IPlcRepository>();
 
-            // 연결 테스트
             if (!await repository.TestConnectionAsync())
             {
                 _logger.LogError("Database connection test failed");
                 return false;
             }
 
-            // 초기 정보 로드
             var plcs = await repository.GetAllPlcsAsync();
             var tags = await repository.GetAllTagsAsync();
             var totalLogs = await repository.GetTotalLogCountAsync();
 
-            _logger.LogInformation("========================================");
-            _logger.LogInformation("Database initialized successfully");
-            _logger.LogInformation("Found {PlcCount} PLCs, {TagCount} tags, {LogCount} total logs",
+            _logger.LogInformation("Database initialized: {PlcCount} PLCs, {TagCount} tags, {LogCount} logs",
                 plcs.Count, tags.Count, totalLogs);
 
-            // PLC 목록 출력
-            foreach (var plc in plcs)
-            {
-                _logger.LogInformation("PLC: {PlcName} (ID: {PlcId}, Project: {ProjectId})",
-                    plc.Name, plc.Id, plc.ProjectId);
-            }
-
-            _logger.LogInformation("Simulation Mode: {Mode}", _simulationMode);
-            _logger.LogInformation("========================================");
-
             if (_simulationMode)
-            {
-                var oldestLogTime = await repository.GetOldestLogDateTimeAsync();
-                var latestLogTime = await repository.GetLatestLogDateTimeAsync();
-
-                _logger.LogInformation("Oldest log time: {Oldest}, Latest log time: {Latest}",
-                    oldestLogTime?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "NULL",
-                    latestLogTime?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "NULL");
-
-                if (oldestLogTime == null || latestLogTime == null)
-                {
-                    _simulationReplayCompleted = true;
-                    _logger.LogWarning("Simulation mode enabled, but PLC log data is empty (oldest={Oldest}, latest={Latest})",
-                        oldestLogTime, latestLogTime);
-                }
-                else
-                {
-                    _lastReadTime = oldestLogTime.Value.AddTicks(-1);
-                    _simulationReplayEndTime = latestLogTime.Value;
-                    _simulationReplayCompleted = false;
-
-                    _logger.LogInformation(
-                        "Simulation mode enabled. Replaying PLC logs from {Start} to {End} in 1-second windows.",
-                        oldestLogTime.Value,
-                        latestLogTime.Value);
-                }
-            }
+                await InitializeSimulationModeAsync(repository);
             else
             {
                 _lastReadTime = DateTime.Now;
-                _logger.LogInformation("Live mode enabled. Starting incremental read from {StartTime}", _lastReadTime);
+                _logger.LogInformation("Live mode enabled. Starting from {StartTime}", _lastReadTime);
             }
 
             return true;
@@ -227,90 +167,26 @@ public class PlcDataReaderService : BackgroundService
         }
     }
 
-    /// <summary>
-    /// 데이터 읽기 및 처리
-    /// </summary>
-    private async Task ReadAndProcessDataAsync(CancellationToken stoppingToken = default)
+    private async Task InitializeSimulationModeAsync(IPlcRepository repository)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var repository = scope.ServiceProvider.GetRequiredService<IPlcRepository>();
+        var oldestLogTime = await repository.GetOldestLogDateTimeAsync();
+        var latestLogTime = await repository.GetLatestLogDateTimeAsync();
 
-        if (_simulationMode && !_simulationReplayCompleted)
+        if (oldestLogTime == null || latestLogTime == null)
         {
-            await ReplayHistoricalWindowAsync(repository, stoppingToken);
+            _simulationReplayCompleted = true;
+            _logger.LogWarning("Simulation mode enabled, but PLC log data is empty");
             return;
         }
 
-        await ReadLiveDataAsync(repository, stoppingToken);
+        _lastReadTime = oldestLogTime.Value.AddTicks(-1);
+        _simulationReplayEndTime = latestLogTime.Value;
+        _simulationReplayCompleted = false;
+
+        _logger.LogInformation("Simulation mode: replaying from {Start} to {End}",
+            oldestLogTime.Value, latestLogTime.Value);
     }
 
-    private async Task ReadLiveDataAsync(IPlcRepository repository, CancellationToken stoppingToken = default)
-    {
-        var pollTime = DateTime.Now;
-        var newLogs = await repository.GetNewLogsAsync(_lastReadTime);
-
-        if (newLogs.Count > 0)
-        {
-            LogReadBatch($"[LIVE {pollTime:HH:mm:ss}]", newLogs);
-            await SaveToDspDatabaseAsync(newLogs, stoppingToken);
-            _totalLogsRead += newLogs.Count;
-            _lastReadTime = newLogs.Max(log => log.DateTime);
-        }
-    }
-
-    /// <summary>
-    /// 과거 데이터를 1초 윈도우로 재생
-    /// </summary>
-    private async Task ReplayHistoricalWindowAsync(IPlcRepository repository, CancellationToken stoppingToken = default)
-    {
-        var windowStartExclusive = _lastReadTime;
-        var windowEndInclusive = windowStartExclusive + _simulationWindow;
-        var replayLogs = await repository.GetLogsInRangeAsync(windowStartExclusive, windowEndInclusive);
-
-        if (replayLogs.Count > 0)
-        {
-            LogReadBatch(
-                $"[SIM {windowStartExclusive:yyyy-MM-dd HH:mm:ss.fff} ~ {windowEndInclusive:yyyy-MM-dd HH:mm:ss.fff}]",
-                replayLogs);
-            await SaveToDspDatabaseAsync(replayLogs, stoppingToken);
-            _totalLogsRead += replayLogs.Count;
-        }
-
-        _lastReadTime = windowEndInclusive;
-
-        if (_simulationReplayEndTime.HasValue && windowEndInclusive >= _simulationReplayEndTime.Value)
-        {
-            _simulationReplayCompleted = true;
-            _lastReadTime = _simulationReplayEndTime.Value;
-
-            _logger.LogInformation(
-                "Simulation replay completed at {ReplayEnd}. Switching to live incremental mode.",
-                _simulationReplayEndTime.Value);
-        }
-    }
-
-    private void LogReadBatch(string prefix, List<PlcTagLogEntity> logs)
-    {
-        _logger.LogInformation(
-            "{Prefix} Read {Count} logs (Total: {Total})",
-            prefix,
-            logs.Count,
-            _totalLogsRead + logs.Count);
-
-        foreach (var log in logs.Take(3))
-        {
-            _logger.LogDebug(
-                "  Log #{LogId}: TagId={TagId}, DateTime={DateTime}, Value={Value}",
-                log.Id,
-                log.PlcTagId,
-                log.DateTime.ToString("yyyy-MM-dd HH:mm:ss.fff"),
-                log.Value);
-        }
-    }
-
-    /// <summary>
-    /// dsp.db 저장 준비가 끝날 때까지 대기
-    /// </summary>
     private async Task<bool> WaitForMapperInitializationAsync(CancellationToken stoppingToken)
     {
         using var scope = _scopeFactory.CreateScope();
@@ -327,11 +203,10 @@ public class PlcDataReaderService : BackgroundService
         {
             if (mapper.IsInitialized)
             {
-                _logger.LogInformation("PLC Data Reader Service detected initialized DSP mapper.");
+                _logger.LogInformation("DSP mapper initialized.");
                 return true;
             }
 
-            _logger.LogInformation("Waiting for DSP mapper initialization...");
             await Task.Delay(500, stoppingToken);
         }
 
@@ -339,10 +214,9 @@ public class PlcDataReaderService : BackgroundService
     }
 
     /// <summary>
-    /// Mapper의 InTag 매핑을 실제 PLC 태그 목록과 비교하여 검증.
-    /// PLC에 존재하지 않는 InTag는 제거하여 OutTag Falling으로 Finish 전이를 가능하게 한다.
+    /// Mapper InTag 검증 + Flow MovingStart/End 캐시 로드
     /// </summary>
-    private async Task ValidateMapperTagsAsync()
+    private async Task PostInitializeAsync()
     {
         try
         {
@@ -350,6 +224,7 @@ public class PlcDataReaderService : BackgroundService
             var plcRepo = scope.ServiceProvider.GetRequiredService<IPlcRepository>();
             var mapper = scope.ServiceProvider.GetRequiredService<PlcToCallMapperService>();
 
+            // InTag 매핑 검증: PLC에 없는 InTag 제거 → OutTag Falling으로 Finish 전이 가능
             var tags = await plcRepo.GetAllTagsAsync();
             var tagMatchMode = _configuration.GetValue<string>("PlcDatabase:TagMatchMode") ?? "Address";
             var plcTagKeys = tags
@@ -357,17 +232,78 @@ public class PlcDataReaderService : BackgroundService
                 .ToHashSet();
 
             mapper.ValidateWithPlcTags(plcTagKeys);
+
+            _logger.LogInformation("Post-initialization completed");
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to validate mapper tags against PLC tags");
+            _logger.LogWarning(ex, "Post-initialization failed");
         }
     }
 
-    /// <summary>
-    /// dsp.db에 저장 (엣지 감지 및 상태 전환 로직 포함)
-    /// </summary>
-    private async Task SaveToDspDatabaseAsync(List<PlcTagLogEntity> logs, CancellationToken stoppingToken = default)
+    // ──────────────────────────────────────────────
+    //  Data reading
+    // ──────────────────────────────────────────────
+
+    private async Task ReadAndProcessDataAsync(CancellationToken stoppingToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IPlcRepository>();
+
+        if (_simulationMode && !_simulationReplayCompleted)
+            await ReplayHistoricalWindowAsync(repository, stoppingToken);
+        else
+            await ReadLiveDataAsync(repository, stoppingToken);
+    }
+
+    private async Task ReadLiveDataAsync(IPlcRepository repository, CancellationToken stoppingToken)
+    {
+        var pollTime = DateTime.Now;
+        var newLogs = await repository.GetNewLogsAsync(_lastReadTime);
+
+        if (newLogs.Count > 0)
+        {
+            LogReadBatch($"[LIVE {pollTime:HH:mm:ss}]", newLogs);
+            await ProcessLogsAsync(newLogs, stoppingToken);
+            _totalLogsRead += newLogs.Count;
+            _lastReadTime = newLogs.Max(log => log.DateTime);
+        }
+    }
+
+    private async Task ReplayHistoricalWindowAsync(IPlcRepository repository, CancellationToken stoppingToken)
+    {
+        var windowStart = _lastReadTime;
+        var windowEnd = windowStart + _simulationWindow;
+        var replayLogs = await repository.GetLogsInRangeAsync(windowStart, windowEnd);
+
+        if (replayLogs.Count > 0)
+        {
+            LogReadBatch($"[SIM {windowStart:HH:mm:ss.fff} ~ {windowEnd:HH:mm:ss.fff}]", replayLogs);
+            await ProcessLogsAsync(replayLogs, stoppingToken);
+            _totalLogsRead += replayLogs.Count;
+        }
+
+        _lastReadTime = windowEnd;
+
+        if (_simulationReplayEndTime.HasValue && windowEnd >= _simulationReplayEndTime.Value)
+        {
+            _simulationReplayCompleted = true;
+            _lastReadTime = _simulationReplayEndTime.Value;
+            _logger.LogInformation("Simulation replay completed. Switching to live mode.");
+        }
+    }
+
+    private void LogReadBatch(string prefix, List<PlcTagLogEntity> logs)
+    {
+        _logger.LogInformation("{Prefix} Read {Count} logs (Total: {Total})",
+            prefix, logs.Count, _totalLogsRead + logs.Count);
+    }
+
+    // ──────────────────────────────────────────────
+    //  Log processing pipeline
+    // ──────────────────────────────────────────────
+
+    private async Task ProcessLogsAsync(List<PlcTagLogEntity> logs, CancellationToken stoppingToken)
     {
         using var scope = _scopeFactory.CreateScope();
         var mapper = scope.ServiceProvider.GetRequiredService<PlcToCallMapperService>();
@@ -378,150 +314,18 @@ public class PlcDataReaderService : BackgroundService
 
         if (!mapper.IsInitialized)
         {
-            _logger.LogWarning("PlcToCallMapper not initialized. Skipping dsp.db save.");
+            _logger.LogWarning("PlcToCallMapper not initialized. Skipping.");
             return;
         }
 
-        int processedCount = 0;
-        int mappedCount = 0;
         int stateChangedCount = 0;
 
         foreach (var log in logs)
         {
             try
             {
-                // 1. plcTag 정보 조회
-                var tag = await plcRepo.GetTagByIdAsync(log.PlcTagId);
-                if (tag == null)
-                {
-                    _logger.LogWarning("Tag ID {TagId} not found", log.PlcTagId);
-                    continue;
-                }
-
-                processedCount++;
-
-                // 2. 값 정규화 (boolean → "0"/"1")
-                var normalizedValue = NormalizeValue(log.Value);
-
-                // 3. 엣지 감지
-                var edgeState = stateTracker.UpdateTagValue(tag.Name, normalizedValue);
-
-                // 4. Call 매핑 확인 (Name 또는 Address 기준)
-                var callInfo = mapper.FindCallByTag(tag.Name, tag.Address);
-                if (callInfo == null)
-                {
-                    // 매핑되지 않은 태그 (정상, 로그 무시)
-                    _logger.LogDebug("Tag '{TagName}' (Address: '{Address}') not mapped to any Call",
-                        tag.Name, tag.Address);
-                    continue;
-                }
-
-                mappedCount++;
-                _logger.LogDebug("Tag '{TagName}' (Address: '{Address}') mapped to Call '{CallName}' (Flow: {FlowName}, IsInTag: {IsInTag})",
-                    tag.Name, tag.Address, callInfo.Call.Name, callInfo.FlowName, callInfo.IsInTag);
-
-                var call = callInfo.Call;
-                var flowName = callInfo.FlowName;
-                var workName = callInfo.WorkName;
-                var callKey = callInfo.ToCallKey();
-
-                // 6. 현재 Call 상태 조회
-                var currentCallState = await dspRepo.GetCallStateAsync(callKey);
-
-                // 7. 새 상태 결정
-                var (newState, stateChanged) = mapper.DetermineCallState(
-                    tag.Name,
-                    tag.Address,
-                    edgeState,
-                    currentCallState
-                );
-
-                if (!stateChanged)
-                {
-                    // 상태 변화 없음
-                    _logger.LogDebug(
-                        "No state change for Call '{CallName}' (Current: {State}, Tag: {TagName}, Edge: Rising={Rising}, Falling={Falling})",
-                        call.Name, currentCallState, tag.Name, edgeState.IsRisingEdge(), edgeState.IsFallingEdge());
-                    continue;
-                }
-
-                stateChangedCount++;
-
-                // 8. 상태별 처리
-                if (newState == "Going")
-                {
-                    // Going 시작 시간 기록
-                    var timestamp = DateTime.Now;
-                    await statistics.RecordGoingStartAsync(call.Name);
-                    await dspRepo.UpdateCallStateAsync(callKey, "Going");
-
-                    // 채널을 통해 UI에 즉시 Going 상태 전달 (DB 폴링 대기 불필요)
-                    await WriteEventAsync(new CallStateChangedEvent
-                    {
-                        CallName = call.Name,
-                        NewState = "Going",
-                    }, stoppingToken);
-
-                    // FlowMetricsService 이벤트 발생 (FlowName과 CallName 함께 전달)
-                    _flowMetricsService.OnCallGoingStarted(flowName, call.Name, timestamp);
-
-                    // Flow 상태를 Going으로 업데이트
-                    await dspRepo.UpdateFlowStateAsync(flowName, "Going");
-
-                    _logger.LogInformation(
-                        "Call '{CallName}' (Flow: {FlowName}): State changed Ready → Going (Tag: {TagName})",
-                        call.Name, flowName, tag.Name);
-                }
-                else if (newState == "Finish")
-                {
-                    // Going 시간 계산 및 통계 업데이트
-                    var (startTime, finishTime, goingTime, avg, stdDev, goingCount) = statistics.RecordGoingFinish(call.Name);
-
-                    await dspRepo.UpdateCallWithStatisticsAsync(
-                        callKey,
-                        "Finish",
-                        goingTime,
-                        avg,
-                        stdDev
-                    );
-
-                    // 채널을 통해 UI에 즉시 Finish 상태 전달
-                    await WriteEventAsync(new CallStateChangedEvent
-                    {
-                        CallName         = call.Name,
-                        NewState         = "Finish",
-                        PreviousGoingTime = goingTime,
-                        AverageGoingTime = avg,
-                        GoingCount       = goingCount,
-                    }, stoppingToken);
-
-                    // FlowMetricsService 이벤트 발생 (FlowName과 CallName 함께 전달)
-                    _flowMetricsService.OnCallFinished(flowName, call.Name, finishTime);
-
-                    _logger.LogInformation(
-                        "Call '{CallName}' (Flow: {FlowName}): State changed Going → Finish (Tag: {TagName}, Time: {Time}ms)",
-                        call.Name, flowName, tag.Name, goingTime);
-
-                    // Finish → Ready 자동 전환 (100ms 후)
-                    await Task.Delay(100, stoppingToken);
-                    await dspRepo.UpdateCallStateAsync(callKey, "Ready");
-
-                    // 채널을 통해 UI에 즉시 Ready 상태 전달
-                    await WriteEventAsync(new CallStateChangedEvent
-                    {
-                        CallName   = call.Name,
-                        NewState   = "Ready",
-                        GoingCount = goingCount,
-                    }, stoppingToken);
-
-                    _logger.LogDebug("Call '{CallName}': State changed Finish → Ready", call.Name);
-
-                    // Flow 내 Going 상태 Call이 없으면 Flow를 Ready로 업데이트
-                    if (!await dspRepo.HasGoingCallsInFlowAsync(flowName))
-                    {
-                        await dspRepo.UpdateFlowStateAsync(flowName, "Ready");
-                    }
-                }
+                if (await ProcessSingleLogAsync(log, mapper, stateTracker, statistics, dspRepo, plcRepo, stoppingToken))
+                    stateChangedCount++;
             }
             catch (Exception ex)
             {
@@ -529,52 +333,171 @@ public class PlcDataReaderService : BackgroundService
             }
         }
 
-        _logger.LogDebug(
-            "SaveToDspDatabase completed: {TotalLogs} logs, {ProcessedCount} processed, {MappedCount} mapped, {StateChangedCount} state changed",
-            logs.Count, processedCount, mappedCount, stateChangedCount);
+        if (stateChangedCount > 0)
+            _logger.LogDebug("Processed {Count} logs, {Changed} state changes", logs.Count, stateChangedCount);
     }
 
     /// <summary>
-    /// DspDbService 채널에 이벤트를 안전하게 발행한다.
-    /// 채널이 닫혀 있으면 (앱 종료 중) 무시한다.
+    /// 단일 PLC 로그 처리. 상태 변경이 발생하면 true 반환.
     /// </summary>
+    private async Task<bool> ProcessSingleLogAsync(
+        PlcTagLogEntity log,
+        PlcToCallMapperService mapper,
+        PlcTagStateTrackerService stateTracker,
+        CallStatisticsService statistics,
+        IDspRepository dspRepo,
+        IPlcRepository plcRepo,
+        CancellationToken stoppingToken)
+    {
+        // 1. 태그 조회
+        var tag = await plcRepo.GetTagByIdAsync(log.PlcTagId);
+        if (tag == null) return false;
+
+        // 2. 엣지 감지
+        var normalizedValue = NormalizeValue(log.Value);
+        var edgeState = stateTracker.UpdateTagValue(tag.Name, normalizedValue);
+
+        // 3. Call 매핑
+        var callInfo = mapper.FindCallByTag(tag.Name, tag.Address);
+        if (callInfo == null) return false;
+
+        // 4. 상태 전이 결정
+        var callKey = callInfo.ToCallKey();
+        var currentState = await dspRepo.GetCallStateAsync(callKey);
+        var (newState, stateChanged) = mapper.DetermineCallState(tag.Name, tag.Address, edgeState, currentState);
+
+        if (!stateChanged) return false;
+
+        // 5. 상태별 처리
+        if (newState == "Going")
+            await HandleCallGoingAsync(callInfo, callKey, statistics, dspRepo, tag, stoppingToken);
+        else if (newState == "Finish")
+            await HandleCallFinishAsync(callInfo, callKey, statistics, dspRepo, tag, stoppingToken);
+
+        return true;
+    }
+
+    // ──────────────────────────────────────────────
+    //  State handlers
+    // ──────────────────────────────────────────────
+
+    private async Task HandleCallGoingAsync(
+        CallMappingInfo callInfo, CallKey callKey,
+        CallStatisticsService statistics, IDspRepository dspRepo,
+        PlcTagEntity tag, CancellationToken stoppingToken)
+    {
+        var callName = callInfo.Call.Name;
+        var flowName = callInfo.FlowName;
+        var timestamp = DateTime.Now;
+
+        await statistics.RecordGoingStartAsync(callName);
+        await dspRepo.UpdateCallStateAsync(callKey, "Going");
+
+        await WriteEventAsync(new CallStateChangedEvent { CallName = callName, NewState = "Going" }, stoppingToken);
+
+        _flowMetricsService.OnCallGoingStarted(flowName, callName, timestamp);
+        await TryUpdateFlowStateAsync(dspRepo, flowName, callName, "Going");
+
+        _logger.LogInformation("Call '{CallName}' (Flow: {FlowName}): Ready → Going (Tag: {TagName})",
+            callName, flowName, tag.Name);
+    }
+
+    private async Task HandleCallFinishAsync(
+        CallMappingInfo callInfo, CallKey callKey,
+        CallStatisticsService statistics, IDspRepository dspRepo,
+        PlcTagEntity tag, CancellationToken stoppingToken)
+    {
+        var callName = callInfo.Call.Name;
+        var flowName = callInfo.FlowName;
+
+        // Going → Finish (통계 업데이트)
+        var (_, finishTime, goingTime, avg, stdDev, goingCount) = statistics.RecordGoingFinish(callName);
+        await dspRepo.UpdateCallWithStatisticsAsync(callKey, "Finish", goingTime, avg, stdDev);
+
+        await WriteEventAsync(new CallStateChangedEvent
+        {
+            CallName = callName,
+            NewState = "Finish",
+            PreviousGoingTime = goingTime,
+            AverageGoingTime = avg,
+            GoingCount = goingCount,
+        }, stoppingToken);
+
+        _flowMetricsService.OnCallFinished(flowName, callName, finishTime);
+        await TryUpdateFlowStateAsync(dspRepo, flowName, callName, "Finish");
+
+        _logger.LogInformation("Call '{CallName}' (Flow: {FlowName}): Going → Finish (Tag: {TagName}, Time: {Time}ms)",
+            callName, flowName, tag.Name, goingTime);
+
+        // Finish → Ready 자동 전환
+        await Task.Delay(100, stoppingToken);
+        await dspRepo.UpdateCallStateAsync(callKey, "Ready");
+
+        await WriteEventAsync(new CallStateChangedEvent
+        {
+            CallName = callName,
+            NewState = "Ready",
+            GoingCount = goingCount,
+        }, stoppingToken);
+
+        await TryUpdateFlowStateAsync(dspRepo, flowName, callName, "Ready");
+    }
+
+    // ──────────────────────────────────────────────
+    //  Flow state
+    // ──────────────────────────────────────────────
+
+    /// <summary>
+    /// MovingStartName/MovingEndName 기반 Flow 상태 업데이트.
+    /// - MovingStart Call → Going: Flow "Going"
+    /// - MovingEnd Call → Finish: Flow "Finish"
+    /// - MovingEnd Call → Ready:  Flow "Ready"
+    /// </summary>
+    private async Task TryUpdateFlowStateAsync(IDspRepository dspRepo, string flowName, string callName, string callState)
+    {
+        var flow = _dspDbService.Snapshot.Flows.FirstOrDefault(f => f.FlowName == flowName);
+        if (flow == null) return;
+
+        var fullCallId = $"{flowName}.{callName}";
+
+        var shouldUpdate = callState switch
+        {
+            "Going"  => fullCallId == flow.MovingStartName,
+            "Finish" => fullCallId == flow.MovingEndName,
+            "Ready"  => fullCallId == flow.MovingEndName,
+            _ => false
+        };
+
+        if (shouldUpdate)
+        {
+            await dspRepo.UpdateFlowStateAsync(flowName, callState);
+            _logger.LogInformation("Flow '{FlowName}' → {State} (by {CallId})", flowName, callState, fullCallId);
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    //  Helpers
+    // ──────────────────────────────────────────────
+
     private async Task WriteEventAsync(CallStateChangedEvent evt, CancellationToken ct)
     {
         try
         {
             await _eventWriter.WriteAsync(evt, ct);
         }
-        catch (ChannelClosedException)
-        {
-            // 앱 종료 중 — 무시
-        }
-        catch (OperationCanceledException)
-        {
-            // 서비스 중지 중 — 무시
-        }
+        catch (ChannelClosedException) { }
+        catch (OperationCanceledException) { }
     }
 
-    /// <summary>
-    /// PLC 값을 EdgeDetection이 인식할 수 있는 "0" 또는 "1"로 정규화
-    /// </summary>
     private static string NormalizeValue(string? value)
     {
         if (string.IsNullOrEmpty(value))
             return "0";
 
-        var lowerValue = value.Trim().ToLowerInvariant();
-
-        return lowerValue switch
+        return value.Trim().ToLowerInvariant() switch
         {
             "1" or "true" or "on" => "1",
-            "0" or "false" or "off" => "0",
-            _ => "0" // 기본값
+            _ => "0"
         };
-    }
-
-    public override async Task StopAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("PLC Data Reader Service is stopping gracefully...");
-        await base.StopAsync(cancellationToken);
     }
 }
