@@ -233,11 +233,65 @@ public class PlcDataReaderService : BackgroundService
 
             mapper.ValidateWithPlcTags(plcTagKeys);
 
+            // Flow Tail Call PLC 매핑 교차 검증
+            ValidateFlowTailCallMappings(mapper);
+
             _logger.LogInformation("Post-initialization completed");
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Post-initialization failed");
+        }
+    }
+
+    /// <summary>
+    /// Flow의 MovingEndName(Tail) Call이 PLC 태그 매핑이 올바른지 교차 검증.
+    /// 문제가 있는 Flow를 경고 로그로 출력.
+    /// </summary>
+    private void ValidateFlowTailCallMappings(PlcToCallMapperService mapper)
+    {
+        var flows = _dspDbService.Snapshot.Flows;
+        int warningCount = 0;
+
+        foreach (var flow in flows)
+        {
+            if (string.IsNullOrEmpty(flow.MovingEndName)) continue;
+
+            // MovingEndName은 "FlowName.CallName" 형식
+            var parts = flow.MovingEndName.Split('.', 2);
+            if (parts.Length < 2) continue;
+            var tailCallName = parts[1];
+
+            var tagInfo = mapper.GetCallTags(tailCallName);
+            if (tagInfo == null)
+            {
+                _logger.LogWarning(
+                    "[DIAG] Flow '{FlowName}': Tail Call '{TailCall}' has NO PLC tag mapping. Flow will never reach Finish.",
+                    flow.FlowName, tailCallName);
+                warningCount++;
+            }
+            else
+            {
+                var (inTag, outTag) = tagInfo.Value;
+                var hasInTag = !string.IsNullOrEmpty(inTag);
+                if (hasInTag)
+                {
+                    _logger.LogWarning(
+                        "[DIAG] Flow '{FlowName}': Tail Call '{TailCall}' has InTag='{InTag}'. " +
+                        "Finish requires InTag Rising. If InTag never fires, Flow will be stuck in Going.",
+                        flow.FlowName, tailCallName, inTag);
+                    warningCount++;
+                }
+            }
+        }
+
+        if (warningCount > 0)
+        {
+            _logger.LogWarning("[DIAG] {Count} Flow(s) may have Tail Call mapping issues. Check logs above.", warningCount);
+        }
+        else
+        {
+            _logger.LogInformation("[DIAG] All Flow Tail Calls have valid PLC tag mappings (no InTag issues).");
         }
     }
 
