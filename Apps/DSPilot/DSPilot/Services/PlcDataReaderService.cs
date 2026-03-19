@@ -436,6 +436,9 @@ public class PlcDataReaderService : BackgroundService
                     // FlowMetricsService 이벤트 발생 (FlowName과 CallName 함께 전달)
                     _flowMetricsService.OnCallGoingStarted(flowName, call.Name, timestamp);
 
+                    // Flow 상태를 Going으로 업데이트
+                    await dspRepo.UpdateFlowStateAsync(flowName, "Going");
+
                     _logger.LogInformation(
                         "Call '{CallName}' (Flow: {FlowName}): State changed Ready → Going (Tag: {TagName})",
                         call.Name, flowName, tag.Name);
@@ -483,6 +486,12 @@ public class PlcDataReaderService : BackgroundService
                     }, stoppingToken);
 
                     _logger.LogDebug("Call '{CallName}': State changed Finish → Ready", call.Name);
+
+                    // Flow 내 Going 상태 Call이 없으면 Flow를 Ready로 업데이트
+                    if (!await dspRepo.HasGoingCallsInFlowAsync(flowName))
+                    {
+                        await dspRepo.UpdateFlowStateAsync(flowName, "Ready");
+                    }
                 }
             }
             catch (Exception ex)

@@ -59,6 +59,11 @@ public interface IDspRepository
     Task<bool> UpdateFlowStateAsync(string flowName, string state);
 
     /// <summary>
+    /// Flow 내 Going 상태 Call 존재 여부 확인
+    /// </summary>
+    Task<bool> HasGoingCallsInFlowAsync(string flowName);
+
+    /// <summary>
     /// Flow 메트릭 업데이트 (MT, WT, CT, MovingStartName, MovingEndName)
     /// </summary>
     Task<bool> UpdateFlowMetricsAsync(

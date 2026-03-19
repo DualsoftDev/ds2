@@ -603,6 +603,16 @@ WHERE FlowName = @FlowName";
     }
 
     /// <inheritdoc />
+    public async Task<bool> HasGoingCallsInFlowAsync(string flowName)
+    {
+        using var connection = CreateConnection();
+
+        const string sql = "SELECT COUNT(*) FROM Call WHERE FlowName = @FlowName AND State = 'Going'";
+        var count = await connection.ExecuteScalarAsync<int>(sql, new { FlowName = flowName });
+        return count > 0;
+    }
+
+    /// <inheritdoc />
     public async Task<bool> UpdateFlowMetricsAsync(
         string flowName,
         int? mt,
