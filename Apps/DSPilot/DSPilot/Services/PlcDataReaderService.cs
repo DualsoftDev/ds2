@@ -71,6 +71,9 @@ public class PlcDataReaderService : BackgroundService
             return;
         }
 
+        // Mapper InTag 매핑을 실제 PLC 태그와 비교하여 검증
+        await ValidateMapperTagsAsync();
+
         var intervalMs = _configuration.GetValue<int>("PlcDatabase:ReadIntervalMs", 1000);
         _logger.LogInformation("Read interval: {IntervalMs}ms", intervalMs);
 
@@ -333,6 +336,32 @@ public class PlcDataReaderService : BackgroundService
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Mapper의 InTag 매핑을 실제 PLC 태그 목록과 비교하여 검증.
+    /// PLC에 존재하지 않는 InTag는 제거하여 OutTag Falling으로 Finish 전이를 가능하게 한다.
+    /// </summary>
+    private async Task ValidateMapperTagsAsync()
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var plcRepo = scope.ServiceProvider.GetRequiredService<IPlcRepository>();
+            var mapper = scope.ServiceProvider.GetRequiredService<PlcToCallMapperService>();
+
+            var tags = await plcRepo.GetAllTagsAsync();
+            var tagMatchMode = _configuration.GetValue<string>("PlcDatabase:TagMatchMode") ?? "Address";
+            var plcTagKeys = tags
+                .Select(t => tagMatchMode.Equals("Address", StringComparison.OrdinalIgnoreCase) ? t.Address : t.Name)
+                .ToHashSet();
+
+            mapper.ValidateWithPlcTags(plcTagKeys);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to validate mapper tags against PLC tags");
+        }
     }
 
     /// <summary>
