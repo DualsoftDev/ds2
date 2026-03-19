@@ -25,6 +25,7 @@ public static class SimplePlcWriteTest
         public string? TagName { get; set; }
         public string? TagAddress { get; set; }
         public string? DataType { get; set; }
+        public int? PlcId { get; set; }  // 추가: PLC ID
     }
 
     public static async Task RunAsync(string dbPath)
