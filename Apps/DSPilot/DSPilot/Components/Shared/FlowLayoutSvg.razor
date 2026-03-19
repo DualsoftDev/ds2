@@ -32,6 +32,47 @@
         <filter id="selection-glow" x="-35%" y="-35%" width="170%" height="170%">
             <feGaussianBlur stdDeviation="10" />
         </filter>
+        @* ── 도넛 차트 그라데이션 & 이펙트 ── *@
+        <linearGradient id="donut-mt-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#4a90e2" stop-opacity="1" />
+            <stop offset="100%" stop-color="#3a86ff" stop-opacity="0.7" />
+        </linearGradient>
+        <linearGradient id="donut-wt-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#ffb347" stop-opacity="1" />
+            <stop offset="100%" stop-color="#ff9f1c" stop-opacity="0.7" />
+        </linearGradient>
+        <filter id="donut-glass" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="glow" />
+            <feMerge>
+                <feMergeNode in="glow" />
+                <feMergeNode in="SourceGraphic" />
+            </feMerge>
+        </filter>
+        <radialGradient id="donut-inner-edge" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="white" stop-opacity="0.25" />
+            <stop offset="90%" stop-color="white" stop-opacity="0" />
+        </radialGradient>
+        <linearGradient id="glass-overlay-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="white" stop-opacity="0.10" />
+            <stop offset="40%" stop-color="white" stop-opacity="0.03" />
+            <stop offset="100%" stop-color="white" stop-opacity="0" />
+        </linearGradient>
+        <filter id="text-glow" x="-20%" y="-30%" width="140%" height="160%">
+            <feFlood flood-color="#00bfff" flood-opacity="0.4" result="color" />
+            <feComposite in="color" in2="SourceGraphic" operator="in" result="colored" />
+            <feGaussianBlur in="colored" stdDeviation="4" result="glow" />
+            <feMerge>
+                <feMergeNode in="glow" />
+                <feMergeNode in="SourceGraphic" />
+            </feMerge>
+        </filter>
+        <filter id="dot-glow" x="-100%" y="-100%" width="300%" height="300%">
+            <feGaussianBlur stdDeviation="2" result="blur" />
+            <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+            </feMerge>
+        </filter>
     </defs>
 
     @* 도면 배경 *@
@@ -92,89 +133,126 @@
                        x="0" y="0" width="@CanvasWidth" height="@CanvasHeight"
                        opacity="0.5" filter="url(#glass-blur)" />
             }
-            @* ② 반투명 프로스트 오버레이 *@
+            @* ② 다크 글래스 베이스 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8"
-                  style="fill: var(--mud-palette-surface, white)" fill-opacity="0.35" />
-            @* ③ 상태색 틴트 + 테두리 *@
+                  fill="#0a1e30" fill-opacity="0.82" />
+            @* ②-b 대각선 유리 반사 (glass-card background gradient) *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8"
-                  fill="@b.Color" fill-opacity="0.05"
-                  stroke="@b.Color" stroke-width="1" stroke-opacity="0.3" />
-            @* ④ 밝은 테두리 (유리 엣지) *@
-            <rect x="@(b.Px + b.Pad + 0.5)" y="@(b.Py + b.Pad + 0.5)"
-                  width="@(b.InnerW - 1)" height="@(b.InnerH - 1)"
-                  rx="8" ry="8"
-                  fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1" />
-            @* ⑤ 상단 하이라이트 (입체 반사) *@
+                  fill="url(#glass-overlay-grad)" />
+            @* ②-c 내부 시안 글로우 (inset 0 0 20px rgba(0,191,255,0.15)) *@
+            <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
+                  width="@b.InnerW" height="@b.InnerH"
+                  rx="8" ry="8" fill="none"
+                  stroke="#00bfff" stroke-width="18" stroke-opacity="0.12"
+                  filter="url(#glass-blur)" />
+            @* ③ 시안 글래스 테두리 (border: 1px solid rgba(0,200,255,0.3)) *@
+            <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
+                  width="@b.InnerW" height="@b.InnerH"
+                  rx="8" ry="8" fill="none"
+                  stroke="#00c8ff" stroke-width="1" stroke-opacity="0.30" />
+            @* ④ 상단 밝은 하이라이트 (입체 반사) *@
             <line x1="@(b.Px + b.Pad + 12)" y1="@(b.Py + b.Pad + 1)"
                   x2="@(b.Px + b.Pad + b.InnerW - 12)" y2="@(b.Py + b.Pad + 1)"
-                  stroke="rgba(255,255,255,0.45)" stroke-width="1" stroke-linecap="round" />
-            @* Flow 이름 *@
-            <SvgText X="@(b.Px + b.Pad + 6)" Y="@b.TitleY"
-                     TextAnchor="start"
-                     Fill="var(--mud-palette-text-primary, #1e293b)"
-                     FontSize="@b.TitleFS" FontWeight="700"
-                     Content="@b.FlowName" />
+                  stroke="white" stroke-width="1" stroke-opacity="0.50" stroke-linecap="round" />
+            @* ⑤ 하단 그림자 (inset 0 -2px 5px rgba(0,0,0,0.5)) *@
+            <line x1="@(b.Px + b.Pad + 12)" y1="@(b.Py + b.Pad + b.InnerH - 1)"
+                  x2="@(b.Px + b.Pad + b.InnerW - 12)" y2="@(b.Py + b.Pad + b.InnerH - 1)"
+                  stroke="black" stroke-width="1" stroke-opacity="0.45" stroke-linecap="round" />
+            @* ⑥ 내부 유리 보더 — ::before (inset 8px, bright top/left, dim right/bottom) *@
+            <line x1="@(b.Px + b.Pad + 10)" y1="@(b.Py + b.Pad + 6)"
+                  x2="@(b.Px + b.Pad + b.InnerW - 10)" y2="@(b.Py + b.Pad + 6)"
+                  stroke="white" stroke-width="1.5" stroke-opacity="0.50" stroke-linecap="round" />
+            <line x1="@(b.Px + b.Pad + 6)" y1="@(b.Py + b.Pad + 10)"
+                  x2="@(b.Px + b.Pad + 6)" y2="@(b.Py + b.Pad + b.InnerH - 10)"
+                  stroke="white" stroke-width="1.5" stroke-opacity="0.30" stroke-linecap="round" />
+            <line x1="@(b.Px + b.Pad + b.InnerW - 6)" y1="@(b.Py + b.Pad + 10)"
+                  x2="@(b.Px + b.Pad + b.InnerW - 6)" y2="@(b.Py + b.Pad + b.InnerH - 10)"
+                  stroke="#00c8ff" stroke-width="1" stroke-opacity="0.15" stroke-linecap="round" />
+            <line x1="@(b.Px + b.Pad + 10)" y1="@(b.Py + b.Pad + b.InnerH - 6)"
+                  x2="@(b.Px + b.Pad + b.InnerW - 10)" y2="@(b.Py + b.Pad + b.InnerH - 6)"
+                  stroke="#00c8ff" stroke-width="1" stroke-opacity="0.15" stroke-linecap="round" />
+            @* Flow 이름 (text-shadow: 0 0 15px rgba(0,191,255,0.4)) *@
+            <g filter="url(#text-glow)">
+                <SvgText X="@(b.Px + b.Pad + 6)" Y="@b.TitleY"
+                         TextAnchor="start"
+                         Fill="white"
+                         FontSize="@b.TitleFS" FontWeight="700"
+                         Content="@b.FlowName" />
+            </g>
 
             @if (b.HasMtWt)
             {
                 @* 도넛 차트 (rotate -90° → 12시 방향 시작) *@
+                <g filter="url(#donut-glass)">
                 <g transform="rotate(-90 @b.DonutCx @b.DonutCy)">
                     @* 배경 트랙 *@
                     <circle cx="@b.DonutCx" cy="@b.DonutCy" r="@b.DonutR"
                             fill="none"
-                            style="stroke: var(--mud-palette-lines-default, rgba(0,0,0,0.10))"
+                            stroke="#cccccc" stroke-opacity="0.10"
                             stroke-width="@b.DonutSW" />
                     @* MT(가동) 호 *@
                     @if (b.MtDash > 0)
                     {
                         <circle cx="@b.DonutCx" cy="@b.DonutCy" r="@b.DonutR"
-                                fill="none" stroke="#0569A0" stroke-width="@b.DonutSW"
-                                stroke-dasharray="@b.SMtDash @b.SCirc" />
+                                fill="none" stroke="url(#donut-mt-grad)" stroke-width="@b.DonutSW"
+                                stroke-dasharray="@b.SMtDash @b.SCirc"
+                                stroke-linecap="round" />
                     }
                     @* WT(대기) 호 — MT 끝 지점에서 시작 *@
                     @if (b.WtDash > 0)
                     {
                         <circle cx="@b.DonutCx" cy="@b.DonutCy" r="@b.DonutR"
-                                fill="none" stroke="#FB8C00" stroke-width="@b.DonutSW"
+                                fill="none" stroke="url(#donut-wt-grad)" stroke-width="@b.DonutSW"
                                 stroke-dasharray="@b.SWtDash @b.SCirc"
-                                stroke-dashoffset="@b.SNegMt" />
+                                stroke-dashoffset="@b.SNegMt"
+                                stroke-linecap="round" />
                     }
                 </g>
+                </g>
+                @* 도넛 내부 엣지 하이라이트 *@
+                <circle cx="@b.DonutCx" cy="@b.DonutCy" r="@(b.DonutR - b.DonutSW / 2)"
+                        fill="url(#donut-inner-edge)" pointer-events="none" />
 
                 @* 도넛 중앙 전체 시간 *@
                 <SvgText X="@b.DonutCx" Y="@b.CenterLabelY"
                          TextAnchor="middle"
-                         Fill="var(--mud-palette-text-primary, #1e293b)"
+                         Fill="white"
                          FontSize="@b.CenterFS" FontWeight="700"
                          Content="@FormatMs(b.Total)" />
 
                 @* 우측 통계 (넓은 블럭 전용) *@
                 @if (b.ShowStats)
                 {
+                    @* 범례 컬러 도트 (네온 글로우) *@
+                    <circle cx="@b.DotX" cy="@b.DotY1" r="@b.DotR"
+                            fill="#3a86ff" filter="url(#dot-glow)" />
+                    <circle cx="@b.DotX" cy="@b.DotY2" r="@b.DotR"
+                            fill="#ff9f1c" filter="url(#dot-glow)" />
                     <SvgText X="@b.StatsX" Y="@b.StatsY1"
-                             Fill="var(--mud-palette-text-secondary, #64748b)"
+                             Fill="rgba(255,255,255,0.7)"
                              FontSize="@b.StatsFS" Content="가동" />
                     <SvgText X="@b.ValX" Y="@b.StatsY1"
-                             Fill="var(--mud-palette-text-primary, #1e293b)"
+                             Fill="white"
                              FontSize="@b.StatsFS" FontWeight="600"
                              Content="@FormatMs(b.Mt)" />
                     <SvgText X="@b.StatsX" Y="@b.StatsY2"
-                             Fill="var(--mud-palette-text-secondary, #64748b)"
+                             Fill="rgba(255,255,255,0.7)"
                              FontSize="@b.StatsFS" Content="대기" />
                     <SvgText X="@b.ValX" Y="@b.StatsY2"
-                             Fill="var(--mud-palette-text-primary, #1e293b)"
+                             Fill="white"
                              FontSize="@b.StatsFS" FontWeight="600"
                              Content="@FormatMs(b.Wt)" />
                 }
             }
 
             @* 상태 라벨 *@
-            <SvgText X="@b.Cx" Y="@b.StateY" TextAnchor="middle"
-                     Fill="var(--mud-palette-text-secondary, #64748b)"
+            <SvgText X="@b.StateX" Y="@b.StateY"
+                     TextAnchor="@(b.ShowStats ? "start" : "middle")"
+                     Fill="rgba(255,255,255,0.6)" FontWeight="600"
                      FontSize="@b.StateFS" Content="@b.StateLabel" />
 
             @* 배지 (우상단) — pill 스타일, 가로 배치 *@
@@ -187,7 +265,9 @@
                 var bY      = b.TitleY - (int)(b.TitleFS * 0.36 + b.BH / 2.0);
                 <g>
                     <rect x="@bX" y="@bY" width="@bW" height="@b.BH"
-                          rx="6" ry="6" fill="@badge.Color" />
+                          rx="6" ry="6"
+                          fill="@badge.Color" fill-opacity="0.20"
+                          stroke="@badge.Color" stroke-width="1" stroke-opacity="0.40" />
                     <SvgText X="@(bX + bW / 2)" Y="@(bY + b.BH - 5)"
                              TextAnchor="middle" Fill="white"
                              FontSize="13" FontWeight="700"
@@ -292,7 +372,14 @@
         public required int StatsY1 { get; init; }
         public required int StatsY2 { get; init; }
 
+        // 범례 도트
+        public required int DotR { get; init; }
+        public required int DotX { get; init; }
+        public required int DotY1 { get; init; }
+        public required int DotY2 { get; init; }
+
         // 상태 라벨
+        public required int StateX { get; init; }
         public required int StateFS { get; init; }
         public required int StateY { get; init; }
     }
@@ -339,11 +426,11 @@
             titleFS = Math.Max(7, (int)(titleFS * titleMaxW / estTitleW));
 
         // 도넛 차트 지오메트리
-        var donutMaxR = showStats ? innerW * 0.16 : innerW * 0.28;
-        var donutR    = (int)Math.Max(6, Math.Min(innerH * 0.26, donutMaxR));
-        var donutSW   = (int)Math.Max(4, donutR * 0.48);
+        var donutMaxR = showStats ? innerW * 0.20 : innerW * 0.28;
+        var donutR    = (int)Math.Max(8, Math.Min(innerH * 0.28, donutMaxR));
+        var donutSW   = (int)Math.Max(3, donutR * 0.22);
         var donutCx   = showStats
-            ? px + pad + (int)(innerW * 0.22)
+            ? px + pad + (int)(innerW * 0.26)
             : px + pad + (int)(innerW * 0.50);
         var donutCy   = py + pad + (int)(innerH * 0.58);
 
@@ -372,13 +459,21 @@
             Math.Max(7, (int)(minDim * 0.115)),
             Math.Max(7, (int)(availW / 6.1)));
         var valX     = statsX + (int)(statsFS * 2.6);
-        var statsLH = (int)(innerH * 0.155);
-        var statsY1 = donutCy - statsLH;
-        var statsY2 = donutCy;
+        var statsLH = (int)(innerH * (showStats ? 0.13 : 0.155));
+        var statsY1 = showStats ? donutCy : donutCy - statsLH;
+        var statsY2 = showStats ? donutCy + statsLH : donutCy;
 
-        // 상태 라벨 — 셀 크기 기준 고정 (블록 크기와 무관하게 동일 크기)
-        var stateFS = Math.Max(7, (int)(Math.Min(CellWidth, CellHeight) * 0.10));
-        var stateY  = py + pad + (int)(innerH * 0.91);
+        // 범례 도트
+        var dotR    = Math.Max(3, (int)(statsFS * 0.28));
+        var dotX    = statsX - dotR - 5;
+        var dotYOff = (int)(statsFS * 0.35);
+
+        // 상태 라벨 — showStats일 때 우측 통계 영역 위, 아닐 때 하단 중앙
+        var stateFS = showStats
+            ? Math.Max(8, (int)(statsFS * 1.15))
+            : Math.Max(7, (int)(Math.Min(CellWidth, CellHeight) * 0.10));
+        var stateX  = showStats ? statsX : cx;
+        var stateY  = showStats ? donutCy - statsLH : py + pad + (int)(innerH * 0.91);
 
         return new FlowBlockLayout
         {
@@ -396,7 +491,9 @@
             CenterFS = centerFS, CenterLabelY = donutCy + (int)(centerFS * 0.38),
             ValX = valX, StatsX = statsX, StatsFS = statsFS,
             StatsY1 = statsY1, StatsY2 = statsY2,
-            StateFS = stateFS, StateY = stateY,
+            DotR = dotR, DotX = dotX,
+            DotY1 = statsY1 - dotYOff, DotY2 = statsY2 - dotYOff,
+            StateX = stateX, StateFS = stateFS, StateY = stateY,
         };
     }
 
