@@ -32,7 +32,7 @@ public class SvgText : ComponentBase
         builder.OpenElement(0, "text");
         builder.AddAttribute(1, "x", X);
         builder.AddAttribute(2, "y", Y);
-        builder.AddAttribute(3, "fill", Fill);
+        builder.AddAttribute(3, "style", $"fill: {Fill}");
         builder.AddAttribute(4, "font-size", FontSize);
         if (FontWeight is not null)  builder.AddAttribute(5, "font-weight", FontWeight);
         if (TextAnchor is not null)  builder.AddAttribute(6, "text-anchor", TextAnchor);

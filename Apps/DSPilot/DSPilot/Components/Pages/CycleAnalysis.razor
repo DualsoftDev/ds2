@@ -161,7 +161,7 @@ else
             <!-- Selected Item Info Panel -->
             @if (_selectedItem != null)
             {
-                <MudPaper Class="pa-4 mb-4" Style="background-color: #fff3e0; border-left: 4px solid #FF5722;">
+                <MudPaper Class="pa-4 mb-4" Style="border-left: 4px solid #FF5722;">
                     <MudText Typo="Typo.h6" Color="Color.Primary" Class="mb-3">
                         📊 선택된 아이템 분석
                     </MudText>
@@ -294,12 +294,12 @@ else
                 <!-- Legend -->
                 <div style="margin-bottom: 16px; display: flex; gap: 16px; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <div style="width: 20px; height: 20px; background-color: #2196F3; border: 1px solid #333; border-radius: 3px;"></div>
-                        <span style="font-size: 14px;">InTag (Input)</span>
+                        <div style="width: 20px; height: 20px; background-color: #2196F3; border: 1px solid var(--mud-palette-lines-default, #333); border-radius: 3px;"></div>
+                        <span style="font-size: 14px; color: var(--mud-palette-text-primary);">InTag (Input)</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <div style="width: 20px; height: 20px; background-color: #4CAF50; border: 1px solid #333; border-radius: 3px;"></div>
-                        <span style="font-size: 14px;">OutTag (Output)</span>
+                        <div style="width: 20px; height: 20px; background-color: #4CAF50; border: 1px solid var(--mud-palette-lines-default, #333); border-radius: 3px;"></div>
+                        <span style="font-size: 14px; color: var(--mud-palette-text-primary);">OutTag (Output)</span>
                     </div>
                 </div>
 
@@ -688,7 +688,7 @@ else
         builder.OpenElement(seq++, "svg");
         builder.AddAttribute(seq++, "width", totalWidth);
         builder.AddAttribute(seq++, "height", totalHeight);
-        builder.AddAttribute(seq++, "style", "border: 1px solid #e0e0e0; border-radius: 4px; background-color: #fafafa;");
+        builder.AddAttribute(seq++, "style", "border: 1px solid var(--mud-palette-lines-default, #e0e0e0); border-radius: 4px; background-color: var(--mud-palette-surface, #fafafa);");
 
         // Title
         builder.OpenElement(seq++, "text");
@@ -696,7 +696,7 @@ else
         builder.AddAttribute(seq++, "y", 20);
         builder.AddAttribute(seq++, "font-size", "14");
         builder.AddAttribute(seq++, "font-weight", "bold");
-        builder.AddAttribute(seq++, "fill", "#333");
+        builder.AddAttribute(seq++, "style", "fill: var(--mud-palette-text-primary, #333)");
         builder.AddContent(seq++, $"Timeline: {chartStartTime:HH:mm:ss.fff} → {chartEndTime:HH:mm:ss.fff} ({cycleTime} ms)");
         builder.CloseElement(); // text
 
@@ -706,7 +706,7 @@ else
         builder.AddAttribute(seq++, "y1", topMargin);
         builder.AddAttribute(seq++, "x2", leftMargin + plotWidth);
         builder.AddAttribute(seq++, "y2", topMargin);
-        builder.AddAttribute(seq++, "stroke", "#666");
+        builder.AddAttribute(seq++, "style", "stroke: var(--mud-palette-text-secondary, #666)");
         builder.AddAttribute(seq++, "stroke-width", "2");
         builder.CloseElement(); // line
 
@@ -723,7 +723,7 @@ else
             builder.AddAttribute(seq++, "y1", topMargin - 5);
             builder.AddAttribute(seq++, "x2", x);
             builder.AddAttribute(seq++, "y2", topMargin);
-            builder.AddAttribute(seq++, "stroke", "#666");
+            builder.AddAttribute(seq++, "style", "stroke: var(--mud-palette-text-secondary, #666)");
             builder.AddAttribute(seq++, "stroke-width", "1");
             builder.CloseElement(); // line
 
@@ -733,7 +733,7 @@ else
             builder.AddAttribute(seq++, "y", topMargin - 10);
             builder.AddAttribute(seq++, "font-size", "10");
             builder.AddAttribute(seq++, "text-anchor", "middle");
-            builder.AddAttribute(seq++, "fill", "#666");
+            builder.AddAttribute(seq++, "style", "fill: var(--mud-palette-text-secondary, #666)");
             builder.AddContent(seq++, actualTime.ToString("HH:mm:ss.fff"));
             builder.CloseElement(); // text
 
@@ -743,7 +743,7 @@ else
             builder.AddAttribute(seq++, "y1", topMargin);
             builder.AddAttribute(seq++, "x2", x);
             builder.AddAttribute(seq++, "y2", topMargin + (data.TotalLanes * laneHeight));
-            builder.AddAttribute(seq++, "stroke", "#e0e0e0");
+            builder.AddAttribute(seq++, "style", "stroke: var(--mud-palette-lines-default, #e0e0e0)");
             builder.AddAttribute(seq++, "stroke-width", "1");
             builder.AddAttribute(seq++, "stroke-dasharray", "2,2");
             builder.CloseElement(); // line
@@ -763,7 +763,7 @@ else
             builder.AddAttribute(seq++, "y1", y);
             builder.AddAttribute(seq++, "x2", leftMargin + plotWidth);
             builder.AddAttribute(seq++, "y2", y);
-            builder.AddAttribute(seq++, "stroke", "#ddd");
+            builder.AddAttribute(seq++, "style", "stroke: var(--mud-palette-lines-default, #ddd)");
             builder.AddAttribute(seq++, "stroke-width", "1");
             builder.CloseElement(); // line
 
@@ -772,7 +772,7 @@ else
             builder.AddAttribute(seq++, "x", 5);
             builder.AddAttribute(seq++, "y", y + (laneHeight / 2) + 5);
             builder.AddAttribute(seq++, "font-size", "10");
-            builder.AddAttribute(seq++, "fill", "#666");
+            builder.AddAttribute(seq++, "style", "fill: var(--mud-palette-text-secondary, #666)");
             builder.AddContent(seq++, laneLabel);
             builder.CloseElement(); // text
         }
@@ -895,7 +895,7 @@ Click to analyze");
             builder.AddAttribute(seq++, "width", width);
             builder.AddAttribute(seq++, "height", barHeight);
             builder.AddAttribute(seq++, "fill", color);
-            builder.AddAttribute(seq++, "stroke", isSelected ? "#FF5722" : "#333");  // Red border if selected
+            builder.AddAttribute(seq++, "stroke", isSelected ? "#FF5722" : "var(--mud-palette-lines-default, #333)");  // Red border if selected
             builder.AddAttribute(seq++, "stroke-width", isSelected ? "3" : "1");
             builder.AddAttribute(seq++, "rx", "3");
             builder.AddAttribute(seq++, "style", isSelected ? "filter: drop-shadow(0 0 6px rgba(255, 87, 34, 0.8));" : "transition: opacity 0.2s;");

@@ -2,6 +2,8 @@
 window.canvasInterop = {
     _dotNetRef: null,
     _svgEl: null,
+    _svgContainer: null,
+    _pendingDragFlowId: null,
     _dragState: null,
     _resizeState: null,
     _resizePreview: null,
@@ -32,6 +34,15 @@ window.canvasInterop = {
         this._svgEl.addEventListener('mousemove',  this._onMouseMoveBound);
         this._svgEl.addEventListener('mouseup',    this._onMouseUpBound);
         this._svgEl.addEventListener('mouseleave', this._onMouseUpBound);
+
+        // HTML5 drag-and-drop from sidebar to canvas
+        this._svgContainer = this._svgEl.parentElement;
+        this._onDragStartBound = this._onHTMLDragStart.bind(this);
+        this._onDragOverBound  = function (e) { e.preventDefault(); };
+        this._onHTMLDropBound  = this._onHTMLDrop.bind(this);
+        document.addEventListener('dragstart', this._onDragStartBound);
+        this._svgContainer.addEventListener('dragover', this._onDragOverBound);
+        this._svgContainer.addEventListener('drop',     this._onHTMLDropBound);
     },
 
     updateGrid: function (cellW, cellH, cols, rows, offsetX, offsetY) {
@@ -47,6 +58,15 @@ window.canvasInterop = {
         var img = document.querySelector(imgSelector);
         if (!img) return null;
         return { width: img.naturalWidth, height: img.naturalHeight };
+    },
+
+    convertDropCoords: function (clientX, clientY) {
+        if (!this._svgEl) return [0, 0];
+        var pt = this._svgEl.createSVGPoint();
+        pt.x = clientX;
+        pt.y = clientY;
+        var svgPt = pt.matrixTransform(this._svgEl.getScreenCTM().inverse());
+        return [svgPt.x, svgPt.y];
     },
 
     downloadFile: function (fileName, mimeType, base64) {
@@ -65,11 +85,18 @@ window.canvasInterop = {
             this._svgEl.removeEventListener('mouseup',    this._onMouseUpBound);
             this._svgEl.removeEventListener('mouseleave', this._onMouseUpBound);
         }
+        document.removeEventListener('dragstart', this._onDragStartBound);
+        if (this._svgContainer) {
+            this._svgContainer.removeEventListener('dragover', this._onDragOverBound);
+            this._svgContainer.removeEventListener('drop',     this._onHTMLDropBound);
+        }
         this._removeResizePreview();
-        this._dotNetRef   = null;
-        this._svgEl       = null;
-        this._dragState   = null;
-        this._resizeState = null;
+        this._dotNetRef        = null;
+        this._svgEl            = null;
+        this._svgContainer     = null;
+        this._pendingDragFlowId = null;
+        this._dragState        = null;
+        this._resizeState      = null;
     },
 
     // ── helpers ──────────────────────────────────────────────
@@ -129,9 +156,42 @@ window.canvasInterop = {
         }
     },
 
+    // ── HTML5 drag-and-drop (sidebar → canvas) ─────────────
+
+    _onHTMLDragStart: function (evt) {
+        var el = evt.target.closest('[data-drag-flow-id]');
+        if (!el) return;
+        this._pendingDragFlowId = el.getAttribute('data-drag-flow-id');
+        evt.dataTransfer.setData('text/plain', this._pendingDragFlowId);
+        evt.dataTransfer.effectAllowed = 'move';
+    },
+
+    _onHTMLDrop: function (evt) {
+        evt.preventDefault();
+        if (!this._pendingDragFlowId || !this._dotNetRef) return;
+        var flowId = this._pendingDragFlowId;
+        this._pendingDragFlowId = null;
+
+        var pt   = this._getSvgPoint(evt);
+        var cell = this._pixelToCell(pt.x, pt.y);
+        this._dotNetRef.invokeMethodAsync('OnFlowDropped', flowId, cell.col, cell.row);
+    },
+
     // ── mouse events ─────────────────────────────────────────
 
     _onMouseDown: function (evt) {
+        // 0) Delete button takes highest priority
+        var deleteEl = evt.target.closest('[data-delete-for]');
+        if (deleteEl) {
+            evt.preventDefault();
+            evt.stopPropagation();
+            var flowId = deleteEl.getAttribute('data-delete-for');
+            if (this._dotNetRef) {
+                this._dotNetRef.invokeMethodAsync('OnNodeDeleted', flowId);
+            }
+            return;
+        }
+
         // 1) Resize handle takes priority
         var resizeEl = evt.target.closest('[data-resize-for]');
         if (resizeEl) {

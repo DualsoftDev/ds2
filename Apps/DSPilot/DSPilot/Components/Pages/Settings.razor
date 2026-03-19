@@ -1,0 +1,223 @@
+@page "/settings"
+@inject AppSettingsService SettingsService
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@rendermode InteractiveServer
+
+<PageTitle>설정 - DSPilot</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-4">설정</MudText>
+
+@if (_settings is not null)
+{
+    <MudGrid Spacing="4">
+        @* 왼쪽 열: 프로젝트 + DSP 데이터베이스 *@
+        <MudItem xs="12" md="6">
+            <MudStack Spacing="4">
+                @* DsPilot 섹션 *@
+                <MudCard Elevation="2">
+                    <MudCardHeader>
+                        <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Class="mr-2" />
+                        <MudText Typo="Typo.h6">프로젝트 (DsPilot)</MudText>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        <MudText Typo="Typo.subtitle2" Class="mb-2">AASX 파일 경로</MudText>
+                        <MudTextField @bind-Value="_settings.DsPilot.AasxFilePath"
+                                      Label="경로 직접 입력"
+                                      Variant="Variant.Outlined"
+                                      HelperText="서버 PC에 있는 AASX 파일의 상대 또는 절대 경로"
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Description"
+                                      Class="mb-3" />
+                        <MudDivider Class="mb-3" />
+                        <MudText Typo="Typo.subtitle2" Class="mb-2">또는 파일 업로드</MudText>
+                        <MudFileUpload T="IBrowserFile" Accept=".aasx" FilesChanged="OnAasxFileUploaded" MaximumFileCount="1">
+                            <ActivatorContent>
+                                <MudButton Variant="Variant.Outlined"
+                                           Color="Color.Primary"
+                                           StartIcon="@Icons.Material.Filled.CloudUpload"
+                                           FullWidth="true">
+                                    AASX 파일 선택
+                                </MudButton>
+                            </ActivatorContent>
+                        </MudFileUpload>
+                        @if (!string.IsNullOrEmpty(_uploadedFileName))
+                        {
+                            <MudAlert Severity="Severity.Success" Class="mt-2" Dense="true" Variant="Variant.Text">
+                                업로드됨: @_uploadedFileName
+                            </MudAlert>
+                        }
+                        @if (_uploading)
+                        {
+                            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mt-2" />
+                        }
+                    </MudCardContent>
+                </MudCard>
+
+                @* DspDatabase 섹션 *@
+                <MudCard Elevation="2">
+                    <MudCardHeader>
+                        <MudIcon Icon="@Icons.Material.Filled.DataObject" Class="mr-2" />
+                        <MudText Typo="Typo.h6">DSP 데이터베이스</MudText>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        <MudTextField @bind-Value="_settings.DspDatabase.Path"
+                                      Label="DB 경로"
+                                      Variant="Variant.Outlined"
+                                      HelperText="DSP 내부 데이터베이스 경로 (환경변수 사용 가능)"
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Description"
+                                      Class="mb-3" />
+                        <MudSwitch @bind-Value="_settings.DspDatabase.AutoCreate"
+                                   Label="자동 생성"
+                                   Color="Color.Primary"
+                                   Class="mb-2" />
+                        <MudSwitch @bind-Value="_settings.DspDatabase.RecreateOnStartup"
+                                   Label="시작 시 재생성"
+                                   Color="Color.Warning" />
+                        <MudText Typo="Typo.caption" Color="Color.Warning" Class="mt-1">
+                            시작 시 재생성을 활성화하면 기존 데이터가 삭제됩니다.
+                        </MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudStack>
+        </MudItem>
+
+        @* 오른쪽 열: PLC 데이터베이스 *@
+        <MudItem xs="12" md="6">
+            <MudCard Elevation="2">
+                <MudCardHeader>
+                    <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-2" />
+                    <MudText Typo="Typo.h6">PLC 데이터베이스</MudText>
+                </MudCardHeader>
+                <MudCardContent>
+                    <MudTextField @bind-Value="_settings.PlcDatabase.SourceDbPath"
+                                  Label="소스 DB 경로"
+                                  Variant="Variant.Outlined"
+                                  HelperText="PLC SQLite 데이터베이스 파일 경로"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Description"
+                                  Class="mb-3" />
+                    <MudNumericField @bind-Value="_settings.PlcDatabase.ReadIntervalMs"
+                                     Label="읽기 간격 (ms)"
+                                     Variant="Variant.Outlined"
+                                     Min="100" Max="60000"
+                                     HelperText="PLC 데이터 폴링 간격 (밀리초)"
+                                     Adornment="Adornment.Start"
+                                     AdornmentIcon="@Icons.Material.Filled.Timer"
+                                     Class="mb-3" />
+                    <MudSelect @bind-Value="_settings.PlcDatabase.TagMatchMode"
+                               Label="태그 매칭 모드"
+                               Variant="Variant.Outlined"
+                               HelperText="PLC 태그 매칭 방식"
+                               Adornment="Adornment.Start"
+                               AdornmentIcon="@Icons.Material.Filled.CompareArrows"
+                               Class="mb-3">
+                        <MudSelectItem Value="@("Address")">Address</MudSelectItem>
+                        <MudSelectItem Value="@("Name")">Name</MudSelectItem>
+                    </MudSelect>
+                    <MudSwitch @bind-Value="_settings.PlcDatabase.SimulationMode"
+                               Label="시뮬레이션 모드"
+                               Color="Color.Primary" />
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+
+    <MudPaper Class="mt-4 pa-3 d-flex justify-end gap-3" Elevation="0">
+        <MudButton Variant="Variant.Outlined"
+                   Color="Color.Default"
+                   StartIcon="@Icons.Material.Filled.Refresh"
+                   OnClick="ReloadSettings">
+            되돌리기
+        </MudButton>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Save"
+                   OnClick="SaveSettings">
+            저장
+        </MudButton>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Warning"
+                   StartIcon="@Icons.Material.Filled.RestartAlt"
+                   OnClick="SaveAndRestart">
+            저장 및 재시작
+        </MudButton>
+    </MudPaper>
+
+    <MudAlert Severity="Severity.Info" Class="mt-4" Variant="Variant.Outlined">
+        설정 변경 후 애플리케이션을 재시작해야 적용됩니다.
+    </MudAlert>
+}
+else
+{
+    <MudProgressCircular Indeterminate="true" Class="mt-8" />
+}
+
+@code {
+    private AppSettingsModel? _settings;
+    private bool _uploading;
+    private string? _uploadedFileName;
+
+    protected override void OnInitialized()
+        => _settings = SettingsService.LoadSettings();
+
+    private void ReloadSettings()
+    {
+        _settings = SettingsService.LoadSettings();
+        _uploadedFileName = null;
+        Snackbar.Add("설정을 다시 불러왔습니다.", Severity.Info);
+    }
+
+    private async Task OnAasxFileUploaded(IBrowserFile file)
+    {
+        if (file is null || _settings is null) return;
+
+        _uploading = true;
+        StateHasChanged();
+
+        try
+        {
+            _settings.DsPilot.AasxFilePath = await SettingsService.UploadAasxFileAsync(file);
+            _uploadedFileName = file.Name;
+            Snackbar.Add($"파일 업로드 완료: {file.Name}", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"업로드 실패: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _uploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveAndRestart()
+    {
+        var result = await DialogService.ShowMessageBox(
+            "서버 재시작",
+            "설정을 저장하고 서버를 재시작합니다. 진행하시겠습니까?",
+            yesText: "재시작", cancelText: "취소");
+
+        if (result != true) return;
+
+        SaveSettings();
+        if (!SettingsService.RestartApplication())
+            Snackbar.Add("디버그 모드에서는 자동 재시작이 불가합니다. VS에서 다시 실행해주세요.", Severity.Warning);
+    }
+
+    private void SaveSettings()
+    {
+        if (_settings is null) return;
+        try
+        {
+            SettingsService.SaveSettings(_settings);
+            Snackbar.Add("설정이 저장되었습니다. 재시작 후 적용됩니다.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"저장 실패: {ex.Message}", Severity.Error);
+        }
+    }
+}

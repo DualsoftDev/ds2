@@ -17,6 +17,7 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 builder.Services.AddMudServices();
+builder.Services.AddSingleton<AppSettingsService>();
 builder.Services.AddSingleton<DsProjectService>();
 builder.Services.AddScoped<DashboardEditService>();
 builder.Services.AddSingleton<BlueprintService>();
@@ -68,6 +69,14 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStaticFiles();
 app.UseAntiforgery();
+
+// 재시작 딜레이: 이전 프로세스가 포트를 해제할 시간 확보
+var delayIndex = Array.IndexOf(args, "--restart-delay");
+if (delayIndex >= 0 && delayIndex + 1 < args.Length && int.TryParse(args[delayIndex + 1], out var delayMs))
+{
+    app.Logger.LogInformation("재시작 딜레이 {Delay}ms 대기 중...", delayMs);
+    Thread.Sleep(delayMs);
+}
 
 app.MapStaticAssets();
 app.MapRazorComponents<DSPilot.Components.App>()

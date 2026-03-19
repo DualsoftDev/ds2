@@ -5,13 +5,13 @@ html, body {
 }
 
 .mud-nav-link.active {
-    background-color: rgba(10, 30, 90, 0.08) !important;
-    border-left: 3px solid #FA002D !important;
+    background-color: color-mix(in srgb, var(--mud-palette-primary) 8%, transparent) !important;
+    border-left: 3px solid var(--mud-palette-primary) !important;
 }
 
 .mud-table-head th {
-    background-color: #F5F5F5 !important;
-    color: #0A1E5A !important;
+    background-color: var(--mud-palette-background, #F5F5F5) !important;
+    color: var(--mud-palette-primary, #0A1E5A) !important;
     font-weight: 600 !important;
 }
 
@@ -89,5 +89,31 @@ html, body {
 }
 
 .heatmap-table .mud-table-row:hover {
-    background-color: rgba(0, 0, 0, 0.02);
+    background-color: color-mix(in srgb, var(--mud-palette-text-primary) 2%, transparent);
+}
+
+/* ── 상태 구분: focus / hover / transition ── */
+
+/* 포커스 표시 (접근성) */
+[tabindex]:focus-visible,
+.mud-nav-link:focus-visible,
+.mud-button-root:focus-visible {
+    outline: 2px solid #0569A0;
+    outline-offset: 2px;
+}
+
+/* CT 차트 행 hover */
+.ct-chart-row {
+    transition: background 0.15s ease;
+}
+.ct-chart-row:hover {
+    background: color-mix(in srgb, var(--mud-palette-text-primary) 4%, transparent);
+}
+
+/* FlowLayout SVG 블록 hover */
+.flow-block {
+    transition: filter 0.15s ease;
+}
+.flow-block:hover {
+    filter: brightness(1.06);
 }
