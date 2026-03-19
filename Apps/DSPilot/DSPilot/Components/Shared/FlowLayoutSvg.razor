@@ -102,22 +102,27 @@
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8"
                   fill="#0a1e30" fill-opacity="0.82" />
+            @* ②-a 상태색 틴트 오버레이 *@
+            <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
+                  width="@b.InnerW" height="@b.InnerH"
+                  rx="8" ry="8"
+                  fill="@b.Color" fill-opacity="0.08" />
             @* ②-b 대각선 유리 반사 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8"
                   fill="url(#glass-overlay-grad)" />
-            @* ②-c 내부 시안 글로우 *@
+            @* ②-c 내부 상태색 글로우 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8" fill="none"
-                  stroke="#00bfff" stroke-width="18" stroke-opacity="0.12"
+                  stroke="@b.Color" stroke-width="18" stroke-opacity="0.10"
                   filter="url(#glass-blur)" />
-            @* ③ 시안 글래스 테두리 *@
+            @* ③ 상태색 글래스 테두리 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8" fill="none"
-                  stroke="#00c8ff" stroke-width="1" stroke-opacity="0.30" />
+                  stroke="@b.Color" stroke-width="1" stroke-opacity="0.35" />
             @* ④ 상단 밝은 하이라이트 *@
             <line x1="@(b.Px + b.Pad + 12)" y1="@(b.Py + b.Pad + 1)"
                   x2="@(b.Px + b.Pad + b.InnerW - 12)" y2="@(b.Py + b.Pad + 1)"
@@ -135,15 +140,16 @@
                   stroke="white" stroke-width="1.5" stroke-opacity="0.30" stroke-linecap="round" />
             <line x1="@(b.Px + b.Pad + b.InnerW - 6)" y1="@(b.Py + b.Pad + 10)"
                   x2="@(b.Px + b.Pad + b.InnerW - 6)" y2="@(b.Py + b.Pad + b.InnerH - 10)"
-                  stroke="#00c8ff" stroke-width="1" stroke-opacity="0.15" stroke-linecap="round" />
+                  stroke="@b.Color" stroke-width="1" stroke-opacity="0.15" stroke-linecap="round" />
             <line x1="@(b.Px + b.Pad + 10)" y1="@(b.Py + b.Pad + b.InnerH - 6)"
                   x2="@(b.Px + b.Pad + b.InnerW - 10)" y2="@(b.Py + b.Pad + b.InnerH - 6)"
-                  stroke="#00c8ff" stroke-width="1" stroke-opacity="0.15" stroke-linecap="round" />
+                  stroke="@b.Color" stroke-width="1" stroke-opacity="0.15" stroke-linecap="round" />
 
             @* ── 카드 내부 콘텐츠 (foreignObject — 최소 카드 기준 중앙 배치) ── *@
             <foreignObject x="@b.ContentX" y="@b.ContentY"
                            width="@b.ContentW" height="@b.ContentH">
-                <div xmlns="http://www.w3.org/1999/xhtml" class="fc-cq">
+                <div xmlns="http://www.w3.org/1999/xhtml" class="fc-cq"
+                     style="--min-w:@(b.BodyMaxW)px;--min-h:@(b.BodyMaxH)px;--state-color:@(b.Color)">
                     <div class="fc-root">
                         @* ── 헤더: 검은 배경 + 큰 제목 + 배지 ── *@
                         <div class="fc-header">
