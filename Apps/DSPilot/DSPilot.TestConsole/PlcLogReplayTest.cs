@@ -121,16 +121,27 @@ public static class PlcLogReplayTest
         using var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync();
 
-        // plcTagLog와 plcTag를 조인하여 로드
-        const string sql = @"
+        // 먼저 plcTag 테이블의 컬럼 확인
+        var columns = await connection.QueryAsync<string>(
+            "SELECT name FROM PRAGMA_TABLE_INFO('plcTag')");
+        var columnList = columns.ToList();
+
+        bool hasAddress = columnList.Contains("address");
+        bool hasDataType = columnList.Contains("dataType");
+
+        // 동적으로 SQL 구성
+        var addressCol = hasAddress ? "t.address" : "t.name";
+        var dataTypeCol = hasDataType ? "t.dataType" : "'BOOL'";
+
+        var sql = $@"
             SELECT
                 l.id as Id,
                 l.plcTagId as PlcTagId,
                 l.dateTime as DateTime,
                 l.value as Value,
                 t.name as TagName,
-                t.address as TagAddress,
-                t.dataType as DataType
+                {addressCol} as TagAddress,
+                {dataTypeCol} as DataType
             FROM plcTagLog l
             INNER JOIN plcTag t ON l.plcTagId = t.id
             ORDER BY l.dateTime ASC";
