@@ -36,6 +36,8 @@ public class AppSettingsService
             DsPilot = Deserialize<DsPilotSettings>(root["DsPilot"]),
             PlcDatabase = Deserialize<PlcDatabaseSettings>(root["PlcDatabase"]),
             DspDatabase = Deserialize<DspDatabaseSettings>(root["DspDatabase"]),
+            PlcConnection = Deserialize<PlcConnectionSettings>(root["PlcConnection"]),
+            Logging = Deserialize<LoggingSettings>(root["Logging"]),
         };
     }
 
@@ -46,6 +48,8 @@ public class AppSettingsService
         root["DsPilot"] = JsonSerializer.SerializeToNode(model.DsPilot, JsonOptions);
         root["PlcDatabase"] = JsonSerializer.SerializeToNode(model.PlcDatabase, JsonOptions);
         root["DspDatabase"] = JsonSerializer.SerializeToNode(model.DspDatabase, JsonOptions);
+        root["PlcConnection"] = JsonSerializer.SerializeToNode(model.PlcConnection, JsonOptions);
+        root["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
 
         SaveRaw(root);
     }

@@ -1,7 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg"
      style="display: block; @Style"
      viewBox="0 0 @CanvasWidth @CanvasHeight"
-     preserveAspectRatio="none">
+     preserveAspectRatio="none"
+     @onclick="OnBackgroundClicked" @onclick:stopPropagation>
 
     @* ── 공용 필터 ── *@
     <defs>
@@ -18,6 +19,19 @@
                 <feMergeNode in="SourceGraphic" />
             </feMerge>
         </filter>
+        <filter id="block-shadow-selected" x="-15%" y="-15%" width="140%" height="140%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="shadow" />
+            <feOffset dx="0" dy="6" in="shadow" result="offsetShadow" />
+            <feFlood flood-color="rgba(0,0,0,0.45)" result="color" />
+            <feComposite in="color" in2="offsetShadow" operator="in" result="colorShadow" />
+            <feMerge>
+                <feMergeNode in="colorShadow" />
+                <feMergeNode in="SourceGraphic" />
+            </feMerge>
+        </filter>
+        <filter id="selection-glow" x="-35%" y="-35%" width="170%" height="170%">
+            <feGaussianBlur stdDeviation="10" />
+        </filter>
     </defs>
 
     @* 도면 배경 *@
@@ -30,6 +44,14 @@
 
     @foreach (var b in _blockLayouts)
     {
+        var sel = b.FlowName == SelectedFlowName;
+        var cx  = b.Px + b.Pad + b.InnerW / 2.0;
+        var cy  = b.Py + b.Pad + b.InnerH / 2.0;
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+
+        @* ── 선택 시 살짝 확대 + 강한 그림자 래퍼 ── *@
+        <g transform="@(sel ? $"translate({cx.ToString("F1", inv)},{cy.ToString("F1", inv)}) scale(1.04) translate({(-cx).ToString("F1", inv)},{(-cy).ToString("F1", inv)})" : "")">
+
         <defs>
             <clipPath id="@b.ClipId">
                 <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
@@ -40,9 +62,29 @@
         @* 드롭 쉐도우 (clip 바깥) *@
         <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
               width="@b.InnerW" height="@b.InnerH"
-              rx="8" ry="8" fill="transparent" filter="url(#block-shadow)" />
+              rx="8" ry="8" fill="transparent"
+              filter="@(sel ? "url(#block-shadow-selected)" : "url(#block-shadow)")" />
 
-        <g class="flow-block" clip-path="url(#@b.ClipId)">
+        @* 선택 글로우 — 상태색 후광 + pulse *@
+        @if (sel)
+        {
+            <rect x="@(b.Px + b.Pad - 4)" y="@(b.Py + b.Pad - 4)"
+                  width="@(b.InnerW + 8)" height="@(b.InnerH + 8)"
+                  rx="12" ry="12"
+                  fill="@b.Color" opacity="0.55"
+                  filter="url(#selection-glow)">
+                <animate attributeName="opacity"
+                         values="0.35;0.65;0.35" dur="2s"
+                         repeatCount="indefinite" />
+            </rect>
+            <rect x="@(b.Px + b.Pad - 1)" y="@(b.Py + b.Pad - 1)"
+                  width="@(b.InnerW + 2)" height="@(b.InnerH + 2)"
+                  rx="9" ry="9" fill="none"
+                  stroke="@b.Color" stroke-width="2.5" stroke-opacity="0.7" />
+        }
+
+        <g class="flow-block" clip-path="url(#@b.ClipId)"
+           style="cursor:pointer;" @onclick="() => OnBlockClicked(b.FlowName)" @onclick:stopPropagation>
             @* ① 블러된 배경 이미지 (글래스 효과) *@
             @if (!string.IsNullOrEmpty(ImagePath))
             {
@@ -116,14 +158,14 @@
                     <SvgText X="@b.StatsX" Y="@b.StatsY1"
                              Fill="var(--mud-palette-text-secondary, #64748b)"
                              FontSize="@b.StatsFS" Content="가동" />
-                    <SvgText X="@b.ValX" Y="@b.StatsY1" TextAnchor="end"
+                    <SvgText X="@b.ValX" Y="@b.StatsY1"
                              Fill="var(--mud-palette-text-primary, #1e293b)"
                              FontSize="@b.StatsFS" FontWeight="600"
                              Content="@FormatMs(b.Mt)" />
                     <SvgText X="@b.StatsX" Y="@b.StatsY2"
                              Fill="var(--mud-palette-text-secondary, #64748b)"
                              FontSize="@b.StatsFS" Content="대기" />
-                    <SvgText X="@b.ValX" Y="@b.StatsY2" TextAnchor="end"
+                    <SvgText X="@b.ValX" Y="@b.StatsY2"
                              Fill="var(--mud-palette-text-primary, #1e293b)"
                              FontSize="@b.StatsFS" FontWeight="600"
                              Content="@FormatMs(b.Wt)" />
@@ -152,7 +194,18 @@
                              Content="@badge.Label" />
                 </g>
             }
+
+            @* 선택 오버레이 (clip 안쪽) *@
+            @if (sel)
+            {
+                <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
+                      width="@b.InnerW" height="@b.InnerH"
+                      rx="8" ry="8"
+                      fill="@b.Color" fill-opacity="0.10"
+                      stroke="none" />
+            }
         </g>
+        </g> @* scale 래퍼 닫기 *@
     }
 </svg>
 
@@ -172,6 +225,8 @@
     [Parameter] public Func<FlowPlacement, string>? GetStateLabel { get; set; }
     [Parameter] public Func<FlowPlacement, (int Mt, int Wt)?>? GetMtWt { get; set; }
     [Parameter] public Func<FlowPlacement, IEnumerable<(string Label, string Color)>>? GetBadges { get; set; }
+    [Parameter] public string? SelectedFlowName { get; set; }
+    [Parameter] public EventCallback<string?> OnFlowClicked { get; set; }
 
     // ── Pre-computed block layouts ──
     private List<FlowBlockLayout> _blockLayouts = [];
@@ -307,13 +362,16 @@
         // 도넛 중앙 라벨
         var centerFS = Math.Max(6, (int)(donutR * 0.52));
 
-        // 통계 텍스트 위치
-        var valX    = px + pad + innerW - 4;
-        var statsX  = Math.Max(donutCx + donutR + (int)(donutSW / 2.0) + 6,
-                               px + pad + (int)(innerW * 0.50));
-        var statsFS = Math.Min(
+        // 통계 텍스트 위치 — 라벨과 값을 고정 간격으로 배치, 블록 내 클램핑
+        var statsX   = Math.Max(donutCx + donutR + (int)(donutSW / 2.0) + 6,
+                                px + pad + (int)(innerW * 0.50));
+        var rightEdge = px + pad + innerW - 4;
+        var availW    = rightEdge - statsX;
+        // "가동"(~2.0) + gap(~0.6) + value(~3.5 ASCII chars) ≈ 6.1 * statsFS
+        var statsFS  = Math.Min(
             Math.Max(7, (int)(minDim * 0.115)),
-            Math.Max(7, (int)((valX - statsX) / 5.0)));
+            Math.Max(7, (int)(availW / 6.1)));
+        var valX     = statsX + (int)(statsFS * 2.6);
         var statsLH = (int)(innerH * 0.155);
         var statsY1 = donutCy - statsLH;
         var statsY2 = donutCy;
@@ -340,6 +398,20 @@
             StatsY1 = statsY1, StatsY2 = statsY2,
             StateFS = stateFS, StateY = stateY,
         };
+    }
+
+    // ── 블록 클릭 ──
+    private async Task OnBlockClicked(string flowName)
+    {
+        var next = flowName == SelectedFlowName ? null : flowName;
+        await OnFlowClicked.InvokeAsync(next);
+    }
+
+    // ── 배경 클릭 → 선택 해제 ──
+    private async Task OnBackgroundClicked()
+    {
+        if (SelectedFlowName != null)
+            await OnFlowClicked.InvokeAsync((string?)null);
     }
 
     // ── 시간 포맷 ──
