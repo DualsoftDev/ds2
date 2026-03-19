@@ -22,10 +22,10 @@ public static class PLCBackendServiceExample
         Console.WriteLine("=== PLCBackendService Usage Example ===");
         Console.WriteLine();
 
-        // Step 1: IConnectionConfiguration 생성 (Allen-Bradley 예제)
+        // Step 1: IConnectionConfiguration 생성 (Mitsubishi 예제)
         var connectionConfig = AbConnectionConfig.Create(
-            ipAddress: "192.168.1.100",
-            port: FSharpOption<int>.Some(44818),
+            ipAddress: "192.168.9.20",
+            port: FSharpOption<int>.Some(5555),
             name: FSharpOption<string>.Some("TestPLC"),
             plcType: FSharpOption<AbPlcType>.None,
             slot: FSharpOption<byte>.Some((byte)0),

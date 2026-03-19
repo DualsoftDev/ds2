@@ -39,17 +39,33 @@ Ev2TypeExplorer.ExploreTagHistoricWAL();
 Ev2TypeExplorer.ExploreConnectionTypes();
 ConnectionConfigExplorer.Explore();
 Console.WriteLine();
+
+Console.WriteLine("=== PlcValue Inspector ===");
+PlcValueInspector.Inspect();
+Console.WriteLine();
 Console.WriteLine("================================================================================");
 Console.WriteLine();
-// 통합 테스트 먼저 실행 (PLCBackendService는 singleton이므로)
-await IntegrationTest.RunAsync();
+
+// appsettings.json에서 DB 경로 읽기
+var builder2 = Host.CreateApplicationBuilder(args);
+builder2.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
+var host2 = builder2.Build();
+var config2 = host2.Services.GetRequiredService<IConfiguration>();
+var dbPath = config2["PlcDatabase:SourceDbPath"] ?? "C:\\ds\\ds2\\Apps\\DSPilot\\DSPilot\\sample\\db\\DsDB.sqlite3";
+
+// DB 내용 먼저 확인
+await DbInspector.InspectAsync(dbPath);
 
 Console.WriteLine("================================================================================");
 Console.WriteLine();
-Console.WriteLine("=== PLCBackendService Usage Demonstration ===");
-Console.WriteLine("   (Skipped - PLCBackendService already used in integration test)");
-// PLCBackendServiceExample.DemonstrateUsage();  // Singleton이므로 주석 처리
+Console.WriteLine("=== PLC Log Replay Test ===");
+Console.WriteLine();
+Console.WriteLine("This test will read historical logs from DB and write to PLC in sequence.");
+Console.WriteLine();
 
+await SimplePlcWriteTest.RunAsync(dbPath);
+
+Console.WriteLine();
 Console.WriteLine("================================================================================");
 Console.WriteLine();
 Console.WriteLine("Continuing to architecture overview...");
