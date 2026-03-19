@@ -112,8 +112,8 @@ html, body {
 
 /* FlowLayout SVG 블록 hover */
 .flow-block {
-    transition: filter 0.15s ease;
+    transition: filter 0.2s ease;
 }
 .flow-block:hover {
-    filter: brightness(1.06);
+    filter: brightness(1.1) drop-shadow(0 0 8px rgba(255,255,255,0.15));
 }

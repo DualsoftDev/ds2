@@ -3,6 +3,23 @@
      viewBox="0 0 @CanvasWidth @CanvasHeight"
      preserveAspectRatio="none">
 
+    @* ── 공용 필터 ── *@
+    <defs>
+        <filter id="glass-blur" x="-10%" y="-10%" width="120%" height="120%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="10" />
+        </filter>
+        <filter id="block-shadow" x="-10%" y="-10%" width="130%" height="130%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="shadow" />
+            <feOffset dx="0" dy="3" in="shadow" result="offsetShadow" />
+            <feFlood flood-color="rgba(0,0,0,0.3)" result="color" />
+            <feComposite in="color" in2="offsetShadow" operator="in" result="colorShadow" />
+            <feMerge>
+                <feMergeNode in="colorShadow" />
+                <feMergeNode in="SourceGraphic" />
+            </feMerge>
+        </filter>
+    </defs>
+
     @* 도면 배경 *@
     <rect x="0" y="0" width="@CanvasWidth" height="@CanvasHeight" style="fill: var(--mud-palette-background, #f0f0f0)" />
     @if (!string.IsNullOrEmpty(ImagePath))
@@ -19,17 +36,40 @@
                       width="@b.InnerW" height="@b.InnerH" rx="8" ry="8" />
             </clipPath>
         </defs>
+
+        @* 드롭 쉐도우 (clip 바깥) *@
+        <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
+              width="@b.InnerW" height="@b.InnerH"
+              rx="8" ry="8" fill="transparent" filter="url(#block-shadow)" />
+
         <g class="flow-block" clip-path="url(#@b.ClipId)">
-            @* 배경: 흰 베이스 + 상태색 옅은 오버레이 + 테두리 *@
+            @* ① 블러된 배경 이미지 (글래스 효과) *@
+            @if (!string.IsNullOrEmpty(ImagePath))
+            {
+                <image href="@(ImagePath)?v=@(ImageVersion)"
+                       x="0" y="0" width="@CanvasWidth" height="@CanvasHeight"
+                       opacity="0.5" filter="url(#glass-blur)" />
+            }
+            @* ② 반투명 프로스트 오버레이 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8"
-                  style="fill: var(--mud-palette-surface, white)" />
+                  style="fill: var(--mud-palette-surface, white)" fill-opacity="0.35" />
+            @* ③ 상태색 틴트 + 테두리 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8"
-                  fill="@b.Color" fill-opacity="0.08"
-                  stroke="@b.Color" stroke-width="1.5" />
+                  fill="@b.Color" fill-opacity="0.05"
+                  stroke="@b.Color" stroke-width="1" stroke-opacity="0.3" />
+            @* ④ 밝은 테두리 (유리 엣지) *@
+            <rect x="@(b.Px + b.Pad + 0.5)" y="@(b.Py + b.Pad + 0.5)"
+                  width="@(b.InnerW - 1)" height="@(b.InnerH - 1)"
+                  rx="8" ry="8"
+                  fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1" />
+            @* ⑤ 상단 하이라이트 (입체 반사) *@
+            <line x1="@(b.Px + b.Pad + 12)" y1="@(b.Py + b.Pad + 1)"
+                  x2="@(b.Px + b.Pad + b.InnerW - 12)" y2="@(b.Py + b.Pad + 1)"
+                  stroke="rgba(255,255,255,0.45)" stroke-width="1" stroke-linecap="round" />
             @* Flow 이름 *@
             <SvgText X="@(b.Px + b.Pad + 6)" Y="@b.TitleY"
                      TextAnchor="start"
