@@ -80,48 +80,169 @@
                         </MudText>
                     </MudCardContent>
                 </MudCard>
+                @* 로깅 섹션 *@
+                <MudCard Elevation="2">
+                    <MudCardHeader>
+                        <MudIcon Icon="@Icons.Material.Filled.BugReport" Class="mr-2" />
+                        <MudText Typo="Typo.h6">로깅</MudText>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        <MudSelect @bind-Value="_settings.Logging.LogLevel.Default"
+                                   Label="기본 (Default)"
+                                   Variant="Variant.Outlined"
+                                   Adornment="Adornment.Start"
+                                   AdornmentIcon="@Icons.Material.Filled.Tune"
+                                   Class="mb-3">
+                            @foreach (var level in _logLevels)
+                            {
+                                <MudSelectItem Value="@level">@level</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudSelect @bind-Value="_settings.Logging.LogLevel.MicrosoftAspNetCore"
+                                   Label="Microsoft.AspNetCore"
+                                   Variant="Variant.Outlined"
+                                   Adornment="Adornment.Start"
+                                   AdornmentIcon="@Icons.Material.Filled.Tune"
+                                   Class="mb-3">
+                            @foreach (var level in _logLevels)
+                            {
+                                <MudSelectItem Value="@level">@level</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudSelect @bind-Value="_settings.Logging.LogLevel.DsPilotServices"
+                                   Label="DSPilot.Services"
+                                   Variant="Variant.Outlined"
+                                   Adornment="Adornment.Start"
+                                   AdornmentIcon="@Icons.Material.Filled.Tune"
+                                   Class="mb-3">
+                            @foreach (var level in _logLevels)
+                            {
+                                <MudSelectItem Value="@level">@level</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudSelect @bind-Value="_settings.Logging.LogLevel.DsPilotRepositories"
+                                   Label="DSPilot.Repositories"
+                                   Variant="Variant.Outlined"
+                                   Adornment="Adornment.Start"
+                                   AdornmentIcon="@Icons.Material.Filled.Tune">
+                            @foreach (var level in _logLevels)
+                            {
+                                <MudSelectItem Value="@level">@level</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudCardContent>
+                </MudCard>
             </MudStack>
         </MudItem>
 
-        @* 오른쪽 열: PLC 데이터베이스 *@
+        @* 오른쪽 열: PLC 데이터베이스 + PLC 연결 *@
         <MudItem xs="12" md="6">
-            <MudCard Elevation="2">
-                <MudCardHeader>
-                    <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-2" />
-                    <MudText Typo="Typo.h6">PLC 데이터베이스</MudText>
-                </MudCardHeader>
-                <MudCardContent>
-                    <MudTextField @bind-Value="_settings.PlcDatabase.SourceDbPath"
-                                  Label="소스 DB 경로"
-                                  Variant="Variant.Outlined"
-                                  HelperText="PLC SQLite 데이터베이스 파일 경로"
-                                  Adornment="Adornment.Start"
-                                  AdornmentIcon="@Icons.Material.Filled.Description"
-                                  Class="mb-3" />
-                    <MudNumericField @bind-Value="_settings.PlcDatabase.ReadIntervalMs"
-                                     Label="읽기 간격 (ms)"
-                                     Variant="Variant.Outlined"
-                                     Min="100" Max="60000"
-                                     HelperText="PLC 데이터 폴링 간격 (밀리초)"
-                                     Adornment="Adornment.Start"
-                                     AdornmentIcon="@Icons.Material.Filled.Timer"
-                                     Class="mb-3" />
-                    <MudSelect @bind-Value="_settings.PlcDatabase.TagMatchMode"
-                               Label="태그 매칭 모드"
-                               Variant="Variant.Outlined"
-                               HelperText="PLC 태그 매칭 방식"
-                               Adornment="Adornment.Start"
-                               AdornmentIcon="@Icons.Material.Filled.CompareArrows"
-                               Class="mb-3">
-                        <MudSelectItem Value="@("Address")">Address</MudSelectItem>
-                        <MudSelectItem Value="@("Name")">Name</MudSelectItem>
-                    </MudSelect>
-                    <MudSwitch @bind-Value="_settings.PlcDatabase.SimulationMode"
-                               Label="시뮬레이션 모드"
-                               Color="Color.Primary" />
-                </MudCardContent>
-            </MudCard>
+            <MudStack Spacing="4">
+                <MudCard Elevation="2">
+                    <MudCardHeader>
+                        <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-2" />
+                        <MudText Typo="Typo.h6">PLC 데이터베이스</MudText>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        <MudTextField @bind-Value="_settings.PlcDatabase.SourceDbPath"
+                                      Label="소스 DB 경로"
+                                      Variant="Variant.Outlined"
+                                      HelperText="PLC SQLite 데이터베이스 파일 경로"
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Description"
+                                      Class="mb-3" />
+                        <MudNumericField @bind-Value="_settings.PlcDatabase.ReadIntervalMs"
+                                         Label="읽기 간격 (ms)"
+                                         Variant="Variant.Outlined"
+                                         Min="100" Max="60000"
+                                         HelperText="PLC 데이터 폴링 간격 (밀리초)"
+                                         Adornment="Adornment.Start"
+                                         AdornmentIcon="@Icons.Material.Filled.Timer"
+                                         Class="mb-3" />
+                        <MudSelect @bind-Value="_settings.PlcDatabase.TagMatchMode"
+                                   Label="태그 매칭 모드"
+                                   Variant="Variant.Outlined"
+                                   HelperText="PLC 태그 매칭 방식"
+                                   Adornment="Adornment.Start"
+                                   AdornmentIcon="@Icons.Material.Filled.CompareArrows"
+                                   Class="mb-3">
+                            <MudSelectItem Value="@("Address")">Address</MudSelectItem>
+                            <MudSelectItem Value="@("Name")">Name</MudSelectItem>
+                        </MudSelect>
+                        <MudSwitch @bind-Value="_settings.PlcDatabase.SimulationMode"
+                                   Label="시뮬레이션 모드"
+                                   Color="Color.Primary" />
+                    </MudCardContent>
+                </MudCard>
+
+                @* PLC 연결 섹션 *@
+                <MudCard Elevation="2">
+                    <MudCardHeader>
+                        <MudIcon Icon="@Icons.Material.Filled.SettingsEthernet" Class="mr-2" />
+                        <MudText Typo="Typo.h6">PLC 연결</MudText>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        <MudSwitch @bind-Value="_settings.PlcConnection.Enabled"
+                                   Label="PLC 연결 활성화"
+                                   Color="Color.Primary"
+                                   Class="mb-3" />
+                        <MudTextField @bind-Value="_settings.PlcConnection.PlcName"
+                                      Label="PLC 이름"
+                                      Variant="Variant.Outlined"
+                                      HelperText="PLC 식별 이름"
+                                      Disabled="@(!_settings.PlcConnection.Enabled)"
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Label"
+                                      Class="mb-3" />
+                        <MudTextField @bind-Value="_settings.PlcConnection.IpAddress"
+                                      Label="IP 주소"
+                                      Variant="Variant.Outlined"
+                                      HelperText="PLC IP 주소 (예: 192.168.0.100)"
+                                      Disabled="@(!_settings.PlcConnection.Enabled)"
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Lan"
+                                      Class="mb-3" />
+                        <MudNumericField @bind-Value="_settings.PlcConnection.ScanIntervalMs"
+                                         Label="스캔 간격 (ms)"
+                                         Variant="Variant.Outlined"
+                                         Min="10" Max="10000"
+                                         HelperText="PLC 태그 스캔 간격 (밀리초)"
+                                         Disabled="@(!_settings.PlcConnection.Enabled)"
+                                         Adornment="Adornment.Start"
+                                         AdornmentIcon="@Icons.Material.Filled.Timer"
+                                         Class="mb-3" />
+                        <MudText Typo="Typo.subtitle2" Class="mb-2">태그 주소 목록</MudText>
+                        @for (var i = 0; i < _settings.PlcConnection.TagAddresses.Count; i++)
+                        {
+                            var index = i;
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                                <MudTextField Value="_settings.PlcConnection.TagAddresses[index]"
+                                              ValueChanged="@((string v) => _settings.PlcConnection.TagAddresses[index] = v)"
+                                              Variant="Variant.Outlined"
+                                              Margin="Margin.Dense"
+                                              Disabled="@(!_settings.PlcConnection.Enabled)"
+                                              Style="flex: 1" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                               Color="Color.Error"
+                                               Size="Size.Small"
+                                               Disabled="@(!_settings.PlcConnection.Enabled)"
+                                               OnClick="@(() => RemoveTag(index))" />
+                            </MudStack>
+                        }
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Primary"
+                                   Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Add"
+                                   Disabled="@(!_settings.PlcConnection.Enabled)"
+                                   OnClick="AddTag"
+                                   Class="mt-1">
+                            태그 추가
+                        </MudButton>
+                    </MudCardContent>
+                </MudCard>
+            </MudStack>
         </MudItem>
+
     </MudGrid>
 
     <MudPaper Class="mt-4 pa-3 d-flex justify-end gap-3" Elevation="0">
@@ -158,6 +279,7 @@ else
     private AppSettingsModel? _settings;
     private bool _uploading;
     private string? _uploadedFileName;
+    private readonly string[] _logLevels = { "Trace", "Debug", "Information", "Warning", "Error", "Critical", "None" };
 
     protected override void OnInitialized()
         => _settings = SettingsService.LoadSettings();
@@ -219,5 +341,17 @@ else
         {
             Snackbar.Add($"저장 실패: {ex.Message}", Severity.Error);
         }
+    }
+
+    private void AddTag()
+    {
+        _settings?.PlcConnection.TagAddresses.Add("");
+    }
+
+    private void RemoveTag(int index)
+    {
+        if (_settings is null) return;
+        if (index >= 0 && index < _settings.PlcConnection.TagAddresses.Count)
+            _settings.PlcConnection.TagAddresses.RemoveAt(index);
     }
 }

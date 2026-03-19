@@ -54,9 +54,11 @@
                     var flow = flowList[idx];
                     var isLast = idx == flowList.Count - 1;
                     var isSelected = _selectedFlow == flow.Name;
-                    <div @onclick="@(() => SelectFlow(flow.Name))"
-                         style="position: relative; padding: 4px 0 4px 16px; cursor: pointer; border-radius: 4px;
-                                background: @(isSelected ? "rgba(var(--mud-palette-primary-rgb), 0.15)" : "transparent");">
+                    <a href="/chart?flow=@(Uri.EscapeDataString(flow.Name))"
+                       @onclick="@(() => _selectedFlow = flow.Name)"
+                       style="position: relative; padding: 4px 0 4px 16px; cursor: pointer; border-radius: 4px;
+                              text-decoration: none; display: block;
+                              background: @(isSelected ? "rgba(var(--mud-palette-primary-rgb), 0.15)" : "transparent");">
                         <span style="position: absolute; left: 0; top: 0;
                                      width: 1px; height: @(isLast ? "50%" : "100%");
                                      background: var(--mud-palette-lines-default, #ccc);"></span>
@@ -68,7 +70,7 @@
                                      color: @(isSelected ? "var(--mud-palette-primary)" : "var(--mud-palette-drawer-text, #424242)");">
                             @flow.Name
                         </span>
-                    </div>
+                    </a>
                 }
             </div>
         }
@@ -100,7 +102,12 @@
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
-        _isHome = Nav.ToBaseRelativePath(e.Location) is "" or "/";
+        var relativePath = Nav.ToBaseRelativePath(e.Location);
+        _isHome = relativePath is "" or "/";
+
+        if (!relativePath.StartsWith("chart", StringComparison.OrdinalIgnoreCase))
+            _selectedFlow = null;
+
         InvokeAsync(StateHasChanged);
     }
 
@@ -109,9 +116,4 @@
         Nav.LocationChanged -= OnLocationChanged;
     }
 
-    private void SelectFlow(string flowName)
-    {
-        _selectedFlow = flowName;
-        Nav.NavigateTo($"/chart?flow={Uri.EscapeDataString(flowName)}");
-    }
 }

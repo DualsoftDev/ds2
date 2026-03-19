@@ -94,6 +94,12 @@
     .ct-combined-half.danger  { border-bottom: 3px solid #ef5350; }
     .ct-combined-half.success { border-bottom: 3px solid #26a69a; }
     .ct-combined-half + .ct-combined-half { border-left: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12)); }
+    .ct-combined-half, .ct-top-cell { cursor: pointer; transition: box-shadow 0.15s; }
+    .ct-combined-half:hover, .ct-top-cell:hover { box-shadow: inset 0 0 0 1.5px var(--mud-palette-lines-default, rgba(0,0,0,0.18)); }
+    .ct-combined-half.active, .ct-top-cell.active {
+        box-shadow: inset 0 0 0 2px var(--mud-palette-primary, #1976d2);
+        background: color-mix(in srgb, var(--mud-palette-primary, #1976d2) 6%, var(--mud-palette-surface, #fff));
+    }
     .ct-summary-title {
         font-size: 13px;
         font-weight: 700;
@@ -152,6 +158,18 @@
         background: var(--mud-palette-surface, #fff);
         border: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.08));
         border-left-width: 3px;
+    }
+    .ct-chart-row.selected {
+        background: color-mix(in srgb, var(--mud-palette-primary, #1976d2) 8%, var(--mud-palette-surface, #fff));
+        border: 1.5px solid var(--mud-palette-primary, #1976d2);
+        border-left-width: 3px;
+        border-left-color: var(--mud-palette-primary, #1976d2);
+    }
+    .ct-chart-row:hover {
+        background: color-mix(in srgb, var(--mud-palette-primary, #1976d2) 4%, var(--mud-palette-background, #fafafa));
+    }
+    .ct-chart-row.selected:hover {
+        background: color-mix(in srgb, var(--mud-palette-primary, #1976d2) 12%, var(--mud-palette-surface, #fff));
     }
     /* 1줄: 카테고리 라벨 + 플로우 이름 */
     .ct-row-header {
@@ -395,7 +413,9 @@ else
                                                        GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
                                                        GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
                                                        GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))"
-                                                       GetBadges="@(fp => GetFlowBadges(fp.FlowName))" />
+                                                       GetBadges="@(fp => GetFlowBadges(fp.FlowName))"
+                                                       SelectedFlowName="@_selectedFlowName"
+                                                       OnFlowClicked="OnFlowSelected" />
                                     </div>
                                 }
                                 else
@@ -440,12 +460,14 @@ else
                             <div class="ct-summary-bar">
                                 <div class="ct-summary-group group-time">
                                     <div class="ct-combined-cell">
-                                        <div class="ct-combined-half danger">
+                                        <div class="ct-combined-half danger @(_selectedFlowName != null && _selectedFlowName == _maxCtName ? "active" : "")"
+                                             @onclick="() => OnFlowSelected(_maxCtName == _selectedFlowName ? null : _maxCtName)">
                                             <span class="ct-summary-title">최대시간</span>
                                             <span class="ct-summary-sub" title="@_maxCtName">@(_maxCtName ?? "-")</span>
                                             <span class="ct-summary-value">@(_maxCtName != null ? FormatMs(_maxCtVal) : "--")</span>
                                         </div>
-                                        <div class="ct-combined-half success">
+                                        <div class="ct-combined-half success @(_selectedFlowName != null && _selectedFlowName == _minCtName ? "active" : "")"
+                                             @onclick="() => OnFlowSelected(_minCtName == _selectedFlowName ? null : _minCtName)">
                                             <span class="ct-summary-title">최소시간</span>
                                             <span class="ct-summary-sub" title="@_minCtName">@(_minCtName ?? "-")</span>
                                             <span class="ct-summary-value">@(_minCtName != null ? FormatMs(_chartData.Min(f => f.CT)) : "--")</span>
@@ -453,7 +475,8 @@ else
                                     </div>
                                 </div>
                                 <div class="ct-summary-group group-wait">
-                                    <div class="ct-top-cell warning">
+                                    <div class="ct-top-cell warning @(_selectedFlowName != null && _selectedFlowName == _maxWtName ? "active" : "")"
+                                         @onclick="() => OnFlowSelected(_maxWtName == _selectedFlowName ? null : _maxWtName)">
                                         <span class="ct-summary-title">최대 대기율</span>
                                         <span class="ct-summary-sub" title="@_maxWtName">@(_maxWtName ?? "-")</span>
                                         <span class="ct-summary-value">@(_maxWtName != null ? $"{_chartData.FirstOrDefault(f => f.FlowName == _maxWtName).WTRatio * 100:F1}%" : "--")</span>
@@ -464,20 +487,25 @@ else
                             @if (_chartData.Count > 0)
                             {
                                 @* ── 차트 리스트 ── *@
-                                <div class="ct-chart-section">
+                                <div class="ct-chart-section" @onclick="() => OnFlowSelected(null)">
                                     @foreach (var flow in _chartData)
                                     {
-                                        var isMaxCT     = flow.FlowName == _maxCtName;
-                                        var isMinCT     = flow.FlowName == _minCtName;
-                                        var isMaxWT     = flow.FlowName == _maxWtName;
+                                        var fn          = flow.FlowName;
+                                        var isMaxCT     = fn == _maxCtName;
+                                        var isMinCT     = fn == _minCtName;
+                                        var isMaxWT     = fn == _maxWtName;
                                         var highlighted  = isMaxCT || isMinCT || isMaxWT;
+                                        var isSelected  = fn == _selectedFlowName;
                                         var fillPct     = _maxCtVal > 0 ? flow.CT * 100.0 / _maxCtVal : 0;
                                         var mtPct       = flow.CT > 0 ? flow.MT * 100.0 / flow.CT : 0;
                                         var wtPct       = 100.0 - mtPct;
                                         var accentColor = isMaxCT ? "#ef5350" : isMinCT ? "#26a69a" : isMaxWT ? "#fb8c00" : "";
                                         var categoryLabel = isMaxCT ? "최대시간" : isMinCT ? "최소시간" : isMaxWT ? "최대대기" : "";
                                         var borderStyle = highlighted ? $"border-left-color:{accentColor};" : "";
-                                        <div class="ct-chart-row @(highlighted ? "highlighted" : "")" style="@borderStyle">
+                                        <div class="ct-chart-row @(highlighted ? "highlighted" : "") @(isSelected ? "selected" : "")"
+                                             style="@borderStyle cursor:pointer;"
+                                             @onclick="() => OnFlowSelected(fn == _selectedFlowName ? null : fn)"
+                                             @onclick:stopPropagation>
                                             <div class="ct-row-header">
                                                 <span class="ct-row-name" style="font-weight:@(highlighted ? "700" : "500")">@flow.FlowName</span>
                                                 @if (isMaxCT)
@@ -547,6 +575,9 @@ else
     private List<(string FlowName, int MT, int WT, int CT, double WTRatio)> _chartData = [];
     private string? _maxCtName, _minCtName, _maxWtName;
     private int _maxCtVal;
+
+    // 선택 동기화
+    private string? _selectedFlowName;
 
     // 정렬 설정
     private string _sortField = "ct";   // "ct" | "wt"
@@ -730,6 +761,11 @@ else
         if (!_systemColorIndex.ContainsKey(systemId))
             _systemColorIndex[systemId] = _systemColorIndex.Count % SystemColors.Length;
         return SystemColors[_systemColorIndex[systemId]];
+    }
+
+    private void OnFlowSelected(string? flowName)
+    {
+        _selectedFlowName = flowName;
     }
 
     private void SetSort(string field)
