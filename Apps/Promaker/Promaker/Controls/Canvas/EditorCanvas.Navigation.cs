@@ -24,12 +24,12 @@ public partial class EditorCanvas
 
     private void FitToViewCore(double maxZoomCap)
     {
-        if (VM is null || VM.Canvas.CanvasNodes.Count == 0) return;
+        if (VM is null || ActiveCanvasState!.CanvasNodes.Count == 0) return;
 
         double minX = double.MaxValue, minY = double.MaxValue;
         double maxX = double.MinValue, maxY = double.MinValue;
 
-        foreach (var n in VM.Canvas.CanvasNodes)
+        foreach (var n in ActiveCanvasState!.CanvasNodes)
         {
             minX = Math.Min(minX, n.X);
             minY = Math.Min(minY, n.Y);
@@ -57,7 +57,7 @@ public partial class EditorCanvas
 
     public void CenterOnNode(Guid nodeId)
     {
-        var node = VM?.Canvas.CanvasNodes.FirstOrDefault(n => n.Id == nodeId);
+        var node = ActiveCanvasState?.CanvasNodes.FirstOrDefault(n => n.Id == nodeId);
         if (node is null) return;
 
         var viewW = RootGrid.ActualWidth;
