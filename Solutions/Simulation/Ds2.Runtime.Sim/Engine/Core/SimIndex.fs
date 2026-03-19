@@ -58,6 +58,95 @@ module SimIndex =
     let findOrEmpty key map =
         map |> Map.tryFind key |> Option.defaultValue []
 
+    // ── Group Arrow 분해 (Union-Find) ───────────────────────────────
+
+    let private addPredecessor (target: Guid) (source: Guid) (m: Map<Guid, Guid list>) =
+        match m.TryFind target with
+        | Some preds -> if List.contains source preds then m else m.Add(target, source :: preds)
+        | None -> m.Add(target, [source])
+
+    let rec private findRoot (parent: Map<Guid, Guid>) (x: Guid) =
+        match parent.TryFind x with
+        | Some p when p <> x -> findRoot parent p
+        | _ -> x
+
+    let private union (parent: Map<Guid, Guid>) (x: Guid) (y: Guid) =
+        let rootX = findRoot parent x
+        let rootY = findRoot parent y
+        if rootX = rootY then parent else parent.Add(rootY, rootX)
+
+    let private buildGroupSets (sourceIds: Guid list) (targetIds: Guid list) =
+        if sourceIds.IsEmpty then []
+        else
+            let allNodes = (sourceIds @ targetIds) |> List.distinct
+            let initialParent = allNodes |> List.map (fun n -> n, n) |> Map.ofList
+            let finalParent =
+                List.zip sourceIds targetIds
+                |> List.fold (fun p (s, t) -> union p s t) initialParent
+            allNodes
+            |> List.groupBy (findRoot finalParent)
+            |> List.map (fun (_, nodes) -> Set.ofList nodes)
+
+    let private expandSingleGroup (groupSet: Set<Guid>) (startMap: Map<Guid, Guid list>) (resetMap: Map<Guid, Guid list>) =
+        let members = groupSet |> Set.toList
+        // 외부 Start predecessor 수집 → 그룹 멤버 전체에 복사
+        let externalStartPreds =
+            members |> List.collect (fun m -> startMap.TryFind m |> Option.defaultValue [])
+            |> List.filter (fun p -> not (Set.contains p groupSet)) |> List.distinct
+        let startWithExternal =
+            List.allPairs members externalStartPreds
+            |> List.fold (fun acc (mem, pred) -> addPredecessor mem pred acc) startMap
+        // 그룹 멤버를 predecessor로 가진 successor에게 모든 멤버 추가
+        let startSuccessors =
+            startWithExternal |> Map.toSeq
+            |> Seq.filter (fun (sg, preds) -> not (Set.contains sg groupSet) && preds |> List.exists (fun p -> Set.contains p groupSet))
+            |> Seq.map fst |> Seq.toList
+        let finalStart =
+            List.allPairs startSuccessors members
+            |> List.fold (fun acc (succ, mem) -> addPredecessor succ mem acc) startWithExternal
+        // Reset도 동일하게
+        let externalResetPreds =
+            members |> List.collect (fun m -> resetMap.TryFind m |> Option.defaultValue [])
+            |> List.filter (fun p -> not (Set.contains p groupSet)) |> List.distinct
+        let resetWithExternal =
+            List.allPairs members externalResetPreds
+            |> List.fold (fun acc (mem, pred) -> addPredecessor mem pred acc) resetMap
+        let resetSuccessors =
+            resetWithExternal |> Map.toSeq
+            |> Seq.filter (fun (sg, preds) -> not (Set.contains sg groupSet) && preds |> List.exists (fun p -> Set.contains p groupSet))
+            |> Seq.map fst |> Seq.toList
+        let finalReset =
+            List.allPairs resetSuccessors members
+            |> List.fold (fun acc (succ, mem) -> addPredecessor succ mem acc) resetWithExternal
+        (finalStart, finalReset)
+
+    let private expandWorkGroupArrows (groupArrows: ArrowBetweenWorks list) (startMap: Map<Guid, Guid list>) (resetMap: Map<Guid, Guid list>) =
+        let sources = groupArrows |> List.map (fun a -> a.SourceId)
+        let targets = groupArrows |> List.map (fun a -> a.TargetId)
+        let groupSets = buildGroupSets sources targets
+        groupSets |> List.fold (fun (s, r) gs -> expandSingleGroup gs s r) (startMap, resetMap)
+
+    let private expandCallSingleGroup (groupSet: Set<Guid>) (predsMap: Map<Guid, Guid list>) =
+        let members = groupSet |> Set.toList
+        let externalPreds =
+            members |> List.collect (fun m -> predsMap.TryFind m |> Option.defaultValue [])
+            |> List.filter (fun p -> not (Set.contains p groupSet)) |> List.distinct
+        let predsWithExternal =
+            List.allPairs members externalPreds
+            |> List.fold (fun acc (mem, pred) -> addPredecessor mem pred acc) predsMap
+        let successors =
+            predsWithExternal |> Map.toSeq
+            |> Seq.filter (fun (sg, preds) -> not (Set.contains sg groupSet) && preds |> List.exists (fun p -> Set.contains p groupSet))
+            |> Seq.map fst |> Seq.toList
+        List.allPairs successors members
+        |> List.fold (fun acc (succ, mem) -> addPredecessor succ mem acc) predsWithExternal
+
+    let private expandCallGroupArrows (groupArrows: ArrowBetweenCalls list) (predsMap: Map<Guid, Guid list>) =
+        let sources = groupArrows |> List.map (fun a -> a.SourceId)
+        let targets = groupArrows |> List.map (fun a -> a.TargetId)
+        let groupSets = buildGroupSets sources targets
+        groupSets |> List.fold (fun pm gs -> expandCallSingleGroup gs pm) predsMap
+
     // ── 타입별 조회 헬퍼 ─────────────────────────────────────────────
 
     /// ApiCall → ApiDef → property Guid 체인 (TxGuid/RxGuid 공용)
@@ -168,19 +257,29 @@ module SimIndex =
                     groupArrows [ ArrowType.Reset; ArrowType.ResetReset ] wType wTgt wSrc workArrows
                     groupArrows [ ArrowType.StartReset; ArrowType.ResetReset ] wType wSrc wTgt workArrows
                 ]
+            // Work Group Arrow 분해
+            let workGroupArrows = workArrows |> List.filter (fun a -> a.ArrowType = ArrowType.Group)
+            let wStartPreds, wResetPreds = expandWorkGroupArrows workGroupArrows wStartPreds wResetPreds
 
             let flows = DsQuery.flowsOf system.Id store
+            // Call Arrow: Work별 수집 후 합산 → Group 분해
+            let allCallArrows =
+                flows
+                |> List.collect (fun f -> DsQuery.worksOf f.Id store)
+                |> List.collect (fun w -> DsQuery.arrowCallsOf w.Id store)
+            let cType = fun (a: ArrowBetweenCalls) -> a.ArrowType
+            let cSrc  = fun (a: ArrowBetweenCalls) -> a.SourceId
+            let cTgt  = fun (a: ArrowBetweenCalls) -> a.TargetId
+            let cStartPreds =
+                groupArrows [ ArrowType.Start; ArrowType.StartReset ] cType cTgt cSrc allCallArrows
+            // Call Group Arrow 분해
+            let callGroupArrows = allCallArrows |> List.filter (fun a -> a.ArrowType = ArrowType.Group)
+            let cStartPreds = expandCallGroupArrows callGroupArrows cStartPreds
+
             for flow in flows do
                 let works = DsQuery.worksOf flow.Id store
                 for work in works do
                     let calls = DsQuery.callsOf work.Id store
-                    let callArrows = DsQuery.arrowCallsOf work.Id store
-                    let cType = fun (a: ArrowBetweenCalls) -> a.ArrowType
-                    let cSrc  = fun (a: ArrowBetweenCalls) -> a.SourceId
-                    let cTgt  = fun (a: ArrowBetweenCalls) -> a.TargetId
-                    let cStartPreds =
-                        groupArrows [ ArrowType.Start; ArrowType.StartReset ] cType cTgt cSrc callArrows
-
                     let callGuids = calls |> List.map (fun c -> c.Id)
                     for call in calls do
                         addCallData work cStartPreds call
