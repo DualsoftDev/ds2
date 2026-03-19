@@ -113,6 +113,13 @@ public partial class MainViewModel
             fallback: false,
             statusOverride: "[ERROR] Failed to change arrow type.");
 
+    public bool TryReverseArrow(Guid arrowId) =>
+        TryEditorFunc(
+            () => _store.ReverseArrow(arrowId),
+            out bool _,
+            fallback: false,
+            statusOverride: "[ERROR] Failed to reverse arrow direction.");
+
     public bool TryConnectNodesFromCanvas(Guid sourceId, Guid targetId, ArrowType arrowType)
     {
         if (!TryEditorFunc(
