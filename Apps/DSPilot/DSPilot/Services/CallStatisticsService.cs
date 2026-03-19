@@ -1,4 +1,5 @@
 using DSPilot.Engine;
+using DSPilot.Models;
 using DSPilot.Repositories;
 using Microsoft.FSharp.Collections;
 
@@ -44,9 +45,21 @@ public class CallStatisticsService
 
             try
             {
-                var callData = await dspRepo.GetCallByNameAsync(callName);
-                _baseGoingCount[callName] = callData?.GoingCount ?? 0;
-                _logger.LogDebug("Call '{CallName}': Loaded base GoingCount = {Count}", callName, _baseGoingCount[callName]);
+                // CallName으로 FlowName 조회 후 CallKey 생성
+                var callInfo = await dspRepo.GetCallInfoAsync(callName);
+                if (callInfo != null)
+                {
+                    var (workName, flowName) = callInfo.Value;
+                    var callKey = new CallKey(flowName, callName, workName);
+                    var callData = await dspRepo.GetCallByKeyAsync(callKey);
+                    _baseGoingCount[callName] = callData?.GoingCount ?? 0;
+                    _logger.LogDebug("Call '{CallName}': Loaded base GoingCount = {Count}", callName, _baseGoingCount[callName]);
+                }
+                else
+                {
+                    _baseGoingCount[callName] = 0;
+                    _logger.LogWarning("Call '{CallName}': Not found in database, defaulting GoingCount to 0", callName);
+                }
             }
             catch (Exception ex)
             {

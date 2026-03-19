@@ -332,23 +332,16 @@ public class PlcDataReaderService : BackgroundService
                 }
 
                 mappedCount++;
-                _logger.LogDebug("Tag '{TagName}' (Address: '{Address}') mapped to Call '{CallName}' (IsInTag: {IsInTag})",
-                    tag.Name, tag.Address, callInfo.Value.Call.Name, callInfo.Value.IsInTag);
+                _logger.LogDebug("Tag '{TagName}' (Address: '{Address}') mapped to Call '{CallName}' (Flow: {FlowName}, IsInTag: {IsInTag})",
+                    tag.Name, tag.Address, callInfo.Call.Name, callInfo.FlowName, callInfo.IsInTag);
 
-                var call = callInfo.Value.Call;
-
-                // 5. Call 정보 조회 (FlowName 포함)
-                var callInfoResult = await dspRepo.GetCallInfoAsync(call.Name);
-                if (callInfoResult == null)
-                {
-                    _logger.LogWarning("Call '{CallName}' not found in database", call.Name);
-                    continue;
-                }
-
-                var (workName, flowName) = callInfoResult.Value;
+                var call = callInfo.Call;
+                var flowName = callInfo.FlowName;
+                var workName = callInfo.WorkName;
+                var callKey = callInfo.ToCallKey();
 
                 // 6. 현재 Call 상태 조회
-                var currentCallState = await dspRepo.GetCallStateAsync(call.Name);
+                var currentCallState = await dspRepo.GetCallStateAsync(callKey);
 
                 // 7. 새 상태 결정
                 var (newState, stateChanged) = mapper.DetermineCallState(
@@ -375,7 +368,7 @@ public class PlcDataReaderService : BackgroundService
                     // Going 시작 시간 기록
                     var timestamp = DateTime.Now;
                     await statistics.RecordGoingStartAsync(call.Name);
-                    await dspRepo.UpdateCallStateAsync(call.Name, "Going");
+                    await dspRepo.UpdateCallStateAsync(callKey, "Going");
 
                     // 채널을 통해 UI에 즉시 Going 상태 전달 (DB 폴링 대기 불필요)
                     await WriteEventAsync(new CallStateChangedEvent
@@ -397,7 +390,7 @@ public class PlcDataReaderService : BackgroundService
                     var (startTime, finishTime, goingTime, avg, stdDev, goingCount) = statistics.RecordGoingFinish(call.Name);
 
                     await dspRepo.UpdateCallWithStatisticsAsync(
-                        call.Name,
+                        callKey,
                         "Finish",
                         goingTime,
                         avg,
@@ -423,7 +416,7 @@ public class PlcDataReaderService : BackgroundService
 
                     // Finish → Ready 자동 전환 (100ms 후)
                     await Task.Delay(100, stoppingToken);
-                    await dspRepo.UpdateCallStateAsync(call.Name, "Ready");
+                    await dspRepo.UpdateCallStateAsync(callKey, "Ready");
 
                     // 채널을 통해 UI에 즉시 Ready 상태 전달
                     await WriteEventAsync(new CallStateChangedEvent

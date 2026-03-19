@@ -1,4 +1,5 @@
 using Dapper;
+using DSPilot.Models;
 using DSPilot.Models.Dsp;
 using Microsoft.Data.Sqlite;
 using System.Data;
@@ -129,12 +130,31 @@ LEFT JOIN Flow f ON c.FlowName = f.FlowName
 ORDER BY c.Id;";
             await connection.ExecuteAsync(createView);
 
+            // Create CallIOEvent table
+            const string createCallIOEventTable = @"
+CREATE TABLE IF NOT EXISTS CallIOEvent (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    FlowName TEXT NOT NULL,
+    WorkName TEXT NOT NULL,
+    CallName TEXT NOT NULL,
+    EventType TEXT NOT NULL,
+    IsInTag INTEGER NOT NULL,
+    Timestamp TEXT NOT NULL,
+    GoingTime INTEGER,
+    TagName TEXT,
+    TagAddress TEXT,
+    CreatedAt TEXT DEFAULT (datetime('now'))
+);";
+            await connection.ExecuteAsync(createCallIOEventTable);
+
             // Create Indexes
             await connection.ExecuteAsync("CREATE INDEX IF NOT EXISTS idx_flow_flowname ON Flow(FlowName);");
             await connection.ExecuteAsync("CREATE INDEX IF NOT EXISTS idx_flow_state ON Flow(State);");
             await connection.ExecuteAsync("CREATE INDEX IF NOT EXISTS idx_call_flowname ON Call(FlowName);");
             await connection.ExecuteAsync("CREATE INDEX IF NOT EXISTS idx_call_callname ON Call(CallName);");
             await connection.ExecuteAsync("CREATE INDEX IF NOT EXISTS idx_call_state ON Call(State);");
+            await connection.ExecuteAsync("CREATE INDEX IF NOT EXISTS idx_callioevent_timestamp ON CallIOEvent(Timestamp);");
+            await connection.ExecuteAsync("CREATE INDEX IF NOT EXISTS idx_callioevent_callname ON CallIOEvent(CallName);");
 
             // Create Triggers
             const string createFlowTrigger = @"
@@ -465,12 +485,15 @@ ON CONFLICT (CallName, FlowName, WorkName) DO UPDATE SET
     }
 
     /// <inheritdoc />
-    public async Task<string> GetCallStateAsync(string callName)
+    public async Task<string> GetCallStateAsync(CallKey key)
     {
         using var connection = CreateConnection();
 
-        const string sql = "SELECT State FROM Call WHERE CallName = @CallName LIMIT 1";
-        var state = await connection.QueryFirstOrDefaultAsync<string>(sql, new { CallName = callName });
+        const string sql = "SELECT State FROM Call WHERE FlowName = @FlowName AND CallName = @CallName LIMIT 1";
+        var state = await connection.QueryFirstOrDefaultAsync<string>(sql, new {
+            FlowName = key.FlowName,
+            CallName = key.CallName
+        });
 
         return state ?? "Ready";
     }
@@ -487,7 +510,7 @@ ON CONFLICT (CallName, FlowName, WorkName) DO UPDATE SET
     }
 
     /// <inheritdoc />
-    public async Task<DspCallEntity?> GetCallByNameAsync(string callName)
+    public async Task<DspCallEntity?> GetCallByKeyAsync(CallKey key)
     {
         using var connection = CreateConnection();
 
@@ -495,15 +518,18 @@ ON CONFLICT (CallName, FlowName, WorkName) DO UPDATE SET
 SELECT CallName, ApiCall, WorkName, FlowName, Next, Prev, AutoPre, CommonPre,
        State, ProgressRate, Device, PreviousGoingTime, AverageGoingTime, StdDevGoingTime, GoingCount
 FROM Call
-WHERE CallName = @CallName
+WHERE FlowName = @FlowName AND CallName = @CallName
 LIMIT 1";
 
-        var result = await connection.QueryFirstOrDefaultAsync<DspCallEntity>(sql, new { CallName = callName });
+        var result = await connection.QueryFirstOrDefaultAsync<DspCallEntity>(sql, new {
+            FlowName = key.FlowName,
+            CallName = key.CallName
+        });
         return result;
     }
 
     /// <inheritdoc />
-    public async Task<bool> UpdateCallStateAsync(string callName, string state)
+    public async Task<bool> UpdateCallStateAsync(CallKey key, string state)
     {
         using var connection = CreateConnection();
 
@@ -511,15 +537,19 @@ LIMIT 1";
 UPDATE Call
 SET State = @State,
     UpdatedAt = datetime('now')
-WHERE CallName = @CallName";
+WHERE FlowName = @FlowName AND CallName = @CallName";
 
-        var result = await connection.ExecuteAsync(sql, new { State = state, CallName = callName });
+        var result = await connection.ExecuteAsync(sql, new {
+            State = state,
+            FlowName = key.FlowName,
+            CallName = key.CallName
+        });
         return result > 0;
     }
 
     /// <inheritdoc />
     public async Task<bool> UpdateCallWithStatisticsAsync(
-        string callName,
+        CallKey key,
         string state,
         int previousGoingTime,
         double averageGoingTime,
@@ -535,7 +565,7 @@ SET State = @State,
     StdDevGoingTime = @StdDevGoingTime,
     GoingCount = GoingCount + 1,
     UpdatedAt = datetime('now')
-WHERE CallName = @CallName";
+WHERE FlowName = @FlowName AND CallName = @CallName";
 
         var result = await connection.ExecuteAsync(sql, new
         {
@@ -543,14 +573,15 @@ WHERE CallName = @CallName";
             PreviousGoingTime = previousGoingTime,
             AverageGoingTime = averageGoingTime,
             StdDevGoingTime = stdDevGoingTime,
-            CallName = callName
+            FlowName = key.FlowName,
+            CallName = key.CallName
         });
 
         if (result > 0)
         {
             _logger.LogDebug(
-                "Updated Call '{CallName}': State={State}, GoingTime={Time}ms, Avg={Avg:F0}ms, StdDev={StdDev:F0}ms",
-                callName, state, previousGoingTime, averageGoingTime, stdDevGoingTime);
+                "Updated Call '{CallName}' (Flow: {FlowName}): State={State}, GoingTime={Time}ms, Avg={Avg:F0}ms, StdDev={StdDev:F0}ms",
+                key.CallName, key.FlowName, state, previousGoingTime, averageGoingTime, stdDevGoingTime);
         }
 
         return result > 0;
@@ -673,6 +704,32 @@ ORDER BY FlowName, CallName";
 
         var results = await connection.QueryAsync<CallStatisticsDto>(sql);
         return results.ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task InsertCallIOEventAsync(Models.Analysis.CallIOEvent ioEvent)
+    {
+        using var connection = CreateConnection();
+
+        const string sql = @"
+INSERT INTO CallIOEvent (FlowName, WorkName, CallName, EventType, IsInTag, Timestamp, GoingTime, TagName, TagAddress)
+VALUES (@FlowName, @WorkName, @CallName, @EventType, @IsInTag, @Timestamp, @GoingTime, @TagName, @TagAddress)";
+
+        await connection.ExecuteAsync(sql, new
+        {
+            ioEvent.FlowName,
+            ioEvent.WorkName,
+            ioEvent.CallName,
+            EventType = ioEvent.EventType.ToString(),
+            ioEvent.IsInTag,
+            ioEvent.Timestamp,
+            ioEvent.GoingTime,
+            ioEvent.TagName,
+            ioEvent.TagAddress
+        });
+
+        _logger.LogDebug("Inserted CallIOEvent: {CallName} {EventType} at {Timestamp}",
+            ioEvent.CallName, ioEvent.EventType, ioEvent.Timestamp);
     }
 
 }
