@@ -145,7 +145,7 @@
                            width="@b.ContentW" height="@b.ContentH">
                 <div xmlns="http://www.w3.org/1999/xhtml" class="fc-cq">
                     <div class="fc-root">
-                        @* 헤더 *@
+                        @* ── 헤더: 검은 배경 + 큰 제목 + 배지 ── *@
                         <div class="fc-header">
                             <div class="fc-title">@b.FlowName</div>
                             @if (b.Badges.Count > 0)
@@ -154,7 +154,7 @@
                                     @foreach (var badge in b.Badges)
                                     {
                                         <span class="fc-badge"
-                                              style="background: @ColorMix(badge.Color, 0.20); border-color: @ColorMix(badge.Color, 0.40); color: white;">
+                                              style="background: @ColorMix(badge.Color, 0.35); border-color: @ColorMix(badge.Color, 0.60); color: white;">
                                             @badge.Label
                                         </span>
                                     }
@@ -162,11 +162,11 @@
                             }
                         </div>
 
-                        @* 본문 *@
+                        @* ── 본문: 도넛(좌) + 통계(우) ── *@
                         @if (b.HasMtWt)
                         {
-                            <div class="fc-body">
-                                <div class="fc-chart @(b.ShowStats ? "" : "fc-chart-center")">
+                            <div class="fc-body" style="max-width:@(b.BodyMaxW)px">
+                                <div class="fc-chart @(b.ShowStats ? "" : "fc-chart-full")">
                                     <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
                                         <defs>
                                             <linearGradient id="mt-g-@b.ClipId" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -197,13 +197,6 @@
                                                         stroke-linecap="round" />
                                             }
                                         </g>
-                                        @* 도넛 내부 엣지 하이라이트 *@
-                                        <circle cx="50" cy="50" r="35.5" fill="none" opacity="0">
-                                            <radialGradient id="ie-@b.ClipId" cx="50%" cy="50%" r="50%">
-                                                <stop offset="0%" stop-color="white" stop-opacity="0.25" />
-                                                <stop offset="90%" stop-color="white" stop-opacity="0" />
-                                            </radialGradient>
-                                        </circle>
                                     </svg>
                                     <span class="fc-chart-label">@FormatMs(b.Total)</span>
                                 </div>
@@ -233,9 +226,7 @@
                         }
                         else
                         {
-                            <div class="fc-footer" style="flex:1;display:flex;align-items:center;justify-content:center;">
-                                @b.StateLabel
-                            </div>
+                            <div class="fc-center-state">@b.StateLabel</div>
                         }
                     </div>
                 </div>
@@ -313,11 +304,15 @@
         public required string ClipId { get; init; }
         public required bool ShowStats { get; init; }
 
-        // 콘텐츠 영역 (최소 카드 기준, 중앙 정렬)
+        // foreignObject 영역 (전체 카드 크기, 좌상단 기준)
         public required int ContentX { get; init; }
         public required int ContentY { get; init; }
         public required int ContentW { get; init; }
         public required int ContentH { get; init; }
+
+        // 본문 제약 (최소 카드 기준)
+        public required int BodyMaxW { get; init; }
+        public required int BodyMaxH { get; init; }
 
         // 도넛 비율 (viewBox 100x100 기준, r=40, sw=9)
         public required double MtFrac { get; init; }
@@ -345,11 +340,14 @@
         var innerH = ph - pad * 2;
         var clipId = $"blk{fp.FlowName.GetHashCode() & 0x7FFFFFFF}";
 
-        // 콘텐츠 영역: 최소 카드 크기 기준, 카드 내 중앙 정렬
-        var contentW = minContentW;
-        var contentH = minContentH;
-        var contentX = px + pad + (innerW - contentW) / 2;
-        var contentY = py + pad + (innerH - contentH) / 2;
+        // foreignObject: 전체 카드 크기, 좌상단 배치
+        // 헤더는 전체 너비, 본문은 최소 카드 크기로 제약
+        var contentX = px + pad;
+        var contentY = py + pad;
+        var contentW = innerW;
+        var contentH = innerH;
+        var bodyMaxW = minContentW;
+        var bodyMaxH = minContentH;
         var showStats = minContentW >= 130;
 
         var hasMtWt = mtWt != null;
@@ -383,6 +381,7 @@
             ShowStats = showStats,
             ContentX = contentX, ContentY = contentY,
             ContentW = contentW, ContentH = contentH,
+            BodyMaxW = bodyMaxW, BodyMaxH = bodyMaxH,
             MtFrac = mtFrac, WtFrac = wtFrac,
             SCirc = sCirc, SMtDash = sMtDash, SWtDash = sWtDash, SNegMt = sNegMt,
         };
