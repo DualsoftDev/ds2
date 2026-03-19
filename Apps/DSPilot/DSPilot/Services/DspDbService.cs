@@ -11,6 +11,7 @@ public class DspDbService : IDisposable
     private readonly PeriodicTimer _timer;
     private readonly PeriodicTimer _progressTimer;
     private readonly CancellationTokenSource _cts = new();
+    private readonly object _snapshotLock = new();
     private DspDbSnapshot _snapshot = new();
 
     // Going 상태 추적: CallName → Going 시작 시간
@@ -81,48 +82,51 @@ public class DspDbService : IDisposable
     /// </summary>
     private void ApplyEventToSnapshot(CallStateChangedEvent evt)
     {
-        var oldSnapshot = _snapshot;
-        var oldCall = oldSnapshot.Calls.FirstOrDefault(c => c.CallName == evt.CallName);
-        if (oldCall == null) return;  // 알 수 없는 Call — 다음 DB 폴링에서 복구됨
-
-        // Going 상태 전환 시 시작 시간 기록
-        if (evt.NewState == "Going")
+        lock (_snapshotLock)
         {
-            _goingStartTimes[evt.CallName] = DateTime.Now;
+            var oldSnapshot = _snapshot;
+            var oldCall = oldSnapshot.Calls.FirstOrDefault(c => c.CallName == evt.CallName);
+            if (oldCall == null) return;  // 알 수 없는 Call — 다음 DB 폴링에서 복구됨
+
+            // Going 상태 전환 시 시작 시간 기록
+            if (evt.NewState == "Going")
+            {
+                _goingStartTimes[evt.CallName] = DateTime.Now;
+            }
+            else if (evt.NewState == "Ready" || evt.NewState == "Finish")
+            {
+                // Going 종료 시 시작 시간 제거
+                _goingStartTimes.Remove(evt.CallName);
+            }
+
+            var updatedCall = new CallState
+            {
+                Id               = oldCall.Id,
+                CallName         = oldCall.CallName,
+                FlowName         = oldCall.FlowName,
+                WorkName         = oldCall.WorkName,
+                State            = evt.NewState,
+                ProgressRate     = CalculateProgressRate(evt.NewState, oldCall.AverageGoingTime, null, evt.CallName),
+                GoingCount       = Math.Max(evt.GoingCount ?? oldCall.GoingCount, oldCall.GoingCount),
+                AverageGoingTime = evt.AverageGoingTime ?? oldCall.AverageGoingTime,
+                Device           = oldCall.Device,
+                ErrorText        = oldCall.ErrorText,
+            };
+
+            var updatedCalls = oldSnapshot.Calls
+                .Select(c => c.Id == oldCall.Id ? updatedCall : c)
+                .ToList();
+
+            _snapshot = new DspDbSnapshot
+            {
+                Flows       = oldSnapshot.Flows,
+                Calls       = updatedCalls,
+                CallsByFlow = updatedCalls
+                    .GroupBy(c => c.FlowName)
+                    .ToDictionary(g => g.Key, g => g.ToList()),
+                Timestamp   = evt.OccurredAt,
+            };
         }
-        else if (evt.NewState == "Ready" || evt.NewState == "Finish")
-        {
-            // Going 종료 시 시작 시간 제거
-            _goingStartTimes.Remove(evt.CallName);
-        }
-
-        var updatedCall = new CallState
-        {
-            Id               = oldCall.Id,
-            CallName         = oldCall.CallName,
-            FlowName         = oldCall.FlowName,
-            WorkName         = oldCall.WorkName,
-            State            = evt.NewState,
-            ProgressRate     = CalculateProgressRate(evt.NewState, oldCall.AverageGoingTime, null, evt.CallName),
-            GoingCount       = evt.GoingCount ?? oldCall.GoingCount,
-            AverageGoingTime = evt.AverageGoingTime ?? oldCall.AverageGoingTime,
-            Device           = oldCall.Device,
-            ErrorText        = oldCall.ErrorText,
-        };
-
-        var updatedCalls = oldSnapshot.Calls
-            .Select(c => c.CallName == evt.CallName ? updatedCall : c)
-            .ToList();
-
-        _snapshot = new DspDbSnapshot
-        {
-            Flows       = oldSnapshot.Flows,
-            Calls       = updatedCalls,
-            CallsByFlow = updatedCalls
-                .GroupBy(c => c.FlowName)
-                .ToDictionary(g => g.Key, g => g.ToList()),
-            Timestamp   = evt.OccurredAt,
-        };
     }
 
     /// <summary>
@@ -248,49 +252,52 @@ public class DspDbService : IDisposable
         if (_goingStartTimes.Count == 0)
             return; // Going 상태 Call이 없으면 skip
 
-        var oldSnapshot = _snapshot;
-        var hasUpdate = false;
-
-        var updatedCalls = oldSnapshot.Calls.Select(call =>
+        lock (_snapshotLock)
         {
-            if (call.State == "Going" && _goingStartTimes.ContainsKey(call.CallName))
+            var oldSnapshot = _snapshot;
+            var hasUpdate = false;
+
+            var updatedCalls = oldSnapshot.Calls.Select(call =>
             {
-                var newProgress = CalculateGoingProgress(call.CallName, call.AverageGoingTime);
-
-                // 진행률이 변경되었으면 업데이트
-                if (Math.Abs(newProgress - call.ProgressRate) > 0.001)
+                if (call.State == "Going" && _goingStartTimes.ContainsKey(call.CallName))
                 {
-                    hasUpdate = true;
-                    return new CallState
+                    var newProgress = CalculateGoingProgress(call.CallName, call.AverageGoingTime);
+
+                    // 진행률이 변경되었으면 업데이트
+                    if (Math.Abs(newProgress - call.ProgressRate) > 0.001)
                     {
-                        Id = call.Id,
-                        CallName = call.CallName,
-                        FlowName = call.FlowName,
-                        WorkName = call.WorkName,
-                        State = call.State,
-                        ProgressRate = newProgress,
-                        GoingCount = call.GoingCount,
-                        AverageGoingTime = call.AverageGoingTime,
-                        Device = call.Device,
-                        ErrorText = call.ErrorText
-                    };
+                        hasUpdate = true;
+                        return new CallState
+                        {
+                            Id = call.Id,
+                            CallName = call.CallName,
+                            FlowName = call.FlowName,
+                            WorkName = call.WorkName,
+                            State = call.State,
+                            ProgressRate = newProgress,
+                            GoingCount = call.GoingCount,
+                            AverageGoingTime = call.AverageGoingTime,
+                            Device = call.Device,
+                            ErrorText = call.ErrorText
+                        };
+                    }
                 }
-            }
-            return call;
-        }).ToList();
+                return call;
+            }).ToList();
 
-        if (!hasUpdate)
-            return; // 변경 사항 없으면 skip
+            if (!hasUpdate)
+                return; // 변경 사항 없으면 skip
 
-        _snapshot = new DspDbSnapshot
-        {
-            Flows = oldSnapshot.Flows,
-            Calls = updatedCalls,
-            CallsByFlow = updatedCalls
-                .GroupBy(c => c.FlowName)
-                .ToDictionary(g => g.Key, g => g.ToList()),
-            Timestamp = DateTimeOffset.UtcNow,
-        };
+            _snapshot = new DspDbSnapshot
+            {
+                Flows = oldSnapshot.Flows,
+                Calls = updatedCalls,
+                CallsByFlow = updatedCalls
+                    .GroupBy(c => c.FlowName)
+                    .ToDictionary(g => g.Key, g => g.ToList()),
+                Timestamp = DateTimeOffset.UtcNow,
+            };
+        }
 
         OnDataChanged?.Invoke();
     }
@@ -360,90 +367,94 @@ public class DspDbService : IDisposable
                 }
             }
 
-            var previousCallsById = _snapshot.Calls
-                .DistinctBy(c => c.Id)
-                .ToDictionary(c => c.Id, c => c);
-
-            for (var i = 0; i < calls.Count; i++)
+            lock (_snapshotLock)
             {
-                var call = calls[i];
-                previousCallsById.TryGetValue(call.Id, out var previousCall);
+                var previousCallsById = _snapshot.Calls
+                    .DistinctBy(c => c.Id)
+                    .ToDictionary(c => c.Id, c => c);
 
-                if (call.State == "Going")
+                for (var i = 0; i < calls.Count; i++)
                 {
-                    EnsureGoingStartTime(call, previousCall);
+                    var call = calls[i];
+                    previousCallsById.TryGetValue(call.Id, out var previousCall);
 
-                    var recalculatedProgress = CalculateGoingProgress(call.CallName, call.AverageGoingTime);
-                    var previousProgress = previousCall?.State == "Going" ? previousCall.ProgressRate : 0.0;
-                    var stableProgress = Math.Max(previousProgress, recalculatedProgress);
-                    calls[i] = CloneCallWithProgress(call, stableProgress);
-                    continue;
-                }
-
-                _goingStartTimes.Remove(call.CallName);
-
-                if (call.State == "Ready" && Math.Abs(call.ProgressRate) > 0.001)
-                {
-                    calls[i] = CloneCallWithProgress(call, 0.0);
-                }
-                else if (call.State == "Finish" && Math.Abs(call.ProgressRate - 1.0) > 0.001)
-                {
-                    calls[i] = CloneCallWithProgress(call, 1.0);
-                }
-            }
-
-            // 실제 변경이 있을 때만 이벤트 발행 (불필요한 Blazor 렌더링 방지)
-            // Dictionary 사용으로 O(N) 비교 (중첩 Any의 O(N²) 방지)
-            var oldCallsMap = _snapshot.Calls.DistinctBy(d=>d.Id).ToDictionary(c => c.Id);
-
-            // DB 폴링이 이벤트 채널의 최신 GoingCount를 덮어쓰지 않도록 보호
-            // 이벤트 채널로 업데이트된 GoingCount가 DB보다 크면 이벤트 값 유지
-            for (var i = 0; i < calls.Count; i++)
-            {
-                var call = calls[i];
-                if (oldCallsMap.TryGetValue(call.Id, out var oldCall))
-                {
-                    // 기존 스냅샷의 GoingCount가 DB에서 읽은 값보다 크면 (이벤트로 이미 증가됨)
-                    // DB 값을 무시하고 기존 값 유지
-                    if (oldCall.GoingCount > call.GoingCount)
+                    if (call.State == "Going")
                     {
-                        calls[i] = new CallState
-                        {
-                            Id = call.Id,
-                            CallName = call.CallName,
-                            FlowName = call.FlowName,
-                            WorkName = call.WorkName,
-                            State = call.State,
-                            ProgressRate = call.ProgressRate,
-                            GoingCount = oldCall.GoingCount,  // 이벤트 채널의 최신 값 유지
-                            AverageGoingTime = call.AverageGoingTime,
-                            Device = call.Device,
-                            ErrorText = call.ErrorText
-                        };
+                        EnsureGoingStartTime(call, previousCall);
+
+                        var recalculatedProgress = CalculateGoingProgress(call.CallName, call.AverageGoingTime);
+                        var previousProgress = previousCall?.State == "Going" ? previousCall.ProgressRate : 0.0;
+                        var stableProgress = Math.Max(previousProgress, recalculatedProgress);
+                        calls[i] = CloneCallWithProgress(call, stableProgress);
+                        continue;
+                    }
+
+                    _goingStartTimes.Remove(call.CallName);
+
+                    if (call.State == "Ready" && Math.Abs(call.ProgressRate) > 0.001)
+                    {
+                        calls[i] = CloneCallWithProgress(call, 0.0);
+                    }
+                    else if (call.State == "Finish" && Math.Abs(call.ProgressRate - 1.0) > 0.001)
+                    {
+                        calls[i] = CloneCallWithProgress(call, 1.0);
                     }
                 }
+
+                // 실제 변경이 있을 때만 이벤트 발행 (불필요한 Blazor 렌더링 방지)
+                // Dictionary 사용으로 O(N) 비교 (중첩 Any의 O(N²) 방지)
+                var oldCallsMap = _snapshot.Calls.DistinctBy(d=>d.Id).ToDictionary(c => c.Id);
+
+                // DB 폴링이 이벤트 채널의 최신 GoingCount를 덮어쓰지 않도록 보호
+                // 이벤트 채널로 업데이트된 GoingCount가 DB보다 크면 이벤트 값 유지
+                for (var i = 0; i < calls.Count; i++)
+                {
+                    var call = calls[i];
+                    if (oldCallsMap.TryGetValue(call.Id, out var oldCall))
+                    {
+                        // 기존 스냅샷의 GoingCount가 DB에서 읽은 값보다 크면 (이벤트로 이미 증가됨)
+                        // DB 값을 무시하고 기존 값 유지
+                        if (oldCall.GoingCount > call.GoingCount)
+                        {
+                            calls[i] = new CallState
+                            {
+                                Id = call.Id,
+                                CallName = call.CallName,
+                                FlowName = call.FlowName,
+                                WorkName = call.WorkName,
+                                State = call.State,
+                                ProgressRate = call.ProgressRate,
+                                GoingCount = oldCall.GoingCount,  // 이벤트 채널의 최신 값 유지
+                                AverageGoingTime = call.AverageGoingTime,
+                                Device = call.Device,
+                                ErrorText = call.ErrorText
+                            };
+                        }
+                    }
+                }
+
+                bool hasChanged =
+                    calls.Count != _snapshot.Calls.Count ||
+                    flows.Count != _snapshot.Flows.Count ||
+                    calls.Any(c => !oldCallsMap.TryGetValue(c.Id, out var oldCall) ||
+                                  oldCall.State != c.State ||
+                                  oldCall.GoingCount != c.GoingCount);
+
+                if (!hasChanged) return;
+
+                var callsByFlow = calls
+                    .GroupBy(c => c.FlowName)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                _snapshot = new DspDbSnapshot
+                {
+                    Flows = flows,
+                    Calls = calls,
+                    CallsByFlow = callsByFlow,
+                    Timestamp = DateTimeOffset.UtcNow,
+                };
+
             }
-
-            bool hasChanged =
-                calls.Count != _snapshot.Calls.Count ||
-                flows.Count != _snapshot.Flows.Count ||
-                calls.Any(c => !oldCallsMap.TryGetValue(c.Id, out var oldCall) ||
-                              oldCall.State != c.State ||
-                              oldCall.GoingCount != c.GoingCount);
-
-            if (!hasChanged) return;
-
-            var callsByFlow = calls
-                .GroupBy(c => c.FlowName)
-                .ToDictionary(g => g.Key, g => g.ToList());
-
-            _snapshot = new DspDbSnapshot
-            {
-                Flows = flows,
-                Calls = calls,
-                CallsByFlow = callsByFlow,
-                Timestamp = DateTimeOffset.UtcNow,
-            };
 
             OnDataChanged?.Invoke();
         }

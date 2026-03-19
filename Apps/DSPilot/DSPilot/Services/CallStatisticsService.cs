@@ -21,6 +21,9 @@ public class CallStatisticsService
     // CallName → DB에서 로드한 기존 GoingCount
     private readonly Dictionary<string, int> _baseGoingCount = new();
 
+    // CallName → 세션 내 실행 횟수 (히스토리 캡과 무관하게 정확한 카운트 유지)
+    private readonly Dictionary<string, int> _sessionExecutionCount = new();
+
     public CallStatisticsService(
         ILogger<CallStatisticsService> logger,
         IServiceScopeFactory scopeFactory)
@@ -89,14 +92,14 @@ public class CallStatisticsService
         // 업데이트된 샘플로 히스토리 갱신
         _goingTimeHistory[callName] = new List<int>(updatedSamples);
 
-        // 세션 내 증가분 + DB의 기존 값
-        var sessionCount = _goingTimeHistory[callName].Count;
+        // 세션 내 증가분 + DB의 기존 값 (히스토리 캡과 무관하게 정확한 카운트)
+        _sessionExecutionCount[callName] = _sessionExecutionCount.GetValueOrDefault(callName) + 1;
         var baseCount = _baseGoingCount.TryGetValue(callName, out var bc) ? bc : 0;
-        var totalGoingCount = baseCount + sessionCount;
+        var totalGoingCount = baseCount + _sessionExecutionCount[callName];
 
         _logger.LogInformation(
             "Call '{CallName}': Going finished - Time={Time}ms, Avg={Avg:F0}ms, StdDev={StdDev:F0}ms (Session={Session}, Base={Base}, Total={Total})",
-            callName, goingTime, average, stdDev, sessionCount, baseCount, totalGoingCount);
+            callName, goingTime, average, stdDev, _sessionExecutionCount[callName], baseCount, totalGoingCount);
 
         return (startTime, finishTime, goingTime, average, stdDev, totalGoingCount);
     }
@@ -108,6 +111,7 @@ public class CallStatisticsService
     {
         _goingStartTimes.Clear();
         _goingTimeHistory.Clear();
+        _sessionExecutionCount.Clear();
         // _baseGoingCount는 유지 (DB 값)
         _logger.LogInformation("Session statistics cleared (base GoingCount preserved)");
     }
