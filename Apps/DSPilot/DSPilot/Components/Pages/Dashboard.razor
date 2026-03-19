@@ -663,17 +663,25 @@ else
         catch { }
     }
 
+    private bool _disposed;
+
     private async void OnDbDataChanged()
     {
+        if (_disposed) return;
         _dbSnapshot = DbService.Snapshot;
         UpdateChartCache();
-        await InvokeAsync(StateHasChanged);
+        try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
     }
 
-    private async void OnEditStateChanged() => await InvokeAsync(StateHasChanged);
+    private async void OnEditStateChanged()
+    {
+        if (_disposed) return;
+        try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
+    }
 
     public void Dispose()
     {
+        _disposed = true;
         DbService.OnDataChanged -= OnDbDataChanged;
         EditService.OnChanged -= OnEditStateChanged;
     }
