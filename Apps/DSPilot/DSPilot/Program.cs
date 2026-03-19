@@ -59,6 +59,15 @@ if (plcConnectionEnabled)
     builder.Logging.SetMinimumLevel(LogLevel.Debug);
 }
 
+// PLC Capture 서비스 등록 (DsStore → PLC → DB)
+var captureEnabled = builder.Configuration.GetValue<bool>("PlcCapture:Enabled");
+if (captureEnabled)
+{
+    builder.Services.AddHostedService<PlcCaptureService>();
+    builder.Logging.AddConsole();
+    builder.Logging.SetMinimumLevel(LogLevel.Information);
+}
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
