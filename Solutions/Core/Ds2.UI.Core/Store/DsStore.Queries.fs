@@ -97,3 +97,32 @@ type DsStoreQueriesExtensions =
     [<Extension>]
     static member ApplyNodeSelection(_store: DsStore, currentSelection, anchor: SelectionKey, target: SelectionKey, ctrlPressed, shiftPressed, orderedKeys) : NodeSelectionResult =
         SelectionQueries.applyNodeSelection currentSelection (Option.ofObj anchor) (Option.ofObj target) ctrlPressed shiftPressed orderedKeys
+
+    // ─── PLC Tag Queries ─────────────────────────────────────────────
+    /// ApiCall의 InTag/OutTag에서 IOTag 추출
+    [<Extension>]
+    static member GetCallIOTags(store: DsStore) : IOTag list =
+        store.ApiCallsReadOnly.Values
+        |> Seq.collect (fun apiCall ->
+            [ apiCall.InTag; apiCall.OutTag ]
+            |> List.choose id)
+        |> Seq.distinctBy (fun tag -> tag.Address)
+        |> Seq.toList
+
+    /// HwComponent의 InTag/OutTag에서 IOTag 추출
+    [<Extension>]
+    static member GetHwComponentIOTags(store: DsStore) : IOTag list =
+        let allHwComponents : HwComponent seq =
+            seq {
+                yield! store.HwButtonsReadOnly.Values |> Seq.cast<HwComponent>
+                yield! store.HwLampsReadOnly.Values |> Seq.cast<HwComponent>
+                yield! store.HwConditionsReadOnly.Values |> Seq.cast<HwComponent>
+                yield! store.HwActionsReadOnly.Values |> Seq.cast<HwComponent>
+            }
+
+        allHwComponents
+        |> Seq.collect (fun hw ->
+            [ hw.InTag; hw.OutTag ]
+            |> List.choose id)
+        |> Seq.distinctBy (fun tag -> tag.Address)
+        |> Seq.toList

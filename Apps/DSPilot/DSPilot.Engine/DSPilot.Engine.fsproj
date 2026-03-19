@@ -18,8 +18,43 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="log4net" Version="3.2.0" />
+    <PackageReference Include="System.Reactive" Version="6.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Ev2.Backend.PLC">
+      <HintPath>..\..\..\ExternalDlls\Ev2.Backend.PLC.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.Backend.Common">
+      <HintPath>..\..\..\ExternalDlls\Ev2.Backend.Common.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.Core.FS">
+      <HintPath>..\..\..\ExternalDlls\Ev2.Core.FS.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.PLC.Common.FS">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Common.FS.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.PLC.Protocol.AB">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.AB.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.PLC.Protocol.S7">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.S7.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.PLC.Protocol.MX">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.MX.dll</HintPath>
+    </Reference>
+    <Reference Include="Dual.Common.Base.FS">
+      <HintPath>..\..\..\ExternalDlls\Dual.Common.Base.FS.dll</HintPath>
+    </Reference>
+    <Reference Include="Dual.Common.Db.FS">
+      <HintPath>..\..\..\ExternalDlls\Dual.Common.Db.FS.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
 </Project>

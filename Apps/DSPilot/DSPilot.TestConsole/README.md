@@ -1,12 +1,52 @@
-# DSPilot.TestConsole
+# DSPilot Test Console
 
-DSPilot의 Ev2.Backend.PLC 통합을 위한 테스트 콘솔입니다.
+DSPilot 핵심 기능을 테스트하는 2-모드 콘솔 애플리케이션
 
-## 목적
+## 2가지 모드
 
-1. **DLL Inspection**: Ev2.Backend.PLC 및 관련 DLL의 타입 구조 분석
-2. **API 사용법 학습**: PLCBackendService의 실제 사용 방법 예제
-3. **통합 검증**: DSPilot과 Ev2.Backend.PLC 간의 통합 가능성 검증
+### 1. Replay Mode (DB → PLC)
+**목적**: DB 로그를 PLC에 리플레이하여 가상 현장 환경 재현
+
+**동작**:
+- DB에서 plcTagLog 읽기
+- TagSpec 동적 생성
+- PLCBackendService 시작
+- 타임스탬프 간격 유지하며 PLC에 쓰기
+- 무한 반복 지원
+
+**사용**:
+```bash
+dotnet run
+# Select: 1
+# Enter DB path: C:/ds/DSPilot/sample/db/DsDB.sqlite3
+```
+
+### 2. Capture Mode (AASX → PLC → DB + Events)
+**목적**: AASX 파일에서 태그 정보를 읽어 PLC 데이터 수집 및 DB 저장
+
+**동작**:
+- AASX 파일 로드 (DsStore)
+- ApiCall/HwComponent에서 IOTag 추출
+- appsettings.json 자동 생성 (TagSpecs)
+- log4net 초기화
+- SubjectC2S 먼저 구독 (첫 스캔 값 유실 방지)
+- ModuleInitializer.Initialize() 호출
+  - appsettings.json 로드
+  - AppDbApi 자동 생성
+  - TagHistoricWAL 자동 생성 (WAL 버퍼)
+  - PLCBackendService 자동 생성 및 시작
+- 실시간 이벤트 모니터링
+- WAL flush로 DB 자동 저장
+
+**사용**:
+```bash
+dotnet run
+# Select: 2
+# Enter AASX path: C:/ds/ds2/Apps/DSPilot/DsCSV_0318_C.aasx
+# → 자동으로 태그 추출 및 appsettings.json 생성
+# → PLC 데이터 수집 시작
+# → dsdb_capture.sqlite3에 저장
+```
 
 ## 실행 방법
 
@@ -15,127 +55,125 @@ cd /mnt/c/ds/ds2/Apps/DSPilot/DSPilot.TestConsole
 dotnet run
 ```
 
-## 주요 파일
+### 메뉴
+```
+╔════════════════════════════════════════════╗
+║     DSPilot Test Console - 2 Modes         ║
+╚════════════════════════════════════════════╝
 
-### 1. Program.cs
-- 메인 진입점
-- DLL inspection, 타입 탐색, 사용 예제 실행
+Select mode:
 
-### 2. DllInspector.cs
-- Reflection을 사용한 DLL 타입 분석
-- Public 타입, 생성자, 메서드, 프로퍼티 출력
-
-### 3. Ev2TypeExplorer.cs
-- PLCBackendService, TagHistoricWAL, ScanConfiguration 등 핵심 타입 탐색
-- 컴파일 타임에 타입 정보 추출
-
-### 4. ConnectionConfigExplorer.cs
-- IConnectionConfiguration 인터페이스 및 구현체 탐색
-- S7ConnectionConfig, AbConnectionConfig, MxConnectionConfig 발견
-
-### 5. PLCBackendServiceExample.cs
-- **실제 사용 가능한 코드 예제**
-- Allen-Bradley PLC 연결 설정
-- TagSpec 생성
-- PLCBackendService 인스턴스화 및 사용법
-
-### 6. EV2_API_SUMMARY.md
-- DLL inspection 결과 종합 문서
-- API 요약 및 사용법 가이드
-
-## 발견 사항
-
-### Ev2.Backend.PLC는 WAL 기반 아키텍처
-
-이전에 가정했던 Reactive(SubjectC2S, IObservable) 패턴이 **존재하지 않습니다**.
-
-실제 아키텍처:
-- **PLCBackendService**: PLC 통신의 메인 진입점
-- **TagHistoricWAL**: Write-Ahead Log를 통한 태그 변경 이력 관리
-- **ScanConfiguration**: PLC 연결 및 태그 스펙 설정
-- **IConnectionConfiguration**: 프로토콜별 연결 설정 (S7, AB, MX 등)
-
-### 주요 타입
-
-```csharp
-// PLCBackendService 생성
-var service = new PLCBackendService(
-    scanConfigs: ScanConfiguration[],
-    tagHistoricWAL: FSharpOption<TagHistoricWAL>
-);
-
-// 사용
-service.Start();
-var result = service.RTryReadTagValue("ConnectionName", "TagName");
-
-// 연결 설정 예제 (Allen-Bradley)
-var config = AbConnectionConfig.Create(
-    ipAddress: "192.168.1.100",
-    port: FSharpOption<int>.Some(44818),
-    name: FSharpOption<string>.Some("PLC1"),
-    //...
-);
-
-// TagSpec 생성
-var tagSpec = new TagSpec(
-    name: "Flow1_Call1_In",
-    address: "DB1.DBX0.0",
-    dataType: PlcDataType.Bool,
-    walType: FSharpOption<WAL>.None,
-    comment: FSharpOption<string>.Some("Input signal"),
-    plcValue: FSharpOption<PlcValue>.None
-);
+  1. Replay Mode  (DB → PLC)
+  2. Capture Mode (PLC → DB + Events)
+  3. DB Verifier
+  0. Exit
 ```
 
-## 다음 단계
+## 파일 구조
 
-1. ✅ **DLL 타입 분석 완료**
-2. ✅ **IConnectionConfiguration 구현체 발견** (S7, AB, MX)
-3. ✅ **PLCBackendService 사용 예제 작성 완료**
-4. ⏳ **Ev2PlcEventSource 재구현** - PLCBackendService 기반으로 재설계 필요
-5. ⏳ **AASX 파일에서 TagSpec 생성** - 태그 매핑 로직 구현
-6. ⏳ **실제 PLC 연결 테스트** - 실제 하드웨어 또는 시뮬레이터로 검증
+```
+DSPilot.TestConsole/
+├── Program.cs                    # 메인 메뉴
+├── ReplayMode.cs                 # DB → PLC 리플레이
+├── CaptureMode.cs                # PLC → DB + Events
+├── DbVerifier.cs                 # DB 검증 유틸리티
+├── appsettings.json              # EV2 설정 (Capture Mode용)
+├── log4net.config                # 로깅 설정
+└── README.md                     # 이 문서
+```
+
+## DB 경로 구분
+
+### Replay Mode (읽기 전용)
+- 기본 경로: `C:/ds/ds2/Apps/DSPilot/DSPilot/sample/db/dsdb_capture.sqlite3`
+- Capture Mode에서 수집한 데이터를 읽어서 PLC에 리플레이
+
+### Capture Mode (쓰기 전용)
+- 기본 경로: `C:/ds/ds2/Apps/DSPilot/DSPilot/sample/db/dsdb_capture.sqlite3`
+- AASX에서 추출한 태그의 실시간 PLC 데이터를 저장
+
+## appsettings.json 형식 (Capture Mode - 자동 생성)
+
+Capture Mode는 AASX 파일에서 태그를 추출하여 자동으로 appsettings.json을 생성합니다:
+
+```json
+{
+  "_목적": "DSPilot TestConsole - Capture Mode (AASX → PLC → DB)",
+  "_설명": {
+    "읽기DB": "ReplayMode에서 사용하는 DB",
+    "쓰기DB": "CaptureMode에서 실시간 데이터 저장하는 DB"
+  },
+  "Database": {
+    "Type": "Sqlite",
+    "ConnectionString": "Data Source=C:/ds/ds2/Apps/DSPilot/DSPilot/sample/db/dsdb_capture.sqlite3;Version=3;BusyTimeout=20000"
+  },
+  "TagHistoric": {
+    "WALBufferSize": 1000,
+    "FlushInterval": "00:00:05"
+  },
+  "ScanConfigurations": [
+    {
+      "Connection": {
+        "$type": "Ev2.PLC.Protocol.MX.MxConnectionConfig, Ev2.PLC.Protocol.MX",
+        "IpAddress": "192.168.9.120",
+        "Port": 5555,
+        "Name": "MitsubishiPLC",
+        "EnableScan": true,
+        "ScanInterval": "00:00:00.500",
+        "FrameType": "QnA_3E_Binary",
+        "Protocol": "UDP"
+      },
+      "TagSpecs": [
+        {
+          "Name": "TagFromAASX",
+          "DataType": {"Case": "Bool"},
+          "Address": "M100",
+          "WALType": {"Case": "Disk"},
+          "Comment": "Auto-generated from AASX"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## 핵심 개념
+
+### EV2 ModuleInitializer 패턴
+Capture Mode는 EV2의 ModuleInitializer를 사용하여 모든 설정을 자동화:
+- `Ev2.Backend.PLC.ModuleInitializer.Initialize(log)` 한 줄로 모든 것이 자동 처리
+- appsettings.json에서 설정 로드
+- AppDbApi, TagHistoricWAL, PLCBackendService 자동 생성
+
+### SubjectC2S vs SubjectS2C
+- **SubjectC2S**: Server → Client (PLC 스캔 결과 수신) - Capture Mode용
+- **SubjectS2C**: Client → Server (PLC 쓰기 요청) - Replay Mode용
+
+### TagHistoricWAL
+Write-Ahead Log 시스템:
+- Memory 버퍼: 빠른 이벤트 처리
+- Disk 버퍼: 크래시 안전성
+- 주기적 flush로 DB 저장
 
 ## 빌드 요구사항
 
 - .NET 9.0 SDK
-- 필수 NuGet 패키지:
-  - System.Reactive 6.1.0 (중요: 6.0.0과 호환 안됨)
-  - StackExchange.Redis 2.8.16
-  - Newtonsoft.Json 13.0.3
+- NuGet 패키지:
+  - System.Reactive 6.1.0
+  - Microsoft.Data.Sqlite 9.0.3
+  - Dapper 2.1.35
+  - log4net 3.2.0
 
-- 필수 External DLLs:
+- External DLLs (ExternalDlls/):
   - Ev2.Backend.PLC.dll
   - Ev2.Backend.Common.dll
   - Ev2.PLC.Common.FS.dll
-  - Ev2.PLC.Protocol.AB.dll
-  - Ev2.PLC.Protocol.S7.dll
-  - Ev2.PLC.Protocol.MX.dll
+  - Ev2.PLC.Protocol.{AB,MX,S7}.dll
+  - Ev2.Core.FS.dll
+  - Ev2.Aas.FS.dll
+  - Dual.Common.*.dll
+  - System.Data.SQLite.dll
 
-## 실행 결과
+## 참고 문서
 
-```
-=== DSPilot Ev2.Backend.PLC DLL Inspector ===
-=== Ev2 Type Explorer (compile-time) ===
-=== PLCBackendService Usage Example ===
-
-Created connection config:
-  Type: AbConnectionConfig
-
-Created 3 TagSpec(s)
-  - Flow1_Call1_In @ DB1.DBX0.0
-  - Flow1_Call1_Out @ DB1.DBX0.1
-  - Flow2_Call1_In @ Program:MainProgram.Flow2_Call1_In
-
-Created PLCBackendService
-  Active connections:
-  All connection names: TestPLC
-
-✅ PLCBackendService successfully created and configured
-```
-
-## 참고자료
-
-- **EV2_API_SUMMARY.md**: 전체 API 요약
-- **PLCBackendServiceExample.cs**: 실제 코드 예제
-- Ev2.Backend.PLC 소스코드 (F#)
+- **TESTCONSOLE_REORGANIZATION.md**: 상세 아키텍처 설계 문서
