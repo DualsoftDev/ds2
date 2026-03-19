@@ -221,11 +221,14 @@ else
         Nav.NavigateTo(uri, replace: true);
     }
 
+    private bool _disposed;
+
     private async void OnDbDataChanged()
     {
+        if (_disposed) return;
         _dbSnapshot = DbService.Snapshot;
         UpdateFilterOptions();
-        await InvokeAsync(StateHasChanged);
+        try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
     }
 
     private void UpdateFilterOptions()
@@ -261,6 +264,7 @@ else
 
     public void Dispose()
     {
+        _disposed = true;
         DbService.OnDataChanged -= OnDbDataChanged;
     }
 }
