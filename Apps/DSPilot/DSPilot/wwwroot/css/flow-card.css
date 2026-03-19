@@ -40,11 +40,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    flex: 0 0 calc(var(--min-h) * 0.25);
-    max-height: calc(var(--min-h) * 0.25);
-    padding: 0 calc(var(--min-w) * 0.04);
-    background: var(--state-color);
-    border-bottom: none;
+    flex: 0 0 auto;
+    padding: calc(var(--min-h) * 0.03) calc(var(--min-w) * 0.04);
+    background: color-mix(in srgb, var(--state-color) 12%, #f5f5f5);
+    border-top: clamp(3px, calc(var(--min-h) * 0.03), 8px) solid var(--state-color);
+    border-bottom: 1px solid rgba(0,0,0,0.12);
     gap: calc(var(--min-w) * 0.02);
     overflow: hidden;
     box-sizing: border-box;
@@ -56,7 +56,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: white;
+    color: var(--state-color);
     line-height: 1.15;
     flex: 1;
     min-width: 0;
@@ -84,10 +84,10 @@
    ═══════════════════════════════════════════ */
 .fc-body {
     display: flex;
-    align-items: stretch;
-    flex: 0 0 calc(var(--min-h) * 0.75);
-    max-height: calc(var(--min-h) * 0.75);
+    align-items: center;
+    flex: 1;
     min-height: 0;
+    overflow: hidden;
 }
 
 /* ── 도넛 차트 영역 (좌측 ~42%) ── */
@@ -98,12 +98,36 @@
     justify-content: center;
     flex-shrink: 0;
     width: 42%;
+    height: 100%;
     padding: calc(var(--min-w) * 0.03);
     box-sizing: border-box;
 }
 
 .fc-chart.fc-chart-full {
     width: 100%;
+}
+
+/* ── 세로형 카드 (tall: RowSpan > ColSpan) ── */
+.fc-body.fc-body-vertical {
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    flex: 1;
+    max-height: none;
+    padding-top: calc(var(--min-w) * 0.03);
+}
+
+.fc-body-vertical .fc-chart {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    padding: calc(var(--min-w) * 0.06);
+}
+
+.fc-body-vertical .fc-stats {
+    width: 100%;
+    flex: 0 0 auto;
+    padding: calc(var(--min-h) * 0.02) calc(var(--min-w) * 0.08);
 }
 
 .fc-chart svg {
@@ -158,13 +182,11 @@
 }
 
 .fc-dot-mt {
-    background: #3a86ff;
-    box-shadow: 0 0 4px rgba(58, 134, 255, 0.3);
+    background: #4285f4;
 }
 
 .fc-dot-wt {
-    background: #ff9f1c;
-    box-shadow: 0 0 4px rgba(255, 159, 28, 0.3);
+    background: #ffb300;
 }
 
 .fc-stat-label {
