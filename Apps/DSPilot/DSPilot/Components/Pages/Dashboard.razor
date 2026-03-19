@@ -31,7 +31,7 @@
         flex-direction: column;
     }
     /* 모바일: 강제 단일 컬럼 */
-    @@media (max-width: 768px) {
+    @@media (max-width: 1024px) {
         .dashboard-grid.grid-h {
             flex-direction: column !important;
             height: auto !important;
@@ -70,9 +70,9 @@
         border-radius: 4px;
         min-width: 0;
     }
-    .ct-top-cell.danger  { border-left: 3px solid #ef5350; }
-    .ct-top-cell.warning { border-left: 3px solid #fb8c00; }
-    .ct-top-cell.success { border-left: 3px solid #26a69a; }
+    .ct-top-cell.danger  { border-bottom: 3px solid #ef5350; }
+    .ct-top-cell.warning { border-bottom: 3px solid #fb8c00; }
+    .ct-top-cell.success { border-bottom: 3px solid #26a69a; }
     /* 최대/최소 통합 카드 */
     .ct-combined-cell {
         flex: 1;
@@ -91,8 +91,9 @@
         gap: 4px;
         min-width: 0;
     }
-    .ct-combined-half.danger  { border-left: 3px solid #ef5350; }
-    .ct-combined-half.success { border-left: 3px solid #26a69a; }
+    .ct-combined-half.danger  { border-bottom: 3px solid #ef5350; }
+    .ct-combined-half.success { border-bottom: 3px solid #26a69a; }
+    .ct-combined-half + .ct-combined-half { border-left: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12)); }
     .ct-summary-title {
         font-size: 13px;
         font-weight: 700;
@@ -179,16 +180,15 @@
     .ct-bar-track {
         flex: 1;
         height: 10px;
-        background: var(--mud-palette-lines-default, #eeeeee);
+        background: transparent;
         border-radius: 10px;
-        overflow: hidden;
         display: flex;
     }
     .ct-bar-mt { background: #0569A0; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .ct-bar-wt { background: #FB8C00; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .ct-bar-track > :first-child { border-radius: 10px 0 0 10px; }
-    .ct-bar-track > :last-child  { border-radius: 0 10px 10px 0; }
-    .ct-bar-track > :only-child  { border-radius: 10px; }
+    .ct-bar-wt { background: #FB8C00; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0 10px 10px 0; }
+    .ct-bar-track > :first-child { border-radius: 10px 0 0 10px; overflow: hidden; }
+    .ct-bar-track > :last-child  { border-radius: 0 10px 10px 0; overflow: hidden; }
+    .ct-bar-track > :only-child  { border-radius: 10px; overflow: hidden; }
     .ct-bar-pct { font-size: 9px; font-weight: 700; color: white; line-height: 1; white-space: nowrap; }
     .ct-row-time {
         font-size: 12px;
