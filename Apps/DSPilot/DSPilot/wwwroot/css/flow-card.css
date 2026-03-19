@@ -1,17 +1,21 @@
 /* ============================================
    Flow Card — foreignObject 내부 HTML/CSS
+   목업 기반: 헤더(검은배경+제목+배지) | 본문(도넛+통계)
    ============================================ */
 
 /* container query context */
-.fc-cq { container-type: inline-size; width: 100%; height: 100%; }
+.fc-cq {
+    container-type: size;
+    width: 100%;
+    height: 100%;
+}
 
-/* 카드 내부 flexbox 루트 */
+/* 카드 전체 flexbox 루트 */
 .fc-root {
     width: 100%;
     height: 100%;
     display: flex;
     flex-direction: column;
-    padding: 8% 6%;
     box-sizing: border-box;
     font-family: 'Noto Sans KR', sans-serif;
     color: white;
@@ -19,107 +23,129 @@
     overflow: hidden;
 }
 
-/* ── 헤더: 제목 + 배지 ── */
+/* ═══════════════════════════════════════════
+   헤더: 검은 배경 + 큰 제목 + 배지 (우상단)
+   ═══════════════════════════════════════════ */
 .fc-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     flex-shrink: 0;
-    gap: 4px;
+    padding: 4% 5%;
+    background: rgba(0, 0, 0, 0.55);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    gap: 6px;
+    min-height: 0;
 }
 
 .fc-title {
-    font-size: clamp(0.5rem, 3.5cqi, 1.4rem);
+    font-size: clamp(0.55rem, 7cqi, 1.8rem);
     font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     text-shadow: 0 0 15px rgba(0, 191, 255, 0.4);
-    line-height: 1.2;
+    line-height: 1.15;
+    flex: 1;
+    min-width: 0;
 }
 
 .fc-badges {
     display: flex;
-    gap: 4px;
+    gap: 3px;
     flex-shrink: 0;
+    align-items: center;
 }
 
 .fc-badge {
-    padding: 2px 6px;
-    border-radius: 6px;
-    font-size: clamp(0.4rem, 2cqi, 0.75rem);
+    padding: 4% 8%;
+    border-radius: 5px;
+    font-size: clamp(0.45rem, 5cqi, 1.1rem);
     font-weight: 700;
     border: 1px solid;
     white-space: nowrap;
-    line-height: 1.3;
+    line-height: 1.2;
 }
 
-/* ── 본문: 도넛 + 통계 ── */
+/* ═══════════════════════════════════════════
+   본문: 도넛 차트(좌) + 통계(우)
+   ═══════════════════════════════════════════ */
 .fc-body {
     flex: 1;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8%;
+    align-items: stretch;
     min-height: 0;
 }
 
-/* 도넛 차트 래퍼 */
+/* ── 도넛 차트 영역 (좌측 ~42%) ── */
 .fc-chart {
     position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    width: 45%;
-    aspect-ratio: 1;
-    max-height: 100%;
+    width: 42%;
+    padding: 3%;
+    box-sizing: border-box;
 }
 
-.fc-chart.fc-chart-center {
-    width: 55%;
+.fc-chart.fc-chart-full {
+    width: 100%;
 }
 
 .fc-chart svg {
     width: 100%;
     height: 100%;
+    max-width: 100%;
+    max-height: 100%;
     display: block;
+    object-fit: contain;
 }
 
 .fc-chart-label {
     position: absolute;
     font-weight: 700;
-    font-size: clamp(0.4rem, 3cqi, 1.1rem);
+    font-size: clamp(0.4rem, 5cqi, 1.3rem);
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
     line-height: 1;
 }
 
-/* ── 우측 통계 ── */
+/* ── 우측 통계 영역 (~58%) ── */
 .fc-stats {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    gap: clamp(2px, 1.5cqi, 10px);
-    font-size: clamp(0.4rem, 2.5cqi, 0.9rem);
+    justify-content: center;
+    padding: 3% 5% 3% 0;
+    gap: 2%;
     min-width: 0;
 }
 
+/* 상태 라벨 (Ready 등) */
 .fc-state-label {
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.6);
-    font-size: clamp(0.5rem, 2.8cqi, 1rem);
+    color: rgba(255, 255, 255, 0.55);
+    font-size: clamp(0.5rem, 5.5cqi, 1.3rem);
     letter-spacing: 0.5px;
+    padding-bottom: 2%;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+/* 가동/대기 행 */
 .fc-stat-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: clamp(2px, 2cqi, 8px);
     white-space: nowrap;
+    font-size: clamp(0.45rem, 5cqi, 1.2rem);
+    padding: 1.5% 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
+/* 범례 도트 */
 .fc-dot {
-    width: 0.6em;
-    height: 0.6em;
+    width: clamp(4px, 3cqi, 14px);
+    height: clamp(4px, 3cqi, 14px);
     border-radius: 50%;
     flex-shrink: 0;
 }
@@ -136,17 +162,33 @@
 
 .fc-stat-label {
     color: rgba(255, 255, 255, 0.7);
+    min-width: 2.2em;
 }
 
 .fc-stat-value {
-    font-weight: 600;
+    font-weight: 700;
+    margin-left: auto;
 }
 
-/* ── 하단 상태 (통계 없을 때) ── */
+/* ═══════════════════════════════════════════
+   하단 상태 (통계 없을 때 — 도넛만 표시)
+   ═══════════════════════════════════════════ */
 .fc-footer {
     text-align: center;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.6);
-    font-size: clamp(0.4rem, 2.5cqi, 0.85rem);
+    color: rgba(255, 255, 255, 0.55);
+    font-size: clamp(0.45rem, 5cqi, 1.1rem);
     flex-shrink: 0;
+    padding: 2% 0;
+}
+
+/* 본문 없을 때(MtWt 없음) — 상태만 중앙 표시 */
+.fc-center-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: clamp(0.5rem, 6cqi, 1.4rem);
 }
