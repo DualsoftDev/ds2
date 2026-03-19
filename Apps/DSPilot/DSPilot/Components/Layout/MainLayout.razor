@@ -21,6 +21,10 @@
                        Color="Color.Inherit"
                        OnClick="ToggleDarkMode"
                        title="@(_isDarkMode ? "라이트 모드" : "다크 모드")" />
+        <MudIconButton Icon="@Icons.Material.Filled.Settings"
+                       Color="Color.Inherit"
+                       OnClick="@(() => Nav.NavigateTo("/settings"))"
+                       title="설정" />
     </MudAppBar>
 
     <MudDrawer @bind-Open="_drawerOpen"

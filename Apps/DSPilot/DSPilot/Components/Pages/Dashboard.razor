@@ -78,7 +78,7 @@
         flex: 1;
         display: flex;
         background: var(--mud-palette-surface, #fff);
-        border-radius: 4px;
+        border-radius: 8px;
         min-width: 0;
         overflow: hidden;
     }
@@ -92,7 +92,7 @@
         min-width: 0;
     }
     .ct-combined-half.danger  { border-left: 3px solid #ef5350; }
-    .ct-combined-half.success { border-left: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.08)); }
+    .ct-combined-half.success { border-left: 3px solid #26a69a; }
     .ct-summary-title {
         font-size: 13px;
         font-weight: 700;
@@ -186,6 +186,9 @@
     }
     .ct-bar-mt { background: #0569A0; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .ct-bar-wt { background: #FB8C00; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .ct-bar-track > :first-child { border-radius: 10px 0 0 10px; }
+    .ct-bar-track > :last-child  { border-radius: 0 10px 10px 0; }
+    .ct-bar-track > :only-child  { border-radius: 10px; }
     .ct-bar-pct { font-size: 9px; font-weight: 700; color: white; line-height: 1; white-space: nowrap; }
     .ct-row-time {
         font-size: 12px;
