@@ -122,66 +122,63 @@
                         </div>
 
                         @* ── 본문: 도넛(좌) + 통계(우) ── *@
-                        @if (b.HasMtWt)
-                        {
-                            <div class="fc-body" style="max-width:@(b.BodyMaxW)px">
-                                <div class="fc-chart @(b.ShowStats ? "" : "fc-chart-full")">
-                                    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                                        <defs>
-                                            <linearGradient id="mt-g-@b.ClipId" x1="0%" y1="0%" x2="0%" y2="100%">
-                                                <stop offset="0%" stop-color="#4a90e2" />
-                                                <stop offset="100%" stop-color="#3a86ff" stop-opacity="0.7" />
-                                            </linearGradient>
-                                            <linearGradient id="wt-g-@b.ClipId" x1="0%" y1="0%" x2="0%" y2="100%">
-                                                <stop offset="0%" stop-color="#ffb347" />
-                                                <stop offset="100%" stop-color="#ff9f1c" stop-opacity="0.7" />
-                                            </linearGradient>
-                                        </defs>
-                                        <g transform="rotate(-90 50 50)">
+                        <div class="fc-body" style="max-width:@(b.BodyMaxW)px">
+                            <div class="fc-chart @(b.ShowStats ? "" : "fc-chart-full")">
+                                <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                                    <defs>
+                                        <linearGradient id="mt-g-@b.ClipId" x1="0%" y1="0%" x2="0%" y2="100%">
+                                            <stop offset="0%" stop-color="#4a90e2" />
+                                            <stop offset="100%" stop-color="#3a86ff" stop-opacity="0.7" />
+                                        </linearGradient>
+                                        <linearGradient id="wt-g-@b.ClipId" x1="0%" y1="0%" x2="0%" y2="100%">
+                                            <stop offset="0%" stop-color="#ffb347" />
+                                            <stop offset="100%" stop-color="#ff9f1c" stop-opacity="0.7" />
+                                        </linearGradient>
+                                    </defs>
+                                    <g transform="rotate(-90 50 50)">
+                                        <circle cx="50" cy="50" r="40" fill="none"
+                                                stroke="#e0e0e0" stroke-opacity="@(b.HasMtWt ? "0.5" : "1")" stroke-width="9" />
+                                        @if (b.MtFrac > 0)
+                                        {
                                             <circle cx="50" cy="50" r="40" fill="none"
-                                                    stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="9" />
-                                            @if (b.MtFrac > 0)
-                                            {
-                                                <circle cx="50" cy="50" r="40" fill="none"
-                                                        stroke="url(#mt-g-@b.ClipId)" stroke-width="9"
-                                                        stroke-dasharray="@b.SMtDash @b.SCirc"
-                                                        stroke-linecap="round" />
-                                            }
-                                            @if (b.WtFrac > 0)
-                                            {
-                                                <circle cx="50" cy="50" r="40" fill="none"
-                                                        stroke="url(#wt-g-@b.ClipId)" stroke-width="9"
-                                                        stroke-dasharray="@b.SWtDash @b.SCirc"
-                                                        stroke-dashoffset="@b.SNegMt"
-                                                        stroke-linecap="round" />
-                                            }
-                                        </g>
-                                    </svg>
-                                    <span class="fc-chart-label">@FormatMs(b.Total)</span>
-                                </div>
-
-                                @if (b.ShowStats)
-                                {
-                                    <div class="fc-stats">
-                                        <div class="fc-state-label">@b.StateLabel</div>
-                                        <div class="fc-stat-row">
-                                            <span class="fc-dot fc-dot-mt"></span>
-                                            <span class="fc-stat-label">가동</span>
-                                            <span class="fc-stat-value">@FormatMs(b.Mt)</span>
-                                        </div>
-                                        <div class="fc-stat-row">
-                                            <span class="fc-dot fc-dot-wt"></span>
-                                            <span class="fc-stat-label">대기</span>
-                                            <span class="fc-stat-value">@FormatMs(b.Wt)</span>
-                                        </div>
-                                    </div>
-                                }
+                                                    stroke="url(#mt-g-@b.ClipId)" stroke-width="9"
+                                                    stroke-dasharray="@b.SMtDash @b.SCirc"
+                                                    stroke-linecap="round" />
+                                        }
+                                        @if (b.WtFrac > 0)
+                                        {
+                                            <circle cx="50" cy="50" r="40" fill="none"
+                                                    stroke="url(#wt-g-@b.ClipId)" stroke-width="9"
+                                                    stroke-dasharray="@b.SWtDash @b.SCirc"
+                                                    stroke-dashoffset="@b.SNegMt"
+                                                    stroke-linecap="round" />
+                                        }
+                                    </g>
+                                </svg>
+                                <span class="fc-chart-label">@FormatMs(b.Total)</span>
                             </div>
 
-                            @if (!b.ShowStats)
+                            @if (b.ShowStats)
                             {
-                                <div class="fc-footer">@b.StateLabel</div>
+                                <div class="fc-stats">
+                                    <div class="fc-state-label">@b.StateLabel</div>
+                                    <div class="fc-stat-row">
+                                        <span class="fc-dot fc-dot-mt"></span>
+                                        <span class="fc-stat-label">가동</span>
+                                        <span class="fc-stat-value">@FormatMs(b.Mt)</span>
+                                    </div>
+                                    <div class="fc-stat-row">
+                                        <span class="fc-dot fc-dot-wt"></span>
+                                        <span class="fc-stat-label">대기</span>
+                                        <span class="fc-stat-value">@FormatMs(b.Wt)</span>
+                                    </div>
+                                </div>
                             }
+                        </div>
+
+                        @if (!b.ShowStats)
+                        {
+                            <div class="fc-footer">@b.StateLabel</div>
                         }
                     </div>
                 </div>
@@ -312,7 +309,7 @@
 
         // 도넛 비율 (고정 viewBox: r=40, circ=2*PI*40)
         var mtFrac = total > 0 ? (double)mt / total : (hasMtWt ? 1.0 : 0.0);
-        var wtFrac = 1.0 - mtFrac;
+        var wtFrac = hasMtWt ? 1.0 - mtFrac : 0.0;
         const double circ = 2 * Math.PI * 40;
         var mtDash = circ * mtFrac;
         var wtDash = circ * wtFrac;
