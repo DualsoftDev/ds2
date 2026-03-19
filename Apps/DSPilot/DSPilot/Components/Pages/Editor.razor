@@ -32,7 +32,6 @@
     .ed-card-body   { padding: 14px; }
     .ed-flows-card  { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
     .ed-flows-body  { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 10px; }
-    .ed-placed-body { max-height: 180px; overflow-y: auto; }
 </style>
 
 <div class="ed-page">
@@ -159,7 +158,7 @@
                             {
                                 var placed = BlueprintService.Layout.FlowPlacements.Any(p => p.FlowId == flow.Id);
                                 <div draggable="@(!placed ? "true" : "false")"
-                                     @ondragstart="() => OnDragStart(flow.Id)"
+                                     data-drag-flow-id="@flow.Id"
                                      class="ed-flow-item @(placed ? "placed" : "active")">
                                     @flow.Name
                                     @if (placed)
@@ -175,10 +174,7 @@
             </div>
 
             @* SVG 캔버스 *@
-            <div class="ed-canvas"
-                 @ondragover:preventDefault="true"
-                 @ondrop="OnDrop"
-                 @ondrop:preventDefault="true">
+            <div class="ed-canvas">
                 <svg id="editor-svg" xmlns="http://www.w3.org/2000/svg"
                      style="display: block; width: 100%; height: 100%;"
                      viewBox="0 0 @BlueprintService.Layout.CanvasWidth @BlueprintService.Layout.CanvasHeight"
@@ -248,32 +244,36 @@
                                   rx="6" ry="6"
                                   fill="@color" fill-opacity="@fillOpacity"
                                   stroke="@strokeColor" stroke-width="@strokeWidth" />
-                            @if (hasOverlap)
-                            {
-                                <circle cx="@(px + pw - pad - 8)" cy="@(py + pad + 8)"
-                                        r="7" fill="#e53935" style="pointer-events: none;" />
-                            }
-                            <text x="@(px + pw / 2)" y="@(py + ph / 2 - 4)"
+                            @* 삭제 버튼 (우상단) *@
+                            <g data-delete-for="@fp.FlowId.ToString()" style="cursor: pointer;">
+                                <circle cx="@(px + pw - pad - 16)" cy="@(py + pad + 16)"
+                                        r="14" fill="@(hasOverlap ? "#e53935" : "rgba(0,0,0,0.45)")" />
+                                <text x="@(px + pw - pad - 16)" y="@(py + pad + 22)"
+                                      text-anchor="middle" fill="white"
+                                      font-size="20" font-weight="700"
+                                      style="pointer-events: none; user-select: none;">×</text>
+                            </g>
+                            <text x="@(px + pw / 2)" y="@(py + ph / 2 - 6)"
                                   text-anchor="middle" fill="white"
-                                  font-size="13" font-weight="600"
+                                  font-size="20" font-weight="600"
                                   style="pointer-events: none;">
                                 @fp.FlowName
                             </text>
-                            <text x="@(px + pw / 2)" y="@(py + ph / 2 + 14)"
+                            <text x="@(px + pw / 2)" y="@(py + ph / 2 + 18)"
                                   text-anchor="middle" fill="rgba(255,255,255,0.7)"
-                                  font-size="10"
+                                  font-size="15"
                                   style="pointer-events: none;">
                                 @fp.SystemName
                             </text>
                             @* 리사이즈 핸들 (우하단) *@
                             <g data-resize-for="@fp.FlowId.ToString()" style="cursor: se-resize;">
-                                <rect x="@(px + pw - pad - 14)" y="@(py + ph - pad - 14)"
-                                      width="14" height="14" rx="3" ry="3"
+                                <rect x="@(px + pw - pad - 24)" y="@(py + ph - pad - 24)"
+                                      width="24" height="24" rx="4" ry="4"
                                       fill="rgba(255,255,255,0.85)"
-                                      stroke="@color" stroke-width="1.5" />
-                                <text x="@(px + pw - pad - 7)" y="@(py + ph - pad - 2)"
+                                      stroke="@color" stroke-width="2" />
+                                <text x="@(px + pw - pad - 12)" y="@(py + ph - pad - 4)"
                                       text-anchor="middle" fill="@color"
-                                      font-size="11" font-weight="700"
+                                      font-size="18" font-weight="700"
                                       style="pointer-events: none; user-select: none;">⤡</text>
                             </g>
                         </g>
@@ -282,68 +282,6 @@
             </div>
         </div>
 
-        @* ── Placed: 전체 너비, 하단 ── *@
-        <div class="ed-card" style="flex-shrink: 0;">
-            <div class="ed-card-header">
-                Placed (@BlueprintService.Layout.FlowPlacements.Count)
-            </div>
-            <div class="ed-placed-body">
-                @if (BlueprintService.Layout.FlowPlacements.Count == 0)
-                {
-                    <MudText Typo="Typo.body2" Class="pa-4" Color="Color.Secondary">
-                        Drag flows onto the grid.
-                    </MudText>
-                }
-                else
-                {
-                    <MudSimpleTable Dense="true" Hover="true">
-                        <thead>
-                            <tr>
-                                <th>Flow</th>
-                                <th>Col</th>
-                                <th>Row</th>
-                                <th>W</th>
-                                <th>H</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var fp in BlueprintService.Layout.FlowPlacements)
-                            {
-                                <tr>
-                                    <td style="font-size: 0.8rem;">@fp.FlowName</td>
-                                    <td>
-                                        <input type="number" value="@fp.Col" min="0" max="@(_gridColumns - 1)"
-                                               class="ed-cell-input"
-                                               @onchange="e => OnCellChanged(fp, nameof(fp.Col), e)" />
-                                    </td>
-                                    <td>
-                                        <input type="number" value="@fp.Row" min="0" max="@(_gridRows - 1)"
-                                               class="ed-cell-input"
-                                               @onchange="e => OnCellChanged(fp, nameof(fp.Row), e)" />
-                                    </td>
-                                    <td>
-                                        <input type="number" value="@fp.ColSpan" min="1" max="@(_gridColumns)"
-                                               class="ed-cell-input"
-                                               @onchange="e => OnCellChanged(fp, nameof(fp.ColSpan), e)" />
-                                    </td>
-                                    <td>
-                                        <input type="number" value="@fp.RowSpan" min="1" max="@(_gridRows)"
-                                               class="ed-cell-input"
-                                               @onchange="e => OnCellChanged(fp, nameof(fp.RowSpan), e)" />
-                                    </td>
-                                    <td>
-                                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                                       Size="Size.Small" Color="Color.Error"
-                                                       OnClick="@(() => RemovePlacement(fp.FlowId))" />
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </MudSimpleTable>
-                }
-            </div>
-        </div>
     }
 </div>
 
@@ -352,7 +290,6 @@
     private Dictionary<Guid, List<Ds2.Core.Flow>> _systemFlows = [];
     private Dictionary<Guid, (string SystemName, string FlowName, Guid SystemId)> _flowInfo = [];
     private DotNetObjectReference<Editor>? _dotNetRef;
-    private Guid? _dragFlowId;
     private bool _isDirty;
 
     private int _gridColumns;
@@ -442,28 +379,17 @@
         }
     }
 
-    private void OnDragStart(Guid flowId) => _dragFlowId = flowId;
-
-    private void OnDrop(DragEventArgs e)
+    [JSInvokable]
+    public void OnFlowDropped(string flowIdStr, int col, int row)
     {
-        if (_dragFlowId == null) return;
-        var flowId = _dragFlowId.Value;
-        _dragFlowId = null;
-
+        if (!Guid.TryParse(flowIdStr, out var flowId)) return;
         if (!_flowInfo.TryGetValue(flowId, out var info)) return;
         if (BlueprintService.Layout.FlowPlacements.Any(p => p.FlowId == flowId)) return;
 
-        var layout = BlueprintService.Layout;
-        var cellW = layout.CellWidth;
-        var cellH = layout.CellHeight;
-        var col = Math.Clamp((int)((e.OffsetX - layout.OffsetX) / cellW), 0, _gridColumns - 1);
-        var row = Math.Clamp((int)((e.OffsetY - layout.OffsetY) / cellH), 0, _gridRows - 1);
-        var cs = 1;
-        var rs = 1;
-
-        if (IsOccupied(col, row, cs, rs))
+        if (IsOccupied(col, row, 1, 1))
         {
             Snackbar.Add($"해당 위치가 이미 점유되어 있습니다. [{col},{row}]", Severity.Warning);
+            InvokeAsync(StateHasChanged);
             return;
         }
 
@@ -475,14 +401,14 @@
             SystemName = info.SystemName,
             Col = col,
             Row = row,
-            ColSpan = cs,
-            RowSpan = rs
+            ColSpan = 1,
+            RowSpan = 1
         };
 
         BlueprintService.UpdatePlacementLocal(placement);
         _isDirty = true;
-        Snackbar.Add($"배치됨: {info.FlowName} [{col},{row}] {cs}x{rs}", Severity.Success);
-        StateHasChanged();
+        Snackbar.Add($"배치됨: {info.FlowName} [{col},{row}] 1x1", Severity.Success);
+        InvokeAsync(StateHasChanged);
     }
 
     [JSInvokable]
@@ -555,6 +481,13 @@
         BlueprintService.SaveLayout();
         _isDirty = false;
         Snackbar.Add("저장되었습니다.", Severity.Success);
+    }
+
+    [JSInvokable]
+    public void OnNodeDeleted(string flowIdStr)
+    {
+        if (!Guid.TryParse(flowIdStr, out var flowId)) return;
+        RemovePlacement(flowId);
     }
 
     [JSInvokable]

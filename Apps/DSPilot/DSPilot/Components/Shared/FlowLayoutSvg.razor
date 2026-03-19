@@ -111,9 +111,9 @@
                 <g>
                     <rect x="@bX" y="@bY" width="@bW" height="@b.BH"
                           rx="6" ry="6" fill="@badge.Color" />
-                    <SvgText X="@(bX + bW / 2)" Y="@(bY + b.BH - 3)"
+                    <SvgText X="@(bX + bW / 2)" Y="@(bY + b.BH - 5)"
                              TextAnchor="middle" Fill="white"
-                             FontSize="8" FontWeight="700"
+                             FontSize="13" FontWeight="700"
                              Content="@badge.Label" />
                 </g>
             }
@@ -234,9 +234,9 @@
 
         // 배지
         var badges      = GetBadges?.Invoke(fp)?.ToList() ?? new List<(string Label, string Color)>();
-        var bH          = 13;
-        var bGap        = 3;
-        var bWidthsList = badges.Select(b => b.Label.Length <= 2 ? 24 : 32).ToList();
+        var bH          = 20;
+        var bGap        = 4;
+        var bWidthsList = badges.Select(b => b.Label.Length <= 2 ? 34 : 46).ToList();
         var totalBadgeW = badges.Count > 0 ? bWidthsList.Sum() + (badges.Count - 1) * bGap : 0;
         var badgeRightReserve = badges.Count > 0 ? totalBadgeW + 8 : 4;
 
@@ -283,8 +283,8 @@
         var statsY1 = donutCy - statsLH;
         var statsY2 = donutCy;
 
-        // 상태 라벨
-        var stateFS = Math.Max(7, (int)(minDim * 0.10));
+        // 상태 라벨 — 셀 크기 기준 고정 (블록 크기와 무관하게 동일 크기)
+        var stateFS = Math.Max(7, (int)(Math.Min(CellWidth, CellHeight) * 0.10));
         var stateY  = py + pad + (int)(innerH * 0.91);
 
         return new FlowBlockLayout

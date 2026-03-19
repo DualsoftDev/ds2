@@ -73,14 +73,36 @@
     .ct-top-cell.danger  { border-left: 3px solid #ef5350; }
     .ct-top-cell.warning { border-left: 3px solid #fb8c00; }
     .ct-top-cell.success { border-left: 3px solid #26a69a; }
+    /* 최대/최소 통합 카드 */
+    .ct-combined-cell {
+        flex: 1;
+        display: flex;
+        background: var(--mud-palette-surface, #fff);
+        border-radius: 4px;
+        min-width: 0;
+        overflow: hidden;
+    }
+    .ct-combined-half {
+        flex: 1;
+        padding: 10px 14px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+        min-width: 0;
+    }
+    .ct-combined-half.danger  { border-left: 3px solid #ef5350; }
+    .ct-combined-half.success { border-left: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.08)); }
     .ct-summary-title {
         font-size: 13px;
         font-weight: 700;
         letter-spacing: 0.2px;
     }
-    .ct-top-cell.danger  .ct-summary-title { color: #ef5350; }
+    .ct-top-cell.danger  .ct-summary-title,
+    .ct-combined-half.danger .ct-summary-title { color: #ef5350; }
     .ct-top-cell.warning .ct-summary-title { color: #fb8c00; }
-    .ct-top-cell.success .ct-summary-title { color: #26a69a; }
+    .ct-top-cell.success .ct-summary-title,
+    .ct-combined-half.success .ct-summary-title { color: #26a69a; }
     /* 배지 (차트 행 전용) */
     .ct-badge-pill {
         display: inline-block;
@@ -414,15 +436,17 @@ else
                             @* ── 요약 셀 (항상 표시) ── *@
                             <div class="ct-summary-bar">
                                 <div class="ct-summary-group group-time">
-                                    <div class="ct-top-cell danger">
-                                        <span class="ct-summary-title">최대시간</span>
-                                        <span class="ct-summary-sub" title="@_maxCtName">@(_maxCtName ?? "-")</span>
-                                        <span class="ct-summary-value">@(_maxCtName != null ? FormatMs(_maxCtVal) : "--")</span>
-                                    </div>
-                                    <div class="ct-top-cell success">
-                                        <span class="ct-summary-title">최소시간</span>
-                                        <span class="ct-summary-sub" title="@_minCtName">@(_minCtName ?? "-")</span>
-                                        <span class="ct-summary-value">@(_minCtName != null ? FormatMs(_chartData.Min(f => f.CT)) : "--")</span>
+                                    <div class="ct-combined-cell">
+                                        <div class="ct-combined-half danger">
+                                            <span class="ct-summary-title">최대시간</span>
+                                            <span class="ct-summary-sub" title="@_maxCtName">@(_maxCtName ?? "-")</span>
+                                            <span class="ct-summary-value">@(_maxCtName != null ? FormatMs(_maxCtVal) : "--")</span>
+                                        </div>
+                                        <div class="ct-combined-half success">
+                                            <span class="ct-summary-title">최소시간</span>
+                                            <span class="ct-summary-sub" title="@_minCtName">@(_minCtName ?? "-")</span>
+                                            <span class="ct-summary-value">@(_minCtName != null ? FormatMs(_chartData.Min(f => f.CT)) : "--")</span>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="ct-summary-group group-wait">
