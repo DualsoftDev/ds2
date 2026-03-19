@@ -103,6 +103,12 @@ public class PlcDataReaderService : BackgroundService
     {
         var dbPath = _configuration["PlcDatabase:SourceDbPath"] ?? "sample/db/DsDB.sqlite3";
 
+        // 환경 변수 확장 (%APPDATA% 등)
+        dbPath = Environment.ExpandEnvironmentVariables(dbPath);
+
+        // Windows 경로 구분자 정규화 (/ → \)
+        dbPath = dbPath.Replace('/', Path.DirectorySeparatorChar);
+
         // 상대 경로를 절대 경로로 변환
         if (!Path.IsPathRooted(dbPath))
         {
