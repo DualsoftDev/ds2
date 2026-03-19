@@ -6,23 +6,20 @@
 
     @* ── 공용 필터 ── *@
     <defs>
-        <filter id="glass-blur" x="-10%" y="-10%" width="120%" height="120%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="10" />
-        </filter>
-        <filter id="block-shadow" x="-10%" y="-10%" width="130%" height="130%">
-            <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="shadow" />
-            <feOffset dx="0" dy="3" in="shadow" result="offsetShadow" />
-            <feFlood flood-color="rgba(0,0,0,0.3)" result="color" />
+        <filter id="block-shadow" x="-5%" y="-5%" width="115%" height="120%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="shadow" />
+            <feOffset dx="0" dy="2" in="shadow" result="offsetShadow" />
+            <feFlood flood-color="rgba(0,0,0,0.12)" result="color" />
             <feComposite in="color" in2="offsetShadow" operator="in" result="colorShadow" />
             <feMerge>
                 <feMergeNode in="colorShadow" />
                 <feMergeNode in="SourceGraphic" />
             </feMerge>
         </filter>
-        <filter id="block-shadow-selected" x="-15%" y="-15%" width="140%" height="140%">
-            <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="shadow" />
-            <feOffset dx="0" dy="6" in="shadow" result="offsetShadow" />
-            <feFlood flood-color="rgba(0,0,0,0.45)" result="color" />
+        <filter id="block-shadow-selected" x="-10%" y="-10%" width="125%" height="130%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="shadow" />
+            <feOffset dx="0" dy="4" in="shadow" result="offsetShadow" />
+            <feFlood flood-color="rgba(0,0,0,0.20)" result="color" />
             <feComposite in="color" in2="offsetShadow" operator="in" result="colorShadow" />
             <feMerge>
                 <feMergeNode in="colorShadow" />
@@ -30,13 +27,8 @@
             </feMerge>
         </filter>
         <filter id="selection-glow" x="-35%" y="-35%" width="170%" height="170%">
-            <feGaussianBlur stdDeviation="10" />
+            <feGaussianBlur stdDeviation="8" />
         </filter>
-        <linearGradient id="glass-overlay-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="white" stop-opacity="0.10" />
-            <stop offset="40%" stop-color="white" stop-opacity="0.03" />
-            <stop offset="100%" stop-color="white" stop-opacity="0" />
-        </linearGradient>
     </defs>
 
     @* 도면 배경 *@
@@ -73,77 +65,45 @@
         @* 선택 글로우 — 상태색 후광 + pulse *@
         @if (sel)
         {
-            <rect x="@(b.Px + b.Pad - 4)" y="@(b.Py + b.Pad - 4)"
-                  width="@(b.InnerW + 8)" height="@(b.InnerH + 8)"
-                  rx="12" ry="12"
-                  fill="@b.Color" opacity="0.55"
+            <rect x="@(b.Px + b.Pad - 3)" y="@(b.Py + b.Pad - 3)"
+                  width="@(b.InnerW + 6)" height="@(b.InnerH + 6)"
+                  rx="11" ry="11"
+                  fill="@b.Color" opacity="0.30"
                   filter="url(#selection-glow)">
                 <animate attributeName="opacity"
-                         values="0.35;0.65;0.35" dur="2s"
+                         values="0.20;0.40;0.20" dur="2s"
                          repeatCount="indefinite" />
             </rect>
             <rect x="@(b.Px + b.Pad - 1)" y="@(b.Py + b.Pad - 1)"
                   width="@(b.InnerW + 2)" height="@(b.InnerH + 2)"
                   rx="9" ry="9" fill="none"
-                  stroke="@b.Color" stroke-width="2.5" stroke-opacity="0.7" />
+                  stroke="@b.Color" stroke-width="2" stroke-opacity="0.6" />
         }
 
         <g class="flow-block" clip-path="url(#@b.ClipId)"
            style="cursor:pointer;" @onclick="() => OnBlockClicked(b.FlowName)" @onclick:stopPropagation>
-            @* ① 블러된 배경 이미지 (글래스 효과) *@
-            @if (!string.IsNullOrEmpty(ImagePath))
-            {
-                <image href="@(ImagePath)?v=@(ImageVersion)"
-                       x="0" y="0" width="@CanvasWidth" height="@CanvasHeight"
-                       opacity="0.5" filter="url(#glass-blur)" />
-            }
-            @* ② 다크 글래스 베이스 *@
+            @* ① 화이트 배경 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8"
-                  fill="#0a1e30" fill-opacity="0.82" />
-            @* ②-a 상태색 틴트 오버레이 *@
+                  fill="white" />
+            @* ② 상태색 좌측 액센트 바 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
-                  width="@b.InnerW" height="@b.InnerH"
-                  rx="8" ry="8"
-                  fill="@b.Color" fill-opacity="0.08" />
-            @* ②-b 대각선 유리 반사 *@
+                  width="4" height="@b.InnerH"
+                  rx="8" ry="0"
+                  fill="@b.Color" />
+            <clipPath id="left-bar-@b.ClipId">
+                <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
+                      width="4" height="@b.InnerH" rx="8" ry="8" />
+            </clipPath>
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
-                  width="@b.InnerW" height="@b.InnerH"
-                  rx="8" ry="8"
-                  fill="url(#glass-overlay-grad)" />
-            @* ②-c 내부 상태색 글로우 *@
+                  width="4" height="@b.InnerH"
+                  fill="@b.Color" clip-path="url(#left-bar-@b.ClipId)" />
+            @* ③ 상태색 테두리 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8" fill="none"
-                  stroke="@b.Color" stroke-width="18" stroke-opacity="0.10"
-                  filter="url(#glass-blur)" />
-            @* ③ 상태색 글래스 테두리 *@
-            <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
-                  width="@b.InnerW" height="@b.InnerH"
-                  rx="8" ry="8" fill="none"
-                  stroke="@b.Color" stroke-width="1" stroke-opacity="0.35" />
-            @* ④ 상단 밝은 하이라이트 *@
-            <line x1="@(b.Px + b.Pad + 12)" y1="@(b.Py + b.Pad + 1)"
-                  x2="@(b.Px + b.Pad + b.InnerW - 12)" y2="@(b.Py + b.Pad + 1)"
-                  stroke="white" stroke-width="1" stroke-opacity="0.50" stroke-linecap="round" />
-            @* ⑤ 하단 그림자 *@
-            <line x1="@(b.Px + b.Pad + 12)" y1="@(b.Py + b.Pad + b.InnerH - 1)"
-                  x2="@(b.Px + b.Pad + b.InnerW - 12)" y2="@(b.Py + b.Pad + b.InnerH - 1)"
-                  stroke="black" stroke-width="1" stroke-opacity="0.45" stroke-linecap="round" />
-            @* ⑥ 내부 유리 보더 *@
-            <line x1="@(b.Px + b.Pad + 10)" y1="@(b.Py + b.Pad + 6)"
-                  x2="@(b.Px + b.Pad + b.InnerW - 10)" y2="@(b.Py + b.Pad + 6)"
-                  stroke="white" stroke-width="1.5" stroke-opacity="0.50" stroke-linecap="round" />
-            <line x1="@(b.Px + b.Pad + 6)" y1="@(b.Py + b.Pad + 10)"
-                  x2="@(b.Px + b.Pad + 6)" y2="@(b.Py + b.Pad + b.InnerH - 10)"
-                  stroke="white" stroke-width="1.5" stroke-opacity="0.30" stroke-linecap="round" />
-            <line x1="@(b.Px + b.Pad + b.InnerW - 6)" y1="@(b.Py + b.Pad + 10)"
-                  x2="@(b.Px + b.Pad + b.InnerW - 6)" y2="@(b.Py + b.Pad + b.InnerH - 10)"
-                  stroke="@b.Color" stroke-width="1" stroke-opacity="0.15" stroke-linecap="round" />
-            <line x1="@(b.Px + b.Pad + 10)" y1="@(b.Py + b.Pad + b.InnerH - 6)"
-                  x2="@(b.Px + b.Pad + b.InnerW - 10)" y2="@(b.Py + b.Pad + b.InnerH - 6)"
-                  stroke="@b.Color" stroke-width="1" stroke-opacity="0.15" stroke-linecap="round" />
+                  stroke="@b.Color" stroke-width="1.5" stroke-opacity="0.30" />
 
             @* ── 카드 내부 콘텐츠 (foreignObject — 최소 카드 기준 중앙 배치) ── *@
             <foreignObject x="@b.ContentX" y="@b.ContentY"
@@ -160,7 +120,7 @@
                                     @foreach (var badge in b.Badges)
                                     {
                                         <span class="fc-badge"
-                                              style="background: @ColorMix(badge.Color, 0.35); border-color: @ColorMix(badge.Color, 0.60); color: white;">
+                                              style="background: @ColorMix(badge.Color, 0.12); border-color: @ColorMix(badge.Color, 0.30); color: @badge.Color;">
                                             @badge.Label
                                         </span>
                                     }
@@ -186,7 +146,7 @@
                                         </defs>
                                         <g transform="rotate(-90 50 50)">
                                             <circle cx="50" cy="50" r="40" fill="none"
-                                                    stroke="#ccc" stroke-opacity="0.1" stroke-width="9" />
+                                                    stroke="#e0e0e0" stroke-opacity="0.5" stroke-width="9" />
                                             @if (b.MtFrac > 0)
                                             {
                                                 <circle cx="50" cy="50" r="40" fill="none"
@@ -244,7 +204,7 @@
                 <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                       width="@b.InnerW" height="@b.InnerH"
                       rx="8" ry="8"
-                      fill="@b.Color" fill-opacity="0.10"
+                      fill="@b.Color" fill-opacity="0.06"
                       stroke="none" />
             }
         </g>
