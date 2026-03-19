@@ -155,7 +155,7 @@
                                         <TextBlock Text="{Binding SelectionOrder}"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
-                                                   Foreground="White"
+                                                   Foreground="{DynamicResource AccentTextBrush}"
                                                    FontSize="10"
                                                    FontWeight="Bold"/>
                                     </Border>
@@ -165,24 +165,24 @@
                                                 Orientation="Horizontal"
                                                 Margin="-4,-8,0,0">
                                         <Border Width="18" Height="18" CornerRadius="9"
-                                                Background="#E08000"
-                                                Visibility="{Binding HasAutoCondition, Converter={StaticResource BoolToVis}}"
+                                                Background="{DynamicResource ConditionAutoBadgeBrush}"
+                                                Visibility="{Binding HasAutoAux, Converter={StaticResource BoolToVis}}"
                                                 Margin="0,0,2,0">
                                             <TextBlock Text="A" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                       Foreground="White" FontSize="10" FontWeight="Bold"/>
+                                                       Foreground="{DynamicResource AlwaysLightTextBrush}" FontSize="10" FontWeight="Bold"/>
                                         </Border>
                                         <Border Width="18" Height="18" CornerRadius="9"
-                                                Background="#2E8B57"
-                                                Visibility="{Binding HasCommonCondition, Converter={StaticResource BoolToVis}}"
+                                                Background="{DynamicResource ConditionComBadgeBrush}"
+                                                Visibility="{Binding HasComAux, Converter={StaticResource BoolToVis}}"
                                                 Margin="0,0,2,0">
                                             <TextBlock Text="C" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                       Foreground="White" FontSize="10" FontWeight="Bold"/>
+                                                       Foreground="{DynamicResource AlwaysLightTextBrush}" FontSize="10" FontWeight="Bold"/>
                                         </Border>
                                         <Border Width="18" Height="18" CornerRadius="9"
-                                                Background="#808080"
-                                                Visibility="{Binding HasActiveCondition, Converter={StaticResource BoolToVis}}">
-                                            <TextBlock Text="T" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                       Foreground="White" FontSize="10" FontWeight="Bold"/>
+                                                Background="{DynamicResource ConditionSkipBadgeBrush}"
+                                                Visibility="{Binding HasSkipUnmatch, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="S" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource AlwaysLightTextBrush}" FontSize="10" FontWeight="Bold"/>
                                         </Border>
                                     </StackPanel>
                                 </Grid>

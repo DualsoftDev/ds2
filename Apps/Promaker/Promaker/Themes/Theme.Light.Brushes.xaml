@@ -1,0 +1,112 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:po="http://schemas.microsoft.com/winfx/2006/xaml/presentation/options">
+
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="Theme.Light.Colors.xaml"/>
+    </ResourceDictionary.MergedDictionaries>
+
+    <!-- ===== Brushes ===== -->
+    <SolidColorBrush x:Key="PrimaryBackgroundBrush" Color="{StaticResource PrimaryBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SecondaryBackgroundBrush" Color="{StaticResource SecondaryBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="TertiaryBackgroundBrush" Color="{StaticResource TertiaryBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="PanelHeaderBrush" Color="{StaticResource PanelHeaderColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="PrimaryTextBrush" Color="{StaticResource PrimaryTextColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SecondaryTextBrush" Color="{StaticResource SecondaryTextColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="DisabledTextBrush" Color="{StaticResource DisabledTextColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="{StaticResource AccentHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="AccentTextBrush" Color="{StaticResource AccentTextColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="HoverBackgroundBrush" Color="{StaticResource HoverBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="CanvasBackgroundBrush" Color="{StaticResource CanvasBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="CanvasGridBrush" Color="{StaticResource CanvasGridColor}" po:Freeze="False"/>
+    <DrawingBrush x:Key="CanvasGridPatternBrush" TileMode="Tile" Viewport="0,0,120,120" ViewportUnits="Absolute">
+        <DrawingBrush.Drawing>
+            <GeometryDrawing>
+                <GeometryDrawing.Pen>
+                    <Pen Brush="{StaticResource CanvasGridBrush}" Thickness="0.5"/>
+                </GeometryDrawing.Pen>
+                <GeometryDrawing.Geometry>
+                    <GeometryGroup>
+                        <LineGeometry StartPoint="120,0" EndPoint="120,120"/>
+                        <LineGeometry StartPoint="0,120" EndPoint="120,120"/>
+                    </GeometryGroup>
+                </GeometryDrawing.Geometry>
+            </GeometryDrawing>
+        </DrawingBrush.Drawing>
+    </DrawingBrush>
+    <SolidColorBrush x:Key="SelectedBrush" Color="{StaticResource SelectedColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ShadowBrush" Color="{StaticResource ShadowColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="CloseButtonHoverBrush" Color="{StaticResource CloseButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="CloseButtonPressedBrush" Color="{StaticResource CloseButtonPressedColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarShellBrush" Color="{StaticResource ToolbarShellColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarFileGroupBrush" Color="{StaticResource ToolbarFileGroupColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarEditGroupBrush" Color="{StaticResource ToolbarEditGroupColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarSimulationGroupBrush" Color="{StaticResource ToolbarSimulationGroupColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarProcessGroupBrush" Color="{StaticResource ToolbarProcessGroupColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarToolsGroupBrush" Color="{StaticResource ToolbarToolsGroupColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarButtonBrush" Color="{StaticResource ToolbarButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarButtonHoverBrush" Color="{StaticResource ToolbarButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarGreenButtonBrush" Color="{StaticResource ToolbarGreenButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarGreenButtonHoverBrush" Color="{StaticResource ToolbarGreenButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarRedButtonBrush" Color="{StaticResource ToolbarRedButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarRedButtonHoverBrush" Color="{StaticResource ToolbarRedButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarOrangeButtonBrush" Color="{StaticResource ToolbarOrangeButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarOrangeButtonHoverBrush" Color="{StaticResource ToolbarOrangeButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarBlueButtonBrush" Color="{StaticResource ToolbarBlueButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarBlueButtonHoverBrush" Color="{StaticResource ToolbarBlueButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarGrayButtonBrush" Color="{StaticResource ToolbarGrayButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarGrayButtonHoverBrush" Color="{StaticResource ToolbarGrayButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarTealButtonBrush" Color="{StaticResource ToolbarTealButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarTealButtonHoverBrush" Color="{StaticResource ToolbarTealButtonHoverColor}" po:Freeze="False"/>
+
+    <!-- Node Brushes -->
+    <SolidColorBrush x:Key="NodeStartBackgroundBrush" Color="{StaticResource NodeStartBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="NodeWorkBackgroundBrush" Color="{StaticResource NodeWorkBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="NodeWorkSelectedBackgroundBrush" Color="{StaticResource NodeWorkSelectedBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="NodeCallBackgroundBrush" Color="{StaticResource NodeCallBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="NodeCallSelectedBackgroundBrush" Color="{StaticResource NodeCallSelectedBackgroundColor}" po:Freeze="False"/>
+
+    <!-- Accent Brushes -->
+    <SolidColorBrush x:Key="OrangeAccentBrush" Color="{StaticResource OrangeAccentColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="GreenAccentBrush" Color="{StaticResource GreenAccentColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="RedAccentBrush" Color="{StaticResource RedAccentColor}" po:Freeze="False"/>
+
+    <!-- Icon Brushes -->
+    <SolidColorBrush x:Key="IconOrangeBrush" Color="{StaticResource IconOrangeColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="IconBlueBrush" Color="{StaticResource IconBlueColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="IconRedBrush" Color="{StaticResource IconRedColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="IconGrayBrush" Color="{StaticResource IconGrayColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="IconGreenBrush" Color="{StaticResource IconGreenColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="IconTealBrush" Color="{StaticResource IconTealColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="IconPurpleBrush" Color="{StaticResource IconPurpleColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="IconDarkGrayBrush" Color="{StaticResource IconDarkGrayColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationReadyBrush" Color="{StaticResource SimulationReadyColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationGoingBrush" Color="{StaticResource SimulationGoingColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationFinishBrush" Color="{StaticResource SimulationFinishColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationHomingBrush" Color="{StaticResource SimulationHomingColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationGoingBackgroundBrush" Color="{StaticResource SimulationGoingBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationFinishBackgroundBrush" Color="{StaticResource SimulationFinishBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationHomingBackgroundBrush" Color="{StaticResource SimulationHomingBackgroundColor}" po:Freeze="False"/>
+
+    <!-- Gantt Bar Brushes -->
+    <SolidColorBrush x:Key="GanttBarReadyBrush" Color="{StaticResource GanttBarReadyColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="GanttBarGoingBrush" Color="{StaticResource GanttBarGoingColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="GanttBarFinishBrush" Color="{StaticResource GanttBarFinishColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="GanttBarHomingBrush" Color="{StaticResource GanttBarHomingColor}" po:Freeze="False"/>
+
+    <!-- Gantt Row Brushes -->
+    <SolidColorBrush x:Key="GanttWorkRowBackgroundBrush" Color="{StaticResource GanttWorkRowBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="GanttCallRowBackgroundBrush" Color="{StaticResource GanttCallRowBackgroundColor}" po:Freeze="False"/>
+
+    <!-- TreeView Arrow Brush -->
+    <SolidColorBrush x:Key="TreeViewArrowBrush" Color="{StaticResource TreeViewArrowColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ContrastDarkTextBrush" Color="{StaticResource ContrastDarkTextColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="AlwaysLightTextBrush" Color="{StaticResource AlwaysLightTextColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="IconOverlayTextBrush" Color="{StaticResource IconOverlayTextColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ConditionAutoBadgeBrush" Color="{StaticResource ConditionAutoBadgeColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ConditionComBadgeBrush" Color="{StaticResource ConditionComBadgeColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ConditionSkipBadgeBrush" Color="{StaticResource ConditionSkipBadgeColor}" po:Freeze="False"/>
+
+</ResourceDictionary>

@@ -11,6 +11,7 @@ module AasxImporter =
     open AasxImportCore
     open AasxImportGraph
     open AasxImportMetadata
+    open Ds2.Aasx.Compat
 
     let internal importFromAasxFile (path: string) : DsStore option =
         readEnvironment path
@@ -23,7 +24,11 @@ module AasxImporter =
                     env.Submodels
                     |> Seq.tryPick (fun sm ->
                         if sm.IdShort = SubmodelIdShort then
-                            submodelToProjectStore sm
+                            // legacy(dsev2) 감지 → 호환 경로, 아니면 정규 경로
+                            if LegacyAasxDetector.isLegacyFormat sm then
+                                LegacyImportGraph.legacySubmodelToProjectStore sm
+                            else
+                                submodelToProjectStore sm
                         else None)
                 match result with
                 | None ->

@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+
+  <!-- ========================================
+       공통 (Common)
+       ======================================== -->
+  <data name="AppTitle" xml:space="preserve">
+    <value>Ds2 Promaker</value>
+  </data>
+  <data name="Ready" xml:space="preserve">
+    <value>Ready</value>
+  </data>
+
+  <!-- ========================================
+       엔티티 생성 (Entity Creation)
+       ======================================== -->
+  <data name="NewProject" xml:space="preserve">
+    <value>새 프로젝트</value>
+  </data>
+  <data name="NewSystem" xml:space="preserve">
+    <value>새 System</value>
+  </data>
+  <data name="NewFlow" xml:space="preserve">
+    <value>새 Flow</value>
+  </data>
+  <data name="NewWork" xml:space="preserve">
+    <value>새 Work</value>
+  </data>
+  <data name="NewCall" xml:space="preserve">
+    <value>새 Call</value>
+  </data>
+
+  <!-- ========================================
+       파일 작업 (File Operations)
+       ======================================== -->
+  <data name="SaveFile" xml:space="preserve">
+    <value>파일 저장</value>
+  </data>
+  <data name="OpenFile" xml:space="preserve">
+    <value>파일 열기</value>
+  </data>
+  <data name="SaveFileAs" xml:space="preserve">
+    <value>다른 이름으로 저장</value>
+  </data>
+  <data name="ConfirmSaveChanges" xml:space="preserve">
+    <value>현재 프로젝트에 저장되지 않은 변경이 있습니다.
+저장하시겠습니까?</value>
+  </data>
+  <data name="SaveConfirmTitle" xml:space="preserve">
+    <value>저장 확인</value>
+  </data>
+
+  <!-- ========================================
+       Dialog 제목 (Dialog Titles)
+       ======================================== -->
+  <data name="ErrorTitle" xml:space="preserve">
+    <value>오류</value>
+  </data>
+  <data name="WarningTitle" xml:space="preserve">
+    <value>경고</value>
+  </data>
+  <data name="InfoTitle" xml:space="preserve">
+    <value>알림</value>
+  </data>
+
+  <!-- ========================================
+       에러 메시지 (Error Messages)
+       ======================================== -->
+  <data name="FileSaveFailed" xml:space="preserve">
+    <value>파일 저장 실패</value>
+  </data>
+  <data name="FileOpenFailed" xml:space="preserve">
+    <value>파일 열기 실패</value>
+  </data>
+  <data name="SystemAddFailed" xml:space="preserve">
+    <value>System 추가 실패</value>
+  </data>
+  <data name="FlowAddFailed" xml:space="preserve">
+    <value>Flow 추가 실패</value>
+  </data>
+  <data name="WorkAddFailed" xml:space="preserve">
+    <value>Work 추가 실패</value>
+  </data>
+  <data name="CallAddFailed" xml:space="preserve">
+    <value>Call 추가 실패</value>
+  </data>
+  <data name="SelectFlow" xml:space="preserve">
+    <value>Flow를 선택해주세요</value>
+  </data>
+  <data name="SelectWork" xml:space="preserve">
+    <value>Work를 선택해주세요</value>
+  </data>
+
+  <!-- ========================================
+       테마 (Theme)
+       ======================================== -->
+  <data name="DarkTheme" xml:space="preserve">
+    <value>다크</value>
+  </data>
+  <data name="LightTheme" xml:space="preserve">
+    <value>화이트</value>
+  </data>
+  <data name="SwitchToDarkTheme" xml:space="preserve">
+    <value>다크 테마로 전환</value>
+  </data>
+  <data name="SwitchToLightTheme" xml:space="preserve">
+    <value>화이트 테마로 전환</value>
+  </data>
+  <data name="DarkThemeApplied" xml:space="preserve">
+    <value>다크 테마 적용</value>
+  </data>
+  <data name="LightThemeApplied" xml:space="preserve">
+    <value>화이트 테마 적용</value>
+  </data>
+
+  <!-- ========================================
+       MainToolbar - 메뉴 항목 (Menu Items)
+       ======================================== -->
+  <data name="Project" xml:space="preserve">
+    <value>프로젝트</value>
+  </data>
+  <data name="NewFile" xml:space="preserve">
+    <value>새 파일</value>
+  </data>
+  <data name="Load" xml:space="preserve">
+    <value>불러오기</value>
+  </data>
+  <data name="Save" xml:space="preserve">
+    <value>저장</value>
+  </data>
+  <data name="SaveAs" xml:space="preserve">
+    <value>다른 이름으로 저장...</value>
+  </data>
+  <data name="Edit" xml:space="preserve">
+    <value>편집</value>
+  </data>
+  <data name="Undo" xml:space="preserve">
+    <value>취소</value>
+  </data>
+  <data name="Redo" xml:space="preserve">
+    <value>복원</value>
+  </data>
+  <data name="Add" xml:space="preserve">
+    <value>추가</value>
+  </data>
+  <data name="Delete" xml:space="preserve">
+    <value>삭제</value>
+  </data>
+  <data name="BatchEdit" xml:space="preserve">
+    <value>일괄편집</value>
+  </data>
+  <data name="AutoLayout" xml:space="preserve">
+    <value>재배치</value>
+  </data>
+  <data name="Simulation" xml:space="preserve">
+    <value>실행</value>
+  </data>
+  <data name="Start" xml:space="preserve">
+    <value>시작</value>
+  </data>
+  <data name="Pause" xml:space="preserve">
+    <value>일시정지</value>
+  </data>
+  <data name="Stop" xml:space="preserve">
+    <value>정지</value>
+  </data>
+  <data name="Reset" xml:space="preserve">
+    <value>초기화</value>
+  </data>
+  <data name="SimulationOptions" xml:space="preserve">
+    <value>실행 옵션</value>
+  </data>
+  <data name="Speed" xml:space="preserve">
+    <value>속도</value>
+  </data>
+  <data name="IgnoreTime" xml:space="preserve">
+    <value>시간무시</value>
+  </data>
+  <data name="Execute" xml:space="preserve">
+    <value>실행</value>
+  </data>
+  <data name="Tools" xml:space="preserve">
+    <value>도구</value>
+  </data>
+  <data name="Report" xml:space="preserve">
+    <value>리포트</value>
+  </data>
+  <data name="LoadCsv" xml:space="preserve">
+    <value>CSV 불러오기...</value>
+  </data>
+  <data name="ExportCsv" xml:space="preserve">
+    <value>CSV 내보내기...</value>
+  </data>
+  <data name="Settings" xml:space="preserve">
+    <value>설정</value>
+  </data>
+
+  <!-- ========================================
+       MainToolbar - 툴팁 (Tooltips)
+       ======================================== -->
+  <data name="NewFileTooltip" xml:space="preserve">
+    <value>새 파일 (Ctrl+N)</value>
+  </data>
+  <data name="LoadTooltip" xml:space="preserve">
+    <value>불러오기 (Ctrl+O)</value>
+  </data>
+  <data name="SaveTooltip" xml:space="preserve">
+    <value>저장 (Ctrl+S)</value>
+  </data>
+  <data name="UndoTooltip" xml:space="preserve">
+    <value>실행취소 (Ctrl+Z)</value>
+  </data>
+  <data name="RedoTooltip" xml:space="preserve">
+    <value>다시실행 (Ctrl+Y)</value>
+  </data>
+  <data name="DeleteTooltip" xml:space="preserve">
+    <value>삭제</value>
+  </data>
+  <data name="BatchEditTooltip" xml:space="preserve">
+    <value>일괄 편집 (I/O, Duration)</value>
+  </data>
+  <data name="AutoLayoutTooltip" xml:space="preserve">
+    <value>자동 재배치 (Ctrl+L)</value>
+  </data>
+  <data name="StartSimulationTooltip" xml:space="preserve">
+    <value>시뮬레이션 시작</value>
+  </data>
+  <data name="PauseSimulationTooltip" xml:space="preserve">
+    <value>일시정지</value>
+  </data>
+  <data name="StopSimulationTooltip" xml:space="preserve">
+    <value>정지</value>
+  </data>
+  <data name="ResetSimulationTooltip" xml:space="preserve">
+    <value>초기화</value>
+  </data>
+  <data name="IgnoreTimeTooltip" xml:space="preserve">
+    <value>시간 무시</value>
+  </data>
+  <data name="ForceWorkStartTooltip" xml:space="preserve">
+    <value>Work 실행</value>
+  </data>
+  <data name="ForceWorkResetTooltip" xml:space="preserve">
+    <value>Work 리셋</value>
+  </data>
+  <data name="ReportTooltip" xml:space="preserve">
+    <value>리포트 내보내기</value>
+  </data>
+  <data name="ProjectSettingsTooltip" xml:space="preserve">
+    <value>프로젝트 속성</value>
+  </data>
+</root>

@@ -68,9 +68,9 @@ module internal MermaidMapperCommon =
                 if cond.Conditions.Count > 0 then
                     targetCall.CallConditions.Add(cond)
 
-        addCondition CallConditionType.Auto   node.AutoConditionRefs
-        addCondition CallConditionType.Common node.CommonConditionRefs
-        addCondition CallConditionType.Active node.ActiveConditionRefs
+        addCondition CallConditionType.AutoAux      node.AutoAuxConditionRefs
+        addCondition CallConditionType.ComAux       node.ComAuxConditionRefs
+        addCondition CallConditionType.SkipUnmatch  node.SkipUnmatchConditionRefs
 
     /// subgraph 표시 이름 결정
     let subgraphName (sg: MermaidSubgraph) : string =

@@ -5,10 +5,10 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>Promaker</RootNamespace>
     <AssemblyName>Promaker</AssemblyName>
-    <Version>0.0.0.5</Version>
-    <AssemblyVersion>0.0.0.5</AssemblyVersion>
-    <FileVersion>0.0.0.5</FileVersion>
-    <ApplicationIcon>Assets\PromakerTemp.ico</ApplicationIcon>
+    <Version>0.0.0.8</Version>
+    <AssemblyVersion>0.0.0.8</AssemblyVersion>
+    <FileVersion>0.0.0.8</FileVersion>
+    <ApplicationIcon>Assets\Promaker.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <OtherFlags>
@@ -25,7 +25,18 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <Resource Include="Assets\PromakerTemp.ico" />
+    <Resource Include="Assets\Promaker.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Update="Resources\Strings.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>Strings.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <Compile Update="Resources\Strings.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>Strings.resx</DependentUpon>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />

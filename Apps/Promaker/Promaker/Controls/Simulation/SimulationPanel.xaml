@@ -18,7 +18,7 @@
                     </Grid.RowDefinitions>
                     <StackPanel Orientation="Horizontal" Margin="8,4">
                         <TextBlock Text="Clock: " Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding SimClock}" Foreground="#4fc3f7" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding SimClock}" Foreground="{DynamicResource IconBlueBrush}" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center"/>
                     </StackPanel>
                     <DataGrid Grid.Row="1" ItemsSource="{Binding SimNodes}" AutoGenerateColumns="False"
                               IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"

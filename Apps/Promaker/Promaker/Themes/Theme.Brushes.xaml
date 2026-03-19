@@ -40,6 +40,26 @@
     <SolidColorBrush x:Key="ShadowBrush" Color="{StaticResource ShadowColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="CloseButtonHoverBrush" Color="{StaticResource CloseButtonHoverColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="CloseButtonPressedBrush" Color="{StaticResource CloseButtonPressedColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarShellBrush" Color="{StaticResource ToolbarShellColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarFileGroupBrush" Color="{StaticResource ToolbarFileGroupColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarEditGroupBrush" Color="{StaticResource ToolbarEditGroupColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarSimulationGroupBrush" Color="{StaticResource ToolbarSimulationGroupColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarProcessGroupBrush" Color="{StaticResource ToolbarProcessGroupColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarToolsGroupBrush" Color="{StaticResource ToolbarToolsGroupColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarButtonBrush" Color="{StaticResource ToolbarButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarButtonHoverBrush" Color="{StaticResource ToolbarButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarGreenButtonBrush" Color="{StaticResource ToolbarGreenButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarGreenButtonHoverBrush" Color="{StaticResource ToolbarGreenButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarRedButtonBrush" Color="{StaticResource ToolbarRedButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarRedButtonHoverBrush" Color="{StaticResource ToolbarRedButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarOrangeButtonBrush" Color="{StaticResource ToolbarOrangeButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarOrangeButtonHoverBrush" Color="{StaticResource ToolbarOrangeButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarBlueButtonBrush" Color="{StaticResource ToolbarBlueButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarBlueButtonHoverBrush" Color="{StaticResource ToolbarBlueButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarGrayButtonBrush" Color="{StaticResource ToolbarGrayButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarGrayButtonHoverBrush" Color="{StaticResource ToolbarGrayButtonHoverColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarTealButtonBrush" Color="{StaticResource ToolbarTealButtonColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ToolbarTealButtonHoverBrush" Color="{StaticResource ToolbarTealButtonHoverColor}" po:Freeze="False"/>
 
     <!-- Node Brushes -->
     <SolidColorBrush x:Key="NodeStartBackgroundBrush" Color="{StaticResource NodeStartBackgroundColor}" po:Freeze="False"/>
@@ -59,6 +79,7 @@
     <SolidColorBrush x:Key="IconRedBrush" Color="{StaticResource IconRedColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="IconGrayBrush" Color="{StaticResource IconGrayColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="IconGreenBrush" Color="{StaticResource IconGreenColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="IconTealBrush" Color="{StaticResource IconTealColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="IconPurpleBrush" Color="{StaticResource IconPurpleColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="IconDarkGrayBrush" Color="{StaticResource IconDarkGrayColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="SimulationReadyBrush" Color="{StaticResource SimulationReadyColor}" po:Freeze="False"/>
@@ -69,7 +90,23 @@
     <SolidColorBrush x:Key="SimulationFinishBackgroundBrush" Color="{StaticResource SimulationFinishBackgroundColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="SimulationHomingBackgroundBrush" Color="{StaticResource SimulationHomingBackgroundColor}" po:Freeze="False"/>
 
+    <!-- Gantt Bar Brushes -->
+    <SolidColorBrush x:Key="GanttBarReadyBrush" Color="{StaticResource GanttBarReadyColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="GanttBarGoingBrush" Color="{StaticResource GanttBarGoingColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="GanttBarFinishBrush" Color="{StaticResource GanttBarFinishColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="GanttBarHomingBrush" Color="{StaticResource GanttBarHomingColor}" po:Freeze="False"/>
+
+    <!-- Gantt Row Brushes -->
+    <SolidColorBrush x:Key="GanttWorkRowBackgroundBrush" Color="{StaticResource GanttWorkRowBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="GanttCallRowBackgroundBrush" Color="{StaticResource GanttCallRowBackgroundColor}" po:Freeze="False"/>
+
     <!-- TreeView Arrow Brush -->
     <SolidColorBrush x:Key="TreeViewArrowBrush" Color="{StaticResource TreeViewArrowColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ContrastDarkTextBrush" Color="{StaticResource ContrastDarkTextColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="AlwaysLightTextBrush" Color="{StaticResource AlwaysLightTextColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="IconOverlayTextBrush" Color="{StaticResource IconOverlayTextColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ConditionAutoBadgeBrush" Color="{StaticResource ConditionAutoBadgeColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ConditionComBadgeBrush" Color="{StaticResource ConditionComBadgeColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="ConditionSkipBadgeBrush" Color="{StaticResource ConditionSkipBadgeColor}" po:Freeze="False"/>
 
 </ResourceDictionary>

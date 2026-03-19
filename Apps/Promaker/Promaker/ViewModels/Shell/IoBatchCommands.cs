@@ -21,12 +21,12 @@ public partial class MainViewModel
 
         if (rows.Count == 0)
         {
-            DialogHelpers.Warn("편집 가능한 ApiCall이 없습니다.");
+            _dialogService.ShowWarning("편집 가능한 ApiCall이 없습니다.");
             return;
         }
 
         var dialog = new IoBatchSettingsDialog(rows);
-        if (!DialogHelpers.ShowOwnedDialog(dialog))
+        if (_dialogService.ShowDialog(dialog) != true)
             return;
 
         var changed = dialog.ChangedRows;

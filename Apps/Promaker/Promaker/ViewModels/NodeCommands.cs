@@ -30,7 +30,7 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanAddSystem))]
     private void AddSystem()
     {
-        var name = DialogHelpers.PromptName("New System", "NewSystem");
+        var name = _dialogService.PromptName(Resources.Strings.NewSystem, "NewSystem");
         if (name is null) return;
         var (selType, selId, tabKind, tabRoot) = SnapshotContext();
         TryEditorAction(() => _store.AddSystemResolved(
@@ -41,7 +41,7 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void AddFlow()
     {
-        var name = DialogHelpers.PromptName("New Flow", "NewFlow");
+        var name = _dialogService.PromptName(Resources.Strings.NewFlow, "NewFlow");
         if (name is null) return;
         var (selType, selId, tabKind, tabRoot) = SnapshotContext();
         TryEditorAction(() => _store.AddFlowResolved(
@@ -57,7 +57,7 @@ public partial class MainViewModel
         var flowId = ResolveTargetId(EntityKind.Flow, TabKind.Flow);
         if (flowId is not { } id) return;
 
-        var name = DialogHelpers.PromptName("New Work", "NewWork");
+        var name = _dialogService.PromptName(Resources.Strings.NewWork, "NewWork");
         if (name is null) return;
 
         if (!TryEditorFunc(() => _store.AddWork(name, id), out Guid workId, fallback: Guid.Empty))
@@ -234,14 +234,12 @@ public partial class MainViewModel
 
         if (result.IsMixedTypes)
         {
-            MessageBox.Show("같은 종류의 항목만 복사할 수 있습니다.", "복사 불가",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            _dialogService.ShowWarning("같은 종류의 항목만 복사할 수 있습니다.");
             return;
         }
         if (result.IsMixedParents)
         {
-            MessageBox.Show("서로 다른 위치에 있는 항목은 함께 복사할 수 없습니다.", "복사 불가",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            _dialogService.ShowWarning("서로 다른 위치에 있는 항목은 함께 복사할 수 없습니다.");
             return;
         }
         if (result is not CopyValidationResult.Ok ok)
@@ -271,11 +269,7 @@ public partial class MainViewModel
         if (target.Value.EntityType == EntityKind.System
             && (batchType == EntityKind.Work || batchType == EntityKind.Call))
         {
-            MessageBox.Show(
-                "붙여넣기 대상으로 Flow를 선택하세요.",
-                "붙여넣기 불가",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+            _dialogService.ShowWarning("붙여넣기 대상으로 Flow를 선택하세요.");
             return;
         }
 
@@ -309,7 +303,7 @@ public partial class MainViewModel
             if (!_store.FlowsReadOnly.TryGetValue(key.Id, out var srcFlow))
                 continue;
 
-            var newName = DialogHelpers.PromptName("Flow 복사 — 새 이름", srcFlow.Name);
+            var newName = _dialogService.PromptName("Flow 복사 — 새 이름", srcFlow.Name);
             if (newName is null) return; // 취소 시 전체 중단
 
             var sysId = targetSystemIdOpt != null ? targetSystemIdOpt.Value : srcFlow.ParentId;

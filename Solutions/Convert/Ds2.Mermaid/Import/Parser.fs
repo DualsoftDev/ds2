@@ -44,14 +44,14 @@ module MermaidParser =
     /// 현재 가장 안쪽 서브그래프에 노드 추가 (없으면 글로벌)
     let private addNodeToSubgraph (state: ParserState) (nodeId: string) (label: string) : ParserState =
         let conditions, afterLegacy = MermaidLexer.extractCommonConditions label
-        let actualLabel, autoRefs, commonRefs, activeRefs = MermaidLexer.extractConditionRefs afterLegacy
+        let actualLabel, autoAuxRefs, comAuxRefs, skipUnmatchRefs = MermaidLexer.extractConditionRefs afterLegacy
         let node = {
             Id = nodeId
             Label = actualLabel
             CommonConditions = conditions
-            AutoConditionRefs = autoRefs
-            CommonConditionRefs = commonRefs
-            ActiveConditionRefs = activeRefs
+            AutoAuxConditionRefs = autoAuxRefs
+            ComAuxConditionRefs = comAuxRefs
+            SkipUnmatchConditionRefs = skipUnmatchRefs
         }
         state.AllNodeIds.Add(nodeId) |> ignore
         match state.SubgraphStack with

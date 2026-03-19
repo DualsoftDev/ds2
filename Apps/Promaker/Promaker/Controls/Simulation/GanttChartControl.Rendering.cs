@@ -156,6 +156,8 @@ public partial class GanttChartControl
         TimelineCanvas.Height = Math.Max(totalHeight, TimelineScrollViewer.ActualHeight);
 
         var borderBrush = Application.Current.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray;
+        var workRowBrush = Application.Current.TryFindResource("GanttWorkRowBackgroundBrush") as Brush ?? Brushes.Transparent;
+        var callRowBrush = Application.Current.TryFindResource("GanttCallRowBackgroundBrush") as Brush ?? Brushes.Transparent;
         int rowIdx = 0, lineIdx = 0, barIdx = 0;
 
         foreach (var entry in _viewModel.Entries)
@@ -167,7 +169,7 @@ public partial class GanttChartControl
             var rowBg = GetOrCreateRowBg(rowIdx++);
             rowBg.Width = TimelineCanvas.Width;
             rowBg.Height = rowHeight;
-            rowBg.Fill = entry.RowBackground;
+            rowBg.Fill = entry.IsWork ? workRowBrush : callRowBrush;
             Canvas.SetLeft(rowBg, 0);
             Canvas.SetTop(rowBg, y);
 

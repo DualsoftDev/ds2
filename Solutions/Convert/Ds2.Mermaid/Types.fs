@@ -33,12 +33,12 @@ type MermaidNode = {
     Label: string
     /// commonPre에서 추출한 조건 목록 (Legacy Ev2: 노드 ID 리스트)
     CommonConditions: string list
-    /// Auto 조건 소스 Call 이름 목록
-    AutoConditionRefs: string list
-    /// Common 조건 소스 Call 이름 목록
-    CommonConditionRefs: string list
-    /// Active 조건 소스 Call 이름 목록
-    ActiveConditionRefs: string list
+    /// AutoAux 조건 소스 Call 이름 목록
+    AutoAuxConditionRefs: string list
+    /// ComAux 조건 소스 Call 이름 목록
+    ComAuxConditionRefs: string list
+    /// SkipUnmatch 조건 소스 Call 이름 목록
+    SkipUnmatchConditionRefs: string list
 }
 
 /// Mermaid 엣지 정의

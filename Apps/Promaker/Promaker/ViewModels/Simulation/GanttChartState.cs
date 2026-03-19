@@ -40,7 +40,7 @@ public class GanttStateSegment : INotifyPropertyChanged
 
     public TimeSpan Duration => (EndTime ?? DateTime.Now) - StartTime;
 
-    public Brush StateBrush => Status4Visuals.ResolveBrush(State);
+    public Brush StateBrush => Status4Visuals.ResolveGanttBarBrush(State);
 
     public string StateFullName => Status4Visuals.DisplayName(State);
 }
@@ -48,9 +48,6 @@ public class GanttStateSegment : INotifyPropertyChanged
 /// <summary>간트차트 타임라인 항목 — 하나의 Work 또는 Call 행</summary>
 public class GanttTimelineEntry : INotifyPropertyChanged
 {
-    private static readonly Brush WorkRowBackground = new SolidColorBrush(Color.FromArgb(25, 255, 165, 0));
-    private static readonly Brush CallRowBackground = new SolidColorBrush(Color.FromArgb(10, 255, 255, 255));
-
     public event PropertyChangedEventHandler? PropertyChanged;
     private void Notify([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
@@ -92,7 +89,6 @@ public class GanttTimelineEntry : INotifyPropertyChanged
         set { _isVisible = value; Notify(); }
     }
 
-    public Brush RowBackground => IsWork ? WorkRowBackground : CallRowBackground;
 }
 
 /// <summary>간트차트 전체 뷰모델</summary>

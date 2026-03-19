@@ -1,8 +1,7 @@
 <div align="center">
 
-# Promaker
+# DS2 Sequence Control Editor
 
-**Sequence Control Editor** built with F# core + WPF UI on .NET 9.0
 
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![F#](https://img.shields.io/badge/F%23-Core_Engine-378BBA?logo=fsharp&logoColor=white)](https://fsharp.org/)
@@ -41,57 +40,62 @@ mindmap
 ### 전체 구조
 
 ```mermaid
-%%{init: {'theme': 'base', 'flowchart': {'curve': 'linear'}}}%%
-flowchart TD
-  subgraph PM_Layer["🖥️ Promaker (C# · WPF)"]
-    direction LR
-    MW["MainWindow"] --- EC["EditorCanvas"] --- VM["ViewModels"] --- DLG["Dialogs"]
-  end
+block-beta
+  columns 4
 
-  subgraph UIC_Layer["⚙️ Ds2.UI.Core (F# · 편집 코어)"]
-    direction LR
-    DS["DsStore\n13 Dict · Undo/Redo\nEvents · File I/O"] --- ST["Store Extensions\nNodes · Arrows\nPanel · Paste"] --- PJ["Projections\nTree · Canvas"] --- QR["Queries\nHierarchy · Selection\nConnection"]
-  end
+  UITITLE["🖥️ Promaker (C# · WPF)"]:4
+  MW["MainWindow"] EC["EditorCanvas"] VM["ViewModels"] DLG["Dialogs"]
 
-  subgraph CORE_Layer["📦 Ds2.Core (F# · 순수 도메인)"]
-    direction LR
-    ENT["Entities\nProject · System\nFlow · Work · Call"] --- TYP["Types\nProperties\nEnum · Class"] --- VS["ValueSpec\nBool · Int · Float\nString · Range"] --- SER["Serialization\nJsonConverter\nDeepCopyHelper"]
-  end
+  space:4
 
-  PM_Layer --> UIC_Layer
-  UIC_Layer --> CORE_Layer
+  UICORETITLE["⚙️ Ds2.UI.Core (F# · 편집 코어)"]:4
+  DS["DsStore\n13 Dictionaries\nUndo/Redo\nEvents & File I/O"]
+  ST["Store Extensions\nNodes · Arrows\nPanel · Paste"]
+  PJ["Projections\nTreeProjection\nCanvasProjection"]
+  QR["Queries\nHierarchy\nSelection\nConnection"]
+
+  space:4
+
+  CORETITLE["📦 Ds2.Core (F# · 순수 도메인)"]:4
+  ENT["Entities\nProject · System\nFlow · Work · Call"]
+  TYP["Types\nProperties\nEnum · Class"]
+  VS["ValueSpec\nBool·Int·Float\nString·Range"]
+  SER["Serialization\nJsonConverter\nDeepCopyHelper"]
+
+  UITITLE --> UICORETITLE
+  UICORETITLE --> CORETITLE
 ```
 
 ### 레이어 의존 방향
 
 ```mermaid
-%%{init: {'theme': 'base', 'flowchart': {'curve': 'linear', 'rankSpacing': 60}}}%%
-flowchart TB
+graph LR
   PM["<b>Promaker</b><br/>C#, WPF"]
-
-  subgraph CONV["변환 레이어 (Converters)"]
-    direction LR
-    AASX["<b>Ds2.Aasx</b><br/>AASX I/O"]
-    MER["<b>Ds2.Mermaid</b><br/>Mermaid 변환"]
-    CSV["<b>Ds2.CSV</b><br/>CSV I/O"]
-  end
-
   UIC["<b>Ds2.UI.Core</b><br/>F#, 편집 코어"]
   CORE["<b>Ds2.Core</b><br/>F#, 도메인"]
+  AASX["<b>Ds2.Aasx</b><br/>F#, AASX I/O"]
+  MER["<b>Ds2.Mermaid</b><br/>F#, Mermaid 변환"]
+  CSV["<b>Ds2.CSV</b><br/>F#, CSV I/O"]
 
   PM -->|편집 API| UIC
   PM -->|도메인 타입| CORE
-  PM --> AASX & MER & CSV
-  AASX & MER & CSV --> UIC
-  AASX & MER & CSV --> CORE
+  PM --> AASX
+  PM --> MER
+  PM --> CSV
   UIC --> CORE
+  AASX --> UIC
+  AASX --> CORE
+  MER --> UIC
+  MER --> CORE
+  CSV --> UIC
+  CSV --> CORE
 
-  style PM   fill:#4a90d9,color:#fff,stroke:#2c5f8a
-  style UIC  fill:#7b68ee,color:#fff,stroke:#5a4db5
+  style PM fill:#4a90d9,color:#fff,stroke:#2c5f8a
+  style UIC fill:#7b68ee,color:#fff,stroke:#5a4db5
   style CORE fill:#6b8e23,color:#fff,stroke:#4a6319
   style AASX fill:#cd853f,color:#fff,stroke:#8b5e2b
-  style MER  fill:#cd853f,color:#fff,stroke:#8b5e2b
-  style CSV  fill:#cd853f,color:#fff,stroke:#8b5e2b
+  style MER fill:#cd853f,color:#fff,stroke:#8b5e2b
+  style CSV fill:#cd853f,color:#fff,stroke:#8b5e2b
 ```
 
 > - 상위 레이어는 하위 레이어만 의존합니다
@@ -102,32 +106,31 @@ flowchart TB
 
 ## 엔티티 관계도
 
-**Active System — 제어 흐름**
-
 ```mermaid
 erDiagram
-    Project ||--o{ DsSystem : contains
+    Project ||--o{ DsSystem : "contains (Active)"
+    Project ||--o{ DsSystem : "contains (Passive/Device)"
+
     DsSystem ||--o{ Flow : contains
     DsSystem ||--o{ ArrowBetweenWorks : owns
-    Flow ||--o{ Work : contains
-    Work ||--o{ Call : contains
-    Work ||--o{ ArrowBetweenCalls : owns
-    Call ||--o{ ApiCall : "has (.ApiCalls[])"
-    Call ||--o{ CallCondition : "has conditions"
-    CallCondition ||--o{ ApiCall : "condition targets"
-```
-
-**Passive System — 장치 정의 및 연결**
-
-```mermaid
-erDiagram
     DsSystem ||--o{ ApiDef : "defines (Device)"
     DsSystem ||--o{ HwButton : "has (Device)"
     DsSystem ||--o{ HwLamp : "has (Device)"
     DsSystem ||--o{ HwCondition : "has (Device)"
     DsSystem ||--o{ HwAction : "has (Device)"
+
+    Flow ||--o{ Work : contains
+
+    Work ||--o{ Call : contains
+    Work ||--o{ ArrowBetweenCalls : owns
+
+    Call ||--o{ ApiCall : "has (.ApiCalls[])"
+    Call ||--o{ CallCondition : "has conditions"
     Call }o--|| DsSystem : "references (.ApiDefId → Device)"
+
     ApiCall }o--|| ApiDef : "linked by .ApiDefId"
+
+    CallCondition ||--o{ ApiCall : "condition targets"
 ```
 
 ### 엔티티 설명

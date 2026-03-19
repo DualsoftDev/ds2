@@ -17,9 +17,16 @@ public partial class ExplorerPane : UserControl
     public ExplorerPane()
     {
         InitializeComponent();
+        ConfigureDebugPanels();
     }
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
+
+    private void ConfigureDebugPanels()
+    {
+        // History panel moved to MainWindow (right side below PropertyPanel)
+        // No debug panels to configure in ExplorerPane anymore
+    }
 
     private void TreeTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -85,25 +92,7 @@ public partial class ExplorerPane : UserControl
             };
             if (tag is null) continue;
 
-            var visible = tag switch
-            {
-                "AddSystem"   => hasProject && kind is null or EntityKind.Project,
-                "AddFlow"     => kind is EntityKind.System,
-                "AddWork"     => kind is EntityKind.Flow,
-                "AddCall"     => kind is EntityKind.Work,
-                "Import"      => isDeviceTree && kind is null or EntityKind.DeviceRoot,
-                "ImportCsv"   => kind is null or EntityKind.Project or EntityKind.DeviceRoot,
-                "ExportCsv"   => hasProject && kind is null or EntityKind.Project or EntityKind.DeviceRoot,
-                "ImportMermaid" => !isDeviceTree && kind is EntityKind.Flow or EntityKind.Work,
-                "Copy"        => kind is EntityKind.Flow or EntityKind.Work or EntityKind.Call,
-                "Paste"       => kind is EntityKind.System or EntityKind.Flow or EntityKind.Work,
-                "FocusCanvas" => kind is EntityKind.Work or EntityKind.Call,
-                "Rename"      => kind is EntityKind.Project or EntityKind.System or EntityKind.Flow
-                                     or EntityKind.Work or EntityKind.Call,
-                "Delete"      => kind is EntityKind.System or EntityKind.Flow
-                                     or EntityKind.Work or EntityKind.Call,
-                _ => true // Separator 등은 일단 표시
-            };
+            var visible = EntityKindRules.isMenuOperationAllowed(kind, tag, hasProject, isDeviceTree);
 
             if (item is FrameworkElement fe)
                 fe.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
@@ -141,13 +130,6 @@ public partial class ExplorerPane : UserControl
         // 마지막이 구분선이면 숨김
         if (lastVisibleSep is not null)
             lastVisibleSep.Visibility = Visibility.Collapsed;
-    }
-
-    private void HistoryListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
-    {
-        if (ViewModel is null) return;
-        if (HistoryListBox.SelectedItem is HistoryPanelItem item)
-            ViewModel.JumpToHistoryCommand.Execute(item);
     }
 
     private void TreeViewItem_MouseDoubleClick(object sender, MouseButtonEventArgs e)

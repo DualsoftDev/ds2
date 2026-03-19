@@ -193,7 +193,7 @@ module RemoveTests =
         let targetCall = DsQuery.callsOf work.Id store |> List.find (fun c -> c.Name = "Target.Api")
         let sourceApiCallId = sourceCall.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
-        store.AddCallCondition(targetCall.Id, CallConditionType.Common)
+        store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
         let parentCondition = targetCall.CallConditions |> Seq.head
         store.AddChildCondition(targetCall.Id, parentCondition.Id, false)
         let childCondition = parentCondition.Children |> Seq.head
@@ -611,7 +611,7 @@ module PanelTests =
         let call = store.Calls.Values |> Seq.head
         let sourceApiCallId = call.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
-        store.AddCallCondition(call.Id, CallConditionType.Common)
+        store.AddCallCondition(call.Id, CallConditionType.ComAux)
         let condId = store.Calls.[call.Id].CallConditions |> Seq.head |> fun cc -> cc.Id
 
         let added = store.AddApiCallsToConditionBatch(call.Id, condId, [ sourceApiCallId ])
@@ -683,15 +683,15 @@ module QueryTests =
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
 
         let call = DsQuery.callsOf work.Id store |> List.head
-        store.AddCallCondition(call.Id, CallConditionType.Common)
+        store.AddCallCondition(call.Id, CallConditionType.ComAux)
         let parentCondition = call.CallConditions |> Seq.head
         store.AddChildCondition(call.Id, parentCondition.Id, false)
         let childCondition = parentCondition.Children |> Seq.head
-        childCondition.Type <- Some CallConditionType.Active
+        childCondition.Type <- Some CallConditionType.SkipUnmatch
 
         let result = store.GetCallConditionTypes(call.Id)
 
-        Assert.Equal<CallConditionType list>([ CallConditionType.Common; CallConditionType.Active ], result)
+        Assert.Equal<CallConditionType list>([ CallConditionType.ComAux; CallConditionType.SkipUnmatch ], result)
 
     [<Fact>]
     let ``FindCallsByApiCallId finds nested child condition reference`` () =
@@ -703,7 +703,7 @@ module QueryTests =
         let targetCall = DsQuery.callsOf work.Id store |> List.find (fun c -> c.Name = "Target.Api")
         let sourceApiCallId = sourceCall.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
-        store.AddCallCondition(targetCall.Id, CallConditionType.Common)
+        store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
         let parentCondition = targetCall.CallConditions |> Seq.head
         store.AddChildCondition(targetCall.Id, parentCondition.Id, false)
         let childCondition = parentCondition.Children |> Seq.head

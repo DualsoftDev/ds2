@@ -33,9 +33,9 @@ public partial class EntityNode : ObservableObject
 
     [ObservableProperty] private bool _isGhost;
 
-    [ObservableProperty] private bool _hasAutoCondition;
-    [ObservableProperty] private bool _hasCommonCondition;
-    [ObservableProperty] private bool _hasActiveCondition;
+    [ObservableProperty] private bool _hasAutoAux;
+    [ObservableProperty] private bool _hasComAux;
+    [ObservableProperty] private bool _hasSkipUnmatch;
 
     /// 시뮬레이션 상태 (null = 비시뮬)
     [ObservableProperty] private Status4? _simState;
@@ -44,16 +44,16 @@ public partial class EntityNode : ObservableObject
 
     public void UpdateConditionTypes(IEnumerable<CallConditionType> types)
     {
-        HasAutoCondition = false;
-        HasCommonCondition = false;
-        HasActiveCondition = false;
+        HasAutoAux = false;
+        HasComAux = false;
+        HasSkipUnmatch = false;
         foreach (var t in types)
         {
             switch (t)
             {
-                case CallConditionType.Auto: HasAutoCondition = true; break;
-                case CallConditionType.Common: HasCommonCondition = true; break;
-                case CallConditionType.Active: HasActiveCondition = true; break;
+                case CallConditionType.AutoAux: HasAutoAux = true; break;
+                case CallConditionType.ComAux: HasComAux = true; break;
+                case CallConditionType.SkipUnmatch: HasSkipUnmatch = true; break;
             }
         }
     }

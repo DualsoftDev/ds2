@@ -2,8 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ctrl="clr-namespace:Promaker.Controls"
-        Title="{Binding Title}" Width="1280" Height="800"
-        Icon="pack://application:,,,/Assets/PromakerTemp.ico"
+        xmlns:help="clr-namespace:Promaker.Help"
+        Title="{Binding Title}" Width="1540" Height="800"
+        MinWidth="880" MinHeight="600"
+        Icon="pack://application:,,,/Assets/Promaker.ico"
         WindowStartupLocation="CenterScreen"
         Closing="Window_Closing">
 
@@ -17,6 +19,7 @@
         <KeyBinding Gesture="Ctrl+N" Command="{Binding NewProjectCommand}"/>
         <KeyBinding Gesture="Delete" Command="{Binding DeleteSelectedCommand}"/>
         <KeyBinding Key="F2" Command="{Binding FocusNameEditorCommand}"/>
+        <KeyBinding Key="F1" Command="{x:Static help:HelpNavigator.NavigateCommand}" CommandParameter="general"/>
     </Window.InputBindings>
 
     <Grid>
@@ -30,7 +33,8 @@
 
         <ctrl:MainToolbar Grid.Row="0"/>
 
-        <Grid Grid.Row="1">
+        <!-- Main content area with columns -->
+        <Grid Grid.Row="1" Grid.RowSpan="3">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="250" MinWidth="150"/>
                 <ColumnDefinition Width="4"/>
@@ -39,16 +43,78 @@
                 <ColumnDefinition Width="280" MinWidth="150"/>
             </Grid.ColumnDefinitions>
 
+            <!-- Explorer spans full height -->
             <ctrl:ExplorerPane Grid.Column="0"/>
             <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch"/>
-            <ctrl:CanvasWorkspace x:Name="WorkspacePane" Grid.Column="2"/>
+
+            <!-- Center area with Canvas and Simulation -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="4"/>
+                    <RowDefinition Height="200" MinHeight="80"/>
+                </Grid.RowDefinitions>
+
+                <ctrl:CanvasWorkspace x:Name="WorkspacePane" Grid.Row="0"/>
+                <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                <ctrl:SimulationPanel Grid.Row="2" DataContext="{Binding Simulation}"/>
+            </Grid>
+
             <GridSplitter Grid.Column="3" Width="4" HorizontalAlignment="Stretch"/>
-            <ctrl:PropertyPanel x:Name="PropertyPane" Grid.Column="4" DataContext="{Binding PropertyPanel}"/>
+
+            <!-- PropertyPanel with History below -->
+            <Grid Grid.Column="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="4"/>
+                    <RowDefinition Height="200" MinHeight="80"/>
+                </Grid.RowDefinitions>
+
+                <ctrl:PropertyPanel x:Name="PropertyPane" Grid.Row="0" DataContext="{Binding PropertyPanel}"/>
+                <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+
+                <!-- History Panel -->
+                <Border Grid.Row="2" Style="{StaticResource PanelContainer}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Border Style="{StaticResource PanelHeader}">
+                            <Grid>
+                                <TextBlock Text="History" FontWeight="SemiBold" FontSize="12"/>
+                                <Button Style="{StaticResource HelpButton}" HorizontalAlignment="Right"
+                                        Command="{x:Static help:HelpNavigator.NavigateCommand}"
+                                        CommandParameter="history"/>
+                            </Grid>
+                        </Border>
+                        <ListBox Grid.Row="1"
+                                 x:Name="HistoryListBox"
+                                 ItemsSource="{Binding HistoryItems}"
+                                 SelectedIndex="{Binding CurrentHistoryIndex, Mode=OneWay}"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 MouseDoubleClick="HistoryListBox_MouseDoubleClick">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Label}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsRedo}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                                        <Setter Property="TextDecorations" Value="Strikethrough"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
+            </Grid>
         </Grid>
-
-        <GridSplitter Grid.Row="2" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
-
-        <ctrl:SimulationPanel Grid.Row="3" DataContext="{Binding Simulation}"/>
 
         <StatusBar Grid.Row="4">
             <StatusBarItem>
