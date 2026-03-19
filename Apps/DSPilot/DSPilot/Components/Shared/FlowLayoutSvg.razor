@@ -32,47 +32,11 @@
         <filter id="selection-glow" x="-35%" y="-35%" width="170%" height="170%">
             <feGaussianBlur stdDeviation="10" />
         </filter>
-        @* ── 도넛 차트 그라데이션 & 이펙트 ── *@
-        <linearGradient id="donut-mt-grad" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#4a90e2" stop-opacity="1" />
-            <stop offset="100%" stop-color="#3a86ff" stop-opacity="0.7" />
-        </linearGradient>
-        <linearGradient id="donut-wt-grad" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#ffb347" stop-opacity="1" />
-            <stop offset="100%" stop-color="#ff9f1c" stop-opacity="0.7" />
-        </linearGradient>
-        <filter id="donut-glass" x="-40%" y="-40%" width="180%" height="180%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="glow" />
-            <feMerge>
-                <feMergeNode in="glow" />
-                <feMergeNode in="SourceGraphic" />
-            </feMerge>
-        </filter>
-        <radialGradient id="donut-inner-edge" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="white" stop-opacity="0.25" />
-            <stop offset="90%" stop-color="white" stop-opacity="0" />
-        </radialGradient>
         <linearGradient id="glass-overlay-grad" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stop-color="white" stop-opacity="0.10" />
             <stop offset="40%" stop-color="white" stop-opacity="0.03" />
             <stop offset="100%" stop-color="white" stop-opacity="0" />
         </linearGradient>
-        <filter id="text-glow" x="-20%" y="-30%" width="140%" height="160%">
-            <feFlood flood-color="#00bfff" flood-opacity="0.4" result="color" />
-            <feComposite in="color" in2="SourceGraphic" operator="in" result="colored" />
-            <feGaussianBlur in="colored" stdDeviation="4" result="glow" />
-            <feMerge>
-                <feMergeNode in="glow" />
-                <feMergeNode in="SourceGraphic" />
-            </feMerge>
-        </filter>
-        <filter id="dot-glow" x="-100%" y="-100%" width="300%" height="300%">
-            <feGaussianBlur stdDeviation="2" result="blur" />
-            <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-            </feMerge>
-        </filter>
     </defs>
 
     @* 도면 배경 *@
@@ -138,31 +102,31 @@
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8"
                   fill="#0a1e30" fill-opacity="0.82" />
-            @* ②-b 대각선 유리 반사 (glass-card background gradient) *@
+            @* ②-b 대각선 유리 반사 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8"
                   fill="url(#glass-overlay-grad)" />
-            @* ②-c 내부 시안 글로우 (inset 0 0 20px rgba(0,191,255,0.15)) *@
+            @* ②-c 내부 시안 글로우 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8" fill="none"
                   stroke="#00bfff" stroke-width="18" stroke-opacity="0.12"
                   filter="url(#glass-blur)" />
-            @* ③ 시안 글래스 테두리 (border: 1px solid rgba(0,200,255,0.3)) *@
+            @* ③ 시안 글래스 테두리 *@
             <rect x="@(b.Px + b.Pad)" y="@(b.Py + b.Pad)"
                   width="@b.InnerW" height="@b.InnerH"
                   rx="8" ry="8" fill="none"
                   stroke="#00c8ff" stroke-width="1" stroke-opacity="0.30" />
-            @* ④ 상단 밝은 하이라이트 (입체 반사) *@
+            @* ④ 상단 밝은 하이라이트 *@
             <line x1="@(b.Px + b.Pad + 12)" y1="@(b.Py + b.Pad + 1)"
                   x2="@(b.Px + b.Pad + b.InnerW - 12)" y2="@(b.Py + b.Pad + 1)"
                   stroke="white" stroke-width="1" stroke-opacity="0.50" stroke-linecap="round" />
-            @* ⑤ 하단 그림자 (inset 0 -2px 5px rgba(0,0,0,0.5)) *@
+            @* ⑤ 하단 그림자 *@
             <line x1="@(b.Px + b.Pad + 12)" y1="@(b.Py + b.Pad + b.InnerH - 1)"
                   x2="@(b.Px + b.Pad + b.InnerW - 12)" y2="@(b.Py + b.Pad + b.InnerH - 1)"
                   stroke="black" stroke-width="1" stroke-opacity="0.45" stroke-linecap="round" />
-            @* ⑥ 내부 유리 보더 — ::before (inset 8px, bright top/left, dim right/bottom) *@
+            @* ⑥ 내부 유리 보더 *@
             <line x1="@(b.Px + b.Pad + 10)" y1="@(b.Py + b.Pad + 6)"
                   x2="@(b.Px + b.Pad + b.InnerW - 10)" y2="@(b.Py + b.Pad + 6)"
                   stroke="white" stroke-width="1.5" stroke-opacity="0.50" stroke-linecap="round" />
@@ -175,105 +139,107 @@
             <line x1="@(b.Px + b.Pad + 10)" y1="@(b.Py + b.Pad + b.InnerH - 6)"
                   x2="@(b.Px + b.Pad + b.InnerW - 10)" y2="@(b.Py + b.Pad + b.InnerH - 6)"
                   stroke="#00c8ff" stroke-width="1" stroke-opacity="0.15" stroke-linecap="round" />
-            @* Flow 이름 (text-shadow: 0 0 15px rgba(0,191,255,0.4)) *@
-            <g filter="url(#text-glow)">
-                <SvgText X="@(b.Px + b.Pad + 6)" Y="@b.TitleY"
-                         TextAnchor="start"
-                         Fill="white"
-                         FontSize="@b.TitleFS" FontWeight="700"
-                         Content="@b.FlowName" />
-            </g>
 
-            @if (b.HasMtWt)
-            {
-                @* 도넛 차트 (rotate -90° → 12시 방향 시작) *@
-                <g filter="url(#donut-glass)">
-                <g transform="rotate(-90 @b.DonutCx @b.DonutCy)">
-                    @* 배경 트랙 *@
-                    <circle cx="@b.DonutCx" cy="@b.DonutCy" r="@b.DonutR"
-                            fill="none"
-                            stroke="#cccccc" stroke-opacity="0.10"
-                            stroke-width="@b.DonutSW" />
-                    @* MT(가동) 호 *@
-                    @if (b.MtDash > 0)
-                    {
-                        <circle cx="@b.DonutCx" cy="@b.DonutCy" r="@b.DonutR"
-                                fill="none" stroke="url(#donut-mt-grad)" stroke-width="@b.DonutSW"
-                                stroke-dasharray="@b.SMtDash @b.SCirc"
-                                stroke-linecap="round" />
-                    }
-                    @* WT(대기) 호 — MT 끝 지점에서 시작 *@
-                    @if (b.WtDash > 0)
-                    {
-                        <circle cx="@b.DonutCx" cy="@b.DonutCy" r="@b.DonutR"
-                                fill="none" stroke="url(#donut-wt-grad)" stroke-width="@b.DonutSW"
-                                stroke-dasharray="@b.SWtDash @b.SCirc"
-                                stroke-dashoffset="@b.SNegMt"
-                                stroke-linecap="round" />
-                    }
-                </g>
-                </g>
-                @* 도넛 내부 엣지 하이라이트 *@
-                <circle cx="@b.DonutCx" cy="@b.DonutCy" r="@(b.DonutR - b.DonutSW / 2)"
-                        fill="url(#donut-inner-edge)" pointer-events="none" />
+            @* ── 카드 내부 콘텐츠 (foreignObject — 최소 카드 기준 중앙 배치) ── *@
+            <foreignObject x="@b.ContentX" y="@b.ContentY"
+                           width="@b.ContentW" height="@b.ContentH">
+                <div xmlns="http://www.w3.org/1999/xhtml" class="fc-cq">
+                    <div class="fc-root">
+                        @* 헤더 *@
+                        <div class="fc-header">
+                            <div class="fc-title">@b.FlowName</div>
+                            @if (b.Badges.Count > 0)
+                            {
+                                <div class="fc-badges">
+                                    @foreach (var badge in b.Badges)
+                                    {
+                                        <span class="fc-badge"
+                                              style="background: @ColorMix(badge.Color, 0.20); border-color: @ColorMix(badge.Color, 0.40); color: white;">
+                                            @badge.Label
+                                        </span>
+                                    }
+                                </div>
+                            }
+                        </div>
 
-                @* 도넛 중앙 전체 시간 *@
-                <SvgText X="@b.DonutCx" Y="@b.CenterLabelY"
-                         TextAnchor="middle"
-                         Fill="white"
-                         FontSize="@b.CenterFS" FontWeight="700"
-                         Content="@FormatMs(b.Total)" />
+                        @* 본문 *@
+                        @if (b.HasMtWt)
+                        {
+                            <div class="fc-body">
+                                <div class="fc-chart @(b.ShowStats ? "" : "fc-chart-center")">
+                                    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                                        <defs>
+                                            <linearGradient id="mt-g-@b.ClipId" x1="0%" y1="0%" x2="0%" y2="100%">
+                                                <stop offset="0%" stop-color="#4a90e2" />
+                                                <stop offset="100%" stop-color="#3a86ff" stop-opacity="0.7" />
+                                            </linearGradient>
+                                            <linearGradient id="wt-g-@b.ClipId" x1="0%" y1="0%" x2="0%" y2="100%">
+                                                <stop offset="0%" stop-color="#ffb347" />
+                                                <stop offset="100%" stop-color="#ff9f1c" stop-opacity="0.7" />
+                                            </linearGradient>
+                                        </defs>
+                                        <g transform="rotate(-90 50 50)">
+                                            <circle cx="50" cy="50" r="40" fill="none"
+                                                    stroke="#ccc" stroke-opacity="0.1" stroke-width="9" />
+                                            @if (b.MtFrac > 0)
+                                            {
+                                                <circle cx="50" cy="50" r="40" fill="none"
+                                                        stroke="url(#mt-g-@b.ClipId)" stroke-width="9"
+                                                        stroke-dasharray="@b.SMtDash @b.SCirc"
+                                                        stroke-linecap="round" />
+                                            }
+                                            @if (b.WtFrac > 0)
+                                            {
+                                                <circle cx="50" cy="50" r="40" fill="none"
+                                                        stroke="url(#wt-g-@b.ClipId)" stroke-width="9"
+                                                        stroke-dasharray="@b.SWtDash @b.SCirc"
+                                                        stroke-dashoffset="@b.SNegMt"
+                                                        stroke-linecap="round" />
+                                            }
+                                        </g>
+                                        @* 도넛 내부 엣지 하이라이트 *@
+                                        <circle cx="50" cy="50" r="35.5" fill="none" opacity="0">
+                                            <radialGradient id="ie-@b.ClipId" cx="50%" cy="50%" r="50%">
+                                                <stop offset="0%" stop-color="white" stop-opacity="0.25" />
+                                                <stop offset="90%" stop-color="white" stop-opacity="0" />
+                                            </radialGradient>
+                                        </circle>
+                                    </svg>
+                                    <span class="fc-chart-label">@FormatMs(b.Total)</span>
+                                </div>
 
-                @* 우측 통계 (넓은 블럭 전용) *@
-                @if (b.ShowStats)
-                {
-                    @* 범례 컬러 도트 (네온 글로우) *@
-                    <circle cx="@b.DotX" cy="@b.DotY1" r="@b.DotR"
-                            fill="#3a86ff" filter="url(#dot-glow)" />
-                    <circle cx="@b.DotX" cy="@b.DotY2" r="@b.DotR"
-                            fill="#ff9f1c" filter="url(#dot-glow)" />
-                    <SvgText X="@b.StatsX" Y="@b.StatsY1"
-                             Fill="rgba(255,255,255,0.7)"
-                             FontSize="@b.StatsFS" Content="가동" />
-                    <SvgText X="@b.ValX" Y="@b.StatsY1"
-                             Fill="white"
-                             FontSize="@b.StatsFS" FontWeight="600"
-                             Content="@FormatMs(b.Mt)" />
-                    <SvgText X="@b.StatsX" Y="@b.StatsY2"
-                             Fill="rgba(255,255,255,0.7)"
-                             FontSize="@b.StatsFS" Content="대기" />
-                    <SvgText X="@b.ValX" Y="@b.StatsY2"
-                             Fill="white"
-                             FontSize="@b.StatsFS" FontWeight="600"
-                             Content="@FormatMs(b.Wt)" />
-                }
-            }
+                                @if (b.ShowStats)
+                                {
+                                    <div class="fc-stats">
+                                        <div class="fc-state-label">@b.StateLabel</div>
+                                        <div class="fc-stat-row">
+                                            <span class="fc-dot fc-dot-mt"></span>
+                                            <span class="fc-stat-label">가동</span>
+                                            <span class="fc-stat-value">@FormatMs(b.Mt)</span>
+                                        </div>
+                                        <div class="fc-stat-row">
+                                            <span class="fc-dot fc-dot-wt"></span>
+                                            <span class="fc-stat-label">대기</span>
+                                            <span class="fc-stat-value">@FormatMs(b.Wt)</span>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
 
-            @* 상태 라벨 *@
-            <SvgText X="@b.StateX" Y="@b.StateY"
-                     TextAnchor="@(b.ShowStats ? "start" : "middle")"
-                     Fill="rgba(255,255,255,0.6)" FontWeight="600"
-                     FontSize="@b.StateFS" Content="@b.StateLabel" />
-
-            @* 배지 (우상단) — pill 스타일, 가로 배치 *@
-            @for (int bi = 0; bi < b.Badges.Count; bi++)
-            {
-                var badge   = b.Badges[bi];
-                var bW      = b.BWidthsList[bi];
-                var bOffsetX = b.BWidthsList.Take(bi).Sum() + bi * b.BGap;
-                var bX      = b.Px + b.Pad + b.InnerW - b.TotalBadgeW - 4 + bOffsetX;
-                var bY      = b.TitleY - (int)(b.TitleFS * 0.36 + b.BH / 2.0);
-                <g>
-                    <rect x="@bX" y="@bY" width="@bW" height="@b.BH"
-                          rx="6" ry="6"
-                          fill="@badge.Color" fill-opacity="0.20"
-                          stroke="@badge.Color" stroke-width="1" stroke-opacity="0.40" />
-                    <SvgText X="@(bX + bW / 2)" Y="@(bY + b.BH - 5)"
-                             TextAnchor="middle" Fill="white"
-                             FontSize="13" FontWeight="700"
-                             Content="@badge.Label" />
-                </g>
-            }
+                            @if (!b.ShowStats)
+                            {
+                                <div class="fc-footer">@b.StateLabel</div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="fc-footer" style="flex:1;display:flex;align-items:center;justify-content:center;">
+                                @b.StateLabel
+                            </div>
+                        }
+                    </div>
+                </div>
+            </foreignObject>
 
             @* 선택 오버레이 (clip 안쪽) *@
             @if (sel)
@@ -313,10 +279,19 @@
 
     protected override void OnParametersSet()
     {
-        _blockLayouts = Placements.Select(ComputeSingleBlock).ToList();
+        // 최소 카드 크기 산출 (콘텐츠 영역 통일용)
+        var pad = 4;
+        var minContentW = Placements.Count > 0
+            ? Placements.Min(fp => fp.ColSpan * CellWidth - pad * 2) : 0;
+        var minContentH = Placements.Count > 0
+            ? Placements.Min(fp => fp.RowSpan * CellHeight - pad * 2) : 0;
+
+        _blockLayouts = Placements
+            .Select(fp => ComputeSingleBlock(fp, minContentW, minContentH))
+            .ToList();
     }
 
-    // ── Layout record ──
+    // ── Simplified layout record ──
     private record FlowBlockLayout
     {
         // 데이터
@@ -337,55 +312,24 @@
         public required int InnerH { get; init; }
         public required string ClipId { get; init; }
         public required bool ShowStats { get; init; }
-        public required int Cx { get; init; }
 
-        // 타이틀
-        public required int TitleFS { get; init; }
-        public required int TitleY { get; init; }
+        // 콘텐츠 영역 (최소 카드 기준, 중앙 정렬)
+        public required int ContentX { get; init; }
+        public required int ContentY { get; init; }
+        public required int ContentW { get; init; }
+        public required int ContentH { get; init; }
 
-        // 배지
-        public required int BH { get; init; }
-        public required int BGap { get; init; }
-        public required List<int> BWidthsList { get; init; }
-        public required int TotalBadgeW { get; init; }
-
-        // 도넛 차트
-        public required int DonutR { get; init; }
-        public required int DonutSW { get; init; }
-        public required int DonutCx { get; init; }
-        public required int DonutCy { get; init; }
-        public required double MtDash { get; init; }
-        public required double WtDash { get; init; }
+        // 도넛 비율 (viewBox 100x100 기준, r=40, sw=9)
+        public required double MtFrac { get; init; }
+        public required double WtFrac { get; init; }
         public required string SCirc { get; init; }
         public required string SMtDash { get; init; }
         public required string SWtDash { get; init; }
         public required string SNegMt { get; init; }
-
-        // 도넛 중앙 라벨
-        public required int CenterFS { get; init; }
-        public required int CenterLabelY { get; init; }
-
-        // 통계 텍스트
-        public required int ValX { get; init; }
-        public required int StatsX { get; init; }
-        public required int StatsFS { get; init; }
-        public required int StatsY1 { get; init; }
-        public required int StatsY2 { get; init; }
-
-        // 범례 도트
-        public required int DotR { get; init; }
-        public required int DotX { get; init; }
-        public required int DotY1 { get; init; }
-        public required int DotY2 { get; init; }
-
-        // 상태 라벨
-        public required int StateX { get; init; }
-        public required int StateFS { get; init; }
-        public required int StateY { get; init; }
     }
 
-    // ── 블록별 레이아웃 계산 ──
-    private FlowBlockLayout ComputeSingleBlock(FlowPlacement fp)
+    // ── 블록별 레이아웃 계산 (단순화) ──
+    private FlowBlockLayout ComputeSingleBlock(FlowPlacement fp, int minContentW, int minContentH)
     {
         var color      = GetColor?.Invoke(fp) ?? "#9E9E9E";
         var stateLabel = GetStateLabel?.Invoke(fp) ?? "";
@@ -399,44 +343,24 @@
         var pad    = 4;
         var innerW = pw - pad * 2;
         var innerH = ph - pad * 2;
-        var minDim = Math.Min(innerW, innerH);
-        var showStats = innerW >= 130;
-        var clipId    = $"blk{fp.FlowName.GetHashCode() & 0x7FFFFFFF}";
-        var cx        = px + pw / 2;
+        var clipId = $"blk{fp.FlowName.GetHashCode() & 0x7FFFFFFF}";
+
+        // 콘텐츠 영역: 최소 카드 크기 기준, 카드 내 중앙 정렬
+        var contentW = minContentW;
+        var contentH = minContentH;
+        var contentX = px + pad + (innerW - contentW) / 2;
+        var contentY = py + pad + (innerH - contentH) / 2;
+        var showStats = minContentW >= 130;
 
         var hasMtWt = mtWt != null;
         var mt    = mtWt?.Mt ?? 0;
         var wt    = mtWt?.Wt ?? 0;
         var total = mt + wt;
 
-        // 배지
-        var badges      = GetBadges?.Invoke(fp)?.ToList() ?? new List<(string Label, string Color)>();
-        var bH          = 20;
-        var bGap        = 4;
-        var bWidthsList = badges.Select(b => b.Label.Length <= 2 ? 34 : 46).ToList();
-        var totalBadgeW = badges.Count > 0 ? bWidthsList.Sum() + (badges.Count - 1) * bGap : 0;
-        var badgeRightReserve = badges.Count > 0 ? totalBadgeW + 8 : 4;
-
-        // 타이틀: 배지 영역 제외 너비에 맞게 폰트 크기 결정
-        var titleFS   = Math.Max(9, (int)Math.Min(innerH * 0.19, innerW * 0.13));
-        var titleY    = py + pad + (int)(innerH * 0.22);
-        var titleMaxW = Math.Max(20, innerW - badgeRightReserve - 12);
-        var estTitleW = fp.FlowName.Sum(c => c > 0x7F ? (double)titleFS : titleFS * 0.65);
-        if (estTitleW > titleMaxW)
-            titleFS = Math.Max(7, (int)(titleFS * titleMaxW / estTitleW));
-
-        // 도넛 차트 지오메트리
-        var donutMaxR = showStats ? innerW * 0.20 : innerW * 0.28;
-        var donutR    = (int)Math.Max(8, Math.Min(innerH * 0.28, donutMaxR));
-        var donutSW   = (int)Math.Max(3, donutR * 0.22);
-        var donutCx   = showStats
-            ? px + pad + (int)(innerW * 0.26)
-            : px + pad + (int)(innerW * 0.50);
-        var donutCy   = py + pad + (int)(innerH * 0.58);
-
-        var circ   = 2 * Math.PI * donutR;
+        // 도넛 비율 (고정 viewBox: r=40, circ=2*PI*40)
         var mtFrac = total > 0 ? (double)mt / total : (hasMtWt ? 1.0 : 0.0);
         var wtFrac = 1.0 - mtFrac;
+        const double circ = 2 * Math.PI * 40;
         var mtDash = circ * mtFrac;
         var wtDash = circ * wtFrac;
 
@@ -446,34 +370,8 @@
         var sWtDash = wtDash.ToString("F1", inv);
         var sNegMt  = (-mtDash).ToString("F1", inv);
 
-        // 도넛 중앙 라벨
-        var centerFS = Math.Max(6, (int)(donutR * 0.52));
-
-        // 통계 텍스트 위치 — 라벨과 값을 고정 간격으로 배치, 블록 내 클램핑
-        var statsX   = Math.Max(donutCx + donutR + (int)(donutSW / 2.0) + 6,
-                                px + pad + (int)(innerW * 0.50));
-        var rightEdge = px + pad + innerW - 4;
-        var availW    = rightEdge - statsX;
-        // "가동"(~2.0) + gap(~0.6) + value(~3.5 ASCII chars) ≈ 6.1 * statsFS
-        var statsFS  = Math.Min(
-            Math.Max(7, (int)(minDim * 0.115)),
-            Math.Max(7, (int)(availW / 6.1)));
-        var valX     = statsX + (int)(statsFS * 2.6);
-        var statsLH = (int)(innerH * (showStats ? 0.13 : 0.155));
-        var statsY1 = showStats ? donutCy : donutCy - statsLH;
-        var statsY2 = showStats ? donutCy + statsLH : donutCy;
-
-        // 범례 도트
-        var dotR    = Math.Max(3, (int)(statsFS * 0.28));
-        var dotX    = statsX - dotR - 5;
-        var dotYOff = (int)(statsFS * 0.35);
-
-        // 상태 라벨 — showStats일 때 우측 통계 영역 위, 아닐 때 하단 중앙
-        var stateFS = showStats
-            ? Math.Max(8, (int)(statsFS * 1.15))
-            : Math.Max(7, (int)(Math.Min(CellWidth, CellHeight) * 0.10));
-        var stateX  = showStats ? statsX : cx;
-        var stateY  = showStats ? donutCy - statsLH : py + pad + (int)(innerH * 0.91);
+        // 배지
+        var badges = GetBadges?.Invoke(fp)?.ToList() ?? new List<(string Label, string Color)>();
 
         return new FlowBlockLayout
         {
@@ -482,18 +380,11 @@
             Badges = badges,
             Px = px, Py = py, Pad = pad,
             InnerW = innerW, InnerH = innerH, ClipId = clipId,
-            ShowStats = showStats, Cx = cx,
-            TitleFS = titleFS, TitleY = titleY,
-            BH = bH, BGap = bGap, BWidthsList = bWidthsList, TotalBadgeW = totalBadgeW,
-            DonutR = donutR, DonutSW = donutSW, DonutCx = donutCx, DonutCy = donutCy,
-            MtDash = mtDash, WtDash = wtDash,
+            ShowStats = showStats,
+            ContentX = contentX, ContentY = contentY,
+            ContentW = contentW, ContentH = contentH,
+            MtFrac = mtFrac, WtFrac = wtFrac,
             SCirc = sCirc, SMtDash = sMtDash, SWtDash = sWtDash, SNegMt = sNegMt,
-            CenterFS = centerFS, CenterLabelY = donutCy + (int)(centerFS * 0.38),
-            ValX = valX, StatsX = statsX, StatsFS = statsFS,
-            StatsY1 = statsY1, StatsY2 = statsY2,
-            DotR = dotR, DotX = dotX,
-            DotY1 = statsY1 - dotYOff, DotY2 = statsY2 - dotYOff,
-            StateX = stateX, StateFS = stateFS, StateY = stateY,
         };
     }
 
@@ -519,5 +410,19 @@
         if (ms < 60_000) return $"{ms / 1000.0:F1}s";
         if (ms < 3_600_000) return $"{ms / 60000}m {ms % 60000 / 1000}s";
         return $"{ms / 3_600_000}h {ms % 3_600_000 / 60000}m";
+    }
+
+    // ── 색상 믹스 헬퍼 (배지 배경/테두리용) ──
+    private static string ColorMix(string color, double opacity)
+    {
+        // rgba 형태로 반환
+        if (color.StartsWith("#") && color.Length >= 7)
+        {
+            var r = Convert.ToInt32(color.Substring(1, 2), 16);
+            var g = Convert.ToInt32(color.Substring(3, 2), 16);
+            var b = Convert.ToInt32(color.Substring(5, 2), 16);
+            return $"rgba({r},{g},{b},{opacity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)})";
+        }
+        return color;
     }
 }
