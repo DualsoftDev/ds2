@@ -35,6 +35,7 @@
     <Compile Include="Store\DsStore.Panel.fs" />
     <Compile Include="Store\DsStore.Panel.Api.fs" />
     <Compile Include="Store\DsStore.Panel.Batch.fs" />
+    <Compile Include="Compat\LegacyJsonImport.fs" />
   </ItemGroup>
 
   <ItemGroup>

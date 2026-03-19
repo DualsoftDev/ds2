@@ -61,11 +61,56 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
+        ///   추가과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Add {
+            get {
+                return ResourceManager.GetString("Add", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Ds2 Promaker과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string AppTitle {
             get {
                 return ResourceManager.GetString("AppTitle", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   재배치과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string AutoLayout {
+            get {
+                return ResourceManager.GetString("AutoLayout", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   자동 재배치 (Ctrl+L)과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string AutoLayoutTooltip {
+            get {
+                return ResourceManager.GetString("AutoLayoutTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   일괄편집과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string BatchEdit {
+            get {
+                return ResourceManager.GetString("BatchEdit", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   일괄 편집 (I/O, Duration)과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string BatchEditTooltip {
+            get {
+                return ResourceManager.GetString("BatchEditTooltip", resourceCulture);
             }
         }
         
@@ -107,11 +152,56 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
+        ///   삭제과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Delete {
+            get {
+                return ResourceManager.GetString("Delete", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   삭제과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string DeleteTooltip {
+            get {
+                return ResourceManager.GetString("DeleteTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   편집과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Edit {
+            get {
+                return ResourceManager.GetString("Edit", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   오류과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string ErrorTitle {
             get {
                 return ResourceManager.GetString("ErrorTitle", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   실행과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Execute {
+            get {
+                return ResourceManager.GetString("Execute", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   CSV 내보내기...과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string ExportCsv {
+            get {
+                return ResourceManager.GetString("ExportCsv", resourceCulture);
             }
         }
         
@@ -143,6 +233,42 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
+        ///   Work 리셋과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string ForceWorkResetTooltip {
+            get {
+                return ResourceManager.GetString("ForceWorkResetTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Work 실행과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string ForceWorkStartTooltip {
+            get {
+                return ResourceManager.GetString("ForceWorkStartTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   시간무시과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string IgnoreTime {
+            get {
+                return ResourceManager.GetString("IgnoreTime", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   시간 무시과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string IgnoreTimeTooltip {
+            get {
+                return ResourceManager.GetString("IgnoreTimeTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   알림과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string InfoTitle {
@@ -152,7 +278,7 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
-        ///   화이트과(와) 유사한 지역화된 문자열을 찾습니다.
+        ///   라이트과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string LightTheme {
             get {
@@ -161,11 +287,38 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
-        ///   화이트 테마 적용과(와) 유사한 지역화된 문자열을 찾습니다.
+        ///   라이트 테마 적용과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string LightThemeApplied {
             get {
                 return ResourceManager.GetString("LightThemeApplied", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   불러오기과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Load {
+            get {
+                return ResourceManager.GetString("Load", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   CSV 불러오기...과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string LoadCsv {
+            get {
+                return ResourceManager.GetString("LoadCsv", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   불러오기 (Ctrl+O)과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string LoadTooltip {
+            get {
+                return ResourceManager.GetString("LoadTooltip", resourceCulture);
             }
         }
         
@@ -175,6 +328,24 @@ namespace Promaker.Resources {
         public static string NewCall {
             get {
                 return ResourceManager.GetString("NewCall", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   새 파일과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string NewFile {
+            get {
+                return ResourceManager.GetString("NewFile", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   새 파일 (Ctrl+N)과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string NewFileTooltip {
+            get {
+                return ResourceManager.GetString("NewFileTooltip", resourceCulture);
             }
         }
         
@@ -224,11 +395,119 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
+        ///   일시정지과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Pause {
+            get {
+                return ResourceManager.GetString("Pause", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   일시정지과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string PauseSimulationTooltip {
+            get {
+                return ResourceManager.GetString("PauseSimulationTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   프로젝트과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Project {
+            get {
+                return ResourceManager.GetString("Project", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   프로젝트 속성과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string ProjectSettingsTooltip {
+            get {
+                return ResourceManager.GetString("ProjectSettingsTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Ready과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string Ready {
             get {
                 return ResourceManager.GetString("Ready", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   복원과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Redo {
+            get {
+                return ResourceManager.GetString("Redo", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   다시실행 (Ctrl+Y)과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string RedoTooltip {
+            get {
+                return ResourceManager.GetString("RedoTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   리포트과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Report {
+            get {
+                return ResourceManager.GetString("Report", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   리포트 내보내기과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string ReportTooltip {
+            get {
+                return ResourceManager.GetString("ReportTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   초기화과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Reset {
+            get {
+                return ResourceManager.GetString("Reset", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   초기화과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string ResetSimulationTooltip {
+            get {
+                return ResourceManager.GetString("ResetSimulationTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   저장과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Save {
+            get {
+                return ResourceManager.GetString("Save", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   다른 이름으로 저장...과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string SaveAs {
+            get {
+                return ResourceManager.GetString("SaveAs", resourceCulture);
             }
         }
         
@@ -260,6 +539,15 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
+        ///   저장 (Ctrl+S)과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string SaveTooltip {
+            get {
+                return ResourceManager.GetString("SaveTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Flow를 선택해주세요과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string SelectFlow {
@@ -278,6 +566,78 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
+        ///   설정과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Settings {
+            get {
+                return ResourceManager.GetString("Settings", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   실행과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Simulation {
+            get {
+                return ResourceManager.GetString("Simulation", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   실행 옵션과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string SimulationOptions {
+            get {
+                return ResourceManager.GetString("SimulationOptions", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   속도과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Speed {
+            get {
+                return ResourceManager.GetString("Speed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   시작과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Start {
+            get {
+                return ResourceManager.GetString("Start", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   시뮬레이션 시작과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string StartSimulationTooltip {
+            get {
+                return ResourceManager.GetString("StartSimulationTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   정지과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Stop {
+            get {
+                return ResourceManager.GetString("Stop", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   정지과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string StopSimulationTooltip {
+            get {
+                return ResourceManager.GetString("StopSimulationTooltip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   다크 테마로 전환과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string SwitchToDarkTheme {
@@ -287,7 +647,7 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
-        ///   화이트 테마로 전환과(와) 유사한 지역화된 문자열을 찾습니다.
+        ///   라이트 테마로 전환과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string SwitchToLightTheme {
             get {
@@ -301,6 +661,33 @@ namespace Promaker.Resources {
         public static string SystemAddFailed {
             get {
                 return ResourceManager.GetString("SystemAddFailed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   도구과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Tools {
+            get {
+                return ResourceManager.GetString("Tools", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   취소과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Undo {
+            get {
+                return ResourceManager.GetString("Undo", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   실행취소 (Ctrl+Z)과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string UndoTooltip {
+            get {
+                return ResourceManager.GetString("UndoTooltip", resourceCulture);
             }
         }
         
@@ -319,264 +706,6 @@ namespace Promaker.Resources {
         public static string WorkAddFailed {
             get {
                 return ResourceManager.GetString("WorkAddFailed", resourceCulture);
-            }
-        }
-
-        public static string Project {
-            get {
-                return ResourceManager.GetString("Project", resourceCulture);
-            }
-        }
-
-        public static string NewFile {
-            get {
-                return ResourceManager.GetString("NewFile", resourceCulture);
-            }
-        }
-
-        public static string Load {
-            get {
-                return ResourceManager.GetString("Load", resourceCulture);
-            }
-        }
-
-        public static string Save {
-            get {
-                return ResourceManager.GetString("Save", resourceCulture);
-            }
-        }
-
-        public static string SaveAs {
-            get {
-                return ResourceManager.GetString("SaveAs", resourceCulture);
-            }
-        }
-
-        public static string Edit {
-            get {
-                return ResourceManager.GetString("Edit", resourceCulture);
-            }
-        }
-
-        public static string Undo {
-            get {
-                return ResourceManager.GetString("Undo", resourceCulture);
-            }
-        }
-
-        public static string Redo {
-            get {
-                return ResourceManager.GetString("Redo", resourceCulture);
-            }
-        }
-
-        public static string Add {
-            get {
-                return ResourceManager.GetString("Add", resourceCulture);
-            }
-        }
-
-        public static string Delete {
-            get {
-                return ResourceManager.GetString("Delete", resourceCulture);
-            }
-        }
-
-        public static string BatchEdit {
-            get {
-                return ResourceManager.GetString("BatchEdit", resourceCulture);
-            }
-        }
-
-        public static string AutoLayout {
-            get {
-                return ResourceManager.GetString("AutoLayout", resourceCulture);
-            }
-        }
-
-        public static string Simulation {
-            get {
-                return ResourceManager.GetString("Simulation", resourceCulture);
-            }
-        }
-
-        public static string Start {
-            get {
-                return ResourceManager.GetString("Start", resourceCulture);
-            }
-        }
-
-        public static string Pause {
-            get {
-                return ResourceManager.GetString("Pause", resourceCulture);
-            }
-        }
-
-        public static string Stop {
-            get {
-                return ResourceManager.GetString("Stop", resourceCulture);
-            }
-        }
-
-        public static string Reset {
-            get {
-                return ResourceManager.GetString("Reset", resourceCulture);
-            }
-        }
-
-        public static string SimulationOptions {
-            get {
-                return ResourceManager.GetString("SimulationOptions", resourceCulture);
-            }
-        }
-
-        public static string Speed {
-            get {
-                return ResourceManager.GetString("Speed", resourceCulture);
-            }
-        }
-
-        public static string IgnoreTime {
-            get {
-                return ResourceManager.GetString("IgnoreTime", resourceCulture);
-            }
-        }
-
-        public static string Execute {
-            get {
-                return ResourceManager.GetString("Execute", resourceCulture);
-            }
-        }
-
-        public static string Tools {
-            get {
-                return ResourceManager.GetString("Tools", resourceCulture);
-            }
-        }
-
-        public static string Report {
-            get {
-                return ResourceManager.GetString("Report", resourceCulture);
-            }
-        }
-
-        public static string LoadCsv {
-            get {
-                return ResourceManager.GetString("LoadCsv", resourceCulture);
-            }
-        }
-
-        public static string ExportCsv {
-            get {
-                return ResourceManager.GetString("ExportCsv", resourceCulture);
-            }
-        }
-
-        public static string Settings {
-            get {
-                return ResourceManager.GetString("Settings", resourceCulture);
-            }
-        }
-
-        public static string NewFileTooltip {
-            get {
-                return ResourceManager.GetString("NewFileTooltip", resourceCulture);
-            }
-        }
-
-        public static string LoadTooltip {
-            get {
-                return ResourceManager.GetString("LoadTooltip", resourceCulture);
-            }
-        }
-
-        public static string SaveTooltip {
-            get {
-                return ResourceManager.GetString("SaveTooltip", resourceCulture);
-            }
-        }
-
-        public static string UndoTooltip {
-            get {
-                return ResourceManager.GetString("UndoTooltip", resourceCulture);
-            }
-        }
-
-        public static string RedoTooltip {
-            get {
-                return ResourceManager.GetString("RedoTooltip", resourceCulture);
-            }
-        }
-
-        public static string DeleteTooltip {
-            get {
-                return ResourceManager.GetString("DeleteTooltip", resourceCulture);
-            }
-        }
-
-        public static string BatchEditTooltip {
-            get {
-                return ResourceManager.GetString("BatchEditTooltip", resourceCulture);
-            }
-        }
-
-        public static string AutoLayoutTooltip {
-            get {
-                return ResourceManager.GetString("AutoLayoutTooltip", resourceCulture);
-            }
-        }
-
-        public static string StartSimulationTooltip {
-            get {
-                return ResourceManager.GetString("StartSimulationTooltip", resourceCulture);
-            }
-        }
-
-        public static string PauseSimulationTooltip {
-            get {
-                return ResourceManager.GetString("PauseSimulationTooltip", resourceCulture);
-            }
-        }
-
-        public static string StopSimulationTooltip {
-            get {
-                return ResourceManager.GetString("StopSimulationTooltip", resourceCulture);
-            }
-        }
-
-        public static string ResetSimulationTooltip {
-            get {
-                return ResourceManager.GetString("ResetSimulationTooltip", resourceCulture);
-            }
-        }
-
-        public static string IgnoreTimeTooltip {
-            get {
-                return ResourceManager.GetString("IgnoreTimeTooltip", resourceCulture);
-            }
-        }
-
-        public static string ForceWorkStartTooltip {
-            get {
-                return ResourceManager.GetString("ForceWorkStartTooltip", resourceCulture);
-            }
-        }
-
-        public static string ForceWorkResetTooltip {
-            get {
-                return ResourceManager.GetString("ForceWorkResetTooltip", resourceCulture);
-            }
-        }
-
-        public static string ReportTooltip {
-            get {
-                return ResourceManager.GetString("ReportTooltip", resourceCulture);
-            }
-        }
-
-        public static string ProjectSettingsTooltip {
-            get {
-                return ResourceManager.GetString("ProjectSettingsTooltip", resourceCulture);
             }
         }
     }

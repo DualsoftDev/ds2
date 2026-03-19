@@ -9,6 +9,7 @@ open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 open Ds2.UI.Core
+open Ds2.UI.Core.Compat
 
 module LegacyImportGraph =
 
@@ -16,18 +17,10 @@ module LegacyImportGraph =
 
     let private log = LogManager.GetLogger("Ds2.Aasx.Compat")
 
-    // ── Guid 파싱 헬퍼 ──────────────────────────────────────────────────────
+    // ── 공유 헬퍼 재사용 (Ds2.UI.Core.Compat.LegacyJsonImport) ──────────────
 
-    let private tryParseGuid (s: string) =
-        match Guid.TryParse(s) with true, v -> Some v | _ -> None
-
-    // ── seq Call.Name 파싱 ──────────────────────────────────────────────────
-
-    /// "RB1.START" → ("RB1", "START"),  "SomeCall" → ("SomeCall", "")
-    let parseCallName (name: string) : string * string =
-        match name.LastIndexOf('.') with
-        | -1 -> name, ""
-        | idx -> name.[.. idx - 1], name.[idx + 1 ..]
+    let private tryParseGuid = LegacyJsonImport.tryParseGuid
+    let parseCallName = LegacyJsonImport.parseCallName
 
     // ── seq Properties JSON 호환 ────────────────────────────────────────────
 
@@ -59,6 +52,33 @@ module LegacyImportGraph =
                 props.ApiDef |> Option.bind tryParseGuid
             with _ -> None)
 
+    // ── dsev2 IOTags JSON → ds2 IOTag + ValueSpec 변환 ──────────────────────
+
+    open System.Text.Json
+
+    /// dsev2 IOTags JSON에서 InTag/OutTag 하나를 파싱 (key로 프로퍼티 조회 후 공유 헬퍼 위임).
+    let private tryParseLegacyTag (root: JsonElement) (key: string) : (IOTag * ValueSpec) option =
+        try
+            match root.TryGetProperty(key) with
+            | false, _ -> None
+            | true, wrapper -> LegacyJsonImport.tryParseLegacyTag wrapper
+        with _ -> None
+
+    /// dsev2 ApiCall SMC의 IOTags 프로퍼티에서 InTag/OutTag + InputSpec/OutputSpec 추출.
+    let private parseLegacyIOTags (smc: SubmodelElementCollection) (apiCall: ApiCall) =
+        getProp smc "IOTags"
+        |> Option.iter (fun json ->
+            try
+                use doc = JsonDocument.Parse(json)
+                let root = doc.RootElement
+                tryParseLegacyTag root "InTag" |> Option.iter (fun (tag, spec) ->
+                    apiCall.InTag <- Some tag
+                    apiCall.InputSpec <- spec)
+                tryParseLegacyTag root "OutTag" |> Option.iter (fun (tag, spec) ->
+                    apiCall.OutTag <- Some tag
+                    apiCall.OutputSpec <- spec)
+            with _ -> ())
+
     // ── SMC → 도메인 엔티티 변환 (smcToFlow/smcToApiDef는 AasxImportGraph 재사용) ──
 
     open Ds2.Aasx.AasxImportGraph
@@ -70,6 +90,7 @@ module LegacyImportGraph =
             let apiCall = ApiCall(name)
             apiCall.Id <- guid
             apiCall.ApiDefId <- tryParseLegacyApiDefId smc
+            parseLegacyIOTags smc apiCall
             Some apiCall
         with ex -> log.Warn($"legacySmcToApiCall 실패: {ex.Message}", ex); None
 
