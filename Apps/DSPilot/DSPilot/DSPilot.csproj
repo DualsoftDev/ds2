@@ -8,12 +8,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.3" />
+    <PackageReference Include="System.Data.SQLite.Core" Version="1.0.119" />
     <PackageReference Include="MudBlazor" Version="8.2.0" />
     <PackageReference Include="Dapper" Version="2.1.35" />
     <PackageReference Include="System.Threading.Channels" Version="9.0.0" />
     <PackageReference Include="System.Reactive" Version="6.1.0" />
     <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="log4net" Version="3.2.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -39,6 +41,9 @@
     <Reference Include="Dual.Common.Base.FS">
       <HintPath>..\..\..\ExternalDlls\Dual.Common.Base.FS.dll</HintPath>
     </Reference>
+    <Reference Include="Dual.Common.Db.FS">
+      <HintPath>..\..\..\ExternalDlls\Dual.Common.Db.FS.dll</HintPath>
+    </Reference>
     <Reference Include="Ev2.PLC.Protocol.AB">
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.AB.dll</HintPath>
     </Reference>
@@ -48,6 +53,12 @@
     <Reference Include="Ev2.PLC.Protocol.MX">
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.MX.dll</HintPath>
     </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="log4net.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

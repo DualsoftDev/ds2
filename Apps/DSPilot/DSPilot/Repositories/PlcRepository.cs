@@ -19,7 +19,14 @@ public class PlcRepository : IPlcRepository
         var dbPath = configuration["PlcDatabase:SourceDbPath"]
             ?? throw new InvalidOperationException("PlcDatabase:SourceDbPath is not configured");
 
-        _connectionString = $"Data Source={dbPath};Mode=ReadOnly;";
+        // 상대 경로를 절대 경로로 변환
+        if (!Path.IsPathRooted(dbPath))
+        {
+            dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, dbPath);
+        }
+
+        // ReadOnly 제거 - PlcCaptureService가 DB를 생성하고 쓰기 작업을 수행함
+        _connectionString = $"Data Source={dbPath};";
         _logger = logger;
     }
 

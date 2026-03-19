@@ -49,6 +49,13 @@ public class PlcDataReaderService : BackgroundService
         _logger.LogInformation("Simulation Mode Config: {SimMode}", _simulationMode);
         _logger.LogInformation("========================================");
 
+        // DB 파일 생성 대기 (PlcCaptureService가 DB를 생성할 때까지)
+        if (!await WaitForDatabaseCreationAsync(stoppingToken))
+        {
+            _logger.LogError("Database was not created. PLC Data Reader Service cannot start.");
+            return;
+        }
+
         // 초기화 및 연결 테스트
         if (!await InitializeAsync())
         {
@@ -87,6 +94,49 @@ public class PlcDataReaderService : BackgroundService
         }
 
         _logger.LogInformation("PLC Data Reader Service stopped. Total logs read: {Count}", _totalLogsRead);
+    }
+
+    /// <summary>
+    /// DB 파일 생성 대기 (PlcCaptureService가 DB를 생성할 때까지)
+    /// </summary>
+    private async Task<bool> WaitForDatabaseCreationAsync(CancellationToken stoppingToken)
+    {
+        var dbPath = _configuration["PlcDatabase:SourceDbPath"] ?? "sample/db/DsDB.sqlite3";
+
+        // 상대 경로를 절대 경로로 변환
+        if (!Path.IsPathRooted(dbPath))
+        {
+            dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, dbPath);
+        }
+
+        _logger.LogInformation("Waiting for database file to be created: {DbPath}", dbPath);
+
+        var maxWaitTime = TimeSpan.FromSeconds(30);
+        var startTime = DateTime.Now;
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            if (File.Exists(dbPath))
+            {
+                _logger.LogInformation("Database file found: {DbPath}", dbPath);
+                // DB 파일이 완전히 생성될 때까지 추가 대기
+                await Task.Delay(1000, stoppingToken);
+                return true;
+            }
+
+            if (DateTime.Now - startTime > maxWaitTime)
+            {
+                _logger.LogError("Timeout waiting for database file. File not found after {MaxWait} seconds: {DbPath}",
+                    maxWaitTime.TotalSeconds, dbPath);
+                return false;
+            }
+
+            _logger.LogDebug("Database file not found yet. Waiting... ({Elapsed}s elapsed)",
+                (DateTime.Now - startTime).TotalSeconds);
+            await Task.Delay(1000, stoppingToken);
+        }
+
+        return false;
     }
 
     /// <summary>
