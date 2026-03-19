@@ -26,3 +26,9 @@ type Status4 =
 type CallType =
     | WaitForCompletion = 0
     | SkipIfCompleted   = 1
+
+/// Token role for Work in DataToken simulation.
+type TokenRole =
+    | None   = 0
+    | Source = 1
+    | Ignore = 2

@@ -6,9 +6,18 @@
              xmlns:conv="clr-namespace:Promaker.Presentation"
              xmlns:core="clr-namespace:Ds2.UI.Core;assembly=Ds2.UI.Core"
              xmlns:help="clr-namespace:Promaker.Help"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
+             xmlns:ds2core="clr-namespace:Ds2.Core;assembly=Ds2.Core"
              x:Name="PanelRoot">
     <UserControl.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <ObjectDataProvider x:Key="TokenRoleValues"
+                            MethodName="GetValues"
+                            ObjectType="{x:Type sys:Enum}">
+            <ObjectDataProvider.MethodParameters>
+                <x:Type TypeName="ds2core:TokenRole"/>
+            </ObjectDataProvider.MethodParameters>
+        </ObjectDataProvider>
 
         <Style x:Key="InlineListButton" TargetType="Button" BasedOn="{StaticResource DarkButton}">
             <Setter Property="Padding" Value="6,2"/>
@@ -162,6 +171,15 @@
                                     IsEnabled="{Binding IsWorkPeriodDirty}"
                                     Command="{Binding ApplyWorkPeriodCommand}"/>
                         </Grid>
+                        <Separator Margin="0,12"/>
+                        <TextBlock Text="TokenRole"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,2,0,2"/>
+                        <ComboBox ItemsSource="{Binding Source={StaticResource TokenRoleValues}}"
+                                  SelectedItem="{Binding WorkTokenRole}"
+                                  FontSize="12"
+                                  Padding="6,4"/>
                         <Separator Margin="0,12"/>
                     </StackPanel>
 

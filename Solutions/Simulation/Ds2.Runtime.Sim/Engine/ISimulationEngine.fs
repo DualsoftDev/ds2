@@ -40,6 +40,11 @@ type ISimulationEngine =
     // 외부 신호
     abstract InjectIOValue: apiCallGuid: Guid * value: string -> unit
 
+    // 토큰
+    abstract SeedToken: sourceWorkGuid: Guid * value: TokenValue -> unit
+    abstract DiscardToken: workGuid: Guid -> unit
+    abstract GetWorkToken: workGuid: Guid -> TokenValue option
+
     // 이벤트
     [<CLIEvent>]
     abstract WorkStateChanged: IEvent<WorkStateChangedArgs>
@@ -47,3 +52,5 @@ type ISimulationEngine =
     abstract CallStateChanged: IEvent<CallStateChangedArgs>
     [<CLIEvent>]
     abstract SimulationStatusChanged: IEvent<SimulationStatusChangedArgs>
+    [<CLIEvent>]
+    abstract TokenEvent: IEvent<TokenEventArgs>

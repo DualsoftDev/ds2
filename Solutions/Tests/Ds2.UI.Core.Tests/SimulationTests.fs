@@ -110,3 +110,40 @@ module SimIndexTests =
         Assert.Single(specs) |> ignore
         Assert.Equal(rxWork.Id, specs[0].RxWorkGuid)
         Assert.Equal(Some sourceApiCall.Id, specs[0].ApiCallGuid)
+
+    [<Fact>]
+    let ``build collects token role and successor maps`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "Work2" flow.Id
+        let work3 = addWork store "Work3" flow.Id
+
+        store.UpdateWorkTokenRole(work1.Id, TokenRole.Source)
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work2.Id; work3.Id ], ArrowType.StartReset) |> ignore
+        // Reset arrow는 토큰 경로 아님
+        store.ConnectSelectionInOrder([ work3.Id; work1.Id ], ArrowType.Reset) |> ignore
+
+        let index = SimIndex.build store 10
+
+        // Source 워크 수집
+        Assert.Equal<Guid list>([ work1.Id ], index.TokenSourceGuids)
+        // TokenRole 매핑
+        Assert.Equal(TokenRole.Source, index.WorkTokenRole[work1.Id])
+        // Start/StartReset 화살표만 successor에 포함
+        Assert.Equal<Guid list>([ work2.Id ], index.WorkTokenSuccessors[work1.Id])
+        Assert.Equal<Guid list>([ work3.Id ], index.WorkTokenSuccessors[work2.Id])
+        // Reset 화살표는 successor 아님
+        Assert.False(index.WorkTokenSuccessors.ContainsKey work3.Id)
+
+    [<Fact>]
+    let ``build with no token roles produces empty token maps`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "Work2" flow.Id
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+
+        let index = SimIndex.build store 10
+
+        Assert.Empty(index.TokenSourceGuids)
+        Assert.True(index.WorkTokenRole.IsEmpty)

@@ -296,6 +296,7 @@ module JsonRoundTripTests =
         work.Properties.Period <- Some(TimeSpan.FromMilliseconds(2500.0))
         work.Status4 <- Status4.Going
         work.Position <- Some(Xywh(101, 102, 103, 104))
+        work.TokenRole <- TokenRole.Source
         work.Id <- workId
 
         let apiDef = ApiDef("ApiDef-Entity", systemId)
@@ -365,6 +366,7 @@ module JsonRoundTripTests =
         Assert.Equal(work.Properties.NumRepeat, workRt.Properties.NumRepeat)
         Assert.Equal(work.Properties.Period, workRt.Properties.Period)
         Assert.Equal(work.Status4, workRt.Status4)
+        Assert.Equal(work.TokenRole, workRt.TokenRole)
         assertXywhEqual work.Position workRt.Position
 
         Assert.Equal(apiDef.Id, apiDefRt.Id)

@@ -48,6 +48,7 @@ module internal AasxExportGraph =
             mkJsonProp<WorkProperties> Properties_ work.Properties
             mkJsonProp<Xywh option>    Position_   work.Position
             mkProp     Status_     (string work.Status4)
+            mkProp     TokenRole_  (string (int work.TokenRole))
             mkSml Calls_   calls
             mkSml Arrows_  arrows
         ]

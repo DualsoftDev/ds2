@@ -20,6 +20,8 @@ public partial class SimulationPanelState
 
         _simEngine.SimulationStatusChanged += (_, args) =>
             _dispatcher.BeginInvoke(() => OnSimStatusChanged(args));
+
+        WireTokenEvent();
     }
 
     private void OnWorkStateChanged(WorkStateChangedArgs args)

@@ -85,6 +85,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ExportCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenIoBatchDialogCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenDurationBatchDialogCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenTokenSpecDialogCommand))]
     private bool _hasProject;
     [ObservableProperty] private bool _isDarkTheme = ThemeManager.CurrentTheme == AppTheme.Dark;
     [ObservableProperty] private string _themeButtonText = ThemeManager.CurrentTheme == AppTheme.Dark ? Strings.LightTheme : Strings.DarkTheme;

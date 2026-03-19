@@ -21,6 +21,7 @@ module AasxExporter =
             mkProp     Name_         project.Name
             mkProp     Guid_         (project.Id.ToString())
             mkJsonProp<ProjectProperties> Properties_ project.Properties
+            mkJsonProp<ResizeArray<TokenSpec>> TokenSpecs_ project.TokenSpecs
             mkSml ActiveSystems_    activeSystems
             mkSml DeviceReferences_ passiveSystems
         ]

@@ -862,6 +862,37 @@ module PanelTimingTests =
         let result = store.GetCallTimeoutMs(callId)
         Assert.True(result.IsNone)
 
+module PanelTokenRoleTests =
+
+    [<Fact>]
+    let ``UpdateWorkTokenRole sets role and supports undo`` () =
+        let store = createStore ()
+        let _, _, _, work = setupBasicHierarchy store
+        Assert.Equal(TokenRole.None, store.Works[work.Id].TokenRole)
+
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
+        Assert.Equal(TokenRole.Source, store.Works[work.Id].TokenRole)
+
+        store.Undo()
+        Assert.Equal(TokenRole.None, store.Works[work.Id].TokenRole)
+
+        store.Redo()
+        Assert.Equal(TokenRole.Source, store.Works[work.Id].TokenRole)
+
+    [<Fact>]
+    let ``UpdateWorkTokenRole changes between all roles`` () =
+        let store = createStore ()
+        let _, _, _, work = setupBasicHierarchy store
+
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
+        Assert.Equal(TokenRole.Source, store.Works[work.Id].TokenRole)
+
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Ignore)
+        Assert.Equal(TokenRole.Ignore, store.Works[work.Id].TokenRole)
+
+        store.UpdateWorkTokenRole(work.Id, TokenRole.None)
+        Assert.Equal(TokenRole.None, store.Works[work.Id].TokenRole)
+
 // =============================================================================
 // DsQuery 직접 테스트
 // =============================================================================

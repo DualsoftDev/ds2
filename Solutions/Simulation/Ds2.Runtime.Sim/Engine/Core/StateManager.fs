@@ -81,6 +81,19 @@ type StateManager(index: SimIndex, initialTickMs: int) =
             pendingWorkTransitions <- Set.empty
             workGTriggeredResets   <- Set.empty)
 
+    // ── Token ──
+    member _.SetWorkToken(workGuid: Guid, token: TokenValue option) =
+        lock syncRoot (fun () -> state <- SimState.setWorkToken workGuid token state)
+    member _.GetWorkToken(workGuid: Guid) =
+        lock syncRoot (fun () -> SimState.getWorkToken workGuid state)
+    member _.AddCompletedToken(token: TokenValue) =
+        lock syncRoot (fun () -> state <- SimState.addCompletedToken token state)
+    member _.NextToken() =
+        lock syncRoot (fun () ->
+            let token, newState = SimState.nextToken state
+            state <- newState
+            token)
+
     member _.UpdateClock(newClock: TimeSpan) = lock syncRoot (fun () -> state <- { state with Clock = newClock })
     member _.GetState() = lock syncRoot (fun () -> state)
     member _.GetWorkState(workGuid: Guid) = lock syncRoot (fun () -> state.WorkStates |> Map.tryFind workGuid |> Option.defaultValue Status4.Ready)

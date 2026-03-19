@@ -31,6 +31,7 @@ type EventDrivenEngine(index: SimIndex) =
     let workStateChangedEvent = Event<WorkStateChangedArgs>()
     let callStateChangedEvent = Event<CallStateChangedArgs>()
     let simulationStatusChangedEvent = Event<SimulationStatusChangedArgs>()
+    let tokenEventEvent = Event<TokenEventArgs>()
 
     // 헬퍼
     let canStartWork wg = WorkConditionChecker.canStartWork index (stateManager.GetState()) wg
@@ -62,6 +63,56 @@ type EventDrivenEngine(index: SimIndex) =
                     |> Option.isSome
                 if hasRx then
                     stateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)))
+
+    // ── 토큰 시프트 ──────────────────────────────────────────────────
+
+    let workNameOf guid =
+        index.WorkName |> Map.tryFind guid |> Option.defaultValue (string guid)
+
+    let emitTokenEvent kind token workGuid (targetGuid: Guid option) =
+        let clock = TimeSpan.FromMilliseconds(float scheduler.CurrentTimeMs)
+        tokenEventEvent.Trigger({
+            Kind = kind; Token = token; WorkGuid = workGuid
+            WorkName = workNameOf workGuid
+            TargetWorkGuid = targetGuid
+            TargetWorkName = targetGuid |> Option.map workNameOf
+            Clock = clock })
+
+    let hasNoSuccessors workGuid =
+        index.WorkTokenSuccessors |> Map.tryFind workGuid |> Option.defaultValue [] |> List.isEmpty
+
+    let shiftToken (workGuid: Guid) (token: TokenValue) =
+        let succs =
+            index.WorkTokenSuccessors |> Map.tryFind workGuid |> Option.defaultValue []
+            |> List.filter (fun g -> SimState.getWorkToken g (stateManager.GetState()) |> Option.isNone)
+        match succs with
+        | [] when hasNoSuccessors workGuid ->
+            stateManager.SetWorkToken(workGuid, None)
+            stateManager.AddCompletedToken(token)
+            emitTokenEvent Complete token workGuid None
+        | [] ->
+            emitTokenEvent Blocked token workGuid None
+        | targets ->
+            for t in targets do
+                stateManager.SetWorkToken(t, Some token)
+                emitTokenEvent Shift token workGuid (Some t)
+            stateManager.SetWorkToken(workGuid, None)
+
+    let onWorkFinish (workGuid: Guid) =
+        match SimState.getWorkToken workGuid (stateManager.GetState()) with
+        | None -> ()
+        | Some token ->
+            match index.WorkTokenRole |> Map.tryFind workGuid with
+            | Some TokenRole.Ignore ->
+                stateManager.SetWorkToken(workGuid, None)
+                emitTokenEvent Complete token workGuid None
+            | _ -> shiftToken workGuid token
+
+    /// 토큰이 남아있으면 Homing 차단
+    let canHomingWork (workGuid: Guid) =
+        match index.WorkTokenRole |> Map.tryFind workGuid with
+        | Some TokenRole.None | None -> true
+        | _ -> SimState.getWorkToken workGuid (stateManager.GetState()) |> Option.isNone
 
     // ── 상태 전이 ────────────────────────────────────────────────────
 
@@ -101,6 +152,7 @@ type EventDrivenEngine(index: SimIndex) =
                     scheduler.ScheduleAfter(ScheduledEventType.DurationComplete workGuid, delayMs, ScheduledEvent.PriorityDurationCheck) |> ignore
             scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
         | Status4.Finish ->
+            onWorkFinish workGuid
             scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
         | Status4.Homing ->
             scheduleCallTransitions workGuid Status4.Homing Status4.Homing
@@ -139,9 +191,9 @@ type EventDrivenEngine(index: SimIndex) =
                 stateManager.MarkWorkPending(workGuid)
                 scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, Status4.Going), ScheduledEvent.PriorityStateChange) |> ignore
 
-        // 리셋 가능한 Work (F->H, 라이징 에지)
+        // 리셋 가능한 Work (F->H, 라이징 에지) — 토큰 잔류 시 Homing 차단
         for workGuid in index.AllWorkGuids do
-            if stateManager.GetWorkState(workGuid) = Status4.Finish && not (stateManager.IsWorkPending(workGuid)) then
+            if stateManager.GetWorkState(workGuid) = Status4.Finish && not (stateManager.IsWorkPending(workGuid)) && canHomingWork workGuid then
                 match WorkConditionChecker.collectResetPreds index workGuid with
                 | Some (sysName, wName, resetPreds) ->
                     let targetKey = (sysName, wName)
@@ -238,6 +290,7 @@ type EventDrivenEngine(index: SimIndex) =
     [<CLIEvent>] member _.WorkStateChanged = workStateChangedEvent.Publish
     [<CLIEvent>] member _.CallStateChanged = callStateChangedEvent.Publish
     [<CLIEvent>] member _.SimulationStatusChanged = simulationStatusChangedEvent.Publish
+    [<CLIEvent>] member _.TokenEvent = tokenEventEvent.Publish
 
     member this.Start() =
         if Volatile.Read(&status) = Running then () else
@@ -328,6 +381,25 @@ type EventDrivenEngine(index: SimIndex) =
         stateManager.SetIOValue(apiCallGuid, value)
         scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
 
+    member private _.ApplyToken(workGuid: Guid, newValue: TokenValue option, kind: TokenEventKind, token: TokenValue) =
+        stateManager.SetWorkToken(workGuid, newValue)
+        emitTokenEvent kind token workGuid None
+        scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
+
+    member this.SeedToken(sourceWorkGuid: Guid, value: TokenValue) =
+        match stateManager.GetWorkToken(sourceWorkGuid) with
+        | Some _ -> ()  // 이미 차있으면 무시
+        | None -> this.ApplyToken(sourceWorkGuid, Some value, Seed, value)
+
+    member this.DiscardToken(workGuid: Guid) =
+        match stateManager.GetWorkToken(workGuid) with
+        | Some token -> this.ApplyToken(workGuid, None, Discard, token)
+        | None -> ()
+
+    member _.GetWorkToken(workGuid: Guid) = stateManager.GetWorkToken(workGuid)
+
+    member _.NextToken() = stateManager.NextToken()
+
     interface ISimulationEngine with
         member this.State = this.State
         member this.Status = this.Status
@@ -349,7 +421,11 @@ type EventDrivenEngine(index: SimIndex) =
             with get() = this.TimeIgnore
             and set(v) = this.TimeIgnore <- v
         member this.InjectIOValue(a, v) = this.InjectIOValue(a, v)
+        member this.SeedToken(wg, v) = this.SeedToken(wg, v)
+        member this.DiscardToken(wg) = this.DiscardToken(wg)
+        member this.GetWorkToken(wg) = this.GetWorkToken(wg)
         [<CLIEvent>] member this.WorkStateChanged = this.WorkStateChanged
         [<CLIEvent>] member this.CallStateChanged = this.CallStateChanged
         [<CLIEvent>] member this.SimulationStatusChanged = this.SimulationStatusChanged
+        [<CLIEvent>] member this.TokenEvent = this.TokenEvent
         member this.Dispose() = this.Stop()
