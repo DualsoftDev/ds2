@@ -1,6 +1,7 @@
 using MudBlazor.Services;
 using DSPilot.Services;
 using DSPilot.Repositories;
+using DSPilot.Abstractions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,9 +33,31 @@ builder.Services.AddSingleton<IDspRepository, DspRepository>();
 builder.Services.AddSingleton<PlcToCallMapperService>();
 builder.Services.AddSingleton<PlcTagStateTrackerService>();
 builder.Services.AddSingleton<CallStatisticsService>();
+builder.Services.AddSingleton<InMemoryCallStateStore>();
 builder.Services.AddSingleton<IFlowMetricsService, FlowMetricsService>();
 builder.Services.AddScoped<CycleAnalysisService>();
 builder.Services.AddHostedService<DspDatabaseService>();
+
+// Ev2.Backend.PLC 기반 이벤트 처리 (옵션)
+var plcConnectionEnabled = builder.Configuration.GetValue<bool>("PlcConnection:Enabled");
+if (plcConnectionEnabled)
+{
+    // PLC 연결 설정
+    var plcConfig = new PlcConnectionConfig
+    {
+        PlcName = builder.Configuration["PlcConnection:PlcName"] ?? "PLC_01",
+        IpAddress = builder.Configuration["PlcConnection:IpAddress"] ?? "192.168.0.100",
+        ScanIntervalMs = builder.Configuration.GetValue<int>("PlcConnection:ScanIntervalMs", 100),
+        TagAddresses = builder.Configuration.GetSection("PlcConnection:TagAddresses").Get<List<string>>() ?? new List<string>()
+    };
+
+    builder.Services.AddSingleton(plcConfig);
+    builder.Services.AddSingleton<IPlcEventSource, Ev2PlcEventSource>();
+    builder.Services.AddHostedService<PlcEventProcessorService>();
+
+    builder.Logging.AddConsole();
+    builder.Logging.SetMinimumLevel(LogLevel.Debug);
+}
 
 var app = builder.Build();
 

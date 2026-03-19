@@ -1,3 +1,4 @@
+using DSPilot.Models;
 using DSPilot.Models.Dsp;
 
 namespace DSPilot.Repositories;
@@ -23,9 +24,9 @@ public interface IDspRepository
     Task<int> BulkInsertCallsAsync(List<DspCallEntity> calls);
 
     /// <summary>
-    /// Call 상태 조회
+    /// Call 상태 조회 (CallKey 기반)
     /// </summary>
-    Task<string> GetCallStateAsync(string callName);
+    Task<string> GetCallStateAsync(CallKey key);
 
     /// <summary>
     /// Call 정보 조회 (WorkName, FlowName 포함)
@@ -33,20 +34,20 @@ public interface IDspRepository
     Task<(string WorkName, string FlowName)?> GetCallInfoAsync(string callName);
 
     /// <summary>
-    /// Call 전체 데이터 조회 (GoingCount 등 포함)
+    /// Call 전체 데이터 조회 (GoingCount 등 포함, CallKey 기반)
     /// </summary>
-    Task<DspCallEntity?> GetCallByNameAsync(string callName);
+    Task<DspCallEntity?> GetCallByKeyAsync(CallKey key);
 
     /// <summary>
-    /// Call 상태 업데이트
+    /// Call 상태 업데이트 (CallKey 기반)
     /// </summary>
-    Task<bool> UpdateCallStateAsync(string callName, string state);
+    Task<bool> UpdateCallStateAsync(CallKey key, string state);
 
     /// <summary>
-    /// Call 상태 및 통계 업데이트 (Going → Finish 시)
+    /// Call 상태 및 통계 업데이트 (Going → Finish 시, CallKey 기반)
     /// </summary>
     Task<bool> UpdateCallWithStatisticsAsync(
-        string callName,
+        CallKey key,
         string state,
         int previousGoingTime,
         double averageGoingTime,
@@ -82,6 +83,11 @@ public interface IDspRepository
     /// Heatmap용 Call 통계 데이터 조회 (GoingCount > 0인 항목만)
     /// </summary>
     Task<List<CallStatisticsDto>> GetCallStatisticsAsync();
+
+    /// <summary>
+    /// Call IO 이벤트 삽입 (In/Out Tag Rising Edge 기록)
+    /// </summary>
+    Task InsertCallIOEventAsync(Models.Analysis.CallIOEvent ioEvent);
 }
 
 /// <summary>

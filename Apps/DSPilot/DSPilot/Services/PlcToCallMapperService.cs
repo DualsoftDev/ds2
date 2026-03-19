@@ -1,5 +1,6 @@
 using Ds2.Core;
 using DSPilot.Engine;
+using DSPilot.Models;
 using DSPilot.Models.Dsp;
 
 namespace DSPilot.Services;
@@ -14,8 +15,8 @@ public class PlcToCallMapperService
     private readonly IConfiguration _configuration;
     private string _tagMatchMode = "Address"; // "Address" or "Name"
 
-    // Tag Key (Name or Address) → (Call, ApiCall, IsInTag) 매핑
-    private Dictionary<string, (Call Call, ApiCall ApiCall, bool IsInTag)> _tagToCallMap = new();
+    // Tag Key (Name or Address) → CallMappingInfo 매핑
+    private Dictionary<string, CallMappingInfo> _tagToCallMap = new();
 
     // CallName → (InTagName, OutTagName) 매핑
     private Dictionary<string, (string? InTag, string? OutTag)> _callTagMap = new();
@@ -34,7 +35,7 @@ public class PlcToCallMapperService
     }
 
     /// <summary>
-    /// AASX에서 Call/ApiCall/Tag 매핑 초기화
+    /// AASX에서 Call/ApiCall/Tag 매핑 초기화 (FlowName/WorkName 포함)
     /// </summary>
     public void Initialize()
     {
@@ -49,54 +50,81 @@ public class PlcToCallMapperService
 
         _logger.LogInformation("Initializing PlcToCallMapper with TagMatchMode: {Mode}", _tagMatchMode);
 
-        var allCalls = _projectService.GetAllCalls();
+        // Flow → Work → Call 계층 구조로 순회하여 FlowName/WorkName 캡처
+        var allFlows = _projectService.GetAllFlows();
 
-        foreach (var call in allCalls)
+        foreach (var flow in allFlows)
         {
-            string? inTagKey = null;
-            string? outTagKey = null;
+            var works = _projectService.GetWorks(flow.Id);
 
-            // Call의 모든 ApiCall 순회
-            foreach (var apiCall in call.ApiCalls)
+            foreach (var work in works)
             {
-                // InTag 매핑 (F# Option 처리)
-                if (Microsoft.FSharp.Core.FSharpOption<Ds2.Core.IOTag>.get_IsSome(apiCall.InTag))
+                var calls = _projectService.GetCalls(work.Id);
+
+                foreach (var call in calls)
                 {
-                    var inTag = apiCall.InTag.Value;
-                    var tagKey = GetTagKey(inTag);
+                    string? inTagKey = null;
+                    string? outTagKey = null;
 
-                    if (!string.IsNullOrEmpty(tagKey))
+                    // Call의 모든 ApiCall 순회
+                    foreach (var apiCall in call.ApiCalls)
                     {
-                        inTagKey = tagKey;
-                        _tagToCallMap[inTagKey] = (call, apiCall, IsInTag: true);
-                        _logger.LogDebug("Mapped InTag '{TagKey}' ({Mode}) → Call '{CallName}'",
-                            inTagKey, _tagMatchMode, call.Name);
-                    }
-                }
+                        // InTag 매핑 (F# Option 처리)
+                        if (Microsoft.FSharp.Core.FSharpOption<Ds2.Core.IOTag>.get_IsSome(apiCall.InTag))
+                        {
+                            var inTag = apiCall.InTag.Value;
+                            var tagKey = GetTagKey(inTag);
 
-                // OutTag 매핑 (F# Option 처리)
-                if (Microsoft.FSharp.Core.FSharpOption<Ds2.Core.IOTag>.get_IsSome(apiCall.OutTag))
-                {
-                    var outTag = apiCall.OutTag.Value;
-                    var tagKey = GetTagKey(outTag);
+                            if (!string.IsNullOrEmpty(tagKey))
+                            {
+                                inTagKey = tagKey;
+                                _tagToCallMap[inTagKey] = new CallMappingInfo
+                                {
+                                    Call = call,
+                                    ApiCall = apiCall,
+                                    IsInTag = true,
+                                    FlowName = flow.Name,
+                                    WorkName = work.Name
+                                };
 
-                    if (!string.IsNullOrEmpty(tagKey))
-                    {
-                        outTagKey = tagKey;
-                        _tagToCallMap[outTagKey] = (call, apiCall, IsInTag: false);
-                        _logger.LogDebug("Mapped OutTag '{TagKey}' ({Mode}) → Call '{CallName}'",
-                            outTagKey, _tagMatchMode, call.Name);
+                                _logger.LogDebug("Mapped InTag '{TagKey}' ({Mode}) → Call '{CallName}' (Flow: {FlowName}, Work: {WorkName})",
+                                    inTagKey, _tagMatchMode, call.Name, flow.Name, work.Name);
+                            }
+                        }
+
+                        // OutTag 매핑 (F# Option 처리)
+                        if (Microsoft.FSharp.Core.FSharpOption<Ds2.Core.IOTag>.get_IsSome(apiCall.OutTag))
+                        {
+                            var outTag = apiCall.OutTag.Value;
+                            var tagKey = GetTagKey(outTag);
+
+                            if (!string.IsNullOrEmpty(tagKey))
+                            {
+                                outTagKey = tagKey;
+                                _tagToCallMap[outTagKey] = new CallMappingInfo
+                                {
+                                    Call = call,
+                                    ApiCall = apiCall,
+                                    IsInTag = false,
+                                    FlowName = flow.Name,
+                                    WorkName = work.Name
+                                };
+
+                                _logger.LogDebug("Mapped OutTag '{TagKey}' ({Mode}) → Call '{CallName}' (Flow: {FlowName}, Work: {WorkName})",
+                                    outTagKey, _tagMatchMode, call.Name, flow.Name, work.Name);
+                            }
+                        }
                     }
+
+                    _callTagMap[call.Name] = (inTagKey, outTagKey);
                 }
             }
-
-            _callTagMap[call.Name] = (inTagKey, outTagKey);
         }
 
         _initialized = true;
         _logger.LogInformation(
-            "PlcToCallMapper initialized: {CallCount} calls, {TagCount} tags mapped",
-            allCalls.Count, _tagToCallMap.Count);
+            "PlcToCallMapper initialized: {FlowCount} flows, {TagCount} tags mapped",
+            allFlows.Count, _tagToCallMap.Count);
 
         // 매핑된 태그 목록 상세 로그
         if (_tagToCallMap.Count > 0)
@@ -104,9 +132,9 @@ public class PlcToCallMapperService
             _logger.LogDebug("Mapped tags:");
             foreach (var kvp in _tagToCallMap)
             {
-                var (call, apiCall, isInTag) = kvp.Value;
-                _logger.LogDebug("  {TagName} → Call '{CallName}' ({TagType})",
-                    kvp.Key, call.Name, isInTag ? "IN" : "OUT");
+                var mapping = kvp.Value;
+                _logger.LogDebug("  {TagName} → Call '{CallName}' (Flow: {FlowName}, {TagType})",
+                    kvp.Key, mapping.Call.Name, mapping.FlowName, mapping.IsInTag ? "IN" : "OUT");
             }
         }
         else
@@ -127,8 +155,9 @@ public class PlcToCallMapperService
 
     /// <summary>
     /// PLC 태그로 Call 찾기 (Name 또는 Address 기준)
+    /// FlowName과 WorkName을 포함한 CallMappingInfo 반환
     /// </summary>
-    public (Call Call, ApiCall ApiCall, bool IsInTag)? FindCallByTag(string tagName, string tagAddress)
+    public CallMappingInfo? FindCallByTag(string tagName, string tagAddress)
     {
         if (!_initialized)
         {
@@ -147,7 +176,7 @@ public class PlcToCallMapperService
     /// 태그 이름으로 Call 찾기 (하위 호환성)
     /// </summary>
     [Obsolete("Use FindCallByTag(tagName, tagAddress) instead")]
-    public (Call Call, ApiCall ApiCall, bool IsInTag)? FindCallByTagName(string tagName)
+    public CallMappingInfo? FindCallByTagName(string tagName)
     {
         if (!_initialized)
         {
@@ -190,7 +219,8 @@ public class PlcToCallMapperService
             return (currentCallState, false);
         }
 
-        var (call, apiCall, isInTag) = mapping;
+        var call = mapping.Call;
+        var isInTag = mapping.IsInTag;
         var (inTag, outTag) = _callTagMap[call.Name];
         var hasInTag = !string.IsNullOrEmpty(inTag);
 
@@ -206,8 +236,8 @@ public class PlcToCallMapperService
         {
             var newStateStr = StateTransition.stateToString(newState);
             _logger.LogInformation(
-                "Call '{CallName}': State transition {OldState} → {NewState} (Tag: {TagName}, Edge: {EdgeType})",
-                call.Name, currentCallState, newStateStr, tagName, edgeState.EdgeType);
+                "Call '{CallName}' (Flow: {FlowName}): State transition {OldState} → {NewState} (Tag: {TagName}, Edge: {EdgeType})",
+                call.Name, mapping.FlowName, currentCallState, newStateStr, tagName, edgeState.EdgeType);
             return (newStateStr, true);
         }
 
