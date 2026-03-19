@@ -196,6 +196,38 @@ public class PlcToCallMapperService
     }
 
     /// <summary>
+    /// PLC 태그 목록과 비교하여 실제 존재하지 않는 InTag 매핑을 제거.
+    /// AASX에서 InTag을 정의했지만 PLC에 해당 태그가 없으면
+    /// hasInTag=false로 처리되어 OutTag Falling으로 Finish 전이가 가능해진다.
+    /// </summary>
+    public void ValidateWithPlcTags(HashSet<string> plcTagKeys)
+    {
+        if (!_initialized) return;
+
+        int invalidCount = 0;
+        foreach (var (callName, (inTag, outTag)) in _callTagMap)
+        {
+            if (!string.IsNullOrEmpty(inTag) && !plcTagKeys.Contains(inTag))
+            {
+                _callTagMap[callName] = (null, outTag);
+                _tagToCallMap.Remove(inTag);
+                invalidCount++;
+
+                _logger.LogWarning(
+                    "Call '{CallName}': InTag '{InTag}' not found in PLC tags. Removed (OutTag Falling will trigger Finish).",
+                    callName, inTag);
+            }
+        }
+
+        if (invalidCount > 0)
+        {
+            _logger.LogInformation(
+                "Validated tag mappings: {InvalidCount} InTag(s) removed (not in PLC), {RemainingTags} tags remain",
+                invalidCount, _tagToCallMap.Count);
+        }
+    }
+
+    /// <summary>
     /// 태그 값 변경에 따른 Call 상태 결정 (F# StateTransition 사용)
     /// </summary>
     public (string NewState, bool StateChanged) DetermineCallState(
