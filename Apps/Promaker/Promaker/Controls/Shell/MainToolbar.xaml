@@ -373,12 +373,12 @@
 
                                 <!-- 토큰 -->
                                 <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,4,0">
-                                    <TextBlock Text="Token" FontSize="9" Foreground="#ffb74d" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,2"/>
+                                    <TextBlock Text="Token" FontSize="9" Foreground="{DynamicResource TokenOrangeBrush}" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,2"/>
                                     <ComboBox ItemsSource="{Binding TokenSourceWorks}" SelectedItem="{Binding SelectedTokenSource}"
                                               Width="95" FontSize="11"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,2,0">
-                                    <TextBlock Text="Spec" FontSize="9" Foreground="#ffb74d" HorizontalAlignment="Center" Margin="0,0,0,2"/>
+                                    <TextBlock Text="Spec" FontSize="9" Foreground="{DynamicResource TokenOrangeBrush}" HorizontalAlignment="Center" Margin="0,0,0,2"/>
                                     <ComboBox ItemsSource="{Binding TokenSpecItems}" SelectedItem="{Binding SelectedTokenSpec}"
                                               Width="85" FontSize="11"/>
                                 </StackPanel>
@@ -388,12 +388,12 @@
                                         <!-- 토큰 투입 아이콘: 하향 화살표 + 동그라미 -->
                                         <Canvas Width="18" Height="18" HorizontalAlignment="Center">
                                             <Ellipse Canvas.Left="3" Canvas.Top="7" Width="12" Height="10"
-                                                     Stroke="#ffb74d" StrokeThickness="1.5" Fill="Transparent"/>
+                                                     Stroke="{DynamicResource TokenOrangeBrush}" StrokeThickness="1.5" Fill="Transparent"/>
                                             <Path Data="M 9,1 L 9,9 M 6,6 L 9,9 12,6"
-                                                  Stroke="#ffb74d" StrokeThickness="1.5"
+                                                  Stroke="{DynamicResource TokenOrangeBrush}" StrokeThickness="1.5"
                                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
                                         </Canvas>
-                                        <TextBlock Text="투입" FontSize="9" Foreground="#ffb74d" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                        <TextBlock Text="투입" FontSize="9" Foreground="{DynamicResource TokenOrangeBrush}" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                     </StackPanel>
                                 </Button>
                                 <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding DiscardTokenCommand}"
@@ -401,12 +401,12 @@
                                     <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                                         <Canvas Width="18" Height="18" HorizontalAlignment="Center">
                                             <Ellipse Canvas.Left="3" Canvas.Top="1" Width="12" Height="10"
-                                                     Stroke="#ef9a9a" StrokeThickness="1.5" Fill="Transparent"/>
+                                                     Stroke="{DynamicResource TokenRedBrush}" StrokeThickness="1.5" Fill="Transparent"/>
                                             <Path Data="M 9,11 L 9,17 M 6,14 L 9,17 12,14"
-                                                  Stroke="#ef9a9a" StrokeThickness="1.5"
+                                                  Stroke="{DynamicResource TokenRedBrush}" StrokeThickness="1.5"
                                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
                                         </Canvas>
-                                        <TextBlock Text="제거" FontSize="9" Foreground="#ef9a9a" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                        <TextBlock Text="제거" FontSize="9" Foreground="{DynamicResource TokenRedBrush}" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
