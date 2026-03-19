@@ -110,19 +110,19 @@
     <value>다크</value>
   </data>
   <data name="LightTheme" xml:space="preserve">
-    <value>화이트</value>
+    <value>라이트</value>
   </data>
   <data name="SwitchToDarkTheme" xml:space="preserve">
     <value>다크 테마로 전환</value>
   </data>
   <data name="SwitchToLightTheme" xml:space="preserve">
-    <value>화이트 테마로 전환</value>
+    <value>라이트 테마로 전환</value>
   </data>
   <data name="DarkThemeApplied" xml:space="preserve">
     <value>다크 테마 적용</value>
   </data>
   <data name="LightThemeApplied" xml:space="preserve">
-    <value>화이트 테마 적용</value>
+    <value>라이트 테마 적용</value>
   </data>
 
   <!-- ========================================

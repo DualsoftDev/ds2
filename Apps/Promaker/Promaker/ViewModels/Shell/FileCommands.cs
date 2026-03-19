@@ -129,7 +129,21 @@ public partial class MainViewModel
                 $"Open file '{fileName}'",
                 () =>
                 {
-                    _store.LoadFromFile(fileName);
+                    var json = File.ReadAllText(fileName);
+                    if (Ds2.UI.Core.Compat.LegacyJsonImport.isLegacyJsonFormat(json))
+                    {
+                        var newStore = new DsStore();
+                        if (!Ds2.UI.Core.Compat.LegacyJsonImport.importLegacyJson(newStore, json))
+                        {
+                            _dialogService.ShowWarning("레거시 JSON 불러오기에 실패했습니다.");
+                            return;
+                        }
+                        _store.ReplaceStore(newStore);
+                    }
+                    else
+                    {
+                        _store.LoadFromFile(fileName);
+                    }
                     PrepareForLoadedStore();
                     CompleteOpen(fileName, "File");
                 },

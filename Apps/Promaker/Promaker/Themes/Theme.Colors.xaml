@@ -13,7 +13,7 @@
     <Color x:Key="DisabledTextColor">#808080</Color>
     <Color x:Key="AccentColor">#4F82C9</Color>
     <Color x:Key="AccentHoverColor">#69A0E5</Color>
-    <Color x:Key="AccentTextColor">#0D1926</Color>
+    <Color x:Key="AccentTextColor">#FFFFFF</Color>
     <Color x:Key="HoverBackgroundColor">#29405D</Color>
     <Color x:Key="CanvasBackgroundColor">#0F1A27</Color>
     <Color x:Key="CanvasGridColor">#35506A</Color>
