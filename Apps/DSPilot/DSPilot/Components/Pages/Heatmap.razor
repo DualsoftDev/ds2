@@ -109,10 +109,10 @@
 @* Flow 그룹별 Heatmap *@
 @foreach (var group in FilteredGroups)
 {
-    <div class="card mb-4" style="padding:16px; box-shadow: var(--shadow-2);">
-        <div class="d-flex" style="align-items:center; justify-content:space-between; margin-bottom:12px;">
+    <div class="card mb-4" style="box-shadow: var(--shadow-2); border-radius: 8px;">
+        <div class="d-flex" style="align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--color-lines);">
             <div class="d-flex" style="align-items:center; gap:4px;">
-                <button class="btn-icon" @onclick="@(() => group.IsExpanded = !group.IsExpanded)">
+                <button class="btn-icon btn-sm" @onclick="@(() => group.IsExpanded = !group.IsExpanded)">
                     <span class="material-icons">@(group.IsExpanded ? "expand_more" : "chevron_right")</span>
                 </button>
                 <h6 class="typo-h6">@group.FlowName</h6>
@@ -127,9 +127,9 @@
 
         @if (group.IsExpanded)
         {
-            <div class="table-container">
-                <table class="table table-hover">
-                    <thead>
+            <div class="table-container" style="overflow:auto;">
+                <table class="table table-hover table-striped">
+                    <thead class="table-head-sticky">
                         <tr>
                             <th>Call</th>
                             <th>Work</th>

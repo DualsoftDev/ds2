@@ -5,6 +5,7 @@
 @inject CycleAnalysisService CycleAnalysisService
 @inject DsProjectService ProjectService
 @inject ILogger<DSPilot.Components.Pages.CycleAnalysis> Logger
+@inject IJSRuntime JS
 
 <PageTitle>Timeline 분석 - Gantt Chart</PageTitle>
 
@@ -315,7 +316,7 @@ else
                     </div>
                 </div>
 
-                <div style="overflow-x: auto;">
+                <div @ref="_chartContainerRef" data-chart-container style="overflow-x: auto;">
                     @RenderGanttChart(_ganttData)
                 </div>
             }
@@ -346,6 +347,10 @@ else
     private DateTime? _customEndTime = DateTime.Now;
     private bool _isLoadingGantt = false;
     private DSPilot.Services.GanttChartData? _ganttData = null;
+
+    // Chart container
+    private ElementReference _chartContainerRef;
+    private int _containerWidth = 0;
 
     // Chart controls
     private int _chartZoomLevel = 100;
@@ -394,6 +399,24 @@ else
             {
                 _selectedFlow = flows.First().Name;
             }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_ganttData != null)
+        {
+            try
+            {
+                var width = await JS.InvokeAsync<int>("eval",
+                    "(function(el){ return el ? el.clientWidth : 0; })(document.querySelector('[data-chart-container]'))");
+                if (width > 0 && Math.Abs(width - _containerWidth) > 20)
+                {
+                    _containerWidth = width;
+                    StateHasChanged();
+                }
+            }
+            catch { }
         }
     }
 
@@ -647,7 +670,9 @@ else
         chartEndTime = chartEndTime.AddMilliseconds(margin);
 
         var cycleTime = Math.Max((int)(chartEndTime - chartStartTime).TotalMilliseconds, 1);
-        var basePlotWidth = GetChartPlotWidth(cycleTime);
+        var basePlotWidth = _containerWidth > 0
+            ? _containerWidth - leftMargin - rightMargin
+            : GetChartPlotWidth(cycleTime);
         var plotWidth = (int)(basePlotWidth * (_chartZoomLevel / 100.0));
         var totalWidth = leftMargin + plotWidth + rightMargin;
         var totalHeight = topMargin + (data.TotalLanes * laneHeight) + bottomMargin;
