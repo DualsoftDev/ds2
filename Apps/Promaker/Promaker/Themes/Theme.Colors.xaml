@@ -78,8 +78,8 @@
     <Color x:Key="GanttBarHomingColor">#6B7B8D</Color>
 
     <!-- Gantt Row Colors -->
-    <Color x:Key="GanttWorkRowBackgroundColor">#1A2D4260</Color>
-    <Color x:Key="GanttCallRowBackgroundColor">#12253A50</Color>
+    <Color x:Key="GanttWorkRowBackgroundColor">#2441668E</Color>
+    <Color x:Key="GanttCallRowBackgroundColor">#1F245A63</Color>
 
     <!-- Icon Colors -->
     <Color x:Key="IconOrangeColor">#F2B134</Color>

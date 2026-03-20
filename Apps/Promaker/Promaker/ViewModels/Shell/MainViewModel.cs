@@ -26,6 +26,7 @@ public partial class MainViewModel : ObservableObject
     private IDisposable? _eventSubscription;
     private string? _currentFilePath;
     private readonly List<SelectionKey> _clipboardSelection = [];
+    private int _pasteCount;
     private bool _rebuildQueued;
     private readonly List<Action> _pendingRebuildActions = [];
 

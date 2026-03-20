@@ -167,16 +167,17 @@ module internal DirectPasteOps =
                 | None -> ()
             | _ -> ()
 
-    let private offsetPosition (pos: Xywh option) =
-        pos |> Option.map (fun p -> Xywh(p.X + 30, p.Y + 30, p.W, p.H))
+    let private offsetPosition (baseIndex: int) (index: int) (pos: Xywh option) =
+        let offset = 30 * (baseIndex + index + 1)
+        pos |> Option.map (fun p -> Xywh(p.X + offset, p.Y + offset, p.W, p.H))
 
     let private pasteCallToWork
         (store: DsStore) (context: CallCopyContext) (sourceCall: Call) (targetWorkId: Guid)
-        (deviceState: DevicePasteState) (deviceFlowCtxOpt: DeviceFlowCtx option)
+        (deviceState: DevicePasteState) (deviceFlowCtxOpt: DeviceFlowCtx option) (baseIndex: int) (index: int)
         : Call * DevicePasteState =
         let pastedCall = Call(sourceCall.DevicesAlias, sourceCall.ApiName, targetWorkId)
         pastedCall.Properties <- sourceCall.Properties.DeepCopy()
-        pastedCall.Position <- offsetPosition sourceCall.Position
+        pastedCall.Position <- offsetPosition baseIndex index sourceCall.Position
         store.TrackAdd(store.Calls, pastedCall)
         match context with
         | SameWork ->
@@ -206,11 +207,11 @@ module internal DirectPasteOps =
 
     let private pasteWorkToFlow
         (store: DsStore) (sourceWork: Work) (targetFlowId: Guid)
-        (deviceState: DevicePasteState) (deviceFlowCtxOpt: DeviceFlowCtx option)
+        (deviceState: DevicePasteState) (deviceFlowCtxOpt: DeviceFlowCtx option) (baseIndex: int) (index: int)
         : Work * Map<Guid, Guid> * DevicePasteState =
         let pastedWork = Work(sourceWork.Name, targetFlowId)
         pastedWork.Properties <- sourceWork.Properties.DeepCopy()
-        pastedWork.Position <- offsetPosition sourceWork.Position
+        pastedWork.Position <- offsetPosition baseIndex index sourceWork.Position
         store.TrackAdd(store.Works, pastedWork)
         let isDifferentFlow = sourceWork.ParentId <> targetFlowId
         let context = if isDifferentFlow then DifferentFlow else DifferentWork
@@ -218,7 +219,7 @@ module internal DirectPasteOps =
         let callMap, finalDeviceState =
             DsQuery.callsOf sourceWork.Id store
             |> List.fold (fun (callMap, devState) sourceCall ->
-                let pastedCall, newDevState = pasteCallToWork store context sourceCall pastedWork.Id devState ctxOpt
+                let pastedCall, newDevState = pasteCallToWork store context sourceCall pastedWork.Id devState ctxOpt 0 0
                 Map.add sourceCall.Id pastedCall.Id callMap, newDevState
             ) (Map.empty, deviceState)
         pastedWork, callMap, finalDeviceState
@@ -239,14 +240,14 @@ module internal DirectPasteOps =
         let workMap, callMap, _ =
             sourceWorks
             |> List.fold (fun (wm, cm, ds) sw ->
-                let pw, lcm, nds = pasteWorkToFlow store sw pastedFlow.Id ds deviceFlowCtxOpt
+                let pw, lcm, nds = pasteWorkToFlow store sw pastedFlow.Id ds deviceFlowCtxOpt 0 0
                 Map.add sw.Id pw.Id wm, mergeGuidMap cm lcm, nds
             ) (Map.empty, Map.empty, initialDevicePasteState)
         replayWorkArrows store targetSystemId sourceWorkArrows workMap
         replayCallArrows store sourceCallArrows callMap
         pastedFlow.Id
 
-    let pasteWorksToFlowBatch (store: DsStore) (sourceWorks: Work list) (targetFlowId: Guid) : Guid list =
+    let pasteWorksToFlowBatch (store: DsStore) (sourceWorks: Work list) (targetFlowId: Guid) (baseIndex: int) : Guid list =
         let selectedWorkIds = sourceWorks |> List.map (fun w -> w.Id) |> Set.ofList
         let selectedCallIds =
             sourceWorks
@@ -261,19 +262,19 @@ module internal DirectPasteOps =
         let sourceCallArrows =
             collectArrowsWithinSet DsQuery.arrowCallsOf (fun a -> a.SourceId) (fun a -> a.TargetId) selectedWorkIds selectedCallIds store
         let deviceFlowCtxOpt = makeDeviceFlowCtx store targetFlowId
-        let workMap, callMap, pastedIdsRev, _ =
+        let workMap, callMap, pastedIdsRev, _, _ =
             sourceWorks
-            |> List.fold (fun (wm, cm, ids, ds) sw ->
-                let pw, lcm, nds = pasteWorkToFlow store sw targetFlowId ds deviceFlowCtxOpt
-                Map.add sw.Id pw.Id wm, mergeGuidMap cm lcm, pw.Id :: ids, nds
-            ) (Map.empty, Map.empty, [], initialDevicePasteState)
+            |> List.fold (fun (wm, cm, ids, ds, idx) sw ->
+                let pw, lcm, nds = pasteWorkToFlow store sw targetFlowId ds deviceFlowCtxOpt baseIndex idx
+                Map.add sw.Id pw.Id wm, mergeGuidMap cm lcm, pw.Id :: ids, nds, idx + 1
+            ) (Map.empty, Map.empty, [], initialDevicePasteState, 0)
         match DsQuery.getFlow targetFlowId store with
         | Some flow -> replayWorkArrows store flow.ParentId sourceWorkArrows workMap
         | None -> ()
         replayCallArrows store sourceCallArrows callMap
         pastedIdsRev |> List.rev
 
-    let pasteCallsToWorkBatch (store: DsStore) (sourceCalls: Call list) (targetWorkId: Guid) : Guid list =
+    let pasteCallsToWorkBatch (store: DsStore) (sourceCalls: Call list) (targetWorkId: Guid) (baseIndex: int) : Guid list =
         let selectedCallIds = sourceCalls |> List.map (fun c -> c.Id) |> Set.ofList
         let sourceWorkIds =
             sourceCalls |> List.map (fun c -> c.ParentId) |> Set.ofList
@@ -281,9 +282,9 @@ module internal DirectPasteOps =
             collectArrowsWithinSet DsQuery.arrowCallsOf (fun a -> a.SourceId) (fun a -> a.TargetId) sourceWorkIds selectedCallIds store
         let targetFlowIdOpt = DsQuery.getWork targetWorkId store |> Option.map (fun w -> w.ParentId)
         let deviceFlowCtxForDiffFlow = targetFlowIdOpt |> Option.bind (makeDeviceFlowCtx store)
-        let callMap, pastedIdsRev, _ =
+        let callMap, pastedIdsRev, _, _ =
             sourceCalls
-            |> List.fold (fun (cm, ids, ds) sc ->
+            |> List.fold (fun (cm, ids, ds, idx) sc ->
                 let context =
                     if sc.ParentId = targetWorkId then SameWork
                     else
@@ -291,15 +292,15 @@ module internal DirectPasteOps =
                         | Some tw, Some sw when tw.ParentId = sw.ParentId -> DifferentWork
                         | _ -> DifferentFlow
                 let ctxOpt = match context with DifferentFlow -> deviceFlowCtxForDiffFlow | _ -> None
-                let pc, nds = pasteCallToWork store context sc targetWorkId ds ctxOpt
-                Map.add sc.Id pc.Id cm, pc.Id :: ids, nds
-            ) (Map.empty, [], initialDevicePasteState)
+                let pc, nds = pasteCallToWork store context sc targetWorkId ds ctxOpt baseIndex idx
+                Map.add sc.Id pc.Id cm, pc.Id :: ids, nds, idx + 1
+            ) (Map.empty, [], initialDevicePasteState, 0)
         replayCallArrows store sourceCallArrows callMap
         pastedIdsRev |> List.rev
 
     let dispatchPaste
         (store: DsStore) (copiedEntityKind: EntityKind) (copiedIds: Guid list)
-        (targetEntityKind: EntityKind) (targetEntityId: Guid) : Guid list =
+        (targetEntityKind: EntityKind) (targetEntityId: Guid) (baseIndex: int) : Guid list =
         match copiedEntityKind with
         | EntityKind.Flow ->
             let sourceFlows = copiedIds |> List.choose (fun id -> DsQuery.getFlow id store)
@@ -317,7 +318,7 @@ module internal DirectPasteOps =
                 let targetFlowId =
                     EntityHierarchyQueries.resolveTarget store EntityKind.Flow targetEntityKind targetEntityId
                     |> Option.defaultValue sourceWorks.Head.ParentId
-                pasteWorksToFlowBatch store sourceWorks targetFlowId
+                pasteWorksToFlowBatch store sourceWorks targetFlowId baseIndex
         | EntityKind.Call ->
             let sourceCalls = copiedIds |> List.choose (fun id -> DsQuery.getCall id store)
             if sourceCalls.IsEmpty then []
@@ -325,7 +326,7 @@ module internal DirectPasteOps =
                 let targetWorkId =
                     EntityHierarchyQueries.resolveTarget store EntityKind.Work targetEntityKind targetEntityId
                     |> Option.defaultValue sourceCalls.Head.ParentId
-                pasteCallsToWorkBatch store sourceCalls targetWorkId
+                pasteCallsToWorkBatch store sourceCalls targetWorkId baseIndex
         | _ -> []
 
 // =============================================================================
@@ -353,14 +354,14 @@ type DsStorePasteExtensions =
     [<Extension>]
     static member PasteEntities
         (store: DsStore, copiedEntityKind: EntityKind, copiedEntityIds: seq<Guid>,
-         targetEntityKind: EntityKind, targetEntityId: Guid) : Guid list =
+         targetEntityKind: EntityKind, targetEntityId: Guid, pasteIndex: int) : Guid list =
         let ids = copiedEntityIds |> Seq.distinct |> Seq.toList
         if not (PasteResolvers.isCopyableEntityKind copiedEntityKind) || ids.IsEmpty then []
         else
             StoreLog.debug($"kind={copiedEntityKind}, count={ids.Length}, targetKind={targetEntityKind}, targetId={targetEntityId}")
             let mutable pastedIds = []
             store.WithTransaction($"Paste {copiedEntityKind}s", fun () ->
-                pastedIds <- DirectPasteOps.dispatchPaste store copiedEntityKind ids targetEntityKind targetEntityId)
+                pastedIds <- DirectPasteOps.dispatchPaste store copiedEntityKind ids targetEntityKind targetEntityId pasteIndex)
             if not pastedIds.IsEmpty then store.EmitRefreshAndHistory()
             pastedIds
 

@@ -219,7 +219,20 @@ public partial class SimulationPanelState : ObservableObject
 
     partial void OnSimSpeedChanged(double value)
     {
-        if (_simEngine is { } engine) engine.SpeedMultiplier = value;
+        if (value == 0)
+        {
+            SimTimeIgnore = true;
+            if (_simEngine is { } engine) engine.TimeIgnore = true;
+        }
+        else
+        {
+            SimTimeIgnore = false;
+            if (_simEngine is { } engine)
+            {
+                engine.TimeIgnore = false;
+                engine.SpeedMultiplier = value;
+            }
+        }
     }
 
     partial void OnSimTimeIgnoreChanged(bool value)
@@ -244,6 +257,7 @@ public partial class SimulationPanelState : ObservableObject
         _simStartTime = DateTime.Now;
         ApplySimulationResetUiState(clearCollections: true);
         GanttChart.Reset(_simStartTime);
+        PopulateWorkItems();
     }
 
     private void AddSimLog(string message)
@@ -288,6 +302,7 @@ public partial class SimulationPanelState : ObservableObject
         SelectedSimWork = null;
         IsSimulating = false;
         IsSimPaused = false;
+        SimSpeed = 1.0;
         _stateCache.Clear();
         ClearSimStateFromCanvas();
 

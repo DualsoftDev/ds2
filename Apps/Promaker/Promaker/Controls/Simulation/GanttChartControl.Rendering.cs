@@ -7,11 +7,14 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using Promaker.ViewModels;
 
 namespace Promaker.Controls;
 
 public partial class GanttChartControl
 {
+    internal static string ResolveRowBackgroundResourceKey(GanttTimelineEntry entry)
+        => entry.IsWork ? "GanttWorkRowBackgroundBrush" : "GanttCallRowBackgroundBrush";
     // ── 엘리먼트 풀 (Children.Clear() 대신 재사용) ──
     private readonly List<Rectangle> _rowBgPool = new();
     private readonly List<Line> _rowLinePool = new();
@@ -156,8 +159,6 @@ public partial class GanttChartControl
         TimelineCanvas.Height = Math.Max(totalHeight, TimelineScrollViewer.ActualHeight);
 
         var borderBrush = Application.Current.TryFindResource("BorderBrush") as Brush ?? Brushes.Gray;
-        var workRowBrush = Application.Current.TryFindResource("GanttWorkRowBackgroundBrush") as Brush ?? Brushes.Transparent;
-        var callRowBrush = Application.Current.TryFindResource("GanttCallRowBackgroundBrush") as Brush ?? Brushes.Transparent;
         int rowIdx = 0, lineIdx = 0, barIdx = 0;
 
         foreach (var entry in _viewModel.Entries)
@@ -169,7 +170,9 @@ public partial class GanttChartControl
             var rowBg = GetOrCreateRowBg(rowIdx++);
             rowBg.Width = TimelineCanvas.Width;
             rowBg.Height = rowHeight;
-            rowBg.Fill = entry.IsWork ? workRowBrush : callRowBrush;
+            rowBg.Fill =
+                Application.Current.TryFindResource(ResolveRowBackgroundResourceKey(entry)) as Brush
+                ?? Brushes.Transparent;
             Canvas.SetLeft(rowBg, 0);
             Canvas.SetTop(rowBg, y);
 

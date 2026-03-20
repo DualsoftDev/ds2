@@ -310,6 +310,25 @@
                 Background="{DynamicResource TertiaryBackgroundBrush}"
                 CornerRadius="3">
             <StackPanel Orientation="Horizontal">
+                <Button x:Name="FlowQuickAddButton" Style="{StaticResource RibbonButton}" Width="28" Height="28"
+                        ToolTip="Flow 추가" Click="OnQuickAddFlow">
+                    <TextBlock Text="F"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               FontSize="12"
+                               FontWeight="Bold"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Button>
+                <Button x:Name="ContextualQuickAddButton" Style="{StaticResource RibbonButton}" Width="28" Height="28"
+                        ToolTip="Work / Call 추가" Click="OnQuickAddContextual">
+                    <TextBlock x:Name="ContextualQuickAddText"
+                               Text="W/C"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               FontSize="10"
+                               FontWeight="Bold"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                </Button>
                 <Button Style="{StaticResource RibbonButton}" Width="28" Height="28"
                         ToolTip="화면 맞춤 (Home)" Click="OnFitToView">
                     <Path Data="M4,4H8V8H4V4M10,4H14V8H10V4M16,4H20V8H16V4M4,10H8V14H4V10M4,16H8V20H4V16M10,16H14V20H10V16M16,16H20V20H16V16"

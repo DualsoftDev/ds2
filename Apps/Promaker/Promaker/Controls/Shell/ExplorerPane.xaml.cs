@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -22,7 +23,6 @@ public partial class ExplorerPane : UserControl
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
     internal int UpperPanelsHostRow => Grid.GetRow(UpperPanelsHost);
-    internal int HistoryPanelRow => Grid.GetRow(HistoryPanelHost);
 
     private void ConfigureDebugPanels()
     {
@@ -45,12 +45,6 @@ public partial class ExplorerPane : UserControl
     {
         if (sender is TreeView tree)
             tree.Focus();
-    }
-
-    private void HistoryListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
-    {
-        if (sender is ListBox { SelectedItem: HistoryPanelItem item } && ViewModel is not null)
-            ViewModel.JumpToHistoryCommand.Execute(item);
     }
 
     private void TreeViewItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -147,22 +141,19 @@ public partial class ExplorerPane : UserControl
         if (!ReferenceEquals(item, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject))) return;
         if (item.DataContext is not EntityNode node) return;
 
+        const double doubleClickZoom = 0.52;
+
         if (node.EntityType == EntityKind.Call)
-        {
-            ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
-            e.Handled = true;
-        }
+            ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType, zoomOverride: doubleClickZoom);
         else if (node.EntityType is EntityKind.System or EntityKind.Flow or EntityKind.Work)
         {
             ViewModel.Canvas.OpenCanvasTab(node.Id, node.EntityType);
-            item.IsExpanded = !item.IsExpanded;
-            e.Handled = true;
+            ViewModel.Canvas.ApplyZoomCenteredRequested?.Invoke(doubleClickZoom);
         }
         else if (node.EntityType == EntityKind.ApiDef)
-        {
             ViewModel.EditApiDefNode(node.Id);
-            e.Handled = true;
-        }
+
+        e.Handled = true;
     }
 
     private void TreeViewItem_PreviewMouseMove_Drag(object sender, MouseEventArgs e)
@@ -193,12 +184,6 @@ public partial class ExplorerPane : UserControl
         if (newValue is not EntityNode node) return;
 
         ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
-
-        // 트리 클릭 시 캔버스에서도 해당 노드로 이동
-        if (node.EntityType == EntityKind.Call)
-            ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
-        else if (node.EntityType is EntityKind.Flow or EntityKind.Work)
-            ViewModel.Canvas.OpenCanvasTab(node.Id, node.EntityType, expandTree: false);
     }
 
     private void HandleTreeItemMouseDown(TreePaneKind pane, object sender, MouseButtonEventArgs e, bool requireModifiers)
@@ -225,6 +210,35 @@ public partial class ExplorerPane : UserControl
             return TreePaneKind.Device;
 
         return TreePaneKind.Control;
+    }
+
+    private void ExpandAll_Click(object sender, RoutedEventArgs e)
+        => SetExpandedRecursive(GetActiveTreeRoots(), true);
+
+    private void CollapseAll_Click(object sender, RoutedEventArgs e)
+        => SetExpandedRecursive(GetActiveTreeRoots(), false);
+
+    private IEnumerable<EntityNode>? GetActiveTreeRoots()
+    {
+        var vm = ViewModel;
+        if (vm is null) return null;
+        return TreeTabs.SelectedItem == DeviceTreeTab
+            ? vm.DeviceTreeRoots
+            : vm.ControlTreeRoots;
+    }
+
+    private static void SetExpandedRecursive(IEnumerable<EntityNode>? roots, bool expanded)
+    {
+        if (roots is null) return;
+        foreach (var node in roots)
+            SetExpandedNode(node, expanded);
+    }
+
+    private static void SetExpandedNode(EntityNode node, bool expanded)
+    {
+        node.IsExpanded = expanded;
+        foreach (var child in node.Children)
+            SetExpandedNode(child, expanded);
     }
 
     private static T? FindAncestor<T>(DependencyObject? source) where T : DependencyObject
