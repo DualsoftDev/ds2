@@ -1,6 +1,7 @@
 using DSPilot.Services;
 using DSPilot.Repositories;
 using DSPilot.Abstractions;
+using DSPilot.Adapters;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,26 +16,40 @@ if (args.Contains("--diagnose"))
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// Database path resolution (Unified mode support) - F# Adapter 사용
+builder.Services.AddSingleton<DatabasePathResolverAdapter>();
+builder.Services.AddSingleton<IDatabasePathResolver>(sp => sp.GetRequiredService<DatabasePathResolverAdapter>());
+
+// Bootstrap service for EV2 + DSP schema initialization - F# Adapter 사용
+builder.Services.AddHostedService<Ev2BootstrapServiceAdapter>();
+
+// Core services
 builder.Services.AddSingleton<AppSettingsService>();
 builder.Services.AddSingleton<DsProjectService>();
 builder.Services.AddScoped<DashboardEditService>();
 builder.Services.AddSingleton<BlueprintService>();
 builder.Services.AddSingleton<HeatmapService>();
 builder.Services.AddSingleton<DspDbService>();
+builder.Services.AddSingleton<SignalTimelineBufferService>();
 
 // PLC 데이터 읽기 서비스 등록
 builder.Services.AddSingleton<IPlcRepository, PlcRepository>();
 builder.Services.AddHostedService<PlcDataReaderService>();
 
-// DSP 데이터베이스 서비스 등록
-builder.Services.AddSingleton<IDspRepository, DspRepository>();
+// DSP 데이터베이스 서비스 등록 - F# Adapter 사용
+builder.Services.AddSingleton<IDspRepository>(sp =>
+{
+    var pathResolver = sp.GetRequiredService<DatabasePathResolverAdapter>();
+    var logger = sp.GetRequiredService<ILogger<DspRepositoryAdapter>>();
+    return new DspRepositoryAdapter(pathResolver.GetDatabasePaths(), logger);
+});
 builder.Services.AddSingleton<PlcToCallMapperService>();
 builder.Services.AddSingleton<PlcTagStateTrackerService>();
 builder.Services.AddSingleton<CallStatisticsService>();
 builder.Services.AddSingleton<InMemoryCallStateStore>();
 builder.Services.AddSingleton<IFlowMetricsService, FlowMetricsService>();
 builder.Services.AddScoped<CycleAnalysisService>();
-builder.Services.AddHostedService<DspDatabaseService>();
+builder.Services.AddHostedService<DspDatabaseServiceAdapter>();
 
 // Ev2.Backend.PLC 기반 이벤트 처리 (옵션)
 var plcConnectionEnabled = builder.Configuration.GetValue<bool>("PlcConnection:Enabled");

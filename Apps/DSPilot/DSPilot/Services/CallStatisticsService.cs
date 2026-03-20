@@ -1,36 +1,37 @@
 using DSPilot.Engine;
 using DSPilot.Models;
 using DSPilot.Repositories;
-using Microsoft.FSharp.Collections;
 
 namespace DSPilot.Services;
 
 /// <summary>
-/// Call 통계 계산 서비스 - F# Statistics 모듈 사용
+/// Call 통계 계산 서비스 (F# RuntimeStatistics 래퍼)
 /// </summary>
 public class CallStatisticsService
 {
     private readonly ILogger<CallStatisticsService> _logger;
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IDspRepository _dspRepository;
+    private readonly RuntimeStatisticsTrackerMutable _tracker;
+    private volatile bool _isDisposing = false;
 
-    // CallName → Going 시작 시간
-    private readonly Dictionary<string, DateTime> _goingStartTimes = new();
-
-    // CallName → Going 시간 히스토리
-    private readonly Dictionary<string, List<int>> _goingTimeHistory = new();
-
-    // CallName → DB에서 로드한 기존 GoingCount
-    private readonly Dictionary<string, int> _baseGoingCount = new();
-
-    // CallName → 세션 내 실행 횟수 (히스토리 캡과 무관하게 정확한 카운트 유지)
-    private readonly Dictionary<string, int> _sessionExecutionCount = new();
+    // CallName → DB에서 로드한 기존 GoingCount (캐시)
+    private readonly Dictionary<string, int> _baseCountCache = new();
 
     public CallStatisticsService(
         ILogger<CallStatisticsService> logger,
-        IServiceScopeFactory scopeFactory)
+        IDspRepository dspRepository)
     {
         _logger = logger;
-        _scopeFactory = scopeFactory;
+        _dspRepository = dspRepository;
+        _tracker = new RuntimeStatisticsTrackerMutable();
+    }
+
+    /// <summary>
+    /// Mark service as disposing to prevent new operations
+    /// </summary>
+    public void MarkDisposing()
+    {
+        _isDisposing = true;
     }
 
     /// <summary>
@@ -38,83 +39,87 @@ public class CallStatisticsService
     /// </summary>
     public async Task RecordGoingStartAsync(string callName)
     {
-        _goingStartTimes[callName] = DateTime.Now;
-
-        // DB에서 기존 GoingCount 로드 (처음 한 번만)
-        if (!_baseGoingCount.ContainsKey(callName))
+        // DB에서 기존 GoingCount 로드 (처음 한 번만, 캐시 사용)
+        int baseCount = 0;
+        if (!_baseCountCache.ContainsKey(callName))
         {
-            using var scope = _scopeFactory.CreateScope();
-            var dspRepo = scope.ServiceProvider.GetRequiredService<IDspRepository>();
-
-            try
-            {
-                // CallName으로 FlowName 조회 후 CallKey 생성
-                var callInfo = await dspRepo.GetCallInfoAsync(callName);
-                if (callInfo != null)
-                {
-                    var (workName, flowName) = callInfo.Value;
-                    var callKey = new CallKey(flowName, callName, workName);
-                    var callData = await dspRepo.GetCallByKeyAsync(callKey);
-                    _baseGoingCount[callName] = callData?.GoingCount ?? 0;
-                    _logger.LogDebug("Call '{CallName}': Loaded base GoingCount = {Count}", callName, _baseGoingCount[callName]);
-                }
-                else
-                {
-                    _baseGoingCount[callName] = 0;
-                    _logger.LogWarning("Call '{CallName}': Not found in database, defaulting GoingCount to 0", callName);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to load base GoingCount for Call '{CallName}', defaulting to 0", callName);
-                _baseGoingCount[callName] = 0;
-            }
+            baseCount = await LoadBaseCountAsync(callName);
+            _baseCountCache[callName] = baseCount;
+        }
+        else
+        {
+            baseCount = _baseCountCache[callName];
         }
 
+        // F# RuntimeStatisticsTracker 호출
+        _tracker.RecordStart(callName, baseCount);
         _logger.LogDebug("Call '{CallName}': Going started", callName);
     }
 
+    private async Task<int> LoadBaseCountAsync(string callName)
+    {
+        // Check if service is disposing
+        if (_isDisposing)
+        {
+            _logger.LogDebug("Service is disposing, using default GoingCount for '{CallName}'", callName);
+            return 0;
+        }
+
+        try
+        {
+            var callInfo = await _dspRepository.GetCallInfoAsync(callName);
+            if (callInfo != null)
+            {
+                var (workName, flowName) = callInfo.Value;
+                var callKey = new DSPilot.Models.CallKey(flowName, callName, workName);
+                var callData = await _dspRepository.GetCallByKeyAsync(callKey);
+                int count = callData?.GoingCount ?? 0;
+                _logger.LogDebug("Call '{CallName}': Loaded base GoingCount = {Count}", callName, count);
+                return count;
+            }
+            else
+            {
+                _logger.LogWarning("Call '{CallName}': Not found in database, defaulting GoingCount to 0", callName);
+                return 0;
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            _logger.LogDebug("Repository disposed, using default GoingCount for '{CallName}'", callName);
+            _isDisposing = true;
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load base GoingCount for Call '{CallName}', defaulting to 0", callName);
+            return 0;
+        }
+    }
+
     /// <summary>
-    /// Going 종료 시 시간 계산 및 통계 업데이트 (F# Statistics 사용)
+    /// Going 종료 시 시간 계산 및 통계 업데이트 (F# RuntimeStatistics 사용)
     /// </summary>
     /// <returns>(시작 시간, 종료 시간, Going 시간, 평균, 표준편차, 누적 횟수)</returns>
     public (DateTime? StartTime, DateTime FinishTime, int GoingTime, double Average, double StdDev, int GoingCount) RecordGoingFinish(string callName)
     {
         var finishTime = DateTime.Now;
 
-        if (!_goingStartTimes.TryGetValue(callName, out var startTime))
+        // F# RuntimeStatisticsTracker 호출
+        var stats = _tracker.RecordFinish(callName);
+
+        if (stats == null)
         {
             _logger.LogWarning("Call '{CallName}': No Going start time found", callName);
             return (null, finishTime, 0, 0, 0, 0);
         }
 
-        var goingTime = (int)(finishTime - startTime).TotalMilliseconds;
-        _goingStartTimes.Remove(callName);
-
-        if (!_goingTimeHistory.ContainsKey(callName))
-        {
-            _goingTimeHistory[callName] = new List<int>();
-        }
-
-        var history = _goingTimeHistory[callName];
-
-        // F# Statistics 모듈 사용
-        var fsharpList = ListModule.OfSeq(history);
-        var (average, stdDev, cv, updatedSamples) = Statistics.calculateStatistics(fsharpList, goingTime);
-
-        // 업데이트된 샘플로 히스토리 갱신
-        _goingTimeHistory[callName] = new List<int>(updatedSamples);
-
-        // 세션 내 증가분 + DB의 기존 값 (히스토리 캡과 무관하게 정확한 카운트)
-        _sessionExecutionCount[callName] = _sessionExecutionCount.GetValueOrDefault(callName) + 1;
-        var baseCount = _baseGoingCount.TryGetValue(callName, out var bc) ? bc : 0;
-        var totalGoingCount = baseCount + _sessionExecutionCount[callName];
-
         _logger.LogInformation(
             "Call '{CallName}': Going finished - Time={Time}ms, Avg={Avg:F0}ms, StdDev={StdDev:F0}ms (Session={Session}, Base={Base}, Total={Total})",
-            callName, goingTime, average, stdDev, _sessionExecutionCount[callName], baseCount, totalGoingCount);
+            callName, stats.Value.GoingTime, stats.Value.Average, stats.Value.StdDev,
+            stats.Value.SessionCount, stats.Value.BaseCount, stats.Value.TotalCount);
 
-        return (startTime, finishTime, goingTime, average, stdDev, totalGoingCount);
+        // StartTime은 F#에서 이미 처리되었으므로 null 반환 (필요시 F#에 저장 가능)
+        return (null, finishTime, stats.Value.GoingTime, stats.Value.Average, stats.Value.StdDev, stats.Value.TotalCount);
     }
 
     /// <summary>
@@ -122,15 +127,12 @@ public class CallStatisticsService
     /// </summary>
     public void Reset()
     {
-        _goingStartTimes.Clear();
-        _goingTimeHistory.Clear();
-        _sessionExecutionCount.Clear();
-        // _baseGoingCount는 유지 (DB 값)
+        _tracker.ResetAllSessions();
         _logger.LogInformation("Session statistics cleared (base GoingCount preserved)");
     }
 
     /// <summary>
     /// 통계 추적 중인 Call 개수
     /// </summary>
-    public int TrackedCallCount => _goingTimeHistory.Count;
+    public int TrackedCallCount => _tracker.TrackedCallCount;
 }

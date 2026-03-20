@@ -24,6 +24,7 @@ namespace DSPilot.Services;
 public class PlcCaptureService : IHostedService, IDisposable
 {
     private readonly DsProjectService _projectService;
+    private readonly IDatabasePathResolver _pathResolver;
     private readonly IConfiguration _configuration;
     private readonly ILogger<PlcCaptureService> _logger;
     private IDisposable? _c2sSubscription;
@@ -39,10 +40,12 @@ public class PlcCaptureService : IHostedService, IDisposable
 
     public PlcCaptureService(
         DsProjectService projectService,
+        IDatabasePathResolver pathResolver,
         IConfiguration configuration,
         ILogger<PlcCaptureService> logger)
     {
         _projectService = projectService;
+        _pathResolver = pathResolver;
         _configuration = configuration;
         _logger = logger;
     }
@@ -197,29 +200,9 @@ public class PlcCaptureService : IHostedService, IDisposable
 
     private string GetDbPath()
     {
-        var dbPath = _configuration["PlcDatabase:SourceDbPath"] ?? "sample/db/DsDB.sqlite3";
-
-        // 환경 변수 확장 (%APPDATA% 등)
-        dbPath = Environment.ExpandEnvironmentVariables(dbPath);
-
-        // Windows 경로 구분자 정규화 (/ → \)
-        dbPath = dbPath.Replace('/', Path.DirectorySeparatorChar);
-
-        // 상대 경로를 절대 경로로 변환
-        if (!Path.IsPathRooted(dbPath))
-        {
-            dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, dbPath);
-        }
-
-        // DB 디렉토리 생성
-        var dbDirectory = Path.GetDirectoryName(dbPath);
-        if (!string.IsNullOrEmpty(dbDirectory) && !Directory.Exists(dbDirectory))
-        {
-            Directory.CreateDirectory(dbDirectory);
-            _log4netLogger?.InfoFormat("Created DB directory: {0}", dbDirectory);
-            _logger.LogInformation("Created DB directory: {Directory}", dbDirectory);
-        }
-
+        var dbPath = _pathResolver.GetPlcDbPath();
+        _logger.LogInformation("Using PLC DB path: {DbPath} (Unified: {IsUnified})",
+            dbPath, _pathResolver.IsUnified);
         return dbPath;
     }
 
