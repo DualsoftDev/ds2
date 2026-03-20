@@ -144,11 +144,13 @@ public partial class ExplorerPane : UserControl
         const double doubleClickZoom = 0.52;
 
         if (node.EntityType == EntityKind.Call)
-            ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType, zoomOverride: doubleClickZoom);
+            ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType, zoomOverride: 1.0);
         else if (node.EntityType is EntityKind.System or EntityKind.Flow or EntityKind.Work)
         {
             ViewModel.Canvas.OpenCanvasTab(node.Id, node.EntityType);
-            ViewModel.Canvas.ApplyZoomCenteredRequested?.Invoke(doubleClickZoom);
+            Dispatcher.InvokeAsync(
+                () => ViewModel?.Canvas.ApplyZoomCenteredRequested?.Invoke(doubleClickZoom),
+                System.Windows.Threading.DispatcherPriority.Loaded);
         }
         else if (node.EntityType == EntityKind.ApiDef)
             ViewModel.EditApiDefNode(node.Id);
