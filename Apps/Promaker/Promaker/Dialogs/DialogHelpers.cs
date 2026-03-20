@@ -93,15 +93,22 @@ internal static class DialogHelpers
             MessageBoxButton.YesNoCancel,
             "?");
 
-    private static MessageBoxResult ShowThemedMessageBox(
-        string message, string title, MessageBoxButton buttons, string icon)
+    internal static MessageBoxResult ShowThemedMessageBox(
+        string message, string title, MessageBoxButton buttons, string icon) =>
+        ShowThemedMessageBox(message, title, buttons, icon, showDontShowAgain: false, out _);
+
+    /// <summary>"다시 보지 않기" 체크박스 포함 오버로드</summary>
+    internal static MessageBoxResult ShowThemedMessageBox(
+        string message, string title, MessageBoxButton buttons, string icon,
+        bool showDontShowAgain, out bool dontShowAgain)
     {
         var result = MessageBoxResult.None;
+        dontShowAgain = false;
 
         var dialog = new Window
         {
             Title = title,
-            Width = 380,
+            Width = 420,
             SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = Application.Current.MainWindow,
@@ -127,13 +134,26 @@ internal static class DialogHelpers
             FontSize = 13
         };
 
-        var contentPanel = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(16, 16, 16, 12)
-        };
+        var contentPanel = new Grid { Margin = new Thickness(16, 16, 16, 12) };
+        contentPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        contentPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(iconBlock, 0);
+        Grid.SetColumn(messageBlock, 1);
         contentPanel.Children.Add(iconBlock);
         contentPanel.Children.Add(messageBlock);
+
+        CheckBox? dontShowCheck = null;
+        if (showDontShowAgain)
+        {
+            dontShowCheck = new CheckBox
+            {
+                Content = "다음 시뮬레이션까지 다시 보지 않기",
+                Foreground = (System.Windows.Media.Brush?)Application.Current.TryFindResource("SecondaryTextBrush")
+                             ?? System.Windows.SystemColors.ControlTextBrush,
+                FontSize = 12,
+                Margin = new Thickness(16, 0, 16, 10)
+            };
+        }
 
         var buttonPanel = new StackPanel
         {
@@ -185,12 +205,17 @@ internal static class DialogHelpers
         };
         var mainPanel = new StackPanel();
         mainPanel.Children.Add(contentPanel);
+        if (dontShowCheck is not null)
+            mainPanel.Children.Add(dontShowCheck);
         mainPanel.Children.Add(buttonPanel);
         root.Child = mainPanel;
         dialog.Content = root;
 
         if (dialog.ShowDialog() != true && result == MessageBoxResult.None)
             result = buttons == MessageBoxButton.OK ? MessageBoxResult.OK : MessageBoxResult.Cancel;
+
+        if (dontShowCheck is not null)
+            dontShowAgain = dontShowCheck.IsChecked == true;
 
         return result;
     }

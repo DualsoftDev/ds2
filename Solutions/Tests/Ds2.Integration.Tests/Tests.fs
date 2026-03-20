@@ -264,8 +264,8 @@ module AasxRoundTripTests =
         store.AddWork("W", flowId) |> ignore
 
         let project = store.Projects.Values |> Seq.head
-        project.TokenSpecs.Add({ Id = 1; Label = "Avante"; Fields = Map.ofList [ "LotId", "LOT-001" ] })
-        project.TokenSpecs.Add({ Id = 2; Label = "Sonata"; Fields = Map.empty })
+        project.TokenSpecs.Add({ Id = 1; Label = "Avante"; Fields = Map.ofList [ "LotId", "LOT-001" ]; WorkId = None })
+        project.TokenSpecs.Add({ Id = 2; Label = "Sonata"; Fields = Map.empty; WorkId = None })
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try

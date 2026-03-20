@@ -4,79 +4,44 @@ using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.Runtime.Sim.Engine;
 using Ds2.Runtime.Sim.Model;
-using Ds2.UI.Core;
-using Microsoft.FSharp.Core;
 
 namespace Promaker.ViewModels;
 
 public partial class SimulationPanelState
 {
     public ObservableCollection<SimWorkItem> TokenSourceWorks { get; } = [];
-    public ObservableCollection<TokenSpecItem> TokenSpecItems { get; } = [];
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
     private SimWorkItem? _selectedTokenSource;
 
-    [ObservableProperty] private TokenSpecItem? _selectedTokenSpec;
-    [ObservableProperty] private bool _hasTokenSpecs;
-
     [RelayCommand(CanExecute = nameof(CanSeedToken))]
     private void SeedToken()
     {
-        if (_simEngine is not { } engine || SelectedTokenSource is not { } source) return;
+        if (_simEngine is null || SelectedTokenSource is null) return;
+        var wg = SelectedTokenSource.Guid;
+        if (_simEngine.GetWorkToken(wg) is not null) return; // 이미 토큰 있음
 
-        TokenValue token;
-        if (SelectedTokenSpec is { } spec)
-            token = TokenValue.NewIntToken(spec.Id);
-        else
-            token = ((EventDrivenEngine)engine).NextToken();
-
-        engine.SeedToken(source.Guid, token);
-        var label = FormatTokenDisplay(token);
-        AddSimLog($"Token {label} → {source.Name}");
+        var token = _simEngine.NextToken();
+        _simEngine.SeedToken(wg, token);
+        AddSimLog($"토큰 수동 투입: {SelectedTokenSource.Name} ← {FormatTokenDisplay(token)}");
     }
 
-    private bool CanSeedToken() => IsSimulating && SelectedTokenSource is not null;
-
-    [RelayCommand(CanExecute = nameof(CanDiscardToken))]
-    private void DiscardToken()
-    {
-        if (_simEngine is not { } engine || SelectedSimWork is not { } work) return;
-
-        engine.DiscardToken(work.Guid);
-    }
-
-    private bool CanDiscardToken() => IsSimulating && IsSimPaused && SelectedSimWork is not null;
+    private bool CanSeedToken() => IsSimulating && !IsSimPaused && SelectedTokenSource is not null;
 
     private void InitTokenSources()
     {
         TokenSourceWorks.Clear();
-        TokenSpecItems.Clear();
-        SelectedTokenSpec = null;
-
-        if (_simEngine is null) return;
-
-        foreach (var srcGuid in _simEngine.Index.TokenSourceGuids)
+        if (_simEngine?.Index is not { } index) return;
+        foreach (var srcGuid in index.TokenSourceGuids)
         {
-            var name = _simEngine.Index.WorkName.TryFind(srcGuid);
+            var name = index.WorkName.TryFind(srcGuid);
             if (name is not null)
                 TokenSourceWorks.Add(new SimWorkItem(srcGuid, name.Value));
         }
-
         if (TokenSourceWorks.Count > 0)
             SelectedTokenSource = TokenSourceWorks[0];
-
-        // TokenSpec 로드
-        var specs = Store.GetTokenSpecs();
-        foreach (var spec in specs)
-            TokenSpecItems.Add(new TokenSpecItem(spec.Id, spec.Label));
-
-        HasTokenSpecs = TokenSpecItems.Count > 0;
-        if (HasTokenSpecs)
-            SelectedTokenSpec = TokenSpecItems[0];
     }
 
     private void WireTokenEvent()
@@ -94,6 +59,26 @@ public partial class SimulationPanelState
             ? $" → {args.TargetWorkName.Value}"
             : "";
         AddSimLog($"[Token] {args.Kind}: {label} @ {args.WorkName}{target}");
+
+        // BlockedOnHoming: 로그 경고만 (MessageBox는 디스패처를 차단하여 후속 토큰 업데이트 지연 유발)
+        if (args.Kind.IsBlockedOnHoming)
+        {
+            SimLog.Warn($"토큰 BlockedOnHoming: {args.WorkName} — {label}");
+        }
+
+        // Conflict: 토큰 보유 Finish 노드 → Homing 진입하지만 토큰 때문에 Ready 불가
+        if (args.Kind.IsConflict)
+        {
+            ShowPausedMessageBox(
+                $"[Token Conflict]\n" +
+                $"{args.WorkName}이(가) 토큰({label})을 보유한 채 Finish 상태이며,\n" +
+                $"리셋 조건이 충족되어 Homing에 진입하지만\n" +
+                $"토큰이 이동할 수 없어 Ready로 전환되지 않습니다.\n\n" +
+                $"토큰을 수동으로 제거하거나 후속 Work를 리셋하여\n" +
+                $"토큰 이동 경로를 확보해 주세요.",
+                "Token Conflict",
+                suppressKey: "TokenConflict");
+        }
 
         // SimNodes에 토큰 정보 갱신
         UpdateSimNodeToken(args.WorkGuid);
@@ -116,18 +101,15 @@ public partial class SimulationPanelState
             canvasNode.SimTokenDisplay = display;
     }
 
-    private static int GetTokenId(TokenValue token) => token.Item;
-
+    /// <summary>토큰 표시: {이름}#{이름별순번} 형식</summary>
     private string FormatTokenDisplay(TokenValue token)
     {
-        var id = GetTokenId(token);
-        var spec = TokenSpecItems.FirstOrDefault(s => s.Id == id);
-        return spec is not null ? $"#{id} {spec.Label}" : $"#{id}";
+        var origin = _simEngine?.GetTokenOrigin(token);
+        if (origin is not null)
+        {
+            var (name, seq) = origin.Value;
+            return $"{name}#{seq}";
+        }
+        return $"#{token.Item}";
     }
-}
-
-/// <summary>TokenSpec 드롭다운 항목입니다.</summary>
-public record TokenSpecItem(int Id, string Label)
-{
-    public override string ToString() => $"#{Id} {Label}";
 }

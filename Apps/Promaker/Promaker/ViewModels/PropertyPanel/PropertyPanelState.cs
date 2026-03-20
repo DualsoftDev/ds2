@@ -38,7 +38,10 @@ public partial class PropertyPanelState : ObservableObject
     [ObservableProperty] private bool _isCallSelected;
     [ObservableProperty] private bool _isSystemSelected;
     [ObservableProperty] private int? _workPeriodMs;
-    [ObservableProperty] private TokenRole _workTokenRole;
+    [ObservableProperty] private bool _isTokenSource;
+    [ObservableProperty] private bool _isTokenIgnore;
+    [ObservableProperty] private bool _hasLinkedTokenSpec;
+    [ObservableProperty] private string _linkedTokenSpecLabel = "";
     [ObservableProperty] private int? _callTimeoutMs;
     [ObservableProperty] private CallApiCallItem? _selectedCallApiCall;
     [ObservableProperty] private string _nameEditorText = string.Empty;
@@ -55,17 +58,32 @@ public partial class PropertyPanelState : ObservableObject
         IsNameDirty = !string.Equals(value.Trim(), SelectedNode?.Name ?? string.Empty, StringComparison.Ordinal);
 
     private TokenRole _originalWorkTokenRole;
+    private bool _suppressTokenRoleSync;
 
-    partial void OnWorkTokenRoleChanged(TokenRole value)
+    private TokenRole CurrentTokenRole =>
+        (IsTokenSource ? TokenRole.Source : TokenRole.None) |
+        (IsTokenIgnore ? TokenRole.Ignore : TokenRole.None);
+
+    private void SyncTokenRoleToStore()
     {
-        if (value != _originalWorkTokenRole && RequireSelectedAs(EntityKind.Work) is { } work)
+        if (_suppressTokenRoleSync) return;
+        var newRole = CurrentTokenRole;
+        if (newRole != _originalWorkTokenRole && RequireSelectedAs(EntityKind.Work) is { } work)
         {
-            if (_host.TryAction(() => Store.UpdateWorkTokenRole(work.Id, value)))
-                _originalWorkTokenRole = value;
+            if (_host.TryAction(() => Store.UpdateWorkTokenRole(work.Id, newRole)))
+                _originalWorkTokenRole = newRole;
             else
-                WorkTokenRole = _originalWorkTokenRole;
+            {
+                _suppressTokenRoleSync = true;
+                IsTokenSource = _originalWorkTokenRole.HasFlag(TokenRole.Source);
+                IsTokenIgnore = _originalWorkTokenRole.HasFlag(TokenRole.Ignore);
+                _suppressTokenRoleSync = false;
+            }
         }
     }
+
+    partial void OnIsTokenSourceChanged(bool value) => SyncTokenRoleToStore();
+    partial void OnIsTokenIgnoreChanged(bool value) => SyncTokenRoleToStore();
 
     partial void OnWorkPeriodMsChanged(int? value) =>
         IsWorkPeriodDirty = value != _originalWorkPeriodMs;
@@ -93,14 +111,28 @@ public partial class PropertyPanelState : ObservableObject
 
             var workOpt = Ds2.UI.Core.DsQuery.getWork(selected.Id, Store);
             _originalWorkTokenRole = workOpt != null ? workOpt.Value.TokenRole : TokenRole.None;
-            WorkTokenRole = _originalWorkTokenRole;
+            _suppressTokenRoleSync = true;
+            IsTokenSource = _originalWorkTokenRole.HasFlag(TokenRole.Source);
+            IsTokenIgnore = _originalWorkTokenRole.HasFlag(TokenRole.Ignore);
+            _suppressTokenRoleSync = false;
+
+            // 연결된 TokenSpec 표시
+            var linkedSpec = Store.GetTokenSpecs()
+                .FirstOrDefault(s => s.WorkId is { } wid && wid.Value == selected.Id);
+            HasLinkedTokenSpec = linkedSpec is not null;
+            LinkedTokenSpecLabel = linkedSpec is not null ? $"#{linkedSpec.Id} {linkedSpec.Label}" : "";
         }
         else
         {
             _originalWorkPeriodMs = null;
             WorkPeriodMs = null;
             _originalWorkTokenRole = TokenRole.None;
-            WorkTokenRole = TokenRole.None;
+            _suppressTokenRoleSync = true;
+            IsTokenSource = false;
+            IsTokenIgnore = false;
+            _suppressTokenRoleSync = false;
+            HasLinkedTokenSpec = false;
+            LinkedTokenSpecLabel = "";
         }
 
         if (IsCallSelected && selected is not null)

@@ -11,4 +11,6 @@ type TokenSpec = {
     Id: int
     Label: string
     Fields: Map<string, string>
+    /// 연결된 Source Work Guid (None이면 미연결)
+    WorkId: System.Guid option
 }

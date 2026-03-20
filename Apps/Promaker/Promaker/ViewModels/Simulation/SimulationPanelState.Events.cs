@@ -27,6 +27,9 @@ public partial class SimulationPanelState
     private void OnWorkStateChanged(WorkStateChangedArgs args)
     {
         ApplyNodeStateChange(args.WorkGuid, args.NewState, args.WorkName, EntityKind.Work, GetSystemName(EntityKind.Work, args.WorkGuid));
+        // 디버그: Homing/Ready 전이 로그 (리셋 동작 확인용)
+        if (args.NewState == Status4.Homing || (args.PreviousState == Status4.Homing && args.NewState == Status4.Ready))
+            AddSimLog($"[Reset] {args.WorkName}: {args.PreviousState} → {args.NewState}");
     }
 
     private void OnCallStateChanged(CallStateChangedArgs args)

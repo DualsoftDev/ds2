@@ -88,6 +88,9 @@ type StateManager(index: SimIndex, initialTickMs: int) =
         lock syncRoot (fun () -> SimState.getWorkToken workGuid state)
     member _.AddCompletedToken(token: TokenValue) =
         lock syncRoot (fun () -> state <- SimState.addCompletedToken token state)
+    member _.SetTokenOrigin(token: TokenValue, workName: string) =
+        lock syncRoot (fun () ->
+            match token with IntToken id -> state <- SimState.setTokenOrigin id workName state)
     member _.NextToken() =
         lock syncRoot (fun () ->
             let token, newState = SimState.nextToken state

@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-03-17 (CSV 변환기, AASX/Mermaid 모듈 분리, ApiCall 복제 모드, 일괄편집, FileCommands 리팩토링)
+Last Sync: 2026-03-20 (토큰 시스템 Phase 1~6, 시뮬레이션 엔진 런타임, GraphValidator)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -965,3 +965,141 @@ let private log = LogManager.GetLogger("Ds2.Aasx.AasxImporter")
 | WARN | 기능 저하지만 계속 실행 가능 | AASX import 빈 결과, AASX ZIP 읽기 실패 |
 | INFO | 정상 수명주기 이벤트 | 앱 시작/종료, 파일 I/O 성공, Store 교체 |
 | DEBUG | 반복 호출 상세 추적 | WithTransaction 각 성공, Undo/Redo 각 단계 |
+
+---
+
+## 14. 시뮬레이션 엔진 런타임
+
+### 14.1 개요
+
+`Ds2.Runtime.Sim` 프로젝트가 이벤트 기반 시뮬레이션을 담당합니다. Work/Call의 상태 전이와 DataToken 시프트를 처리합니다.
+
+### 14.2 엔진 시작 흐름
+
+```
+[C# — SimulationPanelState.cs]
+ StartSimulation()
+  ├─ GraphValidator 경고 4종 수집
+  │    findUnresetWorks, findDeadlockCandidates,
+  │    findSourcesWithPredecessors, findSourceCandidates
+  │    → ShowThemedMessageBox (시뮬레이션 차단 안 함)
+  ├─ SimIndex.build(store) → SimIndex
+  ├─ EventDrivenEngine(index, timeIgnore) 생성
+  ├─ 이벤트 구독 (WorkStateChanged, CallStateChanged, TokenEvent)
+  └─ engine.Start()
+       → startEngineThread() → simulationLoop()
+```
+
+### 14.3 이벤트 루프
+
+```
+simulationLoop:
+  while Running:
+    targetMs = currentTime + tickMs
+    events = scheduler.AdvanceTo(targetMs)
+    for event in events:
+      processEvent(event)
+
+    // drain 루프 — cascade 완주
+    while draining && Running:
+      pending = scheduler.AdvanceTo(targetMs)
+      if pending.IsEmpty then stop
+      else processEvent each
+
+    Thread.Sleep(tickMs)
+```
+
+### 14.4 이벤트 타입 및 처리
+
+| 이벤트 | 처리 |
+|--------|------|
+| `WorkTransition(guid, state)` | `applyWorkTransition` → 상태 변경 + 후속 효과 |
+| `CallTransition(guid, state)` | `applyCallTransition` → 상태 변경 |
+| `DurationComplete(guid)` | leaf Work Finish 스케줄 |
+| `HomingComplete(guid)` | 토큰 shiftToken 시도 → Ready 또는 BlockedOnHoming |
+| `ConditionEvaluation` | 6단계 평가 (evaluateConditions) |
+
+### 14.5 토큰 흐름
+
+```
+Source Work Going
+  → 자동 Seed (TokenSpec.Label#{n} 또는 WorkName#{n})
+  → StateManager.SetWorkToken(workGuid, Some token)
+  → StateManager.SetTokenOrigin(token, name)
+  → emitTokenEvent Seed
+
+Work Finish
+  → TokenFlow.onWorkFinish
+    → shiftToken
+      → Sink/successor없음 → Complete (토큰 소멸)
+      → Ready+빈슬롯 successor → Shift (토큰 이동)
+      → 모두 점유 → Blocked (재시도 대기)
+
+Token Conflict (Finish + 토큰 + 리셋 조건)
+  → Conflict 이벤트 발행
+  → Homing 정상 진행 (토큰 보유한 채)
+  → HomingComplete 시 shiftToken 재시도
+    → 성공 → Ready 전환
+    → 실패 → BlockedOnHoming 이벤트
+```
+
+### 14.6 Sink 감지 (SimIndex.build)
+
+| 유형 | 감지 방식 |
+|------|----------|
+| 선형 Sink | successor 없는 Work |
+| 순환 Sink | DFS back edge의 source (A→B→C→A → C가 sink) |
+| Source기반 Sink | successor가 Source인 Work |
+
+Source 자체는 sink에서 제외됩니다. `TokenPathGuids`는 Source에서 BFS로 전체 토큰 경로를 수집합니다.
+
+### 14.7 evaluateConditions 6단계
+
+```
+1. evaluateWorkStarts()      — Ready Work → Going 스케줄 (scheduledGoingGuids 반환)
+2. evaluateWorkResets()       — Finish Work → Homing (Conflict 이벤트 포함)
+3. evaluateCallStarts()       — Ready Call → Going
+4. evaluateCallCompletions()  — Going Call → Finish
+5. evaluateWorkCompletions()  — Going Work (모든 Call Finish) → Finish
+6. retryBlockedTokens()       — Blocked 토큰 재시도 (Finish/Homing Work 대상)
+```
+
+### 14.8 GraphValidator (시뮬레이션 시작 시)
+
+| 검증 | 함수 | 의미 |
+|------|------|------|
+| Reset 연결 누락 | `findUnresetWorks` | Sink 제외 Work 중 reset predecessor 없음 |
+| 순환 데드락 위험 | `findDeadlockCandidates` | 정방향 descendant 순환 의존 |
+| Source 자동 시작 불가 | `findSourcesWithPredecessors` | predecessor 있는 Source → 자동 시작 불가 |
+| Source 후보 | `findSourceCandidates` | Source 지정 시 데드락 해소 가능한 후보 |
+
+경고만 표시하고 시뮬레이션은 차단하지 않습니다.
+
+### 14.9 ForceWork (수동 제어)
+
+```
+ForceWorkStart:
+  자동선택 → BatchStartSources
+    → WarnSourcesWithoutTokenSpec / WarnFinishedSources / CollectBlockedSources
+    → EnsureSourceToken → ForceWorkState(Going)
+  단일 → SingleStartWork
+    → Finish/Homing → WarnWorkNotReady
+    → Source → predecessor 확인 + EnsureSourceToken
+
+ForceWorkReset:
+  토큰 보유 → ShowPausedMessageBox 확인 → DiscardToken
+  → ForceWorkState(Ready)
+```
+
+### 14.10 엔진 Context 패턴
+
+각 서브모듈(TokenFlow, WorkTransitions, ConditionEvaluation)은 독립 `Context` 레코드를 받습니다:
+
+```
+EventDrivenEngine (오케스트레이션)
+  ├─ TokenFlow.Context        — Index, StateManager, CurrentTimeMs, TriggerTokenEvent
+  ├─ WorkTransitions.Context  — Index, StateManager, Scheduler, TimeIgnore, OnWorkFinish, ...
+  └─ ConditionEvaluation.Context — Index, StateManager, Scheduler, CanStartWork, ShiftToken, ...
+```
+
+Context 레코드로 의존성을 명시적으로 주입하므로 서브모듈 간 순환 참조가 없습니다.

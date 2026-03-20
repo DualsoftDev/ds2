@@ -41,9 +41,11 @@ type ISimulationEngine =
     abstract InjectIOValue: apiCallGuid: Guid * value: string -> unit
 
     // 토큰
+    abstract NextToken: unit -> TokenValue
     abstract SeedToken: sourceWorkGuid: Guid * value: TokenValue -> unit
     abstract DiscardToken: workGuid: Guid -> unit
     abstract GetWorkToken: workGuid: Guid -> TokenValue option
+    abstract GetTokenOrigin: token: TokenValue -> (string * int) option
 
     // 이벤트
     [<CLIEvent>]
