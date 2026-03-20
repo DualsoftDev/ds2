@@ -247,6 +247,7 @@ public partial class MainViewModel
 
         var validated = ok.Item;
         _clipboardSelection.Clear();
+        _pasteCount = 0;
         foreach (var key in validated)
             _clipboardSelection.Add(key);
 
@@ -280,15 +281,18 @@ public partial class MainViewModel
             return;
         }
 
+        var pasteIndex = _pasteCount * _clipboardSelection.Count;
         if (!TryEditorRef(
                 () => _store.PasteEntities(
                     batchType,
                     _clipboardSelection.Select(k => k.Id),
                     target.Value.EntityType,
-                    target.Value.EntityId),
+                    target.Value.EntityId,
+                    pasteIndex),
                 out var pastedIds))
             return;
 
+        _pasteCount++;
         ApplyPasteSelection(pastedIds, $"Pasted {pastedIds.Length} {batchType}(s).");
     }
 

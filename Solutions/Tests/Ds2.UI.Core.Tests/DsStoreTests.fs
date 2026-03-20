@@ -393,7 +393,7 @@ module PasteTests =
     let ``PasteEntities copies flow and returns new flow id`` () =
         let store = createStore ()
         let _, system, flow, _ = setupBasicHierarchy store
-        let pastedIds = store.PasteEntities(EntityKind.Flow, [ flow.Id ], EntityKind.System, system.Id)
+        let pastedIds = store.PasteEntities(EntityKind.Flow, [ flow.Id ], EntityKind.System, system.Id, 0)
         Assert.Equal(1, pastedIds.Length)
         Assert.NotEqual(flow.Id, pastedIds.Head)
         Assert.Equal(2, DsQuery.flowsOf system.Id store |> List.length)
@@ -402,7 +402,7 @@ module PasteTests =
     let ``PasteEntities copies works and returns new work ids`` () =
         let store = createStore ()
         let _, _, flow, work = setupBasicHierarchy store
-        let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id)
+        let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id, 0)
         Assert.Equal(1, pastedIds.Length)
         Assert.NotEqual(work.Id, pastedIds.Head)
         Assert.Equal(2, DsQuery.worksOf flow.Id store |> List.length)
@@ -421,7 +421,7 @@ module PasteTests =
         let flow2Id = store.AddFlow("Flow2", system.Id)
         let work2Id = store.AddWork("Work2", flow2Id)
         // Call을 다른 Flow의 Work로 복사
-        let pastedIds = store.PasteEntities(EntityKind.Call, [ callId ], EntityKind.Work, work2Id)
+        let pastedIds = store.PasteEntities(EntityKind.Call, [ callId ], EntityKind.Work, work2Id, 0)
         Assert.Equal(1, pastedIds.Length)
         let pastedCall = store.Calls.[pastedIds.Head]
         // 복사된 Call에 3개 ApiCall이 있어야 함

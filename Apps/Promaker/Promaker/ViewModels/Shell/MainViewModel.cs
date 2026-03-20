@@ -26,6 +26,7 @@ public partial class MainViewModel : ObservableObject
     private IDisposable? _eventSubscription;
     private string? _currentFilePath;
     private readonly List<SelectionKey> _clipboardSelection = [];
+    private int _pasteCount;
     private bool _rebuildQueued;
     private readonly List<Action> _pendingRebuildActions = [];
 
@@ -45,8 +46,8 @@ public partial class MainViewModel : ObservableObject
         _projectService = new ProjectService();
 
         Selection = new SelectionState(new SelectionHost(this));
-        Canvas = new CanvasWorkspaceState(new CanvasHost(this));
-        Simulation = new SimulationPanelState(() => _store, _dispatcher, Canvas.CanvasNodes, value => StatusText = value);
+        CanvasManager = new SplitCanvasManager(() => new CanvasWorkspaceState(new CanvasHost(this)));
+        Simulation = new SimulationPanelState(() => _store, _dispatcher, CanvasManager.PrimaryPane.CanvasNodes, value => StatusText = value);
         PropertyPanel = new PropertyPanelState(new PropertyPanelHost(this));
         WireEvents();
         LanguageManager.ApplySavedLanguage();
@@ -57,7 +58,8 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<EntityNode> ControlTreeRoots { get; } = [];
     public ObservableCollection<EntityNode> DeviceTreeRoots { get; } = [];
     public ObservableCollection<HistoryPanelItem> HistoryItems { get; } = [];
-    public CanvasWorkspaceState Canvas { get; }
+    public SplitCanvasManager CanvasManager { get; }
+    public CanvasWorkspaceState Canvas => CanvasManager.Canvas;
     public SimulationPanelState Simulation { get; }
     public PropertyPanelState PropertyPanel { get; }
     public SelectionState Selection { get; }
@@ -146,6 +148,11 @@ public partial class MainViewModel : ObservableObject
         Simulation.SyncCanvasSelection(Selection.OrderedNodeSelection);
     }
 
+    partial void OnHasProjectChanged(bool value)
+    {
+        CanvasManager.NotifyQuickCreateStateChanged();
+    }
+
     private void RefreshThemeState()
     {
         IsDarkTheme = ThemeManager.CurrentTheme == AppTheme.Dark;
@@ -203,7 +210,7 @@ public partial class MainViewModel : ObservableObject
 
         _clipboardSelection.Clear();
         Selection.Reset();
-        Canvas.Reset();
+        CanvasManager.Reset();
         _rebuildQueued = false;
         _pendingRebuildActions.Clear();
         SelectedNode = null;
@@ -238,7 +245,7 @@ public partial class MainViewModel : ObservableObject
         Simulation.ResetForNewStore();
         _clipboardSelection.Clear();
         Selection.Reset();
-        Canvas.Reset();
+        CanvasManager.Reset();
         SelectedNode = null;
         SelectedArrow = null;
     }
@@ -294,11 +301,18 @@ public partial class MainViewModel : ObservableObject
         public EntityNode? SelectedNode => Owner.SelectedNode;
         public ObservableCollection<EntityNode> ControlTreeRoots => Owner.ControlTreeRoots;
         public ObservableCollection<EntityNode> DeviceTreeRoots => Owner.DeviceTreeRoots;
+        public bool HasProject => Owner.HasProject;
 
         public void ExpandNodeAndAncestors(Guid nodeId) => Owner.Selection.ExpandNodeAndAncestors(nodeId);
 
         public void SelectNodeFromCanvas(EntityNode node, bool ctrlPressed, bool shiftPressed) =>
             Owner.Selection.SelectNodeFromCanvas(node, ctrlPressed, shiftPressed);
+
+        public void ExecuteAddFlow() => Owner.AddFlowCommand.Execute(null);
+
+        public void ExecuteAddWork() => Owner.AddWorkCommand.Execute(null);
+
+        public void ExecuteAddCall() => Owner.AddCallCommand.Execute(null);
     }
 
     public sealed class PropertyPanelHost : HostBase
@@ -333,8 +347,8 @@ public partial class MainViewModel : ObservableObject
 
         public ObservableCollection<EntityNode> ControlTreeRoots => Owner.ControlTreeRoots;
         public ObservableCollection<EntityNode> DeviceTreeRoots => Owner.DeviceTreeRoots;
-        public ObservableCollection<EntityNode> CanvasNodes => Owner.Canvas.CanvasNodes;
-        public ObservableCollection<ArrowNode> CanvasArrows => Owner.Canvas.CanvasArrows;
+        public ObservableCollection<EntityNode> CanvasNodes => Owner.CanvasManager.ActivePane.CanvasNodes;
+        public ObservableCollection<ArrowNode> CanvasArrows => Owner.CanvasManager.ActivePane.CanvasArrows;
 
         public EntityNode? SelectedNode
         {
@@ -405,23 +419,7 @@ public partial class MainViewModel : ObservableObject
         Selection.ApplyExpansionStateTo(ControlTreeRoots, expandedNodes);
         Selection.ApplyExpansionStateTo(DeviceTreeRoots, expandedNodes);
 
-        var deadTabs = new List<CanvasTab>();
-        foreach (var t in Canvas.OpenTabs)
-        {
-            var title = Canvas.ResolveTabTitle(t);
-            if (title is null)
-                deadTabs.Add(t);
-            else
-                t.Title = title;
-        }
-
-        foreach (var t in deadTabs)
-            Canvas.OpenTabs.Remove(t);
-
-        if (Canvas.ActiveTab is not null && !Canvas.OpenTabs.Contains(Canvas.ActiveTab))
-            Canvas.ActiveTab = Canvas.OpenTabs.Count > 0 ? Canvas.OpenTabs[0] : null;
-
-        Canvas.RefreshCanvasForActiveTab();
+        CanvasManager.RebuildAllPanes();
         Simulation.RestoreSimStateToCavas();
         Selection.RestoreSelection(prevSelection, prevSelectedArrowIds);
     }

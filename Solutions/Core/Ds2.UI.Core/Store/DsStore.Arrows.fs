@@ -122,6 +122,42 @@ type DsStoreArrowsExtensions =
             | _ -> false
 
     [<Extension>]
+    static member ReverseArrow(store: DsStore, arrowId: Guid) : bool =
+        StoreLog.debug($"arrowId={arrowId}")
+        match DsQuery.getArrowWork arrowId store with
+        | Some arrow ->
+            let expectedKey = ConnectionQueries.arrowKey arrow.TargetId arrow.SourceId arrow.ArrowType
+            let hasDuplicate =
+                DsQuery.arrowWorksOf arrow.ParentId store
+                |> ConnectionQueries.hasArrowKeyExcept expectedKey (Some arrow.Id)
+            if hasDuplicate then false
+            else
+                store.WithTransaction("화살표 방향 변경", fun () ->
+                    store.TrackMutate(store.ArrowWorks, arrowId, fun a ->
+                        let src = a.SourceId
+                        a.SourceId <- a.TargetId
+                        a.TargetId <- src))
+                store.EmitRefreshAndHistory()
+                true
+        | None ->
+            match DsQuery.getArrowCall arrowId store with
+            | Some arrow ->
+                let expectedKey = ConnectionQueries.arrowKey arrow.TargetId arrow.SourceId arrow.ArrowType
+                let hasDuplicate =
+                    DsQuery.arrowCallsOf arrow.ParentId store
+                    |> ConnectionQueries.hasArrowKeyExcept expectedKey (Some arrow.Id)
+                if hasDuplicate then false
+                else
+                    store.WithTransaction("화살표 방향 변경", fun () ->
+                        store.TrackMutate(store.ArrowCalls, arrowId, fun a ->
+                            let src = a.SourceId
+                            a.SourceId <- a.TargetId
+                            a.TargetId <- src))
+                    store.EmitRefreshAndHistory()
+                    true
+            | None -> false
+
+    [<Extension>]
     static member ConnectSelectionInOrder(store: DsStore, orderedNodeIds: seq<Guid>, arrowType: ArrowType) : int =
         let links = ConnectionQueries.orderedArrowLinksForSelection store orderedNodeIds arrowType
         if links.IsEmpty then 0

@@ -16,24 +16,16 @@ public partial class MainToolbar : UserControl
         SaveMenuToggle.IsChecked = false;
     }
 
-    private void CloseToolPopup(object sender, RoutedEventArgs e)
+    private void CloseDataPopup(object sender, RoutedEventArgs e)
     {
-        ToolToggleBtn.IsChecked = false;
+        DataToggleBtn.IsChecked = false;
     }
 
-    // Report 팝업 내 메뉴 클릭 시 팝업 닫기
-    private void CloseReportPopup(object sender, RoutedEventArgs e)
-    {
-        ReportToggleBtn.IsChecked = false;
-    }
-
-    // Add 팝업 내 메뉴 클릭 시 팝업 닫기
     private void CloseAddPopup(object sender, RoutedEventArgs e)
     {
         AddToggleBtn.IsChecked = false;
     }
 
-    // Model 팝업 내 메뉴 클릭 시 팝업 닫기
     private void CloseModelPopup(object sender, RoutedEventArgs e)
     {
         ModelToggleBtn.IsChecked = false;

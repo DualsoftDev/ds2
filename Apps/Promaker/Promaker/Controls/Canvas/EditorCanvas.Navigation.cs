@@ -24,12 +24,12 @@ public partial class EditorCanvas
 
     private void FitToViewCore(double maxZoomCap)
     {
-        if (VM is null || VM.Canvas.CanvasNodes.Count == 0) return;
+        if (VM is null || ActiveCanvasState!.CanvasNodes.Count == 0) return;
 
         double minX = double.MaxValue, minY = double.MaxValue;
         double maxX = double.MinValue, maxY = double.MinValue;
 
-        foreach (var n in VM.Canvas.CanvasNodes)
+        foreach (var n in ActiveCanvasState!.CanvasNodes)
         {
             minX = Math.Min(minX, n.X);
             minY = Math.Min(minY, n.Y);
@@ -57,7 +57,7 @@ public partial class EditorCanvas
 
     public void CenterOnNode(Guid nodeId)
     {
-        var node = VM?.Canvas.CanvasNodes.FirstOrDefault(n => n.Id == nodeId);
+        var node = ActiveCanvasState?.CanvasNodes.FirstOrDefault(n => n.Id == nodeId);
         if (node is null) return;
 
         var viewW = RootGrid.ActualWidth;
@@ -79,6 +79,35 @@ public partial class EditorCanvas
         _zoom = Math.Clamp(newZoom, MinZoom, MaxZoom);
         ZoomTransform.ScaleX = _zoom;
         ZoomTransform.ScaleY = _zoom;
+        ZoomText.Text = $"{(int)(_zoom * 100)}%";
+    }
+
+    public void ApplyZoomCentered(double zoom)
+    {
+        if (ActiveCanvasState?.CanvasNodes is not { Count: > 0 } nodes) return;
+
+        double minX = double.MaxValue, minY = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue;
+        foreach (var n in nodes)
+        {
+            minX = Math.Min(minX, n.X);
+            minY = Math.Min(minY, n.Y);
+            maxX = Math.Max(maxX, n.X + n.Width);
+            maxY = Math.Max(maxY, n.Y + n.Height);
+        }
+
+        var viewW = RootGrid.ActualWidth;
+        var viewH = RootGrid.ActualHeight;
+        if (viewW <= 0 || viewH <= 0) return;
+
+        _zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+        ZoomTransform.ScaleX = _zoom;
+        ZoomTransform.ScaleY = _zoom;
+
+        var centerX = (minX + maxX) / 2;
+        var centerY = (minY + maxY) / 2;
+        PanTransform.X = viewW / 2 - centerX * _zoom;
+        PanTransform.Y = viewH / 2 - centerY * _zoom;
         ZoomText.Text = $"{(int)(_zoom * 100)}%";
     }
 }

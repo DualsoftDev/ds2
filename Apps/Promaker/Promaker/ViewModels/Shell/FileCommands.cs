@@ -178,7 +178,12 @@ public partial class MainViewModel
     {
         var project = DsQuery.allProjects(_store).Head;
         var dlg = new ProjectPropertiesDialog(project.Properties);
-        if (_dialogService.ShowDialog(dlg) != true) return;
+        var accepted = _dialogService.ShowDialog(dlg) == true;
+
+        if (dlg.ThemeChanged)
+            RefreshThemeState();
+
+        if (!accepted) return;
 
         TryEditorAction(() =>
             _store.UpdateProjectProperties(
