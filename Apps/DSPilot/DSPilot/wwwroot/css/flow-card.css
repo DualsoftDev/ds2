@@ -85,17 +85,17 @@
     justify-content: space-between;
     align-items: center;
     flex: 0 0 auto;
-    padding: 3cqh 4cqw;
+    padding: 3cqmin 4cqmin;
     background: color-mix(in srgb, var(--state-color) 12%, #f5f5f5);
-    border-top: clamp(3px, 3cqh, 8px) solid var(--state-color);
+    border-top: clamp(3px, 3cqmin, 8px) solid var(--state-color);
     border-bottom: 1px solid rgba(0,0,0,0.12);
-    gap: 2cqw;
+    gap: 2cqmin;
     overflow: hidden;
     box-sizing: border-box;
 }
 
 .fc-title {
-    font-size: clamp(0.5rem, 7.5cqw, 1.6rem);
+    font-size: clamp(0.6rem, 10cqmin, 1.5rem);
     font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
@@ -108,15 +108,15 @@
 
 .fc-badges {
     display: flex;
-    gap: 1cqw;
+    gap: 1cqmin;
     flex-shrink: 0;
     align-items: center;
 }
 
 .fc-badge {
-    padding: 1.5cqh 2.5cqw;
+    padding: 1.5cqmin 2.5cqmin;
     border-radius: 4px;
-    font-size: clamp(0.4rem, 5.2cqw, 1.0rem);
+    font-size: clamp(0.5rem, 7cqmin, 1.0rem);
     font-weight: 700;
     border: 1px solid;
     white-space: nowrap;
@@ -143,7 +143,7 @@
     flex-shrink: 0;
     width: 42%;
     height: 100%;
-    padding: 3cqw;
+    padding: 3cqmin;
     box-sizing: border-box;
 }
 
@@ -158,20 +158,20 @@
     justify-content: flex-start;
     flex: 1;
     max-height: none;
-    padding-top: 3cqw;
+    padding-top: 3cqmin;
 }
 
 .fc-body-vertical .fc-chart {
     width: 100%;
     flex: 1;
     min-height: 0;
-    padding: 6cqw;
+    padding: 6cqmin;
 }
 
 .fc-body-vertical .fc-stats {
     width: 100%;
     flex: 0 0 auto;
-    padding: 2cqh 8cqw;
+    padding: 2cqmin 8cqmin;
 }
 
 .fc-chart svg {
@@ -183,7 +183,7 @@
 .fc-chart-label {
     position: absolute;
     font-weight: 700;
-    font-size: clamp(0.35rem, 5.5cqw, 1.2rem);
+    font-size: clamp(0.5rem, 8cqmin, 1.2rem);
     color: #444;
     line-height: 1;
 }
@@ -194,33 +194,33 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: 3cqh 4cqw 3cqh 0;
-    gap: 2cqh;
+    padding: 3cqmin 4cqmin 3cqmin 0;
+    gap: 2cqmin;
     min-width: 0;
 }
 
 .fc-state-label {
     font-weight: 600;
     color: var(--state-color);
-    font-size: clamp(0.45rem, 5.8cqw, 1.2rem);
+    font-size: clamp(0.55rem, 8cqmin, 1.2rem);
     letter-spacing: 0.5px;
-    padding-bottom: 1.5cqh;
+    padding-bottom: 1.5cqmin;
     border-bottom: 1px solid #eee;
 }
 
 .fc-stat-row {
     display: flex;
     align-items: center;
-    gap: 2cqw;
+    gap: 2cqmin;
     white-space: nowrap;
-    font-size: clamp(0.4rem, 5.2cqw, 1.1rem);
-    padding: 1.2cqh 0;
+    font-size: clamp(0.5rem, 7cqmin, 1.1rem);
+    padding: 1.2cqmin 0;
     border-bottom: 1px solid #f5f5f5;
 }
 
 .fc-dot {
-    width: clamp(3px, 3.2cqw, 12px);
-    height: clamp(3px, 3.2cqw, 12px);
+    width: clamp(4px, 4cqmin, 10px);
+    height: clamp(4px, 4cqmin, 10px);
     border-radius: 50%;
     flex-shrink: 0;
 }
@@ -251,7 +251,7 @@
     text-align: center;
     font-weight: 600;
     color: var(--state-color);
-    font-size: clamp(0.4rem, 5.2cqw, 1.0rem);
+    font-size: clamp(0.5rem, 7cqmin, 1.0rem);
     flex-shrink: 0;
-    padding: 2cqh 0;
+    padding: 2cqmin 0;
 }
