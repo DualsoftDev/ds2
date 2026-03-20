@@ -47,9 +47,15 @@ public static class ReplayMode
 
             Console.WriteLine($"   ✅ DB found");
 
-            // 2. 로그 데이터 로드
+            // 2. 시작 위치 선택
+            Console.WriteLine();
+            Console.Write("Start from? (beginning/middle/[M]iddle by default): ");
+            var startOption = Console.ReadLine()?.Trim().ToLower();
+            bool startFromMiddle = string.IsNullOrEmpty(startOption) || startOption == "m" || startOption == "middle";
+
+            // 3. 로그 데이터 로드
             Console.WriteLine("2️⃣  Loading logs...");
-            var logs = await LoadLogsAsync(fullPath);
+            var logs = await LoadLogsAsync(fullPath, startFromMiddle);
 
             if (logs.Count == 0)
             {
@@ -59,6 +65,10 @@ public static class ReplayMode
 
             Console.WriteLine($"   ✅ {logs.Count:N0} logs");
             Console.WriteLine($"   📅 {logs.First().DateTime:HH:mm:ss} ~ {logs.Last().DateTime:HH:mm:ss}");
+            if (startFromMiddle)
+            {
+                Console.WriteLine($"   ℹ️  Starting from middle (50%)");
+            }
 
             // 3. TagSpec 생성
             Console.WriteLine("3️⃣  Creating TagSpecs...");
@@ -160,7 +170,7 @@ public static class ReplayMode
         }
     }
 
-    private static async Task<List<LogEntry>> LoadLogsAsync(string dbPath)
+    private static async Task<List<LogEntry>> LoadLogsAsync(string dbPath, bool startFromMiddle = true)
     {
         var connStr = $"Data Source={dbPath};Mode=ReadOnly;";
         using var conn = new SqliteConnection(connStr);
@@ -174,6 +184,12 @@ public static class ReplayMode
         var typeCol = cols.Contains("dataType") ? "t.dataType" : "'BOOL'";
         var plcIdCol = cols.Contains("plcId") ? "t.plcId" : "NULL";
 
+        // 전체 로그 수 조회
+        var totalCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM plcTagLog");
+
+        // 시작 위치 계산
+        int offset = startFromMiddle ? totalCount / 2 : 0;
+
         var sql = $@"
             SELECT l.id, l.plcTagId, l.dateTime, l.value,
                    t.name as TagName,
@@ -182,7 +198,8 @@ public static class ReplayMode
                    {plcIdCol} as PlcId
             FROM plcTagLog l
             INNER JOIN plcTag t ON l.plcTagId = t.id
-            ORDER BY l.dateTime ASC";
+            ORDER BY l.dateTime ASC
+            LIMIT -1 OFFSET {offset}";
 
         var logs = await conn.QueryAsync<LogEntry>(sql);
         return logs.ToList();
