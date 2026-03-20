@@ -9,13 +9,13 @@
 
 <h5 class="typo-h5 mb-4" style="font-weight: 600; color: #0A1E5A;">
     동작편차
-    <span title="각 Call의 실행 시간 통계를 매트릭스 히트맵으로 분석합니다. 모든 메트릭을 동시에 색상으로 확인할 수 있습니다."
+    <span title="각 Call의 실행 시간 통계를 매트릭스 히트맵으로 분석합니다. 평균, 표준편차, 변동계수를 기준으로 변동성을 비교합니다."
           style="cursor: help; margin-left: 8px; vertical-align: middle;">
         <span class="material-icons" style="font-size:20px; color:var(--color-primary);">info</span>
     </span>
 </h5>
 <p class="typo-body1 mb-4" style="color: var(--color-secondary);">
-    Call별 실행 통계를 매트릭스 히트맵으로 시각화합니다. 색상으로 성능 이슈를 한눈에 파악할 수 있습니다.
+    Call별 실행 통계를 매트릭스 히트맵으로 시각화합니다. 평균 시간과 변동성 이슈를 한눈에 파악할 수 있습니다.
 </p>
 
 @* 컨트롤 패널 *@
@@ -88,9 +88,12 @@
             <div class="typo-h5" style="color:@(IssueCalls > 0 ? "var(--color-error)" : "var(--color-success)");">@IssueCalls</div>
         </div>
         <div class="card" style="padding:16px; text-align:center; box-shadow: var(--shadow-1);">
-            <div class="typo-overline" style="color:var(--color-text-secondary);">전체 건강도</div>
-            <div class="heatmap-cell-compact @OverallHealthColor" style="display:inline-block; margin-top:4px;">
-                @($"{OverallHealthScore:F0}")점
+            <div class="typo-overline" style="color:var(--color-text-secondary);">선택 메트릭 평균</div>
+            <div class="typo-h5" style="color:var(--color-primary);">
+                @HeatmapService.FormatMetricValue(SelectedMetric, SelectedMetricAverage)
+            </div>
+            <div class="typo-caption" style="color:var(--color-text-secondary);">
+                @HeatmapService.GetMetricDisplayName(SelectedMetric)
             </div>
         </div>
     </div>
@@ -99,23 +102,23 @@
     <div class="card mb-4" style="padding:12px 16px; box-shadow: var(--shadow-1);">
         <div class="d-flex" style="flex-wrap:wrap; align-items:center; gap:4px;">
             <span class="typo-caption" style="margin-right:8px; color:var(--color-text-secondary);">범례:</span>
-            <div class="heatmap-legend-item" title="성능점수 90점 이상 또는 변동계수 0.1 미만">
+            <div class="heatmap-legend-item" title="현재 선택 메트릭 기준으로 가장 양호한 구간입니다.">
                 <div class="heatmap-cell heatmap-excellent"></div>
                 <span class="typo-caption">우수</span>
             </div>
-            <div class="heatmap-legend-item" title="성능점수 70-90점 또는 변동계수 0.1-0.2">
+            <div class="heatmap-legend-item" title="현재 선택 메트릭 기준으로 양호한 구간입니다.">
                 <div class="heatmap-cell heatmap-good"></div>
                 <span class="typo-caption">양호</span>
             </div>
-            <div class="heatmap-legend-item" title="성능점수 50-70점 또는 변동계수 0.2-0.3">
+            <div class="heatmap-legend-item" title="현재 선택 메트릭 기준으로 중간 수준입니다.">
                 <div class="heatmap-cell heatmap-fair"></div>
                 <span class="typo-caption">보통</span>
             </div>
-            <div class="heatmap-legend-item" title="성능점수 30-50점 또는 변동계수 0.3-0.5">
+            <div class="heatmap-legend-item" title="현재 선택 메트릭 기준으로 개선이 필요한 구간입니다.">
                 <div class="heatmap-cell heatmap-poor"></div>
                 <span class="typo-caption">개선필요</span>
             </div>
-            <div class="heatmap-legend-item" title="성능점수 30점 미만 또는 변동계수 0.5 이상">
+            <div class="heatmap-legend-item" title="현재 선택 메트릭 기준으로 우선 점검이 필요한 구간입니다.">
                 <div class="heatmap-cell heatmap-critical"></div>
                 <span class="typo-caption">심각</span>
             </div>
@@ -164,7 +167,7 @@
                                     @foreach (var call in workGroup.Calls)
                                     {
                                         <div class="flow-dashboard-call-cell @call.GetColorClass(SelectedMetric)"
-                                             title="@call.GetTooltipText()">
+                                             title="@BuildCallTooltip(call)">
                                             <div class="flow-dashboard-call-name">@call.CallName</div>
                                             <div class="flow-dashboard-call-value">
                                                 @HeatmapService.FormatMetricValue(SelectedMetric, call.GetMetricValue(SelectedMetric))
@@ -195,10 +198,10 @@
                     <span class="chip" style="background:var(--color-info); color:white;">
                         @group.CallCount Calls
                     </span>
-                    @if (group.IssueCount > 0)
+                    @if (GetIssueCount(group) > 0)
                     {
                         <span class="chip" style="background:var(--color-error); color:white;">
-                            @group.IssueCount 이슈
+                            @GetIssueCount(group) 이슈
                         </span>
                     }
                 </div>
@@ -213,9 +216,6 @@
                     <div class="heatmap-cell-mini @group.FlowColorClassCV" title="변동계수: @($"{group.FlowAverageCV:F2}")">
                         CV
                     </div>
-                    <div class="heatmap-cell-mini @group.FlowColorClassScore" title="성능점수: @($"{group.FlowAverageScore:F0}")/100">
-                        Score
-                    </div>
                 </div>
             </div>
 
@@ -227,7 +227,6 @@
                         <colgroup>
                             <col style="width:22%;" />
                             <col style="width:14%;" />
-                            <col style="width:12%;" />
                             <col style="width:12%;" />
                             <col style="width:12%;" />
                             <col style="width:12%;" />
@@ -256,11 +255,6 @@
                                         변동계수 @SortIcon(SortField.CV)
                                     </span>
                                 </th>
-                                <th class="sortable heatmap-col-header" @onclick="@(() => SortBy(SortField.Score))">
-                                    <span title="종합 성능점수 (0~100). 높을수록 빠르고 안정적입니다." style="border-bottom:1px dotted; cursor:help;">
-                                        성능점수 @SortIcon(SortField.Score)
-                                    </span>
-                                </th>
                                 <th style="text-align:center;">
                                     <span title="Call이 Going 상태로 전환된 총 횟수" style="border-bottom:1px dotted; cursor:help;">
                                         실행횟수
@@ -273,7 +267,7 @@
                             {
                                 <tr class="heatmap-matrix-row @(SelectedCall == call ? "selected" : "")"
                                     @onclick="@(() => SelectCall(call))"
-                                    title="@call.GetTooltipText()">
+                                    title="@BuildCallTooltip(call)">
                                     <td class="heatmap-matrix-label">@call.CallName</td>
                                     <td class="heatmap-matrix-label">@call.WorkName</td>
                                     <td style="text-align:center; padding:4px;">
@@ -289,11 +283,6 @@
                                     <td style="text-align:center; padding:4px;">
                                         <div class="heatmap-cell-compact @call.ColorClassCV">
                                             @HeatmapService.FormatMetricValueShort(HeatmapMetric.CoefficientOfVariation, call.CoefficientOfVariation)
-                                        </div>
-                                    </td>
-                                    <td style="text-align:center; padding:4px;">
-                                        <div class="heatmap-cell-compact @call.ColorClassScore">
-                                            @HeatmapService.FormatMetricValueShort(HeatmapMetric.PerformanceScore, call.PerformanceScore)
                                         </div>
                                     </td>
                                     <td style="text-align:center;">
@@ -333,11 +322,11 @@
                                     @GetCVStatusText(SelectedCall.CoefficientOfVariation)
                                 </div>
                             </div>
-                            <div class="heatmap-detail-card @SelectedCall.ColorClassScore">
-                                <div class="typo-overline" style="color:inherit; opacity:0.85;">성능점수</div>
-                                <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.PerformanceScore:F0}")/100</div>
+                            <div class="heatmap-detail-card" style="background:linear-gradient(135deg, #475569, #64748b);">
+                                <div class="typo-overline" style="color:inherit; opacity:0.85;">실행횟수</div>
+                                <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.GoingCount}")회</div>
                                 <div class="typo-caption" style="color:inherit; opacity:0.7;">
-                                    @GetScoreStatusText(SelectedCall.PerformanceScore)
+                                    @GetGoingCountStatusText(SelectedCall.GoingCount)
                                 </div>
                             </div>
                         </div>
@@ -362,11 +351,10 @@
     {
         HeatmapMetric.AverageTime,
         HeatmapMetric.StdDeviation,
-        HeatmapMetric.CoefficientOfVariation,
-        HeatmapMetric.PerformanceScore
+        HeatmapMetric.CoefficientOfVariation
     };
 
-    private HeatmapMetric SelectedMetric { get; set; } = HeatmapMetric.PerformanceScore;
+    private HeatmapMetric SelectedMetric { get; set; } = HeatmapMetric.CoefficientOfVariation;
 
     private string FlowFilter { get; set; } = string.Empty;
     private bool IsLoading { get; set; } = false;
@@ -375,21 +363,16 @@
     private CallHeatmapItem? SelectedCall { get; set; } = null;
 
     // 정렬
-    private enum SortField { CallName, WorkName, AvgTime, StdDev, CV, Score }
-    private SortField _currentSortField = SortField.Score;
-    private bool _sortAsc = true;
+    private enum SortField { CallName, WorkName, AvgTime, StdDev, CV }
+    private SortField _currentSortField = SortField.CV;
+    private bool _sortAsc = false;
 
     // 요약 통계
     private int TotalCalls => FilteredGroups.Sum(g => g.CallCount);
-    private int IssueCalls => FilteredGroups.Sum(g => g.IssueCount);
-    private double OverallHealthScore => FilteredGroups.Count > 0
-        ? FilteredGroups.SelectMany(g => g.Calls).DefaultIfEmpty().Average(c => c?.PerformanceScore ?? 0)
+    private int IssueCalls => FilteredGroups.Sum(GetIssueCount);
+    private double SelectedMetricAverage => FilteredGroups.Count > 0
+        ? FilteredGroups.SelectMany(g => g.Calls).Average(c => c.GetMetricValue(SelectedMetric))
         : 0;
-    private string OverallHealthColor => OverallHealthScore >= 80 ? "heatmap-excellent"
-        : OverallHealthScore >= 60 ? "heatmap-good"
-        : OverallHealthScore >= 40 ? "heatmap-fair"
-        : OverallHealthScore >= 20 ? "heatmap-poor"
-        : "heatmap-critical";
 
     protected override async Task OnInitializedAsync()
     {
@@ -429,7 +412,6 @@
         if (SelectedMetric.IsAverageTime) return group.FlowAverageTime;
         if (SelectedMetric.IsStdDeviation) return group.FlowAverageStdDev;
         if (SelectedMetric.IsCoefficientOfVariation) return group.FlowAverageCV;
-        if (SelectedMetric.IsPerformanceScore) return group.FlowAverageScore;
         return 0.0;
     }
 
@@ -477,7 +459,7 @@
         else
         {
             _currentSortField = field;
-            _sortAsc = field == SortField.Score;
+            _sortAsc = field is SortField.CallName or SortField.WorkName;
         }
     }
 
@@ -489,7 +471,6 @@
             SortField.AvgTime => c => c.AverageGoingTime,
             SortField.StdDev => c => c.StdDevGoingTime,
             SortField.CV => c => c.CoefficientOfVariation,
-            SortField.Score => c => c.PerformanceScore,
             _ => null!
         };
 
@@ -517,13 +498,35 @@
         return "매우 불안정";
     }
 
-    private static string GetScoreStatusText(double score)
+    private static string GetGoingCountStatusText(int goingCount)
     {
-        if (score >= 90) return "우수";
-        if (score >= 70) return "양호";
-        if (score >= 50) return "보통";
-        if (score >= 30) return "개선 필요";
-        return "심각";
+        if (goingCount >= 30) return "샘플 충분";
+        if (goingCount >= 10) return "샘플 보통";
+        return "샘플 적음";
+    }
+
+    private int GetIssueCount(FlowHeatmapGroup group) =>
+        group.Calls.Count(IsIssueCall);
+
+    private bool IsIssueCall(CallHeatmapItem call)
+    {
+        var colorClass = call.GetColorClass(SelectedMetric);
+        return colorClass is "heatmap-poor" or "heatmap-critical";
+    }
+
+    private string BuildCallTooltip(CallHeatmapItem call)
+    {
+        var selectedMetricName = HeatmapService.GetMetricDisplayName(SelectedMetric);
+        var selectedMetricValue = HeatmapService.FormatMetricValue(SelectedMetric, call.GetMetricValue(SelectedMetric));
+
+        return $"[{call.CallName}]\n" +
+               $"Flow: {call.FlowName}\n" +
+               $"Work: {call.WorkName}\n" +
+               $"평균: {call.AverageGoingTime:F0} ms\n" +
+               $"표준편차: {call.StdDevGoingTime:F0} ms\n" +
+               $"변동계수: {call.CoefficientOfVariation:F2} ({GetCVStatusText(call.CoefficientOfVariation)})\n" +
+               $"실행횟수: {call.GoingCount}회\n" +
+               $"{selectedMetricName}: {selectedMetricValue}";
     }
 
     private sealed record WorkHeatmapGroup(string WorkName, List<CallHeatmapItem> Calls);
