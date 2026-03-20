@@ -566,6 +566,15 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
+        ///   데이터과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Data {
+            get {
+                return ResourceManager.GetString("Data", resourceCulture);
+            }
+        }
+
+        /// <summary>
         ///   설정과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string Settings {

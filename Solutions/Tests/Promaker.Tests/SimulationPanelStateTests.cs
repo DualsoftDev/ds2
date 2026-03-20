@@ -16,7 +16,18 @@ namespace Promaker.Tests;
 public sealed class SimulationPanelStateTests
 {
     [Fact]
-    public void ResetSimulation_clears_runtime_state_and_resets_rows()
+    public void SimulationPanelState_defaults_speed_to_one_x()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var state = CreateState();
+
+            Assert.Equal(1.0, state.SimSpeed);
+        });
+    }
+
+    [Fact]
+    public void ResetSimulation_clears_runtime_state_and_restores_default_speed()
     {
         StaTestRunner.Run(() =>
         {
@@ -26,6 +37,7 @@ public sealed class SimulationPanelStateTests
             state.HasReportData = true;
             state.IsSimulating = true;
             state.IsSimPaused = true;
+            state.SimSpeed = 5.0;
             state.SimNodes.Add(new SimNodeRow
             {
                 NodeGuid = workId,
@@ -44,6 +56,7 @@ public sealed class SimulationPanelStateTests
             Assert.False(state.HasReportData);
             Assert.False(state.IsSimulating);
             Assert.False(state.IsSimPaused);
+            Assert.Equal(1.0, state.SimSpeed);
             Assert.Null(state.SelectedSimWork);
             Assert.Single(state.SimEventLog);
             Assert.Contains("F5", state.SimEventLog[0], StringComparison.Ordinal);
@@ -54,7 +67,7 @@ public sealed class SimulationPanelStateTests
     }
 
     [Fact]
-    public void ResetForNewStore_clears_simulation_collections()
+    public void ResetForNewStore_clears_simulation_collections_and_restores_default_speed()
     {
         StaTestRunner.Run(() =>
         {
@@ -64,6 +77,7 @@ public sealed class SimulationPanelStateTests
             state.HasReportData = true;
             state.IsSimulating = true;
             state.IsSimPaused = true;
+            state.SimSpeed = 10.0;
             state.SimNodes.Add(new SimNodeRow
             {
                 NodeGuid = workId,
@@ -82,6 +96,7 @@ public sealed class SimulationPanelStateTests
             Assert.False(state.HasReportData);
             Assert.False(state.IsSimulating);
             Assert.False(state.IsSimPaused);
+            Assert.Equal(1.0, state.SimSpeed);
             Assert.Null(state.SelectedSimWork);
             Assert.Empty(state.SimNodes);
             Assert.Empty(state.SimEventLog);

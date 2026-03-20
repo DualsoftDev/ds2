@@ -94,6 +94,12 @@ module DsQuery =
     let worksOf (flowId: Guid) (store: DsStore) : Work list =
         childrenOf store.WorksReadOnly.Values flowId (fun w -> w.ParentId)
 
+    /// <summary>특정 Project의 Active System에 속한 모든 Work 조회</summary>
+    let activeWorksOf (projectId: Guid) (store: DsStore) : Work list =
+        activeSystemsOf projectId store
+        |> List.collect (fun sys -> flowsOf sys.Id store)
+        |> List.collect (fun flow -> worksOf flow.Id store)
+
     /// <summary>Work가 속한 System의 ID를 반환</summary>
     let trySystemIdOfWork (workId: Guid) (store: DsStore) : Guid option =
         getWork workId store

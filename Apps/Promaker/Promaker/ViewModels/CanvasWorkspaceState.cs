@@ -44,6 +44,7 @@ public partial class CanvasWorkspaceState : ObservableObject
 
     public Action<Guid>? CenterOnNodeRequested { get; set; }
     public Action? FitToViewZoomOutRequested { get; set; }
+    public Action<double>? ApplyZoomCenteredRequested { get; set; }
     public Func<Point?>? GetViewportCenterRequested { get; set; }
 
     partial void OnActiveTabChanged(CanvasTab? value)
@@ -85,7 +86,7 @@ public partial class CanvasWorkspaceState : ObservableObject
             _host.ExpandNodeAndAncestors(entityId);
     }
 
-    public void OpenParentCanvasAndFocusNode(Guid entityId, EntityKind entityType)
+    public void OpenParentCanvasAndFocusNode(Guid entityId, EntityKind entityType, double? zoomOverride = null)
     {
         if (!_host.TryRef(
                 () => Store.TryOpenParentTabOrNull(entityType, entityId),
@@ -96,6 +97,8 @@ public partial class CanvasWorkspaceState : ObservableObject
         _host.RequestRebuildAll(() =>
         {
             _host.ExpandNodeAndAncestors(entityId);
+            if (zoomOverride.HasValue)
+                ApplyZoomCenteredRequested?.Invoke(zoomOverride.Value);
             CenterOnNodeRequested?.Invoke(entityId);
             var node = CanvasNodes.FirstOrDefault(n => n.Id == entityId);
             if (node is not null)

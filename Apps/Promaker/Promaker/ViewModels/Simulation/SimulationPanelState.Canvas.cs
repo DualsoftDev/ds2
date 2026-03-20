@@ -13,20 +13,28 @@ public partial class SimulationPanelState
     private void InitSimNodes()
     {
         SimNodes.Clear();
-        SimWorkItems.Clear();
-        SelectedSimWork = null;
         _stateCache.Clear();
         if (_simEngine is null) return;
 
-        var activeSystemNames = _simEngine.Index.ActiveSystemNames;
         foreach (var entry in EnumerateSimulationEntries())
         {
             AddSimNode(entry);
             _stateCache.Set(entry.Id, Status4.Ready);
-
-            if (entry.Kind == EntityKind.Work && activeSystemNames.Contains(entry.SystemName))
-                SimWorkItems.Add(new SimWorkItem(entry.Id, entry.Name));
         }
+
+        PopulateWorkItems();
+    }
+
+    private void PopulateWorkItems()
+    {
+        SimWorkItems.Clear();
+        SelectedSimWork = null;
+        var store = Store;
+        var projects = DsQuery.allProjects(store);
+        if (projects.IsEmpty) return;
+
+        foreach (var work in DsQuery.activeWorksOf(projects.Head.Id, store))
+            SimWorkItems.Add(new SimWorkItem(work.Id, work.Name));
 
         SelectedSimWork = (_lastSelectedWorkId is { } lastId
             ? SimWorkItems.FirstOrDefault(w => w.Guid == lastId)

@@ -83,6 +83,9 @@
             <MenuItem Tag="FocusCanvas" Header="Focus in Canvas" Command="{Binding Canvas.FocusSelectedInCanvasCommand}"/>
             <MenuItem Tag="Rename" Header="Rename..." Command="{Binding FocusNameEditorCommand}"/>
             <MenuItem Tag="Delete" Header="Delete" Command="{Binding DeleteSelectedCommand}" Foreground="{DynamicResource RedAccentBrush}"/>
+            <Separator Tag="SepExpandCollapse"/>
+            <MenuItem Tag="ExpandAll" Header="전체 펼치기" Click="ExpandAll_Click"/>
+            <MenuItem Tag="CollapseAll" Header="전체 접기" Click="CollapseAll_Click"/>
         </ContextMenu>
     </UserControl.Resources>
 
@@ -91,8 +94,6 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
-                <RowDefinition Height="4"/>
-                <RowDefinition Height="220" MinHeight="60"/>
             </Grid.RowDefinitions>
             <Border Style="{StaticResource PanelHeader}">
                 <Grid>
@@ -141,46 +142,6 @@
                         </TreeView>
                     </TabItem>
                 </TabControl>
-            </Grid>
-
-            <GridSplitter Grid.Row="2" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
-
-            <Grid x:Name="HistoryPanelHost" Grid.Row="3">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-                <Border Style="{StaticResource PanelHeader}">
-                    <Grid>
-                        <TextBlock Text="History" FontWeight="SemiBold" FontSize="12"/>
-                        <Button Style="{StaticResource HelpButton}" HorizontalAlignment="Right"
-                                Command="{x:Static help:HelpNavigator.NavigateCommand}"
-                                CommandParameter="history"/>
-                    </Grid>
-                </Border>
-                <ListBox Grid.Row="1"
-                         x:Name="HistoryListBox"
-                         ItemsSource="{Binding HistoryItems}"
-                         SelectedIndex="{Binding CurrentHistoryIndex, Mode=OneWay}"
-                         ScrollViewer.VerticalScrollBarVisibility="Auto"
-                         MouseDoubleClick="HistoryListBox_MouseDoubleClick">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding Label}">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsRedo}" Value="True">
-                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
-                                                <Setter Property="TextDecorations" Value="Strikethrough"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
             </Grid>
         </Grid>
     </Border>
