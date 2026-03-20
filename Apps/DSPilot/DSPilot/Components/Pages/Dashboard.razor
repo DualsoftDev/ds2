@@ -9,362 +9,94 @@
 @implements IDisposable
 
 <PageTitle>Dashboard - DSPilot</PageTitle>
-<MudText Typo="Typo.h5" Class="mb-4" Style="font-weight: 600; color: #0A1E5A;">대시보드</MudText>
-<style>
-    /* 그리드: 두 방향 모두 뷰포트 채움 */
-    .dashboard-grid {
-        display: flex;
-        gap: 12px;
-        min-height: 0;
-        flex: 1;
-    }
-    .dashboard-grid.grid-h {
-        flex-direction: row;
-    }
-    .dashboard-grid.grid-v {
-        flex-direction: column;
-    }
-    .widget-container {
-        min-width: 0;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-    }
-    /* 모바일: 강제 단일 컬럼 */
-    @@media (max-width: 1024px) {
-        .dashboard-grid.grid-h {
-            flex-direction: column !important;
-            height: auto !important;
-        }
-        .dashboard-grid.grid-h > .widget-container {
-            flex: 0 0 auto !important;
-            height: 60vh !important;
-        }
-    }
-
-    /* ── CT 카드 디자인 ── */
-    /* 요약 셀 3개 가로 배치 (데이터 있을 때만) */
-    .ct-summary-bar {
-        display: flex;
-        flex-direction: row;
-        gap: 8px;
-        padding: 2px;
-        flex-shrink: 0;
-        background: var(--mud-palette-background, #f5f5f5);
-        border-bottom: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12));
-    }
-    .ct-summary-group {
-        display: flex;
-        gap: 2px;
-    }
-    .ct-summary-group.group-time { flex: 2; }
-    .ct-summary-group.group-wait { flex: 1; }
-    .ct-top-cell {
-        flex: 1;
-        padding: 10px 14px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 4px;
-        background: var(--mud-palette-surface, #fff);
-        border-radius: 4px;
-        min-width: 0;
-    }
-    .ct-top-cell.danger  { border-top: 3px solid #ef5350; }
-    .ct-top-cell.warning { border-top: 3px solid #fb8c00; }
-    .ct-top-cell.success { border-top: 3px solid #26a69a; }
-    /* 최대/최소 통합 카드 */
-    .ct-combined-cell {
-        flex: 1;
-        display: flex;
-        background: var(--mud-palette-surface, #fff);
-        border-radius: 8px;
-        min-width: 0;
-        overflow: hidden;
-    }
-    .ct-combined-half {
-        flex: 1;
-        padding: 10px 14px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 4px;
-        min-width: 0;
-    }
-    .ct-combined-half.danger  { border-top: 3px solid #ef5350; }
-    .ct-combined-half.success { border-top: 3px solid #26a69a; }
-    .ct-combined-half + .ct-combined-half { border-left: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12)); }
-    .ct-combined-half, .ct-top-cell { cursor: pointer; transition: box-shadow 0.15s; }
-    .ct-combined-half:hover, .ct-top-cell:hover { box-shadow: inset 0 0 0 1.5px var(--mud-palette-lines-default, rgba(0,0,0,0.18)); }
-    .ct-combined-half.active, .ct-top-cell.active {
-        box-shadow: inset 0 0 0 2px var(--mud-palette-primary, #1976d2);
-        background: color-mix(in srgb, var(--mud-palette-primary, #1976d2) 6%, var(--mud-palette-surface, #fff));
-    }
-    .ct-summary-title {
-        font-size: 13px;
-        font-weight: 700;
-        letter-spacing: 0.2px;
-    }
-    .ct-top-cell.danger  .ct-summary-title,
-    .ct-combined-half.danger .ct-summary-title { color: #ef5350; }
-    .ct-top-cell.warning .ct-summary-title { color: #fb8c00; }
-    .ct-top-cell.success .ct-summary-title,
-    .ct-combined-half.success .ct-summary-title { color: #26a69a; }
-    /* 배지 (차트 행 전용) */
-    .ct-badge-pill {
-        display: inline-block;
-        padding: 1px 6px;
-        border-radius: 10px;
-        font-size: 10px;
-        font-weight: 700;
-        color: white;
-        white-space: nowrap;
-        flex-shrink: 0;
-        line-height: 1.6;
-    }
-    /* 차트 리스트 영역 */
-    .ct-chart-section {
-        padding: 10px 12px;
-        overflow-y: auto;
-        flex: 1;
-        min-height: 0;
-        background: var(--mud-palette-surface, #fff);
-    }
-    .ct-summary-sub {
-        font-size: 14px;
-        color: var(--mud-palette-text-primary, #1e293b);
-        font-weight: 700;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        min-width: 0;
-    }
-    .ct-summary-value {
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--mud-palette-text-secondary, #64748b);
-    }
-    /* CT 차트 행 — 2줄 카드 스타일 */
-    .ct-chart-row {
-        display: flex;
-        flex-direction: column;
-        padding: 7px 10px;
-        border-radius: 6px;
-        margin-bottom: 3px;
-        border-left: 3px solid transparent;
-        background: var(--mud-palette-background, #fafafa);
-    }
-    .ct-chart-row.highlighted {
-        background: var(--mud-palette-surface, #fff);
-        border: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.08));
-        border-left-width: 3px;
-    }
-    .ct-chart-row.selected {
-        background: color-mix(in srgb, var(--mud-palette-primary, #1976d2) 8%, var(--mud-palette-surface, #fff));
-        border: 1.5px solid var(--mud-palette-primary, #1976d2);
-        border-left-width: 3px;
-        border-left-color: var(--mud-palette-primary, #1976d2);
-    }
-    .ct-chart-row:hover {
-        background: color-mix(in srgb, var(--mud-palette-primary, #1976d2) 4%, var(--mud-palette-background, #fafafa));
-    }
-    .ct-chart-row.selected:hover {
-        background: color-mix(in srgb, var(--mud-palette-primary, #1976d2) 12%, var(--mud-palette-surface, #fff));
-    }
-    /* 1줄: 카테고리 라벨 + 플로우 이름 */
-    .ct-row-header {
-        display: flex;
-        align-items: baseline;
-        gap: 6px;
-        margin-bottom: 4px;
-        min-width: 0;
-    }
-
-    .ct-row-name {
-        font-size: 13px;
-        color: var(--mud-palette-text-primary, #1e293b);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        flex: 1;
-        min-width: 0;
-    }
-    /* 2줄: 바 + 시간 */
-    .ct-row-footer {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    .ct-bar-track {
-        flex: 1;
-        height: 10px;
-        background: transparent;
-        border-radius: 10px;
-        display: flex;
-    }
-    .ct-bar-mt { background: #0569A0; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .ct-bar-wt { background: #FB8C00; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0 10px 10px 0; }
-    .ct-bar-track > :first-child { border-radius: 10px 0 0 10px; overflow: hidden; }
-    .ct-bar-track > :last-child  { border-radius: 0 10px 10px 0; overflow: hidden; }
-    .ct-bar-track > :only-child  { border-radius: 10px; overflow: hidden; }
-    .ct-bar-pct { font-size: 9px; font-weight: 700; color: white; line-height: 1; white-space: nowrap; }
-    .ct-row-time {
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--mud-palette-text-secondary, #64748b);
-        white-space: nowrap;
-    }
-    .ct-section-title {
-        font-size: 11px;
-        color: var(--mud-palette-text-secondary, #7D8282);
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    /* ── 공통 카드 구조 ── */
-    .ds-card {
-        border-radius: 8px;
-        overflow: hidden;
-        flex: 1;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-        border: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12));
-        background: var(--mud-palette-surface, #fff);
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-    }
-    .ds-card-header {
-        padding: 10px 16px;
-        background: var(--mud-palette-background, #f5f5f5);
-        border-bottom: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12));
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-    }
-    .ds-card-body {
-        flex: 1;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
-    /* ── 범례 ── */
-    .layout-legend {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-        align-items: center;
-    }
-    .layout-legend-item {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 11px;
-        color: var(--mud-palette-text-secondary, #7D8282);
-        font-weight: 500;
-    }
-    .layout-legend-dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 3px;
-        flex-shrink: 0;
-    }
-</style>
-
+<h5 class="typo-h5 mb-4" style="font-weight: 600; color: #0A1E5A;">대시보드</h5>
 <div style="display:flex; flex-direction:column; flex:1; min-height:0;">
 
 @if (!ProjectService.IsLoaded)
 {
-    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    <div class="alert alert-info mb-4">
+        <span class="material-icons">info</span>
         No project loaded. Configure the AASX file path in <code>appsettings.json</code> to get started.
-    </MudAlert>
+    </div>
 }
 else
 {
     @* ── 편집 모드 설정 패널 ── *@
     @if (EditService.IsEditing)
     {
-        <MudCard Elevation="1" Class="mb-3">
-            <MudCardContent Class="pa-3">
+        <div class="card mb-3" style="box-shadow: var(--shadow-1);">
+            <div style="padding: 12px;">
                 <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;">
 
                     @* 배치 *@
                     <div>
-                        <div style="font-size:11px; color:var(--mud-palette-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">배치</div>
+                        <div style="font-size:11px; color:var(--color-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">배치</div>
                         <div style="display:flex; gap:6px;">
-                            <MudButton Size="Size.Small"
-                                       Variant="@(_direction == "horizontal" ? Variant.Filled : Variant.Outlined)"
-                                       Color="Color.Primary"
-                                       StartIcon="@Icons.Material.Filled.ViewColumn"
-                                       OnClick="@(() => SetDirection("horizontal"))">좌우</MudButton>
-                            <MudButton Size="Size.Small"
-                                       Variant="@(_direction == "vertical" ? Variant.Filled : Variant.Outlined)"
-                                       Color="Color.Primary"
-                                       StartIcon="@Icons.Material.Filled.ViewStream"
-                                       OnClick="@(() => SetDirection("vertical"))">상하</MudButton>
+                            <button class="btn btn-sm @(_direction == "horizontal" ? "btn-filled" : "btn-outlined")"
+                                    @onclick="@(() => SetDirection("horizontal"))">
+                                <span class="material-icons" style="font-size:18px;">view_column</span> 좌우
+                            </button>
+                            <button class="btn btn-sm @(_direction == "vertical" ? "btn-filled" : "btn-outlined")"
+                                    @onclick="@(() => SetDirection("vertical"))">
+                                <span class="material-icons" style="font-size:18px;">view_stream</span> 상하
+                            </button>
                         </div>
                     </div>
 
                     @* 순서 *@
                     <div>
-                        <div style="font-size:11px; color:var(--mud-palette-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">순서</div>
-                        <div style="display:flex; align-items:center; gap:8px; background:var(--mud-palette-background); border-radius:8px; padding:4px 12px;">
-                            <span style="font-size:13px; font-weight:600; color:var(--mud-palette-primary);">@GetWidgetTitle(_widgetOrder[0])</span>
-                            <MudIconButton Icon="@(_direction == "horizontal" ? Icons.Material.Filled.SwapHoriz : Icons.Material.Filled.SwapVert)"
-                                           Size="Size.Small" Color="Color.Primary"
-                                           OnClick="SwapWidgets" />
-                            <span style="font-size:13px; font-weight:600; color:var(--mud-palette-primary);">@GetWidgetTitle(_widgetOrder[1])</span>
+                        <div style="font-size:11px; color:var(--color-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">순서</div>
+                        <div style="display:flex; align-items:center; gap:8px; background:var(--color-background); border-radius:8px; padding:4px 12px;">
+                            <span style="font-size:13px; font-weight:600; color:var(--color-primary);">@GetWidgetTitle(_widgetOrder[0])</span>
+                            <button class="btn-icon" style="color:var(--color-primary);" @onclick="SwapWidgets">
+                                <span class="material-icons">@(_direction == "horizontal" ? "swap_horiz" : "swap_vert")</span>
+                            </button>
+                            <span style="font-size:13px; font-weight:600; color:var(--color-primary);">@GetWidgetTitle(_widgetOrder[1])</span>
                         </div>
                     </div>
 
                     @* 비율 *@
                     <div>
-                        <div style="font-size:11px; color:var(--mud-palette-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                        <div style="font-size:11px; color:var(--color-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
                             @(_direction == "horizontal" ? "좌우 비율" : "상하 비율")
                         </div>
                         <div style="display:flex; gap:4px;">
                             @foreach (var r in RatioOptions)
                             {
                                 var ratio = r;
-                                <MudButton Size="Size.Small"
-                                           Variant="@(_ratio == ratio ? Variant.Filled : Variant.Outlined)"
-                                           Color="Color.Primary"
-                                           OnClick="@(() => SetRatio(ratio))">@ratio</MudButton>
+                                <button class="btn btn-sm @(_ratio == ratio ? "btn-filled" : "btn-outlined")"
+                                        @onclick="@(() => SetRatio(ratio))">@ratio</button>
                             }
                         </div>
                     </div>
 
                     @* 표시 *@
                     <div>
-                        <div style="font-size:11px; color:var(--mud-palette-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">표시</div>
+                        <div style="font-size:11px; color:var(--color-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">표시</div>
                         <div style="display:flex; gap:6px;">
                             @foreach (var wid in _widgetOrder)
                             {
                                 var w      = wid;
                                 var hidden = _hiddenWidgets.Contains(w);
-                                <MudButton Size="Size.Small"
-                                           Variant="@(hidden ? Variant.Outlined : Variant.Filled)"
-                                           Color="@(hidden ? Color.Default : Color.Primary)"
-                                           StartIcon="@(hidden ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
-                                           OnClick="@(() => ToggleVisibility(w))">@GetWidgetTitle(w)</MudButton>
+                                <button class="btn btn-sm @(hidden ? "btn-outlined" : "btn-filled")"
+                                        @onclick="@(() => ToggleVisibility(w))">
+                                    <span class="material-icons" style="font-size:18px;">@(hidden ? "visibility_off" : "visibility")</span>
+                                    @GetWidgetTitle(w)
+                                </button>
                             }
                         </div>
                     </div>
 
                     @* 기본값 *@
                     <div style="margin-left:auto; display:flex; align-items:flex-end;">
-                        <MudButton Size="Size.Small"
-                                   Variant="Variant.Outlined"
-                                   Color="Color.Default"
-                                   StartIcon="@Icons.Material.Filled.RestartAlt"
-                                   OnClick="ResetToDefault">기본값</MudButton>
+                        <button class="btn btn-sm btn-outlined" @onclick="ResetToDefault">
+                            <span class="material-icons" style="font-size:18px;">restart_alt</span> 기본값
+                        </button>
                     </div>
 
                 </div>
-            </MudCardContent>
-        </MudCard>
+            </div>
+        </div>
     }
 
     @* ── 위젯 그리드 ── *@
@@ -381,7 +113,7 @@ else
                         <div class="ds-card">
                             <div class="ds-card-header">
                                 <span class="ct-section-title">도면 레이아웃</span>
-                                <div style="display:flex; align-items:center; gap:8px;">
+                                <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.7);">
                                     <div class="layout-legend">
                                         @foreach (var (label, clr) in _stateLegend)
                                         {
@@ -391,13 +123,9 @@ else
                                             </div>
                                         }
                                     </div>
-                                    <MudButton Size="Size.Small"
-                                                   Variant="Variant.Outlined"
-                                                   Color="Color.Primary"
-                                                   StartIcon="@Icons.Material.Filled.Edit"
-                                                   OnClick="@(() => Nav.NavigateTo("/editor"))">
-                                        편집
-                                    </MudButton>
+                                    <button class="btn btn-sm btn-outlined" @onclick="@(() => Nav.NavigateTo("/editor"))">
+                                        <span class="material-icons" style="font-size:calc(var(--u) * 1.3);">edit</span> 편집
+                                    </button>
                                 </div>
                             </div>
                             <div class="ds-card-body" style="align-items:center; justify-content:center;">
@@ -420,11 +148,10 @@ else
                                 }
                                 else
                                 {
-                                    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--mud-palette-text-disabled, #bdbdbd); padding:40px 0;">
-                                        <MudIcon Icon="@Icons.Material.Filled.Map" Style="font-size:48px;" />
-                                        <MudText Typo="Typo.body2">도면 이미지가 등록되지 않았습니다</MudText>
-                                        <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Primary"
-                                                   OnClick="@(() => Nav.NavigateTo("/editor"))">레이아웃 수정</MudButton>
+                                    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--color-text-disabled); padding:40px 0;">
+                                        <span class="material-icons" style="font-size:48px;">map</span>
+                                        <span class="typo-body2">도면 이미지가 등록되지 않았습니다</span>
+                                        <button class="btn btn-sm btn-outlined" @onclick="@(() => Nav.NavigateTo("/editor"))">레이아웃 수정</button>
                                     </div>
                                 }
                             </div>
@@ -436,23 +163,17 @@ else
                             @* ── 헤더 (항상 표시, 도면 레이아웃 카드와 동일 높이) ── *@
                             <div class="ds-card-header">
                                 <span class="ct-section-title">Time 분석</span>
-                                <div style="display:flex; align-items:center; gap:4px;">
-                                    <MudButton Size="Size.Small"
-                                               Variant="@(_sortField == "ct" ? Variant.Filled : Variant.Outlined)"
-                                               Color="Color.Primary"
-                                               OnClick="@(() => SetSort("ct"))">전체</MudButton>
-                                    <MudButton Size="Size.Small"
-                                               Variant="@(_sortField == "mt" ? Variant.Filled : Variant.Outlined)"
-                                               Color="Color.Primary"
-                                               OnClick="@(() => SetSort("mt"))">가동</MudButton>
-                                    <MudButton Size="Size.Small"
-                                               Variant="@(_sortField == "wt" ? Variant.Filled : Variant.Outlined)"
-                                               Color="Color.Primary"
-                                               OnClick="@(() => SetSort("wt"))">대기</MudButton>
-                                    <MudIconButton Icon="@(_sortDesc ? Icons.Material.Filled.ArrowDownward : Icons.Material.Filled.ArrowUpward)"
-                                                   Size="Size.Small" Color="Color.Default"
-                                                   title="@(_sortDesc ? "내림차순" : "오름차순")"
-                                                   OnClick="ToggleSortDir" />
+                                <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.35);">
+                                    <button class="btn btn-sm @(_sortField == "ct" ? "btn-filled" : "btn-outlined")"
+                                            @onclick="@(() => SetSort("ct"))">전체</button>
+                                    <button class="btn btn-sm @(_sortField == "mt" ? "btn-filled" : "btn-outlined")"
+                                            @onclick="@(() => SetSort("mt"))">가동</button>
+                                    <button class="btn btn-sm @(_sortField == "wt" ? "btn-filled" : "btn-outlined")"
+                                            @onclick="@(() => SetSort("wt"))">대기</button>
+                                    <button class="btn-icon" title="@(_sortDesc ? "내림차순" : "오름차순")"
+                                            @onclick="ToggleSortDir">
+                                        <span class="material-icons">@(_sortDesc ? "arrow_downward" : "arrow_upward")</span>
+                                    </button>
                                 </div>
                             </div>
 
@@ -540,9 +261,9 @@ else
                             }
                             else
                             {
-                                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:40px 0; color:var(--mud-palette-text-disabled, #bdbdbd); flex:1;">
-                                    <MudIcon Icon="@Icons.Material.Filled.BarChart" Style="font-size:48px;" />
-                                    <MudText Typo="Typo.body2">Time 데이터가 없습니다</MudText>
+                                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:40px 0; color:var(--color-text-disabled); flex:1;">
+                                    <span class="material-icons" style="font-size:48px;">bar_chart</span>
+                                    <span class="typo-body2">Time 데이터가 없습니다</span>
                                 </div>
                             }
                         </div>

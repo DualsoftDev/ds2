@@ -1,0 +1,23 @@
+.ed-page    { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+.ed-header  { display: flex; align-items: center; flex-shrink: 0; gap: 6px; }
+.ed-main    { flex: 1; min-height: 0; display: flex; gap: 14px; }
+.ed-sidebar { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.ed-canvas  { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.ed-card    { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+.ed-card-header { background: var(--color-background); border-bottom: 1px solid var(--color-lines); padding: 10px 14px;
+                  font-weight: 600; color: var(--color-primary); font-size: 0.875rem;
+                  display: flex; align-items: center; justify-content: space-between; }
+.ed-flow-item { padding: 6px 10px; margin: 2px 0; border-radius: 4px; font-size: 0.85rem; font-weight: 500; }
+.ed-flow-item.active { background: var(--color-background); color: var(--color-primary);
+                       cursor: grab; border-left: 3px solid var(--color-primary); }
+.ed-flow-item.placed { background: var(--color-background); color: var(--color-text-disabled);
+                       cursor: default; border-left: 3px solid var(--color-lines); }
+.ed-flow-item.placed .placed-label { color: var(--color-text-disabled); }
+.ed-offset-label { font-size: 10px; color: var(--color-text-secondary); }
+.ed-offset-input { width: 52px; padding: 2px 4px; border: 1px solid var(--color-lines); border-radius: 4px;
+                   text-align: center; font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-primary); }
+.ed-cell-input  { width: 40px; border: 1px solid var(--color-lines); border-radius: 3px; padding: 2px;
+                  background: var(--color-surface); color: var(--color-text-primary); }
+.ed-card-body   { padding: 14px; }
+.ed-flows-card  { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.ed-flows-body  { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 10px; }

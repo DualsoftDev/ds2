@@ -131,49 +131,6 @@
                                     <TextBlock Text="{x:Static res:Strings.Redo}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </Button>
-                            <!-- 추가 -->
-                            <ToggleButton x:Name="AddToggleBtn" Style="{StaticResource SlimToggleButton}" ToolTip="추가"
-                                              IsEnabled="{Binding HasProject}">
-                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                    <Path Width="18" Height="18" Stretch="Uniform"
-                                          Data="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"
-                                          Fill="{DynamicResource IconGrayBrush}"/>
-                                    <TextBlock Text="{x:Static res:Strings.Add}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                </StackPanel>
-                            </ToggleButton>
-                            <Popup IsOpen="{Binding IsChecked, ElementName=AddToggleBtn, Mode=TwoWay}"
-                                   StaysOpen="False" Placement="Bottom"
-                                   PlacementTarget="{Binding ElementName=AddToggleBtn}"
-                                   DataContext="{Binding DataContext, ElementName=ThisControl}">
-                                <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                                        BorderBrush="{DynamicResource BorderBrush}"
-                                        BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="160">
-                                    <StackPanel Orientation="Vertical">
-                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddSystemCommand}" Click="CloseAddPopup">
-                                            <TextBlock Text="System" VerticalAlignment="Center"/>
-                                        </Button>
-                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddFlowCommand}" Click="CloseAddPopup">
-                                            <TextBlock Text="Flow" VerticalAlignment="Center"/>
-                                        </Button>
-                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddWorkCommand}" Click="CloseAddPopup">
-                                            <TextBlock Text="Work" VerticalAlignment="Center"/>
-                                        </Button>
-                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddCallCommand}" Click="CloseAddPopup">
-                                            <TextBlock Text="Call" VerticalAlignment="Center"/>
-                                        </Button>
-                                    </StackPanel>
-                                </Border>
-                            </Popup>
-                            <!-- 삭제 -->
-                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding DeleteSelectedCommand}"
-                                    ToolTip="{x:Static res:Strings.DeleteTooltip}">
-                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                    <Path Width="18" Height="18" Stretch="Uniform"
-                                          Data="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
-                                          Fill="{DynamicResource IconRedBrush}"/>
-                                    <TextBlock Text="{x:Static res:Strings.Delete}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                </StackPanel>
-                            </Button>
                             <!-- 일괄편집 -->
                             <ToggleButton x:Name="ModelToggleBtn" Style="{StaticResource SlimToggleButton}"
                                           ToolTip="{x:Static res:Strings.BatchEditTooltip}"

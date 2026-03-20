@@ -2,102 +2,35 @@
 @inject DsProjectService ProjectService
 @inject NavigationManager Nav
 
-<MudThemeProvider Theme="_theme" IsDarkMode="_isDarkMode" />
-<MudPopoverProvider />
-<MudDialogProvider />
-<MudSnackbarProvider />
-
-<MudLayout>
-    <MudAppBar Elevation="1" Fixed="true">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu"
-                       Color="Color.Inherit"
-                       Edge="Edge.Start"
-                       OnClick="ToggleDrawer" />
+<div class="layout">
+    <header class="app-bar">
+        <button class="btn-icon" @onclick="ToggleDrawer" title="메뉴">
+            <span class="material-icons">menu</span>
+        </button>
         <div style="display: flex; align-items: center; cursor: pointer;" @onclick="@(() => Nav.NavigateTo("/"))">
-            <MudImage Src="images/logo.png" Height="28" Class="mr-3" Alt="DSPilot Logo" />
+            <img src="images/logo.png" alt="DSPilot Logo" height="28" style="margin-right: 12px;" />
         </div>
-        <MudSpacer />
-        @* 다크모드 버튼 비활성화
-        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
-                       Color="Color.Inherit"
-                       OnClick="ToggleDarkMode"
-                       title="@(_isDarkMode ? "라이트 모드" : "다크 모드")" />
-        *@
-        <MudIconButton Icon="@Icons.Material.Filled.Settings"
-                       Color="Color.Inherit"
-                       OnClick="@(() => Nav.NavigateTo("/settings"))"
-                       title="설정" />
-    </MudAppBar>
+        <div class="spacer"></div>
+        <button class="btn-icon" @onclick="@(() => Nav.NavigateTo("/settings"))" title="설정">
+            <span class="material-icons">settings</span>
+        </button>
+    </header>
 
-    <MudDrawer @bind-Open="_drawerOpen"
-               ClipMode="DrawerClipMode.Always"
-               Elevation="2"
-               Variant="DrawerVariant.Responsive">
+    <aside class="drawer @(_drawerOpen ? "" : "drawer-closed")">
         <NavMenu />
-    </MudDrawer>
+    </aside>
 
-    <MudMainContent Style="height: 100vh; overflow: auto; display: flex; flex-direction: column;">
-        <MudContainer MaxWidth="MaxWidth.False" Class="pa-4" Style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
+    <main class="main-content @(_drawerOpen ? "" : "drawer-closed")">
+        <div class="container">
             @Body
-        </MudContainer>
-    </MudMainContent>
+        </div>
+    </main>
+</div>
 
-</MudLayout>
+<div id="snackbar-container"></div>
 
 @code {
     private bool _drawerOpen = true;
-    private bool _isDarkMode;
-
-    private readonly MudTheme _theme = new()
-    {
-        PaletteLight = new PaletteLight
-        {
-            Primary = "#0A1E5A",
-            Secondary = "#FA002D",
-            Tertiary = "#0569A0",
-            Info = "#009BB4",
-            Success = "#4CAF50",
-            Background = "#F5F5F5",
-            Surface = "#FFFFFF",
-            AppbarBackground = "#FFFFFF",
-            AppbarText = "#0A1E5A",
-            DrawerBackground = "#FFFFFF",
-            DrawerText = "#212121",
-            DrawerIcon = "#0A1E5A",
-            TextPrimary = "#212121",
-            TextSecondary = "#7D8282",
-            ActionDefault = "#0A1E5A",
-        },
-        PaletteDark = new PaletteDark
-        {
-            Primary = "#4D7FD4",
-            Secondary = "#FF5A6E",
-            Tertiary = "#38A0D4",
-            Info = "#33C4D4",
-            Success = "#66D970",
-            Background = "#121212",
-            Surface = "#1E1E1E",
-            AppbarBackground = "#1E1E1E",
-            AppbarText = "#E0E0E0",
-            DrawerBackground = "#1E1E1E",
-            DrawerText = "#E0E0E0",
-            DrawerIcon = "#8AAEE0",
-            TextPrimary = "#E0E0E0",
-            TextSecondary = "#A0A4A4",
-            ActionDefault = "#8AAEE0",
-        },
-        Typography = new Typography
-        {
-            Default = new DefaultTypography
-            {
-                FontFamily = ["Noto Sans KR", "sans-serif"]
-            }
-        },
-        LayoutProperties = new LayoutProperties
-        {
-            DrawerWidthLeft = "260px"
-        }
-    };
 
     private string _projectName = "DSPilot";
 
@@ -109,5 +42,4 @@
     }
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
-    private void ToggleDarkMode() => _isDarkMode = !_isDarkMode;
 }

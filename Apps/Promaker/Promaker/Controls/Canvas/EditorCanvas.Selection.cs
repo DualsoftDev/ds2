@@ -22,7 +22,7 @@ public partial class EditorCanvas
             return;
         }
 
-        var selectedNodes = VM.Canvas.CanvasNodes
+        var selectedNodes = ActiveCanvasState!.CanvasNodes
             .Where(n => rect.IntersectsWith(new Rect(n.X, n.Y, n.Width, n.Height)))
             .ToList();
 
