@@ -3,7 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Promaker.ViewModels"
              xmlns:ctrl="clr-namespace:Promaker.Controls"
-             xmlns:conv="clr-namespace:Promaker.Presentation">
+             xmlns:conv="clr-namespace:Promaker.Presentation"
+             x:Name="Self"
+             GotFocus="OnPaneFocused">
     <UserControl.Resources>
         <conv:InvCountToVisibilityConverter x:Key="InvCountToVis"/>
 
@@ -72,7 +74,7 @@
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                           Height="30">
-                <ItemsControl ItemsSource="{Binding Canvas.OpenTabs}">
+                <ItemsControl ItemsSource="{Binding Pane.OpenTabs, ElementName=Self}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <StackPanel Orientation="Horizontal"/>
@@ -84,9 +86,14 @@
                                     MouseLeftButtonDown="TabHeader_MouseDown">
                                 <Border.ContextMenu>
                                     <ContextMenu>
-                                        <MenuItem Header="Close" Click="CloseTab_Click" Tag="{Binding}"/>
-                                        <MenuItem Header="Close Others" Click="CloseOtherTabs_Click" Tag="{Binding}"/>
-                                        <MenuItem Header="Close All" Click="CloseAllTabs_Click"/>
+                                        <MenuItem Header="닫기" Click="CloseTab_Click" Tag="{Binding}"/>
+                                        <MenuItem Header="다른 탭 닫기" Click="CloseOtherTabs_Click" Tag="{Binding}"/>
+                                        <MenuItem Header="모두 닫기" Click="CloseAllTabs_Click"/>
+                                        <Separator/>
+                                        <MenuItem Header="우측 분할" Click="SplitRight_Click" Tag="{Binding}"/>
+                                        <MenuItem Header="하단 분할" Click="SplitDown_Click" Tag="{Binding}"/>
+                                        <MenuItem Header="좌측 분할" Click="SplitLeft_Click" Tag="{Binding}"/>
+                                        <MenuItem Header="상단 분할" Click="SplitUp_Click" Tag="{Binding}"/>
                                     </ContextMenu>
                                 </Border.ContextMenu>
                                 <StackPanel Orientation="Horizontal">
@@ -104,16 +111,16 @@
             </ScrollViewer>
         </Border>
 
-        <ctrl:EditorCanvas x:Name="Canvas" Grid.Row="1" DataContext="{Binding}"/>
+        <ctrl:EditorCanvas x:Name="EditorCanvasControl" Grid.Row="1" DataContext="{Binding}"/>
 
         <Border Grid.Row="1" Background="{DynamicResource CanvasBackgroundBrush}"
                 IsHitTestVisible="False"
-                Visibility="{Binding Canvas.OpenTabs.Count, Converter={StaticResource InvCountToVis}}">
+                Visibility="{Binding Pane.OpenTabs.Count, ElementName=Self, Converter={StaticResource InvCountToVis}}">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                <TextBlock Text="No tabs open"
+                <TextBlock Text="열린 탭이 없습니다"
                            Foreground="{DynamicResource SecondaryTextBrush}"
                            FontSize="14" HorizontalAlignment="Center"/>
-                <TextBlock Text="Double-click a System, Flow, or Work to open a canvas tab"
+                <TextBlock Text="System, Flow 또는 Work를 더블클릭하여 캔버스 탭을 여세요"
                            Foreground="{DynamicResource DisabledTextBrush}"
                            FontSize="11" Margin="0,6,0,0" HorizontalAlignment="Center"/>
             </StackPanel>

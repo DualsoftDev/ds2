@@ -25,10 +25,26 @@ public partial class CanvasWorkspaceState : ObservableObject
     public ObservableCollection<CanvasTab> OpenTabs { get; } = [];
     public ObservableCollection<ArrowNode> CanvasArrows { get; } = [];
 
-    [ObservableProperty] private CanvasTab? _activeTab;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ContextualQuickCreateLabel))]
+    [NotifyCanExecuteChangedFor(nameof(QuickAddFlowCommand))]
+    [NotifyCanExecuteChangedFor(nameof(QuickAddContextualNodeCommand))]
+    private CanvasTab? _activeTab;
+
+    public string ContextualQuickCreateLabel =>
+        ActiveTab?.Kind switch
+        {
+            TabKind.Flow => "Work",
+            TabKind.Work => "Call",
+            _ => "Work / Call"
+        };
+
+    /// <summary>모든 탭이 닫혔을 때 발생합니다.</summary>
+    public event Action<CanvasWorkspaceState>? AllTabsClosed;
 
     public Action<Guid>? CenterOnNodeRequested { get; set; }
     public Action? FitToViewZoomOutRequested { get; set; }
+    public Action<double>? ApplyZoomCenteredRequested { get; set; }
     public Func<Point?>? GetViewportCenterRequested { get; set; }
 
     partial void OnActiveTabChanged(CanvasTab? value)
@@ -36,9 +52,18 @@ public partial class CanvasWorkspaceState : ObservableObject
         foreach (var t in OpenTabs)
             t.IsActive = t == value;
 
+        OnPropertyChanged(nameof(ContextualQuickCreateLabel));
         _host.Selection.ClearNodeSelection();
         _host.Selection.ClearArrowSelection();
         RefreshCanvasForActiveTab();
+        FitToViewZoomOutRequested?.Invoke();
+    }
+
+    public void NotifyQuickCreateStateChanged()
+    {
+        OnPropertyChanged(nameof(ContextualQuickCreateLabel));
+        QuickAddFlowCommand.NotifyCanExecuteChanged();
+        QuickAddContextualNodeCommand.NotifyCanExecuteChanged();
     }
 
     public void Reset()
@@ -61,7 +86,7 @@ public partial class CanvasWorkspaceState : ObservableObject
             _host.ExpandNodeAndAncestors(entityId);
     }
 
-    public void OpenParentCanvasAndFocusNode(Guid entityId, EntityKind entityType)
+    public void OpenParentCanvasAndFocusNode(Guid entityId, EntityKind entityType, double? zoomOverride = null)
     {
         if (!_host.TryRef(
                 () => Store.TryOpenParentTabOrNull(entityType, entityId),
@@ -72,6 +97,8 @@ public partial class CanvasWorkspaceState : ObservableObject
         _host.RequestRebuildAll(() =>
         {
             _host.ExpandNodeAndAncestors(entityId);
+            if (zoomOverride.HasValue)
+                ApplyZoomCenteredRequested?.Invoke(zoomOverride.Value);
             CenterOnNodeRequested?.Invoke(entityId);
             var node = CanvasNodes.FirstOrDefault(n => n.Id == entityId);
             if (node is not null)
@@ -98,6 +125,74 @@ public partial class CanvasWorkspaceState : ObservableObject
         OpenTabs.Remove(tab);
         if (ActiveTab == tab)
             ActiveTab = OpenTabs.Count > 0 ? OpenTabs[Math.Min(idx, OpenTabs.Count - 1)] : null;
+
+        if (OpenTabs.Count == 0)
+            AllTabsClosed?.Invoke(this);
+    }
+
+    /// <summary>외부에서 탭을 추가합니다 (분할 이동 시 사용).</summary>
+    public void AddTab(CanvasTab tab)
+    {
+        OpenTabs.Add(tab);
+        ActiveTab = tab;
+    }
+
+    /// <summary>외부에서 탭을 제거합니다 (분할 이동 시 사용).</summary>
+    public void RemoveTab(CanvasTab tab)
+    {
+        var idx = OpenTabs.IndexOf(tab);
+        if (idx < 0) return;
+
+        OpenTabs.Remove(tab);
+        if (ActiveTab == tab)
+            ActiveTab = OpenTabs.Count > 0 ? OpenTabs[Math.Min(idx, OpenTabs.Count - 1)] : null;
+
+        if (OpenTabs.Count == 0)
+            AllTabsClosed?.Invoke(this);
+    }
+
+    /// <summary>탭 타이틀 검증 및 캔버스 갱신 (RebuildAll에서 호출).</summary>
+    public void ValidateAndRefresh()
+    {
+        var deadTabs = new List<CanvasTab>();
+        foreach (var t in OpenTabs)
+        {
+            var title = ResolveTabTitle(t);
+            if (title is null)
+                deadTabs.Add(t);
+            else
+                t.Title = title;
+        }
+
+        foreach (var t in deadTabs)
+            OpenTabs.Remove(t);
+
+        if (ActiveTab is not null && !OpenTabs.Contains(ActiveTab))
+            ActiveTab = OpenTabs.Count > 0 ? OpenTabs[0] : null;
+
+        RefreshCanvasForActiveTab();
+    }
+
+    private bool CanQuickAddFlow() => _host.HasProject;
+
+    [RelayCommand(CanExecute = nameof(CanQuickAddFlow))]
+    private void QuickAddFlow() => _host.ExecuteAddFlow();
+
+    private bool CanQuickAddContextualNode() =>
+        _host.HasProject && ActiveTab?.Kind is TabKind.Flow or TabKind.Work;
+
+    [RelayCommand(CanExecute = nameof(CanQuickAddContextualNode))]
+    private void QuickAddContextualNode()
+    {
+        switch (ActiveTab?.Kind)
+        {
+            case TabKind.Flow:
+                _host.ExecuteAddWork();
+                break;
+            case TabKind.Work:
+                _host.ExecuteAddCall();
+                break;
+        }
     }
 
     public void RefreshCanvasForActiveTab()

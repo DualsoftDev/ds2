@@ -11,6 +11,8 @@ namespace Promaker.Controls;
 
 public partial class EditorCanvas
 {
+    internal static bool IsConnectShortcutKey(Key key) => key == Key.F3;
+
     private void OnMouseDown(object sender, MouseButtonEventArgs e)
     {
         Focus();
@@ -40,12 +42,12 @@ public partial class EditorCanvas
                 return;
             }
 
-            var node = VM.Canvas.CanvasNodes.FirstOrDefault(n => n.Id == nodeId);
+            var node = ActiveCanvasState!.CanvasNodes.FirstOrDefault(n => n.Id == nodeId);
             if (node is null) return;
 
             if (e.ClickCount == 2 && EntityKindRules.canOpenAsTab(node.EntityType))
             {
-                VM.Canvas.OpenCanvasTab(nodeId, EntityKind.Work, expandTree: true);
+                ActiveCanvasState!.OpenCanvasTab(nodeId, EntityKind.Work, expandTree: true);
                 e.Handled = true;
                 return;
             }
@@ -129,10 +131,15 @@ public partial class EditorCanvas
         var dx = canvasPos.X - _drag.StartPoint.X;
         var dy = canvasPos.Y - _drag.StartPoint.Y;
 
+        var canvasW = MainCanvas.Width;
+        var canvasH = MainCanvas.Height;
+
         foreach (var item in _drag.Items)
         {
-            item.Node.X = Math.Max(0, item.OriginX + dx);
-            item.Node.Y = Math.Max(0, item.OriginY + dy);
+            var maxX = canvasW - item.Node.Width;
+            var maxY = canvasH - item.Node.Height;
+            item.Node.X = Math.Clamp(item.OriginX + dx, 0, maxX);
+            item.Node.Y = Math.Clamp(item.OriginY + dy, 0, maxY);
         }
 
         UpdateDragArrows(_drag.Items);
@@ -143,9 +150,9 @@ public partial class EditorCanvas
         if (VM is null) return;
 
         var dragNodeIds = new HashSet<Guid>(dragItems.Select(d => d.Node.Id));
-        var nodes = VM.Canvas.CanvasNodes;
+        var nodes = ActiveCanvasState!.CanvasNodes;
 
-        foreach (var arrow in VM.Canvas.CanvasArrows)
+        foreach (var arrow in ActiveCanvasState!.CanvasArrows)
         {
             if (!dragNodeIds.Contains(arrow.SourceId) && !dragNodeIds.Contains(arrow.TargetId))
                 continue;
@@ -206,6 +213,11 @@ public partial class EditorCanvas
 
                 var (finalX, finalY) = EntityKindRules.snapToGrid(item.Node.X, item.Node.Y, ctrlHeld);
 
+                var maxX = MainCanvas.Width - item.Node.Width;
+                var maxY = MainCanvas.Height - item.Node.Height;
+                finalX = Math.Clamp(finalX, 0, maxX);
+                finalY = Math.Clamp(finalY, 0, maxY);
+
                 item.Node.X = finalX;
                 item.Node.Y = finalY;
 
@@ -246,6 +258,14 @@ public partial class EditorCanvas
             return;
         }
 
+        if (IsConnectShortcutKey(e.Key)
+            && TryResolveConnectSourceEntityType(VM, out _))
+        {
+            StartConnectFromCurrentSelection();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.L && Keyboard.Modifiers == ModifierKeys.Control)
         {
             VM?.AutoLayoutCommand.Execute(null);
@@ -260,7 +280,7 @@ public partial class EditorCanvas
         var ctrlPressed = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
         VM.Selection.ClearNodeSelection();
 
-        var arrow = VM.Canvas.CanvasArrows.FirstOrDefault(a => a.Id == arrowId);
+        var arrow = ActiveCanvasState!.CanvasArrows.FirstOrDefault(a => a.Id == arrowId);
         if (arrow is not null)
             VM.Selection.SelectArrowFromCanvas(arrow, ctrlPressed);
 
@@ -271,16 +291,16 @@ public partial class EditorCanvas
     {
         if (sender is not FrameworkElement { Tag: Guid arrowId } || VM is null) return;
 
-        var arrow = VM.Canvas.CanvasArrows.FirstOrDefault(a => a.Id == arrowId);
+        var arrow = ActiveCanvasState!.CanvasArrows.FirstOrDefault(a => a.Id == arrowId);
         if (arrow is null) return;
 
         VM.Selection.ClearNodeSelection();
         VM.Selection.SelectArrowFromCanvas(arrow, ctrlPressed: false);
 
-        var isWorkMode = VM.Canvas.ActiveTab is { } tab && EntityKindRules.isWorkArrowModeForTab(tab.Kind);
+        var isWorkMode = ActiveCanvasState!.ActiveTab is { } tab && EntityKindRules.isWorkArrowModeForTab(tab.Kind);
         var menu = new System.Windows.Controls.ContextMenu();
 
-        var changeType = new System.Windows.Controls.MenuItem { Header = "Change Arrow Type" };
+        var changeType = new System.Windows.Controls.MenuItem { Header = "타입 변경" };
         changeType.Click += (_, _) =>
         {
             if (!TryPromptArrowType(isWorkMode ? EntityKind.Work : EntityKind.Call, out var newType))
@@ -289,7 +309,11 @@ public partial class EditorCanvas
         };
         menu.Items.Add(changeType);
 
-        var remove = new System.Windows.Controls.MenuItem { Header = "Remove Arrow" };
+        var reverse = new System.Windows.Controls.MenuItem { Header = "방향 전환" };
+        reverse.Click += (_, _) => VM.TryReverseArrow(arrowId);
+        menu.Items.Add(reverse);
+
+        var remove = new System.Windows.Controls.MenuItem { Header = "삭제" };
         remove.Click += (_, _) => VM.DeleteSelectedCommand.Execute(null);
         menu.Items.Add(remove);
 
@@ -308,7 +332,7 @@ public partial class EditorCanvas
         if (sender is not FrameworkElement { Tag: Guid arrowId } || VM is null)
             return;
 
-        var arrow = VM.Canvas.CanvasArrows.FirstOrDefault(a => a.Id == arrowId);
+        var arrow = ActiveCanvasState!.CanvasArrows.FirstOrDefault(a => a.Id == arrowId);
         if (arrow is null)
             return;
 
@@ -361,7 +385,7 @@ public partial class EditorCanvas
         if (VM is null)
             return null;
 
-        return VM.Canvas.CanvasNodes.LastOrDefault(node =>
+        return ActiveCanvasState!.CanvasNodes.LastOrDefault(node =>
             point.X >= node.X && point.X <= node.X + node.Width
             && point.Y >= node.Y && point.Y <= node.Y + node.Height);
     }

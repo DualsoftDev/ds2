@@ -83,11 +83,14 @@
             <MenuItem Tag="FocusCanvas" Header="Focus in Canvas" Command="{Binding Canvas.FocusSelectedInCanvasCommand}"/>
             <MenuItem Tag="Rename" Header="Rename..." Command="{Binding FocusNameEditorCommand}"/>
             <MenuItem Tag="Delete" Header="Delete" Command="{Binding DeleteSelectedCommand}" Foreground="{DynamicResource RedAccentBrush}"/>
+            <Separator Tag="SepExpandCollapse"/>
+            <MenuItem Tag="ExpandAll" Header="전체 펼치기" Click="ExpandAll_Click"/>
+            <MenuItem Tag="CollapseAll" Header="전체 접기" Click="CollapseAll_Click"/>
         </ContextMenu>
     </UserControl.Resources>
 
     <Border Style="{StaticResource PanelContainer}">
-        <Grid>
+        <Grid x:Name="ExplorerLayoutRoot">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
@@ -101,43 +104,45 @@
                 </Grid>
             </Border>
 
-            <TabControl Grid.Row="1" x:Name="TreeTabs" SelectionChanged="TreeTabs_SelectionChanged">
-                <TabItem x:Name="ControlTreeTab" Header="Control">
-                    <TreeView x:Name="ControlTree"
-                              ItemsSource="{Binding ControlTreeRoots}"
-                              SelectedItemChanged="Tree_SelectedItemChanged"
-                              PreviewMouseDown="Tree_PreviewMouseDown"
-                              ContextMenuOpening="Tree_ContextMenuOpening">
-                        <TreeView.ItemContainerStyle>
-                            <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
-                        </TreeView.ItemContainerStyle>
-                        <TreeView.ItemTemplate>
-                            <StaticResource ResourceKey="EntityTreeItemTemplate"/>
-                        </TreeView.ItemTemplate>
-                        <TreeView.ContextMenu>
-                            <StaticResource ResourceKey="EntityTreeContextMenu"/>
-                        </TreeView.ContextMenu>
-                    </TreeView>
-                </TabItem>
+            <Grid x:Name="UpperPanelsHost" Grid.Row="1">
+                <TabControl x:Name="TreeTabs" SelectionChanged="TreeTabs_SelectionChanged">
+                    <TabItem x:Name="ControlTreeTab" Header="Control">
+                        <TreeView x:Name="ControlTree"
+                                  ItemsSource="{Binding ControlTreeRoots}"
+                                  SelectedItemChanged="Tree_SelectedItemChanged"
+                                  PreviewMouseDown="Tree_PreviewMouseDown"
+                                  ContextMenuOpening="Tree_ContextMenuOpening">
+                            <TreeView.ItemContainerStyle>
+                                <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
+                            </TreeView.ItemContainerStyle>
+                            <TreeView.ItemTemplate>
+                                <StaticResource ResourceKey="EntityTreeItemTemplate"/>
+                            </TreeView.ItemTemplate>
+                            <TreeView.ContextMenu>
+                                <StaticResource ResourceKey="EntityTreeContextMenu"/>
+                            </TreeView.ContextMenu>
+                        </TreeView>
+                    </TabItem>
 
-                <TabItem x:Name="DeviceTreeTab" Header="Device">
-                    <TreeView x:Name="DeviceTree"
-                              ItemsSource="{Binding DeviceTreeRoots}"
-                              SelectedItemChanged="Tree_SelectedItemChanged"
-                              PreviewMouseDown="Tree_PreviewMouseDown"
-                              ContextMenuOpening="Tree_ContextMenuOpening">
-                        <TreeView.ItemContainerStyle>
-                            <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
-                        </TreeView.ItemContainerStyle>
-                        <TreeView.ItemTemplate>
-                            <StaticResource ResourceKey="EntityTreeItemTemplate"/>
-                        </TreeView.ItemTemplate>
-                        <TreeView.ContextMenu>
-                            <StaticResource ResourceKey="EntityTreeContextMenu"/>
-                        </TreeView.ContextMenu>
-                    </TreeView>
-                </TabItem>
-            </TabControl>
+                    <TabItem x:Name="DeviceTreeTab" Header="Device">
+                        <TreeView x:Name="DeviceTree"
+                                  ItemsSource="{Binding DeviceTreeRoots}"
+                                  SelectedItemChanged="Tree_SelectedItemChanged"
+                                  PreviewMouseDown="Tree_PreviewMouseDown"
+                                  ContextMenuOpening="Tree_ContextMenuOpening">
+                            <TreeView.ItemContainerStyle>
+                                <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
+                            </TreeView.ItemContainerStyle>
+                            <TreeView.ItemTemplate>
+                                <StaticResource ResourceKey="EntityTreeItemTemplate"/>
+                            </TreeView.ItemTemplate>
+                            <TreeView.ContextMenu>
+                                <StaticResource ResourceKey="EntityTreeContextMenu"/>
+                            </TreeView.ContextMenu>
+                        </TreeView>
+                    </TabItem>
+                </TabControl>
+            </Grid>
         </Grid>
     </Border>
 </UserControl>

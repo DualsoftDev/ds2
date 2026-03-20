@@ -1,43 +1,176 @@
 <UserControl x:Class="Promaker.Controls.MainToolbar"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:conv="clr-namespace:Promaker.Presentation"
-             xmlns:help="clr-namespace:Promaker.Help"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
              xmlns:res="clr-namespace:Promaker.Resources"
              x:Name="ThisControl">
-    <UserControl.Resources>
-        <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
-    </UserControl.Resources>
     <Border Background="{DynamicResource ToolbarShellBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="0,0,0,1"
-            Height="94">
-        <ScrollViewer HorizontalScrollBarVisibility="Auto"
-                      VerticalScrollBarVisibility="Disabled"
-                      Focusable="False">
-            <StackPanel Orientation="Horizontal"
-                        VerticalAlignment="Stretch"
-                        Margin="4,2">
+            Padding="8,6">
+        <Grid HorizontalAlignment="Left">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
 
-                <!-- ═══ 파일 그룹 ═══ -->
-                <Border Style="{StaticResource ToolbarGroup}">
-                    <DockPanel>
-                        <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="18"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="18"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="1" Text="{x:Static res:Strings.Project}" Style="{StaticResource ToolbarGroupLabel}"/>
-                                <Button Grid.Column="2" Style="{StaticResource HelpButton}"
-                                        HorizontalAlignment="Right" Margin="0"
-                                        Command="{x:Static help:HelpNavigator.NavigateCommand}"
-                                        CommandParameter="file"/>
-                            </Grid>
-                        </Border>
-                        <StackPanel Orientation="Horizontal" Margin="4,4,4,3">
-                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding NewProjectCommand}"
+            <Border x:Name="RibbonGroupSelectorPanel"
+                    Grid.Column="0"
+                    Style="{StaticResource ToolbarGroup}"
+                    Background="{DynamicResource ToolbarButtonBrush}"
+                    Width="370">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <UniformGrid Rows="1"
+                                 Columns="4"
+                                 Margin="4,2,4,0">
+                        <Button x:Name="ProjectRibbonGroupButton"
+                                Command="{Binding ShowProjectRibbonGroupCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource RibbonGroupSelectorButton}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedRibbonGroup}" Value="Project">
+                                            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                            <Setter Property="Foreground" Value="White"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                <Grid Width="18" Height="18">
+                                    <Path Width="18"
+                                          Height="18"
+                                          Stretch="Uniform"
+                                          Data="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                    <TextBlock Text="P"
+                                               FontSize="8"
+                                               FontWeight="Bold"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               Margin="0,1,0,0"
+                                               Foreground="{DynamicResource ToolbarShellBrush}"/>
+                                </Grid>
+                                <TextBlock Text="{x:Static res:Strings.Project}"
+                                           FontSize="9"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,2,0,0"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="EditRibbonGroupButton"
+                                Command="{Binding ShowEditRibbonGroupCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource RibbonGroupSelectorButton}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedRibbonGroup}" Value="Edit">
+                                            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                            <Setter Property="Foreground" Value="White"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                <Path Width="18" Height="18" Stretch="Uniform"
+                                      Data="M3 10h11v2H3v-2zm0-4h15v2H3V6zm0 8h9v2H3v-2zm12.59-5.41L17 10l3-3-1.41-1.41L17 7.17l-1.59-1.58L14 7l3 3-3 3 1.41 1.41L17 12.83l1.59 1.58L20 13z"
+                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                <TextBlock Text="{x:Static res:Strings.Edit}"
+                                           FontSize="9"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,2,0,0"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="SimulationRibbonGroupButton"
+                                Command="{Binding ShowSimulationRibbonGroupCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource RibbonGroupSelectorButton}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedRibbonGroup}" Value="Simulation">
+                                            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                            <Setter Property="Foreground" Value="White"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                <Path Width="18" Height="18" Stretch="Uniform"
+                                      Data="{StaticResource IconPlay}"
+                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                <TextBlock Text="{x:Static res:Strings.Simulation}"
+                                           FontSize="9"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,2,0,0"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="ToolsRibbonGroupButton"
+                                Command="{Binding ShowToolsRibbonGroupCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource RibbonGroupSelectorButton}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedRibbonGroup}" Value="Tools">
+                                            <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                            <Setter Property="Foreground" Value="White"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                <Path Width="18" Height="18" Stretch="Uniform"
+                                      Data="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.06-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.73,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.06,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.49-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"
+                                      Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                <TextBlock Text="{x:Static res:Strings.Tools}"
+                                           FontSize="9"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,2,0,0"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            </StackPanel>
+                        </Button>
+                    </UniformGrid>
+
+                    <Border Grid.Row="1" Style="{StaticResource ToolbarGroupLabelBorder}">
+                        <TextBlock Text="메뉴" Style="{StaticResource ToolbarGroupLabel}"/>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="2"
+                    Style="{StaticResource ToolbarGroup}"
+                    Background="{DynamicResource ToolbarButtonBrush}"
+                    MinWidth="200"
+                    HorizontalAlignment="Left">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Grid Margin="4,2,4,0">
+                        <WrapPanel x:Name="ProjectRibbonContentPanel"
+                                   Orientation="Horizontal"
+                                   VerticalAlignment="Center">
+                            <WrapPanel.Style>
+                                <Style TargetType="WrapPanel">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedRibbonGroup}" Value="Project">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </WrapPanel.Style>
+
+                            <Button Style="{StaticResource SlimToolbarButton}"
+                                    Command="{Binding NewProjectCommand}"
                                     ToolTip="{x:Static res:Strings.NewFileTooltip}">
                                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                                     <Path Width="18" Height="18" Stretch="Uniform"
@@ -46,7 +179,9 @@
                                     <TextBlock Text="{x:Static res:Strings.NewFile}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding OpenFileCommand}"
+
+                            <Button Style="{StaticResource SlimToolbarButton}"
+                                    Command="{Binding OpenFileCommand}"
                                     ToolTip="{x:Static res:Strings.LoadTooltip}">
                                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                                     <Path Width="18" Height="18" Stretch="Uniform"
@@ -55,89 +190,78 @@
                                     <TextBlock Text="{x:Static res:Strings.Load}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </Button>
+
                             <Grid VerticalAlignment="Stretch">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" Style="{StaticResource SlimToolbarButton}" Command="{Binding SaveFileCommand}"
-                                        ToolTip="{x:Static res:Strings.SaveTooltip}" Padding="6,2,2,2">
+                                <ToggleButton x:Name="SaveMenuToggle"
+                                              Style="{StaticResource SlimToggleButton}"
+                                              ToolTip="{x:Static res:Strings.SaveTooltip}">
                                     <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                                         <Path Width="18" Height="18" Stretch="Uniform"
                                               Data="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"
                                               Fill="{DynamicResource IconGrayBrush}"/>
                                         <TextBlock Text="{x:Static res:Strings.Save}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                     </StackPanel>
-                                </Button>
-                                <ToggleButton x:Name="SaveMenuToggle" Grid.Column="1"
-                                              Style="{StaticResource SlimToggleButton}"
-                                              ToolTip="다른 이름으로 저장"
-                                              Padding="2,0" MinWidth="14" Width="14">
-                                    <Path Data="M 3,2 L 9,8 15,2 Z"
-                                          Width="10" Height="6" Stretch="Uniform"
-                                          Margin="0,0,0,6" VerticalAlignment="Bottom"
-                                          Fill="{DynamicResource IconGrayBrush}"/>
                                 </ToggleButton>
                                 <Popup IsOpen="{Binding IsChecked, ElementName=SaveMenuToggle, Mode=TwoWay}"
-                                       StaysOpen="False" Placement="Bottom"
+                                       StaysOpen="False"
+                                       Placement="Bottom"
                                        PlacementTarget="{Binding ElementName=SaveMenuToggle}"
                                        DataContext="{Binding DataContext, ElementName=ThisControl}">
                                     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
                                             BorderBrush="{DynamicResource BorderBrush}"
-                                            BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="160">
-                                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding SaveFileAsCommand}" Click="CloseSavePopup">
-                                            <TextBlock Text="{x:Static res:Strings.SaveAs}" VerticalAlignment="Center"/>
-                                        </Button>
+                                            BorderThickness="1"
+                                            CornerRadius="4"
+                                            Padding="4"
+                                            MinWidth="160">
+                                        <StackPanel Orientation="Vertical">
+                                            <Button Style="{StaticResource AddMenuItemButton}"
+                                                    Command="{Binding SaveFileCommand}"
+                                                    Click="CloseSavePopup">
+                                                <TextBlock Text="{x:Static res:Strings.Save}" VerticalAlignment="Center"/>
+                                            </Button>
+                                            <Button Style="{StaticResource AddMenuItemButton}"
+                                                    Command="{Binding SaveFileAsCommand}"
+                                                    Click="CloseSavePopup">
+                                                <TextBlock Text="{x:Static res:Strings.SaveAs}" VerticalAlignment="Center"/>
+                                            </Button>
+                                        </StackPanel>
                                     </Border>
                                 </Popup>
                             </Grid>
-                        </StackPanel>
-                    </DockPanel>
-                </Border>
+                        </WrapPanel>
 
-                <Border Style="{StaticResource ToolbarGroupSeparator}"/>
+                        <WrapPanel x:Name="EditRibbonContentPanel"
+                                   Orientation="Horizontal"
+                                   VerticalAlignment="Center">
+                            <WrapPanel.Style>
+                                <Style TargetType="WrapPanel">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedRibbonGroup}" Value="Edit">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </WrapPanel.Style>
 
-                <!-- ═══ 편집 그룹 ═══ -->
-                <Border Style="{StaticResource ToolbarGroup}">
-                    <DockPanel>
-                        <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="18"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="18"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="1" Text="{x:Static res:Strings.Edit}" Style="{StaticResource ToolbarGroupLabel}"/>
-                                <Button Grid.Column="2" Style="{StaticResource HelpButton}"
-                                        HorizontalAlignment="Right" Margin="0"
-                                        Command="{x:Static help:HelpNavigator.NavigateCommand}"
-                                        CommandParameter="edit"/>
-                            </Grid>
-                        </Border>
-                        <StackPanel Orientation="Horizontal" Margin="4,4,4,3">
-                            <!-- 취소 -->
-                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding UndoCommand}"
-                                    ToolTip="{x:Static res:Strings.UndoTooltip}">
+                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding UndoCommand}" ToolTip="{x:Static res:Strings.UndoTooltip}">
                                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                    <Path Width="18" Height="18" Stretch="Uniform"
-                                          Data="M12.5 8C9.85 8 7.45 8.99 5.6 10.6L2 7V16H11L7.38 12.38C8.77 11.22 10.54 10.5 12.5 10.5 16.04 10.5 19.05 12.81 20.1 16L22.47 15.22C21.08 11.03 17.15 8 12.5 8Z"
-                                          Fill="{DynamicResource IconGrayBrush}"/>
+                                    <Path Width="18" Height="18" Stretch="Uniform" Data="{StaticResource IconUndo}" Fill="{DynamicResource IconGrayBrush}"/>
                                     <TextBlock Text="{x:Static res:Strings.Undo}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </Button>
-                            <!-- 복원 -->
-                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding RedoCommand}"
-                                    ToolTip="{x:Static res:Strings.RedoTooltip}">
+
+                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding RedoCommand}" ToolTip="{x:Static res:Strings.RedoTooltip}">
                                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                    <Path Width="18" Height="18" Stretch="Uniform"
-                                          Data="M11.5 8C14.15 8 16.55 8.99 18.4 10.6L22 7V16H13L16.62 12.38C15.23 11.22 13.46 10.5 11.5 10.5 7.96 10.5 4.95 12.81 3.9 16L1.53 15.22C2.92 11.03 6.85 8 11.5 8Z"
-                                          Fill="{DynamicResource IconGrayBrush}"/>
+                                    <Path Width="18" Height="18" Stretch="Uniform" Data="{StaticResource IconRedo}" Fill="{DynamicResource IconGrayBrush}"/>
                                     <TextBlock Text="{x:Static res:Strings.Redo}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </Button>
-                            <!-- 추가 -->
-                            <ToggleButton x:Name="AddToggleBtn" Style="{StaticResource SlimToggleButton}" ToolTip="추가"
-                                              IsEnabled="{Binding HasProject}">
+
+                            <ToggleButton x:Name="AddToggleBtn"
+                                          Style="{StaticResource SlimToggleButton}"
+                                          ToolTip="{x:Static res:Strings.Add}"
+                                          IsEnabled="{Binding HasProject}">
                                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                                     <Path Width="18" Height="18" Stretch="Uniform"
                                           Data="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"
@@ -146,12 +270,16 @@
                                 </StackPanel>
                             </ToggleButton>
                             <Popup IsOpen="{Binding IsChecked, ElementName=AddToggleBtn, Mode=TwoWay}"
-                                   StaysOpen="False" Placement="Bottom"
+                                   StaysOpen="False"
+                                   Placement="Bottom"
                                    PlacementTarget="{Binding ElementName=AddToggleBtn}"
                                    DataContext="{Binding DataContext, ElementName=ThisControl}">
                                 <Border Background="{DynamicResource SecondaryBackgroundBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}"
-                                        BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="160">
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="4"
+                                        MinWidth="160">
                                     <StackPanel Orientation="Vertical">
                                         <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddSystemCommand}" Click="CloseAddPopup">
                                             <TextBlock Text="System" VerticalAlignment="Center"/>
@@ -168,8 +296,9 @@
                                     </StackPanel>
                                 </Border>
                             </Popup>
-                            <!-- 삭제 -->
-                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding DeleteSelectedCommand}"
+
+                            <Button Style="{StaticResource SlimToolbarButton}"
+                                    Command="{Binding DeleteSelectedCommand}"
                                     ToolTip="{x:Static res:Strings.DeleteTooltip}">
                                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                                     <Path Width="18" Height="18" Stretch="Uniform"
@@ -178,8 +307,9 @@
                                     <TextBlock Text="{x:Static res:Strings.Delete}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </Button>
-                            <!-- 일괄편집 -->
-                            <ToggleButton x:Name="ModelToggleBtn" Style="{StaticResource SlimToggleButton}"
+
+                            <ToggleButton x:Name="ModelToggleBtn"
+                                          Style="{StaticResource SlimToggleButton}"
                                           ToolTip="{x:Static res:Strings.BatchEditTooltip}"
                                           IsEnabled="{Binding HasProject}">
                                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
@@ -190,12 +320,16 @@
                                 </StackPanel>
                             </ToggleButton>
                             <Popup IsOpen="{Binding IsChecked, ElementName=ModelToggleBtn, Mode=TwoWay}"
-                                   StaysOpen="False" Placement="Bottom"
+                                   StaysOpen="False"
+                                   Placement="Bottom"
                                    PlacementTarget="{Binding ElementName=ModelToggleBtn}"
                                    DataContext="{Binding DataContext, ElementName=ThisControl}">
                                 <Border Background="{DynamicResource SecondaryBackgroundBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}"
-                                        BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="160">
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="4"
+                                        MinWidth="160">
                                     <StackPanel Orientation="Vertical">
                                         <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseModelPopup">
                                             <TextBlock Text="I/O" VerticalAlignment="Center"/>
@@ -209,313 +343,310 @@
                                     </StackPanel>
                                 </Border>
                             </Popup>
-                            <!-- 재배치 -->
-                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding AutoLayoutCommand}"
-                                    ToolTip="{x:Static res:Strings.AutoLayoutTooltip}">
+
+                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding AutoLayoutCommand}" ToolTip="{x:Static res:Strings.AutoLayoutTooltip}">
                                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                    <Path Width="18" Height="18" Stretch="Uniform"
-                                          Data="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"
-                                          Fill="{DynamicResource IconGrayBrush}"/>
+                                    <Path Width="18" Height="18" Stretch="Uniform" Data="{StaticResource IconGrid}" Fill="{DynamicResource IconGrayBrush}"/>
                                     <TextBlock Text="{x:Static res:Strings.AutoLayout}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </Button>
-                        </StackPanel>
-                    </DockPanel>
-                </Border>
+                        </WrapPanel>
 
-                <Border Style="{StaticResource ToolbarGroupSeparator}"/>
+                        <WrapPanel x:Name="SimulationRibbonContentPanel"
+                                   Orientation="Horizontal"
+                                   VerticalAlignment="Center"
+                                   DataContext="{Binding Simulation}">
+                            <WrapPanel.Style>
+                                <Style TargetType="WrapPanel">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding DataContext.SelectedRibbonGroup, ElementName=ThisControl}" Value="Simulation">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </WrapPanel.Style>
 
-                <!-- ═══ 시뮬레이션 그룹 (DataContext = Simulation) ═══ -->
-                <StackPanel x:Name="SimulationTools"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Stretch"
-                            DataContext="{Binding Simulation}">
-
-                    <Border Style="{StaticResource ToolbarGroup}">
-                        <DockPanel>
-                            <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="18"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="18"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="1" Text="{x:Static res:Strings.Simulation}" Style="{StaticResource ToolbarGroupLabel}"/>
-                                    <Button Grid.Column="2" Style="{StaticResource HelpButton}"
-                                            HorizontalAlignment="Right" Margin="0"
-                                            Command="{x:Static help:HelpNavigator.NavigateCommand}"
-                                            CommandParameter="simulation"/>
-                                </Grid>
-                            </Border>
-                            <StackPanel Orientation="Horizontal" Margin="4,4,4,3"
-                                        IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
-                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding StartSimulationCommand}"
-                                        ToolTip="{x:Static res:Strings.StartSimulationTooltip}">
-                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                        <Path Width="18" Height="18" Stretch="Fill"
-                                              Data="M 4,2 L 16,9 L 4,16 Z"
-                                              Fill="{DynamicResource IconGreenBrush}"/>
-                                        <TextBlock Text="{x:Static res:Strings.Start}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding PauseSimulationCommand}"
-                                        ToolTip="{x:Static res:Strings.PauseSimulationTooltip}">
-                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                        <Canvas Width="18" Height="18" HorizontalAlignment="Center">
-                                            <Rectangle Canvas.Left="4" Canvas.Top="2.5" Width="3.8" Height="13"
-                                                       Fill="{DynamicResource IconGrayBrush}" RadiusX="1" RadiusY="1"/>
-                                            <Rectangle Canvas.Left="10.2" Canvas.Top="2.5" Width="3.8" Height="13"
-                                                       Fill="{DynamicResource IconGrayBrush}" RadiusX="1" RadiusY="1"/>
-                                        </Canvas>
-                                        <TextBlock Text="{x:Static res:Strings.Pause}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding StopSimulationCommand}"
-                                        ToolTip="{x:Static res:Strings.StopSimulationTooltip}">
-                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                        <Rectangle Width="12" Height="12" RadiusX="2" RadiusY="2"
-                                                   Fill="{DynamicResource IconRedBrush}"/>
-                                        <TextBlock Text="{x:Static res:Strings.Stop}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding ResetSimulationCommand}"
-                                        ToolTip="{x:Static res:Strings.ResetSimulationTooltip}">
-                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                        <Canvas Width="18" Height="18" HorizontalAlignment="Center">
-                                            <Path Data="M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12H4A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z"
-                                                  Fill="{DynamicResource IconOrangeBrush}"/>
-                                        </Canvas>
-                                        <TextBlock Text="{x:Static res:Strings.Reset}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                </Button>
-                            </StackPanel>
-                        </DockPanel>
-                    </Border>
-
-                    <Border Style="{StaticResource ToolbarGroupSeparator}"/>
-
-                    <!-- ═══ 공정 제어 그룹 ═══ -->
-                    <Border Style="{StaticResource ToolbarGroup}">
-                        <DockPanel>
-                            <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="18"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="18"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="1" Text="{x:Static res:Strings.SimulationOptions}" Style="{StaticResource ToolbarGroupLabel}"/>
-                                    <Button Grid.Column="2" Style="{StaticResource HelpButton}"
-                                            HorizontalAlignment="Right" Margin="0"
-                                            Command="{x:Static help:HelpNavigator.NavigateCommand}"
-                                            CommandParameter="process-control"/>
-                                </Grid>
-                            </Border>
-                            <StackPanel Orientation="Horizontal" Margin="4,4,4,3"
-                                        IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
-                                <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,4,0">
-                                    <TextBlock Text="{x:Static res:Strings.Speed}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                                    <ComboBox SelectedValue="{Binding SimSpeed}" SelectedValuePath="Tag"
-                                              Width="56" FontSize="11">
-                                        <ComboBoxItem Content="0.5x" Tag="0.5"/>
-                                        <ComboBoxItem Content="1x"   Tag="1.0" IsSelected="True"/>
-                                        <ComboBoxItem Content="2x"   Tag="2.0"/>
-                                        <ComboBoxItem Content="5x"   Tag="5.0"/>
-                                        <ComboBoxItem Content="10x"  Tag="10.0"/>
-                                    </ComboBox>
+                            <Button IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource SlimToolbarButton}">
+                                        <Setter Property="Command" Value="{Binding StartSimulationCommand}"/>
+                                        <Setter Property="ToolTip" Value="{x:Static res:Strings.StartSimulationTooltip}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource IconGreenBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSimulating}" Value="True">
+                                                <Setter Property="Command" Value="{Binding StopSimulationCommand}"/>
+                                                <Setter Property="ToolTip" Value="{x:Static res:Strings.StopSimulationTooltip}"/>
+                                                <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Width="18" Height="18" Stretch="Uniform"
+                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                        <Path.Style>
+                                            <Style TargetType="Path">
+                                                <Setter Property="Data" Value="{StaticResource IconPlay}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsSimulating}" Value="True">
+                                                        <Setter Property="Data" Value="{StaticResource IconStop}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Path.Style>
+                                    </Path>
+                                    <TextBlock FontSize="9"
+                                               HorizontalAlignment="Center"
+                                               Margin="0,2,0,0"
+                                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Text" Value="{x:Static res:Strings.Start}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsSimulating}" Value="True">
+                                                        <Setter Property="Text" Value="{x:Static res:Strings.Stop}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                 </StackPanel>
-                                <ToggleButton Style="{StaticResource SlimToggleButton}"
-                                              IsChecked="{Binding SimTimeIgnore}" ToolTip="{x:Static res:Strings.IgnoreTimeTooltip}" Margin="2,0">
-                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                        <!-- 시계 + 빨간 금지표시 (v0.0.0.6 복귀) -->
-                                        <Canvas Width="18" Height="18" HorizontalAlignment="Center" Margin="0,1,0,-1">
-                                            <Path Data="M 9,2 A 6,6 0 0 1 15,8 A 6,6 0 0 1 9,14 A 6,6 0 0 1 3,8 A 6,6 0 0 1 9,2 M 9,4.5 L 9,8.5 11,10"
-                                                  Stroke="{DynamicResource PrimaryTextBrush}" StrokeThickness="1" Fill="Transparent"
-                                                  StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                                            <Ellipse Canvas.Left="0" Canvas.Top="-1" Width="18" Height="18"
-                                                     Stroke="{DynamicResource IconRedBrush}" StrokeThickness="1.8" Fill="Transparent"/>
-                                            <Line X1="3.5" Y1="14" X2="14.5" Y2="2"
-                                                  Stroke="{DynamicResource IconRedBrush}" StrokeThickness="1.8"
-                                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                                        </Canvas>
-                                        <TextBlock Text="{x:Static res:Strings.IgnoreTime}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                </ToggleButton>
+                            </Button>
 
-                                <Border Width="1" Height="28" Margin="4,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
-
-                                <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,4,0">
-                                    <TextBlock Text="Work" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                                    <ComboBox ItemsSource="{Binding SimWorkItems}" SelectedItem="{Binding SelectedSimWork}"
-                                              Width="110" FontSize="11"/>
+                            <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding PauseSimulationCommand}" ToolTip="{x:Static res:Strings.PauseSimulationTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Width="18" Height="18" Stretch="Uniform" Data="{StaticResource IconPause}" Fill="{DynamicResource IconGrayBrush}"/>
+                                    <TextBlock Text="{x:Static res:Strings.Pause}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                 </StackPanel>
-                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding ForceWorkStartCommand}"
-                                        ToolTip="{x:Static res:Strings.ForceWorkStartTooltip}">
-                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                        <Path Width="18" Height="18" Stretch="Fill"
-                                              Data="M 4,2 L 16,9 L 4,16 Z"
-                                              Fill="{DynamicResource IconGreenBrush}"/>
-                                        <TextBlock Text="{x:Static res:Strings.Execute}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding ForceWorkResetCommand}"
-                                        ToolTip="{x:Static res:Strings.ForceWorkResetTooltip}">
-                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                        <Canvas Width="18" Height="18" HorizontalAlignment="Center">
-                                            <Path Data="M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12H4A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z"
-                                                  Fill="{DynamicResource IconOrangeBrush}"/>
-                                        </Canvas>
-                                        <TextBlock Text="{x:Static res:Strings.Reset}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                </Button>
+                            </Button>
 
-                                <!-- 토큰 수동 투입/제거 UI 제거됨 — 자동 발행으로 전환 -->
+                            <Button Style="{StaticResource SlimToolbarButton}"
+                                    Command="{Binding ResetSimulationCommand}"
+                                    ToolTip="{x:Static res:Strings.ResetSimulationTooltip}"
+                                    IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}"
+                                    Foreground="{DynamicResource IconOrangeBrush}">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Width="18"
+                                          Height="18"
+                                          Stretch="Uniform"
+                                          Data="{StaticResource IconRefresh}"
+                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                    <TextBlock Text="{x:Static res:Strings.Reset}"
+                                               FontSize="9"
+                                               HorizontalAlignment="Center"
+                                               Margin="0,2,0,0"
+                                               Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                </StackPanel>
+                            </Button>
+
+                            <Border Style="{StaticResource RibbonContentSeparator}"/>
+
+                            <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,6,0" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
+                                <TextBlock Text="공정" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,2"/>
+                                <ComboBox x:Name="SimWorkComboBox"
+                                          ItemsSource="{Binding SimWorkItems}"
+                                          SelectedItem="{Binding SelectedSimWork}"
+                                          Width="130"
+                                          FontSize="11"/>
+                                <UniformGrid Columns="2" Margin="0,6,0,0">
+                                    <Button x:Name="ForceWorkStartButton"
+                                            Command="{Binding ForceWorkStartCommand}"
+                                            ToolTip="{x:Static res:Strings.ForceWorkStartTooltip}"
+                                            IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}"
+                                            Margin="0,0,4,0">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource SlimToolbarButton}">
+                                                <Setter Property="Foreground" Value="{DynamicResource IconGreenBrush}"/>
+                                                <Setter Property="MinWidth" Value="0"/>
+                                                <Setter Property="MinHeight" Value="0"/>
+                                                <Setter Property="Padding" Value="8,4"/>
+                                            </Style>
+                                        </Button.Style>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Path Width="10"
+                                                  Height="10"
+                                                  Stretch="Uniform"
+                                                  Data="{StaticResource IconPlay}"
+                                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                  Margin="0,0,4,0"/>
+                                            <TextBlock Text="{x:Static res:Strings.Start}"
+                                                       VerticalAlignment="Center"
+                                                       FontSize="11"
+                                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <Button x:Name="ForceWorkResetButton"
+                                            Command="{Binding ForceWorkResetCommand}"
+                                            ToolTip="{x:Static res:Strings.ForceWorkResetTooltip}"
+                                            IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}"
+                                            Margin="4,0,0,0">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource SlimToolbarButton}">
+                                                <Setter Property="Foreground" Value="{DynamicResource IconOrangeBrush}"/>
+                                                <Setter Property="MinWidth" Value="0"/>
+                                                <Setter Property="MinHeight" Value="0"/>
+                                                <Setter Property="Padding" Value="8,4"/>
+                                            </Style>
+                                        </Button.Style>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Path Width="10"
+                                                  Height="10"
+                                                  Stretch="Uniform"
+                                                  Data="{StaticResource IconRefresh}"
+                                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                  Margin="0,0,4,0"/>
+                                            <TextBlock Text="{x:Static res:Strings.Reset}"
+                                                       VerticalAlignment="Center"
+                                                       FontSize="11"
+                                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                        </StackPanel>
+                                    </Button>
+                                </UniformGrid>
                             </StackPanel>
-                        </DockPanel>
-                    </Border>
 
-                </StackPanel>
+                            <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,4,0" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
+                                <TextBlock Text="{x:Static res:Strings.Speed}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,2"/>
+                                <ComboBox x:Name="SimSpeedComboBox" SelectedValue="{Binding SimSpeed}" SelectedValuePath="Tag" Width="72" FontSize="11">
+                                    <ComboBoxItem Content="0.5x">
+                                        <ComboBoxItem.Tag>
+                                            <sys:Double>0.5</sys:Double>
+                                        </ComboBoxItem.Tag>
+                                    </ComboBoxItem>
+                                    <ComboBoxItem Content="1x">
+                                        <ComboBoxItem.Tag>
+                                            <sys:Double>1.0</sys:Double>
+                                        </ComboBoxItem.Tag>
+                                    </ComboBoxItem>
+                                    <ComboBoxItem Content="2x">
+                                        <ComboBoxItem.Tag>
+                                            <sys:Double>2.0</sys:Double>
+                                        </ComboBoxItem.Tag>
+                                    </ComboBoxItem>
+                                    <ComboBoxItem Content="5x">
+                                        <ComboBoxItem.Tag>
+                                            <sys:Double>5.0</sys:Double>
+                                        </ComboBoxItem.Tag>
+                                    </ComboBoxItem>
+                                    <ComboBoxItem Content="10x">
+                                        <ComboBoxItem.Tag>
+                                            <sys:Double>10.0</sys:Double>
+                                        </ComboBoxItem.Tag>
+                                    </ComboBoxItem>
+                                    <ComboBoxItem Content="{x:Static res:Strings.IgnoreTime}">
+                                        <ComboBoxItem.Tag>
+                                            <sys:Double>0</sys:Double>
+                                        </ComboBoxItem.Tag>
+                                    </ComboBoxItem>
+                                </ComboBox>
+                            </StackPanel>
+                        </WrapPanel>
 
-                <Border Style="{StaticResource ToolbarGroupSeparator}"/>
+                        <WrapPanel x:Name="ToolsRibbonContentPanel"
+                                   Orientation="Horizontal"
+                                   VerticalAlignment="Center">
+                            <WrapPanel.Style>
+                                <Style TargetType="WrapPanel">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedRibbonGroup}" Value="Tools">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </WrapPanel.Style>
 
-                <!-- ═══ 도구 그룹 ═══ -->
-                <Border Style="{StaticResource ToolbarGroup}">
-                    <DockPanel>
-                        <Border DockPanel.Dock="Bottom" Style="{StaticResource ToolbarGroupLabelBorder}">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="18"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="18"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="1" Text="{x:Static res:Strings.Tools}" Style="{StaticResource ToolbarGroupLabel}"/>
-                                <Button Grid.Column="2" Style="{StaticResource HelpButton}"
-                                        HorizontalAlignment="Right" Margin="0"
-                                        Command="{x:Static help:HelpNavigator.NavigateCommand}"
-                                        CommandParameter="tools"/>
-                            </Grid>
-                        </Border>
-                        <StackPanel Orientation="Horizontal" Margin="4,4,4,3">
-                            <!-- 리포트 드롭다운 -->
+                            <!-- I/O편집 -->
+                            <Button Style="{StaticResource SlimToolbarButton}"
+                                    Command="{Binding OpenIoBatchDialogCommand}"
+                                    IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}"
+                                    ToolTip="I/O 일괄 편집">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Width="18" Height="18" Stretch="Uniform"
+                                          Data="M3 3h18v2H3V3zm0 4h12v2H3V7zm0 4h18v2H3v-2zm0 4h12v2H3v-2zm0 4h18v2H3v-2z"
+                                          Fill="{DynamicResource IconGrayBrush}"/>
+                                    <TextBlock Text="I/O편집" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Duration 편집 -->
+                            <Button Style="{StaticResource SlimToolbarButton}"
+                                    Command="{Binding OpenDurationBatchDialogCommand}"
+                                    IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}"
+                                    ToolTip="Duration 일괄 편집">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Width="18" Height="18" Stretch="Uniform"
+                                          Data="{StaticResource IconClock}"
+                                          Fill="{DynamicResource IconGrayBrush}"/>
+                                    <TextBlock Text="시간편집" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Button>
+
+                            <Button x:Name="ThemeToggleButton"
+                                    Style="{StaticResource SlimToolbarButton}"
+                                    Command="{Binding ToggleThemeCommand}"
+                                    ToolTip="{Binding ThemeButtonToolTip}">
+                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                    <Path Width="18" Height="18" Stretch="Uniform"
+                                          Data="M12 3a1 1 0 0 1 .98 1.2A7 7 0 0 0 20.8 12a1 1 0 0 1 1.2.98A10 10 0 1 1 12 3z"
+                                          Fill="{DynamicResource IconGrayBrush}"/>
+                                    <TextBlock Text="{Binding ThemeButtonText}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- 데이터 (리포트 + CSV) -->
                             <Grid VerticalAlignment="Stretch">
-                                <ToggleButton x:Name="ReportToggleBtn"
+                                <ToggleButton x:Name="DataToggleBtn"
                                               Style="{StaticResource SlimToggleButton}"
-                                              ToolTip="{x:Static res:Strings.ReportTooltip}"
-                                              IsEnabled="{Binding Simulation.HasReportData}">
+                                              ToolTip="{x:Static res:Strings.Data}">
                                     <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                                         <Path Width="18" Height="18" Stretch="Uniform"
                                               Data="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"
                                               Fill="{DynamicResource IconGrayBrush}"/>
-                                        <TextBlock Text="{x:Static res:Strings.Report}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{x:Static res:Strings.Data}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                     </StackPanel>
                                 </ToggleButton>
-                                <Popup IsOpen="{Binding IsChecked, ElementName=ReportToggleBtn, Mode=TwoWay}"
-                                       StaysOpen="False" Placement="Bottom"
-                                       PlacementTarget="{Binding ElementName=ReportToggleBtn}"
+                                <Popup IsOpen="{Binding IsChecked, ElementName=DataToggleBtn, Mode=TwoWay}"
+                                       StaysOpen="False"
+                                       Placement="Bottom"
+                                       PlacementTarget="{Binding ElementName=DataToggleBtn}"
                                        DataContext="{Binding DataContext, ElementName=ThisControl}">
-                                    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                                            BorderBrush="{DynamicResource BorderBrush}"
-                                            BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="130">
+                                    <Border Background="{DynamicResource SecondaryBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="160">
                                         <StackPanel Orientation="Vertical">
-                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportCsvCommand}" Click="CloseReportPopup">
-                                                <TextBlock Text="CSV (.csv)" VerticalAlignment="Center"/>
-                                            </Button>
-                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportXlsxCommand}" Click="CloseReportPopup">
-                                                <TextBlock Text="Excel (.xlsx)" VerticalAlignment="Center"/>
-                                            </Button>
-                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportHtmlCommand}" Click="CloseReportPopup">
-                                                <TextBlock Text="HTML (.html)" VerticalAlignment="Center"/>
-                                            </Button>
+                                            <TextBlock Text="{x:Static res:Strings.Report}" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource ForegroundBrush}"/>
+                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportCsvCommand}" Click="CloseDataPopup" IsEnabled="{Binding Simulation.HasReportData}"><TextBlock Text="CSV (.csv)"/></Button>
+                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportXlsxCommand}" Click="CloseDataPopup" IsEnabled="{Binding Simulation.HasReportData}"><TextBlock Text="Excel (.xlsx)"/></Button>
+                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportHtmlCommand}" Click="CloseDataPopup" IsEnabled="{Binding Simulation.HasReportData}"><TextBlock Text="HTML (.html)"/></Button>
+                                            <Separator Margin="4,4"/>
+                                            <TextBlock Text="CSV" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource ForegroundBrush}"/>
+                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseDataPopup"><TextBlock Text="{x:Static res:Strings.LoadCsv}"/></Button>
+                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ExportCsvCommand}" Click="CloseDataPopup"><TextBlock Text="{x:Static res:Strings.ExportCsv}"/></Button>
                                         </StackPanel>
                                     </Border>
                                 </Popup>
                             </Grid>
-                            <Grid VerticalAlignment="Stretch"
-                                  DataContext="{Binding DataContext, ElementName=ThisControl}">
-                                <ToggleButton x:Name="ToolToggleBtn"
-                                              Style="{StaticResource SlimToggleButton}"
-                                              ToolTip="도구">
-                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                        <Grid Width="18" Height="18" HorizontalAlignment="Center">
-                                            <Path Data="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6z"
-                                                  Fill="{DynamicResource IconGrayBrush}"/>
-                                            <TextBlock Text="CSV"
-                                                       FontSize="4.8"
-                                                       FontWeight="Bold"
-                                                       FontFamily="Arial"
-                                                       Foreground="{DynamicResource IconOverlayTextBrush}"
-                                                       HorizontalAlignment="Center"
-                                                       VerticalAlignment="Center"
-                                                       Margin="0,4,0,0"/>
-                                        </Grid>
-                                        <TextBlock Text="CSV" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                </ToggleButton>
-                                <Popup IsOpen="{Binding IsChecked, ElementName=ToolToggleBtn, Mode=TwoWay}"
-                                       StaysOpen="False" Placement="Bottom"
-                                       PlacementTarget="{Binding ElementName=ToolToggleBtn}"
-                                       DataContext="{Binding DataContext, ElementName=ThisControl}">
-                                    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                                            BorderBrush="{DynamicResource BorderBrush}"
-                                            BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="160">
-                                        <StackPanel Orientation="Vertical">
-                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseToolPopup">
-                                                <TextBlock Text="{x:Static res:Strings.LoadCsv}" VerticalAlignment="Center"/>
-                                            </Button>
-                                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ExportCsvCommand}" Click="CloseToolPopup">
-                                                <TextBlock Text="{x:Static res:Strings.ExportCsv}" VerticalAlignment="Center"/>
-                                            </Button>
-                                        </StackPanel>
-                                    </Border>
-                                </Popup>
-                            </Grid>
+
+                            <!-- 설정 -->
                             <Button Style="{StaticResource SlimToolbarButton}"
-                                    Command="{Binding ToggleThemeCommand}"
-                                    ToolTip="{Binding ThemeButtonToolTip}">
-                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                    <TextBlock Text="{Binding ThemeButtonGlyph}"
-                                               FontSize="16"
-                                               FontWeight="SemiBold"
-                                               HorizontalAlignment="Center"
-                                               Margin="0,-1,0,0"/>
-                                    <TextBlock Text="{Binding ThemeButtonText}"
-                                               FontSize="9"
-                                               HorizontalAlignment="Center"
-                                               Margin="0,2,0,0"/>
-                                </StackPanel>
-                            </Button>
-                            <!-- TODO: 한/영 전환 기능 완료 후 Visibility 제거하여 활성화 -->
-                            <Button Style="{StaticResource SlimToolbarButton}"
-                                    Command="{Binding ToggleLanguageCommand}"
-                                    ToolTip="{Binding LanguageButtonToolTip}"
-                                    Visibility="Collapsed">
-                                <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                    <TextBlock Text="{Binding LanguageButtonGlyph}"
-                                               FontSize="16"
-                                               FontWeight="SemiBold"
-                                               HorizontalAlignment="Center"
-                                               Margin="0,-1,0,0"/>
-                                    <TextBlock Text="{Binding LanguageButtonText}"
-                                               FontSize="9"
-                                               HorizontalAlignment="Center"
-                                               Margin="0,2,0,0"/>
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource SlimToolbarButton}"
-                                    Command="{Binding DataContext.ShowProjectSettingsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                    ToolTip="{x:Static res:Strings.ProjectSettingsTooltip}">
+                                    Command="{Binding ShowProjectSettingsCommand}"
+                                    IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}"
+                                    ToolTip="{x:Static res:Strings.Settings}">
                                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                                     <Path Width="18" Height="18" Stretch="Uniform"
-                                          Data="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"
+                                          Data="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.06-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.73,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.06,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.49-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"
                                           Fill="{DynamicResource IconGrayBrush}"/>
                                     <TextBlock Text="{x:Static res:Strings.Settings}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </Button>
-                        </StackPanel>
-                    </DockPanel>
-                </Border>
+                        </WrapPanel>
+                    </Grid>
 
-            </StackPanel>
-        </ScrollViewer>
+                    <Border Grid.Row="1" Style="{StaticResource ToolbarGroupLabelBorder}">
+                        <TextBlock Text="{Binding SelectedRibbonGroupLabel}" Style="{StaticResource ToolbarGroupLabel}"/>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
     </Border>
 </UserControl>

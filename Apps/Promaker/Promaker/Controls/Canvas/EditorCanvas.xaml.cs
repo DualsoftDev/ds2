@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -56,14 +57,119 @@ public partial class EditorCanvas : UserControl
     {
         InitializeComponent();
         KeyDown += OnKeyDown;
+        Unloaded += OnCanvasUnloaded;
         Focusable = true;
     }
 
     private MainViewModel? VM => DataContext as MainViewModel;
 
+    private CanvasWorkspaceState? _pane;
+    private bool _quickAddStateSubscribed;
+
+    /// <summary>이 캔버스가 표시하는 pane입니다. SplitCanvasContainer에서 설정됩니다.</summary>
+    public CanvasWorkspaceState? Pane
+    {
+        get => _pane;
+        set
+        {
+            UnsubscribeQuickAddState(_pane);
+            _pane = value;
+            BindPaneCollections();
+            SubscribeQuickAddState(_pane);
+            UpdateQuickAddToolbar();
+        }
+    }
+
+    /// <summary>현재 pane의 CanvasNodes 또는 ActivePane의 CanvasNodes를 반환합니다.</summary>
+    private CanvasWorkspaceState? ActiveCanvasState => Pane ?? VM?.Canvas;
+
+    private void BindPaneCollections()
+    {
+        var state = ActiveCanvasState;
+        NodesHost.ItemsSource = state?.CanvasNodes;
+        ArrowsHost.ItemsSource = state?.CanvasArrows;
+    }
+
+    private void SubscribeQuickAddState(CanvasWorkspaceState? pane)
+    {
+        if (pane is null || _quickAddStateSubscribed)
+            return;
+
+        pane.PropertyChanged += OnPanePropertyChanged;
+        pane.QuickAddFlowCommand.CanExecuteChanged += OnQuickAddCanExecuteChanged;
+        pane.QuickAddContextualNodeCommand.CanExecuteChanged += OnQuickAddCanExecuteChanged;
+        _quickAddStateSubscribed = true;
+    }
+
+    private void UnsubscribeQuickAddState(CanvasWorkspaceState? pane)
+    {
+        if (pane is null || !_quickAddStateSubscribed)
+            return;
+
+        pane.PropertyChanged -= OnPanePropertyChanged;
+        pane.QuickAddFlowCommand.CanExecuteChanged -= OnQuickAddCanExecuteChanged;
+        pane.QuickAddContextualNodeCommand.CanExecuteChanged -= OnQuickAddCanExecuteChanged;
+        _quickAddStateSubscribed = false;
+    }
+
+    private void OnPanePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(CanvasWorkspaceState.ActiveTab) or nameof(CanvasWorkspaceState.ContextualQuickCreateLabel))
+            UpdateQuickAddToolbar();
+    }
+
+    private void OnQuickAddCanExecuteChanged(object? sender, EventArgs e) => UpdateQuickAddToolbar();
+
+    private void UpdateQuickAddToolbar()
+    {
+        var state = ActiveCanvasState;
+        if (state is null)
+        {
+            FlowQuickAddButton.IsEnabled = false;
+            ContextualQuickAddButton.IsEnabled = false;
+            ContextualQuickAddText.Text = "W/C";
+            return;
+        }
+
+        FlowQuickAddButton.IsEnabled = state.QuickAddFlowCommand.CanExecute(null);
+        ContextualQuickAddButton.IsEnabled = state.QuickAddContextualNodeCommand.CanExecute(null);
+        ContextualQuickAddText.Text = state.ContextualQuickCreateLabel switch
+        {
+            "Work" => "W",
+            "Call" => "C",
+            _ => "W/C"
+        };
+    }
+
+    private void OnQuickAddFlow(object sender, RoutedEventArgs e)
+    {
+        var state = ActiveCanvasState;
+        if (state?.QuickAddFlowCommand.CanExecute(null) != true)
+            return;
+
+        state.QuickAddFlowCommand.Execute(null);
+    }
+
+    private void OnQuickAddContextual(object sender, RoutedEventArgs e)
+    {
+        var state = ActiveCanvasState;
+        if (state?.QuickAddContextualNodeCommand.CanExecute(null) != true)
+            return;
+
+        state.QuickAddContextualNodeCommand.Execute(null);
+    }
+
     private void OnContextMenuOpening(object sender, ContextMenuEventArgs e)
     {
         _lastContextMenuCanvasPos = Mouse.GetPosition(MainCanvas);
+
+        // 2개 이상 노드 선택 시 화살표 연결 메뉴 표시
+        if (VM is not null
+            && VM.Selection.TryGetOrderedSelectionConnectEntityType(out var entityType))
+        {
+            e.Handled = true; // 기본 ContextMenu 억제
+            ShowArrowTypeContextMenu(entityType);
+        }
     }
 
     private void AddWork_Click(object sender, RoutedEventArgs e)
@@ -123,5 +229,7 @@ public partial class EditorCanvas : UserControl
         border = null!;
         return false;
     }
+
+    private void OnCanvasUnloaded(object sender, RoutedEventArgs e) => UnsubscribeQuickAddState(_pane);
 
 }

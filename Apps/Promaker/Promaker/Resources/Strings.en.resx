@@ -206,6 +206,9 @@ Do you want to save?</value>
   <data name="Settings" xml:space="preserve">
     <value>Settings</value>
   </data>
+  <data name="Data" xml:space="preserve">
+    <value>Data</value>
+  </data>
 
   <!-- ========================================
        MainToolbar - 툴팁 (Tooltips)
