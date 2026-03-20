@@ -143,6 +143,7 @@ public partial class MainViewModel : ObservableObject
     partial void OnSelectedNodeChanged(EntityNode? value)
     {
         PropertyPanel.SyncSelectedNode(value);
+        Simulation.SyncCanvasSelection(Selection.OrderedNodeSelection);
     }
 
     private void RefreshThemeState()
@@ -421,6 +422,7 @@ public partial class MainViewModel : ObservableObject
             Canvas.ActiveTab = Canvas.OpenTabs.Count > 0 ? Canvas.OpenTabs[0] : null;
 
         Canvas.RefreshCanvasForActiveTab();
+        Simulation.RestoreSimStateToCavas();
         Selection.RestoreSelection(prevSelection, prevSelectedArrowIds);
     }
 

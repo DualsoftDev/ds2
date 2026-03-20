@@ -41,6 +41,8 @@ type TokenEventKind =
     | Complete
     | Blocked
     | Discard
+    | BlockedOnHoming
+    | Conflict
 
 /// 토큰 이벤트 인자
 type TokenEventArgs = {
@@ -66,6 +68,10 @@ type SimState = {
     WorkTokens: Map<Guid, TokenValue option>
     TokenCounter: int
     CompletedTokens: TokenValue list
+    /// 토큰 번호 → (이름, 이름별 순번)
+    TokenOrigins: Map<int, string * int>
+    /// 이름별 발행 카운터
+    TokenOriginCounters: Map<string, int>
 }
 
 module SimState =
@@ -80,6 +86,8 @@ module SimState =
         WorkTokens = Map.empty
         TokenCounter = 0
         CompletedTokens = []
+        TokenOrigins = Map.empty
+        TokenOriginCounters = Map.empty
     }
 
     let setWorkState (guid: Guid) state simState =
@@ -109,6 +117,13 @@ module SimState =
     let addCompletedToken (token: TokenValue) simState =
         { simState with CompletedTokens = token :: simState.CompletedTokens }
 
+    let setTokenOrigin (tokenId: int) (originName: string) simState =
+        let count = simState.TokenOriginCounters |> Map.tryFind originName |> Option.defaultValue 0
+        let next = count + 1
+        { simState with
+            TokenOrigins = simState.TokenOrigins.Add(tokenId, (originName, next))
+            TokenOriginCounters = simState.TokenOriginCounters.Add(originName, next) }
+
     let nextToken simState =
         let counter = simState.TokenCounter + 1
         IntToken counter, { simState with TokenCounter = counter }
@@ -124,4 +139,6 @@ module SimState =
             WorkTokens = Map.empty
             TokenCounter = 0
             CompletedTokens = []
+            TokenOrigins = Map.empty
+            TokenOriginCounters = Map.empty
     }

@@ -369,46 +369,7 @@
                                     </StackPanel>
                                 </Button>
 
-                                <Border Width="1" Height="28" Margin="4,0" Background="{DynamicResource BorderBrush}" VerticalAlignment="Center"/>
-
-                                <!-- 토큰 -->
-                                <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,4,0">
-                                    <TextBlock Text="Token" FontSize="9" Foreground="{DynamicResource TokenOrangeBrush}" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                                    <ComboBox ItemsSource="{Binding TokenSourceWorks}" SelectedItem="{Binding SelectedTokenSource}"
-                                              Width="95" FontSize="11"/>
-                                </StackPanel>
-                                <StackPanel Orientation="Vertical" VerticalAlignment="Center" Margin="0,0,2,0">
-                                    <TextBlock Text="Spec" FontSize="9" Foreground="{DynamicResource TokenOrangeBrush}" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                                    <ComboBox ItemsSource="{Binding TokenSpecItems}" SelectedItem="{Binding SelectedTokenSpec}"
-                                              Width="85" FontSize="11"/>
-                                </StackPanel>
-                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding SeedTokenCommand}"
-                                        ToolTip="토큰 투입">
-                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                        <!-- 토큰 투입 아이콘: 하향 화살표 + 동그라미 -->
-                                        <Canvas Width="18" Height="18" HorizontalAlignment="Center">
-                                            <Ellipse Canvas.Left="3" Canvas.Top="7" Width="12" Height="10"
-                                                     Stroke="{DynamicResource TokenOrangeBrush}" StrokeThickness="1.5" Fill="Transparent"/>
-                                            <Path Data="M 9,1 L 9,9 M 6,6 L 9,9 12,6"
-                                                  Stroke="{DynamicResource TokenOrangeBrush}" StrokeThickness="1.5"
-                                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
-                                        </Canvas>
-                                        <TextBlock Text="투입" FontSize="9" Foreground="{DynamicResource TokenOrangeBrush}" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding DiscardTokenCommand}"
-                                        ToolTip="토큰 제거 (일시정지 중)">
-                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                                        <Canvas Width="18" Height="18" HorizontalAlignment="Center">
-                                            <Ellipse Canvas.Left="3" Canvas.Top="1" Width="12" Height="10"
-                                                     Stroke="{DynamicResource TokenRedBrush}" StrokeThickness="1.5" Fill="Transparent"/>
-                                            <Path Data="M 9,11 L 9,17 M 6,14 L 9,17 12,14"
-                                                  Stroke="{DynamicResource TokenRedBrush}" StrokeThickness="1.5"
-                                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
-                                        </Canvas>
-                                        <TextBlock Text="제거" FontSize="9" Foreground="{DynamicResource TokenRedBrush}" HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                                    </StackPanel>
-                                </Button>
+                                <!-- 토큰 수동 투입/제거 UI 제거됨 — 자동 발행으로 전환 -->
                             </StackPanel>
                         </DockPanel>
                     </Border>

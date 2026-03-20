@@ -36,6 +36,10 @@ type SimIndex = {
     WorkTokenRole: Map<Guid, TokenRole>
     WorkTokenSuccessors: Map<Guid, Guid list>
     TokenSourceGuids: Guid list
+    /// Sink Work: successor 없는 Work (선형) + 순환 진입점 (순환)
+    TokenSinkGuids: Set<Guid>
+    /// 토큰 경로에 포함된 Work (Source → successor 체인의 모든 Work)
+    TokenPathGuids: Set<Guid>
 }
 
 module SimIndex =
@@ -253,6 +257,73 @@ module SimIndex =
             state.WorkName <- state.WorkName.Add(work.Id, work.Name)
             state.AllWorkGuids <- work.Id :: state.AllWorkGuids
 
+        let appendTokenSuccessors wStartPreds =
+            let successorsFromPreds =
+                wStartPreds
+                |> Map.toSeq
+                |> Seq.collect (fun (target, sources) ->
+                    sources |> List.map (fun src -> src, target))
+                |> Seq.groupBy fst
+                |> Seq.map (fun (src, pairs) ->
+                    src, pairs |> Seq.map snd |> Seq.distinct |> Seq.toList)
+                |> Map.ofSeq
+
+            tokenSuccMap <-
+                successorsFromPreds
+                |> Map.fold (fun acc k v ->
+                    let existing = acc |> Map.tryFind k |> Option.defaultValue []
+                    acc.Add(k, existing @ v)) tokenSuccMap
+
+        let buildWorkGuidsByKey () =
+            state.AllWorkGuids
+            |> List.choose (fun wg ->
+                match Map.tryFind wg state.WorkSystemName, Map.tryFind wg state.WorkName with
+                | Some sn, Some wn -> Some ((sn, wn), wg)
+                | _ -> None)
+            |> List.groupBy fst
+            |> List.map (fun (key, grouped) -> key, grouped |> List.map snd)
+            |> Map.ofList
+
+        let findCycleSinks () =
+            let mutable visited = Set.empty<Guid>
+            let mutable onStack = Set.empty<Guid>
+            let mutable sinks = Set.empty<Guid>
+
+            let rec dfs node =
+                if not (visited.Contains node) then
+                    visited <- visited.Add(node)
+                    onStack <- onStack.Add(node)
+                    tokenSuccMap |> Map.tryFind node |> Option.defaultValue []
+                    |> List.iter (fun succ ->
+                        if onStack.Contains succ then
+                            sinks <- sinks.Add(node)
+                        else
+                            dfs succ)
+                    onStack <- onStack.Remove(node)
+
+            tokenSources |> List.iter dfs
+            sinks
+
+        let findSourceBasedSinks () =
+            tokenSuccMap
+            |> Map.toSeq
+            |> Seq.choose (fun (src, succs) ->
+                if succs |> List.exists (fun s -> tokenSources |> List.contains s) then Some src
+                else None)
+            |> Set.ofSeq
+
+        let buildTokenPathGuids () =
+            let mutable visited = Set.empty<Guid>
+            let mutable queue = tokenSources
+            while not queue.IsEmpty do
+                let current = queue.Head
+                queue <- queue.Tail
+                if not (visited.Contains current) then
+                    visited <- visited.Add current
+                    let succs = tokenSuccMap |> Map.tryFind current |> Option.defaultValue []
+                    queue <- queue @ succs
+            visited
+
         for system in allSystems do
             let workArrows = DsQuery.arrowWorksOf system.Id store
             let wType = fun (a: ArrowBetweenWorks) -> a.ArrowType
@@ -269,14 +340,9 @@ module SimIndex =
             let workGroupArrows = workArrows |> List.filter (fun a -> a.ArrowType = ArrowType.Group)
             let wStartPreds, wResetPreds = expandWorkGroupArrows workGroupArrows wStartPreds wResetPreds
 
-            // ── Token successor 맵 (source → target list) ──
-            let wTokenSucc =
-                groupArrows [ ArrowType.Start; ArrowType.StartReset ] wType wSrc wTgt workArrows
-            tokenSuccMap <-
-                wTokenSucc
-                |> Map.fold (fun acc k v ->
-                    let existing = acc |> Map.tryFind k |> Option.defaultValue []
-                    acc.Add(k, existing @ v)) tokenSuccMap
+            // ── Token successor 맵 (wStartPreds 역전: predecessor→successor) ──
+            // Group 확장 후의 wStartPreds에서 빌드하므로 Group 멤버 관계도 포함
+            appendTokenSuccessors wStartPreds
 
             let flows = DsQuery.flowsOf system.Id store
             // Call Arrow: Work별 수집 후 합산 → Group 분해
@@ -306,23 +372,37 @@ module SimIndex =
                     // ── Token role/successor 수집 ──
                     if work.TokenRole <> TokenRole.None then
                         tokenRoleMap <- tokenRoleMap.Add(work.Id, work.TokenRole)
-                        if work.TokenRole = TokenRole.Source then
+                        if work.TokenRole.HasFlag(TokenRole.Source) then
                             tokenSources <- work.Id :: tokenSources
 
         log.Debug($"SimIndex built: {state.AllWorkGuids.Length} works, {state.AllCallGuids.Length} calls")
 
-        let workGuidsByKey =
-            state.AllWorkGuids
-            |> List.choose (fun wg ->
-                match Map.tryFind wg state.WorkSystemName, Map.tryFind wg state.WorkName with
-                | Some sn, Some wn -> Some ((sn, wn), wg)
-                | _ -> None)
-            |> List.groupBy fst
-            |> List.map (fun (key, grouped) -> key, grouped |> List.map snd)
-            |> Map.ofList
+        let workGuidsByKey = buildWorkGuidsByKey ()
+
+        // ── Sink 감지 ──
+        let allWorkGuidsRev = state.AllWorkGuids |> List.rev
+        // 선형 sink: successor가 없는 Work
+        let linearSinks =
+            allWorkGuidsRev
+            |> List.filter (fun wg ->
+                tokenSuccMap |> Map.tryFind wg |> Option.defaultValue [] |> List.isEmpty)
+            |> Set.ofList
+        // 순환 sink: DFS로 back edge 감지 → back edge의 source가 sink
+        // 예: A→B→C→A → back edge C→A → C가 sink
+        let cycleSinks = findCycleSinks ()
+        // Source 기반 sink: successor가 Source인 Work → Source로 토큰 유입 방지
+        let sourceBasedSinks = findSourceBasedSinks ()
+        // Source Work는 sink에서 제외 (Source이면서 sink이면 자기 토큰 즉시 complete → 모순)
+        let tokenSourceSet = tokenSources |> Set.ofList
+        let tokenSinkGuids =
+            linearSinks |> Set.union cycleSinks |> Set.union sourceBasedSinks
+            |> Set.filter (fun wg -> not (tokenSourceSet.Contains wg))
+
+        // 토큰 경로: Source에서 successor를 BFS로 따라간 모든 Work
+        let tokenPathGuids = buildTokenPathGuids ()
 
         { Store = store
-          AllWorkGuids = state.AllWorkGuids |> List.rev
+          AllWorkGuids = allWorkGuidsRev
           AllCallGuids = state.AllCallGuids |> List.rev
           WorkCallGuids = state.WorkCallGuids
           WorkStartPreds = state.WorkStartPreds
@@ -341,7 +421,9 @@ module SimIndex =
           TickMs = tickMs
           WorkTokenRole = tokenRoleMap
           WorkTokenSuccessors = tokenSuccMap
-          TokenSourceGuids = tokenSources |> List.rev }
+          TokenSourceGuids = tokenSources |> List.rev
+          TokenSinkGuids = tokenSinkGuids
+          TokenPathGuids = tokenPathGuids }
 
     // ── InitialFlag 헬퍼 ─────────────────────────────────────────────
 

@@ -17,14 +17,40 @@ public partial class SimulationPanelState
         if (_simEngine is null) return;
 
         var activeSystemNames = _simEngine.Index.ActiveSystemNames;
+        var sourceGuids = new HashSet<Guid>(_simEngine.Index.TokenSourceGuids);
+        var sourceItems = new List<SimWorkItem>();
+        var normalItems = new List<SimWorkItem>();
+
         foreach (var entry in EnumerateSimulationEntries())
         {
             AddSimNode(entry);
             _stateCache.Set(entry.Id, Status4.Ready);
 
             if (entry.Kind == EntityKind.Work && activeSystemNames.Contains(entry.SystemName))
-                SimWorkItems.Add(new SimWorkItem(entry.Id, entry.Name));
+            {
+                var item = new SimWorkItem(entry.Id, entry.Name);
+                if (sourceGuids.Contains(entry.Id))
+                    sourceItems.Add(item);
+                else
+                    normalItems.Add(item);
+            }
         }
+
+        // 자동선택 → 시작노드 헤더 → Source Work → 일반노드 헤더 → 일반 Work
+        if (sourceItems.Count > 0)
+        {
+            SimWorkItems.Add(SimWorkItem.AutoStart);
+            SimWorkItems.Add(SimWorkItem.SourceHeader);
+            foreach (var item in sourceItems) SimWorkItems.Add(item);
+        }
+        if (normalItems.Count > 0)
+        {
+            SimWorkItems.Add(SimWorkItem.NormalHeader);
+            foreach (var item in normalItems) SimWorkItems.Add(item);
+        }
+
+        // 기본 선택: 자동선택
+        SelectedSimWork = sourceItems.Count > 0 ? SimWorkItem.AutoStart : null;
     }
 
     private void UpdateSimNodeState(Guid nodeGuid, Status4 newState)
@@ -61,6 +87,23 @@ public partial class SimulationPanelState
             SystemName = entry.SystemName,
             State = Status4.Ready
         });
+    }
+
+    /// <summary>캔버스 노드가 새로 생성된 후 시뮬레이션 상태/토큰 뱃지를 복원합니다.</summary>
+    internal void RestoreSimStateToCavas()
+    {
+        if (_simEngine is null || !IsSimulating) return;
+
+        foreach (var node in _canvasNodes)
+        {
+            var cached = _stateCache.TryGet(node.Id);
+            if (cached is not null)
+                node.SimState = cached.Value;
+
+            var tokenOpt = _simEngine.GetWorkToken(node.Id);
+            if (tokenOpt is not null)
+                node.SimTokenDisplay = FormatTokenDisplay(tokenOpt.Value);
+        }
     }
 
     private void SetCanvasSimState(Status4? state, Func<EntityNode, bool> predicate)

@@ -28,6 +28,7 @@ type CallType =
     | SkipIfCompleted   = 1
 
 /// Token role for Work in DataToken simulation.
+[<System.Flags>]
 type TokenRole =
     | None   = 0
     | Source = 1
