@@ -144,8 +144,7 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
 
     private FSharpCallKey ToFSharpCallKey(CSharpCallKey key)
     {
-        var workOpt = ToFSharpOption(key.WorkName);
-        return new FSharpCallKey(key.FlowName, key.CallName, workOpt);
+        return new FSharpCallKey(key.FlowName, key.CallName);
     }
 
     private FSharpDspFlowEntity ToFSharpFlowEntity(CSharpDspFlowEntity entity)

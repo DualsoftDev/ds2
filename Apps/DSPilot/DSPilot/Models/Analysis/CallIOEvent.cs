@@ -6,9 +6,9 @@ namespace DSPilot.Models.Analysis;
 public class CallIOEvent
 {
     /// <summary>
-    /// Call Key (FlowName, CallName, WorkName)
+    /// Call Key (FlowName, CallName)
     /// </summary>
-    public CallKey CallKey { get; set; } = new CallKey("", "", null);
+    public CallKey CallKey { get; set; } = new CallKey("", "");
 
     /// <summary>
     /// Call 이름 (Legacy)
@@ -17,15 +17,6 @@ public class CallIOEvent
     {
         get => CallKey.CallName;
         set => CallKey = CallKey with { CallName = value };
-    }
-
-    /// <summary>
-    /// Work 이름 (Legacy)
-    /// </summary>
-    public string WorkName
-    {
-        get => CallKey.WorkName ?? "";
-        set => CallKey = CallKey with { WorkName = value };
     }
 
     /// <summary>

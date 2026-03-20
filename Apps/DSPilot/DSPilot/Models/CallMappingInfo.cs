@@ -29,15 +29,10 @@ public record CallMappingInfo
     public required string FlowName { get; init; }
 
     /// <summary>
-    /// Work 이름
-    /// </summary>
-    public required string WorkName { get; init; }
-
-    /// <summary>
     /// CallKey 생성
     /// </summary>
     public CallKey ToCallKey()
     {
-        return new CallKey(FlowName, Call.Name, WorkName);
+        return new CallKey(FlowName, Call.Name);
     }
 }

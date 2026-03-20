@@ -2,7 +2,7 @@ namespace DSPilot.Models;
 
 /// <summary>
 /// Call을 고유하게 식별하기 위한 복합 키
-/// DB 스키마: UNIQUE(CallName, FlowName, WorkName)와 일치
+/// FlowName과 CallName만으로 고유 키를 구성 (WorkName 불필요)
 /// </summary>
 public record CallKey
 {
@@ -17,12 +17,7 @@ public record CallKey
     public string CallName { get; init; } = string.Empty;
 
     /// <summary>
-    /// Work 이름 (선택적)
-    /// </summary>
-    public string? WorkName { get; init; }
-
-    /// <summary>
-    /// FlowName과 CallName을 사용한 기본 생성자
+    /// 생성자
     /// </summary>
     public CallKey(string flowName, string callName)
     {
@@ -31,23 +26,11 @@ public record CallKey
     }
 
     /// <summary>
-    /// FlowName, CallName, WorkName을 모두 사용한 생성자
-    /// </summary>
-    public CallKey(string flowName, string callName, string? workName)
-    {
-        FlowName = flowName;
-        CallName = callName;
-        WorkName = workName;
-    }
-
-    /// <summary>
     /// 문자열 표현 (로깅용)
     /// </summary>
     public override string ToString()
     {
-        return WorkName != null
-            ? $"{FlowName}/{WorkName}/{CallName}"
-            : $"{FlowName}/{CallName}";
+        return $"{FlowName}/{CallName}";
     }
 
     /// <summary>
@@ -55,8 +38,6 @@ public record CallKey
     /// </summary>
     public string ToHashKey()
     {
-        return WorkName != null
-            ? $"{FlowName}|{WorkName}|{CallName}"
-            : $"{FlowName}|{CallName}";
+        return $"{FlowName}|{CallName}";
     }
 }
