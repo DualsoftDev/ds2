@@ -8,231 +8,243 @@
 
 <PageTitle>Timeline 분석 - Gantt Chart</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-4" Style="font-weight: 600; color: #0A1E5A;" GutterBottom="true">Timeline 분석 - Gantt Chart</MudText>
-<MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-4">
+<h5 class="typo-h5 mb-4" style="font-weight: 600; color: #0A1E5A;">Timeline 분석 - Gantt Chart</h5>
+<p class="typo-body1 mb-4" style="color: var(--color-secondary);">
     Flow의 Call 실행 타임라인을 시간 범위 기준으로 Gantt 차트로 시각화합니다.
-</MudText>
+</p>
 
 @if (!ProjectService.IsLoaded)
 {
-    <MudAlert Severity="Severity.Warning" Class="mb-4">
+    <div class="alert alert-warning mb-4">
+        <span class="material-icons">warning</span>
         프로젝트가 로드되지 않았습니다. DS 프로젝트를 먼저 로드해주세요.
-    </MudAlert>
+    </div>
 }
 else
 {
-    <MudPaper Class="pa-4 mb-4">
-        <MudText Typo="Typo.h6" Class="mb-2">Flow 선택</MudText>
-        <MudSelect T="string" Label="Flow 선택" @bind-Value="_selectedFlow" Variant="Variant.Outlined" Class="mb-4">
-            @foreach (var flow in GetFlowsWithCalls())
-            {
-                <MudSelectItem Value="@flow.Name">@flow.Name (@GetFlowCallCount(flow) calls)</MudSelectItem>
-            }
-        </MudSelect>
+    <div class="card mb-4" style="padding:16px;">
+        <h6 class="typo-h6 mb-2">Flow 선택</h6>
+        <div class="form-group mb-4">
+            <select class="form-select" @bind="_selectedFlow">
+                @foreach (var flow in GetFlowsWithCalls())
+                {
+                    <option value="@flow.Name">@flow.Name (@GetFlowCallCount(flow) calls)</option>
+                }
+            </select>
+        </div>
 
-        <MudText Typo="Typo.h6" Class="mb-2 mt-4">시간 범위 선택 모드</MudText>
-        <MudRadioGroup T="string" @bind-Value="_timeRangeMode" Class="mb-4">
-            <MudRadio T="string" Value=@("quick") Color="Color.Primary">빠른 선택 (최근 N초)</MudRadio>
-            <MudRadio T="string" Value=@("custom") Color="Color.Primary">정밀 선택 (시작/종료 지정)</MudRadio>
-        </MudRadioGroup>
+        <h6 class="typo-h6 mb-2 mt-4">시간 범위 선택 모드</h6>
+        <div class="mb-4" style="display:flex; gap:16px;">
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                <input type="radio" name="timeRangeMode" checked="@(_timeRangeMode == "quick")"
+                       @onchange="@(() => _timeRangeMode = "quick")" />
+                빠른 선택 (최근 N초)
+            </label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                <input type="radio" name="timeRangeMode" checked="@(_timeRangeMode == "custom")"
+                       @onchange="@(() => _timeRangeMode = "custom")" />
+                정밀 선택 (시작/종료 지정)
+            </label>
+        </div>
 
         @if (_timeRangeMode == "quick")
         {
-            <MudSlider T="int" @bind-Value="_timeRangeSeconds" Min="10" Max="300" Step="10"
-                       Color="Color.Primary" Class="mb-4">
-                최근 @_timeRangeSeconds 초
-            </MudSlider>
+            <div class="form-group mb-4">
+                <label class="form-label">최근 @_timeRangeSeconds 초</label>
+                <input type="range" min="10" max="300" step="10"
+                       value="@_timeRangeSeconds"
+                       @oninput="@(e => { if (int.TryParse(e.Value?.ToString(), out var v)) _timeRangeSeconds = v; })"
+                       style="width:100%;" />
+            </div>
         }
         else
         {
             <div class="d-flex gap-4 mb-4">
-                <MudDatePicker Label="시작 날짜" @bind-Date="_customStartTime"
-                               DateFormat="yyyy-MM-dd" Editable="true"
-                               Variant="Variant.Outlined" Class="flex-grow-1" />
-                <MudTimePicker Label="시작 시각" @bind-Time="StartTime"
-                               Editable="true" AmPm="false"
-                               Variant="Variant.Outlined" Class="flex-grow-1" />
-            </div>
-            <div class="d-flex gap-4 mb-4">
-                <MudDatePicker Label="종료 날짜" @bind-Date="_customEndTime"
-                               DateFormat="yyyy-MM-dd" Editable="true"
-                               Variant="Variant.Outlined" Class="flex-grow-1" />
-                <MudTimePicker Label="종료 시각" @bind-Time="EndTime"
-                               Editable="true" AmPm="false"
-                               Variant="Variant.Outlined" Class="flex-grow-1" />
+                <div class="form-group" style="flex:1;">
+                    <label class="form-label">시작 시간</label>
+                    <input type="datetime-local" class="form-field" @bind="_customStartTime" step="1" />
+                </div>
+                <div class="form-group" style="flex:1;">
+                    <label class="form-label">종료 시간</label>
+                    <input type="datetime-local" class="form-field" @bind="_customEndTime" step="1" />
+                </div>
             </div>
             <div class="d-flex gap-2 mb-4">
-                <MudButton Variant="Variant.Text" Color="Color.Secondary" Size="Size.Small"
-                           OnClick="@(() => SetTimeRangePreset(60))">최근 1분</MudButton>
-                <MudButton Variant="Variant.Text" Color="Color.Secondary" Size="Size.Small"
-                           OnClick="@(() => SetTimeRangePreset(300))">최근 5분</MudButton>
-                <MudButton Variant="Variant.Text" Color="Color.Secondary" Size="Size.Small"
-                           OnClick="@(() => SetTimeRangePreset(600))">최근 10분</MudButton>
-                <MudButton Variant="Variant.Text" Color="Color.Secondary" Size="Size.Small"
-                           OnClick="@(() => SetTimeRangePreset(1800))">최근 30분</MudButton>
+                <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimeRangePreset(60))">최근 1분</button>
+                <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimeRangePreset(300))">최근 5분</button>
+                <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimeRangePreset(600))">최근 10분</button>
+                <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimeRangePreset(1800))">최근 30분</button>
             </div>
         }
 
-        <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                   OnClick="LoadTimelineAsync" Disabled="@_isLoadingGantt" FullWidth="true">
+        <button class="btn btn-filled" style="width:100%;" @onclick="LoadTimelineAsync" disabled="@_isLoadingGantt">
             @if (_isLoadingGantt)
             {
-                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                <MudText Class="ml-2">로딩 중...</MudText>
+                <span class="spinner" style="width:20px; height:20px;"></span>
+                <span class="ml-2">로딩 중...</span>
             }
             else
             {
-                <MudText>타임라인 로드</MudText>
+                <span>타임라인 로드</span>
             }
-        </MudButton>
-    </MudPaper>
+        </button>
+    </div>
 
     @if (_isLoadingGantt)
     {
-        <MudPaper Class="pa-4 d-flex justify-center align-center" Style="min-height: 200px;">
-            <MudProgressCircular Size="Size.Large" Indeterminate="true" />
-        </MudPaper>
+        <div class="card" style="padding:16px; display:flex; justify-content:center; align-items:center; min-height:200px;">
+            <div class="spinner"></div>
+        </div>
     }
     else if (_ganttData != null)
     {
-        <MudPaper Class="pa-4">
-            <MudText Typo="Typo.h6" Class="mb-2">
+        <div class="card" style="padding:16px;">
+            <h6 class="typo-h6 mb-2">
                 Gantt Chart - @_ganttData.FlowName
-            </MudText>
-            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-4">
+            </h6>
+            <span class="typo-body2 mb-4" style="display:block; color:var(--color-text-secondary);">
                 Time Range: @_ganttData.StartTime.ToString("HH:mm:ss") ~ @_ganttData.EndTime?.ToString("HH:mm:ss")
                 (@_ganttData.CT ms) | Items: @_ganttData.RenderedEventCount / @_ganttData.TotalEventCount | Lanes: @_ganttData.TotalLanes
-            </MudText>
+            </span>
 
             <!-- Chart Controls -->
-            <MudExpansionPanels Class="mb-4">
-                <MudExpansionPanel Text="⚙️ 차트 설정 및 분석 옵션">
-                    <MudGrid>
+            <details class="expansion-panel mb-4">
+                <summary>⚙️ 차트 설정 및 분석 옵션</summary>
+                <div style="padding:16px;">
+                    <div class="grid" style="gap:12px;">
                         <!-- Row 1: Zoom and Buttons -->
-                        <MudItem xs="12" md="6">
-                            <MudSlider T="int" @bind-Value="_chartZoomLevel" Min="50" Max="300" Step="10" Color="Color.Primary">
-                                차트 확대/축소: @_chartZoomLevel%
-                            </MudSlider>
-                        </MudItem>
-                        <MudItem xs="12" md="6" Style="display: flex; gap: 8px; align-items: center;">
-                            <MudButton Variant="Variant.Outlined" Color="@(_showLongestGap ? Color.Primary : Color.Default)"
-                                       OnClick="ToggleLongestGapHighlight" Size="Size.Small" FullWidth="true">
+                        <div class="grid-item-6">
+                            <div class="form-group">
+                                <label class="form-label">차트 확대/축소: @_chartZoomLevel%</label>
+                                <input type="range" min="50" max="300" step="10"
+                                       value="@_chartZoomLevel"
+                                       @oninput="@(e => { if (int.TryParse(e.Value?.ToString(), out var v)) _chartZoomLevel = v; })"
+                                       style="width:100%;" />
+                            </div>
+                        </div>
+                        <div class="grid-item-6 d-flex" style="gap:8px; align-items:center;">
+                            <button class="btn btn-sm @(_showLongestGap ? "btn-filled" : "btn-outlined")" style="flex:1;"
+                                    @onclick="ToggleLongestGapHighlight">
                                 @(_showLongestGap ? "GAP 하이라이트 끄기" : "최대 GAP 하이라이트")
-                            </MudButton>
+                            </button>
                             @if (_selectedItem != null)
                             {
-                                <MudButton Variant="Variant.Outlined" Color="Color.Secondary"
-                                           OnClick="ClearSelection" Size="Size.Small" FullWidth="true">
+                                <button class="btn btn-sm btn-outlined" style="flex:1;" @onclick="ClearSelection">
                                     선택 해제
-                                </MudButton>
+                                </button>
                             }
-                        </MudItem>
+                        </div>
 
                         <!-- Row 2: GAP Analysis Mode -->
-                        <MudItem xs="12" md="6">
-                            <MudText Typo="Typo.subtitle2" Class="mb-2">GAP 분석 모드</MudText>
-                            <MudRadioGroup T="GapAnalysisMode" @bind-Value="_gapAnalysisMode">
-                                <MudRadio T="GapAnalysisMode" Value="GapAnalysisMode.SameLane" Color="Color.Primary" Dense="true">
+                        <div class="grid-item-6">
+                            <span class="typo-subtitle2 mb-2" style="display:block;">GAP 분석 모드</span>
+                            <div style="display:flex; flex-direction:column; gap:4px;">
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="radio" name="gapMode" checked="@(_gapAnalysisMode == GapAnalysisMode.SameLane)"
+                                           @onchange="@(() => _gapAnalysisMode = GapAnalysisMode.SameLane)" />
                                     같은 레이어 (기본)
-                                </MudRadio>
-                                <MudRadio T="GapAnalysisMode" Value="GapAnalysisMode.SameCall" Color="Color.Primary" Dense="true">
+                                </label>
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="radio" name="gapMode" checked="@(_gapAnalysisMode == GapAnalysisMode.SameCall)"
+                                           @onchange="@(() => _gapAnalysisMode = GapAnalysisMode.SameCall)" />
                                     같은 Call 반복
-                                </MudRadio>
-                                <MudRadio T="GapAnalysisMode" Value="GapAnalysisMode.SameGroup" Color="Color.Primary" Dense="true">
+                                </label>
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="radio" name="gapMode" checked="@(_gapAnalysisMode == GapAnalysisMode.SameGroup)"
+                                           @onchange="@(() => _gapAnalysisMode = GapAnalysisMode.SameGroup)" />
                                     같은 Work 그룹
-                                </MudRadio>
-                            </MudRadioGroup>
-                        </MudItem>
+                                </label>
+                            </div>
+                        </div>
 
                         <!-- Row 3: Sort Mode -->
-                        <MudItem xs="12" md="6">
-                            <MudText Typo="Typo.subtitle2" Class="mb-2">차트 정렬</MudText>
-                            <MudSelect T="ChartSortMode" @bind-Value="_chartSortMode" Variant="Variant.Outlined" Dense="true">
-                                <MudSelectItem Value="ChartSortMode.ByLane">레이어 기준 (기본)</MudSelectItem>
-                                <MudSelectItem Value="ChartSortMode.ByTime">시간순</MudSelectItem>
-                                <MudSelectItem Value="ChartSortMode.ByCallName">Call 이름순</MudSelectItem>
-                                <MudSelectItem Value="ChartSortMode.ByGapSize">GAP 크기순</MudSelectItem>
-                            </MudSelect>
-                        </MudItem>
-                    </MudGrid>
-                </MudExpansionPanel>
-            </MudExpansionPanels>
+                        <div class="grid-item-6">
+                            <span class="typo-subtitle2 mb-2" style="display:block;">차트 정렬</span>
+                            <select class="form-select" @onchange="OnSortModeChanged">
+                                <option value="ByLane" selected="@(_chartSortMode == ChartSortMode.ByLane)">레이어 기준 (기본)</option>
+                                <option value="ByTime" selected="@(_chartSortMode == ChartSortMode.ByTime)">시간순</option>
+                                <option value="ByCallName" selected="@(_chartSortMode == ChartSortMode.ByCallName)">Call 이름순</option>
+                                <option value="ByGapSize" selected="@(_chartSortMode == ChartSortMode.ByGapSize)">GAP 크기순</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </details>
 
             <!-- Selected Item Info Panel -->
             @if (_selectedItem != null)
             {
-                <MudPaper Class="pa-4 mb-4" Style="border-left: 4px solid #FF5722;">
-                    <MudText Typo="Typo.h6" Color="Color.Primary" Class="mb-3">
+                <div class="card mb-4" style="padding:16px; border-left: 4px solid #FF5722;">
+                    <h6 class="typo-h6 mb-3" style="color:var(--color-primary);">
                         📊 선택된 아이템 분석
-                    </MudText>
+                    </h6>
 
-                    <MudGrid>
-                        <MudItem xs="12" md="6">
-                            <MudText Typo="Typo.subtitle2" Color="Color.Default" Class="mb-2">
+                    <div class="grid" style="gap:16px;">
+                        <div class="grid-item-6">
+                            <span class="typo-subtitle2 mb-2" style="display:block;">
                                 <strong>기본 정보</strong>
-                            </MudText>
-                            <MudText Typo="Typo.body2">• Call: <strong>@_selectedItem.CallName</strong></MudText>
-                            <MudText Typo="Typo.body2">• Work: @_selectedItem.WorkName</MudText>
-                            <MudText Typo="Typo.body2">• Tag: @_selectedItem.TagName [@_selectedItem.TagAddress]</MudText>
-                            <MudText Typo="Typo.body2">
+                            </span>
+                            <p class="typo-body2">• Call: <strong>@_selectedItem.CallName</strong></p>
+                            <p class="typo-body2">• Work: @_selectedItem.WorkName</p>
+                            <p class="typo-body2">• Tag: @_selectedItem.TagName [@_selectedItem.TagAddress]</p>
+                            <p class="typo-body2">
                                 • Event Type: <strong>@(_selectedItem.EventType == DSPilot.Models.Analysis.IOEventType.InTag ? "InTag (Input)" : "OutTag (Output)")</strong>
-                            </MudText>
-                            <MudText Typo="Typo.body2">• Timestamp: @_selectedItem.GoingStartTime.ToString("HH:mm:ss.fff")</MudText>
-                            <MudText Typo="Typo.body2">• Lane: @_selectedItem.Lane / @_ganttData.TotalLanes</MudText>
-                        </MudItem>
+                            </p>
+                            <p class="typo-body2">• Timestamp: @_selectedItem.GoingStartTime.ToString("HH:mm:ss.fff")</p>
+                            <p class="typo-body2">• Lane: @_selectedItem.Lane / @_ganttData.TotalLanes</p>
+                        </div>
 
-                        <MudItem xs="12" md="6">
-                            <MudText Typo="Typo.subtitle2" Color="Color.Default" Class="mb-2">
+                        <div class="grid-item-6">
+                            <span class="typo-subtitle2 mb-2" style="display:block;">
                                 <strong>🔗 연결 정보</strong>
-                            </MudText>
+                            </span>
                             @if (_previousItem != null)
                             {
-                                <MudText Typo="Typo.body2" Style="color: #FF9800;">
+                                <p class="typo-body2" style="color: #FF9800;">
                                     ← 이전 신호: <strong>@_previousItem.CallName</strong> (GAP: <strong>@_gapToPrevious.ToString("F0")ms</strong>)
-                                </MudText>
+                                </p>
                             }
                             else
                             {
-                                <MudText Typo="Typo.body2" Color="Color.Secondary">← 이전 신호: 없음 (레이어 시작)</MudText>
+                                <p class="typo-body2" style="color:var(--color-text-secondary);">← 이전 신호: 없음 (레이어 시작)</p>
                             }
 
                             @if (_nextItem != null)
                             {
-                                <MudText Typo="Typo.body2" Style="color: #4CAF50;">
+                                <p class="typo-body2" style="color: #4CAF50;">
                                     → 다음 신호: <strong>@_nextItem.CallName</strong> (GAP: <strong>@_gapToNext.ToString("F0")ms</strong>)
-                                </MudText>
+                                </p>
                             }
                             else
                             {
-                                <MudText Typo="Typo.body2" Color="Color.Secondary">→ 다음 신호: 없음 (레이어 끝)</MudText>
+                                <p class="typo-body2" style="color:var(--color-text-secondary);">→ 다음 신호: 없음 (레이어 끝)</p>
                             }
 
-                            <MudDivider Class="my-2" />
+                            <hr class="divider my-2" />
 
-                            <MudText Typo="Typo.subtitle2" Color="Color.Default" Class="mb-2">
+                            <span class="typo-subtitle2 mb-2" style="display:block;">
                                 <strong>📈 통계</strong>
-                            </MudText>
+                            </span>
                             @{
                                 var laneItems = _ganttData.Items.Where(i => i.Lane == _selectedItem.Lane).ToList();
                                 var totalOnLane = laneItems.Count;
                                 var positionOnLane = laneItems.OrderBy(i => i.GoingStartTime).ToList().IndexOf(_selectedItem) + 1;
                                 var percentComplete = _ganttData.Items.Count > 0 ? (_selectedItemIndex + 1) * 100.0 / _ganttData.Items.Count : 0;
                             }
-                            <MudText Typo="Typo.body2">• 레이어 내 위치: @positionOnLane / @totalOnLane</MudText>
-                            <MudText Typo="Typo.body2">• 전체 이벤트 중: #@(_selectedItemIndex + 1) (@percentComplete.ToString("F1")%)</MudText>
+                            <p class="typo-body2">• 레이어 내 위치: @positionOnLane / @totalOnLane</p>
+                            <p class="typo-body2">• 전체 이벤트 중: #@(_selectedItemIndex + 1) (@percentComplete.ToString("F1")%)</p>
                             @if (_gapToPrevious > 0 && _gapToNext > 0)
                             {
                                 var avgGap = (_gapToPrevious + _gapToNext) / 2.0;
-                                <MudText Typo="Typo.body2">• 평균 주변 GAP: @avgGap.ToString("F0")ms</MudText>
+                                <p class="typo-body2">• 평균 주변 GAP: @avgGap.ToString("F0")ms</p>
                             }
 
-                            <MudDivider Class="my-2" />
+                            <hr class="divider my-2" />
 
-                            <MudText Typo="Typo.subtitle2" Color="Color.Default" Class="mb-2">
+                            <span class="typo-subtitle2 mb-2" style="display:block;">
                                 <strong>🔄 사이클 분석</strong>
-                            </MudText>
+                            </span>
                             @{
-                                // Calculate cycle statistics for same Call
                                 var sameCallItems = _ganttData.Items
                                     .Where(i => i.CallName == _selectedItem.CallName)
                                     .OrderBy(i => i.GoingStartTime)
@@ -243,7 +255,6 @@ else
 
                                 if (cycleCount > 1)
                                 {
-                                    // Calculate cycle times (intervals between same Call occurrences)
                                     var cycleTimes = new List<double>();
                                     for (int i = 1; i < sameCallItems.Count; i++)
                                     {
@@ -258,48 +269,49 @@ else
                                         var minCycleTime = cycleTimes.Min();
                                         var maxCycleTime = cycleTimes.Max();
 
-                                        <MudText Typo="Typo.body2">• Call 발생 횟수: @cycleCount 회</MudText>
-                                        <MudText Typo="Typo.body2">• 현재 사이클: #@cycleIndex / @cycleCount</MudText>
-                                        <MudText Typo="Typo.body2">• 평균 사이클 타임: @avgCycleTime.ToString("F0")ms</MudText>
-                                        <MudText Typo="Typo.body2">• 최소/최대: @minCycleTime.ToString("F0")ms / @maxCycleTime.ToString("F0")ms</MudText>
+                                        <p class="typo-body2">• Call 발생 횟수: @cycleCount 회</p>
+                                        <p class="typo-body2">• 현재 사이클: #@cycleIndex / @cycleCount</p>
+                                        <p class="typo-body2">• 평균 사이클 타임: @avgCycleTime.ToString("F0")ms</p>
+                                        <p class="typo-body2">• 최소/최대: @minCycleTime.ToString("F0")ms / @maxCycleTime.ToString("F0")ms</p>
 
                                         if (cycleIndex < cycleCount)
                                         {
                                             var nextCycleTime = (sameCallItems[cycleIndex].GoingStartTime - _selectedItem.GoingStartTime).TotalMilliseconds;
-                                            <MudText Typo="Typo.body2" Style="color: #2196F3;">
+                                            <p class="typo-body2" style="color: #2196F3;">
                                                 • 다음 사이클까지: <strong>@nextCycleTime.ToString("F0")ms</strong>
-                                            </MudText>
+                                            </p>
                                         }
                                     }
                                 }
                                 else
                                 {
-                                    <MudText Typo="Typo.body2" Color="Color.Secondary">• 단일 발생 (사이클 없음)</MudText>
+                                    <p class="typo-body2" style="color:var(--color-text-secondary);">• 단일 발생 (사이클 없음)</p>
                                 }
                             }
-                        </MudItem>
-                    </MudGrid>
-                </MudPaper>
+                        </div>
+                    </div>
+                </div>
             }
 
             @if (_ganttData.Items.Any())
             {
                 @if (_ganttData.IsTruncated)
                 {
-                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">
+                    <div class="alert alert-warning mb-4">
+                        <span class="material-icons">warning</span>
                         이벤트가 많아 화면 프리징을 막기 위해 최근 순서 기준 @_ganttData.RenderedEventCount 개만 렌더했습니다.
-                    </MudAlert>
+                    </div>
                 }
 
                 <!-- Legend -->
                 <div style="margin-bottom: 16px; display: flex; gap: 16px; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <div style="width: 20px; height: 20px; background-color: #2196F3; border: 1px solid var(--mud-palette-lines-default, #333); border-radius: 3px;"></div>
-                        <span style="font-size: 14px; color: var(--mud-palette-text-primary);">InTag (Input)</span>
+                        <div style="width: 20px; height: 20px; background-color: #2196F3; border: 1px solid var(--color-lines); border-radius: 3px;"></div>
+                        <span style="font-size: 14px; color: var(--color-text-primary);">InTag (Input)</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <div style="width: 20px; height: 20px; background-color: #4CAF50; border: 1px solid var(--mud-palette-lines-default, #333); border-radius: 3px;"></div>
-                        <span style="font-size: 14px; color: var(--mud-palette-text-primary);">OutTag (Output)</span>
+                        <div style="width: 20px; height: 20px; background-color: #4CAF50; border: 1px solid var(--color-lines); border-radius: 3px;"></div>
+                        <span style="font-size: 14px; color: var(--color-text-primary);">OutTag (Output)</span>
                     </div>
                 </div>
 
@@ -309,33 +321,34 @@ else
             }
             else
             {
-                <MudAlert Severity="Severity.Info">
+                <div class="alert alert-info">
+                    <span class="material-icons">info</span>
                     이 시간 범위에는 IO 이벤트가 없습니다.
-                </MudAlert>
+                </div>
             }
-        </MudPaper>
+        </div>
     }
     else if (!_isLoadingGantt && !string.IsNullOrEmpty(_selectedFlow))
     {
-        <MudPaper Class="pa-4">
-            <MudText Typo="Typo.body1" Color="Color.Info">
+        <div class="card" style="padding:16px;">
+            <span class="typo-body1" style="color:var(--color-info);">
                 Flow를 선택하고 "타임라인 로드" 버튼을 클릭하여 Gantt 차트를 확인하세요.
-            </MudText>
-        </MudPaper>
+            </span>
+        </div>
     }
 }
 
 @code {
     private string _selectedFlow = string.Empty;
-    private string _timeRangeMode = "quick";  // "quick" or "custom"
-    private int _timeRangeSeconds = 60;  // 빠른 선택 모드용
-    private DateTime? _customStartTime = DateTime.Now.AddMinutes(-1);  // 정밀 선택 모드용
+    private string _timeRangeMode = "quick";
+    private int _timeRangeSeconds = 60;
+    private DateTime? _customStartTime = DateTime.Now.AddMinutes(-1);
     private DateTime? _customEndTime = DateTime.Now;
     private bool _isLoadingGantt = false;
     private DSPilot.Services.GanttChartData? _ganttData = null;
 
     // Chart controls
-    private int _chartZoomLevel = 100;  // 50% ~ 300%
+    private int _chartZoomLevel = 100;
     private bool _showLongestGap = false;
     private (DateTime Start, DateTime End, double DurationMs)? _longestGap = null;
 
@@ -353,42 +366,23 @@ else
 
     private enum GapAnalysisMode
     {
-        SameLane,      // 같은 레이어 내 이전/다음 (기본)
-        SameCall,      // 같은 Call의 이전/다음 발생
-        SameGroup      // 같은 Work/Flow 그룹 내 모든 태그
+        SameLane,
+        SameCall,
+        SameGroup
     }
 
     private enum ChartSortMode
     {
-        ByLane,        // 레이어 기준 (기본)
-        ByTime,        // 시간순
-        ByCallName,    // Call 이름순
-        ByGapSize      // GAP 크기순 (큰 것부터)
+        ByLane,
+        ByTime,
+        ByCallName,
+        ByGapSize
     }
 
-    // Helper properties for time picker binding
-    private TimeSpan? StartTime
+    private void OnSortModeChanged(ChangeEventArgs e)
     {
-        get => _customStartTime?.TimeOfDay;
-        set
-        {
-            if (_customStartTime.HasValue && value.HasValue)
-            {
-                _customStartTime = _customStartTime.Value.Date.Add(value.Value);
-            }
-        }
-    }
-
-    private TimeSpan? EndTime
-    {
-        get => _customEndTime?.TimeOfDay;
-        set
-        {
-            if (_customEndTime.HasValue && value.HasValue)
-            {
-                _customEndTime = _customEndTime.Value.Date.Add(value.Value);
-            }
-        }
+        if (Enum.TryParse<ChartSortMode>(e.Value?.ToString(), out var mode))
+            _chartSortMode = mode;
     }
 
     protected override void OnInitialized()
@@ -403,9 +397,6 @@ else
         }
     }
 
-    /// <summary>
-    /// AASX에 등록된 Flow 중 Call이 있는 Flow만 반환
-    /// </summary>
     private List<Flow> GetFlowsWithCalls()
     {
         return ProjectService.GetAllFlows()
@@ -413,9 +404,6 @@ else
             .ToList();
     }
 
-    /// <summary>
-    /// Flow의 Call 개수 반환
-    /// </summary>
     private int GetFlowCallCount(Flow flow)
     {
         var works = ProjectService.GetWorks(flow.Id);
@@ -441,7 +429,6 @@ else
 
         try
         {
-            // 모드에 따라 시간 범위 계산
             DateTime startTime, endTime;
             if (_timeRangeMode == "quick")
             {
@@ -459,7 +446,6 @@ else
                 endTime = _customEndTime.Value;
             }
 
-            // 시간 범위 검증
             if (startTime >= endTime)
             {
                 Logger.LogWarning("Invalid time range: start >= end");
@@ -470,14 +456,12 @@ else
                 "Loading timeline for Flow '{FlowName}' from {Start} to {End} (Mode: {Mode})",
                 _selectedFlow, startTime, endTime, _timeRangeMode);
 
-            // 시간 범위 기반 IO 이벤트 조회
             _ganttData = await CycleAnalysisService.GetIOEventsInTimeRangeAsync(_selectedFlow, startTime, endTime);
 
             Logger.LogInformation(
                 "Loaded timeline for Flow '{FlowName}': {Items} items in {Lanes} lanes",
                 _selectedFlow, _ganttData.Items.Count, _ganttData.TotalLanes);
 
-            // Calculate longest gap
             CalculateLongestGap();
         }
         catch (Exception ex)
@@ -499,7 +483,6 @@ else
         if (_ganttData == null || _ganttData.Items.Count < 2)
             return;
 
-        // Sort items by timestamp
         var sortedItems = _ganttData.Items
             .OrderBy(item => item.GoingStartTime)
             .ToList();
@@ -545,13 +528,11 @@ else
         _selectedItem = item;
         _selectedItemIndex = itemIndex;
 
-        // Find previous and next items based on GAP analysis mode
         List<GanttChartItem> relevantItems;
 
         switch (_gapAnalysisMode)
         {
             case GapAnalysisMode.SameLane:
-                // 같은 레이어 내 아이템들
                 relevantItems = _ganttData.Items
                     .Where(i => i.Lane == item.Lane)
                     .OrderBy(i => i.GoingStartTime)
@@ -559,7 +540,6 @@ else
                 break;
 
             case GapAnalysisMode.SameCall:
-                // 같은 Call 이름의 아이템들 (반복 패턴 분석)
                 relevantItems = _ganttData.Items
                     .Where(i => i.CallName == item.CallName)
                     .OrderBy(i => i.GoingStartTime)
@@ -567,7 +547,6 @@ else
                 break;
 
             case GapAnalysisMode.SameGroup:
-                // 같은 Work 그룹 내 모든 아이템들
                 relevantItems = _ganttData.Items
                     .Where(i => i.WorkName == item.WorkName)
                     .OrderBy(i => i.GoingStartTime)
@@ -581,11 +560,9 @@ else
 
         var currentIndex = relevantItems.IndexOf(item);
 
-        // Find previous and next items
         _previousItem = currentIndex > 0 ? relevantItems[currentIndex - 1] : null;
         _nextItem = currentIndex < relevantItems.Count - 1 ? relevantItems[currentIndex + 1] : null;
 
-        // Calculate GAPs
         if (_previousItem != null)
         {
             var prevEnd = _previousItem.FinishTime ?? _previousItem.GoingStartTime;
@@ -626,7 +603,6 @@ else
 
     private List<GanttChartItem> CalculateGapSortedItems(List<GanttChartItem> items)
     {
-        // Calculate GAP after each item
         var itemsWithGap = items.OrderBy(i => i.GoingStartTime).Select((item, index) =>
         {
             double gapAfter = 0;
@@ -639,7 +615,6 @@ else
             return new { Item = item, GapAfter = gapAfter };
         }).ToList();
 
-        // Sort by GAP size (descending)
         return itemsWithGap
             .OrderByDescending(x => x.GapAfter)
             .Select(x => x.Item)
@@ -648,16 +623,14 @@ else
 
     private RenderFragment RenderGanttChart(DSPilot.Services.GanttChartData data) => builder =>
     {
-        // Apply sorting based on chart sort mode
         var sortedItems = _chartSortMode switch
         {
             ChartSortMode.ByTime => data.Items.OrderBy(i => i.GoingStartTime).ToList(),
             ChartSortMode.ByCallName => data.Items.OrderBy(i => i.CallName).ThenBy(i => i.GoingStartTime).ToList(),
             ChartSortMode.ByGapSize => CalculateGapSortedItems(data.Items),
-            _ => data.Items // ByLane (default)
+            _ => data.Items
         };
 
-        // Chart dimensions and scaling
         const int leftMargin = 220;
         const int rightMargin = 20;
         const int topMargin = 40;
@@ -665,11 +638,9 @@ else
         const int laneHeight = 40;
         const int barHeight = 30;
 
-        // 실제 이벤트 발생 시간 범위 사용 (이벤트가 있는 구간만 표시)
         var chartStartTime = data.ActualEventStartTime ?? data.StartTime;
         var chartEndTime = data.ActualEventEndTime ?? (data.EndTime ?? data.StartTime.AddSeconds(1));
 
-        // 약간의 여유 공간 추가 (전후 5%)
         var timeRange = (chartEndTime - chartStartTime).TotalMilliseconds;
         var margin = timeRange * 0.05;
         chartStartTime = chartStartTime.AddMilliseconds(-margin);
@@ -677,79 +648,71 @@ else
 
         var cycleTime = Math.Max((int)(chartEndTime - chartStartTime).TotalMilliseconds, 1);
         var basePlotWidth = GetChartPlotWidth(cycleTime);
-        var plotWidth = (int)(basePlotWidth * (_chartZoomLevel / 100.0));  // Apply zoom level
+        var plotWidth = (int)(basePlotWidth * (_chartZoomLevel / 100.0));
         var totalWidth = leftMargin + plotWidth + rightMargin;
         var totalHeight = topMargin + (data.TotalLanes * laneHeight) + bottomMargin;
         var xScale = plotWidth / (double)cycleTime;
 
         var seq = 0;
 
-        // SVG container
         builder.OpenElement(seq++, "svg");
         builder.AddAttribute(seq++, "width", totalWidth);
         builder.AddAttribute(seq++, "height", totalHeight);
-        builder.AddAttribute(seq++, "style", "border: 1px solid var(--mud-palette-lines-default, #e0e0e0); border-radius: 4px; background-color: var(--mud-palette-surface, #fafafa);");
+        builder.AddAttribute(seq++, "style", "border: 1px solid var(--color-lines); border-radius: 4px; background-color: var(--color-surface);");
 
-        // Title
         builder.OpenElement(seq++, "text");
         builder.AddAttribute(seq++, "x", 10);
         builder.AddAttribute(seq++, "y", 20);
         builder.AddAttribute(seq++, "font-size", "14");
         builder.AddAttribute(seq++, "font-weight", "bold");
-        builder.AddAttribute(seq++, "style", "fill: var(--mud-palette-text-primary, #333)");
+        builder.AddAttribute(seq++, "style", "fill: var(--color-text-primary)");
         builder.AddContent(seq++, $"Timeline: {chartStartTime:HH:mm:ss.fff} → {chartEndTime:HH:mm:ss.fff} ({cycleTime} ms)");
-        builder.CloseElement(); // text
+        builder.CloseElement();
 
-        // Draw time axis (X-axis)
         builder.OpenElement(seq++, "line");
         builder.AddAttribute(seq++, "x1", leftMargin);
         builder.AddAttribute(seq++, "y1", topMargin);
         builder.AddAttribute(seq++, "x2", leftMargin + plotWidth);
         builder.AddAttribute(seq++, "y2", topMargin);
-        builder.AddAttribute(seq++, "style", "stroke: var(--mud-palette-text-secondary, #666)");
+        builder.AddAttribute(seq++, "style", "stroke: var(--color-text-secondary)");
         builder.AddAttribute(seq++, "stroke-width", "2");
-        builder.CloseElement(); // line
+        builder.CloseElement();
 
-        // Draw time markers
         var timeStep = GetTimeAxisStep(cycleTime);
         for (int t = 0; t <= cycleTime; t += timeStep)
         {
             var x = leftMargin + (int)(t * xScale);
             var actualTime = chartStartTime.AddMilliseconds(t);
 
-            // Tick mark
             builder.OpenElement(seq++, "line");
             builder.AddAttribute(seq++, "x1", x);
             builder.AddAttribute(seq++, "y1", topMargin - 5);
             builder.AddAttribute(seq++, "x2", x);
             builder.AddAttribute(seq++, "y2", topMargin);
-            builder.AddAttribute(seq++, "style", "stroke: var(--mud-palette-text-secondary, #666)");
+            builder.AddAttribute(seq++, "style", "stroke: var(--color-text-secondary)");
             builder.AddAttribute(seq++, "stroke-width", "1");
-            builder.CloseElement(); // line
+            builder.CloseElement();
 
-            // Time label (actual time in HH:mm:ss.fff format)
             builder.OpenElement(seq++, "text");
             builder.AddAttribute(seq++, "x", x);
             builder.AddAttribute(seq++, "y", topMargin - 10);
             builder.AddAttribute(seq++, "font-size", "10");
             builder.AddAttribute(seq++, "text-anchor", "middle");
-            builder.AddAttribute(seq++, "style", "fill: var(--mud-palette-text-secondary, #666)");
+            builder.AddAttribute(seq++, "style", "fill: var(--color-text-secondary)");
             builder.AddContent(seq++, actualTime.ToString("HH:mm:ss.fff"));
-            builder.CloseElement(); // text
+            builder.CloseElement();
 
-            // Grid line
             builder.OpenElement(seq++, "line");
             builder.AddAttribute(seq++, "x1", x);
             builder.AddAttribute(seq++, "y1", topMargin);
             builder.AddAttribute(seq++, "x2", x);
             builder.AddAttribute(seq++, "y2", topMargin + (data.TotalLanes * laneHeight));
-            builder.AddAttribute(seq++, "style", "stroke: var(--mud-palette-lines-default, #e0e0e0)");
+            builder.AddAttribute(seq++, "style", "stroke: var(--color-lines)");
             builder.AddAttribute(seq++, "stroke-width", "1");
             builder.AddAttribute(seq++, "stroke-dasharray", "2,2");
-            builder.CloseElement(); // line
+            builder.CloseElement();
         }
 
-        // Draw lanes
         for (int lane = 0; lane < data.TotalLanes; lane++)
         {
             var y = topMargin + (lane * laneHeight);
@@ -757,34 +720,30 @@ else
                 ? data.LaneLabels[lane]
                 : $"Lane {lane}";
 
-            // Lane separator
             builder.OpenElement(seq++, "line");
             builder.AddAttribute(seq++, "x1", leftMargin);
             builder.AddAttribute(seq++, "y1", y);
             builder.AddAttribute(seq++, "x2", leftMargin + plotWidth);
             builder.AddAttribute(seq++, "y2", y);
-            builder.AddAttribute(seq++, "style", "stroke: var(--mud-palette-lines-default, #ddd)");
+            builder.AddAttribute(seq++, "style", "stroke: var(--color-lines)");
             builder.AddAttribute(seq++, "stroke-width", "1");
-            builder.CloseElement(); // line
+            builder.CloseElement();
 
-            // Lane label
             builder.OpenElement(seq++, "text");
             builder.AddAttribute(seq++, "x", 5);
             builder.AddAttribute(seq++, "y", y + (laneHeight / 2) + 5);
             builder.AddAttribute(seq++, "font-size", "10");
-            builder.AddAttribute(seq++, "style", "fill: var(--mud-palette-text-secondary, #666)");
+            builder.AddAttribute(seq++, "style", "fill: var(--color-text-secondary)");
             builder.AddContent(seq++, laneLabel);
-            builder.CloseElement(); // text
+            builder.CloseElement();
         }
 
-        // Draw longest GAP highlight if enabled
         if (_showLongestGap && _longestGap.HasValue)
         {
             var gapStart = _longestGap.Value.Start;
             var gapEnd = _longestGap.Value.End;
             var gapDuration = _longestGap.Value.DurationMs;
 
-            // Calculate GAP position on chart
             var gapStartOffset = (gapStart - chartStartTime).TotalMilliseconds;
             var gapEndOffset = (gapEnd - chartStartTime).TotalMilliseconds;
 
@@ -793,19 +752,17 @@ else
                 var gapX = leftMargin + (int)(Math.Max(0, gapStartOffset) * xScale);
                 var gapWidth = (int)((Math.Min(gapEndOffset, cycleTime) - Math.Max(0, gapStartOffset)) * xScale);
 
-                // Highlight rectangle (semi-transparent yellow)
                 builder.OpenElement(seq++, "rect");
                 builder.AddAttribute(seq++, "x", gapX);
                 builder.AddAttribute(seq++, "y", topMargin);
                 builder.AddAttribute(seq++, "width", gapWidth);
                 builder.AddAttribute(seq++, "height", data.TotalLanes * laneHeight);
-                builder.AddAttribute(seq++, "fill", "rgba(255, 193, 7, 0.3)");  // Semi-transparent amber
+                builder.AddAttribute(seq++, "fill", "rgba(255, 193, 7, 0.3)");
                 builder.AddAttribute(seq++, "stroke", "#FFC107");
                 builder.AddAttribute(seq++, "stroke-width", "2");
                 builder.AddAttribute(seq++, "stroke-dasharray", "5,5");
-                builder.CloseElement(); // rect
+                builder.CloseElement();
 
-                // GAP label
                 var labelX = gapX + (gapWidth / 2);
                 var labelY = topMargin - 5;
 
@@ -817,36 +774,28 @@ else
                 builder.AddAttribute(seq++, "text-anchor", "middle");
                 builder.AddAttribute(seq++, "fill", "#F57C00");
                 builder.AddContent(seq++, $"최대 GAP: {gapDuration:F0}ms");
-                builder.CloseElement(); // text
+                builder.CloseElement();
 
-                // Tooltip for GAP region
                 builder.OpenElement(seq++, "title");
                 builder.AddContent(seq++, $@"최대 GAP 구간
 시작: {gapStart:HH:mm:ss.fff}
 종료: {gapEnd:HH:mm:ss.fff}
 지속시간: {gapDuration:F0}ms");
-                builder.CloseElement(); // title
+                builder.CloseElement();
             }
         }
 
-        // Draw event bars
         var itemIndex = 0;
         foreach (var item in sortedItems)
         {
             var currentItemIndex = itemIndex++;
             var isSelected = _selectedItem == item;
 
-            // Calculate actual event time and offset from chart start
             var actualEventTime = data.StartTime.AddMilliseconds(item.RelativeStart);
             var offsetFromChartStart = (actualEventTime - chartStartTime).TotalMilliseconds;
             var x = leftMargin + (int)(offsetFromChartStart * xScale);
             var y = topMargin + (item.Lane * laneHeight) + ((laneHeight - barHeight) / 2);
 
-            // Calculate bar width based on actual Going duration
-            // 1순위: Duration 필드 사용 (미리 계산된 Going 시간)
-            // 2순위: RelativeEnd - RelativeStart
-            // 3순위: FinishTime - GoingStartTime (실제 타임스탬프 차이)
-            // Fallback: 최소 너비 3px
             int durationMs;
             if (item.Duration.HasValue && item.Duration.Value > 0)
             {
@@ -865,20 +814,16 @@ else
                 durationMs = 0;
             }
 
-            // 동작 시간이 없으면 최소 너비(3px)만 표시
             var width = durationMs > 0 ? Math.Max(3, (int)(durationMs * xScale)) : 3;
 
-            // Event type color
             var color = item.EventType == DSPilot.Models.Analysis.IOEventType.InTag ? "#2196F3" : "#4CAF50";
             var label = item.EventType == DSPilot.Models.Analysis.IOEventType.InTag ? "In" : "Out";
 
-            // Event group (for tooltip and click)
             builder.OpenElement(seq++, "g");
             builder.AddAttribute(seq++, "style", "cursor: pointer;");
             builder.AddAttribute(seq++, "onclick", EventCallback.Factory.Create<Microsoft.AspNetCore.Components.Web.MouseEventArgs>(
                 this, () => SelectItem(item, currentItemIndex)));
 
-            // Tooltip
             builder.OpenElement(seq++, "title");
             builder.AddContent(seq++, $@"{item.CallName} ({item.WorkName})
 IOTag: {item.TagName} [{item.TagAddress}]
@@ -886,16 +831,15 @@ Event: {label}Tag
 Offset: {offsetFromChartStart:F0} ms
 Timestamp: {item.GoingStartTime:HH:mm:ss.fff}
 Click to analyze");
-            builder.CloseElement(); // title
+            builder.CloseElement();
 
-            // Bar rectangle
             builder.OpenElement(seq++, "rect");
             builder.AddAttribute(seq++, "x", x);
             builder.AddAttribute(seq++, "y", y);
             builder.AddAttribute(seq++, "width", width);
             builder.AddAttribute(seq++, "height", barHeight);
             builder.AddAttribute(seq++, "fill", color);
-            builder.AddAttribute(seq++, "stroke", isSelected ? "#FF5722" : "var(--mud-palette-lines-default, #333)");  // Red border if selected
+            builder.AddAttribute(seq++, "stroke", isSelected ? "#FF5722" : "var(--color-lines)");
             builder.AddAttribute(seq++, "stroke-width", isSelected ? "3" : "1");
             builder.AddAttribute(seq++, "rx", "3");
             builder.AddAttribute(seq++, "style", isSelected ? "filter: drop-shadow(0 0 6px rgba(255, 87, 34, 0.8));" : "transition: opacity 0.2s;");
@@ -904,9 +848,8 @@ Click to analyze");
                 builder.AddAttribute(seq++, "onmouseover", "this.style.opacity='0.7'");
                 builder.AddAttribute(seq++, "onmouseout", "this.style.opacity='1'");
             }
-            builder.CloseElement(); // rect
+            builder.CloseElement();
 
-            // Call name label (if space available)
             if (width > 30)
             {
                 builder.OpenElement(seq++, "text");
@@ -917,13 +860,12 @@ Click to analyze");
                 builder.AddAttribute(seq++, "font-weight", "bold");
                 builder.AddAttribute(seq++, "pointer-events", "none");
                 builder.AddContent(seq++, $"{item.CallName}");
-                builder.CloseElement(); // text
+                builder.CloseElement();
             }
 
-            builder.CloseElement(); // g (event group)
+            builder.CloseElement();
         }
 
-        // Draw arrows and GAP labels for selected item
         if (_selectedItem != null && _ganttData != null)
         {
             var selectedActualTime = data.StartTime.AddMilliseconds(_selectedItem.RelativeStart);
@@ -931,7 +873,6 @@ Click to analyze");
             var selectedX = leftMargin + (int)(selectedOffsetFromChartStart * xScale);
             var selectedY = topMargin + (_selectedItem.Lane * laneHeight) + (laneHeight / 2);
 
-            // Arrow to previous item
             if (_previousItem != null)
             {
                 var prevActualTime = data.StartTime.AddMilliseconds(_previousItem.RelativeStart);
@@ -942,7 +883,6 @@ Click to analyze");
                 var prevEndX = prevX + prevWidth;
                 var prevY = topMargin + (_previousItem.Lane * laneHeight) + (laneHeight / 2);
 
-                // Arrow line
                 builder.OpenElement(seq++, "line");
                 builder.AddAttribute(seq++, "x1", prevEndX);
                 builder.AddAttribute(seq++, "y1", prevY);
@@ -952,9 +892,8 @@ Click to analyze");
                 builder.AddAttribute(seq++, "stroke-width", "2");
                 builder.AddAttribute(seq++, "stroke-dasharray", "5,3");
                 builder.AddAttribute(seq++, "marker-end", "url(#arrowhead)");
-                builder.CloseElement(); // line
+                builder.CloseElement();
 
-                // GAP label
                 var midX = (prevEndX + selectedX) / 2;
                 var midY = (prevY + selectedY) / 2 - 10;
                 builder.OpenElement(seq++, "text");
@@ -966,10 +905,9 @@ Click to analyze");
                 builder.AddAttribute(seq++, "fill", "#FF9800");
                 builder.AddAttribute(seq++, "style", "background: white; padding: 2px;");
                 builder.AddContent(seq++, $"← GAP: {_gapToPrevious:F0}ms");
-                builder.CloseElement(); // text
+                builder.CloseElement();
             }
 
-            // Arrow to next item
             if (_nextItem != null)
             {
                 var nextActualTime = data.StartTime.AddMilliseconds(_nextItem.RelativeStart);
@@ -981,7 +919,6 @@ Click to analyze");
                 var selectedWidth = Math.Max(3, (int)(selectedDurationMs * xScale));
                 var selectedEndX = selectedX + selectedWidth;
 
-                // Arrow line
                 builder.OpenElement(seq++, "line");
                 builder.AddAttribute(seq++, "x1", selectedEndX);
                 builder.AddAttribute(seq++, "y1", selectedY);
@@ -991,9 +928,8 @@ Click to analyze");
                 builder.AddAttribute(seq++, "stroke-width", "2");
                 builder.AddAttribute(seq++, "stroke-dasharray", "5,3");
                 builder.AddAttribute(seq++, "marker-end", "url(#arrowhead-green)");
-                builder.CloseElement(); // line
+                builder.CloseElement();
 
-                // GAP label
                 var midX = (selectedEndX + nextX) / 2;
                 var midY = (selectedY + nextY) / 2 - 10;
                 builder.OpenElement(seq++, "text");
@@ -1004,14 +940,12 @@ Click to analyze");
                 builder.AddAttribute(seq++, "text-anchor", "middle");
                 builder.AddAttribute(seq++, "fill", "#4CAF50");
                 builder.AddContent(seq++, $"GAP: {_gapToNext:F0}ms →");
-                builder.CloseElement(); // text
+                builder.CloseElement();
             }
         }
 
-        // Define arrow markers
         builder.OpenElement(seq++, "defs");
 
-        // Orange arrowhead for previous
         builder.OpenElement(seq++, "marker");
         builder.AddAttribute(seq++, "id", "arrowhead");
         builder.AddAttribute(seq++, "markerWidth", "10");
@@ -1022,10 +956,9 @@ Click to analyze");
         builder.OpenElement(seq++, "polygon");
         builder.AddAttribute(seq++, "points", "0 0, 10 3, 0 6");
         builder.AddAttribute(seq++, "fill", "#FF9800");
-        builder.CloseElement(); // polygon
-        builder.CloseElement(); // marker
+        builder.CloseElement();
+        builder.CloseElement();
 
-        // Green arrowhead for next
         builder.OpenElement(seq++, "marker");
         builder.AddAttribute(seq++, "id", "arrowhead-green");
         builder.AddAttribute(seq++, "markerWidth", "10");
@@ -1036,8 +969,8 @@ Click to analyze");
         builder.OpenElement(seq++, "polygon");
         builder.AddAttribute(seq++, "points", "0 0, 10 3, 0 6");
         builder.AddAttribute(seq++, "fill", "#4CAF50");
-        builder.CloseElement(); // polygon
-        builder.CloseElement(); // marker
+        builder.CloseElement();
+        builder.CloseElement();
 
         builder.CloseElement(); // defs
 

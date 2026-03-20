@@ -1,7 +1,6 @@
 @page "/editor"
 @inject DsProjectService ProjectService
 @inject BlueprintService BlueprintService
-@inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @implements IAsyncDisposable
@@ -14,21 +13,21 @@
     .ed-main    { flex: 1; min-height: 0; display: flex; gap: 14px; }
     .ed-sidebar { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
     .ed-canvas  { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-    .ed-card    { background: var(--mud-palette-surface, #fff); border: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12)); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
-    .ed-card-header { background: var(--mud-palette-background, #f5f5f5); border-bottom: 1px solid var(--mud-palette-lines-default, rgba(0,0,0,0.12)); padding: 10px 14px;
-                      font-weight: 600; color: var(--mud-palette-primary, #0A1E5A); font-size: 0.875rem;
+    .ed-card    { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+    .ed-card-header { background: var(--color-background); border-bottom: 1px solid var(--color-lines); padding: 10px 14px;
+                      font-weight: 600; color: var(--color-primary); font-size: 0.875rem;
                       display: flex; align-items: center; justify-content: space-between; }
     .ed-flow-item { padding: 6px 10px; margin: 2px 0; border-radius: 4px; font-size: 0.85rem; font-weight: 500; }
-    .ed-flow-item.active { background: var(--mud-palette-background, #e8ecf4); color: var(--mud-palette-primary, #0A1E5A);
-                           cursor: grab; border-left: 3px solid var(--mud-palette-primary, #0A1E5A); }
-    .ed-flow-item.placed { background: var(--mud-palette-background, #f0f0f0); color: var(--mud-palette-text-disabled, #bbb);
-                           cursor: default; border-left: 3px solid var(--mud-palette-lines-default, #ddd); }
-    .ed-flow-item.placed .placed-label { color: var(--mud-palette-text-disabled, #aaa); }
-    .ed-offset-label { font-size: 10px; color: var(--mud-palette-text-secondary, #888); }
-    .ed-offset-input { width: 52px; padding: 2px 4px; border: 1px solid var(--mud-palette-lines-default, #ccc); border-radius: 4px;
-                       text-align: center; font-size: 0.8rem; background: var(--mud-palette-surface, #fff); color: var(--mud-palette-text-primary, #333); }
-    .ed-cell-input  { width: 40px; border: 1px solid var(--mud-palette-lines-default, #ddd); border-radius: 3px; padding: 2px;
-                      background: var(--mud-palette-surface, #fff); color: var(--mud-palette-text-primary, #333); }
+    .ed-flow-item.active { background: var(--color-background); color: var(--color-primary);
+                           cursor: grab; border-left: 3px solid var(--color-primary); }
+    .ed-flow-item.placed { background: var(--color-background); color: var(--color-text-disabled);
+                           cursor: default; border-left: 3px solid var(--color-lines); }
+    .ed-flow-item.placed .placed-label { color: var(--color-text-disabled); }
+    .ed-offset-label { font-size: 10px; color: var(--color-text-secondary); }
+    .ed-offset-input { width: 52px; padding: 2px 4px; border: 1px solid var(--color-lines); border-radius: 4px;
+                       text-align: center; font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-primary); }
+    .ed-cell-input  { width: 40px; border: 1px solid var(--color-lines); border-radius: 3px; padding: 2px;
+                      background: var(--color-surface); color: var(--color-text-primary); }
     .ed-card-body   { padding: 14px; }
     .ed-flows-card  { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
     .ed-flows-body  { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 10px; }
@@ -38,55 +37,44 @@
 
     @* ── 헤더 ── *@
     <div class="ed-header">
-        <MudText Typo="Typo.h5" Style="font-weight: 600;" Color="Color.Primary">Editor</MudText>
-        <MudSpacer />
-        <MudFileUpload T="IBrowserFile" Accept=".png,.jpg,.jpeg"
-                       FilesChanged="OnBlueprintFileSelected"
-                       MaximumFileCount="1" Class="mr-2">
-            <ActivatorContent>
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.Image">
-                    Upload Image
-                    @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
-                    {
-                        <span style="font-size:10px; color:var(--mud-palette-text-secondary, #7D8282); margin-left:4px;">
-                            @(BlueprintService.Layout.CanvasWidth)x@(BlueprintService.Layout.CanvasHeight)
-                        </span>
-                    }
-                </MudButton>
-            </ActivatorContent>
-        </MudFileUpload>
-        <MudButton Variant="@(_isDirty ? Variant.Filled : Variant.Outlined)"
-                   Color="Color.Primary" Class="mr-2"
-                   StartIcon="@Icons.Material.Filled.Save"
-                   OnClick="ApplyChanges">
+        <h5 class="typo-h5" style="color: var(--color-primary);">Editor</h5>
+        <div class="spacer"></div>
+        <label class="btn btn-outlined mr-2" style="cursor:pointer;">
+            <span class="material-icons" style="font-size:18px;">image</span>
+            Upload Image
+            @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+            {
+                <span style="font-size:10px; color:var(--color-text-secondary); margin-left:4px;">
+                    @(BlueprintService.Layout.CanvasWidth)x@(BlueprintService.Layout.CanvasHeight)
+                </span>
+            }
+            <InputFile OnChange="@(e => OnBlueprintFileSelected(e.File))" accept=".png,.jpg,.jpeg" style="display:none;" />
+        </label>
+        <button class="btn @(_isDirty ? "btn-filled" : "btn-outlined") mr-2" @onclick="ApplyChanges">
+            <span class="material-icons" style="font-size:18px;">save</span>
             적용@(_isDirty ? " *" : "")
-        </MudButton>
-        <MudFileUpload T="IBrowserFile" Accept=".json" FilesChanged="ImportJson" MaximumFileCount="1" Class="mr-2">
-            <ActivatorContent>
-                <MudButton Variant="Variant.Outlined" Color="Color.Warning"
-                           StartIcon="@Icons.Material.Filled.FileUpload">
-                    Import JSON
-                </MudButton>
-            </ActivatorContent>
-        </MudFileUpload>
-        <MudButton Variant="Variant.Outlined" Color="Color.Success" Class="mr-2"
-                   StartIcon="@Icons.Material.Filled.FileDownload"
-                   OnClick="ExportJson">
+        </button>
+        <label class="btn btn-outlined color-warning mr-2" style="cursor:pointer;">
+            <span class="material-icons" style="font-size:18px;">file_upload</span>
+            Import JSON
+            <InputFile OnChange="@(e => ImportJson(e.File))" accept=".json" style="display:none;" />
+        </label>
+        <button class="btn btn-outlined color-success mr-2" @onclick="ExportJson">
+            <span class="material-icons" style="font-size:18px;">file_download</span>
             Export JSON
-        </MudButton>
-        <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                   StartIcon="@Icons.Material.Filled.Dashboard"
-                   OnClick="@(() => Nav.NavigateTo("/"))">
+        </button>
+        <button class="btn btn-outlined" @onclick="@(() => Nav.NavigateTo("/"))">
+            <span class="material-icons" style="font-size:18px;">dashboard</span>
             대시보드
-        </MudButton>
+        </button>
     </div>
 
     @if (!ProjectService.IsLoaded)
     {
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        <div class="alert alert-info">
+            <span class="material-icons">info</span>
             No project loaded.
-        </MudAlert>
+        </div>
     }
     else
     {
@@ -101,14 +89,16 @@
                     <div class="ed-card-header">Grid</div>
                     <div class="ed-card-body">
                         <div class="d-flex gap-2">
-                            <MudNumericField T="int" Value="_gridColumns"
-                                             ValueChanged="v => OnGridChanged(() => _gridColumns = v)"
-                                             Label="Columns" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                             Min="2" Max="20" Immediate="true" />
-                            <MudNumericField T="int" Value="_gridRows"
-                                             ValueChanged="v => OnGridChanged(() => _gridRows = v)"
-                                             Label="Rows" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                             Min="2" Max="20" Immediate="true" />
+                            <div class="form-group" style="flex:1;">
+                                <label class="form-label">Columns</label>
+                                <input type="number" class="form-field" value="@_gridColumns" min="2" max="20"
+                                       @onchange="@(async e => { if (int.TryParse(e.Value?.ToString(), out var v)) await OnGridChanged(() => _gridColumns = v); })" />
+                            </div>
+                            <div class="form-group" style="flex:1;">
+                                <label class="form-label">Rows</label>
+                                <input type="number" class="form-field" value="@_gridRows" min="2" max="20"
+                                       @onchange="@(async e => { if (int.TryParse(e.Value?.ToString(), out var v)) await OnGridChanged(() => _gridRows = v); })" />
+                            </div>
                         </div>
                         @* Offset 방향 배치 *@
                         <div style="display:flex; flex-direction:column; align-items:center; gap:4px; margin-top:10px;">
@@ -125,7 +115,7 @@
                                     <input type="number" value="@_offsetX" class="ed-offset-input"
                                            @onchange="@(async e => { if (int.TryParse(e.Value?.ToString(), out var v)) await OnGridChanged(() => _offsetX = v); })" />
                                 </div>
-                                <div style="width:52px; height:24px; border:2px solid var(--mud-palette-primary, #0A1E5A); border-radius:4px; background:color-mix(in srgb, var(--mud-palette-primary) 5%, transparent); flex-shrink:0;"></div>
+                                <div style="width:52px; height:24px; border:2px solid var(--color-primary); border-radius:4px; background:color-mix(in srgb, var(--color-primary) 5%, transparent); flex-shrink:0;"></div>
                                 <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
                                     <span class="ed-offset-label">Right</span>
                                     <input type="number" value="@_offsetRight" class="ed-offset-input"
@@ -139,9 +129,9 @@
                                 <span class="ed-offset-label">Bottom</span>
                             </div>
                         </div>
-                        <MudText Typo="Typo.caption" Class="mt-1" Color="Color.Secondary">
+                        <span class="typo-caption mt-1" style="display:block; color: var(--color-secondary);">
                             Cell: @(BlueprintService.Layout.CellWidth) x @(BlueprintService.Layout.CellHeight) px
-                        </MudText>
+                        </span>
                     </div>
                 </div>
 
@@ -151,9 +141,9 @@
                     <div class="ed-flows-body">
                         @foreach (var sys in _systems)
                         {
-                            <MudText Typo="Typo.overline" Class="px-2 mt-1" Color="Color.Secondary">
+                            <span class="typo-overline px-2 mt-1" style="display:block; color: var(--color-secondary);">
                                 @sys.Name
-                            </MudText>
+                            </span>
                             @foreach (var flow in _systemFlows.GetValueOrDefault(sys.Id, []))
                             {
                                 var placed = BlueprintService.Layout.FlowPlacements.Any(p => p.FlowId == flow.Id);
@@ -193,7 +183,7 @@
                         <rect x="0" y="0"
                               width="@BlueprintService.Layout.CanvasWidth"
                               height="@BlueprintService.Layout.CanvasHeight"
-                              style="fill: var(--mud-palette-background, #f5f5f5)" />
+                              style="fill: var(--color-background)" />
                     }
 
                     @{
@@ -209,7 +199,7 @@
                         var x = ox + c * cellW;
                         <line x1="@x" y1="@oy" x2="@x"
                               y2="@(oy + _gridRows * cellH)"
-                              style="stroke: var(--mud-palette-lines-default, #bbb)" stroke-width="@(c == 0 || c == _gridColumns ? 1 : 0.5)"
+                              style="stroke: var(--color-lines)" stroke-width="@(c == 0 || c == _gridColumns ? 1 : 0.5)"
                               stroke-dasharray="@(c == 0 || c == _gridColumns ? "0" : "4,4")" />
                     }
                     @for (int r = 0; r <= _gridRows; r++)
@@ -217,7 +207,7 @@
                         var y = oy + r * cellH;
                         <line x1="@ox" y1="@y"
                               x2="@(ox + _gridColumns * cellW)" y2="@y"
-                              style="stroke: var(--mud-palette-lines-default, #bbb)" stroke-width="@(r == 0 || r == _gridRows ? 1 : 0.5)"
+                              style="stroke: var(--color-lines)" stroke-width="@(r == 0 || r == _gridRows ? 1 : 0.5)"
                               stroke-dasharray="@(r == 0 || r == _gridRows ? "0" : "4,4")" />
                     }
 
@@ -362,7 +352,7 @@
 
             if (w > 0 && h > 0)
             {
-                Snackbar.Add($"Blueprint uploaded. Canvas: {w} x {h}", Severity.Success);
+                await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"Blueprint uploaded. Canvas: {w} x {h}", "success");
                 var layout = BlueprintService.Layout;
                 await JS.InvokeVoidAsync("canvasInterop.updateGrid",
                     layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
@@ -370,12 +360,12 @@
             }
             else
             {
-                Snackbar.Add("Blueprint uploaded.", Severity.Success);
+                await JS.InvokeVoidAsync("uiUtils.showSnackbar", "Blueprint uploaded.", "success");
             }
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Upload failed: {ex.Message}", Severity.Error);
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"Upload failed: {ex.Message}", "error");
         }
     }
 
@@ -388,7 +378,7 @@
 
         if (IsOccupied(col, row, 1, 1))
         {
-            Snackbar.Add($"해당 위치가 이미 점유되어 있습니다. [{col},{row}]", Severity.Warning);
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", $"해당 위치가 이미 점유되어 있습니다. [{col},{row}]", "warning");
             InvokeAsync(StateHasChanged);
             return;
         }
@@ -407,7 +397,7 @@
 
         BlueprintService.UpdatePlacementLocal(placement);
         _isDirty = true;
-        Snackbar.Add($"배치됨: {info.FlowName} [{col},{row}] 1x1", Severity.Success);
+        _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", $"배치됨: {info.FlowName} [{col},{row}] 1x1", "success");
         InvokeAsync(StateHasChanged);
     }
 
@@ -420,7 +410,7 @@
 
         if (IsOccupied(col, row, existing.ColSpan, existing.RowSpan, flowId))
         {
-            Snackbar.Add("해당 위치가 다른 블럭과 겹칩니다.", Severity.Warning);
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "해당 위치가 다른 블럭과 겹칩니다.", "warning");
             InvokeAsync(StateHasChanged);
             return;
         }
@@ -446,7 +436,7 @@
         if (IsOccupied(fp.Col, fp.Row, fp.ColSpan, fp.RowSpan, fp.FlowId))
         {
             (fp.Col, fp.Row, fp.ColSpan, fp.RowSpan) = prev;
-            Snackbar.Add("해당 위치/크기가 다른 블럭과 겹칩니다.", Severity.Warning);
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "해당 위치/크기가 다른 블럭과 겹칩니다.", "warning");
         }
         else
         {
@@ -472,7 +462,7 @@
     {
         BlueprintService.RemovePlacementLocal(flowId);
         _isDirty = true;
-        Snackbar.Add("Removed.", Severity.Info);
+        _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "Removed.", "info");
         StateHasChanged();
     }
 
@@ -480,7 +470,7 @@
     {
         BlueprintService.SaveLayout();
         _isDirty = false;
-        Snackbar.Add("저장되었습니다.", Severity.Success);
+        _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "저장되었습니다.", "success");
     }
 
     [JSInvokable]
@@ -508,7 +498,7 @@
         if (IsOccupied(existing.Col, existing.Row, newCS, newRS, flowId))
         {
             (existing.ColSpan, existing.RowSpan) = prev;
-            Snackbar.Add("해당 크기가 다른 블럭과 겹칩니다.", Severity.Warning);
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "해당 크기가 다른 블럭과 겹칩니다.", "warning");
         }
         else
         {
@@ -541,11 +531,11 @@
                 layout.OffsetX, layout.OffsetY);
 
             _isDirty = false;
-            Snackbar.Add("JSON imported.", Severity.Success);
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "JSON imported.", "success");
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Import failed: {ex.Message}", Severity.Error);
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"Import failed: {ex.Message}", "error");
         }
     }
 
@@ -556,7 +546,7 @@
         var base64 = Convert.ToBase64String(bytes);
         await JS.InvokeVoidAsync("canvasInterop.downloadFile",
             "layout-data.json", "application/json", base64);
-        Snackbar.Add("JSON exported.", Severity.Success);
+        await JS.InvokeVoidAsync("uiUtils.showSnackbar", "JSON exported.", "success");
     }
 
     private string GetSystemColor(Guid systemId)

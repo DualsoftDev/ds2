@@ -7,208 +7,179 @@
 
 <PageTitle>동작편차</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-4" Style="font-weight: 600; color: #0A1E5A;" GutterBottom="true">
-        동작편차
-        <MudTooltip Text="각 Call의 실행 시간 통계를 분석하여 성능 이슈를 조기에 발견할 수 있습니다. 평균, 표준편차, 변동계수, 성능점수 등 다양한 메트릭으로 분석 가능합니다.">
-            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Color="Color.Primary" Style="cursor: help; margin-left: 8px;" />
-        </MudTooltip>
-    </MudText>
-    <MudText Typo="Typo.body1" Color="Color.Secondary" Class="mb-4">
-        Call별 실행 통계를 시각적으로 분석합니다. 색상이 진할수록 성능 이슈가 있을 수 있습니다.
-        <MudTooltip Text="성능점수: 빠르고 안정적일수록 높음 (최고 100점) / 평균: 낮을수록 빠름 / 표준편차: 낮을수록 안정적 / 변동계수: 낮을수록 일관성 높음">
-            <MudIcon Icon="@Icons.Material.Filled.HelpOutline" Size="Size.Small" Color="Color.Secondary" Style="cursor: help; margin-left: 4px; vertical-align: middle;" />
-        </MudTooltip>
-    </MudText>
+<h5 class="typo-h5 mb-4" style="font-weight: 600; color: #0A1E5A;">
+    동작편차
+    <span title="각 Call의 실행 시간 통계를 분석하여 성능 이슈를 조기에 발견할 수 있습니다. 평균, 표준편차, 변동계수, 성능점수 등 다양한 메트릭으로 분석 가능합니다."
+          style="cursor: help; margin-left: 8px; vertical-align: middle;">
+        <span class="material-icons" style="font-size:20px; color:var(--color-primary);">info</span>
+    </span>
+</h5>
+<p class="typo-body1 mb-4" style="color: var(--color-secondary);">
+    Call별 실행 통계를 시각적으로 분석합니다. 색상이 진할수록 성능 이슈가 있을 수 있습니다.
+    <span title="성능점수: 빠르고 안정적일수록 높음 (최고 100점) / 평균: 낮을수록 빠름 / 표준편차: 낮을수록 안정적 / 변동계수: 낮을수록 일관성 높음"
+          style="cursor: help; margin-left: 4px; vertical-align: middle;">
+        <span class="material-icons" style="font-size:18px; color:var(--color-secondary);">help_outline</span>
+    </span>
+</p>
 
-    @* 필터 및 컨트롤 패널 *@
-    <MudPaper Class="pa-4 mb-4" Elevation="2">
-        <MudGrid>
-            <MudItem xs="12" sm="6" md="4">
-                <MudSelect T="HeatmapMetric"
-                           Label="표시 메트릭"
-                           @bind-Value="SelectedMetric"
-                           Variant="Variant.Outlined"
-                           AdornmentIcon="@Icons.Material.Filled.BarChart"
-                           AdornmentColor="Color.Primary">
+@* 필터 및 컨트롤 패널 *@
+<div class="card mb-4" style="padding:16px; box-shadow: var(--shadow-2);">
+    <div class="grid" style="gap:8px;">
+        <div class="grid-item-4">
+            <div class="form-group">
+                <label class="form-label">표시 메트릭</label>
+                <select class="form-select" @onchange="OnMetricChanged">
                     @foreach (var metric in AvailableMetrics)
                     {
-                        <MudSelectItem Value="@metric">
+                        <option value="@metric" selected="@(metric.Equals(SelectedMetric))">
                             @HeatmapService.GetMetricDisplayName(metric)
-                        </MudSelectItem>
+                        </option>
                     }
-                </MudSelect>
-            </MudItem>
+                </select>
+            </div>
+        </div>
+        <div class="grid-item-4">
+            <div class="form-group">
+                <label class="form-label">Flow 필터</label>
+                <input class="form-field" @bind="FlowFilter" placeholder="Flow 이름 검색..." />
+            </div>
+        </div>
+        <div class="grid-item-4 d-flex" style="align-items:flex-end; gap:8px;">
+            <button class="btn btn-filled mr-2" @onclick="LoadDataAsync">
+                <span class="material-icons" style="font-size:18px;">refresh</span> 새로고침
+            </button>
+            <button class="btn btn-outlined" @onclick="ToggleAllGroups">
+                <span class="material-icons" style="font-size:18px;">@(AllExpanded ? "unfold_less" : "unfold_more")</span>
+                @(AllExpanded ? "모두 접기" : "모두 펼치기")
+            </button>
+        </div>
+    </div>
+</div>
 
-            <MudItem xs="12" sm="6" md="4">
-                <MudTextField @bind-Value="FlowFilter"
-                              Label="Flow 필터"
-                              Variant="Variant.Outlined"
-                              Adornment="Adornment.Start"
-                              AdornmentIcon="@Icons.Material.Filled.Search"
-                              Placeholder="Flow 이름 검색..."
-                              Clearable="true" />
-            </MudItem>
+@* 로딩 표시 *@
+@if (IsLoading)
+{
+    <div class="progress-bar mb-4" style="height:4px;">
+        <div style="width:100%; background:var(--color-primary); height:100%; animation: indeterminate 1.5s infinite;"></div>
+    </div>
+}
 
-            <MudItem xs="12" sm="12" md="4" Class="d-flex align-center">
-                <MudButton Variant="Variant.Filled"
-                           Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.Refresh"
-                           OnClick="LoadDataAsync"
-                           Class="mr-2">
-                    새로고침
-                </MudButton>
-                <MudButton Variant="Variant.Outlined"
-                           Color="Color.Secondary"
-                           StartIcon="@(AllExpanded ? Icons.Material.Filled.UnfoldLess : Icons.Material.Filled.UnfoldMore)"
-                           OnClick="ToggleAllGroups">
-                    @(AllExpanded ? "모두 접기" : "모두 펼치기")
-                </MudButton>
-            </MudItem>
-        </MudGrid>
-    </MudPaper>
+@* 데이터 없음 *@
+@if (!IsLoading && FilteredGroups.Count == 0)
+{
+    <div class="alert alert-info mb-4">
+        <span class="material-icons">info</span>
+        표시할 데이터가 없습니다. PLC 데이터가 수집되면 자동으로 표시됩니다.
+    </div>
+}
 
-    @* 로딩 표시 *@
-    @if (IsLoading)
-    {
-        <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-4" />
-    }
+@* Heatmap 범례 *@
+@if (!IsLoading && FilteredGroups.Count > 0)
+{
+    <div class="card mb-4" style="padding:16px; box-shadow: var(--shadow-1);">
+        <span class="typo-subtitle2 mb-2" style="display:block;"
+              title="선택한 메트릭에 따라 색상이 자동으로 할당됩니다. 성능점수는 높을수록 좋고, 나머지는 낮을수록 좋습니다.">
+            <span style="border-bottom: 1px dotted; cursor: help;">범례</span>
+        </span>
+        <div class="d-flex" style="flex-wrap:wrap; align-items:center; gap:4px;">
+            <div class="heatmap-legend-item" title="성능점수 90점 이상 또는 변동계수 0.1 미만 - 매우 안정적이고 빠른 동작">
+                <div class="heatmap-cell heatmap-excellent"></div>
+                <span class="typo-caption">우수</span>
+            </div>
+            <div class="heatmap-legend-item" title="성능점수 70-90점 또는 변동계수 0.1-0.2 - 양호한 성능">
+                <div class="heatmap-cell heatmap-good"></div>
+                <span class="typo-caption">양호</span>
+            </div>
+            <div class="heatmap-legend-item" title="성능점수 50-70점 또는 변동계수 0.2-0.3 - 보통 수준의 성능">
+                <div class="heatmap-cell heatmap-fair"></div>
+                <span class="typo-caption">보통</span>
+            </div>
+            <div class="heatmap-legend-item" title="성능점수 30-50점 또는 변동계수 0.3-0.5 - 개선이 필요한 수준">
+                <div class="heatmap-cell heatmap-poor"></div>
+                <span class="typo-caption">개선 필요</span>
+            </div>
+            <div class="heatmap-legend-item" title="성능점수 30점 미만 또는 변동계수 0.5 이상 - 심각한 성능 문제, 즉시 점검 필요">
+                <div class="heatmap-cell heatmap-critical"></div>
+                <span class="typo-caption">심각</span>
+            </div>
+        </div>
+    </div>
+}
 
-    @* 데이터 없음 *@
-    @if (!IsLoading && FilteredGroups.Count == 0)
-    {
-        <MudAlert Severity="Severity.Info" Class="mb-4">
-            표시할 데이터가 없습니다. PLC 데이터가 수집되면 자동으로 표시됩니다.
-        </MudAlert>
-    }
+@* Flow 그룹별 Heatmap *@
+@foreach (var group in FilteredGroups)
+{
+    <div class="card mb-4" style="padding:16px; box-shadow: var(--shadow-2);">
+        <div class="d-flex" style="align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <div class="d-flex" style="align-items:center; gap:4px;">
+                <button class="btn-icon" @onclick="@(() => group.IsExpanded = !group.IsExpanded)">
+                    <span class="material-icons">@(group.IsExpanded ? "expand_more" : "chevron_right")</span>
+                </button>
+                <h6 class="typo-h6">@group.FlowName</h6>
+                <span class="chip ml-2" style="background:var(--color-info); color:white;">
+                    @group.CallCount Calls
+                </span>
+            </div>
+            <span class="typo-body2" style="color:var(--color-text-secondary);">
+                평균: @HeatmapService.FormatMetricValue(SelectedMetric, GetFlowAverageValue(group))
+            </span>
+        </div>
 
-    @* Heatmap 범례 *@
-    @if (!IsLoading && FilteredGroups.Count > 0)
-    {
-        <MudPaper Class="pa-4 mb-4" Elevation="1">
-            <MudText Typo="Typo.subtitle2" Class="mb-2">
-                <MudTooltip Text="선택한 메트릭에 따라 색상이 자동으로 할당됩니다. 성능점수는 높을수록 좋고, 나머지는 낮을수록 좋습니다.">
-                    <span style="border-bottom: 1px dotted; cursor: help;">범례</span>
-                </MudTooltip>
-            </MudText>
-            <MudGrid>
-                <MudItem xs="12" Class="d-flex flex-wrap align-center">
-                    <MudTooltip Text="성능점수 90점 이상 또는 변동계수 0.1 미만 - 매우 안정적이고 빠른 동작">
-                        <div class="heatmap-legend-item">
-                            <div class="heatmap-cell heatmap-excellent"></div>
-                            <MudText Typo="Typo.caption">우수</MudText>
-                        </div>
-                    </MudTooltip>
-                    <MudTooltip Text="성능점수 70-90점 또는 변동계수 0.1-0.2 - 양호한 성능">
-                        <div class="heatmap-legend-item">
-                            <div class="heatmap-cell heatmap-good"></div>
-                            <MudText Typo="Typo.caption">양호</MudText>
-                        </div>
-                    </MudTooltip>
-                    <MudTooltip Text="성능점수 50-70점 또는 변동계수 0.2-0.3 - 보통 수준의 성능">
-                        <div class="heatmap-legend-item">
-                            <div class="heatmap-cell heatmap-fair"></div>
-                            <MudText Typo="Typo.caption">보통</MudText>
-                        </div>
-                    </MudTooltip>
-                    <MudTooltip Text="성능점수 30-50점 또는 변동계수 0.3-0.5 - 개선이 필요한 수준">
-                        <div class="heatmap-legend-item">
-                            <div class="heatmap-cell heatmap-poor"></div>
-                            <MudText Typo="Typo.caption">개선 필요</MudText>
-                        </div>
-                    </MudTooltip>
-                    <MudTooltip Text="성능점수 30점 미만 또는 변동계수 0.5 이상 - 심각한 성능 문제, 즉시 점검 필요">
-                        <div class="heatmap-legend-item">
-                            <div class="heatmap-cell heatmap-critical"></div>
-                            <MudText Typo="Typo.caption">심각</MudText>
-                        </div>
-                    </MudTooltip>
-                </MudItem>
-            </MudGrid>
-        </MudPaper>
-    }
-
-    @* Flow 그룹별 Heatmap *@
-    @foreach (var group in FilteredGroups)
-    {
-        <MudPaper Class="pa-4 mb-4" Elevation="2">
-            <MudGrid>
-                <MudItem xs="12">
-                    <div class="d-flex align-center justify-space-between">
-                        <div class="d-flex align-center">
-                            <MudIconButton Icon="@(group.IsExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
-                                           Size="Size.Small"
-                                           OnClick="@(() => group.IsExpanded = !group.IsExpanded)" />
-                            <MudText Typo="Typo.h6">@group.FlowName</MudText>
-                            <MudChip T="string" Size="Size.Small" Color="Color.Info" Class="ml-2">
-                                @group.CallCount Calls
-                            </MudChip>
-                        </div>
-                        <MudText Typo="Typo.body2" Color="Color.Secondary">
-                            평균: @HeatmapService.FormatMetricValue(SelectedMetric, GetFlowAverageValue(group))
-                        </MudText>
-                    </div>
-                </MudItem>
-
-                @if (group.IsExpanded)
-                {
-                    <MudItem xs="12">
-                        <MudTable Items="@group.Calls"
-                                  Dense="true"
-                                  Hover="true"
-                                  Breakpoint="Breakpoint.Sm"
-                                  Class="heatmap-table">
-                            <HeaderContent>
-                                <MudTh>Call</MudTh>
-                                <MudTh>Work</MudTh>
-                                <MudTh Style="text-align: center;">
-                                    <MudTooltip Text="Call의 평균 실행 시간입니다. Going 상태가 시작되고 종료될 때까지의 평균 소요 시간을 밀리초 단위로 표시합니다.">
-                                        <span style="border-bottom: 1px dotted; cursor: help;">평균 (ms)</span>
-                                    </MudTooltip>
-                                </MudTh>
-                                <MudTh Style="text-align: center;">
-                                    <MudTooltip Text="실행 시간의 표준편차입니다. 값이 클수록 실행 시간의 변동이 크다는 의미로, 동작이 불안정할 수 있음을 나타냅니다.">
-                                        <span style="border-bottom: 1px dotted; cursor: help;">표준편차 (ms)</span>
-                                    </MudTooltip>
-                                </MudTh>
-                                <MudTh Style="text-align: center;">
-                                    <MudTooltip Text="변동계수 (CV)는 표준편차를 평균으로 나눈 값입니다. 실행 시간의 상대적 변동성을 나타내며, 0.1 미만은 안정적, 0.3 이상은 불안정한 것으로 판단합니다.">
-                                        <span style="border-bottom: 1px dotted; cursor: help;">변동계수</span>
-                                    </MudTooltip>
-                                </MudTh>
-                                <MudTh Style="text-align: center;">
-                                    <MudTooltip Text="평균 실행 시간과 변동계수를 종합하여 계산한 성능 점수입니다. 100점 만점이며, 점수가 높을수록 빠르고 안정적입니다. 90점 이상: 우수, 70-90: 양호, 50-70: 보통, 30-50: 개선 필요, 30점 미만: 심각">
-                                        <span style="border-bottom: 1px dotted; cursor: help;">성능점수</span>
-                                    </MudTooltip>
-                                </MudTh>
-                                <MudTh Style="text-align: center;">
-                                    <MudTooltip Text="Call이 Going 상태로 전환된 총 횟수입니다. 샘플 수가 많을수록 통계의 신뢰도가 높아집니다.">
-                                        <span style="border-bottom: 1px dotted; cursor: help;">실행횟수</span>
-                                    </MudTooltip>
-                                </MudTh>
-                                <MudTh Style="text-align: center;">@HeatmapService.GetMetricDisplayName(SelectedMetric)</MudTh>
-                            </HeaderContent>
-                            <RowTemplate>
-                                <MudTd DataLabel="Call">@context.CallName</MudTd>
-                                <MudTd DataLabel="Work">@context.WorkName</MudTd>
-                                <MudTd DataLabel="평균" Style="text-align: center;">@($"{context.AverageGoingTime:F0}")</MudTd>
-                                <MudTd DataLabel="표준편차" Style="text-align: center;">@($"{context.StdDevGoingTime:F0}")</MudTd>
-                                <MudTd DataLabel="변동계수" Style="text-align: center;">@($"{context.CoefficientOfVariation:F2}")</MudTd>
-                                <MudTd DataLabel="성능점수" Style="text-align: center;">@($"{context.PerformanceScore:F0}")</MudTd>
-                                <MudTd DataLabel="실행횟수" Style="text-align: center;">@context.GoingCount</MudTd>
-                                <MudTd DataLabel="Heatmap" Style="text-align: center;">
-                                    <MudTooltip Text="@context.GetTooltipText()">
-                                        <div class="heatmap-cell @context.ColorClass">
-                                            @HeatmapService.FormatMetricValue(SelectedMetric, context.GetMetricValue(SelectedMetric))
-                                        </div>
-                                    </MudTooltip>
-                                </MudTd>
-                            </RowTemplate>
-                        </MudTable>
-                    </MudItem>
-                }
-            </MudGrid>
-        </MudPaper>
-    }
+        @if (group.IsExpanded)
+        {
+            <div class="table-container">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Call</th>
+                            <th>Work</th>
+                            <th style="text-align:center;">
+                                <span title="Call의 평균 실행 시간입니다. Going 상태가 시작되고 종료될 때까지의 평균 소요 시간을 밀리초 단위로 표시합니다."
+                                      style="border-bottom:1px dotted; cursor:help;">평균 (ms)</span>
+                            </th>
+                            <th style="text-align:center;">
+                                <span title="실행 시간의 표준편차입니다. 값이 클수록 실행 시간의 변동이 크다는 의미로, 동작이 불안정할 수 있음을 나타냅니다."
+                                      style="border-bottom:1px dotted; cursor:help;">표준편차 (ms)</span>
+                            </th>
+                            <th style="text-align:center;">
+                                <span title="변동계수 (CV)는 표준편차를 평균으로 나눈 값입니다. 실행 시간의 상대적 변동성을 나타내며, 0.1 미만은 안정적, 0.3 이상은 불안정한 것으로 판단합니다."
+                                      style="border-bottom:1px dotted; cursor:help;">변동계수</span>
+                            </th>
+                            <th style="text-align:center;">
+                                <span title="평균 실행 시간과 변동계수를 종합하여 계산한 성능 점수입니다. 100점 만점이며, 점수가 높을수록 빠르고 안정적입니다."
+                                      style="border-bottom:1px dotted; cursor:help;">성능점수</span>
+                            </th>
+                            <th style="text-align:center;">
+                                <span title="Call이 Going 상태로 전환된 총 횟수입니다. 샘플 수가 많을수록 통계의 신뢰도가 높아집니다."
+                                      style="border-bottom:1px dotted; cursor:help;">실행횟수</span>
+                            </th>
+                            <th style="text-align:center;">@HeatmapService.GetMetricDisplayName(SelectedMetric)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var call in group.Calls)
+                        {
+                            <tr>
+                                <td>@call.CallName</td>
+                                <td>@call.WorkName</td>
+                                <td style="text-align:center;">@($"{call.AverageGoingTime:F0}")</td>
+                                <td style="text-align:center;">@($"{call.StdDevGoingTime:F0}")</td>
+                                <td style="text-align:center;">@($"{call.CoefficientOfVariation:F2}")</td>
+                                <td style="text-align:center;">@($"{call.PerformanceScore:F0}")</td>
+                                <td style="text-align:center;">@call.GoingCount</td>
+                                <td style="text-align:center;">
+                                    <div class="heatmap-cell @call.ColorClass" title="@call.GetTooltipText()">
+                                        @HeatmapService.FormatMetricValue(SelectedMetric, call.GetMetricValue(SelectedMetric))
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
 
 @code {
     private List<FlowHeatmapGroup> AllGroups { get; set; } = new();
@@ -216,7 +187,6 @@
         ? AllGroups
         : AllGroups.Where(g => g.FlowName.Contains(FlowFilter, StringComparison.OrdinalIgnoreCase)).ToList();
 
-    // F# discriminated union 값들을 직접 나열
     private readonly List<HeatmapMetric> AvailableMetrics = new()
     {
         HeatmapMetric.AverageTime,
@@ -234,7 +204,7 @@
             if (_selectedMetric != value)
             {
                 _selectedMetric = value;
-                _ = LoadDataAsync(); // 메트릭 변경 시 재계산
+                _ = LoadDataAsync();
             }
         }
     }
@@ -268,6 +238,14 @@
             IsLoading = false;
             StateHasChanged();
         }
+    }
+
+    private void OnMetricChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        var match = AvailableMetrics.FirstOrDefault(m => m.ToString() == val);
+        if (match is not null)
+            SelectedMetric = match;
     }
 
     private void ToggleAllGroups()

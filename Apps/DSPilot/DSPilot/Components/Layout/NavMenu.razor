@@ -3,49 +3,47 @@
 @inject NavigationManager Nav
 @inject DashboardEditService EditService
 
-<MudNavMenu Color="Color.Primary">
+<nav class="nav-menu">
     <div style="display:flex; align-items:center; border-radius:4px;
-                background: @(_isHome ? "rgba(var(--mud-palette-primary-rgb), 0.15)" : "transparent");">
-        <MudNavLink Href="/" Match="NavLinkMatch.All"
-                    Icon="@Icons.Material.Filled.SpaceDashboard"
-                    Style="flex:1; min-width:0; background: transparent !important;">
+                background: @(_isHome ? "rgba(var(--color-primary-rgb), 0.15)" : "transparent");">
+        <NavLink class="nav-link" href="" Match="NavLinkMatch.All"
+                 style="flex:1; min-width:0; background: transparent !important;">
+            <span class="material-icons">space_dashboard</span>
             대시보드
-        </MudNavLink>
-        <MudButton Size="Size.Small"
-                   Variant="@(EditService.IsEditing ? Variant.Filled : Variant.Outlined)"
-                   Color="@(EditService.IsEditing ? Color.Warning : Color.Primary)"
-                   StartIcon="@(EditService.IsEditing ? Icons.Material.Filled.Check : Icons.Material.Filled.DashboardCustomize)"
-                   OnClick="EditService.Toggle"
-                   Style="margin:0 6px; padding:0 10px; min-width:0; font-size:11px; height:28px; border-radius:6px; flex-shrink:0;">
+        </NavLink>
+        <button class="btn btn-sm @(EditService.IsEditing ? "btn-filled color-warning" : "btn-outlined")"
+                @onclick="EditService.Toggle"
+                style="margin:0 6px; padding:0 10px; min-width:0; font-size:11px; height:28px; border-radius:6px; flex-shrink:0;">
+            <span class="material-icons" style="font-size:14px;">@(EditService.IsEditing ? "check" : "dashboard_customize")</span>
             @(EditService.IsEditing ? "완료" : "편집")
-        </MudButton>
+        </button>
     </div>
-    <MudNavLink Href="/chart" Match="NavLinkMatch.Prefix"
-                Icon="@Icons.Material.Filled.BarChart">
+    <NavLink class="nav-link" href="chart" Match="NavLinkMatch.Prefix">
+        <span class="material-icons">bar_chart</span>
         상세정보
-    </MudNavLink>
-    <MudNavLink Href="/heatmap" Match="NavLinkMatch.Prefix"
-                Icon="@Icons.Material.Filled.Gradient">
+    </NavLink>
+    <NavLink class="nav-link" href="heatmap" Match="NavLinkMatch.Prefix">
+        <span class="material-icons">gradient</span>
         동작편차
-    </MudNavLink>
-    <MudNavLink Href="/cycle" Match="NavLinkMatch.Prefix"
-                Icon="@Icons.Material.Filled.Timeline">
+    </NavLink>
+    <NavLink class="nav-link" href="cycle" Match="NavLinkMatch.Prefix">
+        <span class="material-icons">timeline</span>
         Cycle 분석
-    </MudNavLink>
+    </NavLink>
 
-    <MudDivider Class="my-2" />
+    <hr class="divider" style="margin: 8px 0;" />
 
     @if (!ProjectService.IsLoaded)
     {
-        <MudText Typo="Typo.caption" Class="px-4 py-2" Color="Color.Tertiary">
+        <span class="typo-caption" style="padding: 8px 16px; display:block; color: var(--color-tertiary);">
             No project loaded
-        </MudText>
+        </span>
     }
     else
     {
         @foreach (var systemFlows in _systemFlowMap)
         {
-            <MudText Typo="Typo.h6" Class="px-4 mt-2 mb-1" Style="font-weight:700;">@systemFlows.Key</MudText>
+            <div class="typo-h6" style="padding: 8px 16px 4px; font-weight:700;">@systemFlows.Key</div>
             <div style="margin-left: 24px;">
                 @{ var flowList = systemFlows.Value; }
                 @for (int i = 0; i < flowList.Count; i++)
@@ -58,16 +56,16 @@
                        @onclick="@(() => _selectedFlow = flow.Name)"
                        style="position: relative; padding: 4px 0 4px 16px; cursor: pointer; border-radius: 4px;
                               text-decoration: none; display: block;
-                              background: @(isSelected ? "rgba(var(--mud-palette-primary-rgb), 0.15)" : "transparent");">
+                              background: @(isSelected ? "rgba(var(--color-primary-rgb), 0.15)" : "transparent");">
                         <span style="position: absolute; left: 0; top: 0;
                                      width: 1px; height: @(isLast ? "50%" : "100%");
-                                     background: var(--mud-palette-lines-default, #ccc);"></span>
+                                     background: var(--color-lines);"></span>
                         <span style="position: absolute; left: 0; top: 50%;
                                      width: 12px; height: 1px;
-                                     background: var(--mud-palette-lines-default, #ccc);"></span>
+                                     background: var(--color-lines);"></span>
                         <span style="font-size: 0.875rem;
                                      font-weight: @(isSelected ? "700" : "400");
-                                     color: @(isSelected ? "var(--mud-palette-primary)" : "var(--mud-palette-drawer-text, #424242)");">
+                                     color: @(isSelected ? "var(--color-primary)" : "var(--color-drawer-text)");">
                             @flow.Name
                         </span>
                     </a>
@@ -75,7 +73,7 @@
             </div>
         }
     }
-</MudNavMenu>
+</nav>
 
 @code {
     private Dictionary<string, List<Ds2.Core.Flow>> _systemFlowMap = new();

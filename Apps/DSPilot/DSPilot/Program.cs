@@ -1,4 +1,3 @@
-using MudBlazor.Services;
 using DSPilot.Services;
 using DSPilot.Repositories;
 using DSPilot.Abstractions;
@@ -16,7 +15,6 @@ if (args.Contains("--diagnose"))
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-builder.Services.AddMudServices();
 builder.Services.AddSingleton<AppSettingsService>();
 builder.Services.AddSingleton<DsProjectService>();
 builder.Services.AddScoped<DashboardEditService>();
