@@ -42,9 +42,12 @@ class Program
             Console.WriteLine("  3. DB Verifier");
             Console.WriteLine("     - Verify DB schema and data");
             Console.WriteLine();
+            Console.WriteLine("  4. Unified DB Test");
+            Console.WriteLine("     - Test unified mode (plc.db) schema & CRUD");
+            Console.WriteLine();
             Console.WriteLine("  0. Exit");
             Console.WriteLine();
-            Console.Write("Enter selection (0-3): ");
+            Console.Write("Enter selection (0-4): ");
 
             var choice = Console.ReadLine()?.Trim();
             Console.WriteLine();
@@ -80,6 +83,11 @@ class Program
                             dbVerifyPath = "C:/ds/ds2/Apps/DSPilot/DSPilot/sample/db/dsdb_capture.sqlite3";
                         }
                         await DbVerifier.RunAsync(dbVerifyPath);
+                        break;
+
+                    case "4":
+                        Console.WriteLine("=== Unified DB Test ===");
+                        await UnifiedDbTest.RunAsync();
                         break;
 
                     case "0":

@@ -14,6 +14,10 @@ public class DspDbService : IDisposable
     private readonly object _snapshotLock = new();
     private DspDbSnapshot _snapshot = new();
 
+    // Table names: dspFlow/dspCall in unified mode, Flow/Call in split mode
+    private readonly string _flowTable;
+    private readonly string _callTable;
+
     // Going 상태 추적: CallName → Going 시작 시간
     private readonly Dictionary<string, DateTime> _goingStartTimes = new();
 
@@ -34,16 +38,20 @@ public class DspDbService : IDisposable
 
     public event Action? OnDataChanged;
 
-    public DspDbService(IConfiguration configuration, ILogger<DspDbService> logger)
+    public DspDbService(
+        IConfiguration configuration,
+        IDatabasePathResolver pathResolver,
+        ILogger<DspDbService> logger)
     {
         _logger = logger;
 
-        var configPath = configuration["DspDatabase:Path"];
-        _dbPath = !string.IsNullOrEmpty(configPath)
-            ? Environment.ExpandEnvironmentVariables(configPath)
-            : Path.Combine(
-                  Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                  "DSPilot", "dsp.db");
+        // Unified 모드: 항상 dsp* 접두사 테이블 사용
+        _dbPath = pathResolver.GetSharedDbPath();
+        _flowTable = "dspFlow";
+        _callTable = "dspCall";
+
+        _logger.LogInformation("DspDbService using tables: {FlowTable}/{CallTable} at {DbPath}",
+            _flowTable, _callTable, _dbPath);
 
         _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         _progressTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(300));
@@ -325,9 +333,17 @@ public class DspDbService : IDisposable
             using var conn = new SqliteConnection(connStr);
             conn.Open();
 
+            // Check if tables exist before querying
+            if (!TableExists(conn, _flowTable) || !TableExists(conn, _callTable))
+            {
+                _logger.LogDebug("Tables {FlowTable} or {CallTable} do not exist yet. Waiting for schema initialization.",
+                    _flowTable, _callTable);
+                return;
+            }
+
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = "SELECT Id, FlowName, MT, WT, State, MovingStartName, MovingEndName FROM Flow";
+                cmd.CommandText = $"SELECT Id, FlowName, MT, WT, State, MovingStartName, MovingEndName FROM {_flowTable}";
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
@@ -346,8 +362,8 @@ public class DspDbService : IDisposable
 
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = @"SELECT Id, CallName, FlowName, WorkName, State, ProgressRate,
-                    GoingCount, AverageGoingTime, Device, ErrorText FROM Call";
+                cmd.CommandText = $@"SELECT Id, CallName, FlowName, WorkName, State, ProgressRate,
+                    GoingCount, AverageGoingTime, Device, ErrorText FROM {_callTable}";
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
@@ -467,6 +483,15 @@ public class DspDbService : IDisposable
         {
             _logger.LogWarning(ex, "Failed to read dsp.db");
         }
+    }
+
+    private bool TableExists(SqliteConnection connection, string tableName)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=@tableName";
+        cmd.Parameters.AddWithValue("@tableName", tableName);
+        var count = (long)(cmd.ExecuteScalar() ?? 0L);
+        return count > 0;
     }
 
     public void Dispose()

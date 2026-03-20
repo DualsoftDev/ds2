@@ -1,0 +1,735 @@
+@page "/signal-chart"
+@using DSPilot.Services
+@inject DsProjectService ProjectService
+@inject DspDbService DspDbService
+@inject PlcToCallMapperService MapperService
+@inject SignalTimelineBufferService TimelineBuffer
+@inject ILogger<SignalChart> Logger
+@implements IDisposable
+
+<PageTitle>신호 타임라인 - DSPilot</PageTitle>
+
+<style>
+    .signal-timeline-page {
+        display: flex;
+        flex: 1 1 auto;
+        min-height: 0;
+        flex-direction: column;
+    }
+
+    .signal-timeline-stage {
+        flex: 1 1 auto;
+        min-height: 420px;
+        height: calc(100vh - 250px);
+        max-height: calc(100vh - 250px);
+        overflow: auto;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+        border: 1px solid #d7e2f0;
+        border-radius: 12px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+        scrollbar-gutter: stable both-edges;
+    }
+
+    .signal-timeline-header,
+    .signal-timeline-row {
+        display: grid;
+        align-items: stretch;
+    }
+
+    .signal-timeline-header {
+        position: sticky;
+        top: 0;
+        z-index: 8;
+        border-bottom: 1px solid #d7e2f0;
+    }
+
+    .signal-timeline-header-label,
+    .signal-timeline-row-label {
+        position: sticky;
+        left: 0;
+        box-sizing: border-box;
+    }
+
+    .signal-timeline-header-label {
+        z-index: 10;
+        padding: 12px 14px;
+        background: #16233e;
+        color: #f8fafc;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+    }
+
+    .signal-timeline-header-scale {
+        position: relative;
+        min-height: 52px;
+        background: #0f172a;
+        overflow: hidden;
+    }
+
+    .signal-timeline-tick-line {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: rgba(191, 219, 254, 0.22);
+        pointer-events: none;
+    }
+
+    .signal-timeline-tick {
+        position: absolute;
+        top: 8px;
+        transform: translateX(-50%);
+        color: #dbeafe;
+        font-size: 10px;
+        font-weight: 600;
+        white-space: nowrap;
+        pointer-events: none;
+    }
+
+    .signal-timeline-row {
+        min-height: 64px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+    }
+
+    .signal-timeline-row-label {
+        z-index: 4;
+        padding: 8px 14px 10px;
+        background: rgba(248, 250, 252, 0.98);
+        border-right: 1px solid rgba(148, 163, 184, 0.16);
+        box-shadow: 1px 0 0 rgba(148, 163, 184, 0.08);
+        overflow: hidden;
+    }
+
+    .signal-timeline-name {
+        color: #0f172a;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .signal-timeline-meta {
+        margin-top: 4px;
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .signal-timeline-row-track {
+        position: relative;
+        min-height: 64px;
+        background-color: rgba(255, 255, 255, 0.96);
+        background-image:
+            linear-gradient(to right, rgba(148, 163, 184, 0.18) 1px, transparent 1px),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(248, 250, 252, 0.94));
+        background-size: var(--grid-spacing, 160px) 100%, 100% 100%;
+        background-position: var(--grid-offset, 0px) 0, 0 0;
+        overflow: hidden;
+    }
+
+    .signal-timeline-run {
+        position: absolute;
+        top: 14px;
+        bottom: 14px;
+        min-width: 2px;
+        border-radius: 999px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+    }
+
+    .signal-timeline-run.in-tag {
+        background: linear-gradient(135deg, #177ddc, #5aa7ff);
+    }
+
+    .signal-timeline-run.out-tag {
+        background: linear-gradient(135deg, #f28c28, #ffb454);
+    }
+
+    .signal-chart-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+    }
+
+    .signal-chart-legend {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+        font-size: 12px;
+        color: #51627a;
+    }
+
+    .signal-chart-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .signal-chart-legend-swatch {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+    }
+
+    .signal-chart-legend-swatch.in-tag {
+        background: linear-gradient(135deg, #177ddc, #5aa7ff);
+    }
+
+    .signal-chart-legend-swatch.out-tag {
+        background: linear-gradient(135deg, #f28c28, #ffb454);
+    }
+
+    .signal-chart-tip {
+        font-size: 12px;
+        color: #70839d;
+    }
+
+    .signal-chart-empty {
+        padding: 48px 16px;
+        color: #64748b;
+        text-align: center;
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    @@media (max-width: 960px) {
+        .signal-timeline-stage {
+            height: calc(100vh - 300px);
+            max-height: calc(100vh - 300px);
+            min-height: 360px;
+        }
+    }
+</style>
+
+<MudText Typo="Typo.h5" Class="mb-3" Style="font-weight: 600; color: #0A1E5A;">실시간 신호 타임라인</MudText>
+
+@if (!ProjectService.IsLoaded)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        No project loaded.
+    </MudAlert>
+}
+else
+{
+    <div class="signal-timeline-page">
+        <MudCard Elevation="1" Class="mb-2">
+            <MudCardContent Class="py-2">
+                <MudGrid Spacing="2">
+                    <MudItem xs="6" md="2">
+                        <MudSelect T="string"
+                                   Label="Flow"
+                                   Value="_selectedFlow"
+                                   ValueChanged="OnFlowChanged"
+                                   Variant="Variant.Outlined"
+                                   Margin="Margin.Dense"
+                                   Clearable="true">
+                            @foreach (var flow in _flowNames)
+                            {
+                                <MudSelectItem Value="@flow">@flow</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="6" md="3">
+                        <MudTextField T="string"
+                                      Label="검색"
+                                      Value="_searchText"
+                                      ValueChanged="OnSearchChanged"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Adornment="Adornment.Start"
+                                      AdornmentIcon="@Icons.Material.Filled.Search" />
+                    </MudItem>
+                    <MudItem xs="6" md="2">
+                        <MudSelect T="int"
+                                   Label="조회 범위"
+                                   Value="_timeRangeSeconds"
+                                   ValueChanged="OnTimeRangeChanged"
+                                   Variant="Variant.Outlined"
+                                   Margin="Margin.Dense">
+                            <MudSelectItem Value="30">30초</MudSelectItem>
+                            <MudSelectItem Value="60">1분</MudSelectItem>
+                            <MudSelectItem Value="120">2분</MudSelectItem>
+                            <MudSelectItem Value="300">5분</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="6" md="2">
+                        <MudSelect T="int"
+                                   Label="축 배율"
+                                   Value="_zoomScale"
+                                   ValueChanged="OnZoomChanged"
+                                   Variant="Variant.Outlined"
+                                   Margin="Margin.Dense">
+                            <MudSelectItem Value="1">1x</MudSelectItem>
+                            <MudSelectItem Value="2">2x</MudSelectItem>
+                            <MudSelectItem Value="4">4x</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" md="3">
+                        <div class="signal-chart-meta">
+                            <MudText Typo="Typo.body2">
+                                <strong>@_filteredSignals.Count</strong> / @_signalData.Count 신호 |
+                                최신 이벤트: <strong>@_lastUpdateTime.ToString("HH:mm:ss.fff")</strong>
+                            </MudText>
+                            <div class="signal-chart-legend">
+                                <span class="signal-chart-legend-item">
+                                    <span class="signal-chart-legend-swatch in-tag"></span>
+                                    In Tag
+                                </span>
+                                <span class="signal-chart-legend-item">
+                                    <span class="signal-chart-legend-swatch out-tag"></span>
+                                    Out Tag
+                                </span>
+                            </div>
+                        </div>
+                    </MudItem>
+                </MudGrid>
+                <div class="signal-chart-tip">
+                    X축은 가로 스크롤로 이동합니다. bar 위치와 길이는 구간 칸이 아니라 실제 이벤트 timestamp(ms) 기준으로 계산합니다.
+                </div>
+                <div class="signal-chart-tip">
+                    범위: @_windowStart.ToString("HH:mm:ss.fff") ~ @_windowEnd.ToString("HH:mm:ss.fff")
+                </div>
+            </MudCardContent>
+        </MudCard>
+
+        @if (_signalData.Count == 0)
+        {
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                표시할 신호가 없습니다. 프로젝트 Call/Tag 매핑을 확인하세요.
+            </MudAlert>
+        }
+        else
+        {
+            <div class="signal-timeline-stage">
+                <div class="signal-timeline-header" style="@GetGridStyle()">
+                    <div class="signal-timeline-header-label">Signal / Address</div>
+                    <div class="signal-timeline-header-scale" style="@GetHeaderScaleStyle()">
+                        @foreach (var tick in _timelineTicks)
+                        {
+                            <div class="signal-timeline-tick-line" style="@GetTickLineStyle(tick)"></div>
+                            <div class="signal-timeline-tick" style="@GetTickLabelStyle(tick)">@tick.Label</div>
+                        }
+                    </div>
+                </div>
+
+                @if (_filteredSignals.Count == 0)
+                {
+                    <div class="signal-chart-empty">필터 조건에 맞는 신호가 없습니다.</div>
+                }
+                else
+                {
+                    <Virtualize TItem="SignalData"
+                                Items="@_filteredSignals"
+                                Context="signal"
+                                ItemSize="@ChartRowHeight"
+                                OverscanCount="8">
+                        <div class="signal-timeline-row" style="@GetGridStyle()" @key="signal.Key">
+                            <div class="signal-timeline-row-label" title="@signal.DisplayName">
+                                <div class="signal-timeline-name">@signal.DisplayName</div>
+                                <div class="signal-timeline-meta">@signal.Address.ToUpperInvariant() [@(signal.TagType == "out-tag" ? "OUT" : "IN")]</div>
+                            </div>
+                            <div class="signal-timeline-row-track" style="@GetTrackStyle()">
+                                @foreach (var run in signal.Runs)
+                                {
+                                    <div class="signal-timeline-run @signal.TagType"
+                                         style="@GetRunStyle(run)"
+                                         title="@GetRunTitle(run)"></div>
+                                }
+                            </div>
+                        </div>
+                    </Virtualize>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private const int ChartRowHeight = 64;
+    private const double LabelWidthPx = 360d;
+    private const double BasePixelsPerSecond = 40d;
+    private const double MinTimelineWidthPx = 1200d;
+    private const double DesiredTickSpacingPx = 140d;
+    private static readonly int[] TickIntervalsMs = [10, 25, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000];
+
+    private DateTime _lastUpdateTime = DateTime.Now;
+    private DateTime _windowStart = DateTime.Now.AddSeconds(-60);
+    private DateTime _windowEnd = DateTime.Now;
+    private string? _selectedFlow;
+    private string _searchText = "";
+    private int _timeRangeSeconds = 60;
+    private int _zoomScale = 2;
+    private double _timelineWidthPx = MinTimelineWidthPx;
+    private double _tickSpacingPx = 160d;
+    private double _tickOffsetPx;
+    private List<string> _flowNames = new();
+    private List<SignalData> _signalData = new();
+    private List<SignalData> _filteredSignals = new();
+    private List<TimelineTick> _timelineTicks = [];
+    private int _lastSnapshotFlowCount = -1;
+    private int _lastSnapshotCallCount = -1;
+    private int _timelineRefreshQueued;
+    private bool _disposed;
+
+    protected override Task OnInitializedAsync()
+    {
+        if (!ProjectService.IsLoaded)
+            return Task.CompletedTask;
+
+        DspDbService.OnDataChanged += HandleDspDbChanged;
+        TimelineBuffer.OnUpdated += HandleTimelineUpdated;
+
+        LoadSignalMetadata();
+        RefreshFilteredSignals();
+        RefreshTimeline();
+        return Task.CompletedTask;
+    }
+
+    private void OnFlowChanged(string? value)
+    {
+        _selectedFlow = value;
+        RefreshFilteredSignals();
+        RefreshTimeline();
+        StateHasChanged();
+    }
+
+    private void OnSearchChanged(string? value)
+    {
+        _searchText = value?.Trim() ?? "";
+        RefreshFilteredSignals();
+        RefreshTimeline();
+        StateHasChanged();
+    }
+
+    private async Task OnTimeRangeChanged(int value)
+    {
+        if (_timeRangeSeconds == value)
+            return;
+
+        _timeRangeSeconds = value;
+        RefreshTimeline();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnZoomChanged(int value)
+    {
+        if (_zoomScale == value)
+            return;
+
+        _zoomScale = value;
+        RefreshTimeline();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void LoadSignalMetadata()
+    {
+        try
+        {
+            _lastSnapshotFlowCount = DspDbService.Snapshot.Flows.Count;
+            _lastSnapshotCallCount = DspDbService.Snapshot.Calls.Count;
+
+            _flowNames = DspDbService.Snapshot.Flows
+                .Select(flow => flow.FlowName)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name)
+                .ToList();
+
+            var signals = new List<SignalData>();
+            var signalKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var call in DspDbService.Snapshot.Calls)
+            {
+                var tagKeys = MapperService.GetCallTags(call.CallName);
+                if (tagKeys is null)
+                {
+                    Logger.LogDebug("Call '{CallName}' tag mapping not found, skipping", call.CallName);
+                    continue;
+                }
+
+                TryAddSignal(signals, signalKeys, call, tagKeys.Value.InTag, "in-tag");
+                TryAddSignal(signals, signalKeys, call, tagKeys.Value.OutTag, "out-tag");
+            }
+
+            _signalData = signals;
+            Logger.LogInformation("Loaded {Count} signals from ApiCalls", _signalData.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load signal metadata");
+        }
+    }
+
+    private void TryAddSignal(
+        List<SignalData> signals,
+        HashSet<string> signalKeys,
+        DSPilot.Models.CallState call,
+        string? tagAddress,
+        string tagType)
+    {
+        if (string.IsNullOrWhiteSpace(tagAddress))
+            return;
+
+        var signalKey = $"{call.FlowName}|{call.WorkName}|{call.CallName}|{tagType}";
+        if (!signalKeys.Add(signalKey))
+            return;
+
+        signals.Add(new SignalData
+        {
+            Key = $"{signalKey}|{tagAddress}",
+            CallName = call.CallName,
+            FlowName = call.FlowName,
+            DisplayName = $"{call.FlowName}_{call.CallName}",
+            Address = tagAddress,
+            TagType = tagType
+        });
+    }
+
+    private void HandleDspDbChanged()
+    {
+        if (_disposed)
+            return;
+
+        var flowCount = DspDbService.Snapshot.Flows.Count;
+        var callCount = DspDbService.Snapshot.Calls.Count;
+        if (flowCount == _lastSnapshotFlowCount && callCount == _lastSnapshotCallCount)
+            return;
+
+        _ = InvokeAsync(() =>
+        {
+            LoadSignalMetadata();
+            RefreshFilteredSignals();
+            RefreshTimeline();
+            StateHasChanged();
+            return Task.CompletedTask;
+        });
+    }
+
+    private void HandleTimelineUpdated()
+    {
+        if (_disposed)
+            return;
+
+        if (Interlocked.Exchange(ref _timelineRefreshQueued, 1) == 1)
+            return;
+
+        _ = InvokeAsync(() =>
+        {
+            _timelineRefreshQueued = 0;
+            RefreshTimeline();
+            StateHasChanged();
+            return Task.CompletedTask;
+        });
+    }
+
+    private void RefreshFilteredSignals()
+    {
+        IEnumerable<SignalData> query = _signalData;
+
+        if (!string.IsNullOrWhiteSpace(_selectedFlow))
+        {
+            query = query.Where(signal => signal.FlowName.Equals(_selectedFlow, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(_searchText))
+        {
+            query = query.Where(signal =>
+                signal.DisplayName.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ||
+                signal.CallName.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ||
+                signal.FlowName.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ||
+                signal.Address.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+        }
+
+        _filteredSignals = query
+            .OrderBy(signal => signal.FlowName)
+            .ThenBy(signal => signal.CallName)
+            .ThenBy(signal => signal.TagType)
+            .ToList();
+    }
+
+    private void RefreshTimeline()
+    {
+        var addresses = _filteredSignals
+            .Select(signal => signal.Address)
+            .Where(address => !string.IsNullOrWhiteSpace(address))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var window = TimelineBuffer.BuildTimelineWindow(addresses, _timeRangeSeconds);
+        _windowStart = window.WindowStart;
+        _windowEnd = window.WindowEnd;
+        _lastUpdateTime = window.WindowEnd;
+
+        var durationMs = Math.Max(1d, (_windowEnd - _windowStart).TotalMilliseconds);
+        var pixelsPerSecond = BasePixelsPerSecond * _zoomScale;
+        var pixelsPerMillisecond = pixelsPerSecond / 1000d;
+
+        _timelineWidthPx = Math.Max(MinTimelineWidthPx, Math.Ceiling(durationMs * pixelsPerMillisecond));
+
+        var tickIntervalMs = ChooseTickIntervalMs(pixelsPerMillisecond);
+        _tickSpacingPx = Math.Max(1d, tickIntervalMs * pixelsPerMillisecond);
+        _timelineTicks = BuildTimelineTicks(tickIntervalMs);
+        _tickOffsetPx = _timelineTicks.Count > 0 ? _timelineTicks[0].LeftPx : 0d;
+
+        foreach (var signal in _signalData)
+        {
+            if (window.RangesByAddress.TryGetValue(signal.Address, out var activeRanges))
+            {
+                signal.Runs = BuildRuns(activeRanges, durationMs);
+            }
+            else
+            {
+                signal.Runs = [];
+            }
+        }
+    }
+
+    private List<SignalRunVisual> BuildRuns(
+        List<SignalActiveRange> activeRanges,
+        double durationMs)
+    {
+        var runs = new List<SignalRunVisual>(activeRanges.Count);
+        var pixelsPerMillisecond = _timelineWidthPx / durationMs;
+
+        foreach (var activeRange in activeRanges)
+        {
+            var clippedStart = activeRange.StartTime < _windowStart ? _windowStart : activeRange.StartTime;
+            var clippedEnd = activeRange.EndTime > _windowEnd ? _windowEnd : activeRange.EndTime;
+            if (clippedEnd <= clippedStart)
+                continue;
+
+            var leftPx = (clippedStart - _windowStart).TotalMilliseconds * pixelsPerMillisecond;
+            var widthPx = Math.Max(2d, (clippedEnd - clippedStart).TotalMilliseconds * pixelsPerMillisecond);
+
+            runs.Add(new SignalRunVisual(clippedStart, clippedEnd, leftPx, widthPx));
+        }
+
+        return runs;
+    }
+
+    private List<TimelineTick> BuildTimelineTicks(int tickIntervalMs)
+    {
+        var ticks = new List<TimelineTick>();
+        if (_windowEnd <= _windowStart)
+            return ticks;
+
+        var durationMs = (_windowEnd - _windowStart).TotalMilliseconds;
+        var pixelsPerMillisecond = _timelineWidthPx / Math.Max(1d, durationMs);
+        var firstTick = AlignForward(_windowStart, tickIntervalMs);
+
+        for (var tickTime = firstTick; tickTime <= _windowEnd; tickTime = tickTime.AddMilliseconds(tickIntervalMs))
+        {
+            var leftPx = (tickTime - _windowStart).TotalMilliseconds * pixelsPerMillisecond;
+            ticks.Add(new TimelineTick(leftPx, FormatTickLabel(tickTime, tickIntervalMs)));
+        }
+
+        return ticks;
+    }
+
+    private static int ChooseTickIntervalMs(double pixelsPerMillisecond)
+    {
+        foreach (var candidate in TickIntervalsMs)
+        {
+            if (candidate * pixelsPerMillisecond >= DesiredTickSpacingPx)
+                return candidate;
+        }
+
+        return TickIntervalsMs[^1];
+    }
+
+    private static DateTime AlignForward(DateTime value, int intervalMs)
+    {
+        var intervalTicks = TimeSpan.FromMilliseconds(intervalMs).Ticks;
+        var remainder = value.Ticks % intervalTicks;
+        if (remainder == 0)
+            return value;
+
+        return new DateTime(value.Ticks + (intervalTicks - remainder), value.Kind);
+    }
+
+    private static string FormatTickLabel(DateTime tickTime, int tickIntervalMs)
+    {
+        if (tickIntervalMs < 1000)
+            return tickTime.ToString("mm:ss.fff");
+
+        if (tickIntervalMs < 60000)
+            return tickTime.ToString("HH:mm:ss");
+
+        return tickTime.ToString("HH:mm");
+    }
+
+    private string GetGridStyle()
+    {
+        var totalWidthPx = LabelWidthPx + _timelineWidthPx;
+        return FormattableString.Invariant(
+            $"grid-template-columns:{LabelWidthPx:F0}px {_timelineWidthPx:F2}px;min-width:{totalWidthPx:F2}px;");
+    }
+
+    private string GetHeaderScaleStyle()
+    {
+        return FormattableString.Invariant($"width:{_timelineWidthPx:F2}px;");
+    }
+
+    private string GetTrackStyle()
+    {
+        return FormattableString.Invariant(
+            $"width:{_timelineWidthPx:F2}px;--grid-spacing:{_tickSpacingPx:F2}px;--grid-offset:{_tickOffsetPx:F2}px;");
+    }
+
+    private static string GetTickLineStyle(TimelineTick tick)
+    {
+        return FormattableString.Invariant($"left:{tick.LeftPx:F2}px;");
+    }
+
+    private static string GetTickLabelStyle(TimelineTick tick)
+    {
+        return FormattableString.Invariant($"left:{tick.LeftPx:F2}px;");
+    }
+
+    private static string GetRunStyle(SignalRunVisual run)
+    {
+        return FormattableString.Invariant($"left:{run.LeftPx:F2}px;width:{run.WidthPx:F2}px;");
+    }
+
+    private static string GetRunTitle(SignalRunVisual run)
+    {
+        var durationMs = (run.EndTime - run.StartTime).TotalMilliseconds;
+        return $"{run.StartTime:HH:mm:ss.fff} ~ {run.EndTime:HH:mm:ss.fff} ({durationMs:F1} ms)";
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        DspDbService.OnDataChanged -= HandleDspDbChanged;
+        TimelineBuffer.OnUpdated -= HandleTimelineUpdated;
+    }
+
+    private sealed class SignalData
+    {
+        public string Key { get; set; } = "";
+        public string CallName { get; set; } = "";
+        public string FlowName { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string Address { get; set; } = "";
+        public string TagType { get; set; } = "";
+        public List<SignalRunVisual> Runs { get; set; } = [];
+    }
+
+    private readonly record struct SignalRunVisual(
+        DateTime StartTime,
+        DateTime EndTime,
+        double LeftPx,
+        double WidthPx);
+
+    private readonly record struct TimelineTick(double LeftPx, string Label);
+}

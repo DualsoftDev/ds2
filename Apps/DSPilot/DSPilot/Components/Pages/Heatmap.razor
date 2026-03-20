@@ -7,6 +7,120 @@
 
 <PageTitle>동작편차</PageTitle>
 
+<style>
+    .flow-dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+        gap: 18px;
+        align-items: start;
+    }
+
+    .flow-dashboard-panel {
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        border-radius: 14px;
+        background: #ffffff;
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+        overflow: hidden;
+    }
+
+    .flow-dashboard-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 14px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+        background: linear-gradient(180deg, #f8fafc, #eef3f9);
+    }
+
+    .flow-dashboard-panel-title {
+        font-size: 18px;
+        font-weight: 800;
+        color: #0f172a;
+    }
+
+    .flow-dashboard-panel-subtitle {
+        font-size: 12px;
+        color: #64748b;
+        font-weight: 600;
+    }
+
+    .flow-dashboard-work-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+        padding: 14px;
+        background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.9));
+    }
+
+    .flow-dashboard-work-panel {
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 10px;
+        background: rgba(226, 232, 240, 0.55);
+        overflow: hidden;
+    }
+
+    .flow-dashboard-work-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 10px;
+        background: rgba(203, 213, 225, 0.72);
+        color: #475569;
+        font-size: 12px;
+        font-weight: 800;
+    }
+
+    .flow-dashboard-call-grid {
+        display: grid;
+        gap: 6px;
+        padding: 6px;
+    }
+
+    .flow-dashboard-call-cell {
+        min-height: 106px;
+        padding: 10px;
+        border-radius: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        color: #111827;
+        font-weight: 700;
+        box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06);
+    }
+
+    .flow-dashboard-call-cell.heatmap-excellent,
+    .flow-dashboard-call-cell.heatmap-good,
+    .flow-dashboard-call-cell.heatmap-poor,
+    .flow-dashboard-call-cell.heatmap-critical {
+        color: #111827;
+    }
+
+    .flow-dashboard-call-name {
+        font-size: 13px;
+        font-weight: 800;
+        line-height: 1.25;
+        word-break: break-word;
+    }
+
+    .flow-dashboard-call-value {
+        margin-top: 12px;
+        font-size: 18px;
+        font-weight: 900;
+        line-height: 1.15;
+    }
+
+    .flow-dashboard-call-meta {
+        margin-top: 8px;
+        font-size: 11px;
+        font-weight: 700;
+        opacity: 0.76;
+    }
+</style>
+
 <MudText Typo="Typo.h5" Class="mb-4" Style="font-weight: 600; color: #0A1E5A;" GutterBottom="true">
         동작편차
         <MudTooltip Text="각 Call의 실행 시간 통계를 분석하여 성능 이슈를 조기에 발견할 수 있습니다. 평균, 표준편차, 변동계수, 성능점수 등 다양한 메트릭으로 분석 가능합니다.">
@@ -23,7 +137,7 @@
     @* 필터 및 컨트롤 패널 *@
     <MudPaper Class="pa-4 mb-4" Elevation="2">
         <MudGrid>
-            <MudItem xs="12" sm="6" md="4">
+            <MudItem xs="12" sm="6" md="3">
                 <MudSelect T="HeatmapMetric"
                            Label="표시 메트릭"
                            @bind-Value="SelectedMetric"
@@ -39,14 +153,24 @@
                 </MudSelect>
             </MudItem>
 
-            <MudItem xs="12" sm="6" md="4">
+            <MudItem xs="12" sm="6" md="3">
                 <MudTextField @bind-Value="FlowFilter"
                               Label="Flow 필터"
-                              Variant="Variant.Outlined"
+                      Variant="Variant.Outlined"
                               Adornment="Adornment.Start"
                               AdornmentIcon="@Icons.Material.Filled.Search"
                               Placeholder="Flow 이름 검색..."
                               Clearable="true" />
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="2">
+                <MudNumericField T="int"
+                                 Label="Matrix 열 수"
+                                 Value="MatrixColumns"
+                                 ValueChanged="OnMatrixColumnsChanged"
+                                 Min="1"
+                                 Max="12"
+                                 Variant="Variant.Outlined" />
             </MudItem>
 
             <MudItem xs="12" sm="12" md="4" Class="d-flex align-center">
@@ -124,6 +248,68 @@
                     </MudTooltip>
                 </MudItem>
             </MudGrid>
+        </MudPaper>
+    }
+
+    @if (!IsLoading && FilteredGroups.Count > 0)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <div class="d-flex flex-wrap align-center justify-space-between mb-3" style="gap: 12px;">
+                <div>
+                    <MudText Typo="Typo.h6">Flow Group Matrix</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        Flow 패널 안에 Work 블록과 Call 셀을 배치해 한눈에 그룹 구조가 보이도록 구성합니다.
+                    </MudText>
+                </div>
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary">
+                    @FilteredGroups.Count Flows
+                </MudChip>
+            </div>
+
+            <div class="flow-dashboard-grid">
+                @foreach (var group in FilteredGroups)
+                {
+                    <section class="flow-dashboard-panel">
+                        <div class="flow-dashboard-panel-header">
+                            <div>
+                                <div class="flow-dashboard-panel-title">@group.FlowName</div>
+                                <div class="flow-dashboard-panel-subtitle">
+                                    평균 @HeatmapService.FormatMetricValue(SelectedMetric, GetFlowAverageValue(group))
+                                </div>
+                            </div>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Info">
+                                @group.CallCount Calls
+                            </MudChip>
+                        </div>
+
+                        <div class="flow-dashboard-work-grid">
+                            @foreach (var workGroup in GetWorkGroups(group))
+                            {
+                                <div class="flow-dashboard-work-panel">
+                                    <div class="flow-dashboard-work-header">
+                                        <span>@workGroup.WorkName</span>
+                                        <span>@workGroup.Calls.Count</span>
+                                    </div>
+                                    <div class="flow-dashboard-call-grid" style="@GetWorkMatrixStyle(workGroup.Calls.Count)">
+                                        @foreach (var call in workGroup.Calls)
+                                        {
+                                            <MudTooltip Text="@call.GetTooltipText()">
+                                                <div class="flow-dashboard-call-cell @call.ColorClass">
+                                                    <div class="flow-dashboard-call-name">@call.CallName</div>
+                                                    <div class="flow-dashboard-call-value">
+                                                        @HeatmapService.FormatMetricValue(SelectedMetric, call.GetMetricValue(SelectedMetric))
+                                                    </div>
+                                                    <div class="flow-dashboard-call-meta">@call.WorkName</div>
+                                                </div>
+                                            </MudTooltip>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </section>
+                }
+            </div>
         </MudPaper>
     }
 
@@ -242,10 +428,33 @@
     private string FlowFilter { get; set; } = string.Empty;
     private bool IsLoading { get; set; } = false;
     private bool AllExpanded { get; set; } = true;
+    private int MatrixColumns { get; set; } = 6;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadDataAsync();
+    }
+
+    private void OnMatrixColumnsChanged(int value)
+    {
+        MatrixColumns = Math.Clamp(value, 1, 12);
+    }
+
+    private string GetWorkMatrixStyle(int count)
+    {
+        var columns = Math.Min(MatrixColumns, Math.Max(1, count));
+        return $"grid-template-columns: repeat({columns}, minmax(118px, 1fr));";
+    }
+
+    private List<WorkHeatmapGroup> GetWorkGroups(FlowHeatmapGroup group)
+    {
+        return group.Calls
+            .GroupBy(call => string.IsNullOrWhiteSpace(call.WorkName) ? "No Work" : call.WorkName)
+            .Select(workGroup => new WorkHeatmapGroup(
+                workGroup.Key,
+                workGroup.OrderBy(call => call.CallName).ToList()))
+            .OrderBy(workGroup => workGroup.WorkName)
+            .ToList();
     }
 
     private async Task LoadDataAsync()
@@ -292,4 +501,6 @@
         else
             return 0;
     }
+
+    private sealed record WorkHeatmapGroup(string WorkName, List<CallHeatmapItem> Calls);
 }

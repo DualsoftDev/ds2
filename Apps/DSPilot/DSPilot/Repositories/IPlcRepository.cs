@@ -57,6 +57,15 @@ public interface IPlcRepository
     Task<PlcTagLogEntity?> GetLatestLogByTagIdAsync(int tagId);
 
     /// <summary>
+    /// 여러 태그 주소에 대해 지정 시각 이전(이하)의 최신 로그를 태그별로 조회
+    /// </summary>
+    /// <param name="addresses">태그 주소 목록</param>
+    /// <param name="atOrBefore">기준 시각</param>
+    /// <returns>태그별 최신 로그 목록</returns>
+    Task<List<PlcTagLogEntity>> GetLatestLogsByAddressesBeforeAsync(
+        List<string> addresses, DateTime atOrBefore);
+
+    /// <summary>
     /// 전체 로그 개수 조회
     /// </summary>
     Task<int> GetTotalLogCountAsync();
