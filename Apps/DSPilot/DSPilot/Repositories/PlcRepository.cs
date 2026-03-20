@@ -1,6 +1,7 @@
 using Dapper;
 using DSPilot.Engine;
 using DSPilot.Models.Plc;
+using DSPilot.Services;
 using Microsoft.Data.Sqlite;
 using System.Data;
 
@@ -14,26 +15,14 @@ public class PlcRepository : IPlcRepository
     private readonly string _connectionString;
     private readonly ILogger<PlcRepository> _logger;
 
-    public PlcRepository(IConfiguration configuration, ILogger<PlcRepository> logger)
+    public PlcRepository(IDatabasePathResolver pathResolver, ILogger<PlcRepository> logger)
     {
-        var dbPath = configuration["PlcDatabase:SourceDbPath"]
-            ?? throw new InvalidOperationException("PlcDatabase:SourceDbPath is not configured");
-
-        // 환경 변수 확장 (%APPDATA% 등)
-        dbPath = Environment.ExpandEnvironmentVariables(dbPath);
-
-        // Windows 경로 구분자 정규화 (/ → \)
-        dbPath = dbPath.Replace('/', Path.DirectorySeparatorChar);
-
-        // 상대 경로를 절대 경로로 변환
-        if (!Path.IsPathRooted(dbPath))
-        {
-            dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, dbPath);
-        }
+        var dbPath = pathResolver.GetPlcDbPath();
 
         // ReadOnly 제거 - PlcCaptureService가 DB를 생성하고 쓰기 작업을 수행함
         _connectionString = $"Data Source={dbPath};";
         _logger = logger;
+        _logger.LogInformation("PLC Database path: {DbPath} (Unified mode)", dbPath);
     }
 
     /// <summary>
@@ -235,6 +224,48 @@ public class PlcRepository : IPlcRepository
 
         var log = await connection.QueryFirstOrDefaultAsync<PlcTagLogEntity>(sql, new { TagId = tagId });
         return log;
+    }
+
+    /// <inheritdoc />
+    public async Task<List<PlcTagLogEntity>> GetLatestLogsByAddressesBeforeAsync(
+        List<string> addresses, DateTime atOrBefore)
+    {
+        if (addresses.Count == 0) return new List<PlcTagLogEntity>();
+
+        using var connection = CreateConnection();
+        var atOrBeforeStr = QueryHelpers.toSqliteUtcString(atOrBefore);
+
+        const string sql = @"
+WITH ranked AS (
+    SELECT
+        l.id AS Id,
+        l.plcTagId AS PlcTagId,
+        l.dateTime AS DateTime,
+        l.value AS Value,
+        ROW_NUMBER() OVER (
+            PARTITION BY l.plcTagId
+            ORDER BY l.dateTime DESC, l.id DESC
+        ) AS RowNum
+    FROM plcTagLog l
+    INNER JOIN plcTag t ON l.plcTagId = t.id
+    WHERE t.address IN @Addresses
+      AND l.dateTime <= @AtOrBefore
+)
+SELECT
+    Id,
+    PlcTagId,
+    DateTime,
+    Value
+FROM ranked
+WHERE RowNum = 1";
+
+        var logs = await connection.QueryAsync<PlcTagLogEntity>(sql, new
+        {
+            Addresses = addresses,
+            AtOrBefore = atOrBeforeStr
+        });
+
+        return logs.ToList();
     }
 
     /// <inheritdoc />

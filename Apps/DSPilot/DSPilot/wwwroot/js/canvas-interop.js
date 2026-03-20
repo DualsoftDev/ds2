@@ -310,3 +310,348 @@ window.canvasInterop = {
         this._dragState = null;
     }
 };
+
+window.signalTimelineInterop = {
+    _instances: new Map(),
+
+    init: function (container, canvas) {
+        if (!container || !canvas) return;
+
+        var instance = this._instances.get(canvas);
+        if (instance) return;
+
+        var self = this;
+        instance = {
+            container: container,
+            canvas: canvas,
+            spacer: container.querySelector('.signal-timeline-spacer'),
+            payload: null,
+            frameHandle: 0,
+            resizeObserver: null,
+            onScroll: function () {
+                self._scheduleRender(instance);
+            }
+        };
+
+        container.addEventListener('scroll', instance.onScroll, { passive: true });
+
+        if (window.ResizeObserver) {
+            instance.resizeObserver = new ResizeObserver(function () {
+                self._scheduleRender(instance);
+            });
+            instance.resizeObserver.observe(container);
+        }
+
+        this._instances.set(canvas, instance);
+        this._scheduleRender(instance);
+    },
+
+    draw: function (container, canvas, payload) {
+        if (!container || !canvas) return;
+
+        var instance = this._instances.get(canvas);
+        if (!instance) {
+            this.init(container, canvas);
+            instance = this._instances.get(canvas);
+            if (!instance) return;
+        }
+
+        instance.payload = payload || null;
+        this._scheduleRender(instance);
+    },
+
+    dispose: function (container, canvas) {
+        if (!canvas) return;
+
+        var instance = this._instances.get(canvas);
+        if (!instance) return;
+
+        if (instance.frameHandle) {
+            cancelAnimationFrame(instance.frameHandle);
+        }
+
+        if (instance.resizeObserver) {
+            instance.resizeObserver.disconnect();
+        }
+
+        if (instance.container && instance.onScroll) {
+            instance.container.removeEventListener('scroll', instance.onScroll);
+        }
+
+        this._instances.delete(canvas);
+    },
+
+    _scheduleRender: function (instance) {
+        if (!instance) return;
+
+        var self = this;
+        if (instance.frameHandle) {
+            cancelAnimationFrame(instance.frameHandle);
+        }
+
+        instance.frameHandle = requestAnimationFrame(function () {
+            self._render(instance);
+        });
+    },
+
+    _render: function (instance) {
+        instance.frameHandle = 0;
+
+        var container = instance.container;
+        var canvas = instance.canvas;
+        var payload = instance.payload;
+        if (!container || !canvas) return;
+
+        var width = container.clientWidth;
+        var height = container.clientHeight;
+        if (width <= 0 || height <= 0) return;
+
+        var dpr = window.devicePixelRatio || 1;
+        var pixelWidth = Math.max(1, Math.floor(width * dpr));
+        var pixelHeight = Math.max(1, Math.floor(height * dpr));
+
+        if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+            canvas.width = pixelWidth;
+            canvas.height = pixelHeight;
+        }
+
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
+
+        var ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, width, height);
+
+        var rows = payload && Array.isArray(payload.rows) ? payload.rows : [];
+        var labels = payload && Array.isArray(payload.segmentLabels) ? payload.segmentLabels : [];
+        var layout = payload && payload.layout ? payload.layout : {};
+        var headerHeight = layout.headerHeight || 48;
+        var rowHeight = layout.rowHeight || 56;
+        var bottomPadding = layout.bottomPadding || 96;
+        var labelWidth = Math.min(width - 120, Math.max(220, layout.labelWidth || 320));
+        var timelineX = labelWidth;
+        var timelineWidth = Math.max(120, width - timelineX);
+        var segmentCount = Math.max(
+            labels.length,
+            rows.length > 0 && Array.isArray(rows[0].segments) ? rows[0].segments.length : 0,
+            1
+        );
+        var segmentWidth = timelineWidth / segmentCount;
+        var scrollTop = container.scrollTop || 0;
+        var virtualHeight = headerHeight + rows.length * rowHeight + bottomPadding;
+
+        if (instance.spacer) {
+            instance.spacer.style.height = Math.max(virtualHeight, height) + 'px';
+        }
+
+        ctx.fillStyle = '#f4f8fc';
+        ctx.fillRect(0, 0, width, height);
+
+        this._drawHeader(ctx, width, headerHeight, labelWidth, labels, segmentCount, segmentWidth, payload);
+
+        if (rows.length === 0) {
+            this._drawEmptyState(ctx, width, height, headerHeight, payload && payload.emptyMessage);
+            return;
+        }
+
+        var firstVisibleRow = Math.max(0, Math.floor(Math.max(0, scrollTop - headerHeight) / rowHeight) - 1);
+        var lastVisibleRow = Math.min(rows.length, Math.ceil((scrollTop + height - headerHeight) / rowHeight) + 3);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, headerHeight, width, Math.max(0, height - headerHeight));
+        ctx.clip();
+
+        this._drawGrid(ctx, timelineX, timelineWidth, headerHeight, height, segmentCount, segmentWidth);
+
+        for (var index = firstVisibleRow; index < lastVisibleRow; index++) {
+            var row = rows[index];
+            var rowY = headerHeight + index * rowHeight - scrollTop;
+
+            if (rowY + rowHeight < headerHeight || rowY > height) continue;
+
+            this._drawRowBackground(ctx, width, labelWidth, rowY, rowHeight, index);
+            this._drawRowLabel(ctx, row, labelWidth, rowY, rowHeight);
+            this._drawSegments(ctx, row, timelineX, rowY, rowHeight, segmentCount, segmentWidth);
+        }
+
+        ctx.restore();
+    },
+
+    _drawHeader: function (ctx, width, headerHeight, labelWidth, labels, segmentCount, segmentWidth, payload) {
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, width, headerHeight);
+
+        ctx.fillStyle = '#17223b';
+        ctx.fillRect(0, 0, labelWidth, headerHeight);
+
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = '600 13px "Noto Sans KR", sans-serif';
+        ctx.fillText('Signal / Address', 16, 20);
+
+        if (payload && payload.lastUpdate) {
+            ctx.fillStyle = 'rgba(226, 232, 240, 0.9)';
+            ctx.font = '500 11px "Noto Sans KR", sans-serif';
+            ctx.fillText('Updated ' + payload.lastUpdate, 16, 36);
+        }
+
+        var maxTickLabels = Math.max(1, Math.floor((ctx.canvas.width / (window.devicePixelRatio || 1) - labelWidth) / 72));
+        var labelStep = Math.max(1, Math.ceil(segmentCount / maxTickLabels));
+
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.34)';
+        ctx.lineWidth = 1;
+
+        for (var i = 0; i <= segmentCount; i++) {
+            var x = labelWidth + i * segmentWidth;
+            ctx.beginPath();
+            ctx.moveTo(x + 0.5, 0);
+            ctx.lineTo(x + 0.5, headerHeight);
+            ctx.stroke();
+        }
+
+        ctx.fillStyle = '#dbeafe';
+        ctx.font = '500 10px "Noto Sans KR", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        for (var tick = 0; tick < labels.length; tick += labelStep) {
+            var centerX = labelWidth + tick * segmentWidth + (segmentWidth * labelStep) / 2;
+            ctx.fillText(labels[tick], centerX, headerHeight / 2);
+        }
+
+        ctx.textAlign = 'start';
+        ctx.textBaseline = 'alphabetic';
+    },
+
+    _drawGrid: function (ctx, timelineX, timelineWidth, headerHeight, height, segmentCount, segmentWidth) {
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.18)';
+        ctx.lineWidth = 1;
+
+        for (var i = 0; i <= segmentCount; i++) {
+            var x = timelineX + i * segmentWidth;
+            ctx.beginPath();
+            ctx.moveTo(x + 0.5, headerHeight);
+            ctx.lineTo(x + 0.5, height);
+            ctx.stroke();
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(timelineX + 0.5, headerHeight);
+        ctx.lineTo(timelineX + 0.5, height);
+        ctx.strokeStyle = 'rgba(15, 23, 42, 0.18)';
+        ctx.stroke();
+    },
+
+    _drawRowBackground: function (ctx, width, labelWidth, rowY, rowHeight, index) {
+        ctx.fillStyle = index % 2 === 0 ? 'rgba(255, 255, 255, 0.95)' : 'rgba(247, 250, 252, 0.95)';
+        ctx.fillRect(0, rowY, width, rowHeight);
+
+        ctx.fillStyle = index % 2 === 0 ? 'rgba(248, 250, 252, 0.98)' : 'rgba(241, 245, 249, 0.98)';
+        ctx.fillRect(0, rowY, labelWidth, rowHeight);
+
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.18)';
+        ctx.beginPath();
+        ctx.moveTo(0, rowY + rowHeight + 0.5);
+        ctx.lineTo(width, rowY + rowHeight + 0.5);
+        ctx.stroke();
+    },
+
+    _drawRowLabel: function (ctx, row, labelWidth, rowY, rowHeight) {
+        var name = row && row.displayName ? row.displayName : '-';
+        var address = row && row.address ? row.address : '-';
+        var tagType = row && row.tagType === 'out-tag' ? 'OUT' : 'IN';
+        var meta = address + '  [' + tagType + ']';
+        var titleTop = rowY + Math.max(6, Math.round(rowHeight * 0.14));
+        var metaTop = rowY + Math.max(28, Math.round(rowHeight * 0.56));
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '600 11px "Noto Sans KR", sans-serif';
+        ctx.textBaseline = 'top';
+        ctx.fillText(this._truncateText(ctx, name, labelWidth - 24), 12, titleTop);
+
+        ctx.fillStyle = '#64748b';
+        ctx.font = '500 10px "Noto Sans KR", sans-serif';
+        ctx.fillText(this._truncateText(ctx, meta, labelWidth - 24), 12, metaTop);
+        ctx.textBaseline = 'alphabetic';
+    },
+
+    _drawSegments: function (ctx, row, timelineX, rowY, rowHeight, segmentCount, segmentWidth) {
+        var segments = row && Array.isArray(row.segments) ? row.segments : [];
+        var fillStyle = row && row.tagType === 'out-tag' ? '#f28c28' : '#177ddc';
+        var glowStyle = row && row.tagType === 'out-tag' ? 'rgba(242, 140, 40, 0.22)' : 'rgba(23, 125, 220, 0.22)';
+        var runStart = -1;
+
+        for (var i = 0; i < segmentCount; i++) {
+            var isActive = !!segments[i];
+            if (isActive && runStart < 0) {
+                runStart = i;
+                continue;
+            }
+
+            if (!isActive && runStart >= 0) {
+                this._drawSegmentRun(ctx, timelineX, rowY, rowHeight, segmentWidth, runStart, i - runStart, fillStyle, glowStyle);
+                runStart = -1;
+            }
+        }
+
+        if (runStart >= 0) {
+            this._drawSegmentRun(ctx, timelineX, rowY, rowHeight, segmentWidth, runStart, segmentCount - runStart, fillStyle, glowStyle);
+        }
+    },
+
+    _drawSegmentRun: function (ctx, timelineX, rowY, rowHeight, segmentWidth, startIndex, length, fillStyle, glowStyle) {
+        var verticalPadding = Math.max(10, Math.round(rowHeight * 0.2));
+        var x = timelineX + startIndex * segmentWidth + 2;
+        var y = rowY + verticalPadding;
+        var width = Math.max(3, segmentWidth * length - 4);
+        var height = Math.max(12, rowHeight - verticalPadding * 2);
+        var radius = Math.min(6, height / 2);
+
+        ctx.fillStyle = glowStyle;
+        this._roundRect(ctx, x, y, width, height, radius + 1);
+        ctx.fill();
+
+        ctx.fillStyle = fillStyle;
+        this._roundRect(ctx, x, y + 1, width, height - 2, radius);
+        ctx.fill();
+    },
+
+    _drawEmptyState: function (ctx, width, height, headerHeight, message) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
+        ctx.fillRect(0, headerHeight, width, height - headerHeight);
+
+        ctx.fillStyle = '#64748b';
+        ctx.font = '500 14px "Noto Sans KR", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(message || '표시할 신호가 없습니다.', width / 2, headerHeight + (height - headerHeight) / 2);
+        ctx.textAlign = 'start';
+        ctx.textBaseline = 'alphabetic';
+    },
+
+    _truncateText: function (ctx, text, maxWidth) {
+        if (!text) return '';
+        if (ctx.measureText(text).width <= maxWidth) return text;
+
+        var ellipsis = '...';
+        var result = text;
+        while (result.length > 0 && ctx.measureText(result + ellipsis).width > maxWidth) {
+            result = result.slice(0, -1);
+        }
+
+        return result + ellipsis;
+    },
+
+    _roundRect: function (ctx, x, y, width, height, radius) {
+        var r = Math.min(radius, width / 2, height / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + width, y, x + width, y + height, r);
+        ctx.arcTo(x + width, y + height, x, y + height, r);
+        ctx.arcTo(x, y + height, x, y, r);
+        ctx.arcTo(x, y, x + width, y, r);
+        ctx.closePath();
+    }
+};

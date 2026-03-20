@@ -20,33 +20,53 @@
 
 @* 컨트롤 패널 *@
 <div class="card mb-4" style="padding:16px; box-shadow: var(--shadow-2);">
-    <div class="d-flex" style="align-items:center; gap:12px;">
+    <div class="d-flex" style="align-items:center; gap:12px; flex-wrap:wrap;">
+        <div style="flex:0 0 auto; min-width:160px;">
+            <label class="typo-caption" style="display:block; margin-bottom:4px; color:var(--color-text-secondary);">표시 메트릭</label>
+            <select class="form-field" value="@AvailableMetrics.IndexOf(SelectedMetric)"
+                    @onchange="OnMetricChanged">
+                @for (int i = 0; i < AvailableMetrics.Count; i++)
+                {
+                    <option value="@i">@HeatmapService.GetMetricDisplayName(AvailableMetrics[i])</option>
+                }
+            </select>
+        </div>
         <div style="flex:1; max-width:400px;">
+            <label class="typo-caption" style="display:block; margin-bottom:4px; color:var(--color-text-secondary);">Flow 필터</label>
             <input class="form-field" @bind="FlowFilter" placeholder="Flow 이름 검색..." />
         </div>
-        <button class="btn btn-filled" @onclick="LoadDataAsync">
-            <span class="material-icons" style="font-size:18px;">refresh</span> 새로고침
-        </button>
-        <button class="btn btn-outlined" @onclick="ToggleAllGroups">
-            <span class="material-icons" style="font-size:18px;">@(AllExpanded ? "unfold_less" : "unfold_more")</span>
-            @(AllExpanded ? "모두 접기" : "모두 펼치기")
-        </button>
+        <div style="flex:0 0 auto; min-width:80px;">
+            <label class="typo-caption" style="display:block; margin-bottom:4px; color:var(--color-text-secondary);">Matrix 열 수</label>
+            <input type="number" class="form-field" min="1" max="12"
+                   value="@MatrixColumns"
+                   @onchange="@(e => OnMatrixColumnsChanged(int.Parse(e.Value?.ToString() ?? "6")))"
+                   style="width:80px;" />
+        </div>
+        <div style="flex:0 0 auto; display:flex; gap:8px; align-items:flex-end; padding-top:18px;">
+            <button class="btn btn-filled" @onclick="LoadDataAsync">
+                <span class="material-icons" style="font-size:18px;">refresh</span> 새로고침
+            </button>
+            <button class="btn btn-outlined" @onclick="ToggleAllGroups">
+                <span class="material-icons" style="font-size:18px;">@(AllExpanded ? "unfold_less" : "unfold_more")</span>
+                @(AllExpanded ? "모두 접기" : "모두 펼치기")
+            </button>
+        </div>
     </div>
 </div>
 
 @* 로딩 표시 *@
 @if (IsLoading)
 {
-    <div class="progress-bar mb-4" style="height:4px;">
-        <div style="width:100%; background:var(--color-primary); height:100%; animation: indeterminate 1.5s infinite;"></div>
+    <div class="mb-4" style="height:4px; background:var(--color-surface-variant, #e0e0e0); border-radius:2px; overflow:hidden;">
+        <div style="height:100%; width:25%; background:var(--color-primary); animation: heatmap-indeterminate 1.5s infinite ease-in-out;"></div>
     </div>
 }
 
 @* 데이터 없음 *@
 @if (!IsLoading && FilteredGroups.Count == 0)
 {
-    <div class="alert alert-info mb-4">
-        <span class="material-icons">info</span>
+    <div class="card mb-4" style="padding:16px; border-left:4px solid var(--color-info, #2196F3);">
+        <span class="material-icons" style="font-size:18px; vertical-align:middle; margin-right:8px; color:var(--color-info, #2196F3);">info</span>
         표시할 데이터가 없습니다. PLC 데이터가 수집되면 자동으로 표시됩니다.
     </div>
 }
@@ -99,6 +119,65 @@
                 <div class="heatmap-cell heatmap-critical"></div>
                 <span class="typo-caption">심각</span>
             </div>
+        </div>
+    </div>
+
+    @* Flow Group Matrix 대시보드 *@
+    <div class="card mb-4" style="padding:16px; box-shadow: var(--shadow-2);">
+        <div class="d-flex" style="flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px; gap:12px;">
+            <div>
+                <h6 class="typo-h6">Flow Group Matrix</h6>
+                <span class="typo-body2" style="color:var(--color-text-secondary);">
+                    Flow 패널 안에 Work 블록과 Call 셀을 배치해 한눈에 그룹 구조가 보이도록 구성합니다.
+                </span>
+            </div>
+            <span class="chip" style="background:var(--color-primary); color:white;">
+                @FilteredGroups.Count Flows
+            </span>
+        </div>
+
+        <div class="flow-dashboard-grid">
+            @foreach (var group in FilteredGroups)
+            {
+                <section class="flow-dashboard-panel">
+                    <div class="flow-dashboard-panel-header">
+                        <div>
+                            <div class="flow-dashboard-panel-title">@group.FlowName</div>
+                            <div class="flow-dashboard-panel-subtitle">
+                                평균 @HeatmapService.FormatMetricValue(SelectedMetric, GetFlowAverageValue(group))
+                            </div>
+                        </div>
+                        <span class="chip" style="background:var(--color-info, #2196F3); color:white; font-size:12px;">
+                            @group.CallCount Calls
+                        </span>
+                    </div>
+
+                    <div class="flow-dashboard-work-grid">
+                        @foreach (var workGroup in GetWorkGroups(group))
+                        {
+                            <div class="flow-dashboard-work-panel">
+                                <div class="flow-dashboard-work-header">
+                                    <span>@workGroup.WorkName</span>
+                                    <span>@workGroup.Calls.Count</span>
+                                </div>
+                                <div class="flow-dashboard-call-grid" style="@GetWorkMatrixStyle(workGroup.Calls.Count)">
+                                    @foreach (var call in workGroup.Calls)
+                                    {
+                                        <div class="flow-dashboard-call-cell @call.GetColorClass(SelectedMetric)"
+                                             title="@call.GetTooltipText()">
+                                            <div class="flow-dashboard-call-name">@call.CallName</div>
+                                            <div class="flow-dashboard-call-value">
+                                                @HeatmapService.FormatMetricValue(SelectedMetric, call.GetMetricValue(SelectedMetric))
+                                            </div>
+                                            <div class="flow-dashboard-call-meta">@call.WorkName</div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
         </div>
     </div>
 
@@ -278,15 +357,27 @@
         ? AllGroups
         : AllGroups.Where(g => g.FlowName.Contains(FlowFilter, StringComparison.OrdinalIgnoreCase)).ToList();
 
+    // 메트릭 선택
+    private readonly List<HeatmapMetric> AvailableMetrics = new()
+    {
+        HeatmapMetric.AverageTime,
+        HeatmapMetric.StdDeviation,
+        HeatmapMetric.CoefficientOfVariation,
+        HeatmapMetric.PerformanceScore
+    };
+
+    private HeatmapMetric SelectedMetric { get; set; } = HeatmapMetric.PerformanceScore;
+
     private string FlowFilter { get; set; } = string.Empty;
     private bool IsLoading { get; set; } = false;
     private bool AllExpanded { get; set; } = true;
+    private int MatrixColumns { get; set; } = 6;
     private CallHeatmapItem? SelectedCall { get; set; } = null;
 
     // 정렬
     private enum SortField { CallName, WorkName, AvgTime, StdDev, CV, Score }
     private SortField _currentSortField = SortField.Score;
-    private bool _sortAsc = true; // Score: ascending = 낮은점수 먼저 (문제있는 것 먼저)
+    private bool _sortAsc = true;
 
     // 요약 통계
     private int TotalCalls => FilteredGroups.Sum(g => g.CallCount);
@@ -303,6 +394,43 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadDataAsync();
+    }
+
+    private void OnMetricChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var idx) && idx >= 0 && idx < AvailableMetrics.Count)
+            SelectedMetric = AvailableMetrics[idx];
+    }
+
+    private void OnMatrixColumnsChanged(int value)
+    {
+        MatrixColumns = Math.Clamp(value, 1, 12);
+    }
+
+    private string GetWorkMatrixStyle(int count)
+    {
+        var columns = Math.Min(MatrixColumns, Math.Max(1, count));
+        return $"grid-template-columns: repeat({columns}, minmax(118px, 1fr));";
+    }
+
+    private List<WorkHeatmapGroup> GetWorkGroups(FlowHeatmapGroup group)
+    {
+        return group.Calls
+            .GroupBy(call => string.IsNullOrWhiteSpace(call.WorkName) ? "No Work" : call.WorkName)
+            .Select(workGroup => new WorkHeatmapGroup(
+                workGroup.Key,
+                workGroup.OrderBy(call => call.CallName).ToList()))
+            .OrderBy(workGroup => workGroup.WorkName)
+            .ToList();
+    }
+
+    private double GetFlowAverageValue(FlowHeatmapGroup group)
+    {
+        if (SelectedMetric.IsAverageTime) return group.FlowAverageTime;
+        if (SelectedMetric.IsStdDeviation) return group.FlowAverageStdDev;
+        if (SelectedMetric.IsCoefficientOfVariation) return group.FlowAverageCV;
+        if (SelectedMetric.IsPerformanceScore) return group.FlowAverageScore;
+        return 0.0;
     }
 
     private async Task LoadDataAsync()
@@ -349,7 +477,6 @@
         else
         {
             _currentSortField = field;
-            // Score: 기본 오름차순 (낮은 점수 먼저), 나머지: 기본 내림차순 (높은 값 먼저)
             _sortAsc = field == SortField.Score;
         }
     }
@@ -398,4 +525,6 @@
         if (score >= 30) return "개선 필요";
         return "심각";
     }
+
+    private sealed record WorkHeatmapGroup(string WorkName, List<CallHeatmapItem> Calls);
 }

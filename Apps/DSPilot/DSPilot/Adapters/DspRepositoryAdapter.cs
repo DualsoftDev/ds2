@@ -1,0 +1,245 @@
+using Microsoft.Extensions.Logging;
+using CSharpCallKey = DSPilot.Models.CallKey;
+using CSharpDspFlowEntity = DSPilot.Models.Dsp.DspFlowEntity;
+using CSharpDspCallEntity = DSPilot.Models.Dsp.DspCallEntity;
+using FSharpCallKey = DSPilot.Engine.CallKey;
+using FSharpDspFlowEntity = DSPilot.Engine.DspFlowEntity;
+using FSharpDspCallEntity = DSPilot.Engine.DspCallEntity;
+
+namespace DSPilot.Adapters;
+
+/// <summary>
+/// F# DspRepository를 C#에서 사용하기 위한 Adapter
+/// IDspRepository 인터페이스 유지하여 기존 코드 호환성 보장
+/// </summary>
+public class DspRepositoryAdapter : Repositories.IDspRepository
+{
+    private readonly DSPilot.Engine.DatabasePaths _paths;
+    private readonly ILogger<DspRepositoryAdapter> _logger;
+
+    public DspRepositoryAdapter(DSPilot.Engine.DatabasePaths paths, ILogger<DspRepositoryAdapter> logger)
+    {
+        _paths = paths;
+        _logger = logger;
+    }
+
+    public Task<bool> CreateSchemaAsync()
+    {
+        return DSPilot.Engine.DspRepository.createSchemaAsync(_paths, _logger);
+    }
+
+    public async Task<int> BulkInsertFlowsAsync(List<CSharpDspFlowEntity> flows)
+    {
+        var fsharpFlows = Microsoft.FSharp.Collections.ListModule.OfSeq(flows.Select(ToFSharpFlowEntity));
+        return await DSPilot.Engine.DspRepository.bulkInsertFlowsAsync(_paths, _logger, fsharpFlows);
+    }
+
+    public async Task<int> BulkInsertCallsAsync(List<CSharpDspCallEntity> calls)
+    {
+        var fsharpCalls = Microsoft.FSharp.Collections.ListModule.OfSeq(calls.Select(ToFSharpCallEntity));
+        return await DSPilot.Engine.DspRepository.bulkInsertCallsAsync(_paths, _logger, fsharpCalls);
+    }
+
+    public async Task<string> GetCallStateAsync(CSharpCallKey key)
+    {
+        var fsharpKey = ToFSharpCallKey(key);
+        return await DSPilot.Engine.DspRepository.getCallStateAsync(_paths, _logger, fsharpKey);
+    }
+
+    public async Task<(string WorkName, string FlowName)?> GetCallInfoAsync(string callName)
+    {
+        var result = await DSPilot.Engine.DspRepository.getCallInfoAsync(_paths, _logger, callName);
+        if (Microsoft.FSharp.Core.FSharpOption<System.Tuple<string, string>>.get_IsNone(result))
+            return null;
+        var tuple = result.Value;
+        return (tuple.Item1, tuple.Item2);
+    }
+
+    public async Task<CSharpDspCallEntity?> GetCallByKeyAsync(CSharpCallKey key)
+    {
+        var fsharpKey = ToFSharpCallKey(key);
+        var result = await DSPilot.Engine.DspRepository.getCallByKeyAsync(_paths, _logger, fsharpKey);
+        if (Microsoft.FSharp.Core.FSharpOption<FSharpDspCallEntity>.get_IsNone(result))
+            return null;
+        return ToCSharpCallEntity(result.Value);
+    }
+
+    public async Task<bool> UpdateCallStateAsync(CSharpCallKey key, string state)
+    {
+        var fsharpKey = ToFSharpCallKey(key);
+        return await DSPilot.Engine.DspRepository.updateCallStateAsync(_paths, _logger, fsharpKey, state);
+    }
+
+    public async Task<bool> UpdateCallWithStatisticsAsync(
+        CSharpCallKey key,
+        string state,
+        int previousGoingTime,
+        double averageGoingTime,
+        double stdDevGoingTime)
+    {
+        var fsharpKey = ToFSharpCallKey(key);
+        return await DSPilot.Engine.DspRepository.updateCallWithStatisticsAsync(
+            _paths, _logger, fsharpKey, state, previousGoingTime, averageGoingTime, stdDevGoingTime);
+    }
+
+    public async Task<bool> UpdateFlowStateAsync(string flowName, string state)
+    {
+        return await DSPilot.Engine.DspRepository.updateFlowStateAsync(_paths, _logger, flowName, state);
+    }
+
+    public async Task<bool> HasGoingCallsInFlowAsync(string flowName)
+    {
+        return await DSPilot.Engine.DspRepository.hasGoingCallsInFlowAsync(_paths, _logger, flowName);
+    }
+
+    public async Task<bool> UpdateFlowMetricsAsync(
+        string flowName,
+        int? mt,
+        int? wt,
+        int? ct,
+        string? movingStartName,
+        string? movingEndName)
+    {
+        var mtOpt = ToFSharpOption(mt);
+        var wtOpt = ToFSharpOption(wt);
+        var ctOpt = ToFSharpOption(ct);
+        var startOpt = ToFSharpOption(movingStartName);
+        var endOpt = ToFSharpOption(movingEndName);
+
+        return await DSPilot.Engine.DspRepository.updateFlowMetricsAsync(_paths, flowName, mtOpt, wtOpt, ctOpt, startOpt, endOpt);
+    }
+
+    public Task<bool> ClearAllDataAsync()
+    {
+        return DSPilot.Engine.DspRepository.clearAllDataAsync(_paths, _logger);
+    }
+
+    public Task CleanupDatabaseAsync()
+    {
+        // F# 모듈에 없는 메서드 - 빈 구현
+        return Task.CompletedTask;
+    }
+
+    public async Task<List<Repositories.CallStatisticsDto>> GetCallStatisticsAsync()
+    {
+        var fsharpStats = await DSPilot.Engine.DspRepository.getCallStatisticsAsync(_paths, _logger);
+        return fsharpStats.Select(s => new Repositories.CallStatisticsDto
+        {
+            CallName = s.CallName,
+            FlowName = s.FlowName,
+            WorkName = s.WorkName,
+            AverageGoingTime = s.AverageGoingTime,
+            StdDevGoingTime = s.StdDevGoingTime,
+            GoingCount = s.GoingCount
+        }).ToList();
+    }
+
+    public Task InsertCallIOEventAsync(DSPilot.Models.Analysis.CallIOEvent ioEvent)
+    {
+        // F# 모듈에 없는 메서드 - 추후 구현 필요
+        return Task.CompletedTask;
+    }
+
+    // ===== Helper Methods =====
+
+    private FSharpCallKey ToFSharpCallKey(CSharpCallKey key)
+    {
+        var workOpt = ToFSharpOption(key.WorkName);
+        return new FSharpCallKey(key.FlowName, key.CallName, workOpt);
+    }
+
+    private FSharpDspFlowEntity ToFSharpFlowEntity(CSharpDspFlowEntity entity)
+    {
+        return new FSharpDspFlowEntity(
+            entity.Id,
+            entity.FlowName,
+            ToFSharpOption(entity.MT),
+            ToFSharpOption(entity.WT),
+            ToFSharpOption(entity.CT),
+            ToFSharpOption(entity.State),
+            ToFSharpOption(entity.MovingStartName),
+            ToFSharpOption(entity.MovingEndName),
+            entity.CreatedAt,
+            entity.UpdatedAt
+        );
+    }
+
+    private FSharpDspCallEntity ToFSharpCallEntity(CSharpDspCallEntity entity)
+    {
+        return new FSharpDspCallEntity(
+            entity.Id,
+            entity.CallName,
+            entity.ApiCall,
+            entity.WorkName,
+            entity.FlowName,
+            ToFSharpOption(entity.Next),
+            ToFSharpOption(entity.Prev),
+            ToFSharpOption(entity.AutoPre),
+            ToFSharpOption(entity.CommonPre),
+            entity.State,
+            entity.ProgressRate,
+            ToFSharpOption(entity.PreviousGoingTime),
+            ToFSharpOption(entity.AverageGoingTime),
+            ToFSharpOption(entity.StdDevGoingTime),
+            entity.GoingCount,
+            ToFSharpOption(entity.Device),
+            ToFSharpOption(entity.ErrorText),
+            entity.CreatedAt,
+            entity.UpdatedAt
+        );
+    }
+
+    private CSharpDspCallEntity ToCSharpCallEntity(FSharpDspCallEntity entity)
+    {
+        return new CSharpDspCallEntity
+        {
+            Id = entity.Id,
+            CallName = entity.CallName,
+            ApiCall = entity.ApiCall,
+            WorkName = entity.WorkName,
+            FlowName = entity.FlowName,
+            Next = FromFSharpOptionClass(entity.Next),
+            Prev = FromFSharpOptionClass(entity.Prev),
+            AutoPre = FromFSharpOptionClass(entity.AutoPre),
+            CommonPre = FromFSharpOptionClass(entity.CommonPre),
+            State = entity.State,
+            ProgressRate = entity.ProgressRate,
+            PreviousGoingTime = FromFSharpOptionStruct(entity.PreviousGoingTime),
+            AverageGoingTime = FromFSharpOptionStruct(entity.AverageGoingTime),
+            StdDevGoingTime = FromFSharpOptionStruct(entity.StdDevGoingTime),
+            GoingCount = entity.GoingCount,
+            Device = FromFSharpOptionClass(entity.Device),
+            ErrorText = FromFSharpOptionClass(entity.ErrorText),
+            CreatedAt = entity.CreatedAt,
+            UpdatedAt = entity.UpdatedAt
+        };
+    }
+
+    private static Microsoft.FSharp.Core.FSharpOption<T> ToFSharpOption<T>(T? value) where T : struct
+    {
+        return value.HasValue
+            ? Microsoft.FSharp.Core.FSharpOption<T>.Some(value.Value)
+            : Microsoft.FSharp.Core.FSharpOption<T>.None;
+    }
+
+    private static Microsoft.FSharp.Core.FSharpOption<T> ToFSharpOption<T>(T? value) where T : class
+    {
+        return value != null
+            ? Microsoft.FSharp.Core.FSharpOption<T>.Some(value)
+            : Microsoft.FSharp.Core.FSharpOption<T>.None;
+    }
+
+    private static T? FromFSharpOptionStruct<T>(Microsoft.FSharp.Core.FSharpOption<T> option) where T : struct
+    {
+        return Microsoft.FSharp.Core.FSharpOption<T>.get_IsSome(option)
+            ? option.Value
+            : null;
+    }
+
+    private static T? FromFSharpOptionClass<T>(Microsoft.FSharp.Core.FSharpOption<T> option) where T : class
+    {
+        return Microsoft.FSharp.Core.FSharpOption<T>.get_IsSome(option)
+            ? option.Value
+            : null;
+    }
+}
