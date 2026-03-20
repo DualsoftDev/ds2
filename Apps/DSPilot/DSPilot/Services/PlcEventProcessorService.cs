@@ -139,14 +139,15 @@ public class PlcEventProcessorService : BackgroundService
             }
 
             var call = callInfo.Call;
-            var callKey = callInfo.ToCallKey();
+            var callId = call.Id;
             var isInTag = callInfo.IsInTag;
+            var flowName = callInfo.FlowName;
 
-            _logger.LogDebug("Rising Edge detected: {Address} → Call {CallName} ({InOut})",
-                tagData.Address, call.Name, isInTag ? "In" : "Out");
+            _logger.LogDebug("Rising Edge detected: {Address} → Call {CallName} (ID: {CallId}, {InOut})",
+                tagData.Address, call.Name, callId, isInTag ? "In" : "Out");
 
             // 현재 Call 상태 조회
-            var currentState = await _stateStore.GetCallStateAsync(callKey);
+            var currentState = await _stateStore.GetCallStateAsync(callId);
             var stateValue = currentState?.State ?? "Ready";
 
             // 상태 천이 로직
@@ -156,10 +157,10 @@ public class PlcEventProcessorService : BackgroundService
             {
                 // In Tag Rising → Ready → Going
                 newState = "Going";
-                await _statisticsService.RecordGoingStartAsync(call.Name);
+                await _statisticsService.RecordGoingStartAsync(callId, call.Name);
 
-                _logger.LogInformation("Call '{CallName}' state transition: Ready → Going (BatchTimestamp: {Time})",
-                    call.Name, batchTimestamp);
+                _logger.LogInformation("Call '{CallName}' (ID: {CallId}) state transition: Ready → Going (BatchTimestamp: {Time})",
+                    call.Name, callId, batchTimestamp);
             }
             else if (!isInTag && stateValue == "Going")
             {
@@ -171,24 +172,12 @@ public class PlcEventProcessorService : BackgroundService
 
                 // 통계 업데이트 (메모리 + DB)
                 await _stateStore.UpdateCallWithStatisticsAsync(
-                    callKey, newState, goingTime, average, stdDev, goingCount);
+                    callId, newState, goingTime, average, stdDev, goingCount);
 
                 _logger.LogInformation(
-                    "Call '{CallName}' state transition: Going → Finish | " +
+                    "Call '{CallName}' (ID: {CallId}) state transition: Going → Finish | " +
                     "GoingTime: {GoingTime}ms, Avg: {Avg:F0}ms, StdDev: {StdDev:F0}ms, Count: {Count} (BatchTimestamp: {Time})",
-                    call.Name, goingTime, average, stdDev, goingCount, batchTimestamp);
-
-                // DB에 IO 이벤트 기록 (Scoped service)
-                using var scope = _scopeFactory.CreateScope();
-                var dspRepo = scope.ServiceProvider.GetRequiredService<Repositories.IDspRepository>();
-
-                await dspRepo.InsertCallIOEventAsync(new Models.Analysis.CallIOEvent
-                {
-                    CallKey = callKey,
-                    IsInTag = isInTag,
-                    Timestamp = batchTimestamp,
-                    GoingTime = goingTime
-                });
+                    call.Name, callId, goingTime, average, stdDev, goingCount, batchTimestamp);
 
                 // Finish → Ready 자동 천이
                 newState = "Ready";
@@ -197,7 +186,7 @@ public class PlcEventProcessorService : BackgroundService
             // 상태 업데이트
             if (newState != null)
             {
-                await _stateStore.UpdateCallStateAsync(callKey, newState);
+                await _stateStore.UpdateCallStateAsync(callId, newState);
             }
         }
     }

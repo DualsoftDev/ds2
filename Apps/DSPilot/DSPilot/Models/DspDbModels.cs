@@ -6,6 +6,7 @@ public class FlowState
     public string FlowName { get; set; } = "";
     public int? MT { get; set; }
     public int? WT { get; set; }
+    public int? CT { get; set; }
     public string State { get; set; } = "";
     public string? MovingStartName { get; set; }
     public string? MovingEndName { get; set; }
@@ -14,6 +15,12 @@ public class FlowState
 public class CallState
 {
     public int Id { get; set; }
+
+    /// <summary>
+    /// Call 고유 식별자 (AASX Call.Id)
+    /// </summary>
+    public Guid CallId { get; set; }
+
     public string CallName { get; set; } = "";
     public string FlowName { get; set; } = "";
     public string WorkName { get; set; } = "";

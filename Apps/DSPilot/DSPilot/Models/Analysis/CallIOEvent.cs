@@ -6,27 +6,19 @@ namespace DSPilot.Models.Analysis;
 public class CallIOEvent
 {
     /// <summary>
-    /// Call Key (FlowName, CallName)
+    /// Call 고유 식별자 (Primary identifier)
     /// </summary>
-    public CallKey CallKey { get; set; } = new CallKey("", "");
+    public Guid CallId { get; set; }
 
     /// <summary>
-    /// Call 이름 (Legacy)
+    /// Call 이름 (표시용)
     /// </summary>
-    public string CallName
-    {
-        get => CallKey.CallName;
-        set => CallKey = CallKey with { CallName = value };
-    }
+    public string CallName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Flow 이름 (Legacy)
+    /// Flow 이름 (표시용)
     /// </summary>
-    public string FlowName
-    {
-        get => CallKey.FlowName;
-        set => CallKey = CallKey with { FlowName = value };
-    }
+    public string FlowName { get; set; } = string.Empty;
 
     /// <summary>
     /// IO 이벤트 타입 (InTag / OutTag)

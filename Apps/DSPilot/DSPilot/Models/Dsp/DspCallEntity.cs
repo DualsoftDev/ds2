@@ -11,6 +11,11 @@ public class DspCallEntity
     public int Id { get; set; }
 
     /// <summary>
+    /// Call 고유 식별자 (AASX Call.Id)
+    /// </summary>
+    public Guid CallId { get; set; }
+
+    /// <summary>
     /// Call 이름 (Device.Api 형식)
     /// </summary>
     public string CallName { get; set; } = string.Empty;

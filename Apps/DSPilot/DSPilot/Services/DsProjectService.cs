@@ -12,6 +12,8 @@ public class DsProjectService
 
     public bool IsLoaded { get; private set; }
 
+    public DsStore GetStore() => _store;
+
     public DsProjectService(IConfiguration configuration, ILogger<DsProjectService> logger)
     {
         _logger = logger;
@@ -106,8 +108,6 @@ public class DsProjectService
         return allCalls;
     }
 
-    public DsStore GetStore() => _store;
-
     /// <summary>
     /// Flow의 첫 번째 Call을 가져옵니다 (Head Call)
     /// </summary>
@@ -127,6 +127,23 @@ public class DsProjectService
     public Flow? GetFlowByName(string flowName)
     {
         return GetAllFlows().FirstOrDefault(f => f.Name == flowName);
+    }
+
+    /// <summary>
+    /// Call ID로 해당 Call이 속한 Flow 찾기
+    /// </summary>
+    public Flow? GetFlowByCallId(Guid callId)
+    {
+        var call = DsQuery.getCall(callId, _store);
+        if (!Microsoft.FSharp.Core.FSharpOption<Call>.get_IsSome(call))
+            return null;
+
+        var work = DsQuery.getWork(call.Value.ParentId, _store);
+        if (!Microsoft.FSharp.Core.FSharpOption<Work>.get_IsSome(work))
+            return null;
+
+        var flow = DsQuery.getFlow(work.Value.ParentId, _store);
+        return Microsoft.FSharp.Core.FSharpOption<Flow>.get_IsSome(flow) ? flow.Value : null;
     }
 
     public List<(double X, double Y)> ComputeArrowPath(Xywh source, Xywh target)
