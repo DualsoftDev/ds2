@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
     <ProjectReference Include="..\DSPilot.Engine\DSPilot.Engine.fsproj" />
+    <ProjectReference Include="..\DSPilot\DSPilot.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -74,6 +75,9 @@
 
   <ItemGroup>
     <None Update="log4net.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

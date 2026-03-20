@@ -7,8 +7,15 @@
 
   <ItemGroup>
     <Compile Include="Types.fs" />
+    <Compile Include="DatabaseTypes.fs" />
+    <Compile Include="DatabaseConfig.fs" />
+    <Compile Include="DspRepository.fs" />
+    <Compile Include="DspDatabaseInit.fs" />
+    <Compile Include="Ev2Bootstrap.fs" />
     <Compile Include="Statistics.fs" />
+    <Compile Include="RuntimeStatistics.fs" />
     <Compile Include="EdgeDetection.fs" />
+    <Compile Include="TagStateTracker.fs" />
     <Compile Include="StateTransition.fs" />
     <Compile Include="Performance.fs" />
     <Compile Include="CycleAnalysis.fs" />
@@ -20,6 +27,10 @@
   <ItemGroup>
     <PackageReference Include="log4net" Version="3.2.0" />
     <PackageReference Include="System.Reactive" Version="6.1.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.3" />
+    <PackageReference Include="Dapper" Version="2.1.35" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>

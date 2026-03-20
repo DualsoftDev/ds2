@@ -3,43 +3,65 @@ using DSPilot.Models;
 using DSPilot.Models.Dsp;
 using DSPilot.Models.Plc;
 using DSPilot.Repositories;
+using Ev2.Backend.Common;
 
 namespace DSPilot.Services;
 
 /// <summary>
 /// PLC 데이터 실시간 읽기 백그라운드 서비스
-/// 1초마다 소스 DB에서 새로운 로그를 읽어옵니다.
+/// EV2의 GlobalCommunication.SubjectC2S 이벤트를 구독하여 실시간으로 PLC 태그 변경을 감지합니다.
 /// </summary>
 public class PlcDataReaderService : BackgroundService
 {
     private readonly ILogger<PlcDataReaderService> _logger;
-    private readonly IServiceScopeFactory _scopeFactory;
     private readonly IConfiguration _configuration;
     private readonly IFlowMetricsService _flowMetricsService;
     private readonly DspDbService _dspDbService;
+    private readonly SignalTimelineBufferService _signalTimelineBuffer;
     private readonly ChannelWriter<CallStateChangedEvent> _eventWriter;
     private readonly bool _simulationMode;
     private readonly TimeSpan _simulationWindow = TimeSpan.FromSeconds(1);
+
+    // Services needed for log processing (injected directly to avoid scope disposal issues)
+    private readonly PlcToCallMapperService _mapper;
+    private readonly PlcTagStateTrackerService _stateTracker;
+    private readonly CallStatisticsService _statistics;
+    private readonly IDspRepository _dspRepo;
+    private readonly IPlcRepository _plcRepo;
 
     private DateTime _lastReadTime;
     private DateTime? _simulationReplayEndTime;
     private bool _simulationReplayCompleted;
     private int _totalLogsRead;
+    private IDisposable? _ev2Subscription;
+    private Dictionary<string, int> _tagAddressToIdMap = new();
+    private Dictionary<int, string> _tagIdToAddressMap = new();
+    private CancellationTokenSource? _serviceCts;
 
     public PlcDataReaderService(
         ILogger<PlcDataReaderService> logger,
-        IServiceScopeFactory scopeFactory,
         IConfiguration configuration,
         IFlowMetricsService flowMetricsService,
-        DspDbService dspDbService)
+        DspDbService dspDbService,
+        SignalTimelineBufferService signalTimelineBuffer,
+        PlcToCallMapperService mapper,
+        PlcTagStateTrackerService stateTracker,
+        CallStatisticsService statistics,
+        IDspRepository dspRepo,
+        IPlcRepository plcRepo)
     {
         _logger = logger;
-        _scopeFactory = scopeFactory;
         _configuration = configuration;
         _flowMetricsService = flowMetricsService;
         _dspDbService = dspDbService;
+        _signalTimelineBuffer = signalTimelineBuffer;
         _eventWriter = dspDbService.EventWriter;
         _simulationMode = _configuration.GetValue<bool>("PlcDatabase:SimulationMode");
+        _mapper = mapper;
+        _stateTracker = stateTracker;
+        _statistics = statistics;
+        _dspRepo = dspRepo;
+        _plcRepo = plcRepo;
 
         _lastReadTime = DateTime.Now;
     }
@@ -50,45 +72,174 @@ public class PlcDataReaderService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("========================================");
-        _logger.LogInformation("PLC Data Reader Service starting...");
-        _logger.LogInformation("Simulation Mode Config: {SimMode}", _simulationMode);
-        _logger.LogInformation("========================================");
-
-        if (!await WaitForDatabaseCreationAsync(stoppingToken)) return;
-        if (!await InitializeAsync()) return;
-        if (!await WaitForMapperInitializationAsync(stoppingToken)) return;
-
-        await PostInitializeAsync();
-
-        var intervalMs = _configuration.GetValue<int>("PlcDatabase:ReadIntervalMs", 1000);
-        _logger.LogInformation("Read interval: {IntervalMs}ms", intervalMs);
-
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
+            _logger.LogInformation("========================================");
+            _logger.LogInformation("PLC Data Reader Service starting...");
+            _logger.LogInformation("Simulation Mode Config: {SimMode}", _simulationMode);
+            _logger.LogInformation("========================================");
+
+            // Create service-level cancellation token source
+            _serviceCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+
+            if (!await WaitForDatabaseCreationAsync(stoppingToken)) return;
+            if (!await InitializeAsync()) return;
+            if (!await WaitForMapperInitializationAsync(stoppingToken)) return;
+
+            await PostInitializeAsync();
+
+            // EV2 이벤트 기반 모드
+            var useEv2Events = _configuration.GetValue<bool>("PlcConnection:UseEv2Events", true);
+
             try
             {
-                await ReadAndProcessDataAsync(stoppingToken);
-                await Task.Delay(intervalMs, stoppingToken);
-            }
-            catch (OperationCanceledException)
+            if (useEv2Events)
             {
-                break;
+                _logger.LogInformation("Event-driven mode: Subscribing to EV2 GlobalCommunication.SubjectC2S");
+                SubscribeToEv2Events();
+
+                // 이벤트 기반이므로 무한 대기 (이벤트가 자동으로 처리됨)
+                await WaitForCancellationAsync(stoppingToken);
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogError(ex, "Error reading PLC data");
-                await Task.Delay(5000, stoppingToken);
+                // 폴링 모드 (기존 방식)
+                var intervalMs = _configuration.GetValue<int>("PlcDatabase:ReadIntervalMs", 1000);
+                _logger.LogInformation("Polling mode: Read interval {IntervalMs}ms", intervalMs);
+
+                while (!stoppingToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await ReadAndProcessDataAsync(stoppingToken);
+                        await Task.Delay(intervalMs, stoppingToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error reading PLC data");
+                        await Task.Delay(5000, stoppingToken);
+                    }
+                }
             }
         }
+            catch (TaskCanceledException)
+            {
+                // Expected when application is shutting down (inner try-catch for delay)
+                _logger.LogInformation("PLC Data Reader Service stopping gracefully");
+            }
 
-        _logger.LogInformation("PLC Data Reader Service stopped. Total logs read: {Count}", _totalLogsRead);
+            _logger.LogInformation("PLC Data Reader Service stopped. Total events processed: {Count}", _totalLogsRead);
+        }
+        catch (TaskCanceledException)
+        {
+            // Expected when application is shutting down during initialization
+            _logger.LogInformation("PLC Data Reader Service cancelled during startup");
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when application is shutting down
+            _logger.LogInformation("PLC Data Reader Service operation cancelled");
+        }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("PLC Data Reader Service is stopping gracefully...");
+
+        // Cancel service-level token to stop event processing
+        _serviceCts?.Cancel();
+
+        // EV2 구독 해제
+        _ev2Subscription?.Dispose();
+        _ev2Subscription = null;
+
+        // Dispose cancellation token source
+        _serviceCts?.Dispose();
+        _serviceCts = null;
+
         await base.StopAsync(cancellationToken);
+    }
+
+    // ──────────────────────────────────────────────
+    //  EV2 Event Subscription
+    // ──────────────────────────────────────────────
+
+    private void SubscribeToEv2Events()
+    {
+        try
+        {
+            _ev2Subscription = GlobalCommunication.SubjectC2S.Subscribe(async info =>
+            {
+                try
+                {
+                    if (info.Tags == null || info.Tags.Length == 0) return;
+
+                    // EV2 이벤트를 PlcTagLog로 변환
+                    var logs = new List<PlcTagLogEntity>();
+                    foreach (var (tagSpec, value) in info.Tags)
+                    {
+                        // 캐시된 태그 ID 조회
+                        if (!_tagAddressToIdMap.TryGetValue(tagSpec.Address, out var tagId))
+                        {
+                            _logger.LogDebug("Tag ID not found in cache for address: {Address}", tagSpec.Address);
+                            continue;
+                        }
+
+                        var log = new PlcTagLogEntity
+                        {
+                            PlcTagId = tagId,
+                            Value = value.GetValue()?.ToString() ?? "",
+                            DateTime = info.Timestamp
+                        };
+                        logs.Add(log);
+                    }
+
+                    if (logs.Count > 0)
+                    {
+                        _signalTimelineBuffer.PublishBatch(info.Tags.Select(tag =>
+                            new SignalTimelineSample(
+                                tag.Item1.Address,
+                                tag.Item2.GetValue()?.ToString(),
+                                info.Timestamp)));
+
+                        // Check if service is still running
+                        if (_serviceCts == null || _serviceCts.Token.IsCancellationRequested)
+                        {
+                            _logger.LogDebug("Service is stopping, ignoring event");
+                            return;
+                        }
+
+                        // 기존 처리 로직 호출 (비동기)
+                        await ProcessLogsAsync(logs, _serviceCts.Token);
+                        Interlocked.Add(ref _totalLogsRead, logs.Count);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Service is stopping, ignore
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Service is disposed, ignore
+                    _logger.LogDebug("Service already disposed, ignoring event");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error processing EV2 event");
+                }
+            });
+
+            _logger.LogInformation("Successfully subscribed to EV2 GlobalCommunication.SubjectC2S");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to subscribe to EV2 events");
+            throw;
+        }
     }
 
     // ──────────────────────────────────────────────
@@ -134,24 +285,28 @@ public class PlcDataReaderService : BackgroundService
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var repository = scope.ServiceProvider.GetRequiredService<IPlcRepository>();
-
-            if (!await repository.TestConnectionAsync())
+            if (!await _plcRepo.TestConnectionAsync())
             {
                 _logger.LogError("Database connection test failed");
                 return false;
             }
 
-            var plcs = await repository.GetAllPlcsAsync();
-            var tags = await repository.GetAllTagsAsync();
-            var totalLogs = await repository.GetTotalLogCountAsync();
+            var plcs = await _plcRepo.GetAllPlcsAsync();
+            var tags = await _plcRepo.GetAllTagsAsync();
+            var totalLogs = await _plcRepo.GetTotalLogCountAsync();
+
+            // 태그 Address → ID 매핑 캐시 생성 (EV2 이벤트 처리용)
+            _tagAddressToIdMap = tags.ToDictionary(t => t.Address, t => t.Id);
+            _tagIdToAddressMap = tags
+                .Where(tag => !string.IsNullOrWhiteSpace(tag.Address))
+                .ToDictionary(tag => tag.Id, tag => tag.Address);
+            _logger.LogInformation("Tag address cache built: {Count} tags", _tagAddressToIdMap.Count);
 
             _logger.LogInformation("Database initialized: {PlcCount} PLCs, {TagCount} tags, {LogCount} logs",
                 plcs.Count, tags.Count, totalLogs);
 
             if (_simulationMode)
-                await InitializeSimulationModeAsync(repository);
+                await InitializeSimulationModeAsync(_plcRepo);
             else
             {
                 _lastReadTime = DateTime.Now;
@@ -189,19 +344,12 @@ public class PlcDataReaderService : BackgroundService
 
     private async Task<bool> WaitForMapperInitializationAsync(CancellationToken stoppingToken)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var projectService = scope.ServiceProvider.GetRequiredService<DsProjectService>();
-        var mapper = scope.ServiceProvider.GetRequiredService<PlcToCallMapperService>();
-
-        if (!projectService.IsLoaded)
-        {
-            _logger.LogWarning("DS project is not loaded. PLC logs will not update dsp.db.");
-            return true;
-        }
-
+        // Note: DsProjectService cannot be injected directly as it's not a service
+        // We need to get it from scope, but this happens during initialization before disposal issues
+        // For now, just check if mapper is initialized
         while (!stoppingToken.IsCancellationRequested)
         {
-            if (mapper.IsInitialized)
+            if (_mapper.IsInitialized)
             {
                 _logger.LogInformation("DSP mapper initialized.");
                 return true;
@@ -220,18 +368,14 @@ public class PlcDataReaderService : BackgroundService
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var plcRepo = scope.ServiceProvider.GetRequiredService<IPlcRepository>();
-            var mapper = scope.ServiceProvider.GetRequiredService<PlcToCallMapperService>();
-
             // InTag 매핑 검증: PLC에 없는 InTag 제거 → OutTag Falling으로 Finish 전이 가능
-            var tags = await plcRepo.GetAllTagsAsync();
+            var tags = await _plcRepo.GetAllTagsAsync();
             var tagMatchMode = _configuration.GetValue<string>("PlcDatabase:TagMatchMode") ?? "Address";
             var plcTagKeys = tags
                 .Select(t => tagMatchMode.Equals("Address", StringComparison.OrdinalIgnoreCase) ? t.Address : t.Name)
                 .ToHashSet();
 
-            mapper.ValidateWithPlcTags(plcTagKeys);
+            _mapper.ValidateWithPlcTags(plcTagKeys);
 
             _logger.LogInformation("Post-initialization completed");
         }
@@ -247,13 +391,10 @@ public class PlcDataReaderService : BackgroundService
 
     private async Task ReadAndProcessDataAsync(CancellationToken stoppingToken)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var repository = scope.ServiceProvider.GetRequiredService<IPlcRepository>();
-
         if (_simulationMode && !_simulationReplayCompleted)
-            await ReplayHistoricalWindowAsync(repository, stoppingToken);
+            await ReplayHistoricalWindowAsync(_plcRepo, stoppingToken);
         else
-            await ReadLiveDataAsync(repository, stoppingToken);
+            await ReadLiveDataAsync(_plcRepo, stoppingToken);
     }
 
     private async Task ReadLiveDataAsync(IPlcRepository repository, CancellationToken stoppingToken)
@@ -263,6 +404,7 @@ public class PlcDataReaderService : BackgroundService
 
         if (newLogs.Count > 0)
         {
+            PublishTimelineFromLogs(newLogs);
             LogReadBatch($"[LIVE {pollTime:HH:mm:ss}]", newLogs);
             await ProcessLogsAsync(newLogs, stoppingToken);
             _totalLogsRead += newLogs.Count;
@@ -278,6 +420,7 @@ public class PlcDataReaderService : BackgroundService
 
         if (replayLogs.Count > 0)
         {
+            PublishTimelineFromLogs(replayLogs);
             LogReadBatch($"[SIM {windowStart:HH:mm:ss.fff} ~ {windowEnd:HH:mm:ss.fff}]", replayLogs);
             await ProcessLogsAsync(replayLogs, stoppingToken);
             _totalLogsRead += replayLogs.Count;
@@ -299,20 +442,34 @@ public class PlcDataReaderService : BackgroundService
             prefix, logs.Count, _totalLogsRead + logs.Count);
     }
 
+    private void PublishTimelineFromLogs(IEnumerable<PlcTagLogEntity> logs)
+    {
+        var samples = logs
+            .Where(log => _tagIdToAddressMap.ContainsKey(log.PlcTagId))
+            .Select(log => new SignalTimelineSample(
+                _tagIdToAddressMap[log.PlcTagId],
+                log.Value,
+                log.DateTime))
+            .ToList();
+
+        if (samples.Count > 0)
+        {
+            _signalTimelineBuffer.PublishBatch(samples);
+        }
+    }
+
     // ──────────────────────────────────────────────
     //  Log processing pipeline
     // ──────────────────────────────────────────────
 
     private async Task ProcessLogsAsync(List<PlcTagLogEntity> logs, CancellationToken stoppingToken)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var mapper = scope.ServiceProvider.GetRequiredService<PlcToCallMapperService>();
-        var stateTracker = scope.ServiceProvider.GetRequiredService<PlcTagStateTrackerService>();
-        var statistics = scope.ServiceProvider.GetRequiredService<CallStatisticsService>();
-        var dspRepo = scope.ServiceProvider.GetRequiredService<IDspRepository>();
-        var plcRepo = scope.ServiceProvider.GetRequiredService<IPlcRepository>();
+        // Check if cancellation requested
+        if (stoppingToken.IsCancellationRequested)
+            return;
 
-        if (!mapper.IsInitialized)
+        // Check if mapper is initialized
+        if (!_mapper.IsInitialized)
         {
             _logger.LogWarning("PlcToCallMapper not initialized. Skipping.");
             return;
@@ -324,7 +481,7 @@ public class PlcDataReaderService : BackgroundService
         {
             try
             {
-                if (await ProcessSingleLogAsync(log, mapper, stateTracker, statistics, dspRepo, plcRepo, stoppingToken))
+                if (await ProcessSingleLogAsync(log, _mapper, _stateTracker, _statistics, _dspRepo, _plcRepo, stoppingToken))
                     stateChangedCount++;
             }
             catch (Exception ex)
@@ -499,5 +656,14 @@ public class PlcDataReaderService : BackgroundService
             "1" or "true" or "on" => "1",
             _ => "0"
         };
+    }
+
+    private static async Task WaitForCancellationAsync(CancellationToken cancellationToken)
+    {
+        var tcs = new TaskCompletionSource<bool>();
+        using (cancellationToken.Register(() => tcs.TrySetResult(true)))
+        {
+            await tcs.Task;
+        }
     }
 }

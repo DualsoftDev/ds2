@@ -1,61 +1,40 @@
 using DSPilot.Engine;
-using DSPilot.Models.Dsp;
 
 namespace DSPilot.Services;
 
 /// <summary>
-/// PLC 태그 상태 추적 서비스 (F# EdgeDetection 사용)
+/// PLC 태그 상태 추적 서비스 (F# TagStateTracker 래퍼)
 /// </summary>
 public class PlcTagStateTrackerService
 {
     private readonly ILogger<PlcTagStateTrackerService> _logger;
-    private readonly Dictionary<string, TagEdgeState> _tagStates = new();
+    private readonly TagStateTrackerMutable _tracker;
 
     public PlcTagStateTrackerService(ILogger<PlcTagStateTrackerService> logger)
     {
         _logger = logger;
+        _tracker = new TagStateTrackerMutable();
     }
 
     /// <summary>
-    /// 태그 값 업데이트 및 엣지 상태 반환 (F# EdgeDetection 사용)
+    /// 태그 값 업데이트 및 엣지 상태 반환 (F# TagStateTracker 사용)
     /// </summary>
     public TagEdgeState UpdateTagValue(string tagName, string newValue)
     {
-        if (!_tagStates.TryGetValue(tagName, out var state))
+        var state = _tracker.UpdateTagValue(tagName, newValue);
+
+        // 첫 업데이트인 경우
+        if (state.PreviousValue == "0" && state.CurrentValue == newValue)
         {
-            // 첫 번째 업데이트
-            var edgeType = EdgeDetection.detectEdge(null, newValue);
-
-            state = new TagEdgeState
-            {
-                TagName = tagName,
-                PreviousValue = "0",
-                CurrentValue = newValue,
-                LastUpdateTime = DateTime.Now,
-                EdgeType = edgeType
-            };
-            _tagStates[tagName] = state;
-
             _logger.LogDebug("Tag '{TagName}' initialized: {Value}", tagName, newValue);
         }
-        else
+        else if (EdgeDetection.isRising(state.EdgeType))
         {
-            // F# EdgeDetection 사용
-            var edgeType = EdgeDetection.detectEdge(state.CurrentValue, newValue);
-
-            state.PreviousValue = state.CurrentValue;
-            state.CurrentValue = newValue;
-            state.LastUpdateTime = DateTime.Now;
-            state.EdgeType = edgeType;
-
-            if (EdgeDetection.isRising(edgeType))
-            {
-                _logger.LogDebug("Tag '{TagName}': Rising edge detected (0 → 1)", tagName);
-            }
-            else if (EdgeDetection.isFalling(edgeType))
-            {
-                _logger.LogDebug("Tag '{TagName}': Falling edge detected (1 → 0)", tagName);
-            }
+            _logger.LogDebug("Tag '{TagName}': Rising edge detected (0 → 1)", tagName);
+        }
+        else if (EdgeDetection.isFalling(state.EdgeType))
+        {
+            _logger.LogDebug("Tag '{TagName}': Falling edge detected (1 → 0)", tagName);
         }
 
         return state;
@@ -66,7 +45,7 @@ public class PlcTagStateTrackerService
     /// </summary>
     public TagEdgeState? GetState(string tagName)
     {
-        return _tagStates.TryGetValue(tagName, out var state) ? state : null;
+        return _tracker.GetState(tagName)?.Value;
     }
 
     /// <summary>
@@ -74,12 +53,12 @@ public class PlcTagStateTrackerService
     /// </summary>
     public void Reset()
     {
-        _tagStates.Clear();
+        _tracker.Reset();
         _logger.LogInformation("All tag states cleared");
     }
 
     /// <summary>
     /// 추적 중인 태그 개수
     /// </summary>
-    public int TrackedTagCount => _tagStates.Count;
+    public int TrackedTagCount => _tracker.TrackedTagCount;
 }
