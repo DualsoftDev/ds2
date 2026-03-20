@@ -5,7 +5,7 @@ open System
 /// View Models 및 DTO
 module Models =
 
-    /// Call Heatmap 아이템 (F# record)
+    /// Call Heatmap 아이템 (F# record) - 매트릭스 히트맵용 per-metric 색상
     type CallHeatmapItem = {
         CallName: string
         FlowName: string
@@ -14,7 +14,10 @@ module Models =
         StdDevGoingTime: float
         GoingCount: int
         PerformanceScore: float
-        ColorClass: string
+        ColorClassAvg: string
+        ColorClassStdDev: string
+        ColorClassCV: string
+        ColorClassScore: string
     } with
         /// 변동계수 계산
         member this.CoefficientOfVariation =
@@ -30,6 +33,14 @@ module Models =
             | HeatmapMetric.StdDeviation -> this.StdDevGoingTime
             | HeatmapMetric.CoefficientOfVariation -> this.CoefficientOfVariation
             | HeatmapMetric.PerformanceScore -> this.PerformanceScore
+
+        /// 메트릭별 색상 클래스 추출
+        member this.GetColorClass(metric: HeatmapMetric) =
+            match metric with
+            | HeatmapMetric.AverageTime -> this.ColorClassAvg
+            | HeatmapMetric.StdDeviation -> this.ColorClassStdDev
+            | HeatmapMetric.CoefficientOfVariation -> this.ColorClassCV
+            | HeatmapMetric.PerformanceScore -> this.ColorClassScore
 
         /// 툴팁 텍스트 생성
         member this.GetTooltipText() =
@@ -47,7 +58,7 @@ module Models =
                 elif this.PerformanceScore >= 30.0 then "개선 필요"
                 else "심각"
 
-            sprintf "[%s]\n━━━━━━━━━━━━━━━━━━━━\n평균 실행시간: %.0f ms\n표준편차: %.0f ms\n변동계수: %.2f (%s)\n성능점수: %.0f/100 (%s)\n실행횟수: %d회\n━━━━━━━━━━━━━━━━━━━━\n💡 변동계수가 낮을수록 안정적입니다\n💡 성능점수가 높을수록 우수합니다"
+            sprintf "[%s]\n평균: %.0f ms | 표준편차: %.0f ms\n변동계수: %.2f (%s)\n성능점수: %.0f/100 (%s)\n실행횟수: %d회"
                 this.CallName
                 this.AverageGoingTime
                 this.StdDevGoingTime
@@ -57,11 +68,15 @@ module Models =
                 scoreStatus
                 this.GoingCount
 
-    /// Flow Heatmap 그룹 (F# record)
+    /// Flow Heatmap 그룹 (F# record) - Flow 수준 집계 색상 포함
     type FlowHeatmapGroup = {
         FlowName: string
         Calls: CallHeatmapItem list
         mutable IsExpanded: bool
+        FlowColorClassAvg: string
+        FlowColorClassStdDev: string
+        FlowColorClassCV: string
+        FlowColorClassScore: string
     } with
         /// Flow 평균 Going 시간
         member this.FlowAverageTime =
@@ -73,6 +88,11 @@ module Models =
             if this.Calls.IsEmpty then 0.0
             else this.Calls |> List.averageBy (fun c -> c.StdDevGoingTime)
 
+        /// Flow 평균 변동계수
+        member this.FlowAverageCV =
+            if this.Calls.IsEmpty then 0.0
+            else this.Calls |> List.averageBy (fun c -> c.CoefficientOfVariation)
+
         /// Flow 평균 성능 점수
         member this.FlowAverageScore =
             if this.Calls.IsEmpty then 0.0
@@ -80,6 +100,11 @@ module Models =
 
         /// Call 개수
         member this.CallCount = this.Calls.Length
+
+        /// 이슈 Call 개수 (개선필요 또는 심각)
+        member this.IssueCount =
+            this.Calls |> List.filter (fun c ->
+                c.ColorClassScore = "heatmap-poor" || c.ColorClassScore = "heatmap-critical") |> List.length
 
     /// Tag Edge State (F# record)
     type TagEdgeState = {

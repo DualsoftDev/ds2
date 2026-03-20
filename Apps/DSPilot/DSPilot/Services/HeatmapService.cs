@@ -7,6 +7,7 @@ namespace DSPilot.Services;
 
 /// <summary>
 /// Heatmap 데이터 처리 서비스 (F# Performance 및 Models 모듈 사용)
+/// 매트릭스 히트맵: 4개 메트릭 모두에 대해 색상 클래스를 동시 할당
 /// </summary>
 public class HeatmapService
 {
@@ -22,9 +23,10 @@ public class HeatmapService
     }
 
     /// <summary>
-    /// Flow별로 그룹화된 Heatmap 데이터 조회
+    /// Flow별로 그룹화된 매트릭스 Heatmap 데이터 조회
+    /// 4개 메트릭 모두에 대해 색상 클래스를 할당
     /// </summary>
-    public async Task<List<FlowHeatmapGroup>> GetHeatmapDataAsync(HeatmapMetric selectedMetric)
+    public async Task<List<FlowHeatmapGroup>> GetHeatmapDataAsync()
     {
         try
         {
@@ -37,37 +39,73 @@ public class HeatmapService
                 return new List<FlowHeatmapGroup>();
             }
 
-            // 2. CallHeatmapItem으로 변환 (F# record)
-            var items = statistics.Select(s => new CallHeatmapItem(
+            // 2. 중간 아이템 리스트 (성능점수 계산 전)
+            var intermediateItems = statistics.Select(s => new CallHeatmapItem(
                 s.CallName,
                 s.FlowName,
                 s.WorkName,
                 s.AverageGoingTime,
                 s.StdDevGoingTime,
                 s.GoingCount,
-                0.0, // PerformanceScore will be calculated
-                ""   // ColorClass will be assigned
+                0.0, // PerformanceScore - 아래에서 계산
+                "", "", "", "" // 색상 클래스 - 아래에서 할당
             )).ToList();
 
-            // 3. 성능 점수 계산
-            CalculatePerformanceScores(items);
+            // 3. 성능 점수 계산 (F# Performance 모듈)
+            CalculatePerformanceScores(intermediateItems);
 
-            // 4. 색상 클래스 할당
-            AssignColorClasses(items, selectedMetric);
+            // 4. 4개 메트릭 각각에 대해 min/max 계산
+            var allAvg = intermediateItems.Select(i => i.AverageGoingTime).ToList();
+            var allStdDev = intermediateItems.Select(i => i.StdDevGoingTime).ToList();
+            var allCV = intermediateItems.Select(i => i.CoefficientOfVariation).ToList();
+            var allScore = intermediateItems.Select(i => i.PerformanceScore).ToList();
 
-            // 5. Flow별로 그룹화
+            var minAvg = allAvg.Min(); var maxAvg = allAvg.Max();
+            var minStdDev = allStdDev.Min(); var maxStdDev = allStdDev.Max();
+            var minCV = allCV.Min(); var maxCV = allCV.Max();
+            var minScore = allScore.Min(); var maxScore = allScore.Max();
+
+            // 5. 4개 메트릭 색상 클래스 동시 할당
+            var items = intermediateItems.Select(i => new CallHeatmapItem(
+                i.CallName,
+                i.FlowName,
+                i.WorkName,
+                i.AverageGoingTime,
+                i.StdDevGoingTime,
+                i.GoingCount,
+                i.PerformanceScore,
+                Performance.assignColorClass(HeatmapMetric.AverageTime, i.AverageGoingTime, minAvg, maxAvg),
+                Performance.assignColorClass(HeatmapMetric.StdDeviation, i.StdDevGoingTime, minStdDev, maxStdDev),
+                Performance.assignColorClass(HeatmapMetric.CoefficientOfVariation, i.CoefficientOfVariation, minCV, maxCV),
+                Performance.assignColorClass(HeatmapMetric.PerformanceScore, i.PerformanceScore, minScore, maxScore)
+            )).ToList();
+
+            // 6. Flow별로 그룹화 + Flow 수준 집계 색상
             var groups = items
                 .GroupBy(item => item.FlowName)
-                .Select(g => new FlowHeatmapGroup(
-                    g.Key,
-                    ListModule.OfSeq(g.OrderBy(c => c.CallName)),
-                    true
-                ))
+                .Select(g =>
+                {
+                    var calls = g.OrderBy(c => c.CallName).ToList();
+                    var flowAvg = calls.Average(c => c.AverageGoingTime);
+                    var flowStdDev = calls.Average(c => c.StdDevGoingTime);
+                    var flowCV = calls.Average(c => c.CoefficientOfVariation);
+                    var flowScore = calls.Average(c => c.PerformanceScore);
+
+                    return new FlowHeatmapGroup(
+                        g.Key,
+                        ListModule.OfSeq(calls),
+                        true,
+                        Performance.assignColorClass(HeatmapMetric.AverageTime, flowAvg, minAvg, maxAvg),
+                        Performance.assignColorClass(HeatmapMetric.StdDeviation, flowStdDev, minStdDev, maxStdDev),
+                        Performance.assignColorClass(HeatmapMetric.CoefficientOfVariation, flowCV, minCV, maxCV),
+                        Performance.assignColorClass(HeatmapMetric.PerformanceScore, flowScore, minScore, maxScore)
+                    );
+                })
                 .OrderBy(g => g.FlowName)
                 .ToList();
 
             _logger.LogInformation(
-                "Heatmap data loaded: {FlowCount} flows, {CallCount} calls",
+                "Heatmap matrix data loaded: {FlowCount} flows, {CallCount} calls",
                 groups.Count,
                 items.Count);
 
@@ -87,14 +125,12 @@ public class HeatmapService
     {
         if (items.Count == 0) return;
 
-        // F# 함수 호출을 위한 데이터 변환 (C# value tuple → F# Tuple)
         var data = items.Select(i => Tuple.Create(i.AverageGoingTime, i.CoefficientOfVariation)).ToList();
         var fsharpList = ListModule.OfSeq(data);
 
         var scores = Performance.calculatePerformanceScores(fsharpList);
         var scoreList = ListModule.ToArray(scores);
 
-        // F# record는 불변이므로 새 인스턴스 생성
         for (int i = 0; i < items.Count; i++)
         {
             items[i] = new CallHeatmapItem(
@@ -105,50 +141,39 @@ public class HeatmapService
                 items[i].StdDevGoingTime,
                 items[i].GoingCount,
                 scoreList[i],
-                items[i].ColorClass
+                items[i].ColorClassAvg,
+                items[i].ColorClassStdDev,
+                items[i].ColorClassCV,
+                items[i].ColorClassScore
             );
         }
     }
 
     /// <summary>
-    /// 선택된 메트릭에 따라 색상 클래스 할당 (F# Performance 모듈 사용)
-    /// </summary>
-    private void AssignColorClasses(List<CallHeatmapItem> items, HeatmapMetric metric)
-    {
-        if (items.Count == 0) return;
-
-        var values = items.Select(i => i.GetMetricValue(metric)).ToList();
-        var minValue = values.Min();
-        var maxValue = values.Max();
-
-        // F# record는 불변이므로 새 인스턴스 생성
-        for (int i = 0; i < items.Count; i++)
-        {
-            var value = items[i].GetMetricValue(metric);
-            var colorClass = Performance.assignColorClass(metric, value, minValue, maxValue);
-
-            items[i] = new CallHeatmapItem(
-                items[i].CallName,
-                items[i].FlowName,
-                items[i].WorkName,
-                items[i].AverageGoingTime,
-                items[i].StdDevGoingTime,
-                items[i].GoingCount,
-                items[i].PerformanceScore,
-                colorClass
-            );
-        }
-    }
-
-    /// <summary>
-    /// 메트릭 표시 이름 반환 (F# Performance 모듈 사용)
+    /// 메트릭 표시 이름 반환
     /// </summary>
     public static string GetMetricDisplayName(HeatmapMetric metric) =>
         Performance.getMetricDisplayName(metric);
 
     /// <summary>
-    /// 메트릭 값 포맷 (F# Performance 모듈 사용)
+    /// 메트릭 값 포맷
     /// </summary>
     public static string FormatMetricValue(HeatmapMetric metric, double value) =>
         Performance.formatMetricValue(metric, value);
+
+    /// <summary>
+    /// 컴팩트 셀용 짧은 포맷
+    /// </summary>
+    public static string FormatMetricValueShort(HeatmapMetric metric, double value)
+    {
+        if (metric.IsAverageTime)
+            return value < 1000 ? $"{value:F0}" : $"{value / 1000.0:F1}s";
+        if (metric.IsStdDeviation)
+            return value < 1000 ? $"{value:F0}" : $"{value / 1000.0:F1}s";
+        if (metric.IsCoefficientOfVariation)
+            return $"{value:F2}";
+        if (metric.IsPerformanceScore)
+            return $"{value:F0}";
+        return $"{value:F1}";
+    }
 }
