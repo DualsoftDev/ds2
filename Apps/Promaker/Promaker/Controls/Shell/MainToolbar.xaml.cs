@@ -27,11 +27,6 @@ public partial class MainToolbar : UserControl
         ReportToggleBtn.IsChecked = false;
     }
 
-    // Add 팝업 내 메뉴 클릭 시 팝업 닫기
-    private void CloseAddPopup(object sender, RoutedEventArgs e)
-    {
-        AddToggleBtn.IsChecked = false;
-    }
 
     // Model 팝업 내 메뉴 클릭 시 팝업 닫기
     private void CloseModelPopup(object sender, RoutedEventArgs e)

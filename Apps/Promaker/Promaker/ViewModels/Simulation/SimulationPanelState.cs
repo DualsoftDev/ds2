@@ -98,6 +98,12 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
     private SimWorkItem? _selectedSimWork;
 
+    partial void OnSelectedSimWorkChanged(SimWorkItem? value)
+    {
+        if (value is not null)
+            _lastSelectedWorkId = value.Guid;
+    }
+
     public ObservableCollection<SimNodeRow> SimNodes { get; } = [];
     public ObservableCollection<string> SimEventLog { get; } = [];
     public ObservableCollection<SimWorkItem> SimWorkItems { get; } = [];

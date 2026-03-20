@@ -33,7 +33,7 @@
             </Border>
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
-                    <TextBlock Text="{Binding SelectedNode.EntityType, StringFormat='Type: {0}', FallbackValue='No selection'}"
+                    <TextBlock Text="{Binding SelectedNode.EntityType, StringFormat='Type: {0}', FallbackValue='선택 없음'}"
                                FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,4"/>
                     <TextBlock Text="{Binding SelectedNode.Name, StringFormat='Name: {0}'}"
                                FontSize="13" FontWeight="SemiBold" Margin="0,0,0,12"/>

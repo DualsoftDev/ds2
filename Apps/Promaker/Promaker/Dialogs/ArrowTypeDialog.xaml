@@ -53,6 +53,45 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="PinToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="24"/>
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="ToolTip" Value="우클릭 메뉴에 표시"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border Background="Transparent" Padding="2">
+                            <Grid>
+                                <Path x:Name="UnpinnedIcon"
+                                      Data="M12,2 L14,8 L20,9 L15.5,13 L17,19 L12,16 L7,19 L8.5,13 L4,9 L10,8 Z"
+                                      Stroke="{DynamicResource SecondaryTextBrush}"
+                                      StrokeThickness="1.2"
+                                      Fill="Transparent"
+                                      Stretch="Uniform"
+                                      Width="16" Height="16"/>
+                                <Path x:Name="PinnedIcon"
+                                      Data="M12,2 L14,8 L20,9 L15.5,13 L17,19 L12,16 L7,19 L8.5,13 L4,9 L10,8 Z"
+                                      Stroke="{DynamicResource AccentBrush}"
+                                      StrokeThickness="1.2"
+                                      Fill="{DynamicResource AccentBrush}"
+                                      Stretch="Uniform"
+                                      Width="16" Height="16"
+                                      Visibility="Collapsed"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="UnpinnedIcon" Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="PinnedIcon" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
@@ -76,104 +115,154 @@
                           HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
                     <RadioButton x:Name="StartRadio" GroupName="ArrowType" Style="{StaticResource ArrowOptionRadio}">
-                        <StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <Canvas Width="44" Height="16" Margin="0,0,10,0">
-                                    <Border Canvas.Left="0" Canvas.Top="6.5" Width="34" Height="3" Background="{DynamicResource GreenAccentBrush}" CornerRadius="1"/>
-                                    <Path Canvas.Left="34" Canvas.Top="0"
-                                          Data="M0,2 L10,8 L0,14"
-                                          Stroke="{DynamicResource GreenAccentBrush}" StrokeThickness="2"
-                                          Fill="Transparent" StrokeLineJoin="Miter"/>
-                                </Canvas>
-                                <TextBlock Text="시작 인과" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <StackPanel Orientation="Horizontal">
+                                    <Canvas Width="44" Height="16" Margin="0,0,10,0">
+                                        <Border Canvas.Left="0" Canvas.Top="6.5" Width="34" Height="3" Background="{DynamicResource GreenAccentBrush}" CornerRadius="1"/>
+                                        <Path Canvas.Left="34" Canvas.Top="0"
+                                              Data="M0,2 L10,8 L0,14"
+                                              Stroke="{DynamicResource GreenAccentBrush}" StrokeThickness="2"
+                                              Fill="Transparent" StrokeLineJoin="Miter"/>
+                                    </Canvas>
+                                    <TextBlock Text="시작 인과" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="A작업이 끝난 후 B작업 시작"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           FontSize="11"
+                                           Margin="54,2,0,0"/>
                             </StackPanel>
-                            <TextBlock Text="A작업이 끝난 후 B작업 시작"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="11"
-                                       Margin="54,2,0,0"/>
-                        </StackPanel>
+                            <ToggleButton x:Name="StartPin" Grid.Column="1"
+                                          Style="{StaticResource PinToggleStyle}"
+                                          VerticalAlignment="Top" Margin="8,0,0,0"
+                                          Click="Pin_Click" Tag="Start"/>
+                        </Grid>
                     </RadioButton>
 
                     <RadioButton x:Name="ResetRadio" GroupName="ArrowType" Style="{StaticResource ArrowOptionRadio}">
-                        <StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <Canvas Width="44" Height="16" Margin="0,0,10,0">
-                                    <Line X1="0" Y1="8" X2="34" Y2="8"
-                                          Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="3"
-                                          StrokeDashArray="2,1"/>
-                                    <Path Canvas.Left="34" Canvas.Top="0"
-                                          Data="M0,2 L10,8 L0,14"
-                                          Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2"
-                                          Fill="Transparent" StrokeLineJoin="Miter"/>
-                                </Canvas>
-                                <TextBlock Text="리셋 인과" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <StackPanel Orientation="Horizontal">
+                                    <Canvas Width="44" Height="16" Margin="0,0,10,0">
+                                        <Line X1="0" Y1="8" X2="34" Y2="8"
+                                              Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="3"
+                                              StrokeDashArray="2,1"/>
+                                        <Path Canvas.Left="34" Canvas.Top="0"
+                                              Data="M0,2 L10,8 L0,14"
+                                              Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2"
+                                              Fill="Transparent" StrokeLineJoin="Miter"/>
+                                    </Canvas>
+                                    <TextBlock Text="리셋 인과" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="A작업 시작과 동시에 B작업이 리셋"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           FontSize="11"
+                                           Margin="54,2,0,0"/>
                             </StackPanel>
-                            <TextBlock Text="A작업 시작과 동시에 B작업이 리셋"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="11"
-                                       Margin="54,2,0,0"/>
-                        </StackPanel>
+                            <ToggleButton x:Name="ResetPin" Grid.Column="1"
+                                          Style="{StaticResource PinToggleStyle}"
+                                          VerticalAlignment="Top" Margin="8,0,0,0"
+                                          Click="Pin_Click" Tag="Reset"/>
+                        </Grid>
                     </RadioButton>
 
                     <RadioButton x:Name="StartResetRadio" GroupName="ArrowType" Style="{StaticResource ArrowOptionRadio}">
-                        <StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <Canvas Width="44" Height="16" Margin="0,0,10,0">
-                                    <Rectangle Canvas.Left="0" Canvas.Top="4" Width="8" Height="8" Fill="{DynamicResource RedAccentBrush}"/>
-                                    <Border Canvas.Left="8" Canvas.Top="6.5" Width="26" Height="3" Background="{DynamicResource RedAccentBrush}" CornerRadius="1"/>
-                                    <Path Canvas.Left="34" Canvas.Top="0"
-                                          Data="M0,2 L10,8 L0,14"
-                                          Stroke="{DynamicResource RedAccentBrush}" StrokeThickness="2"
-                                          Fill="Transparent" StrokeLineJoin="Miter"/>
-                                </Canvas>
-                                <TextBlock Text="시작리셋 인과" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <StackPanel Orientation="Horizontal">
+                                    <Canvas Width="44" Height="16" Margin="0,0,10,0">
+                                        <Rectangle Canvas.Left="0" Canvas.Top="4" Width="8" Height="8" Fill="{DynamicResource RedAccentBrush}"/>
+                                        <Border Canvas.Left="8" Canvas.Top="6.5" Width="26" Height="3" Background="{DynamicResource RedAccentBrush}" CornerRadius="1"/>
+                                        <Path Canvas.Left="34" Canvas.Top="0"
+                                              Data="M0,2 L10,8 L0,14"
+                                              Stroke="{DynamicResource RedAccentBrush}" StrokeThickness="2"
+                                              Fill="Transparent" StrokeLineJoin="Miter"/>
+                                    </Canvas>
+                                    <TextBlock Text="시작리셋 인과" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="A가 끝나면 B시작과 동시에 A가 리셋"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           FontSize="11"
+                                           TextWrapping="Wrap"
+                                           Margin="54,2,0,0"/>
                             </StackPanel>
-                            <TextBlock Text="A가 끝나면 B시작과 동시에 A가 리셋"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="11"
-                                       TextWrapping="Wrap"
-                                       Margin="54,2,0,0"/>
-                        </StackPanel>
+                            <ToggleButton x:Name="StartResetPin" Grid.Column="1"
+                                          Style="{StaticResource PinToggleStyle}"
+                                          VerticalAlignment="Top" Margin="8,0,0,0"
+                                          Click="Pin_Click" Tag="StartReset"/>
+                        </Grid>
                     </RadioButton>
 
                     <RadioButton x:Name="ResetResetRadio" GroupName="ArrowType" Style="{StaticResource ArrowOptionRadio}">
-                        <StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <Canvas Width="44" Height="16" Margin="0,0,10,0">
-                                    <Path Canvas.Left="0" Canvas.Top="0"
-                                          Data="M10,2 L0,8 L10,14"
-                                          Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2"
-                                          Fill="Transparent" StrokeLineJoin="Miter"/>
-                                    <Line X1="10" Y1="8" X2="34" Y2="8"
-                                          Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="3"
-                                          StrokeDashArray="2,1"/>
-                                    <Path Canvas.Left="34" Canvas.Top="0"
-                                          Data="M0,2 L10,8 L0,14"
-                                          Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2"
-                                          Fill="Transparent" StrokeLineJoin="Miter"/>
-                                </Canvas>
-                                <TextBlock Text="상호리셋 인과" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <StackPanel Orientation="Horizontal">
+                                    <Canvas Width="44" Height="16" Margin="0,0,10,0">
+                                        <Path Canvas.Left="0" Canvas.Top="0"
+                                              Data="M10,2 L0,8 L10,14"
+                                              Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2"
+                                              Fill="Transparent" StrokeLineJoin="Miter"/>
+                                        <Line X1="10" Y1="8" X2="34" Y2="8"
+                                              Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="3"
+                                              StrokeDashArray="2,1"/>
+                                        <Path Canvas.Left="34" Canvas.Top="0"
+                                              Data="M0,2 L10,8 L0,14"
+                                              Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2"
+                                              Fill="Transparent" StrokeLineJoin="Miter"/>
+                                    </Canvas>
+                                    <TextBlock Text="상호리셋 인과" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="A와 B가 서로 리셋"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           FontSize="11"
+                                           Margin="54,2,0,0"/>
                             </StackPanel>
-                            <TextBlock Text="A와 B가 서로 리셋"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="11"
-                                       Margin="54,2,0,0"/>
-                        </StackPanel>
+                            <ToggleButton x:Name="ResetResetPin" Grid.Column="1"
+                                          Style="{StaticResource PinToggleStyle}"
+                                          VerticalAlignment="Top" Margin="8,0,0,0"
+                                          Click="Pin_Click" Tag="ResetReset"/>
+                        </Grid>
                     </RadioButton>
 
                     <RadioButton x:Name="GroupRadio" GroupName="ArrowType" Style="{StaticResource ArrowOptionRadio}">
-                        <StackPanel>
-                            <StackPanel Orientation="Horizontal">
-                                <Canvas Width="44" Height="16" Margin="0,0,10,0">
-                                    <Border Canvas.Left="0" Canvas.Top="6.5" Width="44" Height="3" Background="{DynamicResource AccentBrush}" CornerRadius="1"/>
-                                </Canvas>
-                                <TextBlock Text="그룹연결" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <StackPanel Orientation="Horizontal">
+                                    <Canvas Width="44" Height="16" Margin="0,0,10,0">
+                                        <Border Canvas.Left="0" Canvas.Top="6.5" Width="44" Height="3" Background="{DynamicResource AccentBrush}" CornerRadius="1"/>
+                                    </Canvas>
+                                    <TextBlock Text="그룹연결" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="그룹 간 연결 (직선)"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           FontSize="11"
+                                           Margin="54,2,0,0"/>
                             </StackPanel>
-                            <TextBlock Text="그룹 간 연결 (직선)"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="11"
-                                       Margin="54,2,0,0"/>
-                        </StackPanel>
+                            <ToggleButton x:Name="GroupPin" Grid.Column="1"
+                                          Style="{StaticResource PinToggleStyle}"
+                                          VerticalAlignment="Top" Margin="8,0,0,0"
+                                          Click="Pin_Click" Tag="Group"/>
+                        </Grid>
                     </RadioButton>
                 </StackPanel>
             </ScrollViewer>
