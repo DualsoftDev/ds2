@@ -40,16 +40,21 @@ public class HeatmapService
             }
 
             // 2. 중간 아이템 리스트 (성능점수 계산 전)
-            var intermediateItems = statistics.Select(s => new CallHeatmapItem(
-                s.CallName,
-                s.FlowName,
-                s.WorkName,
-                s.AverageGoingTime,
-                s.StdDevGoingTime,
-                s.GoingCount,
-                0.0, // PerformanceScore - 아래에서 계산
-                "", "", "", "" // 색상 클래스 - 아래에서 할당
-            )).ToList();
+            var intermediateItems = statistics.Select(s => new CallHeatmapItem
+            {
+                CallName = s.CallName,
+                FlowName = s.FlowName,
+                WorkName = s.WorkName,
+                AverageGoingTime = s.AverageGoingTime,
+                StdDevGoingTime = s.StdDevGoingTime,
+                GoingCount = s.GoingCount,
+                PerformanceScore = 0.0,
+                ColorClass = "",
+                ColorClassAvg = "",
+                ColorClassStdDev = "",
+                ColorClassCV = "",
+                ColorClassScore = ""
+            }).ToList();
 
             // 3. 성능 점수 계산 (F# Performance 모듈)
             CalculatePerformanceScores(intermediateItems);
@@ -66,19 +71,21 @@ public class HeatmapService
             var minScore = allScore.Min(); var maxScore = allScore.Max();
 
             // 5. 4개 메트릭 색상 클래스 동시 할당
-            var items = intermediateItems.Select(i => new CallHeatmapItem(
-                i.CallName,
-                i.FlowName,
-                i.WorkName,
-                i.AverageGoingTime,
-                i.StdDevGoingTime,
-                i.GoingCount,
-                i.PerformanceScore,
-                Performance.assignColorClass(HeatmapMetric.AverageTime, i.AverageGoingTime, minAvg, maxAvg),
-                Performance.assignColorClass(HeatmapMetric.StdDeviation, i.StdDevGoingTime, minStdDev, maxStdDev),
-                Performance.assignColorClass(HeatmapMetric.CoefficientOfVariation, i.CoefficientOfVariation, minCV, maxCV),
-                Performance.assignColorClass(HeatmapMetric.PerformanceScore, i.PerformanceScore, minScore, maxScore)
-            )).ToList();
+            var items = intermediateItems.Select(i => new CallHeatmapItem
+            {
+                CallName = i.CallName,
+                FlowName = i.FlowName,
+                WorkName = i.WorkName,
+                AverageGoingTime = i.AverageGoingTime,
+                StdDevGoingTime = i.StdDevGoingTime,
+                GoingCount = i.GoingCount,
+                PerformanceScore = i.PerformanceScore,
+                ColorClass = Performance.assignColorClass(HeatmapMetric.PerformanceScore, i.PerformanceScore, minScore, maxScore),
+                ColorClassAvg = Performance.assignColorClass(HeatmapMetric.AverageTime, i.AverageGoingTime, minAvg, maxAvg),
+                ColorClassStdDev = Performance.assignColorClass(HeatmapMetric.StdDeviation, i.StdDevGoingTime, minStdDev, maxStdDev),
+                ColorClassCV = Performance.assignColorClass(HeatmapMetric.CoefficientOfVariation, i.CoefficientOfVariation, minCV, maxCV),
+                ColorClassScore = Performance.assignColorClass(HeatmapMetric.PerformanceScore, i.PerformanceScore, minScore, maxScore)
+            }).ToList();
 
             // 6. Flow별로 그룹화 + Flow 수준 집계 색상
             var groups = items
@@ -91,15 +98,16 @@ public class HeatmapService
                     var flowCV = calls.Average(c => c.CoefficientOfVariation);
                     var flowScore = calls.Average(c => c.PerformanceScore);
 
-                    return new FlowHeatmapGroup(
-                        g.Key,
-                        ListModule.OfSeq(calls),
-                        true,
-                        Performance.assignColorClass(HeatmapMetric.AverageTime, flowAvg, minAvg, maxAvg),
-                        Performance.assignColorClass(HeatmapMetric.StdDeviation, flowStdDev, minStdDev, maxStdDev),
-                        Performance.assignColorClass(HeatmapMetric.CoefficientOfVariation, flowCV, minCV, maxCV),
-                        Performance.assignColorClass(HeatmapMetric.PerformanceScore, flowScore, minScore, maxScore)
-                    );
+                    return new FlowHeatmapGroup
+                    {
+                        FlowName = g.Key,
+                        Calls = ListModule.OfSeq(calls),
+                        IsExpanded = true,
+                        FlowColorClassAvg = Performance.assignColorClass(HeatmapMetric.AverageTime, flowAvg, minAvg, maxAvg),
+                        FlowColorClassStdDev = Performance.assignColorClass(HeatmapMetric.StdDeviation, flowStdDev, minStdDev, maxStdDev),
+                        FlowColorClassCV = Performance.assignColorClass(HeatmapMetric.CoefficientOfVariation, flowCV, minCV, maxCV),
+                        FlowColorClassScore = Performance.assignColorClass(HeatmapMetric.PerformanceScore, flowScore, minScore, maxScore)
+                    };
                 })
                 .OrderBy(g => g.FlowName)
                 .ToList();
@@ -133,19 +141,7 @@ public class HeatmapService
 
         for (int i = 0; i < items.Count; i++)
         {
-            items[i] = new CallHeatmapItem(
-                items[i].CallName,
-                items[i].FlowName,
-                items[i].WorkName,
-                items[i].AverageGoingTime,
-                items[i].StdDevGoingTime,
-                items[i].GoingCount,
-                scoreList[i],
-                items[i].ColorClassAvg,
-                items[i].ColorClassStdDev,
-                items[i].ColorClassCV,
-                items[i].ColorClassScore
-            );
+            items[i].PerformanceScore = scoreList[i];
         }
     }
 

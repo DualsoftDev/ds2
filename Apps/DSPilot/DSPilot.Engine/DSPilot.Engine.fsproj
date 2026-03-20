@@ -6,22 +6,42 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Types.fs" />
-    <Compile Include="DatabaseTypes.fs" />
-    <Compile Include="DatabaseConfig.fs" />
-    <Compile Include="DspRepository.fs" />
-    <Compile Include="DspDatabaseInit.fs" />
-    <Compile Include="Ev2Bootstrap.fs" />
-    <Compile Include="Statistics.fs" />
-    <Compile Include="RuntimeStatistics.fs" />
-    <Compile Include="EdgeDetection.fs" />
-    <Compile Include="TagStateTracker.fs" />
-    <Compile Include="StateTransition.fs" />
-    <Compile Include="Performance.fs" />
-    <Compile Include="CycleAnalysis.fs" />
-    <Compile Include="QueryHelpers.fs" />
-    <Compile Include="Models.fs" />
-    <Compile Include="FlowAnalysis.fs" />
+    <!-- Core Domain Types -->
+    <Compile Include="Core/Types.fs" />
+    <Compile Include="Core/CallKey.fs" />
+    <Compile Include="Core/EdgeDetection.fs" />
+
+    <!-- Database Layer -->
+    <Compile Include="Database/Configuration.fs" />
+    <Compile Include="Database/Entities.fs" />
+    <Compile Include="Database/Dtos.fs" />
+    <Compile Include="Database/QueryHelpers.fs" />
+    <Compile Include="Database/Repository.fs" />
+    <Compile Include="Database/Initialization.fs" />
+
+    <!-- Tracking & State Management -->
+    <Compile Include="Tracking/TagStateTracker.fs" />
+    <Compile Include="Tracking/StateTransition.fs" />
+
+    <!-- Statistics -->
+    <Compile Include="Statistics/Statistics.fs" />
+    <Compile Include="Statistics/RuntimeStatistics.fs" />
+
+    <!-- Analysis -->
+    <Compile Include="Analysis/Performance.fs" />
+    <Compile Include="Analysis/CycleAnalysis.fs" />
+    <Compile Include="Analysis/GanttLayout.fs" />
+    <Compile Include="Analysis/BottleneckDetection.fs" />
+    <Compile Include="Analysis/FlowAnalysis.fs" />
+
+    <!-- View Models -->
+    <Compile Include="ViewModels/Models.fs" />
+
+    <!-- Temporary: Old files commented out -->
+    <!-- <Compile Include="Performance.fs" /> -->
+    <!-- <Compile Include="CycleAnalysis.fs" /> -->
+    <!-- <Compile Include="FlowAnalysis.fs" /> -->
+    <!-- <Compile Include="Models.fs" /> -->
   </ItemGroup>
 
   <ItemGroup>

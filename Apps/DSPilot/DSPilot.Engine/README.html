@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSPilot.Engine 설명서</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        header p {
+            font-size: 1.2em;
+            opacity: 0.95;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        h2 {
+            color: #667eea;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+            font-size: 1.8em;
+        }
+
+        h3 {
+            color: #764ba2;
+            margin-top: 25px;
+            margin-bottom: 10px;
+            font-size: 1.4em;
+        }
+
+        h4 {
+            color: #555;
+            margin-top: 15px;
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+
+        .folder-structure {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+        }
+
+        .folder-structure pre {
+            margin: 0;
+            white-space: pre;
+            line-height: 1.5;
+        }
+
+        .module-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+
+        .module-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .module-card h4 {
+            color: #667eea;
+            margin-top: 0;
+            font-size: 1.2em;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+
+        .badge-core { background: #667eea; color: white; }
+        .badge-database { background: #f093fb; color: white; }
+        .badge-tracking { background: #4facfe; color: white; }
+        .badge-statistics { background: #43e97b; color: white; }
+        .badge-analysis { background: #fa709a; color: white; }
+        .badge-viewmodel { background: #feca57; color: white; }
+
+        .file-list {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+
+        .file-list ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .file-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid #f1f3f5;
+        }
+
+        .file-list li:last-child {
+            border-bottom: none;
+        }
+
+        .file-list li::before {
+            content: "📄 ";
+            margin-right: 8px;
+        }
+
+        .highlight-box {
+            background: linear-gradient(135deg, #ffeaa7 0%, #fdcb6e 100%);
+            border-left: 4px solid #e17055;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 6px;
+        }
+
+        .highlight-box strong {
+            color: #d63031;
+        }
+
+        .dependencies {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 6px;
+        }
+
+        .dependencies h4 {
+            color: #2e7d32;
+            margin-top: 0;
+        }
+
+        code {
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #e83e8c;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .benefits {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .benefit-card {
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s;
+        }
+
+        .benefit-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
+        }
+
+        .benefit-card .icon {
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+
+        .benefit-card h4 {
+            color: #667eea;
+            margin: 10px 0;
+        }
+
+        footer {
+            background: #2d3436;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            margin-top: 40px;
+        }
+
+        footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        .toc {
+            background: #f8f9fa;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .toc h3 {
+            margin-top: 0;
+            color: #667eea;
+        }
+
+        .toc ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .toc li {
+            padding: 5px 0;
+        }
+
+        .toc a {
+            color: #764ba2;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .toc a:hover {
+            color: #667eea;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📦 DSPilot.Engine</h1>
+            <p>PLC 데이터 분석 및 프로세스 모니터링 엔진</p>
+            <p style="font-size: 0.9em; margin-top: 10px;">F# 기반 고성능 분석 라이브러리</p>
+        </header>
+
+        <div class="content">
+            <div class="toc">
+                <h3>📑 목차</h3>
+                <ul>
+                    <li><a href="#overview">1. 개요</a></li>
+                    <li><a href="#structure">2. 프로젝트 구조</a></li>
+                    <li><a href="#core">3. Core 레이어</a></li>
+                    <li><a href="#database">4. Database 레이어</a></li>
+                    <li><a href="#tracking">5. Tracking 레이어</a></li>
+                    <li><a href="#statistics">6. Statistics 레이어</a></li>
+                    <li><a href="#analysis">7. Analysis 레이어</a></li>
+                    <li><a href="#viewmodels">8. ViewModels 레이어</a></li>
+                    <li><a href="#benefits">9. 리팩토링 효과</a></li>
+                    <li><a href="#usage">10. 사용 방법</a></li>
+                </ul>
+            </div>
+
+            <section id="overview">
+                <h2>1. 개요</h2>
+                <p>
+                    <strong>DSPilot.Engine</strong>은 PLC(Programmable Logic Controller) 데이터를 수집, 분석하고
+                    프로세스 실행 흐름을 모니터링하는 F# 라이브러리입니다.
+                    실시간 신호 처리, 통계 분석, 병목 구간 탐지, Gantt 차트 레이아웃 등의 기능을 제공합니다.
+                </p>
+
+                <div class="highlight-box">
+                    <strong>📌 주요 특징</strong>
+                    <ul style="margin-top: 10px; padding-left: 20px;">
+                        <li>✅ F# 순수 함수형 프로그래밍으로 안전하고 예측 가능한 코드</li>
+                        <li>✅ 6개 레이어로 명확하게 분리된 아키텍처</li>
+                        <li>✅ SQLite 기반 Unified 데이터베이스 (EV2 통합)</li>
+                        <li>✅ 실시간 태그 상태 추적 및 엣지 감지</li>
+                        <li>✅ 통계 분석 (평균, 표준편차, 변동계수, 백분위수)</li>
+                        <li>✅ 성능 메트릭 및 Heatmap 생성</li>
+                        <li>✅ Cycle 분석, 병목 구간 탐지, Critical Path 식별</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="structure">
+                <h2>2. 프로젝트 구조</h2>
+                <div class="folder-structure">
+                    <pre>DSPilot.Engine/
+├── <span style="color: #667eea; font-weight: bold;">Core/</span>                      <span style="color: #888;">← 순수 도메인 타입 (의존성 없음)</span>
+│   ├── Types.fs                <span style="color: #888;">도메인 열거형 (EdgeType, CallState, etc.)</span>
+│   ├── CallKey.fs              <span style="color: #888;">Call 고유 식별자</span>
+│   └── EdgeDetection.fs        <span style="color: #888;">신호 엣지 감지 (Rising/Falling)</span>
+│
+├── <span style="color: #f093fb; font-weight: bold;">Database/</span>                  <span style="color: #888;">← 데이터베이스 레이어</span>
+│   ├── Configuration.fs        <span style="color: #888;">DB 경로 설정 및 연결 문자열</span>
+│   ├── Entities.fs             <span style="color: #888;">엔티티 타입 (DspFlowEntity, DspCallEntity)</span>
+│   ├── Dtos.fs                 <span style="color: #888;">Dapper용 DTO</span>
+│   ├── QueryHelpers.fs         <span style="color: #888;">SQL 쿼리 빌더</span>
+│   ├── Repository.fs           <span style="color: #888;">데이터 액세스 (CRUD)</span>
+│   └── Initialization.fs       <span style="color: #888;">스키마 초기화 + AASX 로딩</span>
+│
+├── <span style="color: #4facfe; font-weight: bold;">Tracking/</span>                  <span style="color: #888;">← 상태 추적</span>
+│   ├── TagStateTracker.fs      <span style="color: #888;">PLC 태그 상태 추적 (Immutable)</span>
+│   └── StateTransition.fs      <span style="color: #888;">상태 전이 로직 (Ready→Going→Finish)</span>
+│
+├── <span style="color: #43e97b; font-weight: bold;">Statistics/</span>                <span style="color: #888;">← 통계 계산</span>
+│   ├── Statistics.fs           <span style="color: #888;">순수 통계 함수 (평균, 표준편차, CV)</span>
+│   └── RuntimeStatistics.fs    <span style="color: #888;">런타임 실행 통계 관리</span>
+│
+├── <span style="color: #fa709a; font-weight: bold;">Analysis/</span>                  <span style="color: #888;">← 분석 로직</span>
+│   ├── Performance.fs          <span style="color: #888;">성능 메트릭 및 색상 클래스</span>
+│   ├── CycleAnalysis.fs        <span style="color: #888;">시간 버킷팅, 백분위수, 분포</span>
+│   ├── GanttLayout.fs          <span style="color: #888;">타임라인 레인 배치 알고리즘</span>
+│   ├── BottleneckDetection.fs  <span style="color: #888;">병목 구간 탐지 및 Critical Path</span>
+│   └── FlowAnalysis.fs         <span style="color: #888;">Flow 분석, DAG, MT/WT/CT 계산</span>
+│
+└── <span style="color: #feca57; font-weight: bold;">ViewModels/</span>                <span style="color: #888;">← UI 뷰모델</span>
+    └── Models.fs               <span style="color: #888;">Heatmap, Blueprint 뷰모델</span></pre>
+                </div>
+
+                <div class="dependencies">
+                    <h4>📊 의존성 흐름</h4>
+                    <p>
+                        <code>Core</code> →
+                        <code>Database</code> →
+                        <code>Tracking</code> →
+                        <code>Statistics</code> →
+                        <code>Analysis</code> →
+                        <code>ViewModels</code>
+                    </p>
+                    <p style="margin-top: 10px; font-size: 0.9em;">
+                        각 레이어는 상위 레이어만 참조하며, 순환 참조가 없습니다.
+                    </p>
+                </div>
+            </section>
+
+            <section id="core">
+                <h2>3. Core 레이어</h2>
+                <p><span class="badge badge-core">Core</span> 순수 도메인 타입과 엣지 감지 로직</p>
+
+                <div class="module-card">
+                    <h4>📄 Core/Types.fs</h4>
+                    <p><strong>도메인 열거형 및 기본 타입 정의</strong></p>
+                    <ul>
+                        <li><code>EdgeType</code> - Rising | Falling | NoChange</li>
+                        <li><code>CallState</code> - Ready | Going | Finish</li>
+                        <li><code>BucketSize</code> - Min5 | Min10 | Hour1</li>
+                        <li><code>HeatmapMetric</code> - AverageTime | StdDeviation | CoefficientOfVariation | PerformanceScore</li>
+                        <li><code>ColorClass</code> - Excellent | Good | Fair | Poor | Critical</li>
+                        <li><code>TrendPoint</code> - 시간별 트렌드 데이터 포인트</li>
+                        <li><code>PerformanceMetrics</code> - 성능 메트릭 레코드</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Core/CallKey.fs</h4>
+                    <p><strong>Call 고유 식별자 (Struct)</strong></p>
+                    <ul>
+                        <li><code>FlowName</code>, <code>CallName</code>, <code>WorkName</code> 복합 키</li>
+                        <li><code>Create(flowName, callName)</code> - 기본 생성</li>
+                        <li><code>CreateFull(...)</code> - Work 포함 생성</li>
+                        <li><code>ToHashKey()</code> - Dictionary 키로 사용 가능한 해시 키 생성</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Core/EdgeDetection.fs</h4>
+                    <p><strong>신호 엣지 감지 (순수 함수)</strong></p>
+                    <ul>
+                        <li><code>detectEdge: string option -> string -> EdgeType</code></li>
+                        <li><code>isRising: EdgeType -> bool</code></li>
+                        <li><code>isFalling: EdgeType -> bool</code></li>
+                        <li>PLC 신호의 0→1 (Rising), 1→0 (Falling) 전환 감지</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="database">
+                <h2>4. Database 레이어</h2>
+                <p><span class="badge badge-database">Database</span> SQLite 기반 데이터 액세스 및 스키마 관리</p>
+
+                <div class="module-card">
+                    <h4>📄 Database/Configuration.fs</h4>
+                    <p><strong>데이터베이스 경로 설정</strong></p>
+                    <ul>
+                        <li><code>DatabasePaths</code> - Unified 모드 DB 경로 (plc.db)</li>
+                        <li><code>loadDatabasePaths</code> - IConfiguration에서 경로 로드</li>
+                        <li><code>createConnectionString</code> - SQLite 연결 문자열 생성</li>
+                        <li>환경 변수 확장 지원 (<code>%APPDATA%</code> 등)</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Database/Entities.fs</h4>
+                    <p><strong>엔티티 타입 정의</strong></p>
+                    <ul>
+                        <li><code>DspFlowEntity</code> - Flow 테이블 (MT, WT, CT, State)</li>
+                        <li><code>DspCallEntity</code> - Call 테이블 (통계 필드 포함)</li>
+                        <li><code>FlowState</code> - UI 표시용 Flow 상태</li>
+                        <li><code>CallStateDto</code> - UI 표시용 Call 상태</li>
+                        <li><code>DspDbSnapshot</code> - 전체 DB 스냅샷</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Database/Dtos.fs</h4>
+                    <p><strong>Dapper용 DTO (Option → Nullable 변환)</strong></p>
+                    <ul>
+                        <li><code>DapperFlowDto</code> - Flow 삽입/업데이트용</li>
+                        <li><code>DapperCallDto</code> - Call 삽입/업데이트용</li>
+                        <li><code>CallInfoDto</code> - Dapper 역직렬화용</li>
+                        <li><code>CallStatisticsDto</code> - 통계 쿼리 결과용</li>
+                        <li><code>FromEntity</code> 메서드로 Entity → DTO 변환</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Database/QueryHelpers.fs</h4>
+                    <p><strong>SQL 쿼리 빌더 헬퍼</strong></p>
+                    <ul>
+                        <li><code>dateRangeClause</code> - 날짜 범위 WHERE 절</li>
+                        <li><code>paginationClause</code> - LIMIT/OFFSET 절</li>
+                        <li><code>buildWhereClause</code> - 동적 WHERE 절 생성</li>
+                        <li>SQL Injection 방지를 위한 안전한 쿼리 빌딩</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Database/Repository.fs</h4>
+                    <p><strong>데이터 액세스 레이어 (Dapper 기반)</strong></p>
+                    <ul>
+                        <li><code>getFlowsAsync</code> - Flow 목록 조회</li>
+                        <li><code>getCallsAsync</code> - Call 목록 조회</li>
+                        <li><code>upsertFlowAsync</code> - Flow INSERT/UPDATE</li>
+                        <li><code>upsertCallAsync</code> - Call INSERT/UPDATE</li>
+                        <li><code>updateCallStatisticsAsync</code> - 통계 업데이트</li>
+                        <li><code>getCallStatisticsAsync</code> - 통계 조회</li>
+                        <li>비동기 Task 기반 모든 작업</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Database/Initialization.fs</h4>
+                    <p><strong>스키마 초기화 + AASX 데이터 로딩</strong></p>
+                    <ul>
+                        <li><code>Schema.createSchemaAsync</code> - EV2 기본 스키마 + DSP 확장 테이블 생성</li>
+                        <li><code>AasxLoader.loadFromAasxAsync</code> - AASX 파일에서 Flow/Call 로드</li>
+                        <li><code>initializeDatabaseAsync</code> - 전체 초기화 프로세스</li>
+                        <li>Ev2Bootstrap + DspDatabaseInit 통합</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="tracking">
+                <h2>5. Tracking 레이어</h2>
+                <p><span class="badge badge-tracking">Tracking</span> PLC 태그 상태 추적 및 상태 전이</p>
+
+                <div class="module-card">
+                    <h4>📄 Tracking/TagStateTracker.fs</h4>
+                    <p><strong>Immutable 태그 상태 추적</strong></p>
+                    <ul>
+                        <li><code>TagEdgeState</code> - 태그 이름, 이전/현재 값, 엣지 타입, 갱신 시간</li>
+                        <li><code>updateTagValue</code> - 태그 값 업데이트 및 엣지 감지</li>
+                        <li><code>getState</code> - 현재 태그 상태 조회</li>
+                        <li>순수 함수형 스타일 (Map 기반 immutable state)</li>
+                        <li>C# Interop을 위한 Mutable wrapper 포함</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Tracking/StateTransition.fs</h4>
+                    <p><strong>Call 상태 전이 로직</strong></p>
+                    <ul>
+                        <li><code>Ready → Going</code> - InTag Rising 감지 시</li>
+                        <li><code>Going → Finish</code> - OutTag Rising 감지 시</li>
+                        <li><code>Finish → Ready</code> - 다음 사이클 준비</li>
+                        <li><code>shouldTransition</code> - 상태 전이 조건 검사</li>
+                        <li><code>applyTransition</code> - 새 상태 반환 (순수 함수)</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="statistics">
+                <h2>6. Statistics 레이어</h2>
+                <p><span class="badge badge-statistics">Statistics</span> 통계 계산 및 런타임 메트릭</p>
+
+                <div class="module-card">
+                    <h4>📄 Statistics/Statistics.fs</h4>
+                    <p><strong>순수 통계 함수</strong></p>
+                    <ul>
+                        <li><code>movingAverage</code> - 이동 평균 계산</li>
+                        <li><code>standardDeviation</code> - 표준편차 계산</li>
+                        <li><code>coefficientOfVariation</code> - 변동계수 (CV = σ/μ)</li>
+                        <li><code>addSample</code> - 샘플 추가 (최대 샘플 수 제한)</li>
+                        <li>부작용 없는 순수 함수로 테스트 용이</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Statistics/RuntimeStatistics.fs</h4>
+                    <p><strong>런타임 실행 통계 관리</strong></p>
+                    <ul>
+                        <li><code>RuntimeStats</code> - 실행 시간 이력 관리</li>
+                        <li><code>updateStats</code> - 새 실행 시간 추가</li>
+                        <li><code>getAverage</code> - 평균 실행 시간</li>
+                        <li><code>getStdDev</code> - 표준편차</li>
+                        <li><code>getCV</code> - 변동계수</li>
+                        <li>세션/전체 카운트 추적</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="analysis">
+                <h2>7. Analysis 레이어</h2>
+                <p><span class="badge badge-analysis">Analysis</span> 성능 분석, 사이클 분석, 병목 탐지</p>
+
+                <div class="module-card">
+                    <h4>📄 Analysis/Performance.fs</h4>
+                    <p><strong>성능 메트릭 및 색상 클래스</strong></p>
+                    <ul>
+                        <li><code>calculatePerformanceMetrics</code> - 평균, 표준편차, CV 계산</li>
+                        <li><code>normalizeMetrics</code> - 0~100 정규화</li>
+                        <li><code>calculatePerformanceScore</code> - 종합 성능 점수 (가중치 적용)</li>
+                        <li><code>determineColorClass</code> - Excellent/Good/Fair/Poor/Critical 분류</li>
+                        <li>Heatmap 시각화를 위한 색상 클래스 매핑</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Analysis/CycleAnalysis.fs</h4>
+                    <p><strong>시간 버킷팅 및 통계 분석</strong></p>
+                    <ul>
+                        <li><code>bucketSizeToTimeSpan</code> - 5분/10분/1시간 단위 변환</li>
+                        <li><code>getBucketKey</code> - 시간을 버킷 키로 변환</li>
+                        <li><code>calculateBucketStats</code> - 버킷별 통계 계산</li>
+                        <li><code>calculatePercentiles</code> - 50th, 95th, 99th 백분위수</li>
+                        <li><code>calculateDistribution</code> - 히스토그램 분포</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Analysis/GanttLayout.fs</h4>
+                    <p><strong>Gantt 차트 타임라인 레인 배치</strong></p>
+                    <ul>
+                        <li><code>TimelineItem</code> - 타임라인 아이템 (시작/종료 시간)</li>
+                        <li><code>isOverlapping</code> - 두 아이템의 시간 겹침 검사</li>
+                        <li><code>assignLanes</code> - 최소 레인 수로 아이템 배치</li>
+                        <li>겹치지 않는 아이템은 같은 레인에 배치</li>
+                        <li>Gantt 차트 시각화를 위한 Y축 위치 계산</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Analysis/BottleneckDetection.fs</h4>
+                    <p><strong>병목 구간 탐지 및 Critical Path</strong></p>
+                    <ul>
+                        <li><code>BottleneckType</code> - CriticalPath | LongDuration | FrequentExecution</li>
+                        <li><code>BottleneckInfo</code> - 병목 정보 (Call 이름, 타입, 심각도, 추천)</li>
+                        <li><code>findCriticalPath</code> - DAG에서 가장 긴 경로 찾기</li>
+                        <li><code>identifyLongDurationBottlenecks</code> - 실행 시간이 긴 Call 식별</li>
+                        <li><code>analyzeMultiCycleBottlenecks</code> - 여러 사이클에서 반복되는 병목</li>
+                    </ul>
+                </div>
+
+                <div class="module-card">
+                    <h4>📄 Analysis/FlowAnalysis.fs</h4>
+                    <p><strong>Flow 분석 및 DAG 구조 분석</strong></p>
+                    <ul>
+                        <li><code>selectRepresentativeWork</code> - 대표 Work 선택</li>
+                        <li><code>buildCallDag</code> - Call 간 의존성 DAG 구축</li>
+                        <li><code>detectCycles</code> - 순환 참조 감지</li>
+                        <li><code>calculateMT</code> - Machine Time (기계 가동 시간)</li>
+                        <li><code>calculateWT</code> - Waiting Time (대기 시간)</li>
+                        <li><code>calculateCT</code> - Cycle Time (총 사이클 시간)</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="viewmodels">
+                <h2>8. ViewModels 레이어</h2>
+                <p><span class="badge badge-viewmodel">ViewModels</span> UI 표시용 뷰모델</p>
+
+                <div class="module-card">
+                    <h4>📄 ViewModels/Models.fs</h4>
+                    <p><strong>UI 뷰모델 및 DTO</strong></p>
+                    <ul>
+                        <li><code>CallHeatmapItem</code> - Call Heatmap 아이템 (평균 시간, 표준편차, 성능 점수, 색상)</li>
+                        <li><code>FlowHeatmapGroup</code> - Flow별 Heatmap 그룹 (Call 목록, 확장/축소 상태)</li>
+                        <li><code>FlowPlacement</code> - Blueprint 레이아웃에서 Flow 배치 정보</li>
+                        <li><code>BlueprintLayout</code> - Blueprint 캔버스 레이아웃 (그리드, 오프셋)</li>
+                        <li>툴팁 텍스트 생성 메서드 포함</li>
+                        <li>메트릭 값 추출 메서드 포함</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="benefits">
+                <h2>9. 리팩토링 효과</h2>
+
+                <div class="benefits">
+                    <div class="benefit-card">
+                        <div class="icon">🎯</div>
+                        <h4>명확한 관심사 분리</h4>
+                        <p>16개 평면 파일 → 6개 폴더 + 19개 파일</p>
+                        <p>각 레이어가 명확한 책임을 가짐</p>
+                    </div>
+
+                    <div class="benefit-card">
+                        <div class="icon">🔄</div>
+                        <h4>중복 제거</h4>
+                        <p>CallKey, TagEdgeState 중복 제거</p>
+                        <p>Database 설정 통합</p>
+                    </div>
+
+                    <div class="benefit-card">
+                        <div class="icon">📦</div>
+                        <h4>모듈 분해</h4>
+                        <p>CycleAnalysis 260줄 → 3개 파일</p>
+                        <p>각 모듈이 단일 책임 원칙 준수</p>
+                    </div>
+
+                    <div class="benefit-card">
+                        <div class="icon">🧪</div>
+                        <h4>테스트 용이성</h4>
+                        <p>순수 함수로 단위 테스트 쉬움</p>
+                        <p>Mock 없이 테스트 가능</p>
+                    </div>
+
+                    <div class="benefit-card">
+                        <div class="icon">🚀</div>
+                        <h4>확장 가능성</h4>
+                        <p>각 레이어가 독립적으로 확장</p>
+                        <p>새 분석 모듈 추가 용이</p>
+                    </div>
+
+                    <div class="benefit-card">
+                        <div class="icon">📚</div>
+                        <h4>유지보수성</h4>
+                        <p>폴더 구조로 빠른 파악</p>
+                        <p>신규 개발자 온보딩 용이</p>
+                    </div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>항목</th>
+                            <th>리팩토링 전</th>
+                            <th>리팩토링 후</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>파일 구조</td>
+                            <td>16개 평면 파일</td>
+                            <td>6개 폴더 + 19개 파일</td>
+                        </tr>
+                        <tr>
+                            <td>중복 타입</td>
+                            <td>CallKey, TagEdgeState 중복</td>
+                            <td>중복 제거 완료</td>
+                        </tr>
+                        <tr>
+                            <td>가장 큰 파일</td>
+                            <td>CycleAnalysis 260줄</td>
+                            <td>각 90줄씩 3개 분리</td>
+                        </tr>
+                        <tr>
+                            <td>Database 레이어</td>
+                            <td>3개 거대 파일</td>
+                            <td>6개 모듈로 분리</td>
+                        </tr>
+                        <tr>
+                            <td>의존성 관리</td>
+                            <td>암시적</td>
+                            <td>명확한 계층 구조</td>
+                        </tr>
+                        <tr>
+                            <td>빌드 시간</td>
+                            <td>~6초</td>
+                            <td>~6초 (변화 없음)</td>
+                        </tr>
+                        <tr>
+                            <td>컴파일 에러</td>
+                            <td>-</td>
+                            <td>0개</td>
+                        </tr>
+                        <tr>
+                            <td>컴파일 경고</td>
+                            <td>-</td>
+                            <td>0개</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="usage">
+                <h2>10. 사용 방법</h2>
+
+                <h3>10.1 프로젝트 참조</h3>
+                <div class="file-list">
+                    <pre style="background: #2d3436; color: #dfe6e9; padding: 15px; border-radius: 6px; overflow-x: auto;"><code>&lt;ItemGroup&gt;
+  &lt;ProjectReference Include="..\..\DSPilot.Engine\DSPilot.Engine.fsproj" /&gt;
+&lt;/ItemGroup&gt;</code></pre>
+                </div>
+
+                <h3>10.2 Database 초기화</h3>
+                <div class="file-list">
+                    <pre style="background: #2d3436; color: #dfe6e9; padding: 15px; border-radius: 6px; overflow-x: auto;"><code>open DSPilot.Engine
+
+// 1. Configuration 로드
+let paths = DatabaseConfig.loadDatabasePaths config logger
+
+// 2. 스키마 초기화 + AASX 로딩
+let! success = DatabaseInitialization.initializeDatabaseAsync paths logger
+
+if success then
+    printfn "Database initialized successfully!"</code></pre>
+                </div>
+
+                <h3>10.3 태그 상태 추적</h3>
+                <div class="file-list">
+                    <pre style="background: #2d3436; color: #dfe6e9; padding: 15px; border-radius: 6px; overflow-x: auto;"><code>open DSPilot.Engine
+
+// 태그 상태 맵 초기화
+let mutable stateMap = TagStateTracker.empty
+
+// 태그 값 업데이트
+let (newMap, tagState) = TagStateTracker.updateTagValue "IN_TAG_01" "1" stateMap
+stateMap <- newMap
+
+// 엣지 검사
+if EdgeDetection.isRising tagState.EdgeType then
+    printfn "Rising edge detected on %s" tagState.TagName</code></pre>
+                </div>
+
+                <h3>10.4 통계 계산</h3>
+                <div class="file-list">
+                    <pre style="background: #2d3436; color: #dfe6e9; padding: 15px; border-radius: 6px; overflow-x: auto;"><code>open DSPilot.Engine
+
+// 샘플 데이터
+let samples = [120.0; 135.0; 125.0; 142.0; 118.0]
+
+// 평균 계산
+let avg = Statistics.movingAverage samples
+
+// 표준편차
+let stdDev = Statistics.standardDeviation samples avg
+
+// 변동계수
+let cv = Statistics.coefficientOfVariation avg stdDev
+
+printfn "Average: %.2f, StdDev: %.2f, CV: %.2f" avg stdDev cv</code></pre>
+                </div>
+
+                <h3>10.5 성능 분석</h3>
+                <div class="file-list">
+                    <pre style="background: #2d3436; color: #dfe6e9; padding: 15px; border-radius: 6px; overflow-x: auto;"><code>open DSPilot.Engine
+
+// 성능 메트릭 계산
+let metrics = Performance.calculatePerformanceMetrics executionTimes
+
+// 정규화 (0~100)
+let normalized = Performance.normalizeMetrics metrics allMetrics
+
+// 성능 점수 (가중치: CV 60%, Avg 40%)
+let score = Performance.calculatePerformanceScore normalized 0.6 0.4
+
+// 색상 클래스 결정
+let colorClass = Performance.determineColorClass score
+
+match colorClass with
+| ColorClass.Excellent -> printfn "🟢 Excellent performance!"
+| ColorClass.Critical -> printfn "🔴 Critical - needs attention!"
+| _ -> printfn "Performance: %A" colorClass</code></pre>
+                </div>
+
+                <h3>10.6 병목 탐지</h3>
+                <div class="file-list">
+                    <pre style="background: #2d3436; color: #dfe6e9; padding: 15px; border-radius: 6px; overflow-x: auto;"><code>open DSPilot.Engine
+
+// DAG 구축
+let dag = FlowAnalysis.buildCallDag calls
+
+// Critical Path 찾기
+let criticalPath = BottleneckDetection.findCriticalPath dag
+
+// 병목 구간 식별
+let bottlenecks = BottleneckDetection.identifyLongDurationBottlenecks calls threshold
+
+for bottleneck in bottlenecks do
+    printfn "⚠️ Bottleneck: %s (%A)" bottleneck.CallName bottleneck.BottleneckType
+    printfn "   Severity: %.2f%%" (bottleneck.Severity * 100.0)
+    printfn "   Recommendation: %s" bottleneck.Recommendation</code></pre>
+                </div>
+
+                <h3>10.7 Gantt 레이아웃</h3>
+                <div class="file-list">
+                    <pre style="background: #2d3436; color: #dfe6e9; padding: 15px; border-radius: 6px; overflow-x: auto;"><code>open DSPilot.Engine
+
+// 타임라인 아이템 생성
+let items =
+    calls
+    |&gt; List.map (fun c -&gt;
+        { Id = c.CallName
+          StartTime = c.StartTime
+          EndTime = c.EndTime })
+
+// 레인 배치 (겹치지 않게)
+let laneAssignments = GanttLayout.assignLanes items
+
+// 시각화를 위한 Y축 위치 계산
+for (item, lane) in laneAssignments do
+    let yPos = lane * 50  // 50px per lane
+    printfn "%s -> Lane %d (Y: %d)" item.Id lane yPos</code></pre>
+                </div>
+            </section>
+
+            <section>
+                <h2>11. 기술 스택</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>항목</th>
+                            <th>기술</th>
+                            <th>버전</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>언어</td>
+                            <td>F# (Functional Programming)</td>
+                            <td>.NET 9.0</td>
+                        </tr>
+                        <tr>
+                            <td>데이터베이스</td>
+                            <td>SQLite (Unified plc.db)</td>
+                            <td>Microsoft.Data.Sqlite 9.0.3</td>
+                        </tr>
+                        <tr>
+                            <td>ORM</td>
+                            <td>Dapper (Micro ORM)</td>
+                            <td>2.1.35</td>
+                        </tr>
+                        <tr>
+                            <td>로깅</td>
+                            <td>log4net</td>
+                            <td>3.2.0</td>
+                        </tr>
+                        <tr>
+                            <td>반응형</td>
+                            <td>System.Reactive (Rx)</td>
+                            <td>6.1.0</td>
+                        </tr>
+                        <tr>
+                            <td>설정</td>
+                            <td>Microsoft.Extensions.Configuration</td>
+                            <td>9.0.0</td>
+                        </tr>
+                        <tr>
+                            <td>외부 DLL</td>
+                            <td>Ev2.Backend.PLC, Ev2.Core.FS, Dual.Common.*.FS</td>
+                            <td>-</td>
+                        </tr>
+                        <tr>
+                            <td>프로젝트 참조</td>
+                            <td>Ds2.Core, Ds2.UI.Core</td>
+                            <td>-</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section>
+                <h2>12. 라이선스 & 기여</h2>
+                <div class="highlight-box">
+                    <p><strong>📄 라이선스:</strong> 프로젝트 내부용</p>
+                    <p style="margin-top: 10px;"><strong>👥 개발팀:</strong> Dualsoft Development Team</p>
+                    <p style="margin-top: 10px;"><strong>📧 문의:</strong> 내부 이슈 트래커 또는 팀 채널 사용</p>
+                </div>
+
+                <h3>기여 가이드라인</h3>
+                <ul style="padding-left: 20px; margin-top: 10px;">
+                    <li>✅ 순수 함수 우선 (부작용 최소화)</li>
+                    <li>✅ F# 코딩 컨벤션 준수</li>
+                    <li>✅ 새 모듈 추가 시 적절한 레이어 선택</li>
+                    <li>✅ 의존성 방향 유지 (Core → Database → Analysis → ViewModels)</li>
+                    <li>✅ XML 주석으로 공개 API 문서화</li>
+                    <li>✅ 단위 테스트 작성 (특히 Core, Statistics)</li>
+                </ul>
+            </section>
+        </div>
+
+        <footer>
+            <p>&copy; 2026 Dualsoft. All rights reserved.</p>
+            <p style="margin-top: 10px;">
+                <a href="#overview">맨 위로 ↑</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
