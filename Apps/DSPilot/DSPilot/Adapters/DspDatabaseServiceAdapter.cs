@@ -55,21 +55,12 @@ public class DspDatabaseServiceAdapter : BackgroundService
                     return Microsoft.FSharp.Collections.ListModule.OfSeq(calls);
                 });
 
-            var cleanupDatabase = Microsoft.FSharp.Core.FSharpFunc<Microsoft.FSharp.Core.Unit, Task<Microsoft.FSharp.Core.Unit>>
-                .FromConverter(_ =>
-                {
-                    // Cleanup logic if needed
-                    return Task.FromResult<Microsoft.FSharp.Core.Unit>(null!);
-                });
-
-            var success = await DspDatabaseInit.initializeAsync(
+            var success = await DatabaseInitialization.AasxLoader.initializeFromAasxWithRetryAsync(
                 _paths,
                 _logger,
-                _projectService.IsLoaded,
                 getAllFlows,
                 getWorks,
                 getCalls,
-                cleanupDatabase,
                 stoppingToken);
 
             if (success)

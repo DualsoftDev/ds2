@@ -22,7 +22,7 @@ public class Ev2BootstrapServiceAdapter : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        await Ev2Bootstrap.startAsync(_paths, _logger);
+        await DatabaseInitialization.Schema.startAsync(_paths, _logger);
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
