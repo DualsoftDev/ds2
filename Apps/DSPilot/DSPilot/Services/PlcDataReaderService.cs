@@ -82,7 +82,7 @@ public class PlcDataReaderService : BackgroundService
             // Create service-level cancellation token source
             _serviceCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
 
-            if (!await WaitForDatabaseCreationAsync(stoppingToken)) return;
+            //if (!await WaitForDatabaseCreationAsync(stoppingToken)) return;
             if (!await InitializeAsync()) return;
             if (!await WaitForMapperInitializationAsync(stoppingToken)) return;
 
