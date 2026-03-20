@@ -55,10 +55,10 @@ public class CycleAnalysisService
         }
 
         // Head Call의 InTag 주소 찾기
-        var headCallTags = _mapper.GetCallTags(headCall.Name);
+        var headCallTags = _mapper.GetCallTagsByCallId(headCall.Id);
         if (!headCallTags.HasValue || headCallTags.Value.InTag == null)
         {
-            _logger.LogWarning("Head Call '{CallName}' has no InTag", headCall.Name);
+            _logger.LogWarning("Head Call '{CallName}' (ID: {CallId}) has no InTag", headCall.Name, headCall.Id);
             return new List<CycleBoundary>();
         }
 
@@ -171,7 +171,7 @@ public class CycleAnalysisService
             var calls = _projectService.GetCalls(work.Id);
             foreach (var call in calls)
             {
-                var tags = _mapper.GetCallTags(call.Name);
+                var tags = _mapper.GetCallTagsByCallId(call.Id);
                 if (!tags.HasValue) continue;
 
                 if (tags.Value.InTag != null)
@@ -337,7 +337,7 @@ public class CycleAnalysisService
             var calls = _projectService.GetCalls(work.Id);
             foreach (var call in calls)
             {
-                var tags = _mapper.GetCallTags(call.Name);
+                var tags = _mapper.GetCallTagsByCallId(call.Id);
                 if (!tags.HasValue)
                     continue;
 
@@ -425,7 +425,7 @@ public class CycleAnalysisService
             var calls = _projectService.GetCalls(work.Id);
             foreach (var call in calls)
             {
-                var tags = _mapper.GetCallTags(call.Name);
+                var tags = _mapper.GetCallTagsByCallId(call.Id);
                 if (!tags.HasValue) continue;
 
                 if (tags.Value.InTag != null)

@@ -110,6 +110,7 @@ public class DspDbService : IDisposable
             var updatedCall = new CallState
             {
                 Id               = oldCall.Id,
+                CallId           = oldCall.CallId,
                 CallName         = oldCall.CallName,
                 FlowName         = oldCall.FlowName,
                 WorkName         = oldCall.WorkName,
@@ -205,6 +206,7 @@ public class DspDbService : IDisposable
         return new CallState
         {
             Id = call.Id,
+            CallId = call.CallId,
             CallName = call.CallName,
             FlowName = call.FlowName,
             WorkName = call.WorkName,
@@ -278,6 +280,7 @@ public class DspDbService : IDisposable
                         return new CallState
                         {
                             Id = call.Id,
+                            CallId = call.CallId,
                             CallName = call.CallName,
                             FlowName = call.FlowName,
                             WorkName = call.WorkName,
@@ -343,7 +346,7 @@ public class DspDbService : IDisposable
 
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = $"SELECT Id, FlowName, MT, WT, State, MovingStartName, MovingEndName FROM {_flowTable}";
+                cmd.CommandText = $"SELECT Id, FlowName, MT, WT, CT, State, MovingStartName, MovingEndName FROM {_flowTable}";
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
@@ -353,16 +356,17 @@ public class DspDbService : IDisposable
                         FlowName = reader.GetString(1),
                         MT = reader.IsDBNull(2) ? null : reader.GetInt32(2),
                         WT = reader.IsDBNull(3) ? null : reader.GetInt32(3),
-                        State = reader.IsDBNull(4) ? "" : reader.GetString(4),
-                        MovingStartName = reader.IsDBNull(5) ? null : reader.GetString(5),
-                        MovingEndName = reader.IsDBNull(6) ? null : reader.GetString(6),
+                        CT = reader.IsDBNull(4) ? null : reader.GetInt32(4),
+                        State = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                        MovingStartName = reader.IsDBNull(6) ? null : reader.GetString(6),
+                        MovingEndName = reader.IsDBNull(7) ? null : reader.GetString(7),
                     });
                 }
             }
 
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = $@"SELECT Id, CallName, FlowName, WorkName, State, ProgressRate,
+                cmd.CommandText = $@"SELECT Id, CallId, CallName, FlowName, WorkName, State, ProgressRate,
                     GoingCount, AverageGoingTime, Device, ErrorText FROM {_callTable}";
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
@@ -370,15 +374,16 @@ public class DspDbService : IDisposable
                     calls.Add(new CallState
                     {
                         Id = reader.GetInt32(0),
-                        CallName = reader.GetString(1),
-                        FlowName = reader.GetString(2),
-                        WorkName = reader.IsDBNull(3) ? "" : reader.GetString(3),
-                        State = reader.IsDBNull(4) ? "Ready" : reader.GetString(4),
-                        ProgressRate = reader.IsDBNull(5) ? 0.0 : reader.GetDouble(5),
-                        GoingCount = reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
-                        AverageGoingTime = reader.IsDBNull(7) ? null : reader.GetDouble(7),
-                        Device = reader.IsDBNull(8) ? null : reader.GetString(8),
-                        ErrorText = reader.IsDBNull(9) ? null : reader.GetString(9),
+                        CallId = Guid.Parse(reader.GetString(1)),
+                        CallName = reader.GetString(2),
+                        FlowName = reader.GetString(3),
+                        WorkName = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                        State = reader.IsDBNull(5) ? "Ready" : reader.GetString(5),
+                        ProgressRate = reader.IsDBNull(6) ? 0.0 : reader.GetDouble(6),
+                        GoingCount = reader.IsDBNull(7) ? 0 : reader.GetInt32(7),
+                        AverageGoingTime = reader.IsDBNull(8) ? null : reader.GetDouble(8),
+                        Device = reader.IsDBNull(9) ? null : reader.GetString(9),
+                        ErrorText = reader.IsDBNull(10) ? null : reader.GetString(10),
                     });
                 }
             }
@@ -436,6 +441,7 @@ public class DspDbService : IDisposable
                             calls[i] = new CallState
                             {
                                 Id = call.Id,
+                                CallId = call.CallId,
                                 CallName = call.CallName,
                                 FlowName = call.FlowName,
                                 WorkName = call.WorkName,

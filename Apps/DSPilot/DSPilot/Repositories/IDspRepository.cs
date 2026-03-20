@@ -24,30 +24,30 @@ public interface IDspRepository
     Task<int> BulkInsertCallsAsync(List<DspCallEntity> calls);
 
     /// <summary>
-    /// Call 상태 조회 (CallKey 기반)
+    /// Call 상태 조회 (CallId 기반)
     /// </summary>
-    Task<string> GetCallStateAsync(CallKey key);
+    Task<string> GetCallStateAsync(Guid callId);
 
     /// <summary>
     /// Call 정보 조회 (WorkName, FlowName 포함)
     /// </summary>
-    Task<(string WorkName, string FlowName)?> GetCallInfoAsync(string callName);
+    Task<(string WorkName, string FlowName)?> GetCallInfoAsync(Guid callId);
 
     /// <summary>
-    /// Call 전체 데이터 조회 (GoingCount 등 포함, CallKey 기반)
+    /// Call 전체 데이터 조회 (GoingCount 등 포함, CallId 기반)
     /// </summary>
-    Task<DspCallEntity?> GetCallByKeyAsync(CallKey key);
+    Task<DspCallEntity?> GetCallByIdAsync(Guid callId);
 
     /// <summary>
-    /// Call 상태 업데이트 (CallKey 기반)
+    /// Call 상태 업데이트 (CallId 기반)
     /// </summary>
-    Task<bool> UpdateCallStateAsync(CallKey key, string state);
+    Task<bool> UpdateCallStateAsync(Guid callId, string state);
 
     /// <summary>
-    /// Call 상태 및 통계 업데이트 (Going → Finish 시, CallKey 기반)
+    /// Call 상태 및 통계 업데이트 (Going → Finish 시, CallId 기반)
     /// </summary>
     Task<bool> UpdateCallWithStatisticsAsync(
-        CallKey key,
+        Guid callId,
         string state,
         int previousGoingTime,
         double averageGoingTime,
@@ -89,10 +89,6 @@ public interface IDspRepository
     /// </summary>
     Task<List<CallStatisticsDto>> GetCallStatisticsAsync();
 
-    /// <summary>
-    /// Call IO 이벤트 삽입 (In/Out Tag Rising Edge 기록)
-    /// </summary>
-    Task InsertCallIOEventAsync(Models.Analysis.CallIOEvent ioEvent);
 }
 
 /// <summary>
@@ -100,6 +96,7 @@ public interface IDspRepository
 /// </summary>
 public class CallStatisticsDto
 {
+    public Guid CallId { get; set; }
     public string CallName { get; set; } = string.Empty;
     public string FlowName { get; set; } = string.Empty;
     public string WorkName { get; set; } = string.Empty;

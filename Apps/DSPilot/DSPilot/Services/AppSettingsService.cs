@@ -67,6 +67,47 @@ public class AppSettingsService
         return destPath;
     }
 
+    /// <summary>
+    /// DSP 데이터베이스 삭제 (plc.db 및 관련 파일)
+    /// </summary>
+    public void DeleteDatabase(string dbPath)
+    {
+        _logger.LogInformation("데이터베이스 삭제 시작: {DbPath}", dbPath);
+
+        try
+        {
+            // plc.db 삭제
+            if (File.Exists(dbPath))
+            {
+                File.Delete(dbPath);
+                _logger.LogInformation("데이터베이스 파일 삭제: {DbPath}", dbPath);
+            }
+
+            // WAL 파일 삭제
+            var walPath = dbPath + "-wal";
+            if (File.Exists(walPath))
+            {
+                File.Delete(walPath);
+                _logger.LogInformation("WAL 파일 삭제: {WalPath}", walPath);
+            }
+
+            // SHM 파일 삭제
+            var shmPath = dbPath + "-shm";
+            if (File.Exists(shmPath))
+            {
+                File.Delete(shmPath);
+                _logger.LogInformation("SHM 파일 삭제: {ShmPath}", shmPath);
+            }
+
+            _logger.LogInformation("데이터베이스 삭제 완료");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "데이터베이스 삭제 실패: {DbPath}", dbPath);
+            throw;
+        }
+    }
+
     /// <returns>true: 자동 재시작됨, false: 수동 재시작 필요 (VS 디버그 모드)</returns>
     public bool RestartApplication()
     {

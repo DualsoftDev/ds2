@@ -54,6 +54,7 @@ type DapperFlowDto =
 [<CLIMutable>]
 type DspCallEntity =
     { Id: int
+      CallId: Guid  // Call 고유 식별자 (AASX Call.Id)
       CallName: string
       ApiCall: string
       WorkName: string
@@ -74,8 +75,9 @@ type DspCallEntity =
       UpdatedAt: DateTime }
 
     /// 새로운 Call 생성 (ID는 DB에서 자동 생성)
-    static member Create(callName: string, apiCall: string, workName: string, flowName: string) =
+    static member Create(callId: Guid, callName: string, apiCall: string, workName: string, flowName: string) =
         { Id = 0
+          CallId = callId
           CallName = callName
           ApiCall = apiCall
           WorkName = workName
@@ -98,7 +100,8 @@ type DspCallEntity =
 /// Dapper용 Call DTO (Option 타입을 Nullable로 변환)
 [<CLIMutable>]
 type DapperCallDto =
-    { CallName: string
+    { CallId: Guid
+      CallName: string
       ApiCall: string
       WorkName: string
       FlowName: string
@@ -116,7 +119,8 @@ type DapperCallDto =
       ErrorText: string }
 
     static member FromEntity(entity: DspCallEntity) =
-        { CallName = entity.CallName
+        { CallId = entity.CallId
+          CallName = entity.CallName
           ApiCall = entity.ApiCall
           WorkName = entity.WorkName
           FlowName = entity.FlowName
@@ -142,7 +146,8 @@ type CallInfoDto =
 /// Call 통계 DTO
 [<CLIMutable>]
 type CallStatisticsDto =
-    { CallName: string
+    { CallId: Guid
+      CallName: string
       FlowName: string
       WorkName: string
       AverageGoingTime: float
@@ -199,5 +204,3 @@ type DatabasePaths =
     member this.GetFlowTableName() = "dspFlow"
 
     member this.GetCallTableName() = "dspCall"
-
-    member this.GetCallIOEventTableName() = "dspCallIOEvent"

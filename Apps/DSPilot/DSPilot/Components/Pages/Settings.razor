@@ -1,5 +1,6 @@
 @page "/settings"
 @inject AppSettingsService SettingsService
+@inject IDatabasePathResolver DatabasePathResolver
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -74,6 +75,13 @@
                     <span class="typo-caption mt-1" style="display:block; color: var(--color-warning);">
                         시작 시 재생성을 활성화하면 기존 데이터가 삭제됩니다.
                     </span>
+                    <hr class="divider my-3" />
+                    <button class="btn btn-outlined color-error" style="width:100%;" @onclick="DeleteDatabase">
+                        <span class="material-icons" style="font-size:18px;">delete_forever</span> 데이터베이스 삭제
+                    </button>
+                    <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                        현재 DB: @GetDatabasePath()
+                    </small>
                 </div>
             </div>
 
@@ -254,6 +262,39 @@ else
         catch (Exception ex)
         {
             _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", $"저장 실패: {ex.Message}", "error");
+        }
+    }
+
+    private string GetDatabasePath()
+    {
+        try
+        {
+            return DatabasePathResolver.GetSharedDbPath();
+        }
+        catch
+        {
+            return "알 수 없음";
+        }
+    }
+
+    private async Task DeleteDatabase()
+    {
+        var dbPath = GetDatabasePath();
+        var result = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
+            "데이터베이스 삭제",
+            $"DSP 데이터베이스를 삭제하시겠습니까?\n\n경로: {dbPath}\n\n모든 Flow/Call 데이터가 삭제되며, 재시작 시 새로 생성됩니다.",
+            "삭제", "취소");
+
+        if (!result) return;
+
+        try
+        {
+            SettingsService.DeleteDatabase(dbPath);
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "데이터베이스가 삭제되었습니다. 재시작하여 새로 생성하세요.", "success");
+        }
+        catch (Exception ex)
+        {
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", $"삭제 실패: {ex.Message}", "error");
         }
     }
 

@@ -238,10 +238,10 @@ else
 
             foreach (var call in DspDbService.Snapshot.Calls)
             {
-                var tagKeys = MapperService.GetCallTags(call.CallName);
+                var tagKeys = MapperService.GetCallTagsByCallId(call.CallId);
                 if (tagKeys is null)
                 {
-                    Logger.LogDebug("Call '{CallName}' tag mapping not found, skipping", call.CallName);
+                    Logger.LogDebug("Call '{CallName}' (ID: {CallId}) tag mapping not found, skipping", call.CallName, call.CallId);
                     continue;
                 }
 
