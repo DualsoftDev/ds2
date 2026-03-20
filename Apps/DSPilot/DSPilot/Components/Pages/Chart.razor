@@ -6,112 +6,141 @@
 
 <PageTitle>상세정보 - DSPilot</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-4" Style="font-weight: 600; color: #0A1E5A;">상세정보</MudText>
+<h5 class="typo-h5 mb-4" style="font-weight: 600; color: #0A1E5A;">상세정보</h5>
 
 @if (!ProjectService.IsLoaded)
 {
-    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+    <div class="alert alert-info">
+        <span class="material-icons">info</span>
         No project loaded.
-    </MudAlert>
+    </div>
 }
 else
 {
-    <MudCard Elevation="2" Style="border-radius: 8px;" Class="mb-4">
-        <MudCardContent Class="pa-3">
-            <MudGrid Spacing="2">
-                <MudItem xs="12" sm="6" md="3">
-                    <MudTextField Value="_searchText" ValueChanged="@((string v) => SetFilter(search: v))"
-                                  Placeholder="Call / Work 검색"
-                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                                  Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
-                </MudItem>
-                <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="string" Value="_selectedFlow" ValueChanged="@((string v) => SetFilter(flow: v))"
-                               Label="Flow" Variant="Variant.Outlined"
-                               Margin="Margin.Dense" Clearable="true">
+    <div class="card mb-4" style="box-shadow: var(--shadow-2); border-radius: 8px;">
+        <div style="padding: 12px;">
+            <div class="grid" style="gap: 8px;">
+                <div class="grid-item-3">
+                    <input class="form-field" placeholder="Call / Work 검색" value="@_searchText"
+                           @oninput="@(e => SetFilter(search: e.Value?.ToString()))" />
+                </div>
+                <div class="grid-item-3">
+                    <select class="form-select" @onchange="@(e => SetFilter(flow: e.Value?.ToString()))">
+                        <option value="">Flow (전체)</option>
                         @foreach (var flow in _flowNames)
                         {
-                            <MudSelectItem Value="@flow">@flow</MudSelectItem>
+                            <option value="@flow" selected="@(flow == _selectedFlow)">@flow</option>
                         }
-                    </MudSelect>
-                </MudItem>
-                <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="string" Value="_selectedState" ValueChanged="@((string v) => SetFilter(state: v))"
-                               Label="State" Variant="Variant.Outlined"
-                               Margin="Margin.Dense" Clearable="true">
+                    </select>
+                </div>
+                <div class="grid-item-3">
+                    <select class="form-select" @onchange="@(e => SetFilter(state: e.Value?.ToString()))">
+                        <option value="">State (전체)</option>
                         @foreach (var state in _stateOptions)
                         {
-                            <MudSelectItem Value="@state">@state</MudSelectItem>
+                            <option value="@state" selected="@(state == _selectedState)">@state</option>
                         }
-                    </MudSelect>
-                </MudItem>
-                <MudItem xs="12" sm="6" md="3">
-                    <MudSelect T="string" Value="_selectedDevice" ValueChanged="@((string v) => SetFilter(device: v))"
-                               Label="Device" Variant="Variant.Outlined"
-                               Margin="Margin.Dense" Clearable="true">
+                    </select>
+                </div>
+                <div class="grid-item-3">
+                    <select class="form-select" @onchange="@(e => SetFilter(device: e.Value?.ToString()))">
+                        <option value="">Device (전체)</option>
                         @foreach (var device in _deviceNames)
                         {
-                            <MudSelectItem Value="@device">@device</MudSelectItem>
+                            <option value="@device" selected="@(device == _selectedDevice)">@device</option>
                         }
-                    </MudSelect>
-                </MudItem>
-            </MudGrid>
-        </MudCardContent>
-    </MudCard>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
 
-    <MudCard Elevation="2" Style="border-radius: 8px;">
-        <MudCardContent Class="pa-0">
-            <MudTable Items="@FilteredCalls" Dense="true" Hover="true" Striped="true" FixedHeader="true"
-                      Height="calc(100vh - 300px)" Breakpoint="Breakpoint.None">
-                <HeaderContent>
-                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.Id)">ID</MudTableSortLabel></MudTh>
-                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.CallName)">Call</MudTableSortLabel></MudTh>
-                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.FlowName)">Flow</MudTableSortLabel></MudTh>
-                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.WorkName)">Work</MudTableSortLabel></MudTh>
-                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.State)">State</MudTableSortLabel></MudTh>
-                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.ProgressRate)">Progress</MudTableSortLabel></MudTh>
-                    <MudTh><MudTableSortLabel SortBy="new Func<CallState, object>(x => x.GoingCount)">Count</MudTableSortLabel></MudTh>
-                    <MudTh><MudTableSortLabel SortBy="@(new Func<CallState, object>(x => x.AverageGoingTime ?? 0))">Avg Time</MudTableSortLabel></MudTh>
-                    <MudTh><MudTableSortLabel SortBy="@(new Func<CallState, object>(x => x.Device ?? string.Empty))">Device</MudTableSortLabel></MudTh>
-                    <MudTh>Error</MudTh>
-                </HeaderContent>
-                <RowTemplate>
-                    <MudTd DataLabel="ID">@context.Id</MudTd>
-                    <MudTd DataLabel="Call">@context.CallName</MudTd>
-                    <MudTd DataLabel="Flow">@context.FlowName</MudTd>
-                    <MudTd DataLabel="Work">@context.WorkName</MudTd>
-                    <MudTd DataLabel="State">
-                        <MudChip T="string" Size="Size.Small"
-                                 Style="@GetStateStyle(context.State)">
-                            @context.State
-                        </MudChip>
-                    </MudTd>
-                    <MudTd DataLabel="Progress">
-                        <MudProgressLinear Value="@(context.ProgressRate * 100)" Color="Color.Primary"
-                                           Size="Size.Small" Rounded="true" Style="min-width: 60px;" />
-                    </MudTd>
-                    <MudTd DataLabel="Count">@context.GoingCount</MudTd>
-                    <MudTd DataLabel="Avg Time">@(context.AverageGoingTime?.ToString("F1") ?? "-")</MudTd>
-                    <MudTd DataLabel="Device">@(context.Device ?? "-")</MudTd>
-                    <MudTd DataLabel="Error">
-                        @if (!string.IsNullOrEmpty(context.ErrorText))
+    <div class="card" style="box-shadow: var(--shadow-2); border-radius: 8px;">
+        <div class="table-container" style="max-height: calc(100vh - 300px); overflow: auto;">
+            <table class="table table-hover table-striped">
+                <thead class="table-head-sticky">
+                    <tr>
+                        <th class="sortable" @onclick="@(() => SortBy("Id"))">
+                            ID @SortIcon("Id")
+                        </th>
+                        <th class="sortable" @onclick="@(() => SortBy("CallName"))">
+                            Call @SortIcon("CallName")
+                        </th>
+                        <th class="sortable" @onclick="@(() => SortBy("FlowName"))">
+                            Flow @SortIcon("FlowName")
+                        </th>
+                        <th class="sortable" @onclick="@(() => SortBy("WorkName"))">
+                            Work @SortIcon("WorkName")
+                        </th>
+                        <th class="sortable" @onclick="@(() => SortBy("State"))">
+                            State @SortIcon("State")
+                        </th>
+                        <th class="sortable" @onclick="@(() => SortBy("ProgressRate"))">
+                            Progress @SortIcon("ProgressRate")
+                        </th>
+                        <th class="sortable" @onclick="@(() => SortBy("GoingCount"))">
+                            Count @SortIcon("GoingCount")
+                        </th>
+                        <th class="sortable" @onclick="@(() => SortBy("AverageGoingTime"))">
+                            Avg Time @SortIcon("AverageGoingTime")
+                        </th>
+                        <th class="sortable" @onclick="@(() => SortBy("Device"))">
+                            Device @SortIcon("Device")
+                        </th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{ var rows = SortedCalls.ToList(); }
+                    @if (rows.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="10" style="text-align:center; padding:24px; color:#7D8282;">
+                                데이터가 없습니다.
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var call in rows)
                         {
-                            <MudTooltip Text="@context.ErrorText" Placement="Placement.Left">
-                                <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Color="Color.Error" Size="Size.Small" />
-                            </MudTooltip>
+                            <tr>
+                                <td>@call.Id</td>
+                                <td>@call.CallName</td>
+                                <td>@call.FlowName</td>
+                                <td>@call.WorkName</td>
+                                <td>
+                                    <span class="chip" style="@GetStateStyle(call.State)">
+                                        @call.State
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="progress-bar" style="min-width:60px; height:6px; border-radius:3px;">
+                                        <div style="width:@((call.ProgressRate * 100).ToString("F0"))%; background:var(--color-primary); height:100%; border-radius:3px; transition:width 0.3s;"></div>
+                                    </div>
+                                </td>
+                                <td>@call.GoingCount</td>
+                                <td>@(call.AverageGoingTime?.ToString("F1") ?? "-")</td>
+                                <td>@(call.Device ?? "-")</td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(call.ErrorText))
+                                    {
+                                        <span data-tooltip="@call.ErrorText" style="color:var(--color-error); cursor:help;">
+                                            <span class="material-icons" style="font-size:20px;">error_outline</span>
+                                        </span>
+                                    }
+                                </td>
+                            </tr>
                         }
-                    </MudTd>
-                </RowTemplate>
-                <NoRecordsContent>
-                    <MudText Typo="Typo.body2" Style="color: #7D8282;">데이터가 없습니다.</MudText>
-                </NoRecordsContent>
-            </MudTable>
-        </MudCardContent>
-    </MudCard>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
 
-    <MudText Typo="Typo.caption" Class="mt-2" Style="color: #7D8282;">
-        @FilteredCalls.Count() / @_dbSnapshot.Calls.Count calls | Updated: @_dbSnapshot.Timestamp.ToLocalTime().ToString("HH:mm:ss")
-    </MudText>
+    <span class="typo-caption mt-2" style="display:block; color: #7D8282;">
+        @SortedCalls.Count() / @_dbSnapshot.Calls.Count calls | Updated: @_dbSnapshot.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+    </span>
 }
 
 @code {
@@ -133,6 +162,10 @@ else
     private string? _selectedFlow;
     private string? _selectedState;
     private string? _selectedDevice;
+
+    // Sort state
+    private string _sortField = "Id";
+    private bool _sortAsc = true;
 
     private List<string> _flowNames = [];
     private List<string> _deviceNames = [];
@@ -165,6 +198,46 @@ else
 
             return calls;
         }
+    }
+
+    private IEnumerable<CallState> SortedCalls
+    {
+        get
+        {
+            var calls = FilteredCalls;
+            Func<CallState, object> keySelector = _sortField switch
+            {
+                "Id" => x => x.Id,
+                "CallName" => x => x.CallName,
+                "FlowName" => x => x.FlowName,
+                "WorkName" => x => x.WorkName,
+                "State" => x => x.State,
+                "ProgressRate" => x => x.ProgressRate,
+                "GoingCount" => x => x.GoingCount,
+                "AverageGoingTime" => x => x.AverageGoingTime ?? 0,
+                "Device" => x => x.Device ?? string.Empty,
+                _ => x => x.Id,
+            };
+            return _sortAsc ? calls.OrderBy(keySelector) : calls.OrderByDescending(keySelector);
+        }
+    }
+
+    private void SortBy(string field)
+    {
+        if (_sortField == field)
+            _sortAsc = !_sortAsc;
+        else
+        {
+            _sortField = field;
+            _sortAsc = true;
+        }
+    }
+
+    private MarkupString SortIcon(string field)
+    {
+        if (_sortField != field) return new MarkupString("");
+        var icon = _sortAsc ? "arrow_upward" : "arrow_downward";
+        return new MarkupString($"<span class=\"material-icons sort-icon\">{icon}</span>");
     }
 
     protected override void OnInitialized()

@@ -8,6 +8,8 @@ namespace Promaker.ViewModels;
 
 public partial class SimulationPanelState
 {
+    private static Guid? _lastSelectedWorkId;
+
     private void InitSimNodes()
     {
         SimNodes.Clear();
@@ -25,6 +27,10 @@ public partial class SimulationPanelState
             if (entry.Kind == EntityKind.Work && activeSystemNames.Contains(entry.SystemName))
                 SimWorkItems.Add(new SimWorkItem(entry.Id, entry.Name));
         }
+
+        SelectedSimWork = (_lastSelectedWorkId is { } lastId
+            ? SimWorkItems.FirstOrDefault(w => w.Guid == lastId)
+            : null) ?? SimWorkItems.FirstOrDefault();
     }
 
     private void UpdateSimNodeState(Guid nodeGuid, Status4 newState)
@@ -79,11 +85,14 @@ public partial class SimulationPanelState
         if (_simEngine is null) yield break;
 
         var index = _simEngine.Index;
+        var activeSystemNames = index.ActiveSystemNames;
         foreach (var workGuid in index.AllWorkGuids)
         {
             var workName = index.WorkName.TryFind(workGuid);
             var systemName = index.WorkSystemName.TryFind(workGuid);
             if (workName == null || systemName == null) continue;
+            // Device System(ADV, RET 등)의 Work/Call은 Gantt/SimNode에서 제외
+            if (!activeSystemNames.Contains(systemName.Value)) continue;
 
             yield return new SimIndexedEntry(workGuid, workName.Value, EntityKind.Work, systemName.Value);
 

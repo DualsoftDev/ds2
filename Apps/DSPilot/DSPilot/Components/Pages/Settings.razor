@@ -1,211 +1,192 @@
 @page "/settings"
 @inject AppSettingsService SettingsService
-@inject ISnackbar Snackbar
-@inject IDialogService DialogService
+@inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <PageTitle>설정 - DSPilot</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-4" Style="font-weight: 600; color: #0A1E5A;">설정</MudText>
+<h5 class="typo-h5 mb-4" style="font-weight: 600; color: #0A1E5A;">설정</h5>
 @if (_settings is not null)
 {
-    <MudGrid Spacing="4">
+    <div class="grid" style="gap: 16px;">
         @* 왼쪽 열: 프로젝트 + DSP 데이터베이스 *@
-        <MudItem xs="12" md="6">
-            <MudStack Spacing="4">
-                @* DsPilot 섹션 *@
-                <MudCard Elevation="2">
-                    <MudCardHeader>
-                        <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Class="mr-2" />
-                        <MudText Typo="Typo.h6">프로젝트 (DsPilot)</MudText>
-                    </MudCardHeader>
-                    <MudCardContent>
-                        <MudText Typo="Typo.subtitle2" Class="mb-2">AASX 파일 경로</MudText>
-                        <MudTextField @bind-Value="_settings.DsPilot.AasxFilePath"
-                                      Label="경로 직접 입력"
-                                      Variant="Variant.Outlined"
-                                      HelperText="서버 PC에 있는 AASX 파일의 상대 또는 절대 경로"
-                                      Adornment="Adornment.Start"
-                                      AdornmentIcon="@Icons.Material.Filled.Description"
-                                      Class="mb-3" />
-                        <MudDivider Class="mb-3" />
-                        <MudText Typo="Typo.subtitle2" Class="mb-2">또는 파일 업로드</MudText>
-                        <MudFileUpload T="IBrowserFile" Accept=".aasx" FilesChanged="OnAasxFileUploaded" MaximumFileCount="1">
-                            <ActivatorContent>
-                                <MudButton Variant="Variant.Outlined"
-                                           Color="Color.Primary"
-                                           StartIcon="@Icons.Material.Filled.CloudUpload"
-                                           FullWidth="true">
-                                    AASX 파일 선택
-                                </MudButton>
-                            </ActivatorContent>
-                        </MudFileUpload>
-                        @if (!string.IsNullOrEmpty(_uploadedFileName))
-                        {
-                            <MudAlert Severity="Severity.Success" Class="mt-2" Dense="true" Variant="Variant.Text">
-                                업로드됨: @_uploadedFileName
-                            </MudAlert>
-                        }
-                        @if (_uploading)
-                        {
-                            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mt-2" />
-                        }
-                    </MudCardContent>
-                </MudCard>
+        <div class="grid-item-6" style="display:flex; flex-direction:column; gap:16px;">
+            @* DsPilot 섹션 *@
+            <div class="card" style="box-shadow: var(--shadow-2);">
+                <div class="card-header">
+                    <span class="material-icons mr-2">folder_open</span>
+                    <h6 class="typo-h6">프로젝트 (DsPilot)</h6>
+                </div>
+                <div class="card-content">
+                    <div class="form-group mb-3">
+                        <label class="form-label">경로 직접 입력</label>
+                        <input class="form-field" @bind="_settings.DsPilot.AasxFilePath" placeholder="AASX 파일 경로" />
+                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                            서버 PC에 있는 AASX 파일의 상대 또는 절대 경로
+                        </small>
+                    </div>
+                    <hr class="divider mb-3" />
+                    <div class="form-group mb-2">
+                        <label class="form-label">또는 파일 업로드</label>
+                        <label class="btn btn-outlined" style="width:100%; cursor:pointer; justify-content:center;">
+                            <span class="material-icons" style="font-size:18px;">cloud_upload</span>
+                            AASX 파일 선택
+                            <InputFile OnChange="@(e => OnAasxFileUploaded(e.File))" accept=".aasx" style="display:none;" />
+                        </label>
+                    </div>
+                    @if (!string.IsNullOrEmpty(_uploadedFileName))
+                    {
+                        <div class="alert alert-success mt-2" style="padding:6px 12px; font-size:0.85rem;">
+                            업로드됨: @_uploadedFileName
+                        </div>
+                    }
+                    @if (_uploading)
+                    {
+                        <div class="progress-bar mt-2" style="height:4px;">
+                            <div style="width:100%; animation: indeterminate 1.5s infinite;"></div>
+                        </div>
+                    }
+                </div>
+            </div>
 
-                @* DspDatabase 섹션 *@
-                <MudCard Elevation="2">
-                    <MudCardHeader>
-                        <MudIcon Icon="@Icons.Material.Filled.DataObject" Class="mr-2" />
-                        <MudText Typo="Typo.h6">DSP 데이터베이스</MudText>
-                    </MudCardHeader>
-                    <MudCardContent>
-                        <MudTextField @bind-Value="_settings.DspDatabase.Path"
-                                      Label="DB 경로"
-                                      Variant="Variant.Outlined"
-                                      HelperText="DSP 내부 데이터베이스 경로 (환경변수 사용 가능)"
-                                      Adornment="Adornment.Start"
-                                      AdornmentIcon="@Icons.Material.Filled.Description"
-                                      Class="mb-3" />
-                        <MudSwitch @bind-Value="_settings.DspDatabase.AutoCreate"
-                                   Label="자동 생성"
-                                   Color="Color.Primary"
-                                   Class="mb-2" />
-                        <MudSwitch @bind-Value="_settings.DspDatabase.RecreateOnStartup"
-                                   Label="시작 시 재생성"
-                                   Color="Color.Warning" />
-                        <MudText Typo="Typo.caption" Color="Color.Warning" Class="mt-1">
-                            시작 시 재생성을 활성화하면 기존 데이터가 삭제됩니다.
-                        </MudText>
-                    </MudCardContent>
-                </MudCard>
-                @* 로깅 섹션 *@
-                <MudCard Elevation="2">
-                    <MudCardHeader>
-                        <MudIcon Icon="@Icons.Material.Filled.BugReport" Class="mr-2" />
-                        <MudText Typo="Typo.h6">로깅</MudText>
-                    </MudCardHeader>
-                    <MudCardContent>
-                        <MudSelect @bind-Value="_settings.Logging.LogLevel.Default"
-                                   Label="기본 (Default)"
-                                   Variant="Variant.Outlined"
-                                   Adornment="Adornment.Start"
-                                   AdornmentIcon="@Icons.Material.Filled.Tune"
-                                   Class="mb-3">
+            @* DspDatabase 섹션 *@
+            <div class="card" style="box-shadow: var(--shadow-2);">
+                <div class="card-header">
+                    <span class="material-icons mr-2">data_object</span>
+                    <h6 class="typo-h6">DSP 데이터베이스</h6>
+                </div>
+                <div class="card-content">
+                    <div class="form-group mb-3">
+                        <label class="form-label">DB 경로</label>
+                        <input class="form-field" @bind="_settings.DspDatabase.Path" placeholder="DB 경로" />
+                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                            DSP 내부 데이터베이스 경로 (환경변수 사용 가능)
+                        </small>
+                    </div>
+                    <label class="switch mb-2">
+                        <input type="checkbox" @bind="_settings.DspDatabase.AutoCreate" />
+                        자동 생성
+                    </label>
+                    <label class="switch mb-2">
+                        <input type="checkbox" @bind="_settings.DspDatabase.RecreateOnStartup" />
+                        시작 시 재생성
+                    </label>
+                    <span class="typo-caption mt-1" style="display:block; color: var(--color-warning);">
+                        시작 시 재생성을 활성화하면 기존 데이터가 삭제됩니다.
+                    </span>
+                </div>
+            </div>
+
+            @* 로깅 섹션 *@
+            <div class="card" style="box-shadow: var(--shadow-2);">
+                <div class="card-header">
+                    <span class="material-icons mr-2">bug_report</span>
+                    <h6 class="typo-h6">로깅</h6>
+                </div>
+                <div class="card-content">
+                    <div class="form-group mb-3">
+                        <label class="form-label">기본 (Default)</label>
+                        <select class="form-select" @bind="_settings.Logging.LogLevel.Default">
                             @foreach (var level in _logLevels)
                             {
-                                <MudSelectItem Value="@level">@level</MudSelectItem>
+                                <option value="@level">@level</option>
                             }
-                        </MudSelect>
-                        <MudSelect @bind-Value="_settings.Logging.LogLevel.MicrosoftAspNetCore"
-                                   Label="Microsoft.AspNetCore"
-                                   Variant="Variant.Outlined"
-                                   Adornment="Adornment.Start"
-                                   AdornmentIcon="@Icons.Material.Filled.Tune"
-                                   Class="mb-3">
+                        </select>
+                    </div>
+                    <div class="form-group mb-3">
+                        <label class="form-label">Microsoft.AspNetCore</label>
+                        <select class="form-select" @bind="_settings.Logging.LogLevel.MicrosoftAspNetCore">
                             @foreach (var level in _logLevels)
                             {
-                                <MudSelectItem Value="@level">@level</MudSelectItem>
+                                <option value="@level">@level</option>
                             }
-                        </MudSelect>
-                        <MudSelect @bind-Value="_settings.Logging.LogLevel.DsPilotServices"
-                                   Label="DSPilot.Services"
-                                   Variant="Variant.Outlined"
-                                   Adornment="Adornment.Start"
-                                   AdornmentIcon="@Icons.Material.Filled.Tune"
-                                   Class="mb-3">
+                        </select>
+                    </div>
+                    <div class="form-group mb-3">
+                        <label class="form-label">DSPilot.Services</label>
+                        <select class="form-select" @bind="_settings.Logging.LogLevel.DsPilotServices">
                             @foreach (var level in _logLevels)
                             {
-                                <MudSelectItem Value="@level">@level</MudSelectItem>
+                                <option value="@level">@level</option>
                             }
-                        </MudSelect>
-                        <MudSelect @bind-Value="_settings.Logging.LogLevel.DsPilotRepositories"
-                                   Label="DSPilot.Repositories"
-                                   Variant="Variant.Outlined"
-                                   Adornment="Adornment.Start"
-                                   AdornmentIcon="@Icons.Material.Filled.Tune">
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">DSPilot.Repositories</label>
+                        <select class="form-select" @bind="_settings.Logging.LogLevel.DsPilotRepositories">
                             @foreach (var level in _logLevels)
                             {
-                                <MudSelectItem Value="@level">@level</MudSelectItem>
+                                <option value="@level">@level</option>
                             }
-                        </MudSelect>
-                    </MudCardContent>
-                </MudCard>
-            </MudStack>
-        </MudItem>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-        @* 오른쪽 열: PLC 데이터베이스 + PLC 연결 *@
-        <MudItem xs="12" md="6">
-            <MudStack Spacing="4">
-                <MudCard Elevation="2">
-                    <MudCardHeader>
-                        <MudIcon Icon="@Icons.Material.Filled.Storage" Class="mr-2" />
-                        <MudText Typo="Typo.h6">PLC 데이터베이스</MudText>
-                    </MudCardHeader>
-                    <MudCardContent>
-                        <MudTextField @bind-Value="_settings.PlcDatabase.SourceDbPath"
-                                      Label="소스 DB 경로"
-                                      Variant="Variant.Outlined"
-                                      HelperText="PLC SQLite 데이터베이스 파일 경로"
-                                      Adornment="Adornment.Start"
-                                      AdornmentIcon="@Icons.Material.Filled.Description"
-                                      Class="mb-3" />
-                        <MudNumericField @bind-Value="_settings.PlcDatabase.ReadIntervalMs"
-                                         Label="읽기 간격 (ms)"
-                                         Variant="Variant.Outlined"
-                                         Min="100" Max="60000"
-                                         HelperText="PLC 데이터 폴링 간격 (밀리초)"
-                                         Adornment="Adornment.Start"
-                                         AdornmentIcon="@Icons.Material.Filled.Timer"
-                                         Class="mb-3" />
-                        <MudSelect @bind-Value="_settings.PlcDatabase.TagMatchMode"
-                                   Label="태그 매칭 모드"
-                                   Variant="Variant.Outlined"
-                                   HelperText="PLC 태그 매칭 방식"
-                                   Adornment="Adornment.Start"
-                                   AdornmentIcon="@Icons.Material.Filled.CompareArrows"
-                                   Class="mb-3">
-                            <MudSelectItem Value="@("Address")">Address</MudSelectItem>
-                            <MudSelectItem Value="@("Name")">Name</MudSelectItem>
-                        </MudSelect>
-                        <MudSwitch @bind-Value="_settings.PlcDatabase.SimulationMode"
-                                   Label="시뮬레이션 모드"
-                                   Color="Color.Primary" />
-                    </MudCardContent>
-                </MudCard>
-            </MudStack>
-        </MudItem>
+        @* 오른쪽 열: PLC 데이터베이스 *@
+        <div class="grid-item-6" style="display:flex; flex-direction:column; gap:16px;">
+            <div class="card" style="box-shadow: var(--shadow-2);">
+                <div class="card-header">
+                    <span class="material-icons mr-2">storage</span>
+                    <h6 class="typo-h6">PLC 데이터베이스</h6>
+                </div>
+                <div class="card-content">
+                    <div class="form-group mb-3">
+                        <label class="form-label">소스 DB 경로</label>
+                        <input class="form-field" @bind="_settings.PlcDatabase.SourceDbPath" placeholder="소스 DB 경로" />
+                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                            PLC SQLite 데이터베이스 파일 경로
+                        </small>
+                    </div>
+                    <div class="form-group mb-3">
+                        <label class="form-label">읽기 간격 (ms)</label>
+                        <input type="number" class="form-field" @bind="_settings.PlcDatabase.ReadIntervalMs"
+                               min="100" max="60000" placeholder="읽기 간격 (ms)" />
+                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                            PLC 데이터 폴링 간격 (밀리초)
+                        </small>
+                    </div>
+                    <div class="form-group mb-3">
+                        <label class="form-label">태그 매칭 모드</label>
+                        <select class="form-select" @bind="_settings.PlcDatabase.TagMatchMode">
+                            <option value="Address">Address</option>
+                            <option value="Name">Name</option>
+                        </select>
+                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                            PLC 태그 매칭 방식
+                        </small>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" @bind="_settings.PlcDatabase.SimulationMode" />
+                        시뮬레이션 모드
+                    </label>
+                </div>
+            </div>
+        </div>
 
-    </MudGrid>
+    </div>
 
-    <MudPaper Class="mt-4 pa-3 d-flex justify-end gap-3" Elevation="0">
-        <MudButton Variant="Variant.Outlined"
-                   Color="Color.Default"
-                   StartIcon="@Icons.Material.Filled.Refresh"
-                   OnClick="ReloadSettings">
-            되돌리기
-        </MudButton>
-        <MudButton Variant="Variant.Filled"
-                   Color="Color.Primary"
-                   StartIcon="@Icons.Material.Filled.Save"
-                   OnClick="SaveSettings">
-            저장
-        </MudButton>
-        <MudButton Variant="Variant.Filled"
-                   Color="Color.Warning"
-                   StartIcon="@Icons.Material.Filled.RestartAlt"
-                   OnClick="SaveAndRestart">
-            저장 및 재시작
-        </MudButton>
-    </MudPaper>
+    <div class="mt-4 d-flex" style="justify-content:flex-end; gap:12px;">
+        <button class="btn btn-outlined" @onclick="ReloadSettings">
+            <span class="material-icons" style="font-size:18px;">refresh</span> 되돌리기
+        </button>
+        <button class="btn btn-filled" @onclick="SaveSettings">
+            <span class="material-icons" style="font-size:18px;">save</span> 저장
+        </button>
+        <button class="btn btn-filled color-warning" @onclick="SaveAndRestart">
+            <span class="material-icons" style="font-size:18px;">restart_alt</span> 저장 및 재시작
+        </button>
+    </div>
 
-    <MudAlert Severity="Severity.Info" Class="mt-4" Variant="Variant.Outlined">
+    <div class="alert alert-info mt-4">
+        <span class="material-icons">info</span>
         설정 변경 후 애플리케이션을 재시작해야 적용됩니다.
-    </MudAlert>
+    </div>
 }
 else
 {
-    <MudProgressCircular Indeterminate="true" Class="mt-8" />
+    <div class="spinner mt-4"></div>
 }
 
 @code {
@@ -221,7 +202,7 @@ else
     {
         _settings = SettingsService.LoadSettings();
         _uploadedFileName = null;
-        Snackbar.Add("설정을 다시 불러왔습니다.", Severity.Info);
+        _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "설정을 다시 불러왔습니다.", "info");
     }
 
     private async Task OnAasxFileUploaded(IBrowserFile file)
@@ -235,11 +216,11 @@ else
         {
             _settings.DsPilot.AasxFilePath = await SettingsService.UploadAasxFileAsync(file);
             _uploadedFileName = file.Name;
-            Snackbar.Add($"파일 업로드 완료: {file.Name}", Severity.Success);
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"파일 업로드 완료: {file.Name}", "success");
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"업로드 실패: {ex.Message}", Severity.Error);
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"업로드 실패: {ex.Message}", "error");
         }
         finally
         {
@@ -250,16 +231,16 @@ else
 
     private async Task SaveAndRestart()
     {
-        var result = await DialogService.ShowMessageBox(
+        var result = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
             "서버 재시작",
             "설정을 저장하고 서버를 재시작합니다. 진행하시겠습니까?",
-            yesText: "재시작", cancelText: "취소");
+            "재시작", "취소");
 
-        if (result != true) return;
+        if (!result) return;
 
         SaveSettings();
         if (!SettingsService.RestartApplication())
-            Snackbar.Add("디버그 모드에서는 자동 재시작이 불가합니다. VS에서 다시 실행해주세요.", Severity.Warning);
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "디버그 모드에서는 자동 재시작이 불가합니다. VS에서 다시 실행해주세요.", "warning");
     }
 
     private void SaveSettings()
@@ -268,11 +249,11 @@ else
         try
         {
             SettingsService.SaveSettings(_settings);
-            Snackbar.Add("설정이 저장되었습니다. 재시작 후 적용됩니다.", Severity.Success);
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "설정이 저장되었습니다. 재시작 후 적용됩니다.", "success");
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"저장 실패: {ex.Message}", Severity.Error);
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", $"저장 실패: {ex.Message}", "error");
         }
     }
 

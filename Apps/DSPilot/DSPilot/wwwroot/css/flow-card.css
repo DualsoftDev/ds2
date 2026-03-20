@@ -1,15 +1,60 @@
 /* ============================================
-   Flow Card — foreignObject 내부 HTML/CSS
-   --min-w, --min-h, --state-color 기반 고정 사이징
+   Flow Card — 순수 HTML/CSS 렌더링
+   Container Query 기반 반응형 사이징
    화이트 기반 클린 디자인
    ============================================ */
 
-/* 루트: CSS 변수 --min-w, --min-h 를 받아 모든 사이징 통일 */
+/* ═══════════════════════════════════════════
+   카드 래퍼 (position:absolute 배치)
+   ═══════════════════════════════════════════ */
+.fl-card {
+    position: absolute;
+    border-radius: 8px;
+    background: white;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    cursor: pointer;
+    border: 1.5px solid color-mix(in srgb, var(--state-color) 30%, transparent);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fl-card-selected {
+    transform: scale(1.04);
+    z-index: 10;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.20),
+                0 0 16px color-mix(in srgb, var(--state-color) 30%, transparent);
+    outline: 2px solid color-mix(in srgb, var(--state-color) 60%, transparent);
+    animation: fl-pulse 2s ease-in-out infinite;
+}
+
+@keyframes fl-pulse {
+    0%, 100% {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.20),
+                    0 0 16px color-mix(in srgb, var(--state-color) 20%, transparent);
+    }
+    50% {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.20),
+                    0 0 24px color-mix(in srgb, var(--state-color) 40%, transparent);
+    }
+}
+
+.fl-card-selected::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--state-color);
+    opacity: 0.06;
+    pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════
+   루트: Container Query 컨테이너
+   ═══════════════════════════════════════════ */
 .fc-cq {
-    all: initial;
     width: 100%;
     height: 100%;
     box-sizing: border-box;
+    container-type: size;
 }
 
 .fc-cq *,
@@ -34,29 +79,28 @@
 
 /* ═══════════════════════════════════════════
    헤더: 상태색 틴트 배경 + 큰 제목 + 배지
-   높이 = min-h 기준 고정
    ═══════════════════════════════════════════ */
 .fc-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    flex: 0 0 calc(var(--min-h) * 0.25);
-    max-height: calc(var(--min-h) * 0.25);
-    padding: 0 calc(var(--min-w) * 0.04);
-    background: var(--state-color);
-    border-bottom: none;
-    gap: calc(var(--min-w) * 0.02);
+    flex: 0 0 auto;
+    padding: 3cqmin 4cqmin;
+    background: color-mix(in srgb, var(--state-color) 12%, #f5f5f5);
+    border-top: clamp(3px, 3cqmin, 8px) solid var(--state-color);
+    border-bottom: 1px solid rgba(0,0,0,0.12);
+    gap: 2cqmin;
     overflow: hidden;
     box-sizing: border-box;
 }
 
 .fc-title {
-    font-size: clamp(0.5rem, calc(var(--min-w) * 0.075), 1.6rem);
+    font-size: clamp(0.6rem, 10cqmin, 1.5rem);
     font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: white;
+    color: var(--state-color);
     line-height: 1.15;
     flex: 1;
     min-width: 0;
@@ -64,15 +108,15 @@
 
 .fc-badges {
     display: flex;
-    gap: calc(var(--min-w) * 0.01);
+    gap: 1cqmin;
     flex-shrink: 0;
     align-items: center;
 }
 
 .fc-badge {
-    padding: calc(var(--min-h) * 0.015) calc(var(--min-w) * 0.025);
+    padding: 1.5cqmin 2.5cqmin;
     border-radius: 4px;
-    font-size: clamp(0.4rem, calc(var(--min-w) * 0.052), 1.0rem);
+    font-size: clamp(0.5rem, 7cqmin, 1.0rem);
     font-weight: 700;
     border: 1px solid;
     white-space: nowrap;
@@ -80,14 +124,14 @@
 }
 
 /* ═══════════════════════════════════════════
-   본문 래퍼: max-width/height = 최소 카드 크기
+   본문 래퍼
    ═══════════════════════════════════════════ */
 .fc-body {
     display: flex;
-    align-items: stretch;
-    flex: 0 0 calc(var(--min-h) * 0.75);
-    max-height: calc(var(--min-h) * 0.75);
+    align-items: center;
+    flex: 1;
     min-height: 0;
+    overflow: hidden;
 }
 
 /* ── 도넛 차트 영역 (좌측 ~42%) ── */
@@ -98,12 +142,36 @@
     justify-content: center;
     flex-shrink: 0;
     width: 42%;
-    padding: calc(var(--min-w) * 0.03);
+    height: 100%;
+    padding: 3cqmin;
     box-sizing: border-box;
 }
 
 .fc-chart.fc-chart-full {
     width: 100%;
+}
+
+/* ── 세로형 카드 (tall: RowSpan > ColSpan) ── */
+.fc-body.fc-body-vertical {
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    flex: 1;
+    max-height: none;
+    padding-top: 3cqmin;
+}
+
+.fc-body-vertical .fc-chart {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    padding: 6cqmin;
+}
+
+.fc-body-vertical .fc-stats {
+    width: 100%;
+    flex: 0 0 auto;
+    padding: 2cqmin 8cqmin;
 }
 
 .fc-chart svg {
@@ -115,7 +183,7 @@
 .fc-chart-label {
     position: absolute;
     font-weight: 700;
-    font-size: clamp(0.35rem, calc(var(--min-w) * 0.055), 1.2rem);
+    font-size: clamp(0.5rem, 8cqmin, 1.2rem);
     color: #444;
     line-height: 1;
 }
@@ -126,45 +194,43 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: calc(var(--min-h) * 0.03) calc(var(--min-w) * 0.04) calc(var(--min-h) * 0.03) 0;
-    gap: calc(var(--min-h) * 0.02);
+    padding: 3cqmin 4cqmin 3cqmin 0;
+    gap: 2cqmin;
     min-width: 0;
 }
 
 .fc-state-label {
     font-weight: 600;
     color: var(--state-color);
-    font-size: clamp(0.45rem, calc(var(--min-w) * 0.058), 1.2rem);
+    font-size: clamp(0.55rem, 8cqmin, 1.2rem);
     letter-spacing: 0.5px;
-    padding-bottom: calc(var(--min-h) * 0.015);
+    padding-bottom: 1.5cqmin;
     border-bottom: 1px solid #eee;
 }
 
 .fc-stat-row {
     display: flex;
     align-items: center;
-    gap: calc(var(--min-w) * 0.02);
+    gap: 2cqmin;
     white-space: nowrap;
-    font-size: clamp(0.4rem, calc(var(--min-w) * 0.052), 1.1rem);
-    padding: calc(var(--min-h) * 0.012) 0;
+    font-size: clamp(0.5rem, 7cqmin, 1.1rem);
+    padding: 1.2cqmin 0;
     border-bottom: 1px solid #f5f5f5;
 }
 
 .fc-dot {
-    width: clamp(3px, calc(var(--min-w) * 0.032), 12px);
-    height: clamp(3px, calc(var(--min-w) * 0.032), 12px);
+    width: clamp(4px, 4cqmin, 10px);
+    height: clamp(4px, 4cqmin, 10px);
     border-radius: 50%;
     flex-shrink: 0;
 }
 
 .fc-dot-mt {
-    background: #3a86ff;
-    box-shadow: 0 0 4px rgba(58, 134, 255, 0.3);
+    background: #4285f4;
 }
 
 .fc-dot-wt {
-    background: #ff9f1c;
-    box-shadow: 0 0 4px rgba(255, 159, 28, 0.3);
+    background: #ffb300;
 }
 
 .fc-stat-label {
@@ -185,7 +251,7 @@
     text-align: center;
     font-weight: 600;
     color: var(--state-color);
-    font-size: clamp(0.4rem, calc(var(--min-w) * 0.052), 1.0rem);
+    font-size: clamp(0.5rem, 7cqmin, 1.0rem);
     flex-shrink: 0;
-    padding: calc(var(--min-h) * 0.02) 0;
+    padding: 2cqmin 0;
 }

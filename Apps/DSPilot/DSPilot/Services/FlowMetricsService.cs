@@ -145,6 +145,7 @@ public class FlowMetricsService : IFlowMetricsService
                             HeadCallName = headCallName,
                             TailCallName = tailCallName,
                             IsSingleCallFlow = isSingleCallFlow,
+                            IsCycleActive = false,
                             CurrentCycleStart = null,
                             PreviousCycleFinish = null,
                             CurrentMT = null,
@@ -240,6 +241,7 @@ public class FlowMetricsService : IFlowMetricsService
 
                     // 새 사이클 시작
                     state.CurrentCycleStart = timestamp;
+                    state.IsCycleActive = true;
                 }
                 else
                 {
@@ -286,9 +288,12 @@ public class FlowMetricsService : IFlowMetricsService
                         });
                     }
 
-                    // 새 사이클 시작 (MT는 tail 완료 시 계산됨)
-                    state.CurrentCycleStart = timestamp;
-                    // CurrentMT는 유지 (다음 Head에서 사용)
+                    // 사이클 시작: 진행 중인 사이클이 없을 때만 (파이프라인 방어)
+                    if (!state.IsCycleActive)
+                    {
+                        state.CurrentCycleStart = timestamp;
+                        state.IsCycleActive = true;
+                    }
                 }
             }
         }
@@ -318,6 +323,7 @@ public class FlowMetricsService : IFlowMetricsService
                 var mt = (int)(timestamp - state.CurrentCycleStart.Value).TotalMilliseconds;
                 state.CurrentMT = mt;
                 state.PreviousCycleFinish = timestamp;
+                state.IsCycleActive = false;
 
                 if (state.IsSingleCallFlow)
                 {
@@ -371,6 +377,7 @@ public class FlowCycleState
     public string? HeadCallName { get; set; }
     public string? TailCallName { get; set; }
     public bool IsSingleCallFlow { get; set; }
+    public bool IsCycleActive { get; set; }
     public DateTime? CurrentCycleStart { get; set; }
     public DateTime? PreviousCycleFinish { get; set; }
     public int? CurrentMT { get; set; }

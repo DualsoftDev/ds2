@@ -23,9 +23,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = _vm;
         _vm.FocusNameEditorRequested = PropertyPane.FocusNameEditorControl;
-        _vm.Canvas.CenterOnNodeRequested = WorkspacePane.CenterOnNode;
-        _vm.Canvas.FitToViewZoomOutRequested = WorkspacePane.FitToViewZoomOut;
-        _vm.Canvas.GetViewportCenterRequested = WorkspacePane.GetViewportCenter;
+        // viewport 콜백은 SplitCanvasContainer.OnDataContextChanged에서 각 pane에 연결됩니다.
 
         SourceInitialized += MainWindow_SourceInitialized;
         Closed += MainWindow_Closed;
@@ -38,12 +36,6 @@ public partial class MainWindow : Window
     }
 
     private void Exit_Click(object sender, RoutedEventArgs e) => Close();
-
-    private void HistoryListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
-    {
-        if (HistoryListBox.SelectedItem is HistoryPanelItem item)
-            _vm.JumpToHistoryCommand.Execute(item);
-    }
 
     private void MainWindow_SourceInitialized(object? sender, EventArgs e)
     {

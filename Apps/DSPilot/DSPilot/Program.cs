@@ -1,4 +1,3 @@
-using MudBlazor.Services;
 using DSPilot.Services;
 using DSPilot.Repositories;
 using DSPilot.Abstractions;
@@ -16,8 +15,6 @@ if (args.Contains("--diagnose"))
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-
-builder.Services.AddMudServices();
 
 // Database path resolution (Unified mode support) - F# Adapter 사용
 builder.Services.AddSingleton<DatabasePathResolverAdapter>();
