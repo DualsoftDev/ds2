@@ -71,7 +71,7 @@ public class CallStatisticsService
             if (callInfo != null)
             {
                 var (workName, flowName) = callInfo.Value;
-                var callKey = new DSPilot.Models.CallKey(flowName, callName, workName);
+                var callKey = new DSPilot.Models.CallKey(flowName, callName);
                 var callData = await _dspRepository.GetCallByKeyAsync(callKey);
                 int count = callData?.GoingCount ?? 0;
                 _logger.LogDebug("Call '{CallName}': Loaded base GoingCount = {Count}", callName, count);

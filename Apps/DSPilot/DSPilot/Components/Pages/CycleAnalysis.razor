@@ -6,6 +6,7 @@
 @inject DsProjectService ProjectService
 @inject ILogger<DSPilot.Components.Pages.CycleAnalysis> Logger
 @inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>Timeline 분석 - Gantt Chart</PageTitle>
 
@@ -186,7 +187,7 @@ else
                                 <strong>기본 정보</strong>
                             </span>
                             <p class="typo-body2">• Call: <strong>@_selectedItem.CallName</strong></p>
-                            <p class="typo-body2">• Work: @_selectedItem.WorkName</p>
+                            <p class="typo-body2">• Flow: @_selectedItem.FlowName</p>
                             <p class="typo-body2">• Tag: @_selectedItem.TagName [@_selectedItem.TagAddress]</p>
                             <p class="typo-body2">
                                 • Event Type: <strong>@(_selectedItem.EventType == DSPilot.Models.Analysis.IOEventType.InTag ? "InTag (Input)" : "OutTag (Output)")</strong>
@@ -351,6 +352,8 @@ else
     // Chart container
     private ElementReference _chartContainerRef;
     private int _containerWidth = 0;
+    private DotNetObjectReference<CycleAnalysis>? _dotNetRef;
+    private bool _isChartResizeObserverAttached = false;
 
     // Chart controls
     private int _chartZoomLevel = 100;
@@ -404,19 +407,24 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_ganttData != null)
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+        }
+
+        if (_ganttData != null && !_isChartResizeObserverAttached && _dotNetRef != null)
         {
             try
             {
-                var width = await JS.InvokeAsync<int>("eval",
-                    "(function(el){ return el ? el.clientWidth : 0; })(document.querySelector('[data-chart-container]'))");
-                if (width > 0 && Math.Abs(width - _containerWidth) > 20)
-                {
-                    _containerWidth = width;
-                    StateHasChanged();
-                }
+                await JS.InvokeVoidAsync("uiUtils.observeElementSize", _chartContainerRef, _dotNetRef, nameof(OnChartContainerResized));
+                _isChartResizeObserverAttached = true;
             }
-            catch { }
+            catch (JSDisconnectedException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
     }
 
@@ -446,8 +454,10 @@ else
             return;
         }
 
+        await DisposeChartResizeObserverAsync();
         _isLoadingGantt = true;
         _ganttData = null;
+        _containerWidth = 0;
         StateHasChanged();
 
         try
@@ -538,6 +548,47 @@ else
         }
     }
 
+    [JSInvokable]
+    public async Task OnChartContainerResized(int width)
+    {
+        if (width <= 0 || Math.Abs(width - _containerWidth) <= 2)
+        {
+            return;
+        }
+
+        _containerWidth = width;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DisposeChartResizeObserverAsync()
+    {
+        if (!_isChartResizeObserverAttached)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("uiUtils.disposeElementSizeObserver", _chartContainerRef);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        finally
+        {
+            _isChartResizeObserverAttached = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await DisposeChartResizeObserverAsync();
+        _dotNetRef?.Dispose();
+    }
+
     private void ToggleLongestGapHighlight()
     {
         _showLongestGap = !_showLongestGap;
@@ -571,7 +622,7 @@ else
 
             case GapAnalysisMode.SameGroup:
                 relevantItems = _ganttData.Items
-                    .Where(i => i.WorkName == item.WorkName)
+                    .Where(i => i.FlowName == item.FlowName)
                     .OrderBy(i => i.GoingStartTime)
                     .ToList();
                 break;
@@ -850,7 +901,7 @@ else
                 this, () => SelectItem(item, currentItemIndex)));
 
             builder.OpenElement(seq++, "title");
-            builder.AddContent(seq++, $@"{item.CallName} ({item.WorkName})
+            builder.AddContent(seq++, $@"{item.CallName} ({item.FlowName})
 IOTag: {item.TagName} [{item.TagAddress}]
 Event: {label}Tag
 Offset: {offsetFromChartStart:F0} ms

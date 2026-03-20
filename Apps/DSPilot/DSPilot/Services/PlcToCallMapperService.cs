@@ -82,12 +82,11 @@ public class PlcToCallMapperService
                                     Call = call,
                                     ApiCall = apiCall,
                                     IsInTag = true,
-                                    FlowName = flow.Name,
-                                    WorkName = work.Name
+                                    FlowName = flow.Name
                                 };
 
-                                _logger.LogDebug("Mapped InTag '{TagKey}' ({Mode}) → Call '{CallName}' (Flow: {FlowName}, Work: {WorkName})",
-                                    inTagKey, _tagMatchMode, call.Name, flow.Name, work.Name);
+                                _logger.LogDebug("Mapped InTag '{TagKey}' ({Mode}) → Call '{CallName}' (Flow: {FlowName})",
+                                    inTagKey, _tagMatchMode, call.Name, flow.Name);
                             }
                         }
 
@@ -105,12 +104,11 @@ public class PlcToCallMapperService
                                     Call = call,
                                     ApiCall = apiCall,
                                     IsInTag = false,
-                                    FlowName = flow.Name,
-                                    WorkName = work.Name
+                                    FlowName = flow.Name
                                 };
 
-                                _logger.LogDebug("Mapped OutTag '{TagKey}' ({Mode}) → Call '{CallName}' (Flow: {FlowName}, Work: {WorkName})",
-                                    outTagKey, _tagMatchMode, call.Name, flow.Name, work.Name);
+                                _logger.LogDebug("Mapped OutTag '{TagKey}' ({Mode}) → Call '{CallName}' (Flow: {FlowName})",
+                                    outTagKey, _tagMatchMode, call.Name, flow.Name);
                             }
                         }
                     }

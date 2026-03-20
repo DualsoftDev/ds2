@@ -13,11 +13,9 @@ module Models =
         AverageGoingTime: float
         StdDevGoingTime: float
         GoingCount: int
-        PerformanceScore: float
         ColorClassAvg: string
         ColorClassStdDev: string
         ColorClassCV: string
-        ColorClassScore: string
     } with
         /// 변동계수 계산
         member this.CoefficientOfVariation =
@@ -32,7 +30,6 @@ module Models =
             | HeatmapMetric.AverageTime -> this.AverageGoingTime
             | HeatmapMetric.StdDeviation -> this.StdDevGoingTime
             | HeatmapMetric.CoefficientOfVariation -> this.CoefficientOfVariation
-            | HeatmapMetric.PerformanceScore -> this.PerformanceScore
 
         /// 메트릭별 색상 클래스 추출
         member this.GetColorClass(metric: HeatmapMetric) =
@@ -40,7 +37,6 @@ module Models =
             | HeatmapMetric.AverageTime -> this.ColorClassAvg
             | HeatmapMetric.StdDeviation -> this.ColorClassStdDev
             | HeatmapMetric.CoefficientOfVariation -> this.ColorClassCV
-            | HeatmapMetric.PerformanceScore -> this.ColorClassScore
 
         /// 툴팁 텍스트 생성
         member this.GetTooltipText() =
@@ -51,21 +47,12 @@ module Models =
                 elif this.CoefficientOfVariation < 0.5 then "불안정"
                 else "매우 불안정"
 
-            let scoreStatus =
-                if this.PerformanceScore >= 90.0 then "우수"
-                elif this.PerformanceScore >= 70.0 then "양호"
-                elif this.PerformanceScore >= 50.0 then "보통"
-                elif this.PerformanceScore >= 30.0 then "개선 필요"
-                else "심각"
-
-            sprintf "[%s]\n평균: %.0f ms | 표준편차: %.0f ms\n변동계수: %.2f (%s)\n성능점수: %.0f/100 (%s)\n실행횟수: %d회"
+            sprintf "[%s]\n평균: %.0f ms | 표준편차: %.0f ms\n변동계수: %.2f (%s)\n실행횟수: %d회"
                 this.CallName
                 this.AverageGoingTime
                 this.StdDevGoingTime
                 this.CoefficientOfVariation
                 cvStatus
-                this.PerformanceScore
-                scoreStatus
                 this.GoingCount
 
     /// Flow Heatmap 그룹 (F# record) - Flow 수준 집계 색상 포함
@@ -76,7 +63,6 @@ module Models =
         FlowColorClassAvg: string
         FlowColorClassStdDev: string
         FlowColorClassCV: string
-        FlowColorClassScore: string
     } with
         /// Flow 평균 Going 시간
         member this.FlowAverageTime =
@@ -93,18 +79,15 @@ module Models =
             if this.Calls.IsEmpty then 0.0
             else this.Calls |> List.averageBy (fun c -> c.CoefficientOfVariation)
 
-        /// Flow 평균 성능 점수
-        member this.FlowAverageScore =
-            if this.Calls.IsEmpty then 0.0
-            else this.Calls |> List.averageBy (fun c -> c.PerformanceScore)
-
         /// Call 개수
         member this.CallCount = this.Calls.Length
 
-        /// 이슈 Call 개수 (개선필요 또는 심각)
+        /// 이슈 Call 개수 (변동계수 기준 poor/critical)
         member this.IssueCount =
-            this.Calls |> List.filter (fun c ->
-                c.ColorClassScore = "heatmap-poor" || c.ColorClassScore = "heatmap-critical") |> List.length
+            this.Calls
+            |> List.filter (fun c ->
+                c.ColorClassCV = "heatmap-poor" || c.ColorClassCV = "heatmap-critical")
+            |> List.length
 
     /// Tag Edge State (F# record)
     type TagEdgeState = {
