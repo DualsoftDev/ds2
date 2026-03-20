@@ -61,9 +61,40 @@ public partial class EditorCanvas : UserControl
 
     private MainViewModel? VM => DataContext as MainViewModel;
 
+    private CanvasWorkspaceState? _pane;
+
+    /// <summary>이 캔버스가 표시하는 pane입니다. SplitCanvasContainer에서 설정됩니다.</summary>
+    public CanvasWorkspaceState? Pane
+    {
+        get => _pane;
+        set
+        {
+            _pane = value;
+            BindPaneCollections();
+        }
+    }
+
+    /// <summary>현재 pane의 CanvasNodes 또는 ActivePane의 CanvasNodes를 반환합니다.</summary>
+    private CanvasWorkspaceState? ActiveCanvasState => Pane ?? VM?.Canvas;
+
+    private void BindPaneCollections()
+    {
+        var state = ActiveCanvasState;
+        NodesHost.ItemsSource = state?.CanvasNodes;
+        ArrowsHost.ItemsSource = state?.CanvasArrows;
+    }
+
     private void OnContextMenuOpening(object sender, ContextMenuEventArgs e)
     {
         _lastContextMenuCanvasPos = Mouse.GetPosition(MainCanvas);
+
+        // 2개 이상 노드 선택 시 화살표 연결 메뉴 표시
+        if (VM is not null
+            && VM.Selection.TryGetOrderedSelectionConnectEntityType(out var entityType))
+        {
+            e.Handled = true; // 기본 ContextMenu 억제
+            ShowArrowTypeContextMenu(entityType);
+        }
     }
 
     private void AddWork_Click(object sender, RoutedEventArgs e)

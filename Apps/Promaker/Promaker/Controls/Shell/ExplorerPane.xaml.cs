@@ -21,11 +21,13 @@ public partial class ExplorerPane : UserControl
     }
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
+    internal int UpperPanelsHostRow => Grid.GetRow(UpperPanelsHost);
+    internal int HistoryPanelRow => Grid.GetRow(HistoryPanelHost);
 
     private void ConfigureDebugPanels()
     {
-        // History panel moved to MainWindow (right side below PropertyPanel)
-        // No debug panels to configure in ExplorerPane anymore
+        // History panel moved back into ExplorerPane.
+        // No additional debug panel wiring is needed here.
     }
 
     private void TreeTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -43,6 +45,12 @@ public partial class ExplorerPane : UserControl
     {
         if (sender is TreeView tree)
             tree.Focus();
+    }
+
+    private void HistoryListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is ListBox { SelectedItem: HistoryPanelItem item } && ViewModel is not null)
+            ViewModel.JumpToHistoryCommand.Execute(item);
     }
 
     private void TreeViewItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -81,7 +89,7 @@ public partial class ExplorerPane : UserControl
         var hasProject = vm is not null && vm.ControlTreeRoots.Count > 0;
         var hasSystem = hasProject && vm!.ControlTreeRoots.Any(p => p.Children.Count > 0);
 
-        // 1차: 노드 타입별 메뉴 항목 표시/숨김
+        // 1차 노드 타입단계 메뉴 항목 표시/숨김
         foreach (var item in menu.Items)
         {
             var tag = item switch
@@ -98,7 +106,7 @@ public partial class ExplorerPane : UserControl
                 fe.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        // 2차: 연속/선행/후행 구분선 제거
+        // 2차 연속/선행/후행 구분선 제거
         CollapseDuplicateSeparators(menu);
     }
 
@@ -127,7 +135,7 @@ public partial class ExplorerPane : UserControl
             }
         }
 
-        // 마지막이 구분선이면 숨김
+        // 마지막이 구분선이면 제거
         if (lastVisibleSep is not null)
             lastVisibleSep.Visibility = Visibility.Collapsed;
     }
@@ -182,8 +190,15 @@ public partial class ExplorerPane : UserControl
             return;
 
         ViewModel.Selection.SetActiveTreePane(pane);
-        if (newValue is EntityNode node)
-            ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
+        if (newValue is not EntityNode node) return;
+
+        ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
+
+        // 트리 클릭 시 캔버스에서도 해당 노드로 이동
+        if (node.EntityType == EntityKind.Call)
+            ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
+        else if (node.EntityType is EntityKind.Flow or EntityKind.Work)
+            ViewModel.Canvas.OpenCanvasTab(node.Id, node.EntityType, expandTree: false);
     }
 
     private void HandleTreeItemMouseDown(TreePaneKind pane, object sender, MouseButtonEventArgs e, bool requireModifiers)

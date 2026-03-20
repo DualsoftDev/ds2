@@ -1,0 +1,8 @@
+<UserControl x:Class="Promaker.Controls.SplitCanvasContainer"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctrl="clr-namespace:Promaker.Controls">
+    <Grid x:Name="SplitGrid">
+        <ctrl:CanvasWorkspace x:Name="PrimaryWorkspace"/>
+    </Grid>
+</UserControl>

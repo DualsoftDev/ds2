@@ -1,5 +1,8 @@
+using System;
 using System.Windows;
+using System.Windows.Controls.Primitives;
 using Ds2.Core;
+using Promaker.Presentation;
 
 namespace Promaker.Dialogs;
 
@@ -26,6 +29,7 @@ public partial class ArrowTypeDialog : Window
         var initialType = NormalizeArrowTypeForMode(_isWorkMode ? _lastWorkArrowType : _lastCallArrowType, _isWorkMode);
         SelectedArrowType = initialType;
         ApplySelection(initialType);
+        InitializePinStates();
 
         Loaded += (_, _) => OkButton.Focus();
     }
@@ -92,6 +96,24 @@ public partial class ArrowTypeDialog : Window
         }
 
         return ArrowType.Start;
+    }
+
+    private void InitializePinStates()
+    {
+        StartPin.IsChecked = ArrowTypeFrequencyTracker.IsPinned(ArrowType.Start);
+        ResetPin.IsChecked = ArrowTypeFrequencyTracker.IsPinned(ArrowType.Reset);
+        StartResetPin.IsChecked = ArrowTypeFrequencyTracker.IsPinned(ArrowType.StartReset);
+        ResetResetPin.IsChecked = ArrowTypeFrequencyTracker.IsPinned(ArrowType.ResetReset);
+        GroupPin.IsChecked = ArrowTypeFrequencyTracker.IsPinned(ArrowType.Group);
+    }
+
+    private void Pin_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleButton { Tag: string tagStr }
+            && Enum.TryParse<ArrowType>(tagStr, out var type))
+        {
+            ArrowTypeFrequencyTracker.TogglePin(type);
+        }
     }
 
     private void Ok_Click(object sender, RoutedEventArgs e)
