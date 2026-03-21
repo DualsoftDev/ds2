@@ -19,6 +19,7 @@ public class Ev2PlcEventSourceReal : IPlcEventSource
 {
     private readonly ILogger<Ev2PlcEventSourceReal> _logger;
     private readonly PlcConnectionConfig _config;
+    private readonly IConfiguration _configuration;
     private readonly Subject<PlcCommunicationEvent> _eventSubject = new();
     private PLCBackendService? _plcService;
     private IDisposable? _scanDisposable;
@@ -27,10 +28,12 @@ public class Ev2PlcEventSourceReal : IPlcEventSource
 
     public Ev2PlcEventSourceReal(
         ILogger<Ev2PlcEventSourceReal> logger,
-        PlcConnectionConfig config)
+        PlcConnectionConfig config,
+        IConfiguration configuration)
     {
         _logger = logger;
         _config = config;
+        _configuration = configuration;
     }
 
     /// <inheritdoc />
@@ -83,14 +86,22 @@ public class Ev2PlcEventSourceReal : IPlcEventSource
             var walFilePath = Path.Combine(Path.GetTempPath(), $"dspilot_wal_{_config.PlcName}.db");
             var fileBuffer = new FileWalBuffer(walFilePath);
 
+            // appsettings.json에서 TagHistoric 설정 읽기
+            var walBufferSize = _configuration.GetValue<int?>("TagHistoric:WALBufferSize") ?? 100;
+            var flushValue = _configuration["TagHistoric:FlushInterval"];
+            var flushInterval = TimeSpan.TryParse(flushValue, out var configuredInterval) && configuredInterval > TimeSpan.Zero
+                ? configuredInterval
+                : TimeSpan.FromSeconds(1);
+
             var tagHistoricWAL = new TagHistoricWAL(
-                walSize: 10000,
-                flushInterval: TimeSpan.FromSeconds(10),
+                walSize: walBufferSize,
+                flushInterval: flushInterval,
                 memoryBuffer: memoryBuffer,
                 diskBuffer: fileBuffer
             );
 
-            _logger.LogInformation("Created TagHistoricWAL: {Path}", walFilePath);
+            _logger.LogInformation("Created TagHistoricWAL: Path={Path}, BufferSize={BufferSize}, FlushInterval={FlushInterval}",
+                walFilePath, walBufferSize, flushInterval);
 
             // Step 5: PLCBackendService 생성
             _plcService = new PLCBackendService(

@@ -2,13 +2,15 @@ using DSPilot.Services;
 using DSPilot.Repositories;
 using DSPilot.Abstractions;
 using DSPilot.Adapters;
+using System.Data.Common;
 
 var builder = WebApplication.CreateBuilder(args);
+var defaultEv2ScanIntervalMs = ResolveScanIntervalMs(builder.Configuration, "PlcCapture:ScanIntervalMs", 100);
 
 // 진단 모드 체크
 if (args.Contains("--diagnose"))
 {
-    var dbPath = builder.Configuration["PlcDatabase:SourceDbPath"] ?? "sample/db/DsDB.sqlite3";
+    var dbPath = ResolveConfiguredDatabasePath(builder.Configuration) ?? "sample/db/DsDB.sqlite3";
     DSPilot.DiagnosticTool.DiagnosePlcDatabase(dbPath);
     return;
 }
@@ -61,7 +63,7 @@ if (plcConnectionEnabled)
     {
         PlcName = builder.Configuration["PlcConnection:PlcName"] ?? "PLC_01",
         IpAddress = builder.Configuration["PlcConnection:IpAddress"] ?? "192.168.0.100",
-        ScanIntervalMs = builder.Configuration.GetValue<int>("PlcConnection:ScanIntervalMs", 100),
+        ScanIntervalMs = ResolveScanIntervalMs(builder.Configuration, "PlcConnection:ScanIntervalMs", defaultEv2ScanIntervalMs),
         TagAddresses = builder.Configuration.GetSection("PlcConnection:TagAddresses").Get<List<string>>() ?? new List<string>()
     };
 
@@ -106,3 +108,71 @@ app.MapRazorComponents<DSPilot.Components.App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+static int ResolveScanIntervalMs(IConfiguration configuration, string legacyKey, int fallbackMs)
+{
+    var configuredMs = configuration.GetValue<int?>(legacyKey);
+    if (configuredMs.HasValue && configuredMs.Value > 0)
+    {
+        return configuredMs.Value;
+    }
+
+    var configuredValue = configuration["ScanInterval"];
+    if (TimeSpan.TryParse(configuredValue, out var configuredInterval) && configuredInterval > TimeSpan.Zero)
+    {
+        return (int)Math.Max(1, configuredInterval.TotalMilliseconds);
+    }
+
+    return fallbackMs;
+}
+
+static string? ResolveConfiguredDatabasePath(IConfiguration configuration)
+{
+    var connectionString = configuration["Database:ConnectionString"];
+    if (!string.IsNullOrWhiteSpace(connectionString))
+    {
+        try
+        {
+            var builder = new DbConnectionStringBuilder
+            {
+                ConnectionString = Environment.ExpandEnvironmentVariables(connectionString)
+            };
+
+            if (TryGetValue(builder, "Data Source", out var dataSource) ||
+                TryGetValue(builder, "DataSource", out dataSource) ||
+                TryGetValue(builder, "Filename", out dataSource))
+            {
+                return NormalizePath(dataSource);
+            }
+        }
+        catch
+        {
+            // Ignore and fall back to legacy setting.
+        }
+    }
+
+    var legacyPath = configuration["Database:SharedDbPath"];
+    return string.IsNullOrWhiteSpace(legacyPath) ? null : NormalizePath(legacyPath);
+}
+
+static bool TryGetValue(DbConnectionStringBuilder builder, string key, out string value)
+{
+    if (builder.TryGetValue(key, out var rawValue) && rawValue is not null)
+    {
+        value = rawValue.ToString() ?? string.Empty;
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
+    value = string.Empty;
+    return false;
+}
+
+static string NormalizePath(string path)
+{
+    var normalized = Environment.ExpandEnvironmentVariables(path)
+        .Replace('/', Path.DirectorySeparatorChar);
+
+    return Path.IsPathRooted(normalized)
+        ? normalized
+        : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, normalized);
+}

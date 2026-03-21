@@ -14,37 +14,49 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
 {
     private readonly DSPilot.Engine.DatabasePaths _paths;
     private readonly ILogger<DspRepositoryAdapter> _logger;
+    private readonly bool _enabled;
 
     public DspRepositoryAdapter(DSPilot.Engine.DatabasePaths paths, ILogger<DspRepositoryAdapter> logger)
     {
         _paths = paths;
         _logger = logger;
+        _enabled = paths.DspTablesEnabled;
+
+        if (!_enabled)
+        {
+            _logger.LogInformation("DspTables:Enabled=false, DspRepositoryAdapter will operate in no-op mode.");
+        }
     }
 
     public Task<bool> CreateSchemaAsync()
     {
+        if (!_enabled) return Task.FromResult(true);
         return DSPilot.Engine.DspRepository.createSchemaAsync(_paths, _logger);
     }
 
     public async Task<int> BulkInsertFlowsAsync(List<CSharpDspFlowEntity> flows)
     {
+        if (!_enabled) return 0;
         var fsharpFlows = Microsoft.FSharp.Collections.ListModule.OfSeq(flows.Select(ToFSharpFlowEntity));
         return await DSPilot.Engine.DspRepository.bulkInsertFlowsAsync(_paths, _logger, fsharpFlows);
     }
 
     public async Task<int> BulkInsertCallsAsync(List<CSharpDspCallEntity> calls)
     {
+        if (!_enabled) return 0;
         var fsharpCalls = Microsoft.FSharp.Collections.ListModule.OfSeq(calls.Select(ToFSharpCallEntity));
         return await DSPilot.Engine.DspRepository.bulkInsertCallsAsync(_paths, _logger, fsharpCalls);
     }
 
     public async Task<bool> UpdateFlowStateAsync(string flowName, string state)
     {
+        if (!_enabled) return false;
         return await DSPilot.Engine.DspRepository.updateFlowStateAsync(_paths, _logger, flowName, state);
     }
 
     public async Task<bool> HasGoingCallsInFlowAsync(string flowName)
     {
+        if (!_enabled) return false;
         return await DSPilot.Engine.DspRepository.hasGoingCallsInFlowAsync(_paths, _logger, flowName);
     }
 
@@ -56,6 +68,7 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         string? movingStartName,
         string? movingEndName)
     {
+        if (!_enabled) return false;
         var mtOpt = ToFSharpOption(mt);
         var wtOpt = ToFSharpOption(wt);
         var ctOpt = ToFSharpOption(ct);
@@ -67,6 +80,7 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
 
     public Task<bool> ClearAllDataAsync()
     {
+        if (!_enabled) return Task.FromResult(true);
         return DSPilot.Engine.DspRepository.clearAllDataAsync(_paths, _logger);
     }
 
@@ -78,6 +92,7 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
 
     public async Task<List<Repositories.CallStatisticsDto>> GetCallStatisticsAsync()
     {
+        if (!_enabled) return new List<Repositories.CallStatisticsDto>();
         var fsharpStats = await DSPilot.Engine.DspRepository.getCallStatisticsAsync(_paths, _logger);
         return fsharpStats.Select(s => new Repositories.CallStatisticsDto
         {
@@ -95,11 +110,13 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
 
     public async Task<string> GetCallStateAsync(Guid callId)
     {
+        if (!_enabled) return "Ready";
         return await DSPilot.Engine.DspRepository.getCallStateByIdAsync(_paths, _logger, callId);
     }
 
     public async Task<(string WorkName, string FlowName)?> GetCallInfoAsync(Guid callId)
     {
+        if (!_enabled) return null;
         var result = await DSPilot.Engine.DspRepository.getCallInfoByIdAsync(_paths, _logger, callId);
         if (Microsoft.FSharp.Core.FSharpOption<System.Tuple<string, string>>.get_IsNone(result))
             return null;
@@ -109,6 +126,7 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
 
     public async Task<CSharpDspCallEntity?> GetCallByIdAsync(Guid callId)
     {
+        if (!_enabled) return null;
         var result = await DSPilot.Engine.DspRepository.getCallByIdAsync(_paths, _logger, callId);
         if (Microsoft.FSharp.Core.FSharpOption<FSharpDspCallEntity>.get_IsNone(result))
             return null;
@@ -117,6 +135,7 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
 
     public async Task<bool> UpdateCallStateAsync(Guid callId, string state)
     {
+        if (!_enabled) return false;
         return await DSPilot.Engine.DspRepository.updateCallStateByIdAsync(_paths, _logger, callId, state);
     }
 
@@ -127,6 +146,7 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         double averageGoingTime,
         double stdDevGoingTime)
     {
+        if (!_enabled) return false;
         return await DSPilot.Engine.DspRepository.updateCallWithStatisticsByIdAsync(
             _paths, _logger, callId, state, previousGoingTime, averageGoingTime, stdDevGoingTime);
     }

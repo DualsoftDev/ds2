@@ -34,6 +34,13 @@ public class DspDatabaseServiceAdapter : BackgroundService
     {
         try
         {
+            if (!_paths.DspTablesEnabled)
+            {
+                _logger.LogInformation("DspTables:Enabled=false, skipping AASX load and DSP DB initialization.");
+                await WaitForCancellationAsync(stoppingToken);
+                return;
+            }
+
             var getAllFlows = Microsoft.FSharp.Core.FSharpFunc<Microsoft.FSharp.Core.Unit, Microsoft.FSharp.Collections.FSharpList<Ds2.Core.Flow>>
                 .FromConverter(_ =>
                 {

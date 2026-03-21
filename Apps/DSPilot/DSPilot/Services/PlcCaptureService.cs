@@ -2,18 +2,23 @@ using Ds2.Core;
 using Ds2.UI.Core;
 using Ev2.Backend.PLC;
 using Ev2.Backend.Common;
+using Ev2.Core.FS;
 using Ev2.PLC.Protocol.MX;
 using Dual.Common.Db.FS;
 using log4net;
+using log4net.Core;
 using log4net.Config;
 using System.Reactive.Linq;
 using System.Reflection;
 using Microsoft.FSharp.Core;
+using System.Data.SQLite;
+using Dapper;
 using PlcDataType = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType;
 using PlcValue = Ev2.PLC.Common.CoreDataTypesModule.PlcValue;
 using TagSpec = Ev2.PLC.Common.TagSpecModule.TagSpec;
 using WAL = Ev2.PLC.Common.TagSpecModule.WAL;
 using DbProvider = Dual.Common.Db.FS.DbProviderModule.DbProvider;
+using static Ev2.Core.FS.ApplicationSettingsModule;
 
 namespace DSPilot.Services;
 
@@ -30,6 +35,8 @@ public class PlcCaptureService : IHostedService, IDisposable
     private IDisposable? _c2sSubscription;
     private IDisposable? _serviceDisposable;
     private ILog? _log4netLogger;
+    private Timer? _walCheckpointTimer;
+    private string? _dbConnectionString;
 
     private class PlcTagInfo
     {
@@ -155,6 +162,9 @@ public class PlcCaptureService : IHostedService, IDisposable
             _serviceDisposable?.Dispose();
             _serviceDisposable = null;
 
+            _walCheckpointTimer?.Dispose();
+            _walCheckpointTimer = null;
+
             _log4netLogger?.Info("PlcCaptureService stopped");
             _logger.LogInformation("PlcCaptureService stopped successfully");
         }
@@ -170,6 +180,7 @@ public class PlcCaptureService : IHostedService, IDisposable
     {
         _c2sSubscription?.Dispose();
         _serviceDisposable?.Dispose();
+        _walCheckpointTimer?.Dispose();
     }
 
     private void InitializeLog4Net()
@@ -258,14 +269,37 @@ public class PlcCaptureService : IHostedService, IDisposable
 
     private TagSpec[] CreateTagSpecs(List<PlcTagInfo> tags)
     {
-        return tags.Select(tag => new TagSpec(
-            name: tag.Name,
-            address: tag.Address,
-            dataType: ConvertToPlcDataType(tag.DataType),
-            walType: FSharpOption<WAL>.Some(WAL.Disk),
-            comment: FSharpOption<string>.Some("Auto-generated from DsStore"),
-            plcValue: FSharpOption<PlcValue>.None
-        )).ToArray();
+        var duplicatedNames = tags
+            .GroupBy(tag => tag.Name)
+            .Where(group => !string.IsNullOrWhiteSpace(group.Key) && group.Count() > 1)
+            .ToDictionary(group => group.Key, group => group.Select(tag => tag.Address).OrderBy(address => address).ToArray());
+
+        foreach (var duplicate in duplicatedNames)
+        {
+            _logger.LogWarning(
+                "Duplicate PLC tag name detected for EV2 capture. Name='{TagName}', Addresses=[{Addresses}]. Using address-qualified EV2 tag names to avoid change-detection collisions.",
+                duplicate.Key,
+                string.Join(", ", duplicate.Value));
+        }
+
+        return tags.Select(tag =>
+        {
+            var originalName = string.IsNullOrWhiteSpace(tag.Name) ? tag.Address : tag.Name;
+            var isDuplicated = !string.IsNullOrWhiteSpace(tag.Name) && duplicatedNames.ContainsKey(tag.Name);
+            var ev2TagName = isDuplicated ? $"{originalName} [{tag.Address}]" : originalName;
+            var comment = isDuplicated
+                ? $"Auto-generated from DsStore | OriginalName={originalName} | Address={tag.Address}"
+                : "Auto-generated from DsStore";
+
+            return new TagSpec(
+                name: ev2TagName,
+                address: tag.Address,
+                dataType: ConvertToPlcDataType(tag.DataType),
+                walType: FSharpOption<WAL>.Some(WAL.Memory),
+                comment: FSharpOption<string>.Some(comment),
+                plcValue: FSharpOption<PlcValue>.None
+            );
+        }).ToArray();
     }
 
     private PlcDataType ConvertToPlcDataType(string dataType)
@@ -289,30 +323,40 @@ public class PlcCaptureService : IHostedService, IDisposable
 
     private BackendAppSettings CreateBackendAppSettings(TagSpec[] tagSpecs, string dbPath)
     {
-        var appSettings = new BackendAppSettings();
-
-        // DB 설정 - PascalCase 키 사용
-        var connectionString = $"Data Source={dbPath};Version=3;BusyTimeout=20000";
-        appSettings.DbProvider = DbProvider.NewSqlite(connectionString);
-
-        // TagHistoric 설정
-        appSettings.TagHistoric = new TagHistoricSettings
+        var appSettings = new BackendAppSettings
         {
-            WALBufferSize = _configuration.GetValue<int>("PlcCapture:WALBufferSize", 1000),
-            FlushInterval = TimeSpan.FromSeconds(_configuration.GetValue<int>("PlcCapture:FlushIntervalSec", 5))
+            DbProvider = CreateDbProvider(dbPath),
+            ScanInterval = ResolveScanInterval(),
+            TagHistoric = ResolveTagHistoricSettings(),
+            IriPrefix = _configuration["IriPrefix"] ?? "http://your-company.com/",
+            LibraryPaths = _configuration.GetSection("LibraryPaths").Get<string[]>() ?? Array.Empty<string>(),
+            DatabaseWatchdogIntervalSec = _configuration.GetValue<int?>("DatabaseWatchdogIntervalSec") ?? 5,
+            UseUtcTime = _configuration.GetValue<bool?>("UseUtcTime") ?? false,
+            EnableModelValidation = _configuration.GetValue<bool?>("EnableModelValidation") ?? true,
+            LogLevel = ParseLogLevel(_configuration["LogLevel"])
         };
 
+        ApplyAasSettings(appSettings);
+        ApplyRedisSettings(appSettings);
+
         // ScanConfiguration 설정
+        var protocolStr = _configuration["PlcCapture:Protocol"] ?? "UDP";
+        var protocol = protocolStr.Equals("TCP", StringComparison.OrdinalIgnoreCase)
+            ? Ev2.PLC.Protocol.MX.TransportProtocol.TCP
+            : Ev2.PLC.Protocol.MX.TransportProtocol.UDP;
+
+        _logger.LogInformation("PLC Protocol: {Protocol}", protocol);
+
         var connectionConfig = new MxConnectionConfig
         {
             IpAddress = _configuration["PlcCapture:PlcIpAddress"] ?? "192.168.9.120",
             Port = _configuration.GetValue<int>("PlcCapture:PlcPort", 5555),
-            Name = "MitsubishiPLC",
+            Name = _configuration["PlcCapture:PlcName"] ?? "MitsubishiPLC",
             EnableScan = true,
             Timeout = TimeSpan.FromSeconds(5),
-            ScanInterval = TimeSpan.FromMilliseconds(_configuration.GetValue<int>("PlcCapture:ScanIntervalMs", 500)),
+            ScanInterval = appSettings.ScanInterval,
             FrameType = Ev2.PLC.Protocol.MX.FrameType.QnA_3E_Binary,
-            Protocol = Ev2.PLC.Protocol.MX.TransportProtocol.UDP,
+            Protocol = protocol,
             AccessRoute = new Ev2.PLC.Protocol.MX.AccessRoute(0, 255, 1023, 0),
             MonitoringTimer = 16
         };
@@ -326,70 +370,35 @@ public class PlcCaptureService : IHostedService, IDisposable
             }
         };
 
+        appSettings.Validate();
+
+        _logger.LogInformation(
+            "EV2 BackendAppSettings applied: ScanInterval={ScanInterval}, UseUtcTime={UseUtcTime}, Watchdog={WatchdogSec}s, Validation={EnableValidation}, TagHistoric(Buffer={BufferSize}, Flush={FlushInterval})",
+            appSettings.ScanInterval,
+            appSettings.UseUtcTime,
+            appSettings.DatabaseWatchdogIntervalSec,
+            appSettings.EnableModelValidation,
+            appSettings.TagHistoric.WALBufferSize,
+            appSettings.TagHistoric.FlushInterval);
+
         return appSettings;
     }
 
     private PLCBackendService StartEv2Services(BackendAppSettings appSettings, ILog log)
     {
-        // EV2 Core 초기화
-        Ev2.PLC.Common.ModuleInitializer.Initialize(log);
-        Ev2.PLC.Protocol.AB.ModuleInitializer.Initialize(log);
-        Ev2.PLC.Protocol.MX.ModuleInitializer.Initialize(log);
-        Ev2.PLC.Protocol.S7.ModuleInitializer.Initialize(log);
-        Ev2.Core.FS.ModuleInitializer.Initialize(log, appSettings);
+        appSettings.Save("appsettings.json");
+        log.InfoFormat("EV2 appsettings saved to {0}", Path.Combine(Ev2PathConstants.Ev2AppDataRoot, "appsettings.json"));
 
-        // AppDbApi 생성 (DB 자동 생성)
-        if (appSettings.DbProvider != null)
+        Ev2.Backend.PLC.ModuleInitializer.Reset();
+        _serviceDisposable = Ev2.Backend.PLC.ModuleInitializer.Initialize(log);
+
+        var plcService = PLCBackendService.TheInstance;
+        if (plcService == null)
         {
-            new Ev2.Core.FS.AppDbApi(appSettings.DbProvider);
-            log.Info("AppDbApi created, DB initialized");
+            throw new InvalidOperationException("EV2 PLCBackendService failed to initialize.");
         }
 
-        // TagHistoricWAL 생성
-        TagHistoricWAL? wal = null;
-        if (appSettings.DbProvider != null)
-        {
-            var th = appSettings.TagHistoric;
-            var walPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "DualSoft", "EV2", "tag-historic.wal.jsonl");
-
-            var walDir = Path.GetDirectoryName(walPath);
-            if (!string.IsNullOrEmpty(walDir) && !Directory.Exists(walDir))
-            {
-                Directory.CreateDirectory(walDir);
-            }
-
-            var memoryBuffer = new MemoryWalBuffer();
-            var diskBuffer = new FileWalBuffer(walPath);
-            wal = new TagHistoricWAL(th.WALBufferSize, th.FlushInterval, memoryBuffer, diskBuffer);
-
-            // 잔여 WAL flush
-            var diskBuf = diskBuffer as IWalBuffer;
-            if (diskBuf.Count > 0)
-            {
-                log.InfoFormat("Flushing {0} residual WAL entries...", diskBuf.Count);
-                wal.Flush();
-            }
-
-            wal.InsertRestartMarker();
-            wal.SyncWalTypesFromConfig(appSettings.ScanConfigurations);
-            wal.LoadLastTagValues();
-            log.Info("TagHistoricWAL created");
-        }
-
-        // PLCBackendService 생성 및 시작
-        var walOption = wal != null
-            ? FSharpOption<TagHistoricWAL>.Some(wal)
-            : FSharpOption<TagHistoricWAL>.None;
-
-        var plcService = new PLCBackendService(
-            appSettings.ScanConfigurations,
-            walOption);
-
-        _serviceDisposable = plcService.Start();
-
-        log.Info("PLCBackendService started");
+        log.Info("PLCBackendService started via Ev2.Backend.PLC.ModuleInitializer");
 
         var connections = plcService.AllConnectionNames;
         if (connections.Any())
@@ -397,6 +406,94 @@ public class PlcCaptureService : IHostedService, IDisposable
             log.InfoFormat("Active Connections: {0}", string.Join(", ", connections));
         }
 
+
         return plcService;
+    }
+
+    private DbProvider CreateDbProvider(string dbPathFallback)
+    {
+        var databaseType = _configuration["Database:Type"] ?? "Sqlite";
+        var configuredConnectionString = _configuration["Database:ConnectionString"];
+        var connectionString = string.IsNullOrWhiteSpace(configuredConnectionString)
+            ? $"Data Source={dbPathFallback};Version=3;BusyTimeout=20000"
+            : Environment.ExpandEnvironmentVariables(configuredConnectionString);
+
+        _dbConnectionString = connectionString;
+        _logger.LogInformation("Using EV2 database settings: Type={DatabaseType}", databaseType);
+
+        return databaseType.Equals("Postgres", StringComparison.OrdinalIgnoreCase)
+            ? DbProvider.NewPostgres(connectionString)
+            : DbProvider.NewSqlite(connectionString);
+    }
+
+    private TimeSpan ResolveScanInterval()
+    {
+        var configuredValue = _configuration["ScanInterval"];
+        if (TimeSpan.TryParse(configuredValue, out var configuredInterval) && configuredInterval > TimeSpan.Zero)
+        {
+            return configuredInterval;
+        }
+
+        var legacyMs = _configuration.GetValue<int?>("PlcCapture:ScanIntervalMs") ?? 100;
+        return TimeSpan.FromMilliseconds(legacyMs);
+    }
+
+    private TagHistoricSettings ResolveTagHistoricSettings()
+    {
+        var bufferSize = _configuration.GetValue<int?>("TagHistoric:WALBufferSize") ?? 100;
+        var flushValue = _configuration["TagHistoric:FlushInterval"];
+        var flushInterval = TimeSpan.TryParse(flushValue, out var configuredInterval) && configuredInterval > TimeSpan.Zero
+            ? configuredInterval
+            : TimeSpan.FromSeconds(1);
+
+        return new TagHistoricSettings
+        {
+            WALBufferSize = bufferSize > 0 ? bufferSize : 100,
+            FlushInterval = flushInterval
+        };
+    }
+
+    private void ApplyAasSettings(BackendAppSettings appSettings)
+    {
+        appSettings.AasSettings.AasEnvironment = _configuration["AasSettings:AasEnvironment"];
+        appSettings.AasSettings.DangerouslyOverwriteAasxFile =
+            _configuration.GetValue<bool?>("AasSettings:DangerouslyOverwriteAasxFile") ?? false;
+        appSettings.AasSettings.InjectNameplateSubmodule =
+            _configuration.GetValue<bool?>("AasSettings:InjectNameplateSubmodule") ?? false;
+        appSettings.AasSettings.InjectDocumentationSubmodule =
+            _configuration.GetValue<bool?>("AasSettings:InjectDocumentationSubmodule") ?? false;
+        appSettings.AasSettings.PolicyOnMissingCritical = ResolvePolicyOnMissingCritical();
+    }
+
+    private void ApplyRedisSettings(BackendAppSettings appSettings)
+    {
+        var redisSettings = appSettings.RedisSettings;
+        redisSettings.ConnectionString = _configuration["RedisSettings:ConnectionString"] ?? redisSettings.ConnectionString;
+        redisSettings.MaxRetries = _configuration.GetValue<int?>("RedisSettings:MaxRetries") ?? redisSettings.MaxRetries;
+        redisSettings.RetryDelayMs = _configuration.GetValue<int?>("RedisSettings:RetryDelayMs") ?? redisSettings.RetryDelayMs;
+    }
+
+    private PolicyOnMissingCritical ResolvePolicyOnMissingCritical()
+    {
+        var configuredValue =
+            _configuration["AasSettings:PolicyOnMissingCritical:Case"] ??
+            _configuration["AasSettings:PolicyOnMissingCritical"];
+
+        return configuredValue switch
+        {
+            var value when string.Equals(value, "FillAutomatically", StringComparison.OrdinalIgnoreCase) => PolicyOnMissingCritical.FillAutomatically,
+            _ => PolicyOnMissingCritical.Fail
+        };
+    }
+
+    private static Level ParseLogLevel(string? configuredValue)
+    {
+        return configuredValue?.Trim().ToUpperInvariant() switch
+        {
+            "INFO" => Level.Info,
+            "WARN" or "WARNING" => Level.Warn,
+            "ERROR" => Level.Error,
+            _ => Level.Debug
+        };
     }
 }

@@ -1,6 +1,17 @@
 window.plcDebug = {
     chart: null,
 
+    formatTooltipSecondTenth: function (value) {
+        const date = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            return '';
+        }
+
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        const tenth = Math.floor(date.getMilliseconds() / 100);
+        return `${seconds}.${tenth}`;
+    },
+
     destroyChart: function () {
         if (this.chart) {
             this.chart.destroy();
@@ -95,7 +106,7 @@ window.plcDebug = {
                                     return items[0].label || '';
                                 }
 
-                                return new Date(rawX).toLocaleString();
+                                return window.plcDebug.formatTooltipSecondTenth(rawX);
                             },
                             label: function (context) {
                                 const label = context.dataset.label || '';

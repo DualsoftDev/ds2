@@ -128,7 +128,7 @@ Capture Mode는 AASX 파일에서 태그를 추출하여 자동으로 appsetting
           "Name": "TagFromAASX",
           "DataType": {"Case": "Bool"},
           "Address": "M100",
-          "WALType": {"Case": "Disk"},
+          "WALType": {"Case": "Memory"},
           "Comment": "Auto-generated from AASX"
         }
       ]
