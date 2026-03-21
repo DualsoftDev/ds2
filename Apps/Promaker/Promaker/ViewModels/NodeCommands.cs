@@ -61,14 +61,9 @@ public partial class MainViewModel
         var name = _dialogService.PromptName(Resources.Strings.NewWork, "NewWork");
         if (name is null) return;
 
-        if (!TryEditorFunc(() => _store.AddWork(name, id), out Guid workId, fallback: Guid.Empty))
-            return;
-        if (workId == Guid.Empty) return;
-
         var basePos = ConsumeAddPosition();
         var siblings = GetSiblingSnapshot(TabKind.Flow, id);
-        var pos = CascadePosition(basePos, 0, siblings.Positions);
-        TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(workId, pos)]));
+        TryCreateSingleWithCascade(() => _store.AddWork(name, id), basePos, siblings.Positions);
     }
 
     [RelayCommand(CanExecute = nameof(HasProject))]
@@ -82,7 +77,7 @@ public partial class MainViewModel
             apiNameFilter =>
             {
                 if (!TryEditorRef(
-                        () => _store.FindApiDefsByName(apiNameFilter),
+                        () => StoreHierarchyQueries.FindApiDefsByName(_store, apiNameFilter),
                         out var matches))
                     return [];
 
@@ -101,84 +96,55 @@ public partial class MainViewModel
         {
             case CallCreateMode.CallReplication:
             {
-                TryEditorAction(
-                    () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true));
-                var newCallIds = GetSiblingSnapshot(TabKind.Work, targetWorkId).Ids
-                    .Where(id => !siblings.Ids.Contains(id))
-                    .ToList();
-                if (newCallIds.Count > 0)
-                {
-                    var assigned = new List<(int X, int Y)>(siblings.Positions);
-                    var requests = new List<MoveEntityRequest>();
-                    for (var i = 0; i < newCallIds.Count; i++)
-                    {
-                        var pos = CascadePosition(rawPos, i, assigned);
-                        requests.Add(new MoveEntityRequest(newCallIds[i], pos));
-                        assigned.Add((pos.X, pos.Y));
-                    }
-                    TryEditorAction(() => _store.MoveEntities(requests));
-                }
+                TryCreateSiblingDiffWithCascade(
+                    () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true),
+                    TabKind.Work,
+                    targetWorkId,
+                    rawPos,
+                    siblings);
                 break;
             }
             case CallCreateMode.ApiCallReplication:
             {
                 if (dialog.CallNames.Count > 1)
                 {
-                    // multi-apiName: apiName별로 각각 AddCallWithMultipleDevicesResolved 호출
-                    var newCallIds = new List<Guid>();
-                    foreach (var fullName in dialog.CallNames)
-                    {
-                        var apiName = fullName.Contains('.') ? fullName[(fullName.IndexOf('.') + 1)..] : fullName;
-                        if (TryEditorFunc(
-                                () => _store.AddCallWithMultipleDevicesResolved(
-                                    EntityKind.Work, targetWorkId, targetWorkId,
-                                    dialog.CallDevicesAlias, apiName, dialog.DeviceAliases),
-                                out Guid cid, fallback: Guid.Empty) && cid != Guid.Empty)
-                            newCallIds.Add(cid);
-                    }
-                    if (newCallIds.Count > 0)
-                    {
-                        var assigned = new List<(int X, int Y)>(siblings.Positions);
-                        var requests = new List<MoveEntityRequest>();
-                        for (var i = 0; i < newCallIds.Count; i++)
-                        {
-                            var pos = CascadePosition(rawPos, i, assigned);
-                            requests.Add(new MoveEntityRequest(newCallIds[i], pos));
-                            assigned.Add((pos.X, pos.Y));
-                        }
-                        TryEditorAction(() => _store.MoveEntities(requests));
-                    }
+                    TryCreateMultipleWithCascade(
+                        dialog.CallNames.Select(fullName => new Func<Guid>(() =>
+                            _store.AddCallWithMultipleDevicesResolved(
+                                EntityKind.Work,
+                                targetWorkId,
+                                targetWorkId,
+                                dialog.CallDevicesAlias,
+                                NormalizeApiName(fullName),
+                                dialog.DeviceAliases))),
+                        rawPos,
+                        siblings.Positions);
                 }
                 else
                 {
-                    // single apiName
-                    if (TryEditorFunc(
-                            () => _store.AddCallWithMultipleDevicesResolved(
-                                EntityKind.Work, targetWorkId, targetWorkId,
-                                dialog.CallDevicesAlias, dialog.CallApiName, dialog.DeviceAliases),
-                            out Guid callId, fallback: Guid.Empty) && callId != Guid.Empty)
-                    {
-                        var pos = CascadePosition(rawPos, 0, siblings.Positions);
-                        TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(callId, pos)]));
-                    }
+                    TryCreateSingleWithCascade(
+                        () => _store.AddCallWithMultipleDevicesResolved(
+                            EntityKind.Work,
+                            targetWorkId,
+                            targetWorkId,
+                            dialog.CallDevicesAlias,
+                            dialog.CallApiName,
+                            dialog.DeviceAliases),
+                        rawPos,
+                        siblings.Positions);
                 }
                 break;
             }
             case CallCreateMode.ApiDefPicker:
             {
-                if (TryEditorFunc(
-                        () => _store.AddCallWithLinkedApiDefs(
-                            targetWorkId,
-                            dialog.DevicesAlias,
-                            dialog.ApiName,
-                            dialog.SelectedApiDefs.Select(m => m.ApiDefId)),
-                        out Guid callId,
-                        fallback: Guid.Empty)
-                    && callId != Guid.Empty)
-                {
-                    var pos = CascadePosition(rawPos, 0, siblings.Positions);
-                    TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(callId, pos)]));
-                }
+                TryCreateSingleWithCascade(
+                    () => _store.AddCallWithLinkedApiDefs(
+                        targetWorkId,
+                        dialog.DevicesAlias,
+                        dialog.ApiName,
+                        dialog.SelectedApiDefs.Select(m => m.ApiDefId)),
+                    rawPos,
+                    siblings.Positions);
                 break;
             }
         }
@@ -333,7 +299,7 @@ public partial class MainViewModel
         if (Canvas.ActiveTab is not { } tab)
             return null;
 
-        return (EntityTabQueries.entityKindForTabKind(tab.Kind), tab.RootId);
+        return (EditorNavigation.EntityKindForTabKind(tab.Kind), tab.RootId);
     }
 
     private void ApplyPasteSelection(IReadOnlyCollection<Guid> pastedIds, string statusText)
@@ -350,6 +316,89 @@ public partial class MainViewModel
                 Selection.SelectNodeFromCanvas(node, ctrlPressed: true, shiftPressed: false);
         });
     }
+
+    private void CascadeMoveCreatedEntities(
+        IReadOnlyCollection<Guid> createdIds,
+        Xywh basePos,
+        IReadOnlyList<(int X, int Y)> existingPositions)
+    {
+        var ids = createdIds
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToList();
+        if (ids.Count == 0)
+            return;
+
+        var assigned = new List<(int X, int Y)>(existingPositions);
+        var requests = new List<MoveEntityRequest>(ids.Count);
+        for (var i = 0; i < ids.Count; i++)
+        {
+            var pos = CascadePosition(basePos, i, assigned);
+            requests.Add(new MoveEntityRequest(ids[i], pos));
+            assigned.Add((pos.X, pos.Y));
+        }
+
+        TryEditorAction(() => _store.MoveEntities(requests));
+    }
+
+    private void CascadeMoveNewSiblingDiff(
+        TabKind tabKind,
+        Guid rootId,
+        Xywh basePos,
+        SiblingSnapshot before)
+    {
+        var createdIds = GetSiblingSnapshot(tabKind, rootId).Ids
+            .Where(id => !before.Ids.Contains(id))
+            .ToList();
+        CascadeMoveCreatedEntities(createdIds, basePos, before.Positions);
+    }
+
+    private bool TryCreateSingleWithCascade(
+        Func<Guid> create,
+        Xywh basePos,
+        IReadOnlyList<(int X, int Y)> existingPositions)
+    {
+        if (!TryEditorFunc(create, out Guid createdId, fallback: Guid.Empty) || createdId == Guid.Empty)
+            return false;
+
+        CascadeMoveCreatedEntities([createdId], basePos, existingPositions);
+        return true;
+    }
+
+    private bool TryCreateMultipleWithCascade(
+        IEnumerable<Func<Guid>> creators,
+        Xywh basePos,
+        IReadOnlyList<(int X, int Y)> existingPositions)
+    {
+        var createdIds = new List<Guid>();
+        foreach (var create in creators)
+        {
+            if (!TryEditorFunc(create, out Guid createdId, fallback: Guid.Empty))
+                return false;
+            if (createdId != Guid.Empty)
+                createdIds.Add(createdId);
+        }
+
+        CascadeMoveCreatedEntities(createdIds, basePos, existingPositions);
+        return createdIds.Count > 0;
+    }
+
+    private bool TryCreateSiblingDiffWithCascade(
+        Action create,
+        TabKind tabKind,
+        Guid rootId,
+        Xywh basePos,
+        SiblingSnapshot before)
+    {
+        if (!TryEditorAction(create))
+            return false;
+
+        CascadeMoveNewSiblingDiff(tabKind, rootId, basePos, before);
+        return true;
+    }
+
+    private static string NormalizeApiName(string fullName) =>
+        fullName.Contains('.') ? fullName[(fullName.IndexOf('.') + 1)..] : fullName;
 
     private const int CascadeOffset = 30;
     private const int DefaultViewportCenterX = 1300;
@@ -378,7 +427,7 @@ public partial class MainViewModel
     private SiblingSnapshot GetSiblingSnapshot(TabKind tabKind, Guid rootId)
     {
         if (!TryEditorRef(
-                () => _store.CanvasContentForTab(tabKind, rootId),
+                () => EditorCanvasProjection.CanvasContentForTab(_store, tabKind, rootId),
                 out var content))
             return SiblingSnapshot.Empty;
 
@@ -414,7 +463,7 @@ public partial class MainViewModel
         if (Canvas.ActiveTab is not { } tab) return;
 
         if (!TryEditorRef(
-                () => _store.ComputeAutoLayout(tab.Kind, tab.RootId),
+                () => EditorCanvasLayout.ComputeAutoLayout(_store, tab.Kind, tab.RootId),
                 out var requests))
             return;
 

@@ -22,7 +22,7 @@ let private resolveFromActiveTab
     : Guid option =
     match activeTabKind, activeTabRootId with
     | Some tabKind, Some tabRootId ->
-        resolve store (EntityTabQueries.entityKindForTabKind tabKind) tabRootId
+        resolve store (EditorNavigation.entityKindForTabKind tabKind) tabRootId
     | _ -> None
 
 /// Add System target resolver for UI. Priority:

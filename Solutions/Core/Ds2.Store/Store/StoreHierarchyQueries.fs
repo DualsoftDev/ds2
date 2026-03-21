@@ -1,6 +1,7 @@
 module Ds2.Store.StoreHierarchyQueries
 
 open System
+open System.Runtime.CompilerServices
 open Ds2.Core
 
 let flowsForSystem (store: DsStore) (systemId: Guid) : (Guid * string) list =
@@ -48,6 +49,7 @@ let tryFindProjectIdForEntity (store: DsStore) (entityKind: EntityKind) (entityI
 
 /// 모든 Passive System 내 ApiDef 검색.
 /// - apiNameFilter: ApiDef 이름 포함 검색 (빈 문자열 = 전체)
+[<CompiledName("FindApiDefsByName")>]
 let findApiDefs (store: DsStore) (apiNameFilter: string) : ApiDefMatch list =
     let apiNameFilter = apiNameFilter.Trim()
     DsQuery.allProjects store

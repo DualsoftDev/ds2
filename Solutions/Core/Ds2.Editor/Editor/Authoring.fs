@@ -208,6 +208,11 @@ type DsStoreAuthoringExtensions =
         StoreAuthoring.observeEvents store
 
     [<Extension>]
+    static member AddedEntityIdOrNull(store: DsStore, evt: EditorEvent) : Nullable<Guid> =
+        store.TryGetAddedEntityId(evt)
+        |> Option.toNullable
+
+    [<Extension>]
     static member TryGetAddedEntityId(_store: DsStore, evt: EditorEvent) : Guid option =
         StoreAuthoring.tryGetAddedEntityId evt
 

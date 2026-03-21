@@ -1,6 +1,8 @@
 namespace Ds2.Editor
 
 open Ds2.Store
+open System
+open System.Runtime.CompilerServices
 
 module CanvasLayout =
 
@@ -15,3 +17,14 @@ module CanvasLayout =
 
     let computeLayout content =
         CanvasLayoutPlacement.computeLayoutImpl content
+
+module EditorCanvasLayout =
+
+    [<CompiledName("NeedsAutoLayout")>]
+    let needsAutoLayout content =
+        CanvasLayout.needsAutoLayout content
+
+    [<CompiledName("ComputeAutoLayout")>]
+    let computeAutoLayout (store: DsStore) (kind: TabKind) (rootId: Guid) : MoveEntityRequest list =
+        let content = EditorCanvasProjection.canvasContentForTab store kind rootId
+        CanvasLayout.computeLayout content

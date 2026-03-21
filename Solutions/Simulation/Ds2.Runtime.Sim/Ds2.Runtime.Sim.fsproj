@@ -10,6 +10,8 @@
 <Compile Include="Model\StateCache.fs" />
     <Compile Include="Engine\Scheduler\ScheduledEvent.fs" />
     <Compile Include="Engine\Scheduler\EventScheduler.fs" />
+    <Compile Include="Engine\Core\SimIndex.GroupExpansion.fs" />
+    <Compile Include="Engine\Core\SimIndex.TokenGraph.fs" />
     <Compile Include="Engine\Core\SimIndex.fs" />
     <Compile Include="Engine\Core\WorkConditionChecker.fs" />
     <Compile Include="Engine\Core\StateManager.fs" />
@@ -18,6 +20,7 @@
     <Compile Include="Engine\EventDriven\TokenFlow.fs" />
     <Compile Include="Engine\EventDriven\WorkTransitions.fs" />
     <Compile Include="Engine\EventDriven\ConditionEvaluation.fs" />
+    <Compile Include="Engine\EventDriven\EngineRuntime.fs" />
     <Compile Include="Engine\EventDrivenEngine.fs" />
   </ItemGroup>
 

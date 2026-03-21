@@ -139,66 +139,33 @@ type EventDrivenEngine(index: SimIndex) =
         stateManager.ClearWorkPending(workGuid)
         applyWorkTransition workGuid newState
 
-    // ── 이벤트 처리 ──────────────────────────────────────────────────
+    let clearAndApplyCallTransition callGuid newState =
+        stateManager.ClearCallPending(callGuid)
+        applyCallTransition callGuid newState
 
-    let processEvent (event: ScheduledEvent) =
-        match event.EventType with
-        | ScheduledEventType.WorkTransition(wg, ts) ->
-            clearAndApplyWorkTransition wg ts
-        | ScheduledEventType.CallTransition(cg, ts) ->
-            stateManager.ClearCallPending(cg)
-            applyCallTransition cg ts
-        | ScheduledEventType.DurationComplete wg ->
-            if stateManager.GetWorkState(wg) = Status4.Going then
-                if (SimIndex.findOrEmpty wg index.WorkCallGuids).IsEmpty then
-                    applyWorkTransition wg Status4.Finish
-        | ScheduledEventType.HomingComplete wg ->
-            if stateManager.GetWorkState(wg) = Status4.Homing then
-                match SimState.getWorkToken wg (stateManager.GetState()) with
-                | Some token ->
-                    // 토큰 보유 → 시프트 시도
-                    shiftToken wg token
-                    if SimState.getWorkToken wg (stateManager.GetState()) |> Option.isNone then
-                        applyWorkTransition wg Status4.Ready
-                        scheduleConditionEvaluation ()
-                    else
-                        emitTokenEvent BlockedOnHoming token wg None
-                | None ->
-                    applyWorkTransition wg Status4.Ready
-        | ScheduledEventType.EvaluateConditions ->
-            evaluateConditions()
+    let handleDurationComplete workGuid =
+        if stateManager.GetWorkState(workGuid) = Status4.Going then
+            if (SimIndex.findOrEmpty workGuid index.WorkCallGuids).IsEmpty then
+                applyWorkTransition workGuid Status4.Finish
 
-    // ── 시뮬레이션 루프 ──────────────────────────────────────────────
-
-    let simulationLoop (ct: CancellationToken) =
-        let mutable lastRealTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-
-        while not ct.IsCancellationRequested && Volatile.Read(&status) = Running do
-            let nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            let realDelta = nowMs - lastRealTimeMs
-            lastRealTimeMs <- nowMs
-
-            let simDelta = int64 (float realDelta * speedMultiplier)
-            let targetMs = scheduler.CurrentTimeMs + simDelta
-
-            for event in scheduler.AdvanceTo(targetMs) do
-                if Volatile.Read(&status) = Running then processEvent event
-
-            // Drain: processEvent가 생성한 후속 이벤트를 현재 시간 내에서 모두 처리
-            // TimeIgnore 모드에서 cascade (W1→W2→...→W10)가 한 루프 반복 안에 완료되도록 함
-            let mutable draining = true
-            while draining && Volatile.Read(&status) = Running do
-                let pending = scheduler.AdvanceTo(targetMs)
-                if pending.IsEmpty then
-                    draining <- false
-                else
-                    for ev in pending do
-                        if Volatile.Read(&status) = Running then processEvent ev
-
-            Thread.Sleep(1)
+    let runtimeContext : EventDrivenEngineRuntime.RuntimeContext = {
+        Scheduler = scheduler
+        GetStatus = (fun () -> Volatile.Read(&status))
+        SpeedMultiplier = (fun () -> speedMultiplier)
+        GetWorkState = stateManager.GetWorkState
+        GetWorkToken = stateManager.GetWorkToken
+        ClearAndApplyWorkTransition = clearAndApplyWorkTransition
+        ClearAndApplyCallTransition = clearAndApplyCallTransition
+        ApplyWorkTransition = applyWorkTransition
+        HandleDurationComplete = handleDurationComplete
+        ShiftToken = shiftToken
+        EmitTokenEvent = emitTokenEvent
+        ScheduleConditionEvaluation = scheduleConditionEvaluation
+        EvaluateConditions = evaluateConditions
+    }
 
     let startEngineThread (tokenSource: CancellationTokenSource) =
-        let t = Thread(ThreadStart(fun () -> simulationLoop tokenSource.Token))
+        let t = Thread(ThreadStart(fun () -> EventDrivenEngineRuntime.simulationLoop runtimeContext tokenSource.Token))
         t.IsBackground <- true
         t.Name <- "EventDrivenEngine"
         t.Start()

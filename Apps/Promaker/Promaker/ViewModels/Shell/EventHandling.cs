@@ -108,7 +108,7 @@ public partial class MainViewModel
         var node = Canvas.CanvasNodes.FirstOrDefault(n => n.Id == callId);
         if (node is null) return;
 
-        if (TryEditorRef(() => _store.GetCallConditionTypes(callId), out var types))
+        if (TryEditorRef(() => CallConditionQueries.GetCallConditionTypes(_store, callId), out var types))
             node.UpdateConditionTypes(types);
     }
 

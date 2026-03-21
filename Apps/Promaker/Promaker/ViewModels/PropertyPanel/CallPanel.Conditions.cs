@@ -118,7 +118,7 @@ public partial class PropertyPanelState
         if (row is null) return;
 
         if (!_host.TryRef(
-                () => Store.FindCallsByApiCallId(row.ApiCallId),
+                () => CallConditionQueries.FindCallsByApiCallId(Store, row.ApiCallId),
                 out var callTuples))
             return;
 

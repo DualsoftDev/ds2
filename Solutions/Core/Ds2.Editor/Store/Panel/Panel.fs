@@ -164,7 +164,6 @@ type DsStorePanelTimeExtensions =
             store.WithTransaction("Work TokenRole 변경", fun () ->
                 store.TrackMutate(store.Works, workId, fun w -> w.TokenRole <- role))
             store.EmitAndHistory(WorkPropsChanged workId)
-            store.EmitAndHistory(WorkPropsChanged workId)
 
     [<Extension>]
     static member UpdateCallTimeoutMs(store: DsStore, callId: Guid, timeoutMs: int option) =

@@ -2,9 +2,9 @@ using System.Windows.Controls;
 
 namespace Promaker.Controls;
 
-public partial class MainToolbar : UserControl
+public partial class MainToolbarSimulationContent : UserControl
 {
-    public MainToolbar()
+    public MainToolbarSimulationContent()
     {
         InitializeComponent();
     }

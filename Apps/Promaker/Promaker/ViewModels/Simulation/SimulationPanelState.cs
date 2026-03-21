@@ -161,30 +161,22 @@ public partial class SimulationPanelState : ObservableObject
 
             // 그래프 검증 경고 (전체 수집 → 한 번에 표시)
             var warnings = new System.Text.StringBuilder();
-            var unresetWorks = GraphValidator.findUnresetWorks(index);
-            if (unresetWorks.Any())
-            {
-                var names = string.Join("\n", unresetWorks.Select(w => $"  - {w.Item2}.{w.Item3}"));
-                warnings.AppendLine($"[Reset 연결 누락]\n{names}\n");
-            }
-            var deadlocks = GraphValidator.findDeadlockCandidates(index);
-            if (deadlocks.Any())
-            {
-                var names = string.Join("\n", deadlocks.Select(w => $"  - {w.Item2}.{w.Item3}"));
-                warnings.AppendLine($"[순환 데드락 위험]\n{names}\n(해당 Work의 Start 선행조건에 순환 후속 Work가 포함되어 있습니다)\n");
-            }
-            var sourcesWithPreds = GraphValidator.findSourcesWithPredecessors(index);
-            if (sourcesWithPreds.Any())
-            {
-                var names = string.Join("\n", sourcesWithPreds.Select(w => $"  - {w.Item2}.{w.Item3}"));
-                warnings.AppendLine($"[Source 자동 시작 불가]\n{names}\n(predecessor가 있어 자동 시작되지 않습니다. 순환 경로에 있으면 데드락이 발생합니다)\n");
-            }
-            var sourceCandidates = GraphValidator.findSourceCandidates(index);
-            if (sourceCandidates.Any())
-            {
-                var names = string.Join("\n", sourceCandidates.Select(w => $"  - {w.Item2}.{w.Item3}"));
-                warnings.AppendLine($"[Source 후보]\n{names}\n(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)\n");
-            }
+            AppendGraphWarning(warnings, "Reset 연결 누락", GraphValidator.findUnresetWorks(index));
+            AppendGraphWarning(
+                warnings,
+                "순환 데드락 위험",
+                GraphValidator.findDeadlockCandidates(index),
+                "(해당 Work의 Start 선행조건에 순환 후속 Work가 포함되어 있습니다)");
+            AppendGraphWarning(
+                warnings,
+                "Source 자동 시작 불가",
+                GraphValidator.findSourcesWithPredecessors(index),
+                "(predecessor가 있어 자동 시작되지 않습니다. 순환 경로에 있으면 데드락이 발생합니다)");
+            AppendGraphWarning(
+                warnings,
+                "Source 후보",
+                GraphValidator.findSourceCandidates(index),
+                "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)");
             if (warnings.Length > 0)
             {
                 Dialogs.DialogHelpers.ShowThemedMessageBox(
@@ -292,6 +284,25 @@ public partial class SimulationPanelState : ObservableObject
         _setStatusText(statusText);
         if (!string.IsNullOrWhiteSpace(logText))
             AddSimLog(logText);
+    }
+
+    private static void AppendGraphWarning(
+        System.Text.StringBuilder warnings,
+        string title,
+        IEnumerable<Tuple<Guid, string, string>> items,
+        string? detail = null)
+    {
+        var lines = items
+            .Select(static item => $"  - {item.Item2}.{item.Item3}")
+            .ToList();
+        if (lines.Count == 0)
+            return;
+
+        warnings.AppendLine($"[{title}]");
+        warnings.AppendLine(string.Join("\n", lines));
+        if (!string.IsNullOrWhiteSpace(detail))
+            warnings.AppendLine(detail);
+        warnings.AppendLine();
     }
 
     /// <summary>시뮬레이션을 일시정지한 뒤 MessageBox를 표시하고, 닫으면 자동 재개합니다.</summary>
