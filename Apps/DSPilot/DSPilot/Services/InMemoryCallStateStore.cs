@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using DSPilot.Models;
 using DSPilot.Repositories;
 
 namespace DSPilot.Services;
@@ -10,7 +9,7 @@ namespace DSPilot.Services;
 /// </summary>
 public class InMemoryCallStateStore
 {
-    private readonly ConcurrentDictionary<string, CallStateSnapshot> _states = new();
+    private readonly ConcurrentDictionary<Guid, CallStateSnapshot> _states = new();
     private readonly IDspRepository? _dspRepo;
     private readonly ILogger<InMemoryCallStateStore> _logger;
 
@@ -25,12 +24,10 @@ public class InMemoryCallStateStore
     /// <summary>
     /// Call 상태 조회 (메모리 우선, DB 폴백)
     /// </summary>
-    public async ValueTask<CallStateSnapshot?> GetCallStateAsync(CallKey key)
+    public async ValueTask<CallStateSnapshot?> GetCallStateAsync(Guid callId)
     {
-        var hashKey = key.ToHashKey();
-
         // 1. 메모리 우선
-        if (_states.TryGetValue(hashKey, out var state))
+        if (_states.TryGetValue(callId, out var state))
         {
             return state;
         }
@@ -40,14 +37,14 @@ public class InMemoryCallStateStore
         {
             try
             {
-                var dbState = await _dspRepo.GetCallStateAsync(key);
-                var callData = await _dspRepo.GetCallByKeyAsync(key);
+                var dbState = await _dspRepo.GetCallStateAsync(callId);
+                var callData = await _dspRepo.GetCallByIdAsync(callId);
 
                 if (callData != null)
                 {
                     var snapshot = new CallStateSnapshot
                     {
-                        Key = key,
+                        CallId = callId,
                         State = dbState,
                         LastGoingTime = callData.PreviousGoingTime,
                         AverageGoingTime = callData.AverageGoingTime,
@@ -55,14 +52,14 @@ public class InMemoryCallStateStore
                     };
 
                     // 메모리에 캐싱
-                    _states.TryAdd(hashKey, snapshot);
+                    _states.TryAdd(callId, snapshot);
 
                     return snapshot;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to load Call state from DB for {CallKey}", key);
+                _logger.LogWarning(ex, "Failed to load Call state from DB for CallId {CallId}", callId);
             }
         }
 
@@ -72,12 +69,10 @@ public class InMemoryCallStateStore
     /// <summary>
     /// Call 상태 업데이트 (메모리 + DB)
     /// </summary>
-    public async ValueTask UpdateCallStateAsync(CallKey key, string state)
+    public async ValueTask UpdateCallStateAsync(Guid callId, string state)
     {
-        var hashKey = key.ToHashKey();
-
-        _states.AddOrUpdate(hashKey,
-            new CallStateSnapshot { Key = key, State = state },
+        _states.AddOrUpdate(callId,
+            new CallStateSnapshot { CallId = callId, State = state },
             (_, old) => old with { State = state });
 
         // DB 업데이트 (비동기)
@@ -85,11 +80,11 @@ public class InMemoryCallStateStore
         {
             try
             {
-                await _dspRepo.UpdateCallStateAsync(key, state);
+                await _dspRepo.UpdateCallStateAsync(callId, state);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to update Call state in DB for {CallKey}", key);
+                _logger.LogError(ex, "Failed to update Call state in DB for CallId {CallId}", callId);
             }
         }
     }
@@ -98,19 +93,17 @@ public class InMemoryCallStateStore
     /// Call 상태 및 통계 업데이트 (Going → Finish 시)
     /// </summary>
     public async ValueTask UpdateCallWithStatisticsAsync(
-        CallKey key,
+        Guid callId,
         string state,
         int goingTime,
         double average,
         double stdDev,
         int goingCount)
     {
-        var hashKey = key.ToHashKey();
-
-        _states.AddOrUpdate(hashKey,
+        _states.AddOrUpdate(callId,
             new CallStateSnapshot
             {
-                Key = key,
+                CallId = callId,
                 State = state,
                 LastGoingTime = goingTime,
                 AverageGoingTime = average,
@@ -129,11 +122,11 @@ public class InMemoryCallStateStore
         {
             try
             {
-                await _dspRepo.UpdateCallWithStatisticsAsync(key, state, goingTime, average, stdDev);
+                await _dspRepo.UpdateCallWithStatisticsAsync(callId, state, goingTime, average, stdDev);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to update Call statistics in DB for {CallKey}", key);
+                _logger.LogError(ex, "Failed to update Call statistics in DB for CallId {CallId}", callId);
             }
         }
     }
@@ -142,19 +135,9 @@ public class InMemoryCallStateStore
     /// 모든 Call 상태 스냅샷 조회 (메모리만, 동기)
     /// UI에서 빠른 조회용
     /// </summary>
-    public IReadOnlyDictionary<string, CallStateSnapshot> GetAllStatesSnapshot()
+    public IReadOnlyDictionary<Guid, CallStateSnapshot> GetAllStatesSnapshot()
     {
         return _states;
-    }
-
-    /// <summary>
-    /// 특정 Flow의 Call 상태 목록 조회
-    /// </summary>
-    public List<CallStateSnapshot> GetCallStatesByFlow(string flowName)
-    {
-        return _states.Values
-            .Where(s => s.Key.FlowName == flowName)
-            .ToList();
     }
 
     /// <summary>
@@ -177,7 +160,7 @@ public class InMemoryCallStateStore
 /// </summary>
 public record CallStateSnapshot
 {
-    public required CallKey Key { get; init; }
+    public required Guid CallId { get; init; }
     public string State { get; init; } = "Ready";
     public int? LastGoingTime { get; init; }
     public double? AverageGoingTime { get; init; }

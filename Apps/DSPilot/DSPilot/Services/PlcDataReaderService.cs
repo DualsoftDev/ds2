@@ -82,7 +82,8 @@ public class PlcDataReaderService : BackgroundService
             // Create service-level cancellation token source
             _serviceCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
 
-            if (!await InitializeAsync()) return;
+            // Retry initialization if database schema is not ready yet
+            if (!await InitializeWithRetryAsync(stoppingToken)) return;
             if (!await WaitForMapperInitializationAsync(stoppingToken)) return;
 
             await PostInitializeAsync();
@@ -280,13 +281,41 @@ public class PlcDataReaderService : BackgroundService
         return false;
     }
 
+    private async Task<bool> InitializeWithRetryAsync(CancellationToken stoppingToken)
+    {
+        const int maxRetries = 5;
+        const int delayMs = 2000;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            _logger.LogInformation("Database initialization attempt {Attempt}/{MaxRetries}", attempt, maxRetries);
+
+            if (await InitializeAsync())
+            {
+                _logger.LogInformation("Database initialization succeeded on attempt {Attempt}", attempt);
+                return true;
+            }
+
+            if (attempt < maxRetries)
+            {
+                _logger.LogWarning("Database initialization failed on attempt {Attempt}/{MaxRetries}. Waiting {DelayMs}ms before retry...",
+                    attempt, maxRetries, delayMs);
+                await Task.Delay(delayMs, stoppingToken);
+            }
+        }
+
+
+        _logger.LogError("Database initialization failed after {MaxRetries} attempts", maxRetries);
+        return false;
+    }
+
     private async Task<bool> InitializeAsync()
     {
         try
         {
             if (!await _plcRepo.TestConnectionAsync())
             {
-                _logger.LogError("Database connection test failed");
+                _logger.LogDebug("Database connection test failed (schema may not be ready yet)");
                 return false;
             }
 
@@ -518,17 +547,17 @@ public class PlcDataReaderService : BackgroundService
         if (callInfo == null) return false;
 
         // 4. 상태 전이 결정
-        var callKey = callInfo.ToCallKey();
-        var currentState = await dspRepo.GetCallStateAsync(callKey);
+        var callId = callInfo.Call.Id;
+        var currentState = await dspRepo.GetCallStateAsync(callId);
         var (newState, stateChanged) = mapper.DetermineCallState(tag.Name, tag.Address, edgeState, currentState);
 
         if (!stateChanged) return false;
 
         // 5. 상태별 처리
         if (newState == "Going")
-            await HandleCallGoingAsync(callInfo, callKey, statistics, dspRepo, tag, stoppingToken);
+            await HandleCallGoingAsync(callInfo, callId, statistics, dspRepo, tag, stoppingToken);
         else if (newState == "Finish")
-            await HandleCallFinishAsync(callInfo, callKey, statistics, dspRepo, tag, stoppingToken);
+            await HandleCallFinishAsync(callInfo, callId, statistics, dspRepo, tag, stoppingToken);
 
         return true;
     }
@@ -538,7 +567,7 @@ public class PlcDataReaderService : BackgroundService
     // ──────────────────────────────────────────────
 
     private async Task HandleCallGoingAsync(
-        CallMappingInfo callInfo, CallKey callKey,
+        CallMappingInfo callInfo, Guid callId,
         CallStatisticsService statistics, IDspRepository dspRepo,
         PlcTagEntity tag, CancellationToken stoppingToken)
     {
@@ -546,8 +575,8 @@ public class PlcDataReaderService : BackgroundService
         var flowName = callInfo.FlowName;
         var timestamp = DateTime.Now;
 
-        await statistics.RecordGoingStartAsync(callName);
-        await dspRepo.UpdateCallStateAsync(callKey, "Going");
+        await statistics.RecordGoingStartAsync(callId, callName);
+        await dspRepo.UpdateCallStateAsync(callId, "Going");
 
         await WriteEventAsync(new CallStateChangedEvent { CallName = callName, NewState = "Going" }, stoppingToken);
 
@@ -559,7 +588,7 @@ public class PlcDataReaderService : BackgroundService
     }
 
     private async Task HandleCallFinishAsync(
-        CallMappingInfo callInfo, CallKey callKey,
+        CallMappingInfo callInfo, Guid callId,
         CallStatisticsService statistics, IDspRepository dspRepo,
         PlcTagEntity tag, CancellationToken stoppingToken)
     {
@@ -568,7 +597,7 @@ public class PlcDataReaderService : BackgroundService
 
         // Going → Finish (통계 업데이트)
         var (_, finishTime, goingTime, avg, stdDev, goingCount) = statistics.RecordGoingFinish(callName);
-        await dspRepo.UpdateCallWithStatisticsAsync(callKey, "Finish", goingTime, avg, stdDev);
+        await dspRepo.UpdateCallWithStatisticsAsync(callId, "Finish", goingTime, avg, stdDev);
 
         await WriteEventAsync(new CallStateChangedEvent
         {
@@ -587,7 +616,7 @@ public class PlcDataReaderService : BackgroundService
 
         // Finish → Ready 자동 전환
         await Task.Delay(100, stoppingToken);
-        await dspRepo.UpdateCallStateAsync(callKey, "Ready");
+        await dspRepo.UpdateCallStateAsync(callId, "Ready");
 
         await WriteEventAsync(new CallStateChangedEvent
         {

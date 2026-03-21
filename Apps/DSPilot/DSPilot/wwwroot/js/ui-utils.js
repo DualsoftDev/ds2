@@ -1,5 +1,6 @@
 // DSPilot UI Utilities — Snackbar + Confirm Dialog (MudBlazor replacement)
 window.uiUtils = {
+    _elementSizeObservers: new Map(),
 
     // ── Snackbar (Toast) ─────────────────────────
     showSnackbar: function (message, severity, durationMs) {
@@ -65,5 +66,51 @@ window.uiUtils = {
             dialog.querySelector('.dialog-cancel').addEventListener('click', function () { close(false); });
             overlay.addEventListener('click', function (e) { if (e.target === overlay) close(false); });
         });
+    },
+
+    observeElementSize: function (element, dotNetRef, callbackMethodName) {
+        if (!element || !dotNetRef || !callbackMethodName) return;
+
+        this.disposeElementSizeObserver(element);
+
+        var notify = function () {
+            var width = Math.round(element.clientWidth || element.getBoundingClientRect().width || 0);
+            if (width > 0) {
+                dotNetRef.invokeMethodAsync(callbackMethodName, width).catch(function () { });
+            }
+        };
+
+        var entry = {
+            resizeObserver: null,
+            onWindowResize: notify
+        };
+
+        if (window.ResizeObserver) {
+            entry.resizeObserver = new ResizeObserver(function () {
+                notify();
+            });
+            entry.resizeObserver.observe(element);
+        }
+
+        window.addEventListener('resize', entry.onWindowResize, { passive: true });
+        this._elementSizeObservers.set(element, entry);
+        notify();
+    },
+
+    disposeElementSizeObserver: function (element) {
+        if (!element) return;
+
+        var entry = this._elementSizeObservers.get(element);
+        if (!entry) return;
+
+        if (entry.resizeObserver) {
+            entry.resizeObserver.disconnect();
+        }
+
+        if (entry.onWindowResize) {
+            window.removeEventListener('resize', entry.onWindowResize);
+        }
+
+        this._elementSizeObservers.delete(element);
     }
 };

@@ -55,10 +55,10 @@ public class CycleAnalysisService
         }
 
         // Head Call의 InTag 주소 찾기
-        var headCallTags = _mapper.GetCallTags(headCall.Name);
+        var headCallTags = _mapper.GetCallTagsByCallId(headCall.Id);
         if (!headCallTags.HasValue || headCallTags.Value.InTag == null)
         {
-            _logger.LogWarning("Head Call '{CallName}' has no InTag", headCall.Name);
+            _logger.LogWarning("Head Call '{CallName}' (ID: {CallId}) has no InTag", headCall.Name, headCall.Id);
             return new List<CycleBoundary>();
         }
 
@@ -171,7 +171,7 @@ public class CycleAnalysisService
             var calls = _projectService.GetCalls(work.Id);
             foreach (var call in calls)
             {
-                var tags = _mapper.GetCallTags(call.Name);
+                var tags = _mapper.GetCallTagsByCallId(call.Id);
                 if (!tags.HasValue) continue;
 
                 if (tags.Value.InTag != null)
@@ -210,7 +210,6 @@ public class CycleAnalysisService
             ioEvents.Add(new CallIOEvent
             {
                 CallName = callName,
-                WorkName = workName,
                 FlowName = cycle.FlowName,
                 EventType = eventType,
                 Timestamp = log.DateTime,
@@ -284,7 +283,6 @@ public class CycleAnalysisService
                 return new GanttChartItem
                 {
                     CallName = e.CallName,
-                    WorkName = e.WorkName,
                     FlowName = e.FlowName,
                     TagName = e.TagName,
                     TagAddress = e.TagAddress,
@@ -299,8 +297,9 @@ public class CycleAnalysisService
             })
             .ToList();
 
-        // 레인은 태그 기준으로 고정해 IOTAG 이름을 좌측 라벨로 사용한다.
-        var laneLabels = AssignTagLanes(ganttItems);
+        // 레인은 Flow의 Call x In/Out 기준으로 고정해 최대 Call*2 레인을 확보한다.
+        var laneDefinitions = BuildLaneDefinitions(cycleData.Cycle.FlowName);
+        var laneLabels = AssignConfiguredLanes(ganttItems, laneDefinitions);
 
         var ganttData = new GanttChartData
         {
@@ -312,7 +311,7 @@ public class CycleAnalysisService
             CT = cycleData.Cycle.CycleTimeMs,
             MT = null,  // 향후 구현
             WT = null,  // 향후 구현
-            TotalLanes = ganttItems.Any() ? ganttItems.Max(i => i.Lane) + 1 : 0,
+            TotalLanes = laneLabels.Count,
             LaneLabels = laneLabels,
             Items = ganttItems,
             CriticalPath = new List<string>()  // 향후 구현
@@ -322,30 +321,80 @@ public class CycleAnalysisService
     }
 
     /// <summary>
-    /// Gantt 차트 항목에 레인 할당 (시간 겹침 방지)
+    /// Flow의 Call x In/Out 조합으로 레인 정의 생성
     /// </summary>
-    private static List<string> AssignTagLanes(List<GanttChartItem> items)
+    private List<LaneDefinition> BuildLaneDefinitions(string flowName)
     {
-        var laneByTag = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var laneLabels = new List<string>();
+        var flow = _projectService.GetFlowByName(flowName);
+        if (flow == null)
+            return new List<LaneDefinition>();
+
+        var works = _projectService.GetWorks(flow.Id);
+        var laneDefinitions = new List<LaneDefinition>();
+
+        foreach (var work in works)
+        {
+            var calls = _projectService.GetCalls(work.Id);
+            foreach (var call in calls)
+            {
+                var tags = _mapper.GetCallTagsByCallId(call.Id);
+                if (!tags.HasValue)
+                    continue;
+
+                if (!string.IsNullOrWhiteSpace(tags.Value.InTag))
+                {
+                    laneDefinitions.Add(new LaneDefinition(
+                        BuildLaneKey(call.Name, IOEventType.InTag),
+                        $"{call.Name} [IN]"));
+                }
+
+                if (!string.IsNullOrWhiteSpace(tags.Value.OutTag))
+                {
+                    laneDefinitions.Add(new LaneDefinition(
+                        BuildLaneKey(call.Name, IOEventType.OutTag),
+                        $"{call.Name} [OUT]"));
+                }
+            }
+        }
+
+        return laneDefinitions;
+    }
+
+    /// <summary>
+    /// Gantt 차트 항목에 Flow 설정 기준 레인 할당
+    /// </summary>
+    private static List<string> AssignConfiguredLanes(
+        List<GanttChartItem> items,
+        List<LaneDefinition> laneDefinitions)
+    {
+        var laneLabels = laneDefinitions
+            .Select(definition => definition.Label)
+            .ToList();
+
+        var laneByKey = laneDefinitions
+            .Select((definition, index) => new { definition.LaneKey, Index = index })
+            .ToDictionary(item => item.LaneKey, item => item.Index, StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in items.OrderBy(i => i.RelativeStart))
         {
-            var tagLabel = string.IsNullOrWhiteSpace(item.TagName)
-                ? item.TagAddress
-                : item.TagName;
-
-            if (!laneByTag.TryGetValue(tagLabel, out var lane))
+            var laneKey = BuildLaneKey(item.CallName, item.EventType);
+            if (!laneByKey.TryGetValue(laneKey, out var lane))
             {
                 lane = laneLabels.Count;
-                laneByTag[tagLabel] = lane;
-                laneLabels.Add(tagLabel);
+                laneByKey[laneKey] = lane;
+                laneLabels.Add($"{item.CallName} [{(item.EventType == IOEventType.InTag ? "IN" : "OUT")}]");
             }
 
             item.Lane = lane;
         }
 
         return laneLabels;
+    }
+
+    private static string BuildLaneKey(string callName, IOEventType eventType)
+    {
+        var direction = eventType == IOEventType.InTag ? "IN" : "OUT";
+        return $"{callName}|{direction}";
     }
 
     /// <summary>
@@ -376,7 +425,7 @@ public class CycleAnalysisService
             var calls = _projectService.GetCalls(work.Id);
             foreach (var call in calls)
             {
-                var tags = _mapper.GetCallTags(call.Name);
+                var tags = _mapper.GetCallTagsByCallId(call.Id);
                 if (!tags.HasValue) continue;
 
                 if (tags.Value.InTag != null)
@@ -424,7 +473,6 @@ public class CycleAnalysisService
             ioEvents.Add(new CallIOEvent
             {
                 CallName = callName,
-                WorkName = workName,
                 FlowName = flowName,
                 EventType = eventType,
                 Timestamp = log.DateTime,
@@ -489,7 +537,6 @@ public class CycleAnalysisService
                 return new GanttChartItem
                 {
                     CallName = e.CallName,
-                    WorkName = e.WorkName,
                     FlowName = e.FlowName,
                     TagName = e.TagName,
                     TagAddress = e.TagAddress,
@@ -504,8 +551,9 @@ public class CycleAnalysisService
             })
             .ToList();
 
-        // 레인은 태그 기준으로 고정해 좌측에 IOTAG 이름을 보여준다.
-        var laneLabels = AssignTagLanes(renderedEvents);
+        // 레인은 Flow의 Call x In/Out 기준으로 고정해 최대 Call*2 레인을 확보한다.
+        var laneDefinitions = BuildLaneDefinitions(flowName);
+        var laneLabels = AssignConfiguredLanes(renderedEvents, laneDefinitions);
 
         var totalTimeMs = (int)(endTime - startTime).TotalMilliseconds;
 
@@ -530,7 +578,7 @@ public class CycleAnalysisService
             CT = totalTimeMs,
             MT = null,
             WT = null,
-            TotalLanes = renderedEvents.Any() ? renderedEvents.Max(i => i.Lane) + 1 : 0,
+            TotalLanes = laneLabels.Count,
             LaneLabels = laneLabels,
             Items = renderedEvents,
             TotalEventCount = totalEventCount,
@@ -572,7 +620,6 @@ public class GanttChartItem
 {
     public string CallName { get; set; } = string.Empty;
     public string FlowName { get; set; } = string.Empty;
-    public string WorkName { get; set; } = string.Empty;
     public string TagName { get; set; } = string.Empty;
     public string TagAddress { get; set; } = string.Empty;
     public int RelativeStart { get; set; }
@@ -583,3 +630,5 @@ public class GanttChartItem
     public DateTime? FinishTime { get; set; }
     public IOEventType EventType { get; set; }  // InTag / OutTag 구분
 }
+
+internal sealed record LaneDefinition(string LaneKey, string Label);

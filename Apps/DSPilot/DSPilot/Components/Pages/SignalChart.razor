@@ -238,10 +238,10 @@ else
 
             foreach (var call in DspDbService.Snapshot.Calls)
             {
-                var tagKeys = MapperService.GetCallTags(call.CallName);
+                var tagKeys = MapperService.GetCallTagsByCallId(call.CallId);
                 if (tagKeys is null)
                 {
-                    Logger.LogDebug("Call '{CallName}' tag mapping not found, skipping", call.CallName);
+                    Logger.LogDebug("Call '{CallName}' (ID: {CallId}) tag mapping not found, skipping", call.CallName, call.CallId);
                     continue;
                 }
 
@@ -277,7 +277,9 @@ else
             Key = $"{signalKey}|{tagAddress}",
             CallName = call.CallName,
             FlowName = call.FlowName,
-            DisplayName = $"{call.FlowName}_{call.CallName}",
+            DisplayName = string.IsNullOrWhiteSpace(call.FlowName)
+                ? call.CallName
+                : $"{call.FlowName}_{call.CallName}",
             Address = tagAddress,
             TagType = tagType
         });
@@ -491,8 +493,14 @@ else
 
     private static string GetRunTitle(SignalRunVisual run)
     {
-        var durationMs = (run.EndTime - run.StartTime).TotalMilliseconds;
-        return $"{run.StartTime:HH:mm:ss.fff} ~ {run.EndTime:HH:mm:ss.fff} ({durationMs:F1} ms)";
+        var duration = run.EndTime - run.StartTime;
+        return $"{run.StartTime:HH:mm:ss.fff} ~ {run.EndTime:HH:mm:ss.fff} ({FormatDurationSeconds(duration)} sec)";
+    }
+
+    private static string FormatDurationSeconds(TimeSpan duration)
+    {
+        var totalSeconds = Math.Max(0d, duration.TotalSeconds);
+        return FormattableString.Invariant($"{totalSeconds:00.00}");
     }
 
     public void Dispose()

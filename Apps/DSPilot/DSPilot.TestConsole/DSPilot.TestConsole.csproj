@@ -25,7 +25,6 @@
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
     <ProjectReference Include="..\DSPilot.Engine\DSPilot.Engine.fsproj" />
-    <ProjectReference Include="..\DSPilot\DSPilot.csproj" />
   </ItemGroup>
 
   <ItemGroup>

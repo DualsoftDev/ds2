@@ -7,7 +7,7 @@ namespace DSPilot.Services;
 
 /// <summary>
 /// Heatmap 데이터 처리 서비스 (F# Performance 및 Models 모듈 사용)
-/// 매트릭스 히트맵: 4개 메트릭 모두에 대해 색상 클래스를 동시 할당
+/// 매트릭스 히트맵: 3개 메트릭 모두에 대해 색상 클래스를 동시 할당
 /// </summary>
 public class HeatmapService
 {
@@ -24,7 +24,7 @@ public class HeatmapService
 
     /// <summary>
     /// Flow별로 그룹화된 매트릭스 Heatmap 데이터 조회
-    /// 4개 메트릭 모두에 대해 색상 클래스를 할당
+    /// 3개 메트릭 모두에 대해 색상 클래스를 할당
     /// </summary>
     public async Task<List<FlowHeatmapGroup>> GetHeatmapDataAsync()
     {
@@ -39,8 +39,8 @@ public class HeatmapService
                 return new List<FlowHeatmapGroup>();
             }
 
-            // 2. 중간 아이템 리스트 (성능점수 계산 전)
-            var intermediateItems = statistics.Select(s => new CallHeatmapItem
+            // 2. Heatmap 아이템 리스트 생성
+            var items = statistics.Select(s => new CallHeatmapItem
             {
                 CallName = s.CallName,
                 FlowName = s.FlowName,
@@ -48,46 +48,29 @@ public class HeatmapService
                 AverageGoingTime = s.AverageGoingTime,
                 StdDevGoingTime = s.StdDevGoingTime,
                 GoingCount = s.GoingCount,
-                PerformanceScore = 0.0,
-                ColorClass = "",
                 ColorClassAvg = "",
                 ColorClassStdDev = "",
-                ColorClassCV = "",
-                ColorClassScore = ""
+                ColorClassCV = ""
             }).ToList();
 
-            // 3. 성능 점수 계산 (F# Performance 모듈)
-            CalculatePerformanceScores(intermediateItems);
-
-            // 4. 4개 메트릭 각각에 대해 min/max 계산
-            var allAvg = intermediateItems.Select(i => i.AverageGoingTime).ToList();
-            var allStdDev = intermediateItems.Select(i => i.StdDevGoingTime).ToList();
-            var allCV = intermediateItems.Select(i => i.CoefficientOfVariation).ToList();
-            var allScore = intermediateItems.Select(i => i.PerformanceScore).ToList();
+            // 3. 3개 메트릭 각각에 대해 min/max 계산
+            var allAvg = items.Select(i => i.AverageGoingTime).ToList();
+            var allStdDev = items.Select(i => i.StdDevGoingTime).ToList();
+            var allCV = items.Select(i => i.CoefficientOfVariation).ToList();
 
             var minAvg = allAvg.Min(); var maxAvg = allAvg.Max();
             var minStdDev = allStdDev.Min(); var maxStdDev = allStdDev.Max();
             var minCV = allCV.Min(); var maxCV = allCV.Max();
-            var minScore = allScore.Min(); var maxScore = allScore.Max();
 
-            // 5. 4개 메트릭 색상 클래스 동시 할당
-            var items = intermediateItems.Select(i => new CallHeatmapItem
+            // 4. 3개 메트릭 색상 클래스 동시 할당
+            foreach (var item in items)
             {
-                CallName = i.CallName,
-                FlowName = i.FlowName,
-                WorkName = i.WorkName,
-                AverageGoingTime = i.AverageGoingTime,
-                StdDevGoingTime = i.StdDevGoingTime,
-                GoingCount = i.GoingCount,
-                PerformanceScore = i.PerformanceScore,
-                ColorClass = Performance.assignColorClass(HeatmapMetric.PerformanceScore, i.PerformanceScore, minScore, maxScore),
-                ColorClassAvg = Performance.assignColorClass(HeatmapMetric.AverageTime, i.AverageGoingTime, minAvg, maxAvg),
-                ColorClassStdDev = Performance.assignColorClass(HeatmapMetric.StdDeviation, i.StdDevGoingTime, minStdDev, maxStdDev),
-                ColorClassCV = Performance.assignColorClass(HeatmapMetric.CoefficientOfVariation, i.CoefficientOfVariation, minCV, maxCV),
-                ColorClassScore = Performance.assignColorClass(HeatmapMetric.PerformanceScore, i.PerformanceScore, minScore, maxScore)
-            }).ToList();
+                item.ColorClassAvg = Performance.assignColorClass(HeatmapMetric.AverageTime, item.AverageGoingTime, minAvg, maxAvg);
+                item.ColorClassStdDev = Performance.assignColorClass(HeatmapMetric.StdDeviation, item.StdDevGoingTime, minStdDev, maxStdDev);
+                item.ColorClassCV = Performance.assignColorClass(HeatmapMetric.CoefficientOfVariation, item.CoefficientOfVariation, minCV, maxCV);
+            }
 
-            // 6. Flow별로 그룹화 + Flow 수준 집계 색상
+            // 5. Flow별로 그룹화 + Flow 수준 집계 색상
             var groups = items
                 .GroupBy(item => item.FlowName)
                 .Select(g =>
@@ -96,7 +79,6 @@ public class HeatmapService
                     var flowAvg = calls.Average(c => c.AverageGoingTime);
                     var flowStdDev = calls.Average(c => c.StdDevGoingTime);
                     var flowCV = calls.Average(c => c.CoefficientOfVariation);
-                    var flowScore = calls.Average(c => c.PerformanceScore);
 
                     return new FlowHeatmapGroup
                     {
@@ -105,8 +87,7 @@ public class HeatmapService
                         IsExpanded = true,
                         FlowColorClassAvg = Performance.assignColorClass(HeatmapMetric.AverageTime, flowAvg, minAvg, maxAvg),
                         FlowColorClassStdDev = Performance.assignColorClass(HeatmapMetric.StdDeviation, flowStdDev, minStdDev, maxStdDev),
-                        FlowColorClassCV = Performance.assignColorClass(HeatmapMetric.CoefficientOfVariation, flowCV, minCV, maxCV),
-                        FlowColorClassScore = Performance.assignColorClass(HeatmapMetric.PerformanceScore, flowScore, minScore, maxScore)
+                        FlowColorClassCV = Performance.assignColorClass(HeatmapMetric.CoefficientOfVariation, flowCV, minCV, maxCV)
                     };
                 })
                 .OrderBy(g => g.FlowName)
@@ -123,25 +104,6 @@ public class HeatmapService
         {
             _logger.LogError(ex, "Failed to get heatmap data");
             return new List<FlowHeatmapGroup>();
-        }
-    }
-
-    /// <summary>
-    /// 성능 점수 계산 (F# Performance 모듈 사용)
-    /// </summary>
-    private void CalculatePerformanceScores(List<CallHeatmapItem> items)
-    {
-        if (items.Count == 0) return;
-
-        var data = items.Select(i => Tuple.Create(i.AverageGoingTime, i.CoefficientOfVariation)).ToList();
-        var fsharpList = ListModule.OfSeq(data);
-
-        var scores = Performance.calculatePerformanceScores(fsharpList);
-        var scoreList = ListModule.ToArray(scores);
-
-        for (int i = 0; i < items.Count; i++)
-        {
-            items[i].PerformanceScore = scoreList[i];
         }
     }
 
@@ -168,8 +130,6 @@ public class HeatmapService
             return value < 1000 ? $"{value:F0}" : $"{value / 1000.0:F1}s";
         if (metric.IsCoefficientOfVariation)
             return $"{value:F2}";
-        if (metric.IsPerformanceScore)
-            return $"{value:F0}";
         return $"{value:F1}";
     }
 }

@@ -14,8 +14,6 @@ type DatabasePaths =
 
     member this.GetCallTableName() = "dspCall"
 
-    member this.GetCallIOEventTableName() = "dspCallIOEvent"
-
 /// Database configuration module
 module DatabaseConfig =
 

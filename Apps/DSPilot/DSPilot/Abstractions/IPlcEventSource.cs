@@ -8,7 +8,8 @@ namespace DSPilot.Abstractions;
 public interface IPlcEventSource : IDisposable
 {
     /// <summary>
-    /// PLC 통신 이벤트 스트림
+    /// PLC 통신 이벤트
+    /// 스트림
     /// </summary>
     IObservable<PlcCommunicationEvent> Events { get; }
 

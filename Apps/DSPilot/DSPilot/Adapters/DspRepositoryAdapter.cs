@@ -1,8 +1,6 @@
 using Microsoft.Extensions.Logging;
-using CSharpCallKey = DSPilot.Models.CallKey;
 using CSharpDspFlowEntity = DSPilot.Models.Dsp.DspFlowEntity;
 using CSharpDspCallEntity = DSPilot.Models.Dsp.DspCallEntity;
-using FSharpCallKey = DSPilot.Engine.CallKey;
 using FSharpDspFlowEntity = DSPilot.Engine.DspFlowEntity;
 using FSharpDspCallEntity = DSPilot.Engine.DspCallEntity;
 
@@ -38,48 +36,6 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
     {
         var fsharpCalls = Microsoft.FSharp.Collections.ListModule.OfSeq(calls.Select(ToFSharpCallEntity));
         return await DSPilot.Engine.DspRepository.bulkInsertCallsAsync(_paths, _logger, fsharpCalls);
-    }
-
-    public async Task<string> GetCallStateAsync(CSharpCallKey key)
-    {
-        var fsharpKey = ToFSharpCallKey(key);
-        return await DSPilot.Engine.DspRepository.getCallStateAsync(_paths, _logger, fsharpKey);
-    }
-
-    public async Task<(string WorkName, string FlowName)?> GetCallInfoAsync(string callName)
-    {
-        var result = await DSPilot.Engine.DspRepository.getCallInfoAsync(_paths, _logger, callName);
-        if (Microsoft.FSharp.Core.FSharpOption<System.Tuple<string, string>>.get_IsNone(result))
-            return null;
-        var tuple = result.Value;
-        return (tuple.Item1, tuple.Item2);
-    }
-
-    public async Task<CSharpDspCallEntity?> GetCallByKeyAsync(CSharpCallKey key)
-    {
-        var fsharpKey = ToFSharpCallKey(key);
-        var result = await DSPilot.Engine.DspRepository.getCallByKeyAsync(_paths, _logger, fsharpKey);
-        if (Microsoft.FSharp.Core.FSharpOption<FSharpDspCallEntity>.get_IsNone(result))
-            return null;
-        return ToCSharpCallEntity(result.Value);
-    }
-
-    public async Task<bool> UpdateCallStateAsync(CSharpCallKey key, string state)
-    {
-        var fsharpKey = ToFSharpCallKey(key);
-        return await DSPilot.Engine.DspRepository.updateCallStateAsync(_paths, _logger, fsharpKey, state);
-    }
-
-    public async Task<bool> UpdateCallWithStatisticsAsync(
-        CSharpCallKey key,
-        string state,
-        int previousGoingTime,
-        double averageGoingTime,
-        double stdDevGoingTime)
-    {
-        var fsharpKey = ToFSharpCallKey(key);
-        return await DSPilot.Engine.DspRepository.updateCallWithStatisticsAsync(
-            _paths, _logger, fsharpKey, state, previousGoingTime, averageGoingTime, stdDevGoingTime);
     }
 
     public async Task<bool> UpdateFlowStateAsync(string flowName, string state)
@@ -125,6 +81,7 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         var fsharpStats = await DSPilot.Engine.DspRepository.getCallStatisticsAsync(_paths, _logger);
         return fsharpStats.Select(s => new Repositories.CallStatisticsDto
         {
+            CallId = s.CallId,
             CallName = s.CallName,
             FlowName = s.FlowName,
             WorkName = s.WorkName,
@@ -134,19 +91,47 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         }).ToList();
     }
 
-    public Task InsertCallIOEventAsync(DSPilot.Models.Analysis.CallIOEvent ioEvent)
+    // ===== CallId 기반 메서드 (New Primary API) =====
+
+    public async Task<string> GetCallStateAsync(Guid callId)
     {
-        // F# 모듈에 없는 메서드 - 추후 구현 필요
-        return Task.CompletedTask;
+        return await DSPilot.Engine.DspRepository.getCallStateByIdAsync(_paths, _logger, callId);
+    }
+
+    public async Task<(string WorkName, string FlowName)?> GetCallInfoAsync(Guid callId)
+    {
+        var result = await DSPilot.Engine.DspRepository.getCallInfoByIdAsync(_paths, _logger, callId);
+        if (Microsoft.FSharp.Core.FSharpOption<System.Tuple<string, string>>.get_IsNone(result))
+            return null;
+        var tuple = result.Value;
+        return (tuple.Item1, tuple.Item2);
+    }
+
+    public async Task<CSharpDspCallEntity?> GetCallByIdAsync(Guid callId)
+    {
+        var result = await DSPilot.Engine.DspRepository.getCallByIdAsync(_paths, _logger, callId);
+        if (Microsoft.FSharp.Core.FSharpOption<FSharpDspCallEntity>.get_IsNone(result))
+            return null;
+        return ToCSharpCallEntity(result.Value);
+    }
+
+    public async Task<bool> UpdateCallStateAsync(Guid callId, string state)
+    {
+        return await DSPilot.Engine.DspRepository.updateCallStateByIdAsync(_paths, _logger, callId, state);
+    }
+
+    public async Task<bool> UpdateCallWithStatisticsAsync(
+        Guid callId,
+        string state,
+        int previousGoingTime,
+        double averageGoingTime,
+        double stdDevGoingTime)
+    {
+        return await DSPilot.Engine.DspRepository.updateCallWithStatisticsByIdAsync(
+            _paths, _logger, callId, state, previousGoingTime, averageGoingTime, stdDevGoingTime);
     }
 
     // ===== Helper Methods =====
-
-    private FSharpCallKey ToFSharpCallKey(CSharpCallKey key)
-    {
-        var workOpt = ToFSharpOption(key.WorkName);
-        return new FSharpCallKey(key.FlowName, key.CallName, workOpt);
-    }
 
     private FSharpDspFlowEntity ToFSharpFlowEntity(CSharpDspFlowEntity entity)
     {
@@ -168,6 +153,7 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
     {
         return new FSharpDspCallEntity(
             entity.Id,
+            entity.CallId,
             entity.CallName,
             entity.ApiCall,
             entity.WorkName,
@@ -194,6 +180,7 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         return new CSharpDspCallEntity
         {
             Id = entity.Id,
+            CallId = entity.CallId,
             CallName = entity.CallName,
             ApiCall = entity.ApiCall,
             WorkName = entity.WorkName,

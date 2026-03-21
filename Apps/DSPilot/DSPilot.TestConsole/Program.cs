@@ -42,8 +42,8 @@ class Program
             Console.WriteLine("  3. DB Verifier");
             Console.WriteLine("     - Verify DB schema and data");
             Console.WriteLine();
-            Console.WriteLine("  4. Unified DB Test");
-            Console.WriteLine("     - Test unified mode (plc.db) schema & CRUD");
+            Console.WriteLine("  4. AASX Flow Simulation");
+            Console.WriteLine("     - Load AASX and simulate all Flows in parallel (infinite loop)");
             Console.WriteLine();
             Console.WriteLine("  0. Exit");
             Console.WriteLine();
@@ -86,8 +86,8 @@ class Program
                         break;
 
                     case "4":
-                        Console.WriteLine("=== Unified DB Test ===");
-                        await UnifiedDbTest.RunAsync();
+                        Console.WriteLine("=== AASX Flow Simulation ===");
+                        await FlowSimulationTest.RunAsync();
                         break;
 
                     case "0":
