@@ -1,7 +1,7 @@
 using System.Data;
+using System.Data.SQLite;
 using System.Globalization;
 using DSPilot.Models.Plc;
-using Microsoft.Data.Sqlite;
 
 namespace DSPilot.Services;
 
@@ -11,14 +11,52 @@ namespace DSPilot.Services;
 public class PlcDebugService
 {
     private readonly ILogger<PlcDebugService> _logger;
+    private readonly IConfiguration _configuration;
     private string? _currentDbPath;
 
-    public PlcDebugService(ILogger<PlcDebugService> logger)
+    public PlcDebugService(
+        ILogger<PlcDebugService> logger,
+        IConfiguration configuration)
     {
         _logger = logger;
+        _configuration = configuration;
+
+        // 기본 DB 경로 자동 설정
+        InitializeDefaultDbPath();
     }
 
     public string? CurrentDbPath => _currentDbPath;
+
+    private void InitializeDefaultDbPath()
+    {
+        try
+        {
+            var connString = _configuration["Database:ConnectionString"];
+            if (string.IsNullOrEmpty(connString))
+                return;
+
+            var expandedConnStr = Environment.ExpandEnvironmentVariables(connString);
+
+            // Connection string에서 Data Source 추출
+            var parts = expandedConnStr.Split(';');
+            var dataSourcePart = parts.FirstOrDefault(p =>
+                p.Trim().StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase));
+
+            if (dataSourcePart != null)
+            {
+                var dbPath = dataSourcePart.Split('=')[1].Trim();
+                if (File.Exists(dbPath))
+                {
+                    _currentDbPath = dbPath;
+                    _logger.LogInformation("PLC Debug: Default DB path set to {DbPath}", dbPath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to initialize default DB path");
+        }
+    }
 
     /// <summary>
     /// DB 파일 연결
@@ -48,7 +86,7 @@ public class PlcDebugService
 
         try
         {
-            using var conn = new SqliteConnection($"Data Source={_currentDbPath};Mode=ReadOnly");
+            using var conn = new SQLiteConnection($"Data Source={_currentDbPath};Read Only=True;BusyTimeout=5000");
             await conn.OpenAsync();
 
             using var cmd = conn.CreateCommand();
@@ -95,7 +133,7 @@ public class PlcDebugService
 
         try
         {
-            using var conn = new SqliteConnection($"Data Source={_currentDbPath};Mode=ReadOnly");
+            using var conn = new SQLiteConnection($"Data Source={_currentDbPath};Read Only=True;BusyTimeout=5000");
             await conn.OpenAsync();
 
             foreach (var tagId in tagIds)
@@ -135,7 +173,7 @@ public class PlcDebugService
     /// 로그 개수 조회
     /// </summary>
     private async Task<int> GetLogCountAsync(
-        SqliteConnection conn,
+        SQLiteConnection conn,
         int tagId,
         DateTime? startTime,
         DateTime? endTime)
@@ -165,7 +203,7 @@ public class PlcDebugService
     /// 샘플링된 태그 로그 조회
     /// </summary>
     private async Task<List<PlcTagLogEntity>> GetSampledTagLogsAsync(
-        SqliteConnection conn,
+        SQLiteConnection conn,
         int tagId,
         DateTime? startTime,
         DateTime? endTime,
@@ -253,7 +291,7 @@ public class PlcDebugService
 
         try
         {
-            using var conn = new SqliteConnection($"Data Source={_currentDbPath};Mode=ReadOnly");
+            using var conn = new SQLiteConnection($"Data Source={_currentDbPath};Read Only=True;BusyTimeout=5000");
             await conn.OpenAsync();
 
             using var cmd = conn.CreateCommand();
@@ -286,7 +324,7 @@ public class PlcDebugService
 
         try
         {
-            using var conn = new SqliteConnection($"Data Source={_currentDbPath};Mode=ReadOnly");
+            using var conn = new SQLiteConnection($"Data Source={_currentDbPath};Read Only=True;BusyTimeout=5000");
             await conn.OpenAsync();
 
             using var cmd = conn.CreateCommand();
@@ -324,7 +362,7 @@ public class PlcDebugService
 
         try
         {
-            using var conn = new SqliteConnection($"Data Source={_currentDbPath};Mode=ReadOnly");
+            using var conn = new SQLiteConnection($"Data Source={_currentDbPath};Read Only=True;BusyTimeout=5000");
             await conn.OpenAsync();
 
             using var cmd = conn.CreateCommand();

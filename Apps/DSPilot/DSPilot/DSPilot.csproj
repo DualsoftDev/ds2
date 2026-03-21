@@ -63,4 +63,12 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Exclude backup folder from build -->
+    <Compile Remove="_backup/**" />
+    <Content Remove="_backup/**" />
+    <EmbeddedResource Remove="_backup/**" />
+    <None Remove="_backup/**" />
+  </ItemGroup>
+
 </Project>

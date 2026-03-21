@@ -341,6 +341,9 @@
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "flow")]
+    public string? QueryFlow { get; set; }
+
     private List<FlowHeatmapGroup> AllGroups { get; set; } = new();
     private List<FlowHeatmapGroup> FilteredGroups => string.IsNullOrWhiteSpace(FlowFilter)
         ? AllGroups
@@ -377,6 +380,14 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadDataAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrWhiteSpace(QueryFlow))
+        {
+            FlowFilter = QueryFlow.Trim();
+        }
     }
 
     private void OnMetricChanged(ChangeEventArgs e)

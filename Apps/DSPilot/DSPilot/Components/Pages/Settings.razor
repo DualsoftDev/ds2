@@ -130,6 +130,23 @@
                     </div>
                 </div>
             </div>
+
+            @* UI 설정 섹션 *@
+            <div class="card" style="box-shadow: var(--shadow-2);">
+                <div class="card-header">
+                    <span class="material-icons mr-2">settings</span>
+                    <h6 class="typo-h6">사용자 인터페이스</h6>
+                </div>
+                <div class="card-content">
+                    <label class="switch mb-2">
+                        <input type="checkbox" @bind="_settings.Ui.ShowPlcDebug" />
+                        PLC 디버그 페이지 표시
+                    </label>
+                    <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                        왼쪽 메뉴에서 PLC 디버그 메뉴 항목을 표시하거나 숨깁니다.
+                    </small>
+                </div>
+            </div>
         </div>
 
         @* 오른쪽 열: PLC 데이터베이스 *@

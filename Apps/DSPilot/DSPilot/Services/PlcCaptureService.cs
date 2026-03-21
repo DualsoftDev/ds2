@@ -11,8 +11,6 @@ using log4net.Config;
 using System.Reactive.Linq;
 using System.Reflection;
 using Microsoft.FSharp.Core;
-using System.Data.SQLite;
-using Dapper;
 using PlcDataType = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType;
 using PlcValue = Ev2.PLC.Common.CoreDataTypesModule.PlcValue;
 using TagSpec = Ev2.PLC.Common.TagSpecModule.TagSpec;
@@ -35,8 +33,6 @@ public class PlcCaptureService : IHostedService, IDisposable
     private IDisposable? _c2sSubscription;
     private IDisposable? _serviceDisposable;
     private ILog? _log4netLogger;
-    private Timer? _walCheckpointTimer;
-    private string? _dbConnectionString;
 
     private class PlcTagInfo
     {
@@ -162,9 +158,6 @@ public class PlcCaptureService : IHostedService, IDisposable
             _serviceDisposable?.Dispose();
             _serviceDisposable = null;
 
-            _walCheckpointTimer?.Dispose();
-            _walCheckpointTimer = null;
-
             _log4netLogger?.Info("PlcCaptureService stopped");
             _logger.LogInformation("PlcCaptureService stopped successfully");
         }
@@ -180,7 +173,6 @@ public class PlcCaptureService : IHostedService, IDisposable
     {
         _c2sSubscription?.Dispose();
         _serviceDisposable?.Dispose();
-        _walCheckpointTimer?.Dispose();
     }
 
     private void InitializeLog4Net()
@@ -418,7 +410,6 @@ public class PlcCaptureService : IHostedService, IDisposable
             ? $"Data Source={dbPathFallback};Version=3;BusyTimeout=20000"
             : Environment.ExpandEnvironmentVariables(configuredConnectionString);
 
-        _dbConnectionString = connectionString;
         _logger.LogInformation("Using EV2 database settings: Type={DatabaseType}", databaseType);
 
         return databaseType.Equals("Postgres", StringComparison.OrdinalIgnoreCase)
