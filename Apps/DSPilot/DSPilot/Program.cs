@@ -32,7 +32,6 @@ builder.Services.AddScoped<DashboardEditService>();
 builder.Services.AddSingleton<BlueprintService>();
 builder.Services.AddSingleton<HeatmapService>();
 builder.Services.AddSingleton<DspDbService>();
-builder.Services.AddSingleton<SignalTimelineBufferService>();
 builder.Services.AddSingleton<PlcDebugService>();
 
 // PLC 데이터 읽기 서비스 등록

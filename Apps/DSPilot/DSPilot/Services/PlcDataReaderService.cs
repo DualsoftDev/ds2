@@ -18,7 +18,6 @@ public class PlcDataReaderService : BackgroundService
     private readonly IDatabasePathResolver _pathResolver;
     private readonly IFlowMetricsService _flowMetricsService;
     private readonly DspDbService _dspDbService;
-    private readonly SignalTimelineBufferService _signalTimelineBuffer;
     private readonly ChannelWriter<CallStateChangedEvent> _eventWriter;
     private readonly bool _simulationMode;
     private readonly TimeSpan _simulationWindow = TimeSpan.FromSeconds(1);
@@ -36,7 +35,6 @@ public class PlcDataReaderService : BackgroundService
     private int _totalLogsRead;
     private IDisposable? _ev2Subscription;
     private Dictionary<string, int> _tagAddressToIdMap = new();
-    private Dictionary<int, string> _tagIdToAddressMap = new();
     private CancellationTokenSource? _serviceCts;
 
     public PlcDataReaderService(
@@ -45,7 +43,6 @@ public class PlcDataReaderService : BackgroundService
         IDatabasePathResolver pathResolver,
         IFlowMetricsService flowMetricsService,
         DspDbService dspDbService,
-        SignalTimelineBufferService signalTimelineBuffer,
         PlcToCallMapperService mapper,
         PlcTagStateTrackerService stateTracker,
         CallStatisticsService statistics,
@@ -57,7 +54,6 @@ public class PlcDataReaderService : BackgroundService
         _pathResolver = pathResolver;
         _flowMetricsService = flowMetricsService;
         _dspDbService = dspDbService;
-        _signalTimelineBuffer = signalTimelineBuffer;
         _eventWriter = dspDbService.EventWriter;
         _simulationMode = _configuration.GetValue<bool>("PlcDatabase:SimulationMode");
         _mapper = mapper;
@@ -203,12 +199,6 @@ public class PlcDataReaderService : BackgroundService
 
                     if (logs.Count > 0)
                     {
-                        _signalTimelineBuffer.PublishBatch(info.Tags.Select(tag =>
-                            new SignalTimelineSample(
-                                tag.Item1.Address,
-                                tag.Item2.GetValue()?.ToString(),
-                                info.Timestamp)));
-
                         // Check if service is still running
                         if (_serviceCts == null || _serviceCts.Token.IsCancellationRequested)
                         {
@@ -323,9 +313,6 @@ public class PlcDataReaderService : BackgroundService
 
             // 태그 Address → ID 매핑 캐시 생성 (EV2 이벤트 처리용)
             _tagAddressToIdMap = tags.ToDictionary(t => t.Address, t => t.Id);
-            _tagIdToAddressMap = tags
-                .Where(tag => !string.IsNullOrWhiteSpace(tag.Address))
-                .ToDictionary(tag => tag.Id, tag => tag.Address);
             _logger.LogInformation("Tag address cache built: {Count} tags", _tagAddressToIdMap.Count);
 
             _logger.LogInformation("Database initialized: {PlcCount} PLCs, {TagCount} tags, {LogCount} logs",
@@ -430,7 +417,6 @@ public class PlcDataReaderService : BackgroundService
 
         if (newLogs.Count > 0)
         {
-            PublishTimelineFromLogs(newLogs);
             LogReadBatch($"[LIVE {pollTime:HH:mm:ss}]", newLogs);
             await ProcessLogsAsync(newLogs, stoppingToken);
             _totalLogsRead += newLogs.Count;
@@ -446,7 +432,6 @@ public class PlcDataReaderService : BackgroundService
 
         if (replayLogs.Count > 0)
         {
-            PublishTimelineFromLogs(replayLogs);
             LogReadBatch($"[SIM {windowStart:HH:mm:ss.fff} ~ {windowEnd:HH:mm:ss.fff}]", replayLogs);
             await ProcessLogsAsync(replayLogs, stoppingToken);
             _totalLogsRead += replayLogs.Count;
@@ -466,22 +451,6 @@ public class PlcDataReaderService : BackgroundService
     {
         _logger.LogInformation("{Prefix} Read {Count} logs (Total: {Total})",
             prefix, logs.Count, _totalLogsRead + logs.Count);
-    }
-
-    private void PublishTimelineFromLogs(IEnumerable<PlcTagLogEntity> logs)
-    {
-        var samples = logs
-            .Where(log => _tagIdToAddressMap.ContainsKey(log.PlcTagId))
-            .Select(log => new SignalTimelineSample(
-                _tagIdToAddressMap[log.PlcTagId],
-                log.Value,
-                log.DateTime))
-            .ToList();
-
-        if (samples.Count > 0)
-        {
-            _signalTimelineBuffer.PublishBatch(samples);
-        }
     }
 
     // ──────────────────────────────────────────────

@@ -2,6 +2,8 @@
 @inject DsProjectService ProjectService
 @inject NavigationManager Nav
 @inject DashboardEditService EditService
+@inject AppSettingsService AppSettings
+@using Microsoft.AspNetCore.WebUtilities
 
 <nav class="nav-menu">
     <div style="display:flex; align-items:center; border-radius:4px;
@@ -18,14 +20,6 @@
             @(EditService.IsEditing ? "완료" : "편집")
         </button>
     </div>
-    <NavLink class="nav-link" href="chart" Match="NavLinkMatch.Prefix">
-        <span class="material-icons">bar_chart</span>
-        상세정보
-    </NavLink>
-    <NavLink class="nav-link" href="signal-chart" Match="NavLinkMatch.Prefix">
-        <span class="material-icons">show_chart</span>
-        신호 타임라인
-    </NavLink>
     <NavLink class="nav-link" href="heatmap" Match="NavLinkMatch.Prefix">
         <span class="material-icons">gradient</span>
         동작편차
@@ -34,10 +28,14 @@
         <span class="material-icons">timeline</span>
         Cycle 분석
     </NavLink>
-    <NavLink class="nav-link" href="plc-debug" Match="NavLinkMatch.Prefix">
-        <span class="material-icons">bug_report</span>
-        PLC 디버그
-    </NavLink>
+
+    @if (_showPlcDebug)
+    {
+        <NavLink class="nav-link" href="plc-debug" Match="NavLinkMatch.Prefix">
+            <span class="material-icons">bug_report</span>
+            PLC 디버그
+        </NavLink>
+    }
 
     <hr class="divider" style="margin: 8px 0;" />
 
@@ -60,11 +58,11 @@
                     var flow = flowList[idx];
                     var isLast = idx == flowList.Count - 1;
                     var isSelected = _selectedFlow == flow.Name;
-                    <a href="/chart?flow=@(Uri.EscapeDataString(flow.Name))"
-                       @onclick="@(() => _selectedFlow = flow.Name)"
-                       style="position: relative; padding: 4px 0 4px 16px; cursor: pointer; border-radius: 4px;
-                              text-decoration: none; display: block;
-                              background: @(isSelected ? "rgba(var(--color-primary-rgb), 0.15)" : "transparent");">
+                    <button type="button"
+                            @onclick="@(() => NavigateToFlow(flow.Name))"
+                            style="position: relative; padding: 4px 0 4px 16px; cursor: pointer; border-radius: 4px;
+                                   text-decoration: none; display: block; width: 100%; border: 0; text-align: left;
+                                   background: @(isSelected ? "rgba(var(--color-primary-rgb), 0.15)" : "transparent");">
                         <span style="position: absolute; left: 0; top: 0;
                                      width: 1px; height: @(isLast ? "50%" : "100%");
                                      background: var(--color-lines);"></span>
@@ -76,7 +74,7 @@
                                      color: @(isSelected ? "var(--color-primary)" : "var(--color-drawer-text)");">
                             @flow.Name
                         </span>
-                    </a>
+                    </button>
                 }
             </div>
         }
@@ -87,11 +85,13 @@
     private Dictionary<string, List<Ds2.Core.Flow>> _systemFlowMap = new();
     private string? _selectedFlow;
     private bool _isHome;
+    private bool _showPlcDebug = true;
 
     protected override void OnInitialized()
     {
-        _isHome = Nav.ToBaseRelativePath(Nav.Uri) is "" or "/";
+        UpdateLocationState(Nav.Uri);
         Nav.LocationChanged += OnLocationChanged;
+        _showPlcDebug = AppSettings.LoadSettings().Ui.ShowPlcDebug;
 
         if (!ProjectService.IsLoaded) return;
 
@@ -108,13 +108,32 @@
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
-        var relativePath = Nav.ToBaseRelativePath(e.Location);
+        UpdateLocationState(e.Location);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void NavigateToFlow(string flowName)
+    {
+        _selectedFlow = flowName;
+        Nav.NavigateTo($"/flow?name={Uri.EscapeDataString(flowName)}");
+    }
+
+    private void UpdateLocationState(string location)
+    {
+        var absoluteUri = Nav.ToAbsoluteUri(location);
+        var relativePath = Nav.ToBaseRelativePath(absoluteUri.ToString());
         _isHome = relativePath is "" or "/";
 
-        if (!relativePath.StartsWith("chart", StringComparison.OrdinalIgnoreCase))
-            _selectedFlow = null;
+        if (relativePath.Equals("flow", StringComparison.OrdinalIgnoreCase))
+        {
+            var query = QueryHelpers.ParseQuery(absoluteUri.Query);
+            _selectedFlow = query.TryGetValue("name", out var flowName)
+                ? flowName.ToString()
+                : null;
+            return;
+        }
 
-        InvokeAsync(StateHasChanged);
+        _selectedFlow = null;
     }
 
     public void Dispose()

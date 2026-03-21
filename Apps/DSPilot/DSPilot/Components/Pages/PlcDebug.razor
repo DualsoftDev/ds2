@@ -409,6 +409,9 @@
 </style>
 
 @code {
+    [SupplyParameterFromQuery(Name = "flow")]
+    public string? QueryFlow { get; set; }
+
     private bool _uploading;
     private bool _dbLoaded;
     private bool _loadingChart;
@@ -438,6 +441,7 @@
 
     private string _loadingProgress = string.Empty;
     private string _samplingInfo = string.Empty;
+    private string? _lastAppliedQueryFlow;
 
     private List<PlcTagEntity> _filteredTags
     {
@@ -456,6 +460,24 @@
         {
             _pendingAutoRender = false;
             await LoadChartData();
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        var normalizedQueryFlow = string.IsNullOrWhiteSpace(QueryFlow) ? null : QueryFlow.Trim();
+        if (string.Equals(_lastAppliedQueryFlow, normalizedQueryFlow, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastAppliedQueryFlow = normalizedQueryFlow;
+        _selectedFlow = normalizedQueryFlow;
+
+        if (_dbLoaded)
+        {
+            SyncSelectionToCurrentFilter();
+            MarkChartAsFilterChanged();
         }
     }
 

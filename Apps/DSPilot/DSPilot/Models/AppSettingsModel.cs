@@ -10,6 +10,7 @@ public class AppSettingsModel
     public DspDatabaseSettings DspDatabase { get; set; } = new();
     public PlcConnectionSettings PlcConnection { get; set; } = new();
     public LoggingSettings Logging { get; set; } = new();
+    public UiSettings Ui { get; set; } = new();
 }
 
 public class DsPilotSettings
@@ -72,6 +73,17 @@ public class LogLevelSettings
 
     [JsonPropertyName("DSPilot.Repositories")]
     public string DsPilotRepositories { get; set; } = "Debug";
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+public class UiSettings
+{
+    /// <summary>
+    /// PLC 디버그 페이지 표시 여부
+    /// </summary>
+    public bool ShowPlcDebug { get; set; } = true;
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

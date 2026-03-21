@@ -279,6 +279,9 @@ else
 </div>
 
 @code {
+    [SupplyParameterFromQuery(Name = "flow")]
+    public string? QueryFlow { get; set; }
+
     private DspDbSnapshot _dbSnapshot = new();
 
     // 도면 레이아웃 필드
@@ -348,6 +351,11 @@ else
         _cellW = layout.CellWidth; _cellH = layout.CellHeight;
         _ox = layout.OffsetX; _oy = layout.OffsetY;
         UpdateChartCache();
+    }
+
+    protected override void OnParametersSet()
+    {
+        _selectedFlowName = string.IsNullOrWhiteSpace(QueryFlow) ? null : QueryFlow.Trim();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
