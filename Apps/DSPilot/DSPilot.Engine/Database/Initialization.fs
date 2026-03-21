@@ -44,6 +44,10 @@ module DatabaseInitialization =
                 logger.LogInformation("Starting EV2 Bootstrap Service")
 
                 try
+                    if not paths.DspTablesEnabled then
+                        logger.LogInformation("DSP state tables are disabled. Skipping DSP schema/bootstrap.")
+                        return ()
+
                     logger.LogInformation("EV2 Bootstrap completed successfully")
                     return ()
                 with ex ->
@@ -175,33 +179,37 @@ module DatabaseInitialization =
             (getCalls: Guid -> Call list)
             (stoppingToken: CancellationToken) : Task<bool> =
             task {
-                let maxRetries = 5
-                let delayMs = 2000
+                if not paths.DspTablesEnabled then
+                    logger.LogInformation("DSP state tables are disabled. Skipping AASX load into dspFlow/dspCall.")
+                    return false
+                else
+                    let maxRetries = 5
+                    let delayMs = 2000
 
-                let mutable attempt = 1
-                let mutable success = false
+                    let mutable attempt = 1
+                    let mutable success = false
 
-                while attempt <= maxRetries && not success do
-                    try
-                        logger.LogInformation("Attempt {Attempt}/{MaxRetries}: Loading data from AASX...", attempt, maxRetries)
+                    while attempt <= maxRetries && not success do
+                        try
+                            logger.LogInformation("Attempt {Attempt}/{MaxRetries}: Loading data from AASX...", attempt, maxRetries)
 
-                        let! (flowCount, callCount) = initializeFromAasxAsync paths logger getAllFlows getWorks getCalls
+                            let! (flowCount, callCount) = initializeFromAasxAsync paths logger getAllFlows getWorks getCalls
 
-                        if flowCount > 0 || callCount > 0 then
-                            logger.LogInformation("Successfully loaded {FlowCount} flows and {CallCount} calls from AASX", flowCount, callCount)
-                            success <- true
-                        else
-                            logger.LogWarning("No data was loaded (flowCount={FlowCount}, callCount={CallCount}). Schema may not be ready yet.", flowCount, callCount)
-                    with ex ->
-                        logger.LogWarning(ex, "Attempt {Attempt}/{MaxRetries} failed: {Message}", attempt, maxRetries, ex.Message)
+                            if flowCount > 0 || callCount > 0 then
+                                logger.LogInformation("Successfully loaded {FlowCount} flows and {CallCount} calls from AASX", flowCount, callCount)
+                                success <- true
+                            else
+                                logger.LogWarning("No data was loaded (flowCount={FlowCount}, callCount={CallCount}). Schema may not be ready yet.", flowCount, callCount)
+                        with ex ->
+                            logger.LogWarning(ex, "Attempt {Attempt}/{MaxRetries} failed: {Message}", attempt, maxRetries, ex.Message)
 
-                    if not success && attempt < maxRetries then
-                        logger.LogInformation("Waiting {DelayMs}ms before retry...", delayMs)
-                        do! Task.Delay(delayMs, stoppingToken)
+                        if not success && attempt < maxRetries then
+                            logger.LogInformation("Waiting {DelayMs}ms before retry...", delayMs)
+                            do! Task.Delay(delayMs, stoppingToken)
 
-                    attempt <- attempt + 1
+                        attempt <- attempt + 1
 
-                return success
+                    return success
             }
 
     // ===== Public API =====

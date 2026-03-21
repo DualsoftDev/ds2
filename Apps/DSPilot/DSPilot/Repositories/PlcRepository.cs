@@ -18,9 +18,13 @@ public class PlcRepository : IPlcRepository
     public PlcRepository(IDatabasePathResolver pathResolver, ILogger<PlcRepository> logger)
     {
         var dbPath = pathResolver.GetPlcDbPath();
+        if (string.IsNullOrWhiteSpace(dbPath))
+        {
+            throw new InvalidOperationException("PLC database path is not configured.");
+        }
 
         // ReadOnly 제거 - PlcCaptureService가 DB를 생성하고 쓰기 작업을 수행함
-        _connectionString = $"Data Source={dbPath};";
+        _connectionString = DatabaseConfig.createConnectionString(dbPath);
         _logger = logger;
         _logger.LogInformation("PLC Database path: {DbPath} (Unified mode)", dbPath);
     }

@@ -6,6 +6,7 @@ namespace DSPilot.Services;
 
 public class DspDbService : IDisposable
 {
+    private readonly bool _enabled;
     private readonly string _dbPath;
     private readonly ILogger<DspDbService> _logger;
     private readonly PeriodicTimer _timer;
@@ -44,6 +45,7 @@ public class DspDbService : IDisposable
         ILogger<DspDbService> logger)
     {
         _logger = logger;
+        _enabled = configuration.GetValue<bool?>("DspTables:Enabled") ?? false;
 
         // Unified 모드: 항상 dsp* 접두사 테이블 사용
         _dbPath = pathResolver.GetSharedDbPath();
@@ -55,6 +57,13 @@ public class DspDbService : IDisposable
 
         _timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         _progressTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(300));
+
+        if (!_enabled)
+        {
+            _logger.LogInformation("DspTables:Enabled=false, DspDbService snapshot polling is disabled.");
+            return;
+        }
+
         _ = PollLoopAsync(_cts.Token);
         _ = ConsumeChannelAsync(_cts.Token);
         _ = ProgressUpdateLoopAsync(_cts.Token);

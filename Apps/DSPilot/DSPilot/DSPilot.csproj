@@ -49,6 +49,9 @@
     <Reference Include="Ev2.PLC.Protocol.S7">
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.S7.dll</HintPath>
     </Reference>
+    <Reference Include="Ev2.PLC.Protocol.LS">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.LS.dll</HintPath>
+    </Reference>
     <Reference Include="Ev2.PLC.Protocol.MX">
       <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.MX.dll</HintPath>
     </Reference>

@@ -22,8 +22,7 @@ public class DsPilotSettings
 
 public class PlcDatabaseSettings
 {
-    public string SourceDbPath { get; set; } = "%APPDATA%/Dualsoft/DSPilot/plc.db";
-    public int ReadIntervalMs { get; set; } = 1000;
+    public int ReadIntervalMs { get; set; } = 100;
     public bool SimulationMode { get; set; }
     public string TagMatchMode { get; set; } = "Address";
 

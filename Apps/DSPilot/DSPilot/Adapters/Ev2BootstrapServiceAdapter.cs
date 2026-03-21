@@ -22,6 +22,12 @@ public class Ev2BootstrapServiceAdapter : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        if (!_paths.DspTablesEnabled)
+        {
+            _logger.LogInformation("DspTables:Enabled=false, skipping DSP schema bootstrap.");
+            return;
+        }
+
         await DatabaseInitialization.Schema.startAsync(_paths, _logger);
     }
 

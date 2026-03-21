@@ -2,12 +2,14 @@ namespace DSPilot.Engine
 
 open System
 open System.IO
+open System.Data.Common
 open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.Logging
 
 /// Database paths configuration (Unified mode only)
 type DatabasePaths =
-    { SharedDbPath: string }
+    { SharedDbPath: string
+      DspTablesEnabled: bool }
 
     /// Return Flow table name (always uses dsp* prefix)
     member this.GetFlowTableName() = "dspFlow"
@@ -28,33 +30,84 @@ module DatabaseConfig =
         if not (String.IsNullOrEmpty(directory)) && not (Directory.Exists(directory)) then
             Directory.CreateDirectory(directory) |> ignore
 
-    /// Read path from configuration (with default value)
-    let private getPathFromConfig (config: IConfiguration) (key: string) (defaultValue: string) =
+    /// Read path from configuration
+    let private tryGetPathFromConfig (config: IConfiguration) (key: string) =
         match config.[key] with
-        | null -> defaultValue
-        | value -> value
-        |> resolvePath
+        | null -> None
+        | value when String.IsNullOrWhiteSpace(value) -> None
+        | value -> value |> resolvePath |> Some
+
+    let private tryGetPathFromConnectionString (config: IConfiguration) (logger: ILogger) =
+        let dbType = config.["Database:Type"]
+        let connStr = config.["Database:ConnectionString"]
+
+        if String.IsNullOrWhiteSpace(connStr) then
+            None
+        elif not (String.IsNullOrWhiteSpace(dbType)) &&
+             not (dbType.Equals("Sqlite", StringComparison.OrdinalIgnoreCase)) then
+            logger.LogWarning("Database:Type={DbType} is not supported by DSPilot unified DB path resolver. Falling back to file path settings.", dbType)
+            None
+        else
+            try
+                let expandedConnStr = Environment.ExpandEnvironmentVariables(connStr)
+                let builder = DbConnectionStringBuilder()
+                builder.ConnectionString <- expandedConnStr
+
+                let tryGetValue key =
+                    let mutable value = null
+                    if builder.TryGetValue(key, &value) && not (isNull value) then
+                        Some(string value)
+                    else
+                        None
+
+                let dataSource =
+                    tryGetValue "Data Source"
+                    |> Option.orElseWith (fun () -> tryGetValue "DataSource")
+                    |> Option.orElseWith (fun () -> tryGetValue "Filename")
+
+                match dataSource with
+                | Some value when not (String.IsNullOrWhiteSpace(value)) ->
+                    value |> resolvePath |> Some
+                | _ ->
+                    None
+            with ex ->
+                logger.LogWarning(ex, "Failed to parse Database:ConnectionString. Falling back to file path settings.")
+                None
+
 
     /// Load database paths configuration (Unified mode only)
     let loadDatabasePaths (config: IConfiguration) (logger: ILogger) : DatabasePaths =
         logger.LogInformation("Unified database mode: All data stored in single plc.db with EV2 base schema + DSP extensions.")
 
-        // Unified mode: use single database path
-        let sharedPath = getPathFromConfig config "Database:SharedDbPath" "%APPDATA%/Dualsoft/DSPilot/plc.db"
-        let paths = { SharedDbPath = sharedPath }
+        let sharedPath =
+            tryGetPathFromConnectionString config logger
+            |> Option.orElseWith (fun () ->
+                tryGetPathFromConfig config "Database:SharedDbPath")
+            |> Option.defaultWith (fun () ->
+                invalidOp "Database path is not configured. Set Database:ConnectionString with Data Source=... or specify Database:SharedDbPath.")
 
-        // Create directory
+        let dspTablesEnabled =
+            match config.["DspTables:Enabled"] with
+            | null -> false
+            | value when String.IsNullOrWhiteSpace(value) -> false
+            | value -> Boolean.Parse(value)
+
+        let paths =
+            { SharedDbPath = sharedPath
+              DspTablesEnabled = dspTablesEnabled }
+
         ensureDirectoryExists paths.SharedDbPath
 
         paths
 
     /// Create SQLite connection string
     let createConnectionString (dbPath: string) =
-        sprintf "Data Source=%s" dbPath
+        sprintf "Data Source=%s;Mode=ReadWriteCreate;Default Timeout=20" dbPath
 
     /// Log database path information
     let logDatabasePaths (logger: ILogger) (paths: DatabasePaths) =
         logger.LogInformation("Database configuration:")
         logger.LogInformation("  Shared DB: {Path}", paths.SharedDbPath)
+        logger.LogInformation("  DSP Tables Enabled: {Enabled}", paths.DspTablesEnabled)
         logger.LogInformation("  Flow Table: {Table}", paths.GetFlowTableName())
         logger.LogInformation("  Call Table: {Table}", paths.GetCallTableName())

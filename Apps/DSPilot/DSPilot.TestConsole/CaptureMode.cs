@@ -229,14 +229,35 @@ public static class CaptureMode
 
     private static TagSpec[] CreateTagSpecs(List<PlcTagInfo> tags)
     {
-        return tags.Select(tag => new TagSpec(
-            name: tag.Name,
-            address: tag.Address,
-            dataType: ConvertToPlcDataType(tag.DataType),
-            walType: FSharpOption<WAL>.Some(WAL.Disk),
-            comment: FSharpOption<string>.Some("Auto-generated from AASX"),
-            plcValue: FSharpOption<PlcValue>.None
-        )).ToArray();
+        var duplicatedNames = tags
+            .GroupBy(tag => tag.Name)
+            .Where(group => !string.IsNullOrWhiteSpace(group.Key) && group.Count() > 1)
+            .ToDictionary(group => group.Key, group => group.Select(tag => tag.Address).OrderBy(address => address).ToArray());
+
+        foreach (var duplicate in duplicatedNames)
+        {
+            Console.WriteLine(
+                $"   ⚠️  Duplicate PLC tag name detected: '{duplicate.Key}' @ [{string.Join(", ", duplicate.Value)}] -> EV2 tag name will include address");
+        }
+
+        return tags.Select(tag =>
+        {
+            var originalName = string.IsNullOrWhiteSpace(tag.Name) ? tag.Address : tag.Name;
+            var isDuplicated = !string.IsNullOrWhiteSpace(tag.Name) && duplicatedNames.ContainsKey(tag.Name);
+            var ev2TagName = isDuplicated ? $"{originalName} [{tag.Address}]" : originalName;
+            var comment = isDuplicated
+                ? $"Auto-generated from AASX | OriginalName={originalName} | Address={tag.Address}"
+                : "Auto-generated from AASX";
+
+            return new TagSpec(
+                name: ev2TagName,
+                address: tag.Address,
+                dataType: ConvertToPlcDataType(tag.DataType),
+                walType: FSharpOption<WAL>.Some(WAL.Memory),
+                comment: FSharpOption<string>.Some(comment),
+                plcValue: FSharpOption<PlcValue>.None
+            );
+        }).ToArray();
     }
 
     private static PlcDataType ConvertToPlcDataType(string dataType)

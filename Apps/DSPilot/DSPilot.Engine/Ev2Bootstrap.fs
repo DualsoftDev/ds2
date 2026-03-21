@@ -32,6 +32,10 @@ module Ev2Bootstrap =
     /// DSPilot 확장 스키마 초기화 (dspFlow, dspCall)
     let private initializeDspSchemaAsync (paths: DatabasePaths) (logger: ILogger) : Task<unit> =
         task {
+            if not paths.DspTablesEnabled then
+                logger.LogInformation("DSP state tables are disabled. Skipping DSPilot extension schema creation.")
+                return ()
+
             logger.LogInformation("Initializing DSPilot extension schema")
 
             let dbPath = paths.SharedDbPath
@@ -124,6 +128,10 @@ module Ev2Bootstrap =
             logger.LogInformation("Starting EV2 Bootstrap Service")
 
             try
+                if not paths.DspTablesEnabled then
+                    logger.LogInformation("DSP state tables are disabled. Skipping EV2 bootstrap DSP steps.")
+                    return ()
+
                 // Step 1: Initialize EV2 base schema
                 do! initializeEv2SchemaAsync paths logger
 

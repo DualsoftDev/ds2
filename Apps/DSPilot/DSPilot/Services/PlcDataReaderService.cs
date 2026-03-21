@@ -15,6 +15,7 @@ public class PlcDataReaderService : BackgroundService
 {
     private readonly ILogger<PlcDataReaderService> _logger;
     private readonly IConfiguration _configuration;
+    private readonly IDatabasePathResolver _pathResolver;
     private readonly IFlowMetricsService _flowMetricsService;
     private readonly DspDbService _dspDbService;
     private readonly SignalTimelineBufferService _signalTimelineBuffer;
@@ -41,6 +42,7 @@ public class PlcDataReaderService : BackgroundService
     public PlcDataReaderService(
         ILogger<PlcDataReaderService> logger,
         IConfiguration configuration,
+        IDatabasePathResolver pathResolver,
         IFlowMetricsService flowMetricsService,
         DspDbService dspDbService,
         SignalTimelineBufferService signalTimelineBuffer,
@@ -52,6 +54,7 @@ public class PlcDataReaderService : BackgroundService
     {
         _logger = logger;
         _configuration = configuration;
+        _pathResolver = pathResolver;
         _flowMetricsService = flowMetricsService;
         _dspDbService = dspDbService;
         _signalTimelineBuffer = signalTimelineBuffer;
@@ -248,12 +251,7 @@ public class PlcDataReaderService : BackgroundService
 
     private async Task<bool> WaitForDatabaseCreationAsync(CancellationToken stoppingToken)
     {
-        var dbPath = _configuration["PlcDatabase:SourceDbPath"] ?? "sample/db/DsDB.sqlite3";
-        dbPath = Environment.ExpandEnvironmentVariables(dbPath);
-        dbPath = dbPath.Replace('/', Path.DirectorySeparatorChar);
-
-        if (!Path.IsPathRooted(dbPath))
-            dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, dbPath);
+        var dbPath = _pathResolver.GetPlcDbPath();
 
         _logger.LogInformation("Waiting for database file to be created: {DbPath}", dbPath);
 
