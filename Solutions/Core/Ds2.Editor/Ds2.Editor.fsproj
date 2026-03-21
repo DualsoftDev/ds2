@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="Core\EditorTypes.fs" />
+    <Compile Include="Commands\UndoRedoManager.fs" />
+    <Compile Include="Projection\ViewTypes.fs" />
+    <Compile Include="Editor\StoreEditorState.fs" />
+    <Compile Include="Editor\DsStore.Authoring.fs" />
+    <Compile Include="Geometry\ArrowPathCalculator.fs" />
+    <Compile Include="Projection\PropertyPanelValueSpec.fs" />
+    <Compile Include="Projection\TreeProjection.fs" />
+    <Compile Include="Projection\CanvasLayout\LayeringAndOrdering.fs" />
+    <Compile Include="Projection\CanvasLayout\Placement.fs" />
+    <Compile Include="Projection\CanvasLayout\Entry.fs" />
+    <Compile Include="Projection\CanvasProjection.fs" />
+    <Compile Include="Editor\EntityTabQueries.fs" />
+    <Compile Include="Queries\AddTargetQueries.fs" />
+    <Compile Include="Queries\EntityKindRules.fs" />
+    <Compile Include="Queries\SelectionQueries.fs" />
+    <Compile Include="Queries\ConnectionQueries.fs" />
+    <Compile Include="Store\DsStore.Log.fs" />
+    <Compile Include="Store\DsStore.Paste.fs" />
+    <Compile Include="Store\DsStore.Queries.fs" />
+    <Compile Include="Store\DsStore.Nodes.Remove.fs" />
+    <Compile Include="Store\DsStore.Nodes.Device.fs" />
+    <Compile Include="Store\DsStore.Nodes.fs" />
+    <Compile Include="Store\DsStore.Arrows.fs" />
+    <Compile Include="Store\DsStore.Panel.fs" />
+    <Compile Include="Store\DsStore.Panel.Api.fs" />
+    <Compile Include="Store\DsStore.Panel.Batch.fs" />
+    <Compile Include="Editor\ImportPlanApply.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\Ds2.Store\Ds2.Store.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="log4net" />
+  </ItemGroup>
+
+</Project>

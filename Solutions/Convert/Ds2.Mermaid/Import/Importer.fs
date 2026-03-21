@@ -3,7 +3,7 @@ namespace Ds2.Mermaid
 open System
 open System.IO
 open Ds2.Core
-open Ds2.UI.Core
+open Ds2.Store
 
 /// Mermaid 임포트 공개 진입점
 module MermaidImporter =
@@ -58,8 +58,8 @@ module MermaidImporter =
             DsQuery.trySystemIdOfWork parentId store
             |> Option.bind findProject
 
-    /// Mermaid 그래프를 DsStore에 임포트 (WithTransaction으로 Undo 1회 보장)
-    let importIntoStore (store: DsStore) (graph: MermaidGraph) (level: ImportLevel) (parentId: Guid) : Result<unit, string list> =
+    /// Mermaid 그래프를 현재 문서에 적용할 ImportPlan 생성
+    let buildImportPlan (store: DsStore) (graph: MermaidGraph) (level: ImportLevel) (parentId: Guid) : Result<ImportPlan, string list> =
         // 검증
         match MermaidAnalyzer.validate graph level with
         | Invalid errors -> Error errors
@@ -68,24 +68,19 @@ module MermaidImporter =
         let hasSubgraphs = not graph.Subgraphs.IsEmpty
         let projectId = resolveProjectId store level parentId
 
-        store.WithTransaction("Mermaid 임포트", fun () ->
-            match level with
-            | SystemLevel ->
-                MermaidMapper.mapToSystem store parentId graph |> ignore
-            | FlowLevel ->
-                match resolveSystemId store level parentId with
-                | Some systemId when hasSubgraphs ->
-                    MermaidMapper.mapToFlow store parentId systemId projectId graph |> ignore
-                | Some systemId ->
-                    MermaidMapper.mapToFlowFlat store parentId systemId graph |> ignore
-                | None ->
-                    failwith $"Flow({parentId})에서 System을 찾을 수 없습니다"
-            | WorkLevel ->
-                MermaidMapper.mapToWork store parentId projectId graph |> ignore
-        )
-
-        store.EmitRefreshAndHistory()
-        Ok ()
+        match level with
+        | SystemLevel ->
+            Ok (MermaidMapper.mapToSystem store parentId graph)
+        | FlowLevel ->
+            match resolveSystemId store level parentId with
+            | Some systemId when hasSubgraphs ->
+                Ok (MermaidMapper.mapToFlow store parentId systemId projectId graph)
+            | Some systemId ->
+                Ok (MermaidMapper.mapToFlowFlat parentId systemId graph)
+            | None ->
+                Error [ $"Flow({parentId})에서 System을 찾을 수 없습니다" ]
+        | WorkLevel ->
+            Ok (MermaidMapper.mapToWork store parentId projectId graph)
 
     /// Mermaid 파일을 프로젝트로 불러오기 (새 DsStore 생성 후 반환)
     let loadProjectFromFile (filePath: string) : Result<DsStore, string list> =
@@ -97,8 +92,11 @@ module MermaidImporter =
             Path.GetFileNameWithoutExtension(filePath)
 
         let newStore = DsStore()
-        let projectId = newStore.AddProject(projectName)
+        let project = Project(projectName)
+        newStore.DirectWrite(newStore.Projects, project)
 
-        match importIntoStore newStore graph SystemLevel projectId with
+        match buildImportPlan newStore graph SystemLevel project.Id with
         | Error errors -> Error errors
-        | Ok () -> Ok newStore
+        | Ok plan ->
+            ImportPlan.applyDirect newStore plan
+            Ok newStore

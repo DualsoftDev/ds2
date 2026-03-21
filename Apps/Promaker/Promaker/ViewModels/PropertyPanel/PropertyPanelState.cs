@@ -6,7 +6,8 @@ using System.Diagnostics.CodeAnalysis;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
@@ -109,7 +110,7 @@ public partial class PropertyPanelState : ObservableObject
             _originalWorkPeriodMs = LoadOptionalMsFromStore(selected.Id, Store.GetWorkPeriodMsOrNull);
             WorkPeriodMs = _originalWorkPeriodMs;
 
-            var workOpt = Ds2.UI.Core.DsQuery.getWork(selected.Id, Store);
+            var workOpt = Ds2.Store.DsQuery.getWork(selected.Id, Store);
             _originalWorkTokenRole = workOpt != null ? workOpt.Value.TokenRole : TokenRole.None;
             _suppressTokenRoleSync = true;
             IsTokenSource = _originalWorkTokenRole.HasFlag(TokenRole.Source);

@@ -3,7 +3,7 @@ namespace Ds2.Runtime.Sim.Engine
 open System
 open System.Threading
 open Ds2.Core
-open Ds2.UI.Core
+open Ds2.Store
 open Ds2.Runtime.Sim.Model
 open Ds2.Runtime.Sim.Engine.Core
 open Ds2.Runtime.Sim.Engine.Scheduler
@@ -294,7 +294,18 @@ type EventDrivenEngine(index: SimIndex) =
 
     member _.TimeIgnore
         with get() = timeIgnore
-        and set(i) = timeIgnore <- i
+        and set(i) =
+            let prev = timeIgnore
+            timeIgnore <- i
+            // 시뮬레이션 도중 TimeIgnore 켜면, 이미 스케줄된 Duration/Homing을 즉시 완료
+            if i && not prev && Volatile.Read(&status) = Running then
+                for wg in index.AllWorkGuids do
+                    match stateManager.GetWorkState(wg) with
+                    | Status4.Going when (SimIndex.findOrEmpty wg index.WorkCallGuids).IsEmpty ->
+                        scheduler.ScheduleNow(ScheduledEventType.DurationComplete wg, ScheduledEvent.PriorityDurationCheck) |> ignore
+                    | Status4.Homing ->
+                        scheduler.ScheduleNow(ScheduledEventType.HomingComplete wg, ScheduledEvent.PriorityStateChange) |> ignore
+                    | _ -> ()
 
     member _.InjectIOValue(apiCallGuid, value) =
         stateManager.SetIOValue(apiCallGuid, value)

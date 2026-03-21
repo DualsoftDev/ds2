@@ -1,7 +1,7 @@
 namespace Ds2.Runtime.Sim.Engine.Core
 
 open System
-open Ds2.UI.Core
+open Ds2.Store
 open Ds2.Core
 open Ds2.Runtime.Sim.Model
 

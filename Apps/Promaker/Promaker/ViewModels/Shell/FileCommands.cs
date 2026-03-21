@@ -3,7 +3,8 @@ using System.IO;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
 using Promaker.Dialogs;
@@ -54,6 +55,7 @@ public partial class MainViewModel
 
     private void CompleteOpen(string filePath, string kind)
     {
+        _store.ClearHistory();
         _currentFilePath = filePath;
         IsDirty = false;
         HasProject = true;
@@ -130,10 +132,10 @@ public partial class MainViewModel
                 () =>
                 {
                     var json = File.ReadAllText(fileName);
-                    if (Ds2.UI.Core.Compat.LegacyJsonImport.isLegacyJsonFormat(json))
+                    if (Ds2.Store.Compat.LegacyJsonImport.isLegacyJsonFormat(json))
                     {
                         var newStore = new DsStore();
-                        if (!Ds2.UI.Core.Compat.LegacyJsonImport.importLegacyJson(newStore, json))
+                        if (!Ds2.Store.Compat.LegacyJsonImport.importLegacyJson(newStore, json))
                         {
                             _dialogService.ShowWarning("레거시 JSON 불러오기에 실패했습니다.");
                             return;
