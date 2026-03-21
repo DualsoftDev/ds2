@@ -85,17 +85,17 @@
     justify-content: space-between;
     align-items: center;
     flex: 0 0 auto;
-    padding: 3cqmin 4cqmin;
+    padding: 3px 5px;
     background: color-mix(in srgb, var(--state-color) 12%, #f5f5f5);
-    border-top: clamp(3px, 3cqmin, 8px) solid var(--state-color);
+    border-top: 3px solid var(--state-color);
     border-bottom: 1px solid rgba(0,0,0,0.12);
-    gap: 2cqmin;
+    gap: 4px;
     overflow: hidden;
     box-sizing: border-box;
 }
 
 .fc-title {
-    font-size: clamp(0.6rem, 10cqmin, 1.5rem);
+    font-size: 0.85rem;
     font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
@@ -108,15 +108,15 @@
 
 .fc-badges {
     display: flex;
-    gap: 1cqmin;
+    gap: 2px;
     flex-shrink: 0;
     align-items: center;
 }
 
 .fc-badge {
-    padding: 1.5cqmin 2.5cqmin;
+    padding: 1px 4px;
     border-radius: 4px;
-    font-size: clamp(0.5rem, 7cqmin, 1.0rem);
+    font-size: 0.65rem;
     font-weight: 700;
     border: 1px solid;
     white-space: nowrap;
