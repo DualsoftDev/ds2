@@ -37,120 +37,13 @@ module DatabaseInitialization =
                 logger.LogInformation("DB Path: {DbPath}", dbPath)
             }
 
-        /// Initialize DSPilot extension schema (dspFlow, dspCall, dspCallIOEvent)
-        let private initializeDspSchemaAsync (paths: DatabasePaths) (logger: ILogger) : Task<unit> =
-            task {
-                logger.LogInformation("Initializing DSPilot extension schema")
-
-                let dbPath = paths.SharedDbPath
-                let connectionString = sprintf "Data Source=%s;" dbPath
-
-                use connection = new SqliteConnection(connectionString)
-                do! connection.OpenAsync()
-
-                // Create dspFlow table
-                do! executeSqlAsync connection """
-                    CREATE TABLE IF NOT EXISTS dspFlow (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        FlowName TEXT NOT NULL UNIQUE,
-                        MT INTEGER,
-                        WT INTEGER,
-                        CT INTEGER,
-                        State TEXT,
-                        MovingStartName TEXT,
-                        MovingEndName TEXT,
-                        CreatedAt TEXT NOT NULL DEFAULT (datetime('now')),
-                        UpdatedAt TEXT NOT NULL DEFAULT (datetime('now'))
-                    )"""
-
-                // Create dspCall table
-                do! executeSqlAsync connection """
-                    CREATE TABLE IF NOT EXISTS dspCall (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        CallName TEXT NOT NULL,
-                        ApiCall TEXT NOT NULL,
-                        WorkName TEXT NOT NULL,
-                        FlowName TEXT NOT NULL,
-                        Next TEXT,
-                        Prev TEXT,
-                        AutoPre TEXT,
-                        CommonPre TEXT,
-                        State TEXT NOT NULL DEFAULT 'Ready',
-                        ProgressRate REAL DEFAULT 0.0,
-                        PreviousGoingTime INTEGER,
-                        AverageGoingTime REAL,
-                        StdDevGoingTime REAL,
-                        GoingCount INTEGER DEFAULT 0,
-                        Device TEXT,
-                        ErrorText TEXT,
-                        CreatedAt TEXT NOT NULL DEFAULT (datetime('now')),
-                        UpdatedAt TEXT NOT NULL DEFAULT (datetime('now')),
-                        UNIQUE(CallName, FlowName, WorkName),
-                        FOREIGN KEY(FlowName) REFERENCES dspFlow(FlowName) ON DELETE CASCADE
-                    )"""
-
-                // Create dspCallIOEvent table
-                do! executeSqlAsync connection """
-                    CREATE TABLE IF NOT EXISTS dspCallIOEvent (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        FlowName TEXT NOT NULL,
-                        WorkName TEXT NOT NULL,
-                        CallName TEXT NOT NULL,
-                        EventType TEXT NOT NULL,
-                        IsInTag INTEGER NOT NULL,
-                        Timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-                        GoingTime INTEGER,
-                        TagName TEXT,
-                        TagAddress TEXT,
-                        CreatedAt TEXT NOT NULL DEFAULT (datetime('now'))
-                    )"""
-
-                // Create dspFlow indexes
-                do! executeSqlAsync connection """
-                    CREATE INDEX IF NOT EXISTS idx_dspFlow_FlowName
-                    ON dspFlow(FlowName)"""
-
-                do! executeSqlAsync connection """
-                    CREATE INDEX IF NOT EXISTS idx_dspFlow_State
-                    ON dspFlow(State)"""
-
-                // Create dspCall indexes
-                do! executeSqlAsync connection """
-                    CREATE INDEX IF NOT EXISTS idx_dspCall_FlowName
-                    ON dspCall(FlowName)"""
-
-                do! executeSqlAsync connection """
-                    CREATE INDEX IF NOT EXISTS idx_dspCall_CallName
-                    ON dspCall(CallName)"""
-
-                do! executeSqlAsync connection """
-                    CREATE INDEX IF NOT EXISTS idx_dspCall_State
-                    ON dspCall(State)"""
-
-                // Create dspCallIOEvent indexes
-                do! executeSqlAsync connection """
-                    CREATE INDEX IF NOT EXISTS idx_dspCallIOEvent_Timestamp
-                    ON dspCallIOEvent(Timestamp)"""
-
-                do! executeSqlAsync connection """
-                    CREATE INDEX IF NOT EXISTS idx_dspCallIOEvent_CallName
-                    ON dspCallIOEvent(CallName)"""
-
-                logger.LogInformation("DSPilot schema initialized at {DbPath} (Unified mode)", dbPath)
-            }
-
+  
         /// Execute full bootstrap process
         let startAsync (paths: DatabasePaths) (logger: ILogger) : Task<unit> =
             task {
                 logger.LogInformation("Starting EV2 Bootstrap Service")
 
                 try
-                    // Step 1: Initialize EV2 base schema
-                    do! initializeEv2SchemaAsync paths logger
-
-                    // Step 2: Initialize DSPilot extension schema
-                    do! initializeDspSchemaAsync paths logger
-
                     logger.LogInformation("EV2 Bootstrap completed successfully")
                     return ()
                 with ex ->
@@ -201,6 +94,7 @@ module DatabaseInitialization =
 
                         let callEntity =
                             { Id = 0
+                              CallId = call.Id  // AASX Call.Id
                               CallName = call.Name
                               ApiCall = apiCallName
                               WorkName = flow.Name  // Use Flow name instead of Work name

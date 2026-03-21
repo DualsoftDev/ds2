@@ -25,7 +25,8 @@ type DapperFlowDto =
 /// Dapper Call DTO (converts Option types to Nullable)
 [<CLIMutable>]
 type DapperCallDto =
-    { CallName: string
+    { CallId: Guid
+      CallName: string
       ApiCall: string
       WorkName: string
       FlowName: string
@@ -43,7 +44,8 @@ type DapperCallDto =
       ErrorText: string }
 
     static member FromEntity(entity: DspCallEntity) =
-        { CallName = entity.CallName
+        { CallId = entity.CallId
+          CallName = entity.CallName
           ApiCall = entity.ApiCall
           WorkName = entity.WorkName
           FlowName = entity.FlowName
@@ -69,7 +71,8 @@ type CallInfoDto =
 /// Call statistics DTO
 [<CLIMutable>]
 type CallStatisticsDto =
-    { CallName: string
+    { CallId: Guid
+      CallName: string
       FlowName: string
       WorkName: string
       AverageGoingTime: float

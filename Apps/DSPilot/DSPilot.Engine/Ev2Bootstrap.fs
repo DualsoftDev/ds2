@@ -29,7 +29,7 @@ module Ev2Bootstrap =
             logger.LogInformation("DB Path: {DbPath}", dbPath)
         }
 
-    /// DSPilot 확장 스키마 초기화 (dspFlow, dspCall, dspCallIOEvent)
+    /// DSPilot 확장 스키마 초기화 (dspFlow, dspCall)
     let private initializeDspSchemaAsync (paths: DatabasePaths) (logger: ILogger) : Task<unit> =
         task {
             logger.LogInformation("Initializing DSPilot extension schema")
@@ -39,6 +39,12 @@ module Ev2Bootstrap =
 
             use connection = new SqliteConnection(connectionString)
             do! connection.OpenAsync()
+
+            // Drop existing DSP tables to apply schema changes
+            // Legacy cleanup: dspCallIOEvent is no longer used.
+            do! executeSqlAsync connection "DROP TABLE IF EXISTS dspCallIOEvent"
+            do! executeSqlAsync connection "DROP TABLE IF EXISTS dspCall"
+            do! executeSqlAsync connection "DROP TABLE IF EXISTS dspFlow"
 
             // dspFlow 테이블 생성
             do! executeSqlAsync connection """
@@ -59,6 +65,7 @@ module Ev2Bootstrap =
             do! executeSqlAsync connection """
                 CREATE TABLE IF NOT EXISTS dspCall (
                     Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    CallId TEXT NOT NULL UNIQUE,
                     CallName TEXT NOT NULL,
                     ApiCall TEXT NOT NULL,
                     WorkName TEXT NOT NULL,
@@ -79,22 +86,6 @@ module Ev2Bootstrap =
                     UpdatedAt TEXT NOT NULL DEFAULT (datetime('now')),
                     UNIQUE(CallName, FlowName, WorkName),
                     FOREIGN KEY(FlowName) REFERENCES dspFlow(FlowName) ON DELETE CASCADE
-                )"""
-
-            // dspCallIOEvent 테이블 생성
-            do! executeSqlAsync connection """
-                CREATE TABLE IF NOT EXISTS dspCallIOEvent (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    FlowName TEXT NOT NULL,
-                    WorkName TEXT NOT NULL,
-                    CallName TEXT NOT NULL,
-                    EventType TEXT NOT NULL,
-                    IsInTag INTEGER NOT NULL,
-                    Timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-                    GoingTime INTEGER,
-                    TagName TEXT,
-                    TagAddress TEXT,
-                    CreatedAt TEXT NOT NULL DEFAULT (datetime('now'))
                 )"""
 
             // dspFlow 인덱스 생성
@@ -119,14 +110,10 @@ module Ev2Bootstrap =
                 CREATE INDEX IF NOT EXISTS idx_dspCall_State
                 ON dspCall(State)"""
 
-            // dspCallIOEvent 인덱스 생성
+            // dspCall CallId 인덱스 생성
             do! executeSqlAsync connection """
-                CREATE INDEX IF NOT EXISTS idx_dspCallIOEvent_Timestamp
-                ON dspCallIOEvent(Timestamp)"""
-
-            do! executeSqlAsync connection """
-                CREATE INDEX IF NOT EXISTS idx_dspCallIOEvent_CallName
-                ON dspCallIOEvent(CallName)"""
+                CREATE INDEX IF NOT EXISTS idx_dspCall_CallId
+                ON dspCall(CallId)"""
 
             logger.LogInformation("DSPilot schema initialized at {DbPath} (Unified mode)", dbPath)
         }

@@ -23,7 +23,6 @@ type HeatmapMetric =
     | AverageTime
     | StdDeviation
     | CoefficientOfVariation
-    | PerformanceScore
 
 /// Trend 데이터 포인트
 type TrendPoint = {

@@ -127,10 +127,13 @@ module DspRepository =
 
                     // Call 삽입
                     let sql = sprintf """
-                        INSERT INTO %s (CallName, ApiCall, WorkName, FlowName, Next, Prev, AutoPre, CommonPre, State, ProgressRate, Device)
-                        VALUES (@CallName, @ApiCall, @WorkName, @FlowName, @Next, @Prev, @AutoPre, @CommonPre, @State, @ProgressRate, @Device)
-                        ON CONFLICT (CallName, FlowName, WorkName) DO UPDATE SET
+                        INSERT INTO %s (CallId, CallName, ApiCall, WorkName, FlowName, Next, Prev, AutoPre, CommonPre, State, ProgressRate, Device)
+                        VALUES (@CallId, @CallName, @ApiCall, @WorkName, @FlowName, @Next, @Prev, @AutoPre, @CommonPre, @State, @ProgressRate, @Device)
+                        ON CONFLICT (CallId) DO UPDATE SET
+                            CallName = excluded.CallName,
                             ApiCall = excluded.ApiCall,
+                            WorkName = excluded.WorkName,
+                            FlowName = excluded.FlowName,
                             Next = excluded.Next,
                             Prev = excluded.Prev,
                             AutoPre = excluded.AutoPre,
@@ -420,6 +423,7 @@ module DspRepository =
             else
                 let sql = sprintf """
                     SELECT
+                        CallId,
                         CallName,
                         FlowName,
                         WorkName,
@@ -434,4 +438,146 @@ module DspRepository =
 
                 let! results = connection.QueryAsync<CallStatisticsDto>(sql)
                 return results |> Seq.toList
+        }
+
+    // ===== CallId 기반 메서드 (New Primary API) =====
+
+    /// Call 상태 조회 (CallId 기반)
+    let getCallStateByIdAsync (paths: DatabasePaths) (logger: ILogger) (callId: Guid) : Task<string> =
+        task {
+            use connection = createConnection (DatabaseConfig.createConnectionString paths.SharedDbPath)
+            do! connection.OpenAsync()
+
+            let flowTable = paths.GetFlowTableName()
+            let callTable = paths.GetCallTableName()
+
+            let! exists = tablesExistAsync connection flowTable callTable
+            if not exists then
+                logger.LogDebug("Tables do not exist yet, returning default state")
+                return "Ready"
+            else
+                let sql = sprintf "SELECT State FROM %s WHERE CallId = @CallId LIMIT 1" callTable
+                let! state = connection.QueryFirstOrDefaultAsync<string>(sql, {| CallId = callId |})
+                return if isNull state then "Ready" else state
+        }
+
+    /// Call 정보 조회 (CallId 기반 - WorkName, FlowName 반환)
+    let getCallInfoByIdAsync (paths: DatabasePaths) (logger: ILogger) (callId: Guid) : Task<(string * string) option> =
+        task {
+            use connection = createConnection (DatabaseConfig.createConnectionString paths.SharedDbPath)
+            do! connection.OpenAsync()
+
+            let flowTable = paths.GetFlowTableName()
+            let callTable = paths.GetCallTableName()
+
+            let! exists = tablesExistAsync connection flowTable callTable
+            if not exists then
+                logger.LogDebug("Tables do not exist yet")
+                return None
+            else
+                let sql = sprintf "SELECT WorkName, FlowName FROM %s WHERE CallId = @CallId LIMIT 1" callTable
+                let! result = connection.QueryFirstOrDefaultAsync<CallInfoDto>(sql, {| CallId = callId |})
+                if isNull (box result) then
+                    return None
+                else
+                    return Some (result.WorkName, result.FlowName)
+        }
+
+    /// Call 전체 데이터 조회 (CallId 기반)
+    let getCallByIdAsync (paths: DatabasePaths) (logger: ILogger) (callId: Guid) : Task<DspCallEntity option> =
+        task {
+            use connection = createConnection (DatabaseConfig.createConnectionString paths.SharedDbPath)
+            do! connection.OpenAsync()
+
+            let flowTable = paths.GetFlowTableName()
+            let callTable = paths.GetCallTableName()
+
+            let! exists = tablesExistAsync connection flowTable callTable
+            if not exists then
+                logger.LogDebug("Tables do not exist yet")
+                return None
+            else
+                let sql = sprintf """
+                    SELECT CallId, CallName, ApiCall, WorkName, FlowName, Next, Prev, AutoPre, CommonPre,
+                           State, ProgressRate, Device, PreviousGoingTime, AverageGoingTime, StdDevGoingTime, GoingCount
+                    FROM %s
+                    WHERE CallId = @CallId
+                    LIMIT 1""" callTable
+
+                let! result = connection.QueryFirstOrDefaultAsync<DspCallEntity>(sql, {| CallId = callId |})
+                if isNull (box result) then
+                    return None
+                else
+                    return Some result
+        }
+
+    /// Call 상태 업데이트 (CallId 기반)
+    let updateCallStateByIdAsync (paths: DatabasePaths) (logger: ILogger) (callId: Guid) (state: string) : Task<bool> =
+        task {
+            use connection = createConnection (DatabaseConfig.createConnectionString paths.SharedDbPath)
+            do! connection.OpenAsync()
+
+            let flowTable = paths.GetFlowTableName()
+            let callTable = paths.GetCallTableName()
+
+            let! exists = tablesExistAsync connection flowTable callTable
+            if not exists then
+                logger.LogDebug("Tables do not exist yet, skipping update")
+                return false
+            else
+                let sql = sprintf """
+                    UPDATE %s
+                    SET State = @State,
+                        UpdatedAt = datetime('now')
+                    WHERE CallId = @CallId""" callTable
+
+                let! result = connection.ExecuteAsync(sql, {| State = state; CallId = callId |})
+                return result > 0
+        }
+
+    /// Call 상태 및 통계 업데이트 (CallId 기반, Going → Finish 시)
+    let updateCallWithStatisticsByIdAsync
+        (paths: DatabasePaths)
+        (logger: ILogger)
+        (callId: Guid)
+        (state: string)
+        (previousGoingTime: int)
+        (averageGoingTime: float)
+        (stdDevGoingTime: float) : Task<bool> =
+        task {
+            use connection = createConnection (DatabaseConfig.createConnectionString paths.SharedDbPath)
+            do! connection.OpenAsync()
+
+            let flowTable = paths.GetFlowTableName()
+            let callTable = paths.GetCallTableName()
+
+            let! exists = tablesExistAsync connection flowTable callTable
+            if not exists then
+                logger.LogDebug("Tables do not exist yet, skipping update")
+                return false
+            else
+                let sql = sprintf """
+                    UPDATE %s
+                    SET State = @State,
+                        PreviousGoingTime = @PreviousGoingTime,
+                        AverageGoingTime = @AverageGoingTime,
+                        StdDevGoingTime = @StdDevGoingTime,
+                        GoingCount = GoingCount + 1,
+                        UpdatedAt = datetime('now')
+                    WHERE CallId = @CallId""" callTable
+
+                let! result = connection.ExecuteAsync(sql, {|
+                    State = state
+                    PreviousGoingTime = previousGoingTime
+                    AverageGoingTime = averageGoingTime
+                    StdDevGoingTime = stdDevGoingTime
+                    CallId = callId
+                |})
+
+                if result > 0 then
+                    logger.LogDebug(
+                        "Updated Call (CallId: {CallId}): State={State}, GoingTime={Time}ms, Avg={Avg:F0}ms, StdDev={StdDev:F0}ms",
+                        callId, state, previousGoingTime, averageGoingTime, stdDevGoingTime)
+
+                return result > 0
         }

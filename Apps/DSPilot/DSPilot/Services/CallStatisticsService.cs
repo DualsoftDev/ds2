@@ -1,5 +1,4 @@
 using DSPilot.Engine;
-using DSPilot.Models;
 using DSPilot.Repositories;
 
 namespace DSPilot.Services;
@@ -14,8 +13,8 @@ public class CallStatisticsService
     private readonly RuntimeStatisticsTrackerMutable _tracker;
     private volatile bool _isDisposing = false;
 
-    // CallName → DB에서 로드한 기존 GoingCount (캐시)
-    private readonly Dictionary<string, int> _baseCountCache = new();
+    // CallId → DB에서 로드한 기존 GoingCount (캐시)
+    private readonly Dictionary<Guid, int> _baseCountCache = new();
 
     public CallStatisticsService(
         ILogger<CallStatisticsService> logger,
@@ -37,61 +36,60 @@ public class CallStatisticsService
     /// <summary>
     /// Going 상태 시작 기록
     /// </summary>
-    public async Task RecordGoingStartAsync(string callName)
+    /// <param name="callId">Call 고유 식별자</param>
+    /// <param name="callName">Call 이름 (F# tracker 키용, 로깅용)</param>
+    public async Task RecordGoingStartAsync(Guid callId, string callName)
     {
         // DB에서 기존 GoingCount 로드 (처음 한 번만, 캐시 사용)
         int baseCount = 0;
-        if (!_baseCountCache.ContainsKey(callName))
+        if (!_baseCountCache.ContainsKey(callId))
         {
-            baseCount = await LoadBaseCountAsync(callName);
-            _baseCountCache[callName] = baseCount;
+            baseCount = await LoadBaseCountAsync(callId, callName);
+            _baseCountCache[callId] = baseCount;
         }
         else
         {
-            baseCount = _baseCountCache[callName];
+            baseCount = _baseCountCache[callId];
         }
 
-        // F# RuntimeStatisticsTracker 호출
+        // F# RuntimeStatisticsTracker 호출 (callName을 키로 사용)
         _tracker.RecordStart(callName, baseCount);
-        _logger.LogDebug("Call '{CallName}': Going started", callName);
+        _logger.LogDebug("Call '{CallName}' (ID: {CallId}): Going started", callName, callId);
     }
 
-    private async Task<int> LoadBaseCountAsync(string callName)
+    private async Task<int> LoadBaseCountAsync(Guid callId, string callName)
     {
         // Check if service is disposing
         if (_isDisposing)
         {
-            _logger.LogDebug("Service is disposing, using default GoingCount for '{CallName}'", callName);
+            _logger.LogDebug("Service is disposing, using default GoingCount for '{CallName}' (ID: {CallId})", callName, callId);
             return 0;
         }
 
         try
         {
-            var callInfo = await _dspRepository.GetCallInfoAsync(callName);
-            if (callInfo != null)
+            var callData = await _dspRepository.GetCallByIdAsync(callId);
+            if (callData != null)
             {
-                var (workName, flowName) = callInfo.Value;
-                var callKey = new DSPilot.Models.CallKey(flowName, callName, workName);
-                var callData = await _dspRepository.GetCallByKeyAsync(callKey);
-                int count = callData?.GoingCount ?? 0;
-                _logger.LogDebug("Call '{CallName}': Loaded base GoingCount = {Count}", callName, count);
+                int count = callData.GoingCount;
+                _logger.LogDebug("Call '{CallName}' (ID: {CallId}): Loaded base GoingCount = {Count}", callName, callId, count);
                 return count;
             }
             else
             {
-                _logger.LogWarning("Call '{CallName}': Not found in database, defaulting GoingCount to 0", callName);
+                _logger.LogWarning("Call '{CallName}' (ID: {CallId}): Not found in database, defaulting GoingCount to 0", callName, callId);
                 return 0;
             }
         }
         catch (ObjectDisposedException)
         {
-            _logger.LogDebug("Repository disposed, using default GoingCount for '{CallName}'", callName);
+            _logger.LogDebug("Repository disposed, using default GoingCount for '{CallName}' (ID: {CallId})", callName, callId);
             _isDisposing = true;
             return 0;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to load base GoingCount for Call '{CallName}', defaulting to 0", callName);
+            _logger.LogWarning(ex, "Failed to load base GoingCount for Call '{CallName}' (ID: {CallId}), defaulting to 0", callName, callId);
             return 0;
         }
     }
@@ -99,12 +97,13 @@ public class CallStatisticsService
     /// <summary>
     /// Going 종료 시 시간 계산 및 통계 업데이트 (F# RuntimeStatistics 사용)
     /// </summary>
+    /// <param name="callName">Call 이름 (F# tracker 키용)</param>
     /// <returns>(시작 시간, 종료 시간, Going 시간, 평균, 표준편차, 누적 횟수)</returns>
     public (DateTime? StartTime, DateTime FinishTime, int GoingTime, double Average, double StdDev, int GoingCount) RecordGoingFinish(string callName)
     {
         var finishTime = DateTime.Now;
 
-        // F# RuntimeStatisticsTracker 호출
+        // F# RuntimeStatisticsTracker 호출 (callName을 키로 사용)
         var stats = _tracker.RecordFinish(callName);
 
         if (stats == null)

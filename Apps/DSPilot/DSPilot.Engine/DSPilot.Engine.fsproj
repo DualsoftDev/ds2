@@ -22,6 +22,7 @@
     <!-- Tracking & State Management -->
     <Compile Include="Tracking/TagStateTracker.fs" />
     <Compile Include="Tracking/StateTransition.fs" />
+    <Compile Include="Tracking/PlcToCallMapper.fs" />
 
     <!-- Statistics -->
     <Compile Include="Statistics/Statistics.fs" />
