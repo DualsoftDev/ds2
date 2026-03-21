@@ -2,7 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 
 namespace Promaker.Dialogs;
 

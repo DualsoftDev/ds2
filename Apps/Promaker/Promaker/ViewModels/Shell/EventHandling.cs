@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
@@ -9,7 +10,7 @@ public partial class MainViewModel
 {
     private void WireEvents()
     {
-        var observable = (IObservable<EditorEvent>)_store.OnEvent;
+        var observable = (IObservable<EditorEvent>)_store.ObserveEvents();
         _eventSubscription?.Dispose();
         _eventSubscription = observable.Subscribe(new ActionObserver<EditorEvent>(
             evt => _dispatcher.Invoke(() =>

@@ -3,7 +3,7 @@ namespace Ds2.CSV
 open System
 open System.Collections.Generic
 open Ds2.Core
-open Ds2.UI.Core
+open Ds2.Store
 
 module internal CsvMapper =
 
@@ -32,7 +32,8 @@ module internal CsvMapper =
                 created
         bucket.Add(call, callLabel, inName, inAddress, outName, outAddress)
 
-    let mapToSystem (store: DsStore) (projectId: Guid) (systemId: Guid) (document: CsvDocument) =
+    let mapToSystemPlan (store: DsStore) (projectId: Guid) (systemId: Guid) (document: CsvDocument) : ImportPlan =
+        let operations = ResizeArray<ImportPlanOperation>()
         let flows = Dictionary<string, Flow>()
         let works = Dictionary<Guid * string, Work>()
         let callsByFlow = Dictionary<string, ResizeArray<Call * string * string option * string option * string option * string option>>()
@@ -43,7 +44,7 @@ module internal CsvMapper =
                 | true, existing -> existing
                 | false, _ ->
                     let created = Flow(entry.FlowName, systemId)
-                    store.TrackAdd(store.Flows, created)
+                    operations.Add(AddFlow created)
                     flows.[entry.FlowName] <- created
                     created
 
@@ -53,12 +54,12 @@ module internal CsvMapper =
                 | true, existing -> existing
                 | false, _ ->
                     let created = Work(entry.WorkName, flow.Id)
-                    store.TrackAdd(store.Works, created)
+                    operations.Add(AddWork created)
                     works.[workKey] <- created
                     created
 
             let call = Call(entry.DeviceAlias, entry.ApiName, work.Id)
-            store.TrackAdd(store.Calls, call)
+            operations.Add(AddCall call)
 
             let callLabel = $"{call.DevicesAlias}.{call.ApiName}"
             addBucketItem callsByFlow entry.FlowName call callLabel entry.InName entry.InAddress entry.OutName entry.OutAddress
@@ -69,19 +70,21 @@ module internal CsvMapper =
                 |> Seq.map (fun (call, label, _, _, _, _) -> call, label)
                 |> Seq.toList
 
-            DirectDeviceOps.linkCallsToDevices store projectId flowName linkedCalls
+            ImportPlanDeviceOps.linkCallsToDevices store projectId flowName linkedCalls operations
 
             for call, _, inName, inAddress, outName, outAddress in calls do
                 if call.ApiCalls.Count > 0 && (inName.IsSome || inAddress.IsSome || outName.IsSome || outAddress.IsSome) then
                     let apiCall = call.ApiCalls.[0]
-                    store.TrackMutate(store.ApiCalls, apiCall.Id, fun current ->
-                        match inName, inAddress with
-                        | Some name, Some address -> current.InTag <- Some(IOTag(name, address, ""))
-                        | None, Some address -> current.InTag <- Some(IOTag("In", address, ""))
-                        | Some _, None -> ()
-                        | None, None -> ()
-                        match outName, outAddress with
-                        | Some name, Some address -> current.OutTag <- Some(IOTag(name, address, ""))
-                        | None, Some address -> current.OutTag <- Some(IOTag("Out", address, ""))
-                        | Some _, None -> ()
-                        | None, None -> ())
+                    match inName, inAddress with
+                    | Some name, Some address -> apiCall.InTag <- Some(IOTag(name, address, ""))
+                    | None, Some address -> apiCall.InTag <- Some(IOTag("In", address, ""))
+                    | Some _, None -> ()
+                    | None, None -> ()
+
+                    match outName, outAddress with
+                    | Some name, Some address -> apiCall.OutTag <- Some(IOTag(name, address, ""))
+                    | None, Some address -> apiCall.OutTag <- Some(IOTag("Out", address, ""))
+                    | Some _, None -> ()
+                    | None, None -> ()
+
+        ImportPlan.ofSeq operations

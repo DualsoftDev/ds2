@@ -5,7 +5,8 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Media;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using Promaker.ViewModels;
 
 namespace Promaker.Dialogs;

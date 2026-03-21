@@ -6,7 +6,7 @@ open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxFileIO
-open Ds2.UI.Core
+open Ds2.Store
 
 module internal AasxImportGraph =
 

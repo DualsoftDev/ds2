@@ -8,8 +8,8 @@ open AasCore.Aas3_0
 open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
-open Ds2.UI.Core
-open Ds2.UI.Core.Compat
+open Ds2.Store
+open Ds2.Store.Compat
 
 module LegacyImportGraph =
 
@@ -17,7 +17,7 @@ module LegacyImportGraph =
 
     let private log = LogManager.GetLogger("Ds2.Aasx.Compat")
 
-    // ── 공유 헬퍼 재사용 (Ds2.UI.Core.Compat.LegacyJsonImport) ──────────────
+    // ── 공유 헬퍼 재사용 (Ds2.Store.Compat.LegacyJsonImport) ──────────────
 
     let private tryParseGuid = LegacyJsonImport.tryParseGuid
     let parseCallName = LegacyJsonImport.parseCallName

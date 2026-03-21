@@ -32,13 +32,13 @@ module JsonSerializationTests =
         project.ActiveSystemIds.Add(system1.Id)
         project.ActiveSystemIds.Add(system2.Id)
 
-        let store = Ds2.UI.Core.DsStore.empty()
+        let store = Ds2.Store.DsStore.empty()
         store.Projects.[project.Id] <- project
         store.Systems.[system1.Id] <- system1
         store.Systems.[system2.Id] <- system2
 
         let json = JsonConverter.serialize store
-        let deserialized = JsonConverter.deserialize<Ds2.UI.Core.DsStore> json
+        let deserialized = JsonConverter.deserialize<Ds2.Store.DsStore> json
 
         Assert.Equal(1, deserialized.ProjectsReadOnly.Count)
         Assert.Equal(2, deserialized.SystemsReadOnly.Count)
@@ -56,14 +56,14 @@ module FileSerializationTests =
         try
             // Arrange
             let project = Project("FileTestProject")
-            let store = Ds2.UI.Core.DsStore.empty()
+            let store = Ds2.Store.DsStore.empty()
             store.Projects.[project.Id] <- project
 
             // Act
             let json = JsonConverter.serialize store
             File.WriteAllText(filePath, json)
             let loadedJson = File.ReadAllText(filePath)
-            let loadedStore = JsonConverter.deserialize<Ds2.UI.Core.DsStore> loadedJson
+            let loadedStore = JsonConverter.deserialize<Ds2.Store.DsStore> loadedJson
 
             // Assert
             Assert.Single(loadedStore.ProjectsReadOnly) |> ignore
@@ -78,7 +78,8 @@ module FileSerializationTests =
 module AasxRoundTripTests =
 
     open AasCore.Aas3_0
-    open Ds2.UI.Core
+    open Ds2.Store
+    open Ds2.Editor
     open Ds2.Aasx.AasxSemantics
 
     let private removeFlowGuidProperties (env: Environment) =
@@ -283,5 +284,4 @@ module AasxRoundTripTests =
             Assert.Equal("Sonata", project2.TokenSpecs[1].Label)
         finally
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
-
 

@@ -5,7 +5,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using Promaker.ViewModels;
 
 namespace Promaker.Controls;

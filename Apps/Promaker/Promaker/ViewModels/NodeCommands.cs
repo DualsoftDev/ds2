@@ -4,7 +4,8 @@ using System.Linq;
 using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
@@ -299,7 +300,7 @@ public partial class MainViewModel
     private void PasteFlowsWithRename((EntityKind EntityType, Guid EntityId) target)
     {
         var pastedIds = new List<Guid>();
-        var targetSystemIdOpt = EntityHierarchyQueries.resolveTarget(
+        var targetSystemIdOpt = StoreHierarchyQueries.resolveTarget(
             _store, EntityKind.System, target.EntityType, target.EntityId);
 
         foreach (var key in _clipboardSelection)
@@ -332,7 +333,7 @@ public partial class MainViewModel
         if (Canvas.ActiveTab is not { } tab)
             return null;
 
-        return (EntityHierarchyQueries.entityKindForTabKind(tab.Kind), tab.RootId);
+        return (EntityTabQueries.entityKindForTabKind(tab.Kind), tab.RootId);
     }
 
     private void ApplyPasteSelection(IReadOnlyCollection<Guid> pastedIds, string statusText)
