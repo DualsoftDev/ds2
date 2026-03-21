@@ -1,6 +1,7 @@
-module Ds2.Editor.TreeProjection
+module Ds2.Editor.EditorTreeProjection
 
 open System
+open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
 
@@ -127,6 +128,7 @@ let private buildDeviceTree (store: DsStore) : TreeNodeInfo list =
         ParentId = None
         Children = deviceSystemNodes } ]
 
+[<CompiledName("BuildTrees")>]
 let buildTrees (store: DsStore) : TreeNodeInfo list * TreeNodeInfo list =
     let controlTree =
         DsQuery.allProjects store

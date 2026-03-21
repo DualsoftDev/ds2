@@ -1,6 +1,7 @@
-module Ds2.Editor.CanvasProjection
+module Ds2.Editor.EditorCanvasProjection
 
 open System
+open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
 
@@ -92,6 +93,7 @@ let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
 
         { Nodes = nodes; Arrows = arrows }
 
+[<CompiledName("CanvasContentForTab")>]
 let canvasContentForTab (store: DsStore) (tabKind: TabKind) (rootId: Guid) : CanvasContent =
     match tabKind with
     | TabKind.System -> canvasContentForSystemWorks store rootId

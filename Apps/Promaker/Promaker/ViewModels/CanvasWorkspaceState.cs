@@ -78,7 +78,7 @@ public partial class CanvasWorkspaceState : ObservableObject
     public void OpenCanvasTab(Guid entityId, EntityKind entityType, bool expandTree = false)
     {
         if (!_host.TryRef(
-                () => Store.TryOpenTabForEntityOrNull(entityType, entityId),
+                () => EditorNavigation.TryOpenTabForEntityOrNull(Store, entityType, entityId),
                 out var info))
             return;
 
@@ -90,7 +90,7 @@ public partial class CanvasWorkspaceState : ObservableObject
     public void OpenParentCanvasAndFocusNode(Guid entityId, EntityKind entityType, double? zoomOverride = null)
     {
         if (!_host.TryRef(
-                () => Store.TryOpenParentTabOrNull(entityType, entityId),
+                () => EditorNavigation.TryOpenParentTabOrNull(Store, entityType, entityId),
                 out var info))
             return;
 
@@ -208,7 +208,7 @@ public partial class CanvasWorkspaceState : ObservableObject
         }
 
         if (!_host.TryRef(
-                () => Store.CanvasContentForTab(ActiveTab.Kind, ActiveTab.RootId),
+                () => EditorCanvasProjection.CanvasContentForTab(Store, ActiveTab.Kind, ActiveTab.RootId),
                 out var content,
                 statusOverride: "[ERROR] Failed to refresh canvas content."))
             return;
@@ -237,7 +237,7 @@ public partial class CanvasWorkspaceState : ObservableObject
     public string? ResolveTabTitle(CanvasTab tab)
     {
         if (!_host.TryFunc(
-                () => Store.TabTitleOrNull(tab.Kind, tab.RootId),
+                () => EditorNavigation.TabTitleOrNull(Store, tab.Kind, tab.RootId),
                 out string? title,
                 fallback: null))
             return null;
@@ -269,7 +269,7 @@ public partial class CanvasWorkspaceState : ObservableObject
             return;
 
         if (!_host.TryRef(
-                () => Store.FlowIdsForTab(ActiveTab.Kind, ActiveTab.RootId),
+                () => EditorNavigation.FlowIdsForTab(Store, ActiveTab.Kind, ActiveTab.RootId),
                 out var flowIds,
                 statusOverride: "[ERROR] Failed to resolve flow ids for canvas."))
             return;
@@ -280,7 +280,7 @@ public partial class CanvasWorkspaceState : ObservableObject
 
     private void ApplyArrowPathsFromFlow(Guid flowId)
     {
-        if (!_host.TryRef(() => Store.GetFlowArrowPaths(flowId), out var paths))
+        if (!_host.TryRef(() => ArrowPathCalculator.ComputeFlowArrowPaths(Store, flowId), out var paths))
             return;
 
         foreach (var arrow in CanvasArrows)

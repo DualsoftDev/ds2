@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using System.Windows.Shapes;
 using Promaker.Controls;
 using Promaker.ViewModels;
@@ -21,19 +22,12 @@ public sealed class MainToolbarVisualTests
             var vm = new MainViewModel();
             vm.ShowToolsRibbonGroupCommand.Execute(null);
 
-            var toolbar = new MainToolbar
-            {
-                DataContext = vm
-            };
+            var toolbar = CreateToolbar(vm);
 
-            toolbar.Measure(new Size(1200, 200));
-            toolbar.Arrange(new Rect(0, 0, 1200, 200));
-            toolbar.UpdateLayout();
-
-            var toolsButton = Assert.IsType<Button>(toolbar.FindName("ToolsRibbonGroupButton"));
-            var toolsContent = Assert.IsType<WrapPanel>(toolbar.FindName("ToolsRibbonContentPanel"));
-            var dataToggle = Assert.IsType<ToggleButton>(toolbar.FindName("DataToggleBtn"));
-            var themeButton = Assert.IsType<Button>(toolbar.FindName("ThemeToggleButton"));
+            var toolsButton = FindRequiredDescendant<Button>(toolbar, "ToolsRibbonGroupButton");
+            var toolsContent = FindRequiredDescendant<WrapPanel>(toolbar, "ToolsRibbonContentPanel");
+            var dataToggle = FindRequiredDescendant<ToggleButton>(toolbar, "DataToggleBtn");
+            var themeButton = FindRequiredDescendant<Button>(toolbar, "ThemeToggleButton");
             var settingsButton = toolsContent.Children.OfType<Button>()
                 .First(button => button.Command == vm.ShowProjectSettingsCommand);
 
@@ -58,18 +52,11 @@ public sealed class MainToolbarVisualTests
             var vm = new MainViewModel();
             vm.ShowSimulationRibbonGroupCommand.Execute(null);
 
-            var toolbar = new MainToolbar
-            {
-                DataContext = vm
-            };
+            var toolbar = CreateToolbar(vm);
 
-            toolbar.Measure(new Size(1200, 200));
-            toolbar.Arrange(new Rect(0, 0, 1200, 200));
-            toolbar.UpdateLayout();
-
-            var workCombo = Assert.IsType<ComboBox>(toolbar.FindName("SimWorkComboBox"));
-            var startButton = Assert.IsType<Button>(toolbar.FindName("ForceWorkStartButton"));
-            var resetButton = Assert.IsType<Button>(toolbar.FindName("ForceWorkResetButton"));
+            var workCombo = FindRequiredDescendant<ComboBox>(toolbar, "SimWorkComboBox");
+            var startButton = FindRequiredDescendant<Button>(toolbar, "ForceWorkStartButton");
+            var resetButton = FindRequiredDescendant<Button>(toolbar, "ForceWorkResetButton");
 
             var workStack = Assert.IsType<StackPanel>(workCombo.Parent);
             var buttonsGrid = Assert.IsType<UniformGrid>(startButton.Parent);
@@ -87,16 +74,9 @@ public sealed class MainToolbarVisualTests
             var vm = new MainViewModel();
             vm.ShowSimulationRibbonGroupCommand.Execute(null);
 
-            var toolbar = new MainToolbar
-            {
-                DataContext = vm
-            };
+            var toolbar = CreateToolbar(vm);
 
-            toolbar.Measure(new Size(1200, 200));
-            toolbar.Arrange(new Rect(0, 0, 1200, 200));
-            toolbar.UpdateLayout();
-
-            var speedCombo = Assert.IsType<ComboBox>(toolbar.FindName("SimSpeedComboBox"));
+            var speedCombo = FindRequiredDescendant<ComboBox>(toolbar, "SimSpeedComboBox");
             var items = speedCombo.Items.OfType<ComboBoxItem>().ToArray();
 
             Assert.Equal(1.0, vm.Simulation.SimSpeed);
@@ -114,16 +94,9 @@ public sealed class MainToolbarVisualTests
             var vm = new MainViewModel();
             vm.ShowSimulationRibbonGroupCommand.Execute(null);
 
-            var toolbar = new MainToolbar
-            {
-                DataContext = vm
-            };
+            var toolbar = CreateToolbar(vm);
 
-            toolbar.Measure(new Size(1200, 200));
-            toolbar.Arrange(new Rect(0, 0, 1200, 200));
-            toolbar.UpdateLayout();
-
-            var simulationPanel = Assert.IsType<WrapPanel>(toolbar.FindName("SimulationRibbonContentPanel"));
+            var simulationPanel = FindRequiredDescendant<WrapPanel>(toolbar, "SimulationRibbonContentPanel");
             var topButtons = simulationPanel.Children.OfType<Button>().Take(3).ToArray();
 
             var startButton = topButtons[0];
@@ -142,16 +115,9 @@ public sealed class MainToolbarVisualTests
             var vm = new MainViewModel();
             vm.ShowToolsRibbonGroupCommand.Execute(null);
 
-            var toolbar = new MainToolbar
-            {
-                DataContext = vm
-            };
+            var toolbar = CreateToolbar(vm);
 
-            toolbar.Measure(new Size(1200, 200));
-            toolbar.Arrange(new Rect(0, 0, 1200, 200));
-            toolbar.UpdateLayout();
-
-            var themeButton = Assert.IsType<Button>(toolbar.FindName("ThemeToggleButton"));
+            var themeButton = FindRequiredDescendant<Button>(toolbar, "ThemeToggleButton");
             var themeStack = Assert.IsType<StackPanel>(themeButton.Content);
 
             Assert.IsType<Path>(themeStack.Children[0]);
@@ -168,22 +134,76 @@ public sealed class MainToolbarVisualTests
             var vm = new MainViewModel();
             vm.ShowSimulationRibbonGroupCommand.Execute(null);
 
-            var toolbar = new MainToolbar
-            {
-                DataContext = vm
-            };
+            var toolbar = CreateToolbar(vm);
 
-            toolbar.Measure(new Size(1200, 200));
-            toolbar.Arrange(new Rect(0, 0, 1200, 200));
-            toolbar.UpdateLayout();
-
-            var startButton = Assert.IsType<Button>(toolbar.FindName("ForceWorkStartButton"));
-            var resetButton = Assert.IsType<Button>(toolbar.FindName("ForceWorkResetButton"));
+            var startButton = FindRequiredDescendant<Button>(toolbar, "ForceWorkStartButton");
+            var resetButton = FindRequiredDescendant<Button>(toolbar, "ForceWorkResetButton");
 
             Assert.False(startButton.IsEnabled);
             Assert.False(resetButton.IsEnabled);
             Assert.NotEqual(Brushes.White, startButton.Foreground);
             Assert.NotEqual(Brushes.White, resetButton.Foreground);
         });
+    }
+
+    private static MainToolbar CreateToolbar(MainViewModel vm)
+    {
+        var toolbar = new MainToolbar
+        {
+            DataContext = vm
+        };
+
+        toolbar.Measure(new Size(1200, 200));
+        toolbar.Arrange(new Rect(0, 0, 1200, 200));
+        toolbar.UpdateLayout();
+        return toolbar;
+    }
+
+    private static T FindRequiredDescendant<T>(DependencyObject root, string name)
+        where T : FrameworkElement
+    {
+        if (TryFindDescendant(root, name) is T match)
+            return match;
+
+        throw new InvalidOperationException($"Could not find descendant '{name}' of type {typeof(T).Name}.");
+    }
+
+    private static FrameworkElement? TryFindDescendant(DependencyObject root, string name)
+    {
+        if (root is FrameworkElement element && element.Name == name)
+            return element;
+
+        foreach (var child in GetVisualChildren(root))
+        {
+            var match = TryFindDescendant(child, name);
+            if (match is not null)
+                return match;
+        }
+
+        foreach (var child in GetLogicalChildren(root))
+        {
+            var match = TryFindDescendant(child, name);
+            if (match is not null)
+                return match;
+        }
+
+        return null;
+    }
+
+    private static DependencyObject[] GetVisualChildren(DependencyObject root)
+    {
+        if (root is not Visual && root is not Visual3D)
+            return [];
+
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        var children = new DependencyObject[count];
+        for (var i = 0; i < count; i++)
+            children[i] = VisualTreeHelper.GetChild(root, i);
+        return children;
+    }
+
+    private static DependencyObject[] GetLogicalChildren(DependencyObject root)
+    {
+        return LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>().ToArray();
     }
 }

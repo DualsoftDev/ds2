@@ -8,9 +8,13 @@
 
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
-    <Compile Include="DsStoreTests.fs" />
+    <Compile Include="DsStore\DsStore.CrudHistoryTests.fs" />
+    <Compile Include="DsStore\DsStore.EntityMutationTests.fs" />
+    <Compile Include="DsStore\DsStore.CopyPastePanelTests.fs" />
+    <Compile Include="DsStore\StoreQueryOwnerTests.fs" />
+    <Compile Include="DsStore\DsStore.AdvancedPanelBatchTests.fs" />
     <Compile Include="ImportPlanTests.fs" />
-    <Compile Include="ViewProjectionTests.fs" />
+    <Compile Include="EditorProjectionTests.fs" />
     <Compile Include="SimulationTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

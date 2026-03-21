@@ -1,9 +1,10 @@
-module Ds2.Editor.SelectionQueries
+module Ds2.Editor.EditorSelectionQueries
 
 open Ds2.Store
 open System
 open System.Collections.Generic
 
+[<CompiledName("OrderCanvasSelectionKeys")>]
 let orderCanvasSelectionKeys (nodes: seq<CanvasSelectionCandidate>) : SelectionKey list =
     nodes
     |> Seq.sortWith (fun left right ->
@@ -21,6 +22,7 @@ let orderCanvasSelectionKeys (nodes: seq<CanvasSelectionCandidate>) : SelectionK
     |> Seq.map (fun node -> node.Key)
     |> Seq.toList
 
+[<CompiledName("OrderCanvasSelectionKeysForBox")>]
 let orderCanvasSelectionKeysForBox
     (startX: float)
     (startY: float)
@@ -66,6 +68,7 @@ let orderCanvasSelectionKeysForBox
     |> Seq.map (fun (key, _, _, _, _, _) -> key)
     |> Seq.toList
 
+[<CompiledName("ApplyNodeSelection")>]
 let applyNodeSelection
     (currentSelection: seq<SelectionKey>)
     (anchor: SelectionKey option)

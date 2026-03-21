@@ -8,6 +8,7 @@ open Ds2.Store
 module internal MermaidMapperTargets =
 
     open MermaidMapperCommon
+    open MermaidTargetPlanning
 
     // ═══════════════════════════════════════════════════
     // Flow 2-depth: subgraph → Work, node → Call
@@ -15,66 +16,26 @@ module internal MermaidMapperTargets =
 
     let mapToFlow (store: DsStore) (flowId: Guid) (systemId: Guid) (projectId: Guid option) (graph: MermaidGraph) : ImportPlan =
         let operations = ResizeArray<ImportPlanOperation>()
-        let nodeToCallId = Dictionary<string, Guid>()
+        let planned = createPlannedCallNodes ()
         let nodeToWorkId = Dictionary<string, Guid>()
         let createdWorkArrows = HashSet<Guid * Guid>()
         let createdCalls = ResizeArray<Call * string>()
-        let callNameGroups = Dictionary<string, ResizeArray<Guid>>()
-        let allNodes = ResizeArray<MermaidNode * Call>()
-        let callsById = Dictionary<Guid, Call>()
 
-        let addCallName callId callName =
-            match callNameGroups.TryGetValue(callName) with
-            | true, ids -> ids.Add(callId)
-            | _ ->
-                let ids = ResizeArray<Guid>()
-                ids.Add(callId)
-                callNameGroups.[callName] <- ids
-
-        let buildUniqueNameMap () =
-            let map = Dictionary<string, Guid>()
-            for KeyValue(name, ids) in callNameGroups do
-                if ids.Count = 1 then
-                    map.[name] <- ids.[0]
-            map
-
-        let flowName =
-            store.FlowsReadOnly.TryGetValue(flowId)
-            |> function true, f -> f.Name | _ -> ""
+        let flowName = flowNameOfFlow store flowId
 
         for sg in graph.Subgraphs do
             let work = Work(subgraphName sg, flowId)
             operations.Add(AddWork work)
 
             for node in sg.Nodes do
-                let devicesAlias, apiName = splitCallName node.Label
-                let call = Call(devicesAlias, apiName, work.Id)
-                operations.Add(AddCall call)
-                nodeToCallId.[node.Id] <- call.Id
+                let call, apiName = registerCallNode planned operations work.Id node
                 nodeToWorkId.[node.Id] <- work.Id
-                callsById.[call.Id] <- call
-                addCallName call.Id call.Name
-                allNodes.Add(node, call)
                 if apiName <> "" then
                     createdCalls.Add(call, node.Label)
 
-            for edge in sg.InternalEdges do
-                match nodeToCallId.TryGetValue(edge.SourceId), nodeToCallId.TryGetValue(edge.TargetId) with
-                | (true, srcId), (true, tgtId) ->
-                    let arrow = ArrowBetweenCalls(work.Id, srcId, tgtId, mapArrowType edge.Label)
-                    operations.Add(AddArrowCall arrow)
-                | _ -> ()
+            addInternalCallArrows operations work.Id planned sg.InternalEdges
 
-        // 조건 참조 복원 (모든 Call 생성 후)
-        let uniqueNameToCallId = buildUniqueNameMap ()
-        for node, call in allNodes do
-            restoreConditions
-                (fun apiCall -> operations.Add(AddApiCall apiCall))
-                call
-                nodeToCallId
-                uniqueNameToCallId
-                callsById
-                node
+        restorePlannedConditions operations planned
 
         // GlobalEdge → ArrowBetweenWorks (Work 간 연결, 중복 방지)
         for edge in graph.GlobalEdges do
@@ -86,11 +47,7 @@ module internal MermaidMapperTargets =
             | (true, _), (true, _) -> ()
             | _ -> ()
 
-        // Device auto-creation
-        match projectId with
-        | Some pid when createdCalls.Count > 0 ->
-            ImportPlanDeviceOps.linkCallsToDevices store pid flowName (createdCalls |> Seq.toList) operations
-        | _ -> ()
+        linkCallsToDevicesIfNeeded store projectId flowName createdCalls operations
 
         ImportPlan.ofSeq operations
 
@@ -122,69 +79,21 @@ module internal MermaidMapperTargets =
 
     let mapToWork (store: DsStore) (workId: Guid) (projectId: Guid option) (graph: MermaidGraph) : ImportPlan =
         let operations = ResizeArray<ImportPlanOperation>()
-        let nodeToCallId = Dictionary<string, Guid>()
+        let planned = createPlannedCallNodes ()
         let createdCalls = ResizeArray<Call * string>()
-        let callNameGroups = Dictionary<string, ResizeArray<Guid>>()
-        let allNodes = ResizeArray<MermaidNode * Call>()
-        let callsById = Dictionary<Guid, Call>()
 
-        let addCallName callId callName =
-            match callNameGroups.TryGetValue(callName) with
-            | true, ids -> ids.Add(callId)
-            | _ ->
-                let ids = ResizeArray<Guid>()
-                ids.Add(callId)
-                callNameGroups.[callName] <- ids
-
-        let buildUniqueNameMap () =
-            let map = Dictionary<string, Guid>()
-            for KeyValue(name, ids) in callNameGroups do
-                if ids.Count = 1 then
-                    map.[name] <- ids.[0]
-            map
-
-        let flowName =
-            store.WorksReadOnly.TryGetValue(workId)
-            |> function
-                | true, w ->
-                    store.FlowsReadOnly.TryGetValue(w.ParentId)
-                    |> function true, f -> f.Name | _ -> ""
-                | _ -> ""
+        let flowName = flowNameOfWork store workId
 
         for node in graph.GlobalNodes do
-            let devicesAlias, apiName = splitCallName node.Label
-            let call = Call(devicesAlias, apiName, workId)
-            operations.Add(AddCall call)
-            nodeToCallId.[node.Id] <- call.Id
-            callsById.[call.Id] <- call
-            addCallName call.Id call.Name
-            allNodes.Add(node, call)
+            let call, apiName = registerCallNode planned operations workId node
             if apiName <> "" then
                 createdCalls.Add(call, node.Label)
 
-        for edge in graph.GlobalEdges do
-            match nodeToCallId.TryGetValue(edge.SourceId), nodeToCallId.TryGetValue(edge.TargetId) with
-            | (true, srcId), (true, tgtId) ->
-                let arrow = ArrowBetweenCalls(workId, srcId, tgtId, mapArrowType edge.Label)
-                operations.Add(AddArrowCall arrow)
-            | _ -> ()
+        addInternalCallArrows operations workId planned graph.GlobalEdges
 
-        // 조건 참조 복원 (모든 Call 생성 후)
-        let uniqueNameToCallId = buildUniqueNameMap ()
-        for node, call in allNodes do
-            restoreConditions
-                (fun apiCall -> operations.Add(AddApiCall apiCall))
-                call
-                nodeToCallId
-                uniqueNameToCallId
-                callsById
-                node
+        restorePlannedConditions operations planned
 
-        // Device auto-creation
-        match projectId with
-        | Some pid when createdCalls.Count > 0 ->
-            ImportPlanDeviceOps.linkCallsToDevices store pid flowName (createdCalls |> Seq.toList) operations
-        | _ -> ()
+        linkCallsToDevicesIfNeeded store projectId flowName createdCalls operations
 
         ImportPlan.ofSeq operations
 
@@ -194,28 +103,10 @@ module internal MermaidMapperTargets =
 
     let mapToSystem (store: DsStore) (projectId: Guid) (graph: MermaidGraph) : ImportPlan =
         let operations = ResizeArray<ImportPlanOperation>()
+        let planned = createPlannedCallNodes ()
         let subgraphToWorkId = Dictionary<string, Guid>()
         /// (Call * callLabel * flowName)
         let activeCreatedCalls = ResizeArray<Call * string * string>()
-        let nodeToCallId = Dictionary<string, Guid>()
-        let callNameGroups = Dictionary<string, ResizeArray<Guid>>()
-        let allNodes = ResizeArray<MermaidNode * Call>()
-        let callsById = Dictionary<Guid, Call>()
-
-        let addCallName callId callName =
-            match callNameGroups.TryGetValue(callName) with
-            | true, ids -> ids.Add(callId)
-            | _ ->
-                let ids = ResizeArray<Guid>()
-                ids.Add(callId)
-                callNameGroups.[callName] <- ids
-
-        let buildUniqueNameMap () =
-            let map = Dictionary<string, Guid>()
-            for KeyValue(name, ids) in callNameGroups do
-                if ids.Count = 1 then
-                    map.[name] <- ids.[0]
-            map
 
         for systemSg in graph.Subgraphs do
             // depth 1 → System (Active or Passive)
@@ -236,33 +127,13 @@ module internal MermaidMapperTargets =
                     subgraphToWorkId.[workSg.Id] <- work.Id
 
                     for node in workSg.Nodes do
-                        let devicesAlias, apiName = splitCallName node.Label
-                        let call = Call(devicesAlias, apiName, work.Id)
-                        operations.Add(AddCall call)
-                        nodeToCallId.[node.Id] <- call.Id
-                        callsById.[call.Id] <- call
-                        addCallName call.Id call.Name
-                        allNodes.Add(node, call)
+                        let call, apiName = registerCallNode planned operations work.Id node
                         if apiName <> "" && not systemSg.IsPassive then
                             activeCreatedCalls.Add(call, node.Label, flowDisplayName)
 
-                    for edge in workSg.InternalEdges do
-                        match nodeToCallId.TryGetValue(edge.SourceId), nodeToCallId.TryGetValue(edge.TargetId) with
-                        | (true, srcId), (true, tgtId) ->
-                            let arrow = ArrowBetweenCalls(work.Id, srcId, tgtId, mapArrowType edge.Label)
-                            operations.Add(AddArrowCall arrow)
-                        | _ -> ()
+                    addInternalCallArrows operations work.Id planned workSg.InternalEdges
 
-        // 조건 참조 복원 (모든 Call 생성 후)
-        let uniqueNameToCallId = buildUniqueNameMap ()
-        for node, call in allNodes do
-            restoreConditions
-                (fun apiCall -> operations.Add(AddApiCall apiCall))
-                call
-                nodeToCallId
-                uniqueNameToCallId
-                callsById
-                node
+        restorePlannedConditions operations planned
 
         // GlobalEdges → ArrowBetweenWorks (subgraph ID = Work ID)
         for edge in graph.GlobalEdges do
@@ -276,13 +147,7 @@ module internal MermaidMapperTargets =
                 | None -> ()
             | _ -> ()
 
-        // Device auto-creation: flowName별로 그룹화해서 linkCallsToDevices 호출
-        if activeCreatedCalls.Count > 0 then
-            activeCreatedCalls
-            |> Seq.groupBy (fun (_, _, flowName) -> flowName)
-            |> Seq.iter (fun (flowName, group) ->
-                let calls = group |> Seq.map (fun (call, label, _) -> (call, label)) |> Seq.toList
-                ImportPlanDeviceOps.linkCallsToDevices store projectId flowName calls operations)
+        linkCallsToDevicesByFlow store projectId activeCreatedCalls operations
 
         ImportPlan.ofSeq operations
 

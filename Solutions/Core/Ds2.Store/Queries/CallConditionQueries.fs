@@ -1,6 +1,7 @@
 module Ds2.Store.CallConditionQueries
 
 open System
+open System.Runtime.CompilerServices
 open Ds2.Core
 
 let rec private allConditions (conditions: seq<CallCondition>) : seq<CallCondition> =
@@ -30,3 +31,16 @@ let referencedApiCallIds (call: Call) : Guid seq =
 let containsApiCallReference (apiCallId: Guid) (call: Call) : bool =
     referencedApiCallIds call
     |> Seq.exists ((=) apiCallId)
+
+[<CompiledName("GetCallConditionTypes")>]
+let getCallConditionTypes (store: DsStore) (callId: Guid) : CallConditionType list =
+    match DsQuery.getCall callId store with
+    | Some call -> conditionTypes call
+    | None -> []
+
+[<CompiledName("FindCallsByApiCallId")>]
+let findCallsByApiCallId (store: DsStore) (apiCallId: Guid) : struct(Guid * string) list =
+    store.CallsReadOnly.Values
+    |> Seq.filter (containsApiCallReference apiCallId)
+    |> Seq.map (fun call -> struct(call.Id, call.Name))
+    |> Seq.toList

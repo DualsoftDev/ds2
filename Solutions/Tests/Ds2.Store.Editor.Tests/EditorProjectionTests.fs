@@ -1,4 +1,4 @@
-module Ds2.Store.Editor.Tests.ViewProjectionTests
+module Ds2.Store.Editor.Tests.EditorProjectionTests
 
 open System
 open Xunit
@@ -10,41 +10,77 @@ open Ds2.Store.Editor.Tests.TestHelpers
 module TreeProjectionTests =
 
     [<Fact>]
-    let ``buildTrees returns active and passive trees`` () =
+    let ``EditorTreeProjection builds control and device trees`` () =
         let store = createStore ()
-        let project = addProject store "P"
-        let _ = addSystem store "Active" project.Id true
-        let _ = addSystem store "Passive" project.Id false
-        let activeTrees, passiveTrees = store.BuildTrees()
-        Assert.NotEmpty(activeTrees)
-        Assert.NotEmpty(passiveTrees)
+        let project = addProject store "Project"
+        let activeSystem = addSystem store "ActiveSystem" project.Id true
+        let passiveSystem = addSystem store "PassiveSystem" project.Id false
+        let flow = addFlow store "Flow1" activeSystem.Id
+        addWork store "Work1" flow.Id |> ignore
+        addApiDef store "PassiveApi" passiveSystem.Id |> ignore
+
+        let controlRoots, deviceRoots = EditorTreeProjection.buildTrees store
+        let controlRoot = Assert.Single(controlRoots)
+        let deviceRoot = Assert.Single(deviceRoots)
+
+        Assert.Equal(project.Id, controlRoot.Id)
+        Assert.Contains(controlRoot.Children, fun node -> node.Id = activeSystem.Id)
+        Assert.Contains(deviceRoot.Children, fun node -> node.Id = passiveSystem.Id)
+
+module NavigationTests =
 
     [<Fact>]
-    let ``buildTrees includes nested children`` () =
+    let ``EditorNavigation resolves work tab and parent flow tab`` () =
         let store = createStore ()
-        let project, system, _, _ = setupBasicHierarchy store
-        let activeTrees, _ = store.BuildTrees()
-        let projectNode = activeTrees |> List.find (fun n -> n.Id = project.Id)
-        Assert.NotEmpty(projectNode.Children)
-        let systemNode = projectNode.Children |> List.find (fun n -> n.Id = system.Id)
-        Assert.NotEmpty(systemNode.Children)
+        let _, _, flow, work = setupBasicHierarchy store
+
+        let workTab = EditorNavigation.tryOpenTabForEntity store EntityKind.Work work.Id
+        let parentTab = EditorNavigation.tryOpenParentTab store EntityKind.Work work.Id
+
+        Assert.True(workTab.IsSome)
+        Assert.True(parentTab.IsSome)
+        Assert.Equal(TabKind.Work, workTab.Value.Kind)
+        Assert.Equal(work.Id, workTab.Value.RootId)
+        Assert.Equal(TabKind.Flow, parentTab.Value.Kind)
+        Assert.Equal(flow.Id, parentTab.Value.RootId)
+
+    [<Fact>]
+    let ``EditorNavigation returns titles and flow ids for tabs`` () =
+        let store = createStore ()
+        let _, system, flow, work = setupBasicHierarchy store
+
+        let systemFlowIds = EditorNavigation.flowIdsForTab store TabKind.System system.Id
+        let flowFlowIds = EditorNavigation.flowIdsForTab store TabKind.Flow flow.Id
+        let workFlowIds = EditorNavigation.flowIdsForTab store TabKind.Work work.Id
+
+        Assert.Equal<string>("TestWork", EditorNavigation.tabTitleOrNull store TabKind.Work work.Id)
+        Assert.Equal<Guid list>([ flow.Id ], systemFlowIds)
+        Assert.Equal<Guid list>([ flow.Id ], flowFlowIds)
+        Assert.Equal<Guid list>([ flow.Id ], workFlowIds)
 
 module CanvasProjectionTests =
 
     [<Fact>]
-    let ``CanvasContentForTab returns works for system tab`` () =
+    let ``EditorCanvasProjection returns work nodes for flow tab`` () =
         let store = createStore ()
-        let _, system, _, _ = setupBasicHierarchy store
-        let content = store.CanvasContentForTab(TabKind.System, system.Id)
-        Assert.NotEmpty(content.Nodes)
+        let _, _, flow, _ = setupBasicHierarchy store
+        let work2 = addWork store "Work2" flow.Id
+
+        let content = EditorCanvasProjection.canvasContentForTab store TabKind.Flow flow.Id
+        let realNodes = content.Nodes |> List.filter (fun node -> not node.IsGhost)
+
+        Assert.Equal(2, realNodes.Length)
+        Assert.Contains(realNodes, fun node -> node.Id = work2.Id)
 
     [<Fact>]
-    let ``CanvasContentForTab returns calls for flow tab`` () =
+    let ``EditorCanvasLayout computes auto layout for overlapping flow nodes`` () =
         let store = createStore ()
-        let _, _, flow, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(Guid.Empty, work.Id, [ "Dev.Api" ], false)
-        let content = store.CanvasContentForTab(TabKind.Flow, flow.Id)
-        Assert.NotEmpty(content.Nodes)
+        let _, _, flow, _ = setupBasicHierarchy store
+        addWork store "Work2" flow.Id |> ignore
+
+        let requests = EditorCanvasLayout.computeAutoLayout store TabKind.Flow flow.Id
+
+        Assert.Equal(2, requests.Length)
 
 module CanvasLayoutTests =
 
@@ -71,7 +107,7 @@ module CanvasLayoutTests =
         }
 
     [<Fact>]
-    let ``computeLayout keeps connected same-layer nodes closer together`` () =
+    let ``EditorCanvasLayout keeps connected same-layer nodes closer together`` () =
         let rootId = Guid.NewGuid()
         let a = node (Guid.NewGuid()) "A" rootId 0.0 0.0
         let d = node (Guid.NewGuid()) "D" rootId 0.0 220.0
@@ -96,10 +132,7 @@ module CanvasLayoutTests =
             }
 
         let moves = CanvasLayout.computeLayout content
-        let positions =
-            moves
-            |> Seq.map (fun move -> move.Id, move.Position)
-            |> Map.ofSeq
+        let positions = moves |> Seq.map (fun move -> move.Id, move.Position) |> Map.ofSeq
 
         let y1 = float positions.[b1.Id].Y
         let y2 = float positions.[b2.Id].Y
@@ -111,7 +144,7 @@ module CanvasLayoutTests =
         Assert.True(closeGap < farGap, $"Expected connected nodes to be closer, but closeGap={closeGap}, farGap={farGap}")
 
     [<Fact>]
-    let ``computeLayout places satellite and anchor at the same X with vertical separation`` () =
+    let ``EditorCanvasLayout places satellite and anchor at the same X with vertical separation`` () =
         let rootId = Guid.NewGuid()
         let satellite = node (Guid.NewGuid()) "P160.RET" rootId 0.0 140.0
         let n1 = node (Guid.NewGuid()) "P162.ADV" rootId 120.0 0.0
@@ -132,10 +165,7 @@ module CanvasLayoutTests =
             }
 
         let moves = CanvasLayout.computeLayout content
-        let positions =
-            moves
-            |> Seq.map (fun move -> move.Id, move.Position)
-            |> Map.ofSeq
+        let positions = moves |> Seq.map (fun move -> move.Id, move.Position) |> Map.ofSeq
 
         let satellitePos = positions.[satellite.Id]
         let anchorPos = positions.[anchor.Id]
@@ -144,7 +174,7 @@ module CanvasLayoutTests =
         Assert.True(abs (float satellitePos.Y - float anchorPos.Y) >= 90.0, $"Expected vertical satellite separation, but satelliteY={satellitePos.Y}, anchorY={anchorPos.Y}")
 
     [<Fact>]
-    let ``computeLayout keeps snake direction after wrapping to a new row`` () =
+    let ``EditorCanvasLayout keeps snake direction after wrapping to a new row`` () =
         let rootId = Guid.NewGuid()
         let ids = [| for _ in 0..11 -> Guid.NewGuid() |]
         let nodes =
@@ -171,7 +201,7 @@ module CanvasLayoutTests =
         Assert.True(y6 > y0, $"Row 1 should be below row 0: y0={y0}, y6={y6}")
 
     [<Fact>]
-    let ``computeLayout can break rows early to avoid stretching arrows needlessly`` () =
+    let ``EditorCanvasLayout can break rows early to avoid stretching arrows needlessly`` () =
         let rootId = Guid.NewGuid()
         let ids = [| for _ in 0..9 -> Guid.NewGuid() |]
         let nodes =
@@ -196,7 +226,7 @@ module CanvasLayoutTests =
         Assert.Equal(x0, x9, 5)
 
     [<Fact>]
-    let ``computeLayout spreads cycle work nodes instead of stacking them on one vertical line`` () =
+    let ``EditorCanvasLayout spreads cycle work nodes instead of stacking them on one vertical line`` () =
         let rootId = Guid.NewGuid()
         let ids = [| for _ in 0..5 -> Guid.NewGuid() |]
         let nodes =
@@ -221,7 +251,7 @@ module CanvasLayoutTests =
         Assert.True(maxX - minX >= 120, $"Cycle nodes should spread horizontally: minX={minX}, maxX={maxX}")
 
     [<Fact>]
-    let ``computeLayout places disconnected work components outside the main flow area`` () =
+    let ``EditorCanvasLayout places disconnected work components outside the main flow area`` () =
         let rootId = Guid.NewGuid()
         let a = node (Guid.NewGuid()) "A" rootId 0.0 0.0
         let b = node (Guid.NewGuid()) "B" rootId 120.0 0.0
@@ -254,7 +284,6 @@ module CanvasLayoutTests =
 
         Assert.True(iso1.Y > mainMaxY, $"Disconnected component should be below main flow: iso1Y={iso1.Y}, mainMaxY={mainMaxY}")
         Assert.True(iso2.Y > mainMaxY, $"Disconnected component should be below main flow: iso2Y={iso2.Y}, mainMaxY={mainMaxY}")
-
 
 module ArrowPathCalculatorTests =
 
@@ -385,5 +414,20 @@ module PropertyPanelValueSpecTests =
     let ``specFromTypeIndex returns correct default spec`` () =
         let spec = PropertyPanelValueSpec.specFromTypeIndex 4
         match spec with
-        | Int32Value (Single v) -> Assert.Equal(0, v)
+        | Int32Value (Single value) -> Assert.Equal(0, value)
         | _ -> Assert.Fail("Expected Int32Value")
+
+module SelectionQueryTests =
+
+    [<Fact>]
+    let ``EditorSelectionQueries orders canvas keys by top left position`` () =
+        let first = SelectionKey(Guid.NewGuid(), EntityKind.Work)
+        let second = SelectionKey(Guid.NewGuid(), EntityKind.Work)
+
+        let ordered =
+            EditorSelectionQueries.orderCanvasSelectionKeys [
+                CanvasSelectionCandidate(second, 300.0, 80.0, 100.0, 40.0, "Second")
+                CanvasSelectionCandidate(first, 120.0, 40.0, 100.0, 40.0, "First")
+            ]
+
+        Assert.Equal<SelectionKey list>([ first; second ], ordered)

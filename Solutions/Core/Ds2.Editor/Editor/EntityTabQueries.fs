@@ -1,9 +1,11 @@
-module Ds2.Editor.EntityTabQueries
+module Ds2.Editor.EditorNavigation
 
 open System
+open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
 
+[<CompiledName("EntityKindForTabKind")>]
 let entityKindForTabKind (tabKind: TabKind) : EntityKind =
     match tabKind with
     | TabKind.System -> EntityKind.System
@@ -18,6 +20,7 @@ let private lookupEntity (store: DsStore) (tabKind: TabKind) (id: Guid) : (Guid 
     | TabKind.Work   -> DsQuery.getWork id store |> Option.map (fun work -> work.Id, work.Name)
     | _              -> None
 
+[<CompiledName("TryOpenTabForEntity")>]
 let tryOpenTabForEntity (store: DsStore) (entityKind: EntityKind) (entityId: Guid) : TabOpenInfo option =
     let tabKindForEntityKind =
         match entityKind with
@@ -31,6 +34,7 @@ let tryOpenTabForEntity (store: DsStore) (entityKind: EntityKind) (entityId: Gui
         |> Option.map (fun (id, name) -> { Kind = kind; RootId = id; Title = name }))
 
 /// Work → 부모 Flow 탭, Call → 부모 Work 탭을 반환
+[<CompiledName("TryOpenParentTab")>]
 let tryOpenParentTab (store: DsStore) (entityKind: EntityKind) (entityId: Guid) : TabOpenInfo option =
     let parentKind =
         match entityKind with
@@ -45,6 +49,22 @@ let tryOpenParentTab (store: DsStore) (entityKind: EntityKind) (entityId: Guid) 
 let tabTitle (store: DsStore) (tabKind: TabKind) (rootId: Guid) : string option =
     lookupEntity store tabKind rootId |> Option.map snd
 
+[<CompiledName("TryOpenTabForEntityOrNull")>]
+let tryOpenTabForEntityOrNull (store: DsStore) (entityKind: EntityKind) (entityId: Guid) : TabOpenInfo =
+    tryOpenTabForEntity store entityKind entityId
+    |> Option.toObj
+
+[<CompiledName("TryOpenParentTabOrNull")>]
+let tryOpenParentTabOrNull (store: DsStore) (entityKind: EntityKind) (entityId: Guid) : TabOpenInfo =
+    tryOpenParentTab store entityKind entityId
+    |> Option.toObj
+
+[<CompiledName("TabTitleOrNull")>]
+let tabTitleOrNull (store: DsStore) (tabKind: TabKind) (rootId: Guid) : string =
+    tabTitle store tabKind rootId
+    |> Option.toObj
+
+[<CompiledName("FlowIdsForTab")>]
 let flowIdsForTab (store: DsStore) (tabKind: TabKind) (rootId: Guid) : Guid list =
     match tabKind with
     | TabKind.System ->

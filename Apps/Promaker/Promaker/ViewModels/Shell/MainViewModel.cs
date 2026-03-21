@@ -407,7 +407,7 @@ public partial class MainViewModel : ObservableObject
         DeviceTreeRoots.Clear();
 
         if (!TryEditorRef(
-                () => _store.BuildTrees(),
+                () => EditorTreeProjection.BuildTrees(_store),
                 out var trees,
                 statusOverride: "[ERROR] Failed to rebuild tree views."))
             return;
