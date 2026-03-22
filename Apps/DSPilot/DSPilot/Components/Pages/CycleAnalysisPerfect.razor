@@ -1,0 +1,639 @@
+@page "/cycle-perfect"
+@using DSPilot.Models.Analysis
+@using DSPilot.Services
+@inject CycleAnalysisService AnalysisService
+@inject DsProjectService ProjectService
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<PageTitle>사이클 타임 분석 - DSPilot</PageTitle>
+
+<div class="cycle-analysis-perfect">
+    <div class="page-header">
+        <h5 class="typo-h5">사이클 타임 분석</h5>
+        <p class="typo-body2" style="color: var(--color-text-secondary); margin-top: 8px;">
+            자동 사이클 탐지 또는 수동 시간 범위를 선택하여 Flow의 성능을 분석합니다
+        </p>
+    </div>
+
+    @* Step 1: 모드 선택 및 Flow 선택 *@
+    <section class="card mb-3">
+        <div class="card-content">
+            <div class="mode-selector mb-4">
+                <button class="mode-btn @(_mode == "auto" ? "active" : "")"
+                        @onclick="@(() => SwitchMode("auto"))">
+                    <span class="material-icons">auto_awesome</span>
+                    <div>
+                        <strong>자동 사이클 탐지</strong>
+                        <small>Head Call 기준 자동 인식</small>
+                    </div>
+                </button>
+                <button class="mode-btn @(_mode == "manual" ? "active" : "")"
+                        @onclick="@(() => SwitchMode("manual"))">
+                    <span class="material-icons">event</span>
+                    <div>
+                        <strong>수동 시간 범위</strong>
+                        <small>직접 시작/종료 시간 지정</small>
+                    </div>
+                </button>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Flow 선택</label>
+                    <select class="form-field" @bind="_selectedFlowName" @bind:after="OnFlowChanged">
+                        <option value="">-- Flow 선택 --</option>
+                        @foreach (var flow in _flows)
+                        {
+                            <option value="@flow.Name">@flow.Name</option>
+                        }
+                    </select>
+                </div>
+
+                @if (_mode == "auto")
+                {
+                    <div class="form-group">
+                        <label class="form-label">사이클 개수</label>
+                        <select class="form-field" @bind="_cycleCount">
+                            <option value="3">최근 3개</option>
+                            <option value="5">최근 5개</option>
+                            <option value="10">최근 10개</option>
+                            <option value="20">최근 20개</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="display:flex; align-items:end;">
+                        <button class="btn btn-filled" @onclick="DetectCycles" disabled="@_detecting">
+                            <span class="material-icons">search</span>
+                            @(_detecting ? "탐지 중..." : "사이클 탐지")
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="form-group">
+                        <label class="form-label">시작 시간</label>
+                        <input type="datetime-local" class="form-field" step="1" @bind="_cycleStartTime" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">종료 시간</label>
+                        <input type="datetime-local" class="form-field" step="1" @bind="_cycleEndTime" />
+                    </div>
+                    <div class="form-group" style="display:flex; align-items:end;">
+                        <button class="btn btn-filled" @onclick="AnalyzeManualRange" disabled="@_analyzing">
+                            <span class="material-icons">analytics</span>
+                            @(_analyzing ? "분석 중..." : "분석 실행")
+                        </button>
+                    </div>
+                }
+            </div>
+
+            @if (_mode == "manual")
+            {
+                <div class="quick-presets mt-3">
+                    <span class="typo-caption" style="margin-right: 12px;">빠른 선택:</span>
+                    <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimePreset(1))">최근 1분</button>
+                    <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimePreset(5))">최근 5분</button>
+                    <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimePreset(10))">최근 10분</button>
+                    <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimePreset(30))">최근 30분</button>
+                </div>
+            }
+        </div>
+    </section>
+
+    @* Step 2: 자동 모드 - 사이클 목록 *@
+    @if (_mode == "auto" && _detectedCycles.Count > 0)
+    {
+        <section class="card mb-3">
+            <div class="card-header">
+                <span class="material-icons mr-2">view_list</span>
+                <h6 class="typo-h6">탐지된 사이클 목록</h6>
+                <span class="badge" style="margin-left: auto;">@_detectedCycles.Count 개</span>
+            </div>
+            <div class="card-content">
+                <div class="cycle-list">
+                    @foreach (var cycle in _detectedCycles)
+                    {
+                        var isSelected = _selectedCycle == cycle;
+                        <div class="cycle-item @(isSelected ? "selected" : "")"
+                             @onclick="@(() => SelectCycle(cycle))">
+                            <div class="cycle-header">
+                                <div class="cycle-number">
+                                    <span class="material-icons">flag</span>
+                                    <strong>사이클 #@cycle.CycleNumber</strong>
+                                </div>
+                                <div class="cycle-status">
+                                    <span class="badge @(cycle.IsComplete ? "badge-success" : "badge-warning")">
+                                        @cycle.Status
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="cycle-time">
+                                <span class="material-icons icon-sm">schedule</span>
+                                @cycle.StartTime.ToString("yyyy-MM-dd HH:mm:ss.fff")
+                                @if (cycle.EndTime.HasValue)
+                                {
+                                    <span>→ @cycle.EndTime.Value.ToString("HH:mm:ss.fff")</span>
+                                }
+                                <span class="duration">(@cycle.Duration.TotalSeconds.ToString("F2")s)</span>
+                            </div>
+                            @if (cycle.Summary != null)
+                            {
+                                <div class="cycle-summary">
+                                    <div class="summary-item">
+                                        <span class="icon material-icons">call</span>
+                                        <span>@cycle.Summary.TotalCallCount Calls</span>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span class="icon material-icons">speed</span>
+                                        <span>가동률 @cycle.Summary.UtilizationRate.ToString("F1")%</span>
+                                    </div>
+                                    <div class="summary-item">
+                                        <span class="icon material-icons">hourglass_empty</span>
+                                        <span>Gap @cycle.Summary.TotalGapTime.TotalSeconds.ToString("F1")s</span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </section>
+    }
+
+    @* Step 3: 상세 분석 결과 *@
+    @if (_analysisData != null)
+    {
+        @* 성능 지표 카드 *@
+        <section class="card mb-3">
+            <div class="card-header">
+                <span class="material-icons mr-2">dashboard</span>
+                <h6 class="typo-h6">성능 지표</h6>
+                @if (_analysisData.Boundary != null)
+                {
+                    <span class="badge badge-primary ml-auto">사이클 #@_analysisData.Boundary.CycleNumber</span>
+                }
+            </div>
+            <div class="card-content">
+                <div class="metrics-grid">
+                    <div class="metric-card primary">
+                        <span class="material-icons">schedule</span>
+                        <div class="metric-content">
+                            <span class="metric-label">총 시간</span>
+                            <strong class="metric-value">@_analysisData.TotalDuration.TotalSeconds.ToString("F1")s</strong>
+                        </div>
+                    </div>
+                    <div class="metric-card success">
+                        <span class="material-icons">play_circle</span>
+                        <div class="metric-content">
+                            <span class="metric-label">동작 시간</span>
+                            <strong class="metric-value">@_analysisData.Metrics.TotalActiveTime.TotalSeconds.ToString("F1")s</strong>
+                        </div>
+                    </div>
+                    <div class="metric-card warning">
+                        <span class="material-icons">pause_circle</span>
+                        <div class="metric-content">
+                            <span class="metric-label">유휴 시간</span>
+                            <strong class="metric-value">@_analysisData.Metrics.TotalIdleTime.TotalSeconds.ToString("F1")s</strong>
+                        </div>
+                    </div>
+                    <div class="metric-card info">
+                        <span class="material-icons">speed</span>
+                        <div class="metric-content">
+                            <span class="metric-label">가동률</span>
+                            <strong class="metric-value">@_analysisData.Metrics.UtilizationRate.ToString("F1")%</strong>
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <span class="material-icons">call</span>
+                        <div class="metric-content">
+                            <span class="metric-label">Call 수</span>
+                            <strong class="metric-value">@_analysisData.CallCount</strong>
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <span class="material-icons">trending_up</span>
+                        <div class="metric-content">
+                            <span class="metric-label">처리율</span>
+                            <strong class="metric-value">@_analysisData.Metrics.Throughput.ToString("F1")/min</strong>
+                        </div>
+                    </div>
+                    @if (_analysisData.Metrics.ParallelExecutions > 0)
+                    {
+                        <div class="metric-card accent">
+                            <span class="material-icons">compare_arrows</span>
+                            <div class="metric-content">
+                                <span class="metric-label">병렬 실행</span>
+                                <strong class="metric-value">@_analysisData.Metrics.ParallelExecutions</strong>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </section>
+
+        @* Gantt Chart *@
+        <section class="card mb-3">
+            <div class="card-header">
+                <span class="material-icons mr-2">timeline</span>
+                <h6 class="typo-h6">타임라인 Gantt Chart</h6>
+                <button class="btn btn-sm btn-outlined ml-auto" @onclick="ExportGanttData">
+                    <span class="material-icons icon-sm">download</span>
+                    내보내기
+                </button>
+            </div>
+            <div class="card-content">
+                <div class="gantt-container">
+                    <canvas id="cycleGanttChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        @* Top 3 긴 Gap *@
+        @if (_analysisData.TopLongGaps.Count > 0)
+        {
+            <section class="card mb-3">
+                <div class="card-header">
+                    <span class="material-icons mr-2 text-warning">warning</span>
+                    <h6 class="typo-h6">Top 3 긴 대기 시간 (Gap)</h6>
+                </div>
+                <div class="card-content">
+                    <div class="gap-cards">
+                        @foreach (var gap in _analysisData.TopLongGaps)
+                        {
+                            <div class="gap-card rank-@gap.Rank">
+                                <div class="gap-rank">
+                                    <span class="rank-number">@gap.Rank</span>
+                                </div>
+                                <div class="gap-info">
+                                    <div class="gap-calls">
+                                        <span>@gap.PreviousCall</span>
+                                        <span class="material-icons">arrow_forward</span>
+                                        <span>@gap.NextCall</span>
+                                    </div>
+                                    <div class="gap-duration">
+                                        <strong>@gap.GapDuration.TotalSeconds.ToString("F2")s</strong>
+                                        @if (gap.IsBottleneck)
+                                        {
+                                            <span class="badge badge-error ml-2">병목</span>
+                                        }
+                                    </div>
+                                    <div class="gap-time typo-caption">
+                                        @gap.GapStartTime.ToString("HH:mm:ss.fff") ~ @gap.GapEndTime.ToString("HH:mm:ss.fff")
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </section>
+        }
+
+        @* 장치별 통계 *@
+        @if (_analysisData.DeviceStats.Count > 0)
+        {
+            <section class="card mb-3">
+                <div class="card-header">
+                    <span class="material-icons mr-2">devices</span>
+                    <h6 class="typo-h6">장치별 시간 분포</h6>
+                </div>
+                <div class="card-content">
+                    <div class="device-stats">
+                        @foreach (var (deviceName, stats) in _analysisData.DeviceStats.OrderByDescending(x => x.Value.TotalTime))
+                        {
+                            <div class="device-stat-item">
+                                <div class="device-header">
+                                    <strong class="device-name">@deviceName</strong>
+                                    <span class="device-percentage">@stats.PercentageOfCycle.ToString("F1")%</span>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: @stats.PercentageOfCycle%"></div>
+                                </div>
+                                <div class="device-details">
+                                    <span>총 @stats.TotalTime.TotalSeconds.ToString("F1")s</span>
+                                    <span>평균 @stats.AverageTime.TotalSeconds.ToString("F2")s</span>
+                                    <span>최소 @stats.MinTime.TotalSeconds.ToString("F2")s</span>
+                                    <span>최대 @stats.MaxTime.TotalSeconds.ToString("F2")s</span>
+                                    <span>@stats.CallCount 회</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </section>
+        }
+
+        @* 병목 구간 *@
+        @if (_analysisData.Bottlenecks.Count > 0)
+        {
+            <section class="card mb-3">
+                <div class="card-header">
+                    <span class="material-icons mr-2 text-error">report_problem</span>
+                    <h6 class="typo-h6">병목 구간</h6>
+                </div>
+                <div class="card-content">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Call</th>
+                                <th>원인</th>
+                                <th>소요 시간</th>
+                                <th>예상 시간</th>
+                                <th>지연 배율</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var bottleneck in _analysisData.Bottlenecks)
+                            {
+                                <tr>
+                                    <td><strong>@bottleneck.CallName</strong></td>
+                                    <td>@bottleneck.Reason</td>
+                                    <td>@bottleneck.Duration.TotalSeconds.ToString("F2")s</td>
+                                    <td>@bottleneck.ExpectedDuration.TotalSeconds.ToString("F2")s</td>
+                                    <td><span class="badge badge-error">@bottleneck.DelayRatio.ToString("F1")x</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+
+        @* 상세 Call 목록 *@
+        <section class="card mb-3">
+            <div class="card-header">
+                <span class="material-icons mr-2">list</span>
+                <h6 class="typo-h6">상세 Call 목록</h6>
+            </div>
+            <div class="card-content">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Call</th>
+                            <th>장치</th>
+                            <th>시작 시간</th>
+                            <th>종료 시간</th>
+                            <th>소요 시간</th>
+                            <th>Gap</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var call in _analysisData.CallSequence)
+                        {
+                            <tr>
+                                <td>@call.SequenceNumber</td>
+                                <td><strong>@call.CallName</strong></td>
+                                <td>@call.DeviceName</td>
+                                <td>@call.StartTime.ToString("HH:mm:ss.fff")</td>
+                                <td>@call.EndTime.ToString("HH:mm:ss.fff")</td>
+                                <td>@call.Duration.TotalSeconds.ToString("F3")s</td>
+                                <td>
+                                    @if (call.GapFromPrevious.TotalSeconds > 0.5)
+                                    {
+                                        <span class="text-warning">@call.GapFromPrevious.TotalSeconds.ToString("F3")s ⚠</span>
+                                    }
+                                    else if (call.GapFromPrevious.TotalSeconds > 0)
+                                    {
+                                        <span>@call.GapFromPrevious.TotalSeconds.ToString("F3")s</span>
+                                    }
+                                    else
+                                    {
+                                        <span>-</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+    else if (!_detecting && !_analyzing && _mode == "auto" && _detectedCycles.Count == 0)
+    {
+        <section class="card empty-state">
+            <span class="material-icons">auto_awesome</span>
+            <h6 class="typo-h6 mt-3">Flow를 선택하고 사이클 탐지를 실행하세요</h6>
+        </section>
+    }
+    else if (!_analyzing && _mode == "manual")
+    {
+        <section class="card empty-state">
+            <span class="material-icons">event</span>
+            <h6 class="typo-h6 mt-3">시간 범위를 설정하고 분석을 실행하세요</h6>
+        </section>
+    }
+</div>
+
+@code {
+    // 모드
+    private string _mode = "auto"; // "auto" | "manual"
+
+    // Flow 목록
+    private List<Ds2.Core.Flow> _flows = new();
+    private string _selectedFlowName = "";
+
+    // 자동 모드
+    private int _cycleCount = 5;
+    private bool _detecting;
+    private List<CycleBoundary> _detectedCycles = new();
+    private CycleBoundary? _selectedCycle;
+
+    // 수동 모드
+    private DateTime? _cycleStartTime = DateTime.Now.AddMinutes(-5);
+    private DateTime? _cycleEndTime = DateTime.Now;
+    private bool _analyzing;
+
+    // 분석 결과
+    private CycleAnalysisData? _analysisData;
+
+    protected override void OnInitialized()
+    {
+        if (ProjectService.IsLoaded)
+        {
+            var systems = ProjectService.GetActiveSystems();
+            foreach (var system in systems)
+            {
+                _flows.AddRange(ProjectService.GetFlows(system.Id));
+            }
+        }
+    }
+
+    private void SwitchMode(string mode)
+    {
+        _mode = mode;
+        _analysisData = null;
+        _detectedCycles.Clear();
+        _selectedCycle = null;
+    }
+
+    private void OnFlowChanged()
+    {
+        _detectedCycles.Clear();
+        _selectedCycle = null;
+        _analysisData = null;
+    }
+
+    private async Task DetectCycles()
+    {
+        if (string.IsNullOrEmpty(_selectedFlowName))
+        {
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "Flow를 선택하세요", "warning");
+            return;
+        }
+
+        _detecting = true;
+        _detectedCycles.Clear();
+        _selectedCycle = null;
+        _analysisData = null;
+        StateHasChanged();
+
+        try
+        {
+            _detectedCycles = await AnalysisService.DetectRecentCyclesAsync(_selectedFlowName, _cycleCount);
+
+            if (_detectedCycles.Count == 0)
+            {
+                await JS.InvokeVoidAsync("uiUtils.showSnackbar",
+                    "탐지된 사이클이 없습니다. PLC 데이터를 확인하세요", "warning");
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("uiUtils.showSnackbar",
+                    $"{_detectedCycles.Count}개 사이클 탐지 완료", "success");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"탐지 실패: {ex.Message}", "error");
+        }
+        finally
+        {
+            _detecting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SelectCycle(CycleBoundary cycle)
+    {
+        _selectedCycle = cycle;
+        _analyzing = true;
+        StateHasChanged();
+
+        try
+        {
+            _analysisData = await AnalysisService.AnalyzeCycleBoundaryAsync(cycle);
+            await RenderGanttChart();
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "사이클 분석 완료", "success");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"분석 실패: {ex.Message}", "error");
+        }
+        finally
+        {
+            _analyzing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task AnalyzeManualRange()
+    {
+        if (string.IsNullOrEmpty(_selectedFlowName))
+        {
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "Flow를 선택하세요", "warning");
+            return;
+        }
+
+        if (!_cycleStartTime.HasValue || !_cycleEndTime.HasValue)
+        {
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "시작/종료 시간을 입력하세요", "warning");
+            return;
+        }
+
+        if (_cycleEndTime <= _cycleStartTime)
+        {
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "종료 시간은 시작 시간보다 커야 합니다", "warning");
+            return;
+        }
+
+        _analyzing = true;
+        StateHasChanged();
+
+        try
+        {
+            _analysisData = await AnalysisService.AnalyzeCycleAsync(
+                _selectedFlowName,
+                _cycleStartTime.Value,
+                _cycleEndTime.Value);
+
+            await RenderGanttChart();
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "사이클 분석 완료", "success");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"분석 실패: {ex.Message}", "error");
+        }
+        finally
+        {
+            _analyzing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void SetTimePreset(int minutes)
+    {
+        _cycleEndTime = DateTime.Now;
+        _cycleStartTime = _cycleEndTime.Value.AddMinutes(-minutes);
+    }
+
+    private async Task RenderGanttChart()
+    {
+        if (_analysisData == null || _analysisData.CallSequence.Count == 0)
+            return;
+
+        var cycleStartLocal = DateTime.SpecifyKind(_analysisData.CycleStartTime, DateTimeKind.Local);
+        var cycleStartTimeMs = new DateTimeOffset(cycleStartLocal).ToUnixTimeMilliseconds();
+
+        var datasets = _analysisData.CallSequence.Select((call, index) =>
+        {
+            var startTimeMs = cycleStartTimeMs + (long)call.RelativeStartTime.TotalMilliseconds;
+            var endTimeMs = startTimeMs + (long)call.Duration.TotalMilliseconds;
+
+            return new
+            {
+                label = call.CallName,
+                deviceName = call.DeviceName,
+                startOffsetMs = call.RelativeStartTime.TotalMilliseconds,
+                endOffsetMs = call.RelativeStartTime.Add(call.Duration).TotalMilliseconds,
+                gapFromPreviousMs = call.GapFromPrevious.TotalMilliseconds,
+                data = new[]
+                {
+                    new
+                    {
+                        x = new long[] { startTimeMs, endTimeMs },
+                        y = index
+                    }
+                },
+                backgroundColor = GetDeviceColor(call.DeviceName)
+            };
+        }).ToList();
+
+        await JS.InvokeVoidAsync("cycleAnalysis.renderGanttChart",
+            "cycleGanttChart", datasets, cycleStartLocal.ToString("O"));
+    }
+
+    private string GetDeviceColor(string deviceName)
+    {
+        var hash = Math.Abs(deviceName.GetHashCode());
+        var hue = hash % 360;
+        return $"hsl({hue}, 70%, 50%)";
+    }
+
+    private async Task ExportGanttData()
+    {
+        if (_analysisData == null)
+            return;
+
+        await JS.InvokeVoidAsync("uiUtils.showSnackbar", "CSV 내보내기 기능은 곧 추가됩니다", "info");
+    }
+}

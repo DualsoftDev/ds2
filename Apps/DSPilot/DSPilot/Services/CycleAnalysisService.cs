@@ -6,7 +6,10 @@ using Ds2.UI.Core;
 namespace DSPilot.Services;
 
 /// <summary>
-/// 사이클 분석 서비스
+/// 사이클 분석 서비스 - 하이브리드 접근 방식
+/// 1. 자동 사이클 경계 탐지 (Head Call InTag 기반)
+/// 2. 수동 시간 범위 분석
+/// 3. 통합 상세 분석
 /// </summary>
 public class CycleAnalysisService
 {
@@ -30,8 +33,152 @@ public class CycleAnalysisService
         _logger = logger;
     }
 
+    #region 1. 자동 사이클 경계 탐지
+
     /// <summary>
-    /// 사이클 분석 실행
+    /// 최신 N개 사이클 경계 자동 탐지
+    /// </summary>
+    public async Task<List<CycleBoundary>> DetectRecentCyclesAsync(
+        string flowName,
+        int cycleCount = 5)
+    {
+        var boundaries = new List<CycleBoundary>();
+
+        // 1. Flow의 Head Call 찾기
+        var flow = GetFlowByName(flowName);
+        if (flow == null)
+        {
+            _logger.LogWarning("Flow '{FlowName}' not found", flowName);
+            return boundaries;
+        }
+
+        var headCall = GetHeadCall(flow);
+        if (headCall == null)
+        {
+            _logger.LogWarning("Flow '{FlowName}' has no head call", flowName);
+            return boundaries;
+        }
+
+        // 2. Head Call의 InTag 주소 찾기
+        var tags = _mapperService.GetCallTagsByCallId(headCall.Id);
+        if (!tags.HasValue || string.IsNullOrEmpty(tags.Value.InTag))
+        {
+            _logger.LogWarning("Head Call '{CallName}' has no InTag", headCall.Name);
+            return boundaries;
+        }
+
+        // 3. PLC 로그에서 InTag Rising Edge 찾기
+        var latestLogTime = await _plcRepository.GetLatestLogDateTimeAsync();
+        var oldestLogTime = await _plcRepository.GetOldestLogDateTimeAsync();
+
+        if (!latestLogTime.HasValue || !oldestLogTime.HasValue)
+        {
+            _logger.LogWarning("No PLC log data available");
+            return boundaries;
+        }
+
+        var risingEdges = await _plcRepository.FindRisingEdgesAsync(
+            tags.Value.InTag,
+            oldestLogTime.Value,
+            latestLogTime.Value);
+
+        if (risingEdges.Count == 0)
+        {
+            _logger.LogWarning(
+                "No rising edges found for Head Call '{CallName}' (InTag: '{InTag}')",
+                headCall.Name, tags.Value.InTag);
+            return boundaries;
+        }
+
+        _logger.LogInformation(
+            "Found {Count} rising edges for Head Call '{CallName}'",
+            risingEdges.Count, headCall.Name);
+
+        // 4. 최신 N+1개 선택 (N개 사이클 = N+1개 경계)
+        var selectedEdges = risingEdges
+            .OrderByDescending(t => t)
+            .Take(cycleCount + 1)
+            .OrderBy(t => t)
+            .ToList();
+
+        // 5. 사이클 경계 생성
+        for (int i = 0; i < selectedEdges.Count - 1; i++)
+        {
+            var boundary = new CycleBoundary
+            {
+                CycleNumber = selectedEdges.Count - 1 - i,
+                FlowName = flowName,
+                StartTime = selectedEdges[i],
+                EndTime = selectedEdges[i + 1]
+            };
+
+            // 요약 정보 계산 (빠른 미리보기용)
+            boundary.Summary = await CalculateCycleSummaryAsync(boundary);
+
+            boundaries.Add(boundary);
+        }
+
+        // 최신 순 정렬 (CycleNumber 내림차순)
+        return boundaries.OrderByDescending(b => b.CycleNumber).ToList();
+    }
+
+    /// <summary>
+    /// 사이클 요약 정보 계산 (경량 버전)
+    /// </summary>
+    private async Task<CycleSummary> CalculateCycleSummaryAsync(CycleBoundary boundary)
+    {
+        var summary = new CycleSummary();
+
+        try
+        {
+            // 간단한 Call 수 계산 및 기본 통계
+            var sequence = await GetCallSequenceAsync(
+                boundary.FlowName,
+                boundary.StartTime,
+                boundary.EndTime ?? DateTime.Now);
+
+            summary.TotalCallCount = sequence.Count;
+            summary.TotalActiveTime = TimeSpan.FromSeconds(
+                sequence.Sum(c => c.Duration.TotalSeconds));
+            summary.TotalGapTime = TimeSpan.FromSeconds(
+                sequence.Sum(c => c.GapFromPrevious.TotalSeconds));
+            summary.LongestGap = sequence.Count > 0
+                ? sequence.Max(c => c.GapFromPrevious)
+                : TimeSpan.Zero;
+
+            var totalDuration = boundary.Duration.TotalSeconds;
+            summary.UtilizationRate = totalDuration > 0
+                ? (summary.TotalActiveTime.TotalSeconds / totalDuration) * 100
+                : 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to calculate summary for cycle {CycleNumber}", boundary.CycleNumber);
+        }
+
+        return summary;
+    }
+
+    #endregion
+
+    #region 2. 통합 상세 분석 (수동 + 자동)
+
+    /// <summary>
+    /// 특정 사이클 경계에 대한 상세 분석 (자동 탐지된 사이클)
+    /// </summary>
+    public async Task<CycleAnalysisData> AnalyzeCycleBoundaryAsync(CycleBoundary boundary)
+    {
+        var data = await AnalyzeCycleAsync(
+            boundary.FlowName,
+            boundary.StartTime,
+            boundary.EndTime ?? DateTime.Now);
+
+        data.Boundary = boundary;
+        return data;
+    }
+
+    /// <summary>
+    /// 사이클 분석 실행 (수동 시간 범위 또는 사이클 경계)
     /// </summary>
     public async Task<CycleAnalysisData> AnalyzeCycleAsync(
         string flowName,
@@ -40,6 +187,7 @@ public class CycleAnalysisService
     {
         var data = new CycleAnalysisData
         {
+            FlowName = flowName,
             CycleStartTime = cycleStart,
             CycleEndTime = cycleEnd,
             TotalDuration = cycleEnd - cycleStart
@@ -66,8 +214,113 @@ public class CycleAnalysisService
         // 4. 병목 탐지
         data.Bottlenecks = DetectBottlenecks(data.CallSequence);
 
+        // 5. 성능 지표 계산
+        data.Metrics = CalculatePerformanceMetrics(data);
+
         return data;
     }
+
+    /// <summary>
+    /// 성능 지표 계산
+    /// </summary>
+    private PerformanceMetrics CalculatePerformanceMetrics(CycleAnalysisData data)
+    {
+        var metrics = new PerformanceMetrics();
+
+        if (data.CallCount == 0)
+            return metrics;
+
+        // 총 동작 시간
+        metrics.TotalActiveTime = TimeSpan.FromSeconds(
+            data.CallSequence.Sum(c => c.Duration.TotalSeconds));
+
+        // 총 유휴 시간
+        metrics.TotalIdleTime = data.TotalGapDuration;
+
+        // 가동률
+        metrics.UtilizationRate = data.TotalDuration.TotalSeconds > 0
+            ? (metrics.TotalActiveTime.TotalSeconds / data.TotalDuration.TotalSeconds) * 100
+            : 0;
+
+        // 처리율 (분당 Call 수)
+        metrics.Throughput = data.TotalDuration.TotalMinutes > 0
+            ? data.CallCount / data.TotalDuration.TotalMinutes
+            : 0;
+
+        // 평균 사이클 시간
+        metrics.AverageCycleTime = data.TotalDuration;
+
+        // 병렬 실행 탐지
+        metrics.ParallelExecutions = DetectParallelExecutions(data.CallSequence);
+
+        return metrics;
+    }
+
+    /// <summary>
+    /// 병렬 실행 횟수 탐지
+    /// </summary>
+    private int DetectParallelExecutions(List<CallExecutionInfo> sequence)
+    {
+        int parallelCount = 0;
+
+        for (int i = 0; i < sequence.Count - 1; i++)
+        {
+            var current = sequence[i];
+            var next = sequence[i + 1];
+
+            // 다음 Call이 현재 Call이 끝나기 전에 시작한 경우
+            if (next.StartTime < current.EndTime)
+            {
+                parallelCount++;
+            }
+        }
+
+        return parallelCount;
+    }
+
+    #endregion
+
+    #region 3. Helper Methods
+
+    /// <summary>
+    /// Flow 이름으로 Flow 찾기
+    /// </summary>
+    private Flow? GetFlowByName(string flowName)
+    {
+        if (!_projectService.IsLoaded)
+            return null;
+
+        var systems = _projectService.GetActiveSystems();
+        foreach (var system in systems)
+        {
+            var flows = _projectService.GetFlows(system.Id);
+            var flow = flows.FirstOrDefault(f => f.Name == flowName);
+            if (flow != null)
+                return flow;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Flow의 Head Call 찾기 (첫 번째 Work의 첫 번째 Call)
+    /// </summary>
+    private Call? GetHeadCall(Flow flow)
+    {
+        var works = _projectService.GetWorks(flow.Id);
+        if (works.Count == 0)
+            return null;
+
+        // 첫 번째 Work의 첫 번째 Call
+        var firstWork = works.First();
+        var calls = _projectService.GetCalls(firstWork.Id);
+
+        return calls.Count > 0 ? calls.First() : null;
+    }
+
+    #endregion
+
+    #region 4. Existing Methods (GetCallSequenceAsync, AnalyzeGaps, etc.)
 
     /// <summary>
     /// Call 실행 정보 수집 (시간순 정렬)
@@ -349,4 +602,6 @@ public class CycleAnalysisService
 
         return bottlenecks;
     }
+
+    #endregion
 }
