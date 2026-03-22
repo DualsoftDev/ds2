@@ -1,0 +1,64 @@
+/* Dark Theme CSS */
+.dark-theme {
+    --card-bg: #1e1e1e;
+    --text-primary: #e0e0e0;
+    --text-secondary: #b0b0b0;
+    --color-background: #121212;
+    --color-primary: #4a9eff;
+    --color-primary-rgb: 74, 158, 255;
+    --color-drawer-text: #e0e0e0;
+    --color-tertiary: #808080;
+    --color-lines: #3a3a3a;
+    --item-bg: #2a2a2a;
+    --shadow-1: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+.dark-theme body {
+    background: var(--color-background);
+    color: var(--text-primary);
+}
+
+.dark-theme .card {
+    background: var(--card-bg);
+    color: var(--text-primary);
+}
+
+.dark-theme .nav-menu {
+    background: var(--card-bg);
+    border-right: 1px solid var(--color-lines);
+}
+
+.dark-theme .btn-outlined {
+    border-color: var(--color-lines);
+    color: var(--text-primary);
+}
+
+.dark-theme .btn-outlined:hover {
+    background: var(--item-bg);
+}
+
+.dark-theme input,
+.dark-theme select,
+.dark-theme textarea {
+    background: var(--item-bg);
+    border-color: var(--color-lines);
+    color: var(--text-primary);
+}
+
+.dark-theme .alert {
+    background: var(--item-bg);
+    border-color: var(--color-lines);
+}
+
+/* Scrollbar dark theme */
+.dark-theme ::-webkit-scrollbar-track {
+    background: #2a2a2a;
+}
+
+.dark-theme ::-webkit-scrollbar-thumb {
+    background: #555;
+}
+
+.dark-theme ::-webkit-scrollbar-thumb:hover {
+    background: #777;
+}

@@ -1,27 +1,21 @@
+using DSPilot.Engine;
+using DSPilot.Engine.Tracking;
+using DSPilot.Models;
 using Ds2.Core;
 using Ds2.UI.Core;
-using DSPilot.Engine;
-using DSPilot.Models;
-using Microsoft.FSharp.Core;
-using Microsoft.FSharp.Collections;
 
 namespace DSPilot.Services;
 
 /// <summary>
-/// PLC 태그와 Call 매핑 서비스 (F# PlcToCallMapper 사용)
+/// PLC 태그와 Call 매핑 서비스
 /// </summary>
 public class PlcToCallMapperService
 {
     private readonly DsProjectService _projectService;
     private readonly ILogger<PlcToCallMapperService> _logger;
-    private readonly IConfiguration _configuration;
-    private TagMatchMode _tagMatchMode;
-
-    // F# Map 타입 저장
-    private FSharpMap<string, Engine.CallMappingInfo>? _tagToCallMap;
-    private FSharpMap<Guid, Tuple<FSharpOption<string>, FSharpOption<string>>>? _callTagMap;
-
-    private bool _initialized = false;
+    private readonly Dictionary<string, Models.CallMappingInfo> _tagMappings = new();
+    private readonly Dictionary<Guid, CallDirection> _callDirections = new();
+    private bool _isInitialized;
 
     public PlcToCallMapperService(
         DsProjectService projectService,
@@ -30,157 +24,268 @@ public class PlcToCallMapperService
     {
         _projectService = projectService;
         _logger = logger;
-        _configuration = configuration;
-
-        var mode = _configuration.GetValue<string>("PlcDatabase:TagMatchMode") ?? "Address";
-        _tagMatchMode = mode.Equals("Name", StringComparison.OrdinalIgnoreCase)
-            ? TagMatchMode.ByName
-            : TagMatchMode.ByAddress;
     }
 
+    public bool IsInitialized => _isInitialized;
+
     /// <summary>
-    /// AASX에서 Call/ApiCall/Tag 매핑 초기화 (F# PlcToCallMapper 사용)
+    /// Build tag mappings from DsStore (AASX data)
     /// </summary>
     public void Initialize()
     {
-        if (!_projectService.IsLoaded)
+        if (_isInitialized)
         {
-            _logger.LogWarning("Cannot initialize PlcToCallMapper: AASX project not loaded");
+            _logger.LogDebug("PlcToCallMapper already initialized");
             return;
         }
 
-        // F# PlcToCallMapper.initialize 호출
-        var store = _projectService.GetStore();
-        var (tagToCallMap, callTagMap) = PlcToCallMapper.initialize(store, _tagMatchMode, _logger);
+        _tagMappings.Clear();
+        _callDirections.Clear();
 
-        _tagToCallMap = tagToCallMap;
-        _callTagMap = callTagMap;
-        _initialized = true;
+        var store = _projectService.GetStore();
+        if (store == null)
+        {
+            _logger.LogWarning("DsStore is null, cannot initialize PlcToCallMapper");
+            return;
+        }
+
+        var allFlows = DsQuery.allFlows(store).ToList();
+        _logger.LogInformation("Building tag mappings from {FlowCount} flows", allFlows.Count);
+
+        int mappingCount = 0;
+        int callCount = 0;
+
+        foreach (var flow in allFlows)
+        {
+            var works = DsQuery.worksOf(flow.Id, store).ToList();
+
+            foreach (var work in works)
+            {
+                var calls = DsQuery.callsOf(work.Id, store).ToList();
+
+                foreach (var call in calls)
+                {
+                    if (call.ApiCalls.Count == 0) continue;
+
+                    var apiCall = call.ApiCalls[0];
+                    bool hasInTag = false;
+                    bool hasOutTag = false;
+
+                    // Check tags first
+                    if (apiCall.OutTag != null)
+                    {
+                        hasOutTag = true;
+                    }
+                    if (apiCall.InTag != null)
+                    {
+                        hasInTag = true;
+                    }
+
+                    // Determine Direction once
+                    var direction = DetermineDirection(hasInTag, hasOutTag);
+                    _callDirections[call.Id] = direction;
+
+                    // OutTag mapping
+                    if (apiCall.OutTag != null)
+                    {
+                        var outTag = apiCall.OutTag.Value;
+                        var entry = new Models.CallMappingInfo
+                        {
+                            Call = call,
+                            ApiCall = apiCall,
+                            IsInTag = false,
+                            FlowName = flow.Name,
+                            Direction = direction
+                        };
+
+                        _tagMappings[outTag.Address] = entry;
+                        mappingCount++;
+                    }
+
+                    // InTag mapping
+                    if (apiCall.InTag != null)
+                    {
+                        var inTag = apiCall.InTag.Value;
+                        var entry = new Models.CallMappingInfo
+                        {
+                            Call = call,
+                            ApiCall = apiCall,
+                            IsInTag = true,
+                            FlowName = flow.Name,
+                            Direction = direction
+                        };
+
+                        _tagMappings[inTag.Address] = entry;
+                        mappingCount++;
+                    }
+
+                    callCount++;
+                }
+            }
+        }
+
+        _isInitialized = true;
+        _logger.LogInformation("PlcToCallMapper initialized: {MappingCount} tag mappings for {CallCount} calls",
+            mappingCount, callCount);
     }
 
     /// <summary>
-    /// PLC 태그로 Call 찾기
+    /// Determine Call Direction based on tag configuration
+    /// </summary>
+    private CallDirection DetermineDirection(bool hasInTag, bool hasOutTag)
+    {
+        return (hasInTag, hasOutTag) switch
+        {
+            (true, true) => CallDirection.InOut,
+            (true, false) => CallDirection.InOnly,
+            (false, true) => CallDirection.OutOnly,
+            _ => CallDirection.None
+        };
+    }
+
+    /// <summary>
+    /// Find Call mapping by tag address
     /// </summary>
     public Models.CallMappingInfo? FindCallByTag(string tagName, string tagAddress)
     {
-        if (!_initialized || _tagToCallMap == null)
+        if (!_isInitialized)
         {
             _logger.LogWarning("PlcToCallMapper not initialized");
             return null;
         }
 
-        // F# PlcToCallMapper.findCallByTag 호출
-        var mappingOpt = PlcToCallMapper.findCallByTag(_tagMatchMode, tagName, tagAddress, _tagToCallMap);
-
-        if (FSharpOption<Engine.CallMappingInfo>.get_IsSome(mappingOpt))
-        {
-            var fsMapping = mappingOpt.Value;
-
-            // F# CallMappingInfo → C# CallMappingInfo 변환
-            return new Models.CallMappingInfo
-            {
-                Call = fsMapping.Call,
-                ApiCall = fsMapping.ApiCall,
-                IsInTag = fsMapping.IsInTag,
-                FlowName = fsMapping.FlowName
-            };
-        }
-
-        return null;
+        return _tagMappings.GetValueOrDefault(tagAddress);
     }
 
-    /// <summary>
-    /// 태그 이름으로 Call 찾기 (하위 호환성)
-    /// </summary>
-    [Obsolete("Use FindCallByTag(tagName, tagAddress) instead")]
     public Models.CallMappingInfo? FindCallByTagName(string tagName)
     {
         return FindCallByTag(tagName, tagName);
     }
 
     /// <summary>
-    /// Call ID로 InTag/OutTag 이름 조회
+    /// Get Call Direction by CallId
     /// </summary>
+    public CallDirection GetDirection(Guid callId)
+    {
+        return _callDirections.GetValueOrDefault(callId, CallDirection.None);
+    }
+
+    /// <summary>
+    /// Get all tag addresses
+    /// </summary>
+    public IEnumerable<string> GetAllTagAddresses()
+    {
+        return _tagMappings.Keys;
+    }
+
+    /// <summary>
+    /// Get all mappings
+    /// </summary>
+    public IEnumerable<Models.CallMappingInfo> GetAllMappings()
+    {
+        return _tagMappings.Values;
+    }
+
+    /// <summary>
+    /// Check if tag is InTag
+    /// </summary>
+    public bool IsInTag(string tagAddress)
+    {
+        if (_tagMappings.TryGetValue(tagAddress, out var entry))
+        {
+            return entry.IsInTag;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Check if tag is OutTag
+    /// </summary>
+    public bool IsOutTag(string tagAddress)
+    {
+        if (_tagMappings.TryGetValue(tagAddress, out var entry))
+        {
+            return !entry.IsInTag;
+        }
+        return false;
+    }
+
     public (string? InTag, string? OutTag)? GetCallTagsByCallId(Guid callId)
     {
-        if (!_initialized || _callTagMap == null)
+        string? inTag = null;
+        string? outTag = null;
+
+        foreach (var kvp in _tagMappings)
         {
-            return null;
+            if (kvp.Value.Call.Id == callId)
+            {
+                if (kvp.Value.IsInTag)
+                    inTag = kvp.Key;
+                else
+                    outTag = kvp.Key;
+            }
         }
 
-        // F# PlcToCallMapper.getCallTags 호출
-        var tagsOpt = PlcToCallMapper.getCallTags(callId, _callTagMap);
-
-        if (FSharpOption<Tuple<FSharpOption<string>, FSharpOption<string>>>.get_IsSome(tagsOpt))
-        {
-            var (inTagOpt, outTagOpt) = tagsOpt.Value;
-            var inTag = FSharpOption<string>.get_IsSome(inTagOpt) ? inTagOpt.Value : null;
-            var outTag = FSharpOption<string>.get_IsSome(outTagOpt) ? outTagOpt.Value : null;
+        if (inTag != null || outTag != null)
             return (inTag, outTag);
-        }
 
         return null;
     }
 
-    /// <summary>
-    /// PLC 태그 목록과 비교하여 실제 존재하지 않는 InTag 매핑을 제거
-    /// </summary>
     public void ValidateWithPlcTags(HashSet<string> plcTagKeys)
     {
-        if (!_initialized || _tagToCallMap == null || _callTagMap == null)
+        var unmappedTags = _tagMappings.Keys.Except(plcTagKeys).ToList();
+        if (unmappedTags.Any())
         {
-            return;
+            _logger.LogWarning("Found {Count} tag mappings without PLC tags: {Tags}",
+                unmappedTags.Count, string.Join(", ", unmappedTags.Take(10)));
         }
-
-        // F# PlcToCallMapper.validateWithPlcTags 호출
-        var (newTagToCallMap, newCallTagMap) = PlcToCallMapper.validateWithPlcTags(
-            plcTagKeys, _logger, _tagToCallMap, _callTagMap);
-
-        _tagToCallMap = newTagToCallMap;
-        _callTagMap = newCallTagMap;
     }
 
-    /// <summary>
-    /// 태그 값 변경에 따른 Call 상태 결정 (F# PlcToCallMapper 사용)
-    /// </summary>
     public (string NewState, bool StateChanged) DetermineCallState(
         string tagName,
         string tagAddress,
         TagEdgeState edgeState,
-        string currentCallState)
+        string currentState)
     {
-        if (!_initialized || _tagToCallMap == null || _callTagMap == null)
+        var mapping = FindCallByTag(tagName, tagAddress);
+        if (mapping == null)
+            return (currentState, false);
+
+        var direction = _callDirections.GetValueOrDefault(mapping.Call.Id, CallDirection.None);
+        var edgeType = edgeState.EdgeType;
+
+        // InOut: Out ON → Ready → Going, In ON → Going → Finish, In OFF → Finish → Ready
+        // InOnly: In ON → Ready → Going → Finish (instant), In OFF → Finish → Ready
+        // OutOnly: Out ON → Ready → Going, Out OFF → Going → Finish → Ready (auto)
+
+        return (direction, mapping.IsInTag, edgeType) switch
         {
-            _logger.LogWarning("PlcToCallMapper not initialized");
-            return (currentCallState, false);
-        }
+            // InOut Direction
+            (CallDirection.InOut, false, DSPilot.Engine.Core.EdgeType.RisingEdge) when currentState == "Ready"
+                => ("Going", true),  // OutTag rising: Ready → Going
 
-        // F# PlcToCallMapper.determineCallState 호출
-        var (newStateStr, stateChanged) = PlcToCallMapper.determineCallState(
-            _tagMatchMode,
-            tagName,
-            tagAddress,
-            edgeState,
-            currentCallState,
-            _tagToCallMap,
-            _callTagMap,
-            _logger);
+            (CallDirection.InOut, true, DSPilot.Engine.Core.EdgeType.RisingEdge) when currentState == "Going"
+                => ("Finish", true), // InTag rising: Going → Finish
 
-        return (newStateStr, stateChanged);
+            (CallDirection.InOut, true, DSPilot.Engine.Core.EdgeType.FallingEdge) when currentState == "Finish"
+                => ("Ready", true),  // InTag falling: Finish → Ready
+
+            // InOnly Direction
+            (CallDirection.InOnly, true, DSPilot.Engine.Core.EdgeType.RisingEdge) when currentState == "Ready"
+                => ("Finish", true), // InTag rising: Ready → Going → Finish (instant)
+
+            (CallDirection.InOnly, true, DSPilot.Engine.Core.EdgeType.FallingEdge) when currentState == "Finish"
+                => ("Ready", true),  // InTag falling: Finish → Ready
+
+            // OutOnly Direction
+            (CallDirection.OutOnly, false, DSPilot.Engine.Core.EdgeType.RisingEdge) when currentState == "Ready"
+                => ("Going", true),  // OutTag rising: Ready → Going
+
+            (CallDirection.OutOnly, false, DSPilot.Engine.Core.EdgeType.FallingEdge) when currentState == "Going"
+                => ("Finish", true), // OutTag falling: Going → Finish → Ready (auto)
+
+            _ => (currentState, false) // No state change
+        };
     }
-
-    /// <summary>
-    /// 매핑된 태그 개수
-    /// </summary>
-    public int MappedTagCount => _tagToCallMap?.Count ?? 0;
-
-    /// <summary>
-    /// 매핑된 Call 개수
-    /// </summary>
-    public int MappedCallCount => _callTagMap?.Count ?? 0;
-
-    /// <summary>
-    /// 초기화 여부
-    /// </summary>
-    public bool IsInitialized => _initialized;
 }

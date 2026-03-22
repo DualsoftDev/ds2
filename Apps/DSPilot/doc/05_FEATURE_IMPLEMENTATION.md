@@ -373,56 +373,130 @@ let calculateCycleMetrics (flowName: string) : Async<unit> =
 
 ### 필요 Projection 필드
 
-**dspCall**:
-- `LastStartAt` - 시작 시각
-- `LastFinishAt` - 종료 시각
-- `LastDurationMs` - 실행 시간
+**dspCallHistory** (⚠️ 이력 테이블 필수!):
+- `CallId` - Call 참조
+- `CallName` - Call 이름
+- `FlowName` - Flow 이름
+- `CycleNo` - 사이클 번호
+- `StartAt` - 시작 시각
+- `FinishAt` - 종료 시각
+- `DurationMs` - 실행 시간
+- `State` - 실행 상태
+
+**dspCall** (Join용):
+- `WorkName` - Work 그룹핑
 - `SequenceNo` - 순서
 - `Prev` - 이전 Call
 - `Next` - 다음 Call
 
-### 계산 로직
+### 계산 로직 (✅ 이력 기반)
 
 ```fsharp
 // DSPilot.Engine/Analysis/GanttLayout.fs
 
 type GanttBar =
-    { CallName: string
+    { CallId: Guid
+      CallName: string
+      WorkName: string
       StartTime: DateTime
       EndTime: DateTime
       Duration: float
       YPosition: int
       State: string }
 
+/// ✅ 이력 테이블에서 Gantt Chart 데이터 조회
 let calculateGanttLayout (flowName: string) (cycleNo: int) : Async<GanttBar list> =
     async {
-        let! calls = DspRepository.getCallsByFlow flowName
+        use conn = new SqliteConnection(getConnectionString())
 
-        // Cycle No로 필터링
-        let cycleCalls = calls |> List.filter (fun c -> c.CurrentCycleNo = cycleNo)
+        // ⚠️ dspCallHistory에서 조회 (덮어쓰기 없음!)
+        let sql = """
+            SELECT
+                h.CallId,
+                h.CallName,
+                c.WorkName,
+                h.StartAt,
+                h.FinishAt,
+                h.DurationMs,
+                c.SequenceNo,
+                h.State
+            FROM dspCallHistory h
+            JOIN dspCall c ON h.CallId = c.Id
+            WHERE h.FlowName = @FlowName
+              AND h.CycleNo = @CycleNo
+              AND h.FinishAt IS NOT NULL
+            ORDER BY h.StartAt
+        """
 
-        // 시작 시각 기준 정렬
-        let sortedCalls =
-            cycleCalls
-            |> List.sortBy (fun c -> c.LastStartAt |> Option.defaultValue DateTime.MinValue)
+        let! rows =
+            conn.QueryAsync<GanttRow>(sql, {| FlowName = flowName; CycleNo = cycleNo |})
+            |> Async.AwaitTask
 
-        // Gantt Bar 생성
         let bars =
-            sortedCalls
-            |> List.mapi (fun i call ->
-                match call.LastStartAt, call.LastFinishAt with
-                | Some start, Some finish ->
-                    Some { CallName = call.CallName
-                           StartTime = start
-                           EndTime = finish
-                           Duration = call.LastDurationMs |> Option.defaultValue 0.0
-                           YPosition = i
-                           State = call.State }
-                | _ -> None)
-            |> List.choose id
+            rows
+            |> Seq.mapi (fun i row ->
+                { CallId = row.CallId
+                  CallName = row.CallName
+                  WorkName = row.WorkName
+                  StartTime = DateTime.Parse(row.StartAt)
+                  EndTime = DateTime.Parse(row.FinishAt)
+                  Duration = row.DurationMs
+                  YPosition = i
+                  State = row.State })
+            |> Seq.toList
 
         return bars
     }
+
+/// ✅ Gap 분석 (연속된 Call 간 대기시간)
+let calculateGaps (flowName: string) (cycleNo: int) : Async<GapInfo list> =
+    async {
+        use conn = new SqliteConnection(getConnectionString())
+
+        let sql = """
+            WITH OrderedCalls AS (
+                SELECT
+                    h.CallName,
+                    h.StartAt,
+                    h.FinishAt,
+                    c.SequenceNo,
+                    LAG(h.FinishAt) OVER (ORDER BY c.SequenceNo) AS PrevFinishAt
+                FROM dspCallHistory h
+                JOIN dspCall c ON h.CallId = c.Id
+                WHERE h.FlowName = @FlowName
+                  AND h.CycleNo = @CycleNo
+                  AND h.FinishAt IS NOT NULL
+            )
+            SELECT
+                CallName,
+                PrevFinishAt,
+                StartAt,
+                (julianday(StartAt) - julianday(PrevFinishAt)) * 86400000.0 AS GapMs
+            FROM OrderedCalls
+            WHERE PrevFinishAt IS NOT NULL
+        """
+
+        let! gaps =
+            conn.QueryAsync<GapInfo>(sql, {| FlowName = flowName; CycleNo = cycleNo |})
+            |> Async.AwaitTask
+
+        return gaps |> Seq.toList
+    }
+```
+
+### ⚠️ 주요 변경 사항
+
+1. **데이터 소스 변경**:
+   - ❌ `dspCall.LastStartAt/LastFinishAt` (덮어쓰기됨)
+   - ✅ `dspCallHistory` (Append-Only, 모든 이력 보존)
+
+2. **Cycle 선택**:
+   - `CycleNo` 필터링으로 과거 사이클 복원 가능
+   - 병렬/반복 호출 모두 추적
+
+3. **Gap 계산 추가**:
+   - 연속된 Call 간 대기시간 계산
+   - Bottleneck 분석에 필수
 ```
 
 ### UI 구현

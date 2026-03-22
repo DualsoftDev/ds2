@@ -1,27 +1,65 @@
-namespace DSPilot.Engine
+namespace DSPilot.Engine.Core
 
-/// 엣지 감지 모듈
-module EdgeDetection =
+open System
+open System.Collections.Generic
 
-    /// 이전 값과 현재 값을 비교하여 엣지 타입 판단
-    let detectEdge (previousValue: string option) (currentValue: string) : EdgeType =
-        match previousValue with
-        | None -> NoChange  // 첫 번째 값인 경우
-        | Some prev when prev = "0" && currentValue = "1" -> Rising
-        | Some prev when prev = "1" && currentValue = "0" -> Falling
-        | _ -> NoChange
+/// Edge type (Rising or Falling) - enum for C# interop
+type EdgeType =
+    | RisingEdge = 0
+    | FallingEdge = 1
 
-    /// 엣지 상태를 bool 튜플로 변환 (isRising, isFalling)
-    let edgeToFlags (edge: EdgeType) : bool * bool =
-        match edge with
-        | Rising -> (true, false)
-        | Falling -> (false, true)
-        | NoChange -> (false, false)
+/// Edge event detected from PLC tag
+type EdgeEvent =
+    { TagName: string
+      EdgeType: EdgeType
+      Timestamp: DateTime
+      Source: string }
 
-    /// Rising Edge 여부 확인
-    let isRising (edge: EdgeType) : bool =
-        edge = Rising
+/// PLC Tag event (raw data from PLC)
+type PlcTagEvent =
+    { TagName: string
+      Value: bool
+      Timestamp: DateTime
+      Source: string }
 
-    /// Falling Edge 여부 확인
-    let isFalling (edge: EdgeType) : bool =
-        edge = Falling
+/// Tag state tracker for edge detection
+type TagStateTracker() =
+    let lastStates = Dictionary<string, bool>()
+
+    /// Detect edge from PLC tag event
+    member this.DetectEdge(event: PlcTagEvent) : EdgeEvent option =
+        match lastStates.TryGetValue(event.TagName) with
+        | true, prevValue ->
+            // Update state
+            lastStates.[event.TagName] <- event.Value
+
+            // Detect edge
+            if not prevValue && event.Value then
+                // Rising Edge (0 -> 1)
+                Some { TagName = event.TagName
+                       EdgeType = EdgeType.RisingEdge
+                       Timestamp = event.Timestamp
+                       Source = event.Source }
+            elif prevValue && not event.Value then
+                // Falling Edge (1 -> 0)
+                Some { TagName = event.TagName
+                       EdgeType = EdgeType.FallingEdge
+                       Timestamp = event.Timestamp
+                       Source = event.Source }
+            else
+                // No edge (value unchanged)
+                None
+        | false, _ ->
+            // First time seeing this tag, initialize state
+            lastStates.[event.TagName] <- event.Value
+            None
+
+    /// Clear all tracked states
+    member this.Clear() =
+        lastStates.Clear()
+
+    /// Get current state of a tag
+    member this.GetState(tagName: string) : bool option =
+        match lastStates.TryGetValue(tagName) with
+        | true, value -> Some value
+        | false, _ -> None

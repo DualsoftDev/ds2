@@ -1,6 +1,7 @@
 namespace DSPilot.Engine
 
 open System
+open DSPilot.Engine.Core
 
 /// 태그 엣지 상태 (immutable)
 [<CLIMutable>]
@@ -15,6 +16,18 @@ type TagEdgeState = {
 /// 태그 상태 추적기 모듈
 module TagStateTracker =
 
+    /// Edge detection helper
+    let private detectEdge (prevValue: string option) (newValue: string) : EdgeType =
+        match prevValue with
+        | None -> EdgeType.RisingEdge  // First value, assume rising
+        | Some prev ->
+            if prev = "0" && newValue = "1" then
+                EdgeType.RisingEdge
+            elif prev = "1" && newValue = "0" then
+                EdgeType.FallingEdge
+            else
+                EdgeType.RisingEdge  // Default to Rising for other cases
+
     /// 빈 상태 맵
     let empty : Map<string, TagEdgeState> = Map.empty
 
@@ -23,7 +36,7 @@ module TagStateTracker =
         match Map.tryFind tagName stateMap with
         | None ->
             // 첫 번째 업데이트
-            let edgeType = EdgeDetection.detectEdge None newValue
+            let edgeType = detectEdge None newValue
             let newState = {
                 TagName = tagName
                 PreviousValue = "0"
@@ -35,7 +48,7 @@ module TagStateTracker =
 
         | Some prevState ->
             // 기존 상태 업데이트
-            let edgeType = EdgeDetection.detectEdge (Some prevState.CurrentValue) newValue
+            let edgeType = detectEdge (Some prevState.CurrentValue) newValue
             let newState = {
                 TagName = tagName
                 PreviousValue = prevState.CurrentValue
@@ -60,14 +73,14 @@ module TagStateTracker =
     /// Rising edge 태그만 필터링
     let getRisingEdgeTags (stateMap: Map<string, TagEdgeState>) : string list =
         stateMap
-        |> Map.filter (fun _ state -> EdgeDetection.isRising state.EdgeType)
+        |> Map.filter (fun _ state -> state.EdgeType = EdgeType.RisingEdge)
         |> Map.toList
         |> List.map fst
 
     /// Falling edge 태그만 필터링
     let getFallingEdgeTags (stateMap: Map<string, TagEdgeState>) : string list =
         stateMap
-        |> Map.filter (fun _ state -> EdgeDetection.isFalling state.EdgeType)
+        |> Map.filter (fun _ state -> state.EdgeType = EdgeType.FallingEdge)
         |> Map.toList
         |> List.map fst
 

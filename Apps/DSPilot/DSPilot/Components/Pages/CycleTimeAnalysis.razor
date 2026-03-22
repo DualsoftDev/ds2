@@ -1,0 +1,509 @@
+@page "/cycle-time-analysis"
+@rendermode InteractiveServer
+@using DSPilot.Services
+@using DSPilot.Models.Plc
+@using DSPilot.Repositories
+@inject PlcToCallMapperService CallMapper
+@inject IPlcRepository PlcRepository
+@inject IJSRuntime JS
+
+<PageTitle>Cycle Time Analysis - DSPilot</PageTitle>
+
+<div class="cycle-time-analysis">
+    <div class="page-header">
+        <h3>사이클 분석</h3>
+        <div class="header-actions">
+            <select class="form-field" @bind="_selectedFlowName" @bind:after="OnFlowChanged">
+                <option value="">-- Flow 선택 --</option>
+                @foreach (var flow in _flows)
+                {
+                    <option value="@flow">@flow</option>
+                }
+            </select>
+            <button class="btn btn-primary" @onclick="LoadData" disabled="@string.IsNullOrEmpty(_selectedFlowName)">
+                분석 시작
+            </button>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="loading-container">
+            <div class="spinner"></div>
+            <p>데이터 로딩 중...</p>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-error">
+            <span class="material-icons">error</span>
+            @_errorMessage
+        </div>
+    }
+    else if (_callCycles.Any())
+    {
+        <div class="analysis-content">
+            <!-- Summary Cards -->
+            <div class="summary-cards">
+                <div class="summary-card">
+                    <div class="card-icon">
+                        <span class="material-icons">list_alt</span>
+                    </div>
+                    <div class="card-content">
+                        <div class="card-label">총 Call 수</div>
+                        <div class="card-value">@_callCycles.Count</div>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="card-icon">
+                        <span class="material-icons">schedule</span>
+                    </div>
+                    <div class="card-content">
+                        <div class="card-label">평균 사이클 타임</div>
+                        <div class="card-value">@GetAverageCycleTime() <span class="unit">sec</span></div>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="card-icon">
+                        <span class="material-icons">trending_down</span>
+                    </div>
+                    <div class="card-content">
+                        <div class="card-label">최소 사이클 타임</div>
+                        <div class="card-value">@GetMinCycleTime() <span class="unit">sec</span></div>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="card-icon">
+                        <span class="material-icons">trending_up</span>
+                    </div>
+                    <div class="card-content">
+                        <div class="card-label">최대 사이클 타임</div>
+                        <div class="card-value">@GetMaxCycleTime() <span class="unit">sec</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart Section -->
+            <div class="chart-section">
+                <h4>실제 IO 타임 차트 (최근 50개 사이클)</h4>
+                <canvas id="cycleTimeChart" style="max-height: 400px;"></canvas>
+            </div>
+
+            <!-- Call List Table -->
+            <div class="call-list">
+                <h4>Call별 상세 통계</h4>
+                <div class="call-table">
+                    <div class="table-header">
+                        <div class="col-call-name">Call Name</div>
+                        <div class="col-cycle-count">사이클 수</div>
+                        <div class="col-avg-time">평균 (sec)</div>
+                        <div class="col-min-time">최소 (sec)</div>
+                        <div class="col-max-time">최대 (sec)</div>
+                        <div class="col-std-dev">표준편차</div>
+                    </div>
+                    @foreach (var cycle in _callCycles.OrderByDescending(c => c.AverageCycleTime))
+                    {
+                        <div class="table-row" @onclick="() => SelectCall(cycle)">
+                            <div class="col-call-name">@cycle.CallName</div>
+                            <div class="col-cycle-count">@cycle.CycleCount</div>
+                            <div class="col-avg-time">@((cycle.AverageCycleTime / 1000.0).ToString("F1"))</div>
+                            <div class="col-min-time">@((cycle.MinCycleTime / 1000.0).ToString("F1"))</div>
+                            <div class="col-max-time">@((cycle.MaxCycleTime / 1000.0).ToString("F1"))</div>
+                            <div class="col-std-dev">@((cycle.StdDeviation / 1000.0).ToString("F1"))</div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Selected Call Detail -->
+            @if (_selectedCall != null)
+            {
+                <div class="call-detail">
+                    <div class="detail-header">
+                        <h4>@_selectedCall.CallName - 상세 분석</h4>
+                        <button class="btn btn-sm" @onclick="ClearSelection">
+                            <span class="material-icons">close</span>
+                        </button>
+                    </div>
+
+                    <!-- Signal Timeline Chart -->
+                    <div class="detail-chart-section">
+                        <h5>실제 신호 타임라인 (최근 50개 사이클)</h5>
+                        <canvas id="signalTimelineChart" style="max-height: 250px;"></canvas>
+                    </div>
+
+                    <div class="detail-chart-section">
+                        <h5>사이클 타임 히스토그램</h5>
+                        <canvas id="histogramChart" style="max-height: 300px;"></canvas>
+                    </div>
+
+                    <div class="detail-stats">
+                        <div class="stat-group">
+                            <div class="stat-item">
+                                <label>총 사이클 수</label>
+                                <span>@_selectedCall.CycleCount</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>평균</label>
+                                <span>@((_selectedCall.AverageCycleTime / 1000.0).ToString("F1")) sec</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>중앙값</label>
+                                <span>@((GetMedian(_selectedCall.CycleTimes) / 1000.0).ToString("F1")) sec</span>
+                            </div>
+                        </div>
+                        <div class="stat-group">
+                            <div class="stat-item">
+                                <label>최소</label>
+                                <span>@((_selectedCall.MinCycleTime / 1000.0).ToString("F1")) sec</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>최대</label>
+                                <span>@((_selectedCall.MaxCycleTime / 1000.0).ToString("F1")) sec</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>범위</label>
+                                <span>@(((_selectedCall.MaxCycleTime - _selectedCall.MinCycleTime) / 1000.0).ToString("F1")) sec</span>
+                            </div>
+                        </div>
+                        <div class="stat-group">
+                            <div class="stat-item">
+                                <label>표준편차</label>
+                                <span>@((_selectedCall.StdDeviation / 1000.0).ToString("F1")) sec</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>변동계수 (CV)</label>
+                                <span>@((_selectedCall.StdDeviation / _selectedCall.AverageCycleTime * 100).ToString("F1"))%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="empty-state">
+            <span class="material-icons">bar_chart</span>
+            <p>Flow를 선택하고 '분석 시작' 버튼을 클릭하세요</p>
+        </div>
+    }
+</div>
+
+@code {
+    private List<string> _flows = new();
+    private string _selectedFlowName = "";
+    private bool _isLoading = false;
+    private string? _errorMessage;
+    private List<CallCycleData> _callCycles = new();
+    private CallCycleData? _selectedCall;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadFlows();
+    }
+
+    private Task LoadFlows()
+    {
+        try
+        {
+            var mappings = CallMapper.GetAllMappings();
+            _flows = mappings
+                .Select(m => m.FlowName)
+                .Where(f => !string.IsNullOrEmpty(f))
+                .Distinct()
+                .OrderBy(f => f)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Flow 로딩 실패: {ex.Message}";
+        }
+        return Task.CompletedTask;
+    }
+
+    private Task OnFlowChanged()
+    {
+        _callCycles.Clear();
+        _selectedCall = null;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadData()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+        _callCycles.Clear();
+        _selectedCall = null;
+        StateHasChanged();
+
+        try
+        {
+            var mappings = CallMapper.GetAllMappings()
+                .Where(m => m.FlowName == _selectedFlowName)
+                .GroupBy(m => m.Call.Id)
+                .ToList();
+
+            var cycleTasks = mappings.Select(async callGroup =>
+            {
+                var firstMapping = callGroup.First();
+                var call = firstMapping.Call;
+
+                var tags = CallMapper.GetCallTagsByCallId(call.Id);
+                if (tags == null) return null;
+
+                var (inTag, outTag) = tags.Value;
+                if (string.IsNullOrEmpty(inTag)) return null;
+
+                var endTime = DateTime.Now;
+                var startTime = endTime.AddHours(-24);
+
+                var inTagLogs = await PlcRepository.GetTagLogsByTimeRangeAsync(inTag, startTime, endTime);
+                var outTagLogs = string.IsNullOrEmpty(outTag)
+                    ? new List<PlcTagLogEntity>()
+                    : await PlcRepository.GetTagLogsByTimeRangeAsync(outTag, startTime, endTime);
+
+                var cycleTimes = CalculateCycleTimes(inTagLogs);
+
+                if (!cycleTimes.Any()) return null;
+
+                return new CallCycleData
+                {
+                    CallName = call.Name,
+                    CycleTimes = cycleTimes,
+                    CycleCount = cycleTimes.Count,
+                    AverageCycleTime = cycleTimes.Average(),
+                    MinCycleTime = cycleTimes.Min(),
+                    MaxCycleTime = cycleTimes.Max(),
+                    StdDeviation = CalculateStdDev(cycleTimes),
+                    InTagAddress = inTag,
+                    OutTagAddress = outTag,
+                    InTagLogs = inTagLogs,
+                    OutTagLogs = outTagLogs
+                };
+            });
+
+            var results = await Task.WhenAll(cycleTasks);
+            _callCycles = results.Where(r => r != null).ToList()!;
+
+            if (_callCycles.Any())
+            {
+                await RenderChart();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"데이터 로딩 실패: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RenderChart()
+    {
+        try
+        {
+            // 첫 번째 Call의 실제 IO 타임 차트 렌더링
+            var firstCall = _callCycles.OrderByDescending(c => c.AverageCycleTime).FirstOrDefault();
+            if (firstCall == null || firstCall.InTagLogs == null || firstCall.OutTagLogs == null)
+                return;
+
+            var inLogs = firstCall.InTagLogs.Take(200).ToList();
+            var outLogs = firstCall.OutTagLogs.Take(200).ToList();
+
+            var inTimestamps = inLogs.Select(l => l.DateTime.ToString("HH:mm:ss.fff")).ToArray();
+            var inValues = inLogs.Select(l =>
+            {
+                var val = l.Value == "1" || l.Value?.ToLower() == "true" ? "1" : "0";
+                return val == "1" ? 1.0 : 0.0;
+            }).ToArray();
+
+            var outTimestamps = outLogs.Select(l => l.DateTime.ToString("HH:mm:ss.fff")).ToArray();
+            var outValues = outLogs.Select(l =>
+            {
+                var val = l.Value == "1" || l.Value?.ToLower() == "true" ? "1" : "0";
+                return val == "1" ? 2.0 : 1.0;
+            }).ToArray();
+
+            await JS.InvokeVoidAsync("renderCycleTimeChart",
+                firstCall.InTagAddress ?? "InTag",
+                firstCall.OutTagAddress ?? "OutTag",
+                inTimestamps, inValues,
+                outTimestamps, outValues);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Chart render error: {ex.Message}");
+        }
+    }
+
+    private async Task SelectCall(CallCycleData call)
+    {
+        _selectedCall = call;
+        StateHasChanged();
+
+        await Task.Delay(100);
+        await RenderHistogram();
+        await RenderSignalTimeline();
+    }
+
+    private void ClearSelection()
+    {
+        _selectedCall = null;
+        StateHasChanged();
+    }
+
+    private async Task RenderHistogram()
+    {
+        if (_selectedCall == null) return;
+
+        try
+        {
+            var sorted = _selectedCall.CycleTimes.OrderBy(t => t).ToList();
+            var min = sorted.First();
+            var max = sorted.Last();
+            var binCount = Math.Min(20, _selectedCall.CycleCount / 5);
+            var binWidth = (max - min) / binCount;
+
+            var histogram = new int[binCount];
+            var labels = new string[binCount];
+
+            for (int i = 0; i < binCount; i++)
+            {
+                labels[i] = $"{((min + i * binWidth) / 1000.0):F1}-{((min + (i + 1) * binWidth) / 1000.0):F1}";
+            }
+
+            foreach (var time in sorted)
+            {
+                var binIndex = Math.Min((int)((time - min) / binWidth), binCount - 1);
+                histogram[binIndex]++;
+            }
+
+            await JS.InvokeVoidAsync("renderHistogramChart", labels, histogram);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Histogram render error: {ex.Message}");
+        }
+    }
+
+    private async Task RenderSignalTimeline()
+    {
+        if (_selectedCall == null || _selectedCall.InTagLogs == null || _selectedCall.OutTagLogs == null)
+            return;
+
+        try
+        {
+            var inLogs = _selectedCall.InTagLogs.Take(200).ToList();
+            var outLogs = _selectedCall.OutTagLogs.Take(200).ToList();
+
+            var inTimestamps = inLogs.Select(l => l.DateTime.ToString("HH:mm:ss.fff")).ToArray();
+            var inValues = inLogs.Select(l =>
+            {
+                var val = l.Value == "1" || l.Value?.ToLower() == "true" ? "1" : "0";
+                return val == "1" ? 1.0 : 0.0;
+            }).ToArray();
+
+            var outTimestamps = outLogs.Select(l => l.DateTime.ToString("HH:mm:ss.fff")).ToArray();
+            var outValues = outLogs.Select(l =>
+            {
+                var val = l.Value == "1" || l.Value?.ToLower() == "true" ? "1" : "0";
+                return val == "1" ? 2.0 : 1.0;
+            }).ToArray();
+
+            await JS.InvokeVoidAsync("renderSignalTimelineChart",
+                _selectedCall.InTagAddress ?? "InTag",
+                _selectedCall.OutTagAddress ?? "OutTag",
+                inTimestamps, inValues,
+                outTimestamps, outValues);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Signal timeline render error: {ex.Message}");
+        }
+    }
+
+    private List<double> CalculateCycleTimes(List<PlcTagLogEntity> logs)
+    {
+        var cycleTimes = new List<double>();
+        DateTime? lastRisingEdge = null;
+
+        for (int i = 1; i < logs.Count; i++)
+        {
+            var prevValue = logs[i - 1].Value == "1" || logs[i - 1].Value?.ToLower() == "true";
+            var currValue = logs[i].Value == "1" || logs[i].Value?.ToLower() == "true";
+
+            if (!prevValue && currValue)
+            {
+                if (lastRisingEdge.HasValue)
+                {
+                    var cycleTime = (logs[i].DateTime - lastRisingEdge.Value).TotalMilliseconds;
+                    if (cycleTime > 0 && cycleTime < 60000)
+                    {
+                        cycleTimes.Add(cycleTime);
+                    }
+                }
+                lastRisingEdge = logs[i].DateTime;
+            }
+        }
+
+        return cycleTimes;
+    }
+
+    private double CalculateStdDev(List<double> values)
+    {
+        if (values.Count < 2) return 0;
+
+        var avg = values.Average();
+        var sumOfSquares = values.Sum(v => Math.Pow(v - avg, 2));
+        return Math.Sqrt(sumOfSquares / (values.Count - 1));
+    }
+
+    private double GetMedian(List<double> values)
+    {
+        var sorted = values.OrderBy(v => v).ToList();
+        int mid = sorted.Count / 2;
+
+        if (sorted.Count % 2 == 0)
+            return (sorted[mid - 1] + sorted[mid]) / 2.0;
+        else
+            return sorted[mid];
+    }
+
+    private string GetAverageCycleTime()
+    {
+        if (!_callCycles.Any()) return "0.0";
+        return (_callCycles.Average(c => c.AverageCycleTime) / 1000.0).ToString("F1");
+    }
+
+    private string GetMinCycleTime()
+    {
+        if (!_callCycles.Any()) return "0.0";
+        return (_callCycles.Min(c => c.MinCycleTime) / 1000.0).ToString("F1");
+    }
+
+    private string GetMaxCycleTime()
+    {
+        if (!_callCycles.Any()) return "0.0";
+        return (_callCycles.Max(c => c.MaxCycleTime) / 1000.0).ToString("F1");
+    }
+
+    private class CallCycleData
+    {
+        public string CallName { get; set; } = "";
+        public List<double> CycleTimes { get; set; } = new();
+        public int CycleCount { get; set; }
+        public double AverageCycleTime { get; set; }
+        public double MinCycleTime { get; set; }
+        public double MaxCycleTime { get; set; }
+        public double StdDeviation { get; set; }
+        public string? InTagAddress { get; set; }
+        public string? OutTagAddress { get; set; }
+        public List<PlcTagLogEntity>? InTagLogs { get; set; }
+        public List<PlcTagLogEntity>? OutTagLogs { get; set; }
+    }
+}

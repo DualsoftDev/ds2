@@ -1,4 +1,5 @@
 using DSPilot.Engine;
+using DSPilot.Engine.Core;
 
 namespace DSPilot.Services;
 
@@ -28,11 +29,11 @@ public class PlcTagStateTrackerService
         {
             _logger.LogDebug("Tag '{TagName}' initialized: {Value}", tagName, newValue);
         }
-        else if (EdgeDetection.isRising(state.EdgeType))
+        else if (state.EdgeType == DSPilot.Engine.Core.EdgeType.RisingEdge)
         {
             _logger.LogDebug("Tag '{TagName}': Rising edge detected (0 → 1)", tagName);
         }
-        else if (EdgeDetection.isFalling(state.EdgeType))
+        else if (state.EdgeType == DSPilot.Engine.Core.EdgeType.FallingEdge)
         {
             _logger.LogDebug("Tag '{TagName}': Falling edge detected (1 → 0)", tagName);
         }

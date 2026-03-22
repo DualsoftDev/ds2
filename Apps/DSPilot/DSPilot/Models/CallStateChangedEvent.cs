@@ -7,7 +7,9 @@ namespace DSPilot.Models;
 public record CallStateChangedEvent
 {
     public required string CallName         { get; init; }
+    public string? PreviousState            { get; init; }
     public required string NewState         { get; init; }
+    public DateTime Timestamp               { get; init; } = DateTime.Now;
     public int?    GoingCount               { get; init; }
     public double? AverageGoingTime         { get; init; }
     public int?    PreviousGoingTime        { get; init; }

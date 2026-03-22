@@ -18,6 +18,9 @@ if (args.Contains("--diagnose"))
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// SignalR for real-time monitoring
+builder.Services.AddSignalR();
+
 // Database path resolution (Unified mode support) - F# Adapter 사용
 builder.Services.AddSingleton<DatabasePathResolverAdapter>();
 builder.Services.AddSingleton<IDatabasePathResolver>(sp => sp.GetRequiredService<DatabasePathResolverAdapter>());
@@ -33,6 +36,8 @@ builder.Services.AddSingleton<BlueprintService>();
 builder.Services.AddSingleton<HeatmapService>();
 builder.Services.AddSingleton<DspDbService>();
 builder.Services.AddSingleton<PlcDebugService>();
+builder.Services.AddSingleton<ThemeService>();
+builder.Services.AddSingleton<PlcIoDataService>();
 
 // PLC 데이터 읽기 서비스 등록
 builder.Services.AddSingleton<IPlcRepository, PlcRepository>();
@@ -45,15 +50,25 @@ builder.Services.AddSingleton<IDspRepository>(sp =>
     var logger = sp.GetRequiredService<ILogger<DspRepositoryAdapter>>();
     return new DspRepositoryAdapter(pathResolver.GetDatabasePaths(), logger);
 });
+
+// Tracking services (F# Engine integration)
 builder.Services.AddSingleton<PlcToCallMapperService>();
 builder.Services.AddSingleton<PlcTagStateTrackerService>();
+builder.Services.AddSingleton<CallStateNotificationService>();
+
 builder.Services.AddSingleton<CallStatisticsService>();
 builder.Services.AddSingleton<InMemoryCallStateStore>();
 builder.Services.AddSingleton<IFlowMetricsService, FlowMetricsService>();
 builder.Services.AddScoped<CycleAnalysisService>();
 builder.Services.AddHostedService<DspDatabaseServiceAdapter>();
 
-// Ev2.Backend.PLC 기반 이벤트 처리 (옵션)
+// Real-time monitoring broadcast service
+builder.Services.AddHostedService<MonitoringBroadcastService>();
+
+// Real-time PLC Database Monitor (실제 DB에서 변경사항 감지 및 브로드캐스트)
+builder.Services.AddHostedService<PlcDatabaseMonitorService>();
+
+// Ev2.Backend.PLC 기반 실시간 이벤트 처리 (F# StateTransition 통합)
 var plcConnectionEnabled = builder.Configuration.GetValue<bool>("PlcConnection:Enabled");
 if (plcConnectionEnabled)
 {
@@ -105,6 +120,9 @@ if (delayIndex >= 0 && delayIndex + 1 < args.Length && int.TryParse(args[delayIn
 app.MapStaticAssets();
 app.MapRazorComponents<DSPilot.Components.App>()
     .AddInteractiveServerRenderMode();
+
+// SignalR Hub endpoint
+app.MapHub<DSPilot.Hubs.MonitoringHub>("/hubs/monitoring");
 
 app.Run();
 

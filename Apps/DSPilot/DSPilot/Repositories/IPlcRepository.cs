@@ -114,4 +114,15 @@ public interface IPlcRepository
     /// <returns>Rising Edge 발생 시각 목록</returns>
     Task<List<DateTime>> FindRisingEdgesAsync(
         string address, DateTime startTime, DateTime endTime);
+
+    /// <summary>
+    /// 특정 태그의 최근 N개 로그 조회
+    /// </summary>
+    Task<List<PlcTagLogEntity>> GetTagLogsAsync(string tagAddress, int count);
+
+    /// <summary>
+    /// 특정 태그의 시간 범위 로그 조회
+    /// </summary>
+    Task<List<PlcTagLogEntity>> GetTagLogsByTimeRangeAsync(
+        string tagAddress, DateTime startTime, DateTime endTime);
 }

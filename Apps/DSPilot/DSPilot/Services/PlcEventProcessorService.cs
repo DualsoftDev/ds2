@@ -1,6 +1,11 @@
 using System.Threading.Channels;
 using DSPilot.Abstractions;
 using DSPilot.Models;
+using DSPilot.Engine.Tracking;
+using DSPilot.Engine.Core;
+using DSPilot.Repositories;
+using DSPilot.Adapters;
+using Microsoft.FSharp.Control;
 
 namespace DSPilot.Services;
 
@@ -14,6 +19,9 @@ public class PlcEventProcessorService : BackgroundService
     private readonly ILogger<PlcEventProcessorService> _logger;
     private readonly IPlcEventSource _plcEventSource;
     private readonly PlcToCallMapperService _callMapper;
+    private readonly PlcTagStateTrackerService _tagStateTracker;
+    private readonly IDatabasePathResolver _pathResolver;
+    private readonly CallStateNotificationService _notificationService;
     private readonly InMemoryCallStateStore _stateStore;
     private readonly CallStatisticsService _statisticsService;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -29,6 +37,9 @@ public class PlcEventProcessorService : BackgroundService
         ILogger<PlcEventProcessorService> logger,
         IPlcEventSource plcEventSource,
         PlcToCallMapperService callMapper,
+        PlcTagStateTrackerService tagStateTracker,
+        IDatabasePathResolver pathResolver,
+        CallStateNotificationService notificationService,
         InMemoryCallStateStore stateStore,
         CallStatisticsService statisticsService,
         IServiceScopeFactory scopeFactory)
@@ -36,6 +47,9 @@ public class PlcEventProcessorService : BackgroundService
         _logger = logger;
         _plcEventSource = plcEventSource;
         _callMapper = callMapper;
+        _tagStateTracker = tagStateTracker;
+        _pathResolver = pathResolver;
+        _notificationService = notificationService;
         _stateStore = stateStore;
         _statisticsService = statisticsService;
         _scopeFactory = scopeFactory;
@@ -69,7 +83,7 @@ public class PlcEventProcessorService : BackgroundService
                     {
                         // WriteAsync: Channel이 full이면 대기 (백프레셔)
                         await _writer.WriteAsync(plcEvent, stoppingToken);
-                        _logger.LogDebug("PLC event queued: {TagCount} tags", plcEvent.Tags.Count);
+                        _logger.LogInformation("✓ PLC event queued: {TagCount} tags", plcEvent.Tags.Count);
                     }
                     catch (Exception ex)
                     {
@@ -115,78 +129,63 @@ public class PlcEventProcessorService : BackgroundService
     }
 
     /// <summary>
-    /// PLC 이벤트 처리 (순차 실행)
+    /// PLC 이벤트 처리 (F# StateTransition 사용)
     /// </summary>
     private async Task ProcessPlcEventAsync(PlcCommunicationEvent plcEvent, CancellationToken cancellationToken)
     {
-        var batchTimestamp = plcEvent.BatchTimestamp;
-
         foreach (var tagData in plcEvent.Tags)
         {
-            // Rising Edge 감지 (PreviousValue: false → Value: true)
-            var isRisingEdge = !tagData.PreviousValue && tagData.Value;
-            if (!isRisingEdge)
+            // 1. TagStateTracker로 Edge 감지
+            var edgeState = _tagStateTracker.UpdateTagValue(tagData.Address, tagData.Value ? "1" : "0");
+
+            if (edgeState.EdgeType != EdgeType.RisingEdge && edgeState.EdgeType != EdgeType.FallingEdge)
             {
+                continue; // NoChange는 무시
+            }
+
+            _logger.LogInformation("⚡ Edge detected: {TagAddress} = {Value}, EdgeType = {EdgeType}",
+                tagData.Address, tagData.Value, edgeState.EdgeType);
+
+            // 2. Call 매핑 조회
+            var mapping = _callMapper.FindCallByTag("", tagData.Address);
+            if (mapping == null)
+            {
+                _logger.LogTrace("No Call mapping for tag: {TagAddress}", tagData.Address);
                 continue;
             }
 
-            // Tag → Call 매핑
-            var callInfo = _callMapper.FindCallByTag("", tagData.Address);
-            if (callInfo == null)
+            // 3. F# StateTransition 호출
+            try
             {
-                _logger.LogDebug("No Call mapped for tag: {Address}", tagData.Address);
-                continue;
-            }
+                var dbPath = (_pathResolver as DatabasePathResolverAdapter)?.GetDatabasePaths().SharedDbPath
+                    ?? _pathResolver.GetDspDbPath();
 
-            var call = callInfo.Call;
-            var callId = call.Id;
-            var isInTag = callInfo.IsInTag;
-            var flowName = callInfo.FlowName;
+                var asyncOp = StateTransition.processEdgeEvent(
+                    dbPath,
+                    tagData.Address,
+                    mapping.IsInTag,
+                    edgeState.EdgeType,
+                    DateTime.Now,
+                    mapping.Call.Name
+                );
 
-            _logger.LogDebug("Rising Edge detected: {Address} → Call {CallName} (ID: {CallId}, {InOut})",
-                tagData.Address, call.Name, callId, isInTag ? "In" : "Out");
-
-            // 현재 Call 상태 조회
-            var currentState = await _stateStore.GetCallStateAsync(callId);
-            var stateValue = currentState?.State ?? "Ready";
-
-            // 상태 천이 로직
-            string? newState = null;
-
-            if (isInTag && stateValue == "Ready")
-            {
-                // In Tag Rising → Ready → Going
-                newState = "Going";
-                await _statisticsService.RecordGoingStartAsync(callId, call.Name);
-
-                _logger.LogInformation("Call '{CallName}' (ID: {CallId}) state transition: Ready → Going (BatchTimestamp: {Time})",
-                    call.Name, callId, batchTimestamp);
-            }
-            else if (!isInTag && stateValue == "Going")
-            {
-                // Out Tag Rising → Going → Finish
-                var (startTime, finishTime, goingTime, average, stdDev, goingCount) =
-                    _statisticsService.RecordGoingFinish(call.Name);
-
-                newState = "Finish";
-
-                // 통계 업데이트 (메모리 + DB)
-                await _stateStore.UpdateCallWithStatisticsAsync(
-                    callId, newState, goingTime, average, stdDev, goingCount);
+                await FSharpAsync.StartAsTask(asyncOp, null, cancellationToken);
 
                 _logger.LogInformation(
-                    "Call '{CallName}' (ID: {CallId}) state transition: Going → Finish | " +
-                    "GoingTime: {GoingTime}ms, Avg: {Avg:F0}ms, StdDev: {StdDev:F0}ms, Count: {Count} (BatchTimestamp: {Time})",
-                    call.Name, callId, goingTime, average, stdDev, goingCount, batchTimestamp);
+                    "State transition triggered: Call={CallName}, Tag={TagAddress}, IsInTag={IsInTag}, Edge={EdgeType}",
+                    mapping.Call.Name, tagData.Address, mapping.IsInTag, edgeState.EdgeType);
 
-                // Finish → Ready 자동 천이
-                newState = "Ready";
+                // 4. 상태 변경 알림 발송 (현재 상태만 전송, 이전 상태는 구독자가 추적)
+                _notificationService.NotifyStateChanged(
+                    mapping.Call.Name,
+                    "unknown", // TODO: 이전 상태 추적 필요 시 InMemoryCallStateStore 활용
+                    "transitioned", // StateTransition이 상태를 결정하므로 여기서는 일반 상태 표시
+                    DateTime.Now
+                );
             }
-
-            // 상태 업데이트
-            if (newState != null)
+            catch (Exception ex)
             {
-                await _stateStore.UpdateCallStateAsync(callId, newState);
+                _logger.LogError(ex, "Failed to process state transition for Call: {CallName}", mapping.Call.Name);
             }
         }
     }

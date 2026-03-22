@@ -1,11 +1,5 @@
 namespace DSPilot.Engine
 
-/// 엣지 감지 타입
-type EdgeType =
-    | Rising
-    | Falling
-    | NoChange
-
 /// Call 상태 타입
 type CallState =
     | Ready
@@ -55,3 +49,17 @@ module ColorClass =
         | Fair -> "heatmap-fair"
         | Poor -> "heatmap-poor"
         | Critical -> "heatmap-critical"
+
+/// Tag 매칭 모드
+type TagMatchMode =
+    | ByName      // Tag 이름으로 매칭
+    | ByAddress   // Tag 주소로 매칭
+
+/// Call 매핑 정보
+[<CLIMutable>]
+type CallMappingInfo = {
+    Call: Ds2.Core.Call
+    ApiCall: Ds2.Core.ApiCall
+    IsInTag: bool
+    FlowName: string
+}
