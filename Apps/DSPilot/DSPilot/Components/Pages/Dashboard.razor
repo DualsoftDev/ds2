@@ -223,6 +223,12 @@ else
                                         var accentColor = isMaxCT ? "#ef5350" : isMinCT ? "#26a69a" : isMaxWT ? "#fb8c00" : "";
                                         var categoryLabel = isMaxCT ? "최대시간" : isMinCT ? "최소시간" : isMaxWT ? "최대대기" : "";
                                         var borderStyle = highlighted ? $"border-left-color:{accentColor};" : "";
+                                        var flowState = GetFlowStateLabel(fn);
+                                        var stateColor = flowState?.ToLowerInvariant() switch
+                                        {
+                                            "going" => "#4CAF50", "finish" => "#2196F3",
+                                            "error" => "#F44336", _ => "#9E9E9E"
+                                        };
                                         <div class="ct-chart-row @(highlighted ? "highlighted" : "") @(isSelected ? "selected" : "")"
                                              style="@borderStyle cursor:pointer;"
                                              @onclick="() => OnFlowSelected(fn == _selectedFlowName ? null : fn)"
@@ -254,6 +260,31 @@ else
                                                     </div>
                                                 </div>
                                                 <span class="ct-row-time">@FormatMs(flow.CT)</span>
+                                            </div>
+                                            @* ── 호버 툴팁 ── *@
+                                            <div class="ct-tooltip">
+                                                <div class="ct-tooltip-header" style="border-left: 3px solid @stateColor;">
+                                                    <span class="ct-tooltip-name">@flow.FlowName</span>
+                                                    <span class="ct-tooltip-state" style="background:@stateColor;">@(string.IsNullOrEmpty(flowState) ? "Ready" : flowState)</span>
+                                                </div>
+                                                @if (isMaxCT || isMinCT || isMaxWT)
+                                                {
+                                                    <div class="ct-tooltip-badges">
+                                                        @if (isMaxCT) { <span class="ct-badge-pill" style="background:#ef5350;">최대시간</span> }
+                                                        @if (isMinCT) { <span class="ct-badge-pill" style="background:#26a69a;">최소시간</span> }
+                                                        @if (isMaxWT) { <span class="ct-badge-pill" style="background:#fb8c00;">최대대기율</span> }
+                                                    </div>
+                                                }
+                                                <div class="ct-tooltip-grid">
+                                                    <span class="ct-tooltip-label">가동시간 (MT)</span>
+                                                    <span class="ct-tooltip-val mt">@FormatMs(flow.MT)</span>
+                                                    <span class="ct-tooltip-label">대기시간 (WT)</span>
+                                                    <span class="ct-tooltip-val wt">@FormatMs(flow.WT)</span>
+                                                    <span class="ct-tooltip-label">전체시간 (CT)</span>
+                                                    <span class="ct-tooltip-val ct">@FormatMs(flow.CT)</span>
+                                                    <span class="ct-tooltip-label">대기율</span>
+                                                    <span class="ct-tooltip-val">@($"{flow.WTRatio * 100:F1}%")</span>
+                                                </div>
                                             </div>
                                         </div>
                                     }

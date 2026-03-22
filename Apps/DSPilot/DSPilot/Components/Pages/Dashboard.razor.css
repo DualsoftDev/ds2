@@ -202,6 +202,93 @@
     color: var(--color-text-secondary);
     white-space: nowrap;
 }
+/* ── 호버 툴팁 ── */
+.ct-chart-row { position: relative; z-index: 0; }
+.ct-chart-row:hover { z-index: 10; }
+.ct-tooltip {
+    display: none;
+    position: absolute;
+    left: 0;
+    top: calc(100% + 4px);
+    z-index: 100;
+    width: 100%;
+    min-width: 200px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-lines);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    padding: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+/* 화살표 */
+.ct-tooltip::before {
+    content: '';
+    position: absolute;
+    left: 24px;
+    top: -5px;
+    transform: rotate(45deg);
+    width: 8px;
+    height: 8px;
+    background: var(--color-background);
+    border-left: 1px solid var(--color-lines);
+    border-top: 1px solid var(--color-lines);
+}
+.ct-chart-row:hover > .ct-tooltip { display: block; }
+.ct-tooltip-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--color-background);
+    border-bottom: 1px solid var(--color-lines);
+}
+.ct-tooltip-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+.ct-tooltip-state {
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    padding: 1px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.ct-tooltip-badges {
+    display: flex;
+    gap: 4px;
+    padding: 6px 10px 0;
+    flex-wrap: wrap;
+}
+.ct-tooltip-grid {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px 12px;
+    padding: 8px 10px 10px;
+}
+.ct-tooltip-label {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    font-weight: 500;
+}
+.ct-tooltip-val {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    text-align: right;
+}
+.ct-tooltip-val.mt { color: #0569A0; }
+.ct-tooltip-val.wt { color: #FB8C00; }
+.ct-tooltip-val.ct { color: var(--color-text-primary); }
 /* ── 공통 카드 구조 ── */
 .ds-card {
     --u: clamp(10px, 1.3vh, 15px);
