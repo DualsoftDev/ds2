@@ -24,7 +24,7 @@ class Program
         // 메뉴 루프
         while (true)
         {
-            Console.Clear();
+            try { Console.Clear(); } catch { /* Ignore Console.Clear errors when piping */ }
             Console.WriteLine("╔════════════════════════════════════════════╗");
             Console.WriteLine("║     DSPilot Test Console - 2 Modes         ║");
             Console.WriteLine("╚════════════════════════════════════════════╝");
@@ -45,9 +45,13 @@ class Program
             Console.WriteLine("  4. AASX Flow Simulation");
             Console.WriteLine("     - Load AASX and simulate all Flows in parallel (infinite loop)");
             Console.WriteLine();
+            Console.WriteLine("  5. Engine Integration Test 🔥 NEW");
+            Console.WriteLine("     - Test TagStateTracker, StateTransition, Stats");
+            Console.WriteLine("     - Validate all DSPilot.Engine features");
+            Console.WriteLine();
             Console.WriteLine("  0. Exit");
             Console.WriteLine();
-            Console.Write("Enter selection (0-4): ");
+            Console.Write("Enter selection (0-5): ");
 
             var choice = Console.ReadLine()?.Trim();
             Console.WriteLine();
@@ -88,6 +92,11 @@ class Program
                     case "4":
                         Console.WriteLine("=== AASX Flow Simulation ===");
                         await FlowSimulationTest.RunAsync();
+                        break;
+
+                    case "5":
+                        Console.WriteLine("=== Engine Integration Test ===");
+                        await EngineIntegrationTest.RunAsync();
                         break;
 
                     case "0":

@@ -1,4 +1,5 @@
 using Ds2.Core;
+using DSPilot.Engine.Tracking;
 
 namespace DSPilot.Models;
 
@@ -27,4 +28,9 @@ public record CallMappingInfo
     /// Flow 이름
     /// </summary>
     public required string FlowName { get; init; }
+
+    /// <summary>
+    /// Call Direction (InOut, InOnly, OutOnly)
+    /// </summary>
+    public CallDirection Direction { get; init; } = CallDirection.None;
 }

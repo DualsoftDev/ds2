@@ -261,7 +261,6 @@ else
                         <th>In Tag</th>
                         <th>Out Tag</th>
                         <th>State</th>
-                        <th>Progress</th>
                         <th>Count</th>
                         <th>Avg Time</th>
                         <th>Device</th>
@@ -272,7 +271,7 @@ else
                     @if (FilteredCallRows.Count == 0)
                     {
                         <tr>
-                            <td colspan="10" style="text-align:center; padding:24px; color:var(--color-text-secondary);">
+                            <td colspan="9" style="text-align:center; padding:24px; color:var(--color-text-secondary);">
                                 표시할 Call이 없습니다.
                             </td>
                         </tr>
@@ -290,11 +289,6 @@ else
                                     <span class="chip" style="@GetStateChipStyle(row.State)">
                                         @GetFlowStateLabel(row.State)
                                     </span>
-                                </td>
-                                <td>
-                                    <div class="progress-bar" style="min-width:72px; height:6px; border-radius:3px;">
-                                        <div style="width:@Math.Clamp(row.ProgressRate * 100.0, 0, 100).ToString("F0")%; background:var(--color-primary); height:100%; border-radius:3px;"></div>
-                                    </div>
                                 </td>
                                 <td>@row.GoingCount</td>
                                 <td>@FormatDurationMs(row.AverageGoingTime)</td>
@@ -724,7 +718,6 @@ else
                         tags?.InTag,
                         tags?.OutTag,
                         runtime?.State ?? "Ready",
-                        runtime?.ProgressRate ?? 0.0,
                         runtime?.GoingCount ?? 0,
                         runtime?.AverageGoingTime,
                         runtime?.Device,
@@ -841,11 +834,6 @@ else
             return "-";
         }
 
-        if (milliseconds < 1000)
-        {
-            return $"{milliseconds:F0} ms";
-        }
-
         return $"{milliseconds / 1000.0:F1} sec";
     }
 
@@ -862,7 +850,6 @@ else
         string? InTag,
         string? OutTag,
         string State,
-        double ProgressRate,
         int GoingCount,
         double? AverageGoingTime,
         string? Device,

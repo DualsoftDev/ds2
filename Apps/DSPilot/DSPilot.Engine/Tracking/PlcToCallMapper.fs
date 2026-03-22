@@ -1,188 +1,197 @@
-namespace DSPilot.Engine
+namespace DSPilot.Engine.Tracking
 
 open System
 open System.Collections.Generic
-open Microsoft.Extensions.Logging
+open System.Linq
+open Microsoft.Data.Sqlite
+open Dapper
 open Ds2.Core
-open Ds2.UI.Core
+open DSPilot.Engine.Core
+open DSPilot.Engine.Tracking.StateTransition
 
-/// PLC 태그와 Call 매핑 정보
-type CallMappingInfo = {
-    Call: Call
-    ApiCall: ApiCall
-    IsInTag: bool
-    FlowName: string
-}
+/// Tag to Call mapping entry
+[<CLIMutable>]
+type TagMappingEntry =
+    { TagAddress: string
+      CallId: Guid
+      CallName: string
+      FlowName: string
+      IsInTag: bool }
 
-/// 태그 매칭 모드
-type TagMatchMode =
-    | ByAddress
-    | ByName
+/// PLC Tag to Call Mapper
+type PlcToCallMapper(dbPath: string, store: DsStore) =
 
-/// PLC 태그와 Call 매핑 서비스
-module PlcToCallMapper =
+    let mutable tagMappings: Map<string, TagMappingEntry> = Map.empty
+    let mutable callDirections: Map<Guid, CallDirection> = Map.empty
 
-    /// 태그 키 추출 (Address 또는 Name)
-    let private getTagKey (mode: TagMatchMode) (tag: IOTag) : string option =
-        match mode with
-        | ByAddress ->
-            if String.IsNullOrEmpty(tag.Address) then None else Some tag.Address
-        | ByName ->
-            if String.IsNullOrEmpty(tag.Name) then None else Some tag.Name
+    /// Build tag mappings from DsStore (AASX data)
+    member this.BuildMappings() =
+        let mutable mappings = Map.empty
+        let mutable directions = Map.empty
 
-    /// AASX에서 모든 Flow/Work/Call/ApiCall을 순회하여 태그 매핑 구축
-    let initialize (store: DsStore) (tagMatchMode: TagMatchMode) (logger: ILogger) : Map<string, CallMappingInfo> * Map<Guid, string option * string option> =
-        logger.LogInformation("Initializing PlcToCallMapper with TagMatchMode: {Mode}", tagMatchMode)
-
-        let mutable tagToCallMap = Map.empty<string, CallMappingInfo>
-        let mutable callTagMap = Map.empty<Guid, string option * string option>
-
-        // DsQuery를 사용하여 모든 Flow 조회
-        let allFlows = DsQuery.allFlows store
+        let allFlows = DsQuery.allFlows store |> Seq.toList
 
         for flow in allFlows do
-            // DsQuery를 사용하여 Work 조회
-            let works = DsQuery.worksOf flow.Id store
+            let works = DsQuery.worksOf flow.Id store |> Seq.toList
 
             for work in works do
-                // DsQuery를 사용하여 Call 조회
-                let calls = DsQuery.callsOf work.Id store
+                let calls = DsQuery.callsOf work.Id store |> Seq.toList
 
                 for call in calls do
-                    let mutable inTagKey: string option = None
-                    let mutable outTagKey: string option = None
+                    if call.ApiCalls.Count > 0 then
+                        let apiCall = call.ApiCalls.[0]
 
-                    // Call의 모든 ApiCall 순회
-                    for apiCall in call.ApiCalls do
-                        // InTag 처리
-                        match apiCall.InTag with
-                        | Some inTag ->
-                            match getTagKey tagMatchMode inTag with
-                            | Some tagKey ->
-                                inTagKey <- Some tagKey
-                                let mapping = {
-                                    Call = call
-                                    ApiCall = apiCall
-                                    IsInTag = true
-                                    FlowName = flow.Name
-                                }
-                                tagToCallMap <- tagToCallMap.Add(tagKey, mapping)
-                                logger.LogDebug("Mapped InTag '{TagKey}' → Call '{CallName}' (Flow: {FlowName})",
-                                    tagKey, call.Name, flow.Name)
-                            | None -> ()
-                        | None -> ()
+                        let mutable hasInTag = false
+                        let mutable hasOutTag = false
 
-                        // OutTag 처리
-                        match apiCall.OutTag with
-                        | Some outTag ->
-                            match getTagKey tagMatchMode outTag with
-                            | Some tagKey ->
-                                outTagKey <- Some tagKey
-                                let mapping = {
-                                    Call = call
-                                    ApiCall = apiCall
-                                    IsInTag = false
-                                    FlowName = flow.Name
-                                }
-                                tagToCallMap <- tagToCallMap.Add(tagKey, mapping)
-                                logger.LogDebug("Mapped OutTag '{TagKey}' → Call '{CallName}' (Flow: {FlowName})",
-                                    tagKey, call.Name, flow.Name)
-                            | None -> ()
-                        | None -> ()
+                        // OutTag mapping
+                        if Microsoft.FSharp.Core.FSharpOption<IOTag>.get_IsSome(apiCall.OutTag) then
+                            let outTag: IOTag = apiCall.OutTag.Value
+                            let outAddress = outTag.Address
+                            hasOutTag <- true
+                            mappings <- mappings.Add(outAddress, {
+                                TagAddress = outAddress
+                                CallId = call.Id
+                                CallName = call.Name
+                                FlowName = flow.Name
+                                IsInTag = false
+                            })
 
-                    // call.Id (Guid)를 키로 사용
-                    callTagMap <- callTagMap.Add(call.Id, (inTagKey, outTagKey))
+                        // InTag mapping
+                        if Microsoft.FSharp.Core.FSharpOption<IOTag>.get_IsSome(apiCall.InTag) then
+                            let inTag: IOTag = apiCall.InTag.Value
+                            let inAddress = inTag.Address
+                            hasInTag <- true
+                            mappings <- mappings.Add(inAddress, {
+                                TagAddress = inAddress
+                                CallId = call.Id
+                                CallName = call.Name
+                                FlowName = flow.Name
+                                IsInTag = true
+                            })
 
-        logger.LogInformation(
-            "PlcToCallMapper initialized: {FlowCount} flows, {TagCount} tags mapped",
-            allFlows.Length, tagToCallMap.Count)
+                        // Determine Direction
+                        let direction = determineDirection hasInTag hasOutTag
+                        directions <- directions.Add(call.Id, direction)
 
-        if tagToCallMap.Count > 0 then
-            logger.LogDebug("Mapped {Count} tags", tagToCallMap.Count)
-        else
-            logger.LogWarning("No tags were mapped! Please check that AASX ApiCall InTag/OutTag names match PLC tag names.")
+        tagMappings <- mappings
+        callDirections <- directions
 
-        (tagToCallMap, callTagMap)
+        printfn "[PlcToCallMapper] Built %d tag mappings for %d calls" mappings.Count directions.Count
 
-    /// PLC 태그로 Call 찾기
-    let findCallByTag (tagMatchMode: TagMatchMode) (tagName: string) (tagAddress: string)
-                      (tagToCallMap: Map<string, CallMappingInfo>) : CallMappingInfo option =
-        let tagKey =
-            match tagMatchMode with
-            | ByAddress -> tagAddress
-            | ByName -> tagName
+    /// Get Call mapping by tag address
+    member this.GetCallByTag(tagAddress: string) : TagMappingEntry option =
+        Map.tryFind tagAddress tagMappings
 
-        tagToCallMap.TryFind(tagKey)
+    /// Get Call mapping by tag address (alternative signature)
+    member this.FindCallByTag(tagAddress: string) : TagMappingEntry option =
+        this.GetCallByTag(tagAddress)
 
-    /// Call의 InTag/OutTag 조회 (Call.Id 기반)
-    let getCallTags (callId: Guid) (callTagMap: Map<Guid, string option * string option>) : (string option * string option) option =
-        callTagMap.TryFind(callId)
+    /// Get Call Direction by CallId
+    member this.GetDirection(callId: Guid) : CallDirection =
+        match Map.tryFind callId callDirections with
+        | Some direction -> direction
+        | None -> CallDirection.None
 
-    /// PLC 태그 목록으로 유효성 검증
-    let validateWithPlcTags (plcTagKeys: HashSet<string>)
-                            (logger: ILogger)
-                            (tagToCallMap: Map<string, CallMappingInfo>)
-                            (callTagMap: Map<Guid, string option * string option>)
-                            : Map<string, CallMappingInfo> * Map<Guid, string option * string option> =
-        let mutable newTagToCallMap = tagToCallMap
-        let mutable newCallTagMap = callTagMap
-        let mutable invalidCount = 0
+    /// Check if tag is InTag
+    member this.IsInTag(tagAddress: string) : bool =
+        match this.GetCallByTag(tagAddress) with
+        | Some mapping -> mapping.IsInTag
+        | None -> false
 
-        for KeyValue(callId, (inTag, outTag)) in callTagMap do
-            match inTag with
-            | Some inTagStr when not (plcTagKeys.Contains(inTagStr)) ->
-                newCallTagMap <- newCallTagMap.Add(callId, (None, outTag))
-                newTagToCallMap <- newTagToCallMap.Remove(inTagStr)
-                invalidCount <- invalidCount + 1
-                logger.LogWarning(
-                    "Call ID '{CallId}': InTag '{InTag}' not found in PLC tags. Removed (OutTag Falling will trigger Finish).",
-                    callId, inTagStr)
-            | _ -> ()
+    /// Check if tag is OutTag
+    member this.IsOutTag(tagAddress: string) : bool =
+        match this.GetCallByTag(tagAddress) with
+        | Some mapping -> not mapping.IsInTag
+        | None -> false
 
-        if invalidCount > 0 then
-            logger.LogInformation(
-                "Validated tag mappings: {InvalidCount} InTag(s) removed (not in PLC), {RemainingTags} tags remain",
-                invalidCount, newTagToCallMap.Count)
+    /// Get all tag addresses
+    member this.GetAllTagAddresses() : string list =
+        tagMappings |> Map.toList |> List.map fst
 
-        (newTagToCallMap, newCallTagMap)
+    /// Get all mappings
+    member this.GetAllMappings() : TagMappingEntry list =
+        tagMappings |> Map.toList |> List.map snd
 
-    /// Call 상태 전이 결정
-    let determineCallState (tagMatchMode: TagMatchMode)
-                          (tagName: string)
-                          (tagAddress: string)
-                          (edgeState: TagEdgeState)
-                          (currentCallState: string)
-                          (tagToCallMap: Map<string, CallMappingInfo>)
-                          (callTagMap: Map<Guid, string option * string option>)
-                          (logger: ILogger)
-                          : string * bool =
-        let tagKey =
-            match tagMatchMode with
-            | ByAddress -> tagAddress
-            | ByName -> tagName
+    /// Get diagnostic info for calls with incomplete tag mappings
+    member this.GetIncompleteTagMappings() : (string * string * bool * bool) list =
+        // Returns: (FlowName, CallName, hasInTag, hasOutTag)
+        let allCalls =
+            callDirections
+            |> Map.toList
+            |> List.map (fun (callId, direction) ->
+                let mapping = tagMappings |> Map.toList |> List.map snd |> List.find (fun m -> m.CallId = callId)
+                (mapping.FlowName, mapping.CallName, callId, direction)
+            )
 
-        match tagToCallMap.TryFind(tagKey) with
-        | Some mapping ->
-            let call = mapping.Call
-            let isInTag = mapping.IsInTag
+        allCalls
+        |> List.filter (fun (_, _, callId, direction) ->
+            direction = CallDirection.None ||
+            (direction = CallDirection.InOnly && not (tagMappings |> Map.exists (fun _ m -> m.CallId = callId && m.IsInTag))) ||
+            (direction = CallDirection.OutOnly && not (tagMappings |> Map.exists (fun _ m -> m.CallId = callId && not m.IsInTag)))
+        )
+        |> List.map (fun (flowName, callName, callId, _) ->
+            let hasInTag = tagMappings |> Map.exists (fun _ m -> m.CallId = callId && m.IsInTag)
+            let hasOutTag = tagMappings |> Map.exists (fun _ m -> m.CallId = callId && not m.IsInTag)
+            (flowName, callName, hasInTag, hasOutTag)
+        )
 
-            // call.Id로 조회
-            let hasInTag =
-                match callTagMap.TryFind(call.Id) with
-                | Some (Some _, _) -> true
-                | _ -> false
+    /// Update Call Direction in database
+    member this.UpdateCallDirectionsInDb() =
+        async {
+            use conn = new SqliteConnection($"Data Source={dbPath}")
+            do! conn.OpenAsync() |> Async.AwaitTask
 
-            // StateTransition 사용
-            let (newState, stateChanged) =
-                StateTransition.tryTransition currentCallState isInTag hasInTag edgeState.EdgeType
+            for (callId, direction) in Map.toList callDirections do
+                let directionStr =
+                    match direction with
+                    | CallDirection.InOut -> "InOut"
+                    | CallDirection.InOnly -> "InOnly"
+                    | CallDirection.OutOnly -> "OutOnly"
+                    | _ -> "None"
 
-            if stateChanged then
-                let newStateStr = StateTransition.stateToString newState
-                logger.LogInformation(
-                    "Call '{CallName}' (Flow: {FlowName}): State transition {OldState} → {NewState} (Tag: {TagName}, Edge: {EdgeType})",
-                    call.Name, mapping.FlowName, currentCallState, newStateStr, tagName, edgeState.EdgeType)
-                (newStateStr, true)
-            else
-                (currentCallState, false)
-        | None ->
-            (currentCallState, false)
+                let sql = """
+                    UPDATE dspCall
+                    SET Direction = @Direction
+                    WHERE CallId = @CallId
+                """
+
+                let parameters = dict [
+                    "Direction", box directionStr
+                    "CallId", box (callId.ToString())
+                ]
+
+                let! _ = conn.ExecuteAsync(sql, parameters) |> Async.AwaitTask
+                ()
+
+            printfn "[PlcToCallMapper] Updated Call Directions in database"
+        }
+
+/// Module-level functions for interoperability
+module PlcToCallMapperModule =
+
+    /// Create a new mapper instance
+    let create (dbPath: string) (store: DsStore) : PlcToCallMapper =
+        let mapper = PlcToCallMapper(dbPath, store)
+        mapper.BuildMappings()
+        mapper
+
+    /// Get Call by tag address
+    let findCallByTag (tagAddress: string) (mapper: PlcToCallMapper) : TagMappingEntry option =
+        mapper.GetCallByTag(tagAddress)
+
+    /// Determine Direction based on tag configuration
+    let determineDirection (hasInTag: bool) (hasOutTag: bool) : CallDirection =
+        DSPilot.Engine.Tracking.StateTransition.determineDirection hasInTag hasOutTag
+
+    /// Get all tag addresses from mapper
+    let getAllTagAddresses (mapper: PlcToCallMapper) : string list =
+        mapper.GetAllTagAddresses()
+
+    /// Build tag mappings from DsStore
+    let buildTagMappings (store: DsStore) : Map<string, TagMappingEntry> =
+        let mapper = PlcToCallMapper("", store)
+        mapper.BuildMappings()
+        mapper.GetAllMappings()
+        |> List.map (fun m -> (m.TagAddress, m))
+        |> Map.ofList

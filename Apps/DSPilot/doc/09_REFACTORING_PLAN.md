@@ -22,12 +22,9 @@ DSPilot.Engine을 **Projection 패턴 기반**으로 재설계하여:
    ```sql
    -- Migration: 001_add_projection_fields.sql
 
-   -- dspFlow 확장
+   -- dspFlow 확장 (Flow 레벨 정보만!)
    ALTER TABLE dspFlow ADD COLUMN SystemName TEXT;
-   ALTER TABLE dspFlow ADD COLUMN WorkName TEXT;
-   ALTER TABLE dspFlow ADD COLUMN SequenceNo INTEGER;
-   ALTER TABLE dspFlow ADD COLUMN IsHead INTEGER DEFAULT 0;
-   ALTER TABLE dspFlow ADD COLUMN IsTail INTEGER DEFAULT 0;
+   -- ❌ WorkName, SequenceNo, IsHead, IsTail 제거 (Call 레벨 정보이므로)
    ALTER TABLE dspFlow ADD COLUMN ActiveCallCount INTEGER DEFAULT 0;
    ALTER TABLE dspFlow ADD COLUMN ErrorCallCount INTEGER DEFAULT 0;
    ALTER TABLE dspFlow ADD COLUMN LastCycleStartAt TEXT;
@@ -43,11 +40,14 @@ DSPilot.Engine을 **Projection 패턴 기반**으로 재설계하여:
    ALTER TABLE dspFlow ADD COLUMN UnmappedCallCount INTEGER DEFAULT 0;
    ALTER TABLE dspFlow ADD COLUMN FocusScore INTEGER DEFAULT 0;
 
-   -- dspCall 확장
+   -- dspCall 확장 (Call 레벨 정보, Topology)
+   ALTER TABLE dspCall ADD COLUMN WorkName TEXT NOT NULL DEFAULT '';  -- ⚠️ Call이 속한 Work
    ALTER TABLE dspCall ADD COLUMN SystemName TEXT;
-   ALTER TABLE dspCall ADD COLUMN IsHead INTEGER DEFAULT 0;
-   ALTER TABLE dspCall ADD COLUMN IsTail INTEGER DEFAULT 0;
-   ALTER TABLE dspCall ADD COLUMN SequenceNo INTEGER;
+   ALTER TABLE dspCall ADD COLUMN IsHead INTEGER DEFAULT 0;  -- ✅ Call 레벨 Topology
+   ALTER TABLE dspCall ADD COLUMN IsTail INTEGER DEFAULT 0;  -- ✅ Call 레벨 Topology
+   ALTER TABLE dspCall ADD COLUMN SequenceNo INTEGER;        -- ✅ Call 레벨 순서
+   ALTER TABLE dspCall ADD COLUMN Prev TEXT;                 -- 이전 Call 이름
+   ALTER TABLE dspCall ADD COLUMN Next TEXT;                 -- 다음 Call 이름
    ALTER TABLE dspCall ADD COLUMN InTag TEXT;
    ALTER TABLE dspCall ADD COLUMN OutTag TEXT;
    ALTER TABLE dspCall ADD COLUMN LastStartAt TEXT;
@@ -60,6 +60,49 @@ DSPilot.Engine을 **Projection 패턴 기반**으로 재설계하여:
    ALTER TABLE dspCall ADD COLUMN SlowFlag INTEGER DEFAULT 0;
    ALTER TABLE dspCall ADD COLUMN UnmappedFlag INTEGER DEFAULT 0;
    ALTER TABLE dspCall ADD COLUMN FocusScore INTEGER DEFAULT 0;
+
+   -- ✅ Call 실행 이력 테이블 (Append-Only, Gantt Chart용)
+   CREATE TABLE dspCallHistory (
+       Id TEXT PRIMARY KEY,
+       CallId TEXT NOT NULL,
+       CallName TEXT NOT NULL,
+       FlowName TEXT NOT NULL,
+       CycleNo INTEGER NOT NULL,
+       StartAt TEXT NOT NULL,
+       FinishAt TEXT,
+       DurationMs REAL,
+       State TEXT NOT NULL,
+       TriggeredBy TEXT,
+       BatchTimestamp TEXT,
+       CreatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+       FOREIGN KEY(CallId) REFERENCES dspCall(Id)
+   );
+
+   CREATE INDEX idx_dspCallHistory_CallId ON dspCallHistory(CallId);
+   CREATE INDEX idx_dspCallHistory_FlowName_CycleNo ON dspCallHistory(FlowName, CycleNo);
+   CREATE INDEX idx_dspCallHistory_StartAt ON dspCallHistory(StartAt);
+
+   -- ✅ Flow 사이클 이력 테이블 (Cycle별 통계)
+   CREATE TABLE dspFlowCycleHistory (
+       Id TEXT PRIMARY KEY,
+       FlowName TEXT NOT NULL,
+       CycleNo INTEGER NOT NULL,
+       StartAt TEXT NOT NULL,
+       EndAt TEXT,
+       DurationMs REAL,
+       MT REAL,
+       WT REAL,
+       CT REAL,
+       State TEXT NOT NULL,
+       ErrorCallCount INTEGER DEFAULT 0,
+       SlowCycleFlag INTEGER DEFAULT 0,
+       CreatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+       UpdatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+       FOREIGN KEY(FlowName) REFERENCES dspFlow(FlowName)
+   );
+
+   CREATE INDEX idx_dspFlowCycleHistory_FlowName_CycleNo ON dspFlowCycleHistory(FlowName, CycleNo);
+   CREATE INDEX idx_dspFlowCycleHistory_StartAt ON dspFlowCycleHistory(StartAt);
    ```
 
 2. **F# Entity 타입 확장**

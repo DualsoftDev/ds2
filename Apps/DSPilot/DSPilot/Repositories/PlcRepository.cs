@@ -532,4 +532,82 @@ ORDER BY DateTime ASC, Id ASC";
         public int Id { get; set; }
         public string DateTime { get; set; } = string.Empty;
     }
+
+    /// <inheritdoc />
+    public async Task<List<PlcTagLogEntity>> GetTagLogsAsync(string tagAddress, int count)
+    {
+        using var connection = CreateConnection();
+
+        const string sql = @"
+            SELECT
+                l.id as Id,
+                l.plcTagId as PlcTagId,
+                l.dateTime as DateTime,
+                l.value as Value,
+                t.name as TagName,
+                t.address as Address
+            FROM plcTagLog l
+            INNER JOIN plcTag t ON l.plcTagId = t.id
+            WHERE t.address = @Address
+            ORDER BY l.id DESC
+            LIMIT @Count";
+
+        var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new
+        {
+            Address = tagAddress,
+            Count = count
+        });
+
+        return rows.Select(row => new PlcTagLogEntity
+        {
+            Id = row.Id,
+            PlcTagId = row.PlcTagId,
+            DateTime = ParseSqliteDateTime(row.DateTime),
+            Value = row.Value,
+            TagName = row.TagName,
+            Address = row.Address
+        }).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<List<PlcTagLogEntity>> GetTagLogsByTimeRangeAsync(
+        string tagAddress, DateTime startTime, DateTime endTime)
+    {
+        using var connection = CreateConnection();
+
+        var startStr = QueryHelpers.toSqliteUtcString(startTime);
+        var endStr = QueryHelpers.toSqliteUtcString(endTime);
+
+        const string sql = @"
+            SELECT
+                l.id as Id,
+                l.plcTagId as PlcTagId,
+                l.dateTime as DateTime,
+                l.value as Value,
+                t.name as TagName,
+                t.address as Address
+            FROM plcTagLog l
+            INNER JOIN plcTag t ON l.plcTagId = t.id
+            WHERE t.address = @Address
+              AND l.dateTime >= @StartTime
+              AND l.dateTime <= @EndTime
+            ORDER BY l.id ASC";
+
+        var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new
+        {
+            Address = tagAddress,
+            StartTime = startStr,
+            EndTime = endStr
+        });
+
+        return rows.Select(row => new PlcTagLogEntity
+        {
+            Id = row.Id,
+            PlcTagId = row.PlcTagId,
+            DateTime = ParseSqliteDateTime(row.DateTime),
+            Value = row.Value,
+            TagName = row.TagName,
+            Address = row.Address
+        }).ToList();
+    }
 }
