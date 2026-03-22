@@ -10,6 +10,10 @@ public class CycleAnalysisData
     public DateTime CycleEndTime { get; set; }
     public TimeSpan TotalDuration { get; set; }
     public int CallCount { get; set; }
+    public string FlowName { get; set; } = "";
+
+    // 사이클 경계 정보 (자동 탐지된 경우)
+    public CycleBoundary? Boundary { get; set; }
 
     // 동작 목록 (시간순 정렬)
     public List<CallExecutionInfo> CallSequence { get; set; } = new();
@@ -24,6 +28,22 @@ public class CycleAnalysisData
 
     // 병목 탐지
     public List<BottleneckInfo> Bottlenecks { get; set; } = new();
+
+    // 성능 지표
+    public PerformanceMetrics Metrics { get; set; } = new();
+}
+
+/// <summary>
+/// 성능 지표
+/// </summary>
+public class PerformanceMetrics
+{
+    public TimeSpan TotalActiveTime { get; set; }   // 총 동작 시간 (모든 Call Duration 합)
+    public TimeSpan TotalIdleTime { get; set; }     // 총 유휴 시간 (모든 Gap 합)
+    public double UtilizationRate { get; set; }     // 가동률 (Active / Total * 100)
+    public double Throughput { get; set; }          // 처리율 (CallCount / TotalDuration.TotalMinutes)
+    public TimeSpan AverageCycleTime { get; set; }  // 평균 사이클 시간 (단일 사이클인 경우 = TotalDuration)
+    public int ParallelExecutions { get; set; }     // 병렬 실행 횟수
 }
 
 /// <summary>

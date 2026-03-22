@@ -125,64 +125,67 @@
         </div>
     </div>
 
-    @* Flow Group Matrix 대시보드 *@
-    <div class="card mb-4" style="padding:16px; box-shadow: var(--shadow-2);">
-        <div class="d-flex" style="flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px; gap:12px;">
-            <div>
-                <h6 class="typo-h6">Flow Group Matrix</h6>
-                <span class="typo-body2" style="color:var(--color-text-secondary);">
-                    Flow 패널 안에 Work 블록과 Call 셀을 배치해 한눈에 그룹 구조가 보이도록 구성합니다.
+    @if (AllExpanded)
+    {
+        @* Flow Group Matrix 대시보드 *@
+        <div class="card mb-4" style="padding:16px; box-shadow: var(--shadow-2);">
+            <div class="d-flex" style="flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px; gap:12px;">
+                <div>
+                    <h6 class="typo-h6">Flow Group Matrix</h6>
+                    <span class="typo-body2" style="color:var(--color-text-secondary);">
+                        Flow 패널 안에 Work 블록과 Call 셀을 배치해 한눈에 그룹 구조가 보이도록 구성합니다.
+                    </span>
+                </div>
+                <span class="chip" style="background:var(--color-primary); color:white;">
+                    @FilteredGroups.Count Flows
                 </span>
             </div>
-            <span class="chip" style="background:var(--color-primary); color:white;">
-                @FilteredGroups.Count Flows
-            </span>
-        </div>
 
-        <div class="flow-dashboard-grid">
-            @foreach (var group in FilteredGroups)
-            {
-                <section class="flow-dashboard-panel">
-                    <div class="flow-dashboard-panel-header">
-                        <div>
-                            <div class="flow-dashboard-panel-title">@group.FlowName</div>
-                            <div class="flow-dashboard-panel-subtitle">
-                                평균 @HeatmapService.FormatMetricValue(SelectedMetric, GetFlowAverageValue(group))
+            <div class="flow-dashboard-grid">
+                @foreach (var group in FilteredGroups)
+                {
+                    <section class="flow-dashboard-panel">
+                        <div class="flow-dashboard-panel-header">
+                            <div>
+                                <div class="flow-dashboard-panel-title">@group.FlowName</div>
+                                <div class="flow-dashboard-panel-subtitle">
+                                    평균 @HeatmapService.FormatMetricValue(SelectedMetric, GetFlowAverageValue(group))
+                                </div>
                             </div>
+                            <span class="chip" style="background:var(--color-info, #2196F3); color:white; font-size:12px;">
+                                @group.CallCount Calls
+                            </span>
                         </div>
-                        <span class="chip" style="background:var(--color-info, #2196F3); color:white; font-size:12px;">
-                            @group.CallCount Calls
-                        </span>
-                    </div>
 
-                    <div class="flow-dashboard-work-grid">
-                        @foreach (var workGroup in GetWorkGroups(group))
-                        {
-                            <div class="flow-dashboard-work-panel">
-                                <div class="flow-dashboard-work-header">
-                                    <span>@workGroup.WorkName</span>
-                                    <span>@workGroup.Calls.Count</span>
-                                </div>
-                                <div class="flow-dashboard-call-grid" style="@GetWorkMatrixStyle(workGroup.Calls.Count)">
-                                    @foreach (var call in workGroup.Calls)
-                                    {
-                                        <div class="flow-dashboard-call-cell @call.GetColorClass(SelectedMetric)"
-                                             title="@BuildCallTooltip(call)">
-                                            <div class="flow-dashboard-call-name">@call.CallName</div>
-                                            <div class="flow-dashboard-call-value">
-                                                @HeatmapService.FormatMetricValue(SelectedMetric, call.GetMetricValue(SelectedMetric))
+                        <div class="flow-dashboard-work-grid">
+                            @foreach (var workGroup in GetWorkGroups(group))
+                            {
+                                <div class="flow-dashboard-work-panel">
+                                    <div class="flow-dashboard-work-header">
+                                        <span>@workGroup.WorkName</span>
+                                        <span>@workGroup.Calls.Count</span>
+                                    </div>
+                                    <div class="flow-dashboard-call-grid" style="@GetWorkMatrixStyle(workGroup.Calls.Count)">
+                                        @foreach (var call in workGroup.Calls)
+                                        {
+                                            <div class="flow-dashboard-call-cell @call.GetColorClass(SelectedMetric)"
+                                                 title="@BuildCallTooltip(call)">
+                                                <div class="flow-dashboard-call-name">@call.CallName</div>
+                                                <div class="flow-dashboard-call-value">
+                                                    @HeatmapService.FormatMetricValue(SelectedMetric, call.GetMetricValue(SelectedMetric))
+                                                </div>
+                                                <div class="flow-dashboard-call-meta">@call.WorkName</div>
                                             </div>
-                                            <div class="flow-dashboard-call-meta">@call.WorkName</div>
-                                        </div>
-                                    }
+                                        }
+                                    </div>
                                 </div>
-                            </div>
-                        }
-                    </div>
-                </section>
-            }
+                            }
+                        </div>
+                    </section>
+                }
+            </div>
         </div>
-    </div>
+    }
 
     @* Flow 그룹별 매트릭스 히트맵 *@
     @foreach (var group in FilteredGroups)
