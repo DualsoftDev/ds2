@@ -12,7 +12,7 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void OpenTokenSpecDialog()
     {
-        var specs = _store.GetTokenSpecs().ToList();
+        var specs = DsQuery.getTokenSpecs(_store).ToList();
 
         // Source Work 목록 수집 (TokenRole에 Source 플래그가 포함된 Work)
         var sourceWorks = _store.Works.Values

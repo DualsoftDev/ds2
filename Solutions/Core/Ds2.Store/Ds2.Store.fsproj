@@ -14,7 +14,6 @@
     <Compile Include="Store\ImportPlan.Device.fs" />
     <Compile Include="Queries\CallConditionQueries.fs" />
     <Compile Include="Store\StoreHierarchyQueries.fs" />
-    <Compile Include="Store\DsStore.TokenSpecs.fs" />
     <Compile Include="Compat\LegacyJsonImport.fs" />
   </ItemGroup>
 

@@ -150,7 +150,7 @@ public partial class SimulationPanelState
 
     private void WarnSourcesWithoutTokenSpec(ISimulationEngine engine)
     {
-        var specs = Store.GetTokenSpecs();
+        var specs = DsQuery.getTokenSpecs(Store);
         var specWorkIds = new HashSet<Guid>(
             specs.Where(s => s.WorkId != null).Select(s => s.WorkId.Value));
 
@@ -174,7 +174,7 @@ public partial class SimulationPanelState
 
     private void WarnSourceWithoutTokenSpec(ISimulationEngine engine, Guid workGuid, string workName)
     {
-        var specs = Store.GetTokenSpecs();
+        var specs = DsQuery.getTokenSpecs(Store);
         var hasSpec = specs.Any(s => s.WorkId != null && s.WorkId.Value == workGuid);
         if (hasSpec) return;
 
