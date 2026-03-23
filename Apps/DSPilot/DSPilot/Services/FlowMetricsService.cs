@@ -14,6 +14,7 @@ namespace DSPilot.Services;
 public class FlowMetricsService : IFlowMetricsService
 {
     private readonly DsProjectService _projectService;
+    private readonly AppSettingsService _appSettingsService;
     private readonly Adapters.DspRepositoryAdapter _dspRepository;
     private readonly ILogger<FlowMetricsService> _logger;
 
@@ -25,10 +26,12 @@ public class FlowMetricsService : IFlowMetricsService
 
     public FlowMetricsService(
         DsProjectService projectService,
+        AppSettingsService appSettingsService,
         Adapters.DspRepositoryAdapter dspRepository,
         ILogger<FlowMetricsService> logger)
     {
         _projectService = projectService;
+        _appSettingsService = appSettingsService;
         _dspRepository = dspRepository;
         _logger = logger;
     }
@@ -86,72 +89,31 @@ public class FlowMetricsService : IFlowMetricsService
                             flow.Name, analysisResult.TailCount);
                     }
 
-                    // DB에 MovingStartName/MovingEndName 설정
-                    if (analysisResult.MovingStartName != null || analysisResult.MovingEndName != null)
+                    var (defaultStartCallName, defaultEndCallName) = GetAasxCycleBoundaries(flow.Name);
+                    var overrideConfig = _appSettingsService.GetFlowCycleOverride(flow.Name);
+                    var effectiveStartCallName = NormalizeCallName(overrideConfig?.StartCallName) ?? defaultStartCallName;
+                    var effectiveEndCallName = NormalizeCallName(overrideConfig?.EndCallName) ?? defaultEndCallName;
+
+                    if (effectiveStartCallName != null || effectiveEndCallName != null)
                     {
-#pragma warning disable CS8602 // F# Option interop - get_IsSome guarantees Value is not null
-                        var movingStartCallName = Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(analysisResult.MovingStartName)
-                            ? analysisResult.MovingStartName.Value
-                            : null;
-                        var movingEndCallName = Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(analysisResult.MovingEndName)
-                            ? analysisResult.MovingEndName.Value
-                            : null;
-#pragma warning restore CS8602
-
                         // 단일 Call Flow 여부 확인 (MovingStartName == MovingEndName)
-                        bool isSingleCallFlow = movingStartCallName == movingEndCallName;
+                        bool isSingleCallFlow = effectiveStartCallName == effectiveEndCallName;
 
-                        if (isSingleCallFlow && movingStartCallName != null)
+                        if (isSingleCallFlow && effectiveStartCallName != null)
                         {
                             _logger.LogInformation("Flow '{FlowName}' is a single-Call Flow with Call '{CallName}'",
-                                flow.Name, movingStartCallName);
+                                flow.Name, effectiveStartCallName);
                         }
 
-                        // FlowName.CallName 형식으로 고유하게 저장
-                        var movingStartName = movingStartCallName != null
-                            ? $"{flow.Name}.{movingStartCallName}"
-                            : null;
-                        var movingEndName = movingEndCallName != null
-                            ? $"{flow.Name}.{movingEndCallName}"
-                            : null;
-
-                        await _dspRepository.UpdateFlowMetricsAsync(
-                            flow.Name,
-                            mt: null,
-                            wt: null,
-                            ct: null,
-                            movingStartName: movingStartName!,
-                            movingEndName: movingEndName!);
+                        await ApplyResolvedCycleBoundaryAsync(flow.Name, effectiveStartCallName, effectiveEndCallName);
 
                         _logger.LogInformation(
-                            "Flow '{FlowName}': MovingStart={Start}, MovingEnd={End}",
+                            "Flow '{FlowName}': AASX Start={AasxStart}, AASX End={AasxEnd}, Effective Start={Start}, Effective End={End}",
                             flow.Name,
-                            analysisResult.MovingStartName,
-                            analysisResult.MovingEndName);
-
-                        // 사이클 상태 초기화
-#pragma warning disable CS8602 // F# Option interop - get_IsSome guarantees Value is not null
-                        var headCallName = Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(analysisResult.MovingStartName)
-                            ? analysisResult.MovingStartName.Value
-                            : null;
-                        var tailCallName = Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(analysisResult.MovingEndName)
-                            ? analysisResult.MovingEndName.Value
-                            : null;
-#pragma warning restore CS8602
-
-                        _flowCycleStates[flow.Name] = new FlowCycleState
-                        {
-                            FlowName = flow.Name,
-                            HeadCallName = headCallName,
-                            TailCallName = tailCallName,
-                            IsSingleCallFlow = isSingleCallFlow,
-                            IsCycleActive = false,
-                            CurrentCycleStart = null,
-                            PreviousCycleFinish = null,
-                            CurrentMT = null,
-                            CurrentWT = null,
-                            CurrentCT = null
-                        };
+                            defaultStartCallName,
+                            defaultEndCallName,
+                            effectiveStartCallName,
+                            effectiveEndCallName);
                     }
 
                     successCount++;
@@ -178,6 +140,55 @@ public class FlowMetricsService : IFlowMetricsService
             _logger.LogError(ex, "Failed to initialize FlowMetricsService");
             throw;
         }
+    }
+
+    public (string? StartCallName, string? EndCallName) GetAasxCycleBoundaries(string flowName)
+    {
+        if (string.IsNullOrWhiteSpace(flowName))
+        {
+            return (null, null);
+        }
+
+        if (!_projectService.IsLoaded)
+        {
+            return (null, null);
+        }
+
+        var flow = _projectService.GetFlowByName(flowName);
+        if (flow is null)
+        {
+            return (null, null);
+        }
+
+        var analysisResult = _flowAnalysisCache.GetOrAdd(flow.Name, _ =>
+        {
+            var store = GetDsStore();
+            return FlowAnalysis.analyzeFlow(flow, store);
+        });
+
+        return (
+            FromFSharpStringOption(analysisResult.MovingStartName),
+            FromFSharpStringOption(analysisResult.MovingEndName));
+    }
+
+    public async Task ApplyCycleBoundaryOverrideAsync(string flowName, string? startCallName, string? endCallName)
+    {
+        if (string.IsNullOrWhiteSpace(flowName))
+        {
+            return;
+        }
+
+        var (defaultStartCallName, defaultEndCallName) = GetAasxCycleBoundaries(flowName);
+        var effectiveStartCallName = NormalizeCallName(startCallName) ?? defaultStartCallName;
+        var effectiveEndCallName = NormalizeCallName(endCallName) ?? defaultEndCallName;
+
+        await ApplyResolvedCycleBoundaryAsync(flowName, effectiveStartCallName, effectiveEndCallName);
+
+        _logger.LogInformation(
+            "Flow '{FlowName}' cycle boundary override applied. Effective Start={Start}, Effective End={End}",
+            flowName,
+            effectiveStartCallName,
+            effectiveEndCallName);
     }
 
     /// <summary>
@@ -353,6 +364,41 @@ public class FlowMetricsService : IFlowMetricsService
         {
             _logger.LogError(ex, "Failed to update metrics with averages for Flow '{FlowName}'", flowName);
         }
+    }
+
+    private async Task ApplyResolvedCycleBoundaryAsync(string flowName, string? startCallName, string? endCallName)
+    {
+        var movingStartName = startCallName != null ? $"{flowName}.{startCallName}" : null;
+        var movingEndName = endCallName != null ? $"{flowName}.{endCallName}" : null;
+        var isSingleCallFlow = startCallName != null && startCallName == endCallName;
+
+        await _dspRepository.UpdateFlowCycleBoundariesAsync(flowName, movingStartName, movingEndName);
+
+        _flowCycleStates[flowName] = new FlowCycleState
+        {
+            FlowName = flowName,
+            HeadCallName = startCallName,
+            TailCallName = endCallName,
+            IsSingleCallFlow = isSingleCallFlow,
+            IsCycleActive = false,
+            CurrentCycleStart = null,
+            PreviousCycleFinish = null,
+            CurrentMT = null,
+            CurrentWT = null,
+            CurrentCT = null
+        };
+    }
+
+    private static string? NormalizeCallName(string? callName)
+    {
+        return string.IsNullOrWhiteSpace(callName) ? null : callName.Trim();
+    }
+
+    private static string? FromFSharpStringOption(Microsoft.FSharp.Core.FSharpOption<string> option)
+    {
+        return Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(option)
+            ? option.Value
+            : null;
     }
 
     /// <summary>

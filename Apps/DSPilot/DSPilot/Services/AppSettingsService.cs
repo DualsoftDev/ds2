@@ -34,7 +34,7 @@ public class AppSettingsService
         if (File.Exists(_productionFilePath))
         {
             var prod = LoadRaw(_productionFilePath);
-            foreach (var key in new[] { "DsPilot", "Database", "PlcDatabase", "PlcCapture", "Logging", "Ui" })
+            foreach (var key in new[] { "DsPilot", "Database", "FlowCycle", "PlcDatabase", "PlcCapture", "Logging", "Ui" })
             {
                 if (prod[key] is not null)
                     root[key] = prod[key]!.DeepClone();
@@ -45,6 +45,7 @@ public class AppSettingsService
         {
             DsPilot = Deserialize<DsPilotSettings>(root["DsPilot"]),
             Database = Deserialize<DatabaseSettings>(root["Database"]),
+            FlowCycle = Deserialize<FlowCycleSettings>(root["FlowCycle"]),
             PlcDatabase = Deserialize<PlcDatabaseSettings>(root["PlcDatabase"]),
             PlcCapture = Deserialize<PlcCaptureSettings>(root["PlcCapture"]),
             Logging = Deserialize<LoggingSettings>(root["Logging"]),
@@ -58,6 +59,7 @@ public class AppSettingsService
 
         root["DsPilot"] = JsonSerializer.SerializeToNode(model.DsPilot, JsonOptions);
         root["Database"] = JsonSerializer.SerializeToNode(model.Database, JsonOptions);
+        root["FlowCycle"] = JsonSerializer.SerializeToNode(model.FlowCycle, JsonOptions);
         root["PlcDatabase"] = JsonSerializer.SerializeToNode(model.PlcDatabase, JsonOptions);
         root["PlcCapture"] = JsonSerializer.SerializeToNode(model.PlcCapture, JsonOptions);
         root["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
@@ -69,12 +71,76 @@ public class AppSettingsService
         var prod = File.Exists(_productionFilePath) ? LoadRaw(_productionFilePath) : new JsonObject();
         prod["DsPilot"] = JsonSerializer.SerializeToNode(model.DsPilot, JsonOptions);
         prod["Database"] = JsonSerializer.SerializeToNode(model.Database, JsonOptions);
+        prod["FlowCycle"] = JsonSerializer.SerializeToNode(model.FlowCycle, JsonOptions);
         prod["PlcDatabase"] = JsonSerializer.SerializeToNode(model.PlcDatabase, JsonOptions);
         prod["PlcCapture"] = JsonSerializer.SerializeToNode(model.PlcCapture, JsonOptions);
         prod["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
         prod["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
         SaveRaw(_productionFilePath, prod);
         _logger.LogInformation("appsettings.Production.json 전체 설정 동기화 완료");
+    }
+
+    public FlowCycleOverride? GetFlowCycleOverride(string flowName)
+    {
+        if (string.IsNullOrWhiteSpace(flowName))
+        {
+            return null;
+        }
+
+        var settings = LoadSettings();
+        return settings.FlowCycle.Overrides
+            .FirstOrDefault(item => string.Equals(item.FlowName, flowName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public void SaveFlowCycleOverride(string flowName, string? startCallName, string? endCallName)
+    {
+        if (string.IsNullOrWhiteSpace(flowName))
+        {
+            throw new ArgumentException("Flow name is required.", nameof(flowName));
+        }
+
+        var settings = LoadSettings();
+        var overrides = settings.FlowCycle.Overrides;
+        var existing = overrides
+            .FirstOrDefault(item => string.Equals(item.FlowName, flowName, StringComparison.OrdinalIgnoreCase));
+
+        var normalizedStart = NormalizeOptional(startCallName);
+        var normalizedEnd = NormalizeOptional(endCallName);
+
+        if (string.IsNullOrWhiteSpace(normalizedStart) && string.IsNullOrWhiteSpace(normalizedEnd))
+        {
+            if (existing is not null)
+            {
+                overrides.Remove(existing);
+            }
+        }
+        else if (existing is null)
+        {
+            overrides.Add(new FlowCycleOverride
+            {
+                FlowName = flowName,
+                StartCallName = normalizedStart,
+                EndCallName = normalizedEnd
+            });
+        }
+        else
+        {
+            existing.StartCallName = normalizedStart;
+            existing.EndCallName = normalizedEnd;
+        }
+
+        settings.FlowCycle.Overrides = overrides
+            .OrderBy(item => item.FlowName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        SaveSettings(settings);
+    }
+
+    public void ClearFlowCycleOverrides()
+    {
+        var settings = LoadSettings();
+        settings.FlowCycle.Overrides.Clear();
+        SaveSettings(settings);
     }
 
     public async Task<string> UploadAasxFileAsync(IBrowserFile file)
@@ -147,5 +213,10 @@ public class AppSettingsService
     {
         if (node is null) return new T();
         return node.Deserialize<T>(JsonOptions) ?? new T();
+    }
+
+    private static string? NormalizeOptional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 }

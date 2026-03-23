@@ -432,6 +432,35 @@ module DspRepository =
             return result > 0
         }
 
+    /// Flow 사이클 기준 Call만 업데이트 (MT/WT/CT는 유지)
+    let updateFlowCycleBoundariesAsync
+        (paths: DatabasePaths)
+        (flowName: string)
+        (movingStartName: string option)
+        (movingEndName: string option) : Task<bool> =
+        task {
+            use connection = createConnection (DatabaseConfig.createConnectionString paths.SharedDbPath)
+            let flowTable = paths.GetFlowTableName()
+
+            let sql = sprintf """
+                UPDATE %s
+                SET MovingStartName = @MovingStartName,
+                    MovingEndName = @MovingEndName,
+                    UpdatedAt = datetime('now')
+                WHERE FlowName = @FlowName""" flowTable
+
+            let movingStartNameStr = match movingStartName with Some v -> v | None -> null
+            let movingEndNameStr = match movingEndName with Some v -> v | None -> null
+
+            let! result = connection.ExecuteAsync(sql, {|
+                MovingStartName = movingStartNameStr
+                MovingEndName = movingEndNameStr
+                FlowName = flowName
+            |})
+
+            return result > 0
+        }
+
     /// Flow History 삽입 (사이클 완료 시 호출)
     let insertFlowHistoryAsync (paths: DatabasePaths) (logger: ILogger) (history: DspFlowHistoryEntity) : Task<int> =
         task {

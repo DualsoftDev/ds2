@@ -78,6 +78,17 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         return await DSPilot.Engine.DspRepository.updateFlowMetricsAsync(_paths, flowName, mtOpt, wtOpt, ctOpt, startOpt, endOpt);
     }
 
+    public async Task<bool> UpdateFlowCycleBoundariesAsync(
+        string flowName,
+        string? movingStartName,
+        string? movingEndName)
+    {
+        if (!_enabled) return false;
+        var startOpt = ToFSharpOption(movingStartName);
+        var endOpt = ToFSharpOption(movingEndName);
+        return await DSPilot.Engine.DspRepository.updateFlowCycleBoundariesAsync(_paths, flowName, startOpt, endOpt);
+    }
+
     public Task<bool> ClearAllDataAsync()
     {
         if (!_enabled) return Task.FromResult(true);
