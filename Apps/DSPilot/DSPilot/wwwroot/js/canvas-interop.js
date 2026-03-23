@@ -75,17 +75,48 @@ window.canvasInterop = (function () {
 
     function onPointerMove(e) {
         if (_resizing) {
-            // do nothing visual while resizing, will apply on up
+            var dx = e.clientX - _resizing.startX;
+            var dy = e.clientY - _resizing.startY;
+            var rect = _svg.getBoundingClientRect();
+            var vb = _svg.viewBox.baseVal;
+            var scaleX = vb.width / rect.width;
+            var scaleY = vb.height / rect.height;
+            var svgDx = dx * scaleX;
+            var svgDy = dy * scaleY;
+            // Store original dimensions on first move
+            if (!_resizing.origW) {
+                var mainRect = _resizing.g.querySelector('rect');
+                if (mainRect) {
+                    _resizing.mainRect = mainRect;
+                    _resizing.origW = parseFloat(mainRect.getAttribute('width'));
+                    _resizing.origH = parseFloat(mainRect.getAttribute('height'));
+                }
+            }
+            if (_resizing.mainRect) {
+                _resizing.mainRect.setAttribute('width', Math.max(30, _resizing.origW + svgDx));
+                _resizing.mainRect.setAttribute('height', Math.max(30, _resizing.origH + svgDy));
+            }
             return;
         }
         if (_dragging) {
-            // visual feedback only
+            var dx = e.clientX - _dragging.startX;
+            var dy = e.clientY - _dragging.startY;
+            var rect = _svg.getBoundingClientRect();
+            var vb = _svg.viewBox.baseVal;
+            var scaleX = vb.width / rect.width;
+            var scaleY = vb.height / rect.height;
+            _dragging.g.setAttribute('transform', 'translate(' + (dx * scaleX) + ',' + (dy * scaleY) + ')');
             return;
         }
     }
 
     function onPointerUp(e) {
         if (_resizing) {
+            // Revert visual preview — server re-render will set final size
+            if (_resizing.mainRect) {
+                _resizing.mainRect.setAttribute('width', _resizing.origW);
+                _resizing.mainRect.setAttribute('height', _resizing.origH);
+            }
             var dx = e.clientX - _resizing.startX;
             var dy = e.clientY - _resizing.startY;
             // Convert pixel delta to col/row delta using the SVG's screen scale
@@ -104,6 +135,8 @@ window.canvasInterop = (function () {
             return;
         }
         if (_dragging) {
+            // Remove visual preview transform — server re-render will set final position
+            _dragging.g.removeAttribute('transform');
             _dragging.g.style.opacity = '';
             var dx = e.clientX - _dragging.startX;
             var dy = e.clientY - _dragging.startY;
