@@ -1,22 +1,23 @@
 using Ds2.Core;
 using Ds2.UI.Core;
-using Ev2.Backend.PLC;
+using Dual.Common.Db.FS;
 using Ev2.Backend.Common;
+using Ev2.Backend.PLC;
 using Ev2.Core.FS;
 using Ev2.PLC.Protocol.MX;
-using Dual.Common.Db.FS;
 using log4net;
-using log4net.Core;
 using log4net.Config;
+using log4net.Core;
+using Microsoft.FSharp.Core;
 using System.Reactive.Linq;
 using System.Reflection;
-using Microsoft.FSharp.Core;
+using static Ev2.Core.FS.ApplicationSettingsModule;
+using static Ev2.PLC.Common.TagSpecModule;
+using DbProvider = Dual.Common.Db.FS.DbProviderModule.DbProvider;
 using PlcDataType = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType;
 using PlcValue = Ev2.PLC.Common.CoreDataTypesModule.PlcValue;
 using TagSpec = Ev2.PLC.Common.TagSpecModule.TagSpec;
 using WAL = Ev2.PLC.Common.TagSpecModule.WAL;
-using DbProvider = Dual.Common.Db.FS.DbProviderModule.DbProvider;
-using static Ev2.Core.FS.ApplicationSettingsModule;
 
 namespace DSPilot.Services;
 
@@ -289,6 +290,8 @@ public class PlcCaptureService : IHostedService, IDisposable
                 dataType: ConvertToPlcDataType(tag.DataType),
                 walType: FSharpOption<WAL>.Some(WAL.Memory),
                 comment: FSharpOption<string>.Some(comment),
+                everyNScan : FSharpOption<int>.None,
+                directionHint : FSharpOption<DirectionHint>.None,
                 plcValue: FSharpOption<PlcValue>.None
             );
         }).ToArray();

@@ -13,7 +13,7 @@ namespace DSPilot.Services;
 /// </summary>
 public class CycleAnalysisService
 {
-    private const int MaxRenderedGanttItems = 1200;
+    private const int MaxRenderedGanttItems = 2000;
     private readonly IDspRepository _dspRepository;
     private readonly IPlcRepository _plcRepository;
     private readonly PlcToCallMapperService _mapperService;
@@ -412,9 +412,17 @@ public class CycleAnalysisService
             .GroupBy(e => e.CallId)
             .ToDictionary(g => g.Key, g => g.OrderBy(e => e.RelativeTimeMs).ToList());
 
-        var renderedItems = ioEvents
-            .OrderBy(e => e.RelativeTimeMs)
-            .Take(MaxRenderedGanttItems)
+        var renderedEvents = ioEvents.Count > MaxRenderedGanttItems
+            ? ioEvents
+                .OrderByDescending(e => e.RelativeTimeMs)
+                .Take(MaxRenderedGanttItems)
+                .OrderBy(e => e.RelativeTimeMs)
+                .ToList()
+            : ioEvents
+                .OrderBy(e => e.RelativeTimeMs)
+                .ToList();
+
+        var renderedItems = renderedEvents
             .Select(e =>
             {
                 var eventsForCall = callEvents.GetValueOrDefault(e.CallId, new List<CallIOEvent>());
@@ -473,10 +481,10 @@ public class CycleAnalysisService
 
         DateTime? actualEventStartTime = null;
         DateTime? actualEventEndTime = null;
-        if (ioEvents.Count > 0)
+        if (renderedItems.Count > 0)
         {
-            actualEventStartTime = ioEvents.Min(e => e.Timestamp);
-            actualEventEndTime = ioEvents.Max(e => e.Timestamp);
+            actualEventStartTime = renderedItems.Min(item => item.GoingStartTime);
+            actualEventEndTime = renderedItems.Max(item => item.FinishTime ?? item.GoingStartTime);
         }
 
         return new GanttChartData
@@ -512,18 +520,12 @@ public class CycleAnalysisService
                 if (!tags.HasValue)
                     continue;
 
-                if (!string.IsNullOrWhiteSpace(tags.Value.InTag))
+                if (!string.IsNullOrWhiteSpace(tags.Value.InTag) ||
+                    !string.IsNullOrWhiteSpace(tags.Value.OutTag))
                 {
                     laneDefinitions.Add(new LaneDefinition(
-                        BuildLaneKey(call.Id, IOEventType.InTag),
-                        $"{call.Name} [IN]"));
-                }
-
-                if (!string.IsNullOrWhiteSpace(tags.Value.OutTag))
-                {
-                    laneDefinitions.Add(new LaneDefinition(
-                        BuildLaneKey(call.Id, IOEventType.OutTag),
-                        $"{call.Name} [OUT]"));
+                        BuildLaneKey(call.Id),
+                        call.Name));
                 }
             }
         }
@@ -545,12 +547,12 @@ public class CycleAnalysisService
 
         foreach (var item in items.OrderBy(i => i.RelativeStart))
         {
-            var laneKey = BuildLaneKey(item.CallId, item.EventType);
+            var laneKey = BuildLaneKey(item.CallId);
             if (!laneByKey.TryGetValue(laneKey, out var lane))
             {
                 lane = laneLabels.Count;
                 laneByKey[laneKey] = lane;
-                laneLabels.Add($"{item.CallName} [{(item.EventType == IOEventType.InTag ? "IN" : "OUT")}]");
+                laneLabels.Add(item.CallName);
             }
 
             item.Lane = lane;
@@ -559,11 +561,7 @@ public class CycleAnalysisService
         return laneLabels;
     }
 
-    private static string BuildLaneKey(Guid callId, IOEventType eventType)
-    {
-        var direction = eventType == IOEventType.InTag ? "IN" : "OUT";
-        return $"{callId:N}|{direction}";
-    }
+    private static string BuildLaneKey(Guid callId) => callId.ToString("N");
 
     #endregion
 

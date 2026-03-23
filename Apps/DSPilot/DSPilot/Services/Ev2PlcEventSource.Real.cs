@@ -1,13 +1,15 @@
-using System.Reactive.Subjects;
 using DSPilot.Abstractions;
 using DSPilot.Models;
 using Ev2.Backend.Common;
 using Ev2.Backend.PLC;
 using Ev2.PLC.Protocol.AB;
 using Microsoft.FSharp.Core;
-using TagSpec = Ev2.PLC.Common.TagSpecModule.TagSpec;
+using System.Linq;
+using System.Reactive.Subjects;
+using static Ev2.PLC.Common.TagSpecModule;
 using PlcDataType = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType;
 using PlcValue = Ev2.PLC.Common.CoreDataTypesModule.PlcValue;
+using TagSpec = Ev2.PLC.Common.TagSpecModule.TagSpec;
 using WAL = Ev2.PLC.Common.TagSpecModule.WAL;
 
 namespace DSPilot.Services;
@@ -70,6 +72,8 @@ public class Ev2PlcEventSourceReal : IPlcEventSource
                 dataType: PlcDataType.Bool,  // 일단 모두 Bool로 가정
                 walType: FSharpOption<WAL>.None,
                 comment: FSharpOption<string>.None,
+                everyNScan: FSharpOption<int>.None,
+                directionHint: FSharpOption<DirectionHint>.None,
                 plcValue: FSharpOption<PlcValue>.None
             )).ToArray();
 
