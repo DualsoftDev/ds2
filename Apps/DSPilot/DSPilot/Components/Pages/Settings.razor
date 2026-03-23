@@ -59,31 +59,26 @@
                 </div>
             </div>
 
-            @* DspDatabase 섹션 *@
+            @* 데이터베이스 섹션 *@
             <div class="card" style="box-shadow: var(--shadow-2);">
                 <div class="card-header">
-                    <span class="material-icons mr-2">data_object</span>
-                    <h6 class="typo-h6">DSP 데이터베이스</h6>
+                    <span class="material-icons mr-2">storage</span>
+                    <h6 class="typo-h6">데이터베이스</h6>
                 </div>
                 <div class="card-content">
                     <div class="form-group mb-3">
                         <label class="form-label">DB 경로</label>
-                        <input class="form-field" @bind="_settings.DspDatabase.Path" placeholder="DB 경로" />
+                        <input class="form-field" @bind="_dbPath"
+                               placeholder="%ProgramData%/DualSoft/DSPilot/plc.db" />
                         <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                            DSP 내부 데이터베이스 경로 (환경변수 사용 가능)
+                            SQLite 파일 경로 — 서비스 환경 권장: %ProgramData%, %SystemDrive% (서비스 모드에서 %APPDATA% 등 사용자 경로는 SYSTEM 계정으로 해석됨)
                         </small>
                     </div>
-                    <label class="switch mb-2">
-                        <input type="checkbox" @bind="_settings.DspDatabase.AutoCreate" />
-                        자동 생성
-                    </label>
-                    <label class="switch mb-2">
-                        <input type="checkbox" @bind="_settings.DspDatabase.RecreateOnStartup" />
-                        시작 시 재생성
-                    </label>
-                    <span class="typo-caption mt-1" style="display:block; color: var(--color-warning);">
-                        시작 시 재생성을 활성화하면 기존 데이터가 삭제됩니다.
-                    </span>
+                    <div class="form-group mb-3">
+                        <label class="form-label">BusyTimeout (ms)</label>
+                        <input type="number" class="form-field" @bind="_dbBusyTimeout"
+                               min="0" max="600000" placeholder="20000" />
+                    </div>
                     <hr class="divider my-3" />
                     <button class="btn btn-outlined color-error" style="width:100%;" @onclick="DeleteDatabase">
                         <span class="material-icons" style="font-size:18px;">delete_forever</span> 데이터베이스 삭제
@@ -242,15 +237,47 @@ else
     private string? _uploadedFileName;
     private readonly string[] _logLevels = { "Trace", "Debug", "Information", "Warning", "Error", "Critical", "None" };
 
+    // DB ConnectionString 분리 편집용 필드
+    private string _dbPath = "";
+    private int _dbBusyTimeout = 20000;
+
     protected override void OnInitialized()
-        => _settings = SettingsService.LoadSettings();
+    {
+        _settings = SettingsService.LoadSettings();
+        ParseConnectionString(_settings.Database.ConnectionString);
+    }
 
     private void ReloadSettings()
     {
         _settings = SettingsService.LoadSettings();
+        ParseConnectionString(_settings!.Database.ConnectionString);
         _uploadedFileName = null;
         _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "설정을 다시 불러왔습니다.", "info");
     }
+
+    private void ParseConnectionString(string connStr)
+    {
+        _dbPath = "";
+        _dbBusyTimeout = 20000;
+
+        if (string.IsNullOrWhiteSpace(connStr)) return;
+
+        foreach (var part in connStr.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = part.Split('=', 2);
+            if (kv.Length != 2) continue;
+            var key = kv[0].Trim();
+            var val = kv[1].Trim();
+
+            if (key.Equals("Data Source", StringComparison.OrdinalIgnoreCase))
+                _dbPath = val;
+            else if (key.Equals("BusyTimeout", StringComparison.OrdinalIgnoreCase) && int.TryParse(val, out var bt))
+                _dbBusyTimeout = bt;
+        }
+    }
+
+    private string BuildConnectionString()
+        => $"Data Source={_dbPath};Version=3;BusyTimeout={_dbBusyTimeout}";
 
     private async Task OnAasxFileUploaded(IBrowserFile file)
     {
@@ -281,6 +308,7 @@ else
         if (_settings is null) return;
         try
         {
+            _settings.Database.ConnectionString = BuildConnectionString();
             SettingsService.SaveSettings(_settings);
             _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "설정이 저장되었습니다. 서버 PC에서 서비스를 재시작해주세요.", "success");
         }
