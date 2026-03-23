@@ -50,12 +50,15 @@ builder.Services.AddSingleton<IPlcRepository, PlcRepository>();
 builder.Services.AddHostedService<PlcDataReaderService>();
 
 // DSP 데이터베이스 서비스 등록 - F# Adapter 사용
-builder.Services.AddSingleton<IDspRepository>(sp =>
+builder.Services.AddSingleton<DspRepositoryAdapter>(sp =>
 {
     var pathResolver = sp.GetRequiredService<DatabasePathResolverAdapter>();
     var logger = sp.GetRequiredService<ILogger<DspRepositoryAdapter>>();
     return new DspRepositoryAdapter(pathResolver.GetDatabasePaths(), logger);
 });
+
+// Register as interface for existing consumers
+builder.Services.AddSingleton<IDspRepository>(sp => sp.GetRequiredService<DspRepositoryAdapter>());
 
 // Tracking services (F# Engine integration)
 builder.Services.AddSingleton<PlcToCallMapperService>();

@@ -7,6 +7,9 @@ public class FlowState
     public int? MT { get; set; }
     public int? WT { get; set; }
     public int? CT { get; set; }
+    public double? AvgMT { get; set; }
+    public double? AvgWT { get; set; }
+    public double? AvgCT { get; set; }
     public string State { get; set; } = "";
     public string? MovingStartName { get; set; }
     public string? MovingEndName { get; set; }

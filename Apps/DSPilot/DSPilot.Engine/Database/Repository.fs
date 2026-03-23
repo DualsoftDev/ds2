@@ -64,16 +64,19 @@ module DspRepository =
                 use transaction = connection.BeginTransaction()
                 try
                     let sql = sprintf """
-                        INSERT INTO %s (FlowName, MT, WT, CT, State, MovingStartName, MovingEndName)
-                        VALUES (@FlowName, @MT, @WT, @CT, @State, @MovingStartName, @MovingEndName)
+                        INSERT INTO %s (FlowName, MT, WT, CT, AvgMT, AvgWT, AvgCT, State, MovingStartName, MovingEndName)
+                        VALUES (@FlowName, @MT, @WT, @CT, @AvgMT, @AvgWT, @AvgCT, @State, @MovingStartName, @MovingEndName)
                         ON CONFLICT (FlowName) DO UPDATE SET
                             MT = COALESCE(excluded.MT, %s.MT),
                             WT = COALESCE(excluded.WT, %s.WT),
                             CT = COALESCE(excluded.CT, %s.CT),
+                            AvgMT = COALESCE(excluded.AvgMT, %s.AvgMT),
+                            AvgWT = COALESCE(excluded.AvgWT, %s.AvgWT),
+                            AvgCT = COALESCE(excluded.AvgCT, %s.AvgCT),
                             State = excluded.State,
                             MovingStartName = excluded.MovingStartName,
                             MovingEndName = excluded.MovingEndName,
-                            UpdatedAt = datetime('now')""" flowTable flowTable flowTable flowTable
+                            UpdatedAt = datetime('now')""" flowTable flowTable flowTable flowTable flowTable flowTable flowTable
 
                     // F# Option을 Nullable로 변환한 DTO 사용
                     let dtos = flows |> List.map DapperFlowDto.FromEntity
@@ -381,6 +384,113 @@ module DspRepository =
             return result > 0
         }
 
+    /// Flow 메트릭 및 평균값 업데이트 (사이클 완료 시 호출)
+    let updateFlowWithAveragesAsync
+        (paths: DatabasePaths)
+        (logger: ILogger)
+        (flowName: string)
+        (mt: int)
+        (wt: int)
+        (ct: int)
+        (avgMT: float)
+        (avgWT: float)
+        (avgCT: float)
+        (movingStartName: string option)
+        (movingEndName: string option) : Task<bool> =
+        task {
+            use connection = createConnection (DatabaseConfig.createConnectionString paths.SharedDbPath)
+            let flowTable = paths.GetFlowTableName()
+
+            let sql = sprintf """
+                UPDATE %s
+                SET MT = @MT,
+                    WT = @WT,
+                    CT = @CT,
+                    AvgMT = @AvgMT,
+                    AvgWT = @AvgWT,
+                    AvgCT = @AvgCT,
+                    MovingStartName = @MovingStartName,
+                    MovingEndName = @MovingEndName,
+                    UpdatedAt = datetime('now')
+                WHERE FlowName = @FlowName""" flowTable
+
+            let movingStartNameStr = match movingStartName with Some v -> v | None -> null
+            let movingEndNameStr = match movingEndName with Some v -> v | None -> null
+
+            let! result = connection.ExecuteAsync(sql, {|
+                MT = mt
+                WT = wt
+                CT = ct
+                AvgMT = avgMT
+                AvgWT = avgWT
+                AvgCT = avgCT
+                MovingStartName = movingStartNameStr
+                MovingEndName = movingEndNameStr
+                FlowName = flowName
+            |})
+
+            return result > 0
+        }
+
+    /// Flow History 삽입 (사이클 완료 시 호출)
+    let insertFlowHistoryAsync (paths: DatabasePaths) (logger: ILogger) (history: DspFlowHistoryEntity) : Task<int> =
+        task {
+            use connection = createConnection (DatabaseConfig.createConnectionString paths.SharedDbPath)
+            do! connection.OpenAsync()
+
+            let historyTable = "dspFlowHistory"
+
+            // 테이블 존재 확인
+            let! tableExists = tableExistsAsync connection historyTable
+            if not tableExists then
+                logger.LogWarning("dspFlowHistory table does not exist yet")
+                return 0
+            else
+                try
+                    let sql = sprintf """
+                        INSERT INTO %s (FlowName, MT, WT, CT, CycleNo, RecordedAt)
+                        VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt)""" historyTable
+
+                    let dto = DapperFlowHistoryDto.FromEntity(history)
+                    let! result = connection.ExecuteAsync(sql, dto)
+
+                    logger.LogDebug(
+                        "Inserted Flow history for '{FlowName}': Cycle={CycleNo}, MT={MT}ms, WT={WT}ms, CT={CT}ms",
+                        history.FlowName, history.CycleNo, history.MT, history.WT, history.CT)
+
+                    return result
+                with ex ->
+                    logger.LogError(ex, "Failed to insert Flow history for '{FlowName}'", history.FlowName)
+                    return 0
+        }
+
+    /// Flow History 조회 (최근 N개)
+    let getFlowHistoryAsync (paths: DatabasePaths) (logger: ILogger) (flowName: string) (limit: int) : Task<DspFlowHistoryEntity list> =
+        task {
+            use connection = createConnection (DatabaseConfig.createConnectionString paths.SharedDbPath)
+            do! connection.OpenAsync()
+
+            let historyTable = "dspFlowHistory"
+
+            let! tableExists = tableExistsAsync connection historyTable
+            if not tableExists then
+                return []
+            else
+                try
+                    let sql = sprintf """
+                        SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt
+                        FROM %s
+                        WHERE FlowName = @FlowName
+                        ORDER BY RecordedAt DESC
+                        LIMIT @Limit""" historyTable
+
+                    let! results = connection.QueryAsync<DspFlowHistoryEntity>(sql, {| FlowName = flowName; Limit = limit |})
+                    return results |> Seq.toList
+                with ex ->
+                    logger.LogError(ex, "Failed to get Flow history for '{FlowName}'", flowName)
+                    return []
+        }
+
     /// 전체 데이터 삭제 (재초기화용)
     let clearAllDataAsync (paths: DatabasePaths) (logger: ILogger) : Task<bool> =
         task {
@@ -392,6 +502,13 @@ module DspRepository =
 
                 let flowTable = paths.GetFlowTableName()
                 let callTable = paths.GetCallTableName()
+                let historyTable = "dspFlowHistory"
+
+                // History 테이블이 있으면 삭제
+                let! historyExists = tableExistsAsync connection historyTable
+                if historyExists then
+                    let! _ = connection.ExecuteAsync(sprintf "DELETE FROM %s" historyTable, transaction = transaction)
+                    ()
 
                 let! _ = connection.ExecuteAsync(sprintf "DELETE FROM %s" callTable, transaction = transaction)
                 let! _ = connection.ExecuteAsync(sprintf "DELETE FROM %s" flowTable, transaction = transaction)

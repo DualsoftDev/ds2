@@ -9,6 +9,9 @@ type DapperFlowDto =
       MT: Nullable<int>
       WT: Nullable<int>
       CT: Nullable<int>
+      AvgMT: Nullable<float>
+      AvgWT: Nullable<float>
+      AvgCT: Nullable<float>
       State: string
       MovingStartName: string
       MovingEndName: string }
@@ -18,9 +21,30 @@ type DapperFlowDto =
           MT = match entity.MT with Some v -> Nullable v | None -> Nullable()
           WT = match entity.WT with Some v -> Nullable v | None -> Nullable()
           CT = match entity.CT with Some v -> Nullable v | None -> Nullable()
+          AvgMT = match entity.AvgMT with Some v -> Nullable v | None -> Nullable()
+          AvgWT = match entity.AvgWT with Some v -> Nullable v | None -> Nullable()
+          AvgCT = match entity.AvgCT with Some v -> Nullable v | None -> Nullable()
           State = match entity.State with Some v -> v | None -> null
           MovingStartName = match entity.MovingStartName with Some v -> v | None -> null
           MovingEndName = match entity.MovingEndName with Some v -> v | None -> null }
+
+/// Dapper FlowHistory DTO (converts Option types to Nullable)
+[<CLIMutable>]
+type DapperFlowHistoryDto =
+    { FlowName: string
+      MT: Nullable<int>
+      WT: Nullable<int>
+      CT: Nullable<int>
+      CycleNo: Nullable<int>
+      RecordedAt: DateTime }
+
+    static member FromEntity(entity: DspFlowHistoryEntity) =
+        { FlowName = entity.FlowName
+          MT = match entity.MT with Some v -> Nullable v | None -> Nullable()
+          WT = match entity.WT with Some v -> Nullable v | None -> Nullable()
+          CT = match entity.CT with Some v -> Nullable v | None -> Nullable()
+          CycleNo = match entity.CycleNo with Some v -> Nullable v | None -> Nullable()
+          RecordedAt = entity.RecordedAt }
 
 /// Dapper Call DTO (converts Option types to Nullable)
 [<CLIMutable>]

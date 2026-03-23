@@ -151,6 +151,43 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
             _paths, _logger, callId, state, previousGoingTime, averageGoingTime, stdDevGoingTime);
     }
 
+    // ===== Flow Metrics with Averages =====
+
+    public async Task<bool> UpdateFlowWithAveragesAsync(
+        string flowName,
+        int mt,
+        int wt,
+        int ct,
+        double avgMT,
+        double avgWT,
+        double avgCT,
+        string? movingStartName,
+        string? movingEndName)
+    {
+        if (!_enabled) return false;
+        var startOpt = ToFSharpOption(movingStartName);
+        var endOpt = ToFSharpOption(movingEndName);
+
+        return await DSPilot.Engine.DspRepository.updateFlowWithAveragesAsync(
+            _paths, _logger, flowName, mt, wt, ct, avgMT, avgWT, avgCT, startOpt, endOpt);
+    }
+
+    // ===== Flow History Methods =====
+
+    public async Task<int> InsertFlowHistoryAsync(Models.Dsp.DspFlowHistoryEntity history)
+    {
+        if (!_enabled) return 0;
+        var fsharpHistory = ToFSharpFlowHistoryEntity(history);
+        return await DSPilot.Engine.DspRepository.insertFlowHistoryAsync(_paths, _logger, fsharpHistory);
+    }
+
+    public async Task<List<Models.Dsp.DspFlowHistoryEntity>> GetFlowHistoryAsync(string flowName, int limit)
+    {
+        if (!_enabled) return new List<Models.Dsp.DspFlowHistoryEntity>();
+        var fsharpList = await DSPilot.Engine.DspRepository.getFlowHistoryAsync(_paths, _logger, flowName, limit);
+        return fsharpList.Select(ToCSharpFlowHistoryEntity).ToList();
+    }
+
     // ===== Helper Methods =====
 
     private FSharpDspFlowEntity ToFSharpFlowEntity(CSharpDspFlowEntity entity)
@@ -161,6 +198,9 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
             ToFSharpOption(entity.MT),
             ToFSharpOption(entity.WT),
             ToFSharpOption(entity.CT),
+            ToFSharpOption(entity.AvgMT),
+            ToFSharpOption(entity.AvgWT),
+            ToFSharpOption(entity.AvgCT),
             ToFSharpOption(entity.State),
             ToFSharpOption(entity.MovingStartName),
             ToFSharpOption(entity.MovingEndName),
@@ -248,5 +288,32 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         return Microsoft.FSharp.Core.FSharpOption<T>.get_IsSome(option)
             ? option.Value
             : null;
+    }
+
+    private DSPilot.Engine.DspFlowHistoryEntity ToFSharpFlowHistoryEntity(Models.Dsp.DspFlowHistoryEntity entity)
+    {
+        return new DSPilot.Engine.DspFlowHistoryEntity(
+            entity.Id,
+            entity.FlowName,
+            ToFSharpOption(entity.MT),
+            ToFSharpOption(entity.WT),
+            ToFSharpOption(entity.CT),
+            ToFSharpOption(entity.CycleNo),
+            entity.RecordedAt
+        );
+    }
+
+    private Models.Dsp.DspFlowHistoryEntity ToCSharpFlowHistoryEntity(DSPilot.Engine.DspFlowHistoryEntity entity)
+    {
+        return new Models.Dsp.DspFlowHistoryEntity
+        {
+            Id = entity.Id,
+            FlowName = entity.FlowName,
+            MT = FromFSharpOptionStruct(entity.MT),
+            WT = FromFSharpOptionStruct(entity.WT),
+            CT = FromFSharpOptionStruct(entity.CT),
+            CycleNo = FromFSharpOptionStruct(entity.CycleNo),
+            RecordedAt = entity.RecordedAt
+        };
     }
 }

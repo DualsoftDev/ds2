@@ -434,3 +434,76 @@
     font-weight: 700;
     color: var(--color-text-primary);
 }
+
+/* ── History Section in Popup ── */
+.ct-popup-history {
+    margin-top: 12px;
+    border-top: 1px solid var(--color-lines);
+    padding: 12px;
+}
+
+.ct-popup-history-header {
+    display: flex;
+    align-items: center;
+    padding-bottom: 8px;
+    font-size: 13px;
+    color: var(--color-text-primary);
+}
+
+.ct-popup-history-list {
+    max-height: 240px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ct-history-item {
+    padding: 8px;
+    background: var(--color-background);
+    border-radius: 6px;
+    border: 1px solid var(--color-lines);
+}
+
+.ct-history-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 11px;
+}
+
+.ct-history-cycle {
+    font-weight: 700;
+    color: var(--color-primary);
+}
+
+.ct-history-time {
+    color: var(--color-text-secondary);
+}
+
+.ct-history-bar {
+    height: 8px;
+    display: flex;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.ct-history-bar > :first-child { border-radius: 4px 0 0 4px; }
+.ct-history-bar > :last-child  { border-radius: 0 4px 4px 0; }
+.ct-history-bar > :only-child  { border-radius: 4px; }
+
+.ct-history-values {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.ct-popup-history-more {
+    text-align: center;
+    padding-top: 8px;
+    border-top: 1px dashed var(--color-lines);
+    margin-top: 8px;
+}
