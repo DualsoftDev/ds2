@@ -6,8 +6,8 @@ namespace DSPilot.Models;
 public class AppSettingsModel
 {
     public DsPilotSettings DsPilot { get; set; } = new();
+    public DatabaseSettings Database { get; set; } = new();
     public PlcDatabaseSettings PlcDatabase { get; set; } = new();
-    public DspDatabaseSettings DspDatabase { get; set; } = new();
     public PlcConnectionSettings PlcConnection { get; set; } = new();
     public LoggingSettings Logging { get; set; } = new();
     public UiSettings Ui { get; set; } = new();
@@ -31,11 +31,10 @@ public class PlcDatabaseSettings
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
-public class DspDatabaseSettings
+public class DatabaseSettings
 {
-    public string Path { get; set; } = "%APPDATA%/DSPilot/dsp.db";
-    public bool AutoCreate { get; set; } = true;
-    public bool RecreateOnStartup { get; set; }
+    public string Type { get; set; } = "Sqlite";
+    public string ConnectionString { get; set; } = "Data Source=%ProgramData%/DualSoft/DSPilot/plc.db;Version=3;BusyTimeout=20000";
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

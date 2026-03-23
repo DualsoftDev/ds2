@@ -30,8 +30,8 @@ public class AppSettingsService
         return new AppSettingsModel
         {
             DsPilot = Deserialize<DsPilotSettings>(root["DsPilot"]),
+            Database = Deserialize<DatabaseSettings>(root["Database"]),
             PlcDatabase = Deserialize<PlcDatabaseSettings>(root["PlcDatabase"]),
-            DspDatabase = Deserialize<DspDatabaseSettings>(root["DspDatabase"]),
             PlcConnection = Deserialize<PlcConnectionSettings>(root["PlcConnection"]),
             Logging = Deserialize<LoggingSettings>(root["Logging"]),
             Ui = Deserialize<UiSettings>(root["Ui"]),
@@ -43,8 +43,8 @@ public class AppSettingsService
         var root = LoadRaw();
 
         root["DsPilot"] = JsonSerializer.SerializeToNode(model.DsPilot, JsonOptions);
+        root["Database"] = JsonSerializer.SerializeToNode(model.Database, JsonOptions);
         root["PlcDatabase"] = JsonSerializer.SerializeToNode(model.PlcDatabase, JsonOptions);
-        root["DspDatabase"] = JsonSerializer.SerializeToNode(model.DspDatabase, JsonOptions);
         root["PlcConnection"] = JsonSerializer.SerializeToNode(model.PlcConnection, JsonOptions);
         root["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
         root["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
