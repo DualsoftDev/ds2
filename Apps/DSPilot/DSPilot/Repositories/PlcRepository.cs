@@ -34,41 +34,102 @@ public class PlcRepository : IPlcRepository
     /// </summary>
     private IDbConnection CreateConnection() => new SqliteConnection(_connectionString);
 
+    /// <summary>
+    /// 테이블 존재 여부 확인
+    /// </summary>
+    private async Task<bool> TableExistsAsync(IDbConnection connection, string tableName)
+    {
+        const string sql = @"
+            SELECT COUNT(*) FROM sqlite_master
+            WHERE type='table' AND name = @TableName";
+
+        var count = await connection.ExecuteScalarAsync<int>(sql, new { TableName = tableName });
+        return count > 0;
+    }
+
+    /// <summary>
+    /// 필요한 모든 테이블이 존재하는지 확인
+    /// </summary>
+    private async Task<bool> RequiredTablesExistAsync(IDbConnection connection)
+    {
+        return await TableExistsAsync(connection, "plc") &&
+               await TableExistsAsync(connection, "plcTag") &&
+               await TableExistsAsync(connection, "plcTagLog");
+    }
+
     /// <inheritdoc />
     public async Task<List<PlcEntity>> GetAllPlcsAsync()
     {
-        using var connection = CreateConnection();
+        try
+        {
+            using var connection = CreateConnection();
 
-        const string sql = @"
-            SELECT
-                id as Id,
-                projectId as ProjectId,
-                name as Name,
-                connection as Connection
-            FROM plc
-            ORDER BY id";
+            if (!await TableExistsAsync(connection, "plc"))
+            {
+                _logger.LogWarning("Table 'plc' does not exist. Returning empty list.");
+                return new List<PlcEntity>();
+            }
 
-        var plcs = await connection.QueryAsync<PlcEntity>(sql);
-        return plcs.ToList();
+            const string sql = @"
+                SELECT
+                    id as Id,
+                    projectId as ProjectId,
+                    name as Name,
+                    connection as Connection
+                FROM plc
+                ORDER BY id";
+
+            var plcs = await connection.QueryAsync<PlcEntity>(sql);
+            return plcs.ToList();
+        }
+        catch (SqliteException ex)
+        {
+            _logger.LogError(ex, "SQLite error in GetAllPlcsAsync");
+            return new List<PlcEntity>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error in GetAllPlcsAsync");
+            return new List<PlcEntity>();
+        }
     }
 
     /// <inheritdoc />
     public async Task<List<PlcTagEntity>> GetAllTagsAsync()
     {
-        using var connection = CreateConnection();
+        try
+        {
+            using var connection = CreateConnection();
 
-        const string sql = @"
-            SELECT
-                id as Id,
-                plcId as PlcId,
-                name as Name,
-                address as Address,
-                dataType as DataType
-            FROM plcTag
-            ORDER BY plcId, id";
+            if (!await TableExistsAsync(connection, "plcTag"))
+            {
+                _logger.LogWarning("Table 'plcTag' does not exist. Returning empty list.");
+                return new List<PlcTagEntity>();
+            }
 
-        var tags = await connection.QueryAsync<PlcTagEntity>(sql);
-        return tags.ToList();
+            const string sql = @"
+                SELECT
+                    id as Id,
+                    plcId as PlcId,
+                    name as Name,
+                    address as Address,
+                    dataType as DataType
+                FROM plcTag
+                ORDER BY plcId, id";
+
+            var tags = await connection.QueryAsync<PlcTagEntity>(sql);
+            return tags.ToList();
+        }
+        catch (SqliteException ex)
+        {
+            _logger.LogError(ex, "SQLite error in GetAllTagsAsync");
+            return new List<PlcTagEntity>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error in GetAllTagsAsync");
+            return new List<PlcTagEntity>();
+        }
     }
 
     /// <inheritdoc />
@@ -573,41 +634,60 @@ ORDER BY DateTime ASC, Id ASC";
     public async Task<List<PlcTagLogEntity>> GetTagLogsByTimeRangeAsync(
         string tagAddress, DateTime startTime, DateTime endTime)
     {
-        using var connection = CreateConnection();
-
-        var startStr = QueryHelpers.toSqliteUtcString(startTime);
-        var endStr = QueryHelpers.toSqliteUtcString(endTime);
-
-        const string sql = @"
-            SELECT
-                l.id as Id,
-                l.plcTagId as PlcTagId,
-                l.dateTime as DateTime,
-                l.value as Value,
-                t.name as TagName,
-                t.address as Address
-            FROM plcTagLog l
-            INNER JOIN plcTag t ON l.plcTagId = t.id
-            WHERE t.address = @Address
-              AND l.dateTime >= @StartTime
-              AND l.dateTime <= @EndTime
-            ORDER BY l.id ASC";
-
-        var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new
+        try
         {
-            Address = tagAddress,
-            StartTime = startStr,
-            EndTime = endStr
-        });
+            using var connection = CreateConnection();
 
-        return rows.Select(row => new PlcTagLogEntity
+            if (!await RequiredTablesExistAsync(connection))
+            {
+                _logger.LogWarning("Required tables do not exist. Returning empty list.");
+                return new List<PlcTagLogEntity>();
+            }
+
+            var startStr = QueryHelpers.toSqliteUtcString(startTime);
+            var endStr = QueryHelpers.toSqliteUtcString(endTime);
+
+            const string sql = @"
+                SELECT
+                    l.id as Id,
+                    l.plcTagId as PlcTagId,
+                    l.dateTime as DateTime,
+                    l.value as Value,
+                    t.name as TagName,
+                    t.address as Address
+                FROM plcTagLog l
+                INNER JOIN plcTag t ON l.plcTagId = t.id
+                WHERE t.address = @Address
+                  AND l.dateTime >= @StartTime
+                  AND l.dateTime <= @EndTime
+                ORDER BY l.id ASC";
+
+            var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new
+            {
+                Address = tagAddress,
+                StartTime = startStr,
+                EndTime = endStr
+            });
+
+            return rows.Select(row => new PlcTagLogEntity
+            {
+                Id = row.Id,
+                PlcTagId = row.PlcTagId,
+                DateTime = ParseSqliteDateTime(row.DateTime),
+                Value = row.Value,
+                TagName = row.TagName,
+                Address = row.Address
+            }).ToList();
+        }
+        catch (SqliteException ex)
         {
-            Id = row.Id,
-            PlcTagId = row.PlcTagId,
-            DateTime = ParseSqliteDateTime(row.DateTime),
-            Value = row.Value,
-            TagName = row.TagName,
-            Address = row.Address
-        }).ToList();
+            _logger.LogError(ex, "SQLite error in GetTagLogsByTimeRangeAsync for address {Address}", tagAddress);
+            return new List<PlcTagLogEntity>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error in GetTagLogsByTimeRangeAsync for address {Address}", tagAddress);
+            return new List<PlcTagLogEntity>();
+        }
     }
 }
