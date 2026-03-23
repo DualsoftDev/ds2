@@ -46,9 +46,9 @@
             <button class="btn btn-filled" @onclick="LoadDataAsync">
                 <span class="material-icons" style="font-size:18px;">refresh</span> 새로고침
             </button>
-            <button class="btn btn-outlined" @onclick="ToggleAllGroups">
+            <button class="btn btn-outlined" @onclick="ToggleFlowGroupMatrix">
                 <span class="material-icons" style="font-size:18px;">@(AllExpanded ? "unfold_less" : "unfold_more")</span>
-                @(AllExpanded ? "모두 접기" : "모두 펼치기")
+                @(AllExpanded ? "Flow Group Matrix 접기" : "Flow Group Matrix 펼치기")
             </button>
         </div>
     </div>
@@ -451,13 +451,9 @@
         }
     }
 
-    private void ToggleAllGroups()
+    private void ToggleFlowGroupMatrix()
     {
         AllExpanded = !AllExpanded;
-        foreach (var group in AllGroups)
-        {
-            group.IsExpanded = AllExpanded;
-        }
     }
 
     private void SelectCall(CallHeatmapItem call)

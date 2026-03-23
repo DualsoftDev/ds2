@@ -1,4 +1,5 @@
 using DSPilot.Models.Analysis;
+using DSPilot.Models.Plc;
 using DSPilot.Repositories;
 using Ds2.Core;
 using Ds2.UI.Core;
@@ -506,6 +507,179 @@ public class CycleAnalysisService
         };
     }
 
+    /// <summary>
+    /// 시간 범위 기준 실제 PLC 태그 상태를 읽어 In/Out의 ON~OFF 구간을 Gantt segment로 변환한다.
+    /// cycle-time-analysis 페이지 전용 실제 IO 타임라인.
+    /// </summary>
+    public async Task<GanttChartData> GetActualIoSignalSegmentsInTimeRangeAsync(
+        string flowName,
+        DateTime startTime,
+        DateTime endTime)
+    {
+        var flow = GetFlowByName(flowName);
+        if (flow == null)
+        {
+            _logger.LogWarning("Flow '{FlowName}' not found", flowName);
+            return new GanttChartData { FlowName = flowName };
+        }
+
+        var laneDefinitions = BuildSignalLaneDefinitions(flow);
+        if (laneDefinitions.Count == 0)
+        {
+            _logger.LogWarning("No IO signal mapping found for Flow '{FlowName}'", flowName);
+            return new GanttChartData { FlowName = flowName, StartTime = startTime, EndTime = endTime };
+        }
+
+        var addresses = laneDefinitions
+            .Select(def => def.Address)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var addressSet = new HashSet<string>(addresses, StringComparer.OrdinalIgnoreCase);
+
+        var allTags = await _plcRepository.GetAllTagsAsync();
+        var tagById = allTags
+            .Where(tag => addressSet.Contains(tag.Address))
+            .ToDictionary(tag => tag.Id, tag => tag);
+        var tagNameByAddress = allTags
+            .Where(tag => addressSet.Contains(tag.Address))
+            .GroupBy(tag => tag.Address, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.First().Name,
+                StringComparer.OrdinalIgnoreCase);
+
+        var latestBeforeLogs = await _plcRepository.GetLatestLogsByAddressesBeforeAsync(addresses, startTime);
+        var initialStateByAddress = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var log in latestBeforeLogs.OrderBy(log => log.DateTime).ThenBy(log => log.Id))
+        {
+            if (tagById.TryGetValue(log.PlcTagId, out var tag))
+            {
+                initialStateByAddress[tag.Address] = NormalizePlcBoolValue(log.Value);
+            }
+        }
+
+        var logs = await _plcRepository.GetMultipleTagLogsInRangeAsync(addresses, startTime, endTime);
+        var logsByAddress = logs
+            .Where(log => !string.IsNullOrWhiteSpace(log.PlcTag?.Address) || !string.IsNullOrWhiteSpace(log.Address))
+            .GroupBy(
+                log => log.PlcTag?.Address ?? log.Address,
+                StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(log => log.DateTime).ThenBy(log => log.Id).ToList(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var items = new List<GanttChartItem>();
+
+        foreach (var lane in laneDefinitions)
+        {
+            logsByAddress.TryGetValue(lane.Address, out var signalLogs);
+            signalLogs ??= new List<PlcTagLogEntity>();
+
+            var currentState = initialStateByAddress.TryGetValue(lane.Address, out var initialState) && initialState;
+            DateTime? segmentStart = currentState ? startTime : null;
+            var resolvedTagName = tagNameByAddress.GetValueOrDefault(lane.Address, lane.Address);
+
+            foreach (var log in signalLogs)
+            {
+                if (!string.IsNullOrWhiteSpace(log.PlcTag?.Name))
+                {
+                    resolvedTagName = log.PlcTag.Name;
+                }
+                else if (!string.IsNullOrWhiteSpace(log.TagName))
+                {
+                    resolvedTagName = log.TagName;
+                }
+
+                var newState = NormalizePlcBoolValue(log.Value);
+                if (newState == currentState)
+                {
+                    continue;
+                }
+
+                if (newState)
+                {
+                    currentState = true;
+                    segmentStart = log.DateTime < startTime ? startTime : log.DateTime;
+                    continue;
+                }
+
+                if (currentState && segmentStart.HasValue)
+                {
+                    var segmentEnd = log.DateTime > endTime ? endTime : log.DateTime;
+                    if (segmentEnd > segmentStart.Value)
+                    {
+                        items.Add(BuildSignalSegmentItem(
+                            lane,
+                            flowName,
+                            resolvedTagName,
+                            segmentStart.Value,
+                            segmentEnd,
+                            startTime));
+                    }
+                }
+
+                currentState = false;
+                segmentStart = null;
+            }
+
+            if (currentState && segmentStart.HasValue && endTime > segmentStart.Value)
+            {
+                items.Add(BuildSignalSegmentItem(
+                    lane,
+                    flowName,
+                    resolvedTagName,
+                    segmentStart.Value,
+                    endTime,
+                    startTime));
+            }
+        }
+
+        var totalEventCount = items.Count;
+        var renderedItems = totalEventCount > MaxRenderedGanttItems
+            ? items
+                .OrderByDescending(item => item.GoingStartTime)
+                .Take(MaxRenderedGanttItems)
+                .OrderBy(item => item.GoingStartTime)
+                .ToList()
+            : items
+                .OrderBy(item => item.GoingStartTime)
+                .ToList();
+
+        var actualEventStartTime = renderedItems.Count > 0
+            ? renderedItems.Min(item => item.GoingStartTime)
+            : (DateTime?)null;
+        var actualEventEndTime = renderedItems.Count > 0
+            ? renderedItems.Max(item => item.FinishTime ?? item.GoingStartTime)
+            : (DateTime?)null;
+
+        return new GanttChartData
+        {
+            CycleId = "ActualIoSignals",
+            FlowName = flowName,
+            CycleNumber = 0,
+            StartTime = startTime,
+            EndTime = endTime,
+            ActualEventStartTime = actualEventStartTime,
+            ActualEventEndTime = actualEventEndTime,
+            CT = (int)(endTime - startTime).TotalMilliseconds,
+            TotalLanes = laneDefinitions
+                .Select(def => def.Lane)
+                .Distinct()
+                .Count(),
+            LaneLabels = laneDefinitions
+                .OrderBy(def => def.Lane)
+                .GroupBy(def => def.Lane)
+                .Select(group => group.First().Label)
+                .ToList(),
+            Items = renderedItems,
+            TotalEventCount = totalEventCount,
+            RenderedEventCount = renderedItems.Count,
+            IsTruncated = totalEventCount > renderedItems.Count
+        };
+    }
+
     private List<LaneDefinition> BuildLaneDefinitions(Flow flow)
     {
         var laneDefinitions = new List<LaneDefinition>();
@@ -527,6 +701,58 @@ public class CycleAnalysisService
                         BuildLaneKey(call.Id),
                         call.Name));
                 }
+            }
+        }
+
+        return laneDefinitions;
+    }
+
+    private List<SignalLaneDefinition> BuildSignalLaneDefinitions(Flow flow)
+    {
+        var laneDefinitions = new List<SignalLaneDefinition>();
+        var works = _projectService.GetWorks(flow.Id);
+        var laneIndex = 0;
+
+        foreach (var work in works)
+        {
+            var calls = _projectService.GetCalls(work.Id);
+            foreach (var call in calls)
+            {
+                var tags = _mapperService.GetCallTagsByCallId(call.Id);
+                if (!tags.HasValue)
+                    continue;
+
+                if (string.IsNullOrWhiteSpace(tags.Value.InTag) &&
+                    string.IsNullOrWhiteSpace(tags.Value.OutTag))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(tags.Value.InTag))
+                {
+                    laneDefinitions.Add(new SignalLaneDefinition(
+                        tags.Value.InTag,
+                        call.Id,
+                        call.Name,
+                        work.Name,
+                        IOEventType.InTag,
+                        call.Name,
+                        laneIndex));
+                }
+
+                if (!string.IsNullOrWhiteSpace(tags.Value.OutTag))
+                {
+                    laneDefinitions.Add(new SignalLaneDefinition(
+                        tags.Value.OutTag,
+                        call.Id,
+                        call.Name,
+                        work.Name,
+                        IOEventType.OutTag,
+                        call.Name,
+                        laneIndex));
+                }
+
+                laneIndex++;
             }
         }
 
@@ -562,6 +788,52 @@ public class CycleAnalysisService
     }
 
     private static string BuildLaneKey(Guid callId) => callId.ToString("N");
+
+    private static GanttChartItem BuildSignalSegmentItem(
+        SignalLaneDefinition lane,
+        string flowName,
+        string tagName,
+        DateTime segmentStart,
+        DateTime segmentEnd,
+        DateTime chartStartTime)
+    {
+        var relativeStart = Math.Max(0, (int)(segmentStart - chartStartTime).TotalMilliseconds);
+        var relativeEnd = Math.Max(relativeStart, (int)(segmentEnd - chartStartTime).TotalMilliseconds);
+        var duration = Math.Max(0, relativeEnd - relativeStart);
+
+        return new GanttChartItem
+        {
+            CallId = lane.CallId,
+            CallName = lane.CallName,
+            WorkName = lane.WorkName,
+            FlowName = flowName,
+            TagName = string.IsNullOrWhiteSpace(tagName) ? lane.Address : tagName,
+            TagAddress = lane.Address,
+            RelativeStart = relativeStart,
+            RelativeEnd = relativeEnd,
+            Duration = duration,
+            Lane = lane.Lane,
+            GoingStartTime = segmentStart,
+            FinishTime = segmentEnd,
+            EventType = lane.EventType
+        };
+    }
+
+    private static bool NormalizePlcBoolValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "1" => true,
+            "true" => true,
+            "on" => true,
+            _ => false
+        };
+    }
 
     #endregion
 
@@ -890,3 +1162,11 @@ public class GanttChartItem
 }
 
 internal sealed record LaneDefinition(string LaneKey, string Label);
+internal sealed record SignalLaneDefinition(
+    string Address,
+    Guid CallId,
+    string CallName,
+    string WorkName,
+    IOEventType EventType,
+    string Label,
+    int Lane);
