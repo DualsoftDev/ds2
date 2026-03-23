@@ -186,27 +186,32 @@ end;
 
 // Write port to appsettings.Production.json after files are installed
 // ASP.NET Core automatically loads this and overrides appsettings.json
+// 업그레이드 시 기존 Production.json이 있으면 사용자 설정 보존 (신규 설치만 생성)
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Port: String;
   UrlsValue: String;
+  ProdJsonPath: String;
 begin
   if CurStep = ssPostInstall then
   begin
     Port := GetPort('');
     UrlsValue := 'http://*:' + Port;
-    SaveStringToFile(ExpandConstant('{app}\appsettings.Production.json'),
-      '{' + #13#10 +
-      '  "Urls": "' + UrlsValue + '",' + #13#10 +
-      '  "Database": {' + #13#10 +
-      '    "ConnectionString": "Data Source=%ProgramData%/DualSoft/DSPilot/plc.db;Version=3;BusyTimeout=20000"' + #13#10 +
-      '  }' + #13#10 +
-      '}' + #13#10, False);
+    ProdJsonPath := ExpandConstant('{app}\appsettings.Production.json');
+    if not FileExists(ProdJsonPath) then
+      SaveStringToFile(ProdJsonPath,
+        '{' + #13#10 +
+        '  "Urls": "' + UrlsValue + '",' + #13#10 +
+        '  "Database": {' + #13#10 +
+        '    "ConnectionString": "Data Source=%ProgramData%/DualSoft/DSPilot/plc.db;Version=3;BusyTimeout=20000"' + #13#10 +
+        '  }' + #13#10 +
+        '}' + #13#10, False);
     // Tray 앱에도 동일한 설정 파일 복사 (포트 정보 공유)
-    SaveStringToFile(ExpandConstant('{app}\Tray\appsettings.Production.json'),
-      '{' + #13#10 +
-      '  "Urls": "' + UrlsValue + '"' + #13#10 +
-      '}' + #13#10, False);
+    if not FileExists(ExpandConstant('{app}\Tray\appsettings.Production.json')) then
+      SaveStringToFile(ExpandConstant('{app}\Tray\appsettings.Production.json'),
+        '{' + #13#10 +
+        '  "Urls": "' + UrlsValue + '"' + #13#10 +
+        '}' + #13#10, False);
 
     // 바탕화면에 .url 바로가기 생성 (아이콘 포함)
     SaveStringToFile(ExpandConstant('{autodesktop}\{#MyAppName}.url'),

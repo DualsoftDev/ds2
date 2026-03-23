@@ -30,12 +30,15 @@ public class AppSettingsService
     {
         var root = LoadRaw(_filePath);
 
-        // Production.json이 있으면 Database 섹션을 오버라이드
+        // Production.json이 있으면 각 섹션을 오버라이드 (ASP.NET Core 설정 병합과 동일 방식)
         if (File.Exists(_productionFilePath))
         {
             var prod = LoadRaw(_productionFilePath);
-            if (prod["Database"] is not null)
-                root["Database"] = prod["Database"]!.DeepClone();
+            foreach (var key in new[] { "DsPilot", "Database", "PlcDatabase", "PlcCapture", "Logging", "Ui" })
+            {
+                if (prod[key] is not null)
+                    root[key] = prod[key]!.DeepClone();
+            }
         }
 
         return new AppSettingsModel
@@ -62,14 +65,16 @@ public class AppSettingsService
 
         SaveRaw(_filePath, root);
 
-        // Production.json이 있으면 Database 섹션도 동기화
-        if (File.Exists(_productionFilePath))
-        {
-            var prod = LoadRaw(_productionFilePath);
-            prod["Database"] = JsonSerializer.SerializeToNode(model.Database, JsonOptions);
-            SaveRaw(_productionFilePath, prod);
-            _logger.LogInformation("appsettings.Production.json Database 섹션 동기화 완료");
-        }
+        // Production.json에 사용자 설정 전체 동기화 (재설치 시 appsettings.json이 덮어씌워져도 유지)
+        var prod = File.Exists(_productionFilePath) ? LoadRaw(_productionFilePath) : new JsonObject();
+        prod["DsPilot"] = JsonSerializer.SerializeToNode(model.DsPilot, JsonOptions);
+        prod["Database"] = JsonSerializer.SerializeToNode(model.Database, JsonOptions);
+        prod["PlcDatabase"] = JsonSerializer.SerializeToNode(model.PlcDatabase, JsonOptions);
+        prod["PlcCapture"] = JsonSerializer.SerializeToNode(model.PlcCapture, JsonOptions);
+        prod["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
+        prod["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
+        SaveRaw(_productionFilePath, prod);
+        _logger.LogInformation("appsettings.Production.json 전체 설정 동기화 완료");
     }
 
     public async Task<string> UploadAasxFileAsync(IBrowserFile file)
