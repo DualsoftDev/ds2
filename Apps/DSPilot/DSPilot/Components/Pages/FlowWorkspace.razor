@@ -64,7 +64,6 @@ else
                 {
                     <span class="chip flow-workspace-info-chip">End: @_flowRuntime!.MovingEndName</span>
                 }
-                <span class="chip flow-workspace-info-chip">Mapped Tags @_mappedTagCount</span>
             </div>
         </div>
     </section>
@@ -131,10 +130,6 @@ else
                     <span class="flow-workspace-summary-label">Completion</span>
                     <strong>@($"{_completionRate * 100:F0}%")</strong>
                 </div>
-                <div class="flow-workspace-summary-item">
-                    <span class="flow-workspace-summary-label">Tag Coverage</span>
-                    <strong>@($"{_tagCoverageRate * 100:F0}%")</strong>
-                </div>
             </div>
         </article>
 
@@ -163,73 +158,6 @@ else
         </article>
     </section>
 
-    <section class="flow-workspace-secondary-grid">
-        <article class="card flow-workspace-panel">
-            <div class="flow-workspace-panel-header">
-                <div>
-                    <h6 class="typo-h6">우선 확인 Call</h6>
-                    <div class="typo-caption flow-workspace-muted">오류, 진행중, 평균시간 기준으로 먼저 봐야 할 Call</div>
-                </div>
-            </div>
-            <div class="flow-workspace-focus-list">
-                @if (_focusCalls.Count == 0)
-                {
-                    <div class="typo-body2 flow-workspace-muted">표시할 Call이 없습니다.</div>
-                }
-                else
-                {
-                    @foreach (var row in _focusCalls)
-                    {
-                        <div class="flow-workspace-focus-item">
-                            <div>
-                                <div class="flow-workspace-focus-name">@row.CallName</div>
-                                <div class="flow-workspace-focus-sub">@row.WorkName</div>
-                            </div>
-                            <div class="flow-workspace-focus-right">
-                                <span class="chip" style="@GetStateChipStyle(row.State)">@GetFlowStateLabel(row.State)</span>
-                                <span class="flow-workspace-focus-time">@FormatDurationMs(row.AverageGoingTime)</span>
-                            </div>
-                        </div>
-                    }
-                }
-            </div>
-        </article>
-
-        <article class="card flow-workspace-panel">
-            <div class="flow-workspace-panel-header">
-                <div>
-                    <h6 class="typo-h6">매핑 커버리지</h6>
-                    <div class="typo-caption flow-workspace-muted">태그 연결과 장치 정보 누락 여부를 한 번에 점검</div>
-                </div>
-            </div>
-            <div class="flow-workspace-summary-grid">
-                <div class="flow-workspace-summary-item">
-                    <span class="flow-workspace-summary-label">Mapped Tags</span>
-                    <strong>@_mappedTagCount</strong>
-                </div>
-                <div class="flow-workspace-summary-item">
-                    <span class="flow-workspace-summary-label">Missing InTag</span>
-                    <strong>@_missingInTagCount</strong>
-                </div>
-                <div class="flow-workspace-summary-item">
-                    <span class="flow-workspace-summary-label">Missing OutTag</span>
-                    <strong>@_missingOutTagCount</strong>
-                </div>
-                <div class="flow-workspace-summary-item">
-                    <span class="flow-workspace-summary-label">Device Linked</span>
-                    <strong>@_deviceLinkedCount</strong>
-                </div>
-                <div class="flow-workspace-summary-item">
-                    <span class="flow-workspace-summary-label">Calls With Error Text</span>
-                    <strong>@_callsWithErrorTextCount</strong>
-                </div>
-                <div class="flow-workspace-summary-item">
-                    <span class="flow-workspace-summary-label">System</span>
-                    <strong>@SelectedSystemName</strong>
-                </div>
-            </div>
-        </article>
-    </section>
 
     <section class="card flow-workspace-panel">
         <div class="flow-workspace-panel-header">
@@ -604,17 +532,11 @@ else
     private int _errorCallCount;
     private int _finishedCallCount;
     private int _readyCallCount;
-    private int _mappedTagCount;
     private double? _averageCallTimeMs;
-    private int _missingInTagCount;
-    private int _missingOutTagCount;
-    private int _deviceLinkedCount;
-    private int _callsWithErrorTextCount;
     private double _completionRate;
-    private double _tagCoverageRate;
     private List<WorkSummaryRow> _workSummaries = [];
-    private List<CallInventoryRow> _focusCalls = [];
     private bool _disposed;
+    private string _workspaceSignature = string.Empty;
 
     private Flow? SelectedFlow => string.IsNullOrWhiteSpace(_selectedFlowName)
         ? null
@@ -633,9 +555,8 @@ else
 
     protected override void OnInitialized()
     {
-        _dbSnapshot = DbService.Snapshot;
         DbService.OnDataChanged += OnDbDataChanged;
-        RefreshWorkspace();
+        ApplySnapshot(DbService.Snapshot, true);
     }
 
     protected override void OnParametersSet()
@@ -644,6 +565,7 @@ else
             ? ProjectService.GetAllFlows().Select(flow => flow.Name).Distinct().OrderBy(name => name).ToList()
             : [];
 
+        var previousSelectedFlow = _selectedFlowName;
         var requestedFlow = string.IsNullOrWhiteSpace(QueryFlowName) ? null : QueryFlowName.Trim();
         if (!string.IsNullOrWhiteSpace(requestedFlow) &&
             availableFlows.Contains(requestedFlow, StringComparer.OrdinalIgnoreCase))
@@ -656,13 +578,27 @@ else
             _selectedFlowName = availableFlows.FirstOrDefault();
         }
 
-        RebuildWorkspace();
+        var flowChanged = !string.Equals(previousSelectedFlow, _selectedFlowName, StringComparison.OrdinalIgnoreCase);
+        ApplySnapshot(DbService.Snapshot, flowChanged || string.IsNullOrEmpty(_workspaceSignature));
     }
 
     private void RefreshWorkspace()
     {
-        _dbSnapshot = DbService.Snapshot;
+        ApplySnapshot(DbService.Snapshot, true);
+    }
+
+    private bool ApplySnapshot(DspDbSnapshot snapshot, bool forceRender = false)
+    {
+        var nextSignature = BuildWorkspaceSignature(snapshot);
+        if (!forceRender && nextSignature == _workspaceSignature)
+        {
+            return false;
+        }
+
+        _dbSnapshot = snapshot;
         RebuildWorkspace();
+        _workspaceSignature = nextSignature;
+        return true;
     }
 
     private void RebuildWorkspace()
@@ -674,16 +610,9 @@ else
         _errorCallCount = 0;
         _finishedCallCount = 0;
         _readyCallCount = 0;
-        _mappedTagCount = 0;
         _averageCallTimeMs = null;
-        _missingInTagCount = 0;
-        _missingOutTagCount = 0;
-        _deviceLinkedCount = 0;
-        _callsWithErrorTextCount = 0;
         _completionRate = 0.0;
-        _tagCoverageRate = 0.0;
         _workSummaries = [];
-        _focusCalls = [];
 
         var flow = SelectedFlow;
         if (flow is null)
@@ -725,21 +654,11 @@ else
                 }))
             .ToList();
 
-        _mappedTagCount = _callRows.Sum(row =>
-            (string.IsNullOrWhiteSpace(row.InTag) ? 0 : 1) +
-            (string.IsNullOrWhiteSpace(row.OutTag) ? 0 : 1));
-        _missingInTagCount = _callRows.Count(row => string.IsNullOrWhiteSpace(row.InTag));
-        _missingOutTagCount = _callRows.Count(row => string.IsNullOrWhiteSpace(row.OutTag));
-        _deviceLinkedCount = _callRows.Count(row => !string.IsNullOrWhiteSpace(row.Device));
-        _callsWithErrorTextCount = _callRows.Count(row => !string.IsNullOrWhiteSpace(row.ErrorText));
-
         _activeCallCount = _callRows.Count(row => string.Equals(row.State, "Going", StringComparison.OrdinalIgnoreCase));
         _errorCallCount = _callRows.Count(row => string.Equals(row.State, "Error", StringComparison.OrdinalIgnoreCase));
         _finishedCallCount = _callRows.Count(row => string.Equals(row.State, "Finish", StringComparison.OrdinalIgnoreCase));
         _readyCallCount = _callRows.Count(row => string.Equals(row.State, "Ready", StringComparison.OrdinalIgnoreCase));
         _completionRate = _callRows.Count > 0 ? (double)_finishedCallCount / _callRows.Count : 0.0;
-        var maxTagSlots = _callRows.Count * 2;
-        _tagCoverageRate = maxTagSlots > 0 ? (double)_mappedTagCount / maxTagSlots : 0.0;
 
         var avgSamples = _callRows
             .Where(row => row.AverageGoingTime is > 0)
@@ -761,14 +680,6 @@ else
                     averages.Count > 0 ? averages.Average() : null);
             })
             .OrderBy(row => row.WorkName)
-            .ToList();
-
-        _focusCalls = _callRows
-            .OrderByDescending(row => string.Equals(row.State, "Error", StringComparison.OrdinalIgnoreCase))
-            .ThenByDescending(row => string.Equals(row.State, "Going", StringComparison.OrdinalIgnoreCase))
-            .ThenByDescending(row => row.AverageGoingTime ?? 0.0)
-            .ThenByDescending(row => row.GoingCount)
-            .Take(6)
             .ToList();
     }
 
@@ -801,12 +712,84 @@ else
                (row.OutTag?.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ?? false);
     }
 
-    private async void OnDbDataChanged()
+    private void OnDbDataChanged()
     {
-        if (_disposed) return;
-        _dbSnapshot = DbService.Snapshot;
-        RebuildWorkspace();
-        try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
+        if (_disposed)
+        {
+            return;
+        }
+
+        var snapshot = DbService.Snapshot;
+
+        _ = InvokeAsync(() =>
+        {
+            if (_disposed)
+            {
+                return Task.CompletedTask;
+            }
+
+            if (ApplySnapshot(snapshot))
+            {
+                StateHasChanged();
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
+    private string BuildWorkspaceSignature(DspDbSnapshot snapshot)
+    {
+        if (!ProjectService.IsLoaded)
+        {
+            return "project:not-loaded";
+        }
+
+        if (string.IsNullOrWhiteSpace(_selectedFlowName))
+        {
+            return "flow:none";
+        }
+
+        var flow = ProjectService.GetFlowByName(_selectedFlowName);
+        if (flow is null)
+        {
+            return $"flow:missing:{_selectedFlowName}";
+        }
+
+        var parts = new List<string>(64)
+        {
+            flow.Name
+        };
+
+        var runtimeFlow = snapshot.Flows.FirstOrDefault(item => item.FlowName == flow.Name);
+        parts.Add(runtimeFlow?.State ?? string.Empty);
+        parts.Add(runtimeFlow?.CT?.ToString() ?? string.Empty);
+        parts.Add(runtimeFlow?.MT?.ToString() ?? string.Empty);
+        parts.Add(runtimeFlow?.WT?.ToString() ?? string.Empty);
+        parts.Add(runtimeFlow?.MovingStartName ?? string.Empty);
+        parts.Add(runtimeFlow?.MovingEndName ?? string.Empty);
+
+        var runtimeCalls = snapshot.CallsByFlow.TryGetValue(flow.Name, out var callsByFlow)
+            ? callsByFlow
+            : [];
+        var runtimeByCallId = runtimeCalls
+            .DistinctBy(call => call.CallId)
+            .ToDictionary(call => call.CallId, call => call);
+
+        foreach (var work in ProjectService.GetWorks(flow.Id).OrderBy(work => work.Name))
+        {
+            foreach (var call in ProjectService.GetCalls(work.Id).OrderBy(call => call.Name))
+            {
+                runtimeByCallId.TryGetValue(call.Id, out var runtimeCall);
+                parts.Add(call.Id.ToString("N"));
+                parts.Add(runtimeCall?.State ?? "Ready");
+                parts.Add((runtimeCall?.GoingCount ?? 0).ToString());
+                parts.Add(runtimeCall?.AverageGoingTime?.ToString("F3") ?? string.Empty);
+                parts.Add(runtimeCall?.Device ?? string.Empty);
+                parts.Add(runtimeCall?.ErrorText ?? string.Empty);
+            }
+        }
+
+        return string.Join('|', parts);
     }
 
     private static string GetFlowStateLabel(string? state)
