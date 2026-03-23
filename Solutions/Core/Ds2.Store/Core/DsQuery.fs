@@ -236,3 +236,13 @@ module DsQuery =
         conditions |> Seq.tryPick (fun cc ->
             if cc.Id = condId then Some cc
             else tryFindConditionRec cc.Children condId)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TokenSpec 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>첫 번째 Project의 TokenSpec 목록 조회</summary>
+    let getTokenSpecs (store: DsStore) : TokenSpec list =
+        match allProjects store |> List.tryHead with
+        | Some project -> project.TokenSpecs |> Seq.toList
+        | None -> []

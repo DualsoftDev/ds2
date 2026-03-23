@@ -118,7 +118,7 @@ public partial class PropertyPanelState : ObservableObject
             _suppressTokenRoleSync = false;
 
             // 연결된 TokenSpec 표시
-            var linkedSpec = Store.GetTokenSpecs()
+            var linkedSpec = DsQuery.getTokenSpecs(Store)
                 .FirstOrDefault(s => s.WorkId is { } wid && wid.Value == selected.Id);
             HasLinkedTokenSpec = linkedSpec is not null;
             LinkedTokenSpecLabel = linkedSpec is not null ? $"#{linkedSpec.Id} {linkedSpec.Label}" : "";

@@ -289,7 +289,7 @@ type EventDrivenEngine(index: SimIndex) =
         | None ->
             // TokenSpec Label 우선, 없으면 Work 이름 fallback
             let originLabel =
-                index.Store.GetTokenSpecs()
+                DsQuery.getTokenSpecs index.Store
                 |> List.tryFind (fun spec -> spec.WorkId = Some sourceWorkGuid)
                 |> Option.map (fun spec -> spec.Label)
                 |> Option.defaultWith (fun () -> workNameOf sourceWorkGuid)
