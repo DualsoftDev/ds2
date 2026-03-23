@@ -63,6 +63,12 @@ Filename: "{sys}\sc.exe"; \
   Flags: runhidden waituntilterminated; \
   StatusMsg: "서비스 복구 옵션 설정 중..."
 
+; Add Windows Firewall rule for external access
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall add rule name=""DSPilot Web Service"" dir=in action=allow protocol=tcp localport={code:GetPort}"; \
+  Flags: runhidden waituntilterminated; \
+  StatusMsg: "방화벽 규칙 추가 중..."
+
 ; Start the service
 Filename: "{sys}\sc.exe"; \
   Parameters: "start {#MyServiceName}"; \
@@ -92,6 +98,12 @@ Filename: "{sys}\sc.exe"; \
   Parameters: "delete {#MyServiceName}"; \
   Flags: runhidden waituntilterminated; \
   RunOnceId: "DeleteService"
+
+; Remove firewall rule
+Filename: "{sys}\netsh.exe"; \
+  Parameters: "advfirewall firewall delete rule name=""DSPilot Web Service"""; \
+  Flags: runhidden waituntilterminated; \
+  RunOnceId: "DeleteFirewall"
 
 [Code]
 var
@@ -175,6 +187,8 @@ begin
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('stop {#MyServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(3000);
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // Remove old firewall rule (re-created with new port after install)
+  Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="DSPilot Web Service"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(1000);
   Result := '';
 end;
