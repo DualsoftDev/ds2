@@ -2,7 +2,8 @@
 ; Self-contained installer with Windows Service registration
 
 #define MyAppName "DSPilot"
-#define MyAppVersion "1.0.0"
+#define MyAppExePath "..\publish\" + MyAppName + ".exe"
+#define MyAppVersion GetVersionNumbersString(MyAppExePath)
 #define MyAppPublisher "DualSoft"
 #define MyAppURL "https://dualsoft.co.kr"
 #define MyAppExeName "DSPilot.exe"
@@ -10,6 +11,7 @@
 #define MyServiceDisplayName "DSPilot Service"
 #define MyServiceDescription "DSPilot - PLC Monitoring & Analysis Service"
 #define MyDefaultPort "80"
+#define MyTrayExeName "DSPilot.Tray.exe"
 
 [Setup]
 AppId={{E8A3F2B1-7C4D-4E5F-9A1B-3D6E8F0C2A4B}
@@ -35,6 +37,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Files]
 ; Publish output (self-contained, all dependencies included)
 Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Tray application (self-contained)
+Source: "..\publish-tray\*"; DestDir: "{app}\Tray"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Icon file for shortcuts
+Source: "..\DSPilot\DSPilot.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; AASX data file (placed in parent directory: ../DsCSV_0318_C.aasx)
 Source: "..\DsCSV_0318_C.aasx"; DestDir: "{app}\.."; Flags: ignoreversion
 
@@ -43,6 +49,9 @@ Name: "{group}\{#MyAppName}"; Filename: "{code:GetAppURL}"
 Name: "{group}\{#MyAppName} 서비스 시작"; Filename: "{sys}\sc.exe"; Parameters: "start {#MyServiceName}"
 Name: "{group}\{#MyAppName} 서비스 중지"; Filename: "{sys}\sc.exe"; Parameters: "stop {#MyServiceName}"
 Name: "{group}\{#MyAppName} 제거"; Filename: "{uninstallexe}"
+; 바탕화면 바로가기는 [Code] 섹션에서 .url 파일로 직접 생성 (아이콘 포함)
+; 시작 프로그램에 트레이 아이콘 등록
+Name: "{userstartup}\{#MyAppName} Tray"; Filename: "{app}\Tray\{#MyTrayExeName}"
 
 [Run]
 ; Install and configure the Windows Service (no --urls, port is in appsettings.json)
@@ -75,12 +84,26 @@ Filename: "{sys}\sc.exe"; \
   Flags: runhidden waituntilterminated; \
   StatusMsg: "서비스 시작 중..."
 
+; Launch tray icon after install
+Filename: "{app}\Tray\{#MyTrayExeName}"; \
+  Description: "DSPilot 트레이 아이콘 실행"; \
+  Flags: postinstall nowait skipifsilent runascurrentuser
+
 ; Open browser after install (optional)
 Filename: "{code:GetAppURL}"; \
   Description: "DSPilot 웹 대시보드 열기"; \
   Flags: postinstall shellexec nowait skipifsilent unchecked
 
+[UninstallDelete]
+Type: files; Name: "{autodesktop}\{#MyAppName}.url"
+
 [UninstallRun]
+; Kill tray app before uninstall
+Filename: "{cmd}"; \
+  Parameters: "/c taskkill /F /IM {#MyTrayExeName} >nul 2>&1"; \
+  Flags: runhidden waituntilterminated; \
+  RunOnceId: "KillTray"
+
 ; Stop the service before uninstall
 Filename: "{sys}\sc.exe"; \
   Parameters: "stop {#MyServiceName}"; \
@@ -176,6 +199,18 @@ begin
       '{' + #13#10 +
       '  "Urls": "' + UrlsValue + '"' + #13#10 +
       '}' + #13#10, False);
+    // Tray 앱에도 동일한 설정 파일 복사 (포트 정보 공유)
+    SaveStringToFile(ExpandConstant('{app}\Tray\appsettings.Production.json'),
+      '{' + #13#10 +
+      '  "Urls": "' + UrlsValue + '"' + #13#10 +
+      '}' + #13#10, False);
+
+    // 바탕화면에 .url 바로가기 생성 (아이콘 포함)
+    SaveStringToFile(ExpandConstant('{autodesktop}\{#MyAppName}.url'),
+      '[InternetShortcut]' + #13#10 +
+      'URL=' + GetAppURL('') + #13#10 +
+      'IconFile=' + ExpandConstant('{app}\DSPilot.ico') + #13#10 +
+      'IconIndex=0' + #13#10, False);
   end;
 end;
 
@@ -184,6 +219,8 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
 begin
+  // 업그레이드 시 트레이 앱 종료
+  Exec(ExpandConstant('{cmd}'), '/c taskkill /F /IM {#MyTrayExeName} >nul 2>&1', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('stop {#MyServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(3000);
   Exec(ExpandConstant('{sys}\sc.exe'), ExpandConstant('delete {#MyServiceName}'), '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

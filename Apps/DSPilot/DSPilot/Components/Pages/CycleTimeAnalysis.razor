@@ -623,9 +623,10 @@
 
         // Background
         builder.OpenElement(5, "rect");
-        builder.AddAttribute(6, "width", "100%");
-        builder.AddAttribute(7, "height", "100%");
-        builder.AddAttribute(8, "fill", "#fafafa");
+        builder.AddAttribute(6, "class", "gantt-bg");
+        builder.AddAttribute(7, "width", "100%");
+        builder.AddAttribute(8, "height", "100%");
+        builder.AddAttribute(9, "fill", "#fafafa");
         builder.CloseElement();
 
         // Time axis
@@ -639,44 +640,48 @@
 
             // Lane background
             builder.OpenElement(20, "rect");
-            builder.AddAttribute(21, "x", leftMargin);
-            builder.AddAttribute(22, "y", y);
-            builder.AddAttribute(23, "width", plotWidth);
-            builder.AddAttribute(24, "height", laneHeight);
-            builder.AddAttribute(25, "fill", displayLane % 2 == 0 ? "#ffffff" : "#f5f5f5");
-            builder.AddAttribute(26, "stroke", "#e0e0e0");
-            builder.AddAttribute(27, "stroke-width", "1");
+            builder.AddAttribute(21, "class", displayLane % 2 == 0 ? "gantt-lane-even" : "gantt-lane-odd");
+            builder.AddAttribute(22, "x", leftMargin);
+            builder.AddAttribute(23, "y", y);
+            builder.AddAttribute(24, "width", plotWidth);
+            builder.AddAttribute(25, "height", laneHeight);
+            builder.AddAttribute(26, "fill", displayLane % 2 == 0 ? "#ffffff" : "#f5f5f5");
+            builder.AddAttribute(27, "stroke", "#e0e0e0");
+            builder.AddAttribute(28, "stroke-width", "1");
             builder.CloseElement();
 
-            builder.OpenElement(27, "line");
-            builder.AddAttribute(28, "x1", leftMargin);
-            builder.AddAttribute(29, "y1", y + (laneHeight / 2));
-            builder.AddAttribute(30, "x2", leftMargin + plotWidth);
-            builder.AddAttribute(31, "y2", y + (laneHeight / 2));
-            builder.AddAttribute(32, "stroke", "#eceff1");
-            builder.AddAttribute(33, "stroke-width", "1");
+            builder.OpenElement(29, "line");
+            builder.AddAttribute(30, "class", "gantt-lane-center");
+            builder.AddAttribute(31, "x1", leftMargin);
+            builder.AddAttribute(32, "y1", y + (laneHeight / 2));
+            builder.AddAttribute(33, "x2", leftMargin + plotWidth);
+            builder.AddAttribute(34, "y2", y + (laneHeight / 2));
+            builder.AddAttribute(35, "stroke", "#eceff1");
+            builder.AddAttribute(36, "stroke-width", "1");
             builder.CloseElement();
 
             // Lane label
-            builder.OpenElement(34, "text");
-            builder.AddAttribute(35, "x", leftMargin - 10);
-            builder.AddAttribute(36, "y", y + (laneHeight / 2) - 6);
-            builder.AddAttribute(37, "text-anchor", "end");
-            builder.AddAttribute(38, "dominant-baseline", "middle");
-            builder.AddAttribute(39, "font-size", "12");
-            builder.AddAttribute(40, "font-weight", "600");
-            builder.AddAttribute(41, "fill", "#333");
-            builder.AddContent(42, lane >= 0 && lane < data.LaneLabels.Count ? data.LaneLabels[lane] : $"Lane {lane}");
+            builder.OpenElement(37, "text");
+            builder.AddAttribute(38, "class", "gantt-lane-label");
+            builder.AddAttribute(39, "x", leftMargin - 10);
+            builder.AddAttribute(40, "y", y + (laneHeight / 2) - 6);
+            builder.AddAttribute(41, "text-anchor", "end");
+            builder.AddAttribute(42, "dominant-baseline", "middle");
+            builder.AddAttribute(43, "font-size", "12");
+            builder.AddAttribute(44, "font-weight", "600");
+            builder.AddAttribute(45, "fill", "#333");
+            builder.AddContent(46, lane >= 0 && lane < data.LaneLabels.Count ? data.LaneLabels[lane] : $"Lane {lane}");
             builder.CloseElement();
 
-            builder.OpenElement(43, "text");
-            builder.AddAttribute(44, "x", leftMargin - 10);
-            builder.AddAttribute(45, "y", y + (laneHeight / 2) + 10);
-            builder.AddAttribute(46, "text-anchor", "end");
-            builder.AddAttribute(47, "dominant-baseline", "middle");
-            builder.AddAttribute(48, "font-size", "10");
-            builder.AddAttribute(49, "fill", "#78909c");
-            builder.AddContent(50, "IN / OUT");
+            builder.OpenElement(47, "text");
+            builder.AddAttribute(48, "class", "gantt-lane-sublabel");
+            builder.AddAttribute(49, "x", leftMargin - 10);
+            builder.AddAttribute(50, "y", y + (laneHeight / 2) + 10);
+            builder.AddAttribute(51, "text-anchor", "end");
+            builder.AddAttribute(52, "dominant-baseline", "middle");
+            builder.AddAttribute(53, "font-size", "10");
+            builder.AddAttribute(54, "fill", "#78909c");
+            builder.AddContent(55, "IN / OUT");
             builder.CloseElement();
         }
 
@@ -689,25 +694,27 @@
             var gapWidth = (gapEnd - gapStart).TotalMilliseconds * xScale;
 
             builder.OpenElement(40, "rect");
-            builder.AddAttribute(41, "x", gapX);
-            builder.AddAttribute(42, "y", topMargin);
-            builder.AddAttribute(43, "width", gapWidth);
-            builder.AddAttribute(44, "height", data.TotalLanes * laneHeight);
-            builder.AddAttribute(45, "fill", "rgba(255, 0, 0, 0.1)");
-            builder.AddAttribute(46, "stroke", "rgba(255, 0, 0, 0.5)");
-            builder.AddAttribute(47, "stroke-width", "2");
-            builder.AddAttribute(48, "stroke-dasharray", "5,5");
+            builder.AddAttribute(41, "class", "gantt-gap-overlay");
+            builder.AddAttribute(42, "x", gapX);
+            builder.AddAttribute(43, "y", topMargin);
+            builder.AddAttribute(44, "width", gapWidth);
+            builder.AddAttribute(45, "height", data.TotalLanes * laneHeight);
+            builder.AddAttribute(46, "fill", "rgba(255, 0, 0, 0.1)");
+            builder.AddAttribute(47, "stroke", "rgba(255, 0, 0, 0.5)");
+            builder.AddAttribute(48, "stroke-width", "2");
+            builder.AddAttribute(49, "stroke-dasharray", "5,5");
             builder.CloseElement();
 
             // GAP label
-            builder.OpenElement(49, "text");
-            builder.AddAttribute(50, "x", gapX + (gapWidth / 2));
-            builder.AddAttribute(51, "y", topMargin - 10);
-            builder.AddAttribute(52, "text-anchor", "middle");
-            builder.AddAttribute(53, "font-size", "11");
-            builder.AddAttribute(54, "font-weight", "bold");
-            builder.AddAttribute(55, "fill", "#d32f2f");
-            builder.AddContent(56, $"최대 GAP: {(_longestGap.Value.Duration / 1000.0):F2}s");
+            builder.OpenElement(50, "text");
+            builder.AddAttribute(51, "class", "gantt-gap-text");
+            builder.AddAttribute(52, "x", gapX + (gapWidth / 2));
+            builder.AddAttribute(53, "y", topMargin - 10);
+            builder.AddAttribute(54, "text-anchor", "middle");
+            builder.AddAttribute(55, "font-size", "11");
+            builder.AddAttribute(56, "font-weight", "bold");
+            builder.AddAttribute(57, "fill", "#d32f2f");
+            builder.AddContent(58, $"최대 GAP: {(_longestGap.Value.Duration / 1000.0):F2}s");
             builder.CloseElement();
         }
 
@@ -719,7 +726,7 @@
             var y = item.EventType == IOEventType.InTag
                 ? laneTop + 7
                 : laneTop + 29;
-            var x = leftMargin + (item.RelativeStart * xScale);
+            var x = leftMargin + ((item.GoingStartTime - chartStartTime).TotalMilliseconds * xScale);
             var durationMs = GetItemDurationMs(item);
             var width = Math.Max(2, Math.Max(durationMs, 1) * xScale);
 
@@ -756,15 +763,24 @@
             builder.AddContent(64, tooltipText);
             builder.CloseElement();
 
+            var barClass = item.EventType == IOEventType.InTag ? "gantt-bar-in" : "gantt-bar-out";
             builder.OpenElement(65, "rect");
-            builder.AddAttribute(66, "x", x);
-            builder.AddAttribute(67, "y", y);
-            builder.AddAttribute(68, "width", width);
-            builder.AddAttribute(69, "height", barHeight);
-            builder.AddAttribute(70, "fill", fillColor);
-            builder.AddAttribute(71, "stroke", strokeColor);
-            builder.AddAttribute(72, "stroke-width", strokeWidth);
-            builder.AddAttribute(73, "rx", "4");
+            builder.AddAttribute(66, "class", barClass);
+            builder.AddAttribute(67, "x", x);
+            builder.AddAttribute(68, "y", y);
+            builder.AddAttribute(69, "width", width);
+            builder.AddAttribute(70, "height", barHeight);
+            builder.AddAttribute(71, "fill", fillColor);
+            if (isSelected || isPrevious || isNext)
+            {
+                builder.AddAttribute(72, "style", $"stroke: {strokeColor}; stroke-width: {strokeWidth};");
+            }
+            else
+            {
+                builder.AddAttribute(72, "stroke", strokeColor);
+                builder.AddAttribute(73, "stroke-width", strokeWidth);
+            }
+            builder.AddAttribute(74, "rx", "4");
             builder.CloseElement();
 
             // Bar label (if wide enough)
@@ -787,11 +803,11 @@
 
         if (_selectedItem != null)
         {
-            var selectedGeometry = GetBarGeometry(_selectedItem, displayLaneIndexByLane, topMargin, laneHeight, barHeight, xScale);
+            var selectedGeometry = GetBarGeometry(_selectedItem, displayLaneIndexByLane, topMargin, laneHeight, barHeight, xScale, chartStartTime);
 
             if (_previousItem != null && _previousGap.HasValue)
             {
-                var previousGeometry = GetBarGeometry(_previousItem, displayLaneIndexByLane, topMargin, laneHeight, barHeight, xScale);
+                var previousGeometry = GetBarGeometry(_previousItem, displayLaneIndexByLane, topMargin, laneHeight, barHeight, xScale, chartStartTime);
                 RenderGapConnector(
                     builder,
                     700,
@@ -807,7 +823,7 @@
 
             if (_nextItem != null && _nextGap.HasValue)
             {
-                var nextGeometry = GetBarGeometry(_nextItem, displayLaneIndexByLane, topMargin, laneHeight, barHeight, xScale);
+                var nextGeometry = GetBarGeometry(_nextItem, displayLaneIndexByLane, topMargin, laneHeight, barHeight, xScale, chartStartTime);
                 RenderGapConnector(
                     builder,
                     760,
@@ -863,6 +879,7 @@
 
         // Axis line
         builder.OpenElement(sequence++, "line");
+        builder.AddAttribute(sequence++, "class", "gantt-axis");
         builder.AddAttribute(sequence++, "x1", leftMargin);
         builder.AddAttribute(sequence++, "y1", topMargin - 5);
         builder.AddAttribute(sequence++, "x2", leftMargin + plotWidth);
@@ -879,6 +896,7 @@
 
             // Tick mark
             builder.OpenElement(sequence++, "line");
+            builder.AddAttribute(sequence++, "class", "gantt-tick");
             builder.AddAttribute(sequence++, "x1", x);
             builder.AddAttribute(sequence++, "y1", topMargin - 5);
             builder.AddAttribute(sequence++, "x2", x);
@@ -889,6 +907,7 @@
 
             // Tick label
             builder.OpenElement(sequence++, "text");
+            builder.AddAttribute(sequence++, "class", "gantt-tick-label");
             builder.AddAttribute(sequence++, "x", x);
             builder.AddAttribute(sequence++, "y", topMargin - 15);
             builder.AddAttribute(sequence++, "text-anchor", "middle");
@@ -935,12 +954,13 @@
         int topMargin,
         int laneHeight,
         int barHeight,
-        double xScale)
+        double xScale,
+        DateTime chartStartTime)
     {
         var displayLane = displayLaneIndexByLane.GetValueOrDefault(item.Lane, item.Lane);
         var laneTop = topMargin + (displayLane * laneHeight);
         var y = item.EventType == IOEventType.InTag ? laneTop + 7 : laneTop + 29;
-        var x = 220 + (item.RelativeStart * xScale);
+        var x = 220 + ((item.GoingStartTime - chartStartTime).TotalMilliseconds * xScale);
         var durationMs = GetItemDurationMs(item);
         var width = Math.Max(2, Math.Max(durationMs, 1) * xScale);
         return (x, x + width, y + (barHeight / 2.0));
@@ -981,6 +1001,7 @@
         builder.AddAttribute(seq++, "y", midY - 14);
         builder.AddAttribute(seq++, "width", boxWidth);
         builder.AddAttribute(seq++, "height", 22);
+        builder.AddAttribute(seq++, "class", "gantt-connector-bg");
         builder.AddAttribute(seq++, "rx", "11");
         builder.AddAttribute(seq++, "fill", "rgba(255,255,255,0.92)");
         builder.AddAttribute(seq++, "stroke", color);

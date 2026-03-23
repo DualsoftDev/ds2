@@ -437,29 +437,30 @@
    19. Flow Card (fl-card, fc-*)
    ═══════════════════════════════════════════ */
 .dark-theme .fl-card {
-    background: #1E1E1E;
+    background: #2B2F36;
+    border-color: rgba(255, 255, 255, 0.14);
 }
 .dark-theme .fc-root {
     color: rgba(255, 255, 255, 0.87);
 }
 .dark-theme .fc-header {
-    background: color-mix(in srgb, var(--state-color) 15%, #2C2C2C);
-    border-bottom-color: rgba(255, 255, 255, 0.10);
+    background: color-mix(in srgb, var(--state-color) 15%, #383D45);
+    border-bottom-color: rgba(255, 255, 255, 0.12);
 }
 .dark-theme .fc-chart-label {
-    color: rgba(255, 255, 255, 0.70);
+    color: rgba(255, 255, 255, 0.80);
 }
 .dark-theme .fc-stat-label {
-    color: rgba(255, 255, 255, 0.50);
+    color: rgba(255, 255, 255, 0.55);
 }
 .dark-theme .fc-stat-value {
-    color: rgba(255, 255, 255, 0.87);
+    color: rgba(255, 255, 255, 0.90);
 }
 .dark-theme .fc-state-label {
-    border-bottom-color: rgba(255, 255, 255, 0.10);
+    border-bottom-color: rgba(255, 255, 255, 0.12);
 }
 .dark-theme .fc-stat-row {
-    border-bottom-color: rgba(255, 255, 255, 0.06);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
 }
 /* 도넛 배경 원 */
 .dark-theme .fc-chart svg circle[stroke="#eee"] {
@@ -573,6 +574,94 @@
     border-bottom-color: #81D4FA;
 }
 .dark-theme .detail-chart-section h5 {
+    color: rgba(255, 255, 255, 0.87);
+}
+
+/* --- Gantt Chart SVG --- */
+.dark-theme .gantt-chart {
+    border-color: rgba(255, 255, 255, 0.10);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.30);
+}
+.dark-theme .gantt-bg {
+    fill: #1E1E1E;
+}
+.dark-theme .gantt-lane-even {
+    fill: #232323;
+    stroke: rgba(255, 255, 255, 0.06);
+}
+.dark-theme .gantt-lane-odd {
+    fill: #2A2A2A;
+    stroke: rgba(255, 255, 255, 0.06);
+}
+.dark-theme .gantt-lane-center {
+    stroke: rgba(255, 255, 255, 0.05);
+}
+.dark-theme .gantt-lane-label {
+    fill: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .gantt-lane-sublabel {
+    fill: rgba(255, 255, 255, 0.45);
+}
+.dark-theme .gantt-axis {
+    stroke: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .gantt-tick {
+    stroke: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .gantt-tick-label {
+    fill: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .gantt-bar-in {
+    fill: #64B5F6;
+    stroke: #42A5F5;
+}
+.dark-theme .gantt-bar-out {
+    fill: #F48FB1;
+    stroke: #EC407A;
+}
+.dark-theme .gantt-gap-overlay {
+    fill: rgba(239, 154, 154, 0.12);
+    stroke: rgba(239, 154, 154, 0.50);
+}
+.dark-theme .gantt-gap-text {
+    fill: #EF9A9A;
+}
+.dark-theme .gantt-connector-bg {
+    fill: rgba(30, 30, 30, 0.92);
+}
+/* --- Selection Path Bar --- */
+.dark-theme .selection-node {
+    background: #2C2C2C;
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.dark-theme .selection-node.current {
+    border-color: #FFB74D;
+    background: linear-gradient(180deg, rgba(255, 183, 77, 0.10) 0%, #2C2C2C 100%);
+}
+.dark-theme .selection-node.previous {
+    border-color: #FFCC80;
+}
+.dark-theme .selection-node.next {
+    border-color: #80CBC4;
+}
+.dark-theme .selection-node-label {
+    color: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .selection-node strong {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .selection-node span:last-child {
+    color: rgba(255, 255, 255, 0.60);
+}
+.dark-theme .selection-gap-pill {
+    background: linear-gradient(180deg, rgba(129, 212, 250, 0.10) 0%, #2C2C2C 100%);
+    border-color: rgba(129, 212, 250, 0.25);
+}
+.dark-theme .selection-gap-label {
+    color: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .selection-gap-pill strong {
     color: rgba(255, 255, 255, 0.87);
 }
 
