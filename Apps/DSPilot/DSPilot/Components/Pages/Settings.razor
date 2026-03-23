@@ -189,31 +189,43 @@
                 </div>
             </div>
 
-            @* PLC 연결 설정 섹션 *@
+            @* PLC 캡처 설정 섹션 *@
             <div class="card" style="box-shadow: var(--shadow-2);">
                 <div class="card-header">
                     <span class="material-icons mr-2">lan</span>
-                    <h6 class="typo-h6">PLC 연결</h6>
+                    <h6 class="typo-h6">PLC 캡처</h6>
                 </div>
                 <div class="card-content">
                     <label class="switch mb-3">
-                        <input type="checkbox" @bind="_settings.PlcConnection.Enabled" />
-                        연결 활성화
+                        <input type="checkbox" @bind="_settings.PlcCapture.Enabled" />
+                        캡처 활성화
                     </label>
                     <div class="form-group mb-3">
                         <label class="form-label">PLC 이름</label>
-                        <input class="form-field" @bind="_settings.PlcConnection.PlcName" placeholder="PLC 이름" />
+                        <input class="form-field" @bind="_settings.PlcCapture.PlcName" placeholder="MitsubishiPLC" />
                     </div>
                     <div class="form-group mb-3">
                         <label class="form-label">IP 주소</label>
-                        <input class="form-field" @bind="_settings.PlcConnection.IpAddress" placeholder="예: 192.168.0.100" />
+                        <input class="form-field" @bind="_settings.PlcCapture.PlcIpAddress" placeholder="예: 192.168.9.120" />
+                    </div>
+                    <div class="form-group mb-3">
+                        <label class="form-label">포트</label>
+                        <input type="number" class="form-field" @bind="_settings.PlcCapture.PlcPort"
+                               min="1" max="65535" placeholder="5555" />
+                    </div>
+                    <div class="form-group mb-3">
+                        <label class="form-label">프로토콜</label>
+                        <select class="form-select" @bind="_settings.PlcCapture.Protocol">
+                            <option value="UDP">UDP</option>
+                            <option value="TCP">TCP</option>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label class="form-label">스캔 간격 (ms)</label>
-                        <input type="number" class="form-field" @bind="_settings.PlcConnection.ScanIntervalMs"
-                               min="10" max="60000" placeholder="스캔 간격 (ms)" />
+                        <input type="number" class="form-field" @bind="_settings.PlcCapture.ScanIntervalMs"
+                               min="10" max="60000" placeholder="100" />
                         <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                            PLC 통신 스캔 간격 (밀리초)
+                            PLC 데이터 캡처 간격 (밀리초)
                         </small>
                     </div>
                 </div>
