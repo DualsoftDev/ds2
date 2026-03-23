@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DSPilot.Models;
@@ -12,19 +11,16 @@ public class AppSettingsService
 
     private readonly string _filePath;
     private readonly string _projectDir;
-    private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<AppSettingsService> _logger;
 
     public AppSettingsService(
         IWebHostEnvironment env,
-        IHostApplicationLifetime lifetime,
         ILogger<AppSettingsService> logger)
     {
         _filePath = Path.Combine(env.ContentRootPath, "appsettings.json");
         _projectDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "DSPilot", "project");
-        _lifetime = lifetime;
         _logger = logger;
     }
 
@@ -108,47 +104,6 @@ public class AppSettingsService
             _logger.LogError(ex, "데이터베이스 삭제 실패: {DbPath}", dbPath);
             throw;
         }
-    }
-
-    /// <returns>true: 자동 재시작됨, false: 수동 재시작 필요 (VS 디버그 모드)</returns>
-    public bool RestartApplication()
-    {
-        _logger.LogInformation("애플리케이션 재시작 요청됨");
-
-        if (Debugger.IsAttached)
-        {
-            _logger.LogInformation("디버거 연결됨 - 앱 종료만 수행 (수동 재시작 필요)");
-            _lifetime.StopApplication();
-            return false;
-        }
-
-        if (!Environment.UserInteractive)
-        {
-            _logger.LogInformation("서비스 모드 - 비정상 종료 코드로 SCM 재시작 트리거");
-            Environment.ExitCode = 1;
-            _lifetime.StopApplication();
-            return true;
-        }
-
-        // 콘솔 모드: 새 프로세스를 딜레이와 함께 시작 후 현재 앱 종료
-        var exePath = Environment.ProcessPath;
-        if (exePath != null)
-        {
-            var existingArgs = Environment.GetCommandLineArgs().Skip(1)
-                .Where(a => !a.StartsWith("--restart-delay"));
-            var allArgs = existingArgs.Append("--restart-delay").Append("2000");
-
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = exePath,
-                Arguments = string.Join(" ", allArgs),
-                UseShellExecute = false
-            });
-            _logger.LogInformation("새 프로세스 시작 (2초 딜레이): {Path}", exePath);
-        }
-
-        _lifetime.StopApplication();
-        return true;
     }
 
     private JsonObject LoadRaw()

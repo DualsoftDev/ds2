@@ -9,6 +9,15 @@
 <h5 class="typo-h5 mb-4" style="font-weight: 600; color: var(--color-text-primary);">설정</h5>
 @if (_settings is not null)
 {
+    <div class="d-flex mb-4" style="justify-content:flex-end; gap:12px;">
+        <button class="btn btn-outlined" @onclick="ReloadSettings">
+            <span class="material-icons" style="font-size:18px;">refresh</span> 되돌리기
+        </button>
+        <button class="btn btn-filled" @onclick="SaveSettings">
+            <span class="material-icons" style="font-size:18px;">save</span> 저장
+        </button>
+    </div>
+
     <div class="grid" style="gap: 16px;">
         @* 왼쪽 열: 프로젝트 + DSP 데이터베이스 *@
         <div class="grid-item-6" style="display:flex; flex-direction:column; gap:16px;">
@@ -185,21 +194,9 @@
 
     </div>
 
-    <div class="mt-4 d-flex" style="justify-content:flex-end; gap:12px;">
-        <button class="btn btn-outlined" @onclick="ReloadSettings">
-            <span class="material-icons" style="font-size:18px;">refresh</span> 되돌리기
-        </button>
-        <button class="btn btn-filled" @onclick="SaveSettings">
-            <span class="material-icons" style="font-size:18px;">save</span> 저장
-        </button>
-        <button class="btn btn-filled color-warning" @onclick="SaveAndRestart">
-            <span class="material-icons" style="font-size:18px;">restart_alt</span> 저장 및 재시작
-        </button>
-    </div>
-
     <div class="alert alert-info mt-4">
         <span class="material-icons">info</span>
-        설정 변경 후 애플리케이션을 재시작해야 적용됩니다.
+        설정 변경 후 서버 PC에서 DSPilot 서비스를 재시작해야 적용됩니다.
     </div>
 }
 else
@@ -247,27 +244,13 @@ else
         }
     }
 
-    private async Task SaveAndRestart()
-    {
-        var result = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
-            "서버 재시작",
-            "설정을 저장하고 서버를 재시작합니다. 진행하시겠습니까?",
-            "재시작", "취소");
-
-        if (!result) return;
-
-        SaveSettings();
-        if (!SettingsService.RestartApplication())
-            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "디버그 모드에서는 자동 재시작이 불가합니다. VS에서 다시 실행해주세요.", "warning");
-    }
-
     private void SaveSettings()
     {
         if (_settings is null) return;
         try
         {
             SettingsService.SaveSettings(_settings);
-            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "설정이 저장되었습니다. 재시작 후 적용됩니다.", "success");
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "설정이 저장되었습니다. 서버 PC에서 서비스를 재시작해주세요.", "success");
         }
         catch (Exception ex)
         {
