@@ -124,7 +124,8 @@ public class AppSettingsService
 
         if (!Environment.UserInteractive)
         {
-            _logger.LogInformation("서비스 모드 - SCM에 의해 재시작됩니다");
+            _logger.LogInformation("서비스 모드 - 비정상 종료 코드로 SCM 재시작 트리거");
+            Environment.ExitCode = 1;
             _lifetime.StopApplication();
             return true;
         }
