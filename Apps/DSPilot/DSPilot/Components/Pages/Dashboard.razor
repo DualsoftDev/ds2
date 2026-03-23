@@ -236,7 +236,10 @@ else
                                              @onmouseenter="(e) => OnRowMouseEnter(fn, e)"
                                              @onmouseleave="OnRowMouseLeave">
                                             <div class="ct-row-header">
-                                                <span class="ct-row-name" style="font-weight:@(highlighted ? "700" : "500")">@flow.FlowName</span>
+                                                <span class="ct-row-name" style="font-weight:@(highlighted ? "700" : "500"); display: flex; align-items: center; gap: 6px;">
+                                                    <img src="images/aas.png" alt="" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
+                                                    @flow.FlowName
+                                                </span>
                                                 @if (isMaxCT)
                                                 {
                                                     <span class="ct-badge-pill" style="background:#ef5350;">최대</span>

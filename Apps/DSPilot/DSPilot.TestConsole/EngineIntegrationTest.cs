@@ -137,10 +137,8 @@ public static class EngineIntegrationTest
         }
     }
 
-    private static async Task TestStateTransitionInOut()
+    private static Task TestStateTransitionInOut()
     {
-        var dbPath = ":memory:"; // In-memory database for testing
-
         Console.WriteLine("  Simulating InOut Direction:");
         Console.WriteLine("    Out ON  → Ready → Going");
         Console.WriteLine("    In ON   → Going → Finish");
@@ -151,9 +149,10 @@ public static class EngineIntegrationTest
         // For now, just demonstrate the logic
 
         Console.WriteLine("  ✅ InOut direction logic verified");
+        return Task.CompletedTask;
     }
 
-    private static async Task TestStateTransitionInOnly()
+    private static Task TestStateTransitionInOnly()
     {
         Console.WriteLine("  Simulating InOnly Direction:");
         Console.WriteLine("    In ON   → Ready → Finish (instant)");
@@ -161,9 +160,10 @@ public static class EngineIntegrationTest
         Console.WriteLine();
 
         Console.WriteLine("  ✅ InOnly direction logic verified");
+        return Task.CompletedTask;
     }
 
-    private static async Task TestStateTransitionOutOnly()
+    private static Task TestStateTransitionOutOnly()
     {
         Console.WriteLine("  Simulating OutOnly Direction:");
         Console.WriteLine("    Out ON  → Ready → Going");
@@ -171,6 +171,7 @@ public static class EngineIntegrationTest
         Console.WriteLine();
 
         Console.WriteLine("  ✅ OutOnly direction logic verified");
+        return Task.CompletedTask;
     }
 
     private static async Task TestAasxLoading()

@@ -101,64 +101,6 @@ else
         </article>
     </section>
 
-    <section class="flow-workspace-secondary-grid">
-        <article class="card flow-workspace-panel">
-            <div class="flow-workspace-panel-header">
-                <div>
-                    <h6 class="typo-h6">상태 분포</h6>
-                    <div class="typo-caption flow-workspace-muted">선택 Flow 내부 Call 상태를 한눈에 확인</div>
-                </div>
-            </div>
-            <div class="flow-workspace-summary-grid">
-                <div class="flow-workspace-summary-item">
-                    <span class="flow-workspace-summary-label">Ready</span>
-                    <strong>@_readyCallCount</strong>
-                </div>
-                <div class="flow-workspace-summary-item">
-                    <span class="flow-workspace-summary-label">Going</span>
-                    <strong>@_activeCallCount</strong>
-                </div>
-                <div class="flow-workspace-summary-item">
-                    <span class="flow-workspace-summary-label">Finish</span>
-                    <strong>@_finishedCallCount</strong>
-                </div>
-                <div class="flow-workspace-summary-item">
-                    <span class="flow-workspace-summary-label">Error</span>
-                    <strong>@_errorCallCount</strong>
-                </div>
-                <div class="flow-workspace-summary-item">
-                    <span class="flow-workspace-summary-label">Completion</span>
-                    <strong>@($"{_completionRate * 100:F0}%")</strong>
-                </div>
-            </div>
-        </article>
-
-        <article class="card flow-workspace-panel">
-            <div class="flow-workspace-panel-header">
-                <div>
-                    <h6 class="typo-h6">Work 구성</h6>
-                    <div class="typo-caption flow-workspace-muted">Work별 Call 분포와 평균 시간을 바로 확인</div>
-                </div>
-            </div>
-            <div class="flow-workspace-work-grid">
-                @foreach (var work in _workSummaries)
-                {
-                    <div class="flow-workspace-work-card">
-                        <div class="flow-workspace-work-title">@work.WorkName</div>
-                        <div class="flow-workspace-work-meta">@work.CallCount Calls</div>
-                        <div class="flow-workspace-work-stats">
-                            <span>Going @work.GoingCount</span>
-                            <span>Error @work.ErrorCount</span>
-                            <span>Finish @work.FinishCount</span>
-                        </div>
-                        <div class="flow-workspace-work-avg">평균 @FormatDurationMs(work.AverageGoingTime)</div>
-                    </div>
-                }
-            </div>
-        </article>
-    </section>
-
-
     <section class="card flow-workspace-panel">
         <div class="flow-workspace-panel-header">
             <div>
@@ -210,7 +152,12 @@ else
                         {
                             <tr>
                                 <td>@row.WorkName</td>
-                                <td>@row.CallName</td>
+                                <td>
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <img src="images/aas.png" alt="" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
+                                        @row.CallName
+                                    </div>
+                                </td>
                                 <td>@(row.InTag ?? "-")</td>
                                 <td>@(row.OutTag ?? "-")</td>
                                 <td>
