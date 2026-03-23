@@ -3,9 +3,11 @@ using DSPilot.Repositories;
 using DSPilot.Abstractions;
 using DSPilot.Adapters;
 using System.Data.Common;
+using Microsoft.Extensions.Hosting.WindowsServices;
 
 // Windows 서비스 실행 시 작업 디렉터리가 System32이므로 exe 위치로 변경
-Environment.CurrentDirectory = AppContext.BaseDirectory;
+if (WindowsServiceHelpers.IsWindowsService())
+    Environment.CurrentDirectory = AppContext.BaseDirectory;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService();
