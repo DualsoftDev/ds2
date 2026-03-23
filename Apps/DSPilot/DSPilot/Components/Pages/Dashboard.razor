@@ -232,7 +232,9 @@ else
                                         <div class="ct-chart-row @(highlighted ? "highlighted" : "") @(isSelected ? "selected" : "")"
                                              style="@borderStyle cursor:pointer;"
                                              @onclick="() => OnFlowSelected(fn == _selectedFlowName ? null : fn)"
-                                             @onclick:stopPropagation>
+                                             @onclick:stopPropagation
+                                             @onmouseenter="(e) => OnRowMouseEnter(fn, e)"
+                                             @onmouseleave="OnRowMouseLeave">
                                             <div class="ct-row-header">
                                                 <span class="ct-row-name" style="font-weight:@(highlighted ? "700" : "500")">@flow.FlowName</span>
                                                 @if (isMaxCT)
@@ -261,31 +263,6 @@ else
                                                 </div>
                                                 <span class="ct-row-time">@FormatMs(flow.CT)</span>
                                             </div>
-                                            @* ── 호버 툴팁 ── *@
-                                            <div class="ct-tooltip">
-                                                <div class="ct-tooltip-header" style="border-left: 3px solid @stateColor;">
-                                                    <span class="ct-tooltip-name">@flow.FlowName</span>
-                                                    <span class="ct-tooltip-state" style="background:@stateColor;">@(string.IsNullOrEmpty(flowState) ? "Ready" : flowState)</span>
-                                                </div>
-                                                @if (isMaxCT || isMinCT || isMaxWT)
-                                                {
-                                                    <div class="ct-tooltip-badges">
-                                                        @if (isMaxCT) { <span class="ct-badge-pill" style="background:#ef5350;">최대시간</span> }
-                                                        @if (isMinCT) { <span class="ct-badge-pill" style="background:#26a69a;">최소시간</span> }
-                                                        @if (isMaxWT) { <span class="ct-badge-pill" style="background:#F48FB1;">최대대기율</span> }
-                                                    </div>
-                                                }
-                                                <div class="ct-tooltip-grid">
-                                                    <span class="ct-tooltip-label">가동시간 (MT)</span>
-                                                    <span class="ct-tooltip-val mt">@FormatMs(flow.MT)</span>
-                                                    <span class="ct-tooltip-label">대기시간 (WT)</span>
-                                                    <span class="ct-tooltip-val wt">@FormatMs(flow.WT)</span>
-                                                    <span class="ct-tooltip-label">전체시간 (CT)</span>
-                                                    <span class="ct-tooltip-val ct">@FormatMs(flow.CT)</span>
-                                                    <span class="ct-tooltip-label">대기율</span>
-                                                    <span class="ct-tooltip-val">@($"{flow.WTRatio * 100:F1}%")</span>
-                                                </div>
-                                            </div>
                                         </div>
                                     }
                                 </div>
@@ -304,6 +281,49 @@ else
             }
         }
     </div>
+}
+
+@* ── 호버 툴팁 (고정 위치) ── *@
+@if (_hoverFlowName != null && _popupFlow == null)
+{
+    var hFlow = _chartData.FirstOrDefault(f => f.FlowName == _hoverFlowName);
+    if (hFlow.FlowName != null)
+    {
+        var hState = GetFlowStateLabel(hFlow.FlowName);
+        var hStateColor = hState?.ToLowerInvariant() switch
+        {
+            "ready" => "#4CAF50", "going" => "#EAB308", "finish" => "#2196F3",
+            "error" => "#F44336", _ => "#4CAF50"
+        };
+        var hIsMaxCT = hFlow.FlowName == _maxCtName;
+        var hIsMinCT = hFlow.FlowName == _minCtName;
+        var hIsMaxWT = hFlow.FlowName == _maxWtName;
+        <div class="ct-tooltip-fixed"
+             style="left:@(_tooltipX.ToString(System.Globalization.CultureInfo.InvariantCulture))px; top:@(_tooltipY.ToString(System.Globalization.CultureInfo.InvariantCulture))px;">
+            <div class="ct-tooltip-header" style="border-left: 3px solid @hStateColor;">
+                <span class="ct-tooltip-name">@hFlow.FlowName</span>
+                <span class="ct-tooltip-state" style="background:@hStateColor;">@(string.IsNullOrEmpty(hState) ? "Ready" : hState)</span>
+            </div>
+            @if (hIsMaxCT || hIsMinCT || hIsMaxWT)
+            {
+                <div class="ct-tooltip-badges">
+                    @if (hIsMaxCT) { <span class="ct-badge-pill" style="background:#ef5350;">최대시간</span> }
+                    @if (hIsMinCT) { <span class="ct-badge-pill" style="background:#26a69a;">최소시간</span> }
+                    @if (hIsMaxWT) { <span class="ct-badge-pill" style="background:#F48FB1;">최대대기율</span> }
+                </div>
+            }
+            <div class="ct-tooltip-grid">
+                <span class="ct-tooltip-label">가동시간 (MT)</span>
+                <span class="ct-tooltip-val mt">@FormatMs(hFlow.MT)</span>
+                <span class="ct-tooltip-label">대기시간 (WT)</span>
+                <span class="ct-tooltip-val wt">@FormatMs(hFlow.WT)</span>
+                <span class="ct-tooltip-label">전체시간 (CT)</span>
+                <span class="ct-tooltip-val ct">@FormatMs(hFlow.CT)</span>
+                <span class="ct-tooltip-label">대기율</span>
+                <span class="ct-tooltip-val">@($"{hFlow.WTRatio * 100:F1}%")</span>
+            </div>
+        </div>
+    }
 }
 
 @* ── 클릭 팝업 모달 ── *@
@@ -399,6 +419,10 @@ else
 
     // 팝업 모달
     private (string FlowName, int MT, int WT, int CT, double WTRatio)? _popupFlow;
+
+    // 호버 툴팁 (고정 위치)
+    private string? _hoverFlowName;
+    private double _tooltipX, _tooltipY;
 
     // 정렬 설정
     private string _sortField = "ct";   // "ct" | "wt"
@@ -614,6 +638,18 @@ else
     private void ClosePopup()
     {
         _popupFlow = null;
+    }
+
+    private void OnRowMouseEnter(string flowName, MouseEventArgs e)
+    {
+        _hoverFlowName = flowName;
+        _tooltipX = e.ClientX + 16;
+        _tooltipY = e.ClientY - 20;
+    }
+
+    private void OnRowMouseLeave()
+    {
+        _hoverFlowName = null;
     }
 
     private void SetSort(string field)
