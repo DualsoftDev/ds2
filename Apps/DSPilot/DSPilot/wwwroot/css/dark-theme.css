@@ -437,29 +437,30 @@
    19. Flow Card (fl-card, fc-*)
    ═══════════════════════════════════════════ */
 .dark-theme .fl-card {
-    background: #1E1E1E;
+    background: #2B2F36;
+    border-color: rgba(255, 255, 255, 0.14);
 }
 .dark-theme .fc-root {
     color: rgba(255, 255, 255, 0.87);
 }
 .dark-theme .fc-header {
-    background: color-mix(in srgb, var(--state-color) 15%, #2C2C2C);
-    border-bottom-color: rgba(255, 255, 255, 0.10);
+    background: color-mix(in srgb, var(--state-color) 15%, #383D45);
+    border-bottom-color: rgba(255, 255, 255, 0.12);
 }
 .dark-theme .fc-chart-label {
-    color: rgba(255, 255, 255, 0.70);
+    color: rgba(255, 255, 255, 0.80);
 }
 .dark-theme .fc-stat-label {
-    color: rgba(255, 255, 255, 0.50);
+    color: rgba(255, 255, 255, 0.55);
 }
 .dark-theme .fc-stat-value {
-    color: rgba(255, 255, 255, 0.87);
+    color: rgba(255, 255, 255, 0.90);
 }
 .dark-theme .fc-state-label {
-    border-bottom-color: rgba(255, 255, 255, 0.10);
+    border-bottom-color: rgba(255, 255, 255, 0.12);
 }
 .dark-theme .fc-stat-row {
-    border-bottom-color: rgba(255, 255, 255, 0.06);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
 }
 /* 도넛 배경 원 */
 .dark-theme .fc-chart svg circle[stroke="#eee"] {
