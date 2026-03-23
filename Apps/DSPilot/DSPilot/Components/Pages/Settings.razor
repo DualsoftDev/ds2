@@ -67,11 +67,12 @@
                 </div>
                 <div class="card-content">
                     <div class="form-group mb-3">
-                        <label class="form-label">DB 경로</label>
-                        <input class="form-field" @bind="_dbPath"
-                               placeholder="%ProgramData%/DualSoft/DSPilot/plc.db" />
+                        <label class="form-label">DB 저장 폴더</label>
+                        <input class="form-field" @bind="_dbDir"
+                               placeholder="%ProgramData%/DualSoft/DSPilot" />
                         <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
-                            SQLite 파일 경로 — 서비스 환경 권장: %ProgramData%, %SystemDrive% (서비스 모드에서 %APPDATA% 등 사용자 경로는 SYSTEM 계정으로 해석됨)
+                            plc.db 파일이 저장될 폴더 (/ 또는 \ 모두 사용 가능)<br/>
+                            서비스 환경 권장: %ProgramData%, %SystemDrive% (서비스 모드에서 %APPDATA%는 SYSTEM 계정 경로로 해석됨)
                         </small>
                     </div>
                     <div class="form-group mb-3">
@@ -238,8 +239,9 @@ else
     private readonly string[] _logLevels = { "Trace", "Debug", "Information", "Warning", "Error", "Critical", "None" };
 
     // DB ConnectionString 분리 편집용 필드
-    private string _dbPath = "";
+    private string _dbDir = "";
     private int _dbBusyTimeout = 20000;
+    private const string DbFileName = "plc.db";
 
     protected override void OnInitialized()
     {
@@ -257,7 +259,7 @@ else
 
     private void ParseConnectionString(string connStr)
     {
-        _dbPath = "";
+        _dbDir = "";
         _dbBusyTimeout = 20000;
 
         if (string.IsNullOrWhiteSpace(connStr)) return;
@@ -270,14 +272,24 @@ else
             var val = kv[1].Trim();
 
             if (key.Equals("Data Source", StringComparison.OrdinalIgnoreCase))
-                _dbPath = val;
+            {
+                // Data Source에서 디렉토리만 추출 (plc.db 제거)
+                var normalized = val.Replace('\\', '/');
+                if (normalized.EndsWith($"/{DbFileName}", StringComparison.OrdinalIgnoreCase))
+                    _dbDir = val[..^(DbFileName.Length + 1)];
+                else
+                    _dbDir = val;
+            }
             else if (key.Equals("BusyTimeout", StringComparison.OrdinalIgnoreCase) && int.TryParse(val, out var bt))
                 _dbBusyTimeout = bt;
         }
     }
 
     private string BuildConnectionString()
-        => $"Data Source={_dbPath};Version=3;BusyTimeout={_dbBusyTimeout}";
+    {
+        var dir = _dbDir.TrimEnd('/', '\\');
+        return $"Data Source={dir}/{DbFileName};Version=3;BusyTimeout={_dbBusyTimeout}";
+    }
 
     private async Task OnAasxFileUploaded(IBrowserFile file)
     {
