@@ -10,6 +10,7 @@ public class AppSettingsService
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     private readonly string _filePath;
+    private readonly string _productionFilePath;
     private readonly string _projectDir;
     private readonly ILogger<AppSettingsService> _logger;
 
@@ -18,6 +19,7 @@ public class AppSettingsService
         ILogger<AppSettingsService> logger)
     {
         _filePath = Path.Combine(env.ContentRootPath, "appsettings.json");
+        _productionFilePath = Path.Combine(env.ContentRootPath, "appsettings.Production.json");
         _projectDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "DSPilot", "project");
@@ -26,13 +28,22 @@ public class AppSettingsService
 
     public AppSettingsModel LoadSettings()
     {
-        var root = LoadRaw();
+        var root = LoadRaw(_filePath);
+
+        // Production.json이 있으면 Database 섹션을 오버라이드
+        if (File.Exists(_productionFilePath))
+        {
+            var prod = LoadRaw(_productionFilePath);
+            if (prod["Database"] is not null)
+                root["Database"] = prod["Database"]!.DeepClone();
+        }
+
         return new AppSettingsModel
         {
             DsPilot = Deserialize<DsPilotSettings>(root["DsPilot"]),
+            Database = Deserialize<DatabaseSettings>(root["Database"]),
             PlcDatabase = Deserialize<PlcDatabaseSettings>(root["PlcDatabase"]),
-            DspDatabase = Deserialize<DspDatabaseSettings>(root["DspDatabase"]),
-            PlcConnection = Deserialize<PlcConnectionSettings>(root["PlcConnection"]),
+            PlcCapture = Deserialize<PlcCaptureSettings>(root["PlcCapture"]),
             Logging = Deserialize<LoggingSettings>(root["Logging"]),
             Ui = Deserialize<UiSettings>(root["Ui"]),
         };
@@ -40,16 +51,25 @@ public class AppSettingsService
 
     public void SaveSettings(AppSettingsModel model)
     {
-        var root = LoadRaw();
+        var root = LoadRaw(_filePath);
 
         root["DsPilot"] = JsonSerializer.SerializeToNode(model.DsPilot, JsonOptions);
+        root["Database"] = JsonSerializer.SerializeToNode(model.Database, JsonOptions);
         root["PlcDatabase"] = JsonSerializer.SerializeToNode(model.PlcDatabase, JsonOptions);
-        root["DspDatabase"] = JsonSerializer.SerializeToNode(model.DspDatabase, JsonOptions);
-        root["PlcConnection"] = JsonSerializer.SerializeToNode(model.PlcConnection, JsonOptions);
+        root["PlcCapture"] = JsonSerializer.SerializeToNode(model.PlcCapture, JsonOptions);
         root["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
         root["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
 
-        SaveRaw(root);
+        SaveRaw(_filePath, root);
+
+        // Production.json이 있으면 Database 섹션도 동기화
+        if (File.Exists(_productionFilePath))
+        {
+            var prod = LoadRaw(_productionFilePath);
+            prod["Database"] = JsonSerializer.SerializeToNode(model.Database, JsonOptions);
+            SaveRaw(_productionFilePath, prod);
+            _logger.LogInformation("appsettings.Production.json Database 섹션 동기화 완료");
+        }
     }
 
     public async Task<string> UploadAasxFileAsync(IBrowserFile file)
@@ -106,16 +126,16 @@ public class AppSettingsService
         }
     }
 
-    private JsonObject LoadRaw()
+    private static JsonObject LoadRaw(string path)
     {
-        var json = File.ReadAllText(_filePath);
+        var json = File.ReadAllText(path);
         return JsonNode.Parse(json)?.AsObject() ?? new JsonObject();
     }
 
-    private void SaveRaw(JsonObject root)
+    private void SaveRaw(string path, JsonObject root)
     {
-        File.WriteAllText(_filePath, root.ToJsonString(JsonOptions));
-        _logger.LogInformation("appsettings.json 저장 완료");
+        File.WriteAllText(path, root.ToJsonString(JsonOptions));
+        _logger.LogInformation("{File} 저장 완료", Path.GetFileName(path));
     }
 
     private static T Deserialize<T>(JsonNode? node) where T : new()
