@@ -59,7 +59,7 @@
     min-width: 0;
 }
 .ct-top-cell.danger  { border-top: 3px solid #ef5350; }
-.ct-top-cell.warning { border-top: 3px solid #fb8c00; }
+.ct-top-cell.warning { border-top: 3px solid #F48FB1; }
 .ct-top-cell.success { border-top: 3px solid #26a69a; }
 /* 최대/최소 통합 카드 */
 .ct-combined-cell {
@@ -95,7 +95,7 @@
 }
 .ct-top-cell.danger  .ct-summary-title,
 .ct-combined-half.danger .ct-summary-title { color: #ef5350; }
-.ct-top-cell.warning .ct-summary-title { color: #fb8c00; }
+.ct-top-cell.warning .ct-summary-title { color: #F48FB1; }
 .ct-top-cell.success .ct-summary-title,
 .ct-combined-half.success .ct-summary-title { color: #26a69a; }
 /* 배지 (차트 행 전용) */
@@ -191,7 +191,7 @@
     display: flex;
 }
 .ct-bar-mt { background: #0569A0; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.ct-bar-wt { background: #FB8C00; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0 10px 10px 0; }
+.ct-bar-wt { background: #F48FB1; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0 10px 10px 0; }
 .ct-bar-track > :first-child { border-radius: 10px 0 0 10px; overflow: hidden; }
 .ct-bar-track > :last-child  { border-radius: 0 10px 10px 0; overflow: hidden; }
 .ct-bar-track > :only-child  { border-radius: 10px; overflow: hidden; }
@@ -202,16 +202,17 @@
     color: var(--color-text-secondary);
     white-space: nowrap;
 }
-/* ── 호버 툴팁 ── */
+/* ── 호버 툴팁 (오른쪽) ── */
 .ct-chart-row { position: relative; z-index: 0; }
 .ct-chart-row:hover { z-index: 10; }
 .ct-tooltip {
     display: none;
     position: absolute;
-    left: 0;
-    top: calc(100% + 4px);
+    left: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%);
     z-index: 100;
-    width: 100%;
+    width: 220px;
     min-width: 200px;
     background: var(--color-surface);
     border: 1px solid var(--color-lines);
@@ -221,18 +222,18 @@
     pointer-events: none;
     overflow: hidden;
 }
-/* 화살표 */
+/* 화살표 (왼쪽 방향) */
 .ct-tooltip::before {
     content: '';
     position: absolute;
-    left: 24px;
-    top: -5px;
-    transform: rotate(45deg);
+    left: -5px;
+    top: 50%;
+    transform: translateY(-50%) rotate(45deg);
     width: 8px;
     height: 8px;
-    background: var(--color-background);
+    background: var(--color-surface);
     border-left: 1px solid var(--color-lines);
-    border-top: 1px solid var(--color-lines);
+    border-bottom: 1px solid var(--color-lines);
 }
 .ct-chart-row:hover > .ct-tooltip { display: block; }
 .ct-tooltip-header {
@@ -287,7 +288,7 @@
     text-align: right;
 }
 .ct-tooltip-val.mt { color: #0569A0; }
-.ct-tooltip-val.wt { color: #FB8C00; }
+.ct-tooltip-val.wt { color: #F48FB1; }
 .ct-tooltip-val.ct { color: var(--color-text-primary); }
 /* ── 공통 카드 구조 ── */
 .ds-card {
@@ -354,4 +355,100 @@
     height: calc(var(--u) * 0.9);
     border-radius: 3px;
     flex-shrink: 0;
+}
+/* ── 클릭 팝업 모달 ── */
+.ct-popup-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: ct-fade-in 0.15s ease;
+}
+@keyframes ct-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes ct-scale-in {
+    from { opacity: 0; transform: scale(0.92); }
+    to   { opacity: 1; transform: scale(1); }
+}
+.ct-popup-modal {
+    background: var(--color-surface);
+    border: 1px solid var(--color-lines);
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+    width: 380px;
+    max-width: 90vw;
+    overflow: hidden;
+    animation: ct-scale-in 0.15s ease;
+}
+.ct-popup-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 16px;
+    background: var(--color-background);
+    border-bottom: 1px solid var(--color-lines);
+}
+.ct-popup-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+.ct-popup-close {
+    flex-shrink: 0;
+    color: var(--color-text-secondary);
+}
+.ct-popup-close:hover {
+    color: var(--color-text-primary);
+}
+.ct-popup-badges {
+    display: flex;
+    gap: 6px;
+    padding: 10px 16px 0;
+    flex-wrap: wrap;
+}
+.ct-popup-bar-section {
+    padding: 14px 16px 6px;
+}
+.ct-popup-bar-track {
+    height: 18px;
+    display: flex;
+    border-radius: 10px;
+    overflow: hidden;
+}
+.ct-popup-bar-track > :first-child { border-radius: 10px 0 0 10px; }
+.ct-popup-bar-track > :last-child  { border-radius: 0 10px 10px 0; }
+.ct-popup-bar-track > :only-child  { border-radius: 10px; }
+.ct-popup-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    padding: 6px 12px 16px;
+}
+.ct-popup-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px;
+    border-radius: 6px;
+    background: var(--color-background);
+}
+.ct-popup-label {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    font-weight: 500;
+}
+.ct-popup-val {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text-primary);
 }
