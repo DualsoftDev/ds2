@@ -1,21 +1,34 @@
-# DSPilot.Engine 리팩토링 문서
+# DSPilot 문서
 
-**작성일**: 2025-03-22
-**목적**: DSPilot.Engine을 Projection 패턴 기반으로 재설계
+**최종 업데이트**: 2026-03-23
+**목적**: DSPilot 시스템 아키텍처 및 구현 가이드
 
 ---
 
-## 📚 문서 목록
+## ℹ️ 문서 상태
 
-현재 작성된 문서:
+이 문서들은 **설계 문서 (Design Documents)** 입니다. 실제 구현은 다음과 같이 진행되었습니다:
 
+- ✅ **구현 완료**: C# Services 기반 PLC 이벤트 처리, 사이클 분석
+- ⚠️ **부분 구현**: F# Engine (기본 구조만, 통계 미구현)
+- 📝 **설계만 존재**: 일부 고급 기능 (Focus Score, 실시간 통계 등)
+
+**중요**: 코드와 문서 간 차이가 있을 수 있습니다. 실제 구현은 코드를 참조하세요.
+
+---
+
+## 📚 주요 문서
+
+### 핵심 아키텍처
 1. **[00_INDEX.md](./00_INDEX.md)** - 전체 문서 인덱스 및 읽는 순서
-2. **[01_ARCHITECTURE.md](./01_ARCHITECTURE.md)** - 전체 아키텍처 및 원칙
-3. **[02_DATABASE_SCHEMA.md](./02_DATABASE_SCHEMA.md)** - dspFlow/dspCall 스키마 설계
-4. **[03_PROJECTION_PATTERN.md](./03_PROJECTION_PATTERN.md)** - Projection 패턴 상세 설명
-5. **[04_EVENT_PIPELINE.md](./04_EVENT_PIPELINE.md)** - 이벤트 처리 파이프라인
-6. **[09_REFACTORING_PLAN.md](./09_REFACTORING_PLAN.md)** - 단계별 리팩토링 계획
-7. **[10_MIGRATION_GUIDE.md](./10_MIGRATION_GUIDE.md)** - 데이터베이스 마이그레이션 가이드
+2. **[01_ARCHITECTURE.md](./01_ARCHITECTURE.md)** - ✅ **업데이트 완료** - 현재 C#/F# 하이브리드 아키텍처
+3. **[02_DATABASE_SCHEMA.md](./02_DATABASE_SCHEMA.md)** - ✅ **업데이트 완료** - 실제 DB 스키마 (Migration 001 기준)
+4. **[03_PROJECTION_PATTERN.md](./03_PROJECTION_PATTERN.md)** - Projection 패턴 이론 (설계)
+5. **[04_EVENT_PIPELINE.md](./04_EVENT_PIPELINE.md)** - ✅ **업데이트 완료** - 실제 이벤트 처리 흐름
+
+### 구현 가이드
+6. **[09_REFACTORING_PLAN.md](./09_REFACTORING_PLAN.md)** - 리팩토링 계획 (설계)
+7. **[10_MIGRATION_GUIDE.md](./10_MIGRATION_GUIDE.md)** - DB 마이그레이션 가이드
 8. **[11_FSHARP_MODULES.md](./11_FSHARP_MODULES.md)** - F# 모듈 구조
 9. **[12_REPOSITORY_API.md](./12_REPOSITORY_API.md)** - Repository API 설계
 
@@ -90,44 +103,74 @@ ALTER TABLE dspFlow ADD COLUMN NewField TEXT;
 
 ---
 
-## 🔧 구현 상태
+## 🔧 구현 상태 (2026-03-23 기준)
 
-### ✅ 완료
+### ✅ 구현 완료
 
-- 문서 작성 (9개 문서)
-- 아키텍처 설계
-- 스키마 설계
-- Projection 패턴 정의
-- Repository API 설계
-- 마이그레이션 가이드
+**C# Services Layer**:
+- ✅ PlcEventProcessorService - Channel 기반 PLC 이벤트 처리
+- ✅ PlcToCallMapperService - AASX Tag 매핑 (메모리 기반)
+- ✅ CycleAnalysisService - 사이클 경계 탐지 및 분석
+- ✅ DsProjectService - AASX 프로젝트 관리
+- ✅ MonitoringBroadcastService - SignalR 실시간 브로드캐스트
+- ✅ PlcDatabaseMonitorService - DB 폴링 및 UI 업데이트
 
-### 🚧 진행 예정
+**F# Engine**:
+- ✅ DspRepository - Dapper 기반 SQLite I/O (bulkInsert만)
+- ✅ TagStateTracker - Edge 감지 (Rising/Falling)
+- ✅ StateTransition - 기본 구조 (실제 DB 업데이트 미구현)
+- ✅ Entities - DspFlowEntity, DspCallEntity 정의
 
-- Phase 1: Database Schema Migration
-- Phase 2: Repository Patch Methods
-- Phase 3: WorkName Bug Fix
-- Phase 4: Bootstrap Module Redesign
-- Phase 5: Runtime Event Handler
-- Phase 6: Statistics Calculator
-- Phase 7: Flow Aggregation
-- Phase 8: C# Service Simplification
+**Database**:
+- ✅ Migration 001 - 최소 스키마 (dspFlow, dspCall 기본 필드만)
+- ✅ Unified 모드 - EV2와 DSP가 하나의 DB 공유
+
+### ⚠️ 부분 구현
+
+- ⚠️ StateTransition - DB 업데이트 로직 미완성 (로그만 출력)
+- ⚠️ 통계 계산 - 설계는 존재하나 미구현
+- ⚠️ DB 스키마 - Migration 001만 존재 (전체 필드 미추가)
+
+### 📝 설계만 존재 (미구현)
+
+- 📝 Focus Score 계산
+- 📝 실시간 통계 업데이트 (Incremental Average, StdDev)
+- 📝 Flow-level 집계 (MT, WT, CT)
+- 📝 SlowFlag, UnmappedFlag 자동 판정
+- 📝 Cycle Metrics (사이클 완료 시 자동 계산)
 
 ---
 
 ## 📞 참조
 
-### 원본 설계 문서
+### 관련 코드 위치
 
-이 문서들은 다음 설계 문서를 기반으로 작성되었습니다:
+**C# Services** (DSPilot/Services/):
+- `PlcEventProcessorService.cs` - PLC 이벤트 처리 메인 서비스
+- `PlcToCallMapperService.cs` - Tag → Call 매핑
+- `CycleAnalysisService.cs` - 사이클 분석 (1125 lines)
+- `DsProjectService.cs` - AASX 프로젝트 관리
+- `Ev2PlcEventSource.cs` - 실제 PLC 연결
 
-- ~~`DSP_TABLE_FEATURE_UPDATE_PLAN.md`~~ (삭제됨, 내용은 이 문서들에 반영)
-- ~~기타 .md 파일들~~ (doc 폴더로 이동 및 재구성)
+**F# Engine** (DSPilot.Engine/):
+- `Database/Entities.fs` - DspFlowEntity, DspCallEntity
+- `Database/Repository.fs` - SQLite I/O (Dapper)
+- `Tracking/StateTransition.fs` - 상태 전이 로직
+- `Tracking/TagStateTracker.fs` - Edge 감지
+- `Core/EdgeDetection.fs` - EdgeType 정의
 
-### 관련 코드
+**UI** (DSPilot/Components/Pages/):
+- `CycleAnalysis.razor` - 사이클 분석 페이지
+- `CycleTimeAnalysis.razor` - Gantt 차트 페이지
+- `Dashboard.razor` - 대시보드
 
-- `DSPilot.Engine/Database/` - F# Repository 구현
-- `DSPilot.Engine/Bootstrap/` - AASX 로드 로직
-- `DSPilot/Services/` - C# 서비스 계층
+### 주요 기술 스택
+
+- **언어**: C# 13 (.NET 9), F# 9
+- **Database**: SQLite (Dapper ORM)
+- **UI**: Blazor Server (SignalR)
+- **PLC 통신**: Ev2.Backend.PLC (S7 Protocol)
+- **Reactive**: System.Reactive (Rx.NET)
 
 ---
 
@@ -150,7 +193,12 @@ ALTER TABLE dspFlow ADD COLUMN NewField TEXT;
 
 ## 📅 버전 이력
 
-- **2025-03-22**: 초안 작성 (9개 문서 완료)
+- **2026-03-23**: 문서 업데이트 - 실제 구현 상태 반영
+  - 01_ARCHITECTURE.md: C#/F# 하이브리드 구조 반영
+  - 02_DATABASE_SCHEMA.md: Migration 001 실제 스키마 반영
+  - 04_EVENT_PIPELINE.md: 실제 이벤트 처리 흐름 반영
+  - README.md: 구현 상태 명시
+- **2025-03-22**: 초안 작성 (9개 설계 문서 완료)
 
 ---
 
