@@ -355,7 +355,7 @@ public class DspDbService : IDisposable
 
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = $"SELECT Id, FlowName, MT, WT, CT, State, MovingStartName, MovingEndName FROM {_flowTable}";
+                cmd.CommandText = $"SELECT Id, FlowName, MT, WT, CT, AvgMT, AvgWT, AvgCT, State, MovingStartName, MovingEndName FROM {_flowTable}";
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
@@ -366,9 +366,12 @@ public class DspDbService : IDisposable
                         MT = reader.IsDBNull(2) ? null : reader.GetInt32(2),
                         WT = reader.IsDBNull(3) ? null : reader.GetInt32(3),
                         CT = reader.IsDBNull(4) ? null : reader.GetInt32(4),
-                        State = reader.IsDBNull(5) ? "" : reader.GetString(5),
-                        MovingStartName = reader.IsDBNull(6) ? null : reader.GetString(6),
-                        MovingEndName = reader.IsDBNull(7) ? null : reader.GetString(7),
+                        AvgMT = reader.IsDBNull(5) ? null : reader.GetDouble(5),
+                        AvgWT = reader.IsDBNull(6) ? null : reader.GetDouble(6),
+                        AvgCT = reader.IsDBNull(7) ? null : reader.GetDouble(7),
+                        State = reader.IsDBNull(8) ? "" : reader.GetString(8),
+                        MovingStartName = reader.IsDBNull(9) ? null : reader.GetString(9),
+                        MovingEndName = reader.IsDBNull(10) ? null : reader.GetString(10),
                     });
                 }
             }
@@ -471,7 +474,10 @@ public class DspDbService : IDisposable
                     flows.Any(f => !oldFlowsMap.TryGetValue(f.Id, out var oldFlow) ||
                                   oldFlow.State != f.State ||
                                   oldFlow.MT != f.MT ||
-                                  oldFlow.WT != f.WT) ||
+                                  oldFlow.WT != f.WT ||
+                                  oldFlow.AvgMT != f.AvgMT ||
+                                  oldFlow.AvgWT != f.AvgWT ||
+                                  oldFlow.AvgCT != f.AvgCT) ||
                     calls.Any(c => !oldCallsMap.TryGetValue(c.Id, out var oldCall) ||
                                   oldCall.State != c.State ||
                                   oldCall.GoingCount != c.GoingCount);

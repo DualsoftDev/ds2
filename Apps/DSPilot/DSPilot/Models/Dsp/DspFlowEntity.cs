@@ -31,6 +31,21 @@ public class DspFlowEntity
     public int? CT { get; set; }
 
     /// <summary>
+    /// Average Machine Time (ms)
+    /// </summary>
+    public double? AvgMT { get; set; }
+
+    /// <summary>
+    /// Average Wait Time (ms)
+    /// </summary>
+    public double? AvgWT { get; set; }
+
+    /// <summary>
+    /// Average Cycle Time (ms)
+    /// </summary>
+    public double? AvgCT { get; set; }
+
+    /// <summary>
     /// Flow 상태 (Going/Ready)
     /// </summary>
     public string? State { get; set; }

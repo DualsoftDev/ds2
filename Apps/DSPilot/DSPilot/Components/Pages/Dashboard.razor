@@ -6,6 +6,8 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject DashboardEditService EditService
+@inject DSPilot.Adapters.DspRepositoryAdapter DspRepository
+@inject ILogger<Dashboard> Logger
 @implements IDisposable
 
 <PageTitle>Dashboard - DSPilot</PageTitle>
@@ -164,6 +166,22 @@ else
                             <div class="ds-card-header">
                                 <span class="ct-section-title">Time 분석</span>
                                 <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.35);">
+                                    @* 평균/이전 토글 - 두 버튼으로 표시 *@
+                                    <div style="display:flex; gap:4px; background:var(--color-background); padding:4px; border-radius:8px;">
+                                        <button class="btn btn-sm @(!_showAverage ? "btn-filled" : "btn-outlined")"
+                                                @onclick="@(() => SetDisplayMode(false))"
+                                                title="이전 사이클 값 표시">
+                                            <span class="material-icons" style="font-size:18px;">history</span>
+                                            이전
+                                        </button>
+                                        <button class="btn btn-sm @(_showAverage ? "btn-filled" : "btn-outlined")"
+                                                @onclick="@(() => SetDisplayMode(true))"
+                                                title="평균값 표시">
+                                            <span class="material-icons" style="font-size:18px;">analytics</span>
+                                            평균
+                                        </button>
+                                    </div>
+                                    <div style="width:1px; height:16px; background:var(--color-border);"></div>
                                     <button class="btn btn-sm @(_sortField == "ct" ? "btn-filled" : "btn-outlined")"
                                             @onclick="@(() => SetSort("ct"))">전체</button>
                                     <button class="btn btn-sm @(_sortField == "mt" ? "btn-filled" : "btn-outlined")"
@@ -389,6 +407,50 @@ else
                     <span class="ct-popup-val">@($"{pWTRatio * 100:F1}%")</span>
                 </div>
             </div>
+
+            @* History Section *@
+            @if (_flowHistory != null && _flowHistory.Count > 0)
+            {
+                <div class="ct-popup-history">
+                    <div class="ct-popup-history-header">
+                        <span class="material-icons" style="font-size:16px; vertical-align:middle;">history</span>
+                        <span style="font-weight:600; margin-left:4px;">최근 히스토리</span>
+                        <span style="margin-left:auto; font-size:12px; color:var(--color-text-secondary);">총 @(_flowHistory.Count)개</span>
+                    </div>
+                    <div class="ct-popup-history-list">
+                        @foreach (var history in _flowHistory.Take(5))
+                        {
+                            var histCT = history.CT ?? 0;
+                            var histMT = history.MT ?? 0;
+                            var histWT = history.WT ?? 0;
+                            var histMtPct = histCT > 0 ? histMT * 100.0 / histCT : 0;
+                            var histWtPct = 100.0 - histMtPct;
+
+                            <div class="ct-history-item">
+                                <div class="ct-history-meta">
+                                    <span class="ct-history-cycle">#@(history.CycleNo ?? 0)</span>
+                                    <span class="ct-history-time">@history.RecordedAt.ToLocalTime().ToString("MM-dd HH:mm")</span>
+                                </div>
+                                <div class="ct-history-bar">
+                                    <div class="ct-bar-mt" style="width:@(histMtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;"></div>
+                                    <div class="ct-bar-wt" style="width:@(histWtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;"></div>
+                                </div>
+                                <div class="ct-history-values">
+                                    <span style="color:#0569A0;">MT: @FormatMs(histMT)</span>
+                                    <span style="color:#F48FB1;">WT: @FormatMs(histWT)</span>
+                                    <span style="font-weight:600;">CT: @FormatMs(histCT)</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    @if (_flowHistory.Count > 5)
+                    {
+                        <div class="ct-popup-history-more">
+                            <span style="font-size:12px; color:var(--color-text-secondary);">+ @(_flowHistory.Count - 5)개 더보기 (스크롤)</span>
+                        </div>
+                    }
+                </div>
+            }
         </div>
     </div>
 }
@@ -423,6 +485,9 @@ else
     // 팝업 모달
     private (string FlowName, int MT, int WT, int CT, double WTRatio)? _popupFlow;
 
+    // Flow History Data (최근 5개 표시)
+    private List<Models.Dsp.DspFlowHistoryEntity> _flowHistory = new();
+
     // 호버 툴팁 (고정 위치)
     private string? _hoverFlowName;
     private double _tooltipX, _tooltipY;
@@ -430,6 +495,9 @@ else
     // 정렬 설정
     private string _sortField = "ct";   // "ct" | "wt"
     private bool   _sortDesc  = true;
+
+    // 평균/이전 표시 토글
+    private bool _showAverage = false;  // false: 이전값, true: 평균값
 
     // 대시보드 레이아웃 설정
     private List<string> _widgetOrder    = ["ct", "layout"];
@@ -572,6 +640,40 @@ else
         _ = SaveLayoutAsync();
     }
 
+    private async void SetDisplayMode(bool showAverage)
+    {
+        if (_showAverage != showAverage)
+        {
+            _showAverage = showAverage;
+            Logger.LogInformation("Display mode changed to: {Mode}", showAverage ? "Average" : "Previous");
+
+            // DB 스냅샷 새로고침
+            _dbSnapshot = DbService.Snapshot;
+            Logger.LogInformation("DB Snapshot reloaded. Flow count: {Count}", _dbSnapshot.Flows.Count);
+
+            // 첫 번째 Flow의 평균값 로그 출력 (디버깅용)
+            var firstFlow = _dbSnapshot.Flows.FirstOrDefault();
+            if (firstFlow != null)
+            {
+                Logger.LogInformation("Sample Flow: {Name}, MT={MT}, AvgMT={AvgMT}, WT={WT}, AvgWT={AvgWT}",
+                    firstFlow.FlowName, firstFlow.MT, firstFlow.AvgMT, firstFlow.WT, firstFlow.AvgWT);
+            }
+
+            UpdateChartCache();  // 차트 데이터 재계산
+            Logger.LogInformation("Chart cache updated. Chart data count: {Count}", _chartData.Count);
+
+            try
+            {
+                await InvokeAsync(StateHasChanged);  // UI 즉시 반영 (비동기)
+                Logger.LogInformation("StateHasChanged invoked successfully");
+            }
+            catch (ObjectDisposedException ex)
+            {
+                Logger.LogWarning(ex, "Component disposed during state update");
+            }
+        }
+    }
+
     private async Task SaveLayoutAsync()
     {
         try
@@ -591,8 +693,26 @@ else
     private (int Mt, int Wt)? GetFlowMtWt(string flowName)
     {
         var s = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == flowName);
-        if (s?.MT == null && s?.WT == null) return null;
-        return (s.MT ?? 0, s.WT ?? 0);
+
+        if (_showAverage)
+        {
+            // 평균값 사용
+            if (s?.AvgMT.HasValue == true || s?.AvgWT.HasValue == true)
+            {
+                var mt = s?.AvgMT.HasValue == true ? (int)s.AvgMT.Value : 0;
+                var wt = s?.AvgWT.HasValue == true ? (int)s.AvgWT.Value : 0;
+                return (mt, wt);
+            }
+            // 평균값이 없으면 이전값으로 폴백
+            if (s?.MT == null && s?.WT == null) return null;
+            return (s.MT ?? 0, s.WT ?? 0);
+        }
+        else
+        {
+            // 이전값 사용
+            if (s?.MT == null && s?.WT == null) return null;
+            return (s.MT ?? 0, s.WT ?? 0);
+        }
     }
 
     private string GetFlowColor(string flowName, Guid systemId)
@@ -630,23 +750,43 @@ else
         _popupFlow = null;
     }
 
-    private void OnFlowSelectedFromLayout(string? flowName)
+    private async void OnFlowSelectedFromLayout(string? flowName)
     {
         _selectedFlowName = flowName;
-        // 도면 레이아웃 flow 카드 클릭 시 팝업 열기
+        // 도면 레이아웃 flow 카드 클릭 시 팝업과 히스토리 열기
         if (flowName != null)
         {
             _popupFlow = _chartData.FirstOrDefault(f => f.FlowName == flowName);
+
+            // Flow 히스토리 로드 (최근 100개, 최근 5개만 표시하고 나머지는 스크롤)
+            await LoadFlowHistoryAsync(flowName);
         }
         else
         {
             _popupFlow = null;
+            _flowHistory.Clear();
+        }
+    }
+
+    private async Task LoadFlowHistoryAsync(string flowName)
+    {
+        try
+        {
+            // Load flow history from repository (최근 100개)
+            _flowHistory = await DspRepository.GetFlowHistoryAsync(flowName, 100);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load flow history for {FlowName}", flowName);
+            _flowHistory.Clear();
         }
     }
 
     private void ClosePopup()
     {
         _popupFlow = null;
+        _flowHistory.Clear();
     }
 
     private void OnRowMouseEnter(string flowName, MouseEventArgs e)
@@ -679,7 +819,32 @@ else
             .Select(fp =>
             {
                 var s = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == fp.FlowName);
-                var mt = s?.MT ?? 0; var wt = s?.WT ?? 0; var ct = mt + wt;
+
+                // 평균/이전 토글에 따라 값 선택
+                int mt, wt, ct;
+                if (_showAverage)
+                {
+                    // 평균값 사용 (REAL -> int 변환)
+                    mt = s?.AvgMT.HasValue == true ? (int)s.AvgMT.Value : 0;
+                    wt = s?.AvgWT.HasValue == true ? (int)s.AvgWT.Value : 0;
+                    ct = s?.AvgCT.HasValue == true ? (int)s.AvgCT.Value : 0;
+
+                    // 평균값이 없으면 이전값으로 폴백
+                    if (ct == 0)
+                    {
+                        mt = s?.MT ?? 0;
+                        wt = s?.WT ?? 0;
+                        ct = mt + wt;
+                    }
+                }
+                else
+                {
+                    // 이전값 사용 (마지막 사이클)
+                    mt = s?.MT ?? 0;
+                    wt = s?.WT ?? 0;
+                    ct = mt + wt;
+                }
+
                 return (fp.FlowName, mt, wt, ct, ct > 0 ? (double)wt / ct : 0.0);
             })
             .Where(f => f.ct > 0)

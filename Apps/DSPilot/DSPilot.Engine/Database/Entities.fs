@@ -10,6 +10,9 @@ type DspFlowEntity =
       MT: int option
       WT: int option
       CT: int option
+      AvgMT: float option
+      AvgWT: float option
+      AvgCT: float option
       State: string option
       MovingStartName: string option
       MovingEndName: string option
@@ -23,6 +26,9 @@ type DspFlowEntity =
           MT = None
           WT = None
           CT = None
+          AvgMT = None
+          AvgWT = None
+          AvgCT = None
           State = Some "Ready"
           MovingStartName = None
           MovingEndName = None
@@ -83,6 +89,10 @@ type FlowState =
       FlowName: string
       MT: int option
       WT: int option
+      CT: int option
+      AvgMT: float option
+      AvgWT: float option
+      AvgCT: float option
       State: string
       MovingStartName: string option
       MovingEndName: string option }
@@ -100,6 +110,26 @@ type CallStateDto =
       AverageGoingTime: float option
       Device: string option
       ErrorText: string option }
+
+/// Flow history entity - dsp.db's dspFlowHistory table
+[<CLIMutable>]
+type DspFlowHistoryEntity =
+    { Id: int
+      FlowName: string
+      MT: int option
+      WT: int option
+      CT: int option
+      CycleNo: int option
+      RecordedAt: DateTime }
+
+    static member Create(flowName: string, mt: int option, wt: int option, ct: int option, cycleNo: int option) =
+        { Id = 0
+          FlowName = flowName
+          MT = mt
+          WT = wt
+          CT = ct
+          CycleNo = cycleNo
+          RecordedAt = DateTime.UtcNow }
 
 /// DSP Database snapshot (used by DspDbService)
 type DspDbSnapshot =

@@ -14,7 +14,7 @@ namespace DSPilot.Services;
 public class FlowMetricsService : IFlowMetricsService
 {
     private readonly DsProjectService _projectService;
-    private readonly IDspRepository _dspRepository;
+    private readonly Adapters.DspRepositoryAdapter _dspRepository;
     private readonly ILogger<FlowMetricsService> _logger;
 
     // Flow별 분석 결과 캐시
@@ -25,7 +25,7 @@ public class FlowMetricsService : IFlowMetricsService
 
     public FlowMetricsService(
         DsProjectService projectService,
-        IDspRepository dspRepository,
+        Adapters.DspRepositoryAdapter dspRepository,
         ILogger<FlowMetricsService> logger)
     {
         _projectService = projectService;
@@ -208,35 +208,8 @@ public class FlowMetricsService : IFlowMetricsService
                         state.CurrentWT = wt;
                         state.CurrentCT = ct;
 
-                        // DB 갱신
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                var movingStartName = state.HeadCallName != null
-                                    ? $"{flowName}.{state.HeadCallName}"
-                                    : null;
-                                var movingEndName = state.TailCallName != null
-                                    ? $"{flowName}.{state.TailCallName}"
-                                    : null;
-
-                                await _dspRepository.UpdateFlowMetricsAsync(
-                                    flowName,
-                                    mt: prevMT,
-                                    wt: wt,
-                                    ct: ct,
-                                    movingStartName: movingStartName,
-                                    movingEndName: movingEndName);
-
-                                _logger.LogInformation(
-                                    "Single-Call Flow '{FlowName}' metrics updated: MT={MT}ms, WT={WT}ms, CT={CT}ms",
-                                    flowName, prevMT, wt, ct);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "Failed to update metrics for single-Call Flow '{FlowName}'", flowName);
-                            }
-                        });
+                        // 평균 계산 및 DB 갱신
+                        _ = UpdateFlowMetricsWithAveragesAsync(state, flowName, prevMT, wt, ct);
                     }
 
                     // 새 사이클 시작
@@ -256,36 +229,8 @@ public class FlowMetricsService : IFlowMetricsService
                         state.CurrentWT = wt;
                         state.CurrentCT = ct;
 
-                        // DB 갱신 (비동기 작업을 Fire-and-Forget 방식으로 실행)
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                // FlowName.CallName 형식으로 고유하게 저장
-                                var movingStartName = state.HeadCallName != null
-                                    ? $"{flowName}.{state.HeadCallName}"
-                                    : null;
-                                var movingEndName = state.TailCallName != null
-                                    ? $"{flowName}.{state.TailCallName}"
-                                    : null;
-
-                                await _dspRepository.UpdateFlowMetricsAsync(
-                                    flowName,
-                                    mt: prevMT,
-                                    wt: wt,
-                                    ct: ct,
-                                    movingStartName: movingStartName,
-                                    movingEndName: movingEndName);
-
-                                _logger.LogInformation(
-                                    "Flow '{FlowName}' metrics updated: MT={MT}ms, WT={WT}ms, CT={CT}ms",
-                                    flowName, prevMT, wt, ct);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "Failed to update metrics for Flow '{FlowName}'", flowName);
-                            }
-                        });
+                        // 평균 계산 및 DB 갱신
+                        _ = UpdateFlowMetricsWithAveragesAsync(state, flowName, prevMT, wt, ct);
                     }
 
                     // 사이클 시작: 진행 중인 사이클이 없을 때만 (파이프라인 방어)
@@ -346,6 +291,71 @@ public class FlowMetricsService : IFlowMetricsService
     }
 
     /// <summary>
+    /// Flow 메트릭 및 평균값 업데이트 + 히스토리 삽입
+    /// </summary>
+    private async Task UpdateFlowMetricsWithAveragesAsync(
+        FlowCycleState state,
+        string flowName,
+        int mt,
+        int wt,
+        int ct)
+    {
+        try
+        {
+            // 평균값 계산 (누적 평균)
+            state.CycleCount++;
+            state.SumMT += mt;
+            state.SumWT += wt;
+            state.SumCT += ct;
+
+            double avgMT = state.SumMT / state.CycleCount;
+            double avgWT = state.SumWT / state.CycleCount;
+            double avgCT = state.SumCT / state.CycleCount;
+
+            // FlowName.CallName 형식으로 고유하게 저장
+            var movingStartName = state.HeadCallName != null
+                ? $"{flowName}.{state.HeadCallName}"
+                : null;
+            var movingEndName = state.TailCallName != null
+                ? $"{flowName}.{state.TailCallName}"
+                : null;
+
+            // 1. Flow 테이블 업데이트 (현재값 + 평균값)
+            await _dspRepository.UpdateFlowWithAveragesAsync(
+                flowName,
+                mt: mt,
+                wt: wt,
+                ct: ct,
+                avgMT: avgMT,
+                avgWT: avgWT,
+                avgCT: avgCT,
+                movingStartName: movingStartName,
+                movingEndName: movingEndName);
+
+            // 2. History 테이블 삽입
+            var history = new Models.Dsp.DspFlowHistoryEntity
+            {
+                FlowName = flowName,
+                MT = mt,
+                WT = wt,
+                CT = ct,
+                CycleNo = state.CycleCount,
+                RecordedAt = DateTime.UtcNow
+            };
+
+            await _dspRepository.InsertFlowHistoryAsync(history);
+
+            _logger.LogInformation(
+                "Flow '{FlowName}' Cycle #{CycleNo}: MT={MT}ms, WT={WT}ms, CT={CT}ms | Avg: MT={AvgMT:F0}ms, WT={AvgWT:F0}ms, CT={AvgCT:F0}ms",
+                flowName, state.CycleCount, mt, wt, ct, avgMT, avgWT, avgCT);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update metrics with averages for Flow '{FlowName}'", flowName);
+        }
+    }
+
+    /// <summary>
     /// DsStore 접근 (리플렉션 사용)
     /// </summary>
     private DsStore GetDsStore()
@@ -383,4 +393,10 @@ public class FlowCycleState
     public int? CurrentMT { get; set; }
     public int? CurrentWT { get; set; }
     public int? CurrentCT { get; set; }
+
+    // 평균 계산용 필드
+    public int CycleCount { get; set; } = 0;
+    public double SumMT { get; set; } = 0;
+    public double SumWT { get; set; } = 0;
+    public double SumCT { get; set; } = 0;
 }

@@ -147,7 +147,7 @@
                     <strong>@(_previousGap.HasValue ? FormatDurationTooltip(_previousGap.Value) : "-")</strong>
                 </div>
                 <div class="selection-node current">
-                    <span class="selection-node-label">선택 신호</span>
+                    <span class="selection-node-label">선택 신호 (A)</span>
                     <strong>@_selectedItem.CallName</strong>
                     <span>@GetEventTypeLabel(_selectedItem.EventType) · @_selectedItem.GoingStartTime.ToString("HH:mm:ss.fff")</span>
                 </div>
@@ -168,6 +168,21 @@
                         <span>Flow 종료 구간</span>
                     }
                 </div>
+                @if (_comparisonItem != null)
+                {
+                    <div class="selection-gap-pill comparison">
+                        <span class="selection-gap-label">사용자 GAP</span>
+                        <strong>@(_comparisonGap.HasValue ? FormatDurationTooltip(_comparisonGap.Value) : "-")</strong>
+                    </div>
+                    <div class="selection-node compare">
+                        <span class="selection-node-label">비교 신호 (B)</span>
+                        <strong>@_comparisonItem.CallName</strong>
+                        <span>@GetEventTypeLabel(_comparisonItem.EventType) · @_comparisonItem.GoingStartTime.ToString("HH:mm:ss.fff")</span>
+                    </div>
+                    <button class="btn btn-sm btn-outlined selection-clear-btn" @onclick="ClearComparison">
+                        비교선 지우기
+                    </button>
+                }
                 <button class="btn btn-sm btn-outlined selection-clear-btn" @onclick="ClearSelection">
                     선택 해제
                 </button>
@@ -208,11 +223,13 @@
 
     private GanttChartData? _ganttData;
     private GanttChartItem? _selectedItem;
+    private GanttChartItem? _comparisonItem;
     private GanttChartItem? _previousItem;
     private GanttChartItem? _nextItem;
     private (DateTime Start, DateTime End, double Duration)? _longestGap;
     private List<(DateTime Start, DateTime End, double Duration)> _topGaps = new();
     private int _selectedGapIndex = 0;
+    private double? _comparisonGap;
     private double? _previousGap;
     private double? _nextGap;
 
@@ -267,6 +284,7 @@
     {
         _ganttData = null;
         _selectedItem = null;
+        _comparisonItem = null;
         _previousItem = null;
         _nextItem = null;
         _longestGap = null;
@@ -300,6 +318,7 @@
         _errorMessage = null;
         _ganttData = null;
         _selectedItem = null;
+        _comparisonItem = null;
         _previousItem = null;
         _nextItem = null;
         _longestGap = null;
@@ -544,9 +563,40 @@
 
     private void SelectItem(GanttChartItem item)
     {
-        _selectedItem = item;
-        CalculateItemGaps(item);
+        if (_selectedItem == null)
+        {
+            SetPrimarySelection(item);
+        }
+        else if (ReferenceEquals(_selectedItem, item))
+        {
+            ClearComparison();
+        }
+        else
+        {
+            SetComparisonSelection(item);
+        }
+
         StateHasChanged();
+    }
+
+    private void SetPrimarySelection(GanttChartItem item)
+    {
+        _selectedItem = item;
+        _comparisonItem = null;
+        _comparisonGap = null;
+        CalculateItemGaps(item);
+    }
+
+    private void SetComparisonSelection(GanttChartItem item)
+    {
+        if (_selectedItem == null)
+        {
+            SetPrimarySelection(item);
+            return;
+        }
+
+        _comparisonItem = item;
+        _comparisonGap = CalculateGapBetween(_selectedItem, item);
     }
 
     private void CalculateItemGaps(GanttChartItem item)
@@ -584,11 +634,26 @@
         }
     }
 
+    private static double CalculateGapBetween(GanttChartItem fromItem, GanttChartItem toItem)
+    {
+        var fromEnd = fromItem.FinishTime ?? fromItem.GoingStartTime;
+        return (toItem.GoingStartTime - fromEnd).TotalMilliseconds;
+    }
+
+    private void ClearComparison()
+    {
+        _comparisonItem = null;
+        _comparisonGap = null;
+        StateHasChanged();
+    }
+
     private void ClearSelection()
     {
         _selectedItem = null;
+        _comparisonItem = null;
         _previousItem = null;
         _nextItem = null;
+        _comparisonGap = null;
         _previousGap = null;
         _nextGap = null;
         StateHasChanged();
@@ -731,17 +796,20 @@
             var width = Math.Max(2, Math.Max(durationMs, 1) * xScale);
 
             var isSelected = _selectedItem == item;
+            var isComparison = _comparisonItem == item;
             var isPrevious = _previousItem == item;
             var isNext = _nextItem == item;
             var fillColor = item.EventType == IOEventType.InTag ? "#42a5f5" : "#f8a8c8";
             var strokeColor = isSelected
                 ? "#ff9800"
-                : isPrevious
+                : isComparison
+                    ? "#8b5cf6"
+                    : isPrevious
                     ? "#ff9800"
                     : isNext
                         ? "#26a69a"
                         : (item.EventType == IOEventType.InTag ? "#1e88e5" : "#e58ab0");
-            var strokeWidth = isSelected ? "3" : (isPrevious || isNext ? "2" : "1");
+            var strokeWidth = (isSelected || isComparison) ? "3" : (isPrevious || isNext ? "2" : "1");
             var eventLabel = item.EventType == IOEventType.InTag ? "InTag" : "OutTag";
             var endLabel = item.FinishTime?.ToString("HH:mm:ss.fff") ?? "진행중";
             var tooltipText = string.Join("\n", new[]
@@ -771,7 +839,7 @@
             builder.AddAttribute(69, "width", width);
             builder.AddAttribute(70, "height", barHeight);
             builder.AddAttribute(71, "fill", fillColor);
-            if (isSelected || isPrevious || isNext)
+            if (isSelected || isComparison || isPrevious || isNext)
             {
                 builder.AddAttribute(72, "style", $"stroke: {strokeColor}; stroke-width: {strokeWidth};");
             }
@@ -801,41 +869,21 @@
             builder.CloseElement();
         }
 
-        if (_selectedItem != null)
+        if (_selectedItem != null && _comparisonItem != null && _comparisonGap.HasValue)
         {
             var selectedGeometry = GetBarGeometry(_selectedItem, displayLaneIndexByLane, topMargin, laneHeight, barHeight, xScale, chartStartTime);
-
-            if (_previousItem != null && _previousGap.HasValue)
-            {
-                var previousGeometry = GetBarGeometry(_previousItem, displayLaneIndexByLane, topMargin, laneHeight, barHeight, xScale, chartStartTime);
-                RenderGapConnector(
-                    builder,
-                    700,
-                    previousGeometry.EndX,
-                    previousGeometry.CenterY,
-                    selectedGeometry.StartX,
-                    selectedGeometry.CenterY,
-                    "#ff9800",
-                    $"{_previousItem.CallName} -> {FormatDurationTooltip(_previousGap.Value)}",
-                    leftMargin,
-                    leftMargin + plotWidth + 80);
-            }
-
-            if (_nextItem != null && _nextGap.HasValue)
-            {
-                var nextGeometry = GetBarGeometry(_nextItem, displayLaneIndexByLane, topMargin, laneHeight, barHeight, xScale, chartStartTime);
-                RenderGapConnector(
-                    builder,
-                    760,
-                    selectedGeometry.EndX,
-                    selectedGeometry.CenterY,
-                    nextGeometry.StartX,
-                    nextGeometry.CenterY,
-                    "#26a69a",
-                    $"{FormatDurationTooltip(_nextGap.Value)} -> {_nextItem.CallName}",
-                    leftMargin,
-                    leftMargin + plotWidth + 80);
-            }
+            var comparisonGeometry = GetBarGeometry(_comparisonItem, displayLaneIndexByLane, topMargin, laneHeight, barHeight, xScale, chartStartTime);
+            RenderGapConnector(
+                builder,
+                700,
+                selectedGeometry.EndX,
+                selectedGeometry.CenterY,
+                comparisonGeometry.StartX,
+                comparisonGeometry.CenterY,
+                "#8b5cf6",
+                $"A→B GAP {FormatDurationTooltip(_comparisonGap.Value)}",
+                leftMargin,
+                leftMargin + plotWidth + 80);
         }
 
         builder.OpenElement(820, "defs");
@@ -863,6 +911,19 @@
         builder.OpenElement(838, "polygon");
         builder.AddAttribute(839, "points", "0 0, 10 3, 0 6");
         builder.AddAttribute(840, "fill", "#26a69a");
+        builder.CloseElement();
+        builder.CloseElement();
+
+        builder.OpenElement(841, "marker");
+        builder.AddAttribute(842, "id", "cycleTimeArrowPurple");
+        builder.AddAttribute(843, "markerWidth", "10");
+        builder.AddAttribute(844, "markerHeight", "10");
+        builder.AddAttribute(845, "refX", "9");
+        builder.AddAttribute(846, "refY", "3");
+        builder.AddAttribute(847, "orient", "auto");
+        builder.OpenElement(848, "polygon");
+        builder.AddAttribute(849, "points", "0 0, 10 3, 0 6");
+        builder.AddAttribute(850, "fill", "#8b5cf6");
         builder.CloseElement();
         builder.CloseElement();
 
@@ -978,7 +1039,12 @@
         double minX,
         double maxX)
     {
-        var markerId = color == "#ff9800" ? "url(#cycleTimeArrowOrange)" : "url(#cycleTimeArrowTeal)";
+        var markerId = color switch
+        {
+            "#ff9800" => "url(#cycleTimeArrowOrange)",
+            "#8b5cf6" => "url(#cycleTimeArrowPurple)",
+            _ => "url(#cycleTimeArrowTeal)"
+        };
         var midX = (x1 + x2) / 2.0;
         var midY = (y1 + y2) / 2.0 - 10;
         var boxWidth = Math.Max(150, Math.Min(360, 20 + (label.Length * 6.5)));
