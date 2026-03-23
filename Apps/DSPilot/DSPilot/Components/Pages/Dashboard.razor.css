@@ -1,3 +1,46 @@
+/* ── 전체화면 모드 ── */
+.dashboard-fullscreen {
+    background: var(--color-background);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+}
+.fullscreen-close-btn {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 10001;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(128, 128, 128, 0.15);
+    color: rgba(128, 128, 128, 0.3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.25s, color 0.25s, transform 0.15s;
+    backdrop-filter: blur(4px);
+}
+.fullscreen-close-btn:hover {
+    background: rgba(0, 0, 0, 0.5);
+    color: rgba(255, 255, 255, 0.95);
+    transform: scale(1.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.fullscreen-close-btn .material-icons {
+    font-size: 20px;
+}
+/* 전체화면에서 X버튼과 겹침 방지 — 마지막 위젯 카드 헤더에 오른쪽 여백 추가 */
+.dashboard-fullscreen .widget-container:last-child .ds-card-header {
+    padding-right: calc(var(--u) * 1.2 + 42px);
+}
+
 /* 그리드: 두 방향 모두 뷰포트 채움 */
 .dashboard-grid {
     display: flex;
@@ -294,6 +337,9 @@
     align-items: center;
     justify-content: space-between;
     gap: calc(var(--u) * 0.9);
+    min-height: calc(var(--u) * 3.2);
+    overflow: visible;
+    flex-wrap: wrap;
 }
 .ct-section-title {
     font-size: calc(var(--u) * 1.1);

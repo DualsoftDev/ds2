@@ -11,8 +11,14 @@
 @implements IDisposable
 
 <PageTitle>Dashboard - DSPilot</PageTitle>
-<h5 class="typo-h5 mb-4" style="font-weight: 600; color: var(--color-text-primary);">대시보드</h5>
-<div style="display:flex; flex-direction:column; flex:1; min-height:0;">
+<div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+    <h5 class="typo-h5" style="font-weight: 600; color: var(--color-text-primary); margin:0;">대시보드</h5>
+    <div style="flex:1;"></div>
+    <button class="btn btn-sm btn-outlined" @onclick="EnterFullscreen" title="전체화면">
+        <span class="material-icons" style="font-size:18px;">fullscreen</span> 전체화면
+    </button>
+</div>
+<div @ref="_fullscreenRef" class="@(_isFullscreen ? "dashboard-fullscreen" : "")" style="display:flex; flex-direction:column; flex:1; min-height:0;">
 
 @if (!ProjectService.IsLoaded)
 {
@@ -23,8 +29,16 @@
 }
 else
 {
+    @* ── 전체화면 닫기 버튼 ── *@
+    @if (_isFullscreen)
+    {
+        <button class="fullscreen-close-btn" @onclick="ExitFullscreen" title="전체화면 닫기">
+            <span class="material-icons">close</span>
+        </button>
+    }
+
     @* ── 편집 모드 설정 패널 ── *@
-    @if (EditService.IsEditing)
+    @if (EditService.IsEditing && !_isFullscreen)
     {
         <div class="card mb-3" style="box-shadow: var(--shadow-1);">
             <div style="padding: 12px;">
@@ -125,9 +139,12 @@ else
                                             </div>
                                         }
                                     </div>
-                                    <button class="btn btn-sm btn-outlined" @onclick="@(() => Nav.NavigateTo("/editor"))">
-                                        <span class="material-icons" style="font-size:calc(var(--u) * 1.3);">edit</span> 편집
-                                    </button>
+                                    @if (!_isFullscreen)
+                                    {
+                                        <button class="btn btn-sm btn-outlined" @onclick="@(() => Nav.NavigateTo("/editor"))">
+                                            <span class="material-icons" style="font-size:calc(var(--u) * 1.3);">edit</span> 편집
+                                        </button>
+                                    }
                                 </div>
                             </div>
                             <div class="ds-card-body" style="align-items:center; justify-content:center;">
@@ -165,7 +182,7 @@ else
                             @* ── 헤더 (항상 표시, 도면 레이아웃 카드와 동일 높이) ── *@
                             <div class="ds-card-header">
                                 <span class="ct-section-title">Time 분석</span>
-                                <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.35);">
+                                <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.35); flex-wrap:wrap;">
                                     @* 평균/이전 토글 - 두 버튼으로 표시 *@
                                     <div style="display:flex; gap:4px; background:var(--color-background); padding:4px; border-radius:8px;">
                                         <button class="btn btn-sm @(!_showAverage ? "btn-filled" : "btn-outlined")"
@@ -499,6 +516,11 @@ else
     // 평균/이전 표시 토글
     private bool _showAverage = false;  // false: 이전값, true: 평균값
 
+    // 전체화면 모드
+    private bool _isFullscreen = false;
+    private ElementReference _fullscreenRef;
+    private DotNetObjectReference<Dashboard>? _dotNetRef;
+
     // 대시보드 레이아웃 설정
     private List<string> _widgetOrder    = ["ct", "layout"];
     private HashSet<string> _hiddenWidgets = [];
@@ -553,6 +575,9 @@ else
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
+
+        _dotNetRef = DotNetObjectReference.Create(this);
+
         try
         {
             var json = await JS.InvokeAsync<string?>("localStorage.getItem", "dsp-dashboard-layout-v5");
@@ -605,6 +630,28 @@ else
         _disposed = true;
         DbService.OnDataChanged -= OnDbDataChanged;
         EditService.OnChanged -= OnEditStateChanged;
+        _dotNetRef?.Dispose();
+    }
+
+    private async Task EnterFullscreen()
+    {
+        _isFullscreen = true;
+        StateHasChanged();
+        await Task.Yield(); // DOM 업데이트 대기
+        await JS.InvokeVoidAsync("uiUtils.enterFullscreen", _fullscreenRef, _dotNetRef);
+    }
+
+    private async Task ExitFullscreen()
+    {
+        _isFullscreen = false;
+        await JS.InvokeVoidAsync("uiUtils.exitFullscreen");
+    }
+
+    [JSInvokable]
+    public async Task OnBrowserFullscreenExited()
+    {
+        _isFullscreen = false;
+        await InvokeAsync(StateHasChanged);
     }
 
     private void ResetToDefault()
