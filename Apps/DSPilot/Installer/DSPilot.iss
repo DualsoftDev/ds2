@@ -197,7 +197,13 @@ begin
     UrlsValue := 'http://*:' + Port;
     SaveStringToFile(ExpandConstant('{app}\appsettings.Production.json'),
       '{' + #13#10 +
-      '  "Urls": "' + UrlsValue + '"' + #13#10 +
+      '  "Urls": "' + UrlsValue + '",' + #13#10 +
+      '  "Database": {' + #13#10 +
+      '    "ConnectionString": "Data Source=%ProgramData%/DualSoft/DSPilot/plc.db;Version=3;BusyTimeout=20000"' + #13#10 +
+      '  },' + #13#10 +
+      '  "DspDatabase": {' + #13#10 +
+      '    "Path": "%ProgramData%/DualSoft/DSPilot/dsp.db"' + #13#10 +
+      '  }' + #13#10 +
       '}' + #13#10, False);
     // Tray 앱에도 동일한 설정 파일 복사 (포트 정보 공유)
     SaveStringToFile(ExpandConstant('{app}\Tray\appsettings.Production.json'),
