@@ -306,6 +306,69 @@ else
     </div>
 }
 
+@* ── 클릭 팝업 모달 ── *@
+@if (_popupFlow is var (pName, pMT, pWT, pCT, pWTRatio) && _popupFlow != null)
+{
+    var flowState = GetFlowStateLabel(pName);
+    var stateColor = flowState?.ToLowerInvariant() switch
+    {
+        "ready" => "#4CAF50", "going" => "#EAB308", "finish" => "#2196F3",
+        "error" => "#F44336", _ => "#4CAF50"
+    };
+    var isMaxCT = pName == _maxCtName;
+    var isMinCT = pName == _minCtName;
+    var isMaxWT = pName == _maxWtName;
+    var mtPct = pCT > 0 ? pMT * 100.0 / pCT : 0;
+    var wtPct = 100.0 - mtPct;
+
+    <div class="ct-popup-overlay" @onclick="ClosePopup">
+        <div class="ct-popup-modal" @onclick:stopPropagation>
+            <div class="ct-popup-header" style="border-left: 4px solid @stateColor;">
+                <span class="ct-popup-name">@pName</span>
+                <span class="ct-tooltip-state" style="background:@stateColor;">@(string.IsNullOrEmpty(flowState) ? "Ready" : flowState)</span>
+                <button class="btn-icon ct-popup-close" @onclick="ClosePopup">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+            @if (isMaxCT || isMinCT || isMaxWT)
+            {
+                <div class="ct-popup-badges">
+                    @if (isMaxCT) { <span class="ct-badge-pill" style="background:#ef5350;">최대시간</span> }
+                    @if (isMinCT) { <span class="ct-badge-pill" style="background:#26a69a;">최소시간</span> }
+                    @if (isMaxWT) { <span class="ct-badge-pill" style="background:#F48FB1;">최대대기율</span> }
+                </div>
+            }
+            <div class="ct-popup-bar-section">
+                <div class="ct-popup-bar-track">
+                    <div class="ct-bar-mt" style="width:@(mtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;">
+                        @if (mtPct >= 10) { <span class="ct-bar-pct" style="font-size:12px;">@($"{mtPct:F0}%")</span> }
+                    </div>
+                    <div class="ct-bar-wt" style="width:@(wtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;">
+                        @if (wtPct >= 10) { <span class="ct-bar-pct" style="font-size:12px;">@($"{wtPct:F0}%")</span> }
+                    </div>
+                </div>
+            </div>
+            <div class="ct-popup-grid">
+                <div class="ct-popup-item">
+                    <span class="ct-popup-label">가동시간 (MT)</span>
+                    <span class="ct-popup-val" style="color:#0569A0;">@FormatMs(pMT)</span>
+                </div>
+                <div class="ct-popup-item">
+                    <span class="ct-popup-label">대기시간 (WT)</span>
+                    <span class="ct-popup-val" style="color:#F48FB1;">@FormatMs(pWT)</span>
+                </div>
+                <div class="ct-popup-item">
+                    <span class="ct-popup-label">전체시간 (CT)</span>
+                    <span class="ct-popup-val">@FormatMs(pCT)</span>
+                </div>
+                <div class="ct-popup-item">
+                    <span class="ct-popup-label">대기율</span>
+                    <span class="ct-popup-val">@($"{pWTRatio * 100:F1}%")</span>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 </div>
 
@@ -333,6 +396,9 @@ else
 
     // 선택 동기화
     private string? _selectedFlowName;
+
+    // 팝업 모달
+    private (string FlowName, int MT, int WT, int CT, double WTRatio)? _popupFlow;
 
     // 정렬 설정
     private string _sortField = "ct";   // "ct" | "wt"
@@ -534,6 +600,20 @@ else
     private void OnFlowSelected(string? flowName)
     {
         _selectedFlowName = flowName;
+        // 차트 행 클릭 시 팝업 열기
+        if (flowName != null)
+        {
+            _popupFlow = _chartData.FirstOrDefault(f => f.FlowName == flowName);
+        }
+        else
+        {
+            _popupFlow = null;
+        }
+    }
+
+    private void ClosePopup()
+    {
+        _popupFlow = null;
     }
 
     private void SetSort(string field)
