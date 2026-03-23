@@ -2,7 +2,8 @@
 ; Self-contained installer with Windows Service registration
 
 #define MyAppName "DSPilot"
-#define MyAppVersion "1.0.0"
+#define MyAppExePath "..\publish\" + MyAppName + ".exe"
+#define MyAppVersion GetVersionNumbersString(MyAppExePath)
 #define MyAppPublisher "DualSoft"
 #define MyAppURL "https://dualsoft.co.kr"
 #define MyAppExeName "DSPilot.exe"

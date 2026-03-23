@@ -55,7 +55,8 @@ echo ============================================
 echo   Build Complete!
 echo ============================================
 echo.
-echo   Installer: %OUTPUT_DIR%\DSPilot_Setup_1.0.0.exe
+for /f "tokens=*" %%i in ('powershell -NoProfile -Command "(Get-Item '%PUBLISH_DIR%\DSPilot.exe').VersionInfo.FileVersion"') do set "APP_VER=%%i"
+echo   Installer: %OUTPUT_DIR%\DSPilot_Setup_%APP_VER%.exe
 echo.
 goto :end
 
