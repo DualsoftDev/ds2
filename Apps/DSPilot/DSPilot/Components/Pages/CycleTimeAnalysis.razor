@@ -47,6 +47,7 @@
             </div>
             <div class="filter-row">
                 <button class="btn btn-sm" @onclick="() => SetTimeRangeMinutes(1)">최근 1분</button>
+                <button class="btn btn-sm" @onclick="() => SetTimeRangeMinutes(2)">최근 2분</button>
                 <button class="btn btn-sm" @onclick="() => SetTimeRangeMinutes(5)">최근 5분</button>
                 <button class="btn btn-sm" @onclick="() => SetTimeRangeMinutes(10)">최근 10분</button>
                 <button class="btn btn-sm" @onclick="() => SetTimeRangeMinutes(30)">최근 30분</button>
@@ -57,16 +58,8 @@
             {
                 <div class="filter-row">
                     <div class="filter-group">
-                        <label>GAP 분석 모드</label>
-                        <select class="form-field" @bind="_gapMode">
-                            <option value="@GapAnalysisMode.SameLane">Same Lane (같은 Lane 내)</option>
-                            <option value="@GapAnalysisMode.SameCall">Same Call (같은 Call 반복)</option>
-                            <option value="@GapAnalysisMode.SameGroup">Same Group (같은 Work)</option>
-                        </select>
-                    </div>
-                    <div class="filter-group">
                         <label>정렬 방식</label>
-                        <select class="form-field" @bind="_chartSort">
+                        <select class="form-field" value="@_chartSort" @onchange="OnChartSortChanged">
                             <option value="@ChartSortMode.ByLane">Lane별</option>
                             <option value="@ChartSortMode.ByTime">시간순</option>
                             <option value="@ChartSortMode.ByCallName">Call 이름순</option>
@@ -119,13 +112,13 @@
             </div>
             @if (_topGaps.Any())
             {
-                <div class="info-item highlight" style="flex-direction: column; align-items: flex-start; gap: 5px;">
+                <div class="info-item highlight gap-picker">
                     <span class="label">최대 GAP (Top 5):</span>
-                    <select class="form-field" style="width: 200px; padding: 5px;" @bind="_selectedGapIndex" @bind:after="OnGapSelected">
+                    <select class="form-field gap-picker-select" value="@_selectedGapIndex" @onchange="OnGapSelectedChanged">
                         @for (int i = 0; i < _topGaps.Count; i++)
                         {
                             var gap = _topGaps[i];
-                            var label = $"#{i + 1}: {(gap.Duration / 1000.0):F2}s ({gap.Start:HH:mm:ss} ~ {gap.End:HH:mm:ss})";
+                            var label = $"#{i + 1}: {(gap.Duration / 1000.0):F2}s | {gap.Start:HH:mm:ss} ~ {gap.End:HH:mm:ss}";
                             <option value="@i">@label</option>
                         }
                     </select>
@@ -231,16 +224,8 @@
     private double? _previousGap;
     private double? _nextGap;
 
-    private GapAnalysisMode _gapMode = GapAnalysisMode.SameLane;
     private ChartSortMode _chartSort = ChartSortMode.ByLane;
     private double _zoomLevel = 1.0;
-
-    private enum GapAnalysisMode
-    {
-        SameLane,    // 같은 Lane 내에서 GAP 분석
-        SameCall,    // 같은 Call의 반복 실행 간 GAP 분석
-        SameGroup    // 같은 Work 그룹 내에서 GAP 분석
-    }
 
     private enum ChartSortMode
     {
@@ -253,6 +238,12 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadFlows();
+
+        // 첫 번째 Flow가 선택되었으면 자동으로 GAP 분석 시작
+        if (!string.IsNullOrEmpty(_selectedFlowName))
+        {
+            await LoadGanttData();
+        }
     }
 
     private Task LoadFlows()
@@ -280,13 +271,19 @@
         return Task.CompletedTask;
     }
 
-    private Task OnFlowChanged()
+    private async Task OnFlowChanged()
     {
         _ganttData = null;
         _selectedItem = null;
         _longestGap = null;
+        _topGaps.Clear();
         StateHasChanged();
-        return Task.CompletedTask;
+
+        // Flow 변경 시 자동으로 GAP 분석 시작
+        if (!string.IsNullOrEmpty(_selectedFlowName))
+        {
+            await LoadGanttData();
+        }
     }
 
     private void SetTimeRange(int hours)
@@ -314,7 +311,7 @@
 
         try
         {
-            _ganttData = await CycleAnalysis.GetIOEventsInTimeRangeAsync(
+            _ganttData = await CycleAnalysis.GetActualIoSignalSegmentsInTimeRangeAsync(
                 _selectedFlowName,
                 _chartStartTime,
                 _chartEndTime);
@@ -392,43 +389,129 @@
         return Task.CompletedTask;
     }
 
+    private Task OnGapSelectedChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var index))
+        {
+            _selectedGapIndex = index;
+        }
+
+        return OnGapSelected();
+    }
+
+    private Task OnChartSortChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<ChartSortMode>(e.Value?.ToString(), out var mode))
+        {
+            _chartSort = mode;
+        }
+
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
     private List<GanttChartItem> GetSortedItemsForGapAnalysis()
     {
         if (_ganttData == null) return new List<GanttChartItem>();
 
-        return _gapMode switch
-        {
-            GapAnalysisMode.SameLane => _ganttData.Items
-                .GroupBy(item => item.Lane)
-                .SelectMany(g => g.OrderBy(item => item.GoingStartTime))
-                .ToList(),
-
-            GapAnalysisMode.SameCall => _ganttData.Items
-                .GroupBy(item => item.CallId)
-                .SelectMany(g => g.OrderBy(item => item.GoingStartTime))
-                .ToList(),
-
-            GapAnalysisMode.SameGroup => _ganttData.Items
-                .GroupBy(item => item.WorkName)
-                .SelectMany(g => g.OrderBy(item => item.GoingStartTime))
-                .ToList(),
-
-            _ => _ganttData.Items.OrderBy(item => item.GoingStartTime).ToList()
-        };
+        return _ganttData.Items
+            .OrderBy(item => item.GoingStartTime)
+            .ThenBy(item => item.FinishTime ?? item.GoingStartTime)
+            .ToList();
     }
 
     private List<GanttChartItem> GetSortedItemsForDisplay()
     {
         if (_ganttData == null) return new List<GanttChartItem>();
 
+        var laneOrder = GetDisplayLaneOrder();
+        var laneIndexByLane = laneOrder
+            .Select((lane, index) => new { lane, index })
+            .ToDictionary(x => x.lane, x => x.index);
+
         return _chartSort switch
         {
             ChartSortMode.ByLane => _ganttData.Items.OrderBy(i => i.Lane).ThenBy(i => i.GoingStartTime).ToList(),
             ChartSortMode.ByTime => _ganttData.Items.OrderBy(i => i.GoingStartTime).ToList(),
-            ChartSortMode.ByCallName => _ganttData.Items.OrderBy(i => i.CallName).ThenBy(i => i.GoingStartTime).ToList(),
-            ChartSortMode.ByGapSize => CalculateItemGaps().OrderByDescending(kvp => kvp.Value).Select(kvp => kvp.Key).ToList(),
+            ChartSortMode.ByCallName => _ganttData.Items
+                .OrderBy(i => laneIndexByLane.GetValueOrDefault(i.Lane, i.Lane))
+                .ThenBy(i => i.GoingStartTime)
+                .ToList(),
+            ChartSortMode.ByGapSize => _ganttData.Items
+                .OrderBy(i => laneIndexByLane.GetValueOrDefault(i.Lane, i.Lane))
+                .ThenBy(i => i.GoingStartTime)
+                .ToList(),
             _ => _ganttData.Items.OrderBy(i => i.Lane).ThenBy(i => i.GoingStartTime).ToList()
         };
+    }
+
+    private List<int> GetDisplayLaneOrder()
+    {
+        if (_ganttData == null)
+        {
+            return new List<int>();
+        }
+
+        var laneStats = _ganttData.Items
+            .GroupBy(item => item.Lane)
+            .Select(group =>
+            {
+                var ordered = group.OrderBy(item => item.GoingStartTime).ToList();
+                var label = group.Key >= 0 && group.Key < _ganttData.LaneLabels.Count
+                    ? _ganttData.LaneLabels[group.Key]
+                    : $"Lane {group.Key}";
+
+                return new
+                {
+                    Lane = group.Key,
+                    Label = label,
+                    FirstStart = ordered.FirstOrDefault()?.GoingStartTime ?? DateTime.MaxValue,
+                    MaxGap = CalculateMaxGap(ordered)
+                };
+            })
+            .ToList();
+
+        return _chartSort switch
+        {
+            ChartSortMode.ByTime => laneStats
+                .OrderBy(stat => stat.FirstStart)
+                .ThenBy(stat => stat.Lane)
+                .Select(stat => stat.Lane)
+                .ToList(),
+            ChartSortMode.ByCallName => laneStats
+                .OrderBy(stat => stat.Label, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(stat => stat.Lane)
+                .Select(stat => stat.Lane)
+                .ToList(),
+            ChartSortMode.ByGapSize => laneStats
+                .OrderByDescending(stat => stat.MaxGap)
+                .ThenBy(stat => stat.FirstStart)
+                .ThenBy(stat => stat.Lane)
+                .Select(stat => stat.Lane)
+                .ToList(),
+            _ => laneStats
+                .OrderBy(stat => stat.Lane)
+                .Select(stat => stat.Lane)
+                .ToList()
+        };
+    }
+
+    private static double CalculateMaxGap(List<GanttChartItem> orderedItems)
+    {
+        if (orderedItems.Count < 2)
+        {
+            return 0;
+        }
+
+        double maxGap = 0;
+        for (int i = 0; i < orderedItems.Count - 1; i++)
+        {
+            var currentEnd = orderedItems[i].FinishTime ?? orderedItems[i].GoingStartTime;
+            var nextStart = orderedItems[i + 1].GoingStartTime;
+            maxGap = Math.Max(maxGap, (nextStart - currentEnd).TotalMilliseconds);
+        }
+
+        return maxGap;
     }
 
     private Dictionary<GanttChartItem, double> CalculateItemGaps()
@@ -510,8 +593,8 @@
     {
         const int leftMargin = 220;
         const int topMargin = 60;
-        const int laneHeight = 40;
-        const int barHeight = 30;
+        const int laneHeight = 52;
+        const int barHeight = 14;
         const int plotWidth = 2000;
 
         var chartStartTime = data.ActualEventStartTime ?? data.StartTime;
@@ -520,6 +603,10 @@
         var xScale = plotWidth / (double)cycleTime;
 
         var sortedItems = GetSortedItemsForDisplay();
+        var displayLaneOrder = GetDisplayLaneOrder();
+        var displayLaneIndexByLane = displayLaneOrder
+            .Select((lane, index) => new { lane, index })
+            .ToDictionary(x => x.lane, x => x.index);
         var totalHeight = topMargin + (data.TotalLanes * laneHeight) + 100;
 
         builder.OpenElement(0, "svg");
@@ -539,9 +626,10 @@
         RenderTimeAxis(builder, 10, leftMargin, topMargin, plotWidth, chartStartTime, chartEndTime, xScale);
 
         // Lanes
-        for (int lane = 0; lane < data.TotalLanes; lane++)
+        for (int displayLane = 0; displayLane < displayLaneOrder.Count; displayLane++)
         {
-            var y = topMargin + (lane * laneHeight);
+            var lane = displayLaneOrder[displayLane];
+            var y = topMargin + (displayLane * laneHeight);
 
             // Lane background
             builder.OpenElement(20, "rect");
@@ -549,21 +637,40 @@
             builder.AddAttribute(22, "y", y);
             builder.AddAttribute(23, "width", plotWidth);
             builder.AddAttribute(24, "height", laneHeight);
-            builder.AddAttribute(25, "fill", lane % 2 == 0 ? "#ffffff" : "#f5f5f5");
+            builder.AddAttribute(25, "fill", displayLane % 2 == 0 ? "#ffffff" : "#f5f5f5");
             builder.AddAttribute(26, "stroke", "#e0e0e0");
             builder.AddAttribute(27, "stroke-width", "1");
             builder.CloseElement();
 
+            builder.OpenElement(27, "line");
+            builder.AddAttribute(28, "x1", leftMargin);
+            builder.AddAttribute(29, "y1", y + (laneHeight / 2));
+            builder.AddAttribute(30, "x2", leftMargin + plotWidth);
+            builder.AddAttribute(31, "y2", y + (laneHeight / 2));
+            builder.AddAttribute(32, "stroke", "#eceff1");
+            builder.AddAttribute(33, "stroke-width", "1");
+            builder.CloseElement();
+
             // Lane label
-            builder.OpenElement(28, "text");
-            builder.AddAttribute(29, "x", leftMargin - 10);
-            builder.AddAttribute(30, "y", y + (laneHeight / 2));
-            builder.AddAttribute(31, "text-anchor", "end");
-            builder.AddAttribute(32, "dominant-baseline", "middle");
-            builder.AddAttribute(33, "font-size", "12");
-            builder.AddAttribute(34, "font-weight", "500");
-            builder.AddAttribute(35, "fill", "#333");
-            builder.AddContent(36, data.LaneLabels[lane]);
+            builder.OpenElement(34, "text");
+            builder.AddAttribute(35, "x", leftMargin - 10);
+            builder.AddAttribute(36, "y", y + (laneHeight / 2) - 6);
+            builder.AddAttribute(37, "text-anchor", "end");
+            builder.AddAttribute(38, "dominant-baseline", "middle");
+            builder.AddAttribute(39, "font-size", "12");
+            builder.AddAttribute(40, "font-weight", "600");
+            builder.AddAttribute(41, "fill", "#333");
+            builder.AddContent(42, lane >= 0 && lane < data.LaneLabels.Count ? data.LaneLabels[lane] : $"Lane {lane}");
+            builder.CloseElement();
+
+            builder.OpenElement(43, "text");
+            builder.AddAttribute(44, "x", leftMargin - 10);
+            builder.AddAttribute(45, "y", y + (laneHeight / 2) + 10);
+            builder.AddAttribute(46, "text-anchor", "end");
+            builder.AddAttribute(47, "dominant-baseline", "middle");
+            builder.AddAttribute(48, "font-size", "10");
+            builder.AddAttribute(49, "fill", "#78909c");
+            builder.AddContent(50, "IN / OUT");
             builder.CloseElement();
         }
 
@@ -601,14 +708,18 @@
         // Gantt bars
         foreach (var item in sortedItems)
         {
-            var y = topMargin + (item.Lane * laneHeight) + ((laneHeight - barHeight) / 2);
+            var displayLane = displayLaneIndexByLane.GetValueOrDefault(item.Lane, item.Lane);
+            var laneTop = topMargin + (displayLane * laneHeight);
+            var y = item.EventType == IOEventType.InTag
+                ? laneTop + 7
+                : laneTop + 29;
             var x = leftMargin + (item.RelativeStart * xScale);
             var durationMs = GetItemDurationMs(item);
             var width = Math.Max(2, Math.Max(durationMs, 1) * xScale);
 
             var isSelected = _selectedItem == item;
-            var fillColor = item.EventType == IOEventType.InTag ? "#42a5f5" : "#66bb6a";
-            var strokeColor = isSelected ? "#ff9800" : fillColor.Replace("a5", "85");
+            var fillColor = item.EventType == IOEventType.InTag ? "#42a5f5" : "#f8a8c8";
+            var strokeColor = isSelected ? "#ff9800" : (item.EventType == IOEventType.InTag ? "#1e88e5" : "#e58ab0");
             var eventLabel = item.EventType == IOEventType.InTag ? "InTag" : "OutTag";
             var endLabel = item.FinishTime?.ToString("HH:mm:ss.fff") ?? "진행중";
             var tooltipText = string.Join("\n", new[]

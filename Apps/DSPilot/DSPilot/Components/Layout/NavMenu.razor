@@ -49,7 +49,10 @@
     {
         @foreach (var systemFlows in _systemFlowMap)
         {
-            <div class="typo-h6" style="padding: 8px 16px 4px; font-weight:700;">@systemFlows.Key</div>
+            <div class="typo-h6" style="padding: 8px 16px 4px; font-weight:700; display: flex; align-items: center; gap: 8px;">
+                <img src="images/aas.png" alt="AAS" style="width: 20px; height: 20px; object-fit: contain;" />
+                @systemFlows.Key
+            </div>
             <div style="margin-left: 24px;">
                 @{ var flowList = systemFlows.Value; }
                 @for (int i = 0; i < flowList.Count; i++)
