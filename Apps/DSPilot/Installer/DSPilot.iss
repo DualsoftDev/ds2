@@ -35,6 +35,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Files]
 ; Publish output (self-contained, all dependencies included)
 Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; AASX data file (placed in parent directory: ../DsCSV_0318_C.aasx)
+Source: "..\DsCSV_0318_C.aasx"; DestDir: "{app}\.."; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{code:GetAppURL}"
