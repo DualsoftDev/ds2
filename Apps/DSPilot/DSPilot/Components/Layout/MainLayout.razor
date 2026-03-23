@@ -2,8 +2,9 @@
 @implements IDisposable
 @inject DsProjectService ProjectService
 @inject NavigationManager Nav
+@inject ThemeService ThemeService
 
-<div class="layout">
+<div class="layout @ThemeService.GetThemeClass()">
     <header class="app-bar">
         <button class="btn-icon" @onclick="ToggleDrawer" title="메뉴">
             <span class="material-icons">menu</span>
@@ -17,6 +18,9 @@
             <a href="heatmap" class="header-nav-link @(IsActive("/heatmap"))">동작편차</a>
             <a href="cycle-time-analysis" class="header-nav-link @(IsActive("/cycle-time-analysis"))">사이클 분석</a>
         </nav>
+        <button class="btn-icon" @onclick="ToggleTheme" title="테마 전환">
+            <span class="material-icons">@(ThemeService.IsDarkMode ? "light_mode" : "dark_mode")</span>
+        </button>
         <button class="btn-icon" @onclick="@(() => Nav.NavigateTo("/settings"))" title="설정">
             <span class="material-icons">settings</span>
         </button>
@@ -49,6 +53,7 @@
 
         _currentPath = "/" + Nav.ToBaseRelativePath(Nav.Uri);
         Nav.LocationChanged += OnLocationChanged;
+        ThemeService.OnThemeChanged += OnThemeChanged;
     }
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
@@ -62,8 +67,16 @@
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
 
+    private void ToggleTheme()
+    {
+        ThemeService.ToggleTheme();
+    }
+
+    private void OnThemeChanged() => InvokeAsync(StateHasChanged);
+
     public void Dispose()
     {
         Nav.LocationChanged -= OnLocationChanged;
+        ThemeService.OnThemeChanged -= OnThemeChanged;
     }
 }
