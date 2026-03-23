@@ -11,6 +11,7 @@
     background: var(--color-surface);
     box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
     overflow: hidden;
+    min-width: 0;
 }
 
 .flow-dashboard-panel-header {
@@ -48,6 +49,7 @@
     border-radius: 10px;
     background: color-mix(in srgb, var(--color-text-primary) 6%, var(--color-surface));
     overflow: hidden;
+    min-width: 0;
 }
 
 .flow-dashboard-work-header {

@@ -406,8 +406,7 @@
 
     private string GetWorkMatrixStyle(int count)
     {
-        var columns = Math.Min(MatrixColumns, Math.Max(1, count));
-        return $"grid-template-columns: repeat({columns}, minmax(118px, 1fr));";
+        return $"grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));";
     }
 
     private List<WorkHeatmapGroup> GetWorkGroups(FlowHeatmapGroup group)
