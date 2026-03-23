@@ -4,6 +4,8 @@
 @inject DsProjectService ProjectService
 @inject DspDbService DbService
 @inject PlcToCallMapperService MapperService
+@inject AppSettingsService SettingsService
+@inject IFlowMetricsService FlowMetricsService
 @implements IDisposable
 
 <PageTitle>Flow Workspace - DSPilot</PageTitle>
@@ -65,6 +67,58 @@ else
                     <span class="chip flow-workspace-info-chip">End: @_flowRuntime!.MovingEndName</span>
                 }
             </div>
+        </div>
+    </section>
+
+    <section class="card flow-workspace-panel">
+        <div class="flow-workspace-panel-header">
+            <div>
+                <h6 class="typo-h6">Flow CT 기준</h6>
+                <div class="typo-caption flow-workspace-muted">AASX 기본 start/end Call을 기준으로 사용자 override를 저장합니다.</div>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(_cycleConfigMessage))
+            {
+                <div class="flow-workspace-cycle-message">@_cycleConfigMessage</div>
+            }
+        </div>
+
+        <div class="flow-workspace-cycle-grid">
+            <div class="flow-workspace-cycle-item">
+                <label class="form-label">AASX 기본 시작 Call</label>
+                <input class="form-field" value="@(_aasxDefaultStartCallName ?? "-")" disabled />
+            </div>
+            <div class="flow-workspace-cycle-item">
+                <label class="form-label">AASX 기본 종료 Call</label>
+                <input class="form-field" value="@(_aasxDefaultEndCallName ?? "-")" disabled />
+            </div>
+            <div class="flow-workspace-cycle-item">
+                <label class="form-label">Cycle 시작 Call</label>
+                <select class="form-select" @bind="_selectedCycleStartCallName">
+                    @foreach (var option in _cycleCallOptions)
+                    {
+                        <option value="@option.CallName">@option.DisplayLabel</option>
+                    }
+                </select>
+            </div>
+            <div class="flow-workspace-cycle-item">
+                <label class="form-label">Cycle 종료 Call</label>
+                <select class="form-select" @bind="_selectedCycleEndCallName">
+                    @foreach (var option in _cycleCallOptions)
+                    {
+                        <option value="@option.CallName">@option.DisplayLabel</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <div class="flow-workspace-cycle-actions">
+            <button class="btn btn-filled" @onclick="SaveCycleBoundaryOverrideAsync" disabled="@(!_cycleCallOptions.Any())">
+                <span class="material-icons" style="font-size:18px;">save</span>
+                CT 기준 저장
+            </button>
+            <span class="typo-caption flow-workspace-muted">
+                AASX 기본값과 동일하게 저장하면 override는 제거됩니다.
+            </span>
         </div>
     </section>
 
@@ -298,6 +352,35 @@ else
         padding: 18px 20px;
     }
 
+    .flow-workspace-cycle-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .flow-workspace-cycle-item {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .flow-workspace-cycle-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+    }
+
+    .flow-workspace-cycle-message {
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(var(--color-primary-rgb), 0.08);
+        color: var(--color-primary);
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
     .flow-workspace-panel-header {
         display: flex;
         justify-content: space-between;
@@ -452,7 +535,8 @@ else
         }
 
         .flow-workspace-kpi-grid,
-        .flow-workspace-summary-grid {
+        .flow-workspace-summary-grid,
+        .flow-workspace-cycle-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
@@ -484,6 +568,13 @@ else
     private List<WorkSummaryRow> _workSummaries = [];
     private bool _disposed;
     private string _workspaceSignature = string.Empty;
+    private string? _aasxDefaultStartCallName;
+    private string? _aasxDefaultEndCallName;
+    private string? _selectedCycleStartCallName;
+    private string? _selectedCycleEndCallName;
+    private string? _cycleConfigMessage;
+    private string? _cycleEditorFlowName;
+    private List<FlowCycleCallOption> _cycleCallOptions = [];
 
     private Flow? SelectedFlow => string.IsNullOrWhiteSpace(_selectedFlowName)
         ? null
@@ -574,6 +665,11 @@ else
             .ToList();
         _workCount = works.Count;
 
+        if (!string.Equals(_cycleEditorFlowName, flow.Name, StringComparison.OrdinalIgnoreCase) || _cycleCallOptions.Count == 0)
+        {
+            LoadCycleBoundaryEditor(flow, works);
+        }
+
         var runtimeCalls = _dbSnapshot.CallsByFlow.TryGetValue(flow.Name, out var callsByFlow)
             ? callsByFlow
             : [];
@@ -628,6 +724,65 @@ else
             })
             .OrderBy(row => row.WorkName)
             .ToList();
+    }
+
+    private void LoadCycleBoundaryEditor(Flow flow, List<Work> works)
+    {
+        _cycleEditorFlowName = flow.Name;
+        _cycleCallOptions = works
+            .SelectMany(work => ProjectService.GetCalls(work.Id)
+                .OrderBy(call => call.Name)
+                .Select(call => new FlowCycleCallOption(call.Name, call.Name)))
+            .ToList();
+
+        var (defaultStartCallName, defaultEndCallName) = FlowMetricsService.GetAasxCycleBoundaries(flow.Name);
+        _aasxDefaultStartCallName = defaultStartCallName;
+        _aasxDefaultEndCallName = defaultEndCallName;
+
+        var overrideConfig = SettingsService.GetFlowCycleOverride(flow.Name);
+        _selectedCycleStartCallName = NormalizeCycleSelection(
+            overrideConfig?.StartCallName ?? defaultStartCallName,
+            _cycleCallOptions);
+        _selectedCycleEndCallName = NormalizeCycleSelection(
+            overrideConfig?.EndCallName ?? defaultEndCallName,
+            _cycleCallOptions);
+
+        _cycleConfigMessage = overrideConfig is null
+            ? "현재 AASX 기본값 사용 중"
+            : "사용자 override 저장됨";
+    }
+
+    private async Task SaveCycleBoundaryOverrideAsync()
+    {
+        var flow = SelectedFlow;
+        if (flow is null)
+        {
+            return;
+        }
+
+        var effectiveStartCallName = NormalizeCycleSelection(_selectedCycleStartCallName, _cycleCallOptions) ?? _aasxDefaultStartCallName;
+        var effectiveEndCallName = NormalizeCycleSelection(_selectedCycleEndCallName, _cycleCallOptions) ?? _aasxDefaultEndCallName;
+
+        var overrideStartCallName = string.Equals(effectiveStartCallName, _aasxDefaultStartCallName, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : effectiveStartCallName;
+        var overrideEndCallName = string.Equals(effectiveEndCallName, _aasxDefaultEndCallName, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : effectiveEndCallName;
+
+        SettingsService.SaveFlowCycleOverride(flow.Name, overrideStartCallName, overrideEndCallName);
+        await FlowMetricsService.ApplyCycleBoundaryOverrideAsync(flow.Name, effectiveStartCallName, effectiveEndCallName);
+
+        if (_flowRuntime is not null)
+        {
+            _flowRuntime.MovingStartName = effectiveStartCallName is null ? null : $"{flow.Name}.{effectiveStartCallName}";
+            _flowRuntime.MovingEndName = effectiveEndCallName is null ? null : $"{flow.Name}.{effectiveEndCallName}";
+            _workspaceSignature = BuildWorkspaceSignature(_dbSnapshot);
+        }
+
+        _cycleConfigMessage = string.IsNullOrWhiteSpace(overrideStartCallName) && string.IsNullOrWhiteSpace(overrideEndCallName)
+            ? "AASX 기본값으로 저장됨"
+            : "사용자 override 저장됨";
     }
 
     private void OnSearchChanged(ChangeEventArgs e)
@@ -767,6 +922,24 @@ else
         return $"{milliseconds / 1000.0:F1} sec";
     }
 
+    private static string? NormalizeCycleSelection(string? callName, List<FlowCycleCallOption> options)
+    {
+        var firstOption = options.FirstOrDefault();
+        if (firstOption is null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(callName))
+        {
+            return firstOption.CallName;
+        }
+
+        var trimmed = callName.Trim();
+        var option = options.FirstOrDefault(item => string.Equals(item.CallName, trimmed, StringComparison.OrdinalIgnoreCase));
+        return option?.CallName ?? firstOption.CallName;
+    }
+
     public void Dispose()
     {
         _disposed = true;
@@ -792,4 +965,8 @@ else
         int ErrorCount,
         int FinishCount,
         double? AverageGoingTime);
+
+    private sealed record FlowCycleCallOption(
+        string CallName,
+        string DisplayLabel);
 }

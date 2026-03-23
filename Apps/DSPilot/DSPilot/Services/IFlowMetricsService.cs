@@ -14,6 +14,16 @@ public interface IFlowMetricsService
     Task InitializeAsync();
 
     /// <summary>
+    /// AASX 기준 기본 사이클 시작/종료 Call 조회
+    /// </summary>
+    (string? StartCallName, string? EndCallName) GetAasxCycleBoundaries(string flowName);
+
+    /// <summary>
+    /// Flow별 사이클 시작/종료 Call override 적용
+    /// </summary>
+    Task ApplyCycleBoundaryOverrideAsync(string flowName, string? startCallName, string? endCallName);
+
+    /// <summary>
     /// Call Going 시작 이벤트 처리
     /// </summary>
     void OnCallGoingStarted(string flowName, string callName, DateTime timestamp);

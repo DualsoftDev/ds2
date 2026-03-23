@@ -7,6 +7,7 @@ public class AppSettingsModel
 {
     public DsPilotSettings DsPilot { get; set; } = new();
     public DatabaseSettings Database { get; set; } = new();
+    public FlowCycleSettings FlowCycle { get; set; } = new();
     public PlcDatabaseSettings PlcDatabase { get; set; } = new();
     public PlcCaptureSettings PlcCapture { get; set; } = new();
     public LoggingSettings Logging { get; set; } = new();
@@ -35,6 +36,24 @@ public class DatabaseSettings
 {
     public string Type { get; set; } = "Sqlite";
     public string ConnectionString { get; set; } = "Data Source=%ProgramData%/DualSoft/DSPilot/plc.db;Version=3;BusyTimeout=20000";
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+public class FlowCycleSettings
+{
+    public List<FlowCycleOverride> Overrides { get; set; } = [];
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+public class FlowCycleOverride
+{
+    public string FlowName { get; set; } = "";
+    public string? StartCallName { get; set; }
+    public string? EndCallName { get; set; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
