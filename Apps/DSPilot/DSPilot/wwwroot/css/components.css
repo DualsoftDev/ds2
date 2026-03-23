@@ -73,6 +73,32 @@
 
 .spacer { flex: 1; }
 
+/* Header navigation links */
+.header-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.header-nav-link {
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-appbar-text);
+    text-decoration: none;
+    transition: background 0.15s ease;
+    opacity: 0.85;
+}
+.header-nav-link:hover {
+    background: rgba(255, 255, 255, 0.12);
+    opacity: 1;
+}
+.header-nav-link.active {
+    background: rgba(255, 255, 255, 0.18);
+    font-weight: 700;
+    opacity: 1;
+}
+
 .divider {
     border: none;
     border-top: 1px solid var(--color-lines);

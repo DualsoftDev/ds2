@@ -1,8 +1,10 @@
 @inherits LayoutComponentBase
+@implements IDisposable
 @inject DsProjectService ProjectService
 @inject NavigationManager Nav
+@inject ThemeService ThemeService
 
-<div class="layout">
+<div class="layout @ThemeService.GetThemeClass()">
     <header class="app-bar">
         <button class="btn-icon" @onclick="ToggleDrawer" title="메뉴">
             <span class="material-icons">menu</span>
@@ -11,6 +13,14 @@
             <img src="images/logo.png" alt="DSPilot Logo" height="28" style="margin-right: 12px;" />
         </div>
         <div class="spacer"></div>
+        <nav class="header-nav">
+            <a href="" class="header-nav-link @(IsActive("/"))">대시보드</a>
+            <a href="heatmap" class="header-nav-link @(IsActive("/heatmap"))">동작편차</a>
+            <a href="cycle-time-analysis" class="header-nav-link @(IsActive("/cycle-time-analysis"))">사이클 분석</a>
+        </nav>
+        <button class="btn-icon" @onclick="ToggleTheme" title="테마 전환">
+            <span class="material-icons">@(ThemeService.IsDarkMode ? "light_mode" : "dark_mode")</span>
+        </button>
         <button class="btn-icon" @onclick="@(() => Nav.NavigateTo("/settings"))" title="설정">
             <span class="material-icons">settings</span>
         </button>
@@ -30,16 +40,43 @@
 <div id="snackbar-container"></div>
 
 @code {
-    private bool _drawerOpen = true;
+    private bool _drawerOpen = false;
 
     private string _projectName = "DSPilot";
+    private string _currentPath = "/";
 
     protected override void OnInitialized()
     {
         var project = ProjectService.GetProject();
         if (project != null)
             _projectName = project.Name;
+
+        _currentPath = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+        Nav.LocationChanged += OnLocationChanged;
+        ThemeService.OnThemeChanged += OnThemeChanged;
     }
 
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        _currentPath = "/" + Nav.ToBaseRelativePath(e.Location);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private string IsActive(string path) =>
+        _currentPath.Equals(path, StringComparison.OrdinalIgnoreCase) ? "active" : "";
+
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    private void ToggleTheme()
+    {
+        ThemeService.ToggleTheme();
+    }
+
+    private void OnThemeChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+        ThemeService.OnThemeChanged -= OnThemeChanged;
+    }
 }

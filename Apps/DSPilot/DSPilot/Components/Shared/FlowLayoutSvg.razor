@@ -6,6 +6,7 @@
     @if (!string.IsNullOrEmpty(ImagePath))
     {
         <img src="@(ImagePath)?v=@(ImageVersion)"
+             class="blueprint-bg-image"
              style="position:absolute; inset:0; width:100%; height:100%; opacity:0.3; pointer-events:none; object-fit:fill;" />
     }
 

@@ -5,6 +5,7 @@ using DSPilot.Adapters;
 using System.Data.Common;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseWindowsService();
 var defaultEv2ScanIntervalMs = ResolveScanIntervalMs(builder.Configuration, "PlcCapture:ScanIntervalMs", 100);
 
 // 진단 모드 체크
