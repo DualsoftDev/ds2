@@ -59,7 +59,7 @@
     min-width: 0;
 }
 .ct-top-cell.danger  { border-top: 3px solid #ef5350; }
-.ct-top-cell.warning { border-top: 3px solid #fb8c00; }
+.ct-top-cell.warning { border-top: 3px solid #F48FB1; }
 .ct-top-cell.success { border-top: 3px solid #26a69a; }
 /* 최대/최소 통합 카드 */
 .ct-combined-cell {
@@ -95,7 +95,7 @@
 }
 .ct-top-cell.danger  .ct-summary-title,
 .ct-combined-half.danger .ct-summary-title { color: #ef5350; }
-.ct-top-cell.warning .ct-summary-title { color: #fb8c00; }
+.ct-top-cell.warning .ct-summary-title { color: #F48FB1; }
 .ct-top-cell.success .ct-summary-title,
 .ct-combined-half.success .ct-summary-title { color: #26a69a; }
 /* 배지 (차트 행 전용) */
@@ -191,7 +191,7 @@
     display: flex;
 }
 .ct-bar-mt { background: #0569A0; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.ct-bar-wt { background: #FB8C00; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0 10px 10px 0; }
+.ct-bar-wt { background: #F48FB1; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0 10px 10px 0; }
 .ct-bar-track > :first-child { border-radius: 10px 0 0 10px; overflow: hidden; }
 .ct-bar-track > :last-child  { border-radius: 0 10px 10px 0; overflow: hidden; }
 .ct-bar-track > :only-child  { border-radius: 10px; overflow: hidden; }
@@ -287,7 +287,7 @@
     text-align: right;
 }
 .ct-tooltip-val.mt { color: #0569A0; }
-.ct-tooltip-val.wt { color: #FB8C00; }
+.ct-tooltip-val.wt { color: #F48FB1; }
 .ct-tooltip-val.ct { color: var(--color-text-primary); }
 /* ── 공통 카드 구조 ── */
 .ds-card {
