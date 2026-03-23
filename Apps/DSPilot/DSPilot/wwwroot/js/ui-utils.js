@@ -97,6 +97,34 @@ window.uiUtils = {
         notify();
     },
 
+    // ── Fullscreen API ───────────────────────────
+    enterFullscreen: function (element, dotNetRef) {
+        if (!element) return;
+        // 브라우저 전체화면 진입
+        var fn = element.requestFullscreen || element.webkitRequestFullscreen || element.msRequestFullscreen;
+        if (fn) fn.call(element);
+
+        // fullscreenchange 이벤트로 ESC/브라우저 종료 감지
+        if (dotNetRef) {
+            var handler = function () {
+                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                    dotNetRef.invokeMethodAsync('OnBrowserFullscreenExited').catch(function () { });
+                    document.removeEventListener('fullscreenchange', handler);
+                    document.removeEventListener('webkitfullscreenchange', handler);
+                }
+            };
+            document.addEventListener('fullscreenchange', handler);
+            document.addEventListener('webkitfullscreenchange', handler);
+        }
+    },
+
+    exitFullscreen: function () {
+        var fn = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+        if (fn && (document.fullscreenElement || document.webkitFullscreenElement)) {
+            fn.call(document);
+        }
+    },
+
     disposeElementSizeObserver: function (element) {
         if (!element) return;
 
