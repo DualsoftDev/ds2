@@ -20,6 +20,13 @@
                     <option value="@flow">@flow</option>
                 }
             </select>
+            <select class="form-field" @bind="_visibleCycleCount">
+                <option value="3">최근 3개 사이클</option>
+                <option value="5">최근 5개 사이클</option>
+                <option value="10">최근 10개 사이클</option>
+                <option value="20">최근 20개 사이클</option>
+                <option value="50">최근 50개 사이클</option>
+            </select>
             <button class="btn btn-primary" @onclick="LoadData" disabled="@string.IsNullOrEmpty(_selectedFlowName)">
                 분석 시작
             </button>
@@ -85,7 +92,7 @@
 
             <!-- Chart Section -->
             <div class="chart-section">
-                <h4>실제 IO 타임 차트 (최근 50개 사이클)</h4>
+                <h4>@GetOverviewChartTitle()</h4>
                 <canvas id="cycleTimeChart" style="max-height: 400px;"></canvas>
             </div>
 
@@ -128,7 +135,7 @@
 
                     <!-- Signal Timeline Chart -->
                     <div class="detail-chart-section">
-                        <h5>실제 신호 타임라인 (최근 50개 사이클)</h5>
+                        <h5>@GetSelectedSignalTimelineTitle()</h5>
                         <canvas id="signalTimelineChart" style="max-height: 250px;"></canvas>
                     </div>
 
@@ -197,6 +204,7 @@
     private string? _errorMessage;
     private List<CallCycleData> _callCycles = new();
     private CallCycleData? _selectedCall;
+    private int _visibleCycleCount = 2;
 
     protected override async Task OnInitializedAsync()
     {
@@ -264,7 +272,8 @@
                     ? new List<PlcTagLogEntity>()
                     : await PlcRepository.GetTagLogsByTimeRangeAsync(outTag, startTime, endTime);
 
-                var cycleTimes = CalculateCycleTimes(inTagLogs);
+                var recentSlice = BuildRecentCycleSlice(inTagLogs, outTagLogs, _visibleCycleCount);
+                var cycleTimes = recentSlice.CycleTimes;
 
                 if (!cycleTimes.Any()) return null;
 
@@ -277,10 +286,13 @@
                     MinCycleTime = cycleTimes.Min(),
                     MaxCycleTime = cycleTimes.Max(),
                     StdDeviation = CalculateStdDev(cycleTimes),
+                    DisplayedCycleCount = cycleTimes.Count,
                     InTagAddress = inTag,
                     OutTagAddress = outTag,
-                    InTagLogs = inTagLogs,
-                    OutTagLogs = outTagLogs
+                    InTagLogs = recentSlice.InTagLogs,
+                    OutTagLogs = recentSlice.OutTagLogs,
+                    DisplayStartTime = recentSlice.StartTime,
+                    DisplayEndTime = recentSlice.EndTime
                 };
             });
 
@@ -307,13 +319,12 @@
     {
         try
         {
-            // 첫 번째 Call의 실제 IO 타임 차트 렌더링
             var firstCall = _callCycles.OrderByDescending(c => c.AverageCycleTime).FirstOrDefault();
             if (firstCall == null || firstCall.InTagLogs == null || firstCall.OutTagLogs == null)
                 return;
 
-            var inLogs = firstCall.InTagLogs.Take(200).ToList();
-            var outLogs = firstCall.OutTagLogs.Take(200).ToList();
+            var inLogs = firstCall.InTagLogs.OrderBy(l => l.DateTime).ToList();
+            var outLogs = firstCall.OutTagLogs.OrderBy(l => l.DateTime).ToList();
 
             var inTimestamps = inLogs.Select(l => l.DateTime.ToString("HH:mm:ss.fff")).ToArray();
             var inValues = inLogs.Select(l =>
@@ -366,8 +377,12 @@
             var sorted = _selectedCall.CycleTimes.OrderBy(t => t).ToList();
             var min = sorted.First();
             var max = sorted.Last();
-            var binCount = Math.Min(20, _selectedCall.CycleCount / 5);
+            var binCount = Math.Max(1, Math.Min(20, Math.Max(1, _selectedCall.CycleCount / 5)));
             var binWidth = (max - min) / binCount;
+            if (binWidth <= 0)
+            {
+                binWidth = 1;
+            }
 
             var histogram = new int[binCount];
             var labels = new string[binCount];
@@ -398,8 +413,8 @@
 
         try
         {
-            var inLogs = _selectedCall.InTagLogs.Take(200).ToList();
-            var outLogs = _selectedCall.OutTagLogs.Take(200).ToList();
+            var inLogs = _selectedCall.InTagLogs.OrderBy(l => l.DateTime).ToList();
+            var outLogs = _selectedCall.OutTagLogs.OrderBy(l => l.DateTime).ToList();
 
             var inTimestamps = inLogs.Select(l => l.DateTime.ToString("HH:mm:ss.fff")).ToArray();
             var inValues = inLogs.Select(l =>
@@ -454,6 +469,84 @@
         return cycleTimes;
     }
 
+    private RecentCycleSlice BuildRecentCycleSlice(
+        List<PlcTagLogEntity> inTagLogs,
+        List<PlcTagLogEntity> outTagLogs,
+        int requestedCycleCount)
+    {
+        var orderedInLogs = inTagLogs.OrderBy(l => l.DateTime).ToList();
+        var orderedOutLogs = outTagLogs.OrderBy(l => l.DateTime).ToList();
+        var risingEdges = GetRisingEdgeLogs(orderedInLogs);
+
+        if (risingEdges.Count < 2)
+        {
+            return new RecentCycleSlice
+            {
+                InTagLogs = orderedInLogs,
+                OutTagLogs = orderedOutLogs
+            };
+        }
+
+        var effectiveCount = Math.Min(requestedCycleCount, risingEdges.Count - 1);
+        var startIndex = Math.Max(0, risingEdges.Count - (effectiveCount + 1));
+        var selectedEdges = risingEdges
+            .Skip(startIndex)
+            .Take(effectiveCount + 1)
+            .ToList();
+
+        var cycleTimes = new List<double>();
+        for (var i = 1; i < selectedEdges.Count; i++)
+        {
+            var cycleTime = (selectedEdges[i].DateTime - selectedEdges[i - 1].DateTime).TotalMilliseconds;
+            if (cycleTime > 0 && cycleTime < 60000)
+            {
+                cycleTimes.Add(cycleTime);
+            }
+        }
+
+        var displayStart = selectedEdges.First().DateTime;
+        var displayEnd = selectedEdges.Last().DateTime;
+
+        return new RecentCycleSlice
+        {
+            CycleTimes = cycleTimes,
+            StartTime = displayStart,
+            EndTime = displayEnd,
+            InTagLogs = orderedInLogs
+                .Where(l => l.DateTime >= displayStart && l.DateTime <= displayEnd)
+                .ToList(),
+            OutTagLogs = orderedOutLogs
+                .Where(l => l.DateTime >= displayStart && l.DateTime <= displayEnd)
+                .ToList()
+        };
+    }
+
+    private static List<PlcTagLogEntity> GetRisingEdgeLogs(List<PlcTagLogEntity> logs)
+    {
+        var risingEdges = new List<PlcTagLogEntity>();
+
+        for (var i = 1; i < logs.Count; i++)
+        {
+            var prevValue = IsOnValue(logs[i - 1].Value);
+            var currValue = IsOnValue(logs[i].Value);
+
+            if (!prevValue && currValue)
+            {
+                risingEdges.Add(logs[i]);
+            }
+        }
+
+        return risingEdges;
+    }
+
+    private static bool IsOnValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        return value == "1" || value.Equals("true", StringComparison.OrdinalIgnoreCase);
+    }
+
     private double CalculateStdDev(List<double> values)
     {
         if (values.Count < 2) return 0;
@@ -492,11 +585,25 @@
         return (_callCycles.Max(c => c.MaxCycleTime) / 1000.0).ToString("F1");
     }
 
+    private string GetOverviewChartTitle()
+    {
+        var call = _callCycles.OrderByDescending(c => c.AverageCycleTime).FirstOrDefault();
+        var cycleCount = call?.DisplayedCycleCount ?? _visibleCycleCount;
+        return $"실제 IO 타임 차트 (최근 {cycleCount}개 사이클)";
+    }
+
+    private string GetSelectedSignalTimelineTitle()
+    {
+        var cycleCount = _selectedCall?.DisplayedCycleCount ?? _visibleCycleCount;
+        return $"실제 신호 타임라인 (최근 {cycleCount}개 사이클)";
+    }
+
     private class CallCycleData
     {
         public string CallName { get; set; } = "";
         public List<double> CycleTimes { get; set; } = new();
         public int CycleCount { get; set; }
+        public int DisplayedCycleCount { get; set; }
         public double AverageCycleTime { get; set; }
         public double MinCycleTime { get; set; }
         public double MaxCycleTime { get; set; }
@@ -505,5 +612,16 @@
         public string? OutTagAddress { get; set; }
         public List<PlcTagLogEntity>? InTagLogs { get; set; }
         public List<PlcTagLogEntity>? OutTagLogs { get; set; }
+        public DateTime? DisplayStartTime { get; set; }
+        public DateTime? DisplayEndTime { get; set; }
+    }
+
+    private sealed class RecentCycleSlice
+    {
+        public List<double> CycleTimes { get; set; } = new();
+        public List<PlcTagLogEntity> InTagLogs { get; set; } = new();
+        public List<PlcTagLogEntity> OutTagLogs { get; set; } = new();
+        public DateTime? StartTime { get; set; }
+        public DateTime? EndTime { get; set; }
     }
 }

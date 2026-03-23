@@ -13,6 +13,7 @@ namespace DSPilot.Services;
 /// </summary>
 public class CycleAnalysisService
 {
+    private const int MaxRenderedGanttItems = 1200;
     private readonly IDspRepository _dspRepository;
     private readonly IPlcRepository _plcRepository;
     private readonly PlcToCallMapperService _mapperService;
@@ -318,6 +319,252 @@ public class CycleAnalysisService
         return calls.Count > 0 ? calls.First() : null;
     }
 
+    /// <summary>
+    /// 시간 범위 기준 IO 이벤트를 읽어 Gantt 렌더 데이터로 변환한다.
+    /// </summary>
+    public async Task<GanttChartData> GetIOEventsInTimeRangeAsync(
+        string flowName,
+        DateTime startTime,
+        DateTime endTime)
+    {
+        var flow = GetFlowByName(flowName);
+        if (flow == null)
+        {
+            _logger.LogWarning("Flow '{FlowName}' not found", flowName);
+            return new GanttChartData { FlowName = flowName };
+        }
+
+        var works = _projectService.GetWorks(flow.Id);
+        var tagAddresses = new List<string>();
+        var callTagMap = new Dictionary<string, (Guid CallId, string CallName, string WorkName, IOEventType EventType)>(
+            StringComparer.OrdinalIgnoreCase);
+        var callMetaById = new Dictionary<Guid, (string CallName, string WorkName)>();
+
+        foreach (var work in works)
+        {
+            var calls = _projectService.GetCalls(work.Id);
+            foreach (var call in calls)
+            {
+                var tags = _mapperService.GetCallTagsByCallId(call.Id);
+                if (!tags.HasValue)
+                    continue;
+
+                callMetaById[call.Id] = (call.Name, work.Name);
+
+                if (!string.IsNullOrWhiteSpace(tags.Value.InTag))
+                {
+                    tagAddresses.Add(tags.Value.InTag);
+                    callTagMap[tags.Value.InTag] = (call.Id, call.Name, work.Name, IOEventType.InTag);
+                }
+
+                if (!string.IsNullOrWhiteSpace(tags.Value.OutTag))
+                {
+                    tagAddresses.Add(tags.Value.OutTag);
+                    callTagMap[tags.Value.OutTag] = (call.Id, call.Name, work.Name, IOEventType.OutTag);
+                }
+            }
+        }
+
+        if (tagAddresses.Count == 0)
+        {
+            _logger.LogWarning("No IO tag mapping found for Flow '{FlowName}'", flowName);
+            return new GanttChartData { FlowName = flowName, StartTime = startTime, EndTime = endTime };
+        }
+
+        var logs = await _plcRepository.GetMultipleTagRisingEdgesInRangeAsync(
+            tagAddresses.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            startTime,
+            endTime);
+
+        _logger.LogInformation(
+            "Retrieved {Count} rising-edge logs for Flow '{FlowName}' in range {Start} ~ {End}",
+            logs.Count,
+            flowName,
+            startTime,
+            endTime);
+
+        var ioEvents = new List<CallIOEvent>();
+        foreach (var log in logs.OrderBy(l => l.DateTime))
+        {
+            var address = log.PlcTag?.Address;
+            if (string.IsNullOrWhiteSpace(address) || !callTagMap.TryGetValue(address, out var mapping))
+                continue;
+
+            var tagName = string.IsNullOrWhiteSpace(log.PlcTag?.Name)
+                ? address
+                : log.PlcTag!.Name;
+
+            ioEvents.Add(new CallIOEvent
+            {
+                CallId = mapping.CallId,
+                CallName = mapping.CallName,
+                FlowName = flowName,
+                EventType = mapping.EventType,
+                Timestamp = log.DateTime,
+                RelativeTimeMs = (int)(log.DateTime - startTime).TotalMilliseconds,
+                TagName = tagName,
+                TagAddress = address
+            });
+        }
+
+        var totalEventCount = ioEvents.Count;
+        var callEvents = ioEvents
+            .GroupBy(e => e.CallId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(e => e.RelativeTimeMs).ToList());
+
+        var renderedItems = ioEvents
+            .OrderBy(e => e.RelativeTimeMs)
+            .Take(MaxRenderedGanttItems)
+            .Select(e =>
+            {
+                var eventsForCall = callEvents.GetValueOrDefault(e.CallId, new List<CallIOEvent>());
+                int? duration = null;
+                int? relativeEnd = null;
+                DateTime? finishTime = null;
+
+                if (e.EventType == IOEventType.InTag)
+                {
+                    var nextOutTag = eventsForCall
+                        .FirstOrDefault(evt => evt.EventType == IOEventType.OutTag && evt.RelativeTimeMs > e.RelativeTimeMs);
+
+                    if (nextOutTag != null)
+                    {
+                        duration = nextOutTag.RelativeTimeMs - e.RelativeTimeMs;
+                        relativeEnd = nextOutTag.RelativeTimeMs;
+                        finishTime = nextOutTag.Timestamp;
+                    }
+                }
+                else
+                {
+                    var prevInTag = eventsForCall
+                        .LastOrDefault(evt => evt.EventType == IOEventType.InTag && evt.RelativeTimeMs < e.RelativeTimeMs);
+
+                    if (prevInTag != null)
+                    {
+                        duration = e.RelativeTimeMs - prevInTag.RelativeTimeMs;
+                        relativeEnd = e.RelativeTimeMs;
+                        finishTime = e.Timestamp;
+                    }
+                }
+
+                var callMeta = callMetaById.GetValueOrDefault(e.CallId, (e.CallName, string.Empty));
+
+                return new GanttChartItem
+                {
+                    CallId = e.CallId,
+                    CallName = e.CallName,
+                    WorkName = callMeta.Item2,
+                    FlowName = flowName,
+                    TagName = e.TagName,
+                    TagAddress = e.TagAddress,
+                    RelativeStart = e.RelativeTimeMs,
+                    RelativeEnd = relativeEnd ?? e.RelativeTimeMs,
+                    Duration = duration ?? 0,
+                    Lane = 0,
+                    GoingStartTime = e.Timestamp,
+                    FinishTime = finishTime ?? e.Timestamp,
+                    EventType = e.EventType
+                };
+            })
+            .ToList();
+
+        var laneDefinitions = BuildLaneDefinitions(flow);
+        var laneLabels = AssignConfiguredLanes(renderedItems, laneDefinitions);
+
+        DateTime? actualEventStartTime = null;
+        DateTime? actualEventEndTime = null;
+        if (ioEvents.Count > 0)
+        {
+            actualEventStartTime = ioEvents.Min(e => e.Timestamp);
+            actualEventEndTime = ioEvents.Max(e => e.Timestamp);
+        }
+
+        return new GanttChartData
+        {
+            CycleId = "TimeRange",
+            FlowName = flowName,
+            CycleNumber = 0,
+            StartTime = startTime,
+            EndTime = endTime,
+            ActualEventStartTime = actualEventStartTime,
+            ActualEventEndTime = actualEventEndTime,
+            CT = (int)(endTime - startTime).TotalMilliseconds,
+            TotalLanes = laneLabels.Count,
+            LaneLabels = laneLabels,
+            Items = renderedItems,
+            TotalEventCount = totalEventCount,
+            RenderedEventCount = renderedItems.Count,
+            IsTruncated = totalEventCount > renderedItems.Count
+        };
+    }
+
+    private List<LaneDefinition> BuildLaneDefinitions(Flow flow)
+    {
+        var laneDefinitions = new List<LaneDefinition>();
+        var works = _projectService.GetWorks(flow.Id);
+
+        foreach (var work in works)
+        {
+            var calls = _projectService.GetCalls(work.Id);
+            foreach (var call in calls)
+            {
+                var tags = _mapperService.GetCallTagsByCallId(call.Id);
+                if (!tags.HasValue)
+                    continue;
+
+                if (!string.IsNullOrWhiteSpace(tags.Value.InTag))
+                {
+                    laneDefinitions.Add(new LaneDefinition(
+                        BuildLaneKey(call.Id, IOEventType.InTag),
+                        $"{call.Name} [IN]"));
+                }
+
+                if (!string.IsNullOrWhiteSpace(tags.Value.OutTag))
+                {
+                    laneDefinitions.Add(new LaneDefinition(
+                        BuildLaneKey(call.Id, IOEventType.OutTag),
+                        $"{call.Name} [OUT]"));
+                }
+            }
+        }
+
+        return laneDefinitions;
+    }
+
+    private static List<string> AssignConfiguredLanes(
+        List<GanttChartItem> items,
+        List<LaneDefinition> laneDefinitions)
+    {
+        var laneLabels = laneDefinitions
+            .Select(definition => definition.Label)
+            .ToList();
+
+        var laneByKey = laneDefinitions
+            .Select((definition, index) => new { definition.LaneKey, Index = index })
+            .ToDictionary(x => x.LaneKey, x => x.Index, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in items.OrderBy(i => i.RelativeStart))
+        {
+            var laneKey = BuildLaneKey(item.CallId, item.EventType);
+            if (!laneByKey.TryGetValue(laneKey, out var lane))
+            {
+                lane = laneLabels.Count;
+                laneByKey[laneKey] = lane;
+                laneLabels.Add($"{item.CallName} [{(item.EventType == IOEventType.InTag ? "IN" : "OUT")}]");
+            }
+
+            item.Lane = lane;
+        }
+
+        return laneLabels;
+    }
+
+    private static string BuildLaneKey(Guid callId, IOEventType eventType)
+    {
+        var direction = eventType == IOEventType.InTag ? "IN" : "OUT";
+        return $"{callId:N}|{direction}";
+    }
+
     #endregion
 
     #region 4. Existing Methods (GetCallSequenceAsync, AnalyzeGaps, etc.)
@@ -605,3 +852,43 @@ public class CycleAnalysisService
 
     #endregion
 }
+
+public class GanttChartData
+{
+    public string CycleId { get; set; } = string.Empty;
+    public string FlowName { get; set; } = string.Empty;
+    public int CycleNumber { get; set; }
+    public DateTime StartTime { get; set; }
+    public DateTime? EndTime { get; set; }
+    public DateTime? ActualEventStartTime { get; set; }
+    public DateTime? ActualEventEndTime { get; set; }
+    public int? CT { get; set; }
+    public int? MT { get; set; }
+    public int? WT { get; set; }
+    public int TotalLanes { get; set; }
+    public List<string> LaneLabels { get; set; } = new();
+    public int TotalEventCount { get; set; }
+    public int RenderedEventCount { get; set; }
+    public bool IsTruncated { get; set; }
+    public List<GanttChartItem> Items { get; set; } = new();
+    public List<string> CriticalPath { get; set; } = new();
+}
+
+public class GanttChartItem
+{
+    public Guid CallId { get; set; }
+    public string CallName { get; set; } = string.Empty;
+    public string WorkName { get; set; } = string.Empty;
+    public string FlowName { get; set; } = string.Empty;
+    public string TagName { get; set; } = string.Empty;
+    public string TagAddress { get; set; } = string.Empty;
+    public int RelativeStart { get; set; }
+    public int? RelativeEnd { get; set; }
+    public int? Duration { get; set; }
+    public int Lane { get; set; }
+    public DateTime GoingStartTime { get; set; }
+    public DateTime? FinishTime { get; set; }
+    public IOEventType EventType { get; set; }
+}
+
+internal sealed record LaneDefinition(string LaneKey, string Label);
