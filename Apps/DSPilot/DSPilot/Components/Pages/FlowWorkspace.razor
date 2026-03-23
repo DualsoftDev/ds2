@@ -747,12 +747,12 @@ else
         var normalized = state?.Trim().ToLowerInvariant();
         return normalized switch
         {
-            "going" => "background:#4CAF50; color:white;",
+            "going" => "background:#EAB308; color:white;",
             "finish" => "background:#2196F3; color:white;",
             "error" => "background:#F44336; color:white;",
             "pause" => "background:#FF9800; color:white;",
             "abort" => "background:#7B1FA2; color:white;",
-            "ready" => "background:#9E9E9E; color:white;",
+            "ready" => "background:#4CAF50; color:white;",
             _ => "background:rgba(var(--color-primary-rgb), 0.10); color:var(--color-primary);"
         };
     }
