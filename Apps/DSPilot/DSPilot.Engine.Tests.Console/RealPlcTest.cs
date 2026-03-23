@@ -1,8 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Dapper;
 using Ds2.Core;
 using Ds2.UI.Core;
@@ -10,6 +5,12 @@ using Ev2.Backend.Common;
 using Ev2.Backend.PLC;
 using Ev2.PLC.Protocol.MX;
 using Microsoft.FSharp.Core;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using static Ev2.PLC.Common.TagSpecModule;
 using PlcDataType = Ev2.PLC.Common.CoreDataTypesModule.PlcDataType;
 using PlcValue = Ev2.PLC.Common.CoreDataTypesModule.PlcValue;
 using TagSpec = Ev2.PLC.Common.TagSpecModule.TagSpec;
@@ -141,6 +142,8 @@ public class RealPlcTest
                 dataType: PlcDataType.Bool,
                 walType: FSharpOption<Ev2.PLC.Common.TagSpecModule.WAL>.None,
                 comment: FSharpOption<string>.None,
+                everyNScan: FSharpOption<int>.None,
+                directionHint: FSharpOption<DirectionHint>.None,
                 plcValue: FSharpOption<PlcValue>.None
             ))
             .DistinctBy(t => t.Address)

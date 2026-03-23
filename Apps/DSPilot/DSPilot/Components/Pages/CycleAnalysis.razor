@@ -1,8 +1,10 @@
 @page "/cycle"
 @using DSPilot.Models.Analysis
 @using DSPilot.Services
-@inject CycleAnalysisService AnalysisService
+@using Ds2.Core
+@inject CycleAnalysisService CycleAnalysisService
 @inject DsProjectService ProjectService
+@inject ILogger<DSPilot.Components.Pages.CycleAnalysis> Logger
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 @rendermode InteractiveServer
@@ -10,662 +12,372 @@
 <PageTitle>Timeline 분석 - Gantt Chart</PageTitle>
 
 <div class="cycle-analysis-page">
-    <div class="page-header">
-        <h5 class="typo-h5">Timeline 분석 - Gantt Chart</h5>
-        <p class="typo-body2" style="color: var(--color-text-secondary); margin-top: 8px;">
-            Flow의 Call 실행 타임라인을 자동 사이클 탐지 또는 시간 범위 기준으로 Gantt 차트 분석합니다
-        </p>
+<h5 class="typo-h5 mb-4" style="font-weight: 600; color: #0A1E5A;">Timeline 분석 - Gantt Chart</h5>
+<p class="typo-body1 mb-4" style="color: var(--color-secondary);">
+    Flow의 Call IO Tag 이벤트를 시간 범위 기준으로 Gantt 차트로 시각화하고 GAP을 분석합니다.
+</p>
+
+@if (!ProjectService.IsLoaded)
+{
+    <div class="alert alert-warning mb-4">
+        <span class="material-icons">warning</span>
+        프로젝트가 로드되지 않았습니다. DS 프로젝트를 먼저 로드해주세요.
+    </div>
+}
+else
+{
+    <div class="card mb-4" style="padding:16px;">
+        <h6 class="typo-h6 mb-2">Flow 선택</h6>
+        <div class="form-group mb-4">
+            <select class="form-select" @bind="_selectedFlow">
+                @foreach (var flow in GetFlowsWithCalls())
+                {
+                    <option value="@flow.Name">@flow.Name (@GetFlowCallCount(flow) calls)</option>
+                }
+            </select>
+        </div>
+
+        <h6 class="typo-h6 mb-2 mt-4">시간 범위 선택 모드</h6>
+        <div class="mb-4" style="display:flex; gap:16px;">
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                <input type="radio" name="timeRangeMode" checked="@(_timeRangeMode == "quick")"
+                       @onchange="@(() => _timeRangeMode = "quick")" />
+                빠른 선택 (최근 N초)
+            </label>
+            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                <input type="radio" name="timeRangeMode" checked="@(_timeRangeMode == "custom")"
+                       @onchange="@(() => _timeRangeMode = "custom")" />
+                정밀 선택 (시작/종료 지정)
+            </label>
+        </div>
+
+        @if (_timeRangeMode == "quick")
+        {
+            <div class="form-group mb-4">
+                <label class="form-label">최근 @_timeRangeSeconds 초</label>
+                <input type="range" min="10" max="300" step="10"
+                       value="@_timeRangeSeconds"
+                       @oninput="@(e => { if (int.TryParse(e.Value?.ToString(), out var v)) _timeRangeSeconds = v; })"
+                       style="width:100%;" />
+            </div>
+        }
+        else
+        {
+            <div class="d-flex gap-4 mb-4">
+                <div class="form-group" style="flex:1;">
+                    <label class="form-label">시작 시간</label>
+                    <input type="datetime-local" class="form-field" @bind="_customStartTime" step="1" />
+                </div>
+                <div class="form-group" style="flex:1;">
+                    <label class="form-label">종료 시간</label>
+                    <input type="datetime-local" class="form-field" @bind="_customEndTime" step="1" />
+                </div>
+            </div>
+            <div class="d-flex gap-2 mb-4">
+                <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimeRangePreset(60))">최근 1분</button>
+                <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimeRangePreset(300))">최근 5분</button>
+                <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimeRangePreset(600))">최근 10분</button>
+                <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimeRangePreset(1800))">최근 30분</button>
+            </div>
+        }
+
+        <button class="btn btn-filled" style="width:100%;" @onclick="LoadTimelineAsync" disabled="@_isLoadingGantt">
+            @if (_isLoadingGantt)
+            {
+                <span class="spinner" style="width:20px; height:20px;"></span>
+                <span class="ml-2">로딩 중...</span>
+            }
+            else
+            {
+                <span>타임라인 로드</span>
+            }
+        </button>
     </div>
 
-    @if (!ProjectService.IsLoaded)
+    @if (_isLoadingGantt)
     {
-        <section class="card mb-3">
-            <div class="card-content">
-                <div class="alert alert-warning">
-                    <span class="material-icons">warning</span>
-                    프로젝트가 로드되지 않았습니다. DS 프로젝트를 먼저 로드해주세요.
-                </div>
-            </div>
-        </section>
+        <div class="card" style="padding:16px; display:flex; justify-content:center; align-items:center; min-height:200px;">
+            <div class="spinner"></div>
+        </div>
     }
-    else
+    else if (_ganttData != null)
     {
-        <section class="card mb-3">
-            <div class="card-content">
-                <div class="mode-selector mb-4">
-                    <button class="mode-btn @(_mode == "auto" ? "active" : "")"
-                            @onclick="@(() => SwitchModeAsync("auto"))">
-                        <span class="material-icons">auto_awesome</span>
-                        <div>
-                            <strong>자동 사이클 탐지</strong>
-                            <small>Head Call 기준 자동 인식</small>
-                        </div>
-                    </button>
-                    <button class="mode-btn @(_mode == "manual" ? "active" : "")"
-                            @onclick="@(() => SwitchModeAsync("manual"))">
-                        <span class="material-icons">event</span>
-                        <div>
-                            <strong>수동 시간 범위</strong>
-                            <small>직접 시작/종료 시간 지정</small>
-                        </div>
-                    </button>
-                </div>
+        <div class="card" style="padding:16px;">
+            <h6 class="typo-h6 mb-2">
+                Gantt Chart - @_ganttData.FlowName
+            </h6>
+            <span class="typo-body2 mb-4" style="display:block; color:var(--color-text-secondary);">
+                Time Range: @_ganttData.StartTime.ToString("HH:mm:ss") ~ @_ganttData.EndTime?.ToString("HH:mm:ss")
+                (@_ganttData.CT ms) | Items: @_ganttData.RenderedEventCount / @_ganttData.TotalEventCount | Lanes: @_ganttData.TotalLanes
+            </span>
 
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">Flow 선택</label>
-                        <select class="form-field" @bind="_selectedFlowName" @bind:after="OnFlowChangedAsync">
-                            <option value="">-- Flow 선택 --</option>
-                            @foreach (var flow in _flows)
+            <!-- Chart Controls -->
+            <details class="expansion-panel mb-4">
+                <summary>⚙️ 차트 설정 및 분석 옵션</summary>
+                <div style="padding:16px;">
+                    <div class="grid" style="gap:12px;">
+                        <!-- Row 1: Zoom and Buttons -->
+                        <div class="grid-item-6">
+                            <div class="form-group">
+                                <label class="form-label">차트 확대/축소: @_chartZoomLevel%</label>
+                                <input type="range" min="50" max="300" step="10"
+                                       value="@_chartZoomLevel"
+                                       @oninput="@(e => { if (int.TryParse(e.Value?.ToString(), out var v)) _chartZoomLevel = v; })"
+                                       style="width:100%;" />
+                            </div>
+                        </div>
+                        <div class="grid-item-6 d-flex" style="gap:8px; align-items:center;">
+                            <button class="btn btn-sm @(_showLongestGap ? "btn-filled" : "btn-outlined")" style="flex:1;"
+                                    @onclick="ToggleLongestGapHighlight">
+                                @(_showLongestGap ? "GAP 하이라이트 끄기" : "최대 GAP 하이라이트")
+                            </button>
+                            @if (_selectedItem != null)
                             {
-                                <option value="@flow.Name">@flow.Name</option>
+                                <button class="btn btn-sm btn-outlined" style="flex:1;" @onclick="ClearSelection">
+                                    선택 해제
+                                </button>
                             }
-                        </select>
-                    </div>
+                        </div>
 
-                    @if (_mode == "auto")
-                    {
-                        <div class="form-group">
-                            <label class="form-label">사이클 개수</label>
-                            <select class="form-field" @bind="_cycleCount">
-                                <option value="3">최근 3개</option>
-                                <option value="5">최근 5개</option>
-                                <option value="10">최근 10개</option>
-                                <option value="20">최근 20개</option>
+                        <!-- Row 2: GAP Analysis Mode -->
+                        <div class="grid-item-6">
+                            <span class="typo-subtitle2 mb-2" style="display:block;">GAP 분석 모드</span>
+                            <div style="display:flex; flex-direction:column; gap:4px;">
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="radio" name="gapMode" checked="@(_gapAnalysisMode == GapAnalysisMode.SameLane)"
+                                           @onchange="@(() => _gapAnalysisMode = GapAnalysisMode.SameLane)" />
+                                    같은 레이어 (기본)
+                                </label>
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="radio" name="gapMode" checked="@(_gapAnalysisMode == GapAnalysisMode.SameCall)"
+                                           @onchange="@(() => _gapAnalysisMode = GapAnalysisMode.SameCall)" />
+                                    같은 Call 반복
+                                </label>
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="radio" name="gapMode" checked="@(_gapAnalysisMode == GapAnalysisMode.SameGroup)"
+                                           @onchange="@(() => _gapAnalysisMode = GapAnalysisMode.SameGroup)" />
+                                    같은 Work 그룹
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Row 3: Sort Mode -->
+                        <div class="grid-item-6">
+                            <span class="typo-subtitle2 mb-2" style="display:block;">차트 정렬</span>
+                            <select class="form-select" @onchange="OnSortModeChanged">
+                                <option value="ByLane" selected="@(_chartSortMode == ChartSortMode.ByLane)">레이어 기준 (기본)</option>
+                                <option value="ByTime" selected="@(_chartSortMode == ChartSortMode.ByTime)">시간순</option>
+                                <option value="ByCallName" selected="@(_chartSortMode == ChartSortMode.ByCallName)">Call 이름순</option>
+                                <option value="ByGapSize" selected="@(_chartSortMode == ChartSortMode.ByGapSize)">GAP 크기순</option>
                             </select>
                         </div>
-                        <div class="form-group" style="display:flex; align-items:end;">
-                            <button class="btn btn-filled" @onclick="DetectCycles" disabled="@_detecting">
-                                <span class="material-icons">search</span>
-                                @(_detecting ? "탐지 중..." : "사이클 탐지")
-                            </button>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="form-group">
-                            <label class="form-label">시작 시간</label>
-                            <input type="datetime-local" class="form-field" step="1" @bind="_cycleStartTime" />
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">종료 시간</label>
-                            <input type="datetime-local" class="form-field" step="1" @bind="_cycleEndTime" />
-                        </div>
-                        <div class="form-group" style="display:flex; align-items:end;">
-                            <button class="btn btn-filled" @onclick="AnalyzeManualRange" disabled="@_analyzing">
-                                <span class="material-icons">analytics</span>
-                                @(_analyzing ? "분석 중..." : "분석 실행")
-                            </button>
-                        </div>
-                    }
+                    </div>
                 </div>
+            </details>
 
-                @if (_mode == "manual")
+            <!-- Selected Item Info Panel -->
+            @if (_selectedItem != null)
+            {
+                <div class="card mb-4" style="padding:16px; border-left: 4px solid #FF5722;">
+                    <h6 class="typo-h6 mb-3" style="color:var(--color-primary);">
+                        📊 선택된 아이템 분석
+                    </h6>
+
+                    <div class="grid" style="gap:16px;">
+                        <div class="grid-item-6">
+                            <span class="typo-subtitle2 mb-2" style="display:block;">
+                                <strong>기본 정보</strong>
+                            </span>
+                            <p class="typo-body2">• Call: <strong>@_selectedItem.CallName</strong></p>
+                            <p class="typo-body2">• Flow: @_selectedItem.FlowName</p>
+                            <p class="typo-body2">• Tag: @_selectedItem.TagName [@_selectedItem.TagAddress]</p>
+                            <p class="typo-body2">
+                                • Event Type: <strong>@(_selectedItem.EventType == DSPilot.Models.Analysis.IOEventType.InTag ? "InTag (Input)" : "OutTag (Output)")</strong>
+                            </p>
+                            <p class="typo-body2">• Timestamp: @_selectedItem.GoingStartTime.ToString("HH:mm:ss.fff")</p>
+                            <p class="typo-body2">• Lane: @_selectedItem.Lane / @_ganttData.TotalLanes</p>
+                        </div>
+
+                        <div class="grid-item-6">
+                            <span class="typo-subtitle2 mb-2" style="display:block;">
+                                <strong>🔗 연결 정보</strong>
+                            </span>
+                            @if (_previousItem != null)
+                            {
+                                <p class="typo-body2" style="color: #FF9800;">
+                                    ← 이전 신호: <strong>@_previousItem.CallName</strong> (GAP: <strong>@_gapToPrevious.ToString("F0")ms</strong>)
+                                </p>
+                            }
+                            else
+                            {
+                                <p class="typo-body2" style="color:var(--color-text-secondary);">← 이전 신호: 없음 (레이어 시작)</p>
+                            }
+
+                            @if (_nextItem != null)
+                            {
+                                <p class="typo-body2" style="color: #4CAF50;">
+                                    → 다음 신호: <strong>@_nextItem.CallName</strong> (GAP: <strong>@_gapToNext.ToString("F0")ms</strong>)
+                                </p>
+                            }
+                            else
+                            {
+                                <p class="typo-body2" style="color:var(--color-text-secondary);">→ 다음 신호: 없음 (레이어 끝)</p>
+                            }
+
+                            <hr class="divider my-2" />
+
+                            <span class="typo-subtitle2 mb-2" style="display:block;">
+                                <strong>📈 통계</strong>
+                            </span>
+                            @{
+                                var laneItems = _ganttData.Items.Where(i => i.Lane == _selectedItem.Lane).ToList();
+                                var totalOnLane = laneItems.Count;
+                                var positionOnLane = laneItems.OrderBy(i => i.GoingStartTime).ToList().IndexOf(_selectedItem) + 1;
+                                var percentComplete = _ganttData.Items.Count > 0 ? (_selectedItemIndex + 1) * 100.0 / _ganttData.Items.Count : 0;
+                            }
+                            <p class="typo-body2">• 레이어 내 위치: @positionOnLane / @totalOnLane</p>
+                            <p class="typo-body2">• 전체 이벤트 중: #@(_selectedItemIndex + 1) (@percentComplete.ToString("F1")%)</p>
+                            @if (_gapToPrevious > 0 && _gapToNext > 0)
+                            {
+                                var avgGap = (_gapToPrevious + _gapToNext) / 2.0;
+                                <p class="typo-body2">• 평균 주변 GAP: @avgGap.ToString("F0")ms</p>
+                            }
+
+                            <hr class="divider my-2" />
+
+                            <span class="typo-subtitle2 mb-2" style="display:block;">
+                                <strong>🔄 사이클 분석</strong>
+                            </span>
+                            @{
+                                var sameCallItems = _ganttData.Items
+                                    .Where(i => i.CallName == _selectedItem.CallName)
+                                    .OrderBy(i => i.GoingStartTime)
+                                    .ToList();
+
+                                var cycleCount = sameCallItems.Count;
+                                var cycleIndex = sameCallItems.IndexOf(_selectedItem) + 1;
+
+                                if (cycleCount > 1)
+                                {
+                                    var cycleTimes = new List<double>();
+                                    for (int i = 1; i < sameCallItems.Count; i++)
+                                    {
+                                        var prevStart = sameCallItems[i - 1].GoingStartTime;
+                                        var currentStart = sameCallItems[i].GoingStartTime;
+                                        cycleTimes.Add((currentStart - prevStart).TotalMilliseconds);
+                                    }
+
+                                    if (cycleTimes.Any())
+                                    {
+                                        var avgCycleTime = cycleTimes.Average();
+                                        var minCycleTime = cycleTimes.Min();
+                                        var maxCycleTime = cycleTimes.Max();
+
+                                        <p class="typo-body2">• Call 발생 횟수: @cycleCount 회</p>
+                                        <p class="typo-body2">• 현재 사이클: #@cycleIndex / @cycleCount</p>
+                                        <p class="typo-body2">• 평균 사이클 타임: @avgCycleTime.ToString("F0")ms</p>
+                                        <p class="typo-body2">• 최소/최대: @minCycleTime.ToString("F0")ms / @maxCycleTime.ToString("F0")ms</p>
+
+                                        if (cycleIndex < cycleCount)
+                                        {
+                                            var nextCycleTime = (sameCallItems[cycleIndex].GoingStartTime - _selectedItem.GoingStartTime).TotalMilliseconds;
+                                            <p class="typo-body2" style="color: #2196F3;">
+                                                • 다음 사이클까지: <strong>@nextCycleTime.ToString("F0")ms</strong>
+                                            </p>
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    <p class="typo-body2" style="color:var(--color-text-secondary);">• 단일 발생 (사이클 없음)</p>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @if (_ganttData.Items.Any())
+            {
+                @if (_ganttData.IsTruncated)
                 {
-                    <div class="quick-presets mt-3">
-                        <span class="typo-caption" style="margin-right: 12px;">빠른 선택:</span>
-                        <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimePreset(1))">최근 1분</button>
-                        <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimePreset(5))">최근 5분</button>
-                        <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimePreset(10))">최근 10분</button>
-                        <button class="btn btn-sm btn-outlined" @onclick="@(() => SetTimePreset(30))">최근 30분</button>
+                    <div class="alert alert-warning mb-4">
+                        <span class="material-icons">warning</span>
+                        이벤트가 많아 화면 프리징을 막기 위해 최근 순서 기준 @_ganttData.RenderedEventCount 개만 렌더했습니다.
                     </div>
                 }
-            </div>
-        </section>
 
-        @if (_mode == "auto" && _detectedCycles.Count > 0)
-        {
-            <section class="card mb-3">
-                <div class="card-header">
-                    <span class="material-icons mr-2">view_list</span>
-                    <h6 class="typo-h6">탐지된 사이클 목록</h6>
-                    <span class="badge" style="margin-left: auto;">@_detectedCycles.Count 개</span>
-                </div>
-                <div class="card-content">
-                    <div class="cycle-list">
-                        @foreach (var cycle in _detectedCycles)
-                        {
-                            var isSelected = _selectedCycle == cycle;
-                            <div class="cycle-item @(isSelected ? "selected" : "")"
-                                 @onclick="@(() => SelectCycle(cycle))">
-                                <div class="cycle-header">
-                                    <div class="cycle-number">
-                                        <span class="material-icons">flag</span>
-                                        <strong>사이클 #@cycle.CycleNumber</strong>
-                                    </div>
-                                    <div class="cycle-status">
-                                        <span class="badge @(cycle.IsComplete ? "badge-success" : "badge-warning")">
-                                            @cycle.Status
-                                        </span>
-                                    </div>
-                                </div>
-                                <div class="cycle-time">
-                                    <span class="material-icons icon-sm">schedule</span>
-                                    @cycle.StartTime.ToString("yyyy-MM-dd HH:mm:ss.fff")
-                                    @if (cycle.EndTime.HasValue)
-                                    {
-                                        <span>→ @cycle.EndTime.Value.ToString("HH:mm:ss.fff")</span>
-                                    }
-                                    <span class="duration">(@cycle.Duration.TotalSeconds.ToString("F2")s)</span>
-                                </div>
-                                @if (cycle.Summary != null)
-                                {
-                                    <div class="cycle-summary">
-                                        <div class="summary-item">
-                                            <span class="icon material-icons">call</span>
-                                            <span>@cycle.Summary.TotalCallCount Calls</span>
-                                        </div>
-                                        <div class="summary-item">
-                                            <span class="icon material-icons">speed</span>
-                                            <span>가동률 @cycle.Summary.UtilizationRate.ToString("F1")%</span>
-                                        </div>
-                                        <div class="summary-item">
-                                            <span class="icon material-icons">hourglass_empty</span>
-                                            <span>Gap @cycle.Summary.TotalGapTime.TotalSeconds.ToString("F1")s</span>
-                                        </div>
-                                    </div>
-                                }
-                            </div>
-                        }
+                <!-- Legend -->
+                <div style="margin-bottom: 16px; display: flex; gap: 16px; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 20px; height: 20px; background-color: #2196F3; border: 1px solid var(--color-lines); border-radius: 3px;"></div>
+                        <span style="font-size: 14px; color: var(--color-text-primary);">InTag (Input)</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 20px; height: 20px; background-color: #4CAF50; border: 1px solid var(--color-lines); border-radius: 3px;"></div>
+                        <span style="font-size: 14px; color: var(--color-text-primary);">OutTag (Output)</span>
                     </div>
                 </div>
-            </section>
-        }
 
-        @if (_analysisData != null)
-        {
-            <section class="card mb-3">
-                <div class="card-header">
-                    <span class="material-icons mr-2">dashboard</span>
-                    <h6 class="typo-h6">성능 지표</h6>
-                    @if (_analysisData.Boundary != null)
-                    {
-                        <span class="badge badge-primary ml-auto">사이클 #@_analysisData.Boundary.CycleNumber</span>
-                    }
+                <div @ref="_chartContainerRef" data-chart-container style="overflow-x: auto;">
+                    @RenderGanttChart(_ganttData)
                 </div>
-                <div class="card-content">
-                    <div class="metrics-grid">
-                        <div class="metric-card primary">
-                            <span class="material-icons">schedule</span>
-                            <div class="metric-content">
-                                <span class="metric-label">총 시간</span>
-                                <strong class="metric-value">@_analysisData.TotalDuration.TotalSeconds.ToString("F1")s</strong>
-                            </div>
-                        </div>
-                        <div class="metric-card success">
-                            <span class="material-icons">play_circle</span>
-                            <div class="metric-content">
-                                <span class="metric-label">동작 시간</span>
-                                <strong class="metric-value">@_analysisData.Metrics.TotalActiveTime.TotalSeconds.ToString("F1")s</strong>
-                            </div>
-                        </div>
-                        <div class="metric-card warning">
-                            <span class="material-icons">pause_circle</span>
-                            <div class="metric-content">
-                                <span class="metric-label">유휴 시간</span>
-                                <strong class="metric-value">@_analysisData.Metrics.TotalIdleTime.TotalSeconds.ToString("F1")s</strong>
-                            </div>
-                        </div>
-                        <div class="metric-card info">
-                            <span class="material-icons">speed</span>
-                            <div class="metric-content">
-                                <span class="metric-label">가동률</span>
-                                <strong class="metric-value">@_analysisData.Metrics.UtilizationRate.ToString("F1")%</strong>
-                            </div>
-                        </div>
-                        <div class="metric-card">
-                            <span class="material-icons">call</span>
-                            <div class="metric-content">
-                                <span class="metric-label">Call 수</span>
-                                <strong class="metric-value">@_analysisData.CallCount</strong>
-                            </div>
-                        </div>
-                        <div class="metric-card">
-                            <span class="material-icons">trending_up</span>
-                            <div class="metric-content">
-                                <span class="metric-label">처리율</span>
-                                <strong class="metric-value">@_analysisData.Metrics.Throughput.ToString("F1")/min</strong>
-                            </div>
-                        </div>
-                        @if (_analysisData.Metrics.ParallelExecutions > 0)
-                        {
-                            <div class="metric-card accent">
-                                <span class="material-icons">compare_arrows</span>
-                                <div class="metric-content">
-                                    <span class="metric-label">병렬 실행</span>
-                                    <strong class="metric-value">@_analysisData.Metrics.ParallelExecutions</strong>
-                                </div>
-                            </div>
-                        }
-                    </div>
-                </div>
-            </section>
-
-            <section class="card mb-3">
-                <div class="card-header">
-                    <span class="material-icons mr-2">timeline</span>
-                    <h6 class="typo-h6">타임라인 Gantt Chart</h6>
-                    <button class="btn btn-sm btn-outlined ml-auto" @onclick="ExportGanttData" disabled="@(_ganttData == null)">
-                        <span class="material-icons icon-sm">download</span>
-                        내보내기
-                    </button>
-                </div>
-                <div class="card-content">
-                    <details class="cycle-settings mb-4">
-                        <summary>⚙️ 차트 설정 및 분석 옵션</summary>
-                        <div class="cycle-settings-body">
-                            <div class="cycle-settings-grid">
-                                <div>
-                                    <label class="form-label">차트 확대/축소: @_chartZoomLevel%</label>
-                                    <input type="range" min="50" max="300" step="10"
-                                           value="@_chartZoomLevel"
-                                           @oninput="OnZoomChanged"
-                                           style="width:100%;" />
-                                </div>
-
-                                <div class="cycle-actions-row">
-                                    <button class="btn btn-sm @(_showLongestGap ? "btn-filled" : "btn-outlined")"
-                                            style="flex:1;"
-                                            @onclick="ToggleLongestGapHighlight">
-                                        @(_showLongestGap ? "GAP 하이라이트 끄기" : "최대 GAP 하이라이트")
-                                    </button>
-                                    @if (_selectedItem != null)
-                                    {
-                                        <button class="btn btn-sm btn-outlined" style="flex:1;" @onclick="ClearSelection">
-                                            선택 해제
-                                        </button>
-                                    }
-                                </div>
-
-                                <div>
-                                    <span class="form-label" style="display:block; margin-bottom:8px;">GAP 분석 모드</span>
-                                    <div class="radio-stack">
-                                        <label>
-                                            <input type="radio" name="gapMode" checked="@(_gapAnalysisMode == GapAnalysisMode.SameLane)"
-                                                   @onchange="@(() => _gapAnalysisMode = GapAnalysisMode.SameLane)" />
-                                            같은 레이어 (기본)
-                                        </label>
-                                        <label>
-                                            <input type="radio" name="gapMode" checked="@(_gapAnalysisMode == GapAnalysisMode.SameCall)"
-                                                   @onchange="@(() => _gapAnalysisMode = GapAnalysisMode.SameCall)" />
-                                            같은 Call 반복
-                                        </label>
-                                        <label>
-                                            <input type="radio" name="gapMode" checked="@(_gapAnalysisMode == GapAnalysisMode.SameGroup)"
-                                                   @onchange="@(() => _gapAnalysisMode = GapAnalysisMode.SameGroup)" />
-                                            같은 Work 그룹
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label class="form-label">차트 정렬</label>
-                                    <select class="form-field" @onchange="OnSortModeChanged">
-                                        <option value="ByLane" selected="@(_chartSortMode == ChartSortMode.ByLane)">레이어 기준 (기본)</option>
-                                        <option value="ByTime" selected="@(_chartSortMode == ChartSortMode.ByTime)">시간순</option>
-                                        <option value="ByCallName" selected="@(_chartSortMode == ChartSortMode.ByCallName)">Call 이름순</option>
-                                        <option value="ByGapSize" selected="@(_chartSortMode == ChartSortMode.ByGapSize)">GAP 크기순</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                    </details>
-
-                    @if (_selectedItem != null && _ganttData != null)
-                    {
-                        <div class="selected-item-panel mb-4">
-                            <h6 class="typo-h6 mb-3" style="color: var(--color-primary);">📊 선택된 아이템 분석</h6>
-
-                            <div class="selected-item-grid">
-                                <div>
-                                    <div class="selected-item-section-title"><strong>기본 정보</strong></div>
-                                    <p class="typo-body2">• Call: <strong>@_selectedItem.CallName</strong></p>
-                                    <p class="typo-body2">• Work: @(!string.IsNullOrWhiteSpace(_selectedItem.WorkName) ? _selectedItem.WorkName : "-")</p>
-                                    <p class="typo-body2">• Flow: @_selectedItem.FlowName</p>
-                                    <p class="typo-body2">• Tag: @_selectedItem.TagName [@_selectedItem.TagAddress]</p>
-                                    <p class="typo-body2">• Event Type: <strong>@GetEventTypeText(_selectedItem.EventType)</strong></p>
-                                    <p class="typo-body2">• Timestamp: @_selectedItem.GoingStartTime.ToString("HH:mm:ss.fff")</p>
-                                    <p class="typo-body2">• Lane: @(_selectedItem.Lane + 1) / @_ganttData.TotalLanes</p>
-                                </div>
-
-                                <div>
-                                    <div class="selected-item-section-title"><strong>🔗 연결 정보</strong></div>
-                                    @if (_previousItem != null)
-                                    {
-                                        <p class="typo-body2" style="color: #ff9800;">
-                                            ← 이전 신호: <strong>@_previousItem.CallName</strong> (GAP: <strong>@_gapToPrevious.ToString("F0")ms</strong>)
-                                        </p>
-                                    }
-                                    else
-                                    {
-                                        <p class="typo-body2" style="color: var(--color-text-secondary);">← 이전 신호: 없음 (레이어 시작)</p>
-                                    }
-
-                                    @if (_nextItem != null)
-                                    {
-                                        <p class="typo-body2" style="color: #4caf50;">
-                                            → 다음 신호: <strong>@_nextItem.CallName</strong> (GAP: <strong>@_gapToNext.ToString("F0")ms</strong>)
-                                        </p>
-                                    }
-                                    else
-                                    {
-                                        <p class="typo-body2" style="color: var(--color-text-secondary);">→ 다음 신호: 없음 (레이어 끝)</p>
-                                    }
-
-                                    <hr class="divider my-2" />
-
-                                    <div class="selected-item-section-title"><strong>📈 통계</strong></div>
-                                    @{
-                                        var laneItems = _ganttData.Items
-                                            .Where(i => i.Lane == _selectedItem.Lane)
-                                            .OrderBy(i => i.GoingStartTime)
-                                            .ToList();
-                                        var totalOnLane = laneItems.Count;
-                                        var positionOnLane = laneItems.IndexOf(_selectedItem) + 1;
-                                        var orderedAllItems = GetSortedItems(_ganttData);
-                                        var itemPosition = orderedAllItems.IndexOf(_selectedItem) + 1;
-                                        var percentComplete = orderedAllItems.Count > 0 ? itemPosition * 100.0 / orderedAllItems.Count : 0;
-                                    }
-                                    <p class="typo-body2">• 레이어 내 위치: @positionOnLane / @totalOnLane</p>
-                                    <p class="typo-body2">• 전체 이벤트 중: #@itemPosition (@percentComplete.ToString("F1")%)</p>
-                                    @if (_gapToPrevious > 0 && _gapToNext > 0)
-                                    {
-                                        var avgGap = (_gapToPrevious + _gapToNext) / 2.0;
-                                        <p class="typo-body2">• 평균 주변 GAP: @avgGap.ToString("F0")ms</p>
-                                    }
-
-                                    <hr class="divider my-2" />
-
-                                    <div class="selected-item-section-title"><strong>🔄 사이클 분석</strong></div>
-                                    @{
-                                        var sameCallItems = _ganttData.Items
-                                            .Where(i => i.CallId == _selectedItem.CallId)
-                                            .OrderBy(i => i.GoingStartTime)
-                                            .ToList();
-                                        var cycleCount = sameCallItems.Count;
-                                        var cycleIndex = sameCallItems.IndexOf(_selectedItem) + 1;
-                                    }
-                                    @if (cycleCount > 1)
-                                    {
-                                        var cycleTimes = new List<double>();
-                                        for (var i = 1; i < sameCallItems.Count; i++)
-                                        {
-                                            cycleTimes.Add((sameCallItems[i].GoingStartTime - sameCallItems[i - 1].GoingStartTime).TotalMilliseconds);
-                                        }
-
-                                        if (cycleTimes.Any())
-                                        {
-                                            var avgCycleTime = cycleTimes.Average();
-                                            var minCycleTime = cycleTimes.Min();
-                                            var maxCycleTime = cycleTimes.Max();
-
-                                            <p class="typo-body2">• Call 발생 횟수: @cycleCount 회</p>
-                                            <p class="typo-body2">• 현재 사이클: #@cycleIndex / @cycleCount</p>
-                                            <p class="typo-body2">• 평균 사이클 타임: @avgCycleTime.ToString("F0")ms</p>
-                                            <p class="typo-body2">• 최소/최대: @minCycleTime.ToString("F0")ms / @maxCycleTime.ToString("F0")ms</p>
-
-                                            @if (cycleIndex < cycleCount)
-                                            {
-                                                var nextCycleTime = (sameCallItems[cycleIndex].GoingStartTime - _selectedItem.GoingStartTime).TotalMilliseconds;
-                                                <p class="typo-body2" style="color: #2196f3;">
-                                                    • 다음 사이클까지: <strong>@nextCycleTime.ToString("F0")ms</strong>
-                                                </p>
-                                            }
-                                        }
-                                    }
-                                    else
-                                    {
-                                        <p class="typo-body2" style="color: var(--color-text-secondary);">• 단일 발생 (사이클 없음)</p>
-                                    }
-                                </div>
-                            </div>
-                        </div>
-                    }
-
-                    @if (_ganttData != null)
-                    {
-                        @if (_ganttData.IsTruncated)
-                        {
-                            <div class="alert alert-warning mb-3">
-                                <span class="material-icons">warning</span>
-                                이벤트가 많아 화면 프리징을 막기 위해 최근 순서 기준 @_ganttData.RenderedEventCount 개만 렌더했습니다.
-                            </div>
-                        }
-
-                        @if (_ganttData.Items.Any())
-                        {
-                            <div class="chart-legend mb-3">
-                                <div class="legend-item">
-                                    <span class="legend-swatch legend-swatch-in"></span>
-                                    <span>InTag (Input)</span>
-                                </div>
-                                <div class="legend-item">
-                                    <span class="legend-swatch legend-swatch-out"></span>
-                                    <span>OutTag (Output)</span>
-                                </div>
-                            </div>
-
-                            <div @ref="_chartContainerRef" class="gantt-scroll-container" data-chart-container>
-                                @RenderGanttChart(_ganttData)
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="alert alert-info">
-                                <span class="material-icons">info</span>
-                                이 시간 범위에는 IO 이벤트가 없습니다.
-                            </div>
-                        }
-                    }
-                </div>
-            </section>
-
-            @if (_analysisData.TopLongGaps.Count > 0)
-            {
-                <section class="card mb-3">
-                    <div class="card-header">
-                        <span class="material-icons mr-2 text-warning">warning</span>
-                        <h6 class="typo-h6">Top 3 긴 대기 시간 (Gap)</h6>
-                    </div>
-                    <div class="card-content">
-                        <div class="gap-cards">
-                            @foreach (var gap in _analysisData.TopLongGaps)
-                            {
-                                <div class="gap-card rank-@gap.Rank">
-                                    <div class="gap-rank">
-                                        <span class="rank-number">@gap.Rank</span>
-                                    </div>
-                                    <div class="gap-info">
-                                        <div class="gap-calls">
-                                            <span>@gap.PreviousCall</span>
-                                            <span class="material-icons">arrow_forward</span>
-                                            <span>@gap.NextCall</span>
-                                        </div>
-                                        <div class="gap-duration">
-                                            <strong>@gap.GapDuration.TotalSeconds.ToString("F2")s</strong>
-                                            @if (gap.IsBottleneck)
-                                            {
-                                                <span class="badge badge-error ml-2">병목</span>
-                                            }
-                                        </div>
-                                        <div class="gap-time typo-caption">
-                                            @gap.GapStartTime.ToString("HH:mm:ss.fff") ~ @gap.GapEndTime.ToString("HH:mm:ss.fff")
-                                        </div>
-                                    </div>
-                                </div>
-                            }
-                        </div>
-                    </div>
-                </section>
             }
-
-            @if (_analysisData.DeviceStats.Count > 0)
+            else
             {
-                <section class="card mb-3">
-                    <div class="card-header">
-                        <span class="material-icons mr-2">devices</span>
-                        <h6 class="typo-h6">장치별 시간 분포</h6>
-                    </div>
-                    <div class="card-content">
-                        <div class="device-stats">
-                            @foreach (var (deviceName, stats) in _analysisData.DeviceStats.OrderByDescending(x => x.Value.TotalTime))
-                            {
-                                <div class="device-stat-item">
-                                    <div class="device-header">
-                                        <strong class="device-name">@deviceName</strong>
-                                        <span class="device-percentage">@stats.PercentageOfCycle.ToString("F1")%</span>
-                                    </div>
-                                    <div class="progress-bar">
-                                        <div class="progress-fill" style="width: @stats.PercentageOfCycle%"></div>
-                                    </div>
-                                    <div class="device-details">
-                                        <span>총 @stats.TotalTime.TotalSeconds.ToString("F1")s</span>
-                                        <span>평균 @stats.AverageTime.TotalSeconds.ToString("F2")s</span>
-                                        <span>최소 @stats.MinTime.TotalSeconds.ToString("F2")s</span>
-                                        <span>최대 @stats.MaxTime.TotalSeconds.ToString("F2")s</span>
-                                        <span>@stats.CallCount 회</span>
-                                    </div>
-                                </div>
-                            }
-                        </div>
-                    </div>
-                </section>
-            }
-
-            @if (_analysisData.Bottlenecks.Count > 0)
-            {
-                <section class="card mb-3">
-                    <div class="card-header">
-                        <span class="material-icons mr-2 text-error">report_problem</span>
-                        <h6 class="typo-h6">병목 구간</h6>
-                    </div>
-                    <div class="card-content">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Call</th>
-                                    <th>원인</th>
-                                    <th>소요 시간</th>
-                                    <th>예상 시간</th>
-                                    <th>지연 배율</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var bottleneck in _analysisData.Bottlenecks)
-                                {
-                                    <tr>
-                                        <td><strong>@bottleneck.CallName</strong></td>
-                                        <td>@bottleneck.Reason</td>
-                                        <td>@bottleneck.Duration.TotalSeconds.ToString("F2")s</td>
-                                        <td>@bottleneck.ExpectedDuration.TotalSeconds.ToString("F2")s</td>
-                                        <td><span class="badge badge-error">@bottleneck.DelayRatio.ToString("F1")x</span></td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
-            }
-
-            <section class="card mb-3">
-                <div class="card-header">
-                    <span class="material-icons mr-2">list</span>
-                    <h6 class="typo-h6">상세 Call 목록</h6>
+                <div class="alert alert-info">
+                    <span class="material-icons">info</span>
+                    이 시간 범위에는 IO 이벤트가 없습니다.
                 </div>
-                <div class="card-content">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Call</th>
-                                <th>장치</th>
-                                <th>시작 시간</th>
-                                <th>종료 시간</th>
-                                <th>소요 시간</th>
-                                <th>Gap</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var call in _analysisData.CallSequence)
-                            {
-                                <tr>
-                                    <td>@call.SequenceNumber</td>
-                                    <td><strong>@call.CallName</strong></td>
-                                    <td>@call.DeviceName</td>
-                                    <td>@call.StartTime.ToString("HH:mm:ss.fff")</td>
-                                    <td>@call.EndTime.ToString("HH:mm:ss.fff")</td>
-                                    <td>@call.Duration.TotalSeconds.ToString("F3")s</td>
-                                    <td>
-                                        @if (call.GapFromPrevious.TotalSeconds > 0.5)
-                                        {
-                                            <span class="text-warning">@call.GapFromPrevious.TotalSeconds.ToString("F3")s ⚠</span>
-                                        }
-                                        else if (call.GapFromPrevious.TotalSeconds > 0)
-                                        {
-                                            <span>@call.GapFromPrevious.TotalSeconds.ToString("F3")s</span>
-                                        }
-                                        else
-                                        {
-                                            <span>-</span>
-                                        }
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-        }
-        else if (!_detecting && !_analyzing && _mode == "auto" && _detectedCycles.Count == 0)
-        {
-            <section class="card empty-state">
-                <span class="material-icons">auto_awesome</span>
-                <h6 class="typo-h6 mt-3">Flow를 선택하고 사이클 탐지를 실행하세요</h6>
-            </section>
-        }
-        else if (!_analyzing && _mode == "manual")
-        {
-            <section class="card empty-state">
-                <span class="material-icons">event</span>
-                <h6 class="typo-h6 mt-3">시간 범위를 설정하고 분석을 실행하세요</h6>
-            </section>
-        }
+            }
+        </div>
     }
+    else if (!_isLoadingGantt && !string.IsNullOrEmpty(_selectedFlow))
+    {
+        <div class="card" style="padding:16px;">
+            <span class="typo-body1" style="color:var(--color-info);">
+                Flow를 선택하고 "타임라인 로드" 버튼을 클릭하여 Gantt 차트를 확인하세요.
+            </span>
+        </div>
+    }
+}
 </div>
 
 @code {
-    private string _mode = "auto";
-    private List<Ds2.Core.Flow> _flows = new();
-    private string _selectedFlowName = string.Empty;
+    [SupplyParameterFromQuery(Name = "flow")]
+    public string? FlowQuery { get; set; }
 
-    private int _cycleCount = 5;
-    private bool _detecting;
-    private List<CycleBoundary> _detectedCycles = new();
-    private CycleBoundary? _selectedCycle;
+    [SupplyParameterFromQuery(Name = "name")]
+    public string? FlowNameQuery { get; set; }
 
-    private DateTime? _cycleStartTime = DateTime.Now.AddMinutes(-5);
-    private DateTime? _cycleEndTime = DateTime.Now;
-    private bool _analyzing;
+    private string _selectedFlow = string.Empty;
+    private string _timeRangeMode = "quick";
+    private int _timeRangeSeconds = 60;
+    private DateTime? _customStartTime = DateTime.Now.AddMinutes(-1);
+    private DateTime? _customEndTime = DateTime.Now;
+    private bool _isLoadingGantt = false;
+    private DSPilot.Services.GanttChartData? _ganttData = null;
 
-    private CycleAnalysisData? _analysisData;
-    private GanttChartData? _ganttData;
-
+    // Chart container
     private ElementReference _chartContainerRef;
-    private int _containerWidth;
+    private int _containerWidth = 0;
     private DotNetObjectReference<CycleAnalysis>? _dotNetRef;
-    private bool _isChartResizeObserverAttached;
+    private bool _isChartResizeObserverAttached = false;
 
+    // Chart controls
     private int _chartZoomLevel = 100;
-    private bool _showLongestGap;
-    private (DateTime Start, DateTime End, double DurationMs)? _longestGap;
+    private bool _showLongestGap = false;
+    private (DateTime Start, DateTime End, double DurationMs)? _longestGap = null;
 
-    private GanttChartItem? _selectedItem;
+    // Item selection and analysis
+    private GanttChartItem? _selectedItem = null;
     private int _selectedItemIndex = -1;
-    private GanttChartItem? _previousItem;
-    private GanttChartItem? _nextItem;
-    private double _gapToPrevious;
-    private double _gapToNext;
+    private GanttChartItem? _previousItem = null;
+    private GanttChartItem? _nextItem = null;
+    private double _gapToPrevious = 0;
+    private double _gapToNext = 0;
 
+    // GAP analysis and sorting options
     private GapAnalysisMode _gapAnalysisMode = GapAnalysisMode.SameLane;
     private ChartSortMode _chartSortMode = ChartSortMode.ByLane;
 
@@ -684,15 +396,46 @@
         ByGapSize
     }
 
+    private void OnSortModeChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<ChartSortMode>(e.Value?.ToString(), out var mode))
+            _chartSortMode = mode;
+    }
+
     protected override void OnInitialized()
     {
-        if (!ProjectService.IsLoaded)
-            return;
-
-        var systems = ProjectService.GetActiveSystems();
-        foreach (var system in systems)
+        if (ProjectService.IsLoaded)
         {
-            _flows.AddRange(ProjectService.GetFlows(system.Id));
+            var flows = GetFlowsWithCalls();
+            if (flows.Any())
+            {
+                _selectedFlow = flows.First().Name;
+            }
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (!ProjectService.IsLoaded)
+        {
+            return;
+        }
+
+        var requestedFlow = !string.IsNullOrWhiteSpace(FlowQuery)
+            ? FlowQuery
+            : FlowNameQuery;
+
+        if (string.IsNullOrWhiteSpace(requestedFlow))
+        {
+            return;
+        }
+
+        var match = GetFlowsWithCalls()
+            .FirstOrDefault(flow => string.Equals(flow.Name, requestedFlow, StringComparison.OrdinalIgnoreCase));
+
+        if (match != null)
+        {
+            _selectedFlow = match.Name;
         }
     }
 
@@ -719,176 +462,84 @@
         }
     }
 
-    [JSInvokable]
-    public async Task OnChartContainerResized(int width)
+    private List<Flow> GetFlowsWithCalls()
     {
-        if (width <= 0 || Math.Abs(width - _containerWidth) <= 2)
-            return;
-
-        _containerWidth = width;
-        await InvokeAsync(StateHasChanged);
+        return ProjectService.GetAllFlows()
+            .Where(f => GetFlowCallCount(f) > 0)
+            .ToList();
     }
 
-    private async Task SwitchModeAsync(string mode)
+    private int GetFlowCallCount(Flow flow)
     {
-        _mode = mode;
-        await ClearAnalysisStateAsync();
-        StateHasChanged();
+        var works = ProjectService.GetWorks(flow.Id);
+        return works.Sum(w => ProjectService.GetCalls(w.Id).Count);
     }
 
-    private async Task OnFlowChangedAsync()
+    private void SetTimeRangePreset(int seconds)
     {
-        await ClearAnalysisStateAsync();
+        _customEndTime = DateTime.Now;
+        _customStartTime = _customEndTime.Value.AddSeconds(-seconds);
     }
 
-    private async Task ClearAnalysisStateAsync()
+    private async Task LoadTimelineAsync()
     {
-        await DisposeChartResizeObserverAsync();
-        _analysisData = null;
-        _ganttData = null;
-        _detectedCycles.Clear();
-        _selectedCycle = null;
-        ClearSelectionInternal();
-        _containerWidth = 0;
-        _longestGap = null;
-        _showLongestGap = false;
-    }
-
-    private async Task DetectCycles()
-    {
-        if (string.IsNullOrEmpty(_selectedFlowName))
+        if (string.IsNullOrEmpty(_selectedFlow))
         {
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "Flow를 선택하세요", "warning");
             return;
         }
 
-        _detecting = true;
-        await ClearAnalysisStateAsync();
+        await DisposeChartResizeObserverAsync();
+        _isLoadingGantt = true;
+        _ganttData = null;
+        _containerWidth = 0;
         StateHasChanged();
 
         try
         {
-            _detectedCycles = await AnalysisService.DetectRecentCyclesAsync(_selectedFlowName, _cycleCount);
-
-            if (_detectedCycles.Count == 0)
+            DateTime startTime, endTime;
+            if (_timeRangeMode == "quick")
             {
-                await JS.InvokeVoidAsync("uiUtils.showSnackbar", "탐지된 사이클이 없습니다. PLC 데이터를 확인하세요", "warning");
+                endTime = DateTime.Now;
+                startTime = endTime.AddSeconds(-_timeRangeSeconds);
             }
             else
             {
-                await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"{_detectedCycles.Count}개 사이클 탐지 완료", "success");
+                if (!_customStartTime.HasValue || !_customEndTime.HasValue)
+                {
+                    Logger.LogWarning("Custom time range not set");
+                    return;
+                }
+                startTime = _customStartTime.Value;
+                endTime = _customEndTime.Value;
             }
+
+            if (startTime >= endTime)
+            {
+                Logger.LogWarning("Invalid time range: start >= end");
+                return;
+            }
+
+            Logger.LogInformation(
+                "Loading timeline for Flow '{FlowName}' from {Start} to {End} (Mode: {Mode})",
+                _selectedFlow, startTime, endTime, _timeRangeMode);
+
+            _ganttData = await CycleAnalysisService.GetIOEventsInTimeRangeAsync(_selectedFlow, startTime, endTime);
+
+            Logger.LogInformation(
+                "Loaded timeline for Flow '{FlowName}': {Items} items in {Lanes} lanes",
+                _selectedFlow, _ganttData.Items.Count, _ganttData.TotalLanes);
+
+            CalculateLongestGap();
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"탐지 실패: {ex.Message}", "error");
+            Logger.LogError(ex, "Failed to load timeline");
+            _ganttData = null;
         }
         finally
         {
-            _detecting = false;
+            _isLoadingGantt = false;
             StateHasChanged();
-        }
-    }
-
-    private async Task SelectCycle(CycleBoundary cycle)
-    {
-        _selectedCycle = cycle;
-        _analyzing = true;
-        StateHasChanged();
-
-        try
-        {
-            var cycleEnd = cycle.EndTime ?? DateTime.Now;
-            _analysisData = await AnalysisService.AnalyzeCycleBoundaryAsync(cycle);
-            await LoadGanttDataAsync(cycle.FlowName, cycle.StartTime, cycleEnd);
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "사이클 분석 완료", "success");
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"분석 실패: {ex.Message}", "error");
-        }
-        finally
-        {
-            _analyzing = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task AnalyzeManualRange()
-    {
-        if (string.IsNullOrEmpty(_selectedFlowName))
-        {
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "Flow를 선택하세요", "warning");
-            return;
-        }
-
-        if (!_cycleStartTime.HasValue || !_cycleEndTime.HasValue)
-        {
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "시작/종료 시간을 입력하세요", "warning");
-            return;
-        }
-
-        if (_cycleEndTime <= _cycleStartTime)
-        {
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "종료 시간은 시작 시간보다 커야 합니다", "warning");
-            return;
-        }
-
-        _analyzing = true;
-        await DisposeChartResizeObserverAsync();
-        ClearSelectionInternal();
-        _containerWidth = 0;
-        StateHasChanged();
-
-        try
-        {
-            _analysisData = await AnalysisService.AnalyzeCycleAsync(
-                _selectedFlowName,
-                _cycleStartTime.Value,
-                _cycleEndTime.Value);
-
-            await LoadGanttDataAsync(_selectedFlowName, _cycleStartTime.Value, _cycleEndTime.Value);
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "사이클 분석 완료", "success");
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"분석 실패: {ex.Message}", "error");
-        }
-        finally
-        {
-            _analyzing = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task LoadGanttDataAsync(string flowName, DateTime startTime, DateTime endTime)
-    {
-        await DisposeChartResizeObserverAsync();
-        ClearSelectionInternal();
-        _containerWidth = 0;
-        _ganttData = await AnalysisService.GetIOEventsInTimeRangeAsync(flowName, startTime, endTime);
-        CalculateLongestGap();
-    }
-
-    private void SetTimePreset(int minutes)
-    {
-        _cycleEndTime = DateTime.Now;
-        _cycleStartTime = _cycleEndTime.Value.AddMinutes(-minutes);
-    }
-
-    private void OnZoomChanged(ChangeEventArgs e)
-    {
-        if (int.TryParse(e.Value?.ToString(), out var zoom))
-        {
-            _chartZoomLevel = zoom;
-        }
-    }
-
-    private void OnSortModeChanged(ChangeEventArgs e)
-    {
-        if (Enum.TryParse<ChartSortMode>(e.Value?.ToString(), out var mode))
-        {
-            _chartSortMode = mode;
         }
     }
 
@@ -907,10 +558,11 @@
         DateTime maxGapStart = DateTime.MinValue;
         DateTime maxGapEnd = DateTime.MinValue;
 
-        for (var i = 0; i < sortedItems.Count - 1; i++)
+        for (int i = 0; i < sortedItems.Count - 1; i++)
         {
             var currentEnd = sortedItems[i].FinishTime ?? sortedItems[i].GoingStartTime;
             var nextStart = sortedItems[i + 1].GoingStartTime;
+
             var gapDuration = (nextStart - currentEnd).TotalMilliseconds;
 
             if (gapDuration > maxGapDuration)
@@ -924,7 +576,51 @@
         if (maxGapDuration > 0)
         {
             _longestGap = (maxGapStart, maxGapEnd, maxGapDuration);
+            Logger.LogInformation(
+                "Longest GAP: {Duration:F0}ms from {Start:HH:mm:ss.fff} to {End:HH:mm:ss.fff}",
+                maxGapDuration, maxGapStart, maxGapEnd);
         }
+    }
+
+    [JSInvokable]
+    public async Task OnChartContainerResized(int width)
+    {
+        if (width <= 0 || Math.Abs(width - _containerWidth) <= 2)
+        {
+            return;
+        }
+
+        _containerWidth = width;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DisposeChartResizeObserverAsync()
+    {
+        if (!_isChartResizeObserverAttached)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("uiUtils.disposeElementSizeObserver", _chartContainerRef);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        finally
+        {
+            _isChartResizeObserverAttached = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await DisposeChartResizeObserverAsync();
+        _dotNetRef?.Dispose();
     }
 
     private void ToggleLongestGapHighlight()
@@ -935,40 +631,54 @@
 
     private void SelectItem(GanttChartItem item, int itemIndex)
     {
-        if (_ganttData == null)
-            return;
+        if (_ganttData == null) return;
 
         _selectedItem = item;
         _selectedItemIndex = itemIndex;
 
-        List<GanttChartItem> relevantItems = _gapAnalysisMode switch
+        List<GanttChartItem> relevantItems;
+
+        switch (_gapAnalysisMode)
         {
-            GapAnalysisMode.SameLane => _ganttData.Items
-                .Where(i => i.Lane == item.Lane)
-                .OrderBy(i => i.GoingStartTime)
-                .ToList(),
+            case GapAnalysisMode.SameLane:
+                relevantItems = _ganttData.Items
+                    .Where(i => i.Lane == item.Lane)
+                    .OrderBy(i => i.GoingStartTime)
+                    .ToList();
+                break;
 
-            GapAnalysisMode.SameCall => _ganttData.Items
-                .Where(i => i.CallId == item.CallId)
-                .OrderBy(i => i.GoingStartTime)
-                .ToList(),
+            case GapAnalysisMode.SameCall:
+                relevantItems = _ganttData.Items
+                    .Where(i => i.CallName == item.CallName)
+                    .OrderBy(i => i.GoingStartTime)
+                    .ToList();
+                break;
 
-            GapAnalysisMode.SameGroup => _ganttData.Items
-                .Where(i => string.Equals(i.WorkName, item.WorkName, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(i => i.GoingStartTime)
-                .ToList(),
+            case GapAnalysisMode.SameGroup:
+                var groupKey = string.IsNullOrWhiteSpace(item.WorkName) ? item.FlowName : item.WorkName;
+                relevantItems = _ganttData.Items
+                    .Where(i => string.Equals(
+                        string.IsNullOrWhiteSpace(i.WorkName) ? i.FlowName : i.WorkName,
+                        groupKey,
+                        StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(i => i.GoingStartTime)
+                    .ToList();
+                break;
 
-            _ => new List<GanttChartItem>()
-        };
+            default:
+                relevantItems = new List<GanttChartItem>();
+                break;
+        }
 
         var currentIndex = relevantItems.IndexOf(item);
+
         _previousItem = currentIndex > 0 ? relevantItems[currentIndex - 1] : null;
         _nextItem = currentIndex < relevantItems.Count - 1 ? relevantItems[currentIndex + 1] : null;
 
         if (_previousItem != null)
         {
-            var previousEnd = _previousItem.FinishTime ?? _previousItem.GoingStartTime;
-            _gapToPrevious = (item.GoingStartTime - previousEnd).TotalMilliseconds;
+            var prevEnd = _previousItem.FinishTime ?? _previousItem.GoingStartTime;
+            _gapToPrevious = (item.GoingStartTime - prevEnd).TotalMilliseconds;
         }
         else
         {
@@ -985,16 +695,14 @@
             _gapToNext = 0;
         }
 
+        Logger.LogInformation(
+            "Selected item: {CallName} at {Time:HH:mm:ss.fff}, Mode: {Mode}, GAP to prev: {GapPrev:F0}ms, GAP to next: {GapNext:F0}ms",
+            item.CallName, item.GoingStartTime, _gapAnalysisMode, _gapToPrevious, _gapToNext);
+
         StateHasChanged();
     }
 
     private void ClearSelection()
-    {
-        ClearSelectionInternal();
-        StateHasChanged();
-    }
-
-    private void ClearSelectionInternal()
     {
         _selectedItem = null;
         _selectedItemIndex = -1;
@@ -1002,45 +710,38 @@
         _nextItem = null;
         _gapToPrevious = 0;
         _gapToNext = 0;
+        StateHasChanged();
     }
-
-    private List<GanttChartItem> GetSortedItems(GanttChartData data) =>
-        _chartSortMode switch
-        {
-            ChartSortMode.ByTime => data.Items.OrderBy(i => i.GoingStartTime).ToList(),
-            ChartSortMode.ByCallName => data.Items
-                .OrderBy(i => i.CallName)
-                .ThenBy(i => i.GoingStartTime)
-                .ToList(),
-            ChartSortMode.ByGapSize => CalculateGapSortedItems(data.Items),
-            _ => data.Items.OrderBy(i => i.Lane).ThenBy(i => i.GoingStartTime).ToList()
-        };
 
     private List<GanttChartItem> CalculateGapSortedItems(List<GanttChartItem> items)
     {
-        var ordered = items.OrderBy(i => i.GoingStartTime).ToList();
-
-        return ordered
-            .Select((item, index) =>
+        var itemsWithGap = items.OrderBy(i => i.GoingStartTime).Select((item, index) =>
+        {
+            double gapAfter = 0;
+            if (index < items.Count - 1)
             {
-                double gapAfter = 0;
-                if (index < ordered.Count - 1)
-                {
-                    var nextItem = ordered[index + 1];
-                    var currentEnd = item.FinishTime ?? item.GoingStartTime;
-                    gapAfter = (nextItem.GoingStartTime - currentEnd).TotalMilliseconds;
-                }
+                var nextItem = items.OrderBy(i => i.GoingStartTime).ElementAt(index + 1);
+                var currentEnd = item.FinishTime ?? item.GoingStartTime;
+                gapAfter = (nextItem.GoingStartTime - currentEnd).TotalMilliseconds;
+            }
+            return new { Item = item, GapAfter = gapAfter };
+        }).ToList();
 
-                return new { Item = item, GapAfter = gapAfter };
-            })
+        return itemsWithGap
             .OrderByDescending(x => x.GapAfter)
             .Select(x => x.Item)
             .ToList();
     }
 
-    private RenderFragment RenderGanttChart(GanttChartData data) => builder =>
+    private RenderFragment RenderGanttChart(DSPilot.Services.GanttChartData data) => builder =>
     {
-        var sortedItems = GetSortedItems(data);
+        var sortedItems = _chartSortMode switch
+        {
+            ChartSortMode.ByTime => data.Items.OrderBy(i => i.GoingStartTime).ToList(),
+            ChartSortMode.ByCallName => data.Items.OrderBy(i => i.CallName).ThenBy(i => i.GoingStartTime).ToList(),
+            ChartSortMode.ByGapSize => CalculateGapSortedItems(data.Items),
+            _ => data.Items
+        };
 
         const int leftMargin = 220;
         const int rightMargin = 20;
@@ -1051,18 +752,19 @@
 
         var chartStartTime = data.ActualEventStartTime ?? data.StartTime;
         var chartEndTime = data.ActualEventEndTime ?? (data.EndTime ?? data.StartTime.AddSeconds(1));
-        var timeRange = Math.Max((chartEndTime - chartStartTime).TotalMilliseconds, 1);
+
+        var timeRange = (chartEndTime - chartStartTime).TotalMilliseconds;
         var margin = timeRange * 0.05;
         chartStartTime = chartStartTime.AddMilliseconds(-margin);
         chartEndTime = chartEndTime.AddMilliseconds(margin);
 
         var cycleTime = Math.Max((int)(chartEndTime - chartStartTime).TotalMilliseconds, 1);
         var basePlotWidth = _containerWidth > 0
-            ? Math.Max(_containerWidth - leftMargin - rightMargin, 900)
+            ? _containerWidth - leftMargin - rightMargin
             : GetChartPlotWidth(cycleTime);
         var plotWidth = (int)(basePlotWidth * (_chartZoomLevel / 100.0));
         var totalWidth = leftMargin + plotWidth + rightMargin;
-        var totalHeight = topMargin + (Math.Max(data.TotalLanes, 1) * laneHeight) + bottomMargin;
+        var totalHeight = topMargin + (data.TotalLanes * laneHeight) + bottomMargin;
         var xScale = plotWidth / (double)cycleTime;
 
         var seq = 0;
@@ -1091,7 +793,7 @@
         builder.CloseElement();
 
         var timeStep = GetTimeAxisStep(cycleTime);
-        for (var t = 0; t <= cycleTime; t += timeStep)
+        for (int t = 0; t <= cycleTime; t += timeStep)
         {
             var x = leftMargin + (int)(t * xScale);
             var actualTime = chartStartTime.AddMilliseconds(t);
@@ -1118,17 +820,19 @@
             builder.AddAttribute(seq++, "x1", x);
             builder.AddAttribute(seq++, "y1", topMargin);
             builder.AddAttribute(seq++, "x2", x);
-            builder.AddAttribute(seq++, "y2", topMargin + (Math.Max(data.TotalLanes, 1) * laneHeight));
+            builder.AddAttribute(seq++, "y2", topMargin + (data.TotalLanes * laneHeight));
             builder.AddAttribute(seq++, "style", "stroke: var(--color-lines)");
             builder.AddAttribute(seq++, "stroke-width", "1");
             builder.AddAttribute(seq++, "stroke-dasharray", "2,2");
             builder.CloseElement();
         }
 
-        for (var lane = 0; lane < data.TotalLanes; lane++)
+        for (int lane = 0; lane < data.TotalLanes; lane++)
         {
             var y = topMargin + (lane * laneHeight);
-            var laneLabel = lane < data.LaneLabels.Count ? data.LaneLabels[lane] : $"Lane {lane + 1}";
+            var laneLabel = lane < data.LaneLabels.Count
+                ? data.LaneLabels[lane]
+                : $"Lane {lane}";
 
             builder.OpenElement(seq++, "line");
             builder.AddAttribute(seq++, "x1", leftMargin);
@@ -1150,8 +854,13 @@
 
         if (_showLongestGap && _longestGap.HasValue)
         {
-            var gapStartOffset = (_longestGap.Value.Start - chartStartTime).TotalMilliseconds;
-            var gapEndOffset = (_longestGap.Value.End - chartStartTime).TotalMilliseconds;
+            var gapStart = _longestGap.Value.Start;
+            var gapEnd = _longestGap.Value.End;
+            var gapDuration = _longestGap.Value.DurationMs;
+
+            var gapStartOffset = (gapStart - chartStartTime).TotalMilliseconds;
+            var gapEndOffset = (gapEnd - chartStartTime).TotalMilliseconds;
+
             if (gapStartOffset < cycleTime && gapEndOffset > 0)
             {
                 var gapX = leftMargin + (int)(Math.Max(0, gapStartOffset) * xScale);
@@ -1161,21 +870,31 @@
                 builder.AddAttribute(seq++, "x", gapX);
                 builder.AddAttribute(seq++, "y", topMargin);
                 builder.AddAttribute(seq++, "width", gapWidth);
-                builder.AddAttribute(seq++, "height", Math.Max(data.TotalLanes, 1) * laneHeight);
+                builder.AddAttribute(seq++, "height", data.TotalLanes * laneHeight);
                 builder.AddAttribute(seq++, "fill", "rgba(255, 193, 7, 0.3)");
-                builder.AddAttribute(seq++, "stroke", "#ffc107");
+                builder.AddAttribute(seq++, "stroke", "#FFC107");
                 builder.AddAttribute(seq++, "stroke-width", "2");
                 builder.AddAttribute(seq++, "stroke-dasharray", "5,5");
                 builder.CloseElement();
 
+                var labelX = gapX + (gapWidth / 2);
+                var labelY = topMargin - 5;
+
                 builder.OpenElement(seq++, "text");
-                builder.AddAttribute(seq++, "x", gapX + (gapWidth / 2));
-                builder.AddAttribute(seq++, "y", topMargin - 5);
+                builder.AddAttribute(seq++, "x", labelX);
+                builder.AddAttribute(seq++, "y", labelY);
                 builder.AddAttribute(seq++, "font-size", "11");
                 builder.AddAttribute(seq++, "font-weight", "bold");
                 builder.AddAttribute(seq++, "text-anchor", "middle");
-                builder.AddAttribute(seq++, "fill", "#f57c00");
-                builder.AddContent(seq++, $"최대 GAP: {_longestGap.Value.DurationMs:F0}ms");
+                builder.AddAttribute(seq++, "fill", "#F57C00");
+                builder.AddContent(seq++, $"최대 GAP: {gapDuration:F0}ms");
+                builder.CloseElement();
+
+                builder.OpenElement(seq++, "title");
+                builder.AddContent(seq++, $@"최대 GAP 구간
+시작: {gapStart:HH:mm:ss.fff}
+종료: {gapEnd:HH:mm:ss.fff}
+지속시간: {gapDuration:F0}ms");
                 builder.CloseElement();
             }
         }
@@ -1184,15 +903,19 @@
         foreach (var item in sortedItems)
         {
             var currentItemIndex = itemIndex++;
-            var isSelected = ReferenceEquals(_selectedItem, item);
+            var isSelected = _selectedItem == item;
+
             var actualEventTime = data.StartTime.AddMilliseconds(item.RelativeStart);
             var offsetFromChartStart = (actualEventTime - chartStartTime).TotalMilliseconds;
             var x = leftMargin + (int)(offsetFromChartStart * xScale);
             var y = topMargin + (item.Lane * laneHeight) + ((laneHeight - barHeight) / 2);
-            var durationMs = GetBarDurationMs(item);
+
+            var durationMs = GetItemDurationMs(item);
+
             var width = durationMs > 0 ? Math.Max(3, (int)(durationMs * xScale)) : 3;
-            var color = item.EventType == IOEventType.InTag ? "#2196f3" : "#4caf50";
-            var label = item.EventType == IOEventType.InTag ? "In" : "Out";
+
+            var color = item.EventType == DSPilot.Models.Analysis.IOEventType.InTag ? "#2196F3" : "#4CAF50";
+            var label = item.EventType == DSPilot.Models.Analysis.IOEventType.InTag ? "In" : "Out";
 
             builder.OpenElement(seq++, "g");
             builder.AddAttribute(seq++, "style", "cursor: pointer;");
@@ -1201,7 +924,6 @@
 
             builder.OpenElement(seq++, "title");
             builder.AddContent(seq++, $@"{item.CallName} ({item.FlowName})
-Work: {item.WorkName}
 IOTag: {item.TagName} [{item.TagAddress}]
 Event: {label}Tag
 Duration: {durationMs:F0} ms
@@ -1215,7 +937,7 @@ Click to analyze");
             builder.AddAttribute(seq++, "width", width);
             builder.AddAttribute(seq++, "height", barHeight);
             builder.AddAttribute(seq++, "fill", color);
-            builder.AddAttribute(seq++, "stroke", isSelected ? "#ff5722" : "var(--color-lines)");
+            builder.AddAttribute(seq++, "stroke", isSelected ? "#FF5722" : "var(--color-lines)");
             builder.AddAttribute(seq++, "stroke-width", isSelected ? "3" : "1");
             builder.AddAttribute(seq++, "rx", "3");
             builder.AddAttribute(seq++, "style", isSelected ? "filter: drop-shadow(0 0 6px rgba(255, 87, 34, 0.8));" : "transition: opacity 0.2s;");
@@ -1226,23 +948,23 @@ Click to analyze");
             }
             builder.CloseElement();
 
-            if (width > 60)
+            if (width > 30)
             {
                 builder.OpenElement(seq++, "text");
-                builder.AddAttribute(seq++, "x", x + 6);
+                builder.AddAttribute(seq++, "x", x + 5);
                 builder.AddAttribute(seq++, "y", y + (barHeight / 2) + 4);
                 builder.AddAttribute(seq++, "font-size", "9");
                 builder.AddAttribute(seq++, "fill", "white");
                 builder.AddAttribute(seq++, "font-weight", "bold");
                 builder.AddAttribute(seq++, "pointer-events", "none");
-                builder.AddContent(seq++, item.CallName);
+                builder.AddContent(seq++, $"{item.CallName}");
                 builder.CloseElement();
             }
 
             builder.CloseElement();
         }
 
-        if (_selectedItem != null)
+        if (_selectedItem != null && _ganttData != null)
         {
             var selectedActualTime = data.StartTime.AddMilliseconds(_selectedItem.RelativeStart);
             var selectedOffsetFromChartStart = (selectedActualTime - chartStartTime).TotalMilliseconds;
@@ -1254,7 +976,9 @@ Click to analyze");
                 var prevActualTime = data.StartTime.AddMilliseconds(_previousItem.RelativeStart);
                 var prevOffsetFromChartStart = (prevActualTime - chartStartTime).TotalMilliseconds;
                 var prevX = leftMargin + (int)(prevOffsetFromChartStart * xScale);
-                var prevEndX = prevX + Math.Max(3, (int)(GetBarDurationMs(_previousItem) * xScale));
+                var prevDurationMs = Math.Max(3, GetItemDurationMs(_previousItem));
+                var prevWidth = Math.Max(3, (int)(prevDurationMs * xScale));
+                var prevEndX = prevX + prevWidth;
                 var prevY = topMargin + (_previousItem.Lane * laneHeight) + (laneHeight / 2);
 
                 builder.OpenElement(seq++, "line");
@@ -1262,19 +986,22 @@ Click to analyze");
                 builder.AddAttribute(seq++, "y1", prevY);
                 builder.AddAttribute(seq++, "x2", selectedX);
                 builder.AddAttribute(seq++, "y2", selectedY);
-                builder.AddAttribute(seq++, "stroke", "#ff9800");
+                builder.AddAttribute(seq++, "stroke", "#FF9800");
                 builder.AddAttribute(seq++, "stroke-width", "2");
                 builder.AddAttribute(seq++, "stroke-dasharray", "5,3");
-                builder.AddAttribute(seq++, "marker-end", "url(#arrowhead-prev)");
+                builder.AddAttribute(seq++, "marker-end", "url(#arrowhead)");
                 builder.CloseElement();
 
+                var midX = (prevEndX + selectedX) / 2;
+                var midY = (prevY + selectedY) / 2 - 10;
                 builder.OpenElement(seq++, "text");
-                builder.AddAttribute(seq++, "x", (prevEndX + selectedX) / 2);
-                builder.AddAttribute(seq++, "y", ((prevY + selectedY) / 2) - 10);
+                builder.AddAttribute(seq++, "x", midX);
+                builder.AddAttribute(seq++, "y", midY);
                 builder.AddAttribute(seq++, "font-size", "10");
                 builder.AddAttribute(seq++, "font-weight", "bold");
                 builder.AddAttribute(seq++, "text-anchor", "middle");
-                builder.AddAttribute(seq++, "fill", "#ff9800");
+                builder.AddAttribute(seq++, "fill", "#FF9800");
+                builder.AddAttribute(seq++, "style", "background: white; padding: 2px;");
                 builder.AddContent(seq++, $"← GAP: {_gapToPrevious:F0}ms");
                 builder.CloseElement();
             }
@@ -1285,26 +1012,31 @@ Click to analyze");
                 var nextOffsetFromChartStart = (nextActualTime - chartStartTime).TotalMilliseconds;
                 var nextX = leftMargin + (int)(nextOffsetFromChartStart * xScale);
                 var nextY = topMargin + (_nextItem.Lane * laneHeight) + (laneHeight / 2);
-                var selectedEndX = selectedX + Math.Max(3, (int)(GetBarDurationMs(_selectedItem) * xScale));
+
+                var selectedDurationMs = Math.Max(3, GetItemDurationMs(_selectedItem));
+                var selectedWidth = Math.Max(3, (int)(selectedDurationMs * xScale));
+                var selectedEndX = selectedX + selectedWidth;
 
                 builder.OpenElement(seq++, "line");
                 builder.AddAttribute(seq++, "x1", selectedEndX);
                 builder.AddAttribute(seq++, "y1", selectedY);
                 builder.AddAttribute(seq++, "x2", nextX);
                 builder.AddAttribute(seq++, "y2", nextY);
-                builder.AddAttribute(seq++, "stroke", "#4caf50");
+                builder.AddAttribute(seq++, "stroke", "#4CAF50");
                 builder.AddAttribute(seq++, "stroke-width", "2");
                 builder.AddAttribute(seq++, "stroke-dasharray", "5,3");
-                builder.AddAttribute(seq++, "marker-end", "url(#arrowhead-next)");
+                builder.AddAttribute(seq++, "marker-end", "url(#arrowhead-green)");
                 builder.CloseElement();
 
+                var midX = (selectedEndX + nextX) / 2;
+                var midY = (selectedY + nextY) / 2 - 10;
                 builder.OpenElement(seq++, "text");
-                builder.AddAttribute(seq++, "x", (selectedEndX + nextX) / 2);
-                builder.AddAttribute(seq++, "y", ((selectedY + nextY) / 2) - 10);
+                builder.AddAttribute(seq++, "x", midX);
+                builder.AddAttribute(seq++, "y", midY);
                 builder.AddAttribute(seq++, "font-size", "10");
                 builder.AddAttribute(seq++, "font-weight", "bold");
                 builder.AddAttribute(seq++, "text-anchor", "middle");
-                builder.AddAttribute(seq++, "fill", "#4caf50");
+                builder.AddAttribute(seq++, "fill", "#4CAF50");
                 builder.AddContent(seq++, $"GAP: {_gapToNext:F0}ms →");
                 builder.CloseElement();
             }
@@ -1313,7 +1045,7 @@ Click to analyze");
         builder.OpenElement(seq++, "defs");
 
         builder.OpenElement(seq++, "marker");
-        builder.AddAttribute(seq++, "id", "arrowhead-prev");
+        builder.AddAttribute(seq++, "id", "arrowhead");
         builder.AddAttribute(seq++, "markerWidth", "10");
         builder.AddAttribute(seq++, "markerHeight", "10");
         builder.AddAttribute(seq++, "refX", "9");
@@ -1321,12 +1053,12 @@ Click to analyze");
         builder.AddAttribute(seq++, "orient", "auto");
         builder.OpenElement(seq++, "polygon");
         builder.AddAttribute(seq++, "points", "0 0, 10 3, 0 6");
-        builder.AddAttribute(seq++, "fill", "#ff9800");
+        builder.AddAttribute(seq++, "fill", "#FF9800");
         builder.CloseElement();
         builder.CloseElement();
 
         builder.OpenElement(seq++, "marker");
-        builder.AddAttribute(seq++, "id", "arrowhead-next");
+        builder.AddAttribute(seq++, "id", "arrowhead-green");
         builder.AddAttribute(seq++, "markerWidth", "10");
         builder.AddAttribute(seq++, "markerHeight", "10");
         builder.AddAttribute(seq++, "refX", "9");
@@ -1334,30 +1066,14 @@ Click to analyze");
         builder.AddAttribute(seq++, "orient", "auto");
         builder.OpenElement(seq++, "polygon");
         builder.AddAttribute(seq++, "points", "0 0, 10 3, 0 6");
-        builder.AddAttribute(seq++, "fill", "#4caf50");
+        builder.AddAttribute(seq++, "fill", "#4CAF50");
         builder.CloseElement();
         builder.CloseElement();
 
-        builder.CloseElement();
-        builder.CloseElement();
+        builder.CloseElement(); // defs
+
+        builder.CloseElement(); // svg
     };
-
-    private static int GetBarDurationMs(GanttChartItem item)
-    {
-        if (item.Duration.HasValue && item.Duration.Value > 0)
-            return item.Duration.Value;
-
-        if (item.RelativeEnd.HasValue)
-            return Math.Max(item.RelativeEnd.Value - item.RelativeStart, 0);
-
-        if (item.FinishTime.HasValue)
-            return Math.Max((int)(item.FinishTime.Value - item.GoingStartTime).TotalMilliseconds, 0);
-
-        return 0;
-    }
-
-    private string GetEventTypeText(IOEventType eventType) =>
-        eventType == IOEventType.InTag ? "InTag (Input)" : "OutTag (Output)";
 
     private static int GetChartPlotWidth(int cycleTimeMs)
     {
@@ -1388,38 +1104,23 @@ Click to analyze");
         return (int)(niceStep * magnitude);
     }
 
-    private async Task ExportGanttData()
+    private static int GetItemDurationMs(GanttChartItem item)
     {
-        if (_ganttData == null)
-            return;
-
-        await JS.InvokeVoidAsync("uiUtils.showSnackbar", "CSV 내보내기 기능은 곧 추가됩니다", "info");
-    }
-
-    private async Task DisposeChartResizeObserverAsync()
-    {
-        if (!_isChartResizeObserverAttached)
-            return;
-
-        try
+        if (item.Duration.HasValue && item.Duration.Value > 0)
         {
-            await JS.InvokeVoidAsync("uiUtils.disposeElementSizeObserver", _chartContainerRef);
+            return item.Duration.Value;
         }
-        catch (JSDisconnectedException)
-        {
-        }
-        catch (ObjectDisposedException)
-        {
-        }
-        finally
-        {
-            _isChartResizeObserverAttached = false;
-        }
-    }
 
-    public async ValueTask DisposeAsync()
-    {
-        await DisposeChartResizeObserverAsync();
-        _dotNetRef?.Dispose();
+        if (item.RelativeEnd.HasValue)
+        {
+            return item.RelativeEnd.Value - item.RelativeStart;
+        }
+
+        if (item.FinishTime.HasValue)
+        {
+            return (int)(item.FinishTime.Value - item.GoingStartTime).TotalMilliseconds;
+        }
+
+        return 0;
     }
 }
