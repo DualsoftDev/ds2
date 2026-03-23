@@ -67,60 +67,63 @@ CREATE INDEX IF NOT EXISTS idx_dspFlow_FocusScore ON dspFlow(FocusScore DESC);
 
 Call 단위의 상태 및 통계를 저장하는 Projection 테이블입니다.
 
+**현재 구현 상태 (Migration 001)**: 최소 필드만 포함된 초기 스키마
 ```sql
 CREATE TABLE IF NOT EXISTS dspCall (
-    -- Primary Key
     Id INTEGER PRIMARY KEY AUTOINCREMENT,
-    CallId TEXT NOT NULL UNIQUE,  -- GUID
-
-    -- 4.1 Static Metadata (Bootstrap 시 설정)
-    CallName TEXT NOT NULL,
-    ApiCall TEXT,
-    WorkName TEXT NOT NULL,  -- ⚠️ work.Name 사용!
+    CallName TEXT NOT NULL UNIQUE,
     FlowName TEXT NOT NULL,
-    SystemName TEXT,
-    Next TEXT,  -- Next Call Name
-    Prev TEXT,  -- Previous Call Name
-    IsHead INTEGER DEFAULT 0,  -- Boolean
-    IsTail INTEGER DEFAULT 0,  -- Boolean
-    SequenceNo INTEGER,
-    Device TEXT,
-    InTag TEXT,  -- PLC Tag for input signal
-    OutTag TEXT,  -- PLC Tag for output signal
-
-    -- 4.2 Real-time State (PLC Event 수신 시 업데이트)
-    State TEXT DEFAULT 'Ready',  -- 'Ready', 'Going', 'Done', 'Error'
-    ProgressRate REAL DEFAULT 0.0,  -- 0.0 ~ 1.0
-    LastStartAt TEXT,  -- ISO 8601 timestamp
-    LastFinishAt TEXT,
-    LastDurationMs REAL,
-    CurrentCycleNo INTEGER DEFAULT 0,
-
-    -- 4.3 Cumulative Statistics (Call 완료 시 업데이트)
-    AverageGoingTime REAL,
-    StdDevGoingTime REAL,
-    MinGoingTime REAL,
-    MaxGoingTime REAL,
-    GoingCount INTEGER DEFAULT 0,
-    ErrorCount INTEGER DEFAULT 0,
-    ErrorText TEXT,
-
-    -- 4.4 Derived Warnings (계산 시 자동 설정)
-    SlowFlag INTEGER DEFAULT 0,  -- Boolean: Duration > Avg + 2*StdDev
-    UnmappedFlag INTEGER DEFAULT 0,  -- Boolean: InTag 또는 OutTag 누락
-    FocusScore INTEGER DEFAULT 0,  -- Priority score
-
-    -- Metadata
-    CreatedAt TEXT NOT NULL DEFAULT (datetime('now')),
-    UpdatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+    State TEXT DEFAULT 'Ready',
+    CreatedAt TEXT NOT NULL,
+    UpdatedAt TEXT NOT NULL,
+    FOREIGN KEY (FlowName) REFERENCES dspFlow(FlowName)
 );
 
+CREATE INDEX IF NOT EXISTS idx_call_flow ON dspCall(FlowName);
+```
+
+**계획된 전체 스키마 (향후 Migration)**: 아래 필드들은 향후 Migration으로 추가 예정
+```sql
+-- 추가 예정 컬럼들:
+ALTER TABLE dspCall ADD COLUMN CallId TEXT;  -- GUID (UNIQUE 제약 조건 필요)
+ALTER TABLE dspCall ADD COLUMN ApiCall TEXT;
+ALTER TABLE dspCall ADD COLUMN WorkName TEXT;
+ALTER TABLE dspCall ADD COLUMN SystemName TEXT;
+ALTER TABLE dspCall ADD COLUMN Next TEXT;
+ALTER TABLE dspCall ADD COLUMN Prev TEXT;
+ALTER TABLE dspCall ADD COLUMN IsHead INTEGER DEFAULT 0;
+ALTER TABLE dspCall ADD COLUMN IsTail INTEGER DEFAULT 0;
+ALTER TABLE dspCall ADD COLUMN SequenceNo INTEGER;
+ALTER TABLE dspCall ADD COLUMN Device TEXT;
+ALTER TABLE dspCall ADD COLUMN InTag TEXT;  -- PLC Tag for input signal
+ALTER TABLE dspCall ADD COLUMN OutTag TEXT;  -- PLC Tag for output signal
+ALTER TABLE dspCall ADD COLUMN ProgressRate REAL DEFAULT 0.0;
+ALTER TABLE dspCall ADD COLUMN LastStartAt TEXT;
+ALTER TABLE dspCall ADD COLUMN LastFinishAt TEXT;
+ALTER TABLE dspCall ADD COLUMN LastDurationMs REAL;
+ALTER TABLE dspCall ADD COLUMN CurrentCycleNo INTEGER DEFAULT 0;
+ALTER TABLE dspCall ADD COLUMN AverageGoingTime REAL;
+ALTER TABLE dspCall ADD COLUMN StdDevGoingTime REAL;
+ALTER TABLE dspCall ADD COLUMN MinGoingTime REAL;
+ALTER TABLE dspCall ADD COLUMN MaxGoingTime REAL;
+ALTER TABLE dspCall ADD COLUMN GoingCount INTEGER DEFAULT 0;
+ALTER TABLE dspCall ADD COLUMN ErrorCount INTEGER DEFAULT 0;
+ALTER TABLE dspCall ADD COLUMN ErrorText TEXT;
+ALTER TABLE dspCall ADD COLUMN SlowFlag INTEGER DEFAULT 0;
+ALTER TABLE dspCall ADD COLUMN UnmappedFlag INTEGER DEFAULT 0;
+ALTER TABLE dspCall ADD COLUMN FocusScore INTEGER DEFAULT 0;
+
+-- 인덱스 추가
 CREATE INDEX IF NOT EXISTS idx_dspCall_CallId ON dspCall(CallId);
-CREATE INDEX IF NOT EXISTS idx_dspCall_FlowName ON dspCall(FlowName);
 CREATE INDEX IF NOT EXISTS idx_dspCall_State ON dspCall(State);
 CREATE INDEX IF NOT EXISTS idx_dspCall_FocusScore ON dspCall(FocusScore DESC);
 CREATE INDEX IF NOT EXISTS idx_dspCall_WorkName ON dspCall(WorkName);
 ```
+
+**참고**:
+- 현재는 Migration 001에 정의된 최소 스키마만 사용 중
+- F# Entities.fs의 DspCallEntity는 전체 스키마를 정의하지만, 실제 DB에는 일부만 존재
+- 누락된 필드 접근 시 NULL 처리 또는 기본값 사용
 
 ---
 
@@ -278,77 +281,113 @@ ON CONFLICT(CallId) DO UPDATE SET
 
 ## 🔗 참조
 
-### F# Entity 정의
+### F# Entity 정의 (현재 구현)
 
 ```fsharp
 // DSPilot.Engine/Database/Entities.fs
 
+/// Flow entity - dsp.db's dspFlow table (간소화된 버전)
+[<CLIMutable>]
 type DspFlowEntity =
-    { Id: int option
+    { Id: int
       FlowName: string
-      SystemName: string option
-      WorkName: string option
+      MT: int option
+      WT: int option
+      CT: int option
+      State: string option
       MovingStartName: string option
       MovingEndName: string option
-      SequenceNo: int option
-      IsHead: bool
-      IsTail: bool
-      State: string option
-      ActiveCallCount: int
-      ErrorCallCount: int
-      LastCycleStartAt: DateTime option
-      LastCycleEndAt: DateTime option
-      LastCycleNo: int
-      MT: float option
-      WT: float option
-      CT: float option
-      LastCycleDurationMs: float option
-      AverageCT: float option
-      StdDevCT: float option
-      MinCT: float option
-      MaxCT: float option
-      CompletedCycleCount: int
-      SlowCycleFlag: bool
-      UnmappedCallCount: int
-      FocusScore: int
       CreatedAt: DateTime
       UpdatedAt: DateTime }
 
+    static member Create(flowName: string) =
+        { Id = 0
+          FlowName = flowName
+          MT = None
+          WT = None
+          CT = None
+          State = Some "Ready"
+          MovingStartName = None
+          MovingEndName = None
+          CreatedAt = DateTime.UtcNow
+          UpdatedAt = DateTime.UtcNow }
+
+/// Call entity - dsp.db's dspCall table (간소화된 버전)
+[<CLIMutable>]
 type DspCallEntity =
-    { Id: int option
-      CallId: Guid
+    { Id: int
+      CallId: Guid  // GUID (DB에는 아직 미구현)
       CallName: string
-      ApiCall: string option
+      ApiCall: string
       WorkName: string
       FlowName: string
-      SystemName: string option
       Next: string option
       Prev: string option
-      IsHead: bool
-      IsTail: bool
-      SequenceNo: int option
-      Device: string option
-      InTag: string option
-      OutTag: string option
+      AutoPre: string option
+      CommonPre: string option
       State: string
       ProgressRate: float
-      LastStartAt: DateTime option
-      LastFinishAt: DateTime option
-      LastDurationMs: float option
-      CurrentCycleNo: int
+      PreviousGoingTime: int option
       AverageGoingTime: float option
       StdDevGoingTime: float option
-      MinGoingTime: float option
-      MaxGoingTime: float option
       GoingCount: int
-      ErrorCount: int
+      Device: string option
       ErrorText: string option
-      SlowFlag: bool
-      UnmappedFlag: bool
-      FocusScore: int
       CreatedAt: DateTime
       UpdatedAt: DateTime }
+
+    static member Create(callId: Guid, callName: string, apiCall: string, workName: string, flowName: string) =
+        { Id = 0
+          CallId = callId
+          CallName = callName
+          ApiCall = apiCall
+          WorkName = workName
+          FlowName = flowName
+          Next = None
+          Prev = None
+          AutoPre = None
+          CommonPre = None
+          State = "Ready"
+          ProgressRate = 0.0
+          PreviousGoingTime = None
+          AverageGoingTime = None
+          StdDevGoingTime = None
+          GoingCount = 0
+          Device = None
+          ErrorText = None
+          CreatedAt = DateTime.UtcNow
+          UpdatedAt = DateTime.UtcNow }
+
+/// Flow state (for UI display)
+[<CLIMutable>]
+type FlowState =
+    { Id: int
+      FlowName: string
+      MT: int option
+      WT: int option
+      State: string
+      MovingStartName: string option
+      MovingEndName: string option }
+
+/// Call state DTO (for UI display)
+[<CLIMutable>]
+type CallStateDto =
+    { Id: int
+      CallName: string
+      FlowName: string
+      WorkName: string
+      State: string
+      ProgressRate: float
+      GoingCount: int
+      AverageGoingTime: float option
+      Device: string option
+      ErrorText: string option }
 ```
+
+**중요**:
+- 현재 Entity 정의는 실제 DB 스키마보다 더 많은 필드를 포함
+- Repository 계층에서 존재하지 않는 컬럼 접근 시 NULL 처리
+- 향후 Migration으로 DB 스키마를 Entity 정의에 맞춤
 
 ---
 

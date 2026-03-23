@@ -152,34 +152,38 @@ Call 완료 이벤트
 - **AASX File**: 정적 구조 (System, Flow, Work, Call)
 - **PLC Events**: 동적 상태 (Tag Value Changes)
 
-### Layer 2: DSPilot.Engine (F#)
+### Layer 2: DSPilot Services (C#) + Engine (F#)
 
-#### 2.1 Bootstrap Module
-- AASX 파싱
-- Topology 계산
-- Tag Mapping
-- 초기 Projection 생성
+#### 2.1 프로젝트 관리 (C#)
+- **DsProjectService**: AASX 로드, System/Flow/Work/Call 구조 관리
+- **BlueprintService**: Layout 및 렌더링 데이터
+- **DspDbService**: DSP 데이터베이스 스냅샷 관리
 
-#### 2.2 Runtime Module
-- PLC Event 수신
-- Rising Edge 감지
-- State Transition
-- Timestamp 기록
+#### 2.2 PLC 이벤트 처리 (C# + F#)
+- **Ev2PlcEventSource** (C#): 실제 PLC 연결 및 이벤트 스트림
+- **PlcEventProcessorService** (C#): Channel 기반 이벤트 처리
+  - TagStateTracker (F#): Edge 감지
+  - PlcToCallMapperService (C#): Tag → Call 매핑
+  - StateTransition (F#): 상태 전이 로직
+- **PlcDatabaseMonitorService** (C#): DB 변경사항 폴링 및 브로드캐스트
 
-#### 2.3 Statistics Module
-- Incremental Statistics (Average, StdDev)
-- Min/Max Tracking
-- SlowFlag 판정
+#### 2.3 분석 및 통계 (C#)
+- **CycleAnalysisService**: 사이클 경계 탐지, Gap/병목 분석
+- **CallStatisticsService**: Call 통계 계산
+- **FlowMetricsService**: Flow 레벨 메트릭
+- **HeatmapService**: 편차 분석
 
-#### 2.4 Aggregation Module
-- Flow State 집계
-- ActiveCallCount, ErrorCallCount
-- Cycle Metrics (MT, WT, CT)
+#### 2.4 실시간 모니터링 (C#)
+- **MonitoringBroadcastService**: SignalR를 통한 실시간 상태 브로드캐스트
+- **CallStateNotificationService**: Call 상태 변경 알림
+- **InMemoryCallStateStore**: 메모리 내 Call 상태 캐시
 
-#### 2.5 Repository Module
-- Projection UPSERT
-- Projection UPDATE (Patch 방식)
-- Query (GetFlowByName, GetCallsByFlow)
+#### 2.5 Repository (F#)
+- **DspRepository**: Dapper 기반 SQLite I/O
+  - bulkInsertFlowsAsync, bulkInsertCallsAsync
+  - getFlowByNameAsync, getCallsByFlowAsync
+  - updateCallStateAsync
+- **DatabasePathResolverAdapter** (C#): Unified/Split 모드 경로 해석
 
 ### Layer 3: Database
 - **dspFlow**: Flow Projection
@@ -194,95 +198,152 @@ Call 완료 이벤트
 
 ## 📦 모듈 책임
 
-### DSPilot.Engine/Bootstrap
+### C# Services Layer (DSPilot/Services)
+
+#### Ev2BootstrapServiceAdapter (F# Wrapper)
 ```
 책임:
-- AASX 로드 및 파싱
-- Flow/Call 구조 분석
-- Topology 계산
-- Tag Mapping 초기화
-
-산출물:
-- dspFlow (정적 메타)
-- dspCall (정적 메타)
+- EV2 데이터베이스 스키마 초기화
+- DSP 테이블 생성 위임 (dspFlow, dspCall)
+- 통합 데이터베이스 경로 관리
 
 트리거:
-- 프로젝트 로드 시
-- 프로젝트 변경 시
+- 애플리케이션 시작 시 (HostedService)
 ```
 
-### DSPilot.Engine/Runtime
+#### DsProjectService
 ```
 책임:
-- PLC 이벤트 수신
-- Rising Edge 감지
-- State 전이
-- Timestamp 기록
+- AASX 프로젝트 로드 및 파싱
+- System, Flow, Work, Call 구조 관리
+- DsStore 상태 관리
 
-산출물:
-- dspCall.State
-- dspCall.LastStartAt
-- dspCall.LastFinishAt
-- dspFlow.ActiveCallCount
+API:
+- LoadProject, GetActiveSystems
+- GetFlows, GetWorks, GetCalls
+- GetStore (F# DsStore 접근)
 
 트리거:
-- PLC Tag 값 변경 시
+- 사용자 프로젝트 로드 요청
 ```
 
-### DSPilot.Engine/Statistics
+#### PlcEventProcessorService
 ```
 책임:
-- Incremental 통계 계산
+- PLC 이벤트 스트림 구독 (Channel 기반)
+- Edge 감지 (TagStateTracker 활용)
+- Tag → Call 매핑 (PlcToCallMapperService)
+- F# StateTransition 호출
+
+데이터 흐름:
+IPlcEventSource → Channel → EdgeDetection → Mapping → StateTransition
+
+트리거:
+- PLC 연결 활성화 시 (PlcConnection:Enabled=true)
+```
+
+#### PlcToCallMapperService
+```
+책임:
+- AASX Call 메타데이터에서 Tag 매핑 추출
+- Tag Address → Call 조회
+- InTag/OutTag 식별
+
+API:
+- Initialize (프로젝트 로드 시 매핑 빌드)
+- FindCallByTag (Tag Address → CallMappingInfo)
+- GetCallTagsByCallId (Call ID → (InTag, OutTag))
+
+트리거:
+- 프로젝트 로드 시 (Initialize)
+- PLC 이벤트 처리 시 (FindCallByTag)
+```
+
+#### CycleAnalysisService
+```
+책임:
+- 사이클 경계 자동 탐지 (Head Call InTag 기반)
+- Call 실행 시퀀스 분석
+- Gap 분석 및 병목 탐지
+- Gantt 차트 데이터 생성
+
+API:
+- DetectRecentCyclesAsync (최근 N개 사이클 탐지)
+- AnalyzeCycleAsync (사이클 상세 분석)
+- GetIOEventsInTimeRangeAsync (Gantt 차트용 IO 이벤트)
+
+트리거:
+- 사용자 사이클 분석 요청 (CycleAnalysis.razor)
+```
+
+### F# Engine Layer (DSPilot.Engine)
+
+#### Database/Repository
+```
+책임:
+- SQLite I/O (Dapper 기반)
+- Projection CRUD (dspFlow, dspCall)
+- Unified 모드 지원 (공유 데이터베이스)
+
+API:
+- createSchemaAsync (스키마 생성)
+- bulkInsertFlowsAsync, bulkInsertCallsAsync
+- getFlowByNameAsync, getCallsByFlowAsync
+- updateCallStateAsync (상태 업데이트)
+
+트리거:
+- C# Services의 데이터베이스 작업 요청
+```
+
+#### Tracking/StateTransition
+```
+책임:
+- PLC Edge 이벤트 → Call 상태 전이
+- Call State: Ready → Going (InTag) / Going → Done (OutTag)
+- Timestamp 기록 (LastStartAt, LastFinishAt)
+- Duration 계산
+
+API:
+- processEdgeEvent (F# Async 함수)
+  - dbPath: string
+  - tagAddress: string
+  - isInTag: bool
+  - edgeType: EdgeType
+  - timestamp: DateTime
+  - callName: string
+
+트리거:
+- PlcEventProcessorService의 Edge 이벤트
+```
+
+#### Tracking/TagStateTracker
+```
+책임:
+- PLC Tag 이전 상태 추적
+- Rising/Falling Edge 감지
+
+구현:
+- updateTagValue (Tag Address, Value) → EdgeState
+- EdgeType: NoChange | RisingEdge | FallingEdge
+
+트리거:
+- PLC 이벤트 처리 시 (PlcEventProcessorService)
+```
+
+#### Statistics/RuntimeStatsCollector (미래 구현)
+```
+책임:
+- Incremental 통계 계산 (Welford's Algorithm)
 - SlowFlag 판정
 - Focus Score 계산
 
 산출물:
-- dspCall.AverageGoingTime
-- dspCall.StdDevGoingTime
-- dspCall.MinGoingTime
-- dspCall.MaxGoingTime
-- dspCall.SlowFlag
-- dspCall.FocusScore
+- AverageGoingTime, StdDevGoingTime
+- MinGoingTime, MaxGoingTime
+- SlowFlag
 
 트리거:
-- Call 완료 시
-```
-
-### DSPilot.Engine/Aggregation
-```
-책임:
-- Flow 레벨 집계
-- Cycle Metrics 계산
-
-산출물:
-- dspFlow.State
-- dspFlow.ActiveCallCount
-- dspFlow.ErrorCallCount
-- dspFlow.MT, WT, CT
-- dspFlow.LastCycleDurationMs
-
-트리거:
-- Call 상태 변경 시
-- Tail Call 완료 시
-```
-
-### DSPilot.Engine/Repository
-```
-책임:
-- Database I/O
-- Projection CRUD
-- Query 최적화
-
-API:
-- upsertFlow, upsertCall
-- updateFlowProjection (Patch)
-- updateCallProjection (Patch)
-- getFlowByName
-- getCallsByFlow
-- countCallsByState
-
-트리거:
-- 모든 모듈의 요청
+- Call 완료 시 (OutTag Rising Edge)
 ```
 
 ---
