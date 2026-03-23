@@ -60,12 +60,18 @@ public class PlcDbInspector
             {
                 // Print first row to see column names
                 var firstRow = sampleList[0] as IDictionary<string, object>;
-                System.Console.WriteLine($"  Columns: {string.Join(", ", firstRow.Keys)}");
+                if (firstRow != null)
+                {
+                    System.Console.WriteLine($"  Columns: {string.Join(", ", firstRow.Keys)}");
+                }
 
                 foreach (var row in sampleList)
                 {
                     var dict = row as IDictionary<string, object>;
-                    System.Console.WriteLine($"  Row: {string.Join(" | ", dict.Values)}");
+                    if (dict != null)
+                    {
+                        System.Console.WriteLine($"  Row: {string.Join(" | ", dict.Values)}");
+                    }
                 }
             }
 
@@ -79,7 +85,10 @@ public class PlcDbInspector
             foreach (var log in logList)
             {
                 var dict = log as IDictionary<string, object>;
-                System.Console.WriteLine($"  {string.Join(" | ", dict.Values)}");
+                if (dict != null)
+                {
+                    System.Console.WriteLine($"  {string.Join(" | ", dict.Values)}");
+                }
             }
 
                 // Total count
