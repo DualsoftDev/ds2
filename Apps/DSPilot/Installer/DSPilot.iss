@@ -39,6 +39,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Tray application (self-contained)
 Source: "..\publish-tray\*"; DestDir: "{app}\Tray"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Icon file for shortcuts
+Source: "..\DSPilot\DSPilot.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; AASX data file (placed in parent directory: ../DsCSV_0318_C.aasx)
 Source: "..\DsCSV_0318_C.aasx"; DestDir: "{app}\.."; Flags: ignoreversion
 
@@ -47,8 +49,7 @@ Name: "{group}\{#MyAppName}"; Filename: "{code:GetAppURL}"
 Name: "{group}\{#MyAppName} 서비스 시작"; Filename: "{sys}\sc.exe"; Parameters: "start {#MyServiceName}"
 Name: "{group}\{#MyAppName} 서비스 중지"; Filename: "{sys}\sc.exe"; Parameters: "stop {#MyServiceName}"
 Name: "{group}\{#MyAppName} 제거"; Filename: "{uninstallexe}"
-; 바탕화면 바로가기 (웹 대시보드)
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{code:GetAppURL}"; IconFilename: "{app}\Tray\DSPilot.ico"
+; 바탕화면 바로가기는 [Code] 섹션에서 .url 파일로 직접 생성 (아이콘 포함)
 ; 시작 프로그램에 트레이 아이콘 등록
 Name: "{userstartup}\{#MyAppName} Tray"; Filename: "{app}\Tray\{#MyTrayExeName}"
 
@@ -92,6 +93,9 @@ Filename: "{app}\Tray\{#MyTrayExeName}"; \
 Filename: "{code:GetAppURL}"; \
   Description: "DSPilot 웹 대시보드 열기"; \
   Flags: postinstall shellexec nowait skipifsilent unchecked
+
+[UninstallDelete]
+Type: files; Name: "{autodesktop}\{#MyAppName}.url"
 
 [UninstallRun]
 ; Kill tray app before uninstall
@@ -200,6 +204,13 @@ begin
       '{' + #13#10 +
       '  "Urls": "' + UrlsValue + '"' + #13#10 +
       '}' + #13#10, False);
+
+    // 바탕화면에 .url 바로가기 생성 (아이콘 포함)
+    SaveStringToFile(ExpandConstant('{autodesktop}\{#MyAppName}.url'),
+      '[InternetShortcut]' + #13#10 +
+      'URL=' + GetAppURL('') + #13#10 +
+      'IconFile=' + ExpandConstant('{app}\DSPilot.ico') + #13#10 +
+      'IconIndex=0' + #13#10, False);
   end;
 end;
 

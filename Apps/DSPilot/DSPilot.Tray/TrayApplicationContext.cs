@@ -33,11 +33,9 @@ internal class TrayApplicationContext : ApplicationContext
 
     private static Icon LoadIcon()
     {
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "DSPilot.ico");
-        if (File.Exists(iconPath))
-            return new Icon(iconPath);
-
-        return SystemIcons.Application;
+        // exe에 내장된 아이콘 사용 (ApplicationIcon in csproj)
+        var icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        return icon ?? SystemIcons.Application;
     }
 
     private static string ResolveDashboardUrl()
