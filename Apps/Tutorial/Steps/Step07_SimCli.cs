@@ -66,6 +66,9 @@ static class Step07_SimCli
         sim.Start();
 
         Thread.Sleep(200);
+        // 토큰 투입 후 강제 시작 — 토큰 있어야 후속 Work 로 전달됨
+        var token = sim.NextToken();
+        sim.SeedToken(works[0].Id, token);
         sim.ForceWorkState(works[0].Id, Status4.Going);
         Console.WriteLine("  Started: PickPart");
 
@@ -114,6 +117,9 @@ static class Step07_SimCli
                             var st = sim.GetWorkState(w.Id);
                             if (st != null && st.Value == Status4.Ready)
                             {
+                                // 토큰 투입 + 강제 시작
+                                var t = sim.NextToken();
+                                sim.SeedToken(w.Id, t);
                                 sim.ForceWorkState(w.Id, Status4.Going);
                                 Console.WriteLine($"  Started: {w.Name}");
                                 break;
@@ -173,6 +179,9 @@ static class Step07_SimCli
             Console.WriteLine($"    {e}");
         Console.WriteLine("\n  최종:");
         foreach (var w in works)
-            Console.WriteLine($"    {w.Name}: {sim.GetWorkState(w.Id)}");
+        {
+            var st = sim.GetWorkState(w.Id);
+            Console.WriteLine($"    {w.Name}: {(st != null ? st.Value.ToString() : "?")}");
+        }
     }
 }

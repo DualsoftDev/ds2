@@ -49,8 +49,13 @@ public partial class PropertyPanelState : ObservableObject
     [ObservableProperty] private bool _isNameDirty;
     [ObservableProperty] private bool _isWorkPeriodDirty;
     [ObservableProperty] private bool _isCallTimeoutDirty;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDeviceDuration))]
+    private string _deviceDurationHint = "";
+    public bool HasDeviceDuration => !string.IsNullOrEmpty(DeviceDurationHint);
 
     private int? _originalWorkPeriodMs;
+    private int? _deviceDurationMs;
     private int? _originalCallTimeoutMs;
 
     partial void OnSelectedNodeChanged(EntityNode? value) => Refresh();
@@ -109,6 +114,9 @@ public partial class PropertyPanelState : ObservableObject
         {
             _originalWorkPeriodMs = LoadOptionalMsFromStore(selected.Id, Store.GetWorkPeriodMsOrNull);
             WorkPeriodMs = _originalWorkPeriodMs;
+            var devOpt = DsQuery.tryGetDeviceDurationMs(selected.Id, Store);
+            _deviceDurationMs = devOpt != null ? (int?)devOpt.Value : null;
+            DeviceDurationHint = _deviceDurationMs is { } ms ? $"예상 소요 시간: {ms}ms" : "";
 
             var workOpt = Ds2.Store.DsQuery.getWork(selected.Id, Store);
             _originalWorkTokenRole = workOpt != null ? workOpt.Value.TokenRole : TokenRole.None;
@@ -127,6 +135,8 @@ public partial class PropertyPanelState : ObservableObject
         {
             _originalWorkPeriodMs = null;
             WorkPeriodMs = null;
+            _deviceDurationMs = null;
+            DeviceDurationHint = "";
             _originalWorkTokenRole = TokenRole.None;
             _suppressTokenRoleSync = true;
             IsTokenSource = false;
@@ -181,6 +191,20 @@ public partial class PropertyPanelState : ObservableObject
     private void ApplyWorkPeriod()
     {
         if (RequireSelectedAs(EntityKind.Work) is not { } selectedWork) return;
+
+        if (_deviceDurationMs is { } devMs)
+        {
+            var userMs = WorkPeriodMs ?? 0;
+            var ruleText = userMs > devMs
+                ? $"설정값({userMs}ms)이 예상 시간({devMs}ms)보다 크므로 설정값이 적용됩니다."
+                : $"설정값({userMs}ms)이 예상 시간({devMs}ms)보다 작으므로 예상 시간이 우선됩니다.";
+            var result = Dialogs.DialogHelpers.ShowThemedMessageBox(
+                $"이 Work의 예상 소요 시간이 {devMs}ms로 산출되어 있습니다.\n" +
+                $"{ruleText}\n\n계속하시겠습니까?",
+                "Duration 안내",
+                System.Windows.MessageBoxButton.YesNo, "ℹ");
+            if (result != System.Windows.MessageBoxResult.Yes) return;
+        }
 
         if (!_host.TryAction(() => Store.UpdateWorkPeriodMs(selectedWork.Id, WorkPeriodMs)))
             return;

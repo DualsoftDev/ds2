@@ -158,7 +158,7 @@ public sealed class SimulationPanelStateTests
         new(
             () => new DsStore(),
             Dispatcher.CurrentDispatcher,
-            new ObservableCollection<EntityNode>(),
+            () => new ObservableCollection<EntityNode>(),
             _ => { });
 
     private static object GetPrivateField(object instance, string fieldName)

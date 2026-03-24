@@ -53,25 +53,26 @@ static class Step03_QueryExplore
         var arrows = DsQuery.arrowWorksOf(ctx.SystemId, store);
         foreach (var a in arrows)
         {
-            var src = DsQuery.tryGetName(store, EntityKind.Work, a.SourceId);
-            var tgt = DsQuery.tryGetName(store, EntityKind.Work, a.TargetId);
+            var src = DsQuery.tryGetName(store, EntityKind.Work, a.SourceId)?.Value ?? "?";
+            var tgt = DsQuery.tryGetName(store, EntityKind.Work, a.TargetId)?.Value ?? "?";
             Console.WriteLine($"    {src} ──{a.ArrowType}──> {tgt}");
         }
         Console.WriteLine();
 
         // ── 역방향 계층 탐색 (아래→위) ──────────────────────
         Console.WriteLine("  [아래→위 탐색: PickPart 기준]");
+        // F# option<Guid> → C# FSharpOption<Guid>: null=None, ?.Value=Some
         var parentFlow = StoreHierarchyQueries.parentIdOf(store, EntityKind.Work, ctx.W1Id);
         var parentSys  = StoreHierarchyQueries.tryFindSystemIdForEntity(store, EntityKind.Work, ctx.W1Id);
         var parentProj = StoreHierarchyQueries.tryFindProjectIdForEntity(store, EntityKind.Work, ctx.W1Id);
-        Console.WriteLine($"    Work → Flow:    {parentFlow}");
-        Console.WriteLine($"    Work → System:  {parentSys}");
-        Console.WriteLine($"    Work → Project: {parentProj}");
+        Console.WriteLine($"    Work → Flow:    {(parentFlow != null ? parentFlow.Value : "N/A")}");
+        Console.WriteLine($"    Work → System:  {(parentSys != null ? parentSys.Value : "N/A")}");
+        Console.WriteLine($"    Work → Project: {(parentProj != null ? parentProj.Value : "N/A")}");
         Console.WriteLine();
 
         // ── 기타 쿼리 ────────────────────────────────────────
         Console.WriteLine("  [기타]");
-        var name = DsQuery.tryGetName(store, EntityKind.Work, ctx.W1Id);
+        var name = DsQuery.tryGetName(store, EntityKind.Work, ctx.W1Id)?.Value ?? "N/A";
         Console.WriteLine($"    tryGetName(W1): {name}");
         var specs = DsQuery.getTokenSpecs(store);
         Console.WriteLine($"    getTokenSpecs: {specs.Length}개");

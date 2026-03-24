@@ -108,7 +108,13 @@ static class Step05_Simulation
         // ── 7. Reset + TimeIgnore 비교 ──────────────────────
         sim.Reset();
         stateLog.Clear();
+        tokenLog.Clear();
         sim.TimeIgnore = true;
+
+        // TimeIgnore 모드에서도 토큰이 있어야 Work 가 시작됨
+        var token2 = sim.NextToken();
+        sim.SeedToken(ctx.W1Id, token2);
+
         sim.Start();
         Thread.Sleep(500);
         sim.Stop();

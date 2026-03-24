@@ -145,8 +145,14 @@ type EventDrivenEngine(index: SimIndex) =
 
     let handleDurationComplete workGuid =
         if stateManager.GetWorkState(workGuid) = Status4.Going then
-            if (SimIndex.findOrEmpty workGuid index.WorkCallGuids).IsEmpty then
+            stateManager.MarkMinDurationMet(workGuid)
+            let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
+            if callGuids.IsEmpty then
                 applyWorkTransition workGuid Status4.Finish
+            else
+                // Works with Calls: duration met, check if all calls also finished
+                if callGuids |> List.forall (fun cg -> stateManager.GetCallState(cg) = Status4.Finish) then
+                    applyWorkTransition workGuid Status4.Finish
 
     let runtimeContext : EventDrivenEngineRuntime.RuntimeContext = {
         Scheduler = scheduler
@@ -268,7 +274,7 @@ type EventDrivenEngine(index: SimIndex) =
             if i && not prev && Volatile.Read(&status) = Running then
                 for wg in index.AllWorkGuids do
                     match stateManager.GetWorkState(wg) with
-                    | Status4.Going when (SimIndex.findOrEmpty wg index.WorkCallGuids).IsEmpty ->
+                    | Status4.Going when not (stateManager.IsMinDurationMet(wg)) ->
                         scheduler.ScheduleNow(ScheduledEventType.DurationComplete wg, ScheduledEvent.PriorityDurationCheck) |> ignore
                     | Status4.Homing ->
                         scheduler.ScheduleNow(ScheduledEventType.HomingComplete wg, ScheduledEvent.PriorityStateChange) |> ignore

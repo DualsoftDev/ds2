@@ -156,10 +156,19 @@ module SimIndex =
             state.AllCallGuids <- call.Id :: state.AllCallGuids
 
         let addWorkData (system: DsSystem) (work: Work) (callGuids: Guid list) (workStartPreds: Map<Guid, Guid list>) (workResetPreds: Map<Guid, Guid list>) =
-            let duration =
+            let userDurationMs =
                 work.Properties.Period
                 |> Option.map (fun ts -> ts.TotalMilliseconds)
                 |> Option.defaultValue 0.0
+            // Works with Calls: effective = max(userDuration, deviceCriticalPath)
+            let duration =
+                if callGuids.IsEmpty then userDurationMs
+                else
+                    let deviceMs =
+                        DsQuery.tryGetDeviceDurationMs work.Id store
+                        |> Option.defaultValue 0
+                        |> float
+                    max userDurationMs deviceMs
             state.WorkCallGuids <- state.WorkCallGuids.Add(work.Id, callGuids)
             state.WorkStartPreds <- state.WorkStartPreds.Add(work.Id, findOrEmpty work.Id workStartPreds)
             state.WorkResetPreds <- state.WorkResetPreds.Add(work.Id, findOrEmpty work.Id workResetPreds)
