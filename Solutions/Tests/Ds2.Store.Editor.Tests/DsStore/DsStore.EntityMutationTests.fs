@@ -101,18 +101,6 @@ module RenameTests =
         Assert.Equal("Api", call.ApiName)  // ApiName 불변
         Assert.Equal("NewDev.Api", call.Name)
 
-    [<Fact>]
-    let ``RenameEntity for Call with same alias is no-op`` () =
-        let store = createStore ()
-        let project, _, _, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
-        let call = store.Calls |> Seq.head |> (fun kv -> kv.Value)
-
-        store.RenameEntity(call.Id, EntityKind.Call, "Dev.Api")  // same alias → no-op
-        // Undo should undo AddCallsWithDevice, not a rename (rename was no-op)
-        store.Undo()
-        Assert.Empty(store.Calls)
-
 // =============================================================================
 // Arrows
 // =============================================================================

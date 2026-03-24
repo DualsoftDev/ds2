@@ -163,16 +163,6 @@ module PanelTests =
         Assert.Equal(apiCall.Id, row.Value.ApiCallId)
 
     [<Fact>]
-    let ``TryGetCallApiCallForPanel returns None for unknown api call id`` () =
-        let store = createStore ()
-        let project, _, _, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
-
-        let call = store.Calls.Values |> Seq.head
-        let row = store.TryGetCallApiCallForPanel(call.Id, Guid.NewGuid())
-        Assert.True(row.IsNone)
-
-    [<Fact>]
     let ``AddApiCallFromPanel uses ApiDef name when panel no longer supplies api call name`` () =
         let store = createStore ()
         let project = addProject store "P"

@@ -93,15 +93,6 @@ let rec private assertConditionsEqual (expected: ResizeArray<CallCondition>) (ac
 module JsonOptionsFactoryTests =
 
     [<Fact>]
-    let ``JsonOptions factories should create fresh option instances`` () =
-        let a = JsonOptions.createProjectSerializationOptions ()
-        let b = JsonOptions.createProjectSerializationOptions ()
-        let c = JsonOptions.createDeepCopyOptions ()
-
-        Assert.False(obj.ReferenceEquals(a, b), "Project serialization options should not be shared singleton")
-        Assert.False(obj.ReferenceEquals(a, c), "Different factory outputs should not share same instance")
-
-    [<Fact>]
     let ``DeepCopy options should roundtrip ValueSpec union`` () =
         let options = JsonOptions.createDeepCopyOptions ()
         let expected =

@@ -175,17 +175,21 @@ public partial class MainViewModel
         }
     }
 
-    [RelayCommand(CanExecute = nameof(HasProject))]
+    [RelayCommand]
     private void ShowProjectSettings()
     {
-        var project = DsQuery.allProjects(_store).Head;
-        var dlg = new ProjectPropertiesDialog(project.Properties);
+        var properties = HasProject
+            ? DsQuery.allProjects(_store).Head.Properties
+            : new Ds2.Core.ProjectProperties();
+        var dlg = new ProjectPropertiesDialog(properties);
         var accepted = _dialogService.ShowDialog(dlg) == true;
 
         if (dlg.ThemeChanged)
             RefreshThemeState();
 
         if (!accepted) return;
+
+        if (!HasProject) return;
 
         TryEditorAction(() =>
             _store.UpdateProjectProperties(

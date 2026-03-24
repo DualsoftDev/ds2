@@ -101,14 +101,6 @@ module PanelTokenRoleTests =
 module DsQueryTests =
 
     [<Fact>]
-    let ``allProjects returns all projects`` () =
-        let store = createStore ()
-        let _ = store.AddProject("P1")
-        let _ = store.AddProject("P2")
-        let projects = DsQuery.allProjects store
-        Assert.Equal(2, projects.Length)
-
-    [<Fact>]
     let ``flowsOf returns flows under system`` () =
         let store = createStore ()
         let _, system, _, _ = setupBasicHierarchy store

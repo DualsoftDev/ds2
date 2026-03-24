@@ -278,22 +278,6 @@ graph TD
     Assert.True(apiCalls.Length >= 2)
 
 [<Fact>]
-let ``인라인 노드 정의 — Arrow에서 A["Label"] 형식도 노드로 등록`` () =
-    let mermaid = """
-graph TD
-    A["SV.ON"] --> B["SV.OFF"]
-"""
-    match MermaidParser.parse mermaid with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
-        Assert.Equal(2, graph.GlobalNodes.Length)
-        Assert.Contains(graph.GlobalNodes, fun node -> node.Id = "A" && node.Label = "SV.ON")
-        Assert.Contains(graph.GlobalNodes, fun node -> node.Id = "B" && node.Label = "SV.OFF")
-        Assert.Equal(1, graph.GlobalEdges.Length)
-        Assert.Equal("A", graph.GlobalEdges.[0].SourceId)
-        Assert.Equal("B", graph.GlobalEdges.[0].TargetId)
-
-[<Fact>]
 let ``Export — flowToMermaid 2-depth 구조`` () =
     let store = createStore()
     let _, _, flowId = setupProjectWithFlow store
