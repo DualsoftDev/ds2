@@ -48,7 +48,7 @@ public partial class MainViewModel : ObservableObject
 
         Selection = new SelectionState(new SelectionHost(this));
         CanvasManager = new SplitCanvasManager(() => new CanvasWorkspaceState(new CanvasHost(this)));
-        Simulation = new SimulationPanelState(() => _store, _dispatcher, CanvasManager.PrimaryPane.CanvasNodes, value => StatusText = value);
+        Simulation = new SimulationPanelState(() => _store, _dispatcher, () => CanvasManager.AllPanes.SelectMany(p => p.CanvasNodes), value => StatusText = value);
         PropertyPanel = new PropertyPanelState(new PropertyPanelHost(this));
         WireEvents();
         LanguageManager.ApplySavedLanguage();

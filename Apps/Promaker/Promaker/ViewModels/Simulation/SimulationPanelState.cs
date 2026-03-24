@@ -26,7 +26,7 @@ public partial class SimulationPanelState : ObservableObject
 
     private readonly Func<DsStore> _storeProvider;
     private readonly Dispatcher _dispatcher;
-    private readonly ObservableCollection<EntityNode> _canvasNodes;
+    private readonly Func<IEnumerable<EntityNode>> _allCanvasNodes;
     private readonly Action<string> _setStatusText;
     private ISimulationEngine? _simEngine;
     private DateTime _simStartTime = DateTime.Now;
@@ -58,12 +58,12 @@ public partial class SimulationPanelState : ObservableObject
     public SimulationPanelState(
         Func<DsStore> storeProvider,
         Dispatcher dispatcher,
-        ObservableCollection<EntityNode> canvasNodes,
+        Func<IEnumerable<EntityNode>> allCanvasNodes,
         Action<string> setStatusText)
     {
         _storeProvider = storeProvider;
         _dispatcher = dispatcher;
-        _canvasNodes = canvasNodes;
+        _allCanvasNodes = allCanvasNodes;
         _setStatusText = setStatusText;
     }
 

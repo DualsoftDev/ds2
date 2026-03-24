@@ -96,9 +96,11 @@ public partial class SimulationPanelState
         if (row is not null)
             row.TokenDisplay = display;
 
-        var canvasNode = _canvasNodes.FirstOrDefault(n => n.Id == workGuid);
-        if (canvasNode is not null)
-            canvasNode.SimTokenDisplay = display;
+        foreach (var canvasNode in _allCanvasNodes())
+        {
+            if (canvasNode.Id == workGuid)
+                canvasNode.SimTokenDisplay = display;
+        }
     }
 
     /// <summary>토큰 표시: {이름}#{이름별순번} 형식</summary>

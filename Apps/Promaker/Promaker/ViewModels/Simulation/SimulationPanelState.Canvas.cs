@@ -77,8 +77,11 @@ public partial class SimulationPanelState
         var row = SimNodes.FirstOrDefault(node => node.NodeGuid == nodeGuid);
         if (row is not null) row.State = newState;
 
-        var canvasNode = _canvasNodes.FirstOrDefault(node => node.Id == nodeGuid);
-        if (canvasNode is not null) canvasNode.SimState = newState;
+        foreach (var canvasNode in _allCanvasNodes())
+        {
+            if (canvasNode.Id == nodeGuid)
+                canvasNode.SimState = newState;
+        }
     }
 
     private void ApplySimStateToCanvas()
@@ -89,7 +92,7 @@ public partial class SimulationPanelState
 
     private void ClearSimStateFromCanvas()
     {
-        foreach (var node in _canvasNodes)
+        foreach (var node in _allCanvasNodes())
         {
             node.SimState = null;
             node.SimTokenDisplay = "";
@@ -113,7 +116,7 @@ public partial class SimulationPanelState
     {
         if (_simEngine is null || !IsSimulating) return;
 
-        foreach (var node in _canvasNodes)
+        foreach (var node in _allCanvasNodes())
         {
             var cached = _stateCache.TryGet(node.Id);
             if (cached is not null)
@@ -127,7 +130,7 @@ public partial class SimulationPanelState
 
     private void SetCanvasSimState(Status4? state, Func<EntityNode, bool> predicate)
     {
-        foreach (var node in _canvasNodes)
+        foreach (var node in _allCanvasNodes())
         {
             if (predicate(node))
                 node.SimState = state;
