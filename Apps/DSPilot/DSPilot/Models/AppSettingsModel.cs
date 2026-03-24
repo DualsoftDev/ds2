@@ -12,6 +12,7 @@ public class AppSettingsModel
     public PlcCaptureSettings PlcCapture { get; set; } = new();
     public LoggingSettings Logging { get; set; } = new();
     public UiSettings Ui { get; set; } = new();
+    public HistoryViewSettings HistoryView { get; set; } = new();
 }
 
 public class DsPilotSettings
@@ -103,6 +104,27 @@ public class UiSettings
     /// PLC 디버그 페이지 표시 여부
     /// </summary>
     public bool ShowPlcDebug { get; set; } = false;
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+public class HistoryViewSettings
+{
+    /// <summary>
+    /// 필터 모드: "None" = 필터 없음, "Cycles" = 최근 N 사이클, "Days" = 최근 N일
+    /// </summary>
+    public string FilterMode { get; set; } = "None";
+
+    /// <summary>
+    /// 표시할 최근 사이클 수 (FilterMode = "Cycles"일 때 사용)
+    /// </summary>
+    public int MaxCycles { get; set; } = 100;
+
+    /// <summary>
+    /// 표시할 최근 일수 (FilterMode = "Days"일 때 사용)
+    /// </summary>
+    public int MaxDays { get; set; } = 7;
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

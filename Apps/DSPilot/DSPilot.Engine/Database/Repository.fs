@@ -520,6 +520,34 @@ module DspRepository =
                     return []
         }
 
+    /// Flow History 조회 (최근 N일)
+    let getFlowHistoryByDaysAsync (paths: DatabasePaths) (logger: ILogger) (flowName: string) (days: int) : Task<DspFlowHistoryEntity list> =
+        task {
+            use connection = createConnection (DatabaseConfig.createConnectionString paths.SharedDbPath)
+            do! connection.OpenAsync()
+
+            let historyTable = "dspFlowHistory"
+
+            let! tableExists = tableExistsAsync connection historyTable
+            if not tableExists then
+                return []
+            else
+                try
+                    let sql = sprintf """
+                        SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt
+                        FROM %s
+                        WHERE FlowName = @FlowName
+                          AND RecordedAt >= @SinceDate
+                        ORDER BY RecordedAt DESC""" historyTable
+
+                    let sinceDate = System.DateTime.UtcNow.AddDays(float -days)
+                    let! results = connection.QueryAsync<DspFlowHistoryEntity>(sql, {| FlowName = flowName; SinceDate = sinceDate |})
+                    return results |> Seq.toList
+                with ex ->
+                    logger.LogError(ex, "Failed to get Flow history by days for '{FlowName}'", flowName)
+                    return []
+        }
+
     /// Flow History 전체 삭제
     let clearFlowHistoryAsync (paths: DatabasePaths) (logger: ILogger) : Task<int> =
         task {

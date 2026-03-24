@@ -7,6 +7,7 @@
 @inject IJSRuntime JS
 @inject DashboardEditService EditService
 @inject DSPilot.Adapters.DspRepositoryAdapter DspRepository
+@inject AppSettingsService SettingsService
 @inject ILogger<Dashboard> Logger
 @implements IDisposable
 
@@ -815,8 +816,21 @@ else
     {
         try
         {
-            // Load flow history from repository (최근 100개)
-            _flowHistory = await DspRepository.GetFlowHistoryAsync(flowName, 100);
+            var settings = SettingsService.LoadSettings();
+            var filter = settings.HistoryView;
+            if (filter.FilterMode == "Cycles")
+            {
+                _flowHistory = await DspRepository.GetFlowHistoryAsync(flowName, filter.MaxCycles);
+            }
+            else if (filter.FilterMode == "Days")
+            {
+                _flowHistory = await DspRepository.GetFlowHistoryByDaysAsync(flowName, filter.MaxDays);
+            }
+            else
+            {
+                // None: 제한 없이 로드 (안전 상한 10000)
+                _flowHistory = await DspRepository.GetFlowHistoryAsync(flowName, 10000);
+            }
             StateHasChanged();
         }
         catch (Exception ex)

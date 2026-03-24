@@ -34,7 +34,7 @@ public class AppSettingsService
         if (File.Exists(_productionFilePath))
         {
             var prod = LoadRaw(_productionFilePath);
-            foreach (var key in new[] { "DsPilot", "Database", "FlowCycle", "PlcDatabase", "PlcCapture", "Logging", "Ui" })
+            foreach (var key in new[] { "DsPilot", "Database", "FlowCycle", "PlcDatabase", "PlcCapture", "Logging", "Ui", "HistoryView" })
             {
                 if (prod[key] is not null)
                     root[key] = prod[key]!.DeepClone();
@@ -50,6 +50,7 @@ public class AppSettingsService
             PlcCapture = Deserialize<PlcCaptureSettings>(root["PlcCapture"]),
             Logging = Deserialize<LoggingSettings>(root["Logging"]),
             Ui = Deserialize<UiSettings>(root["Ui"]),
+            HistoryView = Deserialize<HistoryViewSettings>(root["HistoryView"]),
         };
     }
 
@@ -64,6 +65,7 @@ public class AppSettingsService
         root["PlcCapture"] = JsonSerializer.SerializeToNode(model.PlcCapture, JsonOptions);
         root["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
         root["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
+        root["HistoryView"] = JsonSerializer.SerializeToNode(model.HistoryView, JsonOptions);
 
         SaveRaw(_filePath, root);
 
@@ -76,6 +78,7 @@ public class AppSettingsService
         prod["PlcCapture"] = JsonSerializer.SerializeToNode(model.PlcCapture, JsonOptions);
         prod["Logging"] = JsonSerializer.SerializeToNode(model.Logging, JsonOptions);
         prod["Ui"] = JsonSerializer.SerializeToNode(model.Ui, JsonOptions);
+        prod["HistoryView"] = JsonSerializer.SerializeToNode(model.HistoryView, JsonOptions);
         SaveRaw(_productionFilePath, prod);
         _logger.LogInformation("appsettings.Production.json 전체 설정 동기화 완료");
     }
