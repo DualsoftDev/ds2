@@ -435,7 +435,7 @@ else
                         <span style="margin-left:auto; font-size:12px; color:var(--color-text-secondary);">총 @(_flowHistory.Count)개</span>
                     </div>
                     <div class="ct-popup-history-list">
-                        @foreach (var history in _flowHistory.Take(5))
+                        @foreach (var history in _flowHistory)
                         {
                             var histCT = history.CT ?? 0;
                             var histMT = history.MT ?? 0;
@@ -460,12 +460,6 @@ else
                             </div>
                         }
                     </div>
-                    @if (_flowHistory.Count > 5)
-                    {
-                        <div class="ct-popup-history-more">
-                            <span style="font-size:12px; color:var(--color-text-secondary);">+ @(_flowHistory.Count - 5)개 더보기 (스크롤)</span>
-                        </div>
-                    }
                 </div>
             }
         </div>
@@ -507,7 +501,7 @@ else
 
     // 호버 툴팁 (고정 위치)
     private string? _hoverFlowName;
-    private double _tooltipX, _tooltipY;
+    private double _tooltipX, _tooltipY, _windowHeight = 900;
 
     // 정렬 설정
     private string _sortField = "ct";   // "ct" | "wt"
@@ -577,6 +571,8 @@ else
         if (!firstRender) return;
 
         _dotNetRef = DotNetObjectReference.Create(this);
+
+        try { _windowHeight = await JS.InvokeAsync<double>("eval", "window.innerHeight"); } catch { }
 
         try
         {
@@ -840,7 +836,12 @@ else
     {
         _hoverFlowName = flowName;
         _tooltipX = e.ClientX + 16;
-        _tooltipY = e.ClientY - 20;
+        const double tooltipH = 200;
+        var top = e.ClientY - 20;
+        // 화면 하단 넘침 방지: 툴팁이 뷰포트 아래로 넘어가면 커서 위쪽에 표시
+        _tooltipY = (top + tooltipH > _windowHeight)
+            ? Math.Max(8, e.ClientY - tooltipH - 10)
+            : top;
     }
 
     private void OnRowMouseLeave()
