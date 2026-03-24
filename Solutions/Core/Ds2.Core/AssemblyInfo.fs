@@ -15,5 +15,6 @@ open System.Runtime.CompilerServices
 [<assembly: InternalsVisibleTo("Ds2.Core.Tests")>]
 [<assembly: InternalsVisibleTo("Ds2.Integration.Tests")>]
 [<assembly: InternalsVisibleTo("Ds2.Store.Editor.Tests")>]
+[<assembly: InternalsVisibleTo("Ds2.Tutorial")>]
 
 do ()

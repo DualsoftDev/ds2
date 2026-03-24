@@ -20,7 +20,7 @@ module internal SimIndexGroupExpansion =
         let rootY = findRoot parent y
         if rootX = rootY then parent else parent.Add(rootY, rootX)
 
-    let private buildGroupSets (sourceIds: Guid list) (targetIds: Guid list) =
+    let buildGroupSets (sourceIds: Guid list) (targetIds: Guid list) =
         if sourceIds.IsEmpty then []
         else
             let allNodes = (sourceIds @ targetIds) |> List.distinct
