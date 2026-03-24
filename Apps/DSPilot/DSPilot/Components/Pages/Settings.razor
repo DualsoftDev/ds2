@@ -256,6 +256,46 @@
                     </div>
                 </div>
             </div>
+
+            @* 히스토리 보기 필터 설정 *@
+            <div class="card" style="box-shadow: var(--shadow-2);">
+                <div class="card-header">
+                    <span class="material-icons mr-2">filter_list</span>
+                    <h6 class="typo-h6">히스토리 보기 필터</h6>
+                </div>
+                <div class="card-content">
+                    <div class="form-group mb-3">
+                        <label class="form-label">필터 기준</label>
+                        <select class="form-select" @bind="_settings.HistoryView.FilterMode">
+                            <option value="None">없음</option>
+                            <option value="Cycles">사이클</option>
+                            <option value="Days">일자</option>
+                        </select>
+                    </div>
+                    @if (_settings.HistoryView.FilterMode == "Cycles")
+                    {
+                        <div class="form-group">
+                            <label class="form-label">최근 사이클 수</label>
+                            <input type="number" class="form-field" @bind="_settings.HistoryView.MaxCycles"
+                                   min="10" max="10000" placeholder="100" />
+                            <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                                표시할 최근 사이클 개수 (기본: 100)
+                            </small>
+                        </div>
+                    }
+                    @if (_settings.HistoryView.FilterMode == "Days")
+                    {
+                        <div class="form-group">
+                            <label class="form-label">최근 일수</label>
+                            <input type="number" class="form-field" @bind="_settings.HistoryView.MaxDays"
+                                   min="1" max="365" placeholder="7" />
+                            <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                                표시할 최근 일수 (기본: 7일)
+                            </small>
+                        </div>
+                    }
+                </div>
+            </div>
         </div>
 
     </div>
