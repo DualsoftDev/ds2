@@ -122,30 +122,34 @@ module GraphValidator =
                     Some (groupLabel, items)
                 else None)
 
-    /// Group Arrow로 묶인 Work 전체가 Ignore인 그룹 감지 (진행 불가)
-    let findGroupWorksAllIgnored (index: SimIndex) : (string * (Guid * string * string) list) list =
-        let workGroupArrows =
-            index.Store.ArrowWorksReadOnly.Values
-            |> Seq.filter (fun a -> a.ArrowType = ArrowType.Group)
-            |> Seq.toList
-        if workGroupArrows.IsEmpty then []
-        else
-            let sources = workGroupArrows |> List.map (fun a -> a.SourceId)
-            let targets = workGroupArrows |> List.map (fun a -> a.TargetId)
-            let groupSets = SimIndexGroupExpansion.buildGroupSets sources targets
-            groupSets
-            |> List.choose (fun groupSet ->
-                let members = groupSet |> Set.toList
-                let nonIgnoreMembers =
-                    members
-                    |> List.filter (fun wg ->
-                        let role = index.WorkTokenRole |> Map.tryFind wg |> Option.defaultValue TokenRole.None
-                        not (role.HasFlag(TokenRole.Ignore)))
-                if nonIgnoreMembers.Length = 0 then
-                    let items = members |> List.choose (toNameTriple index)
-                    let groupLabel = items |> List.map (fun (_, _, wn) -> wn) |> String.concat ", "
-                    Some (groupLabel, items)
-                else None)
+    /// 토큰 경로가 차단된 Work 감지
+    /// 모든 토큰 선행자(token predecessor)가 Ignore → 토큰 도달 불가
+    /// 예: A-B-C(그룹), D → E 에서 A,B,C,D 전부 Ignore → E 도달 불가
+    let findTokenUnreachableWorks (index: SimIndex) : (Guid * string * string) list =
+        // WorkTokenSuccessors 역전: 각 Work의 토큰 선행자 맵
+        let tokenPreds =
+            index.WorkTokenSuccessors
+            |> Map.fold (fun acc pred succs ->
+                succs |> List.fold (fun a succ ->
+                    let existing = Map.tryFind succ a |> Option.defaultValue []
+                    Map.add succ (pred :: existing) a) acc) Map.empty<Guid, Guid list>
+
+        let isIgnore wg =
+            index.WorkTokenRole |> Map.tryFind wg
+            |> Option.map (fun r -> r.HasFlag(TokenRole.Ignore)) |> Option.defaultValue false
+
+        let isSource wg =
+            index.WorkTokenRole |> Map.tryFind wg
+            |> Option.map (fun r -> r.HasFlag(TokenRole.Source)) |> Option.defaultValue false
+
+        index.TokenPathGuids
+        |> Set.toList
+        |> List.filter (fun wg ->
+            not (isSource wg)
+            && (let preds = tokenPreds |> Map.tryFind wg |> Option.defaultValue []
+                not preds.IsEmpty
+                && preds |> List.forall isIgnore))
+        |> List.choose (toNameTriple index)
 
     /// 하위 호환용 별칭
     let findMissingSources = findSourceCandidates
