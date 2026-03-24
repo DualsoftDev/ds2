@@ -13,6 +13,7 @@
     <Compile Include="Nameplate.fs" />
     <Compile Include="HandoverDocumentation.fs" />
     <Compile Include="ValueSpec.fs" />
+    <Compile Include="TokenTypes.fs" />
     <Compile Include="JsonOptions.fs" />
     <Compile Include="AbstractClass.fs" />
     <Compile Include="Entities.fs" />

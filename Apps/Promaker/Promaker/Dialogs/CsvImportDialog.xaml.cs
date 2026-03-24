@@ -27,6 +27,21 @@ public class CsvRowViewModel
 public partial class CsvImportDialog : Window
 {
     private const string DefaultImportedName = "csv_import";
+    private const string DefaultSourceText = "또는 아래에 CSV를 직접 붙여넣으세요.";
+    private const string EmptyPreviewText = "CSV 내용을 붙여넣거나 CSV 파일 불러오기를 누르세요.";
+    private const string SampleCsv = @"Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress
+Cutting,Load,Cylinder,Up,입력신호,X10A0,출력신호,Y10B0
+Cutting,Load,Sensor,Detect,,X10A2,,
+Cutting,Load,Motor,Run,,X10A3,,Y10B3
+Cutting,Unload,Cylinder,Down,하강신호,X10B0,하강출력,Y10C0
+Cutting,Unload,Conveyor,Forward,,,,Y10C1
+Assembly,PartIn,Gripper,Grip,그립신호,X20A0,그립출력,Y20B0
+Assembly,PartIn,Gripper,Release,릴리즈신호,X20A1,릴리즈출력,Y20B1
+Assembly,PartIn,Sensor,Detect,,X20A2,,
+Assembly,Process,Press,Down,프레스하강,X20C0,프레스출력,Y20D0
+Assembly,Process,Press,Up,프레스상승,X20C1,프레스상승출력,Y20D1
+Assembly,PartOut,Ejector,Push,,X20E0,,Y20F0
+Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
 
     private CsvDocument? _document;
     private string _autoProjectName = DefaultImportedName;
@@ -40,8 +55,8 @@ public partial class CsvImportDialog : Window
 
         ProjectNameBox.Text = DefaultImportedName;
         SystemNameBox.Text = DefaultImportedName;
-        SourceText.Text = "또는 아래에 CSV를 직접 붙여넣으세요.";
-        ResetPreview("CSV 내용을 붙여넣거나 CSV 파일 불러오기를 누르세요.");
+        SourceText.Text = DefaultSourceText;
+        ResetPreview(EmptyPreviewText);
 
         Loaded += (_, _) => ContentBox.Focus();
     }
@@ -72,24 +87,37 @@ public partial class CsvImportDialog : Window
         return false;
     }
 
+    private static string OptionText(FSharpOption<string> value) =>
+        FSharpOption<string>.get_IsSome(value) ? value.Value : "";
+
+    private static CsvRowViewModel ToRowViewModel(CsvEntry entry) =>
+        new()
+        {
+            FlowName = entry.FlowName,
+            WorkName = entry.WorkName,
+            DeviceName = entry.DeviceName,
+            ApiName = entry.ApiName,
+            InName = OptionText(entry.InName),
+            InAddress = OptionText(entry.InAddress),
+            OutName = OptionText(entry.OutName),
+            OutAddress = OptionText(entry.OutAddress)
+        };
+
+    private void SetSourceDisplay(string displayName, string description)
+    {
+        _sourceDisplayName = displayName;
+        SourceText.Text = description;
+    }
+
     private void UpdatePreview(CsvImportPreview preview)
     {
         // Update DataGrid
         if (_document != null)
         {
-            var rows = _document.Entries.Take(100).Select(entry => new CsvRowViewModel
-            {
-                FlowName = entry.FlowName,
-                WorkName = entry.WorkName,
-                DeviceName = entry.DeviceName,
-                ApiName = entry.ApiName,
-                InName = FSharpOption<string>.get_IsSome(entry.InName) ? entry.InName.Value : "",
-                InAddress = FSharpOption<string>.get_IsSome(entry.InAddress) ? entry.InAddress.Value : "",
-                OutName = FSharpOption<string>.get_IsSome(entry.OutName) ? entry.OutName.Value : "",
-                OutAddress = FSharpOption<string>.get_IsSome(entry.OutAddress) ? entry.OutAddress.Value : ""
-            }).ToList();
-
-            PreviewGrid.ItemsSource = rows;
+            PreviewGrid.ItemsSource = _document.Entries
+                .Take(100)
+                .Select(ToRowViewModel)
+                .ToList();
         }
         else
         {
@@ -166,7 +194,7 @@ public partial class CsvImportDialog : Window
         var content = ContentBox.Text ?? string.Empty;
         if (string.IsNullOrWhiteSpace(content))
         {
-            ResetPreview("CSV 내용을 붙여넣거나 CSV 파일 불러오기를 누르세요.");
+            ResetPreview(EmptyPreviewText);
             return false;
         }
 
@@ -206,21 +234,7 @@ public partial class CsvImportDialog : Window
 
         try
         {
-            var sampleCsv = @"Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress
-Cutting,Load,Cylinder,Up,입력신호,X10A0,출력신호,Y10B0
-Cutting,Load,Sensor,Detect,,X10A2,,
-Cutting,Load,Motor,Run,,X10A3,,Y10B3
-Cutting,Unload,Cylinder,Down,하강신호,X10B0,하강출력,Y10C0
-Cutting,Unload,Conveyor,Forward,,,,Y10C1
-Assembly,PartIn,Gripper,Grip,그립신호,X20A0,그립출력,Y20B0
-Assembly,PartIn,Gripper,Release,릴리즈신호,X20A1,릴리즈출력,Y20B1
-Assembly,PartIn,Sensor,Detect,,X20A2,,
-Assembly,Process,Press,Down,프레스하강,X20C0,프레스출력,Y20D0
-Assembly,Process,Press,Up,프레스상승,X20C1,프레스상승출력,Y20D1
-Assembly,PartOut,Ejector,Push,,X20E0,,Y20F0
-Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
-
-            File.WriteAllText(picker.FileName, sampleCsv, Encoding.UTF8);
+            File.WriteAllText(picker.FileName, SampleCsv, Encoding.UTF8);
             MessageBox.Show(this, $"샘플 CSV 파일이 저장되었습니다.\n\n{picker.FileName}", "샘플 저장 완료", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
@@ -243,8 +257,7 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
         {
             _loadingFileContent = true;
             ContentBox.Text = File.ReadAllText(picker.FileName);
-            _sourceDisplayName = Path.GetFileName(picker.FileName);
-            SourceText.Text = $"원본: {_sourceDisplayName}";
+            SetSourceDisplay(Path.GetFileName(picker.FileName), $"원본: {Path.GetFileName(picker.FileName)}");
             ApplyAutoNames(Path.GetFileNameWithoutExtension(picker.FileName));
         }
         catch (Exception ex)
@@ -265,17 +278,13 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
 
         if (string.IsNullOrWhiteSpace(ContentBox.Text))
         {
-            _sourceDisplayName = "붙여넣기";
-            SourceText.Text = "또는 아래에 CSV를 직접 붙여넣으세요.";
-            ResetPreview("CSV 내용을 붙여넣거나 CSV 파일 불러오기를 누르세요.");
+            SetSourceDisplay("붙여넣기", DefaultSourceText);
+            ResetPreview(EmptyPreviewText);
             return;
         }
 
         if (!_loadingFileContent)
-        {
-            _sourceDisplayName = "붙여넣기";
-            SourceText.Text = "원본: 직접 입력";
-        }
+            SetSourceDisplay("붙여넣기", "원본: 직접 입력");
 
         TryLoadDocument();
     }

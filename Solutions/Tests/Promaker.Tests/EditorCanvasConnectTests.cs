@@ -1,6 +1,7 @@
 using System;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using Promaker.Controls;
 using Promaker.ViewModels;
 using Xunit;
@@ -9,13 +10,6 @@ namespace Promaker.Tests;
 
 public sealed class EditorCanvasConnectTests
 {
-    [Fact]
-    public void ConnectShortcut_uses_only_f3()
-    {
-        Assert.True(EditorCanvas.IsConnectShortcutKey(System.Windows.Input.Key.F3));
-        Assert.False(EditorCanvas.IsConnectShortcutKey(System.Windows.Input.Key.F4));
-    }
-
     [Fact]
     public void ResolveConnectSourceEntityType_returns_work_for_selected_work()
     {

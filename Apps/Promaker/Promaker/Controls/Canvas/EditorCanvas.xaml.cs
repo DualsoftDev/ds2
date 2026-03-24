@@ -5,7 +5,8 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using Promaker.ViewModels;
 
 namespace Promaker.Controls;
@@ -169,7 +170,13 @@ public partial class EditorCanvas : UserControl
         {
             e.Handled = true; // 기본 ContextMenu 억제
             ShowArrowTypeContextMenu(entityType);
+            return;
         }
+
+        // 탭 종류별 메뉴 항목 가시성
+        var tabKind = ActiveCanvasState?.ActiveTab?.Kind;
+        AddCallMenuItem.Visibility = tabKind == Ds2.Editor.TabKind.Work
+            ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void AddWork_Click(object sender, RoutedEventArgs e)

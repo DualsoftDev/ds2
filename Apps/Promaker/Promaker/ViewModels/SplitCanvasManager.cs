@@ -78,7 +78,7 @@ public partial class SplitCanvasManager : ObservableObject
     }
 
     /// <summary>모든 pane에서 탭 중복 여부를 확인합니다.</summary>
-    public CanvasWorkspaceState? FindPaneWithTab(Ds2.UI.Core.TabKind kind, Guid rootId)
+    public CanvasWorkspaceState? FindPaneWithTab(Ds2.Editor.TabKind kind, Guid rootId)
     {
         foreach (var pane in AllPanes)
         {

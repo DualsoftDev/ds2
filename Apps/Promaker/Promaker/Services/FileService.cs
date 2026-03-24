@@ -4,7 +4,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using Ds2.Aasx;
 using Ds2.Mermaid;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using log4net;
 
 namespace Promaker.Services;

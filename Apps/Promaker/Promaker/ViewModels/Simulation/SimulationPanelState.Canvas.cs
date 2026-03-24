@@ -2,7 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
@@ -21,7 +22,6 @@ public partial class SimulationPanelState
             AddSimNode(entry);
             _stateCache.Set(entry.Id, Status4.Ready);
         }
-
         PopulateWorkItems();
     }
 
@@ -29,16 +29,47 @@ public partial class SimulationPanelState
     {
         SimWorkItems.Clear();
         SelectedSimWork = null;
-        var store = Store;
-        var projects = DsQuery.allProjects(store);
-        if (projects.IsEmpty) return;
+        if (_simEngine is null) return;
 
-        foreach (var work in DsQuery.activeWorksOf(projects.Head.Id, store))
-            SimWorkItems.Add(new SimWorkItem(work.Id, work.Name));
+        var activeSystemNames = _simEngine.Index.ActiveSystemNames;
+        var sourceGuids = new HashSet<Guid>(_simEngine.Index.TokenSourceGuids);
+        var sourceItems = new List<SimWorkItem>();
+        var normalItems = new List<SimWorkItem>();
 
-        SelectedSimWork = (_lastSelectedWorkId is { } lastId
+        foreach (var entry in EnumerateSimulationEntries())
+        {
+            if (entry.Kind != EntityKind.Work || !activeSystemNames.Contains(entry.SystemName))
+                continue;
+
+            var item = new SimWorkItem(entry.Id, entry.Name);
+            if (sourceGuids.Contains(entry.Id))
+                sourceItems.Add(item);
+            else
+                normalItems.Add(item);
+        }
+
+        if (sourceItems.Count > 0)
+        {
+            SimWorkItems.Add(SimWorkItem.AutoStart);
+            SimWorkItems.Add(SimWorkItem.SourceHeader);
+            foreach (var item in sourceItems)
+                SimWorkItems.Add(item);
+        }
+
+        if (normalItems.Count > 0)
+        {
+            SimWorkItems.Add(SimWorkItem.NormalHeader);
+            foreach (var item in normalItems)
+                SimWorkItems.Add(item);
+        }
+
+        var preferred = _lastSelectedWorkId is { } lastId
             ? SimWorkItems.FirstOrDefault(w => w.Guid == lastId)
-            : null) ?? SimWorkItems.FirstOrDefault();
+            : null;
+
+        SelectedSimWork = preferred
+            ?? (sourceItems.Count > 0 ? SimWorkItem.AutoStart : null)
+            ?? SimWorkItems.FirstOrDefault(w => w.Guid != Guid.Empty);
     }
 
     private void UpdateSimNodeState(Guid nodeGuid, Status4 newState)
@@ -46,8 +77,11 @@ public partial class SimulationPanelState
         var row = SimNodes.FirstOrDefault(node => node.NodeGuid == nodeGuid);
         if (row is not null) row.State = newState;
 
-        var canvasNode = _canvasNodes.FirstOrDefault(node => node.Id == nodeGuid);
-        if (canvasNode is not null) canvasNode.SimState = newState;
+        foreach (var canvasNode in _allCanvasNodes())
+        {
+            if (canvasNode.Id == nodeGuid)
+                canvasNode.SimState = newState;
+        }
     }
 
     private void ApplySimStateToCanvas()
@@ -58,7 +92,11 @@ public partial class SimulationPanelState
 
     private void ClearSimStateFromCanvas()
     {
-        SetCanvasSimState(null, static _ => true);
+        foreach (var node in _allCanvasNodes())
+        {
+            node.SimState = null;
+            node.SimTokenDisplay = "";
+        }
     }
 
     private void AddSimNode(SimIndexedEntry entry)
@@ -73,9 +111,26 @@ public partial class SimulationPanelState
         });
     }
 
+    /// <summary>캔버스 노드가 새로 생성된 후 시뮬레이션 상태/토큰 뱃지를 복원합니다.</summary>
+    internal void RestoreSimStateToCavas()
+    {
+        if (_simEngine is null || !IsSimulating) return;
+
+        foreach (var node in _allCanvasNodes())
+        {
+            var cached = _stateCache.TryGet(node.Id);
+            if (cached is not null)
+                node.SimState = cached.Value;
+
+            var tokenOpt = _simEngine.GetWorkToken(node.Id);
+            if (tokenOpt is not null)
+                node.SimTokenDisplay = FormatTokenDisplay(tokenOpt.Value);
+        }
+    }
+
     private void SetCanvasSimState(Status4? state, Func<EntityNode, bool> predicate)
     {
-        foreach (var node in _canvasNodes)
+        foreach (var node in _allCanvasNodes())
         {
             if (predicate(node))
                 node.SimState = state;

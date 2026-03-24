@@ -109,4 +109,8 @@
     <SolidColorBrush x:Key="ConditionComBadgeBrush" Color="{StaticResource ConditionComBadgeColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="ConditionSkipBadgeBrush" Color="{StaticResource ConditionSkipBadgeColor}" po:Freeze="False"/>
 
+    <!-- Token UI Brushes -->
+    <SolidColorBrush x:Key="TokenOrangeBrush" Color="{StaticResource TokenOrangeColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="TokenRedBrush" Color="{StaticResource TokenRedColor}" po:Freeze="False"/>
+
 </ResourceDictionary>

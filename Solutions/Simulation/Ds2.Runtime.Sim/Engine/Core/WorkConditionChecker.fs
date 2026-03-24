@@ -26,10 +26,31 @@ module WorkConditionChecker =
                 |> Option.defaultValue []
                 |> List.exists (fun wg -> Map.tryFind wg state.WorkStates = Some targetState))
 
-    /// Work 시작 가능 여부 (PredecessorStart 모두 F)
-    let canStartWork (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
+   /// 토큰 경로에 있는 Work는 슬롯에 토큰이 있어야 시작 가능
+    let tokenReady (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
+        if index.TokenPathGuids.Contains workGuid then
+            SimState.getWorkToken workGuid state |> Option.isSome
+        else true
+
+    /// Predecessor 시작 조건 충족 여부 (공용 헬퍼)
+    /// - Source + predecessor 없음 → true (자동 시작 가능)
+    /// - Source + predecessor 있음 → predecessor AND 조건
+    /// - 일반 + predecessor 없음 → false (수동 시작만 가능)
+    let predecessorSatisfied (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
+        let isSource =
+            index.WorkTokenRole |> Map.tryFind workGuid
+            |> Option.map (fun r -> r.HasFlag(TokenRole.Source)) |> Option.defaultValue false
         let preds = SimIndex.findOrEmpty workGuid index.WorkStartPreds
-        checkPredecessorCondition index state preds Status4.Finish List.forall
+        if preds.IsEmpty then isSource
+        else checkPredecessorCondition index state preds Status4.Finish List.forall
+
+    /// Work 시작 가능 여부: predecessor + 토큰 조건 (AND)
+    let canStartWork (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
+        predecessorSatisfied index state workGuid && tokenReady index state workGuid
+
+    /// Predecessor 조건만 체크 (토큰 무시) — 수동 강제 시작 시 사용
+    let canStartWorkPredOnly (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
+        predecessorSatisfied index state workGuid
 
     /// 같은 (SystemName, WorkName) 키를 공유하는 모든 Work의 ResetPreds 수집
     let collectResetPreds (index: SimIndex) (workGuid: Guid) : (string * string * Guid list) option =

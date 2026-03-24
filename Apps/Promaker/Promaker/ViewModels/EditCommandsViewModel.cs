@@ -4,7 +4,8 @@ using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using log4net;
 
 namespace Promaker.ViewModels;
@@ -18,11 +19,11 @@ public partial class EditCommandsViewModel : ObservableObject
 
     private readonly Func<DsStore> _getStore;
     private readonly Action _requestRebuildAll;
-    private readonly Func<List<Ds2.UI.Core.SelectionKey>> _getOrderedSelection;
+    private readonly Func<List<Ds2.Editor.SelectionKey>> _getOrderedSelection;
     private readonly Func<Xywh?> _getPendingAddPosition;
     private readonly Action<Action?> _requestRebuildAllWithCallback;
 
-    private readonly List<Ds2.UI.Core.SelectionKey> _clipboardSelection = [];
+    private readonly List<Ds2.Editor.SelectionKey> _clipboardSelection = [];
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(UndoCommand))]
@@ -39,7 +40,7 @@ public partial class EditCommandsViewModel : ObservableObject
     public EditCommandsViewModel(
         Func<DsStore> getStore,
         Action requestRebuildAll,
-        Func<List<Ds2.UI.Core.SelectionKey>> getOrderedSelection,
+        Func<List<Ds2.Editor.SelectionKey>> getOrderedSelection,
         Func<Xywh?> getPendingAddPosition,
         Action<Action?> requestRebuildAllWithCallback)
     {
@@ -109,7 +110,7 @@ public partial class EditCommandsViewModel : ObservableObject
             {
                 // 실제 paste 로직은 DsStore API에 따라 구현 필요
                 // 여기서는 간단한 구조만 작성
-                // SelectionKey는 Ds2.UI.Core에 정의되어 있으므로, 사용 방법 확인 필요
+                // SelectionKey는 editor-facing type이므로 Ds2.Editor namespace에서 직접 사용
                 Log.Info($"Pasting entity");
             }
 

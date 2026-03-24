@@ -4,9 +4,9 @@
         xmlns:ctrl="clr-namespace:Promaker.Controls"
         xmlns:conv="clr-namespace:Promaker.Presentation"
         xmlns:help="clr-namespace:Promaker.Help"
-        Title="{Binding Title}" Width="1540" Height="800"
+        Title="{Binding Title}" Width="1688" Height="800"
         MinWidth="880" MinHeight="600"
-        Icon="pack://application:,,,/Assets/Promaker.ico"
+        Icon="/Promaker;component/Assets/Promaker.ico"
         WindowStartupLocation="CenterScreen"
         Closing="Window_Closing">
 
@@ -63,7 +63,8 @@
                               HorizontalAlignment="Stretch"
                               VerticalAlignment="Center"/>
 
-                <ctrl:SimulationPanel Grid.Row="2"
+                <ctrl:SimulationPanel x:Name="SimulationPanelHost"
+                                      Grid.Row="2"
                                       DataContext="{Binding Simulation}"/>
             </Grid>
 

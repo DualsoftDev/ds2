@@ -2,7 +2,8 @@ using System.IO;
 using System.Text;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.CSV;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
@@ -13,6 +14,7 @@ public partial class MainViewModel
     {
         PrepareForLoadedStore();
         _store.ReplaceStore(store);
+        _store.ClearHistory();
         _currentFilePath = null;
         IsDirty = false;
         HasProject = true;

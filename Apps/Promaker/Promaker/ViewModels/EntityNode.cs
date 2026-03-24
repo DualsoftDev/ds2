@@ -2,7 +2,8 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
@@ -39,6 +40,9 @@ public partial class EntityNode : ObservableObject
 
     /// 시뮬레이션 상태 (null = 비시뮬)
     [ObservableProperty] private Status4? _simState;
+
+    /// 시뮬레이션 토큰 표시 (빈 문자열 = 토큰 없음)
+    [ObservableProperty] private string _simTokenDisplay = "";
 
     public ObservableCollection<EntityNode> Children { get; } = [];
 

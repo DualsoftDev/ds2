@@ -7,7 +7,8 @@ using Ds2.Core;
 using Ds2.Runtime.Sim.Model;
 using Ds2.Runtime.Sim.Report;
 using Ds2.Runtime.Sim.Report.Model;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using Promaker.ViewModels;
 using Xunit;
 
@@ -157,7 +158,7 @@ public sealed class SimulationPanelStateTests
         new(
             () => new DsStore(),
             Dispatcher.CurrentDispatcher,
-            new ObservableCollection<EntityNode>(),
+            () => new ObservableCollection<EntityNode>(),
             _ => { });
 
     private static object GetPrivateField(object instance, string fieldName)

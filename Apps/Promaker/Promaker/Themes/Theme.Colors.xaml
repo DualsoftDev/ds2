@@ -100,4 +100,8 @@
     <Color x:Key="ConditionComBadgeColor">#2A7A4E</Color>
     <Color x:Key="ConditionSkipBadgeColor">#596574</Color>
 
+    <!-- Token UI Colors -->
+    <Color x:Key="TokenOrangeColor">#ffb74d</Color>
+    <Color x:Key="TokenRedColor">#ef9a9a</Color>
+
 </ResourceDictionary>

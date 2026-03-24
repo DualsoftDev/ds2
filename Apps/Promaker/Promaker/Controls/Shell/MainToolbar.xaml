@@ -85,6 +85,7 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
+            <!-- File Section -->
             <Grid x:Name="ProjectQuickAccessSection" Grid.Column="0">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <WrapPanel Orientation="Horizontal">
@@ -113,6 +114,7 @@
 
             <Border x:Name="ProjectEditSeparator" Grid.Column="1" Style="{StaticResource RibbonSectionSeparator}"/>
 
+            <!-- Edit Section (dropdown) -->
             <Grid x:Name="EditSection" Grid.Column="2">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid x:Name="EditRibbonContentPanel">
@@ -136,8 +138,17 @@
                             <StackPanel>
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding UndoCommand}" Click="CloseEditPopup"><TextBlock Text="실행 취소"/></Button>
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding RedoCommand}" Click="CloseEditPopup"><TextBlock Text="다시 실행"/></Button>
+                                <Separator Margin="4,4"/>
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding CopySelectedCommand}" Click="CloseEditPopup"><TextBlock Text="복사"/></Button>
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding PasteCopiedCommand}" Click="CloseEditPopup"><TextBlock Text="붙여넣기"/></Button>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding DeleteSelectedCommand}" Click="CloseEditPopup"><TextBlock Text="삭제"/></Button>
+                                <Separator Margin="4,4"/>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddSystemCommand}" Click="CloseEditPopup"><TextBlock Text="System 추가"/></Button>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddFlowCommand}" Click="CloseEditPopup"><TextBlock Text="Flow 추가"/></Button>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddWorkCommand}" Click="CloseEditPopup"><TextBlock Text="Work 추가"/></Button>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddCallCommand}" Click="CloseEditPopup"><TextBlock Text="Call 추가"/></Button>
+                                <Separator Margin="4,4"/>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AutoLayoutCommand}" Click="CloseEditPopup"><TextBlock Text="자동 배치"/></Button>
                             </StackPanel>
                         </Border>
                     </Popup>
@@ -146,6 +157,7 @@
             </Grid>
             <Border x:Name="EditModelSeparator" Grid.Column="3" Style="{StaticResource RibbonSectionSeparator}"/>
 
+            <!-- Model Section (dropdown) -->
             <Grid x:Name="ModelSection" Grid.Column="4">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid x:Name="ModelRibbonContentPanel">
@@ -169,6 +181,7 @@
                             <StackPanel>
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseModelPopup"><TextBlock Text="I/O 편집"/></Button>
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenDurationBatchDialogCommand}" Click="CloseModelPopup"><TextBlock Text="Duration 편집"/></Button>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenTokenSpecDialogCommand}" Click="CloseModelPopup"><TextBlock Text="TokenSpec 편집"/></Button>
                             </StackPanel>
                         </Border>
                     </Popup>
@@ -177,6 +190,7 @@
             </Grid>
             <Border x:Name="ModelDataSeparator" Grid.Column="5" Style="{StaticResource RibbonSectionSeparator}"/>
 
+            <!-- Data Section (dropdown) -->
             <Grid x:Name="DataSection" Grid.Column="6">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid x:Name="DataRibbonContentPanel">
@@ -212,6 +226,7 @@
             </Grid>
             <Border x:Name="DataSimulationSeparator" Grid.Column="7" Style="{StaticResource RibbonSectionSeparator}"/>
 
+            <!-- Simulation Section (inline) -->
             <Grid x:Name="SimulationSection" Grid.Column="8" DataContext="{Binding Simulation}" HorizontalAlignment="Left">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <WrapPanel x:Name="SimulationRibbonContentPanel" Orientation="Horizontal">
@@ -264,6 +279,7 @@
 
             <Border x:Name="SimulationSettingsSeparator" Grid.Column="9" Style="{StaticResource RibbonSectionSeparator}"/>
 
+            <!-- Settings Section -->
             <Grid x:Name="SettingsSection" Grid.Column="11">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid x:Name="SettingsRibbonContentPanel">

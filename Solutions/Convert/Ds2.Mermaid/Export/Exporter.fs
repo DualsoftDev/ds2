@@ -5,7 +5,7 @@ open System.Text
 open System.Text.RegularExpressions
 open System.Collections.Generic
 open Ds2.Core
-open Ds2.UI.Core
+open Ds2.Store
 
 /// DsStore → Mermaid flowchart 변환 모듈
 module MermaidExporter =

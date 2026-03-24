@@ -1,0 +1,310 @@
+namespace Ds2.Store
+
+open System
+open Ds2.Core
+
+// =============================================================================
+// Query 모듈 - 읽기 전용 쿼리 API
+// =============================================================================
+
+/// <summary>
+/// 도메인 스토어 쿼리 모듈
+///
+/// <para>모든 엔티티 조회 및 관계 탐색 기능을 제공합니다.</para>
+///
+/// <example>
+/// <code>
+/// let store = DsStore.empty()
+/// let project = DsQuery.getProject projectId store
+/// let flows = DsQuery.flowsOf systemId store
+/// </code>
+/// </example>
+/// </summary>
+module DsQuery =
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 내부 헬퍼 — Dictionary 보일러플레이트 제거
+    // ─────────────────────────────────────────────────────────────────────────
+
+    let private byId (dict: System.Collections.Generic.Dictionary<Guid, 'T>) (id: Guid) : 'T option =
+        match dict.TryGetValue(id) with true, v -> Some v | _ -> None
+
+    let private allOf (dict: System.Collections.Generic.IReadOnlyDictionary<Guid, 'T>) : 'T list =
+        dict.Values |> Seq.toList
+
+    let private childrenOf (values: seq<'T>) (parentId: Guid) (getParent: 'T -> Guid) : 'T list =
+        values |> Seq.filter (fun x -> getParent x = parentId) |> Seq.toList
+
+    let private orderedSystemsOf (getIds: Project -> seq<Guid>) (projectId: Guid) (store: DsStore) : DsSystem list =
+        match store.Projects.TryGetValue(projectId) with
+        | true, project -> getIds project |> Seq.choose (fun id -> byId store.Systems id) |> Seq.toList
+        | false, _      -> []
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Project 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Project ID로 Project 조회</summary>
+    let getProject (id: Guid) (store: DsStore) = byId store.Projects id
+
+    /// <summary>모든 Project 조회</summary>
+    let allProjects (store: DsStore) : Project list = allOf store.ProjectsReadOnly
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // DsSystem 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>DsSystem ID로 DsSystem 조회</summary>
+    let getSystem (id: Guid) (store: DsStore) = byId store.Systems id
+
+    /// <summary>특정 Project의 ActiveSystem 목록 조회 (순서 유지)</summary>
+    let activeSystemsOf (projectId: Guid) (store: DsStore) : DsSystem list =
+        orderedSystemsOf (fun p -> p.ActiveSystemIds) projectId store
+
+    /// <summary>특정 Project의 PassiveSystem 목록 조회 (순서 유지)</summary>
+    let passiveSystemsOf (projectId: Guid) (store: DsStore) : DsSystem list =
+        orderedSystemsOf (fun p -> p.PassiveSystemIds) projectId store
+
+    /// <summary>특정 Project의 모든 System 조회 (Active + Passive, 순서 유지)</summary>
+    let projectSystemsOf (projectId: Guid) (store: DsStore) : DsSystem list =
+        activeSystemsOf projectId store @ passiveSystemsOf projectId store
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Flow 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Flow ID로 Flow 조회</summary>
+    let getFlow (id: Guid) (store: DsStore) = byId store.Flows id
+
+    /// <summary>모든 Flow 조회</summary>
+    let allFlows (store: DsStore) : Flow list = allOf store.FlowsReadOnly
+
+    /// <summary>특정 DsSystem에 속한 Flow들 조회</summary>
+    let flowsOf (systemId: Guid) (store: DsStore) : Flow list =
+        childrenOf store.FlowsReadOnly.Values systemId (fun f -> f.ParentId)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Work 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Work ID로 Work 조회</summary>
+    let getWork (id: Guid) (store: DsStore) = byId store.Works id
+
+    /// <summary>특정 Flow에 속한 Work들 조회</summary>
+    let worksOf (flowId: Guid) (store: DsStore) : Work list =
+        childrenOf store.WorksReadOnly.Values flowId (fun w -> w.ParentId)
+
+    /// <summary>특정 Project의 Active System에 속한 모든 Work 조회</summary>
+    let activeWorksOf (projectId: Guid) (store: DsStore) : Work list =
+        activeSystemsOf projectId store
+        |> List.collect (fun sys -> flowsOf sys.Id store)
+        |> List.collect (fun flow -> worksOf flow.Id store)
+
+    /// <summary>Work가 속한 System의 ID를 반환</summary>
+    let trySystemIdOfWork (workId: Guid) (store: DsStore) : Guid option =
+        getWork workId store
+        |> Option.bind (fun work -> getFlow work.ParentId store)
+        |> Option.map (fun flow -> flow.ParentId)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Call 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Call ID로 Call 조회</summary>
+    let getCall (id: Guid) (store: DsStore) = byId store.Calls id
+
+    /// <summary>특정 Work에 속한 Call들 조회</summary>
+    let callsOf (workId: Guid) (store: DsStore) : Call list =
+        childrenOf store.CallsReadOnly.Values workId (fun c -> c.ParentId)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ApiDef 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>ApiDef ID로 ApiDef 조회</summary>
+    let getApiDef (id: Guid) (store: DsStore) = byId store.ApiDefs id
+
+    /// <summary>특정 DsSystem에 속한 ApiDef들 조회</summary>
+    let apiDefsOf (systemId: Guid) (store: DsStore) : ApiDef list =
+        childrenOf store.ApiDefsReadOnly.Values systemId (fun a -> a.ParentId)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ApiCall 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>ApiCall ID로 ApiCall 조회</summary>
+    let getApiCall (id: Guid) (store: DsStore) = byId store.ApiCalls id
+
+    /// <summary>모든 ApiCall 조회</summary>
+    let allApiCalls (store: DsStore) : ApiCall list = allOf store.ApiCallsReadOnly
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ArrowBetweenWorks 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>ArrowBetweenWorks ID로 Arrow 조회</summary>
+    let getArrowWork (id: Guid) (store: DsStore) = byId store.ArrowWorks id
+
+    /// <summary>모든 ArrowBetweenWorks 조회</summary>
+    let allArrowWorks (store: DsStore) : ArrowBetweenWorks list = allOf store.ArrowWorksReadOnly
+
+    /// <summary>특정 System에 속한 ArrowBetweenWorks 조회</summary>
+    let arrowWorksOf (systemId: Guid) (store: DsStore) : ArrowBetweenWorks list =
+        childrenOf store.ArrowWorksReadOnly.Values systemId (fun a -> a.ParentId)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ArrowBetweenCalls 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>ArrowBetweenCalls ID로 Arrow 조회</summary>
+    let getArrowCall (id: Guid) (store: DsStore) = byId store.ArrowCalls id
+
+    /// <summary>모든 ArrowBetweenCalls 조회</summary>
+    let allArrowCalls (store: DsStore) : ArrowBetweenCalls list = allOf store.ArrowCallsReadOnly
+
+    /// <summary>특정 Work에 속한 ArrowBetweenCalls 조회</summary>
+    let arrowCallsOf (workId: Guid) (store: DsStore) : ArrowBetweenCalls list =
+        childrenOf store.ArrowCallsReadOnly.Values workId (fun a -> a.ParentId)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HwButton 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>HwButton ID로 Button 조회</summary>
+    let getButton (id: Guid) (store: DsStore) = byId store.HwButtons id
+
+    /// <summary>특정 DsSystem에 속한 HwButton들 조회</summary>
+    let buttonsOf (systemId: Guid) (store: DsStore) : HwButton list =
+        childrenOf store.HwButtonsReadOnly.Values systemId (fun b -> b.ParentId)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HwLamp 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>HwLamp ID로 Lamp 조회</summary>
+    let getLamp (id: Guid) (store: DsStore) = byId store.HwLamps id
+
+    /// <summary>특정 DsSystem에 속한 HwLamp들 조회</summary>
+    let lampsOf (systemId: Guid) (store: DsStore) : HwLamp list =
+        childrenOf store.HwLampsReadOnly.Values systemId (fun l -> l.ParentId)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HwCondition 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>HwCondition ID로 Condition 조회</summary>
+    let getCondition (id: Guid) (store: DsStore) = byId store.HwConditions id
+
+    /// <summary>특정 DsSystem에 속한 HwCondition들 조회</summary>
+    let conditionsOf (systemId: Guid) (store: DsStore) : HwCondition list =
+        childrenOf store.HwConditionsReadOnly.Values systemId (fun c -> c.ParentId)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HwAction 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>HwAction ID로 Action 조회</summary>
+    let getAction (id: Guid) (store: DsStore) = byId store.HwActions id
+
+    /// <summary>특정 DsSystem에 속한 HwAction들 조회</summary>
+    let actionsOf (systemId: Guid) (store: DsStore) : HwAction list =
+        childrenOf store.HwActionsReadOnly.Values systemId (fun a -> a.ParentId)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 엔티티 이름 접근 (EntityKind 기반)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>EntityKind + ID로 엔티티 이름 조회</summary>
+    let tryGetName (store: DsStore) (entityKind: EntityKind) (id: Guid) : string option =
+        let entity =
+            match entityKind with
+            | EntityKind.Project   -> getProject   id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.System    -> getSystem    id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Flow      -> getFlow      id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Work      -> getWork      id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Call      -> getCall      id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.ApiDef    -> getApiDef    id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Button    -> getButton    id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Lamp      -> getLamp      id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Condition -> getCondition id store |> Option.map (fun e -> e :> DsEntity)
+            | EntityKind.Action    -> getAction    id store |> Option.map (fun e -> e :> DsEntity)
+            | _                    -> None
+        entity |> Option.map (fun e -> e.Name)
+
+    /// CallCondition 트리에서 ID로 재귀 검색
+    let rec tryFindConditionRec (conditions: CallCondition seq) (condId: Guid) : CallCondition option =
+        conditions |> Seq.tryPick (fun cc ->
+            if cc.Id = condId then Some cc
+            else tryFindConditionRec cc.Children condId)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Work ↔ Device Duration 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Call 하나의 Device duration(ms): Call → ApiCall → ApiDef → RxGuid → Device Work → Period
+    let private callDeviceDurationMs (call: Call) (store: DsStore) : int =
+        call.ApiCalls
+        |> Seq.choose (fun apiCall ->
+            apiCall.ApiDefId
+            |> Option.bind (fun defId -> getApiDef defId store)
+            |> Option.bind (fun def -> def.Properties.RxGuid)
+            |> Option.bind (fun rxWorkId -> getWork rxWorkId store)
+            |> Option.bind (fun rxWork -> rxWork.Properties.Period)
+            |> Option.map (fun ts -> int ts.TotalMilliseconds))
+        |> Seq.tryHead
+        |> Option.defaultValue 0
+
+    /// <summary>Work 내 Call들의 Critical Path Duration(ms)을 반환합니다.
+    /// Call arrow topology(ArrowBetweenCalls Start)를 분석하여 병렬/직렬 실행을 고려한
+    /// 최장 경로(critical path)를 계산합니다. Device duration이 없으면 None.</summary>
+    let tryGetDeviceDurationMs (workId: Guid) (store: DsStore) : int option =
+        let calls = callsOf workId store
+        if calls.IsEmpty then None
+        else
+            let callIds = calls |> List.map (fun c -> c.Id) |> Set.ofList
+            let durationMap =
+                calls |> List.map (fun c -> c.Id, callDeviceDurationMs c store) |> Map.ofList
+
+            // Call arrow topology: Start/StartReset 화살표만 사용
+            let arrows = arrowCallsOf workId store
+            let predsMap =
+                arrows
+                |> List.filter (fun a ->
+                    a.ArrowType = ArrowType.Start || a.ArrowType = ArrowType.StartReset)
+                |> List.filter (fun a -> Set.contains a.SourceId callIds && Set.contains a.TargetId callIds)
+                |> List.groupBy (fun a -> a.TargetId)
+                |> List.map (fun (tgt, arr) -> tgt, arr |> List.map (fun a -> a.SourceId))
+                |> Map.ofList
+
+            // Critical path: longestPath(c) = duration(c) + max(longestPath(pred))
+            let mutable memo = Map.empty<Guid, int>
+            let rec longestPathTo (callId: Guid) =
+                match Map.tryFind callId memo with
+                | Some v -> v
+                | None ->
+                    let myDuration = Map.tryFind callId durationMap |> Option.defaultValue 0
+                    let preds = Map.tryFind callId predsMap |> Option.defaultValue []
+                    let maxPredPath =
+                        match preds |> List.map longestPathTo with
+                        | [] -> 0
+                        | xs -> List.max xs
+                    let result = myDuration + maxPredPath
+                    memo <- memo.Add(callId, result)
+                    result
+
+            let criticalPath =
+                match calls |> List.map (fun c -> longestPathTo c.Id) with
+                | [] -> 0
+                | xs -> List.max xs
+
+            if criticalPath > 0 then Some criticalPath else None
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TokenSpec 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>첫 번째 Project의 TokenSpec 목록 조회</summary>
+    let getTokenSpecs (store: DsStore) : TokenSpec list =
+        match allProjects store |> List.tryHead with
+        | Some project -> project.TokenSpecs |> Seq.toList
+        | None -> []

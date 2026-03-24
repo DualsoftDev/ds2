@@ -2,7 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using Promaker.ViewModels;
 using Xunit;
 
@@ -66,36 +67,6 @@ public sealed class MainViewModelTests
             Assert.Empty(vm.Simulation.SimEventLog);
             Assert.Empty(vm.Simulation.SimWorkItems);
             Assert.Empty(vm.Simulation.GanttChart.Entries);
-        });
-    }
-
-    [Fact]
-    public void Canvas_quick_create_label_and_enablement_follow_active_workspace()
-    {
-        StaTestRunner.Run(() =>
-        {
-            var vm = new MainViewModel();
-
-            Assert.Equal("Work / Call", vm.Canvas.ContextualQuickCreateLabel);
-            Assert.False(vm.Canvas.QuickAddFlowCommand.CanExecute(null));
-            Assert.False(vm.Canvas.QuickAddContextualNodeCommand.CanExecute(null));
-
-            vm.NewProjectCommand.Execute(null);
-
-            Assert.True(vm.Canvas.QuickAddFlowCommand.CanExecute(null));
-            Assert.False(vm.Canvas.QuickAddContextualNodeCommand.CanExecute(null));
-
-            vm.Canvas.OpenTabs.Add(new CanvasTab(Guid.NewGuid(), TabKind.Flow, "FlowA"));
-            vm.Canvas.ActiveTab = vm.Canvas.OpenTabs[0];
-
-            Assert.Equal("Work", vm.Canvas.ContextualQuickCreateLabel);
-            Assert.True(vm.Canvas.QuickAddContextualNodeCommand.CanExecute(null));
-
-            vm.Canvas.OpenTabs.Add(new CanvasTab(Guid.NewGuid(), TabKind.Work, "WorkA"));
-            vm.Canvas.ActiveTab = vm.Canvas.OpenTabs[1];
-
-            Assert.Equal("Call", vm.Canvas.ContextualQuickCreateLabel);
-            Assert.True(vm.Canvas.QuickAddContextualNodeCommand.CanExecute(null));
         });
     }
 

@@ -152,6 +152,15 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
+        ///   데이터과(와) 유사한 지역화된 문자열을 찾습니다.
+        /// </summary>
+        public static string Data {
+            get {
+                return ResourceManager.GetString("Data", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   삭제과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string Delete {
@@ -440,7 +449,7 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
-        ///   복원과(와) 유사한 지역화된 문자열을 찾습니다.
+        ///   다시실행과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string Redo {
             get {
@@ -566,15 +575,6 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
-        ///   데이터과(와) 유사한 지역화된 문자열을 찾습니다.
-        /// </summary>
-        public static string Data {
-            get {
-                return ResourceManager.GetString("Data", resourceCulture);
-            }
-        }
-
-        /// <summary>
         ///   설정과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string Settings {
@@ -683,7 +683,7 @@ namespace Promaker.Resources {
         }
         
         /// <summary>
-        ///   취소과(와) 유사한 지역화된 문자열을 찾습니다.
+        ///   되돌리기과(와) 유사한 지역화된 문자열을 찾습니다.
         /// </summary>
         public static string Undo {
             get {

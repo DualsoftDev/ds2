@@ -16,6 +16,7 @@ type Project [<JsonConstructor>] internal (name) =
     member val PassiveSystemIds       = ResizeArray<Guid>()        with get, set
     member val Nameplate              = Nameplate()                with get, set
     member val HandoverDocumentation  = HandoverDocumentation()    with get, set
+    member val TokenSpecs             = ResizeArray<TokenSpec>()   with get, set
 
 type DsSystem [<JsonConstructor>] internal (name) =
     inherit DsEntity(name)
@@ -33,6 +34,7 @@ type Work [<JsonConstructor>] internal (name, parentId) =
     member val Properties = WorkProperties()    with get, set
     member val Status4    : Status4 = Status4.Ready with get, set
     member val Position   : Xywh option = None  with get, set
+    member val TokenRole  : TokenRole = TokenRole.None with get, set
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 // Call, ApiCall, CallCondition, ApiDef 은 실제 상호참조가 있어 and 유지

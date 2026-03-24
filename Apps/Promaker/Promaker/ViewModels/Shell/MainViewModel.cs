@@ -8,7 +8,8 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using log4net;
 using Promaker.Dialogs;
 using Promaker.Presentation;
@@ -47,7 +48,7 @@ public partial class MainViewModel : ObservableObject
 
         Selection = new SelectionState(new SelectionHost(this));
         CanvasManager = new SplitCanvasManager(() => new CanvasWorkspaceState(new CanvasHost(this)));
-        Simulation = new SimulationPanelState(() => _store, _dispatcher, CanvasManager.PrimaryPane.CanvasNodes, value => StatusText = value);
+        Simulation = new SimulationPanelState(() => _store, _dispatcher, () => CanvasManager.AllPanes.SelectMany(p => p.CanvasNodes), value => StatusText = value);
         PropertyPanel = new PropertyPanelState(new PropertyPanelHost(this));
         WireEvents();
         LanguageManager.ApplySavedLanguage();
@@ -87,6 +88,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ExportCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenIoBatchDialogCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenDurationBatchDialogCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenTokenSpecDialogCommand))]
     private bool _hasProject;
     [ObservableProperty] private bool _isDarkTheme = ThemeManager.CurrentTheme == AppTheme.Dark;
     [ObservableProperty] private string _themeButtonText = ThemeManager.CurrentTheme == AppTheme.Dark ? Strings.LightTheme : Strings.DarkTheme;
@@ -144,6 +146,7 @@ public partial class MainViewModel : ObservableObject
     partial void OnSelectedNodeChanged(EntityNode? value)
     {
         PropertyPanel.SyncSelectedNode(value);
+        Simulation.SyncCanvasSelection(Selection.OrderedNodeSelection);
     }
 
     partial void OnHasProjectChanged(bool value)
@@ -410,7 +413,7 @@ public partial class MainViewModel : ObservableObject
         DeviceTreeRoots.Clear();
 
         if (!TryEditorRef(
-                () => _store.BuildTrees(),
+                () => EditorTreeProjection.BuildTrees(_store),
                 out var trees,
                 statusOverride: "[ERROR] Failed to rebuild tree views."))
             return;
@@ -424,6 +427,7 @@ public partial class MainViewModel : ObservableObject
         Selection.ApplyExpansionStateTo(DeviceTreeRoots, expandedNodes);
 
         CanvasManager.RebuildAllPanes();
+        Simulation.RestoreSimStateToCavas();
         Selection.RestoreSelection(prevSelection, prevSelectedArrowIds);
     }
 
