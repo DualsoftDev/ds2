@@ -2,7 +2,7 @@ namespace Ds2.Runtime.Sim.Engine.Core
 
 open System
 open Ds2.Core
-open Ds2.UI.Core
+open Ds2.Store
 
 /// 조건 평가 엔트리 (ValueSpec 원본 보존)
 type ConditionEntry = {
@@ -32,6 +32,14 @@ type SimIndex = {
     WorkGuidsByKey: Map<string * string, Guid list>
     ActiveSystemNames: Set<string>
     TickMs: int
+    // ── Token ──
+    WorkTokenRole: Map<Guid, TokenRole>
+    WorkTokenSuccessors: Map<Guid, Guid list>
+    TokenSourceGuids: Guid list
+    /// Sink Work: successor 없는 Work (선형) + 순환 진입점 (순환)
+    TokenSinkGuids: Set<Guid>
+    /// 토큰 경로에 포함된 Work (Source → successor 체인의 모든 Work)
+    TokenPathGuids: Set<Guid>
 }
 
 module SimIndex =
@@ -57,95 +65,6 @@ module SimIndex =
 
     let findOrEmpty key map =
         map |> Map.tryFind key |> Option.defaultValue []
-
-    // ── Group Arrow 분해 (Union-Find) ───────────────────────────────
-
-    let private addPredecessor (target: Guid) (source: Guid) (m: Map<Guid, Guid list>) =
-        match m.TryFind target with
-        | Some preds -> if List.contains source preds then m else m.Add(target, source :: preds)
-        | None -> m.Add(target, [source])
-
-    let rec private findRoot (parent: Map<Guid, Guid>) (x: Guid) =
-        match parent.TryFind x with
-        | Some p when p <> x -> findRoot parent p
-        | _ -> x
-
-    let private union (parent: Map<Guid, Guid>) (x: Guid) (y: Guid) =
-        let rootX = findRoot parent x
-        let rootY = findRoot parent y
-        if rootX = rootY then parent else parent.Add(rootY, rootX)
-
-    let private buildGroupSets (sourceIds: Guid list) (targetIds: Guid list) =
-        if sourceIds.IsEmpty then []
-        else
-            let allNodes = (sourceIds @ targetIds) |> List.distinct
-            let initialParent = allNodes |> List.map (fun n -> n, n) |> Map.ofList
-            let finalParent =
-                List.zip sourceIds targetIds
-                |> List.fold (fun p (s, t) -> union p s t) initialParent
-            allNodes
-            |> List.groupBy (findRoot finalParent)
-            |> List.map (fun (_, nodes) -> Set.ofList nodes)
-
-    let private expandSingleGroup (groupSet: Set<Guid>) (startMap: Map<Guid, Guid list>) (resetMap: Map<Guid, Guid list>) =
-        let members = groupSet |> Set.toList
-        // 외부 Start predecessor 수집 → 그룹 멤버 전체에 복사
-        let externalStartPreds =
-            members |> List.collect (fun m -> startMap.TryFind m |> Option.defaultValue [])
-            |> List.filter (fun p -> not (Set.contains p groupSet)) |> List.distinct
-        let startWithExternal =
-            List.allPairs members externalStartPreds
-            |> List.fold (fun acc (mem, pred) -> addPredecessor mem pred acc) startMap
-        // 그룹 멤버를 predecessor로 가진 successor에게 모든 멤버 추가
-        let startSuccessors =
-            startWithExternal |> Map.toSeq
-            |> Seq.filter (fun (sg, preds) -> not (Set.contains sg groupSet) && preds |> List.exists (fun p -> Set.contains p groupSet))
-            |> Seq.map fst |> Seq.toList
-        let finalStart =
-            List.allPairs startSuccessors members
-            |> List.fold (fun acc (succ, mem) -> addPredecessor succ mem acc) startWithExternal
-        // Reset도 동일하게
-        let externalResetPreds =
-            members |> List.collect (fun m -> resetMap.TryFind m |> Option.defaultValue [])
-            |> List.filter (fun p -> not (Set.contains p groupSet)) |> List.distinct
-        let resetWithExternal =
-            List.allPairs members externalResetPreds
-            |> List.fold (fun acc (mem, pred) -> addPredecessor mem pred acc) resetMap
-        let resetSuccessors =
-            resetWithExternal |> Map.toSeq
-            |> Seq.filter (fun (sg, preds) -> not (Set.contains sg groupSet) && preds |> List.exists (fun p -> Set.contains p groupSet))
-            |> Seq.map fst |> Seq.toList
-        let finalReset =
-            List.allPairs resetSuccessors members
-            |> List.fold (fun acc (succ, mem) -> addPredecessor succ mem acc) resetWithExternal
-        (finalStart, finalReset)
-
-    let private expandWorkGroupArrows (groupArrows: ArrowBetweenWorks list) (startMap: Map<Guid, Guid list>) (resetMap: Map<Guid, Guid list>) =
-        let sources = groupArrows |> List.map (fun a -> a.SourceId)
-        let targets = groupArrows |> List.map (fun a -> a.TargetId)
-        let groupSets = buildGroupSets sources targets
-        groupSets |> List.fold (fun (s, r) gs -> expandSingleGroup gs s r) (startMap, resetMap)
-
-    let private expandCallSingleGroup (groupSet: Set<Guid>) (predsMap: Map<Guid, Guid list>) =
-        let members = groupSet |> Set.toList
-        let externalPreds =
-            members |> List.collect (fun m -> predsMap.TryFind m |> Option.defaultValue [])
-            |> List.filter (fun p -> not (Set.contains p groupSet)) |> List.distinct
-        let predsWithExternal =
-            List.allPairs members externalPreds
-            |> List.fold (fun acc (mem, pred) -> addPredecessor mem pred acc) predsMap
-        let successors =
-            predsWithExternal |> Map.toSeq
-            |> Seq.filter (fun (sg, preds) -> not (Set.contains sg groupSet) && preds |> List.exists (fun p -> Set.contains p groupSet))
-            |> Seq.map fst |> Seq.toList
-        List.allPairs successors members
-        |> List.fold (fun acc (succ, mem) -> addPredecessor succ mem acc) predsWithExternal
-
-    let private expandCallGroupArrows (groupArrows: ArrowBetweenCalls list) (predsMap: Map<Guid, Guid list>) =
-        let sources = groupArrows |> List.map (fun a -> a.SourceId)
-        let targets = groupArrows |> List.map (fun a -> a.TargetId)
-        let groupSets = buildGroupSets sources targets
-        groupSets |> List.fold (fun pm gs -> expandCallSingleGroup gs pm) predsMap
 
     // ── 타입별 조회 헬퍼 ─────────────────────────────────────────────
 
@@ -201,6 +120,10 @@ module SimIndex =
             | Some p -> DsQuery.projectSystemsOf p.Id store
             | None -> []
 
+        let mutable tokenRoleMap = Map.empty<Guid, TokenRole>
+        let mutable tokenSuccMap = Map.empty<Guid, Guid list>
+        let mutable tokenSources = []
+
         let state = {
             AllWorkGuids = []; AllCallGuids = []
             WorkCallGuids = Map.empty; WorkStartPreds = Map.empty; WorkResetPreds = Map.empty
@@ -233,10 +156,19 @@ module SimIndex =
             state.AllCallGuids <- call.Id :: state.AllCallGuids
 
         let addWorkData (system: DsSystem) (work: Work) (callGuids: Guid list) (workStartPreds: Map<Guid, Guid list>) (workResetPreds: Map<Guid, Guid list>) =
-            let duration =
+            let userDurationMs =
                 work.Properties.Period
                 |> Option.map (fun ts -> ts.TotalMilliseconds)
                 |> Option.defaultValue 0.0
+            // Works with Calls: effective = max(userDuration, deviceCriticalPath)
+            let duration =
+                if callGuids.IsEmpty then userDurationMs
+                else
+                    let deviceMs =
+                        DsQuery.tryGetDeviceDurationMs work.Id store
+                        |> Option.defaultValue 0
+                        |> float
+                    max userDurationMs deviceMs
             state.WorkCallGuids <- state.WorkCallGuids.Add(work.Id, callGuids)
             state.WorkStartPreds <- state.WorkStartPreds.Add(work.Id, findOrEmpty work.Id workStartPreds)
             state.WorkResetPreds <- state.WorkResetPreds.Add(work.Id, findOrEmpty work.Id workResetPreds)
@@ -259,7 +191,11 @@ module SimIndex =
                 ]
             // Work Group Arrow 분해
             let workGroupArrows = workArrows |> List.filter (fun a -> a.ArrowType = ArrowType.Group)
-            let wStartPreds, wResetPreds = expandWorkGroupArrows workGroupArrows wStartPreds wResetPreds
+            let wStartPreds, wResetPreds = SimIndexGroupExpansion.expandWorkGroupArrows workGroupArrows wStartPreds wResetPreds
+
+            // ── Token successor 맵 (wStartPreds 역전: predecessor→successor) ──
+            // Group 확장 후의 wStartPreds에서 빌드하므로 Group 멤버 관계도 포함
+            tokenSuccMap <- SimIndexTokenGraph.appendSuccessorsFromStartPreds tokenSuccMap wStartPreds
 
             let flows = DsQuery.flowsOf system.Id store
             // Call Arrow: Work별 수집 후 합산 → Group 분해
@@ -274,7 +210,7 @@ module SimIndex =
                 groupArrows [ ArrowType.Start; ArrowType.StartReset ] cType cTgt cSrc allCallArrows
             // Call Group Arrow 분해
             let callGroupArrows = allCallArrows |> List.filter (fun a -> a.ArrowType = ArrowType.Group)
-            let cStartPreds = expandCallGroupArrows callGroupArrows cStartPreds
+            let cStartPreds = SimIndexGroupExpansion.expandCallGroupArrows callGroupArrows cStartPreds
 
             for flow in flows do
                 let works = DsQuery.worksOf flow.Id store
@@ -286,20 +222,40 @@ module SimIndex =
 
                     addWorkData system work callGuids wStartPreds wResetPreds
 
+                    // ── Token role/successor 수집 ──
+                    if work.TokenRole <> TokenRole.None then
+                        tokenRoleMap <- tokenRoleMap.Add(work.Id, work.TokenRole)
+                        if work.TokenRole.HasFlag(TokenRole.Source) then
+                            tokenSources <- work.Id :: tokenSources
+
         log.Debug($"SimIndex built: {state.AllWorkGuids.Length} works, {state.AllCallGuids.Length} calls")
 
-        let workGuidsByKey =
-            state.AllWorkGuids
-            |> List.choose (fun wg ->
-                match Map.tryFind wg state.WorkSystemName, Map.tryFind wg state.WorkName with
-                | Some sn, Some wn -> Some ((sn, wn), wg)
-                | _ -> None)
-            |> List.groupBy fst
-            |> List.map (fun (key, grouped) -> key, grouped |> List.map snd)
-            |> Map.ofList
+        let workGuidsByKey = SimIndexTokenGraph.buildWorkGuidsByKey state.AllWorkGuids state.WorkSystemName state.WorkName
+
+        // ── Sink 감지 ──
+        let allWorkGuidsRev = state.AllWorkGuids |> List.rev
+        // 선형 sink: successor가 없는 Work
+        let linearSinks =
+            allWorkGuidsRev
+            |> List.filter (fun wg ->
+                tokenSuccMap |> Map.tryFind wg |> Option.defaultValue [] |> List.isEmpty)
+            |> Set.ofList
+        // 순환 sink: DFS로 back edge 감지 → back edge의 source가 sink
+        // 예: A→B→C→A → back edge C→A → C가 sink
+        let cycleSinks = SimIndexTokenGraph.findCycleSinks tokenSources tokenSuccMap
+        // Source 기반 sink: successor가 Source인 Work → Source로 토큰 유입 방지
+        let sourceBasedSinks = SimIndexTokenGraph.findSourceBasedSinks tokenSources tokenSuccMap
+        // Source Work는 sink에서 제외 (Source이면서 sink이면 자기 토큰 즉시 complete → 모순)
+        let tokenSourceSet = tokenSources |> Set.ofList
+        let tokenSinkGuids =
+            linearSinks |> Set.union cycleSinks |> Set.union sourceBasedSinks
+            |> Set.filter (fun wg -> not (tokenSourceSet.Contains wg))
+
+        // 토큰 경로: Source에서 successor를 BFS로 따라간 모든 Work
+        let tokenPathGuids = SimIndexTokenGraph.buildTokenPathGuids tokenSources tokenSuccMap
 
         { Store = store
-          AllWorkGuids = state.AllWorkGuids |> List.rev
+          AllWorkGuids = allWorkGuidsRev
           AllCallGuids = state.AllCallGuids |> List.rev
           WorkCallGuids = state.WorkCallGuids
           WorkStartPreds = state.WorkStartPreds
@@ -315,7 +271,12 @@ module SimIndex =
           CallSkipUnmatchConditions = state.CallSkipUnmatchConditions
           WorkGuidsByKey = workGuidsByKey
           ActiveSystemNames = activeSystemNames
-          TickMs = tickMs }
+          TickMs = tickMs
+          WorkTokenRole = tokenRoleMap
+          WorkTokenSuccessors = tokenSuccMap
+          TokenSourceGuids = tokenSources |> List.rev
+          TokenSinkGuids = tokenSinkGuids
+          TokenPathGuids = tokenPathGuids }
 
     // ── InitialFlag 헬퍼 ─────────────────────────────────────────────
 

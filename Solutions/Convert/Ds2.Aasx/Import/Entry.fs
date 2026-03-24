@@ -4,7 +4,7 @@ open System
 open AasCore.Aas3_0
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxFileIO
-open Ds2.UI.Core
+open Ds2.Store
 
 module AasxImporter =
 

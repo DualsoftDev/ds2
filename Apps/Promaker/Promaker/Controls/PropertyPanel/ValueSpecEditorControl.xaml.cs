@@ -1,6 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
-using Idx = Ds2.UI.Core.ValueSpecTypeIndex;
+using Idx = Ds2.Editor.ValueSpecTypeIndex;
 
 namespace Promaker.Controls;
 

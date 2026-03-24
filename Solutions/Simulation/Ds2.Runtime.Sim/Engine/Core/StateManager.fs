@@ -1,7 +1,7 @@
 namespace Ds2.Runtime.Sim.Engine.Core
 
 open System
-open Ds2.UI.Core
+open Ds2.Store
 open Ds2.Core
 open Ds2.Runtime.Sim.Model
 
@@ -23,6 +23,7 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     let mutable pendingCallTransitions = Set.empty<Guid>
     let mutable pendingWorkTransitions = Set.empty<Guid>
     let mutable workGTriggeredResets = Set.empty<(string * string) * (string * string)>
+    let mutable workMinDurationMet = Set.empty<Guid>
 
     member _.ApplyWorkTransition(guid: Guid, newState: Status4) : TransitionResult =
         lock syncRoot (fun () ->
@@ -34,6 +35,7 @@ type StateManager(index: SimIndex, initialTickMs: int) =
             else
                 state <- SimState.setWorkState guid newState state
                 if oldState = Status4.Going then
+                    workMinDurationMet <- workMinDurationMet.Remove(guid)
                     match Map.tryFind guid index.WorkSystemName, Map.tryFind guid index.WorkName with
                     | Some sysName, Some wName ->
                         workGTriggeredResets <- workGTriggeredResets |> Set.filter (fun (pk, _) -> pk <> (sysName, wName))
@@ -71,6 +73,10 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     member _.IsResetTriggered(predKey, targetKey) = lock syncRoot (fun () -> workGTriggeredResets.Contains((predKey, targetKey)))
     member _.AddResetTrigger(predKey, targetKey)  = lock syncRoot (fun () -> workGTriggeredResets <- workGTriggeredResets.Add((predKey, targetKey)))
 
+    member _.MarkMinDurationMet(guid: Guid) = lock syncRoot (fun () -> workMinDurationMet <- workMinDurationMet.Add(guid))
+    member _.IsMinDurationMet(guid: Guid)   = lock syncRoot (fun () -> workMinDurationMet.Contains(guid))
+    member _.ClearMinDuration(guid: Guid)   = lock syncRoot (fun () -> workMinDurationMet <- workMinDurationMet.Remove(guid))
+
     member _.SetIOValue(apiCallGuid: Guid, value: string) =
         lock syncRoot (fun () -> state <- SimState.setIOValue apiCallGuid value state)
 
@@ -79,7 +85,24 @@ type StateManager(index: SimIndex, initialTickMs: int) =
             state                  <- SimState.reset state
             pendingCallTransitions <- Set.empty
             pendingWorkTransitions <- Set.empty
-            workGTriggeredResets   <- Set.empty)
+            workGTriggeredResets   <- Set.empty
+            workMinDurationMet     <- Set.empty)
+
+    // ── Token ──
+    member _.SetWorkToken(workGuid: Guid, token: TokenValue option) =
+        lock syncRoot (fun () -> state <- SimState.setWorkToken workGuid token state)
+    member _.GetWorkToken(workGuid: Guid) =
+        lock syncRoot (fun () -> SimState.getWorkToken workGuid state)
+    member _.AddCompletedToken(token: TokenValue) =
+        lock syncRoot (fun () -> state <- SimState.addCompletedToken token state)
+    member _.SetTokenOrigin(token: TokenValue, workName: string) =
+        lock syncRoot (fun () ->
+            match token with IntToken id -> state <- SimState.setTokenOrigin id workName state)
+    member _.NextToken() =
+        lock syncRoot (fun () ->
+            let token, newState = SimState.nextToken state
+            state <- newState
+            token)
 
     member _.UpdateClock(newClock: TimeSpan) = lock syncRoot (fun () -> state <- { state with Clock = newClock })
     member _.GetState() = lock syncRoot (fun () -> state)

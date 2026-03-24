@@ -3,7 +3,7 @@ namespace Ds2.Runtime.Sim.Engine
 open System
 open System.Threading
 open Ds2.Core
-open Ds2.UI.Core
+open Ds2.Store
 open Ds2.Runtime.Sim.Model
 open Ds2.Runtime.Sim.Engine.Core
 open Ds2.Runtime.Sim.Engine.Scheduler
@@ -31,13 +31,15 @@ type EventDrivenEngine(index: SimIndex) =
     let workStateChangedEvent = Event<WorkStateChangedArgs>()
     let callStateChangedEvent = Event<CallStateChangedArgs>()
     let simulationStatusChangedEvent = Event<SimulationStatusChangedArgs>()
+    let tokenEventEvent = Event<TokenEventArgs>()
 
-    // 헬퍼
-    let canStartWork wg = WorkConditionChecker.canStartWork index (stateManager.GetState()) wg
-    let canResetWork wg = WorkConditionChecker.canResetWork index (stateManager.GetState()) wg
-    let canStartCall cg = WorkConditionChecker.canStartCall index (stateManager.GetState()) cg
-    let canCompleteCall cg = WorkConditionChecker.canCompleteCall index (stateManager.GetState()) cg
-    let shouldSkipCall cg = WorkConditionChecker.shouldSkipCall index (stateManager.GetState()) cg
+    let scheduleConditionEvaluation () =
+        scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
+
+    let canStartWork workGuid = WorkConditionChecker.canStartWork index (stateManager.GetState()) workGuid
+    let canStartCall callGuid = WorkConditionChecker.canStartCall index (stateManager.GetState()) callGuid
+    let canCompleteCall callGuid = WorkConditionChecker.canCompleteCall index (stateManager.GetState()) callGuid
+    let shouldSkipCall callGuid = WorkConditionChecker.shouldSkipCall index (stateManager.GetState()) callGuid
 
     // ── IO값 관리 (EventPublisher 인라인) ────────────────────────────
 
@@ -63,51 +65,36 @@ type EventDrivenEngine(index: SimIndex) =
                 if hasRx then
                     stateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)))
 
-    // ── 상태 전이 ────────────────────────────────────────────────────
+    let tokenFlowContext : TokenFlow.Context = {
+        Index = index
+        StateManager = stateManager
+        CurrentTimeMs = (fun () -> scheduler.CurrentTimeMs)
+        TriggerTokenEvent = tokenEventEvent.Trigger
+    }
 
-    // ── 공용 헬퍼 ──
+    let workNameOf guid = TokenFlow.workNameOf tokenFlowContext guid
+    let canReceiveToken workGuid = TokenFlow.canReceiveToken tokenFlowContext workGuid
+    let emitTokenEvent kind token workGuid (targetGuid: Guid option) =
+        TokenFlow.emitTokenEvent tokenFlowContext kind token workGuid targetGuid
+    let hasNoSuccessors workGuid = TokenFlow.hasNoSuccessors tokenFlowContext workGuid
+    let shiftToken workGuid token = TokenFlow.shiftToken tokenFlowContext workGuid token
+    let onWorkFinish workGuid = TokenFlow.onWorkFinish tokenFlowContext workGuid
 
-    let scheduleCallTransitions workGuid targetState excludeState =
-        let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
-        for cg in callGuids do
-            let cs = stateManager.GetCallState(cg)
-            if cs <> targetState && cs <> excludeState && not (stateManager.IsCallPending(cg)) then
-                stateManager.MarkCallPending(cg)
-                scheduler.ScheduleNow(ScheduledEventType.CallTransition(cg, targetState), ScheduledEvent.PriorityStateChange) |> ignore
+    let workTransitionContext : WorkTransitions.Context = {
+        Index = index
+        StateManager = stateManager
+        Scheduler = scheduler
+        TimeIgnore = (fun () -> timeIgnore)
+        ScheduleConditionEvaluation = scheduleConditionEvaluation
+        OnWorkFinish = onWorkFinish
+        TriggerWorkStateChanged = workStateChangedEvent.Trigger
+    }
 
     let scheduleWorkIfReady workGuid targetState =
-        if stateManager.GetWorkState(workGuid) = Status4.Ready && not (stateManager.IsWorkPending(workGuid)) then
-            stateManager.MarkWorkPending(workGuid)
-            scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, targetState), ScheduledEvent.PriorityStateChange) |> ignore
+        WorkTransitions.scheduleWorkIfReady workTransitionContext workGuid targetState
 
-    // ── Work 상태 전이 ──
-
-    let applyWorkTransition (workGuid: Guid) newState =
-        let result = stateManager.ApplyWorkTransition(workGuid, newState)
-        if not result.HasChanged then () else
-        let clock = TimeSpan.FromMilliseconds(float scheduler.CurrentTimeMs)
-        workStateChangedEvent.Trigger({
-            WorkGuid = workGuid; WorkName = result.NodeName
-            PreviousState = result.OldState; NewState = result.ActualNewState; Clock = clock })
-        match result.ActualNewState with
-        | Status4.Going ->
-            let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
-            if callGuids.IsEmpty then
-                let duration = index.WorkDuration |> Map.tryFind workGuid |> Option.defaultValue 0.0
-                if timeIgnore then
-                    scheduler.ScheduleNow(ScheduledEventType.DurationComplete workGuid, ScheduledEvent.PriorityDurationCheck) |> ignore
-                else
-                    let delayMs = max 1L (int64 duration)
-                    scheduler.ScheduleAfter(ScheduledEventType.DurationComplete workGuid, delayMs, ScheduledEvent.PriorityDurationCheck) |> ignore
-            scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
-        | Status4.Finish ->
-            scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
-        | Status4.Homing ->
-            scheduleCallTransitions workGuid Status4.Homing Status4.Homing
-            scheduler.ScheduleAfter(ScheduledEventType.HomingComplete workGuid, 1L, ScheduledEvent.PriorityStateChange) |> ignore
-        | Status4.Ready ->
-            scheduleCallTransitions workGuid Status4.Ready Status4.Ready
-        | _ -> ()
+    let applyWorkTransition workGuid newState =
+        WorkTransitions.applyWorkTransition workTransitionContext workGuid newState
 
     // ── Call 상태 전이 ──
 
@@ -122,112 +109,73 @@ type EventDrivenEngine(index: SimIndex) =
         match result.ActualNewState with
         | Status4.Going ->
             SimIndex.txWorkGuids index callGuid |> List.iter (fun txGuid -> scheduleWorkIfReady txGuid Status4.Going)
-            scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
+            scheduleConditionEvaluation ()
         | Status4.Finish ->
             if not result.IsSkipped then
                 setRxWorkIOValues callGuid
                 SimIndex.rxWorkGuids index callGuid |> List.iter (fun rxGuid -> scheduleWorkIfReady rxGuid Status4.Finish)
-            scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
+            scheduleConditionEvaluation ()
         | _ -> ()
 
-    // ── 조건 평가 ────────────────────────────────────────────────────
+    let conditionEvaluationContext : ConditionEvaluation.Context = {
+        Index = index
+        StateManager = stateManager
+        Scheduler = scheduler
+        CanStartWork = canStartWork
+        CanStartCall = canStartCall
+        CanCompleteCall = canCompleteCall
+        ScheduleConditionEvaluation = scheduleConditionEvaluation
+        ShiftToken = shiftToken
+        EmitTokenEvent = emitTokenEvent
+        HasNoSuccessors = hasNoSuccessors
+        CanReceiveToken = canReceiveToken
+        ApplyWorkTransition = applyWorkTransition
+    }
 
     let evaluateConditions () =
-        // 시작 가능한 Work
-        for workGuid in index.AllWorkGuids do
-            if stateManager.GetWorkState(workGuid) = Status4.Ready && canStartWork workGuid && not (stateManager.IsWorkPending(workGuid)) then
-                stateManager.MarkWorkPending(workGuid)
-                scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, Status4.Going), ScheduledEvent.PriorityStateChange) |> ignore
+        ConditionEvaluation.evaluateConditions conditionEvaluationContext ()
 
-        // 리셋 가능한 Work (F->H, 라이징 에지)
-        for workGuid in index.AllWorkGuids do
-            if stateManager.GetWorkState(workGuid) = Status4.Finish && not (stateManager.IsWorkPending(workGuid)) then
-                match WorkConditionChecker.collectResetPreds index workGuid with
-                | Some (sysName, wName, resetPreds) ->
-                    let targetKey = (sysName, wName)
-                    let untriggered =
-                        resetPreds |> List.tryFind (fun pg ->
-                            match Map.tryFind pg index.WorkSystemName, Map.tryFind pg index.WorkName with
-                            | Some pSys, Some pName ->
-                                stateManager.GetWorkState(pg) = Status4.Going &&
-                                not (stateManager.IsResetTriggered((pSys, pName), targetKey))
-                            | _ -> false)
-                    match untriggered with
-                    | Some pg ->
-                        match Map.tryFind pg index.WorkSystemName, Map.tryFind pg index.WorkName with
-                        | Some pSys, Some pName ->
-                            stateManager.AddResetTrigger((pSys, pName), targetKey)
-                            stateManager.MarkWorkPending(workGuid)
-                            scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, Status4.Homing), ScheduledEvent.PriorityStateChange) |> ignore
-                        | _ -> ()
-                    | None -> ()
-                | None -> ()
+    let clearAndApplyWorkTransition workGuid newState =
+        stateManager.ClearWorkPending(workGuid)
+        applyWorkTransition workGuid newState
 
-        // 시작 가능한 Call
-        for callGuid in index.AllCallGuids do
-            let callWork = index.CallWorkGuid |> Map.tryFind callGuid
-            match callWork with
-            | Some workGuid ->
-                if stateManager.GetCallState(callGuid) = Status4.Ready
-                   && stateManager.GetWorkState(workGuid) = Status4.Going
-                   && canStartCall callGuid
-                   && not (stateManager.IsCallPending(callGuid)) then
-                    stateManager.MarkCallPending(callGuid)
-                    scheduler.ScheduleNow(ScheduledEventType.CallTransition(callGuid, Status4.Going), ScheduledEvent.PriorityStateChange) |> ignore
-            | None -> ()
+    let clearAndApplyCallTransition callGuid newState =
+        stateManager.ClearCallPending(callGuid)
+        applyCallTransition callGuid newState
 
-        // 완료 가능한 Call
-        for callGuid in index.AllCallGuids do
-            if stateManager.GetCallState(callGuid) = Status4.Going && canCompleteCall callGuid && not (stateManager.IsCallPending(callGuid)) then
-                stateManager.MarkCallPending(callGuid)
-                scheduler.ScheduleNow(ScheduledEventType.CallTransition(callGuid, Status4.Finish), ScheduledEvent.PriorityStateChange) |> ignore
+    let handleDurationComplete workGuid =
+        if stateManager.GetWorkState(workGuid) = Status4.Going then
+            stateManager.MarkMinDurationMet(workGuid)
+            let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
+            if callGuids.IsEmpty then
+                applyWorkTransition workGuid Status4.Finish
+            else
+                // Works with Calls: duration met, check if all calls also finished
+                if callGuids |> List.forall (fun cg -> stateManager.GetCallState(cg) = Status4.Finish) then
+                    applyWorkTransition workGuid Status4.Finish
 
-        // 모든 Call 완료된 Work -> F
-        for workGuid in index.AllWorkGuids do
-            if stateManager.GetWorkState(workGuid) = Status4.Going && not (stateManager.IsWorkPending(workGuid)) then
-                let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
-                if not callGuids.IsEmpty then
-                    if callGuids |> List.forall (fun cg -> stateManager.GetCallState(cg) = Status4.Finish) then
-                        stateManager.MarkWorkPending(workGuid)
-                        scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, Status4.Finish), ScheduledEvent.PriorityStateChange) |> ignore
+    let runtimeContext : EventDrivenEngineRuntime.RuntimeContext = {
+        Scheduler = scheduler
+        GetStatus = (fun () -> Volatile.Read(&status))
+        SpeedMultiplier = (fun () -> speedMultiplier)
+        GetWorkState = stateManager.GetWorkState
+        GetWorkToken = stateManager.GetWorkToken
+        ClearAndApplyWorkTransition = clearAndApplyWorkTransition
+        ClearAndApplyCallTransition = clearAndApplyCallTransition
+        ApplyWorkTransition = applyWorkTransition
+        HandleDurationComplete = handleDurationComplete
+        ShiftToken = shiftToken
+        EmitTokenEvent = emitTokenEvent
+        ScheduleConditionEvaluation = scheduleConditionEvaluation
+        EvaluateConditions = evaluateConditions
+    }
 
-    // ── 이벤트 처리 ──────────────────────────────────────────────────
-
-    let processEvent (event: ScheduledEvent) =
-        match event.EventType with
-        | ScheduledEventType.WorkTransition(wg, ts) ->
-            stateManager.ClearWorkPending(wg)
-            applyWorkTransition wg ts
-        | ScheduledEventType.CallTransition(cg, ts) ->
-            stateManager.ClearCallPending(cg)
-            applyCallTransition cg ts
-        | ScheduledEventType.DurationComplete wg ->
-            if stateManager.GetWorkState(wg) = Status4.Going then
-                if (SimIndex.findOrEmpty wg index.WorkCallGuids).IsEmpty then
-                    applyWorkTransition wg Status4.Finish
-        | ScheduledEventType.HomingComplete wg ->
-            if stateManager.GetWorkState(wg) = Status4.Homing then
-                applyWorkTransition wg Status4.Ready
-        | ScheduledEventType.EvaluateConditions ->
-            evaluateConditions()
-
-    // ── 시뮬레이션 루프 ──────────────────────────────────────────────
-
-    let simulationLoop (ct: CancellationToken) =
-        let mutable lastRealTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-
-        while not ct.IsCancellationRequested && Volatile.Read(&status) = Running do
-            let nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            let realDelta = nowMs - lastRealTimeMs
-            lastRealTimeMs <- nowMs
-
-            let simDelta = int64 (float realDelta * speedMultiplier)
-            let targetMs = scheduler.CurrentTimeMs + simDelta
-
-            for event in scheduler.AdvanceTo(targetMs) do
-                if Volatile.Read(&status) = Running then processEvent event
-
-            Thread.Sleep(1)
+    let startEngineThread (tokenSource: CancellationTokenSource) =
+        let t = Thread(ThreadStart(fun () -> EventDrivenEngineRuntime.simulationLoop runtimeContext tokenSource.Token))
+        t.IsBackground <- true
+        t.Name <- "EventDrivenEngine"
+        t.Start()
+        engineThread <- Some t
 
     // ===== Public API =====
 
@@ -238,19 +186,18 @@ type EventDrivenEngine(index: SimIndex) =
     [<CLIEvent>] member _.WorkStateChanged = workStateChangedEvent.Publish
     [<CLIEvent>] member _.CallStateChanged = callStateChangedEvent.Publish
     [<CLIEvent>] member _.SimulationStatusChanged = simulationStatusChangedEvent.Publish
+    [<CLIEvent>] member _.TokenEvent = tokenEventEvent.Publish
 
     member this.Start() =
         if Volatile.Read(&status) = Running then () else
         let prev = Volatile.Read(&status)
         Volatile.Write(&status, Running)
         simulationStatusChangedEvent.Trigger({ PreviousStatus = prev; NewStatus = Running })
-        scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
+        scheduleConditionEvaluation ()
         disposeCurrentCts()
         let tokenSource = new CancellationTokenSource()
         cts <- Some tokenSource
-        let t = Thread(ThreadStart(fun () -> simulationLoop tokenSource.Token))
-        t.IsBackground <- true; t.Name <- "EventDrivenEngine"; t.Start()
-        engineThread <- Some t
+        startEngineThread tokenSource
 
     member _.Pause() =
         if Volatile.Read(&status) = Running then
@@ -266,9 +213,7 @@ type EventDrivenEngine(index: SimIndex) =
             simulationStatusChangedEvent.Trigger({ PreviousStatus = Paused; NewStatus = Running })
             let tokenSource = new CancellationTokenSource()
             cts <- Some tokenSource
-            let t = Thread(ThreadStart(fun () -> simulationLoop tokenSource.Token))
-            t.IsBackground <- true; t.Name <- "EventDrivenEngine"; t.Start()
-            engineThread <- Some t
+            startEngineThread tokenSource
 
     member _.Stop() =
         if Volatile.Read(&status) <> Stopped then
@@ -322,11 +267,53 @@ type EventDrivenEngine(index: SimIndex) =
 
     member _.TimeIgnore
         with get() = timeIgnore
-        and set(i) = timeIgnore <- i
+        and set(i) =
+            let prev = timeIgnore
+            timeIgnore <- i
+            // 시뮬레이션 도중 TimeIgnore 켜면, 이미 스케줄된 Duration/Homing을 즉시 완료
+            if i && not prev && Volatile.Read(&status) = Running then
+                for wg in index.AllWorkGuids do
+                    match stateManager.GetWorkState(wg) with
+                    | Status4.Going when not (stateManager.IsMinDurationMet(wg)) ->
+                        scheduler.ScheduleNow(ScheduledEventType.DurationComplete wg, ScheduledEvent.PriorityDurationCheck) |> ignore
+                    | Status4.Homing ->
+                        scheduler.ScheduleNow(ScheduledEventType.HomingComplete wg, ScheduledEvent.PriorityStateChange) |> ignore
+                    | _ -> ()
 
     member _.InjectIOValue(apiCallGuid, value) =
         stateManager.SetIOValue(apiCallGuid, value)
+        scheduleConditionEvaluation ()
+
+    member private _.ApplyToken(workGuid: Guid, newValue: TokenValue option, kind: TokenEventKind, token: TokenValue) =
+        stateManager.SetWorkToken(workGuid, newValue)
+        emitTokenEvent kind token workGuid None
         scheduler.ScheduleNow(ScheduledEventType.EvaluateConditions, ScheduledEvent.PriorityConditionEval) |> ignore
+
+    member this.SeedToken(sourceWorkGuid: Guid, value: TokenValue) =
+        match stateManager.GetWorkToken(sourceWorkGuid) with
+        | Some _ -> ()  // 이미 차있으면 무시
+        | None ->
+            // TokenSpec Label 우선, 없으면 Work 이름 fallback
+            let originLabel =
+                DsQuery.getTokenSpecs index.Store
+                |> List.tryFind (fun spec -> spec.WorkId = Some sourceWorkGuid)
+                |> Option.map (fun spec -> spec.Label)
+                |> Option.defaultWith (fun () -> workNameOf sourceWorkGuid)
+            stateManager.SetTokenOrigin(value, originLabel)
+            this.ApplyToken(sourceWorkGuid, Some value, Seed, value)
+
+    member this.DiscardToken(workGuid: Guid) =
+        match stateManager.GetWorkToken(workGuid) with
+        | Some token -> this.ApplyToken(workGuid, None, Discard, token)
+        | None -> ()
+
+    member _.GetWorkToken(workGuid: Guid) = stateManager.GetWorkToken(workGuid)
+
+    member _.GetTokenOrigin(token: TokenValue) =
+        match token with
+        | IntToken id -> stateManager.GetState().TokenOrigins |> Map.tryFind id
+
+    member _.NextToken() = stateManager.NextToken()
 
     interface ISimulationEngine with
         member this.State = this.State
@@ -349,7 +336,13 @@ type EventDrivenEngine(index: SimIndex) =
             with get() = this.TimeIgnore
             and set(v) = this.TimeIgnore <- v
         member this.InjectIOValue(a, v) = this.InjectIOValue(a, v)
+        member this.NextToken() = this.NextToken()
+        member this.SeedToken(wg, v) = this.SeedToken(wg, v)
+        member this.DiscardToken(wg) = this.DiscardToken(wg)
+        member this.GetWorkToken(wg) = this.GetWorkToken(wg)
+        member this.GetTokenOrigin(t) = this.GetTokenOrigin(t)
         [<CLIEvent>] member this.WorkStateChanged = this.WorkStateChanged
         [<CLIEvent>] member this.CallStateChanged = this.CallStateChanged
         [<CLIEvent>] member this.SimulationStatusChanged = this.SimulationStatusChanged
+        [<CLIEvent>] member this.TokenEvent = this.TokenEvent
         member this.Dispose() = this.Stop()

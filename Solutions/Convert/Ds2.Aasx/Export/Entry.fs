@@ -6,7 +6,7 @@ open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxConceptDescriptions
 open Ds2.Aasx.AasxFileIO
-open Ds2.UI.Core
+open Ds2.Store
 
 module AasxExporter =
 
@@ -21,6 +21,7 @@ module AasxExporter =
             mkProp     Name_         project.Name
             mkProp     Guid_         (project.Id.ToString())
             mkJsonProp<ProjectProperties> Properties_ project.Properties
+            mkJsonProp<ResizeArray<TokenSpec>> TokenSpecs_ project.TokenSpecs
             mkSml ActiveSystems_    activeSystems
             mkSml DeviceReferences_ passiveSystems
         ]

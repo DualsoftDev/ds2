@@ -2,7 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
@@ -84,7 +85,7 @@ public class SelectionState
         if (!additive)
             _orderedNodeSelection.Clear();
 
-        var orderedKeys = Store.OrderCanvasSelectionKeysForBox(
+        var orderedKeys = EditorSelectionQueries.OrderCanvasSelectionKeysForBox(
             startX,
             startY,
             endX,
@@ -262,7 +263,7 @@ public class SelectionState
     }
 
     private List<SelectionKey> CanvasSelectionOrderKeys() =>
-        Store.OrderCanvasSelectionKeys(_host.CanvasNodes.Select(ToCanvasSelectionCandidate))
+        EditorSelectionQueries.OrderCanvasSelectionKeys(_host.CanvasNodes.Select(ToCanvasSelectionCandidate))
             .ToList();
 
     private static CanvasSelectionCandidate ToCanvasSelectionCandidate(EntityNode node) =>
@@ -274,7 +275,7 @@ public class SelectionState
         bool shiftPressed,
         IReadOnlyList<SelectionKey> orderedKeys)
     {
-        var result = Store.ApplyNodeSelection(
+        var result = EditorSelectionQueries.ApplyNodeSelection(
             _orderedNodeSelection,
             _selectionAnchor,
             node is null ? null : ToKey(node),

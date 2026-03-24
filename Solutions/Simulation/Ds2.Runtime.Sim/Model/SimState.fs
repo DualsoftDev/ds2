@@ -34,6 +34,27 @@ type SimulationStatusChangedArgs = {
     NewStatus: SimulationStatus
 }
 
+/// 토큰 이벤트 종류
+type TokenEventKind =
+    | Seed
+    | Shift
+    | Complete
+    | Blocked
+    | Discard
+    | BlockedOnHoming
+    | Conflict
+
+/// 토큰 이벤트 인자
+type TokenEventArgs = {
+    Kind: TokenEventKind
+    Token: TokenValue
+    WorkGuid: Guid
+    WorkName: string
+    TargetWorkGuid: Guid option
+    TargetWorkName: string option
+    Clock: TimeSpan
+}
+
 /// 시뮬레이션 상태 (immutable snapshot)
 type SimState = {
     WorkStates: Map<Guid, Status4>
@@ -43,6 +64,14 @@ type SimState = {
     TickMs: int
     IOValues: Map<Guid, string>
     SkippedCalls: Set<Guid>
+    // ── Token ──
+    WorkTokens: Map<Guid, TokenValue option>
+    TokenCounter: int
+    CompletedTokens: TokenValue list
+    /// 토큰 번호 → (이름, 이름별 순번)
+    TokenOrigins: Map<int, string * int>
+    /// 이름별 발행 카운터
+    TokenOriginCounters: Map<string, int>
 }
 
 module SimState =
@@ -54,6 +83,11 @@ module SimState =
         TickMs = tickMs
         IOValues = Map.empty
         SkippedCalls = Set.empty
+        WorkTokens = Map.empty
+        TokenCounter = 0
+        CompletedTokens = []
+        TokenOrigins = Map.empty
+        TokenOriginCounters = Map.empty
     }
 
     let setWorkState (guid: Guid) state simState =
@@ -72,6 +106,28 @@ module SimState =
     let setIOValue (apiCallGuid: Guid) (value: string) simState =
         { simState with IOValues = simState.IOValues.Add(apiCallGuid, value) }
 
+    // ── Token helpers ──
+
+    let getWorkToken (guid: Guid) simState =
+        simState.WorkTokens |> Map.tryFind guid |> Option.flatten
+
+    let setWorkToken (guid: Guid) (token: TokenValue option) simState =
+        { simState with WorkTokens = simState.WorkTokens.Add(guid, token) }
+
+    let addCompletedToken (token: TokenValue) simState =
+        { simState with CompletedTokens = token :: simState.CompletedTokens }
+
+    let setTokenOrigin (tokenId: int) (originName: string) simState =
+        let count = simState.TokenOriginCounters |> Map.tryFind originName |> Option.defaultValue 0
+        let next = count + 1
+        { simState with
+            TokenOrigins = simState.TokenOrigins.Add(tokenId, (originName, next))
+            TokenOriginCounters = simState.TokenOriginCounters.Add(originName, next) }
+
+    let nextToken simState =
+        let counter = simState.TokenCounter + 1
+        IntToken counter, { simState with TokenCounter = counter }
+
     let reset simState = {
         simState with
             WorkStates = simState.WorkStates |> Map.map (fun _ _ -> Status4.Ready)
@@ -80,4 +136,9 @@ module SimState =
             Clock = TimeSpan.Zero
             IOValues = Map.empty
             SkippedCalls = Set.empty
+            WorkTokens = Map.empty
+            TokenCounter = 0
+            CompletedTokens = []
+            TokenOrigins = Map.empty
+            TokenOriginCounters = Map.empty
     }

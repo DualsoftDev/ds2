@@ -13,7 +13,8 @@
     <Compile Include="Import\ImportTypes.fs" />
     <Compile Include="Import\Analyzer.fs" />
     <Compile Include="Import\MapperCommon.fs" />
-    <Compile Include="Import\MapperTargets.fs" />
+    <Compile Include="Import\Targets\MapperTargetPlanning.fs" />
+    <Compile Include="Import\Targets\MapperTargets.fs" />
     <Compile Include="Import\Mapper.fs" />
     <Compile Include="Import\Importer.fs" />
     <Compile Include="Export\Exporter.fs" />
@@ -21,7 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
-    <ProjectReference Include="..\..\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
+    <ProjectReference Include="..\..\Core\Ds2.Store\Ds2.Store.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

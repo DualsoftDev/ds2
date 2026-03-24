@@ -6,7 +6,7 @@ open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxConceptDescriptions
 open Ds2.Aasx.AasxFileIO
-open Ds2.UI.Core
+open Ds2.Store
 
 module internal AasxExportGraph =
 
@@ -48,6 +48,7 @@ module internal AasxExportGraph =
             mkJsonProp<WorkProperties> Properties_ work.Properties
             mkJsonProp<Xywh option>    Position_   work.Position
             mkProp     Status_     (string work.Status4)
+            mkProp     TokenRole_  (string (int work.TokenRole))
             mkSml Calls_   calls
             mkSml Arrows_  arrows
         ]

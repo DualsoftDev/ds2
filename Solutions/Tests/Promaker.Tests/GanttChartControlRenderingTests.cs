@@ -1,5 +1,6 @@
 using System;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 using Promaker.Controls;
 using Promaker.ViewModels;
 using Xunit;

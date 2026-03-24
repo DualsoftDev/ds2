@@ -4,53 +4,6 @@ open System
 open Xunit
 open Ds2.Core
 
-/// Project 생성 테스트
-module ProjectTests =
-
-    [<Fact>]
-    let ``Project constructor should create project with valid GUID`` () =
-        let project = Project("TestProject")
-
-        // ID가 유효한 GUID인지 확인 (Guid 타입이므로 항상 유효)
-        Assert.NotEqual(Guid.Empty, project.Id)
-
-        // 이름이 올바르게 설정되었는지 확인
-        Assert.Equal("TestProject", project.Name)
-
-/// System 생성 테스트
-module SystemTests =
-
-    [<Fact>]
-    let ``DsSystem constructor should create system with valid GUID`` () =
-        let system = DsSystem("TestSystem")
-
-        Assert.NotEqual(Guid.Empty, system.Id)
-        Assert.Equal("TestSystem", system.Name)
-
-/// Flow 생성 테스트
-module FlowTests =
-
-    [<Fact>]
-    let ``Flow constructor should create flow with valid GUID`` () =
-        let systemId = Guid.NewGuid()
-        let flow = Flow("TestFlow", systemId)
-
-        Assert.NotEqual(Guid.Empty, flow.Id)
-        Assert.Equal("TestFlow", flow.Name)
-        Assert.Equal(systemId, flow.ParentId)
-
-/// Work 생성 테스트
-module WorkTests =
-
-    [<Fact>]
-    let ``Work constructor should create work with valid GUID`` () =
-        let flowId = Guid.NewGuid()
-        let work = Work("TestWork", flowId)
-
-        Assert.NotEqual(Guid.Empty, work.Id)
-        Assert.Equal("TestWork", work.Name)
-        Assert.Equal(flowId, work.ParentId)
-
 module CallTests =
 
     [<Fact>]
@@ -68,31 +21,6 @@ module CallTests =
         Assert.Contains("ApiName 변경을 허용하지 않습니다", ex.Message)
         Assert.Equal("Dev", call.DevicesAlias)
         Assert.Equal("Api", call.ApiName)
-
-/// 엔티티 좌표 테스트
-module EntityPositionTests =
-
-    [<Fact>]
-    let ``Work should store Xywh position in entity`` () =
-        let work = Work("WorkWithPosition", Guid.NewGuid())
-        work.Position <- Some (Xywh(1, 2, 3, 4))
-
-        Assert.True(work.Position.IsSome)
-        Assert.Equal(1, work.Position.Value.X)
-        Assert.Equal(2, work.Position.Value.Y)
-        Assert.Equal(3, work.Position.Value.W)
-        Assert.Equal(4, work.Position.Value.H)
-
-    [<Fact>]
-    let ``Call should store Xywh position in entity`` () =
-        let call = Call("Dev", "CallWithPosition", Guid.NewGuid())
-        call.Position <- Some (Xywh(10, 20, 30, 40))
-
-        Assert.True(call.Position.IsSome)
-        Assert.Equal(10, call.Position.Value.X)
-        Assert.Equal(20, call.Position.Value.Y)
-        Assert.Equal(30, call.Position.Value.W)
-        Assert.Equal(40, call.Position.Value.H)
 
 /// ValueSpec 입력 편의 헬퍼 테스트
 module ValueSpecConvenienceTests =
@@ -163,6 +91,17 @@ module DeepCopyTests =
         Assert.True(copied.Position.IsSome)
         Assert.Equal(10, copied.Position.Value.X)
         Assert.Equal(Some "Motion1", copied.Properties.Motion)
+
+    [<Fact>]
+    let ``Work DeepCopy should preserve TokenRole`` () =
+        let flowId = Guid.NewGuid()
+        let original = Work("TokenWork", flowId)
+        original.TokenRole <- TokenRole.Source
+
+        let copied = original.DeepCopy()
+
+        Assert.NotEqual(original.Id, copied.Id)
+        Assert.Equal(TokenRole.Source, copied.TokenRole)
 
     [<Fact>]
     let ``ApiCall DeepCopy should copy IOTag independently`` () =

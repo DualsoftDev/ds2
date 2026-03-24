@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="TestHelpers.fs" />
+    <Compile Include="DsStore\DsStore.CrudHistoryTests.fs" />
+    <Compile Include="DsStore\DsStore.EntityMutationTests.fs" />
+    <Compile Include="DsStore\DsStore.CopyPastePanelTests.fs" />
+    <Compile Include="DsStore\StoreQueryOwnerTests.fs" />
+    <Compile Include="DsStore\DsStore.AdvancedPanelBatchTests.fs" />
+    <Compile Include="ImportPlanTests.fs" />
+    <Compile Include="EditorProjectionTests.fs" />
+    <Compile Include="SimulationTests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\Core\Ds2.Store\Ds2.Store.fsproj" />
+    <ProjectReference Include="..\..\Core\Ds2.Editor\Ds2.Editor.fsproj" />
+    <ProjectReference Include="..\..\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
+    <ProjectReference Include="..\..\Simulation\Ds2.Runtime.Sim\Ds2.Runtime.Sim.fsproj" />
+    <ProjectReference Include="..\..\Simulation\Ds2.Runtime.Sim.Report\Ds2.Runtime.Sim.Report.fsproj" />
+  </ItemGroup>
+
+</Project>

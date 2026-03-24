@@ -2,7 +2,8 @@ using System;
 using Ds2.Core;
 using Ds2.Runtime.Sim.Engine;
 using Ds2.Runtime.Sim.Model;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
@@ -20,11 +21,16 @@ public partial class SimulationPanelState
 
         _simEngine.SimulationStatusChanged += (_, args) =>
             _dispatcher.BeginInvoke(() => OnSimStatusChanged(args));
+
+        WireTokenEvent();
     }
 
     private void OnWorkStateChanged(WorkStateChangedArgs args)
     {
         ApplyNodeStateChange(args.WorkGuid, args.NewState, args.WorkName, EntityKind.Work, GetSystemName(EntityKind.Work, args.WorkGuid));
+        // 디버그: Homing/Ready 전이 로그 (리셋 동작 확인용)
+        if (args.NewState == Status4.Homing || (args.PreviousState == Status4.Homing && args.NewState == Status4.Ready))
+            AddSimLog($"[Reset] {args.WorkName}: {args.PreviousState} → {args.NewState}");
     }
 
     private void OnCallStateChanged(CallStateChangedArgs args)

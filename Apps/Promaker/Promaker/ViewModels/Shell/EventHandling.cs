@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Ds2.UI.Core;
+using Ds2.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
@@ -9,7 +10,7 @@ public partial class MainViewModel
 {
     private void WireEvents()
     {
-        var observable = (IObservable<EditorEvent>)_store.OnEvent;
+        var observable = (IObservable<EditorEvent>)_store.ObserveEvents();
         _eventSubscription?.Dispose();
         _eventSubscription = observable.Subscribe(new ActionObserver<EditorEvent>(
             evt => _dispatcher.Invoke(() =>
@@ -48,6 +49,7 @@ public partial class MainViewModel
         if (addedId is { } id)
         {
             RequestRebuildAll(() => Selection.ExpandAndSelectNode(id));
+            Simulation.NotifyStoreChanged();
             return;
         }
 
@@ -65,11 +67,13 @@ public partial class MainViewModel
             case EditorEvent.WorkPropsChanged:
             case EditorEvent.ApiDefPropsChanged:
                 PropertyPanel.Refresh();
+                Simulation.NotifyStoreChanged();
                 return;
 
             case EditorEvent.CallPropsChanged cp:
                 PropertyPanel.Refresh();
                 RefreshCallConditionBadge(cp.id);
+                Simulation.NotifyStoreChanged();
                 return;
 
             case EditorEvent.ArrowWorkAdded:
@@ -78,6 +82,7 @@ public partial class MainViewModel
             case EditorEvent.ArrowCallRemoved:
                 Canvas.RefreshCanvasForActiveTab();
                 Selection.ApplyArrowSelectionVisuals();
+                Simulation.NotifyStoreChanged();
                 return;
 
             case { IsStoreRefreshed: true }:
@@ -94,6 +99,7 @@ public partial class MainViewModel
         if (isTreeStructuralEvent)
         {
             RequestRebuildAll();
+            Simulation.NotifyStoreChanged();
             return;
         }
 
@@ -107,7 +113,7 @@ public partial class MainViewModel
         var node = Canvas.CanvasNodes.FirstOrDefault(n => n.Id == callId);
         if (node is null) return;
 
-        if (TryEditorRef(() => _store.GetCallConditionTypes(callId), out var types))
+        if (TryEditorRef(() => CallConditionQueries.GetCallConditionTypes(_store, callId), out var types))
             node.UpdateConditionTypes(types);
     }
 

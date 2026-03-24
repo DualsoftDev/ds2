@@ -3,6 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:conv="clr-namespace:Promaker.Presentation"
              xmlns:ctrl="clr-namespace:Promaker.Controls">
+    <UserControl.Resources>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+    </UserControl.Resources>
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
         <TabControl>
@@ -18,7 +21,16 @@
                     </Grid.RowDefinitions>
                     <StackPanel Orientation="Horizontal" Margin="8,4">
                         <TextBlock Text="Clock: " Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding SimClock}" Foreground="{DynamicResource IconBlueBrush}" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding SimClock}" Foreground="{DynamicResource IconBlueBrush}" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0"/>
+
+                        <!-- 토큰 수동 투입 -->
+                        <TextBlock Text="Source:" Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                        <ComboBox ItemsSource="{Binding TokenSourceWorks}"
+                                  SelectedItem="{Binding SelectedTokenSource}"
+                                  DisplayMemberPath="Name"
+                                  MinWidth="120" Height="24" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <Button Content="토큰 투입" Command="{Binding SeedTokenCommand}"
+                                Style="{StaticResource DarkButton}" MinWidth="72" Height="24" VerticalAlignment="Center"/>
                     </StackPanel>
                     <DataGrid Grid.Row="1" ItemsSource="{Binding SimNodes}" AutoGenerateColumns="False"
                               IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
@@ -36,6 +48,8 @@
                             <DataGridTextColumn Header="System" Binding="{Binding SystemName}" Width="120"/>
                             <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
                             <DataGridTextColumn Header="Type" Binding="{Binding NodeType}" Width="60"/>
+                            <DataGridTextColumn Header="Token" Binding="{Binding TokenDisplay}" Width="60"
+                                                Foreground="#ffb74d" FontFamily="Consolas"/>
                             <DataGridTemplateColumn Header="State" Width="60">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>

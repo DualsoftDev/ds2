@@ -20,9 +20,9 @@
           MouseUp="OnMouseUp"
           ContextMenuOpening="OnContextMenuOpening">
         <Grid.ContextMenu>
-            <ContextMenu>
-                <MenuItem Header="Work 추가" Click="AddWork_Click"/>
-                <MenuItem Header="Call 추가" Click="AddCall_Click"/>
+            <ContextMenu x:Name="CanvasContextMenu">
+                <MenuItem x:Name="AddWorkMenuItem" Header="Work 추가" Click="AddWork_Click"/>
+                <MenuItem x:Name="AddCallMenuItem" Header="Call 추가" Click="AddCall_Click"/>
                 <Separator/>
                 <MenuItem Header="화살표 연결" Click="StartConnect_Click"/>
                 <Separator/>
@@ -195,8 +195,30 @@
                                                        Foreground="{DynamicResource AlwaysLightTextBrush}" FontSize="10" FontWeight="Bold"/>
                                         </Border>
                                     </StackPanel>
+                                    <!-- Token badge (bottom-right) -->
+                                    <Border x:Name="TokenBadge"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Bottom"
+                                            Margin="0,0,-6,-8"
+                                            Padding="4,1"
+                                            MinWidth="22"
+                                            Height="18"
+                                            CornerRadius="9"
+                                            Background="#ffb74d">
+                                        <TextBlock Text="{Binding SimTokenDisplay}"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="#1a1a2e"
+                                                   FontSize="10"
+                                                   FontWeight="Bold"
+                                                   FontFamily="Consolas"/>
+                                    </Border>
                                 </Grid>
                                 <DataTemplate.Triggers>
+                                    <!-- Token badge: hide when empty -->
+                                    <DataTrigger Binding="{Binding SimTokenDisplay}" Value="">
+                                        <Setter TargetName="TokenBadge" Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
                                     <!-- Work: orange border -->
                                     <DataTrigger Binding="{Binding EntityType}" Value="Work">
                                         <Setter TargetName="NodeBorder" Property="Background"

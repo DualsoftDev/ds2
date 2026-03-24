@@ -6,7 +6,7 @@ open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxFileIO
-open Ds2.UI.Core
+open Ds2.Store
 
 module internal AasxImportGraph =
 
@@ -45,6 +45,10 @@ module internal AasxImportGraph =
                 fromJsonProp<WorkProperties> smc Properties_  |> Option.iter (fun p -> work.Properties <- p)
                 fromJsonProp<Xywh option>    smc Position_    |> Option.flatten |> Option.iter (fun pos -> work.Position <- Some pos)
                 getProp smc Status_ |> Option.iter (fun s -> work.Status4 <- parseStatus4 s)
+                getProp smc TokenRole_ |> Option.iter (fun s ->
+                    match System.Int32.TryParse(s) with
+                    | true, v -> work.TokenRole <- enum<TokenRole> v
+                    | _ -> ())
 
                 let calls      = getChildSmlSmcs smc Calls_  |> List.choose (fun c -> smcToCall c work.Id)
                 let arrowCalls = getChildSmlSmcs smc Arrows_ |> List.choose (fun a -> smcToArrowCall a work.Id)
@@ -175,6 +179,9 @@ module internal AasxImportGraph =
                         getProp pSmc Guid_ |> Option.iter (fun g -> project.Id <- Guid.Parse g)
                         getProp pSmc Name_ |> Option.iter (fun n -> project.Name <- n)
                         fromJsonProp<ProjectProperties> pSmc Properties_ |> Option.iter (fun p -> project.Properties <- p)
+                        fromJsonProp<ResizeArray<TokenSpec>> pSmc TokenSpecs_ |> Option.iter (fun ts ->
+                            project.TokenSpecs.Clear()
+                            for spec in ts do project.TokenSpecs.Add(spec))
 
                         match parseSystemsStrict $"Project '{project.Name}' ActiveSystems" (getChildSmlSmcs pSmc ActiveSystems_) with
                         | None -> None

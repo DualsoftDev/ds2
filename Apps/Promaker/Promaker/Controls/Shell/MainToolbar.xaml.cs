@@ -10,7 +10,6 @@ public partial class MainToolbar : UserControl
         InitializeComponent();
     }
 
-    // Save popup menu click closes the popup
     private void CloseSavePopup(object sender, RoutedEventArgs e)
     {
         SaveMenuToggle.IsChecked = false;

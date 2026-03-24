@@ -3,7 +3,7 @@ namespace Ds2.Mermaid
 open System
 open System.Collections.Generic
 open Ds2.Core
-open Ds2.UI.Core
+open Ds2.Store
 
 module internal MermaidMapperCommon =
 
@@ -29,20 +29,22 @@ module internal MermaidMapperCommon =
 
     /// 노드의 조건 참조를 CallCondition으로 복원
     let restoreConditions
-        (store: DsStore) (targetCall: Call)
+        (registerApiCall: ApiCall -> unit)
+        (targetCall: Call)
         (nodeRefToCallId: Dictionary<string, Guid>)
         (uniqueNameToCallId: Dictionary<string, Guid>)
+        (callsById: Dictionary<Guid, Call>)
         (node: MermaidNode) =
         let tryResolveSourceCall (sourceRef: string) =
             match nodeRefToCallId.TryGetValue(sourceRef) with
             | true, srcCallId ->
-                match store.CallsReadOnly.TryGetValue(srcCallId) with
+                match callsById.TryGetValue(srcCallId) with
                 | true, srcCall -> Some srcCall
                 | _ -> None
             | _ ->
                 match uniqueNameToCallId.TryGetValue(sourceRef) with
                 | true, srcCallId ->
-                    match store.CallsReadOnly.TryGetValue(srcCallId) with
+                    match callsById.TryGetValue(srcCallId) with
                     | true, srcCall -> Some srcCall
                     | _ -> None
                 | _ -> None
@@ -62,6 +64,7 @@ module internal MermaidMapperCommon =
                             else
                                 let ac = ApiCall(srcCall.Name)
                                 srcCall.ApiCalls.Add(ac)
+                                registerApiCall ac
                                 ac
                         cond.Conditions.Add(apiCall)
                     | None -> ()
