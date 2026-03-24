@@ -174,7 +174,7 @@ public partial class SimulationPanelState : ObservableObject
                 GraphValidator.findSourcesWithPredecessors(index),
                 "(predecessor가 있어 자동 시작되지 않습니다. 순환 경로에 있으면 데드락이 발생합니다)");
             CollectGroupIgnoreWarning(sections, index);
-            CollectGroupAllIgnoredWarning(sections, index);
+            CollectTokenUnreachableWarning(sections, index);
             CollectWarning(sections, "Reset 연결 누락", WarningSeverity.Yellow,
                 GraphValidator.findUnresetWorks(index));
             CollectWarning(sections, "Source 후보", WarningSeverity.Yellow,
@@ -333,16 +333,17 @@ public partial class SimulationPanelState : ObservableObject
             "(그룹 내 Work 중 1개를 제외한 나머지는 TokenRole.Ignore를 지정해야 합니다)"));
     }
 
-    private static void CollectGroupAllIgnoredWarning(
+    private static void CollectTokenUnreachableWarning(
         List<GraphWarningSection> sections,
         SimIndex index)
     {
-        var groups = GraphValidator.findGroupWorksAllIgnored(index);
-        if (!groups.Any()) return;
+        var works = GraphValidator.findTokenUnreachableWorks(index);
+        if (!works.Any()) return;
 
         sections.Add(new GraphWarningSection(
-            "Group 전체 Ignore", WarningSeverity.Red, FormatGroupLines(groups),
-            "(그룹 내 모든 Work가 Ignore 상태이면 진행이 불가능합니다. 1개는 Ignore를 해제하세요)"));
+            "토큰 도달 불가", WarningSeverity.Red,
+            works.Select(w => $"  - {w.Item2}.{w.Item3}").ToList(),
+            "(모든 선행 Work가 Ignore 상태여서 토큰이 전달되지 않습니다)"));
     }
 
     /// <summary>시뮬레이션을 일시정지한 뒤 MessageBox를 표시하고, 닫으면 자동 재개합니다.</summary>
