@@ -1,18 +1,15 @@
 // ============================================================================
-// Step 08: Convert CLI — 파일 변환 파이프라인
+// Step 08: Convert CLI — AASX 변환 파이프라인
 // ----------------------------------------------------------------------------
 // Step 04 에서 배운 변환을 파이프라인으로 조합한 실제 도구.
 // Ev2.Import.PlcToAASX.CLI 스타일.
 //
 // 파이프라인:
-//   1) JSON → Mermaid → AASX (포맷 체인)
+//   1) JSON → AASX         (내보내기)
 //   2) JSON → AASX → JSON  (Roundtrip 검증)
-//   3) JSON → CSV          (+ Preview)
 // ============================================================================
 
 using Ds2.Aasx;
-using Ds2.CSV;
-using Ds2.Mermaid;
 using Ds2.Store;
 
 namespace Ds2.Tutorial.Steps;
@@ -34,25 +31,20 @@ static class Step08_ConvertCli
             Stats("Input", store);
             Console.WriteLine();
 
-            // ── Pipeline 1: JSON → Mermaid → AASX ────────────
-            Section("PIPELINE 1: JSON → Mermaid → AASX");
+            // ── Pipeline 1: JSON → AASX ──────────────────────
+            Section("PIPELINE 1: JSON → AASX");
 
             var jsonPath = Path.Combine(tempDir, "project.json");
             store.SaveToFile(jsonPath);
             File("JSON Export", jsonPath);
 
-            var mdPath = Path.Combine(tempDir, "project.md");
-            MermaidExporter.saveProjectToFile(store, mdPath);
-            File("Mermaid Export", mdPath);
+            var aasxPath = Path.Combine(tempDir, "project.aasx");
+            AasxExporter.exportFromStore(store, aasxPath);
+            File("AASX Export", aasxPath);
 
-            var mImport = MermaidImporter.loadProjectFromFile(mdPath);
-            if (mImport.IsOk)
-            {
-                Stats("Mermaid Import", mImport.ResultValue);
-                var aasxPath = Path.Combine(tempDir, "from_mermaid.aasx");
-                AasxExporter.exportFromStore(mImport.ResultValue, aasxPath);
-                File("AASX Export", aasxPath);
-            }
+            var aasxStore = DsStore.empty();
+            AasxImporter.importIntoStore(aasxStore, aasxPath);
+            Stats("AASX Import", aasxStore);
             Console.WriteLine();
 
             // ── Pipeline 2: Roundtrip ─────────────────────────
@@ -77,21 +69,6 @@ static class Step08_ConvertCli
             Console.ResetColor();
             Console.WriteLine();
 
-            // ── Pipeline 3: CSV ───────────────────────────────
-            Section("PIPELINE 3: JSON → CSV (+ Preview)");
-
-            var csvPath = Path.Combine(tempDir, "project.csv");
-            CsvExporter.saveProjectToFile(store, csvPath);
-            File("CSV Export", csvPath);
-
-            var csvParse = CsvImporter.parseFile(csvPath);
-            if (csvParse.IsOk)
-            {
-                var preview = CsvImporter.preview(csvParse.ResultValue);
-                Console.WriteLine($"    Preview: Flows={preview.FlowNames.Length}, Works={preview.WorkNames.Length}");
-            }
-            Console.WriteLine();
-
             // ── Summary ──────────────────────────────────────
             Section("SUMMARY");
             var files = Directory.GetFiles(tempDir).OrderBy(f => f).ToArray();
@@ -105,7 +82,7 @@ static class Step08_ConvertCli
         }
 
         Console.WriteLine();
-        Console.WriteLine("  ✓ 전체 튜토리얼 완료!");
+        Console.WriteLine("  전체 튜토리얼 완료!");
     }
 
     private static void Section(string t)

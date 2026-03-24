@@ -10,7 +10,13 @@
 //   - SpeedMultiplier, TimeIgnore
 //   - WorkStateChanged / TokenEvent 이벤트
 //   - TokenRole.Source → 토큰 발행
-//   - GraphValidator: 그래프 사전 검증
+//   - GraphValidator: 그래프 사전 검증 (6종)
+//     · findUnresetWorks: Reset 화살표 누락
+//     · findDeadlockCandidates: 순환 의존 데드락
+//     · findSourceCandidates: Source 미지정 후보
+//     · findSourcesWithPredecessors: Source인데 선행자 있음
+//     · findGroupWorksWithoutIgnore: Group에 Ignore 누락
+//     · findTokenUnreachableWorks: 토큰 도달 불가
 //
 // 핵심 네임스페이스:
 //   Ds2.Runtime.Sim.Engine       — EventDrivenEngine, ISimulationEngine
@@ -50,9 +56,22 @@ static class Step05_Simulation
         Console.WriteLine($"    Works={index.AllWorkGuids.Length}, Calls={index.AllCallGuids.Length}, Tick={index.TickMs}ms");
         Console.WriteLine($"    TokenSources={index.TokenSourceGuids.Length}, TokenSinks={index.TokenSinkGuids.Count}");
 
-        var unreset = GraphValidator.findUnresetWorks(index);
-        var deadlock = GraphValidator.findDeadlockCandidates(index);
-        Console.WriteLine($"    GraphValidator: unreset={unreset.Length}, deadlock={deadlock.Length}");
+        // GraphValidator: 시뮬레이션 전 그래프 문제 사전 감지
+        // 각 함수는 (Guid * string * string) list 반환 — (workGuid, systemName, workName)
+        var unreset    = GraphValidator.findUnresetWorks(index);           // Reset 화살표 누락
+        var deadlock   = GraphValidator.findDeadlockCandidates(index);    // 순환 의존 데드락
+        var srcCand    = GraphValidator.findSourceCandidates(index);      // Source 미지정 후보
+        var srcWithPred = GraphValidator.findSourcesWithPredecessors(index); // Source인데 선행자 있음
+        var groupNoIgn = GraphValidator.findGroupWorksWithoutIgnore(index); // Group에 Ignore 누락
+        var unreachable = GraphValidator.findTokenUnreachableWorks(index);  // 토큰 도달 불가
+
+        Console.WriteLine("  [GraphValidator]");
+        Console.WriteLine($"    unresetWorks:          {unreset.Length}");
+        Console.WriteLine($"    deadlockCandidates:    {deadlock.Length}");
+        Console.WriteLine($"    sourceCandidates:      {srcCand.Length}");
+        Console.WriteLine($"    sourcesWithPreds:      {srcWithPred.Length}");
+        Console.WriteLine($"    groupWithoutIgnore:    {groupNoIgn.Length}");
+        Console.WriteLine($"    tokenUnreachable:      {unreachable.Length}");
         Console.WriteLine();
 
         // ── 3. 엔진 실행 + 이벤트 수집 ──────────────────────

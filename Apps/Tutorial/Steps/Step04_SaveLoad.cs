@@ -1,24 +1,20 @@
 // ============================================================================
 // Step 04: 저장 / 불러오기
 // ----------------------------------------------------------------------------
-// Step 01~02 에서 만든 프로젝트를 4개 포맷으로 저장하고 다시 불러온다.
+// Step 01~02 에서 만든 프로젝트를 JSON / AASX 포맷으로 저장하고 다시 불러온다.
 //
 // 포맷:
-//   JSON    — DsStore.SaveToFile / LoadFromFile (기본 저장 포맷)
-//   Mermaid — MermaidExporter / MermaidImporter (다이어그램)
-//   AASX    — AasxExporter / AasxImporter (산업 표준)
-//   CSV     — CsvExporter / CsvImporter (표 형식)
+//   JSON — DsStore.SaveToFile / LoadFromFile (기본 저장 포맷)
+//   AASX — AasxExporter / AasxImporter (산업 표준 AAS 패키지)
 //
 // 학습 내용:
-//   - 각 Exporter / Importer 의 API 패턴
-//   - Result<T,E>: F# Result → C# IsOk / ResultValue / ErrorValue
-//   - MermaidImporter.parseFile + preview: 단계별 Import
-//   - Roundtrip 검증 (원본 vs 변환 후 비교)
+//   - DsStore.SaveToFile / LoadFromFile: JSON 직렬화
+//   - AasxExporter.exportFromStore: AASX 내보내기
+//   - AasxImporter.importIntoStore: AASX 가져오기
+//   - Roundtrip 검증 (원본 vs 변환 후 Work 이름 비교)
 // ============================================================================
 
 using Ds2.Aasx;
-using Ds2.CSV;
-using Ds2.Mermaid;
 using Ds2.Store;
 
 namespace Ds2.Tutorial.Steps;
@@ -48,25 +44,6 @@ static class Step04_SaveLoad
             PrintMatch(store, jsonStore);
             Console.WriteLine();
 
-            // ── Mermaid ──────────────────────────────────────
-            Console.WriteLine("  [Mermaid]");
-            var mdPath = Path.Combine(tempDir, "project.md");
-            MermaidExporter.saveProjectToFile(store, mdPath);
-            Console.WriteLine($"    Export → {new FileInfo(mdPath).Length:N0} bytes");
-
-            // 단계별: parseFile → preview (Import 전 확인)
-            var parsed = MermaidImporter.parseFile(mdPath);
-            if (parsed.IsOk)
-            {
-                var preview = MermaidImporter.preview(parsed.ResultValue, ImportLevel.SystemLevel);
-                Console.WriteLine($"    Preview → Flows={preview.FlowNames.Length}, Works={preview.WorkNames.Length}, Arrows={preview.ArrowWorksCount}");
-            }
-
-            var mImport = MermaidImporter.loadProjectFromFile(mdPath);
-            if (mImport.IsOk)
-                Console.WriteLine($"    Import → Works={mImport.ResultValue.Works.Count}");
-            Console.WriteLine();
-
             // ── AASX (산업 표준) ─────────────────────────────
             Console.WriteLine("  [AASX]");
             var aasxPath = Path.Combine(tempDir, "project.aasx");
@@ -77,14 +54,6 @@ static class Step04_SaveLoad
             AasxImporter.importIntoStore(aasxStore, aasxPath);
             Console.WriteLine($"    Import → Works={aasxStore.Works.Count}, Arrows={aasxStore.ArrowWorks.Count}");
             PrintMatch(store, aasxStore);
-            Console.WriteLine();
-
-            // ── CSV ──────────────────────────────────────────
-            Console.WriteLine("  [CSV]");
-            var csvPath = Path.Combine(tempDir, "project.csv");
-            CsvExporter.saveProjectToFile(store, csvPath);
-            Console.WriteLine($"    Export → {new FileInfo(csvPath).Length:N0} bytes");
-            Console.WriteLine($"    내용: {CsvExporter.projectToCsv(store, ctx.ProjectId).Trim()}");
             Console.WriteLine();
 
             // ── 요약 ─────────────────────────────────────────
