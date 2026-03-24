@@ -176,6 +176,12 @@ public partial class MainViewModel : ObservableObject
 
         Reset();
         TryEditorAction(() => _store.AddProject("NewProject"));
+
+        // 기본 System + Flow 자동 추가
+        var projectId = DsQuery.allProjects(_store).Head.Id;
+        var systemId = _store.AddSystem("NewSystem", projectId, isActive: true);
+        _store.AddFlow("NewFlow", systemId);
+
         _store.ClearHistory();
         IsDirty = false;
         HasProject = true;
