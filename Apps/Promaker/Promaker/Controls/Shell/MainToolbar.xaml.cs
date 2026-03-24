@@ -10,14 +10,24 @@ public partial class MainToolbar : UserControl
         InitializeComponent();
     }
 
-    // Save 팝업 내 메뉴 클릭 시 팝업 닫기
+    // Save popup menu click closes the popup
     private void CloseSavePopup(object sender, RoutedEventArgs e)
     {
         SaveMenuToggle.IsChecked = false;
     }
 
+    private void CloseEditPopup(object sender, RoutedEventArgs e)
+    {
+        EditMenuToggle.IsChecked = false;
+    }
+
+    private void CloseModelPopup(object sender, RoutedEventArgs e)
+    {
+        ModelMenuToggle.IsChecked = false;
+    }
+
     private void CloseDataPopup(object sender, RoutedEventArgs e)
     {
-        DataToggleBtn.IsChecked = false;
+        DataMenuToggle.IsChecked = false;
     }
 }

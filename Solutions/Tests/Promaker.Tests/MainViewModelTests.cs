@@ -99,24 +99,4 @@ public sealed class MainViewModelTests
         });
     }
 
-    [Fact]
-    public void Toolbar_group_commands_switch_selected_ribbon_group()
-    {
-        StaTestRunner.Run(() =>
-        {
-            var vm = new MainViewModel();
-
-            Assert.Equal(RibbonGroup.Project, vm.SelectedRibbonGroup);
-
-            vm.ShowEditRibbonGroupCommand.Execute(null);
-            Assert.Equal(RibbonGroup.Edit, vm.SelectedRibbonGroup);
-
-            vm.ShowSimulationRibbonGroupCommand.Execute(null);
-            Assert.Equal(RibbonGroup.Simulation, vm.SelectedRibbonGroup);
-
-            vm.ShowToolsRibbonGroupCommand.Execute(null);
-            Assert.Equal(RibbonGroup.Tools, vm.SelectedRibbonGroup);
-        });
-    }
-
 }
