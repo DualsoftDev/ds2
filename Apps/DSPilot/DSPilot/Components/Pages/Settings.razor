@@ -2,6 +2,7 @@
 @inject AppSettingsService SettingsService
 @inject IDatabasePathResolver DatabasePathResolver
 @inject IFlowMetricsService FlowMetricsService
+@inject DSPilot.Adapters.DspRepositoryAdapter DspRepository
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -82,10 +83,15 @@
                                min="0" max="600000" placeholder="20000" />
                     </div>
                     <hr class="divider my-3" />
-                    <button class="btn btn-outlined color-error" style="width:100%;" @onclick="DeleteDatabase">
-                        <span class="material-icons" style="font-size:18px;">delete_forever</span> 데이터베이스 삭제
-                    </button>
-                    <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                    <div style="display:flex; gap:12px;">
+                        <button class="btn btn-outlined" style="flex:1; color:#e67e22; border-color:#e67e22;" @onclick="ClearFlowHistory">
+                            <span class="material-icons" style="font-size:18px;">delete_sweep</span> Flow 히스토리 삭제
+                        </button>
+                        <button class="btn btn-outlined" style="flex:1; color:#c0392b; border-color:#c0392b; font-weight:600;" @onclick="DeleteDatabase">
+                            <span class="material-icons" style="font-size:18px;">delete_forever</span> 데이터베이스 삭제
+                        </button>
+                    </div>
+                    <small style="color: var(--color-text-secondary); margin-top: 8px; display: block;">
                         현재 DB: @GetDatabasePath()
                     </small>
                 </div>
@@ -371,6 +377,26 @@ else
         catch
         {
             return "알 수 없음";
+        }
+    }
+
+    private async Task ClearFlowHistory()
+    {
+        var result = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
+            "Flow 히스토리 삭제",
+            "dspFlowHistory 테이블의 모든 기록을 삭제하시겠습니까?\n\nFlow/Call 현재 상태는 유지되며, 히스토리(사이클 기록)만 삭제됩니다.",
+            "삭제", "취소");
+
+        if (!result) return;
+
+        try
+        {
+            var deleted = await DspRepository.ClearFlowHistoryAsync();
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"Flow 히스토리 {deleted}건이 삭제되었습니다.", "success");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"삭제 실패: {ex.Message}", "error");
         }
     }
 

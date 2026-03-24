@@ -199,6 +199,12 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         return fsharpList.Select(ToCSharpFlowHistoryEntity).ToList();
     }
 
+    public async Task<int> ClearFlowHistoryAsync()
+    {
+        if (!_enabled) return 0;
+        return await DSPilot.Engine.DspRepository.clearFlowHistoryAsync(_paths, _logger);
+    }
+
     // ===== Helper Methods =====
 
     private FSharpDspFlowEntity ToFSharpFlowEntity(CSharpDspFlowEntity entity)
