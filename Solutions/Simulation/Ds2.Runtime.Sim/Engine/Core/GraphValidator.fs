@@ -1,6 +1,8 @@
 namespace Ds2.Runtime.Sim.Engine.Core
 
 open System
+open Ds2.Core
+open Ds2.Store
 
 /// 시뮬레이션 그래프 사전 검증 (순수 함수)
 module GraphValidator =
@@ -57,9 +59,18 @@ module GraphValidator =
         let isSource wg =
             index.WorkTokenRole |> Map.tryFind wg
             |> Option.map (fun r -> r.HasFlag(Ds2.Core.TokenRole.Source)) |> Option.defaultValue false
-        // 1. startPreds 없는 Work
+        // Start 화살표 네트워크에 참여하는 Work (실제 Start 화살표가 연결된 Work만)
+        let startNetworkGuids =
+            index.WorkStartPreds
+            |> Map.fold (fun acc key vals ->
+                if vals.IsEmpty then acc
+                else
+                    let acc = Set.add key acc
+                    vals |> List.fold (fun a v -> Set.add v a) acc) Set.empty
+        // 1. startPreds 없는 Work (Start 화살표 네트워크 참여 Work만)
         let noPredCandidates =
-            index.AllWorkGuids
+            startNetworkGuids
+            |> Set.toList
             |> List.filter (fun wg ->
                 let preds = SimIndex.findOrEmpty wg index.WorkStartPreds
                 preds.IsEmpty && not (isSource wg))
@@ -84,6 +95,57 @@ module GraphValidator =
             let preds = SimIndex.findOrEmpty wg index.WorkStartPreds
             not preds.IsEmpty)
         |> List.choose (toNameTriple index)
+
+    /// Group Arrow로 묶인 Work 중 Ignore 지정이 누락된 그룹 감지
+    /// 그룹 N개 Work → (N-1)개는 Ignore여야 함. 비Ignore가 2개 이상이면 경고
+    let findGroupWorksWithoutIgnore (index: SimIndex) : (string * (Guid * string * string) list) list =
+        let workGroupArrows =
+            index.Store.ArrowWorksReadOnly.Values
+            |> Seq.filter (fun a -> a.ArrowType = ArrowType.Group)
+            |> Seq.toList
+        if workGroupArrows.IsEmpty then []
+        else
+            let sources = workGroupArrows |> List.map (fun a -> a.SourceId)
+            let targets = workGroupArrows |> List.map (fun a -> a.TargetId)
+            let groupSets = SimIndexGroupExpansion.buildGroupSets sources targets
+            groupSets
+            |> List.choose (fun groupSet ->
+                let members = groupSet |> Set.toList
+                let nonIgnoreMembers =
+                    members
+                    |> List.filter (fun wg ->
+                        let role = index.WorkTokenRole |> Map.tryFind wg |> Option.defaultValue TokenRole.None
+                        not (role.HasFlag(TokenRole.Ignore)))
+                if nonIgnoreMembers.Length >= 2 then
+                    let items = members |> List.choose (toNameTriple index)
+                    let groupLabel = items |> List.map (fun (_, _, wn) -> wn) |> String.concat ", "
+                    Some (groupLabel, items)
+                else None)
+
+    /// Group Arrow로 묶인 Work 전체가 Ignore인 그룹 감지 (진행 불가)
+    let findGroupWorksAllIgnored (index: SimIndex) : (string * (Guid * string * string) list) list =
+        let workGroupArrows =
+            index.Store.ArrowWorksReadOnly.Values
+            |> Seq.filter (fun a -> a.ArrowType = ArrowType.Group)
+            |> Seq.toList
+        if workGroupArrows.IsEmpty then []
+        else
+            let sources = workGroupArrows |> List.map (fun a -> a.SourceId)
+            let targets = workGroupArrows |> List.map (fun a -> a.TargetId)
+            let groupSets = SimIndexGroupExpansion.buildGroupSets sources targets
+            groupSets
+            |> List.choose (fun groupSet ->
+                let members = groupSet |> Set.toList
+                let nonIgnoreMembers =
+                    members
+                    |> List.filter (fun wg ->
+                        let role = index.WorkTokenRole |> Map.tryFind wg |> Option.defaultValue TokenRole.None
+                        not (role.HasFlag(TokenRole.Ignore)))
+                if nonIgnoreMembers.Length = 0 then
+                    let items = members |> List.choose (toNameTriple index)
+                    let groupLabel = items |> List.map (fun (_, _, wn) -> wn) |> String.concat ", "
+                    Some (groupLabel, items)
+                else None)
 
     /// 하위 호환용 별칭
     let findMissingSources = findSourceCandidates

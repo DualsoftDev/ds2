@@ -20,9 +20,9 @@
           MouseUp="OnMouseUp"
           ContextMenuOpening="OnContextMenuOpening">
         <Grid.ContextMenu>
-            <ContextMenu>
-                <MenuItem Header="Work 추가" Click="AddWork_Click"/>
-                <MenuItem Header="Call 추가" Click="AddCall_Click"/>
+            <ContextMenu x:Name="CanvasContextMenu">
+                <MenuItem x:Name="AddWorkMenuItem" Header="Work 추가" Click="AddWork_Click"/>
+                <MenuItem x:Name="AddCallMenuItem" Header="Call 추가" Click="AddCall_Click"/>
                 <Separator/>
                 <MenuItem Header="화살표 연결" Click="StartConnect_Click"/>
                 <Separator/>

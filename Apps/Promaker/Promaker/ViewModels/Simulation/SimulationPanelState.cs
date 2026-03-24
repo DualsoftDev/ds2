@@ -14,6 +14,7 @@ using Ds2.Runtime.Sim.Report.Model;
 using Ds2.Store;
 using Ds2.Editor;
 using log4net;
+using Promaker.Dialogs;
 using Promaker.Presentation;
 
 namespace Promaker.ViewModels;
@@ -69,6 +70,7 @@ public partial class SimulationPanelState : ObservableObject
     private DsStore Store => _storeProvider();
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanChangeSpeed))]
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopSimulationCommand))]
@@ -79,12 +81,16 @@ public partial class SimulationPanelState : ObservableObject
     private bool _isSimulating;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanChangeSpeed))]
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
     [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
     private bool _isSimPaused;
+
+    /// <summary>속도/TimeIgnore 변경 가능 여부 (정지 또는 일시정지 상태에서만).</summary>
+    public bool CanChangeSpeed => !IsSimulating || IsSimPaused;
 
     [ObservableProperty] private double _simSpeed = 1.0;
     [ObservableProperty] private bool _simTimeIgnore;
@@ -160,30 +166,23 @@ public partial class SimulationPanelState : ObservableObject
             GanttChart.IsRunning = true;
 
             // 그래프 검증 경고 (전체 수집 → 한 번에 표시)
-            var warnings = new System.Text.StringBuilder();
-            AppendGraphWarning(warnings, "Reset 연결 누락", GraphValidator.findUnresetWorks(index));
-            AppendGraphWarning(
-                warnings,
-                "순환 데드락 위험",
+            var sections = new List<GraphWarningSection>();
+            CollectWarning(sections, "순환 데드락 위험", WarningSeverity.Red,
                 GraphValidator.findDeadlockCandidates(index),
                 "(해당 Work의 Start 선행조건에 순환 후속 Work가 포함되어 있습니다)");
-            AppendGraphWarning(
-                warnings,
-                "Source 자동 시작 불가",
+            CollectWarning(sections, "Source 자동 시작 불가", WarningSeverity.Red,
                 GraphValidator.findSourcesWithPredecessors(index),
                 "(predecessor가 있어 자동 시작되지 않습니다. 순환 경로에 있으면 데드락이 발생합니다)");
-            AppendGraphWarning(
-                warnings,
-                "Source 후보",
+            CollectGroupIgnoreWarning(sections, index);
+            CollectGroupAllIgnoredWarning(sections, index);
+            CollectWarning(sections, "Reset 연결 누락", WarningSeverity.Yellow,
+                GraphValidator.findUnresetWorks(index));
+            CollectWarning(sections, "Source 후보", WarningSeverity.Yellow,
                 GraphValidator.findSourceCandidates(index),
                 "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)");
-            if (warnings.Length > 0)
+            if (sections.Count > 0)
             {
-                Dialogs.DialogHelpers.ShowThemedMessageBox(
-                    $"{warnings}\n시뮬레이션은 계속 진행됩니다.",
-                    "그래프 검증 경고",
-                    System.Windows.MessageBoxButton.OK,
-                    "⚠");
+                Dialogs.DialogHelpers.ShowGraphWarnings(sections);
             }
 
             _simEngine.ApplyInitialStates();
@@ -263,6 +262,15 @@ public partial class SimulationPanelState : ObservableObject
         if (_simEngine is { } engine) engine.TimeIgnore = value;
     }
 
+    /// <summary>시뮬레이션 중 store가 변경되었음을 알립니다. 경고창을 표시합니다.</summary>
+    public void NotifyStoreChanged()
+    {
+        if (!IsSimulating) return;
+        const string msg = "모델이 변경되었습니다.\n시뮬레이션 초기화 버튼을 눌러야 반영됩니다.";
+        ShowPausedMessageBox(msg, "모델 변경 감지",
+            System.Windows.MessageBoxButton.OK, "⚠", suppressKey: "StoreChanged");
+    }
+
     public void ResetForNewStore()
     {
         DisposeSimEngine();
@@ -286,9 +294,9 @@ public partial class SimulationPanelState : ObservableObject
             AddSimLog(logText);
     }
 
-    private static void AppendGraphWarning(
-        System.Text.StringBuilder warnings,
-        string title,
+    private static void CollectWarning(
+        List<GraphWarningSection> sections,
+        string title, WarningSeverity severity,
         IEnumerable<Tuple<Guid, string, string>> items,
         string? detail = null)
     {
@@ -298,11 +306,43 @@ public partial class SimulationPanelState : ObservableObject
         if (lines.Count == 0)
             return;
 
-        warnings.AppendLine($"[{title}]");
-        warnings.AppendLine(string.Join("\n", lines));
-        if (!string.IsNullOrWhiteSpace(detail))
-            warnings.AppendLine(detail);
-        warnings.AppendLine();
+        sections.Add(new GraphWarningSection(title, severity, lines, detail));
+    }
+
+    private static List<string> FormatGroupLines(
+        IEnumerable<Tuple<string, Microsoft.FSharp.Collections.FSharpList<Tuple<Guid, string, string>>>> groups)
+    {
+        var lines = new List<string>();
+        foreach (var group in groups)
+        {
+            var names = group.Item2.Select(m => m.Item3);
+            lines.Add($"  - [{string.Join(", ", names)}]");
+        }
+        return lines;
+    }
+
+    private static void CollectGroupIgnoreWarning(
+        List<GraphWarningSection> sections,
+        SimIndex index)
+    {
+        var groups = GraphValidator.findGroupWorksWithoutIgnore(index);
+        if (!groups.Any()) return;
+
+        sections.Add(new GraphWarningSection(
+            "Group Ignore 누락", WarningSeverity.Red, FormatGroupLines(groups),
+            "(그룹 내 Work 중 1개를 제외한 나머지는 TokenRole.Ignore를 지정해야 합니다)"));
+    }
+
+    private static void CollectGroupAllIgnoredWarning(
+        List<GraphWarningSection> sections,
+        SimIndex index)
+    {
+        var groups = GraphValidator.findGroupWorksAllIgnored(index);
+        if (!groups.Any()) return;
+
+        sections.Add(new GraphWarningSection(
+            "Group 전체 Ignore", WarningSeverity.Red, FormatGroupLines(groups),
+            "(그룹 내 모든 Work가 Ignore 상태이면 진행이 불가능합니다. 1개는 Ignore를 해제하세요)"));
     }
 
     /// <summary>시뮬레이션을 일시정지한 뒤 MessageBox를 표시하고, 닫으면 자동 재개합니다.</summary>

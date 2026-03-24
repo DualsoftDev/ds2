@@ -94,6 +94,7 @@
                 <ComboBox Grid.Column="1"
                           SelectedValue="{Binding SimSpeed}"
                           SelectedValuePath="Tag"
+                          IsEnabled="{Binding CanChangeSpeed}"
                           Width="76"
                           FontSize="11"
                           HorizontalAlignment="Left">
@@ -107,6 +108,7 @@
                 <CheckBox Grid.Column="2"
                           Content="Ignore Time"
                           IsChecked="{Binding SimTimeIgnore}"
+                          IsEnabled="{Binding CanChangeSpeed}"
                           Margin="14,0,8,0"
                           VerticalAlignment="Center"/>
 

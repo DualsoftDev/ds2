@@ -170,7 +170,13 @@ public partial class EditorCanvas : UserControl
         {
             e.Handled = true; // 기본 ContextMenu 억제
             ShowArrowTypeContextMenu(entityType);
+            return;
         }
+
+        // 탭 종류별 메뉴 항목 가시성
+        var tabKind = ActiveCanvasState?.ActiveTab?.Kind;
+        AddCallMenuItem.Visibility = tabKind == Ds2.Editor.TabKind.Work
+            ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void AddWork_Click(object sender, RoutedEventArgs e)

@@ -55,7 +55,8 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void AddWork()
     {
-        var flowId = ResolveTargetId(EntityKind.Flow, TabKind.Flow);
+        var flowId = ResolveTargetId(EntityKind.Flow, TabKind.Flow)
+                     ?? ResolveFirstFlowInSystemTab();
         if (flowId is not { } id) return;
 
         var name = _dialogService.PromptName(Resources.Strings.NewWork, "NewWork");
@@ -482,5 +483,13 @@ public partial class MainViewModel
             return tab.RootId;
 
         return null;
+    }
+
+    /// <summary>System 탭에서 첫 번째 Flow ID를 반환합니다.</summary>
+    private Guid? ResolveFirstFlowInSystemTab()
+    {
+        if (Canvas.ActiveTab is not { Kind: TabKind.System } tab) return null;
+        var flows = DsQuery.flowsOf(tab.RootId, _store);
+        return flows.IsEmpty ? null : (Guid?)flows.Head.Id;
     }
 }
