@@ -34,10 +34,11 @@ static class Step06_Report
 
         var store = ctx.Store;
 
-        // Duration 설정 (Step 05 에서 이미 했지만, 독립 실행 대비)
+        // Duration + TokenRole 설정 (독립 실행 대비)
         store.Works[ctx.W1Id].Properties.Period = TimeSpan.FromMilliseconds(300);
         store.Works[ctx.W2Id].Properties.Period = TimeSpan.FromMilliseconds(500);
         store.Works[ctx.W3Id].Properties.Period = TimeSpan.FromMilliseconds(300);
+        store.Works[ctx.W1Id].TokenRole = TokenRole.Source;
 
         var index = SimIndexModule.build(store, 50);
         using var engine = new EventDrivenEngine(index);
@@ -60,6 +61,12 @@ static class Step06_Report
         Console.WriteLine("  [수집] 20배속, 1.5초간 실행...");
         sim.SpeedMultiplier = 20.0;
         sim.Start();
+
+        // Source Work 에 토큰 투입 → 자동 순환
+        Thread.Sleep(200);
+        var token = sim.NextToken();
+        sim.SeedToken(ctx.W1Id, token);
+
         Thread.Sleep(1500);
         sim.Stop();
         var endTime = DateTime.Now;

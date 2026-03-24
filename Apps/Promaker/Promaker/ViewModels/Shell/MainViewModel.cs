@@ -422,7 +422,6 @@ public partial class MainViewModel : ObservableObject
 
         CanvasManager.RebuildAllPanes();
         Simulation.RestoreSimStateToCavas();
-        Simulation.NotifyStoreChanged();
         Selection.RestoreSelection(prevSelection, prevSelectedArrowIds);
     }
 

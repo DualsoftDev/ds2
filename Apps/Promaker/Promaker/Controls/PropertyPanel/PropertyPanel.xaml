@@ -162,6 +162,11 @@
                                     IsEnabled="{Binding IsWorkPeriodDirty}"
                                     Command="{Binding ApplyWorkPeriodCommand}"/>
                         </Grid>
+                        <TextBlock Text="{Binding DeviceDurationHint}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource AccentTextBrush}"
+                                   Visibility="{Binding HasDeviceDuration, Converter={StaticResource BoolToVis}}"
+                                   Margin="0,2,0,0"/>
                         <Separator Margin="0,12"/>
                         <TextBlock Text="TokenRole"
                                    FontSize="11"

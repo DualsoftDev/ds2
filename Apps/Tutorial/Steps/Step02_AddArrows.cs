@@ -51,8 +51,9 @@ static class Step02_AddArrows
         Console.WriteLine($"  화살표 {arrows.Length}개 연결 완료:");
         foreach (var a in arrows)
         {
-            var src = DsQuery.tryGetName(store, EntityKind.Work, a.SourceId);
-            var tgt = DsQuery.tryGetName(store, EntityKind.Work, a.TargetId);
+            // tryGetName 은 F# option → C# 에서 null 이면 None
+            var src = DsQuery.tryGetName(store, EntityKind.Work, a.SourceId)?.Value ?? "?";
+            var tgt = DsQuery.tryGetName(store, EntityKind.Work, a.TargetId)?.Value ?? "?";
             Console.WriteLine($"    {src} ──{a.ArrowType}──> {tgt}");
         }
         Console.WriteLine();

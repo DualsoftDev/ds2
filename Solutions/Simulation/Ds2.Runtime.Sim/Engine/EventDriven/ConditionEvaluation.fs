@@ -122,6 +122,7 @@ module internal ConditionEvaluation =
                && not (ctx.StateManager.IsWorkPending(workGuid)) then
                 let callGuids = SimIndex.findOrEmpty workGuid ctx.Index.WorkCallGuids
                 if not callGuids.IsEmpty
+                   && ctx.StateManager.IsMinDurationMet(workGuid)
                    && callGuids |> List.forall (fun callGuid -> ctx.StateManager.GetCallState(callGuid) = Status4.Finish) then
                     ctx.StateManager.MarkWorkPending(workGuid)
                     ctx.Scheduler.ScheduleNow(

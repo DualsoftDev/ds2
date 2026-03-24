@@ -49,6 +49,7 @@ public partial class MainViewModel
         if (addedId is { } id)
         {
             RequestRebuildAll(() => Selection.ExpandAndSelectNode(id));
+            Simulation.NotifyStoreChanged();
             return;
         }
 
@@ -66,11 +67,13 @@ public partial class MainViewModel
             case EditorEvent.WorkPropsChanged:
             case EditorEvent.ApiDefPropsChanged:
                 PropertyPanel.Refresh();
+                Simulation.NotifyStoreChanged();
                 return;
 
             case EditorEvent.CallPropsChanged cp:
                 PropertyPanel.Refresh();
                 RefreshCallConditionBadge(cp.id);
+                Simulation.NotifyStoreChanged();
                 return;
 
             case EditorEvent.ArrowWorkAdded:
@@ -79,6 +82,7 @@ public partial class MainViewModel
             case EditorEvent.ArrowCallRemoved:
                 Canvas.RefreshCanvasForActiveTab();
                 Selection.ApplyArrowSelectionVisuals();
+                Simulation.NotifyStoreChanged();
                 return;
 
             case { IsStoreRefreshed: true }:
@@ -95,6 +99,7 @@ public partial class MainViewModel
         if (isTreeStructuralEvent)
         {
             RequestRebuildAll();
+            Simulation.NotifyStoreChanged();
             return;
         }
 

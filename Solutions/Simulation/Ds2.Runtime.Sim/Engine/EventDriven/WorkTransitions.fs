@@ -39,7 +39,7 @@ module internal WorkTransitions =
                 ScheduledEvent.PriorityStateChange)
             |> ignore
 
-    let scheduleLeafDuration (ctx: Context) (workGuid: Guid) =
+    let scheduleDuration (ctx: Context) (workGuid: Guid) =
         let scheduleDurationComplete delayMs =
             ctx.Scheduler.ScheduleAfter(
                 ScheduledEventType.DurationComplete workGuid,
@@ -47,9 +47,12 @@ module internal WorkTransitions =
                 ScheduledEvent.PriorityDurationCheck)
             |> ignore
 
+        let duration = ctx.Index.WorkDuration |> Map.tryFind workGuid |> Option.defaultValue 0.0
         let callGuids = SimIndex.findOrEmpty workGuid ctx.Index.WorkCallGuids
-        if callGuids.IsEmpty then
-            let duration = ctx.Index.WorkDuration |> Map.tryFind workGuid |> Option.defaultValue 0.0
+        // Leaf Works: 항상 스케줄, Works with Calls: duration > 0일 때만 (min duration 보장)
+        if callGuids.IsEmpty || duration > 0.0 then
+            if callGuids.IsEmpty then
+                ctx.StateManager.MarkMinDurationMet(workGuid) // leaf는 즉시 met 표시 (조건 없음)
             if ctx.TimeIgnore() then
                 ctx.Scheduler.ScheduleNow(
                     ScheduledEventType.DurationComplete workGuid,
@@ -57,6 +60,8 @@ module internal WorkTransitions =
                 |> ignore
             else
                 scheduleDurationComplete (max 1L (int64 duration))
+        else
+            ctx.StateManager.MarkMinDurationMet(workGuid) // duration 없으면 즉시 met
 
     let triggerImmediateResets (ctx: Context) (workGuid: Guid) =
         let tryFindWorkKey () =
@@ -117,7 +122,7 @@ module internal WorkTransitions =
             |> ignore
 
     let handleWorkGoingTransition (ctx: Context) workGuid =
-        scheduleLeafDuration ctx workGuid
+        scheduleDuration ctx workGuid
         triggerImmediateResets ctx workGuid
         ctx.ScheduleConditionEvaluation()
 

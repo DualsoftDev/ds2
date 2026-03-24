@@ -238,6 +238,68 @@ module DsQuery =
             else tryFindConditionRec cc.Children condId)
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Work ↔ Device Duration 쿼리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Call 하나의 Device duration(ms): Call → ApiCall → ApiDef → RxGuid → Device Work → Period
+    let private callDeviceDurationMs (call: Call) (store: DsStore) : int =
+        call.ApiCalls
+        |> Seq.choose (fun apiCall ->
+            apiCall.ApiDefId
+            |> Option.bind (fun defId -> getApiDef defId store)
+            |> Option.bind (fun def -> def.Properties.RxGuid)
+            |> Option.bind (fun rxWorkId -> getWork rxWorkId store)
+            |> Option.bind (fun rxWork -> rxWork.Properties.Period)
+            |> Option.map (fun ts -> int ts.TotalMilliseconds))
+        |> Seq.tryHead
+        |> Option.defaultValue 0
+
+    /// <summary>Work 내 Call들의 Critical Path Duration(ms)을 반환합니다.
+    /// Call arrow topology(ArrowBetweenCalls Start)를 분석하여 병렬/직렬 실행을 고려한
+    /// 최장 경로(critical path)를 계산합니다. Device duration이 없으면 None.</summary>
+    let tryGetDeviceDurationMs (workId: Guid) (store: DsStore) : int option =
+        let calls = callsOf workId store
+        if calls.IsEmpty then None
+        else
+            let callIds = calls |> List.map (fun c -> c.Id) |> Set.ofList
+            let durationMap =
+                calls |> List.map (fun c -> c.Id, callDeviceDurationMs c store) |> Map.ofList
+
+            // Call arrow topology: Start/StartReset 화살표만 사용
+            let arrows = arrowCallsOf workId store
+            let predsMap =
+                arrows
+                |> List.filter (fun a ->
+                    a.ArrowType = ArrowType.Start || a.ArrowType = ArrowType.StartReset)
+                |> List.filter (fun a -> Set.contains a.SourceId callIds && Set.contains a.TargetId callIds)
+                |> List.groupBy (fun a -> a.TargetId)
+                |> List.map (fun (tgt, arr) -> tgt, arr |> List.map (fun a -> a.SourceId))
+                |> Map.ofList
+
+            // Critical path: longestPath(c) = duration(c) + max(longestPath(pred))
+            let mutable memo = Map.empty<Guid, int>
+            let rec longestPathTo (callId: Guid) =
+                match Map.tryFind callId memo with
+                | Some v -> v
+                | None ->
+                    let myDuration = Map.tryFind callId durationMap |> Option.defaultValue 0
+                    let preds = Map.tryFind callId predsMap |> Option.defaultValue []
+                    let maxPredPath =
+                        match preds |> List.map longestPathTo with
+                        | [] -> 0
+                        | xs -> List.max xs
+                    let result = myDuration + maxPredPath
+                    memo <- memo.Add(callId, result)
+                    result
+
+            let criticalPath =
+                match calls |> List.map (fun c -> longestPathTo c.Id) with
+                | [] -> 0
+                | xs -> List.max xs
+
+            if criticalPath > 0 then Some criticalPath else None
+
+    // ─────────────────────────────────────────────────────────────────────────
     // TokenSpec 쿼리
     // ─────────────────────────────────────────────────────────────────────────
 
