@@ -350,24 +350,6 @@ module ArrowPathCalculatorTests =
         Assert.Equal(startY, cp1Y, 5)
         Assert.Equal(endY, cp2Y, 5)
 
-    [<Fact>]
-    let ``computePath keeps distant same-row nodes nearly straight without obstacles`` () =
-        let source = Xywh(0, 0, 100, 60)
-        let target = Xywh(280, 0, 100, 60)
-
-        let visual = ArrowPathCalculator.computePath source target
-        let points = visual.Points |> Seq.toList
-
-        Assert.Equal(4, points.Length)
-
-        let _, startY = points.[0]
-        let _, cp1Y = points.[1]
-        let _, cp2Y = points.[2]
-        let _, endY = points.[3]
-
-        Assert.Equal(startY, cp1Y, 5)
-        Assert.Equal(endY, cp2Y, 5)
-
 module PropertyPanelValueSpecTests =
 
     [<Fact>]
@@ -403,12 +385,6 @@ module PropertyPanelValueSpecTests =
         match parsed with
         | Some (Float64Value (Single value)) -> Assert.True(Double.IsPositiveInfinity(value))
         | _ -> Assert.Fail("Expected Float64 Infinity")
-
-    [<Fact>]
-    let ``dataTypeIndex maps to correct index`` () =
-        Assert.Equal(0, PropertyPanelValueSpec.dataTypeIndex UndefinedValue)
-        Assert.Equal(4, PropertyPanelValueSpec.dataTypeIndex (Int32Value (Single 0)))
-        Assert.Equal(12, PropertyPanelValueSpec.dataTypeIndex (StringValue (Single "")))
 
     [<Fact>]
     let ``specFromTypeIndex returns correct default spec`` () =

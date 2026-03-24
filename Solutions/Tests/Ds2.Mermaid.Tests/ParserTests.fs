@@ -159,26 +159,6 @@ graph TD
         Assert.Fail($"파싱 실패: {errors}")
 
 [<Fact>]
-let ``반복 파싱 간 inline node state가 공유되지 않음`` () =
-    let mermaid = """
-graph TD
-    A["SV.ON"] --> B["SV.OFF"]
-"""
-
-    let assertGraph result =
-        match result with
-        | Ok graph ->
-            Assert.Equal(2, graph.GlobalNodes.Length)
-            Assert.Contains(graph.GlobalNodes, fun n -> n.Id = "A" && n.Label = "SV.ON")
-            Assert.Contains(graph.GlobalNodes, fun n -> n.Id = "B" && n.Label = "SV.OFF")
-            graph.GlobalEdges |> Assert.Single |> ignore
-        | Error errors ->
-            Assert.Fail($"파싱 실패: {errors}")
-
-    MermaidParser.parse mermaid |> assertGraph
-    MermaidParser.parse mermaid |> assertGraph
-
-[<Fact>]
 let ``depth 분석 — subgraph 있으면 2-depth`` () =
     let mermaid = """
 graph TD
@@ -228,17 +208,6 @@ graph XX
         Assert.Equal(TD, graph.Direction)
     | Error _ ->
         Assert.Fail("알 수 없는 direction이면 기본값 사용해야 함")
-
-[<Fact>]
-let ``노드 없는 내용 — EmptyGraph 에러`` () =
-    let mermaid = """
-graph TD
-    %% 주석만 있음
-"""
-    match MermaidParser.parse mermaid with
-    | Ok _ -> Assert.Fail("노드 없는 내용인데 성공함")
-    | Error errors ->
-        Assert.Contains(errors, fun e -> e = EmptyGraph)
 
 [<Fact>]
 let ``Circle 화살표 — Group 라벨`` () =

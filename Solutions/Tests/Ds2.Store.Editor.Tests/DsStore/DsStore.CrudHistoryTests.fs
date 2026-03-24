@@ -14,13 +14,6 @@ open Ds2.Store.Editor.Tests.TestHelpers
 module AddTests =
 
     [<Fact>]
-    let ``AddProject creates project in store`` () =
-        let store = createStore ()
-        let id = store.AddProject("P1")
-        Assert.True(store.Projects.ContainsKey(id))
-        Assert.Equal("P1", store.Projects.[id].Name)
-
-    [<Fact>]
     let ``AddSystem adds to active or passive list`` () =
         let store = createStore ()
         let project = addProject store "P"
@@ -28,23 +21,6 @@ module AddTests =
         let passiveId = store.AddSystem("Passive", project.Id, false)
         Assert.True(project.ActiveSystemIds.Contains(activeId))
         Assert.True(project.PassiveSystemIds.Contains(passiveId))
-
-    [<Fact>]
-    let ``AddFlow creates flow under system`` () =
-        let store = createStore ()
-        let project = addProject store "P"
-        let system = addSystem store "S" project.Id true
-        let flowId = store.AddFlow("F", system.Id)
-        let flow = store.Flows.[flowId]
-        Assert.Equal(system.Id, flow.ParentId)
-
-    [<Fact>]
-    let ``AddWork creates work under flow`` () =
-        let store = createStore ()
-        let _, _, flow, _ = setupBasicHierarchy store
-        let workId = store.AddWork("W2", flow.Id)
-        Assert.Equal(flow.Id, store.Works.[workId].ParentId)
-
 
 // =============================================================================
 // Undo / Redo

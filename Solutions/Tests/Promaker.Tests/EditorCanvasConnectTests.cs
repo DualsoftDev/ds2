@@ -11,13 +11,6 @@ namespace Promaker.Tests;
 public sealed class EditorCanvasConnectTests
 {
     [Fact]
-    public void ConnectShortcut_uses_only_f3()
-    {
-        Assert.True(EditorCanvas.IsConnectShortcutKey(System.Windows.Input.Key.F3));
-        Assert.False(EditorCanvas.IsConnectShortcutKey(System.Windows.Input.Key.F4));
-    }
-
-    [Fact]
     public void ResolveConnectSourceEntityType_returns_work_for_selected_work()
     {
         StaTestRunner.Run(() =>

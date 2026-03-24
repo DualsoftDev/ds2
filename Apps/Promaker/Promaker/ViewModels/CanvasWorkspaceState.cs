@@ -14,6 +14,7 @@ namespace Promaker.ViewModels;
 public partial class CanvasWorkspaceState : ObservableObject
 {
     private readonly MainViewModel.CanvasHost _host;
+    private bool _suppressFitToView;
 
     public CanvasWorkspaceState(MainViewModel.CanvasHost host)
     {
@@ -57,7 +58,10 @@ public partial class CanvasWorkspaceState : ObservableObject
         _host.Selection.ClearNodeSelection();
         _host.Selection.ClearArrowSelection();
         RefreshCanvasForActiveTab();
-        FitToViewZoomOutRequested?.Invoke();
+        if (_suppressFitToView)
+            _suppressFitToView = false;
+        else
+            FitToViewZoomOutRequested?.Invoke();
     }
 
     public void NotifyQuickCreateStateChanged()
@@ -94,13 +98,18 @@ public partial class CanvasWorkspaceState : ObservableObject
                 out var info))
             return;
 
+        if (zoomOverride.HasValue)
+            _suppressFitToView = true;
         OpenTab(info.Kind, info.RootId, info.Title);
+
+        // 줌/센터는 캔버스 로드 직후 즉시 적용 (2단계 전환 방지)
+        if (zoomOverride.HasValue)
+            ApplyZoomCenteredRequested?.Invoke(zoomOverride.Value);
+        CenterOnNodeRequested?.Invoke(entityId);
+
         _host.RequestRebuildAll(() =>
         {
             _host.ExpandNodeAndAncestors(entityId);
-            if (zoomOverride.HasValue)
-                ApplyZoomCenteredRequested?.Invoke(zoomOverride.Value);
-            CenterOnNodeRequested?.Invoke(entityId);
             var node = CanvasNodes.FirstOrDefault(n => n.Id == entityId);
             if (node is not null)
                 _host.SelectNodeFromCanvas(node, ctrlPressed: false, shiftPressed: false);

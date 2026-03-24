@@ -9,29 +9,6 @@
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         ResizeMode="CanResize">
-    <Window.Resources>
-        <Style x:Key="BatchGridHeaderStyle" TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
-            <Setter Property="BorderThickness" Value="0,0,1,1"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-            <Setter Property="Padding" Value="8,6"/>
-        </Style>
-
-        <Style x:Key="BatchGridCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
-            <Setter Property="BorderThickness" Value="0,0,1,1"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-            <Setter Property="Padding" Value="6,4"/>
-        </Style>
-
-        <Style x:Key="BatchGridStyle" TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
-            <Setter Property="GridLinesVisibility" Value="All"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
-            <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
-            <Setter Property="ColumnHeaderStyle" Value="{StaticResource BatchGridHeaderStyle}"/>
-            <Setter Property="CellStyle" Value="{StaticResource BatchGridCellStyle}"/>
-        </Style>
-    </Window.Resources>
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1">
@@ -131,11 +108,13 @@
                         BorderBrush="{DynamicResource BorderBrush}"
                         BorderThickness="1">
                     <DataGrid x:Name="WorkDurationGrid"
-                              Style="{StaticResource BatchGridStyle}"
                               AutoGenerateColumns="False"
                               CanUserAddRows="False"
                               CanUserDeleteRows="False"
                               HeadersVisibility="Column"
+                              GridLinesVisibility="All"
+                              HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
+                              VerticalGridLinesBrush="{DynamicResource BorderBrush}"
                               SelectionMode="Extended"
                               SelectionUnit="FullRow"
                               RowHeaderWidth="0"
