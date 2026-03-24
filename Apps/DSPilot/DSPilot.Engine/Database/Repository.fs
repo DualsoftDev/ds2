@@ -520,6 +520,28 @@ module DspRepository =
                     return []
         }
 
+    /// Flow History 전체 삭제
+    let clearFlowHistoryAsync (paths: DatabasePaths) (logger: ILogger) : Task<int> =
+        task {
+            use connection = createConnection (DatabaseConfig.createConnectionString paths.SharedDbPath)
+            do! connection.OpenAsync()
+
+            let historyTable = "dspFlowHistory"
+
+            let! tableExists = tableExistsAsync connection historyTable
+            if not tableExists then
+                logger.LogWarning("dspFlowHistory table does not exist, nothing to clear")
+                return 0
+            else
+                try
+                    let! deleted = connection.ExecuteAsync(sprintf "DELETE FROM %s" historyTable)
+                    logger.LogInformation("Cleared {Count} rows from dspFlowHistory", deleted)
+                    return deleted
+                with ex ->
+                    logger.LogError(ex, "Failed to clear dspFlowHistory")
+                    return 0
+        }
+
     /// 전체 데이터 삭제 (재초기화용)
     let clearAllDataAsync (paths: DatabasePaths) (logger: ILogger) : Task<bool> =
         task {
