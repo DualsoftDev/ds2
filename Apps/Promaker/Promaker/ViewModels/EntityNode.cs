@@ -33,6 +33,10 @@ public partial class EntityNode : ObservableObject
     [ObservableProperty] private int _selectionOrder;
 
     [ObservableProperty] private bool _isGhost;
+    [ObservableProperty] private bool _isReference;
+
+    /// Reference Work의 원본 Work ID (IsReference=true일 때만 유효)
+    public Guid? ReferenceOfId { get; init; }
 
     [ObservableProperty] private bool _hasAutoAux;
     [ObservableProperty] private bool _hasComAux;
@@ -40,6 +44,9 @@ public partial class EntityNode : ObservableObject
 
     /// 경고 하이라이트 (그래프 검증 경고 등)
     [ObservableProperty] private bool _isWarning;
+
+    /// 조건 드롭 대상 하이라이트
+    [ObservableProperty] private bool _isDropTarget;
 
     /// 시뮬레이션 상태 (null = 비시뮬)
     [ObservableProperty] private Status4? _simState;

@@ -28,8 +28,8 @@ type SimIndex = {
     CallAutoAuxConditions: Map<Guid, ConditionEntry list>
     CallComAuxConditions: Map<Guid, ConditionEntry list>
     CallSkipUnmatchConditions: Map<Guid, ConditionEntry list>
-    /// (SystemName, WorkName) → 같은 키를 공유하는 Work Guid 목록 (O(1) 조회용)
-    WorkGuidsByKey: Map<string * string, Guid list>
+    /// ReferenceOf 기반 OR 그룹: 원본 WorkId → [원본 + 참조 Work Guid 목록]
+    WorkReferenceGroups: Map<Guid, Guid list>
     ActiveSystemNames: Set<string>
     TickMs: int
     // ── Token ──
@@ -156,16 +156,21 @@ module SimIndex =
             state.AllCallGuids <- call.Id :: state.AllCallGuids
 
         let addWorkData (system: DsSystem) (work: Work) (callGuids: Guid list) (workStartPreds: Map<Guid, Guid list>) (workResetPreds: Map<Guid, Guid list>) =
+            let periodSource =
+                match work.ReferenceOf with
+                | Some origId -> DsQuery.getWork origId store |> Option.bind (fun w -> w.Properties.Period)
+                | None -> work.Properties.Period
             let userDurationMs =
-                work.Properties.Period
+                periodSource
                 |> Option.map (fun ts -> ts.TotalMilliseconds)
                 |> Option.defaultValue 0.0
             // Works with Calls: effective = max(userDuration, deviceCriticalPath)
+            let resolvedId = work.ReferenceOf |> Option.defaultValue work.Id
             let duration =
                 if callGuids.IsEmpty then userDurationMs
                 else
                     let deviceMs =
-                        DsQuery.tryGetDeviceDurationMs work.Id store
+                        DsQuery.tryGetDeviceDurationMs resolvedId store
                         |> Option.defaultValue 0
                         |> float
                     max userDurationMs deviceMs
@@ -215,10 +220,13 @@ module SimIndex =
             for flow in flows do
                 let works = DsQuery.worksOf flow.Id store
                 for work in works do
-                    let calls = DsQuery.callsOf work.Id store
+                    // 레퍼런스 Work → 원본의 Call을 공유
+                    let resolvedWorkId = work.ReferenceOf |> Option.defaultValue work.Id
+                    let calls = DsQuery.callsOf resolvedWorkId store
                     let callGuids = calls |> List.map (fun c -> c.Id)
-                    for call in calls do
-                        addCallData work cStartPreds call
+                    if work.ReferenceOf.IsNone then
+                        for call in calls do
+                            addCallData work cStartPreds call
 
                     addWorkData system work callGuids wStartPreds wResetPreds
 
@@ -230,7 +238,16 @@ module SimIndex =
 
         log.Debug($"SimIndex built: {state.AllWorkGuids.Length} works, {state.AllCallGuids.Length} calls")
 
-        let workGuidsByKey = SimIndexTokenGraph.buildWorkGuidsByKey state.AllWorkGuids state.WorkSystemName state.WorkName
+        // ReferenceOf 기반 OR 그룹 빌드
+        let workReferenceGroups =
+            state.AllWorkGuids
+            |> List.choose (fun wg ->
+                DsQuery.getWork wg store
+                |> Option.map (fun w -> (w.ReferenceOf |> Option.defaultValue wg), wg))
+            |> List.groupBy fst
+            |> List.filter (fun (_, pairs) -> pairs.Length > 1)
+            |> List.map (fun (origId, pairs) -> origId, pairs |> List.map snd)
+            |> Map.ofList
 
         // ── Sink 감지 ──
         let allWorkGuidsRev = state.AllWorkGuids |> List.rev
@@ -269,7 +286,7 @@ module SimIndex =
           CallAutoAuxConditions = state.CallAutoAuxConditions
           CallComAuxConditions = state.CallComAuxConditions
           CallSkipUnmatchConditions = state.CallSkipUnmatchConditions
-          WorkGuidsByKey = workGuidsByKey
+          WorkReferenceGroups = workReferenceGroups
           ActiveSystemNames = activeSystemNames
           TickMs = tickMs
           WorkTokenRole = tokenRoleMap

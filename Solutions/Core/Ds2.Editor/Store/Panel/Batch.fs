@@ -39,7 +39,7 @@ type DsStorePanelBatchExtensions =
                 DsQuery.worksOf flow.Id store
                 |> List.map (fun work ->
                     let ms = work.Properties.Period |> Option.map (fun t -> int t.TotalMilliseconds) |> Option.defaultValue 0
-                    WorkDurationBatchRow(work.Id, flow.Name, work.Name, ms))))
+                    WorkDurationBatchRow(work.Id, flow.Name, work.LocalName, ms))))
 
     /// 모든 ApiCall의 IO 태그 정보를 일괄 조회
     [<Extension>]

@@ -138,35 +138,9 @@ public partial class ConditionEditDialog : Window
         Controls.ConditionDropHelper.RestoreBorder(sender as Border, ref _savedBrush, this);
         if (Controls.ConditionDropHelper.GetDroppedCallNode(e) is not { } callNode) return;
 
-        if (!_host.TryRef(
-                () => _store.GetCallApiCallsForPanel(callNode.Id),
-                out var rows))
-            return;
-
-        if (rows.Length == 0)
-        {
-            _host.SetStatusText("드롭된 Call에 ApiCall이 없습니다.");
-            return;
-        }
-
-        IReadOnlyList<Guid> selectedIds;
-        if (rows.Length == 1)
-        {
-            selectedIds = [rows[0].ApiCallId];
-        }
-        else
-        {
-            var choices = rows
-                .Select(r => new ApiCallPickerDialog.Choice(r.ApiCallId, $"{r.ApiDefDisplayName} / {r.Name}"))
-                .ToList();
-            var picker = new ApiCallPickerDialog(choices) { Owner = this };
-            if (picker.ShowDialog() != true || picker.SelectedApiCallIds.Count == 0)
-                return;
-            selectedIds = picker.SelectedApiCallIds;
-        }
-
-        _host.TryAction(() => _store.AddConditionWithApiCalls(_callId, _condType, selectedIds));
-        ReloadList();
+        if (Controls.ConditionDropHelper.ExecuteConditionDrop(
+                _store, _host, _callId, _condType, callNode.Id, ownerWindow: this))
+            ReloadList();
         e.Handled = true;
     }
 

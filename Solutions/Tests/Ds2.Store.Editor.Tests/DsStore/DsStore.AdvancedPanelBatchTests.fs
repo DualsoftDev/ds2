@@ -94,10 +94,6 @@ module PanelTokenRoleTests =
         store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
         Assert.Equal(1, count)
 
-// =============================================================================
-// DsQuery 직접 테스트
-// =============================================================================
-
 module DsQueryTests =
 
     [<Fact>]
@@ -196,10 +192,6 @@ module DsQueryTests =
         Assert.True(result.IsSome)
         Assert.Equal(child.Id, result.Value.Id)
 
-// =============================================================================
-// Batch 편집
-// =============================================================================
-
 module BatchTests =
 
     [<Fact>]
@@ -229,7 +221,6 @@ module BatchTests =
 
         store.UpdateWorkDurationsBatch([ struct(work1.Id, 3000); struct(work2.Id, 7000) ])
 
-        // 변경 확인
         let p1 = work1.Properties.Period
         Assert.True(p1.IsSome)
         Assert.Equal(3000.0, p1.Value.TotalMilliseconds)
@@ -237,7 +228,6 @@ module BatchTests =
         Assert.True(p2.IsSome)
         Assert.Equal(7000.0, p2.Value.TotalMilliseconds)
 
-        // Undo 1회로 전체 롤백
         store.Undo()
         Assert.True(store.Works.[work1.Id].Properties.Period.IsNone)
         Assert.True(store.Works.[work2.Id].Properties.Period.IsNone)
@@ -285,7 +275,6 @@ module BatchTests =
         Assert.Equal("newOut", apiCall.OutTag.Value.Address)
         Assert.Equal("outSym", apiCall.OutTag.Value.Name)
 
-        // Undo 1회로 전체 롤백
         store.Undo()
         let reverted = store.ApiCalls.[apiCallId]
         Assert.True(reverted.InTag.IsNone)
@@ -312,7 +301,6 @@ module BatchTests =
             let loaded = DsStore()
             loaded.LoadFromFile(tmpPath)
 
-            // store.ApiCalls 딕셔너리 경로
             let loadedApiCall = loaded.ApiCalls.[apiCallId]
             Assert.True(loadedApiCall.InTag.IsSome)
             Assert.Equal("192.168.0.1", loadedApiCall.InTag.Value.Address)
@@ -321,13 +309,11 @@ module BatchTests =
             Assert.Equal("192.168.0.2", loadedApiCall.OutTag.Value.Address)
             Assert.Equal("OutActuator", loadedApiCall.OutTag.Value.Name)
 
-            // call.ApiCalls 내부 리스트 경로 (UI가 읽는 경로 — RewireApiCallReferences 필요)
             let loadedCall = loaded.Calls.Values |> Seq.head
             let callApiCall = loadedCall.ApiCalls |> Seq.find (fun ac -> ac.Id = apiCallId)
             Assert.True(callApiCall.InTag.IsSome, "call.ApiCalls 내부의 InTag이 비어있음 — RewireApiCallReferences 누락")
             Assert.Equal("192.168.0.1", callApiCall.InTag.Value.Address)
 
-            // GetAllApiCallIORows 경로 (UI 다이얼로그와 동일)
             let ioRows = loaded.GetAllApiCallIORows()
             let row = ioRows |> List.find (fun r -> r.ApiCallId = apiCallId)
             Assert.Equal("192.168.0.1", row.InAddress)

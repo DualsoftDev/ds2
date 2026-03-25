@@ -45,6 +45,9 @@ module internal AasxExportGraph =
             mkProp     Name_       work.Name
             mkProp     Guid_       (work.Id.ToString())
             mkProp     FlowGuid_   (work.ParentId.ToString())
+            mkProp     FlowPrefix_ work.FlowPrefix
+            mkProp     LocalName_  work.LocalName
+            yield! (work.ReferenceOf |> Option.map (fun id -> mkProp ReferenceOf_ (id.ToString())) |> Option.toList)
             mkJsonProp<WorkProperties> Properties_ work.Properties
             mkJsonProp<Xywh option>    Position_   work.Position
             mkProp     Status_     (string work.Status4)

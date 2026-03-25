@@ -102,7 +102,7 @@ module LegacyImportGraph =
             getProp workSmc FlowGuid_
             |> Option.bind tryParseGuid
             |> Option.defaultValue fallbackFlowId
-        let work = Work("", flowId)
+        let work = Work("", "", flowId)
         getProp workSmc Guid_ |> Option.iter (fun g -> work.Id <- Guid.Parse g)
         getProp workSmc Name_ |> Option.iter (fun n -> work.Name <- n)
         fromJsonProp<WorkProperties> workSmc Properties_ |> Option.iter (fun p -> work.Properties <- p)

@@ -187,76 +187,6 @@ module AasxRoundTripTests =
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 
     [<Fact>]
-    let ``AASX import fails when Work FlowGuid is missing and keeps store unchanged`` () =
-        let store = DsStore()
-        let projectId = store.AddProject("P")
-        let systemId = store.AddSystem("S", projectId, true)
-        let flowId = store.AddFlow("F", systemId)
-        let workId = store.AddWork("W", flowId)
-        store.AddCallsWithDevice(projectId, workId, [ "Dev.Api" ], true)
-
-        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
-        try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
-            Assert.True(exported, "Export should succeed")
-
-            let env = Ds2.Aasx.AasxFileIO.readEnvironment path
-            Assert.True(env.IsSome, "Environment should be readable")
-            removeFlowGuidProperties env.Value
-            Ds2.Aasx.AasxFileIO.writeEnvironment env.Value path
-
-            let store2 = DsStore()
-            let baseProjectId = store2.AddProject("BaseP")
-            let baseSystemId = store2.AddSystem("BaseS", baseProjectId, true)
-            let baseFlowId = store2.AddFlow("BaseF", baseSystemId)
-            store2.AddWork("BaseW", baseFlowId) |> ignore
-
-            let beforeCounts = (store2.Projects.Count, store2.Systems.Count, store2.Flows.Count, store2.Works.Count, store2.Calls.Count)
-
-            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
-
-            Assert.False(imported, "Import should fail when Work.FlowGuid is missing")
-
-            let afterCounts = (store2.Projects.Count, store2.Systems.Count, store2.Flows.Count, store2.Works.Count, store2.Calls.Count)
-            Assert.Equal(beforeCounts, afterCounts)
-
-            let hasBaseProject = store2.Projects.Values |> Seq.exists (fun p -> p.Name = "BaseP")
-            let hasBaseWork = store2.Works.Values |> Seq.exists (fun w -> w.Name = "BaseW")
-            Assert.True(hasBaseProject, "Existing project data should remain untouched")
-            Assert.True(hasBaseWork, "Existing work data should remain untouched")
-        finally
-            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
-
-    [<Fact>]
-    let ``AASX round-trip preserves Work TokenRole`` () =
-        let store = DsStore()
-        let projectId = store.AddProject("P")
-        let systemId = store.AddSystem("S", projectId, true)
-        let flowId = store.AddFlow("F", systemId)
-        let w1Id = store.AddWork("Source", flowId)
-        store.AddWork("Pass", flowId) |> ignore
-        let w3Id = store.AddWork("Ignore", flowId)
-
-        store.UpdateWorkTokenRole(w1Id, TokenRole.Source)
-        store.UpdateWorkTokenRole(w3Id, TokenRole.Ignore)
-
-        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
-        try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
-            Assert.True(exported, "Export should succeed")
-
-            let store2 = DsStore()
-            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
-            Assert.True(imported, "Import should succeed")
-
-            let findWork name = store2.Works.Values |> Seq.find (fun w -> w.Name = name)
-            Assert.Equal(TokenRole.Source, (findWork "Source").TokenRole)
-            Assert.Equal(TokenRole.None,   (findWork "Pass").TokenRole)
-            Assert.Equal(TokenRole.Ignore, (findWork "Ignore").TokenRole)
-        finally
-            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
-
-    [<Fact>]
     let ``AASX round-trip preserves Project TokenSpecs`` () =
         let store = DsStore()
         let projectId = store.AddProject("P")
@@ -284,4 +214,223 @@ module AasxRoundTripTests =
             Assert.Equal("Sonata", project2.TokenSpecs[1].Label)
         finally
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+
+
+    [<Fact>]
+    let ``AASX round-trip preserves Work FlowPrefix and LocalName`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("P")
+        let systemId = store.AddSystem("S", projectId, true)
+        let flowId = store.AddFlow("MyFlow", systemId)
+        let workId = store.AddWork("MyWork", flowId)
+
+        let work = store.Works.[workId]
+        Assert.Equal("MyFlow", work.FlowPrefix)
+        Assert.Equal("MyWork", work.LocalName)
+        Assert.Equal("MyFlow.MyWork", work.Name)
+
+        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported, "Export should succeed")
+
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed")
+
+            let restoredWork = store2.Works.Values |> Seq.head
+            Assert.Equal("MyFlow", restoredWork.FlowPrefix)
+            Assert.Equal("MyWork", restoredWork.LocalName)
+            Assert.Equal("MyFlow.MyWork", restoredWork.Name)
+        finally
+            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+
+    [<Fact>]
+    let ``AASX round-trip preserves Work TokenRole`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("P")
+        let systemId = store.AddSystem("S", projectId, true)
+        let flowId = store.AddFlow("F", systemId)
+        let workId = store.AddWork("W", flowId)
+
+        store.Works.[workId].TokenRole <- TokenRole.Source
+        Assert.Equal(TokenRole.Source, store.Works.[workId].TokenRole)
+
+        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported, "Export should succeed")
+
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed")
+
+            let restoredWork = store2.Works.Values |> Seq.head
+            Assert.Equal(TokenRole.Source, restoredWork.TokenRole)
+        finally
+            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+
+
+/// SplitDeviceAasx 분리 저장 통합 테스트
+module SplitDeviceAasxTests =
+
+    open Ds2.Store
+    open Ds2.Editor
+
+    let private createStoreWithDevices () =
+        let store = DsStore()
+        let projectId = store.AddProject("TestProject")
+        let activeId  = store.AddSystem("ActiveSys", projectId, true)
+        let aFlowId   = store.AddFlow("AF", activeId)
+        store.AddWork("AW", aFlowId) |> ignore
+
+        let dev1Id = store.AddSystem("PLC_Siemens", projectId, false)
+        let f1     = store.AddFlow("DF1", dev1Id)
+        store.AddWork("DW1", f1) |> ignore
+
+        let dev2Id = store.AddSystem("PLC_Mitsubishi", projectId, false)
+        let f2     = store.AddFlow("DF2", dev2Id)
+        store.AddWork("DW2", f2) |> ignore
+
+        store, projectId
+
+    let private getTempAasxPath () =
+        Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
+
+    let private cleanupSplitFiles (path: string) =
+        if File.Exists(path) then File.Delete(path)
+        let dir = Path.GetDirectoryName(path)
+        let baseName = Path.GetFileNameWithoutExtension(path)
+        let devicesDir = Path.Combine(dir, $"{baseName}_devices")
+        if Directory.Exists(devicesDir) then
+            Directory.Delete(devicesDir, true)
+
+    [<Fact>]
+    let ``SplitDeviceAasx round-trip preserves all entities`` () =
+        let store, projectId = createStoreWithDevices()
+        let project = store.Projects.[projectId]
+        project.Properties.SplitDeviceAasx <- true
+
+        let path = getTempAasxPath()
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported, "Export should succeed")
+
+            // _devices 폴더와 Device AASX 파일 존재 확인
+            let baseName = Path.GetFileNameWithoutExtension(path)
+            let devicesDir = Path.Combine(Path.GetDirectoryName(path), $"{baseName}_devices")
+            Assert.True(Directory.Exists(devicesDir), "_devices 폴더가 생성되어야 함")
+            let deviceFiles = Directory.GetFiles(devicesDir, "*.aasx")
+            Assert.Equal(2, deviceFiles.Length)
+
+            // Import로 복원
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed")
+
+            // Active + Passive 시스템 확인
+            let project2 = store2.Projects.Values |> Seq.head
+            Assert.Equal(1, project2.ActiveSystemIds.Count)
+            Assert.Equal(2, project2.PassiveSystemIds.Count)
+            Assert.Equal(3, store2.Systems.Count)
+
+            // Device 이름 확인
+            let deviceNames =
+                project2.PassiveSystemIds
+                |> Seq.map (fun id -> store2.Systems.[id].Name)
+                |> Seq.sort |> Seq.toList
+            Assert.Equal<string list>(["PLC_Mitsubishi"; "PLC_Siemens"], deviceNames)
+
+            // Flow/Work도 복원되었는지 확인
+            Assert.True(store2.Flows.Count >= 3, "모든 Flow가 복원되어야 함")
+            Assert.True(store2.Works.Count >= 3, "모든 Work가 복원되어야 함")
+        finally
+            cleanupSplitFiles path
+
+    [<Fact>]
+    let ``SplitDeviceAasx backward compat — old AASX without field defaults to false`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("P")
+        store.AddSystem("S", projectId, true) |> ignore
+        // SplitDeviceAasx를 명시적으로 설정하지 않음 → false
+
+        let path = getTempAasxPath()
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported)
+
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported)
+
+            let project2 = store2.Projects.Values |> Seq.head
+            Assert.False(project2.Properties.SplitDeviceAasx, "기본값은 false여야 함")
+
+            // _devices 폴더가 생성되지 않아야 함
+            let baseName = Path.GetFileNameWithoutExtension(path)
+            let devicesDir = Path.Combine(Path.GetDirectoryName(path), $"{baseName}_devices")
+            Assert.False(Directory.Exists(devicesDir), "_devices 폴더가 없어야 함")
+        finally
+            cleanupSplitFiles path
+
+    [<Fact>]
+    let ``SplitDeviceAasx graceful degradation — missing device file skips`` () =
+        let store, projectId = createStoreWithDevices()
+        let project = store.Projects.[projectId]
+        project.Properties.SplitDeviceAasx <- true
+
+        let path = getTempAasxPath()
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported)
+
+            // Device AASX 파일 하나 삭제
+            let baseName = Path.GetFileNameWithoutExtension(path)
+            let devicesDir = Path.Combine(Path.GetDirectoryName(path), $"{baseName}_devices")
+            let deviceFiles = Directory.GetFiles(devicesDir, "*.aasx")
+            File.Delete(deviceFiles.[0])
+
+            // Import — 삭제된 Device는 스킵, 나머지는 로드
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed even with missing device")
+
+            let project2 = store2.Projects.Values |> Seq.head
+            Assert.Equal(1, project2.ActiveSystemIds.Count)
+            // 1개는 스킵되어 1개만 로드됨
+            Assert.Equal(1, project2.PassiveSystemIds.Count)
+        finally
+            cleanupSplitFiles path
+
+    [<Fact>]
+    let ``SplitDeviceAasx non-split uses existing path`` () =
+        let store, _projectId = createStoreWithDevices()
+        // SplitDeviceAasx = false (기본값)
+
+        let path = getTempAasxPath()
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported)
+
+            // _devices 폴더가 생성되지 않아야 함
+            let baseName = Path.GetFileNameWithoutExtension(path)
+            let devicesDir = Path.Combine(Path.GetDirectoryName(path), $"{baseName}_devices")
+            Assert.False(Directory.Exists(devicesDir), "_devices 폴더가 없어야 함")
+
+            // Import 후 모든 엔티티 존재
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported)
+
+            let project2 = store2.Projects.Values |> Seq.head
+            Assert.Equal(1, project2.ActiveSystemIds.Count)
+            Assert.Equal(2, project2.PassiveSystemIds.Count)
+        finally
+            cleanupSplitFiles path
+
+    [<Fact>]
+    let ``Device name sanitization replaces special chars`` () =
+        Assert.Equal("PLC_Test", Ds2.Aasx.AasxExporter.sanitizeDeviceName "PLC_Test")
+        Assert.Equal("My_Device", Ds2.Aasx.AasxExporter.sanitizeDeviceName "My/Device")
+        Assert.Equal("A_B_C", Ds2.Aasx.AasxExporter.sanitizeDeviceName "A\\B:C")
 

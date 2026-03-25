@@ -23,16 +23,6 @@ module internal SimIndexTokenGraph =
             let existing = acc |> Map.tryFind key |> Option.defaultValue []
             acc.Add(key, existing @ values)) existingMap
 
-    let buildWorkGuidsByKey (allWorkGuids: Guid list) (workSystemName: Map<Guid, string>) (workName: Map<Guid, string>) =
-        allWorkGuids
-        |> List.choose (fun workGuid ->
-            match Map.tryFind workGuid workSystemName, Map.tryFind workGuid workName with
-            | Some systemName, Some workNameValue -> Some ((systemName, workNameValue), workGuid)
-            | _ -> None)
-        |> List.groupBy fst
-        |> List.map (fun (key, grouped) -> key, grouped |> List.map snd)
-        |> Map.ofList
-
     let findCycleSinks (tokenSources: Guid list) (tokenSuccessors: Map<Guid, Guid list>) =
         let mutable visited = Set.empty<Guid>
         let mutable onStack = Set.empty<Guid>

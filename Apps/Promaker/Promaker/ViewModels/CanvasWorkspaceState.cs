@@ -57,19 +57,43 @@ public partial class CanvasWorkspaceState : ObservableObject
         OpenTabs.Clear();
         CanvasNodes.Clear();
         CanvasArrows.Clear();
+        HighlightedFlowId = null;
         ActiveTab = null;
     }
 
+    /// <summary>Flow 더블클릭 시 특정 Flow를 하이라이트하기 위한 필터 ID.</summary>
+    public Guid? HighlightedFlowId { get; private set; }
+
     public void OpenCanvasTab(Guid entityId, EntityKind entityType, bool expandTree = false)
     {
-        // System 캔버스는 열지 않음 — Flow/Work 캔버스만 지원
-        if (entityType == EntityKind.System)
+        // Flow 더블클릭 → 부모 System 탭에서 해당 Flow의 Work만 하이라이트 (토글)
+        if (entityType == EntityKind.Flow)
+        {
+            var flow = DsQuery.getFlow(entityId, Store);
+            if (flow == null) return;
+
+            // 같은 Flow 다시 더블클릭 → 하이라이트 해제 (토글)
+            var toggle = HighlightedFlowId == entityId;
+
+            // System 탭을 먼저 열고 (HighlightedFlowId=null 초기화 포함)
+            OpenCanvasTab(flow.Value.ParentId, EntityKind.System, expandTree);
+
+            if (!toggle)
+            {
+                HighlightedFlowId = entityId;
+                RefreshCanvasForActiveTab();
+            }
             return;
+        }
 
         if (!_host.TryRef(
                 () => EditorNavigation.TryOpenTabForEntityOrNull(Store, entityType, entityId),
                 out var info))
             return;
+
+        // System 탭을 열 때 Flow 하이라이트 초기화
+        if (entityType == EntityKind.System)
+            HighlightedFlowId = null;
 
         OpenTab(info.Kind, info.RootId, info.Title);
         if (expandTree)
@@ -113,16 +137,8 @@ public partial class CanvasWorkspaceState : ObservableObject
     [RelayCommand]
     private void CloseTab(CanvasTab? tab)
     {
-        if (tab is null)
-            return;
-
-        var idx = OpenTabs.IndexOf(tab);
-        OpenTabs.Remove(tab);
-        if (ActiveTab == tab)
-            ActiveTab = OpenTabs.Count > 0 ? OpenTabs[Math.Min(idx, OpenTabs.Count - 1)] : null;
-
-        if (OpenTabs.Count == 0)
-            AllTabsClosed?.Invoke(this);
+        if (tab is not null)
+            RemoveTab(tab);
     }
 
     /// <summary>외부에서 탭을 추가합니다 (분할 이동 시 사용).</summary>
@@ -149,6 +165,8 @@ public partial class CanvasWorkspaceState : ObservableObject
     /// <summary>탭 타이틀 검증 및 캔버스 갱신 (RebuildAll에서 호출).</summary>
     public void ValidateAndRefresh()
     {
+        // 편집 동작(붙여넣기, 삭제, 추가 등) 후 Flow 하이라이트 해제
+        HighlightedFlowId = null;
         var deadTabs = new List<CanvasTab>();
         foreach (var t in OpenTabs)
         {
@@ -185,15 +203,29 @@ public partial class CanvasWorkspaceState : ObservableObject
                 statusOverride: "[ERROR] Failed to refresh canvas content."))
             return;
 
+        // Flow 하이라이트: System 탭에서 특정 Flow의 Work만 활성화
+        HashSet<Guid>? highlightWorkIds = null;
+        if (HighlightedFlowId.HasValue && ActiveTab.Kind == TabKind.System)
+        {
+            var works = DsQuery.worksOf(HighlightedFlowId.Value, Store);
+            highlightWorkIds = works.Select(w => w.Id).ToHashSet();
+        }
+
         foreach (var n in content.Nodes)
         {
+            var isGhost = n.IsGhost;
+            if (highlightWorkIds is not null && !highlightWorkIds.Contains(n.Id))
+                isGhost = true;
+
             var node = new EntityNode(n.Id, n.EntityKind, n.Name, n.ParentId)
             {
                 X = n.X,
                 Y = n.Y,
                 Width = n.Width,
                 Height = n.Height,
-                IsGhost = n.IsGhost
+                IsGhost = isGhost,
+                IsReference = n.IsReference,
+                ReferenceOfId = n.ReferenceOfId is { } refId ? refId.Value : null,
             };
             node.UpdateConditionTypes(n.ConditionTypes);
             CanvasNodes.Add(node);
@@ -222,7 +254,10 @@ public partial class CanvasWorkspaceState : ObservableObject
         var existing = OpenTabs.FirstOrDefault(t => t.Kind == kind && t.RootId == rootId);
         if (existing is not null)
         {
-            ActiveTab = existing;
+            if (ActiveTab == existing)
+                RefreshCanvasForActiveTab(); // Flow 하이라이트 변경 시 강제 리프레시
+            else
+                ActiveTab = existing;
             return;
         }
 

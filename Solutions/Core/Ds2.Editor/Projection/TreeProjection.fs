@@ -20,7 +20,7 @@ let private buildDeviceSystemChildren (store: DsStore) (systemId: Guid) : TreeNo
         DsQuery.flowsOf systemId store
         |> List.map (fun flow ->
             let works =
-                DsQuery.worksOf flow.Id store
+                DsQuery.originalWorksOf flow.Id store
                 |> List.map (fun work ->
                     { Id = work.Id
                       EntityKind = EntityKind.Work
@@ -57,7 +57,7 @@ let private buildSystemChildren (store: DsStore) (systemId: Guid) =
         DsQuery.flowsOf systemId store
         |> List.map (fun flow ->
             let works =
-                DsQuery.worksOf flow.Id store
+                DsQuery.originalWorksOf flow.Id store
                 |> List.map (fun work ->
                     let calls =
                         DsQuery.callsOf work.Id store

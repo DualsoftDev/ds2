@@ -5,7 +5,7 @@ open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
 
-let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) (parentId: Guid) (pos: Xywh option) (conditionTypes: CallConditionType list) (isGhost: bool) =
+let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) (parentId: Guid) (pos: Xywh option) (conditionTypes: CallConditionType list) (isGhost: bool) (isReference: bool) (referenceOfId: Guid option) =
     let defaultPos = Xywh(UiDefaults.DefaultNodeX, UiDefaults.DefaultNodeY, UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight)
     let p = pos |> Option.defaultValue defaultPos
     { Id = id
@@ -17,7 +17,9 @@ let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) 
       Width = float p.W
       Height = float p.H
       ConditionTypes = conditionTypes
-      IsGhost = isGhost }
+      IsGhost = isGhost
+      IsReference = isReference
+      ReferenceOfId = referenceOfId }
 
 let private toArrowInfo (a: DsArrow) : CanvasArrowInfo =
     { Id = a.Id; SourceId = a.SourceId; TargetId = a.TargetId; ArrowType = a.ArrowType }
@@ -31,7 +33,7 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
         flowIds
         |> List.collect (fun flowId ->
             DsQuery.worksOf flowId store
-            |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] false))
+            |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] false w.ReferenceOf.IsSome w.ReferenceOf))
 
     let arrows =
         DsQuery.arrowWorksOf systemId store
@@ -45,7 +47,7 @@ let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
 
     let localNodes =
         works
-        |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] false)
+        |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] false w.ReferenceOf.IsSome w.ReferenceOf)
 
     // 타 Flow의 Work와 연결된 화살표 + 고스트 Work 수집
     let allArrows, ghostNodes =
@@ -68,7 +70,7 @@ let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
             let ghosts =
                 externalIds
                 |> List.choose (fun id -> DsQuery.getWork id store)
-                |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] true)
+                |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] true w.ReferenceOf.IsSome w.ReferenceOf)
 
             let arrows = relevantArrows |> List.map toArrowInfo
             arrows, ghosts
@@ -84,7 +86,7 @@ let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
 
         let nodes =
             calls
-            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position (CallConditionQueries.conditionTypes c) false)
+            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position (CallConditionQueries.conditionTypes c) false false None)
 
         let arrows =
             DsQuery.arrowCallsOf workId store

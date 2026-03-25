@@ -36,6 +36,8 @@ type DsStoreNodesExtensions =
     static member AddFlow(store: DsStore, name: string, systemId: Guid) : Guid =
         StoreLog.debug($"name={name}, systemId={systemId}")
         StoreLog.requireSystem(store, systemId) |> ignore
+        if not (DsQuery.isFlowNameUniqueInSystem systemId name None store) then
+            invalidOp $"같은 System 내에 이미 '{name}' Flow가 존재합니다."
         let flow = Flow(name, systemId)
         store.WithTransaction($"Flow 추가 \"{name}\"", fun () ->
             store.TrackAdd(store.Flows, flow))
@@ -45,12 +47,28 @@ type DsStoreNodesExtensions =
     [<Extension>]
     static member AddWork(store: DsStore, name: string, flowId: Guid) : Guid =
         StoreLog.debug($"name={name}, flowId={flowId}")
-        StoreLog.requireFlow(store, flowId) |> ignore
-        let work = Work(name, flowId)
-        store.WithTransaction($"Work 추가 \"{name}\"", fun () ->
+        let flow = StoreLog.requireFlow(store, flowId)
+        if not (DsQuery.isLocalNameUniqueInFlow flowId name None store) then
+            invalidOp $"같은 Flow 내에 이미 '{name}' Work가 존재합니다."
+        let work = Work(flow.Name, name, flowId)
+        store.WithTransaction($"Work 추가 \"{work.Name}\"", fun () ->
             store.TrackAdd(store.Works, work))
         store.EmitAndHistory(WorkAdded work)
         work.Id
+
+    [<Extension>]
+    static member AddReferenceWork(store: DsStore, originalWorkId: Guid) : Guid =
+        StoreLog.debug($"originalWorkId={originalWorkId}")
+        let original = StoreLog.requireWork(store, originalWorkId)
+        let refWork = Work(original.FlowPrefix, original.LocalName, original.ParentId)
+        refWork.ReferenceOf <- Some originalWorkId
+        refWork.Position <-
+            original.Position
+            |> Option.map (fun pos -> Xywh(pos.X + 40, pos.Y + 40, pos.W, pos.H))
+        store.WithTransaction("레퍼런스 Work 생성", fun () ->
+            store.TrackAdd(store.Works, refWork))
+        store.EmitAndHistory(WorkAdded refWork)
+        refWork.Id
 
     // ─── Add (배치/디바이스) ──────────────────────────────────────────
     [<Extension>]
@@ -161,13 +179,18 @@ type DsStoreNodesExtensions =
     // ─── Rename ──────────────────────────────────────────────────────
     [<Extension>]
     static member RenameEntity(store: DsStore, id: Guid, entityKind: EntityKind, newName: string) =
-        // Call은 DevicesAlias만 변경 — UI에서 전체 이름(Alias.ApiName) 또는 alias만 올 수 있음
+        // Call은 DevicesAlias만 변경, Work는 LocalName만 변경
         let resolvedName =
             match entityKind with
             | EntityKind.Call ->
                 match newName.IndexOf('.') with
                 | -1  -> newName
                 | idx -> newName[..idx - 1]
+            | EntityKind.Work ->
+                // "FlowPrefix.LocalName" 형식이 올 수 있으므로 LocalName 부분만 추출
+                match newName.IndexOf('.') with
+                | -1  -> newName
+                | idx -> newName[idx + 1..]
             | _ -> newName
         let oldName, isChanged =
             match entityKind with
@@ -175,18 +198,38 @@ type DsStoreNodesExtensions =
                 match store.Calls.TryGetValue(id) with
                 | true, c  -> Some c.DevicesAlias, c.DevicesAlias <> resolvedName
                 | false, _ -> None, false
+            | EntityKind.Work ->
+                match store.Works.TryGetValue(id) with
+                | true, w  -> Some w.LocalName, w.LocalName <> resolvedName
+                | false, _ -> None, false
             | _ ->
                 let n = DsQuery.tryGetName store entityKind id
                 n, n |> Option.map (fun o -> o <> resolvedName) |> Option.defaultValue false
         match oldName with
         | Some _ when isChanged ->
             StoreLog.debug($"id={id}, kind={entityKind}, newName={resolvedName}")
+            // Work: Flow 내 LocalName 중복 검사
+            match entityKind with
+            | EntityKind.Work ->
+                let work = store.Works.[id]
+                if not (DsQuery.isLocalNameUniqueInFlow work.ParentId resolvedName (Some id) store) then
+                    invalidOp $"같은 Flow 내에 이미 '{resolvedName}' Work가 존재합니다."
+            | EntityKind.Flow ->
+                let flow = store.Flows.[id]
+                if not (DsQuery.isFlowNameUniqueInSystem flow.ParentId resolvedName (Some id) store) then
+                    invalidOp $"같은 System 내에 이미 '{resolvedName}' Flow가 존재합니다."
+            | _ -> ()
             store.WithTransaction($"이름 변경 → \"{resolvedName}\"", fun () ->
                 match entityKind with
                 | EntityKind.Project   -> store.TrackMutate(store.Projects, id, fun e -> e.Name <- resolvedName)
                 | EntityKind.System    -> store.TrackMutate(store.Systems, id, fun e -> e.Name <- resolvedName)
-                | EntityKind.Flow      -> store.TrackMutate(store.Flows, id, fun e -> e.Name <- resolvedName)
-                | EntityKind.Work      -> store.TrackMutate(store.Works, id, fun e -> e.Name <- resolvedName)
+                | EntityKind.Flow      ->
+                    store.TrackMutate(store.Flows, id, fun e -> e.Name <- resolvedName)
+                    // Cascade: 자식 Work들의 FlowPrefix 갱신
+                    for work in DsQuery.worksOf id store do
+                        store.TrackMutate(store.Works, work.Id, fun w -> w.FlowPrefix <- resolvedName)
+                | EntityKind.Work      ->
+                    store.TrackMutate(store.Works, id, fun e -> e.LocalName <- resolvedName)
                 | EntityKind.Call      -> store.TrackMutate(store.Calls, id, fun e -> e.DevicesAlias <- resolvedName)
                 | EntityKind.ApiDef    -> store.TrackMutate(store.ApiDefs, id, fun e -> e.Name <- resolvedName)
                 | EntityKind.Button    -> store.TrackMutate(store.HwButtons, id, fun e -> e.Name <- resolvedName)
@@ -194,10 +237,11 @@ type DsStoreNodesExtensions =
                 | EntityKind.Condition -> store.TrackMutate(store.HwConditions, id, fun e -> e.Name <- resolvedName)
                 | EntityKind.Action    -> store.TrackMutate(store.HwActions, id, fun e -> e.Name <- resolvedName)
                 | _                    -> failwithf "Unknown entity kind: %A" entityKind)
-            // Call은 DevicesAlias만 변경 → 실제 표시명(DevicesAlias.ApiName) 조회
+            // Call/Work은 표시명 조합이 다름
             let displayName =
                 match entityKind with
                 | EntityKind.Call -> store.Calls.[id].Name
+                | EntityKind.Work -> store.Works.[id].Name
                 | _ -> resolvedName
             store.EmitAndHistory(EntityRenamed(id, displayName))
         | Some _ -> () // 이름 변경 없음

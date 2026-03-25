@@ -43,6 +43,7 @@ type ProjectProperties() =
     member val Version      : string option         = None with get, set
     member val IriPrefix    : string option         = None with get, set
     member val GlobalAssetId: string option         = None with get, set
+    member val SplitDeviceAasx: bool                = false with get, set
 
 type SystemProperties() =
     inherit PropertiesBase<SystemProperties>()

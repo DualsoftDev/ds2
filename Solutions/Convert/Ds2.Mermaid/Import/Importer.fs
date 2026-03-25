@@ -76,7 +76,7 @@ module MermaidImporter =
             | Some systemId when hasSubgraphs ->
                 Ok (MermaidMapper.mapToFlow store parentId systemId projectId graph)
             | Some systemId ->
-                Ok (MermaidMapper.mapToFlowFlat parentId systemId graph)
+                Ok (MermaidMapper.mapToFlowFlat store parentId systemId graph)
             | None ->
                 Error [ $"Flow({parentId})에서 System을 찾을 수 없습니다" ]
         | WorkLevel ->

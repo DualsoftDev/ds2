@@ -13,6 +13,7 @@ public partial class ProjectPropertiesDialog : Window
     public string? ResultAuthor { get; private set; }
     public string? ResultVersion { get; private set; }
     public string? ResultDescription { get; private set; }
+    public bool ResultSplitDeviceAasx { get; private set; }
 
     public ProjectPropertiesDialog(ProjectProperties properties)
     {
@@ -23,6 +24,7 @@ public partial class ProjectPropertiesDialog : Window
         AuthorBox.Text        = properties.Author?.Value         ?? "";
         VersionBox.Text       = properties.Version?.Value        ?? "";
         DescriptionBox.Text   = properties.Description?.Value    ?? "";
+        SplitDeviceAasxBox.IsChecked = properties.SplitDeviceAasx;
 
         Loaded += (_, _) => IriPrefixBox.Focus();
     }
@@ -34,6 +36,7 @@ public partial class ProjectPropertiesDialog : Window
         ResultAuthor        = AuthorBox.Text.Trim();
         ResultVersion       = VersionBox.Text.Trim();
         ResultDescription   = DescriptionBox.Text.Trim();
+        ResultSplitDeviceAasx = SplitDeviceAasxBox.IsChecked == true;
         DialogResult = true;
     }
 }

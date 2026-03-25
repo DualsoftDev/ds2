@@ -15,6 +15,8 @@ public partial class PropertyPanelState : ObservableObject
 {
     private readonly MainViewModel.PropertyPanelHost _host;
 
+    internal MainViewModel.PropertyPanelHost Host => _host;
+
     public PropertyPanelState(MainViewModel.PropertyPanelHost host)
     {
         _host = host;
@@ -112,9 +114,12 @@ public partial class PropertyPanelState : ObservableObject
 
         if (IsWorkSelected && selected is not null)
         {
-            _originalWorkPeriodMs = LoadOptionalMsFromStore(selected.Id, Store.GetWorkPeriodMsOrNull);
+            // 레퍼런스 노드 → 원본 Work ID로 Duration/DeviceDuration 조회
+            var resolvedWorkId = selected.ReferenceOfId ?? selected.Id;
+
+            _originalWorkPeriodMs = LoadOptionalMsFromStore(resolvedWorkId, Store.GetWorkPeriodMsOrNull);
             WorkPeriodMs = _originalWorkPeriodMs;
-            var devOpt = DsQuery.tryGetDeviceDurationMs(selected.Id, Store);
+            var devOpt = DsQuery.tryGetDeviceDurationMs(resolvedWorkId, Store);
             _deviceDurationMs = devOpt != null ? (int?)devOpt.Value : null;
             DeviceDurationHint = _deviceDurationMs is { } ms ? $"예상 소요 시간: {ms}ms" : "";
 
@@ -125,9 +130,9 @@ public partial class PropertyPanelState : ObservableObject
             IsTokenIgnore = _originalWorkTokenRole.HasFlag(TokenRole.Ignore);
             _suppressTokenRoleSync = false;
 
-            // 연결된 TokenSpec 표시
+            // 연결된 TokenSpec 표시 (원본 ID도 매칭)
             var linkedSpec = DsQuery.getTokenSpecs(Store)
-                .FirstOrDefault(s => s.WorkId is { } wid && wid.Value == selected.Id);
+                .FirstOrDefault(s => s.WorkId is { } wid && (wid.Value == selected.Id || wid.Value == resolvedWorkId));
             HasLinkedTokenSpec = linkedSpec is not null;
             LinkedTokenSpecLabel = linkedSpec is not null ? $"#{linkedSpec.Id} {linkedSpec.Label}" : "";
         }

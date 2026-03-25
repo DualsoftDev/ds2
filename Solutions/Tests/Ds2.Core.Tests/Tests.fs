@@ -75,35 +75,6 @@ module DeepCopyTests =
         Assert.Equal(original.Properties.Description, copied.Properties.Description)
 
     [<Fact>]
-    let ``Work DeepCopy should create new instance with Position and Status`` () =
-        let flowId = Guid.NewGuid()
-        let original = Work("TestWork", flowId)
-        original.Position <- Some (Xywh(10, 20, 30, 40))
-        original.Status4 <- Status4.Going
-        original.Properties.Motion <- Some "Motion1"
-
-        let copied = original.DeepCopy()
-
-        Assert.NotEqual(original.Id, copied.Id)
-        Assert.Equal(original.ParentId, copied.ParentId)
-        Assert.Equal(original.Name, copied.Name)
-        Assert.Equal(Status4.Going, copied.Status4)
-        Assert.True(copied.Position.IsSome)
-        Assert.Equal(10, copied.Position.Value.X)
-        Assert.Equal(Some "Motion1", copied.Properties.Motion)
-
-    [<Fact>]
-    let ``Work DeepCopy should preserve TokenRole`` () =
-        let flowId = Guid.NewGuid()
-        let original = Work("TokenWork", flowId)
-        original.TokenRole <- TokenRole.Source
-
-        let copied = original.DeepCopy()
-
-        Assert.NotEqual(original.Id, copied.Id)
-        Assert.Equal(TokenRole.Source, copied.TokenRole)
-
-    [<Fact>]
     let ``ApiCall DeepCopy should copy IOTag independently`` () =
         let original = ApiCall("TestApiCall")
         original.InTag <- Some (IOTag("Input", "Addr1", "Desc1"))
@@ -225,6 +196,53 @@ module DeepCopyTests =
         copied.Children.Clear()
         Assert.Equal(1, parent.Children.Count)
         Assert.Equal(0, copied.Children.Count)
+
+    [<Fact>]
+    let ``Work DeepCopy should copy FlowPrefix LocalName and ReferenceOf`` () =
+        let flowId = Guid.NewGuid()
+        let original = Work("MyFlow", "MyWork", flowId)
+        original.Properties.Period <- Some(TimeSpan.FromSeconds(3.0))
+        original.Position <- Some(Xywh(10, 20, 100, 50))
+        original.ReferenceOf <- Some(Guid.NewGuid())
+        original.TokenRole <- TokenRole.Source
+
+        let copied = original.DeepCopy()
+
+        Assert.NotEqual(original.Id, copied.Id)
+        Assert.Equal(flowId, copied.ParentId)
+        Assert.Equal("MyFlow", copied.FlowPrefix)
+        Assert.Equal("MyWork", copied.LocalName)
+        Assert.Equal("MyFlow.MyWork", copied.Name)
+        Assert.Equal(original.ReferenceOf, copied.ReferenceOf)
+        Assert.Equal(original.TokenRole, copied.TokenRole)
+        Assert.Equal(original.Properties.Period, copied.Properties.Period)
+        Assert.True(copied.Position.IsSome)
+
+        // 독립성 확인
+        copied.Properties.Period <- Some(TimeSpan.FromSeconds(9.0))
+        Assert.Equal<TimeSpan option>(Some(TimeSpan.FromSeconds(3.0)), original.Properties.Period)
+
+    [<Fact>]
+    let ``Work Name property combines FlowPrefix and LocalName`` () =
+        let work = Work("Flow1", "WorkA", Guid.NewGuid())
+        Assert.Equal("Flow1.WorkA", work.Name)
+
+        // FlowPrefix가 비어있으면 LocalName만 반환
+        let work2 = Work("", "OnlyLocal", Guid.NewGuid())
+        Assert.Equal("OnlyLocal", work2.Name)
+
+    [<Fact>]
+    let ``Work Name setter splits on dot for migration`` () =
+        let work = Work("", "", Guid.NewGuid())
+
+        // dot이 있으면 분리
+        work.Name <- "NewFlow.NewWork"
+        Assert.Equal("NewFlow", work.FlowPrefix)
+        Assert.Equal("NewWork", work.LocalName)
+
+        // dot이 없으면 LocalName만 설정
+        work.Name <- "PlainName"
+        Assert.Equal("PlainName", work.LocalName)
 
     [<Fact>]
     let ``Call DeepCopy should copy ApiCalls and CallConditions independently`` () =

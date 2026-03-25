@@ -38,3 +38,14 @@ let [<Literal>] Target_              = "Target"
 let [<Literal>] Type_                = "Type"
 let [<Literal>] TokenRole_           = "TokenRole"
 let [<Literal>] TokenSpecs_          = "TokenSpecs"
+
+// Work 네이밍 확장
+let [<Literal>] FlowPrefix_           = "FlowPrefix"
+let [<Literal>] LocalName_            = "LocalName"
+let [<Literal>] ReferenceOf_          = "ReferenceOf"
+
+// Device 분리 저장용
+let [<Literal>] DeviceGuid_          = "DeviceGuid"
+let [<Literal>] DeviceName_          = "DeviceName"
+let [<Literal>] DeviceIRI_           = "DeviceIRI"
+let [<Literal>] DeviceRelativePath_  = "DeviceRelativePath"

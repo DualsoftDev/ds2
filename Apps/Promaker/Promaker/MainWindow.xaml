@@ -10,7 +10,9 @@
         WindowStartupLocation="CenterScreen"
         Closing="Window_Closing"
         AllowDrop="True"
+        DragEnter="Window_DragEnter"
         DragOver="Window_DragOver"
+        DragLeave="Window_DragLeave"
         Drop="Window_Drop">
 
     <Window.Resources>
@@ -102,6 +104,75 @@
                     </Grid>
                 </Border>
             </Grid>
+
+            <!-- Welcome screen when no project is open -->
+            <Border x:Name="WelcomeOverlay" Grid.ColumnSpan="5"
+                    Background="{DynamicResource PrimaryBackgroundBrush}" Panel.ZIndex="10"
+                    AllowDrop="True"
+                    DragEnter="Window_DragEnter"
+                    DragOver="Window_DragOver"
+                    DragLeave="Window_DragLeave"
+                    Drop="Window_Drop">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Visible"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasProject}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <Ellipse Width="100" Height="100" Margin="0,0,0,20"
+                             HorizontalAlignment="Center">
+                        <Ellipse.Fill>
+                            <RadialGradientBrush>
+                                <GradientStop Color="{DynamicResource AccentColor}" Offset="0"/>
+                                <GradientStop Color="Transparent" Offset="1"/>
+                            </RadialGradientBrush>
+                        </Ellipse.Fill>
+                    </Ellipse>
+                    <Path Width="48" Height="48" Stretch="Uniform" Margin="0,-90,0,50"
+                          HorizontalAlignment="Center"
+                          Fill="{DynamicResource AccentBrush}"
+                          Data="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z"/>
+                    <TextBlock Text="기존 프로젝트 파일을 불러오세요"
+                               FontSize="22" FontWeight="Bold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBlock Text="프로젝트를 시작하려면 새로 만들거나 파일을 열어주세요"
+                               FontSize="13"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               HorizontalAlignment="Center" Margin="0,0,0,24"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Button Command="{Binding NewProjectCommand}"
+                                Padding="16,10" Margin="0,0,12,0"
+                                FontSize="13" Cursor="Hand"
+                                Background="{DynamicResource AccentBrush}"
+                                Foreground="White" BorderThickness="0">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Width="16" Height="16" Stretch="Uniform" Margin="0,0,6,0"
+                                      Fill="White"
+                                      Data="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                                <TextBlock Text="새로 만들기" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding OpenFileCommand}"
+                                Padding="16,10"
+                                FontSize="13" Cursor="Hand"
+                                Background="{DynamicResource AccentBrush}"
+                                Foreground="White" BorderThickness="0">
+                            <StackPanel Orientation="Horizontal">
+                                <Path Width="16" Height="16" Stretch="Uniform" Margin="0,0,6,0"
+                                      Fill="White"
+                                      Data="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z"/>
+                                <TextBlock Text="프로젝트 열기" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </Grid>
 
         <StatusBar Grid.Row="2">
@@ -109,5 +180,34 @@
                 <TextBlock Text="{Binding StatusText}"/>
             </StatusBarItem>
         </StatusBar>
+
+        <!-- File drag overlay -->
+        <Border x:Name="FileDragOverlay" Grid.RowSpan="3"
+                Background="#CC1E2D3D" IsHitTestVisible="False"
+                Visibility="Collapsed" Panel.ZIndex="100">
+            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                    CornerRadius="16" Padding="40,30"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.6"
+                                      Color="{DynamicResource AccentColor}"/>
+                </Border.Effect>
+                <StackPanel HorizontalAlignment="Center">
+                    <Path Width="48" Height="48" Stretch="Uniform" Margin="0,0,0,16"
+                          HorizontalAlignment="Center"
+                          Fill="{DynamicResource AccentBrush}"
+                          Data="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z"/>
+                    <TextBlock Text="프로젝트 파일을 여기에 놓으세요"
+                               FontSize="18" FontWeight="Bold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                    <TextBlock Text="AASX, JSON, MERMAID"
+                               FontSize="13"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+        </Border>
     </Grid>
 </Window>

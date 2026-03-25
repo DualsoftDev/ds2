@@ -19,17 +19,9 @@ public partial class ExplorerPane : UserControl
     public ExplorerPane()
     {
         InitializeComponent();
-        ConfigureDebugPanels();
     }
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
-    internal int UpperPanelsHostRow => Grid.GetRow(UpperPanelsHost);
-
-    private void ConfigureDebugPanels()
-    {
-        // History panel moved back into ExplorerPane.
-        // No additional debug panel wiring is needed here.
-    }
 
     private void TreeTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -146,7 +138,7 @@ public partial class ExplorerPane : UserControl
 
         if (node.EntityType == EntityKind.Call)
             ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType, zoomOverride: 1.0);
-        else if (node.EntityType is EntityKind.Flow or EntityKind.Work)
+        else if (node.EntityType is EntityKind.System or EntityKind.Flow or EntityKind.Work)
         {
             ViewModel.Canvas.OpenCanvasTab(node.Id, node.EntityType);
             Dispatcher.InvokeAsync(

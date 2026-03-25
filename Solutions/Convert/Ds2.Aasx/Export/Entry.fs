@@ -1,6 +1,7 @@
 namespace Ds2.Aasx
 
 open System
+open System.IO
 open AasCore.Aas3_0
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
@@ -8,12 +9,24 @@ open Ds2.Aasx.AasxConceptDescriptions
 open Ds2.Aasx.AasxFileIO
 open Ds2.Store
 
+open log4net
+
 module AasxExporter =
+
+    let private log = LogManager.GetLogger("Ds2.Aasx.AasxExporter")
 
     open AasxExportCore
     open AasxExportGraph
     open AasxExportMetadata
 
+    /// Device 이름을 파일명으로 안전하게 변환 (특수문자 → _)
+    let sanitizeDeviceName (name: string) : string =
+        let invalid = Path.GetInvalidFileNameChars()
+        name.ToCharArray()
+        |> Array.map (fun c -> if Array.contains c invalid then '_' else c)
+        |> String.Concat
+
+    /// 메인 AASX의 Submodel 생성 (인라인 모드 — 모든 PassiveSystem 포함)
     let internal exportToSubmodel (store: DsStore) (project: Project) : Submodel =
         let activeSystems  = DsQuery.activeSystemsOf  project.Id store |> List.map (fun s -> systemToSmc store s true)
         let passiveSystems = DsQuery.passiveSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s false)
@@ -24,6 +37,36 @@ module AasxExporter =
             mkJsonProp<ResizeArray<TokenSpec>> TokenSpecs_ project.TokenSpecs
             mkSml ActiveSystems_    activeSystems
             mkSml DeviceReferences_ passiveSystems
+        ]
+        let projectSmc = SubmodelElementCollection()
+        projectSmc.IdShort <- "Project"
+        projectSmc.Value <- ResizeArray<ISubmodelElement>(projectElems)
+
+        let sm = Submodel(id = project.Id.ToString())
+        sm.IdShort <- SubmodelIdShort
+        sm.SemanticId <- mkSemanticRef SubmodelSemanticId
+        sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
+        sm
+
+    /// DeviceReference SMC 생성 (분리 모드용 — 경량 참조만)
+    let internal deviceReferenceToSmc (device: DsSystem) (relativePath: string) : ISubmodelElement =
+        mkSmc "DeviceReference" [
+            mkProp DeviceGuid_         (device.Id.ToString())
+            mkProp DeviceName_         device.Name
+            mkProp DeviceIRI_          (device.IRI |> Option.defaultValue "")
+            mkProp DeviceRelativePath_ relativePath
+        ]
+
+    /// 분리 모드용 Submodel 생성 (PassiveSystem 대신 DeviceReference 참조만 포함)
+    let internal exportToSubmodelSplit (store: DsStore) (project: Project) (deviceRefs: ISubmodelElement list) : Submodel =
+        let activeSystems = DsQuery.activeSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s true)
+        let projectElems : ISubmodelElement list = [
+            mkProp     Name_         project.Name
+            mkProp     Guid_         (project.Id.ToString())
+            mkJsonProp<ProjectProperties> Properties_ project.Properties
+            mkJsonProp<ResizeArray<TokenSpec>> TokenSpecs_ project.TokenSpecs
+            mkSml ActiveSystems_    activeSystems
+            mkSml DeviceReferences_ deviceRefs
         ]
         let projectSmc = SubmodelElementCollection()
         projectSmc.IdShort <- "Project"
@@ -85,6 +128,104 @@ module AasxExporter =
                 conceptDescriptions = conceptDescs)
         writeEnvironment env outputPath
 
+    /// 단일 Device를 독립 AASX로 저장 (ev2처럼 ActiveSystems=[device] 래핑)
+    let internal exportDeviceAasx (store: DsStore) (project: Project) (device: DsSystem) (outputPath: string) : unit =
+        let deviceSmc = systemToSmc store device false
+        let projectElems : ISubmodelElement list = [
+            mkProp     Name_         project.Name
+            mkProp     Guid_         (project.Id.ToString())
+            mkJsonProp<ProjectProperties> Properties_ project.Properties
+            mkSml ActiveSystems_    [deviceSmc]
+            mkSml DeviceReferences_ []
+        ]
+        let projectSmc = SubmodelElementCollection()
+        projectSmc.IdShort <- "Project"
+        projectSmc.Value <- ResizeArray<ISubmodelElement>(projectElems)
+
+        let sm = Submodel(id = project.Id.ToString())
+        sm.IdShort <- SubmodelIdShort
+        sm.SemanticId <- mkSemanticRef SubmodelSemanticId
+        sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
+
+        let iriPrefix = resolveIriPrefix project
+        let globalAssetId = resolveGlobalAssetId project
+        let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
+        let shell = AssetAdministrationShell(id = $"{iriPrefix}shell/{device.Name}", assetInformation = assetInfo)
+        shell.IdShort <- "DeviceShell"
+        shell.Submodels <- ResizeArray<IReference>([
+            let key = Key(KeyTypes.Submodel, sm.Id) :> IKey
+            Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
+        ])
+
+        let env =
+            Environment(
+                submodels = ResizeArray<ISubmodel>([sm :> ISubmodel]),
+                assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]))
+        writeEnvironment env outputPath
+
+    /// Device 이름 → 유니크 파일명 (같은 이름이 있으면 Guid 해시 추가)
+    let internal resolveDeviceFileName (usedNames: System.Collections.Generic.HashSet<string>) (device: DsSystem) : string =
+        let baseName = sanitizeDeviceName device.Name
+        if usedNames.Add(baseName) then
+            baseName
+        else
+            let shortHash = device.Id.ToString("N").[..7]
+            let uniqueName = $"{baseName}_{shortHash}"
+            usedNames.Add(uniqueName) |> ignore
+            uniqueName
+
+    /// 분리 저장 오케스트레이션
+    let internal exportSplitAasx (store: DsStore) (project: Project) (outputPath: string) : unit =
+        let mainDir = Path.GetDirectoryName(outputPath)
+        let baseName = Path.GetFileNameWithoutExtension(outputPath)
+        let devicesDir = Path.Combine(mainDir, $"{baseName}_devices")
+        Directory.CreateDirectory(devicesDir) |> ignore
+
+        let passiveSystems = DsQuery.passiveSystemsOf project.Id store
+        let usedNames = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
+        let deviceRefs =
+            passiveSystems
+            |> List.map (fun device ->
+                let fileName = resolveDeviceFileName usedNames device
+                let deviceAasxPath = Path.Combine(devicesDir, $"{fileName}.aasx")
+                let relativePath = $"{baseName}_devices/{fileName}.aasx"
+                exportDeviceAasx store project device deviceAasxPath
+                deviceReferenceToSmc device relativePath)
+
+        // 메인 AASX에는 DeviceReference만 포함
+        let sm = exportToSubmodelSplit store project deviceRefs
+        let mkSmRef (submodel: Submodel) : IReference =
+            let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
+            Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
+
+        let submodels = ResizeArray<ISubmodel>([sm :> ISubmodel])
+        let smRefs = ResizeArray<IReference>([mkSmRef sm])
+
+        let npSm = nameplateToSubmodel project.Nameplate project.Id
+        submodels.Add(npSm :> ISubmodel)
+        smRefs.Add(mkSmRef npSm)
+
+        let docSm = documentationToSubmodel project.HandoverDocumentation project.Id
+        submodels.Add(docSm :> ISubmodel)
+        smRefs.Add(mkSmRef docSm)
+
+        let iriPrefix = resolveIriPrefix project
+        let globalAssetId = resolveGlobalAssetId project
+        let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
+        let shell = AssetAdministrationShell(id = $"{iriPrefix}shell/{project.Name}", assetInformation = assetInfo)
+        shell.IdShort <- "ProjectShell"
+        shell.Submodels <- smRefs
+
+        let conceptDescs = createAllConceptDescriptions true true
+        let env =
+            Environment(
+                submodels = submodels,
+                assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
+                conceptDescriptions = conceptDescs)
+        writeEnvironment env outputPath
+        log.Info($"분리 저장 완료: {passiveSystems.Length}개 Device → {devicesDir}")
+
     /// Export helper for UI callers that should not access Project entity directly.
     /// Returns false when there is no project in the store.
     let internal tryExportFirstProjectToAasxFile (store: DsStore) (outputPath: string) : bool =
@@ -95,4 +236,11 @@ module AasxExporter =
             true
 
     let exportFromStore (store: DsStore) (path: string) : bool =
-        tryExportFirstProjectToAasxFile store path
+        match DsQuery.allProjects store |> List.tryHead with
+        | None -> false
+        | Some project ->
+            if project.Properties.SplitDeviceAasx then
+                exportSplitAasx store project path
+            else
+                exportToAasxFile store project path
+            true

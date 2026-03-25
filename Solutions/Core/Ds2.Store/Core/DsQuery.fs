@@ -107,6 +107,56 @@ module DsQuery =
         |> Option.map (fun flow -> flow.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Work 이름/참조 헬퍼
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Flow 내 원본 Work만 (ReferenceOf = None)
+    let originalWorksOf (flowId: Guid) (store: DsStore) : Work list =
+        worksOf flowId store |> List.filter (fun w -> w.ReferenceOf.IsNone)
+
+    /// Flow 내 LocalName 중복 검사 (excludeId: 자기 자신 제외)
+    let isLocalNameUniqueInFlow (flowId: Guid) (localName: string) (excludeId: Guid option) (store: DsStore) : bool =
+        worksOf flowId store
+        |> List.exists (fun w ->
+            w.LocalName = localName
+            && (match excludeId with Some id -> w.Id <> id | None -> true))
+        |> not
+
+    /// System 내 Flow 이름 중복 검사 (excludeId: 자기 자신 제외)
+    let isFlowNameUniqueInSystem (systemId: Guid) (name: string) (excludeId: Guid option) (store: DsStore) : bool =
+        flowsOf systemId store
+        |> List.exists (fun f ->
+            f.Name = name
+            && (match excludeId with Some id -> f.Id <> id | None -> true))
+        |> not
+
+    /// 자동 증가 이름: "Name" → "Name_1" → "Name_2"
+    let nextUniqueName (baseName: string) (existingNames: string list) : string =
+        if not (List.contains baseName existingNames) then baseName
+        else
+            let mutable i = 1
+            while List.contains $"{baseName}_{i}" existingNames do
+                i <- i + 1
+            $"{baseName}_{i}"
+
+    /// Reference Work이면 원본 ID, 아니면 자기 자신 ID 반환
+    let resolveOriginalWorkId (workId: Guid) (store: DsStore) : Guid =
+        getWork workId store
+        |> Option.bind (fun w -> w.ReferenceOf)
+        |> Option.defaultValue workId
+
+    /// Reference OR 그룹: 원본 Work + 해당 원본을 참조하는 모든 reference Work의 ID
+    let referenceGroupOf (workId: Guid) (store: DsStore) : Guid list =
+        let origId =
+            getWork workId store
+            |> Option.bind (fun w -> w.ReferenceOf)
+            |> Option.defaultValue workId
+        store.WorksReadOnly.Values
+        |> Seq.filter (fun w -> w.Id = origId || w.ReferenceOf = Some origId)
+        |> Seq.map (fun w -> w.Id)
+        |> Seq.toList
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Call 쿼리
     // ─────────────────────────────────────────────────────────────────────────
 

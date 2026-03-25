@@ -20,6 +20,9 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- 섹션 헤더: AAS 메타데이터 -->
@@ -85,8 +88,29 @@
                          Height="96"/>
             </StackPanel>
 
+            <!-- 구분선 -->
+            <Border Grid.Row="8" Height="1" Margin="0,4,0,12"
+                    Background="{DynamicResource BorderBrush}"/>
+
+            <!-- 섹션 헤더: AASX 설정 -->
+            <TextBlock Grid.Row="9" Text="AASX 설정"
+                       FontSize="13" FontWeight="SemiBold"
+                       Foreground="{DynamicResource PrimaryTextBrush}"
+                       Margin="0,0,0,10"/>
+
+            <!-- SplitDeviceAasx -->
+            <StackPanel Grid.Row="10" Margin="0,0,0,8">
+                <CheckBox x:Name="SplitDeviceAasxBox"
+                          Content="Device System을 별도 AASX 파일로 분리 저장"
+                          Foreground="{DynamicResource PrimaryTextBrush}"
+                          FontSize="12"/>
+                <TextBlock Text="저장 시 {파일명}_devices/ 폴더에 Device별 AASX를 생성합니다"
+                           FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="20,2,0,0" FontStyle="Italic"/>
+            </StackPanel>
+
             <!-- Buttons -->
-            <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right"
+            <StackPanel Grid.Row="11" Orientation="Horizontal" HorizontalAlignment="Right"
                         Margin="0,10,0,0">
                 <Button Content="확인" Style="{StaticResource DarkButton}"
                         Padding="12,4" Margin="0,0,4,0"

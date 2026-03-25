@@ -185,7 +185,7 @@ module LegacyJsonImport =
                         |> Seq.tryFind (fun f -> f.ParentId = system.Id)
                         |> Option.map (fun f -> f.Id)
                         |> Option.defaultValue Guid.Empty)
-                let work = Work("", defaultFlowId)
+                let work = Work("", "", defaultFlowId)
                 getGuid wElem "Guid" |> Option.iter (fun g -> work.Id <- g)
                 getStr wElem "Name" |> Option.iter (fun n -> work.Name <- n)
                 store.DirectWrite(store.Works, work)

@@ -53,7 +53,7 @@ module internal CsvMapper =
                 match works.TryGetValue(workKey) with
                 | true, existing -> existing
                 | false, _ ->
-                    let created = Work(entry.WorkName, flow.Id)
+                    let created = Work(flow.Name, entry.WorkName, flow.Id)
                     operations.Add(AddWork created)
                     works.[workKey] <- created
                     created

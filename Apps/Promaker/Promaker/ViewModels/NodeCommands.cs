@@ -175,6 +175,13 @@ public partial class MainViewModel
                 () => _store.RemoveEntities(new[] { Tuple.Create(node.EntityType, node.Id) }));
     }
 
+    [RelayCommand(CanExecute = nameof(HasProject))]
+    private void AddReferenceWork()
+    {
+        if (SelectedNode is not { EntityType: EntityKind.Work } node) return;
+        TryEditorAction(() => _store.AddReferenceWork(node.Id));
+    }
+
     [RelayCommand]
     private void RenameSelected(string newName)
     {
@@ -266,7 +273,7 @@ public partial class MainViewModel
 
     private void PasteFlowsWithRename((EntityKind EntityType, Guid EntityId) target)
     {
-        var pastedIds = new List<Guid>();
+        var pastedFlowIds = new List<Guid>();
         var targetSystemIdOpt = StoreHierarchyQueries.resolveTarget(
             _store, EntityKind.System, target.EntityType, target.EntityId);
 
@@ -286,10 +293,16 @@ public partial class MainViewModel
                 return;
 
             if (resultOpt != null)
-                pastedIds.Add(resultOpt.Value);
+                pastedFlowIds.Add(resultOpt.Value);
         }
 
-        ApplyPasteSelection(pastedIds, $"Pasted {pastedIds.Count} Flow(s).");
+        // Flow는 캔버스에 노드로 표시되지 않으므로, 자식 Work ID로 변환하여 선택
+        var workIds = pastedFlowIds
+            .SelectMany(fId => DsQuery.worksOf(fId, _store))
+            .Select(w => w.Id)
+            .ToList();
+
+        ApplyPasteSelection(workIds, $"Pasted {pastedFlowIds.Count} Flow(s).");
     }
 
     private (EntityKind EntityType, Guid EntityId)? ResolvePasteTarget()
@@ -456,6 +469,12 @@ public partial class MainViewModel
         }
 
         return new Xywh(x, y, basePos.W, basePos.H);
+    }
+
+    [RelayCommand(CanExecute = nameof(HasProject))]
+    private void ConnectSelectedNodes()
+    {
+        Selection.ConnectSelectedNodesInOrder(SelectedConnectArrowType);
     }
 
     [RelayCommand(CanExecute = nameof(HasProject))]

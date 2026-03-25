@@ -31,39 +31,9 @@ public partial class PropertyPanelState
         if (info is null || SelectedNode is null) return;
         var callId = SelectedNode.Id;
 
-        if (!_host.TryRef(
-                () => Store.GetCallApiCallsForPanel(info.DroppedCallId),
-                out var rows))
-            return;
-
-        if (rows.Length == 0)
-        {
-            _host.SetStatusText("드롭된 Call에 ApiCall이 없습니다.");
-            return;
-        }
-
-        IReadOnlyList<Guid> selectedIds;
-        if (rows.Length == 1)
-        {
-            selectedIds = [rows[0].ApiCallId];
-        }
-        else
-        {
-            var choices = rows
-                .Select(r => new ApiCallPickerDialog.Choice(r.ApiCallId, $"{r.ApiDefDisplayName} / {r.Name}"))
-                .ToList();
-            var picker = new ApiCallPickerDialog(choices);
-            if (picker.ShowDialog() != true || picker.SelectedApiCallIds.Count == 0)
-                return;
-            selectedIds = picker.SelectedApiCallIds;
-        }
-
-        if (!_host.TryAction(
-                () => Store.AddConditionWithApiCalls(callId, info.ConditionType, selectedIds)))
-            return;
-
-        RefreshCallPanel(callId);
-        _host.SetStatusText($"{selectedIds.Count} ApiCall(s) added to {info.ConditionType}.");
+        if (Controls.ConditionDropHelper.ExecuteConditionDrop(
+                Store, _host, callId, info.ConditionType, info.DroppedCallId))
+            RefreshCallPanel(callId);
     }
 
     [RelayCommand]
