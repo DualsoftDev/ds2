@@ -229,13 +229,9 @@
                                         ItemsSource="{Binding Conditions}"
                                         AddCommand="{Binding DataContext.AddConditionCommand, ElementName=PanelRoot}"
                                         RemoveConditionCommand="{Binding DataContext.RemoveCallConditionCommand, ElementName=PanelRoot}"
-                                        ToggleConditionIsOrCommand="{Binding DataContext.ToggleConditionIsORCommand, ElementName=PanelRoot}"
-                                        ToggleConditionIsRisingCommand="{Binding DataContext.ToggleConditionIsRisingCommand, ElementName=PanelRoot}"
-                                        AddConditionApiCallCommand="{Binding DataContext.AddConditionApiCallCommand, ElementName=PanelRoot}"
-                                        RemoveConditionApiCallCommand="{Binding DataContext.RemoveConditionApiCallCommand, ElementName=PanelRoot}"
-                                        EditConditionApiCallSpecCommand="{Binding DataContext.EditConditionApiCallSpecCommand, ElementName=PanelRoot}"
-                                        NavigateConditionApiCallCommand="{Binding DataContext.NavigateConditionApiCallCommand, ElementName=PanelRoot}"
-                                        AddChildConditionCommand="{Binding DataContext.AddChildConditionCommand, ElementName=PanelRoot}"
+                                        EditConditionsCommand="{Binding DataContext.EditConditionsCommand, ElementName=PanelRoot}"
+                                        EditConditionsParameter="{Binding}"
+                                        DropCallCommand="{Binding DataContext.DropCallToConditionSectionCommand, ElementName=PanelRoot}"
                                         AddCommandParameter="{Binding ConditionType}"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>

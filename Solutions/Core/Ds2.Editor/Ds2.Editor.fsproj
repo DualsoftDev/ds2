@@ -10,6 +10,7 @@
     <Compile Include="Core\EditorTypes.fs" />
     <Compile Include="Commands\UndoRedoManager.fs" />
     <Compile Include="Projection\ViewTypes.fs" />
+    <Compile Include="Projection\ConditionFormulaProjection.fs" />
     <Compile Include="Editor\StoreEditorState.fs" />
     <Compile Include="Editor\Authoring.fs" />
     <Compile Include="Geometry\ArrowPathCalculator.fs" />

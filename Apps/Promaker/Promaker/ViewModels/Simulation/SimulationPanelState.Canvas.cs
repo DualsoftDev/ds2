@@ -114,6 +114,8 @@ public partial class SimulationPanelState
     /// <summary>캔버스 노드가 새로 생성된 후 시뮬레이션 상태/토큰 뱃지를 복원합니다.</summary>
     internal void RestoreSimStateToCavas()
     {
+        ApplyWarningsToCanvas();
+
         if (_simEngine is null || !IsSimulating) return;
 
         foreach (var node in _allCanvasNodes())
@@ -126,6 +128,32 @@ public partial class SimulationPanelState
             if (tokenOpt is not null)
                 node.SimTokenDisplay = FormatTokenDisplay(tokenOpt.Value);
         }
+    }
+
+    private void ApplyWarningsToCanvas()
+    {
+        foreach (var node in _allCanvasNodes())
+            node.IsWarning = _warningGuids.Contains(node.Id);
+        foreach (var node in _allTreeNodes())
+            node.IsWarning = _warningGuids.Contains(node.Id);
+    }
+
+    /// <summary>노드 클릭 시 해당 노드의 경고를 해제합니다.</summary>
+    internal void ClearWarning(Guid nodeId)
+    {
+        if (!_warningGuids.Remove(nodeId)) return;
+        foreach (var node in _allCanvasNodes().Concat(_allTreeNodes()))
+        {
+            if (node.Id == nodeId)
+                node.IsWarning = false;
+        }
+    }
+
+    internal void ClearAllWarnings()
+    {
+        _warningGuids.Clear();
+        foreach (var node in _allCanvasNodes().Concat(_allTreeNodes()))
+            node.IsWarning = false;
     }
 
     private void SetCanvasSimState(Status4? state, Func<EntityNode, bool> predicate)

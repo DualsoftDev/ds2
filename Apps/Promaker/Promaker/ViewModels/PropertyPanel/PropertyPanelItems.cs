@@ -142,6 +142,7 @@ public sealed class CallConditionItem
         ConditionType = panel.ConditionType;
         IsOR          = panel.IsOR;
         IsRising      = panel.IsRising;
+        FormulaText   = panel.FormulaText();
         Items = panel.Items
             .Select(x => new ConditionApiCallRow(callId, panel.ConditionId, x))
             .ToList();
@@ -155,6 +156,7 @@ public sealed class CallConditionItem
     public CallConditionType ConditionType  { get; }
     public bool               IsOR          { get; }
     public bool               IsRising      { get; }
+    public string             FormulaText   { get; }
     public IReadOnlyList<ConditionApiCallRow> Items { get; }
     public IReadOnlyList<CallConditionItem> Children { get; }
 }
@@ -203,4 +205,10 @@ public sealed class ConditionSectionItem : ObservableObject
         CallConditionType.SkipUnmatch => "condition-skip-unmatch",
         _                             => "condition"
     };
+}
+
+public sealed class ConditionDropInfo(CallConditionType conditionType, Guid droppedCallId)
+{
+    public CallConditionType ConditionType { get; } = conditionType;
+    public Guid DroppedCallId { get; } = droppedCallId;
 }

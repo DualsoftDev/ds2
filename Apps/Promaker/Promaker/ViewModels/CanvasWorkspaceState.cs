@@ -28,18 +28,7 @@ public partial class CanvasWorkspaceState : ObservableObject
     public ObservableCollection<ArrowNode> CanvasArrows { get; } = [];
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ContextualQuickCreateLabel))]
-    [NotifyCanExecuteChangedFor(nameof(QuickAddFlowCommand))]
-    [NotifyCanExecuteChangedFor(nameof(QuickAddContextualNodeCommand))]
     private CanvasTab? _activeTab;
-
-    public string ContextualQuickCreateLabel =>
-        ActiveTab?.Kind switch
-        {
-            TabKind.Flow => "Work",
-            TabKind.Work => "Call",
-            _ => "Work / Call"
-        };
 
     /// <summary>모든 탭이 닫혔을 때 발생합니다.</summary>
     public event Action<CanvasWorkspaceState>? AllTabsClosed;
@@ -54,7 +43,6 @@ public partial class CanvasWorkspaceState : ObservableObject
         foreach (var t in OpenTabs)
             t.IsActive = t == value;
 
-        OnPropertyChanged(nameof(ContextualQuickCreateLabel));
         _host.Selection.ClearNodeSelection();
         _host.Selection.ClearArrowSelection();
         RefreshCanvasForActiveTab();
@@ -62,13 +50,6 @@ public partial class CanvasWorkspaceState : ObservableObject
             _suppressFitToView = false;
         else
             FitToViewZoomOutRequested?.Invoke();
-    }
-
-    public void NotifyQuickCreateStateChanged()
-    {
-        OnPropertyChanged(nameof(ContextualQuickCreateLabel));
-        QuickAddFlowCommand.NotifyCanExecuteChanged();
-        QuickAddContextualNodeCommand.NotifyCanExecuteChanged();
     }
 
     public void Reset()
@@ -81,6 +62,10 @@ public partial class CanvasWorkspaceState : ObservableObject
 
     public void OpenCanvasTab(Guid entityId, EntityKind entityType, bool expandTree = false)
     {
+        // System 캔버스는 열지 않음 — Flow/Work 캔버스만 지원
+        if (entityType == EntityKind.System)
+            return;
+
         if (!_host.TryRef(
                 () => EditorNavigation.TryOpenTabForEntityOrNull(Store, entityType, entityId),
                 out var info))
@@ -181,28 +166,6 @@ public partial class CanvasWorkspaceState : ObservableObject
             ActiveTab = OpenTabs.Count > 0 ? OpenTabs[0] : null;
 
         RefreshCanvasForActiveTab();
-    }
-
-    private bool CanQuickAddFlow() => _host.HasProject;
-
-    [RelayCommand(CanExecute = nameof(CanQuickAddFlow))]
-    private void QuickAddFlow() => _host.ExecuteAddFlow();
-
-    private bool CanQuickAddContextualNode() =>
-        _host.HasProject && ActiveTab?.Kind is TabKind.Flow or TabKind.Work;
-
-    [RelayCommand(CanExecute = nameof(CanQuickAddContextualNode))]
-    private void QuickAddContextualNode()
-    {
-        switch (ActiveTab?.Kind)
-        {
-            case TabKind.Flow:
-                _host.ExecuteAddWork();
-                break;
-            case TabKind.Work:
-                _host.ExecuteAddCall();
-                break;
-        }
     }
 
     public void RefreshCanvasForActiveTab()

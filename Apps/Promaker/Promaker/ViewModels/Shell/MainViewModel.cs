@@ -33,8 +33,6 @@ public partial class MainViewModel : ObservableObject
 
     // Services
     private readonly IDialogService _dialogService;
-    private readonly IFileService _fileService;
-    private readonly IProjectService _projectService;
 
     public MainViewModel()
     {
@@ -43,12 +41,13 @@ public partial class MainViewModel : ObservableObject
 
         // Initialize services
         _dialogService = new DialogService();
-        _fileService = new FileService();
-        _projectService = new ProjectService();
 
         Selection = new SelectionState(new SelectionHost(this));
         CanvasManager = new SplitCanvasManager(() => new CanvasWorkspaceState(new CanvasHost(this)));
-        Simulation = new SimulationPanelState(() => _store, _dispatcher, () => CanvasManager.AllPanes.SelectMany(p => p.CanvasNodes), value => StatusText = value);
+        Simulation = new SimulationPanelState(() => _store, _dispatcher,
+            () => CanvasManager.AllPanes.SelectMany(p => p.CanvasNodes),
+            () => FlattenTree(ControlTreeRoots).Concat(FlattenTree(DeviceTreeRoots)),
+            value => StatusText = value);
         PropertyPanel = new PropertyPanelState(new PropertyPanelHost(this));
         WireEvents();
         LanguageManager.ApplySavedLanguage();
@@ -147,11 +146,6 @@ public partial class MainViewModel : ObservableObject
     {
         PropertyPanel.SyncSelectedNode(value);
         Simulation.SyncCanvasSelection(Selection.OrderedNodeSelection);
-    }
-
-    partial void OnHasProjectChanged(bool value)
-    {
-        CanvasManager.NotifyQuickCreateStateChanged();
     }
 
     private void RefreshThemeState()
@@ -312,14 +306,12 @@ public partial class MainViewModel : ObservableObject
 
         public void ExpandNodeAndAncestors(Guid nodeId) => Owner.Selection.ExpandNodeAndAncestors(nodeId);
 
-        public void SelectNodeFromCanvas(EntityNode node, bool ctrlPressed, bool shiftPressed) =>
+        public void SelectNodeFromCanvas(EntityNode node, bool ctrlPressed, bool shiftPressed)
+        {
             Owner.Selection.SelectNodeFromCanvas(node, ctrlPressed, shiftPressed);
+            Owner.Simulation.ClearWarning(node.Id);
+        }
 
-        public void ExecuteAddFlow() => Owner.AddFlowCommand.Execute(null);
-
-        public void ExecuteAddWork() => Owner.AddWorkCommand.Execute(null);
-
-        public void ExecuteAddCall() => Owner.AddCallCommand.Execute(null);
     }
 
     public sealed class PropertyPanelHost : HostBase
@@ -462,6 +454,16 @@ public partial class MainViewModel : ObservableObject
         foreach (var child in info.Children)
             node.Children.Add(MapToEntityNode(child));
         return node;
+    }
+
+    private static IEnumerable<EntityNode> FlattenTree(IEnumerable<EntityNode> roots)
+    {
+        foreach (var node in roots)
+        {
+            yield return node;
+            foreach (var child in FlattenTree(node.Children))
+                yield return child;
+        }
     }
 }
 

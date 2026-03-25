@@ -146,7 +146,7 @@ public partial class ExplorerPane : UserControl
 
         if (node.EntityType == EntityKind.Call)
             ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType, zoomOverride: 1.0);
-        else if (node.EntityType is EntityKind.System or EntityKind.Flow or EntityKind.Work)
+        else if (node.EntityType is EntityKind.Flow or EntityKind.Work)
         {
             ViewModel.Canvas.OpenCanvasTab(node.Id, node.EntityType);
             Dispatcher.InvokeAsync(

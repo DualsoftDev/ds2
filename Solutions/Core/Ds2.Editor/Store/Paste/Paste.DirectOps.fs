@@ -60,6 +60,7 @@ module internal DirectPasteOps =
         : Work * Map<Guid, Guid> * PasteDeviceOps.DevicePasteState =
         let pastedWork = Work(sourceWork.Name, targetFlowId)
         pastedWork.Properties <- sourceWork.Properties.DeepCopy()
+        pastedWork.TokenRole <- sourceWork.TokenRole
         pastedWork.Position <- offsetPosition baseIndex index sourceWork.Position
         store.TrackAdd(store.Works, pastedWork)
         let isDifferentFlow = sourceWork.ParentId <> targetFlowId

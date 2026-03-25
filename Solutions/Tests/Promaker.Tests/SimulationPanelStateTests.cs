@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Reflection;
 using System.Windows.Threading;
 using Ds2.Core;
@@ -159,6 +160,7 @@ public sealed class SimulationPanelStateTests
             () => new DsStore(),
             Dispatcher.CurrentDispatcher,
             () => new ObservableCollection<EntityNode>(),
+            Enumerable.Empty<EntityNode>,
             _ => { });
 
     private static object GetPrivateField(object instance, string fieldName)

@@ -28,6 +28,19 @@ module PasteTests =
         Assert.Equal(2, DsQuery.worksOf flow.Id store |> List.length)
 
     [<Fact>]
+    let ``PasteEntities copies Work TokenRole and Properties`` () =
+        let store = createStore ()
+        let _, _, flow, work = setupBasicHierarchy store
+        work.TokenRole <- TokenRole.Source
+        work.Properties.Period <- Some (TimeSpan.FromSeconds 5.0)
+        work.Properties.NumRepeat <- 3
+        let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id, 0)
+        let pastedWork = DsQuery.getWork pastedIds.Head store |> Option.get
+        Assert.Equal(TokenRole.Source, pastedWork.TokenRole)
+        Assert.Equal(Some (TimeSpan.FromSeconds 5.0), pastedWork.Properties.Period)
+        Assert.Equal(3, pastedWork.Properties.NumRepeat)
+
+    [<Fact>]
     let ``PasteEntities copies call with multiple device ApiCalls across flows`` () =
         let store = createStore ()
         let project, system, _, work = setupBasicHierarchy store
@@ -56,6 +69,34 @@ module PasteTests =
         let passiveSystems = DsQuery.passiveSystemsOf project.Id store
         // 원본 3 + 복사본 3 = 6 Device Systems
         Assert.True(passiveSystems.Length >= 6)
+
+    [<Fact>]
+    let ``PasteEntities copies device Work duration across flows`` () =
+        let store = createStore ()
+        let _, system, _, work = setupBasicHierarchy store
+        let callId = store.AddCallWithMultipleDevicesResolved(
+                        EntityKind.Work, work.Id, work.Id,
+                        "Conv", "ADV", [ "Conv_1" ])
+        let originalCall = store.Calls.[callId]
+        // 원본 Device System의 Work에 Period 설정
+        let srcApiCall = originalCall.ApiCalls.[0]
+        let srcApiDef = DsQuery.getApiDef (srcApiCall.ApiDefId.Value) store |> Option.get
+        let srcWork = DsQuery.getWork (srcApiDef.Properties.TxGuid.Value) store |> Option.get
+        srcWork.Properties.Period <- Some (TimeSpan.FromSeconds 3.5)
+        // 다른 Flow 생성 후 Cross-flow paste
+        let flow2Id = store.AddFlow("Flow2", system.Id)
+        let work2Id = store.AddWork("Work2", flow2Id)
+        let pastedIds = store.PasteEntities(EntityKind.Call, [ callId ], EntityKind.Work, work2Id, 0)
+        let pastedCall = store.Calls.[pastedIds.Head]
+        let pastedApiDef = DsQuery.getApiDef (pastedCall.ApiCalls.[0].ApiDefId.Value) store |> Option.get
+        // TxGuid, RxGuid 모두 설정되어야 함
+        Assert.True(pastedApiDef.Properties.TxGuid.IsSome)
+        Assert.True(pastedApiDef.Properties.RxGuid.IsSome)
+        let pastedWork = DsQuery.getWork (pastedApiDef.Properties.RxGuid.Value) store |> Option.get
+        Assert.Equal(Some (TimeSpan.FromSeconds 3.5), pastedWork.Properties.Period)
+        // tryGetDeviceDurationMs 경로 검증 (시뮬레이션에서 사용하는 경로)
+        let deviceDuration = DsQuery.tryGetDeviceDurationMs work2Id store
+        Assert.Equal(Some 3500, deviceDuration)
 
     [<Fact>]
     let ``ValidateCopySelection returns Ok for single copyable entity`` () =

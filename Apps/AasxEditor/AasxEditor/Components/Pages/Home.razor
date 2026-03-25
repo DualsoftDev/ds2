@@ -1,0 +1,395 @@
+@page "/"
+@using AasxEditor.Models
+@using AasxEditor.Services
+@rendermode InteractiveServer
+
+<PageTitle>AASX JSON Editor</PageTitle>
+
+<div class="toolbar">
+    <div class="toolbar-group">
+        <label id="input-file-open" class="btn btn-primary btn-file">
+            새로 열기
+            <InputFile OnChange="OnFileOpen" accept=".aasx" multiple style="display:none" />
+        </label>
+        <label id="input-file-add" class="btn btn-outline-primary btn-file">
+            추가
+            <InputFile OnChange="OnFileAdd" accept=".aasx" multiple style="display:none" />
+        </label>
+        <button class="btn btn-success" @onclick="OnSaveAasx" disabled="@(!HasContent)">
+            저장
+        </button>
+        <button class="btn btn-outline-success" @onclick="OnSaveAsAasx" disabled="@(!HasContent)">
+            다른이름저장
+        </button>
+        <button class="btn btn-outline-secondary" @onclick="OnFormat" disabled="@(!HasContent || _centerTab != "code")">
+            정렬
+        </button>
+        <button class="btn btn-outline-warning" @onclick="OnValidate" disabled="@(!HasContent)">
+            검증
+        </button>
+        <span class="toolbar-sep"></span>
+        <input class="search-input" type="text" placeholder="검색 (idShort, value, semanticId...)"
+               @bind="_searchText" @bind:event="oninput" @onkeydown="OnSearchKeyDown" />
+        <button class="btn btn-outline-info" @onclick="OnSearch">검색</button>
+        @if (_searchResults.Count > 0)
+        {
+            <button class="btn btn-outline-secondary btn-sm" @onclick="ClearSearch">초기화</button>
+        }
+    </div>
+    <div class="toolbar-status">
+        @if (!string.IsNullOrEmpty(_statusMessage))
+        {
+            <span class="status @_statusClass">@_statusMessage</span>
+        }
+        @if (_loadedFiles.Count > 0)
+        {
+            <span class="filename">@(_loadedFiles.Count)개 파일 로드됨</span>
+        }
+    </div>
+</div>
+
+@* === 드래그앤드롭 오버레이 (JS에서 제어) === *@
+@if (_isDragOver)
+{
+    <div class="drop-zone drag-over">
+        <div class="drop-zone-text">AASX 파일을 여기에 놓으세요</div>
+    </div>
+}
+
+@* === 검색 결과 패널 === *@
+@if (_searchResults.Count > 0)
+{
+    <div class="search-results-bar">
+        <div class="search-results-header">
+            <span>검색 결과: @(_searchResults.Count)건</span>
+            <button class="btn btn-sm btn-outline-warning" @onclick="OpenBatchEdit">일괄 편집</button>
+        </div>
+        <div class="search-results-list">
+            @foreach (var r in _searchResults.Take(100))
+            {
+                <div class="search-result-item" @onclick="() => OnSearchResultClick(r)">
+                    <span class="search-result-type">@r.EntityType</span>
+                    <span class="search-result-id">@r.IdShort</span>
+                    @if (r.Value is not null)
+                    {
+                        <span class="search-result-val">= @TruncateValue(r.Value, 30)</span>
+                    }
+                    <span class="search-result-file">@GetFileName(r.FileId)</span>
+                </div>
+            }
+            @if (_searchResults.Count > 100)
+            {
+                <div class="search-result-item" style="color:#666">... +@(_searchResults.Count - 100)건 더</div>
+            }
+        </div>
+    </div>
+}
+
+<div class="three-panel">
+    @* === Left: AAS Tree === *@
+    <div class="panel panel-tree" id="panel-tree">
+        <div class="panel-header">
+            AAS Structure
+            @if (_loadedFiles.Count > 1)
+            {
+                <select class="file-select" @bind="_selectedFileId">
+                    <option value="0">전체</option>
+                    @foreach (var f in _loadedFiles)
+                    {
+                        <option value="@f.Id">@f.FileName</option>
+                    }
+                </select>
+            }
+        </div>
+        <div class="panel-body tree-scroll">
+            @if (_treeNodes.Count == 0)
+            {
+                <div class="panel-empty">AASX 파일을 열어주세요</div>
+            }
+            else
+            {
+                @foreach (var node in _treeNodes)
+                {
+                    @RenderTreeNode(node, 0)
+                }
+            }
+        </div>
+    </div>
+
+    <div class="resize-handle" id="resize-left"></div>
+
+    @* === Center: Tabs (Explorer / Code) === *@
+    <div class="panel panel-editor">
+        <div class="panel-header tab-header">
+            <button class="tab-btn @(_centerTab == "explorer" ? "active" : "")" @onclick='() => SwitchTab("explorer")'>Explorer</button>
+            <button class="tab-btn @(_centerTab == "code" ? "active" : "")" @onclick='() => SwitchTab("code")'>Code</button>
+        </div>
+        <div class="panel-body" style="position:relative">
+            <div id="monaco-editor" style="@(_centerTab == "code" ? "width:100%;height:100%" : "display:none")"></div>
+            @if (_centerTab == "explorer")
+            {
+                <div class="explorer-view">
+                    @if (_treeNodes.Count == 0)
+                    {
+                        <div class="panel-empty">AASX 파일을 열어주세요</div>
+                    }
+                    else
+                    {
+                        @* Breadcrumb *@
+                        <div class="explorer-breadcrumb">
+                            <span class="breadcrumb-item @(_explorerPath.Count == 0 ? "active" : "clickable")" @onclick="ExplorerGoRoot">Root</span>
+                            @for (var i = 0; i < _explorerPath.Count; i++)
+                            {
+                                var idx = i;
+                                <span class="breadcrumb-sep">/</span>
+                                <span class="breadcrumb-item @(i < _explorerPath.Count - 1 ? "clickable" : "active")"
+                                      @onclick="() => ExplorerGoTo(idx)">@_explorerPath[idx].Label</span>
+                            }
+                        </div>
+
+                        @if (ExplorerNodes.Count > 0)
+                        {
+                            <div class="explorer-grid">
+                                @foreach (var child in ExplorerNodes)
+                                {
+                                    var isLeaf = child.Children.Count == 0;
+                                    var css = IconClass(child);
+                                    <div class="explorer-box @(isLeaf ? "leaf" : "") box-@css @(_selectedNode == child ? "selected" : "")"
+                                         @onclick="() => ExplorerDrillDown(child)">
+                                        <div class="explorer-box-header">
+                                            <span class="node-icon icon-@css">@child.Icon</span>
+                                            <span class="explorer-box-label">@child.Label</span>
+                                        </div>
+                                        @if (!isLeaf)
+                                        {
+                                            var maxChips = _explorerPath.Count == 0 ? 8 : 6;
+                                            <div class="explorer-box-children">
+                                                @foreach (var gc in child.Children.Take(maxChips))
+                                                {
+                                                    <div class="explorer-child-chip">
+                                                        <span class="node-icon icon-@(IconClass(gc))" style="width:14px;height:12px;font-size:7px">@gc.Icon</span>
+                                                        @TruncateValue(gc.Label, _explorerPath.Count == 0 ? 18 : 14)
+                                                    </div>
+                                                }
+                                                @if (child.Children.Count > maxChips)
+                                                {
+                                                    <div class="explorer-child-chip more">+@(child.Children.Count - maxChips)</div>
+                                                }
+                                            </div>
+                                        }
+                                        else if (child.Properties.GetValueOrDefault("value") is { } leafVal)
+                                        {
+                                            <div class="explorer-box-value">@TruncateValue(leafVal, 40)</div>
+                                        }
+                                        <div class="explorer-box-type">@child.NodeType</div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else if (_explorerPath.Count > 0)
+                        {
+                            @* Leaf detail *@
+                            <div class="explorer-detail">
+                                <div class="props-section">
+                                    <div class="props-title">
+                                        <span class="node-icon icon-@(IconClass(_explorerPath[^1]))">@_explorerPath[^1].Icon</span>
+                                        @_explorerPath[^1].Label
+                                    </div>
+                                    <div class="props-type">@_explorerPath[^1].NodeType</div>
+                                </div>
+                                <table class="props-table" style="margin:12px">
+                                    @foreach (var kv in _explorerPath[^1].Properties.Where(p => p.Value is not null))
+                                    {
+                                        <tr>
+                                            <td class="props-key">@kv.Key</td>
+                                            <td class="props-val">@kv.Value</td>
+                                        </tr>
+                                    }
+                                </table>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="resize-handle" id="resize-right"></div>
+
+    @* === Right: Editable Properties === *@
+    <div class="panel panel-props" id="panel-props">
+        <div class="panel-header">Properties</div>
+        <div class="panel-body">
+            @if (_selectedNode is null)
+            {
+                <div class="panel-empty">트리 또는 익스플로러에서 노드를 선택하세요</div>
+            }
+            else
+            {
+                <div class="props-section">
+                    <div class="props-title">
+                        <span class="node-icon icon-@(IconClass(_selectedNode))">@_selectedNode.Icon</span>
+                        @_selectedNode.Label
+                    </div>
+                    <div class="props-type">@_selectedNode.NodeType</div>
+                </div>
+                <div class="props-section">
+                    @foreach (var kv in _selectedNode.Properties.Where(p => p.Value is not null))
+                    {
+                        <div class="form-field">
+                            <label class="form-label">@kv.Key</label>
+                            <input class="form-input" value="@kv.Value"
+                                   @onchange="(e) => OnPropFieldChanged(kv.Key, e.Value?.ToString())" />
+                        </div>
+                    }
+                </div>
+                @if (_propsDirty)
+                {
+                    <div class="props-section">
+                        <button class="btn btn-sm btn-primary" @onclick="OnApplyPropChanges">
+                            JSON에 반영
+                        </button>
+                        <span class="form-hint">변경사항을 JSON에 반영합니다</span>
+                    </div>
+                }
+                @if (_selectedNode.Children.Count > 0)
+                {
+                    <div class="props-section">
+                        <div class="props-children-label">Children (@_selectedNode.Children.Count)</div>
+                        @foreach (var child in _selectedNode.Children.Take(20))
+                        {
+                            <div class="props-child-item clickable" @onclick="() => SelectNode(child)">
+                                <span class="node-icon icon-@(IconClass(child))" style="width:16px;height:14px;font-size:8px">@child.Icon</span>
+                                @child.Label
+                            </div>
+                        }
+                        @if (_selectedNode.Children.Count > 20)
+                        {
+                            <div class="props-child-item" style="color:#666">... +@(_selectedNode.Children.Count - 20) more</div>
+                        }
+                    </div>
+                }
+                <div class="props-section">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="OnGoToJson">
+                        JSON에서 보기
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@* === 모달들 (DOM 최하단 배치 — three-panel 위에 렌더링) === *@
+@if (_showDropChoice)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog">
+            <div class="modal-title">파일 열기 방식 선택</div>
+            <div class="modal-body">
+                <p style="margin:0 0 8px;color:#aaa;font-size:13px">@(string.Join(", ", _pendingDropFileNames)) 파일을 어떻게 여시겠습니까?</p>
+            </div>
+            <div class="modal-actions" style="justify-content:center;gap:16px">
+                <button class="btn btn-primary" @onclick="OnDropChoiceOpen">새로 열기</button>
+                <button class="btn btn-outline-primary" @onclick="OnDropChoiceAdd">추가</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showDropChoice = false">취소</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showSaveAs)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="width:400px">
+            <div class="modal-title">다른 이름으로 저장</div>
+            <div class="modal-body">
+                <label class="modal-input-label">파일 이름</label>
+                <input class="modal-input" type="text" @bind="_saveAsName" @bind:event="oninput"
+                       placeholder="파일이름.aasx" />
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary btn-sm" @onclick="OnSaveAsConfirm">저장</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showSaveAs = false">취소</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showBatchEdit)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog">
+            <div class="modal-title">일괄 편집 (@(_searchResults.Count)건)</div>
+            <div class="modal-body">
+                <div class="modal-preview-label">변경 대상 (기존 값)</div>
+                <div class="modal-preview">
+                    @foreach (var r in _searchResults.Where(r => r.Value is not null).DistinctBy(r => r.Value).Take(10))
+                    {
+                        <div class="modal-preview-row">
+                            <span class="modal-chip-type">@r.EntityType</span>
+                            <span class="modal-chip-id">@r.IdShort</span>
+                            <span class="modal-chip-val">@r.Value</span>
+                        </div>
+                    }
+                </div>
+                <label class="modal-input-label">새 값</label>
+                <input class="modal-input" type="text" placeholder="변경할 값 입력..."
+                       @bind="_batchNewValue" @bind:event="oninput" />
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary btn-sm" @onclick="OnBatchApply">적용</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CloseBatchEdit">취소</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // RenderTreeNode은 마크업 내에서 __builder를 사용하므로 .razor에 있어야 함
+    private RenderFragment RenderTreeNode(AasTreeNode node, int depth) => __builder =>
+    {
+        var isSelected = _selectedNode == node;
+        var hasChildren = node.Children.Count > 0;
+        var css = IconClass(node);
+
+        <div class="tree-item @(isSelected ? "selected" : "")"
+             style="padding-left: @(12 + depth * 16)px"
+             @onclick="() => SelectNode(node)"
+             @onclick:stopPropagation="true"
+             @ondblclick="() => OnNodeDblClick(node)"
+             @ondblclick:stopPropagation="true">
+
+            @if (hasChildren)
+            {
+                <span class="tree-toggle @(node.IsExpanded ? "expanded" : "")"
+                      @onclick="() => ToggleNode(node)"
+                      @onclick:stopPropagation="true">
+                </span>
+            }
+            else
+            {
+                <span class="tree-toggle-placeholder"></span>
+            }
+
+            <span class="node-icon icon-@css">@node.Icon</span>
+            <span class="tree-label">@node.Label</span>
+
+            @if (node.NodeType is "Property" or "MLP" or "Range")
+            {
+                var val = node.Properties.GetValueOrDefault("value");
+                if (val is not null)
+                {
+                    <span class="tree-value">= @TruncateValue(val, 20)</span>
+                }
+            }
+        </div>
+
+        @if (hasChildren && node.IsExpanded)
+        {
+            @foreach (var child in node.Children)
+            {
+                @RenderTreeNode(child, depth + 1)
+            }
+        }
+    };
+}

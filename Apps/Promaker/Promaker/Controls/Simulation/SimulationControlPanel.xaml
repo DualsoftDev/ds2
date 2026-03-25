@@ -44,7 +44,7 @@
                         ToolTip="Start">
                     <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                         <Path Width="18" Height="18" Stretch="Fill" Data="M 4,2 L 16,9 L 4,16 Z" Fill="{DynamicResource IconGreenBrush}"/>
-                        <TextBlock Text="Start" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                        <TextBlock Text="PLAY" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                     </StackPanel>
                 </Button>
                 <Button Style="{StaticResource SlimToolbarButton}"
@@ -55,7 +55,7 @@
                             <Rectangle Canvas.Left="4" Canvas.Top="2.5" Width="3.8" Height="13" Fill="{DynamicResource IconGrayBrush}" RadiusX="1" RadiusY="1"/>
                             <Rectangle Canvas.Left="10.2" Canvas.Top="2.5" Width="3.8" Height="13" Fill="{DynamicResource IconGrayBrush}" RadiusX="1" RadiusY="1"/>
                         </Canvas>
-                        <TextBlock Text="Pause" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                        <TextBlock Text="PAUSE" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                     </StackPanel>
                 </Button>
                 <Button Style="{StaticResource SlimToolbarButton}"
@@ -63,7 +63,7 @@
                         ToolTip="Stop">
                     <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                         <Rectangle Width="12" Height="12" RadiusX="2" RadiusY="2" Fill="{DynamicResource IconRedBrush}"/>
-                        <TextBlock Text="Stop" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                        <TextBlock Text="STOP" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                     </StackPanel>
                 </Button>
                 <Button Style="{StaticResource SlimToolbarButton}"
@@ -74,7 +74,7 @@
                             <Path Data="M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12H4A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z"
                                   Fill="{DynamicResource IconOrangeBrush}"/>
                         </Canvas>
-                        <TextBlock Text="Reset" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                        <TextBlock Text="REVERT" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                     </StackPanel>
                 </Button>
             </UniformGrid>
@@ -142,7 +142,7 @@
                         ToolTip="Execute Work">
                     <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                         <Path Width="18" Height="18" Stretch="Fill" Data="M 4,2 L 16,9 L 4,16 Z" Fill="{DynamicResource IconGreenBrush}"/>
-                        <TextBlock Text="Execute" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                        <TextBlock Text="START" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                     </StackPanel>
                 </Button>
                 <Button Style="{StaticResource SlimToolbarButton}"
@@ -153,7 +153,7 @@
                             <Path Data="M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12H4A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z"
                                   Fill="{DynamicResource IconOrangeBrush}"/>
                         </Canvas>
-                        <TextBlock Text="Work Reset" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                        <TextBlock Text="RESET" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                     </StackPanel>
                 </Button>
             </UniformGrid>

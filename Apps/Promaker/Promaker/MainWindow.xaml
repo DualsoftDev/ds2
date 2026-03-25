@@ -8,7 +8,10 @@
         MinWidth="880" MinHeight="600"
         Icon="/Promaker;component/Assets/Promaker.ico"
         WindowStartupLocation="CenterScreen"
-        Closing="Window_Closing">
+        Closing="Window_Closing"
+        AllowDrop="True"
+        DragOver="Window_DragOver"
+        Drop="Window_Drop">
 
     <Window.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>

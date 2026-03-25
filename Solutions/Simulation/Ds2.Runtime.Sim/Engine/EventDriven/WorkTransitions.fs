@@ -64,11 +64,6 @@ module internal WorkTransitions =
             ctx.StateManager.MarkMinDurationMet(workGuid) // duration 없으면 즉시 met
 
     let triggerImmediateResets (ctx: Context) (workGuid: Guid) =
-        let tryFindWorkKey () =
-            match Map.tryFind workGuid ctx.Index.WorkSystemName, Map.tryFind workGuid ctx.Index.WorkName with
-            | Some systemName, Some workName -> Some (systemName, workName)
-            | _ -> None
-
         let shouldTriggerImmediateReset targetGuid =
             let targetHasToken =
                 SimState.getWorkToken targetGuid (ctx.StateManager.GetState()) |> Option.isSome
@@ -79,25 +74,18 @@ module internal WorkTransitions =
                | Some (_, _, resetPreds) -> resetPreds |> List.contains workGuid
                | None -> false
 
-        let queueImmediateReset resetPredKey targetGuid =
-            match WorkConditionChecker.collectResetPreds ctx.Index targetGuid, Map.tryFind targetGuid ctx.Index.WorkSystemName with
-            | Some (_, targetName, _), Some targetSystem ->
-                let targetKey = (targetSystem, targetName)
-                if not (ctx.StateManager.IsResetTriggered(resetPredKey, targetKey)) then
-                    ctx.StateManager.AddResetTrigger(resetPredKey, targetKey)
-                    ctx.StateManager.MarkWorkPending(targetGuid)
-                    ctx.Scheduler.ScheduleNow(
-                        ScheduledEventType.WorkTransition(targetGuid, Status4.Homing),
-                        ScheduledEvent.PriorityStateChange)
-                    |> ignore
-            | _ -> ()
+        let queueImmediateReset targetGuid =
+            if not (ctx.StateManager.IsResetTriggered(workGuid, targetGuid)) then
+                ctx.StateManager.AddResetTrigger(workGuid, targetGuid)
+                ctx.StateManager.MarkWorkPending(targetGuid)
+                ctx.Scheduler.ScheduleNow(
+                    ScheduledEventType.WorkTransition(targetGuid, Status4.Homing),
+                    ScheduledEvent.PriorityStateChange)
+                |> ignore
 
-        match tryFindWorkKey () with
-        | Some resetPredKey ->
-            for targetGuid in ctx.Index.AllWorkGuids do
-                if shouldTriggerImmediateReset targetGuid then
-                    queueImmediateReset resetPredKey targetGuid
-        | None -> ()
+        for targetGuid in ctx.Index.AllWorkGuids do
+            if shouldTriggerImmediateReset targetGuid then
+                queueImmediateReset targetGuid
 
     let emitWorkStateChanged (ctx: Context) workGuid (result: TransitionResult) =
         let clock = TimeSpan.FromMilliseconds(float ctx.Scheduler.CurrentTimeMs)
