@@ -7,24 +7,25 @@ open Ds2.Runtime.Sim.Model
 /// Work/Call 상태 전이 조건 검사 모듈 (순수 함수)
 module WorkConditionChecker =
 
+    /// ReferenceOf 기반 OR 그룹에서 같은 그룹의 Work ID 목록을 반환
+    let private orGroupGuidsOf (index: SimIndex) (workGuid: Guid) : Guid list =
+        // ReferenceGroups에서 이 Work가 속한 그룹 찾기
+        index.WorkReferenceGroups
+        |> Map.tryPick (fun _ guids ->
+            if List.contains workGuid guids then Some guids else None)
+        |> Option.defaultValue [ workGuid ]
+
     /// Predecessor 조건 검사 공통 함수
     let private checkPredecessorCondition
         (index: SimIndex) (state: SimState) (predecessorGuids: Guid list)
-        (targetState: Status4) (combiner: ((string * string) -> bool) -> (string * string) list -> bool) : bool =
+        (targetState: Status4) (combiner: (Guid -> bool) -> Guid list -> bool) : bool =
         if predecessorGuids.IsEmpty then false
         else
-            let predecessorKeys =
-                predecessorGuids
-                |> List.choose (fun predGuid ->
-                    match Map.tryFind predGuid index.WorkSystemName, Map.tryFind predGuid index.WorkName with
-                    | Some sysName, Some wName -> Some (sysName, wName)
-                    | _ -> None)
-                |> List.distinct
-            predecessorKeys |> combiner (fun key ->
-                index.WorkGuidsByKey
-                |> Map.tryFind key
-                |> Option.defaultValue []
-                |> List.exists (fun wg -> Map.tryFind wg state.WorkStates = Some targetState))
+            // 중복 제거: 같은 OR 그룹이면 하나만 확인
+            let distinctPreds = predecessorGuids |> List.distinct
+            distinctPreds |> combiner (fun predGuid ->
+                let orGuids = orGroupGuidsOf index predGuid
+                orGuids |> List.exists (fun wg -> Map.tryFind wg state.WorkStates = Some targetState))
 
    /// 토큰 경로에 있는 Work는 슬롯에 토큰이 있어야 시작 가능
     let tokenReady (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
@@ -52,16 +53,13 @@ module WorkConditionChecker =
     let canStartWorkPredOnly (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
         predecessorSatisfied index state workGuid
 
-    /// 같은 (SystemName, WorkName) 키를 공유하는 모든 Work의 ResetPreds 수집
+    /// 같은 OR 그룹(ReferenceOf 기반)을 공유하는 모든 Work의 ResetPreds 수집
     let collectResetPreds (index: SimIndex) (workGuid: Guid) : (string * string * Guid list) option =
         match Map.tryFind workGuid index.WorkSystemName, Map.tryFind workGuid index.WorkName with
         | Some sysName, Some wName ->
-            let sameKeyGuids =
-                index.WorkGuidsByKey
-                |> Map.tryFind (sysName, wName)
-                |> Option.defaultValue []
+            let orGuids = orGroupGuidsOf index workGuid
             let preds =
-                sameKeyGuids
+                orGuids
                 |> List.collect (fun wg -> SimIndex.findOrEmpty wg index.WorkResetPreds)
                 |> List.distinct
             if preds.IsEmpty then None

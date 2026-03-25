@@ -17,7 +17,7 @@ public partial class MainViewModel
         // Source Work 목록 수집 (TokenRole에 Source 플래그가 포함된 Work)
         var sourceWorks = _store.Works.Values
             .Where(w => w.TokenRole.HasFlag(TokenRole.Source))
-            .Select(w => new WorkOption(w.Id, w.Name))
+            .Select(w => new WorkOption(w.Id, w.ReferenceOf != null ? $"{w.Name} #" : w.Name))
             .ToList();
 
         var dialog = new TokenSpecDialog(specs, sourceWorks);

@@ -100,7 +100,7 @@ module internal ImportPlanDeviceOps =
                 DsQuery.worksOf flow.Id store
                 |> List.tryFind (fun existing -> existing.Name = apiName)
                 |> Option.defaultWith (fun () ->
-                    let created = Work(apiName, flow.Id)
+                    let created = Work(flow.Name, apiName, flow.Id)
                     queueOperation (AddWork created) operations
                     created)
             let current = Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []

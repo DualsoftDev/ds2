@@ -2,7 +2,9 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:conv="clr-namespace:Promaker.Presentation"
-             xmlns:vm="clr-namespace:Promaker.ViewModels">
+             xmlns:vm="clr-namespace:Promaker.ViewModels"
+             UseLayoutRounding="True"
+             SnapsToDevicePixels="True">
     <UserControl.Resources>
         <conv:EntityTypeToBrushConverter x:Key="TypeToBrush"/>
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
@@ -18,11 +20,18 @@
           MouseDown="OnMouseDown"
           MouseMove="OnMouseMove"
           MouseUp="OnMouseUp"
-          ContextMenuOpening="OnContextMenuOpening">
+          ContextMenuOpening="OnContextMenuOpening"
+          AllowDrop="True"
+          DragEnter="OnConditionDragEnter"
+          DragOver="OnConditionDragOver"
+          DragLeave="OnConditionDragLeave"
+          Drop="OnConditionDrop">
         <Grid.ContextMenu>
             <ContextMenu x:Name="CanvasContextMenu">
                 <MenuItem x:Name="AddWorkMenuItem" Header="Work 추가" Click="AddWork_Click"/>
                 <MenuItem x:Name="AddCallMenuItem" Header="Call 추가" Click="AddCall_Click"/>
+                <MenuItem x:Name="AddRefWorkMenuItem" Header="레퍼런스 노드 만들기"
+                          Command="{Binding AddReferenceWorkCommand}"/>
                 <Separator/>
                 <MenuItem Header="화살표 연결" Click="StartConnect_Click"/>
                 <Separator/>
@@ -40,12 +49,6 @@
                     BorderBrush="{DynamicResource AccentBrush}"
                     BorderThickness="2"
                     CornerRadius="2">
-                <Border.Effect>
-                    <DropShadowEffect BlurRadius="10"
-                                      ShadowDepth="0"
-                                      Opacity="0.35"
-                                      Color="{DynamicResource AccentColor}"/>
-                </Border.Effect>
                 <Border.RenderTransform>
                     <TransformGroup>
                         <ScaleTransform x:Name="ZoomTransform" ScaleX="1" ScaleY="1"/>
@@ -280,6 +283,18 @@
                                             <Setter.Value>
                                                 <DropShadowEffect BlurRadius="16" ShadowDepth="0" Opacity="0.7"
                                                                   Color="Red"/>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </DataTrigger>
+                                    <!-- Drop target highlight (condition drag) -->
+                                    <DataTrigger Binding="{Binding IsDropTarget}" Value="True">
+                                        <Setter TargetName="NodeBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                        <Setter TargetName="NodeBorder" Property="BorderThickness" Value="3"/>
+                                        <Setter TargetName="NodeBorder" Property="Margin" Value="-2"/>
+                                        <Setter TargetName="NodeBorder" Property="Effect">
+                                            <Setter.Value>
+                                                <DropShadowEffect BlurRadius="20" ShadowDepth="0" Opacity="0.8"
+                                                                  Color="{DynamicResource AccentColor}"/>
                                             </Setter.Value>
                                         </Setter>
                                     </DataTrigger>

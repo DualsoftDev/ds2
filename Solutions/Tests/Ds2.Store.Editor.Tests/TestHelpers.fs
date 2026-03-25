@@ -18,8 +18,8 @@ let addFlow (store: DsStore) name systemId =
     let id = store.AddFlow(name, systemId)
     store.Flows.[id]
 
-let addWork (store: DsStore) name flowId =
-    let id = store.AddWork(name, flowId)
+let addWork (store: DsStore) localName flowId =
+    let id = store.AddWork(localName, flowId)
     store.Works.[id]
 
 let addApiDef (store: DsStore) name systemId =

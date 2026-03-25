@@ -58,7 +58,10 @@ module internal DirectPasteOps =
         (store: DsStore) (sourceWork: Work) (targetFlowId: Guid)
         (deviceState: PasteDeviceOps.DevicePasteState) (deviceFlowCtxOpt: PasteDeviceOps.DeviceFlowCtx option) (baseIndex: int) (index: int)
         : Work * Map<Guid, Guid> * PasteDeviceOps.DevicePasteState =
-        let pastedWork = Work(sourceWork.Name, targetFlowId)
+        let targetFlow = DsQuery.getFlow targetFlowId store |> Option.get
+        let existingLocalNames = DsQuery.worksOf targetFlowId store |> List.map (fun w -> w.LocalName)
+        let newLocalName = DsQuery.nextUniqueName sourceWork.LocalName existingLocalNames
+        let pastedWork = Work(targetFlow.Name, newLocalName, targetFlowId)
         pastedWork.Properties <- sourceWork.Properties.DeepCopy()
         pastedWork.TokenRole <- sourceWork.TokenRole
         pastedWork.Position <- offsetPosition baseIndex index sourceWork.Position
@@ -75,7 +78,9 @@ module internal DirectPasteOps =
         pastedWork, callMap, finalDeviceState
 
     let pasteFlowToSystem (store: DsStore) (sourceFlow: Flow) (targetSystemId: Guid) (newNameOpt: string option) : Guid =
-        let flowName = newNameOpt |> Option.defaultValue sourceFlow.Name
+        let baseName = newNameOpt |> Option.defaultValue sourceFlow.Name
+        let existingFlowNames = DsQuery.flowsOf targetSystemId store |> List.map (fun f -> f.Name)
+        let flowName = DsQuery.nextUniqueName baseName existingFlowNames
         let pastedFlow = Flow(flowName, targetSystemId)
         store.TrackAdd(store.Flows, pastedFlow)
         let deviceFlowCtxOpt =

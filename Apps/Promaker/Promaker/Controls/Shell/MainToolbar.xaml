@@ -63,6 +63,77 @@
             <Setter Property="MinWidth" Value="58"/>
             <Setter Property="MinHeight" Value="66"/>
         </Style>
+        <Style x:Key="ConnectArrowOptionRadio" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="OptionBorder"
+                                Background="{DynamicResource TertiaryBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1" CornerRadius="3" Padding="8,6">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="18"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid Width="14" Height="14" VerticalAlignment="Top" Margin="0,2,0,0">
+                                    <Ellipse Stroke="{DynamicResource AccentBrush}" StrokeThickness="2"/>
+                                    <Ellipse x:Name="Dot" Width="7" Height="7"
+                                             Fill="{DynamicResource AccentBrush}" Visibility="Collapsed"/>
+                                </Grid>
+                                <ContentPresenter Grid.Column="1"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Dot" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="OptionBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                                <Setter TargetName="OptionBorder" Property="Background" Value="{DynamicResource SelectedBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="OptionBorder" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ConnectPinToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="20"/>
+            <Setter Property="Height" Value="20"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="ToolTip" Value="우클릭 메뉴에 표시"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border Background="Transparent" Padding="2">
+                            <Grid>
+                                <Path x:Name="UnpinnedIcon"
+                                      Data="M12,2 L14,8 L20,9 L15.5,13 L17,19 L12,16 L7,19 L8.5,13 L4,9 L10,8 Z"
+                                      Stroke="{DynamicResource SecondaryTextBrush}" StrokeThickness="1.2"
+                                      Fill="Transparent" Stretch="Uniform" Width="14" Height="14"/>
+                                <Path x:Name="PinnedIcon"
+                                      Data="M12,2 L14,8 L20,9 L15.5,13 L17,19 L12,16 L7,19 L8.5,13 L4,9 L10,8 Z"
+                                      Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.2"
+                                      Fill="{DynamicResource AccentBrush}" Stretch="Uniform"
+                                      Width="14" Height="14" Visibility="Collapsed"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="UnpinnedIcon" Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="PinnedIcon" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Border Background="{DynamicResource ToolbarShellBrush}"
@@ -71,18 +142,17 @@
             Padding="10,6,10,8">
         <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/> <!-- 0: File -->
+                <ColumnDefinition Width="Auto"/> <!-- 1: sep -->
+                <ColumnDefinition Width="Auto"/> <!-- 2: Edit -->
+                <ColumnDefinition Width="Auto"/> <!-- 3: sep -->
+                <ColumnDefinition Width="Auto"/> <!-- 4: Connect -->
+                <ColumnDefinition Width="Auto"/> <!-- 5: sep -->
+                <ColumnDefinition Width="Auto"/> <!-- 6: Simulation -->
+                <ColumnDefinition Width="Auto"/> <!-- 7: sep -->
+                <ColumnDefinition Width="*"/>    <!-- 8: spacer -->
+                <ColumnDefinition Width="Auto"/> <!-- 9: Util -->
+                <ColumnDefinition Width="Auto"/> <!-- 10: Settings -->
             </Grid.ColumnDefinitions>
 
             <!-- File Section -->
@@ -96,7 +166,7 @@
                         <StackPanel Orientation="Vertical"><Path Width="18" Height="18" Stretch="Uniform" Data="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z" Fill="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.Load}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
                     </Button>
                     <Grid>
-                        <ToggleButton x:Name="SaveMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="{x:Static res:Strings.SaveTooltip}">
+                        <ToggleButton x:Name="SaveMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="{x:Static res:Strings.SaveTooltip}" IsEnabled="{Binding HasProject}">
                             <StackPanel Orientation="Vertical"><Path Width="18" Height="18" Stretch="Uniform" Data="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z" Fill="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.Save}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
                         </ToggleButton>
                         <Popup IsOpen="{Binding IsChecked, ElementName=SaveMenuToggle, Mode=TwoWay}" StaysOpen="False" Placement="Bottom" PlacementTarget="{Binding ElementName=SaveMenuToggle}" DataContext="{Binding DataContext, ElementName=ThisControl}">
@@ -118,7 +188,7 @@
             <Grid x:Name="EditSection" Grid.Column="2">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid x:Name="EditRibbonContentPanel">
-                    <ToggleButton x:Name="EditMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="편집 메뉴">
+                    <ToggleButton x:Name="EditMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="편집 메뉴" IsEnabled="{Binding HasProject}">
                         <StackPanel Orientation="Vertical">
                             <Path Width="18" Height="18" Stretch="Uniform" Data="M3 10h11v2H3v-2zm0-2h11V6H3v2zm0 8h7v-2H3v2zm15.01-3.13l1.41-1.41c.2-.2.51-.2.71 0l1.41 1.41c.2.2.2.51 0 .71l-1.41 1.41-2.12-2.12zm-.71.71l-5.3 5.3V21h2.12l5.3-5.3-2.12-2.12z" Fill="{DynamicResource IconGrayBrush}"/>
                             <TextBlock Text="편집" Style="{StaticResource RibbonIconLabel}"/>
@@ -139,10 +209,6 @@
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding UndoCommand}" Click="CloseEditPopup"><TextBlock Text="실행 취소"/></Button>
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding RedoCommand}" Click="CloseEditPopup"><TextBlock Text="다시 실행"/></Button>
                                 <Separator Margin="4,4"/>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding CopySelectedCommand}" Click="CloseEditPopup"><TextBlock Text="복사"/></Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding PasteCopiedCommand}" Click="CloseEditPopup"><TextBlock Text="붙여넣기"/></Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding DeleteSelectedCommand}" Click="CloseEditPopup"><TextBlock Text="삭제"/></Button>
-                                <Separator Margin="4,4"/>
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddSystemCommand}" Click="CloseEditPopup"><TextBlock Text="System 추가"/></Button>
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddFlowCommand}" Click="CloseEditPopup"><TextBlock Text="Flow 추가"/></Button>
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding AddWorkCommand}" Click="CloseEditPopup"><TextBlock Text="Work 추가"/></Button>
@@ -155,79 +221,145 @@
                 </Grid>
                 <TextBlock Grid.Row="1" Text="편집" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
-            <Border x:Name="EditModelSeparator" Grid.Column="3" Style="{StaticResource RibbonSectionSeparator}"/>
+            <Border x:Name="EditConnectSeparator" Grid.Column="3" Style="{StaticResource RibbonSectionSeparator}"/>
 
-            <!-- Model Section (dropdown) -->
-            <Grid x:Name="ModelSection" Grid.Column="4">
+            <!-- Connect Section (dropdown with arrow type selection) -->
+            <Grid x:Name="ConnectSection" Grid.Column="4">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                <Grid x:Name="ModelRibbonContentPanel">
-                    <ToggleButton x:Name="ModelMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="모델 메뉴">
+                <WrapPanel Orientation="Horizontal">
+                    <Button x:Name="ConnectExecuteButton" Style="{StaticResource RibbonFlatButton}"
+                            Command="{Binding ConnectSelectedNodesCommand}"
+                            ToolTip="선택된 노드를 연결">
                         <StackPanel Orientation="Vertical">
-                            <Path Width="18" Height="18" Stretch="Uniform" Data="M3 3h18v2H3V3zm2 4h14v2H5V7zm-2 4h18v2H3v-2zm2 4h8v2H5v-2z" Fill="{DynamicResource IconGrayBrush}"/>
-                            <TextBlock Text="모델" Style="{StaticResource RibbonIconLabel}"/>
+                            <Path Width="18" Height="18" Stretch="Uniform" Fill="{DynamicResource IconGrayBrush}"
+                                  Data="M6 3C4.34 3 3 4.34 3 6s1.34 3 3 3c.55 0 1.07-.15 1.52-.42L9.4 10.46C9.15 10.93 9 11.45 9 12s.15 1.07.4 1.54l-1.88 1.88C7.07 15.15 6.55 15 6 15c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3c0-.55-.15-1.07-.42-1.52l1.88-1.88c.47.27.99.4 1.54.4s1.07-.13 1.54-.4l1.88 1.88C15.15 16.93 15 17.45 15 18c0 1.66 1.34 3 3 3s3-1.34 3-3-1.34-3-3-3c-.55 0-1.07.15-1.52.42l-1.88-1.88c.27-.47.4-.99.4-1.54s-.13-1.07-.4-1.54l1.88-1.88C16.93 8.85 17.45 9 18 9c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .55.15 1.07.42 1.52l-1.88 1.88C13.07 9.15 12.55 9 12 9s-1.07.15-1.54.42L8.58 7.54C8.85 7.07 9 6.55 9 6c0-1.66-1.34-3-3-3z"/>
+                            <TextBlock Text="연결" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
-                    </ToggleButton>
-                    <Popup IsOpen="{Binding IsChecked, ElementName=ModelMenuToggle, Mode=TwoWay}"
-                           StaysOpen="False"
-                           Placement="Bottom"
-                           PlacementTarget="{Binding ElementName=ModelMenuToggle}"
-                           DataContext="{Binding DataContext, ElementName=ThisControl}">
-                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="4"
-                                Padding="4"
-                                MinWidth="180">
-                            <StackPanel>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseModelPopup"><TextBlock Text="I/O 편집"/></Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenDurationBatchDialogCommand}" Click="CloseModelPopup"><TextBlock Text="Duration 편집"/></Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenTokenSpecDialogCommand}" Click="CloseModelPopup"><TextBlock Text="TokenSpec 편집"/></Button>
-                            </StackPanel>
-                        </Border>
-                    </Popup>
-                </Grid>
-                <TextBlock Grid.Row="1" Text="모델" Style="{StaticResource RibbonSectionLabel}"/>
-            </Grid>
-            <Border x:Name="ModelDataSeparator" Grid.Column="5" Style="{StaticResource RibbonSectionSeparator}"/>
+                    </Button>
+                    <Grid>
+                        <ToggleButton x:Name="ConnectTypeToggle" Style="{StaticResource RibbonFlatToggleButton}"
+                                      IsEnabled="{Binding HasProject}" ToolTip="연결 타입 선택"
+                                      MinWidth="28" Padding="2,8">
+                            <Path Width="10" Height="6" Stretch="Uniform" Data="M0,0 L5,5 L10,0" Fill="{DynamicResource IconGrayBrush}"/>
+                        </ToggleButton>
+                        <Popup IsOpen="{Binding IsChecked, ElementName=ConnectTypeToggle, Mode=TwoWay}"
+                               StaysOpen="False" Placement="Bottom"
+                               PlacementTarget="{Binding ElementName=ConnectTypeToggle}"
+                               DataContext="{Binding DataContext, ElementName=ThisControl}"
+                               Opened="ConnectTypePopup_Opened">
+                            <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="1" CornerRadius="4" Padding="8" MinWidth="300">
+                                <StackPanel x:Name="ConnectTypeList">
+                                    <TextBlock Text="연결 형식:" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,8"
+                                               Foreground="{DynamicResource PrimaryTextBrush}"/>
 
-            <!-- Data Section (dropdown) -->
-            <Grid x:Name="DataSection" Grid.Column="6">
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                <Grid x:Name="DataRibbonContentPanel">
-                    <ToggleButton x:Name="DataMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="데이터 메뉴">
-                        <StackPanel Orientation="Vertical">
-                            <Path Width="18" Height="18" Stretch="Uniform" Data="M4 4h10l4 4v12H4V4zm9 1.5V9h3.5L13 5.5zM7 12h8v2H7v-2zm0 4h8v2H7v-2z" Fill="{DynamicResource IconGrayBrush}"/>
-                            <TextBlock Text="데이터" Style="{StaticResource RibbonIconLabel}"/>
-                        </StackPanel>
-                    </ToggleButton>
-                    <Popup IsOpen="{Binding IsChecked, ElementName=DataMenuToggle, Mode=TwoWay}"
-                           StaysOpen="False"
-                           Placement="Bottom"
-                           PlacementTarget="{Binding ElementName=DataMenuToggle}"
-                           DataContext="{Binding DataContext, ElementName=ThisControl}">
-                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="4"
-                                Padding="4"
-                                MinWidth="180">
-                            <StackPanel>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportCsvCommand}" Click="CloseDataPopup"><TextBlock Text="리포트 CSV"/></Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportXlsxCommand}" Click="CloseDataPopup"><TextBlock Text="리포트 Excel"/></Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportHtmlCommand}" Click="CloseDataPopup"><TextBlock Text="리포트 HTML"/></Button>
-                                <Separator Margin="4,6"/>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseDataPopup"><TextBlock Text="CSV 불러오기"/></Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ExportCsvCommand}" Click="CloseDataPopup"><TextBlock Text="CSV 내보내기"/></Button>
-                            </StackPanel>
-                        </Border>
-                    </Popup>
-                </Grid>
-                <TextBlock Grid.Row="1" Text="데이터" Style="{StaticResource RibbonSectionLabel}"/>
+                                    <RadioButton x:Name="ConnStartRadio" GroupName="ConnectType" Tag="Start" IsChecked="True"
+                                                 Style="{StaticResource ConnectArrowOptionRadio}" Click="ConnectType_Click">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Canvas Width="40" Height="14" Margin="0,0,8,0">
+                                                        <Border Canvas.Left="0" Canvas.Top="5.5" Width="30" Height="3" Background="{DynamicResource GreenAccentBrush}" CornerRadius="1"/>
+                                                        <Path Canvas.Left="30" Canvas.Top="0" Data="M0,2 L8,7 L0,12" Stroke="{DynamicResource GreenAccentBrush}" StrokeThickness="2" Fill="Transparent" StrokeLineJoin="Miter"/>
+                                                    </Canvas>
+                                                    <TextBlock Text="시작 인과" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                                                </StackPanel>
+                                                <TextBlock Text="A작업이 끝난 후 B작업 시작" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="10" Margin="48,2,0,0"/>
+                                            </StackPanel>
+                                            <ToggleButton x:Name="ConnStartPin" Grid.Column="1" Style="{StaticResource ConnectPinToggleStyle}"
+                                                          VerticalAlignment="Top" Margin="6,0,0,0" Click="ConnectPin_Click" Tag="Start"/>
+                                        </Grid>
+                                    </RadioButton>
+
+                                    <RadioButton x:Name="ConnResetRadio" GroupName="ConnectType" Tag="Reset"
+                                                 Style="{StaticResource ConnectArrowOptionRadio}" Click="ConnectType_Click">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Canvas Width="40" Height="14" Margin="0,0,8,0">
+                                                        <Line X1="0" Y1="7" X2="30" Y2="7" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="3" StrokeDashArray="2,1"/>
+                                                        <Path Canvas.Left="30" Canvas.Top="0" Data="M0,2 L8,7 L0,12" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2" Fill="Transparent" StrokeLineJoin="Miter"/>
+                                                    </Canvas>
+                                                    <TextBlock Text="리셋 인과" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                                                </StackPanel>
+                                                <TextBlock Text="A작업 시작과 동시에 B작업이 리셋" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="10" Margin="48,2,0,0"/>
+                                            </StackPanel>
+                                            <ToggleButton x:Name="ConnResetPin" Grid.Column="1" Style="{StaticResource ConnectPinToggleStyle}"
+                                                          VerticalAlignment="Top" Margin="6,0,0,0" Click="ConnectPin_Click" Tag="Reset"/>
+                                        </Grid>
+                                    </RadioButton>
+
+                                    <RadioButton x:Name="ConnStartResetRadio" GroupName="ConnectType" Tag="StartReset"
+                                                 Style="{StaticResource ConnectArrowOptionRadio}" Click="ConnectType_Click">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Canvas Width="40" Height="14" Margin="0,0,8,0">
+                                                        <Rectangle Canvas.Left="0" Canvas.Top="3" Width="7" Height="8" Fill="{DynamicResource RedAccentBrush}"/>
+                                                        <Border Canvas.Left="7" Canvas.Top="5.5" Width="23" Height="3" Background="{DynamicResource RedAccentBrush}" CornerRadius="1"/>
+                                                        <Path Canvas.Left="30" Canvas.Top="0" Data="M0,2 L8,7 L0,12" Stroke="{DynamicResource RedAccentBrush}" StrokeThickness="2" Fill="Transparent" StrokeLineJoin="Miter"/>
+                                                    </Canvas>
+                                                    <TextBlock Text="시작리셋 인과" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                                                </StackPanel>
+                                                <TextBlock Text="A가 끝나면 B시작과 동시에 A가 리셋" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="10" Margin="48,2,0,0"/>
+                                            </StackPanel>
+                                            <ToggleButton x:Name="ConnStartResetPin" Grid.Column="1" Style="{StaticResource ConnectPinToggleStyle}"
+                                                          VerticalAlignment="Top" Margin="6,0,0,0" Click="ConnectPin_Click" Tag="StartReset"/>
+                                        </Grid>
+                                    </RadioButton>
+
+                                    <RadioButton x:Name="ConnResetResetRadio" GroupName="ConnectType" Tag="ResetReset"
+                                                 Style="{StaticResource ConnectArrowOptionRadio}" Click="ConnectType_Click">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Canvas Width="40" Height="14" Margin="0,0,8,0">
+                                                        <Path Canvas.Left="0" Canvas.Top="0" Data="M8,2 L0,7 L8,12" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2" Fill="Transparent" StrokeLineJoin="Miter"/>
+                                                        <Line X1="8" Y1="7" X2="30" Y2="7" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="3" StrokeDashArray="2,1"/>
+                                                        <Path Canvas.Left="30" Canvas.Top="0" Data="M0,2 L8,7 L0,12" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2" Fill="Transparent" StrokeLineJoin="Miter"/>
+                                                    </Canvas>
+                                                    <TextBlock Text="상호리셋 인과" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                                                </StackPanel>
+                                                <TextBlock Text="A와 B가 서로 리셋" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="10" Margin="48,2,0,0"/>
+                                            </StackPanel>
+                                            <ToggleButton x:Name="ConnResetResetPin" Grid.Column="1" Style="{StaticResource ConnectPinToggleStyle}"
+                                                          VerticalAlignment="Top" Margin="6,0,0,0" Click="ConnectPin_Click" Tag="ResetReset"/>
+                                        </Grid>
+                                    </RadioButton>
+
+                                    <RadioButton x:Name="ConnGroupRadio" GroupName="ConnectType" Tag="Group"
+                                                 Style="{StaticResource ConnectArrowOptionRadio}" Click="ConnectType_Click">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Canvas Width="40" Height="14" Margin="0,0,8,0">
+                                                        <Border Canvas.Left="0" Canvas.Top="5.5" Width="40" Height="3" Background="{DynamicResource AccentBrush}" CornerRadius="1"/>
+                                                    </Canvas>
+                                                    <TextBlock Text="그룹연결" FontWeight="SemiBold" VerticalAlignment="Center" FontSize="12"/>
+                                                </StackPanel>
+                                                <TextBlock Text="그룹 간 연결 (직선)" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="10" Margin="48,2,0,0"/>
+                                            </StackPanel>
+                                            <ToggleButton x:Name="ConnGroupPin" Grid.Column="1" Style="{StaticResource ConnectPinToggleStyle}"
+                                                          VerticalAlignment="Top" Margin="6,0,0,0" Click="ConnectPin_Click" Tag="Group"/>
+                                        </Grid>
+                                    </RadioButton>
+                                </StackPanel>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                </WrapPanel>
+                <TextBlock Grid.Row="1" Text="연결" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
-            <Border x:Name="DataSimulationSeparator" Grid.Column="7" Style="{StaticResource RibbonSectionSeparator}"/>
+            <Border x:Name="ConnectSimulationSeparator" Grid.Column="5" Style="{StaticResource RibbonSectionSeparator}"/>
 
             <!-- Simulation Section (inline) -->
-            <Grid x:Name="SimulationSection" Grid.Column="8" DataContext="{Binding Simulation}" HorizontalAlignment="Left">
+            <Grid x:Name="SimulationSection" Grid.Column="6" DataContext="{Binding Simulation}" HorizontalAlignment="Left">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <WrapPanel x:Name="SimulationRibbonContentPanel" Orientation="Horizontal">
                     <Button x:Name="SimulationStartStopButton" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
@@ -295,14 +427,55 @@
                             <ComboBoxItem Content="{x:Static res:Strings.IgnoreTime}"><ComboBoxItem.Tag><sys:Double>0.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                         </ComboBox>
                     </StackPanel>
+                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding DataContext.OpenTokenSpecDialogCommand, ElementName=ThisControl}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" ToolTip="TokenSpec 편집">
+                        <StackPanel Orientation="Vertical">
+                            <Path Width="18" Height="18" Stretch="Uniform" Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" Fill="{DynamicResource IconGrayBrush}"/>
+                            <TextBlock Text="Token" Style="{StaticResource RibbonIconLabel}"/>
+                        </StackPanel>
+                    </Button>
                 </WrapPanel>
                 <TextBlock Grid.Row="1" Text="시뮬레이션" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
 
-            <Border x:Name="SimulationSettingsSeparator" Grid.Column="9" Style="{StaticResource RibbonSectionSeparator}"/>
+            <!-- Util Section (dropdown, right-aligned) -->
+            <Grid x:Name="UtilSection" Grid.Column="9">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid>
+                    <ToggleButton x:Name="UtilMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="유틸리티" IsEnabled="{Binding HasProject}">
+                        <StackPanel Orientation="Vertical">
+                            <Path Width="18" Height="18" Stretch="Uniform" Data="M3 3h8v2H3V3zm0 4h12v2H3V7zm0 4h8v2H3v-2zm0 4h12v2H3v-2zm0 4h8v2H3v-2z" Fill="{DynamicResource IconGrayBrush}"/>
+                            <TextBlock Text="유틸" Style="{StaticResource RibbonIconLabel}"/>
+                        </StackPanel>
+                    </ToggleButton>
+                    <Popup IsOpen="{Binding IsChecked, ElementName=UtilMenuToggle, Mode=TwoWay}"
+                           StaysOpen="False" Placement="Bottom"
+                           PlacementTarget="{Binding ElementName=UtilMenuToggle}"
+                           DataContext="{Binding DataContext, ElementName=ThisControl}">
+                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="180">
+                            <StackPanel>
+                                <TextBlock Text="편집" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="I/O 편집"/></Button>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenDurationBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="Duration 편집"/></Button>
+                                <Separator Margin="4,4"/>
+                                <TextBlock Text="리포트" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="리포트 CSV"/></Button>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportXlsxCommand}" Click="CloseUtilPopup"><TextBlock Text="리포트 Excel"/></Button>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportHtmlCommand}" Click="CloseUtilPopup"><TextBlock Text="리포트 HTML"/></Button>
+                                <Separator Margin="4,4"/>
+                                <TextBlock Text="CSV" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="CSV 불러오기"/></Button>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ExportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="CSV 내보내기"/></Button>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+                </Grid>
+                <TextBlock Grid.Row="1" Text="유틸" Style="{StaticResource RibbonSectionLabel}"/>
+            </Grid>
 
             <!-- Settings Section -->
-            <Grid x:Name="SettingsSection" Grid.Column="11">
+            <Grid x:Name="SettingsSection" Grid.Column="10">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid x:Name="SettingsRibbonContentPanel">
                     <Grid.ColumnDefinitions>

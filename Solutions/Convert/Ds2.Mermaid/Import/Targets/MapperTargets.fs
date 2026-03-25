@@ -10,6 +10,50 @@ module internal MermaidMapperTargets =
     open MermaidMapperCommon
     open MermaidTargetPlanning
 
+    let private planCallsForWork
+        (planned: PlannedCallNodes)
+        (operations: ResizeArray<ImportPlanOperation>)
+        workId
+        nodes
+        internalEdges
+        onRegistered
+        =
+        for node in nodes do
+            let call, apiName = registerCallNode planned operations workId node
+            onRegistered node call apiName
+
+        addInternalCallArrows operations workId planned internalEdges
+
+    let private createPreview
+        level
+        flowNames
+        workNames
+        callNames
+        arrowWorksCount
+        arrowCallsCount
+        ignored
+        warnings
+        =
+        {
+            Level = level
+            FlowNames = flowNames
+            WorkNames = workNames
+            CallNames = callNames
+            ArrowWorksCount = arrowWorksCount
+            ArrowCallsCount = arrowCallsCount
+            IgnoredEdges = ignored |> Seq.toList
+            Warnings = warnings |> Seq.toList
+        }
+
+    let private completePlannedImport
+        (operations: ResizeArray<ImportPlanOperation>)
+        (planned: PlannedCallNodes)
+        finalize
+        =
+        restorePlannedConditions operations planned
+        finalize ()
+        ImportPlan.ofSeq operations
+
     // ═══════════════════════════════════════════════════
     // Flow 2-depth: subgraph → Work, node → Call
     // ═══════════════════════════════════════════════════
@@ -24,18 +68,13 @@ module internal MermaidMapperTargets =
         let flowName = flowNameOfFlow store flowId
 
         for sg in graph.Subgraphs do
-            let work = Work(subgraphName sg, flowId)
+            let work = Work(flowName, subgraphName sg, flowId)
             operations.Add(AddWork work)
 
-            for node in sg.Nodes do
-                let call, apiName = registerCallNode planned operations work.Id node
+            planCallsForWork planned operations work.Id sg.Nodes sg.InternalEdges (fun node call apiName ->
                 nodeToWorkId.[node.Id] <- work.Id
                 if apiName <> "" then
-                    createdCalls.Add(call, node.Label)
-
-            addInternalCallArrows operations work.Id planned sg.InternalEdges
-
-        restorePlannedConditions operations planned
+                    createdCalls.Add(call, node.Label))
 
         // GlobalEdge → ArrowBetweenWorks (Work 간 연결, 중복 방지)
         for edge in graph.GlobalEdges do
@@ -47,20 +86,20 @@ module internal MermaidMapperTargets =
             | (true, _), (true, _) -> ()
             | _ -> ()
 
-        linkCallsToDevicesIfNeeded store projectId flowName createdCalls operations
-
-        ImportPlan.ofSeq operations
+        completePlannedImport operations planned (fun () ->
+            linkCallsToDevicesIfNeeded store projectId flowName createdCalls operations)
 
     // ═══════════════════════════════════════════════════
     // Flow 1-depth: GlobalNode → Work, GlobalEdge → ArrowBetweenWorks
     // ═══════════════════════════════════════════════════
 
-    let mapToFlowFlat (flowId: Guid) (systemId: Guid) (graph: MermaidGraph) : ImportPlan =
+    let mapToFlowFlat (store: DsStore) (flowId: Guid) (systemId: Guid) (graph: MermaidGraph) : ImportPlan =
         let operations = ResizeArray<ImportPlanOperation>()
         let nodeToWorkId = Dictionary<string, Guid>()
 
+        let flatFlowName = flowNameOfFlow store flowId
         for node in graph.GlobalNodes do
-            let work = Work(node.Label, flowId)
+            let work = Work(flatFlowName, node.Label, flowId)
             operations.Add(AddWork work)
             nodeToWorkId.[node.Id] <- work.Id
 
@@ -84,18 +123,12 @@ module internal MermaidMapperTargets =
 
         let flowName = flowNameOfWork store workId
 
-        for node in graph.GlobalNodes do
-            let call, apiName = registerCallNode planned operations workId node
+        planCallsForWork planned operations workId graph.GlobalNodes graph.GlobalEdges (fun node call apiName ->
             if apiName <> "" then
-                createdCalls.Add(call, node.Label)
+                createdCalls.Add(call, node.Label))
 
-        addInternalCallArrows operations workId planned graph.GlobalEdges
-
-        restorePlannedConditions operations planned
-
-        linkCallsToDevicesIfNeeded store projectId flowName createdCalls operations
-
-        ImportPlan.ofSeq operations
+        completePlannedImport operations planned (fun () ->
+            linkCallsToDevicesIfNeeded store projectId flowName createdCalls operations)
 
     // ═══════════════════════════════════════════════════
     // System 3-depth: depth1 → System, depth2 → Flow, depth3 → Work, node → Call
@@ -122,18 +155,13 @@ module internal MermaidMapperTargets =
 
                 for workSg in flowSg.Children do
                     // depth 3 → Work
-                    let work = Work(subgraphName workSg, flow.Id)
+                    let work = Work(flowDisplayName, subgraphName workSg, flow.Id)
                     operations.Add(AddWork work)
                     subgraphToWorkId.[workSg.Id] <- work.Id
 
-                    for node in workSg.Nodes do
-                        let call, apiName = registerCallNode planned operations work.Id node
+                    planCallsForWork planned operations work.Id workSg.Nodes workSg.InternalEdges (fun node call apiName ->
                         if apiName <> "" && not systemSg.IsPassive then
-                            activeCreatedCalls.Add(call, node.Label, flowDisplayName)
-
-                    addInternalCallArrows operations work.Id planned workSg.InternalEdges
-
-        restorePlannedConditions operations planned
+                            activeCreatedCalls.Add(call, node.Label, flowDisplayName))
 
         // GlobalEdges → ArrowBetweenWorks (subgraph ID = Work ID)
         for edge in graph.GlobalEdges do
@@ -147,9 +175,8 @@ module internal MermaidMapperTargets =
                 | None -> ()
             | _ -> ()
 
-        linkCallsToDevicesByFlow store projectId activeCreatedCalls operations
-
-        ImportPlan.ofSeq operations
+        completePlannedImport operations planned (fun () ->
+            linkCallsToDevicesByFlow store projectId activeCreatedCalls operations)
 
     // ═══════════════════════════════════════════════════
     // 프리뷰 생성 (store 변경 없이)
@@ -176,16 +203,15 @@ module internal MermaidMapperTargets =
             let workNames = graph.Subgraphs |> List.collect (fun sys -> sys.Children |> List.collect collectWorkNames)
             let callNames = graph.Subgraphs |> List.collect collectCallNames
             let arrowCallsCount = graph.Subgraphs |> List.sumBy collectArrowCallsCount
-            {
-                Level = SystemLevel
-                FlowNames = flowNames
-                WorkNames = workNames
-                CallNames = callNames
-                ArrowWorksCount = graph.GlobalEdges.Length
-                ArrowCallsCount = arrowCallsCount
-                IgnoredEdges = ignored |> Seq.toList
-                Warnings = warnings |> Seq.toList
-            }
+            createPreview
+                SystemLevel
+                flowNames
+                workNames
+                callNames
+                graph.GlobalEdges.Length
+                arrowCallsCount
+                ignored
+                warnings
 
         | FlowLevel when not graph.Subgraphs.IsEmpty ->
             // 2-depth
@@ -197,43 +223,40 @@ module internal MermaidMapperTargets =
             for edge in graph.GlobalEdges do
                 if workPairs.Add(edge.SourceId, edge.TargetId) then
                     arrowWorksCount <- arrowWorksCount + 1
-            {
-                Level = FlowLevel
-                FlowNames = []
-                WorkNames = workNames
-                CallNames = callNames
-                ArrowWorksCount = arrowWorksCount
-                ArrowCallsCount = arrowCallsCount
-                IgnoredEdges = ignored |> Seq.toList
-                Warnings = warnings |> Seq.toList
-            }
+            createPreview
+                FlowLevel
+                []
+                workNames
+                callNames
+                arrowWorksCount
+                arrowCallsCount
+                ignored
+                warnings
 
         | FlowLevel ->
             // 1-depth: GlobalNodes → Work
             let workNames = graph.GlobalNodes |> List.map (fun n -> n.Label)
             let arrowWorksCount = graph.GlobalEdges.Length
-            {
-                Level = FlowLevel
-                FlowNames = []
-                WorkNames = workNames
-                CallNames = []
-                ArrowWorksCount = arrowWorksCount
-                ArrowCallsCount = 0
-                IgnoredEdges = ignored |> Seq.toList
-                Warnings = warnings |> Seq.toList
-            }
+            createPreview
+                FlowLevel
+                []
+                workNames
+                []
+                arrowWorksCount
+                0
+                ignored
+                warnings
 
         | WorkLevel ->
             // 1-depth: GlobalNodes → Call
             let callNames = graph.GlobalNodes |> List.map (fun n -> n.Label)
             let arrowCallsCount = graph.GlobalEdges.Length
-            {
-                Level = WorkLevel
-                FlowNames = []
-                WorkNames = []
-                CallNames = callNames
-                ArrowWorksCount = 0
-                ArrowCallsCount = arrowCallsCount
-                IgnoredEdges = ignored |> Seq.toList
-                Warnings = warnings |> Seq.toList
-            }
+            createPreview
+                WorkLevel
+                []
+                []
+                callNames
+                0
+                arrowCallsCount
+                ignored
+                warnings

@@ -88,6 +88,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(OpenIoBatchDialogCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenDurationBatchDialogCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenTokenSpecDialogCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectSelectedNodesCommand))]
     private bool _hasProject;
     [ObservableProperty] private bool _isDarkTheme = ThemeManager.CurrentTheme == AppTheme.Dark;
     [ObservableProperty] private string _themeButtonText = ThemeManager.CurrentTheme == AppTheme.Dark ? Strings.LightTheme : Strings.DarkTheme;
@@ -107,6 +108,8 @@ public partial class MainViewModel : ObservableObject
 #endif
 
     public Xywh? PendingAddPosition { get; set; }
+
+    [ObservableProperty] private ArrowType _selectedConnectArrowType = ArrowType.Start;
 
     public Action? FocusNameEditorRequested { get; set; }
 

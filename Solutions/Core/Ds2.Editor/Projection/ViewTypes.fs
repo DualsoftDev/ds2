@@ -27,6 +27,10 @@ type CanvasNodeInfo = {
     ConditionTypes: CallConditionType list
     /// 타 Flow의 Work가 화살표로 연결되어 고스트로 표시되는 경우 true
     IsGhost: bool
+    /// Reference Work인 경우 true (원본을 참조하는 복제 노드)
+    IsReference: bool
+    /// Reference Work의 원본 Work ID (IsReference=true일 때만 유효)
+    ReferenceOfId: Guid option
 }
 
 type CanvasArrowInfo = {

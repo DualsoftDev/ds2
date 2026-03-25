@@ -48,7 +48,8 @@ public partial class EditorCanvas
 
             if (e.ClickCount == 2 && EntityKindRules.canOpenAsTab(node.EntityType))
             {
-                ActiveCanvasState!.OpenCanvasTab(nodeId, EntityKind.Work, expandTree: true);
+                var tabTargetId = node.ReferenceOfId ?? nodeId;
+                ActiveCanvasState!.OpenCanvasTab(tabTargetId, EntityKind.Work, expandTree: true);
                 e.Handled = true;
                 return;
             }

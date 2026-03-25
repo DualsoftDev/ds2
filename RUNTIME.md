@@ -1,6 +1,6 @@
 # RUNTIME.md
 
-Last Sync: 2026-03-24 (Store/Editor 분리, Critical Path Duration, Token Unreachable 경고, TokenSpec)
+Last Sync: 2026-03-25 (Device System AASX 분리 저장, Store/Editor 분리, Critical Path Duration, TokenSpec)
 
 이 문서는 **CRUD · Undo/Redo · JSON 직렬화 · 복사붙여넣기 · 캐스케이드 삭제** 의 런타임 동작을 상세히 설명합니다.
 
@@ -563,6 +563,9 @@ FileCommands.SaveToPath (C#)
   → 확장자 `.aasx` 분기
   → AasxExporter.exportFromStore(_store, path)  ← F# 직접 호출
   → SaveOutcomeFlow.TryCompleteAasxSave(exported, warn, failMsg, onSuccess)
+      → SplitDeviceAasx 분기:
+            false → exportToAasxFile (인라인, 기존 동작)
+            true  → exportSplitAasx ({baseName}_devices/ 폴더에 Device별 AASX 분리 저장)
       → exportToSubmodel: Project 계층 → AAS Submodel (Ds2SequenceControlSubmodel)
             Call → SMC
             Work → SMC (Calls SML + ArrowsBetweenCalls SML)
@@ -604,6 +607,9 @@ FileCommands.OpenFile (C#)
                   Nameplate SMC 항목 → Project.Nameplate 레코드 필드로 매핑
             → HandoverDocumentation Submodel → Project.HandoverDocumentation (IDTA 02004-1-2)
                   Document/DocumentVersion SMC → Project.HandoverDocumentation 레코드 필드로 매핑
+            → DeviceReference에 DeviceRelativePath 있으면 → 외부 참조 모드
+                  상대경로 검증 (.. 금지, 절대경로 금지) → Device AASX 파일 로드
+                  파일 미존재 시 Warn + 스킵 (graceful degradation)
             → 새 DsStore 직접 구성 (store.DirectWrite로 컬렉션 채움)
       → importIntoStore: _store.ReplaceStore(imported) + bool 반환
   → PrepareForLoadedStore() → CompleteOpen(fileName, "AASX") → RequestRebuildAll(AfterFileLoad)
@@ -630,8 +636,13 @@ Environment
 │       │       │       │       └── SML "ArrowsBetweenCalls"
 │       │       │       └── SML "ArrowsBetweenWorks"
 │       │       └── SML "ApiDefs"
-│       └── SML "PassiveSystems"
-│           └── SMC (DsSystem, IsActiveSystem="false")
+│       └── SML "DeviceReferences"  (= PassiveSystems)
+│           ├── [인라인 모드] SMC (DsSystem, IsActiveSystem="false") — 기존 동작
+│           └── [분리 모드] SMC (DeviceReference)
+│                   ├── Property "DeviceGuid"
+│                   ├── Property "DeviceName"
+│                   ├── Property "DeviceIRI"
+│                   └── Property "DeviceRelativePath" (예: "MyProject_devices/PLC_Siemens.aasx")
 │
 ├── Submodel (idShort="Nameplate", IDTA 02006-3-0)
 │   └── Property "ManufacturerName", "ManufacturerProductDesignation", ...
@@ -660,6 +671,31 @@ store.ReplaceStore(newStore: DsStore)
 ```
 
 임포트 후 Undo 스택은 초기화되므로 임포트 직후 Undo 동작은 불가합니다.
+
+### 8.6 Device System AASX 분리 저장
+
+`ProjectProperties.SplitDeviceAasx = true`이면 저장 시 PassiveSystem을 별도 AASX 파일로 분리합니다.
+
+**설정**: 프로젝트 설정 다이얼로그 → "Device System을 별도 AASX 파일로 분리 저장" 체크박스
+
+**익스포트 (`exportSplitAasx`)**:
+1. `{baseName}_devices/` 폴더 생성
+2. 각 PassiveSystem → `exportDeviceAasx`로 독립 AASX 저장 (`ActiveSystems=[device]` 래핑)
+3. 메인 AASX → ActiveSystems + DeviceReference SMC (Guid, Name, IRI, RelativePath만)
+4. Device 이름 충돌 시 `{Name}_{Guid짧은해시}.aasx` 자동 부여
+
+**임포트 (`submodelToProjectStore`)**:
+1. DeviceReference에 `DeviceRelativePath` 프로퍼티 존재 → 외부 참조 모드
+2. 상대경로 검증: `..` 금지, 절대경로 금지
+3. `Path.Combine(mainDir, relativePath)` → Device AASX 읽기
+4. 파일 미존재 시 `log.Warn` + 스킵 (graceful degradation)
+5. DeviceRelativePath 없는 DeviceReference → 기존 인라인 모드 (역호환)
+
+**동작 시나리오**:
+- 분리 저장 → 다시 열기: `_devices/` 폴더에서 각 Device 로드
+- 분리 저장 → 체크 해제 → 저장: 모든 Device가 메인 AASX에 인라인 포함 (기존 동작)
+- `_devices/` 파일 일부 누락: 존재하는 Device만 로드, 누락분은 경고 후 스킵
+- 폴더째 이동: 상대경로 기반이므로 정상 동작
 
 ---
 

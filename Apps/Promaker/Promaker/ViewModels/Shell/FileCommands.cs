@@ -197,7 +197,8 @@ public partial class MainViewModel
                 dlg.ResultGlobalAssetId ?? "",
                 dlg.ResultAuthor ?? "",
                 dlg.ResultVersion ?? "",
-                dlg.ResultDescription ?? ""));
+                dlg.ResultDescription ?? "",
+                dlg.ResultSplitDeviceAasx));
         StatusText = "프로젝트 속성이 변경되었습니다.";
     }
 

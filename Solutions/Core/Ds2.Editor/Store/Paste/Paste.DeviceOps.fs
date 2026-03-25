@@ -65,7 +65,7 @@ module internal PasteDeviceOps =
                         |> List.map (fun src ->
                             let cloned = ApiDef(src.Name, newSystem.Id)
                             cloned.Properties.IsPush <- src.Properties.IsPush
-                            let work = Work(src.Name, newFlow.Id)
+                            let work = Work(newFlow.Name, src.Name, newFlow.Id)
                             // 원본 ApiDef의 TxGuid Work에서 Properties(Period 등) 복사
                             src.Properties.TxGuid
                             |> Option.bind (fun srcWorkId -> DsQuery.getWork srcWorkId store)

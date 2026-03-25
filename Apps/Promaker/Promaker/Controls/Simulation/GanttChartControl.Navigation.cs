@@ -65,8 +65,7 @@ public partial class GanttChartControl
             LabelScrollViewer.ScrollToVerticalOffset(e.VerticalOffset);
             _viewModel.HorizontalOffset = e.HorizontalOffset;
             _viewModel.VerticalOffset = e.VerticalOffset;
-            RenderTimeRuler();
-            UpdateCurrentTimeIndicator();
+            RenderAll();
         }
         finally
         {

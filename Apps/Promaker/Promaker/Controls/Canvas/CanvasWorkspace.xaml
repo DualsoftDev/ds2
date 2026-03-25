@@ -120,7 +120,7 @@
                 <TextBlock Text="열린 탭이 없습니다"
                            Foreground="{DynamicResource SecondaryTextBrush}"
                            FontSize="14" HorizontalAlignment="Center"/>
-                <TextBlock Text="System, Flow 또는 Work를 더블클릭하여 캔버스 탭을 여세요"
+                <TextBlock Text="System 또는 Work를 더블클릭하여 캔버스 탭을 여세요"
                            Foreground="{DynamicResource DisabledTextBrush}"
                            FontSize="11" Margin="0,6,0,0" HorizontalAlignment="Center"/>
             </StackPanel>

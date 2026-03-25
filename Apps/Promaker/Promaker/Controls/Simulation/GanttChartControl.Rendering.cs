@@ -34,9 +34,28 @@ public partial class GanttChartControl
     {
         if (_viewModel == null) return;
         if (_viewModel.IsRunning) _viewModel.CurrentTime = _viewModel.AdjustedNow;
-        RenderTimeline();
-        RenderTimeRuler();
-        UpdateCurrentTimeIndicator();
+        AutoScrollToCurrentTime();
+        RenderAll();
+    }
+
+    /// <summary>현재 시간 빨간 라인이 뷰포트 안에 보이도록 자동 스크롤</summary>
+    private void AutoScrollToCurrentTime()
+    {
+        if (_viewModel is not { IsRunning: true }) return;
+
+        double currentTimeX = _viewModel.TotalDuration.TotalSeconds * _viewModel.PixelsPerSecond;
+        double viewportWidth = TimelineScrollViewer.ViewportWidth;
+        if (viewportWidth <= 0) return;
+
+        double targetOffset = currentTimeX - viewportWidth * 0.8;
+        if (targetOffset < 0) targetOffset = 0;
+
+        double lineScreenX = currentTimeX - _viewModel.HorizontalOffset;
+        if (lineScreenX < 0 || lineScreenX > viewportWidth)
+        {
+            _viewModel.HorizontalOffset = targetOffset;
+            TimelineScrollViewer.ScrollToHorizontalOffset(targetOffset);
+        }
     }
 
     private void InvalidateTimeline()
@@ -44,80 +63,50 @@ public partial class GanttChartControl
         Dispatcher.InvokeAsync(() =>
         {
             if (_viewModel is { IsRunning: true }) _viewModel.CurrentTime = _viewModel.AdjustedNow;
-            RenderTimeline();
-            RenderTimeRuler();
-            UpdateCurrentTimeIndicator();
+            RenderAll();
         }, DispatcherPriority.Render);
+    }
+
+    private void RenderAll()
+    {
+        RenderTimeline();
+        RenderTimeRuler();
+        UpdateCurrentTimeIndicator();
     }
 
     // ── 풀 헬퍼 ──
 
-    private Rectangle GetOrCreateRowBg(int index)
+    private T GetOrCreate<T>(List<T> pool, Canvas target, int index, Func<T> factory, Action<T>? init = null)
+        where T : UIElement
     {
-        if (index < _rowBgPool.Count)
+        if (index < pool.Count)
         {
-            _rowBgPool[index].Visibility = Visibility.Visible;
-            return _rowBgPool[index];
+            pool[index].Visibility = Visibility.Visible;
+            return pool[index];
         }
-        var rect = new Rectangle();
-        _rowBgPool.Add(rect);
-        TimelineCanvas.Children.Add(rect);
-        return rect;
+        var element = factory();
+        init?.Invoke(element);
+        pool.Add(element);
+        target.Children.Add(element);
+        return element;
     }
+
+    private Rectangle GetOrCreateRowBg(int index)
+        => GetOrCreate(_rowBgPool, TimelineCanvas, index, () => new Rectangle());
 
     private Line GetOrCreateRowLine(int index)
-    {
-        if (index < _rowLinePool.Count)
-        {
-            _rowLinePool[index].Visibility = Visibility.Visible;
-            return _rowLinePool[index];
-        }
-        var line = new Line { StrokeThickness = 0.5 };
-        _rowLinePool.Add(line);
-        TimelineCanvas.Children.Add(line);
-        return line;
-    }
+        => GetOrCreate(_rowLinePool, TimelineCanvas, index, () => new Line { StrokeThickness = 0.5 });
 
     private Rectangle GetOrCreateBar(int index)
-    {
-        if (index < _barPool.Count)
-        {
-            _barPool[index].Visibility = Visibility.Visible;
-            return _barPool[index];
-        }
-        var bar = new Rectangle { RadiusX = 2, RadiusY = 2, Cursor = Cursors.Hand };
-        bar.MouseEnter += OnBarMouseEnter;
-        bar.MouseLeave += OnBarMouseLeave;
-        _barPool.Add(bar);
-        TimelineCanvas.Children.Add(bar);
-        return bar;
-    }
+        => GetOrCreate(_barPool, TimelineCanvas, index,
+            () => new Rectangle { RadiusX = 2, RadiusY = 2, Cursor = Cursors.Hand },
+            bar => { bar.MouseEnter += OnBarMouseEnter; bar.MouseLeave += OnBarMouseLeave; });
 
     private Line GetOrCreateRulerTick(int index)
-    {
-        if (index < _rulerTickPool.Count)
-        {
-            _rulerTickPool[index].Visibility = Visibility.Visible;
-            return _rulerTickPool[index];
-        }
-        var tick = new Line { StrokeThickness = 1 };
-        _rulerTickPool.Add(tick);
-        TimeRulerCanvas.Children.Add(tick);
-        return tick;
-    }
+        => GetOrCreate(_rulerTickPool, TimeRulerCanvas, index, () => new Line { StrokeThickness = 1 });
 
     private TextBlock GetOrCreateRulerLabel(int index)
-    {
-        if (index < _rulerLabelPool.Count)
-        {
-            _rulerLabelPool[index].Visibility = Visibility.Visible;
-            return _rulerLabelPool[index];
-        }
-        var label = new TextBlock { FontSize = 9 };
-        _rulerLabelPool.Add(label);
-        TimeRulerCanvas.Children.Add(label);
-        return label;
-    }
+        => GetOrCreate(_rulerLabelPool, TimeRulerCanvas, index, () => new TextBlock { FontSize = 9 });
 
     private static void HideRemaining<T>(List<T> pool, int activeCount) where T : UIElement
     {

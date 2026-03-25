@@ -7,6 +7,7 @@ using System.Windows.Media;
 using Ds2.Core;
 using Ds2.Store;
 using Ds2.Editor;
+using Promaker.Dialogs;
 using Promaker.ViewModels;
 
 namespace Promaker.Controls;
@@ -101,8 +102,15 @@ public partial class EditorCanvas : UserControl
 
         // 탭 종류별 메뉴 항목 가시성
         var tabKind = ActiveCanvasState?.ActiveTab?.Kind;
+        AddWorkMenuItem.Visibility = tabKind == Ds2.Editor.TabKind.System
+            ? Visibility.Visible : Visibility.Collapsed;
         AddCallMenuItem.Visibility = tabKind == Ds2.Editor.TabKind.Work
             ? Visibility.Visible : Visibility.Collapsed;
+        // 레퍼런스 노드: Work가 선택된 상태 + Flow/System 탭에서만
+        AddRefWorkMenuItem.Visibility =
+            VM?.SelectedNode?.EntityType == EntityKind.Work
+            && tabKind is Ds2.Editor.TabKind.System or Ds2.Editor.TabKind.Flow
+                ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void AddWork_Click(object sender, RoutedEventArgs e)
@@ -142,6 +150,94 @@ public partial class EditorCanvas : UserControl
         var width = Math.Abs(p2.X - p1.X);
         var height = Math.Abs(p2.Y - p1.Y);
         return new Rect(x, y, width, height);
+    }
+
+    // ── Condition drag & drop from tree onto canvas Call node ──
+
+    private EntityNode? _currentDropTarget;
+
+    private void ClearDropTarget()
+    {
+        if (_currentDropTarget is not null)
+        {
+            _currentDropTarget.IsDropTarget = false;
+            _currentDropTarget = null;
+        }
+    }
+
+    private void UpdateDropTarget(Point canvasPos)
+    {
+        var hit = FindNodeAt(canvasPos);
+        var callHit = hit is { EntityType: EntityKind.Call } ? hit : null;
+
+        if (callHit == _currentDropTarget) return;
+
+        ClearDropTarget();
+        if (callHit is not null)
+        {
+            callHit.IsDropTarget = true;
+            _currentDropTarget = callHit;
+        }
+    }
+
+    private void OnConditionDragEnter(object sender, DragEventArgs e)
+    {
+        if (!ConditionDropHelper.IsConditionCallDrag(e))
+        {
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+        e.Effects = DragDropEffects.Copy;
+        UpdateDropTarget(e.GetPosition(MainCanvas));
+        e.Handled = true;
+    }
+
+    private void OnConditionDragOver(object sender, DragEventArgs e)
+    {
+        if (!ConditionDropHelper.IsConditionCallDrag(e))
+        {
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+        e.Effects = DragDropEffects.Copy;
+        UpdateDropTarget(e.GetPosition(MainCanvas));
+        e.Handled = true;
+    }
+
+    private void OnConditionDragLeave(object sender, DragEventArgs e)
+    {
+        ClearDropTarget();
+        e.Handled = true;
+    }
+
+    private void OnConditionDrop(object sender, DragEventArgs e)
+    {
+        ClearDropTarget();
+
+        if (ConditionDropHelper.GetDroppedCallNode(e) is not { } droppedCallNode) return;
+        if (VM is null) return;
+
+        var dropPos = e.GetPosition(MainCanvas);
+        var targetNode = FindNodeAt(dropPos);
+        if (targetNode is null || targetNode.EntityType != EntityKind.Call)
+            return;
+
+        // 자기 자신에게 드롭 방지
+        if (targetNode.Id == droppedCallNode.Id)
+            return;
+
+        var picker = new ConditionTypePickerDialog();
+        if (Application.Current.MainWindow is { } owner) picker.Owner = owner;
+        if (picker.ShowDialog() != true)
+            return;
+
+        var host = VM.PropertyPanel.Host;
+        ConditionDropHelper.ExecuteConditionDrop(
+            host.Store, host, targetNode.Id, picker.SelectedConditionType, droppedCallNode.Id);
+
+        e.Handled = true;
     }
 
     private static bool TryGetNodeFromElement(DependencyObject? source, out Guid nodeId, out FrameworkElement border)

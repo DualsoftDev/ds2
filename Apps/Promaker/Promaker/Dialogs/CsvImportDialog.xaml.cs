@@ -29,6 +29,7 @@ public partial class CsvImportDialog : Window
     private const string DefaultImportedName = "csv_import";
     private const string DefaultSourceText = "또는 아래에 CSV를 직접 붙여넣으세요.";
     private const string EmptyPreviewText = "CSV 내용을 붙여넣거나 CSV 파일 불러오기를 누르세요.";
+    private const string PreviewFailureText = "미리보기를 생성하지 못했습니다.";
     private const string SampleCsv = @"Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress
 Cutting,Load,Cylinder,Up,입력신호,X10A0,출력신호,Y10B0
 Cutting,Load,Sensor,Detect,,X10A2,,
@@ -70,6 +71,33 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
 
     public string SourceDisplayName => _sourceDisplayName;
 
+    private static string BuildPreviewSummary(CsvImportPreview preview, int entryCount)
+    {
+        var sb = new StringBuilder()
+            .AppendLine($"✓ Flow: {preview.FlowNames.Length}개")
+            .AppendLine($"✓ Work: {preview.WorkNames.Length}개")
+            .AppendLine($"✓ Call: {preview.CallNames.Length}개")
+            .AppendLine($"✓ Passive Device System: {preview.PassiveSystemNames.Length}개")
+            .AppendLine();
+
+        AppendSample(sb, "Flow 샘플", preview.FlowNames, 5);
+        AppendSample(sb, "Work 샘플", preview.WorkNames, 5);
+        AppendSample(sb, "Call 샘플", preview.CallNames, 5);
+
+        if (entryCount > 100)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"※ 총 {entryCount}개 항목 중 100개만 미리보기에 표시됩니다.");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string BuildSyntheticWarningText(int syntheticApiCount) =>
+        syntheticApiCount > 0
+            ? $"⚠ Api 열이 비어 있는 {syntheticApiCount}개 항목은 Signal_<addr> 형식으로 자동 생성됩니다."
+            : "";
+
     private static void AppendSample(StringBuilder sb, string label, IEnumerable<string> items, int take)
     {
         var sample = string.Join(", ", items.Take(take));
@@ -109,65 +137,56 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
         SourceText.Text = description;
     }
 
-    private void UpdatePreview(CsvImportPreview preview)
+    private void ResetDirectInputPreview()
     {
-        // Update DataGrid
-        if (_document != null)
-        {
-            PreviewGrid.ItemsSource = _document.Entries
-                .Take(100)
-                .Select(ToRowViewModel)
-                .ToList();
-        }
-        else
-        {
-            PreviewGrid.ItemsSource = null;
-        }
+        SetSourceDisplay("붙여넣기", DefaultSourceText);
+        ResetPreview(EmptyPreviewText);
+    }
 
-        // Update summary text
-        var sb = new StringBuilder()
-            .AppendLine($"✓ Flow: {preview.FlowNames.Length}개")
-            .AppendLine($"✓ Work: {preview.WorkNames.Length}개")
-            .AppendLine($"✓ Call: {preview.CallNames.Length}개")
-            .AppendLine($"✓ Passive Device System: {preview.PassiveSystemNames.Length}개")
-            .AppendLine();
+    private void SetPreviewState(
+        CsvDocument? document,
+        IEnumerable<CsvRowViewModel>? rows,
+        string previewText,
+        string? errorText = null,
+        string? warningText = null)
+    {
+        _document = document;
+        PreviewGrid.ItemsSource = rows?.ToList();
+        PreviewText.Text = previewText;
+        ErrorBorder.Visibility = string.IsNullOrWhiteSpace(errorText) ? Visibility.Collapsed : Visibility.Visible;
+        ErrorText.Text = errorText ?? "";
+        WarningBorder.Visibility = string.IsNullOrWhiteSpace(warningText) ? Visibility.Collapsed : Visibility.Visible;
+        WarningText.Text = warningText ?? "";
+    }
 
-        AppendSample(sb, "Flow 샘플", preview.FlowNames, 5);
-        AppendSample(sb, "Work 샘플", preview.WorkNames, 5);
-        AppendSample(sb, "Call 샘플", preview.CallNames, 5);
+    private void ShowPreviewFailure(string message)
+    {
+        SetPreviewState(null, null, PreviewFailureText, errorText: message);
+    }
 
-        if (_document != null && _document.Entries.Length > 100)
-        {
-            sb.AppendLine();
-            sb.AppendLine($"※ 총 {_document.Entries.Length}개 항목 중 100개만 미리보기에 표시됩니다.");
-        }
+    private void ShowInfo(string message, string title = "CSV 불러오기") =>
+        MessageBox.Show(this, message, title, MessageBoxButton.OK, MessageBoxImage.Information);
 
-        PreviewText.Text = sb.ToString().TrimEnd();
-        ErrorBorder.Visibility = Visibility.Collapsed;
-        WarningBorder.Visibility =
-            preview.SyntheticApiCount > 0 ? Visibility.Visible : Visibility.Collapsed;
-        WarningText.Text =
-            preview.SyntheticApiCount > 0
-                ? $"⚠ Api 열이 비어 있는 {preview.SyntheticApiCount}개 항목은 Signal_<addr> 형식으로 자동 생성됩니다."
-                : "";
+    private void ShowError(string message, string title = "오류") =>
+        MessageBox.Show(this, message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+
+    private void ApplyPreview(CsvDocument document, CsvImportPreview preview)
+    {
+        SetPreviewState(
+            document,
+            document.Entries.Take(100).Select(ToRowViewModel),
+            BuildPreviewSummary(preview, document.Entries.Length),
+            warningText: BuildSyntheticWarningText(preview.SyntheticApiCount));
     }
 
     private void ResetPreview(string message)
     {
-        _document = null;
-        PreviewGrid.ItemsSource = null;
-        PreviewText.Text = message;
-        ErrorBorder.Visibility = Visibility.Collapsed;
-        WarningBorder.Visibility = Visibility.Collapsed;
+        SetPreviewState(null, null, message);
     }
 
     private void ShowErrors(IEnumerable<string> errors)
     {
-        _document = null;
-        PreviewGrid.ItemsSource = null;
-        ErrorBorder.Visibility = Visibility.Visible;
-        ErrorText.Text = string.Join("\n", errors);
-        WarningBorder.Visibility = Visibility.Collapsed;
+        SetPreviewState(null, null, PreviewFailureText, errorText: string.Join("\n", errors));
     }
 
     private void ApplyAutoNames(string defaultName)
@@ -201,8 +220,7 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
         if (!TryGetDocument(CsvImporter.parseContent(content), out var document))
             return false;
 
-        _document = document;
-        UpdatePreview(CsvImporter.preview(document));
+        ApplyPreview(document, CsvImporter.preview(document));
         return true;
     }
 
@@ -211,7 +229,6 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
         if (result.IsError)
         {
             ShowErrors(result.ErrorValue);
-            PreviewText.Text = "미리보기를 생성하지 못했습니다.";
             document = default!;
             return false;
         }
@@ -235,11 +252,11 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
         try
         {
             File.WriteAllText(picker.FileName, SampleCsv, Encoding.UTF8);
-            MessageBox.Show(this, $"샘플 CSV 파일이 저장되었습니다.\n\n{picker.FileName}", "샘플 저장 완료", MessageBoxButton.OK, MessageBoxImage.Information);
+            ShowInfo($"샘플 CSV 파일이 저장되었습니다.\n\n{picker.FileName}", "샘플 저장 완료");
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"샘플 저장 실패: {ex.Message}", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+            ShowError($"샘플 저장 실패: {ex.Message}");
         }
     }
 
@@ -262,8 +279,7 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
         }
         catch (Exception ex)
         {
-            ShowErrors([ $"파일 읽기 실패: {ex.Message}" ]);
-            PreviewText.Text = "미리보기를 생성하지 못했습니다.";
+            ShowPreviewFailure($"파일 읽기 실패: {ex.Message}");
         }
         finally
         {
@@ -278,8 +294,7 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
 
         if (string.IsNullOrWhiteSpace(ContentBox.Text))
         {
-            SetSourceDisplay("붙여넣기", DefaultSourceText);
-            ResetPreview(EmptyPreviewText);
+            ResetDirectInputPreview();
             return;
         }
 
@@ -297,7 +312,7 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
 
         if (!TryLoadDocument())
         {
-            MessageBox.Show(this, "유효한 CSV 내용을 먼저 입력하세요.", "CSV 불러오기", MessageBoxButton.OK, MessageBoxImage.Information);
+            ShowInfo("유효한 CSV 내용을 먼저 입력하세요.");
             ContentBox.Focus();
             return;
         }

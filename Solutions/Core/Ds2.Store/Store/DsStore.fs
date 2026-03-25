@@ -82,10 +82,22 @@ type DsStore() =
         replace source.HwConditions this.HwConditions
         replace source.HwActions    this.HwActions
 
+    /// JSON 마이그레이션: FlowPrefix가 비어있는 Work에 부모 Flow 이름 설정
+    member private this.MigrateWorkNaming() =
+        for work in this.Works.Values do
+            if System.String.IsNullOrEmpty(work.FlowPrefix) then
+                match this.Flows.TryGetValue(work.ParentId) with
+                | true, flow ->
+                    work.FlowPrefix <- flow.Name
+                    if System.String.IsNullOrEmpty(work.LocalName) then
+                        work.LocalName <- work.Name
+                | _ -> ()
+
     member private this.ApplyNewStore(newStore: DsStore, contextLabel: string) =
         try
             this.ReplaceAllCollections(newStore)
             this.RewireApiCallReferences()
+            this.MigrateWorkNaming()
             log.Info($"Store applied: {contextLabel}")
         with ex ->
             log.Error($"ApplyNewStore failed: {contextLabel} - {ex.Message}", ex)

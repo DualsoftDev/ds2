@@ -39,9 +39,13 @@ module internal AasxImportGraph =
                 log.Error($"AASX import failed: Work FlowGuid missing or invalid (WorkGuid={workGuid}, WorkName={workName}).")
                 None
             | Some flowId ->
-                let work = Work("", flowId)
+                let work = Work("", "", flowId)
                 getProp smc Guid_   |> Option.iter (fun g -> work.Id <- Guid.Parse g)
-                getProp smc Name_   |> Option.iter (fun n -> work.Name <- n)
+                // 새 형식: FlowPrefix + LocalName 우선, 없으면 Name 폴백 (마이그레이션)
+                match getProp smc FlowPrefix_, getProp smc LocalName_ with
+                | Some fp, Some ln -> work.FlowPrefix <- fp; work.LocalName <- ln
+                | _ -> getProp smc Name_ |> Option.iter (fun n -> work.Name <- n)
+                getProp smc ReferenceOf_ |> Option.bind tryParseGuid |> Option.iter (fun g -> work.ReferenceOf <- Some g)
                 fromJsonProp<WorkProperties> smc Properties_  |> Option.iter (fun p -> work.Properties <- p)
                 fromJsonProp<Xywh option>    smc Position_    |> Option.flatten |> Option.iter (fun pos -> work.Position <- Some pos)
                 getProp smc Status_ |> Option.iter (fun s -> work.Status4 <- parseStatus4 s)
@@ -167,7 +171,52 @@ module internal AasxImportGraph =
         : (DsSystem * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) list option =
         parseStrictList ownerLabel "System" systemSmcs smcToSystem
 
-    let submodelToProjectStore (sm: ISubmodel) : (Project * DsStore) option =
+    /// DeviceReference SMC에서 DeviceRelativePath 확인 → 외부 참조 여부 판별
+    let private hasDeviceRelativePath (smc: SubmodelElementCollection) : bool =
+        getProp smc DeviceRelativePath_ |> Option.isSome
+
+    /// 상대경로 검증 (.. 금지, 절대경로 금지)
+    let private isValidRelativePath (path: string) : bool =
+        not (System.String.IsNullOrWhiteSpace path)
+        && not (System.IO.Path.IsPathRooted path)
+        && not (path.Contains "..")
+
+    /// 외부 Device AASX 파일에서 System 데이터를 로드
+    let private loadExternalDevice (mainDir: string) (smc: SubmodelElementCollection)
+        : (DsSystem * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) option =
+        let relPath = getProp smc DeviceRelativePath_ |> Option.defaultValue ""
+        let deviceName = getProp smc DeviceName_ |> Option.defaultValue "<unknown>"
+        if not (isValidRelativePath relPath) then
+            log.Warn($"Device '{deviceName}': 잘못된 상대경로 '{relPath}' — 스킵")
+            None
+        else
+            let fullPath = System.IO.Path.Combine(mainDir, relPath)
+            if not (System.IO.File.Exists fullPath) then
+                log.Warn($"Device '{deviceName}': 파일 없음 '{fullPath}' — 스킵")
+                None
+            else
+                match readEnvironment fullPath with
+                | None ->
+                    log.Warn($"Device '{deviceName}': AASX 읽기 실패 '{fullPath}' — 스킵")
+                    None
+                | Some env ->
+                    if env.Submodels = null then None
+                    else
+                        env.Submodels
+                        |> Seq.tryPick (fun sm ->
+                            if sm.IdShort = SubmodelIdShort then
+                                sm.SubmodelElements
+                                |> Seq.tryPick (function
+                                    | :? SubmodelElementCollection as pSmc ->
+                                        // Device AASX에서 ActiveSystems에 저장된 System 추출
+                                        let systemSmcs = getChildSmlSmcs pSmc ActiveSystems_
+                                        match parseSystemsStrict $"Device '{deviceName}'" systemSmcs with
+                                        | Some (head :: _) -> Some head
+                                        | _ -> None
+                                    | _ -> None)
+                            else None)
+
+    let submodelToProjectStore (sm: ISubmodel) (mainDir: string option) : (Project * DsStore) option =
         try
             if sm = null || sm.SubmodelElements = null || sm.SubmodelElements.Count = 0 then
                 None
@@ -186,25 +235,46 @@ module internal AasxImportGraph =
                         match parseSystemsStrict $"Project '{project.Name}' ActiveSystems" (getChildSmlSmcs pSmc ActiveSystems_) with
                         | None -> None
                         | Some activeSystems ->
-                            let passiveSmcsFromDeviceRefs = getChildSmlSmcs pSmc DeviceReferences_
-                            let passiveOwnerLabel =
-                                if passiveSmcsFromDeviceRefs.IsEmpty then
-                                    $"Project '{project.Name}' PassiveSystems"
-                                else
-                                    $"Project '{project.Name}' DeviceReferences"
-                            let passiveSmcs =
-                                if passiveSmcsFromDeviceRefs.IsEmpty then
-                                    getChildSmlSmcs pSmc PassiveSystems_
-                                else
-                                    passiveSmcsFromDeviceRefs
+                            let deviceRefSmcs = getChildSmlSmcs pSmc DeviceReferences_
 
-                            match parseSystemsStrict passiveOwnerLabel passiveSmcs with
+                            // 외부 참조 모드: DeviceRelativePath가 있고 mainDir가 있으면 외부 로드
+                            let hasExternalRefs =
+                                mainDir.IsSome
+                                && not deviceRefSmcs.IsEmpty
+                                && deviceRefSmcs |> List.exists hasDeviceRelativePath
+
+                            let passiveSystems =
+                                if hasExternalRefs then
+                                    let dir = mainDir.Value
+                                    deviceRefSmcs
+                                    |> List.choose (fun smc ->
+                                        if hasDeviceRelativePath smc then
+                                            loadExternalDevice dir smc
+                                        else
+                                            // DeviceRelativePath 없는 인라인 참조 (역호환)
+                                            smcToSystem smc |> Option.map id)
+                                    |> Some
+                                else
+                                    // 기존 인라인 모드
+                                    let passiveSmcs =
+                                        if deviceRefSmcs.IsEmpty then
+                                            getChildSmlSmcs pSmc PassiveSystems_
+                                        else
+                                            deviceRefSmcs
+                                    let label =
+                                        if deviceRefSmcs.IsEmpty then
+                                            $"Project '{project.Name}' PassiveSystems"
+                                        else
+                                            $"Project '{project.Name}' DeviceReferences"
+                                    parseSystemsStrict label passiveSmcs
+
+                            match passiveSystems with
                             | None -> None
-                            | Some passiveSystems ->
+                            | Some ps ->
                                 let store = DsStore()
                                 store.DirectWrite(store.Projects, project)
                                 populateStore store project true activeSystems
-                                populateStore store project false passiveSystems
+                                populateStore store project false ps
                                 Some (project, store)
                     | _ -> None)
         with ex -> log.Warn($"submodelToProjectStore failed: {ex.Message}", ex); None

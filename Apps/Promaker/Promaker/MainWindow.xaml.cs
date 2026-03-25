@@ -38,26 +38,35 @@ public partial class MainWindow : Window
 
     private void Exit_Click(object sender, RoutedEventArgs e) => Close();
 
-    private static readonly string[] SupportedExtensions = [".json", ".aasx", ".md"];
+    private static readonly string[] SupportedExtensions = [".json", ".aasx", ".md", ".mmd"];
+
+    private bool IsSupportedFileDrop(DragEventArgs e) =>
+        e.Data.GetDataPresent(DataFormats.FileDrop)
+        && e.Data.GetData(DataFormats.FileDrop) is string[] { Length: 1 } files
+        && SupportedExtensions.Contains(
+            System.IO.Path.GetExtension(files[0]).ToLowerInvariant());
+
+    private void Window_DragEnter(object sender, DragEventArgs e)
+    {
+        if (IsSupportedFileDrop(e))
+            FileDragOverlay.Visibility = Visibility.Visible;
+    }
 
     private void Window_DragOver(object sender, DragEventArgs e)
     {
-        if (e.Data.GetDataPresent(DataFormats.FileDrop)
-            && e.Data.GetData(DataFormats.FileDrop) is string[] { Length: 1 } files
-            && SupportedExtensions.Contains(
-                System.IO.Path.GetExtension(files[0]).ToLowerInvariant()))
-        {
-            e.Effects = DragDropEffects.Copy;
-        }
-        else
-        {
-            e.Effects = DragDropEffects.None;
-        }
+        e.Effects = IsSupportedFileDrop(e) ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
+    }
+
+    private void Window_DragLeave(object sender, DragEventArgs e)
+    {
+        FileDragOverlay.Visibility = Visibility.Collapsed;
     }
 
     private void Window_Drop(object sender, DragEventArgs e)
     {
+        FileDragOverlay.Visibility = Visibility.Collapsed;
+
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] { Length: 1 } files)
             return;
 

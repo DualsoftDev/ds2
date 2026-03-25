@@ -122,11 +122,43 @@ module internal PanelTimeOps =
         |> Option.bind (fun entity -> getProp entity |> getMs)
         |> Option.orElseWith (fun () -> StoreLog.warn($"{entityKind} not found. id={id}"); None)
 
+module internal PanelMutationOps =
+    let updateWorkIfChanged
+        (store: DsStore)
+        workId
+        label
+        (changedEvent: Guid -> EditorEvent)
+        (getCurrent: Work -> 'T)
+        nextValue
+        (applyValue: Work -> 'T -> unit)
+        =
+        let work = StoreLog.requireWork(store, workId)
+        if getCurrent work <> nextValue then
+            store.WithTransaction(label, fun () ->
+                store.TrackMutate(store.Works, workId, fun current -> applyValue current nextValue))
+            store.EmitAndHistory(changedEvent workId)
+
+    let updateCallIfChanged
+        (store: DsStore)
+        callId
+        label
+        (changedEvent: Guid -> EditorEvent)
+        (getCurrent: Call -> 'T)
+        nextValue
+        (applyValue: Call -> 'T -> unit)
+        =
+        let call = StoreLog.requireCall(store, callId)
+        if getCurrent call <> nextValue then
+            store.WithTransaction(label, fun () ->
+                store.TrackMutate(store.Calls, callId, fun current -> applyValue current nextValue))
+            store.EmitAndHistory(changedEvent callId)
+
 [<Extension>]
 type DsStorePanelTimeExtensions =
     [<Extension>]
     static member GetWorkPeriodMs(store: DsStore, workId: Guid) : int option =
-        PanelTimeOps.readMs DsQuery.getWork (fun w -> w.Properties.Period) EntityKind.Work store workId
+        let resolvedId = DsQuery.resolveOriginalWorkId workId store
+        PanelTimeOps.readMs DsQuery.getWork (fun w -> w.Properties.Period) EntityKind.Work store resolvedId
 
     [<Extension>]
     static member GetWorkPeriodMsOrNull(store: DsStore, workId: Guid) : Nullable<int> =
@@ -144,13 +176,17 @@ type DsStorePanelTimeExtensions =
 
     [<Extension>]
     static member UpdateWorkPeriodMs(store: DsStore, workId: Guid, periodMs: int option) =
-        StoreLog.debug($"workId={workId}, periodMs={periodMs}")
-        let work = StoreLog.requireWork(store, workId)
+        let resolvedId = DsQuery.resolveOriginalWorkId workId store
+        StoreLog.debug($"workId={workId}, resolvedId={resolvedId}, periodMs={periodMs}")
         let period = PanelTimeOps.fromMs periodMs
-        if work.Properties.Period <> period then
-            store.WithTransaction("Work 속성 변경", fun () ->
-                store.TrackMutate(store.Works, workId, fun w -> w.Properties.Period <- period))
-            store.EmitAndHistory(WorkPropsChanged workId)
+        PanelMutationOps.updateWorkIfChanged
+            store
+            resolvedId
+            "Work 속성 변경"
+            WorkPropsChanged
+            (fun work -> work.Properties.Period)
+            period
+            (fun work value -> work.Properties.Period <- value)
 
     [<Extension>]
     static member UpdateWorkPeriodMs(store: DsStore, workId: Guid, periodMs: Nullable<int>) =
@@ -159,21 +195,27 @@ type DsStorePanelTimeExtensions =
     [<Extension>]
     static member UpdateWorkTokenRole(store: DsStore, workId: Guid, role: TokenRole) =
         StoreLog.debug($"workId={workId}, role={role}")
-        let work = StoreLog.requireWork(store, workId)
-        if work.TokenRole <> role then
-            store.WithTransaction("Work TokenRole 변경", fun () ->
-                store.TrackMutate(store.Works, workId, fun w -> w.TokenRole <- role))
-            store.EmitAndHistory(WorkPropsChanged workId)
+        PanelMutationOps.updateWorkIfChanged
+            store
+            workId
+            "Work TokenRole 변경"
+            WorkPropsChanged
+            (fun work -> work.TokenRole)
+            role
+            (fun work value -> work.TokenRole <- value)
 
     [<Extension>]
     static member UpdateCallTimeoutMs(store: DsStore, callId: Guid, timeoutMs: int option) =
         StoreLog.debug($"callId={callId}, timeoutMs={timeoutMs}")
-        let call = StoreLog.requireCall(store, callId)
         let timeout = PanelTimeOps.fromMs timeoutMs
-        if call.Properties.Timeout <> timeout then
-            store.WithTransaction("Call 속성 변경", fun () ->
-                store.TrackMutate(store.Calls, callId, fun c -> c.Properties.Timeout <- timeout))
-            store.EmitAndHistory(CallPropsChanged callId)
+        PanelMutationOps.updateCallIfChanged
+            store
+            callId
+            "Call 속성 변경"
+            CallPropsChanged
+            (fun call -> call.Properties.Timeout)
+            timeout
+            (fun call value -> call.Properties.Timeout <- value)
 
     [<Extension>]
     static member UpdateCallTimeoutMs(store: DsStore, callId: Guid, timeoutMs: Nullable<int>) =
@@ -288,7 +330,7 @@ type DsStorePanelConditionExtensions =
 
     /// 프로젝트 속성 일괄 변경 (Undo 지원)
     [<Extension>]
-    static member UpdateProjectProperties(store: DsStore, iriPrefix: string, globalAssetId: string, author: string, version: string, description: string) =
+    static member UpdateProjectProperties(store: DsStore, iriPrefix: string, globalAssetId: string, author: string, version: string, description: string, splitDeviceAasx: bool) =
         StoreLog.debug($"UpdateProjectProperties iri={iriPrefix}")
         let project = DsQuery.allProjects store |> List.head
         let toOpt (s: string) = if System.String.IsNullOrEmpty(s) then None else Some s
@@ -298,7 +340,8 @@ type DsStorePanelConditionExtensions =
                 p.Properties.GlobalAssetId <- toOpt globalAssetId
                 p.Properties.Author        <- toOpt author
                 p.Properties.Version       <- toOpt version
-                p.Properties.Description   <- toOpt description))
+                p.Properties.Description   <- toOpt description
+                p.Properties.SplitDeviceAasx <- splitDeviceAasx))
 
     [<Extension>]
     static member UpdateConditionApiCallOutputSpec(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid, outTypeIndex: int, outText: string) : bool =

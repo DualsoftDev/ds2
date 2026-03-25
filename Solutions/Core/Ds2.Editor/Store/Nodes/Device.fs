@@ -93,7 +93,7 @@ module internal DirectDeviceOps =
                 DsQuery.worksOf flow.Id store
                 |> List.tryFind (fun w -> w.Name = apiName)
                 |> Option.defaultWith (fun () ->
-                    let w = Work(apiName, flow.Id)
+                    let w = Work(flow.Name, apiName, flow.Id)
                     store.TrackAdd(store.Works, w)
                     w)
             let current = Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []

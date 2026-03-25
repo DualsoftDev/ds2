@@ -29,12 +29,30 @@ type Flow [<JsonConstructor>] internal (name, parentId) =
     member val Properties = FlowProperties() with get, set
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
-type Work [<JsonConstructor>] internal (name, parentId) =
-    inherit DsChild(name, parentId)
-    member val Properties = WorkProperties()    with get, set
-    member val Status4    : Status4 = Status4.Ready with get, set
-    member val Position   : Xywh option = None  with get, set
-    member val TokenRole  : TokenRole = TokenRole.None with get, set
+type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, parentId: Guid) =
+    inherit DsChild("", parentId)
+    /// 부모 Flow의 이름 (자동 설정, Flow rename 시 cascade)
+    member val FlowPrefix  = (if isNull flowPrefix then "" else flowPrefix) with get, set
+    /// Work 고유 이름 (사용자가 입력하는 부분)
+    member val LocalName   = (if isNull localName then "" else localName)   with get, set
+    /// None=원본 Work, Some guid=참조 대상 원본 Work의 ID
+    member val ReferenceOf : Guid option = None with get, set
+    member val Properties  = WorkProperties()    with get, set
+    member val Status4     : Status4 = Status4.Ready with get, set
+    member val Position    : Xywh option = None  with get, set
+    member val TokenRole   : TokenRole = TokenRole.None with get, set
+
+    override this.Name
+        with get() =
+            if String.IsNullOrEmpty(this.FlowPrefix) then this.LocalName
+            else $"{this.FlowPrefix}.{this.LocalName}"
+        and set value =
+            match value.IndexOf('.') with
+            | -1  -> this.LocalName <- value
+            | idx ->
+                this.FlowPrefix <- value[..idx - 1]
+                this.LocalName  <- value[idx + 1..]
+
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 // Call, ApiCall, CallCondition, ApiDef 은 실제 상호참조가 있어 and 유지

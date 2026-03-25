@@ -53,7 +53,7 @@ module NavigationTests =
         let flowFlowIds = EditorNavigation.flowIdsForTab store TabKind.Flow flow.Id
         let workFlowIds = EditorNavigation.flowIdsForTab store TabKind.Work work.Id
 
-        Assert.Equal<string>("TestWork", EditorNavigation.tabTitleOrNull store TabKind.Work work.Id)
+        Assert.Equal<string>("TestFlow.TestWork", EditorNavigation.tabTitleOrNull store TabKind.Work work.Id)
         Assert.Equal<Guid list>([ flow.Id ], systemFlowIds)
         Assert.Equal<Guid list>([ flow.Id ], flowFlowIds)
         Assert.Equal<Guid list>([ flow.Id ], workFlowIds)
@@ -96,6 +96,8 @@ module CanvasLayoutTests =
             Height = 40.0
             ConditionTypes = []
             IsGhost = false
+            IsReference = false
+            ReferenceOfId = None
         }
 
     let private arrow sourceId targetId =

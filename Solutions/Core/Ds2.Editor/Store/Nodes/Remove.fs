@@ -54,8 +54,13 @@ module internal CascadeRemove =
         |> List.iter (fun a -> store.TrackRemove(store.ArrowCalls, a.Id))
         store.TrackRemove(store.Calls, callId)
 
-    let cascadeRemoveWork (store: DsStore) (workId: Guid) =
-        DsQuery.callsOf workId store 
+    let rec cascadeRemoveWork (store: DsStore) (workId: Guid) =
+        // 원본 Work 삭제 시 → 이 Work를 참조하는 모든 reference Work도 삭제
+        store.WorksReadOnly.Values
+        |> Seq.filter (fun w -> w.ReferenceOf = Some workId)
+        |> Seq.toList
+        |> List.iter (fun refW -> cascadeRemoveWork store refW.Id)
+        DsQuery.callsOf workId store
         |> List.iter (fun call -> cascadeRemoveCall store call.Id)
         arrowWorksFor store (Set.singleton workId)
         |> List.iter (fun a -> store.TrackRemove(store.ArrowWorks, a.Id))

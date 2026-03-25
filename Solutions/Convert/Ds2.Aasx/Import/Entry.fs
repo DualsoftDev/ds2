@@ -14,6 +14,7 @@ module AasxImporter =
     open Ds2.Aasx.Compat
 
     let internal importFromAasxFile (path: string) : DsStore option =
+        let mainDir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path))
         readEnvironment path
         |> Option.bind (fun env ->
             if env.Submodels = null then
@@ -28,7 +29,7 @@ module AasxImporter =
                             if LegacyAasxDetector.isLegacyFormat sm then
                                 LegacyImportGraph.legacySubmodelToProjectStore sm
                             else
-                                submodelToProjectStore sm
+                                submodelToProjectStore sm (Some mainDir)
                         else None)
                 match result with
                 | None ->

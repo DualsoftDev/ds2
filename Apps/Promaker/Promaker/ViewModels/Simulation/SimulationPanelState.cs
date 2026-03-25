@@ -137,15 +137,35 @@ public partial class SimulationPanelState : ObservableObject
         }
     }
 
+    private void ApplySimulationUiState(
+        bool? ganttRunning = null,
+        bool? isSimulating = null,
+        bool? isSimPaused = null,
+        string? statusText = null,
+        string? logText = null)
+    {
+        if (ganttRunning.HasValue)
+            GanttChart.IsRunning = ganttRunning.Value;
+        if (isSimulating.HasValue)
+            IsSimulating = isSimulating.Value;
+        if (isSimPaused.HasValue)
+            IsSimPaused = isSimPaused.Value;
+        if (!string.IsNullOrWhiteSpace(statusText))
+            SetSimStatus(statusText, logText);
+        else if (!string.IsNullOrWhiteSpace(logText))
+            AddSimLog(logText);
+    }
+
     [RelayCommand(CanExecute = nameof(CanStartSimulation))]
     private void StartSimulation()
     {
         if (IsSimulating && IsSimPaused)
         {
             _simEngine?.Resume();
-            GanttChart.IsRunning = true;
-            IsSimPaused = false;
-            _setStatusText(SimText.Resumed);
+            ApplySimulationUiState(
+                ganttRunning: true,
+                isSimPaused: false,
+                statusText: SimText.Resumed);
             return;
         }
 
@@ -196,9 +216,12 @@ public partial class SimulationPanelState : ObservableObject
             _simEngine.Start();
 
             ApplySimStateToCanvas();
-            IsSimulating = true;
-            IsSimPaused = false;
-            SetSimStatus(SimText.Started, SimText.Started);
+            ApplySimulationUiState(
+                ganttRunning: true,
+                isSimulating: true,
+                isSimPaused: false,
+                statusText: SimText.Started,
+                logText: SimText.Started);
         }
         catch (Exception ex)
         {
@@ -213,9 +236,11 @@ public partial class SimulationPanelState : ObservableObject
     private void PauseSimulation()
     {
         _simEngine?.Pause();
-        GanttChart.IsRunning = false;
-        IsSimPaused = true;
-        SetSimStatus(SimText.Paused, SimText.Paused);
+        ApplySimulationUiState(
+            ganttRunning: false,
+            isSimPaused: true,
+            statusText: SimText.Paused,
+            logText: SimText.Paused);
     }
 
     private bool CanPauseSimulation() => IsSimulating && !IsSimPaused;
@@ -224,12 +249,14 @@ public partial class SimulationPanelState : ObservableObject
     private void StopSimulation()
     {
         _simEngine?.Stop();
-        GanttChart.IsRunning = false;
         ClearSimStateFromCanvas();
         ClearAllWarnings();
-        IsSimulating = false;
-        IsSimPaused = false;
-        SetSimStatus(SimText.Stopped, SimText.Stopped);
+        ApplySimulationUiState(
+            ganttRunning: false,
+            isSimulating: false,
+            isSimPaused: false,
+            statusText: SimText.Stopped,
+            logText: SimText.Stopped);
     }
 
     private bool CanStopSimulation() => IsSimulating;
@@ -242,7 +269,9 @@ public partial class SimulationPanelState : ObservableObject
         ApplySimulationResetUiState(clearCollections: false);
         GanttChart.Reset(_simStartTime);
         InitGanttEntries();
-        SetSimStatus(SimText.Reset, SimText.ResetLog);
+        ApplySimulationUiState(
+            statusText: SimText.Reset,
+            logText: SimText.ResetLog);
     }
 
     private bool CanResetSimulation() => IsSimulating;

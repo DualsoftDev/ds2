@@ -15,8 +15,6 @@ namespace Promaker.Controls;
 
 public partial class EditorCanvas
 {
-    private ArrowType _connectArrowType = ArrowType.Start;
-
     private void StartConnect_Click(object sender, RoutedEventArgs e)
     {
         StartConnectFromCurrentSelection();
@@ -50,7 +48,7 @@ public partial class EditorCanvas
                 return;
         }
 
-        _connectArrowType = selectedArrowType;
+        VM.SelectedConnectArrowType = selectedArrowType;
 
         _connectSource = node.Id;
         _connectSourcePos = new Point(node.X + node.Width / 2, node.Y + node.Height / 2);
@@ -115,14 +113,13 @@ public partial class EditorCanvas
             return;
         }
 
-        VM.TryConnectNodesFromCanvas(sourceId, targetId, _connectArrowType);
+        VM.TryConnectNodesFromCanvas(sourceId, targetId, VM.SelectedConnectArrowType);
         CancelConnect();
     }
 
     private void CancelConnect()
     {
         _connectSource = null;
-        _connectArrowType = ArrowType.Start;
         ConnectPreview.Visibility = Visibility.Collapsed;
         RootGrid.Cursor = System.Windows.Input.Cursors.Arrow;
     }
@@ -174,41 +171,26 @@ public partial class EditorCanvas
         menu.IsOpen = true;
     }
 
+    private static Brush ResolveArrowBrush(ArrowType type)
+    {
+        var key = type switch
+        {
+            ArrowType.Start => "GreenAccentBrush",
+            ArrowType.Reset or ArrowType.ResetReset => "OrangeAccentBrush",
+            ArrowType.StartReset => "RedAccentBrush",
+            _ => "SecondaryTextBrush"
+        };
+        return Application.Current.TryFindResource(key) as Brush ?? Brushes.Gray;
+    }
+
     private static Canvas CreateArrowIcon(ArrowType type)
     {
         var canvas = new Canvas { Width = 32, Height = 14 };
-        Brush brush;
-        bool dashed = false;
-        bool bidirectional = false;
-        bool hasStartRect = false;
-        bool noArrowHead = false;
-
-        switch (type)
-        {
-            case ArrowType.Start:
-                brush = new SolidColorBrush(Color.FromRgb(76, 175, 80));  // green
-                break;
-            case ArrowType.Reset:
-                brush = new SolidColorBrush(Color.FromRgb(255, 152, 0)); // orange
-                dashed = true;
-                break;
-            case ArrowType.StartReset:
-                brush = new SolidColorBrush(Color.FromRgb(244, 67, 54));  // red
-                hasStartRect = true;
-                break;
-            case ArrowType.ResetReset:
-                brush = new SolidColorBrush(Color.FromRgb(255, 152, 0)); // orange
-                dashed = true;
-                bidirectional = true;
-                break;
-            case ArrowType.Group:
-                brush = new SolidColorBrush(Color.FromRgb(158, 158, 158)); // gray
-                noArrowHead = true;
-                break;
-            default:
-                brush = Brushes.Gray;
-                break;
-        }
+        var brush = ResolveArrowBrush(type);
+        bool dashed = type is ArrowType.Reset or ArrowType.ResetReset;
+        bool bidirectional = type == ArrowType.ResetReset;
+        bool hasStartRect = type == ArrowType.StartReset;
+        bool noArrowHead = type == ArrowType.Group;
 
         // 시작점 사각형 (StartReset)
         double lineStart = 0;
