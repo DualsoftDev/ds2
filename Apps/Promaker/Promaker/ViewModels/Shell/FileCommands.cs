@@ -88,8 +88,12 @@ public partial class MainViewModel
         var dlg = new OpenFileDialog { Filter = FileFilter };
         if (dlg.ShowDialog() != true) return;
 
-        var fileName = dlg.FileName;
+        OpenFilePath(dlg.FileName);
+    }
 
+    /// <summary>지정된 경로의 파일을 연다. 드래그 &amp; 드롭에서도 재사용.</summary>
+    internal void OpenFilePath(string fileName)
+    {
         if (IsMermaid(fileName))
         {
             TryRunFileOperation(
@@ -158,12 +162,12 @@ public partial class MainViewModel
         // Control Tree 전체 확장
         ExpandAllNodes(ControlTreeRoots);
 
-        var firstSystem = TreeNodeSearch
+        var firstFlow = TreeNodeSearch
             .EnumerateNodes(ControlTreeRoots)
-            .FirstOrDefault(node => node.EntityType == EntityKind.System);
+            .FirstOrDefault(node => node.EntityType == EntityKind.Flow);
 
-        if (firstSystem is not null)
-            Canvas.OpenCanvasTab(firstSystem.Id, firstSystem.EntityType);
+        if (firstFlow is not null)
+            Canvas.OpenCanvasTab(firstFlow.Id, firstFlow.EntityType);
     }
 
     private static void ExpandAllNodes(IEnumerable<EntityNode> nodes)
@@ -183,10 +187,6 @@ public partial class MainViewModel
             : new Ds2.Core.ProjectProperties();
         var dlg = new ProjectPropertiesDialog(properties);
         var accepted = _dialogService.ShowDialog(dlg) == true;
-
-        if (dlg.ThemeChanged)
-            RefreshThemeState();
-
         if (!accepted) return;
 
         if (!HasProject) return;

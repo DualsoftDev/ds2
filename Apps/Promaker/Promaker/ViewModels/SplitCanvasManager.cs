@@ -104,12 +104,6 @@ public partial class SplitCanvasManager : ObservableObject
         ActivePane = PrimaryPane;
     }
 
-    public void NotifyQuickCreateStateChanged()
-    {
-        foreach (var pane in AllPanes)
-            pane.NotifyQuickCreateStateChanged();
-    }
-
     /// <summary>모든 pane에서 탭 타이틀 검증 및 캔버스 갱신.</summary>
     public void RebuildAllPanes()
     {

@@ -22,7 +22,7 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     let mutable state = SimState.create initialTickMs index.AllWorkGuids index.AllCallGuids
     let mutable pendingCallTransitions = Set.empty<Guid>
     let mutable pendingWorkTransitions = Set.empty<Guid>
-    let mutable workGTriggeredResets = Set.empty<(string * string) * (string * string)>
+    let mutable workGTriggeredResets = Set.empty<Guid * Guid>
     let mutable workMinDurationMet = Set.empty<Guid>
 
     member _.ApplyWorkTransition(guid: Guid, newState: Status4) : TransitionResult =
@@ -36,10 +36,7 @@ type StateManager(index: SimIndex, initialTickMs: int) =
                 state <- SimState.setWorkState guid newState state
                 if oldState = Status4.Going then
                     workMinDurationMet <- workMinDurationMet.Remove(guid)
-                    match Map.tryFind guid index.WorkSystemName, Map.tryFind guid index.WorkName with
-                    | Some sysName, Some wName ->
-                        workGTriggeredResets <- workGTriggeredResets |> Set.filter (fun (pk, _) -> pk <> (sysName, wName))
-                    | _ -> ()
+                    workGTriggeredResets <- workGTriggeredResets |> Set.filter (fun (predGuid, _) -> predGuid <> guid)
                 { ActualNewState = newState; OldState = oldState; IsSkipped = false; HasChanged = true; NodeName = nodeName; DeviceName = deviceName })
 
     member _.ApplyCallTransition(guid: Guid, newState: Status4, shouldSkipCall: Guid -> bool) : TransitionResult =

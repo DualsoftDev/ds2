@@ -27,12 +27,14 @@ public partial class SimulationPanelState : ObservableObject
     private readonly Func<DsStore> _storeProvider;
     private readonly Dispatcher _dispatcher;
     private readonly Func<IEnumerable<EntityNode>> _allCanvasNodes;
+    private readonly Func<IEnumerable<EntityNode>> _allTreeNodes;
     private readonly Action<string> _setStatusText;
     private ISimulationEngine? _simEngine;
     private DateTime _simStartTime = DateTime.Now;
     private readonly List<StateChangeRecord> _stateChangeRecords = [];
     private readonly StateCache _stateCache = new();
     private readonly HashSet<string> _suppressedWarnings = [];
+    private readonly HashSet<Guid> _warningGuids = [];
 
     private static class SimText
     {
@@ -59,11 +61,13 @@ public partial class SimulationPanelState : ObservableObject
         Func<DsStore> storeProvider,
         Dispatcher dispatcher,
         Func<IEnumerable<EntityNode>> allCanvasNodes,
+        Func<IEnumerable<EntityNode>> allTreeNodes,
         Action<string> setStatusText)
     {
         _storeProvider = storeProvider;
         _dispatcher = dispatcher;
         _allCanvasNodes = allCanvasNodes;
+        _allTreeNodes = allTreeNodes;
         _setStatusText = setStatusText;
     }
 
@@ -166,6 +170,7 @@ public partial class SimulationPanelState : ObservableObject
             GanttChart.IsRunning = true;
 
             // 그래프 검증 경고 (전체 수집 → 한 번에 표시)
+            _warningGuids.Clear();
             var sections = new List<GraphWarningSection>();
             CollectWarning(sections, "순환 데드락 위험", WarningSeverity.Red,
                 GraphValidator.findDeadlockCandidates(index),
@@ -180,10 +185,12 @@ public partial class SimulationPanelState : ObservableObject
             CollectWarning(sections, "Source 후보", WarningSeverity.Yellow,
                 GraphValidator.findSourceCandidates(index),
                 "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)");
+            CollectDurationWarning(sections, index);
             if (sections.Count > 0)
             {
                 Dialogs.DialogHelpers.ShowGraphWarnings(sections);
             }
+            ApplyWarningsToCanvas();
 
             _simEngine.ApplyInitialStates();
             _simEngine.Start();
@@ -219,6 +226,7 @@ public partial class SimulationPanelState : ObservableObject
         _simEngine?.Stop();
         GanttChart.IsRunning = false;
         ClearSimStateFromCanvas();
+        ClearAllWarnings();
         IsSimulating = false;
         IsSimPaused = false;
         SetSimStatus(SimText.Stopped, SimText.Stopped);
@@ -294,13 +302,17 @@ public partial class SimulationPanelState : ObservableObject
             AddSimLog(logText);
     }
 
-    private static void CollectWarning(
+    private void CollectWarning(
         List<GraphWarningSection> sections,
         string title, WarningSeverity severity,
         IEnumerable<Tuple<Guid, string, string>> items,
         string? detail = null)
     {
-        var lines = items
+        var itemList = items.ToList();
+        foreach (var item in itemList)
+            _warningGuids.Add(item.Item1);
+
+        var lines = itemList
             .Select(static item => $"  - {item.Item2}.{item.Item3}")
             .ToList();
         if (lines.Count == 0)
@@ -321,24 +333,63 @@ public partial class SimulationPanelState : ObservableObject
         return lines;
     }
 
-    private static void CollectGroupIgnoreWarning(
+    private void CollectGroupIgnoreWarning(
         List<GraphWarningSection> sections,
         SimIndex index)
     {
         var groups = GraphValidator.findGroupWorksWithoutIgnore(index);
         if (!groups.Any()) return;
 
+        foreach (var group in groups)
+            foreach (var member in group.Item2)
+                _warningGuids.Add(member.Item1);
+
         sections.Add(new GraphWarningSection(
             "Group Ignore 누락", WarningSeverity.Red, FormatGroupLines(groups),
             "(그룹 내 Work 중 1개를 제외한 나머지는 TokenRole.Ignore를 지정해야 합니다)"));
     }
 
-    private static void CollectTokenUnreachableWarning(
+    private void CollectDurationWarning(
         List<GraphWarningSection> sections,
         SimIndex index)
     {
-        var works = GraphValidator.findTokenUnreachableWorks(index);
-        if (!works.Any()) return;
+        var lines = new List<string>();
+        foreach (var workGuid in index.AllWorkGuids)
+        {
+            var workOpt = DsQuery.getWork(workGuid, index.Store);
+            if (workOpt is null) continue;
+
+            var periodOpt = workOpt.Value.Properties.Period;
+            var userMs = periodOpt != null ? (int)periodOpt.Value.TotalMilliseconds : 0;
+
+            var deviceOpt = DsQuery.tryGetDeviceDurationMs(workGuid, index.Store);
+            if (deviceOpt is null) continue;
+            var deviceMs = deviceOpt.Value;
+
+            if (userMs > 0 && userMs < deviceMs)
+            {
+                var sysName = index.WorkSystemName.TryFind(workGuid)?.Value ?? "";
+                var wName = index.WorkName.TryFind(workGuid)?.Value ?? "";
+                _warningGuids.Add(workGuid);
+                lines.Add($"  - {sysName}.{wName} (설정: {userMs}ms, Critical Path: {deviceMs}ms)");
+            }
+        }
+        if (lines.Count == 0) return;
+
+        sections.Add(new GraphWarningSection(
+            "Work Duration < Critical Path", WarningSeverity.Yellow, lines,
+            "(설정된 기간이 Device Critical Path보다 짧습니다. 실제 실행 시간은 Critical Path 기준으로 적용됩니다)"));
+    }
+
+    private void CollectTokenUnreachableWarning(
+        List<GraphWarningSection> sections,
+        SimIndex index)
+    {
+        var works = GraphValidator.findTokenUnreachableWorks(index).ToList();
+        if (works.Count == 0) return;
+
+        foreach (var w in works)
+            _warningGuids.Add(w.Item1);
 
         sections.Add(new GraphWarningSection(
             "토큰 도달 불가", WarningSeverity.Red,

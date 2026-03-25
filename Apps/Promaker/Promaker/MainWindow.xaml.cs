@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
@@ -36,6 +37,35 @@ public partial class MainWindow : Window
     }
 
     private void Exit_Click(object sender, RoutedEventArgs e) => Close();
+
+    private static readonly string[] SupportedExtensions = [".json", ".aasx", ".md"];
+
+    private void Window_DragOver(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop)
+            && e.Data.GetData(DataFormats.FileDrop) is string[] { Length: 1 } files
+            && SupportedExtensions.Contains(
+                System.IO.Path.GetExtension(files[0]).ToLowerInvariant()))
+        {
+            e.Effects = DragDropEffects.Copy;
+        }
+        else
+        {
+            e.Effects = DragDropEffects.None;
+        }
+        e.Handled = true;
+    }
+
+    private void Window_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] { Length: 1 } files)
+            return;
+
+        if (!_vm.ConfirmDiscardChangesPublic())
+            return;
+
+        _vm.OpenFilePath(files[0]);
+    }
 
     private void MainWindow_SourceInitialized(object? sender, EventArgs e)
     {

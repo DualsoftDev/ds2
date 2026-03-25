@@ -38,6 +38,9 @@ public partial class EntityNode : ObservableObject
     [ObservableProperty] private bool _hasComAux;
     [ObservableProperty] private bool _hasSkipUnmatch;
 
+    /// 경고 하이라이트 (그래프 검증 경고 등)
+    [ObservableProperty] private bool _isWarning;
+
     /// 시뮬레이션 상태 (null = 비시뮬)
     [ObservableProperty] private Status4? _simState;
 

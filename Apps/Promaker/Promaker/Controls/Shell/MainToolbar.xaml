@@ -242,23 +242,45 @@
                             </Style>
                         </Button.Style>
                         <StackPanel Orientation="Vertical">
-                            <Path Width="18" Height="18" Stretch="Fill" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" Data="M 4,2 L 16,9 L 4,16 Z"/>
-                            <TextBlock x:Name="SimulationStartStopText" Text="{x:Static res:Strings.Start}" Style="{StaticResource RibbonIconLabel}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <Path Width="18" Height="18" Stretch="Fill" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                <Path.Style>
+                                    <Style TargetType="Path">
+                                        <Setter Property="Data" Value="M 4,2 L 16,9 L 4,16 Z"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSimulating}" Value="True">
+                                                <Setter Property="Data" Value="M 3,3 L 15,3 L 15,15 L 3,15 Z"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Path.Style>
+                            </Path>
+                            <TextBlock x:Name="SimulationStartStopText" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource RibbonIconLabel}">
+                                        <Setter Property="Text" Value="PLAY"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSimulating}" Value="True">
+                                                <Setter Property="Text" Value="STOP"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </StackPanel>
                     </Button>
-                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding PauseSimulationCommand}" ToolTip="{x:Static res:Strings.PauseSimulationTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}"><StackPanel Orientation="Vertical"><Canvas Width="18" Height="18" HorizontalAlignment="Center"><Rectangle Canvas.Left="4" Canvas.Top="2.5" Width="3.8" Height="13" Fill="{DynamicResource IconGrayBrush}" RadiusX="1" RadiusY="1"/><Rectangle Canvas.Left="10.2" Canvas.Top="2.5" Width="3.8" Height="13" Fill="{DynamicResource IconGrayBrush}" RadiusX="1" RadiusY="1"/></Canvas><TextBlock Text="{x:Static res:Strings.Pause}" Style="{StaticResource RibbonIconLabel}"/></StackPanel></Button>
-                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ResetSimulationCommand}" ToolTip="{x:Static res:Strings.ResetSimulationTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" Foreground="{DynamicResource IconOrangeBrush}"><StackPanel Orientation="Vertical"><Canvas Width="18" Height="18" HorizontalAlignment="Center"><Path Data="M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12H4A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/></Canvas><TextBlock Text="{x:Static res:Strings.Reset}" Style="{StaticResource RibbonIconLabel}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/></StackPanel></Button>
+                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding PauseSimulationCommand}" ToolTip="{x:Static res:Strings.PauseSimulationTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}"><StackPanel Orientation="Vertical"><Canvas Width="18" Height="18" HorizontalAlignment="Center"><Rectangle Canvas.Left="4" Canvas.Top="2.5" Width="3.8" Height="13" Fill="{DynamicResource IconGrayBrush}" RadiusX="1" RadiusY="1"/><Rectangle Canvas.Left="10.2" Canvas.Top="2.5" Width="3.8" Height="13" Fill="{DynamicResource IconGrayBrush}" RadiusX="1" RadiusY="1"/></Canvas><TextBlock Text="PAUSE" Style="{StaticResource RibbonIconLabel}"/></StackPanel></Button>
+                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ResetSimulationCommand}" ToolTip="{x:Static res:Strings.ResetSimulationTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" Foreground="{DynamicResource IconOrangeBrush}"><StackPanel Orientation="Vertical"><Path Width="18" Height="18" Stretch="Uniform" HorizontalAlignment="Center" Data="M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12H4A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/><TextBlock Text="REVERT" Style="{StaticResource RibbonIconLabel}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/></StackPanel></Button>
                     <StackPanel Orientation="Vertical" Margin="8,0,0,0" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
                         <TextBlock Text="Work" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,2"/>
                         <ComboBox x:Name="SimWorkComboBox" ItemsSource="{Binding SimWorkItems}" SelectedItem="{Binding SelectedSimWork}" Width="130" FontSize="11"/>
                         <UniformGrid Columns="2" Margin="0,6,0,0">
                             <Button x:Name="ForceWorkStartButton" Command="{Binding ForceWorkStartCommand}" ToolTip="{x:Static res:Strings.ForceWorkStartTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" Margin="0,0,4,0">
                                 <Button.Style><Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}"><Setter Property="Foreground" Value="{DynamicResource IconGreenBrush}"/><Setter Property="MinWidth" Value="0"/><Setter Property="MinHeight" Value="0"/><Setter Property="Padding" Value="8,4"/></Style></Button.Style>
-                                <TextBlock Text="{x:Static res:Strings.Start}" VerticalAlignment="Center" FontSize="11" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="START" VerticalAlignment="Center" FontSize="11" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" HorizontalAlignment="Center"/>
                             </Button>
                             <Button x:Name="ForceWorkResetButton" Command="{Binding ForceWorkResetCommand}" ToolTip="{x:Static res:Strings.ForceWorkResetTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" Margin="4,0,0,0">
                                 <Button.Style><Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}"><Setter Property="Foreground" Value="{DynamicResource IconOrangeBrush}"/><Setter Property="MinWidth" Value="0"/><Setter Property="MinHeight" Value="0"/><Setter Property="Padding" Value="8,4"/></Style></Button.Style>
-                                <TextBlock Text="{x:Static res:Strings.Reset}" VerticalAlignment="Center" FontSize="11" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" HorizontalAlignment="Center"/>
+                                <TextBlock Text="RESET" VerticalAlignment="Center" FontSize="11" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" HorizontalAlignment="Center"/>
                             </Button>
                         </UniformGrid>
                     </StackPanel>

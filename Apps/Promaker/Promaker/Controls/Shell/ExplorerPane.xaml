@@ -39,7 +39,7 @@
                                    FontSize="10" FontWeight="Bold"
                                    Foreground="{Binding EntityType, Converter={StaticResource TypeToForeground}}"/>
                     </Border>
-                    <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
+                    <TextBlock x:Name="TreeNodeName" Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
                     <Border Grid.Column="2"
                             Margin="6,0,0,0"
                             Padding="5,0"
@@ -58,6 +58,10 @@
                 </Grid>
             </Border>
             <HierarchicalDataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsWarning}" Value="True">
+                    <Setter TargetName="TreeNodeName" Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
+                    <Setter TargetName="TreeNodeName" Property="FontWeight" Value="Bold"/>
+                </DataTrigger>
                 <DataTrigger Binding="{Binding IsTreeSelected}" Value="True">
                     <Setter TargetName="TreeItemBorder" Property="Background" Value="{DynamicResource SelectedBrush}"/>
                 </DataTrigger>

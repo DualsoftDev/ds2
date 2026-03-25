@@ -20,39 +20,16 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- 섹션 헤더: 테마 설정 -->
-            <TextBlock Grid.Row="0" Text="테마 설정"
-                       FontSize="13" FontWeight="SemiBold"
-                       Foreground="{DynamicResource PrimaryTextBrush}"
-                       Margin="0,0,0,10"/>
-
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
-                <RadioButton x:Name="DarkThemeRadio" Content="다크 모드"
-                             Foreground="{DynamicResource ForegroundBrush}"
-                             Margin="0,0,16,0" VerticalContentAlignment="Center"
-                             Checked="ThemeRadio_Checked"/>
-                <RadioButton x:Name="LightThemeRadio" Content="라이트 모드"
-                             Foreground="{DynamicResource ForegroundBrush}"
-                             VerticalContentAlignment="Center"
-                             Checked="ThemeRadio_Checked"/>
-            </StackPanel>
-
-            <!-- 구분선 -->
-            <Border Grid.Row="2" Height="1" Margin="0,4,0,12"
-                    Background="{DynamicResource BorderBrush}"/>
-
             <!-- 섹션 헤더: AAS 메타데이터 -->
-            <TextBlock Grid.Row="3" Text="AAS 메타데이터"
+            <TextBlock Grid.Row="0" Text="AAS 메타데이터"
                        FontSize="13" FontWeight="SemiBold"
                        Foreground="{DynamicResource PrimaryTextBrush}"
                        Margin="0,0,0,10"/>
 
             <!-- IRI Prefix -->
-            <StackPanel Grid.Row="4" Margin="0,0,0,8">
+            <StackPanel Grid.Row="1" Margin="0,0,0,8">
                 <TextBlock Text="IRI Prefix"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
@@ -60,7 +37,7 @@
             </StackPanel>
 
             <!-- Global Asset ID -->
-            <StackPanel Grid.Row="5" Margin="0,0,0,8">
+            <StackPanel Grid.Row="2" Margin="0,0,0,8">
                 <TextBlock Text="Global Asset ID"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
@@ -71,17 +48,17 @@
             </StackPanel>
 
             <!-- 구분선 -->
-            <Border Grid.Row="6" Height="1" Margin="0,4,0,12"
+            <Border Grid.Row="3" Height="1" Margin="0,4,0,12"
                     Background="{DynamicResource BorderBrush}"/>
 
             <!-- 섹션 헤더: 일반 -->
-            <TextBlock Grid.Row="7" Text="일반"
+            <TextBlock Grid.Row="4" Text="일반"
                        FontSize="13" FontWeight="SemiBold"
                        Foreground="{DynamicResource PrimaryTextBrush}"
                        Margin="0,0,0,10"/>
 
             <!-- Author -->
-            <StackPanel Grid.Row="8" Margin="0,0,0,8">
+            <StackPanel Grid.Row="5" Margin="0,0,0,8">
                 <TextBlock Text="작성자"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
@@ -89,7 +66,7 @@
             </StackPanel>
 
             <!-- Version -->
-            <StackPanel Grid.Row="9" Margin="0,0,0,8">
+            <StackPanel Grid.Row="6" Margin="0,0,0,8">
                 <TextBlock Text="버전"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
@@ -97,7 +74,7 @@
             </StackPanel>
 
             <!-- Description -->
-            <StackPanel Grid.Row="9" Margin="0,0,0,8">
+            <StackPanel Grid.Row="7" Margin="0,0,0,8">
                 <TextBlock Text="설명"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
@@ -109,7 +86,7 @@
             </StackPanel>
 
             <!-- Buttons -->
-            <StackPanel Grid.Row="10" Orientation="Horizontal" HorizontalAlignment="Right"
+            <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right"
                         Margin="0,10,0,0">
                 <Button Content="확인" Style="{StaticResource DarkButton}"
                         Padding="12,4" Margin="0,0,4,0"

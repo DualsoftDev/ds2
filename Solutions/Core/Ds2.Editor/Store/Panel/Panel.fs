@@ -217,6 +217,21 @@ type DsStorePanelConditionExtensions =
         let cond = CallCondition(Type = Some condType)
         DirectPanelOps.mutateCallProps store callId "조건 추가" (fun c -> c.CallConditions.Add(cond))
 
+    /// 단일 트랜잭션: 조건 생성 + ApiCall 추가 (드래그&드롭용)
+    [<Extension>]
+    static member AddConditionWithApiCalls(store: DsStore, callId: Guid, condType: CallConditionType, sourceApiCallIds: Guid seq) : Guid =
+        let sources = sourceApiCallIds |> Seq.choose (fun id -> DsQuery.getApiCall id store) |> Seq.toList
+        StoreLog.debug($"callId={callId}, condType={condType}, count={sources.Length}")
+        StoreLog.requireCall(store, callId) |> ignore
+        let cond = CallCondition(Type = Some condType)
+        DirectPanelOps.mutateCallProps store callId "조건 추가 + ApiCall" (fun c ->
+            c.CallConditions.Add(cond)
+            for src in sources do
+                let copy = src.DeepCopy()
+                copy.Id <- src.Id
+                cond.Conditions.Add(copy))
+        cond.Id
+
     [<Extension>]
     static member RemoveCallCondition(store: DsStore, callId: Guid, conditionId: Guid) =
         StoreLog.debug($"callId={callId}, conditionId={conditionId}")

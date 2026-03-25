@@ -23,50 +23,36 @@ module internal ConditionEvaluation =
     }
 
     let private tryQueueWorkReset (ctx: Context) (scheduledGoingGuids: Set<Guid>) workGuid =
-        let tryFindWorkKey guid =
-            match Map.tryFind guid ctx.Index.WorkSystemName, Map.tryFind guid ctx.Index.WorkName with
-            | Some systemName, Some workName -> Some (systemName, workName)
-            | _ -> None
-
-        let tryFindResetTriggerPred targetKey resetPreds =
+        let tryFindResetTriggerPred resetPreds =
             let isGoingOrScheduled predGuid =
                 ctx.StateManager.GetWorkState(predGuid) = Status4.Going
                 || scheduledGoingGuids.Contains(predGuid)
 
-            let isResetTriggerPending predGuid =
-                match tryFindWorkKey predGuid with
-                | Some predKey -> not (ctx.StateManager.IsResetTriggered(predKey, targetKey))
-                | None -> false
-
             resetPreds
             |> List.tryFind (fun predGuid ->
                 isGoingOrScheduled predGuid
-                && isResetTriggerPending predGuid)
+                && not (ctx.StateManager.IsResetTriggered(predGuid, workGuid)))
 
         let emitConflictIfTokenHeld () =
             match SimState.getWorkToken workGuid (ctx.StateManager.GetState()) with
             | Some token -> ctx.EmitTokenEvent Conflict token workGuid None
             | None -> ()
 
-        let queueWorkResetTransition predGuid targetKey =
-            match tryFindWorkKey predGuid with
-            | Some predKey ->
-                ctx.StateManager.AddResetTrigger(predKey, targetKey)
-                ctx.StateManager.MarkWorkPending(workGuid)
-                ctx.Scheduler.ScheduleNow(
-                    ScheduledEventType.WorkTransition(workGuid, Status4.Homing),
-                    ScheduledEvent.PriorityStateChange)
-                |> ignore
-            | None -> ()
+        let queueWorkResetTransition predGuid =
+            ctx.StateManager.AddResetTrigger(predGuid, workGuid)
+            ctx.StateManager.MarkWorkPending(workGuid)
+            ctx.Scheduler.ScheduleNow(
+                ScheduledEventType.WorkTransition(workGuid, Status4.Homing),
+                ScheduledEvent.PriorityStateChange)
+            |> ignore
 
         match WorkConditionChecker.collectResetPreds ctx.Index workGuid with
-        | Some (systemName, workName, resetPreds) ->
-            let targetKey = (systemName, workName)
-            match tryFindResetTriggerPred targetKey resetPreds with
+        | Some (_, _, resetPreds) ->
+            match tryFindResetTriggerPred resetPreds with
             | Some predGuid ->
                 if SimState.getWorkToken workGuid (ctx.StateManager.GetState()) |> Option.isSome then
                     emitConflictIfTokenHeld ()
-                queueWorkResetTransition predGuid targetKey
+                queueWorkResetTransition predGuid
             | None -> ()
         | None -> ()
 
