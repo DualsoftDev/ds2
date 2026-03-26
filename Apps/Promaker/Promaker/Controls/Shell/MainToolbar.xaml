@@ -229,7 +229,7 @@
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="ConnectExecuteButton" Style="{StaticResource RibbonFlatButton}"
                             Command="{Binding ConnectSelectedNodesCommand}"
-                            ToolTip="선택된 노드를 연결">
+                            ToolTip="선택된 노드를 연결" Margin="2,0,0,0" Padding="8,8,2,8">
                         <StackPanel Orientation="Vertical">
                             <Canvas x:Name="ConnectIconCanvas" Width="18" Height="18" HorizontalAlignment="Center">
                                 <!-- Start Arrow (기본) -->
@@ -265,7 +265,7 @@
                     <Grid>
                         <ToggleButton x:Name="ConnectTypeToggle" Style="{StaticResource RibbonFlatToggleButton}"
                                       IsEnabled="{Binding HasProject}" ToolTip="연결 타입 선택"
-                                      MinWidth="28" Padding="2,8">
+                                      MinWidth="20" Margin="0" Padding="0,8">
                             <Path Width="10" Height="6" Stretch="Uniform" Data="M0,0 L5,5 L10,0" Fill="{DynamicResource IconGrayBrush}"/>
                         </ToggleButton>
                         <Popup IsOpen="{Binding IsChecked, ElementName=ConnectTypeToggle, Mode=TwoWay}"
@@ -509,8 +509,15 @@
             <!-- Settings Section -->
             <Grid x:Name="SettingsSection" Grid.Column="10">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                <WrapPanel Orientation="Horizontal">
-                    <Button x:Name="ThemeButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding ToggleThemeCommand}" ToolTip="{Binding ThemeButtonToolTip}">
+                <Grid x:Name="SettingsRibbonContentPanel">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="ThemeButton" Grid.Column="0" Style="{StaticResource RibbonFlatButton}" Command="{Binding ToggleThemeCommand}" ToolTip="{Binding ThemeButtonToolTip}">
                         <StackPanel Orientation="Vertical">
                             <Path x:Name="ThemeSunIcon"
                                   Width="18"
@@ -522,13 +529,26 @@
                             <TextBlock Text="{Binding ThemeButtonText}" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </Button>
-                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowProjectSettingsCommand}" ToolTip="프로젝트 속성">
+                    <Button Grid.Column="1" Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowProjectSettingsCommand}" ToolTip="프로젝트 속성">
                         <StackPanel Orientation="Vertical">
                             <Path Width="18" Height="18" Stretch="Uniform" Data="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z" Fill="{DynamicResource IconGrayBrush}"/>
                             <TextBlock Text="{x:Static res:Strings.Settings}" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </Button>
-                </WrapPanel>
+                    <Border Grid.Column="3" Style="{StaticResource RibbonSectionSeparator}" Margin="10,10"/>
+                    <Button x:Name="AboutButton" Grid.Column="4" Style="{StaticResource RibbonFlatButton}" Click="AboutButton_Click" ToolTip="프로그램 정보">
+                        <StackPanel Orientation="Vertical">
+                            <Grid Width="18" Height="18">
+                                <Ellipse Fill="{DynamicResource IconGrayBrush}"/>
+                                <TextBlock Text="i" FontSize="13" FontWeight="Bold"
+                                           Foreground="{DynamicResource ToolbarShellBrush}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Margin="0,-1,0,0"/>
+                            </Grid>
+                            <TextBlock Text="정보" Style="{StaticResource RibbonIconLabel}"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
                 <TextBlock Grid.Row="1" Text="설정" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
         </Grid>
