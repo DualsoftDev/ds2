@@ -27,6 +27,8 @@
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\Promaker.ico" />
+    <Resource Include="Assets\SdfFile.ico" />
+    <Resource Include="Resources\Icons\aas.png" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Update="Resources\Strings.resx">

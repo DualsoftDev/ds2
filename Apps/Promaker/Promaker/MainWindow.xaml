@@ -182,32 +182,66 @@
         </StatusBar>
 
         <!-- File drag overlay -->
-        <Border x:Name="FileDragOverlay" Grid.RowSpan="3"
-                Background="#CC1E2D3D" IsHitTestVisible="False"
-                Visibility="Collapsed" Panel.ZIndex="100">
+        <Grid x:Name="FileDragOverlay" Grid.RowSpan="3" Visibility="Collapsed" IsHitTestVisible="False" Panel.ZIndex="100">
+            <!-- Semi-transparent background with accent color -->
+            <Rectangle x:Name="DragDropBackground" Fill="{DynamicResource AccentBrush}" Opacity="0.15"/>
+
+            <!-- Dashed border -->
+            <Rectangle x:Name="DragDropBorder" Stroke="{DynamicResource AccentBrush}"
+                       StrokeThickness="4"
+                       StrokeDashArray="10,5"
+                       Margin="20"/>
+
+            <!-- Drop instruction -->
             <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                    CornerRadius="16" Padding="40,30"
-                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                    BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2">
+                    BorderBrush="{DynamicResource AccentBrush}"
+                    BorderThickness="2"
+                    CornerRadius="12"
+                    Padding="60,50"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
                 <Border.Effect>
-                    <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.6"
-                                      Color="{DynamicResource AccentColor}"/>
+                    <DropShadowEffect Color="Black" Opacity="0.4" BlurRadius="20" ShadowDepth="5"/>
                 </Border.Effect>
                 <StackPanel HorizontalAlignment="Center">
-                    <Path Width="48" Height="48" Stretch="Uniform" Margin="0,0,0,16"
-                          HorizontalAlignment="Center"
-                          Fill="{DynamicResource AccentBrush}"
-                          Data="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z"/>
-                    <TextBlock Text="프로젝트 파일을 여기에 놓으세요"
-                               FontSize="18" FontWeight="Bold"
-                               Foreground="{DynamicResource PrimaryTextBrush}"
-                               HorizontalAlignment="Center" Margin="0,0,0,6"/>
-                    <TextBlock Text="AASX, JSON, MERMAID"
-                               FontSize="13"
-                               Foreground="{DynamicResource SecondaryTextBrush}"
-                               HorizontalAlignment="Center"/>
+                    <!-- SDF Icon (shown for .sdf files) -->
+                    <Grid x:Name="DragDropSdfIcon" Width="100" Height="100" Margin="0,0,0,20"
+                          HorizontalAlignment="Center" Visibility="Collapsed">
+                        <Rectangle Fill="#FF4CAF50" RadiusX="12" RadiusY="12"/>
+                        <TextBlock Text="SDF" FontSize="28" FontWeight="Bold" Foreground="White"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <!-- JSON Icon (shown for .json files) -->
+                    <Grid x:Name="DragDropJsonIcon" Width="100" Height="100" Margin="0,0,0,20"
+                          HorizontalAlignment="Center" Visibility="Collapsed">
+                        <Rectangle Fill="#FF2196F3" RadiusX="12" RadiusY="12"/>
+                        <TextBlock Text="JSON" FontSize="24" FontWeight="Bold" Foreground="White"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <!-- AASX Icon (shown for .aasx files) -->
+                    <Image x:Name="DragDropAasxIcon" Source="Resources/Icons/aas.png"
+                           Width="100" Height="100" Margin="0,0,0,20"
+                           HorizontalAlignment="Center" Stretch="Uniform" Visibility="Collapsed"/>
+
+                    <!-- Mermaid Icon (shown for .md files) -->
+                    <Viewbox x:Name="DragDropMermaidIcon" Width="100" Height="100" Margin="0,0,0,20"
+                             HorizontalAlignment="Center" Visibility="Collapsed">
+                        <Canvas Width="24" Height="24">
+                            <Path Fill="{DynamicResource AccentBrush}" Data="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M9,13V19H7V13H9M15,15V19H17V15H15M11,11V19H13V11H11Z"/>
+                        </Canvas>
+                    </Viewbox>
+
+                    <!-- Dynamic message text -->
+                    <TextBlock x:Name="DragDropMessage" Text="프로젝트 파일을 여기에 놓으세요"
+                               FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    <TextBlock x:Name="DragDropSubMessage" Text="지원 형식: SDF, AASX, Mermaid"
+                               FontSize="12" Margin="0,10,0,0" HorizontalAlignment="Center"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
                 </StackPanel>
             </Border>
-        </Border>
+        </Grid>
     </Grid>
 </Window>
