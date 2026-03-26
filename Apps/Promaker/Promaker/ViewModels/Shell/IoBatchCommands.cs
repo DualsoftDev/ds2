@@ -16,8 +16,9 @@ public partial class MainViewModel
         var storeRows = _store.GetAllApiCallIORows();
         var rows = storeRows
             .Select(r => new IoBatchRow(
-                r.CallId, r.ApiCallId, r.FlowName, r.WorkName, r.CallName,
-                r.InAddress, r.InSymbol, r.OutAddress, r.OutSymbol, ""))
+                r.CallId, r.ApiCallId, r.FlowName, r.DeviceName, r.ApiName,
+                r.InAddress, r.InSymbol, r.OutAddress, r.OutSymbol,
+                r.OutDataType, r.InDataType))
             .ToList();
 
         if (rows.Count == 0)
@@ -26,7 +27,7 @@ public partial class MainViewModel
             return;
         }
 
-        var dialog = new IoBatchSettingsDialog(rows);
+        var dialog = new IoBatchSettingsDialog(_store, rows, _currentFilePath);
         if (_dialogService.ShowDialog(dialog) != true)
             return;
 

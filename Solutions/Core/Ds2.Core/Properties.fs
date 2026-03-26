@@ -44,6 +44,7 @@ type ProjectProperties() =
     member val IriPrefix    : string option         = None with get, set
     member val GlobalAssetId: string option         = None with get, set
     member val SplitDeviceAasx: bool                = false with get, set
+    member val PresetSystemTypesStorage : string option = None with get, set
 
 type SystemProperties() =
     inherit PropertiesBase<SystemProperties>()
@@ -52,6 +53,7 @@ type SystemProperties() =
     member val Author        : string option         = None with get, set
     member val DateTime      : DateTimeOffset option = None with get, set
     member val IRI           : string option         = None with get, set
+    member val SystemType    : string option         = None with get, set   // e.g. "Controller", "Robot", "Conveyor", "Sensor", "Custom"
 
 
 type FlowProperties() =

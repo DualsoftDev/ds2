@@ -1,7 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
+using Ds2.Core;
 using Ds2.Store;
 using Ds2.Editor;
+using Microsoft.FSharp.Core;
 
 namespace Promaker.Dialogs;
 
@@ -10,6 +12,7 @@ public enum CallCreateMode { CallReplication, ApiCallReplication, ApiDefPicker }
 public partial class CallCreateDialog : Window
 {
     private readonly Func<string, IReadOnlyList<ApiDefMatch>> _findApiDefsByName;
+    private readonly ProjectProperties? _projectProperties;
 
     // ─── 공통 출력 ───
     public CallCreateMode Mode { get; private set; }
@@ -27,15 +30,57 @@ public partial class CallCreateDialog : Window
     public string DevicesAlias { get; private set; } = string.Empty;
     public string ApiName { get; private set; } = string.Empty;
 
-    public CallCreateDialog(Func<string, IReadOnlyList<ApiDefMatch>> findApiDefsByName)
+    // ─── SystemType 출력 ───
+    public string? SelectedSystemType { get; private set; } = null;
+
+    public CallCreateDialog(Func<string, IReadOnlyList<ApiDefMatch>> findApiDefsByName, ProjectProperties? projectProperties = null)
     {
         _findApiDefsByName = findApiDefsByName;
+        _projectProperties = projectProperties;
         InitializeComponent();
+        LoadPresets();
         Loaded += (_, _) =>
         {
             BasicAliasTextBox.Focus();
             RefreshApiDefList();
         };
+    }
+
+    private void LoadPresets()
+    {
+        PresetComboBox.Items.Clear();
+
+        if (_projectProperties != null)
+        {
+            var presets = ProjectPropertiesHelper.getPresetSystemTypes(_projectProperties);
+            foreach (var preset in presets)
+            {
+                var parts = preset.Split(':');
+                if (parts.Length == 2)
+                {
+                    var presetName = parts[0];
+                    var displayName = presetName.Replace(";", "-");
+                    var item = new ComboBoxItem
+                    {
+                        Content = displayName,
+                        Tag = presetName
+                    };
+                    PresetComboBox.Items.Add(item);
+                }
+            }
+        }
+
+        // 프리셋이 없으면 기본값 추가
+        if (PresetComboBox.Items.Count == 0)
+        {
+            PresetComboBox.Items.Add(new ComboBoxItem { Content = "ADV-RET", Tag = "ADV;RET" });
+            PresetComboBox.Items.Add(new ComboBoxItem { Content = "UP-DOWN", Tag = "UP;DOWN" });
+            PresetComboBox.Items.Add(new ComboBoxItem { Content = "FWD-BWD", Tag = "FWD;BWD" });
+        }
+
+        // 첫 번째 항목 선택
+        if (PresetComboBox.Items.Count > 0)
+            PresetComboBox.SelectedIndex = 0;
     }
 
     // ─── 프리셋 ───
@@ -46,17 +91,8 @@ public partial class CallCreateDialog : Window
         if (PresetComboBox.SelectedItem is ComboBoxItem item)
         {
             var tag = item.Tag?.ToString();
-            if (tag == "USER")
-            {
-                BasicApiNameTextBox.IsEnabled = true;
-                BasicApiNameTextBox.Text = "";
-                BasicApiNameTextBox.Focus();
-            }
-            else
-            {
-                BasicApiNameTextBox.IsEnabled = false;
-                BasicApiNameTextBox.Text = tag ?? "";
-            }
+            BasicApiNameTextBox.IsEnabled = false;
+            BasicApiNameTextBox.Text = tag ?? "";
         }
     }
 
@@ -136,6 +172,9 @@ public partial class CallCreateDialog : Window
 
         var (alias, apiNames) = result.Value;
 
+        // SystemType 가져오기 - 프리셋에 따라 고급 탭에서 설정한 값 사용
+        SelectedSystemType = GetSystemTypeForCurrentPreset();
+
         // 추가 기능이 펼쳐진 경우 복수 생성
         if (AdvancedExpander.IsExpanded)
         {
@@ -151,6 +190,36 @@ public partial class CallCreateDialog : Window
         Mode = CallCreateMode.CallReplication;
         CallNames = names;
         DialogResult = true;
+    }
+
+    private string? GetSystemTypeForCurrentPreset()
+    {
+        if (PresetComboBox.SelectedItem is not ComboBoxItem item)
+            return null;
+
+        if (_projectProperties == null)
+            return "ROBOT"; // 프로젝트가 없으면 기본값
+
+        var presetTag = item.Tag?.ToString();
+        if (string.IsNullOrEmpty(presetTag))
+            return "ROBOT";
+
+        // ProjectProperties에서 프리셋별 SystemType 조회
+        var systemType = ProjectPropertiesHelper.getSystemTypeForPreset(presetTag, _projectProperties);
+
+        // 기본값 설정
+        if (systemType == null || !FSharpOption<string>.get_IsSome(systemType))
+        {
+            return presetTag switch
+            {
+                "ADV;RET" => "Unit",
+                "UP;DOWN" => "UpDn",
+                "FWD;BWD" => "Motor",
+                _ => "Multi"
+            };
+        }
+
+        return systemType.Value;
     }
 
     private void CommitCallReplication(string alias, List<string> apiNames)

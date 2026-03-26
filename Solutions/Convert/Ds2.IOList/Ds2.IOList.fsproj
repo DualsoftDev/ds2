@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Types.fs" />
+    <Compile Include="AddressConfig.fs" />
+    <Compile Include="TemplateParser.fs" />
+    <Compile Include="ContextBuilder.fs" />
+    <Compile Include="SignalGenerator.fs" />
+    <Compile Include="ExportTypes.fs" />
+    <Compile Include="CsvExporter.fs" />
+    <Compile Include="ExcelExporter.fs" />
+    <Compile Include="Pipeline.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\Core\Ds2.Store\Ds2.Store.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" />
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="log4net" />
+  </ItemGroup>
+
+</Project>

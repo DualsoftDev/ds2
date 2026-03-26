@@ -40,6 +40,8 @@ public partial class PropertyPanelState : ObservableObject
     [ObservableProperty] private bool _isWorkSelected;
     [ObservableProperty] private bool _isCallSelected;
     [ObservableProperty] private bool _isSystemSelected;
+    [ObservableProperty] private string _systemType = string.Empty;
+    [ObservableProperty] private bool _isSystemTypeDirty;
     [ObservableProperty] private int? _workPeriodMs;
     [ObservableProperty] private bool _isTokenSource;
     [ObservableProperty] private bool _isTokenIgnore;
@@ -60,6 +62,7 @@ public partial class PropertyPanelState : ObservableObject
     private int? _originalWorkPeriodMs;
     private int? _deviceDurationMs;
     private int? _originalCallTimeoutMs;
+    private string _originalSystemType = string.Empty;
 
     partial void OnSelectedNodeChanged(EntityNode? value) => Refresh();
 
@@ -102,6 +105,9 @@ public partial class PropertyPanelState : ObservableObject
 
     partial void OnCallTimeoutMsChanged(int? value) =>
         IsCallTimeoutDirty = value != _originalCallTimeoutMs;
+
+    partial void OnSystemTypeChanged(string value) =>
+        IsSystemTypeDirty = !string.Equals(value, _originalSystemType, StringComparison.Ordinal);
 
     public void SyncSelectedNode(EntityNode? value)
     {
@@ -183,9 +189,32 @@ public partial class PropertyPanelState : ObservableObject
         }
 
         if (IsSystemSelected && selected is not null)
+        {
             RefreshSystemPanel(selected.Id);
+
+            // Load SystemType
+            var systemOpt = DsQuery.getSystem(selected.Id, Store);
+            if (systemOpt != null && Microsoft.FSharp.Core.FSharpOption<DsSystem>.get_IsSome(systemOpt))
+            {
+                var systemTypeOpt = systemOpt.Value.Properties.SystemType;
+                _originalSystemType = systemTypeOpt != null && Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(systemTypeOpt)
+                    ? systemTypeOpt.Value
+                    : string.Empty;
+            }
+            else
+            {
+                _originalSystemType = string.Empty;
+            }
+            SystemType = _originalSystemType;
+            IsSystemTypeDirty = false;
+        }
         else
+        {
             SystemApiDefs.Clear();
+            _originalSystemType = string.Empty;
+            SystemType = string.Empty;
+            IsSystemTypeDirty = false;
+        }
     }
 
     public void ApplyEntityRename(Guid entityId, string newName)

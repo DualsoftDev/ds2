@@ -54,11 +54,29 @@ public partial class MainViewModel : ObservableObject
         LanguageManager.ApplySavedLanguage();
         RefreshThemeState();
         RefreshLanguageState();
+        LoadRecentFiles();
+
+        // 템플릿 폴더 초기화
+        Services.TemplateManager.EnsureTemplatesExist();
+    }
+
+    /// <summary>
+    /// 저장된 최근 파일 목록 로드
+    /// </summary>
+    private void LoadRecentFiles()
+    {
+        RecentFiles.Clear();
+        var files = Services.RecentFilesManager.LoadRecentFiles();
+        foreach (var file in files)
+        {
+            RecentFiles.Add(file);
+        }
     }
 
     public ObservableCollection<EntityNode> ControlTreeRoots { get; } = [];
     public ObservableCollection<EntityNode> DeviceTreeRoots { get; } = [];
     public ObservableCollection<HistoryPanelItem> HistoryItems { get; } = [];
+    public ObservableCollection<string> RecentFiles { get; } = [];
     public SplitCanvasManager CanvasManager { get; }
     public CanvasWorkspaceState Canvas => CanvasManager.Canvas;
     public SimulationPanelState Simulation { get; }

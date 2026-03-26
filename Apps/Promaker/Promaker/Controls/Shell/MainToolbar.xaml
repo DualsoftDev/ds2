@@ -4,8 +4,11 @@
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
              xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
              xmlns:res="clr-namespace:Promaker.Resources"
+             xmlns:pres="clr-namespace:Promaker.Presentation"
              x:Name="ThisControl">
     <UserControl.Resources>
+        <pres:FileNameConverter x:Key="FileNameConverter"/>
+        <pres:ZeroToVisibilityConverter x:Key="ZeroToVisibleConverter"/>
         <Style x:Key="RibbonSectionSeparator" TargetType="Border">
             <Setter Property="Width" Value="1"/>
             <Setter Property="Margin" Value="6,6"/>
@@ -162,9 +165,53 @@
                     <Button x:Name="NewProjectQuickButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding NewProjectCommand}" ToolTip="{x:Static res:Strings.NewFileTooltip}">
                         <StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="FileDocumentPlus" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.NewFile}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
                     </Button>
-                    <Button x:Name="OpenFileQuickButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding OpenFileCommand}" ToolTip="{x:Static res:Strings.LoadTooltip}">
-                        <StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="FolderOpen" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.Load}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
-                    </Button>
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="OpenFileQuickButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding OpenFileCommand}" ToolTip="{x:Static res:Strings.LoadTooltip}" Padding="6,4,2,4">
+                            <StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="FolderOpen" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.Load}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
+                        </Button>
+                        <Grid>
+                            <ToggleButton x:Name="OpenMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="최근 파일" Padding="0,4" MinWidth="14" VerticalAlignment="Stretch">
+                                <iconPacks:PackIconMaterial Kind="ChevronDown" Width="10" Height="10" Foreground="{DynamicResource IconGrayBrush}"/>
+                            </ToggleButton>
+                            <Popup IsOpen="{Binding IsChecked, ElementName=OpenMenuToggle, Mode=TwoWay}" StaysOpen="False" Placement="Bottom" PlacementTarget="{Binding ElementName=OpenMenuToggle}" DataContext="{Binding DataContext, ElementName=ThisControl}">
+                                <Border Background="{DynamicResource SecondaryBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="300" MaxWidth="500">
+                                    <StackPanel>
+                                        <TextBlock Text="최근 파일" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,8" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                        <ItemsControl ItemsSource="{Binding RecentFiles}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Button Style="{StaticResource AddMenuItemButton}"
+                                                            Command="{Binding DataContext.OpenRecentFileCommand, ElementName=ThisControl}"
+                                                            CommandParameter="{Binding}"
+                                                            Click="CloseOpenPopup"
+                                                            ToolTip="{Binding}"
+                                                            HorizontalContentAlignment="Left">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <iconPacks:PackIconMaterial Kind="FileDocument" Width="14" Height="14"
+                                                                                        Foreground="{DynamicResource AccentBrush}"
+                                                                                        Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                                            <TextBlock Grid.Column="1" Text="{Binding}"
+                                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Text="최근 파일이 없습니다"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   Margin="8,8,8,4"
+                                                   HorizontalAlignment="Center"
+                                                   Visibility="{Binding RecentFiles.Count, Converter={StaticResource ZeroToVisibleConverter}}"/>
+                                    </StackPanel>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding SaveFileCommand}" ToolTip="{x:Static res:Strings.SaveTooltip}" IsEnabled="{Binding HasProject}" Padding="6,4,2,4">
                             <StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="ContentSave" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.Save}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>

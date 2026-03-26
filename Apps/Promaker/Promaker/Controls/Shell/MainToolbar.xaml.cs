@@ -38,6 +38,7 @@ public partial class MainToolbar : UserControl
     }
 
     private void CloseSavePopup(object sender, RoutedEventArgs e) => SaveMenuToggle.IsChecked = false;
+    private void CloseOpenPopup(object sender, RoutedEventArgs e) => OpenMenuToggle.IsChecked = false;
     private void CloseEditPopup(object sender, RoutedEventArgs e) => EditMenuToggle.IsChecked = false;
     private void CloseUtilPopup(object sender, RoutedEventArgs e) => UtilMenuToggle.IsChecked = false;
 

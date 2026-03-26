@@ -94,6 +94,7 @@ and ApiCall [<JsonConstructor>] internal (name) =
     member val ApiDefId   : Guid option   = None           with get, set
     member val InputSpec  : ValueSpec     = UndefinedValue with get, set
     member val OutputSpec : ValueSpec     = UndefinedValue with get, set
+    member val OriginFlowId : Guid option = None           with get, set
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 and CallCondition [<JsonConstructor>] internal () =

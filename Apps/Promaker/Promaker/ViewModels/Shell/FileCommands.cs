@@ -8,6 +8,7 @@ using Ds2.Editor;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
 using Promaker.Dialogs;
+using Promaker.Services;
 
 namespace Promaker.ViewModels;
 
@@ -62,6 +63,11 @@ public partial class MainViewModel
         UpdateTitle();
         Log.Info($"{kind} opened: {filePath}");
         StatusText = $"Opened: {Path.GetFileName(filePath)}";
+
+        // 최근 파일 목록에 추가
+        RecentFilesManager.AddRecentFile(filePath);
+        _dispatcher.InvokeAsync(LoadRecentFiles);
+
         RequestRebuildAll(AfterFileLoad);
     }
 
@@ -180,17 +186,19 @@ public partial class MainViewModel
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(HasProject))]
     private void ShowProjectSettings()
     {
-        var properties = HasProject
-            ? DsQuery.allProjects(_store).Head.Properties
-            : new Ds2.Core.ProjectProperties();
+        if (!HasProject)
+        {
+            _dialogService.ShowWarning("프로젝트를 먼저 생성하거나 불러와주세요.");
+            return;
+        }
+
+        var properties = DsQuery.allProjects(_store).Head.Properties;
         var dlg = new ProjectPropertiesDialog(properties);
         var accepted = _dialogService.ShowDialog(dlg) == true;
         if (!accepted) return;
-
-        if (!HasProject) return;
 
         TryEditorAction(() =>
             _store.UpdateProjectProperties(
@@ -199,7 +207,8 @@ public partial class MainViewModel
                 dlg.ResultAuthor ?? "",
                 dlg.ResultVersion ?? "",
                 dlg.ResultDescription ?? "",
-                dlg.ResultSplitDeviceAasx));
+                dlg.ResultSplitDeviceAasx,
+                dlg.ResultPresetSystemTypes));
         StatusText = "프로젝트 속성이 변경되었습니다.";
     }
 
@@ -295,5 +304,24 @@ public partial class MainViewModel
             _dialogService.ShowWarning($"Failed to save file: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// 최근 파일 열기
+    /// </summary>
+    [RelayCommand]
+    private void OpenRecentFile(string filePath)
+    {
+        if (!ConfirmDiscardChanges()) return;
+
+        if (!File.Exists(filePath))
+        {
+            _dialogService.ShowWarning($"파일을 찾을 수 없습니다:\n{filePath}");
+            // 목록에서 제거
+            RecentFiles.Remove(filePath);
+            return;
+        }
+
+        OpenFilePath(filePath);
     }
 }
