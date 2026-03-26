@@ -42,11 +42,42 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void AddFlow()
     {
-        var name = _dialogService.PromptName(Resources.Strings.NewFlow, "NewFlow");
+        // 기본값에 자동으로 번호를 붙여서 제공
+        var existingFlows = DsQuery.allFlows(_store);
+        var defaultName = GetUniqueNameForFlow("NewFlow", existingFlows);
+
+        var name = _dialogService.PromptName(Resources.Strings.NewFlow, defaultName);
         if (name is null) return;
+
+        // 사용자가 입력한 이름 중복 체크
+        if (existingFlows.Any(f => f.Name == name))
+        {
+            _dialogService.ShowWarning($"'{name}' 이름을 가진 Flow가 이미 존재합니다.\n다른 이름을 사용해주세요.");
+            return;
+        }
+
         var (selType, selId, tabKind, tabRoot) = SnapshotContext();
         TryEditorAction(() => _store.AddFlowResolved(
             name, selType, selId, tabKind, tabRoot));
+    }
+
+    private static string GetUniqueNameForFlow(string baseName, Microsoft.FSharp.Collections.FSharpList<Flow> existingFlows)
+    {
+        var existingNames = new HashSet<string>(existingFlows.Select(f => f.Name));
+
+        if (!existingNames.Contains(baseName))
+            return baseName;
+
+        // 숫자 접미사를 붙여서 고유한 이름 생성
+        int counter = 1;
+        string candidateName;
+        do
+        {
+            candidateName = $"{baseName}{counter}";
+            counter++;
+        } while (existingNames.Contains(candidateName));
+
+        return candidateName;
     }
 
     private (EntityKind? SelectedEntityKind, Guid? SelectedEntityId, TabKind? ActiveTabKind, Guid? ActiveTabRootId) SnapshotContext() =>
@@ -59,12 +90,43 @@ public partial class MainViewModel
                      ?? ResolveFirstFlowInSystemTab();
         if (flowId is not { } id) return;
 
-        var name = _dialogService.PromptName(Resources.Strings.NewWork, "NewWork");
+        // 기본값에 자동으로 번호를 붙여서 제공 (해당 Flow 내에서)
+        var existingWorks = DsQuery.worksOf(id, _store);
+        var defaultName = GetUniqueNameForWork("NewWork", existingWorks);
+
+        var name = _dialogService.PromptName(Resources.Strings.NewWork, defaultName);
         if (name is null) return;
+
+        // 사용자가 입력한 이름 중복 체크 (LocalName 기준)
+        if (existingWorks.Any(w => w.LocalName == name))
+        {
+            _dialogService.ShowWarning($"'{name}' 이름을 가진 Work가 이미 존재합니다.\n다른 이름을 사용해주세요.");
+            return;
+        }
 
         var basePos = ConsumeAddPosition();
         var siblings = GetSiblingSnapshot(TabKind.Flow, id);
         TryCreateSingleWithCascade(() => _store.AddWork(name, id), basePos, siblings.Positions);
+    }
+
+    private static string GetUniqueNameForWork(string baseName, Microsoft.FSharp.Collections.FSharpList<Work> existingWorks)
+    {
+        // Work는 LocalName을 기준으로 중복 체크 (FlowPrefix.LocalName 형식이므로)
+        var existingNames = new HashSet<string>(existingWorks.Select(w => w.LocalName));
+
+        if (!existingNames.Contains(baseName))
+            return baseName;
+
+        // 숫자 접미사를 붙여서 고유한 이름 생성
+        int counter = 1;
+        string candidateName;
+        do
+        {
+            candidateName = $"{baseName}{counter}";
+            counter++;
+        } while (existingNames.Contains(candidateName));
+
+        return candidateName;
     }
 
     [RelayCommand(CanExecute = nameof(HasProject))]

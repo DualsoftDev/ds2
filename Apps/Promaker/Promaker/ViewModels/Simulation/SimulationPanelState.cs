@@ -15,7 +15,6 @@ using Ds2.Store;
 using Ds2.Editor;
 using log4net;
 using Promaker.Dialogs;
-using Promaker.Presentation;
 
 namespace Promaker.ViewModels;
 
@@ -54,7 +53,7 @@ public partial class SimulationPanelState : ObservableObject
         public static string ReportSaved(string path) => $"리포트 저장 완료: {path}";
         public static string ReportSaveFailed(string message) => $"리포트 저장 실패: {message}";
         public static string ReportError(string message) => $"리포트 오류: {message}";
-        public static string StateCode(Status4 state) => Status4Visuals.ShortCode(state);
+        public static string StateCode(Status4 state) => Presentation.Status4Visuals.ShortCode(state);
     }
 
     public SimulationPanelState(
@@ -156,6 +155,62 @@ public partial class SimulationPanelState : ObservableObject
             AddSimLog(logText);
     }
 
+    [RelayCommand]
+    private void CheckModel()
+    {
+        try
+        {
+            var store = Store;
+            var index = SimIndexModule.build(store, 10);
+            _warningGuids.Clear();
+            SimEventLog.Clear();
+
+            var sections = new List<GraphWarningSection>();
+            CollectWarning(sections, "순환 데드락 위험", WarningSeverity.Red,
+                GraphValidator.findDeadlockCandidates(index),
+                "(해당 Work의 Start 선행조건에 순환 후속 Work가 포함되어 있습니다)");
+            CollectWarning(sections, "Source 자동 시작 불가", WarningSeverity.Red,
+                GraphValidator.findSourcesWithPredecessors(index),
+                "(predecessor가 있어 자동 시작되지 않습니다. 순환 경로에 있으면 데드락이 발생합니다)");
+            CollectGroupIgnoreWarning(sections, index);
+            CollectTokenUnreachableWarning(sections, index);
+            CollectWarning(sections, "Reset 연결 누락", WarningSeverity.Yellow,
+                GraphValidator.findUnresetWorks(index));
+            CollectWarning(sections, "Source 후보", WarningSeverity.Yellow,
+                GraphValidator.findSourceCandidates(index),
+                "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)");
+            CollectDurationWarning(sections, index);
+
+            ApplyWarningsToCanvas();
+
+            if (sections.Count > 0)
+            {
+                AddGraphWarningLogs(sections);
+                Dialogs.DialogHelpers.ShowGraphWarnings(sections);
+                _setStatusText($"모델 검증: {sections.Count}건의 경고 발견");
+            }
+            else
+            {
+                var systems = store.SystemsReadOnly.Count;
+                var flows = store.FlowsReadOnly.Count;
+                var works = store.WorksReadOnly.Count;
+                var calls = store.CallsReadOnly.Count;
+                var arrows = store.ArrowWorksReadOnly.Count + store.ArrowCallsReadOnly.Count;
+                Dialogs.DialogHelpers.Info(
+                    $"모델 검증 완료 — 문제 없음\n\n" +
+                    $"System: {systems}  Flow: {flows}\n" +
+                    $"Work: {works}  Call: {calls}\n" +
+                    $"Arrow: {arrows}");
+                _setStatusText("모델 검증: 문제 없음");
+            }
+        }
+        catch (Exception ex)
+        {
+            SimLog.Error("Model check failed", ex);
+            _setStatusText($"모델 검증 실패: {ex.Message}");
+        }
+    }
+
     [RelayCommand(CanExecute = nameof(CanStartSimulation))]
     private void StartSimulation()
     {
@@ -189,27 +244,7 @@ public partial class SimulationPanelState : ObservableObject
             InitGanttEntries();
             GanttChart.IsRunning = true;
 
-            // 그래프 검증 경고 (전체 수집 → 한 번에 표시)
             _warningGuids.Clear();
-            var sections = new List<GraphWarningSection>();
-            CollectWarning(sections, "순환 데드락 위험", WarningSeverity.Red,
-                GraphValidator.findDeadlockCandidates(index),
-                "(해당 Work의 Start 선행조건에 순환 후속 Work가 포함되어 있습니다)");
-            CollectWarning(sections, "Source 자동 시작 불가", WarningSeverity.Red,
-                GraphValidator.findSourcesWithPredecessors(index),
-                "(predecessor가 있어 자동 시작되지 않습니다. 순환 경로에 있으면 데드락이 발생합니다)");
-            CollectGroupIgnoreWarning(sections, index);
-            CollectTokenUnreachableWarning(sections, index);
-            CollectWarning(sections, "Reset 연결 누락", WarningSeverity.Yellow,
-                GraphValidator.findUnresetWorks(index));
-            CollectWarning(sections, "Source 후보", WarningSeverity.Yellow,
-                GraphValidator.findSourceCandidates(index),
-                "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)");
-            CollectDurationWarning(sections, index);
-            if (sections.Count > 0)
-            {
-                Dialogs.DialogHelpers.ShowGraphWarnings(sections);
-            }
             ApplyWarningsToCanvas();
 
             _simEngine.ApplyInitialStates();
@@ -322,6 +357,28 @@ public partial class SimulationPanelState : ObservableObject
         var ts = _simEngine?.State.Clock.ToString(@"hh\:mm\:ss\.fff") ?? "00:00:00.000";
         SimEventLog.Insert(0, $"[{ts}] {message}");
         if (SimEventLog.Count > 500) SimEventLog.RemoveAt(SimEventLog.Count - 1);
+    }
+
+    private void AddWarningLog(string severity, string message)
+    {
+        var ts = _simEngine?.State.Clock.ToString(@"hh\:mm\:ss\.fff") ?? "00:00:00.000";
+        SimEventLog.Insert(0, $"[{ts}] [{severity}] {message}");
+        if (SimEventLog.Count > 500) SimEventLog.RemoveAt(SimEventLog.Count - 1);
+    }
+
+    private void AddGraphWarningLogs(List<GraphWarningSection> sections)
+    {
+        // 역순으로 삽입하여 순서 유지 (Insert(0) 사용)
+        for (var i = sections.Count - 1; i >= 0; i--)
+        {
+            var section = sections[i];
+            var severityTag = section.Severity == WarningSeverity.Red ? "ERROR" : "WARN";
+            if (!string.IsNullOrWhiteSpace(section.Detail))
+                AddWarningLog(severityTag, $"  {section.Detail}");
+            for (var j = section.Lines.Count - 1; j >= 0; j--)
+                AddWarningLog(severityTag, section.Lines[j].Trim());
+            AddWarningLog(severityTag, $"[{section.Title}]");
+        }
     }
 
     private void SetSimStatus(string statusText, string? logText = null)

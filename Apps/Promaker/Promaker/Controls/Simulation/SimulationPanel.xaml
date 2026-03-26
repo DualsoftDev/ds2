@@ -8,7 +8,7 @@
     </UserControl.Resources>
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
-        <TabControl>
+        <TabControl x:Name="MainTabControl">
             <TabItem Header="Gantt Chart">
                 <ctrl:GanttChartControl x:Name="GanttChart"
                                         DataContext="{Binding GanttChart}"/>
