@@ -48,6 +48,7 @@ public partial class PropertyPanelState : ObservableObject
     [ObservableProperty] private int? _callTimeoutMs;
     [ObservableProperty] private CallApiCallItem? _selectedCallApiCall;
     [ObservableProperty] private string _nameEditorText = string.Empty;
+    [ObservableProperty] private string _namePrefix = string.Empty;
     [ObservableProperty] private bool _isNameDirty;
     [ObservableProperty] private bool _isWorkPeriodDirty;
     [ObservableProperty] private bool _isCallTimeoutDirty;
@@ -62,8 +63,11 @@ public partial class PropertyPanelState : ObservableObject
 
     partial void OnSelectedNodeChanged(EntityNode? value) => Refresh();
 
-    partial void OnNameEditorTextChanged(string value) =>
-        IsNameDirty = !string.Equals(value.Trim(), SelectedNode?.Name ?? string.Empty, StringComparison.Ordinal);
+    partial void OnNameEditorTextChanged(string value)
+    {
+        var currentFull = NamePrefix + value.Trim();
+        IsNameDirty = !string.Equals(currentFull, SelectedNode?.Name ?? string.Empty, StringComparison.Ordinal);
+    }
 
     private TokenRole _originalWorkTokenRole;
     private bool _suppressTokenRoleSync;
@@ -107,7 +111,18 @@ public partial class PropertyPanelState : ObservableObject
     public void Refresh()
     {
         var selected = SelectedNode;
-        NameEditorText = selected?.Name ?? string.Empty;
+        var fullName = selected?.Name ?? string.Empty;
+        // Work 이름: "FlowPrefix.LocalName" → prefix를 분리해서 텍스트박스에는 LocalName만
+        if (selected?.EntityType == EntityKind.Work && fullName.IndexOf('.') is var dotIdx && dotIdx >= 0)
+        {
+            NamePrefix = fullName[..(dotIdx + 1)]; // "FlowName."
+            NameEditorText = fullName[(dotIdx + 1)..];
+        }
+        else
+        {
+            NamePrefix = string.Empty;
+            NameEditorText = fullName;
+        }
         IsWorkSelected = selected?.EntityType == EntityKind.Work;
         IsCallSelected = selected?.EntityType == EntityKind.Call;
         IsSystemSelected = selected?.EntityType == EntityKind.System;
@@ -177,7 +192,16 @@ public partial class PropertyPanelState : ObservableObject
     {
         if (SelectedNode is { Id: var selectedId } && selectedId == entityId)
         {
-            NameEditorText = newName;
+            if (SelectedNode.EntityType == EntityKind.Work && newName.IndexOf('.') is var dotIdx && dotIdx >= 0)
+            {
+                NamePrefix = newName[..(dotIdx + 1)];
+                NameEditorText = newName[(dotIdx + 1)..];
+            }
+            else
+            {
+                NamePrefix = string.Empty;
+                NameEditorText = newName;
+            }
             IsNameDirty = false;
         }
     }
@@ -187,9 +211,14 @@ public partial class PropertyPanelState : ObservableObject
     {
         if (SelectedNode is null) return;
 
-        var newName = NameEditorText.Trim();
-        if (!string.IsNullOrEmpty(newName))
-            _host.RenameSelected(newName);
+        var localName = NameEditorText.Trim();
+        if (string.IsNullOrEmpty(localName)) return;
+
+        // prefix가 있으면 전체 이름으로 전달 (RenameEntity가 다시 분리함)
+        var newName = string.IsNullOrEmpty(NamePrefix)
+            ? localName
+            : NamePrefix + localName;
+        _host.RenameSelected(newName);
     }
 
     [RelayCommand]

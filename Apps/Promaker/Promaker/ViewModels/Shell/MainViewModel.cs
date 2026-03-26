@@ -28,6 +28,7 @@ public partial class MainViewModel : ObservableObject
     private string? _currentFilePath;
     private readonly List<SelectionKey> _clipboardSelection = [];
     private int _pasteCount;
+    public bool HasClipboardData => _clipboardSelection.Count > 0;
     private bool _rebuildQueued;
     private readonly List<Action> _pendingRebuildActions = [];
 
@@ -84,7 +85,6 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(AddCallCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(AutoLayoutCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ExportCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenIoBatchDialogCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenDurationBatchDialogCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenTokenSpecDialogCommand))]

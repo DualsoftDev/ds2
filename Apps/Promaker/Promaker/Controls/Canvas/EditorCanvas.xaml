@@ -32,12 +32,12 @@
                 <MenuItem x:Name="AddCallMenuItem" Header="Call 추가" Click="AddCall_Click"/>
                 <MenuItem x:Name="AddRefWorkMenuItem" Header="레퍼런스 노드 만들기"
                           Command="{Binding AddReferenceWorkCommand}"/>
-                <Separator/>
-                <MenuItem Header="화살표 연결" Click="StartConnect_Click"/>
-                <Separator/>
-                <MenuItem Header="복사" Command="{Binding CopySelectedCommand}"/>
-                <MenuItem Header="붙여넣기" Command="{Binding PasteCopiedCommand}"/>
-                <MenuItem Header="삭제" Command="{Binding DeleteSelectedCommand}"/>
+                <Separator x:Name="SepAfterAdd"/>
+                <MenuItem x:Name="ConnectMenuItem" Header="화살표 연결" Click="StartConnect_Click"/>
+                <Separator x:Name="SepAfterConnect"/>
+                <MenuItem x:Name="CopyMenuItem" Header="복사" Command="{Binding CopySelectedCommand}"/>
+                <MenuItem x:Name="PasteMenuItem" Header="붙여넣기" Command="{Binding PasteCopiedCommand}"/>
+                <MenuItem x:Name="DeleteMenuItem" Header="삭제" Command="{Binding DeleteSelectedCommand}"/>
             </ContextMenu>
         </Grid.ContextMenu>
 

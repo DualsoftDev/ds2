@@ -162,12 +162,13 @@ public partial class MainViewModel
         // Control Tree 전체 확장
         ExpandAllNodes(ControlTreeRoots);
 
-        var firstFlow = TreeNodeSearch
+        // 첫 번째 System 캔버스를 띄움 (Flow 하이라이트 없이)
+        var firstSystem = TreeNodeSearch
             .EnumerateNodes(ControlTreeRoots)
-            .FirstOrDefault(node => node.EntityType == EntityKind.Flow);
+            .FirstOrDefault(node => node.EntityType == EntityKind.System);
 
-        if (firstFlow is not null)
-            Canvas.OpenCanvasTab(firstFlow.Id, firstFlow.EntityType);
+        if (firstSystem is not null)
+            Canvas.OpenCanvasTab(firstSystem.Id, EntityKind.System);
     }
 
     private static void ExpandAllNodes(IEnumerable<EntityNode> nodes)
