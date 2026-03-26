@@ -201,3 +201,24 @@ public sealed class Status4ToStringConverter : IValueConverter
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => Binding.DoNothing;
 }
+
+public sealed class TabKindToBrushConverter : IValueConverter
+{
+    private static readonly IReadOnlyDictionary<TabKind, string> TabBrushKeys =
+        new Dictionary<TabKind, string>
+        {
+            [TabKind.System] = "OrangeAccentBrush",
+            [TabKind.Flow] = "AccentBrush",
+            [TabKind.Work] = "GreenAccentBrush"
+        };
+
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var kind = value is TabKind tk ? tk : TabKind.System;
+        var key = TabBrushKeys.TryGetValue(kind, out var k) ? k : "AccentBrush";
+        return ConverterHelpers.ResolveBrush(key);
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}

@@ -16,12 +16,15 @@ type SimIndex = {
     Store: DsStore
     AllWorkGuids: Guid list
     AllCallGuids: Guid list
+    AllFlowGuids: Guid list
     WorkCallGuids: Map<Guid, Guid list>
     WorkStartPreds: Map<Guid, Guid list>
     WorkResetPreds: Map<Guid, Guid list>
     WorkDuration: Map<Guid, float>
     WorkSystemName: Map<Guid, string>
     WorkName: Map<Guid, string>
+    /// Work → 소속 Flow Guid
+    WorkFlowGuid: Map<Guid, Guid>
     CallStartPreds: Map<Guid, Guid list>
     CallWorkGuid: Map<Guid, Guid>
     CallApiCallGuids: Map<Guid, Guid list>
@@ -36,7 +39,7 @@ type SimIndex = {
     WorkTokenRole: Map<Guid, TokenRole>
     WorkTokenSuccessors: Map<Guid, Guid list>
     TokenSourceGuids: Guid list
-    /// Sink Work: successor 없는 Work (선형) + 순환 진입점 (순환)
+    /// Sink Work: TokenRole.Sink로 수동 지정된 Work
     TokenSinkGuids: Set<Guid>
     /// 토큰 경로에 포함된 Work (Source → successor 체인의 모든 Work)
     TokenPathGuids: Set<Guid>
@@ -49,12 +52,14 @@ module SimIndex =
     type private BuildState = {
         mutable AllWorkGuids: Guid list
         mutable AllCallGuids: Guid list
+        mutable AllFlowGuids: Guid list
         mutable WorkCallGuids: Map<Guid, Guid list>
         mutable WorkStartPreds: Map<Guid, Guid list>
         mutable WorkResetPreds: Map<Guid, Guid list>
         mutable WorkDuration: Map<Guid, float>
         mutable WorkSystemName: Map<Guid, string>
         mutable WorkName: Map<Guid, string>
+        mutable WorkFlowGuid: Map<Guid, Guid>
         mutable CallStartPreds: Map<Guid, Guid list>
         mutable CallWorkGuid: Map<Guid, Guid>
         mutable CallApiCallGuids: Map<Guid, Guid list>
@@ -125,9 +130,9 @@ module SimIndex =
         let mutable tokenSources = []
 
         let state = {
-            AllWorkGuids = []; AllCallGuids = []
+            AllWorkGuids = []; AllCallGuids = []; AllFlowGuids = []
             WorkCallGuids = Map.empty; WorkStartPreds = Map.empty; WorkResetPreds = Map.empty
-            WorkDuration = Map.empty; WorkSystemName = Map.empty; WorkName = Map.empty
+            WorkDuration = Map.empty; WorkSystemName = Map.empty; WorkName = Map.empty; WorkFlowGuid = Map.empty
             CallStartPreds = Map.empty; CallWorkGuid = Map.empty; CallApiCallGuids = Map.empty
             CallAutoAuxConditions = Map.empty; CallComAuxConditions = Map.empty; CallSkipUnmatchConditions = Map.empty
         }
@@ -155,7 +160,7 @@ module SimIndex =
             state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, conditionSpecs store CallConditionType.SkipUnmatch call)
             state.AllCallGuids <- call.Id :: state.AllCallGuids
 
-        let addWorkData (system: DsSystem) (work: Work) (callGuids: Guid list) (workStartPreds: Map<Guid, Guid list>) (workResetPreds: Map<Guid, Guid list>) =
+        let addWorkData (system: DsSystem) (flowId: Guid) (work: Work) (callGuids: Guid list) (workStartPreds: Map<Guid, Guid list>) (workResetPreds: Map<Guid, Guid list>) =
             let periodSource =
                 match work.ReferenceOf with
                 | Some origId -> DsQuery.getWork origId store |> Option.bind (fun w -> w.Properties.Period)
@@ -180,6 +185,7 @@ module SimIndex =
             state.WorkDuration <- state.WorkDuration.Add(work.Id, duration)
             state.WorkSystemName <- state.WorkSystemName.Add(work.Id, system.Name)
             state.WorkName <- state.WorkName.Add(work.Id, work.Name)
+            state.WorkFlowGuid <- state.WorkFlowGuid.Add(work.Id, flowId)
             state.AllWorkGuids <- work.Id :: state.AllWorkGuids
 
         for system in allSystems do
@@ -218,6 +224,7 @@ module SimIndex =
             let cStartPreds = SimIndexGroupExpansion.expandCallGroupArrows callGroupArrows cStartPreds
 
             for flow in flows do
+                state.AllFlowGuids <- flow.Id :: state.AllFlowGuids
                 let works = DsQuery.worksOf flow.Id store
                 for work in works do
                     // 레퍼런스 Work → 원본의 Call을 공유
@@ -228,7 +235,7 @@ module SimIndex =
                         for call in calls do
                             addCallData work cStartPreds call
 
-                    addWorkData system work callGuids wStartPreds wResetPreds
+                    addWorkData system flow.Id work callGuids wStartPreds wResetPreds
 
                     // ── Token role/successor 수집 ──
                     if work.TokenRole <> TokenRole.None then
@@ -249,37 +256,30 @@ module SimIndex =
             |> List.map (fun (origId, pairs) -> origId, pairs |> List.map snd)
             |> Map.ofList
 
-        // ── Sink 감지 ──
-        let allWorkGuidsRev = state.AllWorkGuids |> List.rev
-        // 선형 sink: successor가 없는 Work
-        let linearSinks =
-            allWorkGuidsRev
-            |> List.filter (fun wg ->
-                tokenSuccMap |> Map.tryFind wg |> Option.defaultValue [] |> List.isEmpty)
-            |> Set.ofList
-        // 순환 sink: DFS로 back edge 감지 → back edge의 source가 sink
-        // 예: A→B→C→A → back edge C→A → C가 sink
-        let cycleSinks = SimIndexTokenGraph.findCycleSinks tokenSources tokenSuccMap
-        // Source 기반 sink: successor가 Source인 Work → Source로 토큰 유입 방지
-        let sourceBasedSinks = SimIndexTokenGraph.findSourceBasedSinks tokenSources tokenSuccMap
-        // Source Work는 sink에서 제외 (Source이면서 sink이면 자기 토큰 즉시 complete → 모순)
-        let tokenSourceSet = tokenSources |> Set.ofList
+        // ── Sink: TokenRole.Sink로 수동 지정된 Work ──
         let tokenSinkGuids =
-            linearSinks |> Set.union cycleSinks |> Set.union sourceBasedSinks
-            |> Set.filter (fun wg -> not (tokenSourceSet.Contains wg))
+            tokenRoleMap
+            |> Map.toSeq
+            |> Seq.filter (fun (_, role) -> role.HasFlag(TokenRole.Sink))
+            |> Seq.map fst
+            |> Set.ofSeq
 
         // 토큰 경로: Source에서 successor를 BFS로 따라간 모든 Work
         let tokenPathGuids = SimIndexTokenGraph.buildTokenPathGuids tokenSources tokenSuccMap
 
+        let allWorkGuidsRev = state.AllWorkGuids |> List.rev
+
         { Store = store
           AllWorkGuids = allWorkGuidsRev
           AllCallGuids = state.AllCallGuids |> List.rev
+          AllFlowGuids = state.AllFlowGuids |> List.rev
           WorkCallGuids = state.WorkCallGuids
           WorkStartPreds = state.WorkStartPreds
           WorkResetPreds = state.WorkResetPreds
           WorkDuration = state.WorkDuration
           WorkSystemName = state.WorkSystemName
           WorkName = state.WorkName
+          WorkFlowGuid = state.WorkFlowGuid
           CallStartPreds = state.CallStartPreds
           CallWorkGuid = state.CallWorkGuid
           CallApiCallGuids = state.CallApiCallGuids

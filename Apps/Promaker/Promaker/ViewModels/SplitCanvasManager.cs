@@ -13,6 +13,7 @@ public enum SplitSide { Right, Down, Left, Up }
 public partial class SplitCanvasManager : ObservableObject
 {
     private readonly Func<CanvasWorkspaceState> _paneFactory;
+    public Action? ActivePaneChanged { get; set; }
 
     public SplitCanvasManager(Func<CanvasWorkspaceState> paneFactory)
     {
@@ -34,6 +35,8 @@ public partial class SplitCanvasManager : ObservableObject
 
     /// <summary>Primary가 시각적으로 먼저(좌측/상단) 배치되는지 여부.</summary>
     [ObservableProperty] private bool _isPrimaryFirst = true;
+
+    partial void OnActivePaneChanged(CanvasWorkspaceState value) => ActivePaneChanged?.Invoke();
 
     public bool IsSplit => SecondaryPane is not null;
 

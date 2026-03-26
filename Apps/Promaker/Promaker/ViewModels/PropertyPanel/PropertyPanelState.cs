@@ -36,18 +36,23 @@ public partial class PropertyPanelState : ObservableObject
     public string SystemApiDefsHeader => $"ApiDefs [{SystemApiDefs.Count}]";
     public bool IsDebugBuild => MainViewModel.IsDebugBuild;
 
-    [ObservableProperty] private EntityNode? _selectedNode;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplyNameCommand))]
+    private EntityNode? _selectedNode;
     [ObservableProperty] private bool _isWorkSelected;
     [ObservableProperty] private bool _isCallSelected;
     [ObservableProperty] private bool _isSystemSelected;
     [ObservableProperty] private int? _workPeriodMs;
     [ObservableProperty] private bool _isTokenSource;
     [ObservableProperty] private bool _isTokenIgnore;
+    [ObservableProperty] private bool _isTokenSink;
     [ObservableProperty] private bool _hasLinkedTokenSpec;
     [ObservableProperty] private string _linkedTokenSpecLabel = "";
     [ObservableProperty] private int? _callTimeoutMs;
     [ObservableProperty] private CallApiCallItem? _selectedCallApiCall;
-    [ObservableProperty] private string _nameEditorText = string.Empty;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplyNameCommand))]
+    private string _nameEditorText = string.Empty;
     [ObservableProperty] private string _namePrefix = string.Empty;
     [ObservableProperty] private bool _isNameDirty;
     [ObservableProperty] private bool _isWorkPeriodDirty;
@@ -74,7 +79,8 @@ public partial class PropertyPanelState : ObservableObject
 
     private TokenRole CurrentTokenRole =>
         (IsTokenSource ? TokenRole.Source : TokenRole.None) |
-        (IsTokenIgnore ? TokenRole.Ignore : TokenRole.None);
+        (IsTokenIgnore ? TokenRole.Ignore : TokenRole.None) |
+        (IsTokenSink ? TokenRole.Sink : TokenRole.None);
 
     private void SyncTokenRoleToStore()
     {
@@ -89,6 +95,7 @@ public partial class PropertyPanelState : ObservableObject
                 _suppressTokenRoleSync = true;
                 IsTokenSource = _originalWorkTokenRole.HasFlag(TokenRole.Source);
                 IsTokenIgnore = _originalWorkTokenRole.HasFlag(TokenRole.Ignore);
+                IsTokenSink = _originalWorkTokenRole.HasFlag(TokenRole.Sink);
                 _suppressTokenRoleSync = false;
             }
         }
@@ -96,6 +103,7 @@ public partial class PropertyPanelState : ObservableObject
 
     partial void OnIsTokenSourceChanged(bool value) => SyncTokenRoleToStore();
     partial void OnIsTokenIgnoreChanged(bool value) => SyncTokenRoleToStore();
+    partial void OnIsTokenSinkChanged(bool value) => SyncTokenRoleToStore();
 
     partial void OnWorkPeriodMsChanged(int? value) =>
         IsWorkPeriodDirty = value != _originalWorkPeriodMs;
@@ -143,6 +151,7 @@ public partial class PropertyPanelState : ObservableObject
             _suppressTokenRoleSync = true;
             IsTokenSource = _originalWorkTokenRole.HasFlag(TokenRole.Source);
             IsTokenIgnore = _originalWorkTokenRole.HasFlag(TokenRole.Ignore);
+            IsTokenSink = _originalWorkTokenRole.HasFlag(TokenRole.Sink);
             _suppressTokenRoleSync = false;
 
             // 연결된 TokenSpec 표시 (원본 ID도 매칭)
@@ -161,6 +170,7 @@ public partial class PropertyPanelState : ObservableObject
             _suppressTokenRoleSync = true;
             IsTokenSource = false;
             IsTokenIgnore = false;
+            IsTokenSink = false;
             _suppressTokenRoleSync = false;
             HasLinkedTokenSpec = false;
             LinkedTokenSpecLabel = "";
@@ -206,13 +216,20 @@ public partial class PropertyPanelState : ObservableObject
         }
     }
 
-    [RelayCommand]
+    private bool CanApplyName() =>
+        SelectedNode is not null && !string.IsNullOrWhiteSpace(NameEditorText);
+
+    [RelayCommand(CanExecute = nameof(CanApplyName))]
     private void ApplyName()
     {
         if (SelectedNode is null) return;
 
         var localName = NameEditorText.Trim();
-        if (string.IsNullOrEmpty(localName)) return;
+        if (string.IsNullOrEmpty(localName))
+        {
+            _host.SetStatusText("Name cannot be empty.");
+            return;
+        }
 
         // prefix가 있으면 전체 이름으로 전달 (RenameEntity가 다시 분리함)
         var newName = string.IsNullOrEmpty(NamePrefix)

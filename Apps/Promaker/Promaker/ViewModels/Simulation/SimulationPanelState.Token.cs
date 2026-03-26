@@ -84,6 +84,10 @@ public partial class SimulationPanelState
         UpdateSimNodeToken(args.WorkGuid);
         if (args.TargetWorkGuid is not null)
             UpdateSimNodeToken(args.TargetWorkGuid.Value);
+
+        // 토큰 이동만으로도 다음 Work가 startable 상태가 될 수 있으므로
+        // 토큰 이벤트도 step-mode UI 재평가 경로를 타야 한다.
+        RefreshSimulationProgressUi();
     }
 
     private void UpdateSimNodeToken(Guid workGuid)

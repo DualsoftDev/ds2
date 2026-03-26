@@ -117,7 +117,7 @@
                                                 <TextBox Grid.Column="2" x:Name="CallCountTextBox"
                                                          Padding="6,4" Text="1" TextAlignment="Center"/>
                                             </Grid>
-                                            <TextBlock Text="Conv → Conv_1, Conv_2, ..."
+                                            <TextBlock Text="Conv → Conv1, Conv2, ..."
                                                        FontSize="10" FontStyle="Italic"
                                                        Foreground="{DynamicResource SecondaryTextBrush}"
                                                        TextWrapping="Wrap"/>
@@ -159,7 +159,7 @@
                                                        FontSize="10" FontStyle="Italic"
                                                        Foreground="{DynamicResource SecondaryTextBrush}"
                                                        TextWrapping="Wrap"/>
-                                            <TextBlock Text="Conv_1.ADV, Conv_2.ADV → 별도 Device System"
+                                            <TextBlock Text="Conv1.ADV, Conv2.ADV → 별도 Device System"
                                                        FontSize="10" FontStyle="Italic"
                                                        Foreground="{DynamicResource SecondaryTextBrush}"
                                                        TextWrapping="Wrap"/>

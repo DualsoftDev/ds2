@@ -31,12 +31,16 @@ public partial class SimulationPanelState
         // 디버그: Homing/Ready 전이 로그 (리셋 동작 확인용)
         if (args.NewState == Status4.Homing || (args.PreviousState == Status4.Homing && args.NewState == Status4.Ready))
             AddSimLog($"[Reset] {args.WorkName}: {args.PreviousState} → {args.NewState}");
+
+        RefreshSimulationProgressUi();
     }
 
     private void OnCallStateChanged(CallStateChangedArgs args)
     {
         var suffix = args.IsSkipped ? " (Skip)" : "";
         ApplyNodeStateChange(args.CallGuid, args.NewState, args.CallName + suffix, EntityKind.Call, GetSystemName(EntityKind.Call, args.CallGuid));
+
+        RefreshSimulationProgressUi();
     }
 
     private void OnSimStatusChanged(SimulationStatusChangedArgs args)

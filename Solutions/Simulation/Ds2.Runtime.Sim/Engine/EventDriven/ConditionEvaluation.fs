@@ -17,7 +17,6 @@ module internal ConditionEvaluation =
         ScheduleConditionEvaluation: unit -> unit
         ShiftToken: Guid -> TokenValue -> unit
         EmitTokenEvent: TokenEventKind -> TokenValue -> Guid -> Guid option -> unit
-        HasNoSuccessors: Guid -> bool
         CanReceiveToken: Guid -> bool
         ApplyWorkTransition: Guid -> Status4 -> unit
     }
@@ -56,10 +55,18 @@ module internal ConditionEvaluation =
             | None -> ()
         | None -> ()
 
+    /// Work의 부모 Flow가 Pause 상태면 새 시작 차단
+    let private isFlowPausedForWork (ctx: Context) (workGuid: Guid) =
+        ctx.Index.WorkFlowGuid
+        |> Map.tryFind workGuid
+        |> Option.map (fun flowGuid -> ctx.StateManager.GetFlowState(flowGuid) = FlowTag.Pause)
+        |> Option.defaultValue false
+
     let evaluateWorkStarts (ctx: Context) () =
         let mutable scheduledGoingGuids = Set.empty<Guid>
         for workGuid in ctx.Index.AllWorkGuids do
             if ctx.StateManager.GetWorkState(workGuid) = Status4.Ready
+               && not (isFlowPausedForWork ctx workGuid)
                && ctx.CanStartWork workGuid
                && not (ctx.StateManager.IsWorkPending(workGuid)) then
                 ctx.StateManager.MarkWorkPending(workGuid)
@@ -73,6 +80,7 @@ module internal ConditionEvaluation =
     let evaluateWorkResets (ctx: Context) (scheduledGoingGuids: Set<Guid>) =
         for workGuid in ctx.Index.AllWorkGuids do
             if ctx.StateManager.GetWorkState(workGuid) = Status4.Finish
+               && not (isFlowPausedForWork ctx workGuid)
                && not (ctx.StateManager.IsWorkPending(workGuid)) then
                 tryQueueWorkReset ctx scheduledGoingGuids workGuid
 
@@ -81,6 +89,7 @@ module internal ConditionEvaluation =
             match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
             | Some workGuid ->
                 if ctx.StateManager.GetCallState(callGuid) = Status4.Ready
+                   && not (isFlowPausedForWork ctx workGuid)
                    && ctx.StateManager.GetWorkState(workGuid) = Status4.Going
                    && ctx.CanStartCall callGuid
                    && not (ctx.StateManager.IsCallPending(callGuid)) then
@@ -118,7 +127,7 @@ module internal ConditionEvaluation =
 
     let retryBlockedTokens (ctx: Context) () =
         let canRetryBlockedToken workGuid =
-            let isSink = ctx.Index.TokenSinkGuids.Contains(workGuid) || ctx.HasNoSuccessors workGuid
+            let isSink = ctx.Index.TokenSinkGuids.Contains(workGuid)
             let successors = ctx.Index.WorkTokenSuccessors |> Map.tryFind workGuid |> Option.defaultValue []
             let hasEmptySuccessor = successors |> List.exists ctx.CanReceiveToken
             hasEmptySuccessor || isSink

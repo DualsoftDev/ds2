@@ -33,3 +33,10 @@ type TokenRole =
     | None   = 0
     | Source = 1
     | Ignore = 2
+    | Sink   = 4
+
+/// Flow runtime state tag for step-by-step simulation.
+type FlowTag =
+    | Ready = 0
+    | Drive = 1
+    | Pause = 2

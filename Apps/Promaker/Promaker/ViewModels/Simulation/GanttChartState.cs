@@ -53,12 +53,12 @@ public class GanttTimelineEntry : INotifyPropertyChanged
     private void Notify([CallerMemberName] string? name = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-    public Guid Id { get; set; }
-    public string Name { get; set; } = "";
-    public EntityKind Kind { get; set; } = EntityKind.Work;
-    public Guid? ParentWorkId { get; set; }
-    public string SystemName { get; set; } = "";
-    public int RowIndex { get; set; }
+    public Guid Id { get; init; }
+    public string Name { get; init; } = "";
+    public EntityKind Kind { get; init; } = EntityKind.Work;
+    public Guid? ParentWorkId { get; init; }
+    public string SystemName { get; init; } = "";
+    public int RowIndex { get; init; }
     public ObservableCollection<GanttStateSegment> Segments { get; } = [];
 
     private Status4 _currentState = Status4.Ready;
@@ -153,16 +153,24 @@ public class GanttChartState : INotifyPropertyChanged
         {
             if (_isRunning == value) return;
             if (!value)
-                _pausedAt = DateTime.Now;  // Pause 시점 기록
+                _pausedAt = DateTime.Now;
             else if (_pausedAt != default)
-                _totalPausedDuration += DateTime.Now - _pausedAt;  // Resume 시 누적 보정
+                _totalPausedDuration += DateTime.Now - _pausedAt;
             _isRunning = value;
             Notify();
         }
     }
 
-    /// <summary>Pause 누적 시간을 보정한 현재 시각</summary>
-    public DateTime AdjustedNow => DateTime.Now - _totalPausedDuration;
+    /// <summary>Pause 누적 시간을 보정한 현재 시각 (Pause 중이면 고정)</summary>
+    public DateTime AdjustedNow
+    {
+        get
+        {
+            if (!_isRunning && _pausedAt != default)
+                return _pausedAt - _totalPausedDuration;
+            return DateTime.Now - _totalPausedDuration;
+        }
+    }
 
     public void Reset(DateTime startTime)
     {

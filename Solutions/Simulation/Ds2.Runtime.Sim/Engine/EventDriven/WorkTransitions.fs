@@ -15,6 +15,8 @@ module internal WorkTransitions =
         ScheduleConditionEvaluation: unit -> unit
         OnWorkFinish: Guid -> unit
         TriggerWorkStateChanged: WorkStateChangedArgs -> unit
+        /// Duration 이벤트 추적 콜백: workGuid -> eventId -> scheduledTimeMs
+        OnDurationScheduled: Guid -> Guid -> int64 -> unit
     }
 
     let scheduleCallTransitions (ctx: Context) workGuid targetState excludeState =
@@ -41,11 +43,12 @@ module internal WorkTransitions =
 
     let scheduleDuration (ctx: Context) (workGuid: Guid) =
         let scheduleDurationComplete delayMs =
-            ctx.Scheduler.ScheduleAfter(
-                ScheduledEventType.DurationComplete workGuid,
-                delayMs,
-                ScheduledEvent.PriorityDurationCheck)
-            |> ignore
+            let eventId =
+                ctx.Scheduler.ScheduleAfter(
+                    ScheduledEventType.DurationComplete workGuid,
+                    delayMs,
+                    ScheduledEvent.PriorityDurationCheck)
+            ctx.OnDurationScheduled workGuid eventId (ctx.Scheduler.CurrentTimeMs + delayMs)
 
         let duration = ctx.Index.WorkDuration |> Map.tryFind workGuid |> Option.defaultValue 0.0
         let callGuids = SimIndex.findOrEmpty workGuid ctx.Index.WorkCallGuids
@@ -54,10 +57,11 @@ module internal WorkTransitions =
             if callGuids.IsEmpty then
                 ctx.StateManager.MarkMinDurationMet(workGuid) // leaf는 즉시 met 표시 (조건 없음)
             if ctx.TimeIgnore() then
-                ctx.Scheduler.ScheduleNow(
-                    ScheduledEventType.DurationComplete workGuid,
-                    ScheduledEvent.PriorityDurationCheck)
-                |> ignore
+                let eventId =
+                    ctx.Scheduler.ScheduleNow(
+                        ScheduledEventType.DurationComplete workGuid,
+                        ScheduledEvent.PriorityDurationCheck)
+                ctx.OnDurationScheduled workGuid eventId ctx.Scheduler.CurrentTimeMs
             else
                 scheduleDurationComplete (max 1L (int64 duration))
         else

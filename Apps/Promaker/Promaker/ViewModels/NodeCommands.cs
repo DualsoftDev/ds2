@@ -1,12 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Windows;
-using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Store;
 using Ds2.Editor;
-using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
 
@@ -28,48 +25,65 @@ public partial class MainViewModel
         return activeSystems.IsEmpty;
     }
 
-    [RelayCommand(CanExecute = nameof(CanAddSystem))]
-    private void AddSystem()
+    private bool CanAddWork() =>
+        HasProject &&
+        (ResolveTargetId(EntityKind.Flow, TabKind.Flow).HasValue
+         || ResolveFirstFlowInSystemTab().HasValue);
+
+    private bool CanAddCall() =>
+        HasProject &&
+        ResolveTargetId(EntityKind.Work, TabKind.Work).HasValue;
+
+    private bool CanDeleteSelected()
     {
-        var name = _dialogService.PromptName(Resources.Strings.NewSystem, "NewSystem");
-        if (name is null) return;
-        var (selType, selId, tabKind, tabRoot) = SnapshotContext();
-        TryEditorAction(() => _store.AddSystemResolved(
-            name, Selection.ActiveTreePane == TreePaneKind.Control,
-            selType, selId, tabKind, tabRoot));
+        if (!HasProject)
+            return false;
+
+        if (Selection.OrderedArrowSelection.Count > 0 || SelectedArrow is not null)
+            return true;
+
+        if (Selection.OrderedNodeSelection.Any(key => key.EntityKind != EntityKind.Project))
+            return true;
+
+        return SelectedNode is { EntityType: not EntityKind.Project };
     }
 
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private void AddFlow()
-    {
-        // 기본값에 자동으로 번호를 붙여서 제공
-        var existingFlows = DsQuery.allFlows(_store);
-        var defaultName = GetUniqueNameForFlow("NewFlow", existingFlows);
+    private bool CanCopySelected() =>
+        Selection.OrderedNodeSelection.Count > 0 || SelectedNode is not null;
 
-        var name = _dialogService.PromptName(Resources.Strings.NewFlow, defaultName);
-        if (name is null) return;
+    private bool CanPasteCopied() =>
+        _clipboardSelection.Count > 0 && ResolvePasteTarget().HasValue;
 
-        // 사용자가 입력한 이름 중복 체크
-        if (existingFlows.Any(f => f.Name == name))
-        {
-            _dialogService.ShowWarning($"'{name}' 이름을 가진 Flow가 이미 존재합니다.\n다른 이름을 사용해주세요.");
-            return;
-        }
+    private bool CanConnectSelectedNodes() =>
+        HasProject && Selection.TryGetOrderedSelectionConnectEntityType(out _);
 
-        var (selType, selId, tabKind, tabRoot) = SnapshotContext();
-        TryEditorAction(() => _store.AddFlowResolved(
-            name, selType, selId, tabKind, tabRoot));
-    }
+    private bool CanAutoLayout() =>
+        HasProject && Canvas.ActiveTab is not null;
 
     private static string GetUniqueNameForFlow(string baseName, Microsoft.FSharp.Collections.FSharpList<Flow> existingFlows)
     {
         var existingNames = new HashSet<string>(existingFlows.Select(f => f.Name));
-
         if (!existingNames.Contains(baseName))
             return baseName;
 
-        // 숫자 접미사를 붙여서 고유한 이름 생성
-        int counter = 1;
+        var counter = 1;
+        string candidateName;
+        do
+        {
+            candidateName = $"{baseName}{counter}";
+            counter++;
+        } while (existingNames.Contains(candidateName));
+
+        return candidateName;
+    }
+
+    private static string GetUniqueNameForWork(string baseName, Microsoft.FSharp.Collections.FSharpList<Work> existingWorks)
+    {
+        var existingNames = new HashSet<string>(existingWorks.Select(w => w.LocalName));
+        if (!existingNames.Contains(baseName))
+            return baseName;
+
+        var counter = 1;
         string candidateName;
         do
         {
@@ -82,325 +96,6 @@ public partial class MainViewModel
 
     private (EntityKind? SelectedEntityKind, Guid? SelectedEntityId, TabKind? ActiveTabKind, Guid? ActiveTabRootId) SnapshotContext() =>
         (SelectedNode?.EntityType, SelectedNode?.Id, Canvas.ActiveTab?.Kind, Canvas.ActiveTab?.RootId);
-
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private void AddWork()
-    {
-        var flowId = ResolveTargetId(EntityKind.Flow, TabKind.Flow)
-                     ?? ResolveFirstFlowInSystemTab();
-        if (flowId is not { } id) return;
-
-        // 기본값에 자동으로 번호를 붙여서 제공 (해당 Flow 내에서)
-        var existingWorks = DsQuery.worksOf(id, _store);
-        var defaultName = GetUniqueNameForWork("NewWork", existingWorks);
-
-        var name = _dialogService.PromptName(Resources.Strings.NewWork, defaultName);
-        if (name is null) return;
-
-        // 사용자가 입력한 이름 중복 체크 (LocalName 기준)
-        if (existingWorks.Any(w => w.LocalName == name))
-        {
-            _dialogService.ShowWarning($"'{name}' 이름을 가진 Work가 이미 존재합니다.\n다른 이름을 사용해주세요.");
-            return;
-        }
-
-        var basePos = ConsumeAddPosition();
-        var siblings = GetSiblingSnapshot(TabKind.Flow, id);
-        TryCreateSingleWithCascade(() => _store.AddWork(name, id), basePos, siblings.Positions);
-    }
-
-    private static string GetUniqueNameForWork(string baseName, Microsoft.FSharp.Collections.FSharpList<Work> existingWorks)
-    {
-        // Work는 LocalName을 기준으로 중복 체크 (FlowPrefix.LocalName 형식이므로)
-        var existingNames = new HashSet<string>(existingWorks.Select(w => w.LocalName));
-
-        if (!existingNames.Contains(baseName))
-            return baseName;
-
-        // 숫자 접미사를 붙여서 고유한 이름 생성
-        int counter = 1;
-        string candidateName;
-        do
-        {
-            candidateName = $"{baseName}{counter}";
-            counter++;
-        } while (existingNames.Contains(candidateName));
-
-        return candidateName;
-    }
-
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private void AddCall()
-    {
-        var workId = ResolveTargetId(EntityKind.Work, TabKind.Work);
-        if (workId is not { } targetWorkId)
-            return;
-
-        var dialog = new CallCreateDialog(
-            apiNameFilter =>
-            {
-                if (!TryEditorRef(
-                        () => StoreHierarchyQueries.FindApiDefsByName(_store, apiNameFilter),
-                        out var matches))
-                    return [];
-
-                return matches;
-            })
-        {
-            Owner = Application.Current.MainWindow
-        };
-        if (dialog.ShowDialog() != true)
-            return;
-
-        var rawPos = ConsumeAddPosition();
-        var siblings = GetSiblingSnapshot(TabKind.Work, targetWorkId);
-
-        switch (dialog.Mode)
-        {
-            case CallCreateMode.CallReplication:
-            {
-                TryCreateSiblingDiffWithCascade(
-                    () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true),
-                    TabKind.Work,
-                    targetWorkId,
-                    rawPos,
-                    siblings);
-                break;
-            }
-            case CallCreateMode.ApiCallReplication:
-            {
-                if (dialog.CallNames.Count > 1)
-                {
-                    TryCreateMultipleWithCascade(
-                        dialog.CallNames.Select(fullName => new Func<Guid>(() =>
-                            _store.AddCallWithMultipleDevicesResolved(
-                                EntityKind.Work,
-                                targetWorkId,
-                                targetWorkId,
-                                dialog.CallDevicesAlias,
-                                NormalizeApiName(fullName),
-                                dialog.DeviceAliases))),
-                        rawPos,
-                        siblings.Positions);
-                }
-                else
-                {
-                    TryCreateSingleWithCascade(
-                        () => _store.AddCallWithMultipleDevicesResolved(
-                            EntityKind.Work,
-                            targetWorkId,
-                            targetWorkId,
-                            dialog.CallDevicesAlias,
-                            dialog.CallApiName,
-                            dialog.DeviceAliases),
-                        rawPos,
-                        siblings.Positions);
-                }
-                break;
-            }
-            case CallCreateMode.ApiDefPicker:
-            {
-                TryCreateSingleWithCascade(
-                    () => _store.AddCallWithLinkedApiDefs(
-                        targetWorkId,
-                        dialog.DevicesAlias,
-                        dialog.ApiName,
-                        dialog.SelectedApiDefs.Select(m => m.ApiDefId)),
-                    rawPos,
-                    siblings.Positions);
-                break;
-            }
-        }
-    }
-
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private void DeleteSelected()
-    {
-        if (Selection.OrderedArrowSelection.Count > 0)
-        {
-            if (TryEditorAction(() => _store.RemoveArrows(Selection.OrderedArrowSelection)))
-                Selection.ClearArrowSelection();
-            return;
-        }
-
-        if (Selection.OrderedNodeSelection.Count > 0)
-        {
-            var selections = Selection.OrderedNodeSelection
-                .Where(k => k.EntityKind != EntityKind.Project)
-                .Select(k => Tuple.Create(k.EntityKind, k.Id));
-            TryEditorAction(() => _store.RemoveEntities(selections));
-            return;
-        }
-
-        if (SelectedNode is { EntityType: not EntityKind.Project } node)
-            TryEditorAction(
-                () => _store.RemoveEntities(new[] { Tuple.Create(node.EntityType, node.Id) }));
-    }
-
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private void AddReferenceWork()
-    {
-        if (SelectedNode is not { EntityType: EntityKind.Work } node) return;
-        TryEditorAction(() => _store.AddReferenceWork(node.Id));
-    }
-
-    [RelayCommand]
-    private void RenameSelected(string newName)
-    {
-        if (SelectedNode is null || string.IsNullOrWhiteSpace(newName))
-            return;
-
-        TryEditorAction(
-            () => _store.RenameEntity(SelectedNode.Id, SelectedNode.EntityType, newName));
-    }
-
-    [RelayCommand]
-    private void CopySelected()
-    {
-        var candidates = Selection.OrderedNodeSelection.Count > 0
-            ? Selection.OrderedNodeSelection
-            : SelectedNode is { } single
-                ? [new SelectionKey(single.Id, single.EntityType)]
-                : (IReadOnlyList<SelectionKey>)[];
-
-        if (!TryEditorFunc(
-                () => _store.ValidateCopySelection(candidates),
-                out CopyValidationResult result,
-                fallback: CopyValidationResult.NothingToCopy))
-            return;
-
-        if (result.IsMixedTypes)
-        {
-            _dialogService.ShowWarning("같은 종류의 항목만 복사할 수 있습니다.");
-            return;
-        }
-        if (result.IsMixedParents)
-        {
-            _dialogService.ShowWarning("서로 다른 위치에 있는 항목은 함께 복사할 수 없습니다.");
-            return;
-        }
-        if (result is not CopyValidationResult.Ok ok)
-            return;
-
-        var validated = ok.Item;
-        _clipboardSelection.Clear();
-        _pasteCount = 0;
-        foreach (var key in validated)
-            _clipboardSelection.Add(key);
-
-        StatusText = $"Copied {_clipboardSelection.Count} {validated[0].EntityKind}(s).";
-    }
-
-    [RelayCommand]
-    private void PasteCopied()
-    {
-        if (_clipboardSelection.Count == 0)
-            return;
-
-        var target = ResolvePasteTarget();
-        if (!target.HasValue)
-            return;
-
-        var batchType = _clipboardSelection[0].EntityKind;
-
-        // Work/Call 붙여넣기 시 System이 선택된 경우 → Flow를 선택하도록 안내
-        if (target.Value.EntityType == EntityKind.System
-            && (batchType == EntityKind.Work || batchType == EntityKind.Call))
-        {
-            _dialogService.ShowWarning("붙여넣기 대상으로 Flow를 선택하세요.");
-            return;
-        }
-
-        // Flow 붙여넣기: 새 이름 입력 다이얼로그
-        if (batchType == EntityKind.Flow)
-        {
-            PasteFlowsWithRename(target.Value);
-            return;
-        }
-
-        var pasteIndex = _pasteCount * _clipboardSelection.Count;
-        if (!TryEditorRef(
-                () => _store.PasteEntities(
-                    batchType,
-                    _clipboardSelection.Select(k => k.Id),
-                    target.Value.EntityType,
-                    target.Value.EntityId,
-                    pasteIndex),
-                out var pastedIds))
-            return;
-
-        _pasteCount++;
-        ApplyPasteSelection(pastedIds, $"Pasted {pastedIds.Length} {batchType}(s).");
-    }
-
-    private void PasteFlowsWithRename((EntityKind EntityType, Guid EntityId) target)
-    {
-        var pastedFlowIds = new List<Guid>();
-        var targetSystemIdOpt = StoreHierarchyQueries.resolveTarget(
-            _store, EntityKind.System, target.EntityType, target.EntityId);
-
-        foreach (var key in _clipboardSelection)
-        {
-            if (!_store.FlowsReadOnly.TryGetValue(key.Id, out var srcFlow))
-                continue;
-
-            var sysId = targetSystemIdOpt != null ? targetSystemIdOpt.Value : srcFlow.ParentId;
-            var existingNames = DsQuery.flowsOf(sysId, _store).Select(f => f.Name).ToList();
-            var suggestedName = NextUniqueName(srcFlow.Name, existingNames);
-            var newName = _dialogService.PromptName("Flow 복사 — 새 이름", suggestedName);
-            if (newName is null) return; // 취소 시 전체 중단
-
-            if (!TryEditorRef(
-                    () => _store.PasteFlowWithRename(key.Id, sysId, newName),
-                    out var resultOpt))
-                return;
-
-            if (resultOpt != null)
-                pastedFlowIds.Add(resultOpt.Value);
-        }
-
-        // Flow는 캔버스에 노드로 표시되지 않으므로, 자식 Work ID로 변환하여 선택
-        var workIds = pastedFlowIds
-            .SelectMany(fId => DsQuery.worksOf(fId, _store))
-            .Select(w => w.Id)
-            .ToList();
-
-        ApplyPasteSelection(workIds, $"Pasted {pastedFlowIds.Count} Flow(s).");
-    }
-
-    private static string NextUniqueName(string baseName, List<string> existing)
-    {
-        if (!existing.Contains(baseName)) return baseName;
-        var i = 1;
-        while (existing.Contains($"{baseName}_{i}")) i++;
-        return $"{baseName}_{i}";
-    }
-
-    private (EntityKind EntityType, Guid EntityId)? ResolvePasteTarget()
-    {
-        if (SelectedNode is { } selected)
-            return (selected.EntityType, selected.Id);
-
-        if (Canvas.ActiveTab is not { } tab)
-            return null;
-
-        return (EditorNavigation.EntityKindForTabKind(tab.Kind), tab.RootId);
-    }
-
-    private void ApplyPasteSelection(IReadOnlyCollection<Guid> pastedIds, string statusText)
-    {
-        if (pastedIds.Count == 0)
-            return;
-
-        StatusText = statusText;
-        var idSet = pastedIds.ToHashSet();
-        RequestRebuildAll(() =>
-        {
-            Selection.ClearNodeSelection();
-            foreach (var node in Canvas.CanvasNodes.Where(n => idSet.Contains(n.Id)))
-                Selection.SelectNodeFromCanvas(node, ctrlPressed: true, shiftPressed: false);
-        });
-    }
 
     private void CascadeMoveCreatedEntities(
         IReadOnlyCollection<Guid> createdIds,
@@ -542,28 +237,6 @@ public partial class MainViewModel
         return new Xywh(x, y, basePos.W, basePos.H);
     }
 
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private void ConnectSelectedNodes()
-    {
-        Selection.ConnectSelectedNodesInOrder(SelectedConnectArrowType);
-    }
-
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private void AutoLayout()
-    {
-        if (Canvas.ActiveTab is not { } tab) return;
-
-        if (!TryEditorRef(
-                () => EditorCanvasLayout.ComputeAutoLayout(_store, tab.Kind, tab.RootId),
-                out var requests))
-            return;
-
-        if (requests.IsEmpty) return;
-
-        TryEditorAction(() => _store.MoveEntities(requests));
-        RequestRebuildAll(() => Canvas.FitToViewZoomOutRequested?.Invoke());
-    }
-
     private Guid? ResolveTargetId(EntityKind selectedEntityType, TabKind activeTabKind)
     {
         if (SelectedNode is { EntityType: var type } node && type == selectedEntityType)
@@ -575,11 +248,47 @@ public partial class MainViewModel
         return null;
     }
 
-    /// <summary>System 탭에서 첫 번째 Flow ID를 반환합니다.</summary>
     private Guid? ResolveFirstFlowInSystemTab()
     {
         if (Canvas.ActiveTab is not { Kind: TabKind.System } tab) return null;
         var flows = DsQuery.flowsOf(tab.RootId, _store);
         return flows.IsEmpty ? null : (Guid?)flows.Head.Id;
+    }
+
+    private (EntityKind EntityType, Guid EntityId)? ResolvePasteTarget()
+    {
+        if (SelectedNode is { } selected)
+            return (selected.EntityType, selected.Id);
+
+        if (Canvas.ActiveTab is not { } tab)
+            return null;
+
+        return (EditorNavigation.EntityKindForTabKind(tab.Kind), tab.RootId);
+    }
+
+    private void ApplyPasteSelection(IReadOnlyCollection<Guid> pastedIds, string statusText)
+    {
+        if (pastedIds.Count == 0)
+        {
+            StatusText = statusText;
+            return;
+        }
+
+        StatusText = statusText;
+        var idSet = pastedIds.ToHashSet();
+        RequestRebuildAll(() =>
+        {
+            Selection.ClearNodeSelection();
+            foreach (var node in Canvas.CanvasNodes.Where(n => idSet.Contains(n.Id)))
+                Selection.SelectNodeFromCanvas(node, ctrlPressed: true, shiftPressed: false);
+        });
+    }
+
+    private static string NextUniqueName(string baseName, List<string> existing)
+    {
+        if (!existing.Contains(baseName)) return baseName;
+        var i = 1;
+        while (existing.Contains($"{baseName}_{i}")) i++;
+        return $"{baseName}_{i}";
     }
 }

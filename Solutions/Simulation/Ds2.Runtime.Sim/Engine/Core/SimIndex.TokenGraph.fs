@@ -23,38 +23,6 @@ module internal SimIndexTokenGraph =
             let existing = acc |> Map.tryFind key |> Option.defaultValue []
             acc.Add(key, existing @ values)) existingMap
 
-    let findCycleSinks (tokenSources: Guid list) (tokenSuccessors: Map<Guid, Guid list>) =
-        let mutable visited = Set.empty<Guid>
-        let mutable onStack = Set.empty<Guid>
-        let mutable sinks = Set.empty<Guid>
-
-        let rec dfs nodeId =
-            if not (visited.Contains nodeId) then
-                visited <- visited.Add nodeId
-                onStack <- onStack.Add nodeId
-
-                tokenSuccessors
-                |> Map.tryFind nodeId
-                |> Option.defaultValue []
-                |> List.iter (fun succId ->
-                    if onStack.Contains succId then
-                        sinks <- sinks.Add nodeId
-                    else
-                        dfs succId)
-
-                onStack <- onStack.Remove nodeId
-
-        tokenSources |> List.iter dfs
-        sinks
-
-    let findSourceBasedSinks (tokenSources: Guid list) (tokenSuccessors: Map<Guid, Guid list>) =
-        tokenSuccessors
-        |> Map.toSeq
-        |> Seq.choose (fun (sourceId, succIds) ->
-            if succIds |> List.exists (fun succId -> tokenSources |> List.contains succId) then Some sourceId
-            else None)
-        |> Set.ofSeq
-
     let buildTokenPathGuids (tokenSources: Guid list) (tokenSuccessors: Map<Guid, Guid list>) =
         let mutable visited = Set.empty<Guid>
         let mutable queue = tokenSources

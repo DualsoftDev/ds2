@@ -24,11 +24,13 @@ public partial class SimulationPanelState
         if (SelectedSimWork.IsAutoStart)
         {
             BatchStartSources(engine);
+            HasWorkGoing = true;
             return;
         }
 
         if (!TryGetSelectedSimWork(out _, out var selectedWork)) return;
         SingleStartWork(engine, selectedWork);
+        HasWorkGoing = true;
     }
 
     [RelayCommand(CanExecute = nameof(CanForceWork))]

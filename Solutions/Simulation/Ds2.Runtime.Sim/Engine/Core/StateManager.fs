@@ -19,7 +19,7 @@ type TransitionResult = {
 /// sim 스레드에서 쓰기, UI 스레드에서 읽기 — lock으로 동기화
 type StateManager(index: SimIndex, initialTickMs: int) =
     let syncRoot = obj()
-    let mutable state = SimState.create initialTickMs index.AllWorkGuids index.AllCallGuids
+    let mutable state = SimState.create initialTickMs index.AllWorkGuids index.AllCallGuids index.AllFlowGuids
     let mutable pendingCallTransitions = Set.empty<Guid>
     let mutable pendingWorkTransitions = Set.empty<Guid>
     let mutable workGTriggeredResets = Set.empty<Guid * Guid>
@@ -105,6 +105,11 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     member _.GetState() = lock syncRoot (fun () -> state)
     member _.GetWorkState(workGuid: Guid) = lock syncRoot (fun () -> state.WorkStates |> Map.tryFind workGuid |> Option.defaultValue Status4.Ready)
     member _.GetCallState(callGuid: Guid) = lock syncRoot (fun () -> state.CallStates |> Map.tryFind callGuid |> Option.defaultValue Status4.Ready)
+    member _.GetFlowState(flowGuid: Guid) = lock syncRoot (fun () -> state.FlowStates |> Map.tryFind flowGuid |> Option.defaultValue FlowTag.Ready)
+    member _.SetFlowState(flowGuid: Guid, tag: FlowTag) =
+        lock syncRoot (fun () -> state <- SimState.setFlowState flowGuid tag state)
+    member _.SetAllFlowStates(tag: FlowTag) =
+        lock syncRoot (fun () -> state <- { state with FlowStates = state.FlowStates |> Map.map (fun _ _ -> tag) })
     member _.ForceWorkState(workGuid: Guid, newState: Status4) =
         lock syncRoot (fun () -> state <- SimState.setWorkState workGuid newState state)
     member _.ForceCallState(callGuid: Guid, newState: Status4) =
