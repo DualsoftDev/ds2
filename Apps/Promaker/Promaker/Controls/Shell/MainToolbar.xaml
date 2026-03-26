@@ -231,8 +231,34 @@
                             Command="{Binding ConnectSelectedNodesCommand}"
                             ToolTip="선택된 노드를 연결" Margin="2,0,0,0" Padding="8,8,2,8">
                         <StackPanel Orientation="Vertical">
-                            <Path Width="18" Height="18" Stretch="Uniform" Fill="{DynamicResource IconGrayBrush}"
-                                  Data="M6 3C4.34 3 3 4.34 3 6s1.34 3 3 3c.55 0 1.07-.15 1.52-.42L9.4 10.46C9.15 10.93 9 11.45 9 12s.15 1.07.4 1.54l-1.88 1.88C7.07 15.15 6.55 15 6 15c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3c0-.55-.15-1.07-.42-1.52l1.88-1.88c.47.27.99.4 1.54.4s1.07-.13 1.54-.4l1.88 1.88C15.15 16.93 15 17.45 15 18c0 1.66 1.34 3 3 3s3-1.34 3-3-1.34-3-3-3c-.55 0-1.07.15-1.52.42l-1.88-1.88c.27-.47.4-.99.4-1.54s-.13-1.07-.4-1.54l1.88-1.88C16.93 8.85 17.45 9 18 9c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .55.15 1.07.42 1.52l-1.88 1.88C13.07 9.15 12.55 9 12 9s-1.07.15-1.54.42L8.58 7.54C8.85 7.07 9 6.55 9 6c0-1.66-1.34-3-3-3z"/>
+                            <Canvas x:Name="ConnectIconCanvas" Width="18" Height="18" HorizontalAlignment="Center">
+                                <!-- Start Arrow (기본) -->
+                                <Canvas x:Name="ConnectIconStart" Visibility="Visible">
+                                    <Border Canvas.Left="3" Canvas.Top="7.5" Width="9" Height="1.5" Background="{DynamicResource GreenAccentBrush}" CornerRadius="0.5"/>
+                                    <Path Canvas.Left="12" Canvas.Top="4.5" Data="M0,1 L4,4.5 L0,8" Stroke="{DynamicResource GreenAccentBrush}" StrokeThickness="1.3" Fill="Transparent" StrokeLineJoin="Miter"/>
+                                </Canvas>
+                                <!-- Reset Arrow -->
+                                <Canvas x:Name="ConnectIconReset" Visibility="Collapsed">
+                                    <Line X1="3" Y1="9" X2="12" Y2="9" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="1.5" StrokeDashArray="1.5,0.8"/>
+                                    <Path Canvas.Left="12" Canvas.Top="4.5" Data="M0,1 L4,4.5 L0,8" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="1.3" Fill="Transparent" StrokeLineJoin="Miter"/>
+                                </Canvas>
+                                <!-- StartReset Arrow -->
+                                <Canvas x:Name="ConnectIconStartReset" Visibility="Collapsed">
+                                    <Rectangle Canvas.Left="3" Canvas.Top="5.5" Width="3" Height="4" Fill="{DynamicResource RedAccentBrush}"/>
+                                    <Border Canvas.Left="6" Canvas.Top="7.5" Width="6" Height="1.5" Background="{DynamicResource RedAccentBrush}" CornerRadius="0.5"/>
+                                    <Path Canvas.Left="12" Canvas.Top="4.5" Data="M0,1 L4,4.5 L0,8" Stroke="{DynamicResource RedAccentBrush}" StrokeThickness="1.3" Fill="Transparent" StrokeLineJoin="Miter"/>
+                                </Canvas>
+                                <!-- ResetReset Arrow -->
+                                <Canvas x:Name="ConnectIconResetReset" Visibility="Collapsed">
+                                    <Path Canvas.Left="3" Canvas.Top="4.5" Data="M4,1 L0,4.5 L4,8" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="1.3" Fill="Transparent" StrokeLineJoin="Miter"/>
+                                    <Line X1="7" Y1="9" X2="12" Y2="9" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="1.5" StrokeDashArray="1.5,0.8"/>
+                                    <Path Canvas.Left="12" Canvas.Top="4.5" Data="M0,1 L4,4.5 L0,8" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="1.3" Fill="Transparent" StrokeLineJoin="Miter"/>
+                                </Canvas>
+                                <!-- Group Arrow -->
+                                <Canvas x:Name="ConnectIconGroup" Visibility="Collapsed">
+                                    <Border Canvas.Left="3" Canvas.Top="7.5" Width="12" Height="1.5" Background="{DynamicResource AccentBrush}" CornerRadius="0.5"/>
+                                </Canvas>
+                            </Canvas>
                             <TextBlock Text="연결" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </Button>
@@ -433,6 +459,12 @@
                             <TextBlock Text="Token" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </Button>
+                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding CheckModelCommand}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" ToolTip="모델 검증 (그래프 경고 확인)">
+                        <StackPanel Orientation="Vertical">
+                            <Path Width="18" Height="18" Stretch="Uniform" Data="M12,2 L4,5 V11.09 C4,16.14 7.41,20.85 12,22 C16.59,20.85 20,16.14 20,11.09 V5 L12,2 M10.94,15.54 L7.4,12 L8.81,10.59 L10.93,12.71 L15.17,8.47 L16.58,9.88 L10.94,15.54 Z" Fill="{DynamicResource IconGrayBrush}"/>
+                            <TextBlock Text="Check" Style="{StaticResource RibbonIconLabel}"/>
+                        </StackPanel>
+                    </Button>
                 </WrapPanel>
                 <TextBlock Grid.Row="1" Text="시뮬레이션" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
@@ -497,9 +529,11 @@
                             <TextBlock Text="{Binding ThemeButtonText}" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </Button>
-                    <Border x:Name="ThemeSettingsSeparator" Grid.Column="1" Style="{StaticResource RibbonSectionSeparator}" Margin="10,10"/>
-                    <Button x:Name="SettingsButton" Grid.Column="2" Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowProjectSettingsCommand}" ToolTip="{x:Static res:Strings.Settings}">
-                        <StackPanel Orientation="Vertical"><Path Width="18" Height="18" Stretch="Uniform" Data="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z" Fill="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.Settings}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
+                    <Button Grid.Column="1" Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowProjectSettingsCommand}" ToolTip="프로젝트 속성">
+                        <StackPanel Orientation="Vertical">
+                            <Path Width="18" Height="18" Stretch="Uniform" Data="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z" Fill="{DynamicResource IconGrayBrush}"/>
+                            <TextBlock Text="{x:Static res:Strings.Settings}" Style="{StaticResource RibbonIconLabel}"/>
+                        </StackPanel>
                     </Button>
                     <Border Grid.Column="3" Style="{StaticResource RibbonSectionSeparator}" Margin="10,10"/>
                     <Button x:Name="AboutButton" Grid.Column="4" Style="{StaticResource RibbonFlatButton}" Click="AboutButton_Click" ToolTip="프로그램 정보">

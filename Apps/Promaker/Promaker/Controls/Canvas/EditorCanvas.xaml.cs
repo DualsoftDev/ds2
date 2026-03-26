@@ -182,6 +182,12 @@ public partial class EditorCanvas : UserControl
 
     private void OnConditionDragEnter(object sender, DragEventArgs e)
     {
+        // 파일 드롭인 경우 상위(MainWindow)로 전파
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            return; // e.Handled = false로 두어 상위에서 처리
+        }
+
         if (!ConditionDropHelper.IsConditionCallDrag(e))
         {
             e.Effects = DragDropEffects.None;
@@ -195,6 +201,12 @@ public partial class EditorCanvas : UserControl
 
     private void OnConditionDragOver(object sender, DragEventArgs e)
     {
+        // 파일 드롭인 경우 상위(MainWindow)로 전파
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            return; // e.Handled = false로 두어 상위에서 처리
+        }
+
         if (!ConditionDropHelper.IsConditionCallDrag(e))
         {
             e.Effects = DragDropEffects.None;
@@ -214,6 +226,12 @@ public partial class EditorCanvas : UserControl
 
     private void OnConditionDrop(object sender, DragEventArgs e)
     {
+        // 파일 드롭인 경우 상위(MainWindow)로 전파
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            return; // e.Handled = false로 두어 상위에서 처리
+        }
+
         ClearDropTarget();
 
         if (ConditionDropHelper.GetDroppedCallNode(e) is not { } droppedCallNode) return;

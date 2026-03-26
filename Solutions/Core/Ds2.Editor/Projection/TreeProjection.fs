@@ -24,7 +24,7 @@ let private buildDeviceSystemChildren (store: DsStore) (systemId: Guid) : TreeNo
                 |> List.map (fun work ->
                     { Id = work.Id
                       EntityKind = EntityKind.Work
-                      Name = work.Name
+                      Name = work.LocalName
                       ParentId = Some flow.Id
                       Children = [] })
             { Id = flow.Id
@@ -69,7 +69,7 @@ let private buildSystemChildren (store: DsStore) (systemId: Guid) =
                               Children = [] })
                     { Id = work.Id
                       EntityKind = EntityKind.Work
-                      Name = work.Name
+                      Name = work.LocalName
                       ParentId = Some flow.Id
                       Children = calls })
             { Id = flow.Id
