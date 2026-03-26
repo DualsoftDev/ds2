@@ -30,46 +30,11 @@ public partial class MainToolbar : UserControl
         if (VM is { } vm)
         {
             vm.PropertyChanged += OnViewModelPropertyChanged;
-            UpdateConnectIcon(vm.SelectedConnectArrowType);
         }
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(MainViewModel.SelectedConnectArrowType) && VM is { } vm)
-        {
-            UpdateConnectIcon(vm.SelectedConnectArrowType);
-        }
-    }
-
-    private void UpdateConnectIcon(ArrowType arrowType)
-    {
-        // Hide all icons
-        ConnectIconStart.Visibility = Visibility.Collapsed;
-        ConnectIconReset.Visibility = Visibility.Collapsed;
-        ConnectIconStartReset.Visibility = Visibility.Collapsed;
-        ConnectIconResetReset.Visibility = Visibility.Collapsed;
-        ConnectIconGroup.Visibility = Visibility.Collapsed;
-
-        // Show selected icon
-        switch (arrowType)
-        {
-            case ArrowType.Start:
-                ConnectIconStart.Visibility = Visibility.Visible;
-                break;
-            case ArrowType.Reset:
-                ConnectIconReset.Visibility = Visibility.Visible;
-                break;
-            case ArrowType.StartReset:
-                ConnectIconStartReset.Visibility = Visibility.Visible;
-                break;
-            case ArrowType.ResetReset:
-                ConnectIconResetReset.Visibility = Visibility.Visible;
-                break;
-            case ArrowType.Group:
-                ConnectIconGroup.Visibility = Visibility.Visible;
-                break;
-        }
     }
 
     private void CloseSavePopup(object sender, RoutedEventArgs e) => SaveMenuToggle.IsChecked = false;
