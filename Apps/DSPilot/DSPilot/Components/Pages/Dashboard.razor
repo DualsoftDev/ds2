@@ -9,6 +9,7 @@
 @inject DSPilot.Adapters.DspRepositoryAdapter DspRepository
 @inject AppSettingsService SettingsService
 @inject ILogger<Dashboard> Logger
+@inject CycleAnalysisService CycleAnalysisService
 @implements IDisposable
 
 <PageTitle>Dashboard - DSPilot</PageTitle>
@@ -200,12 +201,13 @@ else
                                         </button>
                                     </div>
                                     <div style="width:1px; height:16px; background:var(--color-border);"></div>
-                                    <button class="btn btn-sm @(_sortField == "ct" ? "btn-filled" : "btn-outlined")"
-                                            @onclick="@(() => SetSort("ct"))">전체</button>
-                                    <button class="btn btn-sm @(_sortField == "mt" ? "btn-filled" : "btn-outlined")"
-                                            @onclick="@(() => SetSort("mt"))">가동</button>
-                                    <button class="btn btn-sm @(_sortField == "wt" ? "btn-filled" : "btn-outlined")"
-                                            @onclick="@(() => SetSort("wt"))">대기</button>
+                                    <select class="ct-sort-select" value="@_sortField" @onchange="OnSortFieldChanged">
+                                        <option value="ct">전체시간</option>
+                                        <option value="mt">가동시간</option>
+                                        <option value="wt">대기시간</option>
+                                        <option value="name">이름</option>
+                                        <option value="order" disabled="@(!_processOrderAvailable)">공정</option>
+                                    </select>
                                     <button class="btn-icon" title="@(_sortDesc ? "내림차순" : "오름차순")"
                                             @onclick="ToggleSortDir">
                                         <span class="material-icons">@(_sortDesc ? "arrow_downward" : "arrow_upward")</span>
@@ -366,7 +368,7 @@ else
 }
 
 @* ── 클릭 팝업 모달 ── *@
-@if (_popupFlow is var (pName, pMT, pWT, pCT, pWTRatio) && _popupFlow != null)
+@if (_popupFlow is var (pName, pMT, pWT, pCT, pWTRatio, _) && _popupFlow != null)
 {
     var flowState = GetFlowStateLabel(pName);
     var stateColor = flowState?.ToLowerInvariant() switch
@@ -487,7 +489,7 @@ else
     ];
 
     // CT 차트 필드
-    private List<(string FlowName, int MT, int WT, int CT, double WTRatio)> _chartData = [];
+    private List<(string FlowName, int MT, int WT, int CT, double WTRatio, int Order)> _chartData = [];
     private string? _maxCtName, _minCtName, _maxWtName;
     private int _maxCtVal;
 
@@ -495,7 +497,7 @@ else
     private string? _selectedFlowName;
 
     // 팝업 모달
-    private (string FlowName, int MT, int WT, int CT, double WTRatio)? _popupFlow;
+    private (string FlowName, int MT, int WT, int CT, double WTRatio, int Order)? _popupFlow;
 
     // Flow History Data (최근 5개 표시)
     private List<Models.Dsp.DspFlowHistoryEntity> _flowHistory = new();
@@ -505,8 +507,12 @@ else
     private double _tooltipX, _tooltipY, _windowHeight = 900;
 
     // 정렬 설정
-    private string _sortField = "ct";   // "ct" | "wt"
+    private string _sortField = "ct";   // "ct" | "mt" | "wt" | "name" | "order"
     private bool   _sortDesc  = true;
+
+    // 공정 순서 (PLC 실행 순서 기반)
+    private Dictionary<string, int> _flowProcessOrder = new();
+    private bool _processOrderAvailable = false;
 
     // 평균/이전 표시 토글
     private bool _showAverage = false;  // false: 이전값, true: 평균값
@@ -604,6 +610,46 @@ else
             StateHasChanged();
         }
         catch { }
+
+        // 공정 순서 로딩 (PLC 실행 순서 기반)
+        if (ProjectService.IsLoaded)
+            await LoadFlowProcessOrderAsync();
+    }
+
+    private async Task LoadFlowProcessOrderAsync()
+    {
+        try
+        {
+            var flows = BlueprintService.Layout.FlowPlacements;
+            if (flows.Count == 0) return;
+
+            var tasks = flows.Select(fp =>
+                CycleAnalysisService.DetectRecentCyclesAsync(fp.FlowName, 1)
+            ).ToArray();
+
+            var results = await Task.WhenAll(tasks);
+
+            // 모든 Flow가 사이클 데이터를 가지고 있는지 확인
+            if (results.Any(r => r.Count == 0))
+            {
+                _processOrderAvailable = false;
+                return;
+            }
+
+            _flowProcessOrder = flows
+                .Select((fp, idx) => (fp.FlowName, StartTime: results[idx][0].StartTime))
+                .OrderBy(x => x.StartTime)
+                .Select((x, rank) => (x.FlowName, Rank: rank))
+                .ToDictionary(x => x.FlowName, x => x.Rank);
+
+            _processOrderAvailable = true;
+            UpdateChartCache();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load flow process order");
+        }
     }
 
     private bool _disposed;
@@ -612,6 +658,7 @@ else
     {
         if (_disposed) return;
         _dbSnapshot = DbService.Snapshot;
+        if (!_processOrderAvailable) _ = LoadFlowProcessOrderAsync();
         UpdateChartCache();
         try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
     }
@@ -866,6 +913,7 @@ else
     private void SetSort(string field)
     {
         _sortField = field;
+        _sortDesc = field is "ct" or "mt" or "wt";  // 시간→내림차순, 이름/공정→오름차순
         UpdateChartCache();
     }
 
@@ -875,10 +923,16 @@ else
         UpdateChartCache();
     }
 
+    private void OnSortFieldChanged(ChangeEventArgs e)
+    {
+        SetSort(e.Value?.ToString() ?? "ct");
+    }
+
     private void UpdateChartCache()
     {
-        var rows = BlueprintService.Layout.FlowPlacements
-            .Select(fp =>
+        var placements = BlueprintService.Layout.FlowPlacements;
+        var rows = placements
+            .Select((fp, idx) =>
             {
                 var s = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == fp.FlowName);
 
@@ -907,7 +961,7 @@ else
                     ct = mt + wt;
                 }
 
-                return (fp.FlowName, mt, wt, ct, ct > 0 ? (double)wt / ct : 0.0);
+                return (fp.FlowName, mt, wt, ct, ct > 0 ? (double)wt / ct : 0.0, idx);
             })
             .Where(f => f.ct > 0)
             .ToList();
@@ -919,10 +973,15 @@ else
         _maxCtVal  = rows.Count > 0 ? rows.Max(f => f.ct) : 1;
 
         // 정렬 적용
-        _chartData = (_sortField == "wt" ? (_sortDesc ? rows.OrderByDescending(f => f.wt) : rows.OrderBy(f => f.wt))
-                    : _sortField == "mt" ? (_sortDesc ? rows.OrderByDescending(f => f.mt) : rows.OrderBy(f => f.mt))
-                    :                      (_sortDesc ? rows.OrderByDescending(f => f.ct) : rows.OrderBy(f => f.ct)))
-            .ToList();
+        IEnumerable<(string FlowName, int mt, int wt, int ct, double, int idx)> sorted = _sortField switch
+        {
+            "wt"    => _sortDesc ? rows.OrderByDescending(f => f.wt)       : rows.OrderBy(f => f.wt),
+            "mt"    => _sortDesc ? rows.OrderByDescending(f => f.mt)       : rows.OrderBy(f => f.mt),
+            "name"  => _sortDesc ? rows.OrderByDescending(f => f.FlowName) : rows.OrderBy(f => f.FlowName),
+            "order" => _sortDesc ? rows.OrderByDescending(f => _flowProcessOrder.GetValueOrDefault(f.FlowName, f.idx)) : rows.OrderBy(f => _flowProcessOrder.GetValueOrDefault(f.FlowName, f.idx)),
+            _       => _sortDesc ? rows.OrderByDescending(f => f.ct)       : rows.OrderBy(f => f.ct),
+        };
+        _chartData = sorted.ToList();
     }
 
     private static string FormatMs(int ms)
