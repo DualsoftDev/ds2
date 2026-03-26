@@ -8,6 +8,7 @@
 @inject IPlcRepository PlcRepository
 @inject CycleAnalysisService CycleAnalysis
 @inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>Cycle Time Analysis - DSPilot</PageTitle>
 
@@ -190,7 +191,7 @@
         }
 
         <!-- Full-Screen Gantt Chart -->
-        <div class="gantt-chart-container">
+        <div class="gantt-chart-container" @ref="_ganttChartContainerRef">
             <div class="gantt-chart-wrapper" style="transform: scale(@_zoomLevel); transform-origin: top left;">
                 @RenderGanttChart(_ganttData)
             </div>
@@ -217,6 +218,11 @@
     private string _selectedFlowName = "";
     private bool _isLoading = false;
     private string? _errorMessage;
+
+    // Crosshair
+    private ElementReference _ganttChartContainerRef;
+    private bool _isCrosshairInitialized = false;
+    private bool _needsCrosshairInit = false;
 
     private DateTime _chartStartTime = DateTime.Now.AddHours(-1);
     private DateTime _chartEndTime = DateTime.Now;
@@ -252,6 +258,92 @@
         if (!string.IsNullOrEmpty(_selectedFlowName))
         {
             await LoadGanttData();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_needsCrosshairInit && _ganttData != null && _ganttData.Items.Any())
+        {
+            _needsCrosshairInit = false;
+            try
+            {
+                await InitCrosshairAsync();
+            }
+            catch (Exception) { }
+        }
+    }
+
+    private async Task InitCrosshairAsync()
+    {
+        if (_ganttData == null || !_ganttData.Items.Any()) return;
+
+        try
+        {
+            if (_isCrosshairInitialized)
+            {
+                await JS.InvokeVoidAsync("ganttCrosshair.dispose", _ganttChartContainerRef);
+                _isCrosshairInitialized = false;
+            }
+
+            const int leftMargin = 220;
+            const int topMargin = 60;
+            const int laneHeight = 52;
+            const int plotWidth = 2000;
+
+            var chartStartTime = _ganttData.ActualEventStartTime ?? _ganttData.StartTime;
+            var chartEndTime = _ganttData.ActualEventEndTime ?? (_ganttData.EndTime ?? _ganttData.StartTime.AddSeconds(1));
+            var cycleTime = Math.Max((int)(chartEndTime - chartStartTime).TotalMilliseconds, 1);
+            var xScale = plotWidth / (double)cycleTime;
+            var plotHeight = _ganttData.TotalLanes * laneHeight;
+
+            var chartStartEpochMs = new DateTimeOffset(chartStartTime).ToUnixTimeMilliseconds();
+
+            // Build snap edges
+            var snapEdges = new List<object>();
+            foreach (var item in _ganttData.Items)
+            {
+                var x = leftMargin + ((item.GoingStartTime - chartStartTime).TotalMilliseconds * xScale);
+                var edgeTimeMs = new DateTimeOffset(item.GoingStartTime).ToUnixTimeMilliseconds();
+                snapEdges.Add(new { x = (int)x, timeMs = edgeTimeMs });
+
+                var durationMs = GetItemDurationMs(item);
+                if (durationMs > 0)
+                {
+                    var endX = (int)(x + Math.Max(2, durationMs * xScale));
+                    var endTime = item.GoingStartTime.AddMilliseconds(durationMs);
+                    var endTimeMs = new DateTimeOffset(endTime).ToUnixTimeMilliseconds();
+                    snapEdges.Add(new { x = endX, timeMs = endTimeMs });
+                }
+            }
+
+            var crosshairParams = new
+            {
+                leftMargin,
+                topMargin,
+                plotWidth,
+                plotHeight,
+                xScale,
+                chartStartTimeMs = chartStartEpochMs,
+                snapEdges
+            };
+
+            await JS.InvokeVoidAsync("ganttCrosshair.init", _ganttChartContainerRef, crosshairParams);
+            _isCrosshairInitialized = true;
+        }
+        catch (JSDisconnectedException) { }
+        catch (ObjectDisposedException) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_isCrosshairInitialized)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("ganttCrosshair.dispose", _ganttChartContainerRef);
+            }
+            catch { }
         }
     }
 
@@ -341,6 +433,7 @@
                 }
 
                 CalculateLongestGap();
+                _needsCrosshairInit = true;
             }
         }
         catch (Exception ex)
@@ -585,6 +678,25 @@
         _comparisonItem = null;
         _comparisonGap = null;
         CalculateItemGaps(item);
+        AutoMatchCycleTime(item);
+    }
+
+    private void AutoMatchCycleTime(GanttChartItem item)
+    {
+        if (_ganttData == null) return;
+
+        var nextOccurrence = _ganttData.Items
+            .Where(i => i.TagAddress == item.TagAddress
+                      && i.EventType == item.EventType
+                      && i.GoingStartTime > item.GoingStartTime)
+            .OrderBy(i => i.GoingStartTime)
+            .FirstOrDefault();
+
+        if (nextOccurrence != null)
+        {
+            _comparisonItem = nextOccurrence;
+            _comparisonGap = (nextOccurrence.GoingStartTime - item.GoingStartTime).TotalMilliseconds;
+        }
     }
 
     private void SetComparisonSelection(GanttChartItem item)
@@ -780,6 +892,68 @@
             builder.AddAttribute(56, "font-weight", "bold");
             builder.AddAttribute(57, "fill", "#d32f2f");
             builder.AddContent(58, $"최대 GAP: {(_longestGap.Value.Duration / 1000.0):F2}s");
+            builder.CloseElement();
+        }
+
+        // Cycle Time 구간 오버레이 (A→B 비교 선택 시 자동 표시)
+        if (_selectedItem != null && _comparisonItem != null)
+        {
+            var itemA = _selectedItem;
+            var itemB = _comparisonItem;
+            // 시간순 정렬 (왼쪽 기준)
+            if (itemA.GoingStartTime > itemB.GoingStartTime)
+            {
+                (itemA, itemB) = (itemB, itemA);
+            }
+
+            var ctX = leftMargin + ((itemA.GoingStartTime - chartStartTime).TotalMilliseconds * xScale);
+            var ctWidth = Math.Max(2, (itemB.GoingStartTime - itemA.GoingStartTime).TotalMilliseconds * xScale);
+            var ctDuration = (itemB.GoingStartTime - itemA.GoingStartTime).TotalMilliseconds;
+
+            // 반투명 녹색 오버레이
+            builder.OpenElement(100, "rect");
+            builder.AddAttribute(101, "class", "gantt-cycletime-overlay");
+            builder.AddAttribute(102, "x", ctX);
+            builder.AddAttribute(103, "y", topMargin);
+            builder.AddAttribute(104, "width", ctWidth);
+            builder.AddAttribute(105, "height", data.TotalLanes * laneHeight);
+            builder.AddAttribute(106, "fill", "rgba(76, 175, 80, 0.08)");
+            builder.AddAttribute(107, "stroke", "rgba(76, 175, 80, 0.5)");
+            builder.AddAttribute(108, "stroke-width", "2");
+            builder.AddAttribute(109, "stroke-dasharray", "6,3");
+            builder.CloseElement();
+
+            // 시작 경계선
+            builder.OpenElement(110, "line");
+            builder.AddAttribute(111, "x1", ctX);
+            builder.AddAttribute(112, "y1", topMargin);
+            builder.AddAttribute(113, "x2", ctX);
+            builder.AddAttribute(114, "y2", topMargin + (data.TotalLanes * laneHeight));
+            builder.AddAttribute(115, "stroke", "#4caf50");
+            builder.AddAttribute(116, "stroke-width", "2");
+            builder.CloseElement();
+
+            // 종료 경계선
+            var ctEndX = ctX + ctWidth;
+            builder.OpenElement(120, "line");
+            builder.AddAttribute(121, "x1", ctEndX);
+            builder.AddAttribute(122, "y1", topMargin);
+            builder.AddAttribute(123, "x2", ctEndX);
+            builder.AddAttribute(124, "y2", topMargin + (data.TotalLanes * laneHeight));
+            builder.AddAttribute(125, "stroke", "#ff9800");
+            builder.AddAttribute(126, "stroke-width", "2");
+            builder.CloseElement();
+
+            // Cycle Time 라벨
+            builder.OpenElement(130, "text");
+            builder.AddAttribute(131, "class", "gantt-cycletime-text");
+            builder.AddAttribute(132, "x", ctX + (ctWidth / 2));
+            builder.AddAttribute(133, "y", topMargin - 25);
+            builder.AddAttribute(134, "text-anchor", "middle");
+            builder.AddAttribute(135, "font-size", "12");
+            builder.AddAttribute(136, "font-weight", "bold");
+            builder.AddAttribute(137, "fill", "#2e7d32");
+            builder.AddContent(138, $"Cycle Time: {(ctDuration / 1000.0):F2}s");
             builder.CloseElement();
         }
 

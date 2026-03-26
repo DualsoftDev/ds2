@@ -595,3 +595,19 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* Gantt Crosshair Tooltip */
+::deep .gantt-crosshair-tooltip {
+    position: absolute;
+    pointer-events: none;
+    z-index: 100;
+    background: rgba(33, 33, 33, 0.92);
+    color: #fff;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    line-height: 1.4;
+}
