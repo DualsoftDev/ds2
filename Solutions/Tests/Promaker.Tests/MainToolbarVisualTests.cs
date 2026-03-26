@@ -33,6 +33,43 @@ public sealed class MainToolbarVisualTests
         });
     }
 
+    [Fact]
+    public void MainToolbar_simulation_controls_bind_to_main_view_model_and_simulation_state()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var toolbar = CreateToolbar(vm);
+
+            var startButton = FindRequiredDescendant<Button>(toolbar, "SimulationStartStopButton");
+            var pauseButton = FindRequiredDescendant<Button>(toolbar, "SimulationPauseStepButton");
+            var tokenButton = FindRequiredDescendant<Button>(toolbar, "OpenTokenSpecButton");
+            var speedCombo = FindRequiredDescendant<ComboBox>(toolbar, "SimSpeedComboBox");
+
+            Assert.False(vm.HasProject);
+            Assert.False(startButton.IsEnabled);
+            Assert.False(pauseButton.IsEnabled);
+            Assert.False(tokenButton.IsEnabled);
+
+            vm.NewProjectCommand.Execute(null);
+            toolbar.UpdateLayout();
+
+            Assert.True(vm.HasProject);
+            Assert.Same(vm.Simulation.StartSimulationCommand, startButton.Command);
+            Assert.Same(vm.OpenTokenSpecDialogCommand, tokenButton.Command);
+            Assert.True(startButton.IsEnabled);
+            Assert.False(pauseButton.IsEnabled);
+            Assert.True(tokenButton.IsEnabled);
+            Assert.Equal("1x", ((ComboBoxItem)speedCombo.SelectedItem).Content?.ToString());
+            Assert.True(speedCombo.ActualHeight >= 20);
+
+            startButton.Command.Execute(null);
+            toolbar.UpdateLayout();
+
+            Assert.True(vm.Simulation.IsSimulating);
+        });
+    }
+
     private static MainToolbar CreateToolbar(MainViewModel vm)
     {
         var toolbar = new MainToolbar

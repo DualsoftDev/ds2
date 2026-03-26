@@ -223,12 +223,12 @@
                                     <DataTrigger Binding="{Binding SimTokenDisplay}" Value="">
                                         <Setter TargetName="TokenBadge" Property="Visibility" Value="Collapsed"/>
                                     </DataTrigger>
-                                    <!-- Work: orange border -->
+                                    <!-- Work: purple border -->
                                     <DataTrigger Binding="{Binding EntityType}" Value="Work">
                                         <Setter TargetName="NodeBorder" Property="Background"
                                                 Value="{DynamicResource NodeWorkBackgroundBrush}"/>
                                         <Setter TargetName="NodeBorder" Property="BorderBrush"
-                                                Value="{DynamicResource OrangeAccentBrush}"/>
+                                                Value="{DynamicResource PurpleAccentBrush}"/>
                                     </DataTrigger>
                                     <!-- Call: blue border, rounded -->
                                     <DataTrigger Binding="{Binding EntityType}" Value="Call">
