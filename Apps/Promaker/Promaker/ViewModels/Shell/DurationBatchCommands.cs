@@ -33,13 +33,29 @@ public partial class MainViewModel
             return;
 
         var changes = new List<(Guid, int)>();
+        var invalidCount = 0;
         foreach (var row in changed)
         {
             if (int.TryParse(row.Duration, out var ms))
                 changes.Add((row.WorkId, ms));
+            else
+                invalidCount++;
         }
 
-        if (changes.Count > 0 && TryEditorAction(() => _store.UpdateWorkDurationsBatch(changes)))
-            StatusText = $"Duration 일괄 변경: {changes.Count}건 적용됨";
+        if (invalidCount > 0)
+            _dialogService.ShowWarning($"{invalidCount}개의 Duration 값이 잘못되어 제외되었습니다.");
+
+        if (changes.Count == 0)
+        {
+            StatusText = "적용할 유효한 Duration 변경이 없습니다.";
+            return;
+        }
+
+        if (TryEditorAction(() => _store.UpdateWorkDurationsBatch(changes)))
+        {
+            StatusText = invalidCount > 0
+                ? $"Duration 일괄 변경: {changes.Count}건 적용, {invalidCount}건 제외"
+                : $"Duration 일괄 변경: {changes.Count}건 적용됨";
+        }
     }
 }

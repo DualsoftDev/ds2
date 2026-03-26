@@ -20,11 +20,16 @@ public sealed class MainToolbarVisualTests
 
             var speedCombo = FindRequiredDescendant<ComboBox>(toolbar, "SimSpeedComboBox");
             var items = speedCombo.Items.OfType<ComboBoxItem>().ToArray();
+            var labels = items.Select(item => item.Content?.ToString()).ToArray();
 
             Assert.Equal(1.0, vm.Simulation.SimSpeed);
-            Assert.All(items, item => Assert.IsType<double>(item.Tag));
-            Assert.Equal(1.0, Assert.IsType<double>(items[1].Tag));
-            Assert.Equal(1.0, Assert.IsType<double>(speedCombo.SelectedValue));
+            Assert.Equal(6, items.Length);
+            Assert.Equal("0.5x", labels[0]);
+            Assert.Equal("1x", labels[1]);
+            Assert.Equal("2x", labels[2]);
+            Assert.Equal("5x", labels[3]);
+            Assert.Equal("10x", labels[4]);
+            Assert.False(string.IsNullOrWhiteSpace(labels[5]));
         });
     }
 

@@ -15,15 +15,25 @@ public partial class MainViewModel
     private const string MermaidFileFilter =
         "Mermaid Files (*.md;*.mmd)|*.md;*.mmd|All Files (*.*)|*.*";
 
-    [RelayCommand]
+    private bool CanImportMermaid() =>
+        SelectedNode is { EntityType: var kind } && EntityKindRules.canImportMermaid(kind);
+
+    [RelayCommand(CanExecute = nameof(CanImportMermaid))]
     private void ImportMermaid()
     {
         var node = SelectedNode;
-        if (node is null) return;
+        if (node is null)
+        {
+            StatusText = "Select a System, Flow, or Work to import Mermaid.";
+            return;
+        }
 
         var kind = node.EntityType;
         if (!EntityKindRules.canImportMermaid(kind))
+        {
+            StatusText = "Select a System, Flow, or Work to import Mermaid.";
             return;
+        }
 
         // 1. 파일 선택
         var dlg = new OpenFileDialog { Filter = MermaidFileFilter };

@@ -8,6 +8,7 @@
              GotFocus="OnPaneFocused">
     <UserControl.Resources>
         <conv:InvCountToVisibilityConverter x:Key="InvCountToVis"/>
+        <conv:TabKindToBrushConverter x:Key="TabKindToBrush"/>
 
         <Style x:Key="TabCloseButtonStyle" TargetType="Button">
             <Setter Property="Width" Value="18"/>
@@ -52,14 +53,54 @@
             <Setter Property="CornerRadius" Value="4,4,0,0"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Style.Triggers>
-                <DataTrigger Binding="{Binding IsActive}" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource PrimaryBackgroundBrush}"/>
-                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
-                    <Setter Property="BorderThickness" Value="0,2,0,0"/>
-                </DataTrigger>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
-                </Trigger>
+                <!-- 비활성 System → 어두운 주황 -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsActive}" Value="False"/>
+                        <Condition Binding="{Binding Kind}" Value="System"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{DynamicResource OrangeAccentDimBrush}"/>
+                </MultiDataTrigger>
+                <!-- 비활성 Flow → 어두운 파랑 -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsActive}" Value="False"/>
+                        <Condition Binding="{Binding Kind}" Value="Flow"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{DynamicResource AccentDimBrush}"/>
+                </MultiDataTrigger>
+                <!-- 비활성 Work → 어두운 초록 -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsActive}" Value="False"/>
+                        <Condition Binding="{Binding Kind}" Value="Work"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{DynamicResource GreenAccentDimBrush}"/>
+                </MultiDataTrigger>
+                <!-- 활성 System → 밝은 주황 -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsActive}" Value="True"/>
+                        <Condition Binding="{Binding Kind}" Value="System"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{DynamicResource OrangeAccentBrush}"/>
+                </MultiDataTrigger>
+                <!-- 활성 Flow → 밝은 파랑 -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsActive}" Value="True"/>
+                        <Condition Binding="{Binding Kind}" Value="Flow"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                </MultiDataTrigger>
+                <!-- 활성 Work → 밝은 초록 -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding IsActive}" Value="True"/>
+                        <Condition Binding="{Binding Kind}" Value="Work"/>
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{DynamicResource GreenAccentBrush}"/>
+                </MultiDataTrigger>
             </Style.Triggers>
         </Style>
     </UserControl.Resources>
@@ -85,7 +126,7 @@
                             <Border Style="{StaticResource CanvasTabHeaderStyle}"
                                     MouseLeftButtonDown="TabHeader_MouseDown">
                                 <Border.ContextMenu>
-                                    <ContextMenu>
+                                    <ContextMenu Opened="TabContextMenu_Opened">
                                         <MenuItem Header="닫기" Click="CloseTab_Click" Tag="{Binding}"/>
                                         <MenuItem Header="다른 탭 닫기" Click="CloseOtherTabs_Click" Tag="{Binding}"/>
                                         <MenuItem Header="모두 닫기" Click="CloseAllTabs_Click"/>
@@ -98,9 +139,19 @@
                                 </Border.ContextMenu>
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="{Binding Title}"
-                                               Foreground="{DynamicResource PrimaryTextBrush}"
                                                VerticalAlignment="Center"
-                                               ToolTip="{Binding Title}"/>
+                                               ToolTip="{Binding Title}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource ContrastDarkTextBrush}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                     <Button Style="{StaticResource TabCloseButtonStyle}"
                                             Click="CloseTab_Click" Tag="{Binding}"/>
                                 </StackPanel>

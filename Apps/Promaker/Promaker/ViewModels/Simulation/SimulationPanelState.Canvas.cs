@@ -9,7 +9,7 @@ namespace Promaker.ViewModels;
 
 public partial class SimulationPanelState
 {
-    private static Guid? _lastSelectedWorkId;
+    private Guid? _lastSelectedWorkId;
 
     private void InitSimNodes()
     {
@@ -112,7 +112,7 @@ public partial class SimulationPanelState
     }
 
     /// <summary>캔버스 노드가 새로 생성된 후 시뮬레이션 상태/토큰 뱃지를 복원합니다.</summary>
-    internal void RestoreSimStateToCavas()
+    internal void RestoreSimStateToCanvas()
     {
         ApplyWarningsToCanvas();
 

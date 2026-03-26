@@ -50,6 +50,7 @@ public partial class CanvasWorkspaceState : ObservableObject
             _suppressFitToView = false;
         else
             FitToViewZoomOutRequested?.Invoke();
+        _host.NotifyCommandStatesChanged();
     }
 
     public void Reset()
@@ -125,11 +126,17 @@ public partial class CanvasWorkspaceState : ObservableObject
         });
     }
 
-    [RelayCommand]
+    private bool CanFocusSelectedInCanvas() =>
+        _host.SelectedNode is { EntityType: EntityKind.Work or EntityKind.Call };
+
+    [RelayCommand(CanExecute = nameof(CanFocusSelectedInCanvas))]
     private void FocusSelectedInCanvas()
     {
         if (_host.SelectedNode is not { EntityType: EntityKind.Work or EntityKind.Call } node)
+        {
+            _host.SetStatusText("Select a Work or Call to focus in canvas.");
             return;
+        }
 
         OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
     }
@@ -139,6 +146,13 @@ public partial class CanvasWorkspaceState : ObservableObject
     {
         if (tab is not null)
             RemoveTab(tab);
+    }
+
+    [RelayCommand]
+    private void CloseActiveTab()
+    {
+        if (ActiveTab is not null)
+            RemoveTab(ActiveTab);
     }
 
     /// <summary>외부에서 탭을 추가합니다 (분할 이동 시 사용).</summary>

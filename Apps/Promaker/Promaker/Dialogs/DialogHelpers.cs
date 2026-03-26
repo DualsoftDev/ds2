@@ -60,7 +60,7 @@ internal static class DialogHelpers
         return dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(result) ? result : null;
     }
 
-    internal static Guid? PickCallFromList(string title, IReadOnlyList<(Guid Id, string Name)> calls,
+    internal static void PickCallFromList(string title, IReadOnlyList<(Guid Id, string Name)> calls,
         Action<Guid> onNavigate)
     {
         var dialog = new Window
@@ -93,7 +93,6 @@ internal static class DialogHelpers
 
         dialog.Content = listBox;
         dialog.ShowDialog();
-        return null;
     }
 
     /// <summary>그래프 검증 경고를 심각도별 색상으로 표시합니다.</summary>

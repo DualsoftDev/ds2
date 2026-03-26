@@ -186,6 +186,9 @@
                                       FontSize="12" Margin="0,0,16,0"/>
                             <CheckBox Content="Ignore"
                                       IsChecked="{Binding IsTokenIgnore}"
+                                      FontSize="12" Margin="0,0,16,0"/>
+                            <CheckBox Content="Sink"
+                                      IsChecked="{Binding IsTokenSink}"
                                       FontSize="12"/>
                         </StackPanel>
                         <TextBlock Text="연결된 TokenSpec"

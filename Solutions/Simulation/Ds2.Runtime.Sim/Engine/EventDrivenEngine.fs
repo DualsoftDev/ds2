@@ -20,6 +20,7 @@ type EventDrivenEngine(index: SimIndex) =
 
     let mutable engineThread: Thread option = None
     let mutable cts: CancellationTokenSource option = None
+    let processGate = obj()
 
     let disposeCurrentCts () =
         cts |> Option.iter (fun c -> c.Dispose())
@@ -76,9 +77,16 @@ type EventDrivenEngine(index: SimIndex) =
     let canReceiveToken workGuid = TokenFlow.canReceiveToken tokenFlowContext workGuid
     let emitTokenEvent kind token workGuid (targetGuid: Guid option) =
         TokenFlow.emitTokenEvent tokenFlowContext kind token workGuid targetGuid
-    let hasNoSuccessors workGuid = TokenFlow.hasNoSuccessors tokenFlowContext workGuid
     let shiftToken workGuid token = TokenFlow.shiftToken tokenFlowContext workGuid token
     let onWorkFinish workGuid = TokenFlow.onWorkFinish tokenFlowContext workGuid
+
+    // ── Duration 이벤트 추적 (Pause 시 취소/Resume 시 재스케줄) ──
+    /// workGuid → (eventId, scheduledTimeMs)
+    let mutable durationEvents = Map.empty<Guid, struct(Guid * int64)>
+    /// Pause 시 저장된 남은 시간: workGuid → remainingMs
+    let mutable pausedDurationRemaining = Map.empty<Guid, int64>
+    let onDurationScheduled workGuid eventId scheduledTimeMs =
+        durationEvents <- durationEvents.Add(workGuid, struct(eventId, scheduledTimeMs))
 
     let workTransitionContext : WorkTransitions.Context = {
         Index = index
@@ -88,6 +96,7 @@ type EventDrivenEngine(index: SimIndex) =
         ScheduleConditionEvaluation = scheduleConditionEvaluation
         OnWorkFinish = onWorkFinish
         TriggerWorkStateChanged = workStateChangedEvent.Trigger
+        OnDurationScheduled = onDurationScheduled
     }
 
     let scheduleWorkIfReady workGuid targetState =
@@ -114,6 +123,22 @@ type EventDrivenEngine(index: SimIndex) =
             if not result.IsSkipped then
                 setRxWorkIOValues callGuid
                 SimIndex.rxWorkGuids index callGuid |> List.iter (fun rxGuid -> scheduleWorkIfReady rxGuid Status4.Finish)
+            // Pause 중 마지막 Call Finish → 해당 Work의 중단된 duration 재스케줄
+            match index.CallWorkGuid |> Map.tryFind callGuid with
+            | Some workGuid ->
+                let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
+                if callGuids |> List.forall (fun cg -> stateManager.GetCallState(cg) = Status4.Finish) then
+                    match pausedDurationRemaining |> Map.tryFind workGuid with
+                    | Some remaining ->
+                        let eventId =
+                            scheduler.ScheduleAfter(
+                                ScheduledEventType.DurationComplete workGuid,
+                                (max 1L remaining),
+                                ScheduledEvent.PriorityDurationCheck)
+                        durationEvents <- durationEvents.Add(workGuid, struct(eventId, scheduler.CurrentTimeMs + remaining))
+                        pausedDurationRemaining <- pausedDurationRemaining.Remove(workGuid)
+                    | None -> ()
+            | None -> ()
             scheduleConditionEvaluation ()
         | _ -> ()
 
@@ -127,7 +152,6 @@ type EventDrivenEngine(index: SimIndex) =
         ScheduleConditionEvaluation = scheduleConditionEvaluation
         ShiftToken = shiftToken
         EmitTokenEvent = emitTokenEvent
-        HasNoSuccessors = hasNoSuccessors
         CanReceiveToken = canReceiveToken
         ApplyWorkTransition = applyWorkTransition
     }
@@ -144,6 +168,7 @@ type EventDrivenEngine(index: SimIndex) =
         applyCallTransition callGuid newState
 
     let handleDurationComplete workGuid =
+        durationEvents <- durationEvents.Remove(workGuid)
         if stateManager.GetWorkState(workGuid) = Status4.Going then
             stateManager.MarkMinDurationMet(workGuid)
             let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
@@ -155,9 +180,11 @@ type EventDrivenEngine(index: SimIndex) =
                     applyWorkTransition workGuid Status4.Finish
 
     let runtimeContext : EventDrivenEngineRuntime.RuntimeContext = {
+        ProcessGate = processGate
         Scheduler = scheduler
         GetStatus = (fun () -> Volatile.Read(&status))
         SpeedMultiplier = (fun () -> speedMultiplier)
+        UpdateClock = stateManager.UpdateClock
         GetWorkState = stateManager.GetWorkState
         GetWorkToken = stateManager.GetWorkToken
         ClearAndApplyWorkTransition = clearAndApplyWorkTransition
@@ -169,6 +196,44 @@ type EventDrivenEngine(index: SimIndex) =
         ScheduleConditionEvaluation = scheduleConditionEvaluation
         EvaluateConditions = evaluateConditions
     }
+
+    let stepSnapshot () =
+        let state = stateManager.GetState()
+        state.WorkStates, state.CallStates, state.WorkTokens, state.CompletedTokens, scheduler.CurrentTimeMs
+
+    let hasStepProgressedSince before =
+        stepSnapshot () <> before
+
+    let advanceStepRuntime targetTimeMs =
+        EventDrivenEngineRuntime.advanceAndDrain runtimeContext targetTimeMs
+
+    let advanceUntilStepBoundary before =
+        let mutable progressed = false
+        let mutable guard = 0
+
+        while not progressed && guard < 256 do
+            match scheduler.NextEventTime with
+            | Some nextEventTime ->
+                guard <- guard + 1
+                advanceStepRuntime nextEventTime
+                progressed <- hasStepProgressedSince before
+            | None ->
+                guard <- 256
+
+        progressed
+
+    let runStepUntilBoundary (engine: EventDrivenEngine) =
+        let before = stepSnapshot ()
+
+        engine.SetAllFlowStates(FlowTag.Drive)
+        advanceStepRuntime scheduler.CurrentTimeMs
+
+        let progressed =
+            if hasStepProgressedSince before then true
+            else advanceUntilStepBoundary before
+
+        engine.SetAllFlowStates(FlowTag.Pause)
+        progressed
 
     let startEngineThread (tokenSource: CancellationTokenSource) =
         let t = Thread(ThreadStart(fun () -> EventDrivenEngineRuntime.simulationLoop runtimeContext tokenSource.Token))
@@ -261,6 +326,67 @@ type EventDrivenEngine(index: SimIndex) =
     member _.GetWorkState(workGuid) = stateManager.GetState().WorkStates.TryFind(workGuid)
     member _.GetCallState(callGuid) = stateManager.GetState().CallStates.TryFind(callGuid)
 
+    /// Active System의 Flow Guid 목록
+    member private _.ActiveFlowGuids =
+        index.AllFlowGuids
+        |> List.filter (fun fg ->
+            // Flow → System: Flow의 Work들 중 하나의 SystemName이 Active이면 Active Flow
+            index.AllWorkGuids
+            |> List.exists (fun wg ->
+                index.WorkFlowGuid |> Map.tryFind wg = Some fg
+                && index.WorkSystemName |> Map.tryFind wg
+                   |> Option.map (fun sn -> index.ActiveSystemNames.Contains(sn))
+                   |> Option.defaultValue false))
+
+    member this.SetAllFlowStates(tag: FlowTag) =
+        match tag with
+        | FlowTag.Pause ->
+            // Active Flow만 Pause + duration 취소/남은 시간 저장
+            for fg in this.ActiveFlowGuids do
+                stateManager.SetFlowState(fg, FlowTag.Pause)
+            // Active Flow에 속한 Going Work의 duration 이벤트 취소
+            // Going Call이 있으면 "진행 중인 STEP" → duration도 같이 흘러감 (취소 안 함)
+            // Going Call 없고 미시작 Call 있으면 → 다음 STEP 대기 → duration 취소
+            // 모든 Call Finish 또는 leaf → duration 계속 진행
+            for wg in index.AllWorkGuids do
+                if stateManager.GetWorkState(wg) = Status4.Going then
+                    let callGuids = SimIndex.findOrEmpty wg index.WorkCallGuids
+                    let hasGoingCall =
+                        callGuids |> List.exists (fun cg -> stateManager.GetCallState(cg) = Status4.Going)
+                    let hasUnfinishedCall =
+                        callGuids |> List.exists (fun cg -> stateManager.GetCallState(cg) <> Status4.Finish)
+                    if not hasGoingCall && hasUnfinishedCall then
+                        match index.WorkFlowGuid |> Map.tryFind wg with
+                        | Some fg when stateManager.GetFlowState(fg) = FlowTag.Pause ->
+                            match durationEvents |> Map.tryFind wg with
+                            | Some struct(eventId, scheduledTimeMs) ->
+                                scheduler.Cancel(eventId)
+                                let remaining = max 0L (scheduledTimeMs - scheduler.CurrentTimeMs)
+                                pausedDurationRemaining <- pausedDurationRemaining.Add(wg, remaining)
+                                durationEvents <- durationEvents.Remove(wg)
+                            | None -> ()
+                        | _ -> ()
+        | FlowTag.Drive ->
+            // Active Flow만 Drive + 저장된 남은 시간으로 duration 재스케줄
+            for fg in this.ActiveFlowGuids do
+                stateManager.SetFlowState(fg, FlowTag.Drive)
+            for kv in pausedDurationRemaining |> Map.toList do
+                let wg, remaining = kv
+                if stateManager.GetWorkState(wg) = Status4.Going then
+                    let eventId =
+                        scheduler.ScheduleAfter(
+                            ScheduledEventType.DurationComplete wg,
+                            (max 1L remaining),
+                            ScheduledEvent.PriorityDurationCheck)
+                    durationEvents <- durationEvents.Add(wg, struct(eventId, scheduler.CurrentTimeMs + remaining))
+            pausedDurationRemaining <- Map.empty
+        | _ ->
+            // Ready 등: 전체 Flow 대상
+            stateManager.SetAllFlowStates(tag)
+        scheduleConditionEvaluation ()
+
+    member _.GetFlowState(flowGuid: Guid) = stateManager.GetFlowState(flowGuid)
+
     member _.SpeedMultiplier
         with get() = speedMultiplier
         and set(m) = speedMultiplier <- max 0.1 (min 1000.0 m)
@@ -315,6 +441,38 @@ type EventDrivenEngine(index: SimIndex) =
 
     member _.NextToken() = stateManager.NextToken()
 
+    member _.HasStartableWork =
+        // 1) Ready Work 중 실제 시작 조건(predecessor+token) 충족하는 게 있으면 → STEP 가능
+        let hasStartableReadyWork =
+            index.AllWorkGuids
+            |> List.exists (fun wg ->
+                stateManager.GetWorkState(wg) = Status4.Ready
+                && canStartWork wg)
+        // 2) Going Work에 아직 끝나지 않은 Call이 있으면 → STEP으로 Call 진행 필요
+        //    (Going leaf Work / 모든 Call Finish인 경우는 HasGoingCall로 처리됨)
+        let hasGoingWorkWithPendingCalls =
+            index.AllWorkGuids
+            |> List.exists (fun wg ->
+                stateManager.GetWorkState(wg) = Status4.Going
+                && (let callGuids = SimIndex.findOrEmpty wg index.WorkCallGuids
+                    not callGuids.IsEmpty
+                    && callGuids |> List.exists (fun cg -> stateManager.GetCallState(cg) <> Status4.Finish)))
+        hasStartableReadyWork || hasGoingWorkWithPendingCalls
+
+    member _.HasActiveDuration =
+        // Pause에서도 duration timer가 취소되지 않는 Going Work:
+        // leaf Work (Call 없음) 또는 모든 Call이 Finish인 Work
+        index.AllWorkGuids
+        |> List.exists (fun wg ->
+            stateManager.GetWorkState(wg) = Status4.Going
+            && (let callGuids = SimIndex.findOrEmpty wg index.WorkCallGuids
+                callGuids.IsEmpty
+                || callGuids |> List.forall (fun cg -> stateManager.GetCallState(cg) = Status4.Finish)))
+
+    member this.Step() =
+        lock processGate (fun () ->
+            runStepUntilBoundary this)
+
     interface ISimulationEngine with
         member this.State = this.State
         member this.Status = this.Status
@@ -329,6 +487,11 @@ type EventDrivenEngine(index: SimIndex) =
         member this.ForceCallState(cg, ns) = this.ForceCallState(cg, ns)
         member this.GetWorkState(wg) = this.GetWorkState(wg)
         member this.GetCallState(cg) = this.GetCallState(cg)
+        member this.SetAllFlowStates(tag) = this.SetAllFlowStates(tag)
+        member this.GetFlowState(fg) = this.GetFlowState(fg)
+        member this.HasStartableWork = this.HasStartableWork
+        member this.HasActiveDuration = this.HasActiveDuration
+        member this.Step() = this.Step()
         member this.SpeedMultiplier
             with get() = this.SpeedMultiplier
             and set(v) = this.SpeedMultiplier <- v

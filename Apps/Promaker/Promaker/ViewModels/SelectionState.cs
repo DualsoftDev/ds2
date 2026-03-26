@@ -37,6 +37,7 @@ public class SelectionState
         _selectionAnchor = null;
         _host.SelectedNode = null;
         _host.SelectedArrow = null;
+        _host.NotifyCommandStatesChanged();
     }
 
     public void SetActiveTreePane(TreePaneKind pane) => _activeTreePane = pane;
@@ -260,6 +261,7 @@ public class SelectionState
         ApplySelectionTo(EnumerateTreeNodes(), selectionOrder, static (n, s) => n.IsTreeSelected = s);
 
         _host.SelectedNode = ResolvePrimarySelectedNode();
+        _host.NotifyCommandStatesChanged();
     }
 
     private List<SelectionKey> CanvasSelectionOrderKeys() =>
@@ -340,6 +342,7 @@ public class SelectionState
         _host.SelectedArrow = primaryArrowId is { } id
             ? _host.CanvasArrows.FirstOrDefault(a => a.Id == id)
             : null;
+        _host.NotifyCommandStatesChanged();
     }
 
     private IEnumerable<EntityNode> EnumerateActiveTreeRoots() =>
