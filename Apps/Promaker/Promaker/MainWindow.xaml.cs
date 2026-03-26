@@ -36,8 +36,6 @@ public partial class MainWindow : Window
             e.Cancel = true;
     }
 
-    private void Exit_Click(object sender, RoutedEventArgs e) => Close();
-
     private static readonly string[] SupportedExtensions = [".json", ".aasx", ".md", ".mmd"];
 
     private bool IsSupportedFileDrop(DragEventArgs e) =>
