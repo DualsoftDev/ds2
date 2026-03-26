@@ -59,6 +59,25 @@ window.ganttCrosshair = {
         dragStartLine.style.display = 'none';
         overlayGroup.appendChild(dragStartLine);
 
+        // Selection duration label (background + text)
+        var selectionLabelBg = document.createElementNS(svgNS, 'rect');
+        selectionLabelBg.setAttribute('rx', '4');
+        selectionLabelBg.setAttribute('fill', 'rgba(255,255,255,0.92)');
+        selectionLabelBg.setAttribute('stroke', '#FF5722');
+        selectionLabelBg.setAttribute('stroke-width', '1');
+        selectionLabelBg.style.display = 'none';
+        overlayGroup.appendChild(selectionLabelBg);
+
+        var selectionLabel = document.createElementNS(svgNS, 'text');
+        selectionLabel.setAttribute('text-anchor', 'middle');
+        selectionLabel.setAttribute('dominant-baseline', 'middle');
+        selectionLabel.setAttribute('font-size', '11');
+        selectionLabel.setAttribute('font-weight', '700');
+        selectionLabel.setAttribute('font-family', 'Consolas,Monaco,monospace');
+        selectionLabel.setAttribute('fill', '#FF5722');
+        selectionLabel.style.display = 'none';
+        overlayGroup.appendChild(selectionLabel);
+
         svgEl.appendChild(overlayGroup);
 
         // --- Create HTML tooltip (inline styles to avoid CSS scoping issues) ---
@@ -206,6 +225,30 @@ window.ganttCrosshair = {
         function hideSelection() {
             selectionRect.style.display = 'none';
             dragStartLine.style.display = 'none';
+            selectionLabelBg.style.display = 'none';
+            selectionLabel.style.display = 'none';
+        }
+
+        function showSelectionLabel(x1, x2, durationMs) {
+            var minX = Math.max(leftMargin, Math.min(x1, x2));
+            var maxX = Math.min(leftMargin + plotWidth, Math.max(x1, x2));
+            var centerX = (minX + maxX) / 2;
+            var labelY = topMargin + 14;
+
+            var text = '\u0394 ' + formatDuration(Math.abs(durationMs));
+            selectionLabel.textContent = text;
+            selectionLabel.setAttribute('x', centerX);
+            selectionLabel.setAttribute('y', labelY);
+            selectionLabel.style.display = '';
+
+            // Size the background rect around the text
+            var textLen = text.length * 6.6 + 12;
+            var labelH = 18;
+            selectionLabelBg.setAttribute('x', centerX - textLen / 2);
+            selectionLabelBg.setAttribute('y', labelY - labelH / 2);
+            selectionLabelBg.setAttribute('width', textLen);
+            selectionLabelBg.setAttribute('height', labelH);
+            selectionLabelBg.style.display = '';
         }
 
         function showDragStartLine(svgX) {
@@ -306,6 +349,23 @@ window.ganttCrosshair = {
         function onMouseUp(e) {
             if (!state.isDragging) return;
             state.isDragging = false;
+
+            ensureOverlay();
+            var svgX = getSvgX(e);
+            var clampedX = Math.max(leftMargin, Math.min(leftMargin + plotWidth, svgX));
+            var snap = findNearestEdge(clampedX);
+            var displayX = snap ? snap.x : clampedX;
+            var timeMs = snap ? snap.timeMs : xToTimeMs(clampedX);
+
+            var deltaMs = timeMs - state.dragStartTimeMs;
+
+            // Keep selection rect visible with duration label; hide crosshair & tooltip
+            if (Math.abs(displayX - state.dragStartX) > 3) {
+                showSelection(state.dragStartX, displayX);
+                showSelectionLabel(state.dragStartX, displayX, deltaMs);
+            }
+            hideCrosshair();
+            hideTooltip();
         }
 
         function onMouseLeave(e) {
