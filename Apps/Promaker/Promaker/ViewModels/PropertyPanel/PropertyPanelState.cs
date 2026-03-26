@@ -155,8 +155,11 @@ public partial class PropertyPanelState : ObservableObject
             _suppressTokenRoleSync = false;
 
             // 연결된 TokenSpec 표시 (원본 ID도 매칭)
+            var canonicalSelectedWorkId = DsQuery.resolveOriginalWorkId(selected.Id, Store);
             var linkedSpec = DsQuery.getTokenSpecs(Store)
-                .FirstOrDefault(s => s.WorkId is { } wid && (wid.Value == selected.Id || wid.Value == resolvedWorkId));
+                .FirstOrDefault(s =>
+                    s.WorkId is { } wid
+                    && DsQuery.resolveOriginalWorkId(wid.Value, Store) == canonicalSelectedWorkId);
             HasLinkedTokenSpec = linkedSpec is not null;
             LinkedTokenSpecLabel = linkedSpec is not null ? $"#{linkedSpec.Id} {linkedSpec.Label}" : "";
         }

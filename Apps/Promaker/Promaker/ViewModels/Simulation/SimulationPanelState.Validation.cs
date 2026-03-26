@@ -164,7 +164,9 @@ public partial class SimulationPanelState
     {
         var specs = DsQuery.getTokenSpecs(Store);
         var specWorkIds = new HashSet<Guid>(
-            specs.Where(s => s.WorkId != null).Select(s => s.WorkId.Value));
+            specs
+                .Where(s => s.WorkId != null)
+                .Select(s => DsQuery.resolveOriginalWorkId(s.WorkId.Value, Store)));
 
         var missing = index.TokenSourceGuids
             .Where(g => !specWorkIds.Contains(g))

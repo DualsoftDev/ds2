@@ -9,11 +9,7 @@ module WorkConditionChecker =
 
     /// ReferenceOf 기반 OR 그룹에서 같은 그룹의 Work ID 목록을 반환
     let private orGroupGuidsOf (index: SimIndex) (workGuid: Guid) : Guid list =
-        // ReferenceGroups에서 이 Work가 속한 그룹 찾기
-        index.WorkReferenceGroups
-        |> Map.tryPick (fun _ guids ->
-            if List.contains workGuid guids then Some guids else None)
-        |> Option.defaultValue [ workGuid ]
+        SimIndex.referenceGroupOf index workGuid
 
     /// Predecessor 조건 검사 공통 함수
     let private checkPredecessorCondition
