@@ -9,6 +9,9 @@ using Microsoft.Extensions.Hosting.WindowsServices;
 if (WindowsServiceHelpers.IsWindowsService())
     Environment.CurrentDirectory = AppContext.BaseDirectory;
 
+// appsettings.json이 없으면 defaults에서 자동 생성
+AppSettingsService.EnsureSettingsFiles(Environment.CurrentDirectory);
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService();
 var defaultEv2ScanIntervalMs = ResolveScanIntervalMs(builder.Configuration, "PlcCapture:ScanIntervalMs", 100);
