@@ -94,22 +94,22 @@ public partial class CallCreateDialog : Window
             CommitAdvancedTab();
     }
 
-    private void CommitBasicTab()
+    private (string alias, List<string> apiNames)? ValidateAliasAndApiNames(TextBox aliasBox, TextBox apiNameBox)
     {
-        var alias = BasicAliasTextBox.Text.Trim();
-        var apiDefText = BasicApiNameTextBox.Text.Trim();
+        var alias = aliasBox.Text.Trim();
+        var apiDefText = apiNameBox.Text.Trim();
 
         if (string.IsNullOrEmpty(alias))
         {
-            DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return;
+            DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return null;
         }
         if (alias.Contains('.'))
         {
-            DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return;
+            DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return null;
         }
         if (string.IsNullOrEmpty(apiDefText))
         {
-            DialogHelpers.Warn("ApiName을 입력해주세요."); return;
+            DialogHelpers.Warn("ApiName을 입력해주세요."); return null;
         }
 
         var apiNames = apiDefText.Split(';', StringSplitOptions.RemoveEmptyEntries)
@@ -119,17 +119,38 @@ public partial class CallCreateDialog : Window
 
         if (apiNames.Count == 0)
         {
-            DialogHelpers.Warn("ApiName을 입력해주세요."); return;
+            DialogHelpers.Warn("ApiName을 입력해주세요."); return null;
         }
         if (apiNames.Any(n => n.Contains('.')))
         {
-            DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return;
+            DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return null;
         }
 
-        if (RadioCallReplication.IsChecked == true)
-            CommitCallReplication(alias, apiNames);
-        else
-            CommitApiCallReplication(alias, apiNames);
+        return (alias, apiNames);
+    }
+
+    private void CommitBasicTab()
+    {
+        var result = ValidateAliasAndApiNames(BasicAliasTextBox, BasicApiNameTextBox);
+        if (result is null) return;
+
+        var (alias, apiNames) = result.Value;
+
+        // 추가 기능이 펼쳐진 경우 복수 생성
+        if (AdvancedExpander.IsExpanded)
+        {
+            if (RadioCallReplication.IsChecked == true)
+                CommitCallReplication(alias, apiNames);
+            else
+                CommitApiCallReplication(alias, apiNames);
+            return;
+        }
+
+        // 단일 생성
+        var names = apiNames.Select(n => $"{alias}.{n}").ToList();
+        Mode = CallCreateMode.CallReplication;
+        CallNames = names;
+        DialogResult = true;
     }
 
     private void CommitCallReplication(string alias, List<string> apiNames)

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -91,6 +92,14 @@ public partial class EditorCanvas : UserControl
     {
         _lastContextMenuCanvasPos = Mouse.GetPosition(MainCanvas);
 
+        // 열린 탭이 없으면 컨텍스트 메뉴 표시 안 함
+        var tabKind = ActiveCanvasState?.ActiveTab?.Kind;
+        if (tabKind is null)
+        {
+            e.Handled = true;
+            return;
+        }
+
         // 2개 이상 노드 선택 시 화살표 연결 메뉴 표시
         if (VM is not null
             && VM.Selection.TryGetOrderedSelectionConnectEntityType(out var entityType))
@@ -101,7 +110,6 @@ public partial class EditorCanvas : UserControl
         }
 
         // 탭 종류별 메뉴 항목 가시성
-        var tabKind = ActiveCanvasState?.ActiveTab?.Kind;
         AddWorkMenuItem.Visibility = tabKind == Ds2.Editor.TabKind.System
             ? Visibility.Visible : Visibility.Collapsed;
         AddCallMenuItem.Visibility = tabKind == Ds2.Editor.TabKind.Work
@@ -111,6 +119,61 @@ public partial class EditorCanvas : UserControl
             VM?.SelectedNode?.EntityType == EntityKind.Work
             && tabKind is Ds2.Editor.TabKind.System or Ds2.Editor.TabKind.Flow
                 ? Visibility.Visible : Visibility.Collapsed;
+
+        // 노드 선택 없으면 화살표 연결/복사/삭제 숨김
+        bool hasSelection = VM?.SelectedNode is not null;
+        ConnectMenuItem.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
+        CopyMenuItem.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
+        DeleteMenuItem.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
+
+        // 클립보드 비어있으면 붙여넣기 숨김
+        PasteMenuItem.Visibility = VM?.HasClipboardData == true
+            ? Visibility.Visible : Visibility.Collapsed;
+
+        // 연속/선행/후행 구분선 정리
+        CollapseBoundarySeparators(CanvasContextMenu);
+    }
+
+    /// <summary>맨 위/아래 및 연속 Separator를 숨깁니다.</summary>
+    private static void CollapseBoundarySeparators(ContextMenu menu)
+    {
+        var items = menu.Items.OfType<FrameworkElement>()
+            .Where(fe => fe.Visibility == Visibility.Visible)
+            .ToList();
+
+        // 모든 Separator를 일단 보이게 복원
+        foreach (var item in menu.Items.OfType<Separator>())
+            item.Visibility = Visibility.Visible;
+
+        // visible 항목만 다시 수집
+        items = menu.Items.OfType<FrameworkElement>()
+            .Where(fe => fe.Visibility == Visibility.Visible)
+            .ToList();
+
+        // 맨 위 Separator 숨김
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (items[i] is Separator sep) sep.Visibility = Visibility.Collapsed;
+            else break;
+        }
+        // 맨 아래 Separator 숨김
+        for (int i = items.Count - 1; i >= 0; i--)
+        {
+            if (items[i] is Separator sep) sep.Visibility = Visibility.Collapsed;
+            else break;
+        }
+        // 연속 Separator 숨김
+        bool prevWasSep = false;
+        foreach (var item in menu.Items.OfType<FrameworkElement>())
+        {
+            if (item.Visibility != Visibility.Visible) continue;
+            if (item is Separator sep)
+            {
+                if (prevWasSep) sep.Visibility = Visibility.Collapsed;
+                prevWasSep = true;
+            }
+            else prevWasSep = false;
+        }
     }
 
     private void AddWork_Click(object sender, RoutedEventArgs e)

@@ -498,7 +498,6 @@
                                 <Separator Margin="4,4"/>
                                 <TextBlock Text="CSV" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                                 <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="CSV 불러오기"/></Button>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ExportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="CSV 내보내기"/></Button>
                             </StackPanel>
                         </Border>
                     </Popup>

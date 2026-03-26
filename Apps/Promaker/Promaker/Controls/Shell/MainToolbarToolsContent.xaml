@@ -89,7 +89,6 @@
                         <Separator Margin="4,4"/>
                         <TextBlock Text="CSV" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource ForegroundBrush}"/>
                         <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseDataPopup"><TextBlock Text="{x:Static res:Strings.LoadCsv}"/></Button>
-                        <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ExportCsvCommand}" Click="CloseDataPopup"><TextBlock Text="{x:Static res:Strings.ExportCsv}"/></Button>
                     </StackPanel>
                 </Border>
             </Popup>

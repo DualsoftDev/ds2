@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Add Call"
-        Width="500" Height="420"
+        Width="500" Height="520"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
@@ -15,7 +15,6 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- TabControl: 기본 / 고급 -->
             <TabControl x:Name="ModeTabControl" Grid.Row="0"
                         Background="{DynamicResource SecondaryBackgroundBrush}"
                         Foreground="{DynamicResource PrimaryTextBrush}"
@@ -71,103 +70,110 @@
                                  Padding="6,4" Text="ADV;RET" IsEnabled="False"
                                  Margin="0,0,0,12"/>
 
-                        <!-- 복제 모드 선택 -->
-                        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                                CornerRadius="4" Padding="8">
-                            <Border.Resources>
-                                <Style x:Key="ReplicationPanel" TargetType="StackPanel">
-                                    <Style.Triggers>
-                                        <Trigger Property="IsEnabled" Value="False">
-                                            <Setter Property="Opacity" Value="0.35"/>
-                                        </Trigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Border.Resources>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
+                        <!-- 추가 기능 (접힌 상태) -->
+                        <Expander x:Name="AdvancedExpander"
+                                  Header="추가 기능"
+                                  IsExpanded="False"
+                                  Foreground="{DynamicResource SecondaryTextBrush}"
+                                  FontSize="11"
+                                  Margin="0,0,0,0">
+                            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                    CornerRadius="4" Padding="8" Margin="0,6,0,0">
+                                <Border.Resources>
+                                    <Style x:Key="ReplicationPanel" TargetType="StackPanel">
+                                        <Style.Triggers>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter Property="Opacity" Value="0.35"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Resources>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
 
-                                <!-- 왼쪽: Call 복제 -->
-                                <StackPanel Grid.Column="0">
-                                    <RadioButton x:Name="RadioCallReplication"
-                                                 GroupName="ReplicationMode"
-                                                 Content="Call 복제" IsChecked="True"
-                                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                                 FontWeight="SemiBold"
-                                                 Checked="OnReplicationRadioChanged"
-                                                 Margin="0,0,0,6"/>
-                                    <StackPanel x:Name="CallReplicationPanel" Style="{StaticResource ReplicationPanel}">
-                                        <Grid Margin="0,0,0,4">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="6"/>
-                                                <ColumnDefinition Width="56"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="개수"
-                                                       FontSize="11" VerticalAlignment="Center"
-                                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
-                                            <TextBox Grid.Column="2" x:Name="CallCountTextBox"
-                                                     Padding="6,4" Text="1" TextAlignment="Center"/>
-                                        </Grid>
-                                        <TextBlock Text="Conv → Conv_1, Conv_2, ..."
-                                                   FontSize="10" FontStyle="Italic"
-                                                   Foreground="{DynamicResource SecondaryTextBrush}"
-                                                   TextWrapping="Wrap"/>
-                                        <TextBlock Text="각각 별도 Call + Device System"
-                                                   FontSize="10" FontStyle="Italic"
-                                                   Foreground="{DynamicResource SecondaryTextBrush}"
-                                                   TextWrapping="Wrap"/>
+                                    <!-- 왼쪽: Call 복제 -->
+                                    <StackPanel Grid.Column="0">
+                                        <RadioButton x:Name="RadioCallReplication"
+                                                     GroupName="ReplicationMode"
+                                                     Content="Call 복제" IsChecked="True"
+                                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                                     FontWeight="SemiBold"
+                                                     Checked="OnReplicationRadioChanged"
+                                                     Margin="0,0,0,6"/>
+                                        <StackPanel x:Name="CallReplicationPanel" Style="{StaticResource ReplicationPanel}">
+                                            <Grid Margin="0,0,0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="56"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="개수"
+                                                           FontSize="11" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                <TextBox Grid.Column="2" x:Name="CallCountTextBox"
+                                                         Padding="6,4" Text="1" TextAlignment="Center"/>
+                                            </Grid>
+                                            <TextBlock Text="Conv → Conv_1, Conv_2, ..."
+                                                       FontSize="10" FontStyle="Italic"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                                       TextWrapping="Wrap"/>
+                                            <TextBlock Text="각각 별도 Call + Device System"
+                                                       FontSize="10" FontStyle="Italic"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                                       TextWrapping="Wrap"/>
+                                        </StackPanel>
                                     </StackPanel>
-                                </StackPanel>
 
-                                <!-- 구분선 -->
-                                <Border Grid.Column="1"
-                                        Width="1" Margin="10,0"
-                                        Background="{DynamicResource BorderBrush}"/>
+                                    <!-- 구분선 -->
+                                    <Border Grid.Column="1"
+                                            Width="1" Margin="10,0"
+                                            Background="{DynamicResource BorderBrush}"/>
 
-                                <!-- 오른쪽: ApiCall 복제 -->
-                                <StackPanel Grid.Column="2">
-                                    <RadioButton x:Name="RadioApiCallReplication"
-                                                 GroupName="ReplicationMode"
-                                                 Content="ApiCall 복제"
-                                                 Foreground="{DynamicResource PrimaryTextBrush}"
-                                                 FontWeight="SemiBold"
-                                                 Checked="OnReplicationRadioChanged"
-                                                 Margin="0,0,0,6"/>
-                                    <StackPanel x:Name="ApiCallReplicationPanel" IsEnabled="False" Style="{StaticResource ReplicationPanel}">
-                                        <Grid Margin="0,0,0,4">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="6"/>
-                                                <ColumnDefinition Width="56"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="개수"
-                                                       FontSize="11" VerticalAlignment="Center"
-                                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
-                                            <TextBox Grid.Column="2" x:Name="ApiCallCountTextBox"
-                                                     Padding="6,4" Text="1" TextAlignment="Center"/>
-                                        </Grid>
-                                        <TextBlock Text="1개 Call 안에 N개 ApiCall"
-                                                   FontSize="10" FontStyle="Italic"
-                                                   Foreground="{DynamicResource SecondaryTextBrush}"
-                                                   TextWrapping="Wrap"/>
-                                        <TextBlock Text="Conv_1.ADV, Conv_2.ADV → 별도 Device System"
-                                                   FontSize="10" FontStyle="Italic"
-                                                   Foreground="{DynamicResource SecondaryTextBrush}"
-                                                   TextWrapping="Wrap"/>
+                                    <!-- 오른쪽: ApiCall 복제 -->
+                                    <StackPanel Grid.Column="2">
+                                        <RadioButton x:Name="RadioApiCallReplication"
+                                                     GroupName="ReplicationMode"
+                                                     Content="ApiCall 복제"
+                                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                                     FontWeight="SemiBold"
+                                                     Checked="OnReplicationRadioChanged"
+                                                     Margin="0,0,0,6"/>
+                                        <StackPanel x:Name="ApiCallReplicationPanel" IsEnabled="False" Style="{StaticResource ReplicationPanel}">
+                                            <Grid Margin="0,0,0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="6"/>
+                                                    <ColumnDefinition Width="56"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="개수"
+                                                           FontSize="11" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                <TextBox Grid.Column="2" x:Name="ApiCallCountTextBox"
+                                                         Padding="6,4" Text="1" TextAlignment="Center"/>
+                                            </Grid>
+                                            <TextBlock Text="1개 Call 안에 N개 ApiCall"
+                                                       FontSize="10" FontStyle="Italic"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                                       TextWrapping="Wrap"/>
+                                            <TextBlock Text="Conv_1.ADV, Conv_2.ADV → 별도 Device System"
+                                                       FontSize="10" FontStyle="Italic"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                                       TextWrapping="Wrap"/>
+                                        </StackPanel>
                                     </StackPanel>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
+                                </Grid>
+                            </Border>
+                        </Expander>
                     </StackPanel>
                 </TabItem>
 
-                <!-- ═══ 고급 탭 ═══ -->
+                <!-- ═══ 고급 탭: ApiDef 연결 ═══ -->
                 <TabItem Header="고급">
-                    <Grid x:Name="ApiDefPickerPanel" Margin="8">
+                    <Grid Margin="8">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>

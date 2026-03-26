@@ -15,9 +15,6 @@ module EntityKindRules =
         | "AddFlow"       -> kind = Some EntityKind.System
         | "AddWork"       -> kind = Some EntityKind.Flow
         | "AddCall"       -> kind = Some EntityKind.Work
-        | "Import"        -> isDeviceTree && (kind = None || kind = Some EntityKind.DeviceRoot)
-        | "ImportCsv"     -> kind = None || kind = Some EntityKind.Project || kind = Some EntityKind.DeviceRoot
-        | "ExportCsv"     -> hasProject && (kind = None || kind = Some EntityKind.Project || kind = Some EntityKind.DeviceRoot)
         | "ImportMermaid" -> not isDeviceTree && (kind = Some EntityKind.Flow || kind = Some EntityKind.Work)
         | "Copy"          -> kind = Some EntityKind.Flow || kind = Some EntityKind.Work || kind = Some EntityKind.Call
         | "Paste"         -> kind = Some EntityKind.System || kind = Some EntityKind.Flow || kind = Some EntityKind.Work
