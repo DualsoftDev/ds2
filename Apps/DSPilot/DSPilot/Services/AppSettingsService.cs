@@ -26,6 +26,22 @@ public class AppSettingsService
         _logger = logger;
     }
 
+    /// <summary>
+    /// appsettings.json이 없으면 AppSettingsModel 기본값으로 자동 생성.
+    /// WebApplication.CreateBuilder 전에 정적으로 호출.
+    /// </summary>
+    public static void EnsureSettingsFiles(string contentRootPath)
+    {
+        var appSettingsPath = Path.Combine(contentRootPath, "appsettings.json");
+
+        if (File.Exists(appSettingsPath))
+            return;
+
+        var defaultJson = JsonSerializer.Serialize(new AppSettingsModel(), JsonOptions);
+        File.WriteAllText(appSettingsPath, defaultJson);
+        Console.WriteLine("[AppSettings] appsettings.json 생성됨 (기본값)");
+    }
+
     public AppSettingsModel LoadSettings()
     {
         var root = LoadRaw(_filePath);
@@ -200,16 +216,48 @@ public class AppSettingsService
         }
     }
 
-    private static JsonObject LoadRaw(string path)
+    private JsonObject LoadRaw(string path)
     {
-        var json = File.ReadAllText(path);
-        return JsonNode.Parse(json)?.AsObject() ?? new JsonObject();
+        try
+        {
+            if (!File.Exists(path))
+            {
+                _logger.LogWarning("{File} 파일 없음, 기본값으로 생성", Path.GetFileName(path));
+                var defaultJson = JsonSerializer.Serialize(new AppSettingsModel(), JsonOptions);
+                File.WriteAllText(path, defaultJson);
+            }
+
+            var json = File.ReadAllText(path);
+            return JsonNode.Parse(json)?.AsObject() ?? new JsonObject();
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "{File} JSON 파싱 실패, 백업 후 기본값으로 복구", Path.GetFileName(path));
+            var backupPath = path + $".bak.{DateTime.Now:yyyyMMdd_HHmmss}";
+            try { File.Copy(path, backupPath, overwrite: true); } catch { /* best effort */ }
+
+            var defaultJson = JsonSerializer.Serialize(new AppSettingsModel(), JsonOptions);
+            File.WriteAllText(path, defaultJson);
+            return JsonNode.Parse(defaultJson)?.AsObject() ?? new JsonObject();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "{File} 읽기 실패", Path.GetFileName(path));
+            return new JsonObject();
+        }
     }
 
     private void SaveRaw(string path, JsonObject root)
     {
-        File.WriteAllText(path, root.ToJsonString(JsonOptions));
-        _logger.LogInformation("{File} 저장 완료", Path.GetFileName(path));
+        try
+        {
+            File.WriteAllText(path, root.ToJsonString(JsonOptions));
+            _logger.LogInformation("{File} 저장 완료", Path.GetFileName(path));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "{File} 저장 실패", Path.GetFileName(path));
+        }
     }
 
     private static T Deserialize<T>(JsonNode? node) where T : new()
