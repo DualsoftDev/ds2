@@ -30,7 +30,7 @@
                                   DisplayMemberPath="Name"
                                   MinWidth="120" Height="24" VerticalAlignment="Center" Margin="0,0,4,0"/>
                         <Button Content="토큰 투입" Command="{Binding SeedTokenCommand}"
-                                Style="{StaticResource DarkButton}" MinWidth="72" Height="24" VerticalAlignment="Center"/>
+                                Style="{StaticResource DarkButton}" Padding="8,3" MinWidth="80" VerticalAlignment="Center"/>
                     </StackPanel>
                     <DataGrid Grid.Row="1" ItemsSource="{Binding SimNodes}" AutoGenerateColumns="False"
                               IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"

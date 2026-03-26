@@ -12,6 +12,7 @@
                     <TextBlock Text="{Binding Label}">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsRedo}" Value="True">
                                         <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
