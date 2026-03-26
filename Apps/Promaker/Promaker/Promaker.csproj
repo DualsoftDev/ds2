@@ -19,6 +19,7 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="log4net" />
+    <PackageReference Include="MahApps.Metro.IconPacks.Material" />
   </ItemGroup>
   <ItemGroup>
     <None Update="log4net.config">

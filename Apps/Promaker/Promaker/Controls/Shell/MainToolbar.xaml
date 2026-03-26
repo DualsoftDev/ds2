@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
+             xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
              xmlns:res="clr-namespace:Promaker.Resources"
              x:Name="ThisControl">
     <UserControl.Resources>
@@ -113,14 +114,13 @@
                     <ControlTemplate TargetType="ToggleButton">
                         <Border Background="Transparent" Padding="2">
                             <Grid>
-                                <Path x:Name="UnpinnedIcon"
-                                      Data="M12,2 L14,8 L20,9 L15.5,13 L17,19 L12,16 L7,19 L8.5,13 L4,9 L10,8 Z"
-                                      Stroke="{DynamicResource SecondaryTextBrush}" StrokeThickness="1.2"
-                                      Fill="Transparent" Stretch="Uniform" Width="14" Height="14"/>
-                                <Path x:Name="PinnedIcon"
-                                      Data="M12,2 L14,8 L20,9 L15.5,13 L17,19 L12,16 L7,19 L8.5,13 L4,9 L10,8 Z"
-                                      Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.2"
-                                      Fill="{DynamicResource AccentBrush}" Stretch="Uniform"
+                                <iconPacks:PackIconMaterial x:Name="UnpinnedIcon"
+                                      Kind="StarOutline"
+                                      Foreground="{DynamicResource SecondaryTextBrush}"
+                                      Width="14" Height="14"/>
+                                <iconPacks:PackIconMaterial x:Name="PinnedIcon"
+                                      Kind="Star"
+                                      Foreground="{DynamicResource AccentBrush}"
                                       Width="14" Height="14" Visibility="Collapsed"/>
                             </Grid>
                         </Border>
@@ -160,14 +160,14 @@
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="NewProjectQuickButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding NewProjectCommand}" ToolTip="{x:Static res:Strings.NewFileTooltip}">
-                        <StackPanel Orientation="Vertical"><Path Width="18" Height="18" Stretch="Uniform" Data="{StaticResource IconNewFile}" Fill="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.NewFile}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
+                        <StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="FileDocumentPlus" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.NewFile}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
                     </Button>
                     <Button x:Name="OpenFileQuickButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding OpenFileCommand}" ToolTip="{x:Static res:Strings.LoadTooltip}">
-                        <StackPanel Orientation="Vertical"><Path Width="18" Height="18" Stretch="Uniform" Data="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z" Fill="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.Load}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
+                        <StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="FolderOpen" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.Load}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
                     </Button>
                     <Grid>
                         <ToggleButton x:Name="SaveMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="{x:Static res:Strings.SaveTooltip}" IsEnabled="{Binding HasProject}">
-                            <StackPanel Orientation="Vertical"><Path Width="18" Height="18" Stretch="Uniform" Data="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z" Fill="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.Save}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
+                            <StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="ContentSave" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/><TextBlock Text="{x:Static res:Strings.Save}" Style="{StaticResource RibbonIconLabel}"/></StackPanel>
                         </ToggleButton>
                         <Popup IsOpen="{Binding IsChecked, ElementName=SaveMenuToggle, Mode=TwoWay}" StaysOpen="False" Placement="Bottom" PlacementTarget="{Binding ElementName=SaveMenuToggle}" DataContext="{Binding DataContext, ElementName=ThisControl}">
                             <Border Background="{DynamicResource SecondaryBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="160">
@@ -190,7 +190,7 @@
                 <Grid x:Name="EditRibbonContentPanel">
                     <ToggleButton x:Name="EditMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="편집 메뉴" IsEnabled="{Binding HasProject}">
                         <StackPanel Orientation="Vertical">
-                            <Path Width="18" Height="18" Stretch="Uniform" Data="M3 10h11v2H3v-2zm0-2h11V6H3v2zm0 8h7v-2H3v2zm15.01-3.13l1.41-1.41c.2-.2.51-.2.71 0l1.41 1.41c.2.2.2.51 0 .71l-1.41 1.41-2.12-2.12zm-.71.71l-5.3 5.3V21h2.12l5.3-5.3-2.12-2.12z" Fill="{DynamicResource IconGrayBrush}"/>
+                            <iconPacks:PackIconMaterial Kind="FileDocumentEdit" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                             <TextBlock Text="편집" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </ToggleButton>
@@ -231,34 +231,8 @@
                             Command="{Binding ConnectSelectedNodesCommand}"
                             ToolTip="선택된 노드를 연결" Margin="2,0,0,0" Padding="8,8,2,8">
                         <StackPanel Orientation="Vertical">
-                            <Canvas x:Name="ConnectIconCanvas" Width="18" Height="18" HorizontalAlignment="Center">
-                                <!-- Start Arrow (기본) -->
-                                <Canvas x:Name="ConnectIconStart" Visibility="Visible">
-                                    <Border Canvas.Left="3" Canvas.Top="7.5" Width="9" Height="1.5" Background="{DynamicResource GreenAccentBrush}" CornerRadius="0.5"/>
-                                    <Path Canvas.Left="12" Canvas.Top="4.5" Data="M0,1 L4,4.5 L0,8" Stroke="{DynamicResource GreenAccentBrush}" StrokeThickness="1.3" Fill="Transparent" StrokeLineJoin="Miter"/>
-                                </Canvas>
-                                <!-- Reset Arrow -->
-                                <Canvas x:Name="ConnectIconReset" Visibility="Collapsed">
-                                    <Line X1="3" Y1="9" X2="12" Y2="9" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="1.5" StrokeDashArray="1.5,0.8"/>
-                                    <Path Canvas.Left="12" Canvas.Top="4.5" Data="M0,1 L4,4.5 L0,8" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="1.3" Fill="Transparent" StrokeLineJoin="Miter"/>
-                                </Canvas>
-                                <!-- StartReset Arrow -->
-                                <Canvas x:Name="ConnectIconStartReset" Visibility="Collapsed">
-                                    <Rectangle Canvas.Left="3" Canvas.Top="5.5" Width="3" Height="4" Fill="{DynamicResource RedAccentBrush}"/>
-                                    <Border Canvas.Left="6" Canvas.Top="7.5" Width="6" Height="1.5" Background="{DynamicResource RedAccentBrush}" CornerRadius="0.5"/>
-                                    <Path Canvas.Left="12" Canvas.Top="4.5" Data="M0,1 L4,4.5 L0,8" Stroke="{DynamicResource RedAccentBrush}" StrokeThickness="1.3" Fill="Transparent" StrokeLineJoin="Miter"/>
-                                </Canvas>
-                                <!-- ResetReset Arrow -->
-                                <Canvas x:Name="ConnectIconResetReset" Visibility="Collapsed">
-                                    <Path Canvas.Left="3" Canvas.Top="4.5" Data="M4,1 L0,4.5 L4,8" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="1.3" Fill="Transparent" StrokeLineJoin="Miter"/>
-                                    <Line X1="7" Y1="9" X2="12" Y2="9" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="1.5" StrokeDashArray="1.5,0.8"/>
-                                    <Path Canvas.Left="12" Canvas.Top="4.5" Data="M0,1 L4,4.5 L0,8" Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="1.3" Fill="Transparent" StrokeLineJoin="Miter"/>
-                                </Canvas>
-                                <!-- Group Arrow -->
-                                <Canvas x:Name="ConnectIconGroup" Visibility="Collapsed">
-                                    <Border Canvas.Left="3" Canvas.Top="7.5" Width="12" Height="1.5" Background="{DynamicResource AccentBrush}" CornerRadius="0.5"/>
-                                </Canvas>
-                            </Canvas>
+                            <iconPacks:PackIconMaterial Kind="ArrowRight" Width="18" Height="18" HorizontalAlignment="Center"
+                                Foreground="{DynamicResource IconGrayBrush}"/>
                             <TextBlock Text="연결" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </Button>
@@ -266,7 +240,7 @@
                         <ToggleButton x:Name="ConnectTypeToggle" Style="{StaticResource RibbonFlatToggleButton}"
                                       IsEnabled="{Binding HasProject}" ToolTip="연결 타입 선택"
                                       MinWidth="20" Margin="0" Padding="0,8">
-                            <Path Width="10" Height="6" Stretch="Uniform" Data="M0,0 L5,5 L10,0" Fill="{DynamicResource IconGrayBrush}"/>
+                            <iconPacks:PackIconMaterial Kind="ChevronDown" Width="10" Height="10" Foreground="{DynamicResource IconGrayBrush}"/>
                         </ToggleButton>
                         <Popup IsOpen="{Binding IsChecked, ElementName=ConnectTypeToggle, Mode=TwoWay}"
                                StaysOpen="False" Placement="Bottom"
@@ -400,18 +374,34 @@
                             </Style>
                         </Button.Style>
                         <StackPanel Orientation="Vertical">
-                            <Path Width="18" Height="18" Stretch="Fill" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
-                                <Path.Style>
-                                    <Style TargetType="Path">
-                                        <Setter Property="Data" Value="M 4,2 L 16,9 L 4,16 Z"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsSimulating}" Value="True">
-                                                <Setter Property="Data" Value="M 3,3 L 15,3 L 15,15 L 3,15 Z"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Path.Style>
-                            </Path>
+                            <Grid Width="18" Height="18">
+                                <iconPacks:PackIconMaterial Kind="Play" Width="18" Height="18" HorizontalAlignment="Center"
+                                    Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                    <iconPacks:PackIconMaterial.Style>
+                                        <Style TargetType="iconPacks:PackIconMaterial">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSimulating}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </iconPacks:PackIconMaterial.Style>
+                                </iconPacks:PackIconMaterial>
+                                <iconPacks:PackIconMaterial Kind="Stop" Width="18" Height="18" HorizontalAlignment="Center"
+                                    Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                    <iconPacks:PackIconMaterial.Style>
+                                        <Style TargetType="iconPacks:PackIconMaterial">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSimulating}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </iconPacks:PackIconMaterial.Style>
+                                </iconPacks:PackIconMaterial>
+                            </Grid>
                             <TextBlock x:Name="SimulationStartStopText" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock" BasedOn="{StaticResource RibbonIconLabel}">
@@ -426,8 +416,8 @@
                             </TextBlock>
                         </StackPanel>
                     </Button>
-                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding PauseSimulationCommand}" ToolTip="{x:Static res:Strings.PauseSimulationTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}"><StackPanel Orientation="Vertical"><Canvas Width="18" Height="18" HorizontalAlignment="Center"><Rectangle Canvas.Left="4" Canvas.Top="2.5" Width="3.8" Height="13" Fill="{DynamicResource IconGrayBrush}" RadiusX="1" RadiusY="1"/><Rectangle Canvas.Left="10.2" Canvas.Top="2.5" Width="3.8" Height="13" Fill="{DynamicResource IconGrayBrush}" RadiusX="1" RadiusY="1"/></Canvas><TextBlock Text="PAUSE" Style="{StaticResource RibbonIconLabel}"/></StackPanel></Button>
-                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ResetSimulationCommand}" ToolTip="{x:Static res:Strings.ResetSimulationTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" Foreground="{DynamicResource IconOrangeBrush}"><StackPanel Orientation="Vertical"><Path Width="18" Height="18" Stretch="Uniform" HorizontalAlignment="Center" Data="M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12H4A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4Z" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/><TextBlock Text="REVERT" Style="{StaticResource RibbonIconLabel}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/></StackPanel></Button>
+                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding PauseSimulationCommand}" ToolTip="{x:Static res:Strings.PauseSimulationTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}"><StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="Pause" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/><TextBlock Text="PAUSE" Style="{StaticResource RibbonIconLabel}"/></StackPanel></Button>
+                    <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding ResetSimulationCommand}" ToolTip="{x:Static res:Strings.ResetSimulationTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" Foreground="{DynamicResource IconOrangeBrush}"><StackPanel Orientation="Vertical"><iconPacks:PackIconMaterial Kind="Refresh" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/><TextBlock Text="REVERT" Style="{StaticResource RibbonIconLabel}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/></StackPanel></Button>
                     <StackPanel Orientation="Vertical" Margin="8,0,0,0" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
                         <TextBlock Text="Work" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,2"/>
                         <ComboBox x:Name="SimWorkComboBox" ItemsSource="{Binding SimWorkItems}" SelectedItem="{Binding SelectedSimWork}" Width="130" FontSize="11"/>
@@ -455,13 +445,13 @@
                     </StackPanel>
                     <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding DataContext.OpenTokenSpecDialogCommand, ElementName=ThisControl}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" ToolTip="TokenSpec 편집">
                         <StackPanel Orientation="Vertical">
-                            <Path Width="18" Height="18" Stretch="Uniform" Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" Fill="{DynamicResource IconGrayBrush}"/>
+                            <iconPacks:PackIconMaterial Kind="CheckCircle" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                             <TextBlock Text="Token" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </Button>
                     <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding CheckModelCommand}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" ToolTip="모델 검증 (그래프 경고 확인)">
                         <StackPanel Orientation="Vertical">
-                            <Path Width="18" Height="18" Stretch="Uniform" Data="M12,2 L4,5 V11.09 C4,16.14 7.41,20.85 12,22 C16.59,20.85 20,16.14 20,11.09 V5 L12,2 M10.94,15.54 L7.4,12 L8.81,10.59 L10.93,12.71 L15.17,8.47 L16.58,9.88 L10.94,15.54 Z" Fill="{DynamicResource IconGrayBrush}"/>
+                            <iconPacks:PackIconMaterial Kind="ShieldCheck" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                             <TextBlock Text="Check" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </Button>
@@ -475,7 +465,7 @@
                 <Grid>
                     <ToggleButton x:Name="UtilMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="유틸리티" IsEnabled="{Binding HasProject}">
                         <StackPanel Orientation="Vertical">
-                            <Path Width="18" Height="18" Stretch="Uniform" Data="M3 3h8v2H3V3zm0 4h12v2H3V7zm0 4h8v2H3v-2zm0 4h12v2H3v-2zm0 4h8v2H3v-2z" Fill="{DynamicResource IconGrayBrush}"/>
+                            <iconPacks:PackIconMaterial Kind="Wrench" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                             <TextBlock Text="유틸" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </ToggleButton>
@@ -518,32 +508,47 @@
                     </Grid.ColumnDefinitions>
                     <Button x:Name="ThemeButton" Grid.Column="0" Style="{StaticResource RibbonFlatButton}" Command="{Binding ToggleThemeCommand}" ToolTip="{Binding ThemeButtonToolTip}">
                         <StackPanel Orientation="Vertical">
-                            <Path x:Name="ThemeSunIcon"
-                                  Width="18"
-                                  Height="18"
-                                  Stretch="Uniform"
-                                  Fill="{DynamicResource IconGrayBrush}"
-                                  Margin="0,0,0,2"
-                                  Data="M6.76,4.84 l-1.8,-1.79 l-1.41,1.41 l1.79,1.79 l1.42,-1.41 z M4,10.5 H1 v2 h3 v-2 z M13,0.55 h-2 V3.5 h2 V0.55 z M20.45,4.46 l-1.41,-1.41 l-1.79,1.79 l1.41,1.41 l1.79,-1.79 z M17.24,18.15 l1.79,1.8 l1.41,-1.41 l-1.8,-1.79 l-1.4,1.4 z M20,10.5 v2 h3 v-2 h-3 z M12,5.5 c-3.31,0 -6,2.69 -6,6 s2.69,6 6,6 s6,-2.69 6,-6 s-2.69,-6 -6,-6 z M11,19.5 h2 v2.95 h-2 v-2.95 z M3.55,18.54 l1.41,1.41 l1.79,-1.8 l-1.41,-1.41 l-1.79,1.8 z"/>
+                            <Grid Width="18" Height="18" HorizontalAlignment="Center" Margin="0,0,0,2">
+                                <iconPacks:PackIconMaterial Kind="WhiteBalanceSunny" Width="18" Height="18"
+                                    Foreground="{DynamicResource IconGrayBrush}">
+                                    <iconPacks:PackIconMaterial.Style>
+                                        <Style TargetType="iconPacks:PackIconMaterial">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsDarkTheme}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </iconPacks:PackIconMaterial.Style>
+                                </iconPacks:PackIconMaterial>
+                                <iconPacks:PackIconMaterial Kind="WeatherNight" Width="18" Height="18"
+                                    Foreground="{DynamicResource IconGrayBrush}">
+                                    <iconPacks:PackIconMaterial.Style>
+                                        <Style TargetType="iconPacks:PackIconMaterial">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsDarkTheme}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </iconPacks:PackIconMaterial.Style>
+                                </iconPacks:PackIconMaterial>
+                            </Grid>
                             <TextBlock Text="{Binding ThemeButtonText}" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </Button>
                     <Button Grid.Column="1" Style="{StaticResource RibbonFlatButton}" Command="{Binding ShowProjectSettingsCommand}" ToolTip="프로젝트 속성">
                         <StackPanel Orientation="Vertical">
-                            <Path Width="18" Height="18" Stretch="Uniform" Data="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z" Fill="{DynamicResource IconGrayBrush}"/>
+                            <iconPacks:PackIconMaterial Kind="Cog" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                             <TextBlock Text="{x:Static res:Strings.Settings}" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </Button>
                     <Border Grid.Column="3" Style="{StaticResource RibbonSectionSeparator}" Margin="10,10"/>
                     <Button x:Name="AboutButton" Grid.Column="4" Style="{StaticResource RibbonFlatButton}" Click="AboutButton_Click" ToolTip="프로그램 정보">
                         <StackPanel Orientation="Vertical">
-                            <Grid Width="18" Height="18">
-                                <Ellipse Fill="{DynamicResource IconGrayBrush}"/>
-                                <TextBlock Text="i" FontSize="13" FontWeight="Bold"
-                                           Foreground="{DynamicResource ToolbarShellBrush}"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                                           Margin="0,-1,0,0"/>
-                            </Grid>
+                            <iconPacks:PackIconMaterial Kind="Information" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                             <TextBlock Text="정보" Style="{StaticResource RibbonIconLabel}"/>
                         </StackPanel>
                     </Button>
