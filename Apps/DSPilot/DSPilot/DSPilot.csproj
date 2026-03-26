@@ -69,6 +69,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- appsettings는 프로그램이 시작 시 자동 생성하므로 publish에서 제외 -->
+    <Content Remove="appsettings.json" />
+    <Content Remove="appsettings.*.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Exclude backup folder from build -->
     <Compile Remove="_backup/**" />
     <Content Remove="_backup/**" />
