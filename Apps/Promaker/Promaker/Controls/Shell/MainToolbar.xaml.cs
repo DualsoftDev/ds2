@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using Ds2.Core;
+using Promaker.Dialogs;
 using Promaker.Presentation;
 using Promaker.ViewModels;
 
@@ -59,6 +60,17 @@ public partial class MainToolbar : UserControl
         {
             ArrowTypeFrequencyTracker.TogglePin(type);
         }
+    }
+
+    private void AboutButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new AboutDialog();
+        if (Application.Current.MainWindow is { } owner)
+        {
+            dialog.Owner = owner;
+            dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        }
+        dialog.ShowDialog();
     }
 
     private void InitializeConnectPinStates()
