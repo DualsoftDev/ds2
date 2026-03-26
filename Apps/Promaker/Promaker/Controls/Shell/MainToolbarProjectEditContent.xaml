@@ -39,42 +39,45 @@
                 </StackPanel>
             </Button>
 
-            <Grid VerticalAlignment="Stretch">
-                <ToggleButton x:Name="SaveMenuToggle"
-                              Style="{StaticResource SlimToggleButton}"
-                              ToolTip="{x:Static res:Strings.SaveTooltip}">
+            <StackPanel Orientation="Horizontal">
+                <Button Style="{StaticResource SlimToolbarButton}"
+                        Command="{Binding DataContext.SaveFileCommand, ElementName=ThisControl}"
+                        IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}"
+                        ToolTip="{x:Static res:Strings.SaveTooltip}">
                     <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                         <iconPacks:PackIconMaterial Kind="ContentSave" Width="18" Height="18"
                             Foreground="{DynamicResource IconGrayBrush}"/>
                         <TextBlock Text="{x:Static res:Strings.Save}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                     </StackPanel>
-                </ToggleButton>
-                <Popup IsOpen="{Binding IsChecked, ElementName=SaveMenuToggle, Mode=TwoWay}"
-                       StaysOpen="False"
-                       Placement="Bottom"
-                       PlacementTarget="{Binding ElementName=SaveMenuToggle}"
-                       DataContext="{Binding DataContext, ElementName=ThisControl}">
-                    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
-                            BorderBrush="{DynamicResource BorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="4"
-                            Padding="4"
-                            MinWidth="160">
-                        <StackPanel Orientation="Vertical">
-                            <Button Style="{StaticResource AddMenuItemButton}"
-                                    Command="{Binding SaveFileCommand}"
-                                    Click="CloseSavePopup">
-                                <TextBlock Text="{x:Static res:Strings.Save}" VerticalAlignment="Center"/>
-                            </Button>
+                </Button>
+                <Grid VerticalAlignment="Stretch">
+                    <ToggleButton x:Name="SaveMenuToggle"
+                                  Style="{StaticResource SlimToggleButton}"
+                                  ToolTip="{x:Static res:Strings.SaveAs}"
+                                  Padding="0,4" MinWidth="14">
+                        <iconPacks:PackIconMaterial Kind="ChevronDown" Width="10" Height="10"
+                            Foreground="{DynamicResource IconGrayBrush}"/>
+                    </ToggleButton>
+                    <Popup IsOpen="{Binding IsChecked, ElementName=SaveMenuToggle, Mode=TwoWay}"
+                           StaysOpen="False"
+                           Placement="Bottom"
+                           PlacementTarget="{Binding ElementName=SaveMenuToggle}"
+                           DataContext="{Binding DataContext, ElementName=ThisControl}">
+                        <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="4"
+                                MinWidth="160">
                             <Button Style="{StaticResource AddMenuItemButton}"
                                     Command="{Binding SaveFileAsCommand}"
                                     Click="CloseSavePopup">
                                 <TextBlock Text="{x:Static res:Strings.SaveAs}" VerticalAlignment="Center"/>
                             </Button>
-                        </StackPanel>
-                    </Border>
-                </Popup>
-            </Grid>
+                        </Border>
+                    </Popup>
+                </Grid>
+            </StackPanel>
         </WrapPanel>
 
         <WrapPanel x:Name="EditRibbonContentPanel"

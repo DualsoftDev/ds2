@@ -59,8 +59,6 @@ public partial class SimulationPanelState
 
     private void BatchStartSources(ISimulationEngine engine)
     {
-        WarnSourcesWithoutTokenSpec(engine);
-
         var finishedSources = CollectSourcesByState(engine, s => s == Status4.Finish || s == Status4.Homing);
         if (finishedSources.Count > 0)
             WarnFinishedSources(finishedSources, engine);
@@ -148,44 +146,6 @@ public partial class SimulationPanelState
         ShowPausedMessageBox(msg, "Work 시작 불가", System.Windows.MessageBoxButton.OK, "ℹ");
     }
 
-    private void WarnSourcesWithoutTokenSpec(ISimulationEngine engine)
-    {
-        var specs = DsQuery.getTokenSpecs(Store);
-        var specWorkIds = new HashSet<Guid>(
-            specs.Where(s => s.WorkId != null).Select(s => s.WorkId.Value));
-
-        var missing = engine.Index.TokenSourceGuids
-            .Where(g => !specWorkIds.Contains(g))
-            .Select(g => engine.Index.WorkName.TryFind(g))
-            .Where(n => n != null)
-            .Select(n => n!.Value)
-            .ToList();
-
-        if (missing.Count == 0) return;
-
-        var names = string.Join("\n", missing.Select(n => $"  - {n}"));
-        ShowPausedMessageBox(
-            $"다음 Source Work에 TokenSpec이 설정되지 않았습니다:\n{names}\n\n토큰 이름이 \"Work이름#번호\" 형식으로 표시됩니다.",
-            "TokenSpec 미설정 안내",
-            System.Windows.MessageBoxButton.OK,
-            "ℹ",
-            suppressKey: "tokenspec_batch");
-    }
-
-    private void WarnSourceWithoutTokenSpec(ISimulationEngine engine, Guid workGuid, string workName)
-    {
-        var specs = DsQuery.getTokenSpecs(Store);
-        var hasSpec = specs.Any(s => s.WorkId != null && s.WorkId.Value == workGuid);
-        if (hasSpec) return;
-
-        ShowPausedMessageBox(
-            $"{workName}에 TokenSpec이 설정되지 않았습니다.\n토큰 이름이 \"{workName}#번호\" 형식으로 표시됩니다.",
-            "TokenSpec 미설정 안내",
-            System.Windows.MessageBoxButton.OK,
-            "ℹ",
-            suppressKey: "tokenspec_" + workName);
-    }
-
     private bool TryPrepareWorkStart(ISimulationEngine engine, SimWorkItem selectedWork)
     {
         var guid = selectedWork.Guid;
@@ -205,16 +165,14 @@ public partial class SimulationPanelState
             engine,
             guid,
             selectedWork.Name,
-            suppressKey: "source_pred_" + selectedWork.Name,
-            warnMissingSpec: true);
+            suppressKey: "source_pred_" + selectedWork.Name);
     }
 
     private bool TryPrepareSourceStart(
         ISimulationEngine engine,
         Guid workGuid,
         string workName,
-        string suppressKey,
-        bool warnMissingSpec)
+        string suppressKey)
     {
         if (!WorkConditionChecker.canStartWorkPredOnly(engine.Index, engine.State, workGuid))
         {
@@ -226,9 +184,6 @@ public partial class SimulationPanelState
                 suppressKey: suppressKey);
             if (answer != System.Windows.MessageBoxResult.Yes) return false;
         }
-
-        if (warnMissingSpec)
-            WarnSourceWithoutTokenSpec(engine, workGuid, workName);
 
         EnsureSourceToken(engine, workGuid);
         return true;

@@ -180,6 +180,7 @@ public partial class SimulationPanelState : ObservableObject
                 GraphValidator.findSourceCandidates(index),
                 "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)");
             CollectDurationWarning(sections, index);
+            CollectTokenSpecWarning(sections, index);
 
             ApplyWarningsToCanvas();
 
@@ -481,6 +482,29 @@ public partial class SimulationPanelState : ObservableObject
             "토큰 도달 불가", WarningSeverity.Red,
             works.Select(w => $"  - {w.Item2}.{w.Item3}").ToList(),
             "(모든 선행 Work가 Ignore 상태여서 토큰이 전달되지 않습니다)"));
+    }
+
+    private void CollectTokenSpecWarning(
+        List<GraphWarningSection> sections,
+        SimIndex index)
+    {
+        var specs = DsQuery.getTokenSpecs(Store);
+        var specWorkIds = new HashSet<Guid>(
+            specs.Where(s => s.WorkId != null).Select(s => s.WorkId.Value));
+
+        var missing = index.TokenSourceGuids
+            .Where(g => !specWorkIds.Contains(g))
+            .Select(g => index.WorkName.TryFind(g))
+            .Where(n => n != null)
+            .Select(n => n!.Value)
+            .ToList();
+
+        if (missing.Count == 0) return;
+
+        sections.Add(new GraphWarningSection(
+            "TokenSpec 미설정", WarningSeverity.Yellow,
+            missing.Select(n => $"  - {n}").ToList(),
+            "(토큰 이름이 \"Work이름#번호\" 형식으로 표시됩니다)"));
     }
 
     /// <summary>시뮬레이션을 일시정지한 뒤 MessageBox를 표시하고, 닫으면 자동 재개합니다.</summary>
