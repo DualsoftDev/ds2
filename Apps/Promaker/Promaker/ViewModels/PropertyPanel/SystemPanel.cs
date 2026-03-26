@@ -65,6 +65,19 @@ public partial class PropertyPanelState
         _host.SetStatusText($"ApiDef '{item.Name}' deleted.");
     }
 
+    [RelayCommand]
+    private void ApplySystemType()
+    {
+        if (RequireSelectedAs(EntityKind.System) is not { } selectedSystem) return;
+
+        if (!_host.TryAction(() => Store.UpdateSystemType(selectedSystem.Id, SystemType)))
+            return;
+
+        _originalSystemType = SystemType;
+        IsSystemTypeDirty = false;
+        _host.SetStatusText("System type updated.");
+    }
+
     private void RefreshSystemPanel(Guid systemId)
     {
         if (!_host.TryRef(

@@ -72,14 +72,14 @@ type DsStoreNodesExtensions =
 
     // ─── Add (배치/디바이스) ──────────────────────────────────────────
     [<Extension>]
-    static member AddCallsWithDevice(store: DsStore, projectId: Guid, workId: Guid, callNames: string seq, createDeviceSystem: bool) =
+    static member AddCallsWithDevice(store: DsStore, projectId: Guid, workId: Guid, callNames: string seq, createDeviceSystem: bool, systemType: string option) =
         let names = callNames |> Seq.toList
         StoreLog.debug($"projectId={projectId}, workId={workId}, count={names.Length}, createDevice={createDeviceSystem}")
         StoreLog.requireWork(store, workId) |> ignore
         if createDeviceSystem && (names |> List.exists DirectDeviceOps.hasCreatableApiName) then
             StoreLog.requireProject(store, projectId) |> ignore
         store.WithTransaction("Add Calls", fun () ->
-            DirectDeviceOps.addCallsWithDevice store projectId workId names createDeviceSystem)
+            DirectDeviceOps.addCallsWithDevice store projectId workId names createDeviceSystem systemType)
         store.EmitRefreshAndHistory()
 
     [<Extension>]
@@ -117,22 +117,22 @@ type DsStoreNodesExtensions =
     [<Extension>]
     static member AddCallsWithDeviceResolved
         (store: DsStore, entityKind: EntityKind, entityId: Guid,
-         workId: Guid, callNames: string seq, createDeviceSystem: bool) : unit =
+         workId: Guid, callNames: string seq, createDeviceSystem: bool, systemType: string option) : unit =
         match StoreHierarchyQueries.tryFindProjectIdForEntity store entityKind entityId with
         | Some projectId ->
-            DsStoreNodesExtensions.AddCallsWithDevice(store, projectId, workId, callNames, createDeviceSystem)
+            DsStoreNodesExtensions.AddCallsWithDevice(store, projectId, workId, callNames, createDeviceSystem, systemType)
         | None -> invalidOp $"Project not found for entity {entityKind}/{entityId}"
 
     [<Extension>]
     static member AddCallWithMultipleDevicesResolved
         (store: DsStore, entityKind: EntityKind, entityId: Guid,
-         workId: Guid, callDevicesAlias: string, apiName: string, deviceAliases: string seq) : Guid =
+         workId: Guid, callDevicesAlias: string, apiName: string, deviceAliases: string seq, systemType: string option) : Guid =
         match StoreHierarchyQueries.tryFindProjectIdForEntity store entityKind entityId with
         | Some projectId ->
             let aliases = deviceAliases |> Seq.toList
             let resultId =
                 store.WithTransaction("Add Call (ApiCall 복제)", fun () ->
-                    DirectDeviceOps.addCallWithMultipleDevices store projectId workId callDevicesAlias apiName aliases)
+                    DirectDeviceOps.addCallWithMultipleDevices store projectId workId callDevicesAlias apiName aliases systemType)
             store.EmitRefreshAndHistory()
             resultId
         | None -> invalidOp $"Project not found for entity {entityKind}/{entityId}"

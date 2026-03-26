@@ -33,13 +33,20 @@ module internal DirectDeviceOps =
         let _, apiName = parseCallName callName
         not (String.IsNullOrEmpty apiName)
 
-    let private ensureSystem (store: DsStore) (projectId: Guid) (flowName: string) (devAlias: string) (state: DeviceBatchState) =
+    let private ensureSystem (store: DsStore) (projectId: Guid) (flowName: string) (devAlias: string) (systemType: string option) (state: DeviceBatchState) =
         let systemName = $"{flowName}_{devAlias}"
         match Map.tryFind systemName state.PendingSystems with
         | Some system -> system, state
         | None ->
             match DsQuery.passiveSystemsOf projectId store |> List.tryFind (fun s -> s.Name = systemName) with
             | Some existing ->
+                // 기존 System에 SystemType 설정 (없으면)
+                match systemType with
+                | Some sysType when Option.isNone existing.Properties.SystemType ->
+                    store.TrackMutate(store.Systems, existing.Id, fun s ->
+                        s.Properties.SystemType <- Some sysType)
+                | _ -> ()
+
                 match DsQuery.flowsOf existing.Id store with
                 | flow :: _ ->
                     let existingWorks = DsQuery.worksOf flow.Id store
@@ -70,6 +77,8 @@ module internal DirectDeviceOps =
                     }
             | None ->
                 let system = DsSystem(systemName)
+                // 새 System에 SystemType 설정
+                systemType |> Option.iter (fun sysType -> system.Properties.SystemType <- Some sysType)
                 let flow = Flow($"{devAlias}_Flow", system.Id)
                 store.TrackAdd(store.Systems, system)
                 store.TrackMutate(store.Projects, projectId, fun p ->
@@ -123,6 +132,12 @@ module internal DirectDeviceOps =
     let private createAndRegisterApiCall (store: DsStore) (call: Call) (name: string) (apiDefId: Guid) =
         let apiCall = ApiCall(name)
         apiCall.ApiDefId <- Some apiDefId
+
+        // Set OriginFlowId by traversing: Call → Work → Flow
+        apiCall.OriginFlowId <-
+            DsQuery.getWork call.ParentId store
+            |> Option.map (fun work -> work.ParentId)
+
         store.TrackAdd(store.ApiCalls, apiCall)
         store.TrackMutate(store.Calls, call.Id, fun c -> c.ApiCalls.Add(apiCall))
 
@@ -148,7 +163,7 @@ module internal DirectDeviceOps =
                         let arrow = ArrowBetweenWorks(systemId, src.Id, dst.Id, ArrowType.ResetReset)
                         store.TrackAdd(store.ArrowWorks, arrow)))
 
-    let addCallsWithDevice (store: DsStore) (projectId: Guid) (workId: Guid) (callNames: string list) (createDeviceSystem: bool) =
+    let addCallsWithDevice (store: DsStore) (projectId: Guid) (workId: Guid) (callNames: string list) (createDeviceSystem: bool) (systemType: string option) =
         if callNames.IsEmpty then ()
         else
             let flowName =
@@ -166,7 +181,7 @@ module internal DirectDeviceOps =
 
                     if not (createDeviceSystem && not (String.IsNullOrEmpty apiName)) then state
                     else
-                        let system, withSystem = ensureSystem store projectId flowName devAlias state
+                        let system, withSystem = ensureSystem store projectId flowName devAlias systemType state
                         let withWork = ensurePendingWork devAlias apiName system.Id store withSystem
                         let apiDef, withApiDef = ensureApiDef store system apiName withWork
                         createAndRegisterApiCall store call callName apiDef.Id
@@ -177,7 +192,7 @@ module internal DirectDeviceOps =
 
     /// 이미 생성된 Call 목록에 대해 Device System + ApiDef + ApiCall 연결.
     /// WithTransaction 내부에서 호출해야 함.
-    let linkCallsToDevices (store: DsStore) (projectId: Guid) (flowName: string) (calls: (Call * string) list) =
+    let linkCallsToDevices (store: DsStore) (projectId: Guid) (flowName: string) (calls: (Call * string) list) (systemType: string option) =
         if calls.IsEmpty then ()
         else
             let finalState =
@@ -187,7 +202,7 @@ module internal DirectDeviceOps =
                     if String.IsNullOrEmpty apiName then state
                     else
                         let devAlias = call.DevicesAlias
-                        let system, withSystem = ensureSystem store projectId flowName devAlias state
+                        let system, withSystem = ensureSystem store projectId flowName devAlias systemType state
                         let withWork = ensurePendingWork devAlias apiName system.Id store withSystem
                         let apiDef, withApiDef = ensureApiDef store system apiName withWork
                         createAndRegisterApiCall store call callName apiDef.Id
@@ -209,7 +224,7 @@ module internal DirectDeviceOps =
     /// → Call(Conv, ADV) 안에 ApiCall(Conv_1.ADV), ApiCall(Conv_2.ADV) 각각 별도 Device System에 연결.
     let addCallWithMultipleDevices
         (store: DsStore) (projectId: Guid) (workId: Guid)
-        (callDevicesAlias: string) (apiName: string) (deviceAliases: string list) : Guid =
+        (callDevicesAlias: string) (apiName: string) (deviceAliases: string list) (systemType: string option) : Guid =
         let call = Call(callDevicesAlias, apiName, workId)
         store.TrackAdd(store.Calls, call)
 
@@ -222,7 +237,7 @@ module internal DirectDeviceOps =
         let finalState =
             deviceAliases
             |> List.fold (fun state devAlias ->
-                let system, withSystem = ensureSystem store projectId flowName devAlias state
+                let system, withSystem = ensureSystem store projectId flowName devAlias systemType state
                 let withWork = ensurePendingWork devAlias apiName system.Id store withSystem
                 let apiDef, withApiDef = ensureApiDef store system apiName withWork
                 createAndRegisterApiCall store call $"{devAlias}.{apiName}" apiDef.Id

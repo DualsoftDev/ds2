@@ -54,12 +54,7 @@
                             <TextBox Grid.Row="1" Grid.Column="0" x:Name="BasicAliasTextBox"
                                      Padding="6,4"/>
                             <ComboBox Grid.Row="1" Grid.Column="2" x:Name="PresetComboBox"
-                                      SelectionChanged="OnPresetChanged">
-                                <ComboBoxItem Content="ADV-RET" Tag="ADV;RET" IsSelected="True"/>
-                                <ComboBoxItem Content="UP-DOWN" Tag="UP;DOWN"/>
-                                <ComboBoxItem Content="FWD-BWD" Tag="FWD;BWD"/>
-                                <ComboBoxItem Content="USER입력" Tag="USER"/>
-                            </ComboBox>
+                                      SelectionChanged="OnPresetChanged"/>
                         </Grid>
 
                         <!-- ApiName -->

@@ -74,6 +74,29 @@
                     <Separator Margin="0,12"/>
 
                     <StackPanel Visibility="{Binding IsSystemSelected, Converter={StaticResource BoolToVis}}">
+                        <!-- SystemType -->
+                        <TextBlock Text="SystemType"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,0,0,2"/>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0"
+                                     Text="{Binding SystemType, UpdateSourceTrigger=PropertyChanged}"
+                                     Padding="4,2"
+                                     FontSize="11"/>
+                            <Button Grid.Column="1"
+                                    Content="✓"
+                                    ToolTip="Apply"
+                                    Margin="4,0,0,0"
+                                    Style="{StaticResource InlineListButton}"
+                                    Command="{Binding ApplySystemTypeCommand}"
+                                    IsEnabled="{Binding IsSystemTypeDirty}"/>
+                        </Grid>
+
                         <Border BorderBrush="{DynamicResource BorderBrush}"
                                 BorderThickness="1"
                                 Margin="0,2,0,8"

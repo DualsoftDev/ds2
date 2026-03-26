@@ -330,7 +330,8 @@ type DsStorePanelConditionExtensions =
 
     /// 프로젝트 속성 일괄 변경 (Undo 지원)
     [<Extension>]
-    static member UpdateProjectProperties(store: DsStore, iriPrefix: string, globalAssetId: string, author: string, version: string, description: string, splitDeviceAasx: bool) =
+    static member UpdateProjectProperties(store: DsStore, iriPrefix: string, globalAssetId: string, author: string, version: string, description: string, splitDeviceAasx: bool,
+                                          presetSystemTypes: string[]) =
         StoreLog.debug($"UpdateProjectProperties iri={iriPrefix}")
         let project = DsQuery.allProjects store |> List.head
         let toOpt (s: string) = if System.String.IsNullOrEmpty(s) then None else Some s
@@ -341,7 +342,51 @@ type DsStorePanelConditionExtensions =
                 p.Properties.Author        <- toOpt author
                 p.Properties.Version       <- toOpt version
                 p.Properties.Description   <- toOpt description
-                p.Properties.SplitDeviceAasx <- splitDeviceAasx))
+                p.Properties.SplitDeviceAasx <- splitDeviceAasx
+                ProjectPropertiesHelper.setPresetSystemTypes p.Properties presetSystemTypes))
+
+    /// 시스템 타입 변경 (Undo 지원)
+    [<Extension>]
+    static member UpdateSystemType(store: DsStore, systemId: Guid, systemType: string) =
+        StoreLog.debug($"UpdateSystemType systemId={systemId}, systemType={systemType}")
+        let toOpt (s: string) = if System.String.IsNullOrEmpty(s) then None else Some s
+        store.WithTransaction("시스템 타입 변경", fun () ->
+            store.TrackMutate(store.Systems, systemId, fun sys ->
+                sys.Properties.SystemType <- toOpt systemType))
+
+    /// <summary>
+    /// ApiCall의 IO 태그 정보 업데이트 (TAG Wizard에서 사용)
+    /// </summary>
+    [<Extension>]
+    static member UpdateApiCallIoTags(store: DsStore, callId: Guid, apiCallId: Guid,
+                                      outSymbol: string, outAddress: string,
+                                      inSymbol: string, inAddress: string) : bool =
+        StoreLog.debug($"UpdateApiCallIoTags callId={callId}, apiCallId={apiCallId}")
+
+        let toOpt (s: string) = if System.String.IsNullOrEmpty(s) then None else Some s
+
+        let createTag name addr =
+            match toOpt name, toOpt addr with
+            | Some n, Some a ->
+                let tag = IOTag()
+                tag.Name <- n
+                tag.Address <- a
+                Some tag
+            | _ -> None
+
+        let newOutTag = createTag outSymbol outAddress
+        let newInTag = createTag inSymbol inAddress
+
+        DirectPanelOps.mutateCallProps store callId "IO 태그 업데이트" (fun call ->
+            let targetApiCall =
+                call.ApiCalls
+                |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
+                |> Option.defaultWith (fun () ->
+                    failwith $"ApiCall {apiCallId} not found in Call {callId}")
+
+            targetApiCall.OutTag <- newOutTag
+            targetApiCall.InTag <- newInTag)
+        true
 
     [<Extension>]
     static member UpdateConditionApiCallOutputSpec(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid, outTypeIndex: int, outText: string) : bool =

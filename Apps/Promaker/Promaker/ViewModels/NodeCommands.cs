@@ -136,6 +136,10 @@ public partial class MainViewModel
         if (workId is not { } targetWorkId)
             return;
 
+        var projectProperties = HasProject
+            ? DsQuery.allProjects(_store).Head.Properties
+            : null;
+
         var dialog = new CallCreateDialog(
             apiNameFilter =>
             {
@@ -145,7 +149,8 @@ public partial class MainViewModel
                     return [];
 
                 return matches;
-            })
+            },
+            projectProperties)
         {
             Owner = Application.Current.MainWindow
         };
@@ -155,12 +160,17 @@ public partial class MainViewModel
         var rawPos = ConsumeAddPosition();
         var siblings = GetSiblingSnapshot(TabKind.Work, targetWorkId);
 
+        // Convert C# string? to F# string option
+        var systemTypeOption = string.IsNullOrEmpty(dialog.SelectedSystemType)
+            ? Microsoft.FSharp.Core.FSharpOption<string>.None
+            : Microsoft.FSharp.Core.FSharpOption<string>.Some(dialog.SelectedSystemType);
+
         switch (dialog.Mode)
         {
             case CallCreateMode.CallReplication:
             {
                 TryCreateSiblingDiffWithCascade(
-                    () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true),
+                    () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true, systemTypeOption),
                     TabKind.Work,
                     targetWorkId,
                     rawPos,
@@ -179,7 +189,8 @@ public partial class MainViewModel
                                 targetWorkId,
                                 dialog.CallDevicesAlias,
                                 NormalizeApiName(fullName),
-                                dialog.DeviceAliases))),
+                                dialog.DeviceAliases,
+                                systemTypeOption))),
                         rawPos,
                         siblings.Positions);
                 }
@@ -192,7 +203,8 @@ public partial class MainViewModel
                             targetWorkId,
                             dialog.CallDevicesAlias,
                             dialog.CallApiName,
-                            dialog.DeviceAliases),
+                            dialog.DeviceAliases,
+                            systemTypeOption),
                         rawPos,
                         siblings.Positions);
                 }
