@@ -344,10 +344,11 @@ public partial class MainViewModel
             if (!_store.FlowsReadOnly.TryGetValue(key.Id, out var srcFlow))
                 continue;
 
-            var newName = _dialogService.PromptName("Flow 복사 — 새 이름", srcFlow.Name);
-            if (newName is null) return; // 취소 시 전체 중단
-
             var sysId = targetSystemIdOpt != null ? targetSystemIdOpt.Value : srcFlow.ParentId;
+            var existingNames = DsQuery.flowsOf(sysId, _store).Select(f => f.Name).ToList();
+            var suggestedName = NextUniqueName(srcFlow.Name, existingNames);
+            var newName = _dialogService.PromptName("Flow 복사 — 새 이름", suggestedName);
+            if (newName is null) return; // 취소 시 전체 중단
 
             if (!TryEditorRef(
                     () => _store.PasteFlowWithRename(key.Id, sysId, newName),
@@ -365,6 +366,14 @@ public partial class MainViewModel
             .ToList();
 
         ApplyPasteSelection(workIds, $"Pasted {pastedFlowIds.Count} Flow(s).");
+    }
+
+    private static string NextUniqueName(string baseName, List<string> existing)
+    {
+        if (!existing.Contains(baseName)) return baseName;
+        var i = 1;
+        while (existing.Contains($"{baseName}_{i}")) i++;
+        return $"{baseName}_{i}";
     }
 
     private (EntityKind EntityType, Guid EntityId)? ResolvePasteTarget()
