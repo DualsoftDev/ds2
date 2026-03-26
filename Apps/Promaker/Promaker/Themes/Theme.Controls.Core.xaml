@@ -241,41 +241,6 @@
         </Setter>
     </Style>
 
-    <!-- Button: PrimaryActionButton (강조 액션 버튼 — 실행 등 핵심 동작) -->
-    <Style x:Key="PrimaryActionButton" TargetType="Button">
-        <Setter Property="Background" Value="#1a3d1a"/>
-        <Setter Property="Foreground" Value="#32CD32"/>
-        <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="Padding" Value="10,5"/>
-        <Setter Property="MinWidth" Value="0"/>
-        <Setter Property="Cursor" Value="Hand"/>
-        <Setter Property="VerticalAlignment" Value="Stretch"/>
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="Button">
-                    <Border x:Name="border"
-                            Background="{TemplateBinding Background}"
-                            CornerRadius="4"
-                            Padding="{TemplateBinding Padding}">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="border" Property="Background" Value="#234d23"/>
-                        </Trigger>
-                        <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="border" Property="Background" Value="#2d5e2d"/>
-                        </Trigger>
-                        <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Foreground" Value="{DynamicResource DisabledTextBrush}"/>
-                            <Setter TargetName="border" Property="Opacity" Value="0.4"/>
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
-
     <!-- Button: RibbonButton (ToolBar) -->
     <Style x:Key="RibbonButton" TargetType="Button">
         <Setter Property="Background" Value="Transparent"/>

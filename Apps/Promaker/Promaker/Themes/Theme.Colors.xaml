@@ -27,7 +27,6 @@
     <Color x:Key="CloseButtonPressedColor">#F1707A</Color>
 
     <!-- Node Colors -->
-    <Color x:Key="NodeStartBackgroundColor">#2E3328</Color>
     <Color x:Key="NodeWorkBackgroundColor">#2C2C31</Color>
     <Color x:Key="NodeWorkSelectedBackgroundColor">#38383E</Color>
     <Color x:Key="NodeCallBackgroundColor">#28303A</Color>
@@ -40,33 +39,9 @@
 
     <!-- Toolbar grouped flat palette -->
     <Color x:Key="ToolbarShellColor">#1E1E22</Color>
-    <Color x:Key="ToolbarFileGroupColor">#27272B</Color>
-    <Color x:Key="ToolbarEditGroupColor">#27272B</Color>
-    <Color x:Key="ToolbarSimulationGroupColor">#27272B</Color>
-    <Color x:Key="ToolbarProcessGroupColor">#27272B</Color>
-    <Color x:Key="ToolbarToolsGroupColor">#27272B</Color>
     <Color x:Key="ToolbarButtonColor">#2C2C31</Color>
-    <Color x:Key="ToolbarButtonHoverColor">#38383E</Color>
-
-    <!-- 컬러 코딩 버튼 -->
-    <Color x:Key="ToolbarGreenButtonColor">#2E7D32</Color>
-    <Color x:Key="ToolbarGreenButtonHoverColor">#388E3C</Color>
-    <Color x:Key="ToolbarRedButtonColor">#C62828</Color>
-    <Color x:Key="ToolbarRedButtonHoverColor">#D32F2F</Color>
-    <Color x:Key="ToolbarOrangeButtonColor">#E65100</Color>
-    <Color x:Key="ToolbarOrangeButtonHoverColor">#EF6C00</Color>
-    <Color x:Key="ToolbarBlueButtonColor">#1565C0</Color>
-    <Color x:Key="ToolbarBlueButtonHoverColor">#1976D2</Color>
-    <Color x:Key="ToolbarGrayButtonColor">#45454A</Color>
-    <Color x:Key="ToolbarGrayButtonHoverColor">#55555C</Color>
-    <Color x:Key="ToolbarTealButtonColor">#156C78</Color>
-    <Color x:Key="ToolbarTealButtonHoverColor">#1A7D8A</Color>
 
     <!-- Status Colors -->
-    <Color x:Key="SuccessColor">#4CAF50</Color>
-    <Color x:Key="WarningColor">#FF9800</Color>
-    <Color x:Key="ErrorColor">#F44336</Color>
-    <Color x:Key="InfoColor">#2196F3</Color>
     <Color x:Key="SimulationReadyColor">#32CD32</Color>
     <Color x:Key="SimulationGoingColor">#FFA500</Color>
     <Color x:Key="SimulationFinishColor">#1E90FF</Color>
@@ -99,13 +74,11 @@
     <Color x:Key="TreeViewArrowColor">#D4D4D6</Color>
     <Color x:Key="ContrastDarkTextColor">#1E1E22</Color>
     <Color x:Key="AlwaysLightTextColor">#FFFFFF</Color>
-    <Color x:Key="IconOverlayTextColor">#1E1E22</Color>
     <Color x:Key="ConditionAutoBadgeColor">#A65B00</Color>
     <Color x:Key="ConditionComBadgeColor">#2A7A4E</Color>
     <Color x:Key="ConditionSkipBadgeColor">#55555C</Color>
 
     <!-- Token UI Colors -->
     <Color x:Key="TokenOrangeColor">#ffb74d</Color>
-    <Color x:Key="TokenRedColor">#ef9a9a</Color>
 
 </ResourceDictionary>
