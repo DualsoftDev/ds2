@@ -12,8 +12,13 @@ public partial class App : Application
 {
     private static readonly ILog Log = LogManager.GetLogger(typeof(App));
 
+    /// <summary>더블클릭 등으로 전달된 파일 경로 (첫 번째 인자).</summary>
+    internal static string? StartupFilePath { get; set; }
+
     protected override void OnStartup(StartupEventArgs e)
     {
+        if (e.Args.Length > 0 && File.Exists(e.Args[0]))
+            StartupFilePath = e.Args[0];
         var configFile = new FileInfo("log4net.config");
         if (configFile.Exists)
             XmlConfigurator.Configure(configFile);

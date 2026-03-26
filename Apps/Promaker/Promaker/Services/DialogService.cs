@@ -64,7 +64,7 @@ public class DialogService : IDialogService
         var dialog = new SaveFileDialog
         {
             Filter = filter,
-            DefaultExt = ".json"
+            DefaultExt = ".sdf"
         };
 
         if (!string.IsNullOrWhiteSpace(defaultFileName))

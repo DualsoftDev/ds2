@@ -14,7 +14,7 @@ namespace Promaker.ViewModels;
 public partial class MainViewModel
 {
     private const string FileFilter =
-        "All Supported (*.json;*.aasx;*.md)|*.json;*.aasx;*.md|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx|Mermaid Files (*.md)|*.md";
+        "All Supported (*.sdf;*.json;*.aasx;*.md)|*.sdf;*.json;*.aasx;*.md|SDF Files (*.sdf)|*.sdf|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx|Mermaid Files (*.md)|*.md";
 
     private static bool HasExtension(string path, string extension) =>
         Path.GetExtension(path).Equals(extension, StringComparison.OrdinalIgnoreCase);
@@ -231,7 +231,7 @@ public partial class MainViewModel
         var dlg = new SaveFileDialog
         {
             Filter = FileFilter,
-            DefaultExt = ".json",
+            DefaultExt = ".sdf",
             FileName = suggestedName
         };
 

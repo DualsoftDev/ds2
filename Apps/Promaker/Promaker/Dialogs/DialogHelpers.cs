@@ -105,7 +105,6 @@ internal static class DialogHelpers
                       ?? SystemColors.WindowBrush;
         var fgBrush = (Brush?)Application.Current.TryFindResource("PrimaryTextBrush")
                       ?? SystemColors.ControlTextBrush;
-
         var dialog = new Window
         {
             Title = "그래프 검증 경고",
