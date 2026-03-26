@@ -160,7 +160,7 @@ public partial class SimulationPanelState
             return false;
         }
 
-        if (!engine.Index.TokenSourceGuids.Contains(guid))
+        if (!SimIndexModule.isTokenSource(engine.Index, guid))
             return true;
 
         return TryPrepareSourceStart(

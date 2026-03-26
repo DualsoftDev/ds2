@@ -354,6 +354,72 @@ public sealed class SimulationPanelStateTests
         });
     }
 
+    [Fact]
+    public void Reference_work_event_updates_shared_state_and_token_for_group()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var store = new DsStore();
+            var projectId = store.AddProject("P");
+            var systemId = store.AddSystem("S", projectId, true);
+            var flowId = store.AddFlow("F", systemId);
+            var workId = store.AddWork("W1", flowId);
+            var referenceWorkId = store.AddReferenceWork(workId);
+
+            store.UpdateWorkTokenRole(workId, TokenRole.Source);
+
+            var index = SimIndexModule.build(store, 10);
+            using var engine = new EventDrivenEngine(index);
+            var state = CreateState(() => store);
+
+            SetPrivateField(state, "_simEngine", engine);
+            SetPrivateField(state, "_isStepMode", true);
+            state.IsSimulating = true;
+            state.IsSimPaused = true;
+
+            var initSimNodes = typeof(SimulationPanelState).GetMethod(
+                "InitSimNodes",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            initSimNodes.Invoke(state, null);
+
+            var onWorkStateChanged = typeof(SimulationPanelState).GetMethod(
+                "OnWorkStateChanged",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            onWorkStateChanged.Invoke(state, [new WorkStateChangedArgs(
+                workId,
+                "W1",
+                Status4.Ready,
+                Status4.Going,
+                TimeSpan.Zero)]);
+
+            Assert.Equal(Status4.Going, state.SimNodes.Single(node => node.NodeGuid == workId).State);
+            Assert.Equal(Status4.Going, state.SimNodes.Single(node => node.NodeGuid == referenceWorkId).State);
+
+            var token = engine.NextToken();
+            engine.SeedToken(workId, token);
+
+            var onTokenEvent = typeof(SimulationPanelState).GetMethod(
+                "OnTokenEvent",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            onTokenEvent.Invoke(state, [new TokenEventArgs(
+                TokenEventKind.Seed,
+                token,
+                workId,
+                "W1",
+                null,
+                null,
+                TimeSpan.Zero)]);
+
+            var originalDisplay = state.SimNodes.Single(node => node.NodeGuid == workId).TokenDisplay;
+            var referenceDisplay = state.SimNodes.Single(node => node.NodeGuid == referenceWorkId).TokenDisplay;
+
+            Assert.False(string.IsNullOrWhiteSpace(originalDisplay));
+            Assert.EndsWith("#1", originalDisplay, StringComparison.Ordinal);
+            Assert.Equal(originalDisplay, referenceDisplay);
+        });
+    }
+
+
     private static SimulationPanelState CreateState(Func<DsStore>? storeProvider = null) =>
         new(
             storeProvider ?? (() => new DsStore()),

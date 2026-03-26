@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Ds2.Core;
 using Ds2.Runtime.Sim.Engine;
 using Ds2.Runtime.Sim.Model;
@@ -27,7 +28,7 @@ public partial class SimulationPanelState
 
     private void OnWorkStateChanged(WorkStateChangedArgs args)
     {
-        ApplyNodeStateChange(args.WorkGuid, args.NewState, args.WorkName, EntityKind.Work, GetSystemName(EntityKind.Work, args.WorkGuid));
+        ApplyWorkStateChangeToReferenceGroup(args);
         // 디버그: Homing/Ready 전이 로그 (리셋 동작 확인용)
         if (args.NewState == Status4.Homing || (args.PreviousState == Status4.Homing && args.NewState == Status4.Ready))
             AddSimLog($"[Reset] {args.WorkName}: {args.PreviousState} → {args.NewState}");
@@ -84,6 +85,24 @@ public partial class SimulationPanelState
         UpdateSimNodeState(nodeGuid, newState);
         GanttChart.UpdateNodeState(nodeGuid, newState, GanttChart.AdjustedNow);
         RecordStateChange(nodeGuid.ToString(), nodeName, nodeKind.ToString(), systemName, newState);
+        UpdateSimClock();
+    }
+
+    private void ApplyWorkStateChangeToReferenceGroup(WorkStateChangedArgs args)
+    {
+        var systemName = GetSystemName(EntityKind.Work, args.WorkGuid);
+        var groupGuids = DsQuery.referenceGroupOf(args.WorkGuid, Store).ToList();
+        if (groupGuids.Count == 0)
+            groupGuids.Add(args.WorkGuid);
+
+        foreach (var groupGuid in groupGuids)
+        {
+            _stateCache.Set(groupGuid, args.NewState);
+            UpdateSimNodeState(groupGuid, args.NewState);
+            GanttChart.UpdateNodeState(groupGuid, args.NewState, GanttChart.AdjustedNow);
+        }
+
+        RecordStateChange(args.WorkGuid.ToString(), args.WorkName, EntityKind.Work.ToString(), systemName, args.NewState);
         UpdateSimClock();
     }
 }

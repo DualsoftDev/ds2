@@ -25,18 +25,41 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     let mutable workGTriggeredResets = Set.empty<Guid * Guid>
     let mutable workMinDurationMet = Set.empty<Guid>
 
+    let canonicalWorkGuid (guid: Guid) =
+        SimIndex.canonicalWorkGuid index guid
+
+    let referenceGroupOf (guid: Guid) =
+        SimIndex.referenceGroupOf index guid
+
+    let setWorkStateForGroup (guid: Guid) (newState: Status4) =
+        let groupGuids = referenceGroupOf guid
+        state <-
+            groupGuids
+            |> List.fold (fun acc groupGuid -> SimState.setWorkState groupGuid newState acc) state
+
+    let setWorkTokenForGroup (guid: Guid) (token: TokenValue option) =
+        let groupGuids = referenceGroupOf guid
+        state <-
+            groupGuids
+            |> List.fold (fun acc groupGuid -> SimState.setWorkToken groupGuid token acc) state
+
+    let groupState guid =
+        let canonical = canonicalWorkGuid guid
+        state.WorkStates |> Map.tryFind canonical |> Option.defaultValue Status4.Ready
+
     member _.ApplyWorkTransition(guid: Guid, newState: Status4) : TransitionResult =
         lock syncRoot (fun () ->
-            let oldState = state.WorkStates |> Map.tryFind guid |> Option.defaultValue Status4.Ready
+            let oldState = groupState guid
             let nodeName = index.WorkName |> Map.tryFind guid |> Option.defaultValue (string guid)
             let deviceName = index.WorkSystemName |> Map.tryFind guid |> Option.defaultValue ""
             if oldState = newState then
                 { ActualNewState = newState; OldState = oldState; IsSkipped = false; HasChanged = false; NodeName = nodeName; DeviceName = deviceName }
             else
-                state <- SimState.setWorkState guid newState state
+                setWorkStateForGroup guid newState
                 if oldState = Status4.Going then
-                    workMinDurationMet <- workMinDurationMet.Remove(guid)
-                    workGTriggeredResets <- workGTriggeredResets |> Set.filter (fun (predGuid, _) -> predGuid <> guid)
+                    let canonical = canonicalWorkGuid guid
+                    workMinDurationMet <- workMinDurationMet.Remove(canonical)
+                    workGTriggeredResets <- workGTriggeredResets |> Set.filter (fun (predGuid, _) -> predGuid <> canonical)
                 { ActualNewState = newState; OldState = oldState; IsSkipped = false; HasChanged = true; NodeName = nodeName; DeviceName = deviceName })
 
     member _.ApplyCallTransition(guid: Guid, newState: Status4, shouldSkipCall: Guid -> bool) : TransitionResult =
@@ -60,19 +83,23 @@ type StateManager(index: SimIndex, initialTickMs: int) =
                 elif actualNewState = Status4.Ready then state <- { state with SkippedCalls = state.SkippedCalls.Remove(guid) }
                 { ActualNewState = actualNewState; OldState = oldState; IsSkipped = isSkipped; HasChanged = true; NodeName = nodeName; DeviceName = deviceName })
 
-    member _.MarkWorkPending(guid: Guid)  = lock syncRoot (fun () -> pendingWorkTransitions <- pendingWorkTransitions.Add(guid))
+    member _.MarkWorkPending(guid: Guid)  = lock syncRoot (fun () -> pendingWorkTransitions <- pendingWorkTransitions.Add(canonicalWorkGuid guid))
     member _.MarkCallPending(guid: Guid)  = lock syncRoot (fun () -> pendingCallTransitions <- pendingCallTransitions.Add(guid))
-    member _.ClearWorkPending(guid: Guid) = lock syncRoot (fun () -> pendingWorkTransitions <- pendingWorkTransitions.Remove(guid))
+    member _.ClearWorkPending(guid: Guid) = lock syncRoot (fun () -> pendingWorkTransitions <- pendingWorkTransitions.Remove(canonicalWorkGuid guid))
     member _.ClearCallPending(guid: Guid) = lock syncRoot (fun () -> pendingCallTransitions <- pendingCallTransitions.Remove(guid))
-    member _.IsWorkPending(guid: Guid)    = lock syncRoot (fun () -> pendingWorkTransitions.Contains(guid))
+    member _.IsWorkPending(guid: Guid)    = lock syncRoot (fun () -> pendingWorkTransitions.Contains(canonicalWorkGuid guid))
     member _.IsCallPending(guid: Guid)    = lock syncRoot (fun () -> pendingCallTransitions.Contains(guid))
 
-    member _.IsResetTriggered(predKey, targetKey) = lock syncRoot (fun () -> workGTriggeredResets.Contains((predKey, targetKey)))
-    member _.AddResetTrigger(predKey, targetKey)  = lock syncRoot (fun () -> workGTriggeredResets <- workGTriggeredResets.Add((predKey, targetKey)))
+    member _.IsResetTriggered(predKey, targetKey) =
+        lock syncRoot (fun () ->
+            workGTriggeredResets.Contains((canonicalWorkGuid predKey, canonicalWorkGuid targetKey)))
+    member _.AddResetTrigger(predKey, targetKey)  =
+        lock syncRoot (fun () ->
+            workGTriggeredResets <- workGTriggeredResets.Add((canonicalWorkGuid predKey, canonicalWorkGuid targetKey)))
 
-    member _.MarkMinDurationMet(guid: Guid) = lock syncRoot (fun () -> workMinDurationMet <- workMinDurationMet.Add(guid))
-    member _.IsMinDurationMet(guid: Guid)   = lock syncRoot (fun () -> workMinDurationMet.Contains(guid))
-    member _.ClearMinDuration(guid: Guid)   = lock syncRoot (fun () -> workMinDurationMet <- workMinDurationMet.Remove(guid))
+    member _.MarkMinDurationMet(guid: Guid) = lock syncRoot (fun () -> workMinDurationMet <- workMinDurationMet.Add(canonicalWorkGuid guid))
+    member _.IsMinDurationMet(guid: Guid)   = lock syncRoot (fun () -> workMinDurationMet.Contains(canonicalWorkGuid guid))
+    member _.ClearMinDuration(guid: Guid)   = lock syncRoot (fun () -> workMinDurationMet <- workMinDurationMet.Remove(canonicalWorkGuid guid))
 
     member _.SetIOValue(apiCallGuid: Guid, value: string) =
         lock syncRoot (fun () -> state <- SimState.setIOValue apiCallGuid value state)
@@ -87,9 +114,9 @@ type StateManager(index: SimIndex, initialTickMs: int) =
 
     // ── Token ──
     member _.SetWorkToken(workGuid: Guid, token: TokenValue option) =
-        lock syncRoot (fun () -> state <- SimState.setWorkToken workGuid token state)
+        lock syncRoot (fun () -> setWorkTokenForGroup workGuid token)
     member _.GetWorkToken(workGuid: Guid) =
-        lock syncRoot (fun () -> SimState.getWorkToken workGuid state)
+        lock syncRoot (fun () -> SimState.getWorkToken (canonicalWorkGuid workGuid) state)
     member _.AddCompletedToken(token: TokenValue) =
         lock syncRoot (fun () -> state <- SimState.addCompletedToken token state)
     member _.SetTokenOrigin(token: TokenValue, workName: string) =
@@ -103,7 +130,8 @@ type StateManager(index: SimIndex, initialTickMs: int) =
 
     member _.UpdateClock(newClock: TimeSpan) = lock syncRoot (fun () -> state <- { state with Clock = newClock })
     member _.GetState() = lock syncRoot (fun () -> state)
-    member _.GetWorkState(workGuid: Guid) = lock syncRoot (fun () -> state.WorkStates |> Map.tryFind workGuid |> Option.defaultValue Status4.Ready)
+    member _.GetWorkState(workGuid: Guid) =
+        lock syncRoot (fun () -> groupState workGuid)
     member _.GetCallState(callGuid: Guid) = lock syncRoot (fun () -> state.CallStates |> Map.tryFind callGuid |> Option.defaultValue Status4.Ready)
     member _.GetFlowState(flowGuid: Guid) = lock syncRoot (fun () -> state.FlowStates |> Map.tryFind flowGuid |> Option.defaultValue FlowTag.Ready)
     member _.SetFlowState(flowGuid: Guid, tag: FlowTag) =
@@ -111,6 +139,6 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     member _.SetAllFlowStates(tag: FlowTag) =
         lock syncRoot (fun () -> state <- { state with FlowStates = state.FlowStates |> Map.map (fun _ _ -> tag) })
     member _.ForceWorkState(workGuid: Guid, newState: Status4) =
-        lock syncRoot (fun () -> state <- SimState.setWorkState workGuid newState state)
+        lock syncRoot (fun () -> setWorkStateForGroup workGuid newState)
     member _.ForceCallState(callGuid: Guid, newState: Status4) =
         lock syncRoot (fun () -> state <- SimState.setCallState callGuid newState state)

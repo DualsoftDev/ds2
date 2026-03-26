@@ -323,7 +323,10 @@ type EventDrivenEngine(index: SimIndex) =
         if index.AllCallGuids |> List.contains callGuid then
             scheduler.ScheduleNow(ScheduledEventType.CallTransition(callGuid, newState), ScheduledEvent.PriorityStateChange) |> ignore
 
-    member _.GetWorkState(workGuid) = stateManager.GetState().WorkStates.TryFind(workGuid)
+    member _.GetWorkState(workGuid) =
+        if index.AllWorkGuids |> List.contains workGuid then
+            Some (stateManager.GetWorkState(workGuid))
+        else None
     member _.GetCallState(callGuid) = stateManager.GetState().CallStates.TryFind(callGuid)
 
     /// Active System의 Flow Guid 목록
@@ -419,12 +422,16 @@ type EventDrivenEngine(index: SimIndex) =
         match stateManager.GetWorkToken(sourceWorkGuid) with
         | Some _ -> ()  // 이미 차있으면 무시
         | None ->
+            let canonicalSourceWorkGuid = SimIndex.canonicalWorkGuid index sourceWorkGuid
             // TokenSpec Label 우선, 없으면 Work 이름 fallback
             let originLabel =
                 DsQuery.getTokenSpecs index.Store
-                |> List.tryFind (fun spec -> spec.WorkId = Some sourceWorkGuid)
+                |> List.tryFind (fun spec ->
+                    spec.WorkId
+                    |> Option.map (fun workGuid -> SimIndex.canonicalWorkGuid index workGuid = canonicalSourceWorkGuid)
+                    |> Option.defaultValue false)
                 |> Option.map (fun spec -> spec.Label)
-                |> Option.defaultWith (fun () -> workNameOf sourceWorkGuid)
+                |> Option.defaultWith (fun () -> workNameOf canonicalSourceWorkGuid)
             stateManager.SetTokenOrigin(value, originLabel)
             this.ApplyToken(sourceWorkGuid, Some value, Seed, value)
 

@@ -2,7 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Add Call"
-        Width="500" Height="430"
+        Width="640"
+        SizeToContent="Height"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
@@ -97,26 +98,22 @@
 
                                     <!-- 왼쪽: Call 복제 -->
                                     <StackPanel Grid.Column="0">
-                                        <RadioButton x:Name="RadioCallReplication"
-                                                     GroupName="ReplicationMode"
-                                                     Content="Call 복제" IsChecked="True"
-                                                     Foreground="{DynamicResource PrimaryTextBrush}"
-                                                     FontWeight="SemiBold"
-                                                     Checked="OnReplicationRadioChanged"
-                                                     Margin="0,0,0,6"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                            <RadioButton x:Name="RadioCallReplication"
+                                                         GroupName="ReplicationMode"
+                                                         Content="Call 복제" IsChecked="True"
+                                                         Foreground="{DynamicResource PrimaryTextBrush}"
+                                                         FontWeight="SemiBold"
+                                                         Checked="OnReplicationRadioChanged"
+                                                         VerticalAlignment="Center"/>
+                                            <TextBlock Text="개수" FontSize="11"
+                                                       VerticalAlignment="Center" Margin="12,0,6,0"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                            <TextBox x:Name="CallCountTextBox" Width="44"
+                                                     Padding="6,3" Text="1" TextAlignment="Center"
+                                                     VerticalAlignment="Center"/>
+                                        </StackPanel>
                                         <StackPanel x:Name="CallReplicationPanel" Style="{StaticResource ReplicationPanel}">
-                                            <Grid Margin="0,0,0,4">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="6"/>
-                                                    <ColumnDefinition Width="56"/>
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Text="개수"
-                                                           FontSize="11" VerticalAlignment="Center"
-                                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
-                                                <TextBox Grid.Column="2" x:Name="CallCountTextBox"
-                                                         Padding="6,4" Text="1" TextAlignment="Center"/>
-                                            </Grid>
                                             <TextBlock Text="Conv → Conv1, Conv2, ..."
                                                        FontSize="10" FontStyle="Italic"
                                                        Foreground="{DynamicResource SecondaryTextBrush}"
@@ -135,26 +132,22 @@
 
                                     <!-- 오른쪽: ApiCall 복제 -->
                                     <StackPanel Grid.Column="2">
-                                        <RadioButton x:Name="RadioApiCallReplication"
-                                                     GroupName="ReplicationMode"
-                                                     Content="ApiCall 복제"
-                                                     Foreground="{DynamicResource PrimaryTextBrush}"
-                                                     FontWeight="SemiBold"
-                                                     Checked="OnReplicationRadioChanged"
-                                                     Margin="0,0,0,6"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                            <RadioButton x:Name="RadioApiCallReplication"
+                                                         GroupName="ReplicationMode"
+                                                         Content="ApiCall 복제"
+                                                         Foreground="{DynamicResource PrimaryTextBrush}"
+                                                         FontWeight="SemiBold"
+                                                         Checked="OnReplicationRadioChanged"
+                                                         VerticalAlignment="Center"/>
+                                            <TextBlock Text="개수" FontSize="11"
+                                                       VerticalAlignment="Center" Margin="12,0,6,0"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                            <TextBox x:Name="ApiCallCountTextBox" Width="44"
+                                                     Padding="6,3" Text="1" TextAlignment="Center"
+                                                     VerticalAlignment="Center"/>
+                                        </StackPanel>
                                         <StackPanel x:Name="ApiCallReplicationPanel" IsEnabled="False" Style="{StaticResource ReplicationPanel}">
-                                            <Grid Margin="0,0,0,4">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                    <ColumnDefinition Width="6"/>
-                                                    <ColumnDefinition Width="56"/>
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Text="개수"
-                                                           FontSize="11" VerticalAlignment="Center"
-                                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
-                                                <TextBox Grid.Column="2" x:Name="ApiCallCountTextBox"
-                                                         Padding="6,4" Text="1" TextAlignment="Center"/>
-                                            </Grid>
                                             <TextBlock Text="1개 Call 안에 N개 ApiCall"
                                                        FontSize="10" FontStyle="Italic"
                                                        Foreground="{DynamicResource SecondaryTextBrush}"
@@ -226,7 +219,7 @@
 
             <!-- Buttons -->
             <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right"
-                        Margin="0,10,0,0">
+                        Margin="0,4,0,0">
                 <Button Content="추가" Style="{StaticResource DarkButton}"
                         Padding="12,4" Margin="0,0,4,0"
                         Click="Add_Click" IsDefault="True"/>
