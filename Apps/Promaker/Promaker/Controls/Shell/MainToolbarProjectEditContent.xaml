@@ -1,6 +1,7 @@
 <UserControl x:Class="Promaker.Controls.MainToolbarProjectEditContent"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
              xmlns:res="clr-namespace:Promaker.Resources"
              x:Name="ThisControl">
     <Grid>
@@ -22,11 +23,8 @@
                     Command="{Binding NewProjectCommand}"
                     ToolTip="{x:Static res:Strings.NewFileTooltip}">
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                    <Path Width="18"
-                          Height="18"
-                          Stretch="Uniform"
-                          Data="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"
-                          Fill="{DynamicResource IconGrayBrush}"/>
+                    <iconPacks:PackIconMaterial Kind="FileDocumentPlus" Width="18" Height="18"
+                        Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.NewFile}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                 </StackPanel>
             </Button>
@@ -35,11 +33,8 @@
                     Command="{Binding OpenFileCommand}"
                     ToolTip="{x:Static res:Strings.LoadTooltip}">
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                    <Path Width="18"
-                          Height="18"
-                          Stretch="Uniform"
-                          Data="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8H21L4,8V18L6.14,10H23.21L20.93,18.5C20.7,19.37 19.92,20 19,20Z"
-                          Fill="{DynamicResource IconGrayBrush}"/>
+                    <iconPacks:PackIconMaterial Kind="FolderOpen" Width="18" Height="18"
+                        Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.Load}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                 </StackPanel>
             </Button>
@@ -49,11 +44,8 @@
                               Style="{StaticResource SlimToggleButton}"
                               ToolTip="{x:Static res:Strings.SaveTooltip}">
                     <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                        <Path Width="18"
-                              Height="18"
-                              Stretch="Uniform"
-                              Data="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"
-                              Fill="{DynamicResource IconGrayBrush}"/>
+                        <iconPacks:PackIconMaterial Kind="ContentSave" Width="18" Height="18"
+                            Foreground="{DynamicResource IconGrayBrush}"/>
                         <TextBlock Text="{x:Static res:Strings.Save}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                     </StackPanel>
                 </ToggleButton>
@@ -101,14 +93,16 @@
 
             <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding UndoCommand}" ToolTip="{x:Static res:Strings.UndoTooltip}">
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                    <Path Width="18" Height="18" Stretch="Uniform" Data="{StaticResource IconUndo}" Fill="{DynamicResource IconGrayBrush}"/>
+                    <iconPacks:PackIconMaterial Kind="Undo" Width="18" Height="18"
+                        Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.Undo}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                 </StackPanel>
             </Button>
 
             <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding RedoCommand}" ToolTip="{x:Static res:Strings.RedoTooltip}">
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                    <Path Width="18" Height="18" Stretch="Uniform" Data="{StaticResource IconRedo}" Fill="{DynamicResource IconGrayBrush}"/>
+                    <iconPacks:PackIconMaterial Kind="Redo" Width="18" Height="18"
+                        Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.Redo}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                 </StackPanel>
             </Button>
@@ -118,11 +112,8 @@
                           ToolTip="{x:Static res:Strings.Add}"
                           IsEnabled="{Binding HasProject}">
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                    <Path Width="18"
-                          Height="18"
-                          Stretch="Uniform"
-                          Data="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"
-                          Fill="{DynamicResource IconGrayBrush}"/>
+                    <iconPacks:PackIconMaterial Kind="PlusBoxMultiple" Width="18" Height="18"
+                        Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.Add}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                 </StackPanel>
             </ToggleButton>
@@ -158,11 +149,8 @@
                     Command="{Binding DeleteSelectedCommand}"
                     ToolTip="{x:Static res:Strings.DeleteTooltip}">
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                    <Path Width="18"
-                          Height="18"
-                          Stretch="Uniform"
-                          Data="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
-                          Fill="{DynamicResource IconRedBrush}"/>
+                    <iconPacks:PackIconMaterial Kind="Delete" Width="18" Height="18"
+                        Foreground="{DynamicResource IconRedBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.Delete}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                 </StackPanel>
             </Button>
@@ -172,11 +160,8 @@
                           ToolTip="{x:Static res:Strings.BatchEditTooltip}"
                           IsEnabled="{Binding HasProject}">
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                    <Path Width="18"
-                          Height="18"
-                          Stretch="Uniform"
-                          Data="M3 10h11v2H3v-2zm0-2h11V6H3v2zm0 8h7v-2H3v2zm15.01-3.13l1.41-1.41c.2-.2.51-.2.71 0l1.41 1.41c.2.2.2.51 0 .71l-1.41 1.41-2.12-2.12zm-.71.71l-5.3 5.3V21h2.12l5.3-5.3-2.12-2.12z"
-                          Fill="{DynamicResource IconGrayBrush}"/>
+                    <iconPacks:PackIconMaterial Kind="FileDocumentEdit" Width="18" Height="18"
+                        Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.BatchEdit}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                 </StackPanel>
             </ToggleButton>
@@ -207,7 +192,8 @@
 
             <Button Style="{StaticResource SlimToolbarButton}" Command="{Binding AutoLayoutCommand}" ToolTip="{x:Static res:Strings.AutoLayoutTooltip}">
                 <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
-                    <Path Width="18" Height="18" Stretch="Uniform" Data="{StaticResource IconGrid}" Fill="{DynamicResource IconGrayBrush}"/>
+                    <iconPacks:PackIconMaterial Kind="ViewGrid" Width="18" Height="18"
+                        Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="{x:Static res:Strings.AutoLayout}" FontSize="9" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                 </StackPanel>
             </Button>
