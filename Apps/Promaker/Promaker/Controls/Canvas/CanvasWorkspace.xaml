@@ -69,13 +69,13 @@
                     </MultiDataTrigger.Conditions>
                     <Setter Property="Background" Value="{DynamicResource AccentDimBrush}"/>
                 </MultiDataTrigger>
-                <!-- 비활성 Work → 어두운 초록 -->
+                <!-- 비활성 Work → 어두운 보라 -->
                 <MultiDataTrigger>
                     <MultiDataTrigger.Conditions>
                         <Condition Binding="{Binding IsActive}" Value="False"/>
                         <Condition Binding="{Binding Kind}" Value="Work"/>
                     </MultiDataTrigger.Conditions>
-                    <Setter Property="Background" Value="{DynamicResource GreenAccentDimBrush}"/>
+                    <Setter Property="Background" Value="{DynamicResource PurpleAccentDimBrush}"/>
                 </MultiDataTrigger>
                 <!-- 활성 System → 밝은 주황 -->
                 <MultiDataTrigger>
@@ -93,13 +93,13 @@
                     </MultiDataTrigger.Conditions>
                     <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
                 </MultiDataTrigger>
-                <!-- 활성 Work → 밝은 초록 -->
+                <!-- 활성 Work → 밝은 보라 -->
                 <MultiDataTrigger>
                     <MultiDataTrigger.Conditions>
                         <Condition Binding="{Binding IsActive}" Value="True"/>
                         <Condition Binding="{Binding Kind}" Value="Work"/>
                     </MultiDataTrigger.Conditions>
-                    <Setter Property="Background" Value="{DynamicResource GreenAccentBrush}"/>
+                    <Setter Property="Background" Value="{DynamicResource PurpleAccentBrush}"/>
                 </MultiDataTrigger>
             </Style.Triggers>
         </Style>

@@ -51,11 +51,13 @@
     <!-- Accent Brushes -->
     <SolidColorBrush x:Key="OrangeAccentBrush" Color="{StaticResource OrangeAccentColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="GreenAccentBrush" Color="{StaticResource GreenAccentColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="PurpleAccentBrush" Color="{StaticResource PurpleAccentColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="RedAccentBrush" Color="{StaticResource RedAccentColor}" po:Freeze="False"/>
     <!-- Dim Accent Brushes (비활성 탭용) -->
     <SolidColorBrush x:Key="OrangeAccentDimBrush" Color="#40D48A1A" po:Freeze="False"/>
     <SolidColorBrush x:Key="AccentDimBrush" Color="#405A82B5" po:Freeze="False"/>
     <SolidColorBrush x:Key="GreenAccentDimBrush" Color="#403E9A57" po:Freeze="False"/>
+    <SolidColorBrush x:Key="PurpleAccentDimBrush" Color="#407E4AB5" po:Freeze="False"/>
 
     <!-- Icon Brushes -->
     <SolidColorBrush x:Key="IconOrangeBrush" Color="{StaticResource IconOrangeColor}" po:Freeze="False"/>

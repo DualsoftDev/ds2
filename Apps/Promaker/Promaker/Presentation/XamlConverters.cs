@@ -13,7 +13,7 @@ file static class ConverterHelpers
     private static readonly IReadOnlyDictionary<EntityKind, string> EntityBrushKeys =
         new Dictionary<EntityKind, string>
         {
-            [EntityKind.Work] = "NodeWorkBackgroundBrush",
+            [EntityKind.Work] = "PurpleAccentBrush",
             [EntityKind.Call] = "NodeCallBackgroundBrush",
             [EntityKind.Flow] = "AccentBrush",
             [EntityKind.System] = "OrangeAccentBrush",
@@ -92,6 +92,7 @@ public sealed class EntityTypeToForegroundConverter : IValueConverter
             EntityKind.System => "ContrastDarkTextBrush",
             EntityKind.Project => "ContrastDarkTextBrush",
             EntityKind.Flow => "AccentTextBrush",
+            EntityKind.Work => "AlwaysLightTextBrush",
             EntityKind.DeviceRoot => "AlwaysLightTextBrush",
             EntityKind.ApiDefCategory => "AlwaysLightTextBrush",
             _ => "PrimaryTextBrush"
@@ -209,7 +210,7 @@ public sealed class TabKindToBrushConverter : IValueConverter
         {
             [TabKind.System] = "OrangeAccentBrush",
             [TabKind.Flow] = "AccentBrush",
-            [TabKind.Work] = "GreenAccentBrush"
+            [TabKind.Work] = "PurpleAccentBrush"
         };
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

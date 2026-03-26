@@ -3,9 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
              xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
-             xmlns:res="clr-namespace:Promaker.Resources"
-             x:Name="ThisControl"
-             DataContext="{Binding Simulation}">
+             xmlns:res="clr-namespace:Promaker.Resources">
     <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -22,19 +20,20 @@
         <WrapPanel x:Name="SimulationRibbonContentPanel" Orientation="Horizontal">
             <StackPanel Orientation="Vertical">
                 <StackPanel Orientation="Horizontal">
-                    <Button x:Name="SimulationStartStopButton" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
+                    <Button x:Name="SimulationStartStopButton"
+                            IsEnabled="{Binding HasProject}">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
-                                <Setter Property="Command" Value="{Binding StartSimulationCommand}"/>
+                                <Setter Property="Command" Value="{Binding Simulation.StartSimulationCommand}"/>
                                 <Setter Property="ToolTip" Value="{x:Static res:Strings.StartSimulationTooltip}"/>
                                 <Setter Property="Foreground" Value="{DynamicResource IconGreenBrush}"/>
                                 <Style.Triggers>
                                     <MultiDataTrigger>
                                         <MultiDataTrigger.Conditions>
-                                            <Condition Binding="{Binding IsSimulating}" Value="True"/>
-                                            <Condition Binding="{Binding IsSimPaused}" Value="False"/>
+                                            <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
+                                            <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
                                         </MultiDataTrigger.Conditions>
-                                        <Setter Property="Command" Value="{Binding StopSimulationCommand}"/>
+                                        <Setter Property="Command" Value="{Binding Simulation.StopSimulationCommand}"/>
                                         <Setter Property="ToolTip" Value="{x:Static res:Strings.StopSimulationTooltip}"/>
                                         <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
                                     </MultiDataTrigger>
@@ -43,15 +42,19 @@
                         </Button.Style>
                         <StackPanel Orientation="Vertical">
                             <Grid Width="18" Height="18">
-                                <iconPacks:PackIconMaterial Kind="Play" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                <iconPacks:PackIconMaterial Kind="Play"
+                                                            Width="18"
+                                                            Height="18"
+                                                            HorizontalAlignment="Center"
+                                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
                                     <iconPacks:PackIconMaterial.Style>
                                         <Style TargetType="iconPacks:PackIconMaterial">
                                             <Setter Property="Visibility" Value="Visible"/>
                                             <Style.Triggers>
                                                 <MultiDataTrigger>
                                                     <MultiDataTrigger.Conditions>
-                                                        <Condition Binding="{Binding IsSimulating}" Value="True"/>
-                                                        <Condition Binding="{Binding IsSimPaused}" Value="False"/>
+                                                        <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
+                                                        <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
                                                     </MultiDataTrigger.Conditions>
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                 </MultiDataTrigger>
@@ -59,15 +62,19 @@
                                         </Style>
                                     </iconPacks:PackIconMaterial.Style>
                                 </iconPacks:PackIconMaterial>
-                                <iconPacks:PackIconMaterial Kind="Stop" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                <iconPacks:PackIconMaterial Kind="Stop"
+                                                            Width="18"
+                                                            Height="18"
+                                                            HorizontalAlignment="Center"
+                                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
                                     <iconPacks:PackIconMaterial.Style>
                                         <Style TargetType="iconPacks:PackIconMaterial">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
                                                 <MultiDataTrigger>
                                                     <MultiDataTrigger.Conditions>
-                                                        <Condition Binding="{Binding IsSimulating}" Value="True"/>
-                                                        <Condition Binding="{Binding IsSimPaused}" Value="False"/>
+                                                        <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
+                                                        <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
                                                     </MultiDataTrigger.Conditions>
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </MultiDataTrigger>
@@ -83,8 +90,8 @@
                                         <Style.Triggers>
                                             <MultiDataTrigger>
                                                 <MultiDataTrigger.Conditions>
-                                                    <Condition Binding="{Binding IsSimulating}" Value="True"/>
-                                                    <Condition Binding="{Binding IsSimPaused}" Value="False"/>
+                                                    <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
+                                                    <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
                                                 </MultiDataTrigger.Conditions>
                                                 <Setter Property="Text" Value="STOP"/>
                                             </MultiDataTrigger>
@@ -94,15 +101,16 @@
                             </TextBlock>
                         </StackPanel>
                     </Button>
-                    <Button>
+                    <Button x:Name="SimulationPauseStepButton"
+                            IsEnabled="{Binding HasProject}">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
-                                <Setter Property="Command" Value="{Binding PauseSimulationCommand}"/>
+                                <Setter Property="Command" Value="{Binding Simulation.PauseSimulationCommand}"/>
                                 <Setter Property="ToolTip" Value="{x:Static res:Strings.PauseSimulationTooltip}"/>
                                 <Setter Property="Foreground" Value="{DynamicResource IconOrangeBrush}"/>
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsSimPaused}" Value="True">
-                                        <Setter Property="Command" Value="{Binding StepSimulationCommand}"/>
+                                    <DataTrigger Binding="{Binding Simulation.IsSimPaused}" Value="True">
+                                        <Setter Property="Command" Value="{Binding Simulation.StepSimulationCommand}"/>
                                         <Setter Property="ToolTip" Value="한 단계 실행"/>
                                         <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                                     </DataTrigger>
@@ -111,24 +119,32 @@
                         </Button.Style>
                         <StackPanel Orientation="Vertical">
                             <Grid Width="18" Height="18">
-                                <iconPacks:PackIconMaterial Kind="Pause" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                <iconPacks:PackIconMaterial Kind="Pause"
+                                                            Width="18"
+                                                            Height="18"
+                                                            HorizontalAlignment="Center"
+                                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
                                     <iconPacks:PackIconMaterial.Style>
                                         <Style TargetType="iconPacks:PackIconMaterial">
                                             <Setter Property="Visibility" Value="Visible"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsSimPaused}" Value="True">
+                                                <DataTrigger Binding="{Binding Simulation.IsSimPaused}" Value="True">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
                                     </iconPacks:PackIconMaterial.Style>
                                 </iconPacks:PackIconMaterial>
-                                <iconPacks:PackIconMaterial Kind="SkipNext" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
+                                <iconPacks:PackIconMaterial Kind="SkipNext"
+                                                            Width="18"
+                                                            Height="18"
+                                                            HorizontalAlignment="Center"
+                                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}">
                                     <iconPacks:PackIconMaterial.Style>
                                         <Style TargetType="iconPacks:PackIconMaterial">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsSimPaused}" Value="True">
+                                                <DataTrigger Binding="{Binding Simulation.IsSimPaused}" Value="True">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
@@ -141,7 +157,7 @@
                                     <Style TargetType="TextBlock" BasedOn="{StaticResource RibbonIconLabel}">
                                         <Setter Property="Text" Value="PAUSE"/>
                                         <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsSimPaused}" Value="True">
+                                            <DataTrigger Binding="{Binding Simulation.IsSimPaused}" Value="True">
                                                 <Setter Property="Text" Value="STEP"/>
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -151,26 +167,29 @@
                         </StackPanel>
                     </Button>
                 </StackPanel>
-                <TextBlock Text="{Binding SimStatusText}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,0">
+                <TextBlock Text="{Binding Simulation.SimStatusText}"
+                           FontSize="9"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,0">
                     <TextBlock.Style>
                         <Style TargetType="TextBlock">
                             <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
                             <Style.Triggers>
                                 <MultiDataTrigger>
                                     <MultiDataTrigger.Conditions>
-                                        <Condition Binding="{Binding IsSimulating}" Value="True"/>
-                                        <Condition Binding="{Binding IsSimPaused}" Value="False"/>
+                                        <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
+                                        <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
                                     </MultiDataTrigger.Conditions>
                                     <Setter Property="Foreground" Value="{DynamicResource IconGreenBrush}"/>
                                 </MultiDataTrigger>
                                 <MultiDataTrigger>
                                     <MultiDataTrigger.Conditions>
-                                        <Condition Binding="{Binding IsSimulating}" Value="True"/>
-                                        <Condition Binding="{Binding IsSimPaused}" Value="True"/>
+                                        <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
+                                        <Condition Binding="{Binding Simulation.IsSimPaused}" Value="True"/>
                                     </MultiDataTrigger.Conditions>
                                     <Setter Property="Foreground" Value="{DynamicResource IconOrangeBrush}"/>
                                 </MultiDataTrigger>
-                                <DataTrigger Binding="{Binding SimStatusText}" Value="단계 제어 중">
+                                <DataTrigger Binding="{Binding Simulation.SimStatusText}" Value="단계 제어 중">
                                     <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                                 </DataTrigger>
                             </Style.Triggers>
@@ -178,11 +197,23 @@
                     </TextBlock.Style>
                 </TextBlock>
             </StackPanel>
-            <StackPanel Orientation="Vertical" Margin="8,0,0,0" VerticalAlignment="Center" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
+            <StackPanel Orientation="Vertical"
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Center"
+                        IsEnabled="{Binding HasProject}">
                 <TextBlock Text="Work" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,1"/>
-                <ComboBox x:Name="SimWorkComboBox" ItemsSource="{Binding SimWorkItems}" SelectedItem="{Binding SelectedSimWork}" Width="130" FontSize="11"/>
+                <ComboBox x:Name="SimWorkComboBox"
+                          ItemsSource="{Binding Simulation.SimWorkItems}"
+                          SelectedItem="{Binding Simulation.SelectedSimWork}"
+                          Width="130"
+                          MinHeight="24"
+                          FontSize="11"/>
                 <UniformGrid Columns="2" Margin="0,1,0,0">
-                    <Button x:Name="ForceWorkStartButton" Command="{Binding ForceWorkStartCommand}" ToolTip="{x:Static res:Strings.ForceWorkStartTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" Margin="0,0,2,0">
+                    <Button x:Name="ForceWorkStartButton"
+                            Command="{Binding Simulation.ForceWorkStartCommand}"
+                            ToolTip="{x:Static res:Strings.ForceWorkStartTooltip}"
+                            IsEnabled="{Binding HasProject}"
+                            Margin="0,0,2,0">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
                                 <Setter Property="Foreground" Value="{DynamicResource IconGreenBrush}"/>
@@ -191,9 +222,17 @@
                                 <Setter Property="Padding" Value="6,2"/>
                             </Style>
                         </Button.Style>
-                        <TextBlock Text="START" VerticalAlignment="Center" FontSize="11" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" HorizontalAlignment="Center"/>
+                        <TextBlock Text="START"
+                                   VerticalAlignment="Center"
+                                   FontSize="11"
+                                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                   HorizontalAlignment="Center"/>
                     </Button>
-                    <Button x:Name="ForceWorkResetButton" Command="{Binding ForceWorkResetCommand}" ToolTip="{x:Static res:Strings.ForceWorkResetTooltip}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" Margin="2,0,0,0">
+                    <Button x:Name="ForceWorkResetButton"
+                            Command="{Binding Simulation.ForceWorkResetCommand}"
+                            ToolTip="{x:Static res:Strings.ForceWorkResetTooltip}"
+                            IsEnabled="{Binding HasProject}"
+                            Margin="2,0,0,0">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
                                 <Setter Property="Foreground" Value="{DynamicResource IconOrangeBrush}"/>
@@ -202,13 +241,25 @@
                                 <Setter Property="Padding" Value="6,2"/>
                             </Style>
                         </Button.Style>
-                        <TextBlock Text="RESET" VerticalAlignment="Center" FontSize="11" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" HorizontalAlignment="Center"/>
+                        <TextBlock Text="RESET"
+                                   VerticalAlignment="Center"
+                                   FontSize="11"
+                                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                   HorizontalAlignment="Center"/>
                     </Button>
                 </UniformGrid>
             </StackPanel>
-            <StackPanel Orientation="Vertical" Margin="8,0,0,0" VerticalAlignment="Center" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}">
+            <StackPanel Orientation="Vertical"
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Center"
+                        IsEnabled="{Binding HasProject}">
                 <TextBlock Text="{x:Static res:Strings.Speed}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,1"/>
-                <ComboBox x:Name="SimSpeedComboBox" SelectedValue="{Binding SimSpeed}" SelectedValuePath="Tag" Width="72" FontSize="11">
+                <ComboBox x:Name="SimSpeedComboBox"
+                          SelectedValue="{Binding Simulation.SimSpeed}"
+                          SelectedValuePath="Tag"
+                          Width="72"
+                          MinHeight="24"
+                          FontSize="11">
                     <ComboBoxItem Content="0.5x"><ComboBoxItem.Tag><sys:Double>0.5</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                     <ComboBoxItem Content="1x"><ComboBoxItem.Tag><sys:Double>1.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                     <ComboBoxItem Content="2x"><ComboBoxItem.Tag><sys:Double>2.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
@@ -217,13 +268,21 @@
                     <ComboBoxItem Content="{x:Static res:Strings.IgnoreTime}"><ComboBoxItem.Tag><sys:Double>0.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                 </ComboBox>
             </StackPanel>
-            <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding DataContext.OpenTokenSpecDialogCommand, ElementName=ThisControl}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" ToolTip="TokenSpec 편집">
+            <Button x:Name="OpenTokenSpecButton"
+                    Style="{StaticResource RibbonFlatButton}"
+                    Command="{Binding OpenTokenSpecDialogCommand}"
+                    IsEnabled="{Binding HasProject}"
+                    ToolTip="TokenSpec 편집">
                 <StackPanel Orientation="Vertical">
                     <iconPacks:PackIconMaterial Kind="CheckCircle" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="Token" Style="{StaticResource RibbonIconLabel}"/>
                 </StackPanel>
             </Button>
-            <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding CheckModelCommand}" IsEnabled="{Binding DataContext.HasProject, ElementName=ThisControl}" ToolTip="모델 검증 (그래프 경고 확인)">
+            <Button x:Name="CheckModelButton"
+                    Style="{StaticResource RibbonFlatButton}"
+                    Command="{Binding Simulation.CheckModelCommand}"
+                    IsEnabled="{Binding HasProject}"
+                    ToolTip="모델 검증 (그래프 경고 확인)">
                 <StackPanel Orientation="Vertical">
                     <iconPacks:PackIconMaterial Kind="ShieldCheck" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                     <TextBlock Text="Check" Style="{StaticResource RibbonIconLabel}"/>
