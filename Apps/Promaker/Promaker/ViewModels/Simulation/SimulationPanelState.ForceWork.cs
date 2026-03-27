@@ -58,6 +58,53 @@ public partial class SimulationPanelState
 
     private bool CanForceWork() => IsSimulating && !IsSimPaused && SelectedSimWork is not null;
 
+    private bool CanPrimeStepSource(ISimulationEngine engine) =>
+        EnumeratePrimableStepSourceGuids(engine).Any();
+
+    private bool TryPrimeStepSource(ISimulationEngine engine)
+    {
+        var sourceGuids = EnumeratePrimableStepSourceGuids(engine).ToList();
+        if (sourceGuids.Count == 0)
+            return false;
+
+        foreach (var sourceGuid in sourceGuids)
+            StartSourceWork(engine, sourceGuid);
+
+        return true;
+    }
+
+    private IEnumerable<Guid> EnumeratePrimableStepSourceGuids(ISimulationEngine engine)
+    {
+        if (SelectedSimWork is null)
+            yield break;
+
+        if (SelectedSimWork.IsAutoStart)
+        {
+            foreach (var sourceGuid in engine.Index.TokenSourceGuids)
+            {
+                if (_stateCache.GetOrDefault(sourceGuid, Status4.Ready) != Status4.Ready)
+                    continue;
+                if (!WorkConditionChecker.canStartWorkPredOnly(engine.Index, engine.State, sourceGuid))
+                    continue;
+
+                yield return sourceGuid;
+            }
+
+            yield break;
+        }
+
+        if (SelectedSimWork.Guid == Guid.Empty)
+            yield break;
+        if (!SimIndexModule.isTokenSource(engine.Index, SelectedSimWork.Guid))
+            yield break;
+        if (_stateCache.GetOrDefault(SelectedSimWork.Guid, Status4.Ready) != Status4.Ready)
+            yield break;
+        if (!WorkConditionChecker.canStartWorkPredOnly(engine.Index, engine.State, SelectedSimWork.Guid))
+            yield break;
+
+        yield return SelectedSimWork.Guid;
+    }
+
     // ── 배치 시작 ──────────────────────────────────────────────────
 
     private void BatchStartSources(ISimulationEngine engine)

@@ -19,6 +19,19 @@ module AasxExporter =
     open AasxExportGraph
     open AasxExportMetadata
 
+    let private mkSmRef (submodel: Submodel) : IReference =
+        let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
+        Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
+
+    let private appendProjectMetadataSubmodels (project: Project) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
+        let npSm = nameplateToSubmodel project.Nameplate project.Id
+        submodels.Add(npSm :> ISubmodel)
+        smRefs.Add(mkSmRef npSm)
+
+        let docSm = documentationToSubmodel project.HandoverDocumentation project.Id
+        submodels.Add(docSm :> ISubmodel)
+        smRefs.Add(mkSmRef docSm)
+
     /// Device 이름을 파일명으로 안전하게 변환 (특수문자 → _)
     let sanitizeDeviceName (name: string) : string =
         let invalid = Path.GetInvalidFileNameChars()
@@ -94,22 +107,12 @@ module AasxExporter =
 
         // 메인 프로젝트 Submodel
         let sm = exportToSubmodel store project
-        let mkSmRef (submodel: Submodel) : IReference =
-            let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
-            Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
 
         let submodels = ResizeArray<ISubmodel>([sm :> ISubmodel])
         let smRefs = ResizeArray<IReference>([mkSmRef sm])
 
-        // Nameplate Submodel (항상 포함 — Ev2 동일)
-        let npSm = nameplateToSubmodel project.Nameplate project.Id
-        submodels.Add(npSm :> ISubmodel)
-        smRefs.Add(mkSmRef npSm)
-
-        // Documentation Submodel (항상 포함 — Ev2 동일)
-        let docSm = documentationToSubmodel project.HandoverDocumentation project.Id
-        submodels.Add(docSm :> ISubmodel)
-        smRefs.Add(mkSmRef docSm)
+        // Nameplate / Documentation (항상 포함 — Ev2 동일)
+        appendProjectMetadataSubmodels project submodels smRefs
 
         // Shell — IriPrefix 기반 ID
         let globalAssetId = resolveGlobalAssetId project
@@ -152,15 +155,18 @@ module AasxExporter =
         let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
         let shell = AssetAdministrationShell(id = $"{iriPrefix}shell/{device.Name}", assetInformation = assetInfo)
         shell.IdShort <- "DeviceShell"
-        shell.Submodels <- ResizeArray<IReference>([
-            let key = Key(KeyTypes.Submodel, sm.Id) :> IKey
-            Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
-        ])
+        let submodels = ResizeArray<ISubmodel>([sm :> ISubmodel])
+        let smRefs = ResizeArray<IReference>([mkSmRef sm])
+        appendProjectMetadataSubmodels project submodels smRefs
+        shell.Submodels <- smRefs
+
+        let conceptDescs = createAllConceptDescriptions true true
 
         let env =
             Environment(
-                submodels = ResizeArray<ISubmodel>([sm :> ISubmodel]),
-                assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]))
+                submodels = submodels,
+                assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
+                conceptDescriptions = conceptDescs)
         writeEnvironment env outputPath
 
     /// Device 이름 → 유니크 파일명 (같은 이름이 있으면 Guid 해시 추가)
@@ -195,20 +201,11 @@ module AasxExporter =
 
         // 메인 AASX에는 DeviceReference만 포함
         let sm = exportToSubmodelSplit store project deviceRefs
-        let mkSmRef (submodel: Submodel) : IReference =
-            let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
-            Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
 
         let submodels = ResizeArray<ISubmodel>([sm :> ISubmodel])
         let smRefs = ResizeArray<IReference>([mkSmRef sm])
 
-        let npSm = nameplateToSubmodel project.Nameplate project.Id
-        submodels.Add(npSm :> ISubmodel)
-        smRefs.Add(mkSmRef npSm)
-
-        let docSm = documentationToSubmodel project.HandoverDocumentation project.Id
-        submodels.Add(docSm :> ISubmodel)
-        smRefs.Add(mkSmRef docSm)
+        appendProjectMetadataSubmodels project submodels smRefs
 
         let iriPrefix = resolveIriPrefix project
         let globalAssetId = resolveGlobalAssetId project

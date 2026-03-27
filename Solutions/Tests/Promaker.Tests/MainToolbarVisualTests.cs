@@ -67,6 +67,7 @@ public sealed class MainToolbarVisualTests
             toolbar.UpdateLayout();
 
             Assert.True(vm.Simulation.IsSimulating);
+            Assert.True(pauseButton.IsEnabled);
         });
     }
 
