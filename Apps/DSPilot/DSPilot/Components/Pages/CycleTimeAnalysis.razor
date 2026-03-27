@@ -159,18 +159,6 @@
                         }
                     </div>
 
-                    <!-- 다음 GAP -->
-                    <div class="sel-gap-card">
-                        <div class="sel-gap-direction">
-                            다음 GAP <span class="sel-arrow sel-arrow-right"></span>
-                        </div>
-                        <div class="sel-gap-value">@(_nextGap.HasValue ? FormatDurationTooltip(_nextGap.Value) : "-")</div>
-                        @if (_nextItem != null)
-                        {
-                            <div class="sel-gap-signal">@_nextItem.CallName <span>@GetEventTypeLabel(_nextItem.EventType)</span></div>
-                        }
-                    </div>
-
                     @if (_comparisonItem != null)
                     {
                         <!-- Cycle Time -->
@@ -184,6 +172,18 @@
                             </div>
                         </div>
                     }
+
+                    <!-- 다음 GAP -->
+                    <div class="sel-gap-card">
+                        <div class="sel-gap-direction">
+                            다음 GAP <span class="sel-arrow sel-arrow-right"></span>
+                        </div>
+                        <div class="sel-gap-value">@(_nextGap.HasValue ? FormatDurationTooltip(_nextGap.Value) : "-")</div>
+                        @if (_nextItem != null)
+                        {
+                            <div class="sel-gap-signal">@_nextItem.CallName <span>@GetEventTypeLabel(_nextItem.EventType)</span></div>
+                        }
+                    </div>
                 </div>
             </div>
         }
