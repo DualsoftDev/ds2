@@ -18,6 +18,8 @@ module internal EventDrivenEngineRuntime =
         GetWorkToken: Guid -> TokenValue option
         ClearAndApplyWorkTransition: Guid -> Status4 -> unit
         ClearAndApplyCallTransition: Guid -> Status4 -> unit
+        ForceAndApplyWorkTransition: Guid -> Status4 -> unit
+        ForceAndApplyCallTransition: Guid -> Status4 -> unit
         ApplyWorkTransition: Guid -> Status4 -> unit
         HandleDurationComplete: Guid -> unit
         ShiftToken: Guid -> TokenValue -> unit
@@ -32,6 +34,10 @@ module internal EventDrivenEngineRuntime =
             ctx.ClearAndApplyWorkTransition workGuid targetState
         | ScheduledEventType.CallTransition(callGuid, targetState) ->
             ctx.ClearAndApplyCallTransition callGuid targetState
+        | ScheduledEventType.ForcedWorkTransition(workGuid, targetState) ->
+            ctx.ForceAndApplyWorkTransition workGuid targetState
+        | ScheduledEventType.ForcedCallTransition(callGuid, targetState) ->
+            ctx.ForceAndApplyCallTransition callGuid targetState
         | ScheduledEventType.DurationComplete workGuid ->
             ctx.HandleDurationComplete workGuid
         | ScheduledEventType.HomingComplete workGuid ->

@@ -208,6 +208,20 @@ public class GanttChartState : INotifyPropertyChanged
         CurrentTime = timestamp;
     }
 
+    public void SyncNodeState(Guid nodeId, Status4 currentState, DateTime timestamp)
+    {
+        var entry = FindEntry(nodeId);
+        if (entry == null) return;
+
+        if (entry.CurrentState != currentState)
+        {
+            UpdateNodeState(nodeId, currentState, timestamp);
+            return;
+        }
+
+        CurrentTime = timestamp;
+    }
+
     public GanttTimelineEntry? FindEntry(Guid nodeId)
     {
         foreach (var entry in Entries)

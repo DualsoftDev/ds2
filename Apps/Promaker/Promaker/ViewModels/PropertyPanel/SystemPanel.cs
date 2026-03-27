@@ -28,6 +28,9 @@ public partial class PropertyPanelState
     [RelayCommand]
     private void AddSystemApiDef()
     {
+        if (!GuardSimulationSemanticEdit("ApiDef 추가"))
+            return;
+
         if (!TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
         if (!TryShowApiDefDialog(systemNode.Id, null, out var dialog)) return;
 
@@ -44,6 +47,9 @@ public partial class PropertyPanelState
     [RelayCommand]
     private void EditSystemApiDef(ApiDefPanelItem? item)
     {
+        if (!GuardSimulationSemanticEdit("ApiDef 편집"))
+            return;
+
         if (item is null || !TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
         if (!TryShowApiDefDialog(systemNode.Id, item, out var dialog)) return;
         if (!TryUpdateApiDef(item.Id, dialog)) return;
@@ -55,6 +61,9 @@ public partial class PropertyPanelState
     [RelayCommand]
     private void DeleteSystemApiDef(ApiDefPanelItem? item)
     {
+        if (!GuardSimulationSemanticEdit("ApiDef 삭제"))
+            return;
+
         if (item is null || !TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
 
         if (!_host.TryAction(

@@ -16,6 +16,9 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanAddSystem))]
     private void AddSystem()
     {
+        if (!GuardSimulationSemanticEdit("System 추가"))
+            return;
+
         var name = _dialogService.PromptName(Resources.Strings.NewSystem, "NewSystem");
         if (name is null) return;
         var (selType, selId, tabKind, tabRoot) = SnapshotContext();
@@ -28,6 +31,9 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void AddFlow()
     {
+        if (!GuardSimulationSemanticEdit("Flow 추가"))
+            return;
+
         var existingFlows = DsQuery.allFlows(_store);
         var defaultName = GetUniqueNameForFlow("NewFlow", existingFlows);
 
@@ -49,6 +55,9 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanAddWork))]
     private void AddWork()
     {
+        if (!GuardSimulationSemanticEdit("Work 추가"))
+            return;
+
         var flowId = ResolveTargetId(EntityKind.Flow, TabKind.Flow)
                      ?? ResolveFirstFlowInSystemTab();
         if (flowId is not { } id)
@@ -78,6 +87,9 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanAddCall))]
     private void AddCall()
     {
+        if (!GuardSimulationSemanticEdit("Call 추가"))
+            return;
+
         var workId = ResolveTargetId(EntityKind.Work, TabKind.Work);
         if (workId is not { } targetWorkId)
         {

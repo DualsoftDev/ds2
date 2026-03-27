@@ -101,6 +101,10 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     member _.IsMinDurationMet(guid: Guid)   = lock syncRoot (fun () -> workMinDurationMet.Contains(canonicalWorkGuid guid))
     member _.ClearMinDuration(guid: Guid)   = lock syncRoot (fun () -> workMinDurationMet <- workMinDurationMet.Remove(canonicalWorkGuid guid))
 
+    member _.ClearConnectionTransientState() =
+        lock syncRoot (fun () ->
+            workGTriggeredResets <- Set.empty)
+
     member _.SetIOValue(apiCallGuid: Guid, value: string) =
         lock syncRoot (fun () -> state <- SimState.setIOValue apiCallGuid value state)
 

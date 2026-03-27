@@ -48,6 +48,15 @@ type ISimulationEngine =
     /// true면 상태 또는 시뮬레이션 시간이 실제로 전진했습니다.
     abstract Step: unit -> bool
 
+    /// 현재 선택된 Source/자동선택 정책까지 포함해 STEP 가능 여부를 계산합니다.
+    abstract CanAdvanceStep: selectedSourceGuid: Guid * autoStartSources: bool -> bool
+
+    /// Source priming까지 포함해 STEP을 수행합니다.
+    abstract StepWithSourcePriming: selectedSourceGuid: Guid * autoStartSources: bool -> bool
+
+    /// 현재 Store 기준으로 연결 topology만 다시 계산합니다.
+    abstract ReloadConnections: unit -> unit
+
     // 설정
     abstract SpeedMultiplier: float with get, set
     abstract TimeIgnore: bool with get, set

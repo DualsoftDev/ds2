@@ -59,6 +59,11 @@ type EventDrivenEngine(index: SimIndex) =
     let canStartCall callGuid = WorkConditionChecker.canStartCall index (stateManager.GetState()) callGuid
     let canCompleteCall callGuid = WorkConditionChecker.canCompleteCall index (stateManager.GetState()) callGuid
     let shouldSkipCall callGuid = WorkConditionChecker.shouldSkipCall index (stateManager.GetState()) callGuid
+    let isActiveSystemWork workGuid =
+        index.WorkSystemName
+        |> Map.tryFind workGuid
+        |> Option.map index.ActiveSystemNames.Contains
+        |> Option.defaultValue false
 
     // ── IO값 관리 (EventPublisher 인라인) ────────────────────────────
 
@@ -179,11 +184,135 @@ type EventDrivenEngine(index: SimIndex) =
 
     let clearAndApplyWorkTransition workGuid newState =
         stateManager.ClearWorkPending(workGuid)
-        applyWorkTransition workGuid newState
+        let shouldApply =
+            match newState with
+            | Status4.Going ->
+                stateManager.GetWorkState(workGuid) = Status4.Ready
+                && (
+                    not (isActiveSystemWork workGuid)
+                    || canStartWork workGuid
+                )
+            | Status4.Finish ->
+                if stateManager.GetWorkState(workGuid) <> Status4.Going then false
+                else
+                    let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
+                    stateManager.IsMinDurationMet(workGuid)
+                    && (callGuids |> List.forall (fun callGuid -> stateManager.GetCallState(callGuid) = Status4.Finish))
+            | Status4.Homing ->
+                stateManager.GetWorkState(workGuid) = Status4.Finish
+                && WorkConditionChecker.canResetWork index (stateManager.GetState()) workGuid
+            | Status4.Ready ->
+                stateManager.GetWorkState(workGuid) = Status4.Homing
+            | _ -> true
+
+        if shouldApply then
+            applyWorkTransition workGuid newState
 
     let clearAndApplyCallTransition callGuid newState =
         stateManager.ClearCallPending(callGuid)
+        let shouldApply =
+            match newState with
+            | Status4.Going ->
+                stateManager.GetCallState(callGuid) = Status4.Ready
+                && canStartCall callGuid
+            | Status4.Finish ->
+                stateManager.GetCallState(callGuid) = Status4.Going
+                && canCompleteCall callGuid
+            | Status4.Homing ->
+                match index.CallWorkGuid |> Map.tryFind callGuid with
+                | Some workGuid -> stateManager.GetWorkState(workGuid) = Status4.Homing
+                | None -> false
+            | Status4.Ready ->
+                match index.CallWorkGuid |> Map.tryFind callGuid with
+                | Some workGuid -> stateManager.GetWorkState(workGuid) = Status4.Ready
+                | None -> false
+            | _ -> true
+
+        if shouldApply then
+            applyCallTransition callGuid newState
+
+    let forceAndApplyWorkTransition workGuid newState =
+        stateManager.ClearWorkPending(workGuid)
+        applyWorkTransition workGuid newState
+
+    let forceAndApplyCallTransition callGuid newState =
+        stateManager.ClearCallPending(callGuid)
         applyCallTransition callGuid newState
+
+    let hasGoingCall () =
+        index.AllCallGuids
+        |> List.exists (fun callGuid -> stateManager.GetCallState(callGuid) = Status4.Going)
+
+    let removeConnectionSensitiveScheduledEvents () =
+        scheduler.RemoveWhere(fun event ->
+            match event.EventType with
+            | ScheduledEventType.EvaluateConditions -> true
+            | _ -> false)
+        |> ignore
+
+    /// 화살표 삭제 후 선행 조건이 사라진 Going Work를 Ready로 되돌림
+    let revertOrphanedGoingWork workGuid =
+        stateManager.ClearWorkPending(workGuid)
+        // Duration 이벤트 취소
+        match durationEvents |> Map.tryFind workGuid with
+        | Some struct(eventId, _) ->
+            scheduler.Cancel(eventId)
+            durationEvents <- durationEvents.Remove(workGuid)
+        | None -> ()
+        pausedDurationRemaining <- pausedDurationRemaining.Remove(workGuid)
+        // 토큰 회수
+        match stateManager.GetWorkToken(workGuid) with
+        | Some token ->
+            stateManager.SetWorkToken(workGuid, None)
+            emitTokenEvent Discard token workGuid None
+        | None -> ()
+        // Call 상태 초기화
+        for callGuid in SimIndex.findOrEmpty workGuid index.WorkCallGuids do
+            stateManager.ClearCallPending(callGuid)
+            if stateManager.GetCallState(callGuid) <> Status4.Ready then
+                stateManager.ForceCallState(callGuid, Status4.Ready)
+        // Work → Ready
+        stateManager.ClearMinDuration(workGuid)
+        stateManager.ForceWorkState(workGuid, Status4.Ready)
+        let wName = index.WorkName |> Map.tryFind workGuid |> Option.defaultValue (string workGuid)
+        let clock = TimeSpan.FromMilliseconds(float scheduler.CurrentTimeMs)
+        workStateChangedEvent.Trigger({
+            WorkGuid = workGuid; WorkName = wName
+            PreviousState = Status4.Going; NewState = Status4.Ready; Clock = clock })
+
+    let memberHasValidStart (memberGuid: Guid) =
+        let isSource =
+            index.WorkTokenRole |> Map.tryFind memberGuid
+            |> Option.map (fun r -> r.HasFlag(TokenRole.Source))
+            |> Option.defaultValue false
+        let preds = SimIndex.findOrEmpty memberGuid index.WorkStartPreds
+        not preds.IsEmpty || isSource
+
+    /// 새 topology에서 선행 노드가 사라진 Going Work를 되돌림 (ReferenceOf 그룹 인식)
+    let invalidateOrphanedGoingWorks () =
+        let processedCanonicals = System.Collections.Generic.HashSet<Guid>()
+        for workGuid in index.AllWorkGuids do
+            let canonical = SimIndex.canonicalWorkGuid index workGuid
+            if not (processedCanonicals.Contains(canonical))
+               && isActiveSystemWork workGuid
+               && stateManager.GetWorkState(workGuid) = Status4.Going then
+                processedCanonicals.Add(canonical) |> ignore
+                let groupMembers = SimIndex.referenceGroupOf index workGuid
+                // 그룹 내 어느 멤버든 유효한 선행 노드가 있으면 전체 그룹 유지
+                let anyMemberJustified = groupMembers |> List.exists memberHasValidStart
+                if not anyMemberJustified then
+                    revertOrphanedGoingWork canonical
+
+    let invalidateOrphanedTokenHolders () =
+        for workGuid in index.AllWorkGuids do
+            if isActiveSystemWork workGuid
+               && not (index.TokenPathGuids.Contains workGuid)
+               && not (index.TokenSinkGuids.Contains workGuid) then
+                match stateManager.GetWorkToken(workGuid) with
+                | Some token ->
+                    stateManager.SetWorkToken(workGuid, None)
+                    emitTokenEvent Discard token workGuid None
+                | None -> ()
 
     let handleDurationComplete workGuid =
         durationEvents <- durationEvents.Remove(workGuid)
@@ -207,6 +336,8 @@ type EventDrivenEngine(index: SimIndex) =
         GetWorkToken = stateManager.GetWorkToken
         ClearAndApplyWorkTransition = clearAndApplyWorkTransition
         ClearAndApplyCallTransition = clearAndApplyCallTransition
+        ForceAndApplyWorkTransition = forceAndApplyWorkTransition
+        ForceAndApplyCallTransition = forceAndApplyCallTransition
         ApplyWorkTransition = applyWorkTransition
         HandleDurationComplete = handleDurationComplete
         ShiftToken = shiftToken
@@ -335,11 +466,11 @@ type EventDrivenEngine(index: SimIndex) =
 
     member _.ForceWorkState(workGuid, newState) =
         if index.AllWorkGuids |> List.contains workGuid then
-            scheduler.ScheduleNow(ScheduledEventType.WorkTransition(workGuid, newState), ScheduledEvent.PriorityStateChange) |> ignore
+            scheduler.ScheduleNow(ScheduledEventType.ForcedWorkTransition(workGuid, newState), ScheduledEvent.PriorityStateChange) |> ignore
 
     member _.ForceCallState(callGuid, newState) =
         if index.AllCallGuids |> List.contains callGuid then
-            scheduler.ScheduleNow(ScheduledEventType.CallTransition(callGuid, newState), ScheduledEvent.PriorityStateChange) |> ignore
+            scheduler.ScheduleNow(ScheduledEventType.ForcedCallTransition(callGuid, newState), ScheduledEvent.PriorityStateChange) |> ignore
 
     member _.GetWorkState(workGuid) =
         if index.AllWorkGuids |> List.contains workGuid then
@@ -498,6 +629,58 @@ type EventDrivenEngine(index: SimIndex) =
         lock processGate (fun () ->
             runStepUntilBoundary this)
 
+    member this.CanAdvanceStep(selectedSourceGuid, autoStartSources) =
+        let state = stateManager.GetState()
+        StepSemantics.canAdvanceStep
+            index
+            state
+            stateManager.GetWorkState
+            this.HasStartableWork
+            this.HasActiveDuration
+            (hasGoingCall ())
+            autoStartSources
+            selectedSourceGuid
+
+    member private this.PrimeStepSources(selectedSourceGuid, autoStartSources) =
+        let sourceGuids =
+            StepSemantics.primableSourceGuids
+                index
+                (stateManager.GetState())
+                stateManager.GetWorkState
+                autoStartSources
+                selectedSourceGuid
+
+        for sourceGuid in sourceGuids do
+            if stateManager.GetWorkToken(sourceGuid) |> Option.isNone then
+                let token = stateManager.NextToken()
+                this.SeedToken(sourceGuid, token)
+            this.ForceWorkState(sourceGuid, Status4.Going)
+
+        not sourceGuids.IsEmpty
+
+    member this.StepWithSourcePriming(selectedSourceGuid, autoStartSources) =
+        lock processGate (fun () ->
+            if hasGoingCall () then
+                false
+            else
+                let hasEngineProgress = this.HasStartableWork || this.HasActiveDuration
+                if not hasEngineProgress then
+                    this.PrimeStepSources(selectedSourceGuid, autoStartSources) |> ignore
+
+                if this.HasStartableWork || this.HasActiveDuration then
+                    runStepUntilBoundary this
+                else
+                    false)
+
+    member _.ReloadConnections() =
+        lock processGate (fun () ->
+            removeConnectionSensitiveScheduledEvents ()
+            stateManager.ClearConnectionTransientState ()
+            SimIndex.reloadConnections index
+            invalidateOrphanedGoingWorks ()
+            invalidateOrphanedTokenHolders ()
+            scheduleConditionEvaluation ())
+
     interface ISimulationEngine with
         member this.State = this.State
         member this.Status = this.Status
@@ -517,6 +700,11 @@ type EventDrivenEngine(index: SimIndex) =
         member this.HasStartableWork = this.HasStartableWork
         member this.HasActiveDuration = this.HasActiveDuration
         member this.Step() = this.Step()
+        member this.CanAdvanceStep(selectedSourceGuid, autoStartSources) =
+            this.CanAdvanceStep(selectedSourceGuid, autoStartSources)
+        member this.StepWithSourcePriming(selectedSourceGuid, autoStartSources) =
+            this.StepWithSourcePriming(selectedSourceGuid, autoStartSources)
+        member this.ReloadConnections() = this.ReloadConnections()
         member this.SpeedMultiplier
             with get() = this.SpeedMultiplier
             and set(v) = this.SpeedMultiplier <- v

@@ -127,26 +127,24 @@ public partial class SimulationPanelState
     private bool CanResetSimulation() => IsSimulating;
 
     [RelayCommand(CanExecute = nameof(CanStepSimulation))]
-    private void StepSimulation()
-    {
-        if (_simEngine is null) return;
-        SimStatusText = SimText.StepMode;
-
-        var hasEngineProgress = _simEngine.HasStartableWork || _simEngine.HasActiveDuration;
-        if (!hasEngineProgress)
-            TryPrimeStepSource(_simEngine);
-
-        if (_simEngine.Step())
-            AddSimLog("STEP 실행");
-        else
-            AddSimLog("진행할 STEP 없음");
-
-        RefreshSimulationProgressUi();
+    private void StepSimulation()
+    {
+        if (_simEngine is null) return;
+        SimStatusText = SimText.StepMode;
+
+        var (selectedSourceGuid, autoStartSources) = GetStepAdvanceSelection();
+        if (_simEngine.StepWithSourcePriming(selectedSourceGuid, autoStartSources))
+            AddSimLog("STEP 실행");
+        else
+            AddSimLog("진행할 STEP 없음");
+
+        RefreshSimulationProgressUi();
     }
 
-    private bool CanStepSimulation() => IsSimulating
-        && IsSimPaused
-        && CanAdvanceStepCore();
+    private bool CanStepSimulation() => IsSimulating
+        && IsSimPaused
+        && _simEngine is { } engine
+        && engine.CanAdvanceStep(GetStepAdvanceSelection().SelectedSourceGuid, GetStepAdvanceSelection().AutoStartSources);
 
     partial void OnSimSpeedChanged(double value)
     {
@@ -171,13 +169,31 @@ public partial class SimulationPanelState
         if (_simEngine is { } engine) engine.TimeIgnore = value;
     }
 
-    public void NotifyStoreChanged()
-    {
-        if (!IsSimulating) return;
-        const string msg = "모델이 변경되었습니다.\n시뮬레이션 초기화 버튼을 눌러야 반영됩니다.";
-        ShowPausedMessageBox(msg, "모델 변경 감지",
-            MessageBoxButton.OK, DialogHelpers.IconWarn, suppressKey: "StoreChanged");
-    }
+    public void NotifyStoreChanged()
+    {
+        if (!IsSimulating) return;
+        const string msg = "모델이 변경되었습니다.\n시뮬레이션 초기화 버튼을 눌러야 반영됩니다.";
+        ShowPausedMessageBox(msg, "모델 변경 감지",
+            MessageBoxButton.OK, DialogHelpers.IconWarn, suppressKey: "StoreChanged");
+    }
+
+    public void NotifyConnectionsChanged()
+    {
+        if (!IsSimulating || _simEngine is null) return;
+
+        try
+        {
+            _simEngine.ReloadConnections();
+            SyncSimulationStateFromEngine();
+            AddSimLog(IsSimPaused ? "연결 변경 반영" : "실행 중 연결 변경 반영");
+            RefreshSimulationProgressUi();
+        }
+        catch (Exception ex)
+        {
+            SimLog.Error("Connection reload failed", ex);
+            _setStatusText(SimText.SimulationError(ex.Message));
+        }
+    }
 
     public void ResetForNewStore()
     {
@@ -234,13 +250,8 @@ public partial class SimulationPanelState
             SimStatusText = SimText.StepMode;
     }
 
-    private bool CanAdvanceStepCore() =>
-        _simEngine is { } engine
-        && !HasGoingCall
-        && (engine.HasStartableWork || engine.HasActiveDuration || CanPrimeStepSource(engine));
-
-    private void AddSimLog(string message)
-    {
+    private void AddSimLog(string message)
+    {
         var ts = _simEngine?.State.Clock.ToString(SimText.ClockFormat) ?? SimText.ClockZero;
         SimEventLog.Insert(0, $"[{ts}] {message}");
         if (SimEventLog.Count > 500)
