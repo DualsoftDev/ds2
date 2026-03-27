@@ -307,6 +307,9 @@ public partial class PropertyPanelState : ObservableObject
     [RelayCommand]
     private void ApplyWorkPeriod()
     {
+        if (!GuardSimulationSemanticEdit("Work duration 변경"))
+            return;
+
         var selectedWorkIds = GetSelectedCanonicalWorkIds();
         if (selectedWorkIds.Count == 0) return;
 
@@ -390,12 +393,21 @@ public partial class PropertyPanelState : ObservableObject
 
     private void SyncTokenRoleFlag(TokenRole flag, bool? value)
     {
-        if (_suppressTokenRoleSync || value is null)
+        if (_suppressTokenRoleSync)
             return;
+        // IsThreeState 체크박스: true→null→false 순환에서 null은 "해제" 의도
+        if (value is null)
+            value = false;
 
         var selectedWorkIds = GetSelectedCanonicalWorkIds();
         if (selectedWorkIds.Count == 0)
             return;
+
+        if (!GuardSimulationSemanticEdit("Work token role 변경"))
+        {
+            Refresh();
+            return;
+        }
 
         var changes = selectedWorkIds
             .Select(workId =>

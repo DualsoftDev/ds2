@@ -120,6 +120,7 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
     private SimWorkItem? _selectedSimWork;
 
     partial void OnSelectedSimWorkChanged(SimWorkItem? value)

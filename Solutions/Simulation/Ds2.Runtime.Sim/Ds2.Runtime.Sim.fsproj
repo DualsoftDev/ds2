@@ -14,6 +14,7 @@
     <Compile Include="Engine\Core\SimIndex.TokenGraph.fs" />
     <Compile Include="Engine\Core\SimIndex.fs" />
     <Compile Include="Engine\Core\WorkConditionChecker.fs" />
+    <Compile Include="Engine\Core\StepSemantics.fs" />
     <Compile Include="Engine\Core\StateManager.fs" />
     <Compile Include="Engine\Core\GraphValidator.fs" />
     <Compile Include="Engine\ISimulationEngine.fs" />

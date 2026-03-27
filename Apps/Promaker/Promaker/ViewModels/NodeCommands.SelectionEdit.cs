@@ -26,6 +26,9 @@ public partial class MainViewModel
 
         if (Selection.OrderedNodeSelection.Count > 0)
         {
+            if (!GuardSimulationSemanticEdit("노드 삭제"))
+                return;
+
             var selections = Selection.OrderedNodeSelection
                 .Where(k => k.EntityKind != EntityKind.Project)
                 .Select(k => Tuple.Create(k.EntityKind, k.Id))
@@ -37,6 +40,9 @@ public partial class MainViewModel
 
         if (SelectedNode is { EntityType: not EntityKind.Project } node)
         {
+            if (!GuardSimulationSemanticEdit("노드 삭제"))
+                return;
+
             if (TryEditorAction(
                     () => _store.RemoveEntities(new[] { Tuple.Create(node.EntityType, node.Id) })))
                 StatusText = "Deleted 1 item.";
@@ -46,6 +52,9 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void AddReferenceWork()
     {
+        if (!GuardSimulationSemanticEdit("레퍼런스 Work 추가"))
+            return;
+
         if (SelectedNode is not { EntityType: EntityKind.Work } node) return;
         TryEditorAction(() => _store.AddReferenceWork(node.Id));
     }
@@ -111,6 +120,9 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(CanPasteCopied))]
     private void PasteCopied()
     {
+        if (!GuardSimulationSemanticEdit("붙여넣기"))
+            return;
+
         if (_clipboardSelection.Count == 0)
         {
             StatusText = "Clipboard is empty.";

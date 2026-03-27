@@ -80,6 +80,36 @@ public sealed class PropertyPanelMultiSelectionTests
     }
 
     [Fact]
+    public void Setting_IsTokenIgnore_to_null_clears_flag_instead_of_being_ignored()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = DsQuery.allProjects(store).Head.Id;
+            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
+            var flow = DsQuery.flowsOf(systemId, store).Head;
+            var workId = store.AddWork("Work1", flow.Id);
+
+            store.UpdateWorkTokenRole(workId, TokenRole.Ignore);
+
+            var workNode = new EntityNode(workId, EntityKind.Work, $"{flow.Name}.Work1");
+            vm.Canvas.CanvasNodes.Add(workNode);
+            vm.Selection.SelectNodeFromCanvas(workNode, ctrlPressed: false, shiftPressed: false);
+
+            Assert.Equal(true, vm.PropertyPanel.IsTokenIgnore);
+
+            // Three-state checkbox cycles true → null; null should be treated as "uncheck"
+            vm.PropertyPanel.IsTokenIgnore = null;
+
+            Assert.Equal(TokenRole.None, store.Works[workId].TokenRole);
+            Assert.Equal(false, vm.PropertyPanel.IsTokenIgnore);
+        });
+    }
+
+    [Fact]
     public void Multi_selected_calls_apply_timeout_to_all_selected_items()
     {
         StaTestRunner.Run(() =>

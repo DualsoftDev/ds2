@@ -35,6 +35,9 @@ public partial class MainViewModel
             return;
         }
 
+        if (!GuardSimulationSemanticEdit("Mermaid 임포트"))
+            return;
+
         // 1. 파일 선택
         var dlg = new OpenFileDialog { Filter = MermaidFileFilter };
         if (dlg.ShowDialog() != true) return;

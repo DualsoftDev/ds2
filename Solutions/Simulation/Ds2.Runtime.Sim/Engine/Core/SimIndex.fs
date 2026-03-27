@@ -20,14 +20,14 @@ type SimIndex = {
     /// Work Guid -> canonical/original Work Guid
     WorkCanonicalGuids: Map<Guid, Guid>
     WorkCallGuids: Map<Guid, Guid list>
-    WorkStartPreds: Map<Guid, Guid list>
-    WorkResetPreds: Map<Guid, Guid list>
+    mutable WorkStartPreds: Map<Guid, Guid list>
+    mutable WorkResetPreds: Map<Guid, Guid list>
     WorkDuration: Map<Guid, float>
     WorkSystemName: Map<Guid, string>
     WorkName: Map<Guid, string>
     /// Work → 소속 Flow Guid
     WorkFlowGuid: Map<Guid, Guid>
-    CallStartPreds: Map<Guid, Guid list>
+    mutable CallStartPreds: Map<Guid, Guid list>
     CallWorkGuid: Map<Guid, Guid>
     CallApiCallGuids: Map<Guid, Guid list>
     CallAutoAuxConditions: Map<Guid, ConditionEntry list>
@@ -39,12 +39,12 @@ type SimIndex = {
     TickMs: int
     // ── Token ──
     WorkTokenRole: Map<Guid, TokenRole>
-    WorkTokenSuccessors: Map<Guid, Guid list>
+    mutable WorkTokenSuccessors: Map<Guid, Guid list>
     TokenSourceGuids: Guid list
     /// Sink Work: TokenRole.Sink로 수동 지정된 Work
     TokenSinkGuids: Set<Guid>
     /// 토큰 경로에 포함된 Work (Source → successor 체인의 모든 Work)
-    TokenPathGuids: Set<Guid>
+    mutable TokenPathGuids: Set<Guid>
 }
 
 module SimIndex =
@@ -373,6 +373,14 @@ module SimIndex =
           TokenSourceGuids = tokenSourceCanonicals |> List.distinct |> List.sort
           TokenSinkGuids = tokenSinkGuids
           TokenPathGuids = tokenPathGuids }
+
+    let reloadConnections (index: SimIndex) =
+        let rebuilt = build index.Store index.TickMs
+        index.WorkStartPreds <- rebuilt.WorkStartPreds
+        index.WorkResetPreds <- rebuilt.WorkResetPreds
+        index.CallStartPreds <- rebuilt.CallStartPreds
+        index.WorkTokenSuccessors <- rebuilt.WorkTokenSuccessors
+        index.TokenPathGuids <- rebuilt.TokenPathGuids
 
     // ── InitialFlag 헬퍼 ─────────────────────────────────────────────
 

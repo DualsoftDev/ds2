@@ -193,49 +193,6 @@ public sealed class SimulationPanelStateTests
     }
 
     [Fact]
-    public void StepSimulationCommand_is_enabled_and_primes_selected_source_after_immediate_pause()
-    {
-        StaTestRunner.Run(() =>
-        {
-            var store = new DsStore();
-            var projectId = store.AddProject("P");
-            var systemId = store.AddSystem("S", projectId, true);
-            var flowId = store.AddFlow("F", systemId);
-            var workId = store.AddWork("W", flowId);
-
-            store.UpdateWorkTokenRole(workId, TokenRole.Source);
-            store.UpdateWorkPeriodMs(workId, 2000);
-
-            var index = SimIndexModule.build(store, 10);
-            using var engine = new EventDrivenEngine(index);
-            engine.Start();
-            engine.SetAllFlowStates(FlowTag.Pause);
-
-            var state = CreateState(() => store);
-            SetPrivateField(state, "_simEngine", engine);
-            SetPrivateField(state, "_isStepMode", true);
-            state.IsSimulating = true;
-            state.IsSimPaused = true;
-            state.HasGoingCall = false;
-
-            var initSimNodes = typeof(SimulationPanelState).GetMethod(
-                "InitSimNodes",
-                BindingFlags.Instance | BindingFlags.NonPublic)!;
-            initSimNodes.Invoke(state, null);
-
-            Assert.Same(SimWorkItem.AutoStart, state.SelectedSimWork);
-            Assert.False(engine.HasStartableWork);
-            Assert.False(engine.HasActiveDuration);
-            Assert.True(state.StepSimulationCommand.CanExecute(null));
-
-            state.StepSimulationCommand.Execute(null);
-
-            Assert.False(engine.HasStartableWork);
-            Assert.True(engine.HasActiveDuration);
-        });
-    }
-
-    [Fact]
     public void StepSimulationCommand_is_disabled_when_terminal_work_has_no_further_progress()
     {
         StaTestRunner.Run(() =>

@@ -31,6 +31,25 @@ type EventScheduler() =
     member _.Cancel(eventId: Guid) =
         lock syncLock (fun () -> pendingEvents.Remove(eventId) |> ignore)
 
+    member _.RemoveWhere(predicate: ScheduledEvent -> bool) =
+        lock syncLock (fun () ->
+            let kept = ResizeArray<ScheduledEvent>()
+            let mutable removed = 0
+
+            while queue.Count > 0 do
+                let event = queue.Dequeue()
+                if pendingEvents.Remove(event.EventId) then
+                    if predicate event then
+                        removed <- removed + 1
+                    else
+                        kept.Add(event)
+
+            for event in kept do
+                pendingEvents.Add(event.EventId) |> ignore
+                queue.Enqueue(event, struct(event.ScheduledTimeMs, event.Priority))
+
+            removed)
+
     member _.TryDequeue() : ScheduledEvent option =
         lock syncLock (fun () ->
             let mutable result = None

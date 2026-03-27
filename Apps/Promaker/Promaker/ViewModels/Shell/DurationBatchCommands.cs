@@ -13,6 +13,9 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void OpenDurationBatchDialog()
     {
+        if (!GuardSimulationSemanticEdit("Duration 일괄 변경"))
+            return;
+
         var storeRows = _store.GetAllWorkDurationRows();
         var rows = storeRows
             .Select(r => new DurationRow(r.WorkId, r.FlowName, r.WorkName, r.PeriodMs.ToString()))
