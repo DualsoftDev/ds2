@@ -23,6 +23,7 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- 섹션 헤더: AAS 메타데이터 -->
@@ -60,8 +61,16 @@
                        Foreground="{DynamicResource PrimaryTextBrush}"
                        Margin="0,0,0,10"/>
 
-            <!-- Author -->
+            <!-- Project Name -->
             <StackPanel Grid.Row="5" Margin="0,0,0,8">
+                <TextBlock Text="프로젝트 이름"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,0,0,2"/>
+                <TextBox x:Name="ProjectNameBox" Padding="6,4"/>
+            </StackPanel>
+
+            <!-- Author -->
+            <StackPanel Grid.Row="6" Margin="0,0,0,8">
                 <TextBlock Text="작성자"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
@@ -69,7 +78,7 @@
             </StackPanel>
 
             <!-- Version -->
-            <StackPanel Grid.Row="6" Margin="0,0,0,8">
+            <StackPanel Grid.Row="7" Margin="0,0,0,8">
                 <TextBlock Text="버전"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
@@ -77,7 +86,7 @@
             </StackPanel>
 
             <!-- Description -->
-            <StackPanel Grid.Row="7" Margin="0,0,0,8">
+            <StackPanel Grid.Row="8" Margin="0,0,0,8">
                 <TextBlock Text="설명"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
@@ -89,17 +98,17 @@
             </StackPanel>
 
             <!-- 구분선 -->
-            <Border Grid.Row="8" Height="1" Margin="0,4,0,12"
+            <Border Grid.Row="9" Height="1" Margin="0,4,0,12"
                     Background="{DynamicResource BorderBrush}"/>
 
             <!-- 섹션 헤더: AASX 설정 -->
-            <TextBlock Grid.Row="9" Text="AASX 설정"
+            <TextBlock Grid.Row="10" Text="AASX 설정"
                        FontSize="13" FontWeight="SemiBold"
                        Foreground="{DynamicResource PrimaryTextBrush}"
                        Margin="0,0,0,10"/>
 
             <!-- SplitDeviceAasx -->
-            <StackPanel Grid.Row="10" Margin="0,0,0,8">
+            <StackPanel Grid.Row="11" Margin="0,0,0,8">
                 <CheckBox x:Name="SplitDeviceAasxBox"
                           Content="Device System을 별도 AASX 파일로 분리 저장"
                           Foreground="{DynamicResource PrimaryTextBrush}"
@@ -110,7 +119,7 @@
             </StackPanel>
 
             <!-- Buttons -->
-            <StackPanel Grid.Row="11" Orientation="Horizontal" HorizontalAlignment="Right"
+            <StackPanel Grid.Row="12" Orientation="Horizontal" HorizontalAlignment="Right"
                         Margin="0,10,0,0">
                 <Button Content="확인" Style="{StaticResource DarkButton}"
                         Padding="12,4" Margin="0,0,4,0"

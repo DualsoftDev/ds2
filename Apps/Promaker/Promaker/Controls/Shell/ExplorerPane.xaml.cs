@@ -1,8 +1,11 @@
 using System;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using Ds2.Store;
@@ -15,21 +18,70 @@ public partial class ExplorerPane : UserControl
 {
     private Point _treeDragStartPoint;
     private bool _treeDragCandidate;
+    private MainViewModel? _boundViewModel;
+    private TreePaneKind _activeTreePane = TreePaneKind.Control;
+
+    public ObservableCollection<EntityNode> FilteredControlTreeRoots { get; } = [];
+    public ObservableCollection<EntityNode> FilteredDeviceTreeRoots { get; } = [];
 
     public ExplorerPane()
     {
         InitializeComponent();
+        DataContextChanged += ExplorerPane_DataContextChanged;
+        Unloaded += ExplorerPane_Unloaded;
     }
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
 
-    private void TreeTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private bool HasActiveSearch => !string.IsNullOrWhiteSpace(SearchBox.Text);
+
+    private void SetActiveTreePane(TreePaneKind pane)
     {
-        if (e.Source is not TabControl tabControl || ViewModel is null) return;
-        ViewModel.Selection.SetActiveTreePane(tabControl.SelectedItem == DeviceTreeTab
-            ? TreePaneKind.Device
-            : TreePaneKind.Control);
+        _activeTreePane = pane;
+        ControlTree.Visibility = pane == TreePaneKind.Control ? Visibility.Visible : Visibility.Collapsed;
+        DeviceTree.Visibility = pane == TreePaneKind.Device ? Visibility.Visible : Visibility.Collapsed;
+        ControlTreeButton.IsChecked = pane == TreePaneKind.Control;
+        DeviceTreeButton.IsChecked = pane == TreePaneKind.Device;
+
+        if (ViewModel is not null)
+            ViewModel.Selection.SetActiveTreePane(pane);
     }
+
+    private void ExplorerPane_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        RebindViewModel(e.OldValue as MainViewModel, e.NewValue as MainViewModel);
+    }
+
+    private void ExplorerPane_Unloaded(object sender, RoutedEventArgs e) =>
+        RebindViewModel(_boundViewModel, null);
+
+    private void RebindViewModel(MainViewModel? oldVm, MainViewModel? newVm)
+    {
+        if (oldVm is not null)
+        {
+            oldVm.ControlTreeRoots.CollectionChanged -= TreeRoots_CollectionChanged;
+            oldVm.DeviceTreeRoots.CollectionChanged -= TreeRoots_CollectionChanged;
+        }
+
+        _boundViewModel = newVm;
+
+        if (newVm is not null)
+        {
+            newVm.ControlTreeRoots.CollectionChanged += TreeRoots_CollectionChanged;
+            newVm.DeviceTreeRoots.CollectionChanged += TreeRoots_CollectionChanged;
+        }
+
+        RefreshTreeItemsSource();
+    }
+
+    private void TreeRoots_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+        RefreshTreeItemsSource();
+
+    private void ControlTreeButton_Click(object sender, RoutedEventArgs e) =>
+        SetActiveTreePane(TreePaneKind.Control);
+
+    private void DeviceTreeButton_Click(object sender, RoutedEventArgs e) =>
+        SetActiveTreePane(TreePaneKind.Device);
 
     private void Tree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         => HandleTreeSelectionChanged(ResolveTreePane(sender), e.NewValue);
@@ -86,7 +138,7 @@ public partial class ExplorerPane : UserControl
         var kind = ResolveContextMenuNode(tree, e.OriginalSource as DependencyObject)?.EntityType
                    ?? vm?.SelectedNode?.EntityType;
         var isDeviceTree = ReferenceEquals(tree, DeviceTree);
-        var hasProject = vm is not null && vm.ControlTreeRoots.Count > 0;
+        var hasProject = vm?.HasProject == true;
 
         // 1차 노드 타입단계 메뉴 항목 표시/숨김
         foreach (var item in menu.Items)
@@ -107,6 +159,135 @@ public partial class ExplorerPane : UserControl
 
         // 2차 연속/선행/후행 구분선 제거
         CollapseDuplicateSeparators(menu);
+    }
+
+    private void SearchBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            SearchBox.Clear();
+            e.Handled = true;
+            return;
+        }
+    }
+
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) =>
+        RefreshTreeItemsSource();
+
+    private void RefreshTreeItemsSource()
+    {
+        if (_boundViewModel is null)
+        {
+            ControlTree.ItemsSource = null;
+            DeviceTree.ItemsSource = null;
+            return;
+        }
+
+        if (!HasActiveSearch)
+        {
+            ControlTree.ItemsSource = _boundViewModel.ControlTreeRoots;
+            DeviceTree.ItemsSource = _boundViewModel.DeviceTreeRoots;
+            return;
+        }
+
+        var query = SearchBox.Text.Trim();
+        RebuildFilteredRoots(_boundViewModel.ControlTreeRoots, FilteredControlTreeRoots, query);
+        RebuildFilteredRoots(_boundViewModel.DeviceTreeRoots, FilteredDeviceTreeRoots, query);
+        ControlTree.ItemsSource = FilteredControlTreeRoots;
+        DeviceTree.ItemsSource = FilteredDeviceTreeRoots;
+        _boundViewModel.StatusText =
+            FilteredControlTreeRoots.Count + FilteredDeviceTreeRoots.Count > 0
+                ? $"탐색기에서 '{query}' 검색 결과를 표시합니다."
+                : $"탐색기에서 '{query}' 검색 결과가 없습니다.";
+    }
+
+    private static void BringTreeNodeIntoView(TreeView tree, Guid nodeId)
+    {
+        if (TryFindTreeItem(tree, nodeId, out var item) && item is not null)
+            item.BringIntoView();
+    }
+
+    private static void RebuildFilteredRoots(
+        IEnumerable<EntityNode> sourceRoots,
+        ObservableCollection<EntityNode> targetRoots,
+        string query)
+    {
+        targetRoots.Clear();
+        foreach (var node in sourceRoots)
+        {
+            var filtered = CloneFilteredNode(node, query);
+            if (filtered is not null)
+                targetRoots.Add(filtered);
+        }
+    }
+
+    private static EntityNode? CloneFilteredNode(EntityNode source, string query)
+    {
+        var filteredChildren = source.Children
+            .Select(child => CloneFilteredNode(child, query))
+            .Where(child => child is not null)
+            .Cast<EntityNode>()
+            .ToList();
+
+        var isMatch = source.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase);
+        if (!isMatch && filteredChildren.Count == 0)
+            return null;
+
+        var clone = CloneNode(source);
+        clone.IsExpanded = filteredChildren.Count > 0;
+        foreach (var child in filteredChildren)
+            clone.Children.Add(child);
+        return clone;
+    }
+
+    private static EntityNode CloneNode(EntityNode source)
+    {
+        var clone = new EntityNode(source.Id, source.EntityType, source.Name, source.ParentId)
+        {
+            ReferenceOfId = source.ReferenceOfId
+        };
+        clone.X = source.X;
+        clone.Y = source.Y;
+        clone.Width = source.Width;
+        clone.Height = source.Height;
+        clone.IsSelected = source.IsSelected;
+        clone.IsTreeSelected = source.IsTreeSelected;
+        clone.IsExpanded = source.IsExpanded;
+        clone.SelectionOrder = source.SelectionOrder;
+        clone.IsGhost = source.IsGhost;
+        clone.IsReference = source.IsReference;
+        clone.HasAutoAux = source.HasAutoAux;
+        clone.HasComAux = source.HasComAux;
+        clone.HasSkipUnmatch = source.HasSkipUnmatch;
+        clone.IsWarning = source.IsWarning;
+        clone.IsDropTarget = source.IsDropTarget;
+        clone.SimState = source.SimState;
+        clone.SimTokenDisplay = source.SimTokenDisplay;
+        return clone;
+    }
+
+    private static bool TryFindTreeItem(ItemsControl parent, Guid nodeId, out TreeViewItem? item)
+    {
+        foreach (var current in parent.Items)
+        {
+            if (parent.ItemContainerGenerator.ContainerFromItem(current) is not TreeViewItem container)
+                continue;
+
+            if (container.DataContext is EntityNode node && node.Id == nodeId)
+            {
+                item = container;
+                return true;
+            }
+
+            container.ApplyTemplate();
+            container.UpdateLayout();
+
+            if (TryFindTreeItem(container, nodeId, out item))
+                return true;
+        }
+
+        item = null;
+        return false;
     }
 
     private static EntityNode? ResolveContextMenuNode(TreeView tree, DependencyObject? originalSource)
@@ -200,10 +381,16 @@ public partial class ExplorerPane : UserControl
         if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) != ModifierKeys.None)
             return;
 
+        if (_activeTreePane != pane)
+            SetActiveTreePane(pane);
+
         ViewModel.Selection.SetActiveTreePane(pane);
         if (newValue is not EntityNode node) return;
 
         ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
+
+        if (HasActiveSearch)
+            RefreshTreeItemsSource();
     }
 
     private void HandleTreeItemMouseDown(TreePaneKind pane, object sender, MouseButtonEventArgs e, bool requireModifiers)
@@ -242,7 +429,7 @@ public partial class ExplorerPane : UserControl
     {
         var vm = ViewModel;
         if (vm is null) return null;
-        return TreeTabs.SelectedItem == DeviceTreeTab
+        return _activeTreePane == TreePaneKind.Device
             ? vm.DeviceTreeRoots
             : vm.ControlTreeRoots;
     }

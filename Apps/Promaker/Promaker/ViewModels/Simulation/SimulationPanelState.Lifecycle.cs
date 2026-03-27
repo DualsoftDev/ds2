@@ -172,7 +172,7 @@ public partial class SimulationPanelState
         if (!IsSimulating) return;
         const string msg = "모델이 변경되었습니다.\n시뮬레이션 초기화 버튼을 눌러야 반영됩니다.";
         ShowPausedMessageBox(msg, "모델 변경 감지",
-            MessageBoxButton.OK, "⚠", suppressKey: "StoreChanged");
+            MessageBoxButton.OK, DialogHelpers.IconWarn, suppressKey: "StoreChanged");
     }
 
     public void ResetForNewStore()
@@ -237,7 +237,7 @@ public partial class SimulationPanelState
 
     private void AddSimLog(string message)
     {
-        var ts = _simEngine?.State.Clock.ToString(@"hh\:mm\:ss\.fff") ?? "00:00:00.000";
+        var ts = _simEngine?.State.Clock.ToString(SimText.ClockFormat) ?? SimText.ClockZero;
         SimEventLog.Insert(0, $"[{ts}] {message}");
         if (SimEventLog.Count > 500)
             SimEventLog.RemoveAt(SimEventLog.Count - 1);
@@ -245,7 +245,7 @@ public partial class SimulationPanelState
 
     private void AddWarningLog(string severity, string message)
     {
-        var ts = _simEngine?.State.Clock.ToString(@"hh\:mm\:ss\.fff") ?? "00:00:00.000";
+        var ts = _simEngine?.State.Clock.ToString(SimText.ClockFormat) ?? SimText.ClockZero;
         SimEventLog.Insert(0, $"[{ts}] [{severity}] {message}");
         if (SimEventLog.Count > 500)
             SimEventLog.RemoveAt(SimEventLog.Count - 1);
@@ -276,7 +276,7 @@ public partial class SimulationPanelState
         string message,
         string caption,
         MessageBoxButton buttons = MessageBoxButton.OK,
-        string icon = "⚠",
+        string icon = DialogHelpers.IconWarn,
         string? suppressKey = null)
     {
         if (suppressKey is not null && _suppressedWarnings.Contains(suppressKey))
@@ -309,7 +309,7 @@ public partial class SimulationPanelState
         GanttChart.IsRunning = false;
         _stateChangeRecords.Clear();
         HasReportData = false;
-        SimClock = "00:00:00.000";
+        SimClock = SimText.ClockZero;
         SelectedSimWork = null;
         IsSimulating = false;
         IsSimPaused = false;

@@ -10,7 +10,7 @@ open Ds2.Store.Editor.Tests.TestHelpers
 module TreeProjectionTests =
 
     [<Fact>]
-    let ``EditorTreeProjection builds control and device trees`` () =
+    let ``EditorTreeProjection builds control roots as active systems directly`` () =
         let store = createStore ()
         let project = addProject store "Project"
         let activeSystem = addSystem store "ActiveSystem" project.Id true
@@ -23,8 +23,10 @@ module TreeProjectionTests =
         let controlRoot = Assert.Single(controlRoots)
         let deviceRoot = Assert.Single(deviceRoots)
 
-        Assert.Equal(project.Id, controlRoot.Id)
-        Assert.Contains(controlRoot.Children, fun node -> node.Id = activeSystem.Id)
+        Assert.Equal(activeSystem.Id, controlRoot.Id)
+        Assert.Equal(EntityKind.System, controlRoot.EntityKind)
+        Assert.True(controlRoot.ParentId.IsNone)
+        Assert.Contains(controlRoot.Children, fun node -> node.Id = flow.Id)
         Assert.Contains(deviceRoot.Children, fun node -> node.Id = passiveSystem.Id)
 
 module NavigationTests =

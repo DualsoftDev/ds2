@@ -8,6 +8,7 @@ using Ds2.Editor;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
 using Promaker.Dialogs;
+using Promaker.Presentation;
 
 namespace Promaker.ViewModels;
 
@@ -19,9 +20,9 @@ public partial class MainViewModel
     private static bool HasExtension(string path, string extension) =>
         Path.GetExtension(path).Equals(extension, StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsAasx(string path) => HasExtension(path, ".aasx");
+    private static bool IsAasx(string path) => HasExtension(path, FileExtensions.Aasx);
 
-    private static bool IsMermaid(string path) => HasExtension(path, ".md");
+    private static bool IsMermaid(string path) => HasExtension(path, FileExtensions.Mermaid);
 
     private bool TryRunFileOperation(string operation, Action action, Func<Exception, string> warnMessage)
     {
@@ -183,23 +184,30 @@ public partial class MainViewModel
     [RelayCommand]
     private void ShowProjectSettings()
     {
-        var properties = HasProject
-            ? DsQuery.allProjects(_store).Head.Properties
-            : new Ds2.Core.ProjectProperties();
-        var dlg = new ProjectPropertiesDialog(properties);
+        var project = HasProject
+            ? DsQuery.allProjects(_store).Head
+            : null;
+        var properties = project?.Properties ?? new Ds2.Core.ProjectProperties();
+        var dlg = new ProjectPropertiesDialog(project?.Name ?? "", properties);
         var accepted = _dialogService.ShowDialog(dlg) == true;
         if (!accepted) return;
 
-        if (!HasProject) return;
+        if (project is null) return;
 
         TryEditorAction(() =>
+        {
+            var nextProjectName = dlg.ResultProjectName ?? project.Name;
+            if (!string.Equals(project.Name, nextProjectName, StringComparison.Ordinal))
+                _store.RenameEntity(project.Id, EntityKind.Project, nextProjectName);
+
             _store.UpdateProjectProperties(
                 dlg.ResultIriPrefix ?? "",
                 dlg.ResultGlobalAssetId ?? "",
                 dlg.ResultAuthor ?? "",
                 dlg.ResultVersion ?? "",
                 dlg.ResultDescription ?? "",
-                dlg.ResultSplitDeviceAasx));
+                dlg.ResultSplitDeviceAasx);
+        });
         StatusText = "프로젝트 속성이 변경되었습니다.";
     }
 
@@ -232,7 +240,7 @@ public partial class MainViewModel
         var dlg = new SaveFileDialog
         {
             Filter = FileFilter,
-            DefaultExt = ".sdf",
+            DefaultExt = FileExtensions.Sdf,
             FileName = suggestedName
         };
 

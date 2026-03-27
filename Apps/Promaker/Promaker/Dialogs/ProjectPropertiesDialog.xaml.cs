@@ -7,7 +7,9 @@ namespace Promaker.Dialogs;
 public partial class ProjectPropertiesDialog : Window
 {
     private const string DefaultIriPrefix = "http://your-company.com/";
+    private readonly string _initialProjectName;
 
+    public string? ResultProjectName { get; private set; }
     public string? ResultIriPrefix { get; private set; }
     public string? ResultGlobalAssetId { get; private set; }
     public string? ResultAuthor { get; private set; }
@@ -15,10 +17,12 @@ public partial class ProjectPropertiesDialog : Window
     public string? ResultDescription { get; private set; }
     public bool ResultSplitDeviceAasx { get; private set; }
 
-    public ProjectPropertiesDialog(ProjectProperties properties)
+    public ProjectPropertiesDialog(string projectName, ProjectProperties properties)
     {
         InitializeComponent();
 
+        _initialProjectName = string.IsNullOrWhiteSpace(projectName) ? "NewProject" : projectName.Trim();
+        ProjectNameBox.Text = _initialProjectName;
         IriPrefixBox.Text     = properties.IriPrefix?.Value     ?? DefaultIriPrefix;
         GlobalAssetIdBox.Text = properties.GlobalAssetId?.Value  ?? "";
         AuthorBox.Text        = properties.Author?.Value         ?? "";
@@ -26,11 +30,12 @@ public partial class ProjectPropertiesDialog : Window
         DescriptionBox.Text   = properties.Description?.Value    ?? "";
         SplitDeviceAasxBox.IsChecked = properties.SplitDeviceAasx;
 
-        Loaded += (_, _) => IriPrefixBox.Focus();
+        Loaded += (_, _) => ProjectNameBox.Focus();
     }
 
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
+        ResultProjectName   = string.IsNullOrWhiteSpace(ProjectNameBox.Text) ? _initialProjectName : ProjectNameBox.Text.Trim();
         ResultIriPrefix     = IriPrefixBox.Text.Trim();
         ResultGlobalAssetId = GlobalAssetIdBox.Text.Trim();
         ResultAuthor        = AuthorBox.Text.Trim();

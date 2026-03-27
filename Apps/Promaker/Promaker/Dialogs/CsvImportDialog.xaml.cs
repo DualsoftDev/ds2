@@ -9,6 +9,7 @@ using Ds2.CSV;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
+using Promaker.Presentation;
 
 namespace Promaker.Dialogs;
 
@@ -242,7 +243,7 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
         var picker = new SaveFileDialog
         {
             Filter = "CSV Files (*.csv)|*.csv",
-            DefaultExt = ".csv",
+            DefaultExt = FileExtensions.Csv,
             FileName = "sample.csv"
         };
 

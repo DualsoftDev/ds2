@@ -55,11 +55,11 @@ module HtmlTemplate =
     let private infoSection (metadata: ReportMetadata) : string =
         let sb = StringBuilder()
         sb.Append("    <div class=\"info\">\n") |> ignore
-        sb.Append("        <div>시작 시간: " + metadata.StartTime.ToString("yyyy-MM-dd HH:mm:ss") + "</div>\n") |> ignore
-        sb.Append("        <div>종료 시간: " + metadata.EndTime.ToString("yyyy-MM-dd HH:mm:ss") + "</div>\n") |> ignore
+        sb.Append("        <div>시작 시간: " + metadata.StartTime.ToString(ReportFormats.DateTimeFormat) + "</div>\n") |> ignore
+        sb.Append("        <div>종료 시간: " + metadata.EndTime.ToString(ReportFormats.DateTimeFormat) + "</div>\n") |> ignore
         sb.Append("        <div>총 소요 시간: " + metadata.TotalDuration.ToString(@"hh\:mm\:ss\.fff") + "</div>\n") |> ignore
         sb.Append("        <div>Works: " + string metadata.WorkCount + ", Calls: " + string metadata.CallCount + "</div>\n") |> ignore
-        sb.Append("        <div>생성 시간: " + metadata.GeneratedAt.ToString("yyyy-MM-dd HH:mm:ss") + "</div>\n") |> ignore
+        sb.Append("        <div>생성 시간: " + metadata.GeneratedAt.ToString(ReportFormats.DateTimeFormat) + "</div>\n") |> ignore
         sb.Append("    </div>\n") |> ignore
         sb.ToString()
 
@@ -106,7 +106,7 @@ module HtmlTemplate =
                 let startSec, endSec, _ = StateSegment.timeRange report.Metadata.StartTime totalDuration segment
                 let x = startSec * pixelsPerSecond
                 let width = max 2.0 ((endSec - startSec) * pixelsPerSecond)
-                let title = segment.StateFullName + ": " + (sprintf "%.2f" startSec) + "s - " + (sprintf "%.2f" endSec) + "s (" + (sprintf "%.2f" (endSec - startSec)) + "s)"
+                let title = segment.StateFullName + ": " + (ReportFormats.fmtFloat startSec) + "s - " + (ReportFormats.fmtFloat endSec) + "s (" + (ReportFormats.fmtFloat (endSec - startSec)) + "s)"
                 sb.Append("                <div class=\"segment " + segment.State + "\" style=\"left: " + (sprintf "%.1f" x) + "px; width: " + (sprintf "%.1f" width) + "px;\" title=\"" + title + "\"></div>\n") |> ignore
             sb.Append("            </div>\n") |> ignore
 
@@ -125,7 +125,7 @@ module HtmlTemplate =
         for i, entry in report.Entries |> List.indexed do
             let goingTime = ReportEntry.getTotalGoingTime entry
             let stateChanges = ReportEntry.getStateChangeCount entry
-            sb.Append("            <tr><td>" + string (i + 1) + "</td><td>" + entry.Type + "</td><td>" + (WebUtility.HtmlEncode entry.Name) + "</td><td>" + (WebUtility.HtmlEncode entry.SystemId) + "</td><td>" + (sprintf "%.2f" goingTime) + "</td><td>" + string stateChanges + "</td></tr>\n") |> ignore
+            sb.Append("            <tr><td>" + string (i + 1) + "</td><td>" + entry.Type + "</td><td>" + (WebUtility.HtmlEncode entry.Name) + "</td><td>" + (WebUtility.HtmlEncode entry.SystemId) + "</td><td>" + (ReportFormats.fmtFloat goingTime) + "</td><td>" + string stateChanges + "</td></tr>\n") |> ignore
 
         sb.Append("        </tbody>\n") |> ignore
         sb.Append("    </table>\n") |> ignore
@@ -143,7 +143,7 @@ module HtmlTemplate =
         for entry in report.Entries do
             for segment in entry.Segments do
                 let startSec, endSec, duration = StateSegment.timeRange report.Metadata.StartTime report.Metadata.TotalDuration.TotalSeconds segment
-                sb.Append("            <tr><td>" + string rowNo + "</td><td>" + entry.Type + "</td><td>" + (WebUtility.HtmlEncode entry.Name) + "</td><td>" + (WebUtility.HtmlEncode entry.SystemId) + "</td><td class=\"state-" + segment.State + "\">" + segment.StateFullName + "</td><td>" + (sprintf "%.2f" startSec) + "</td><td>" + (sprintf "%.2f" endSec) + "</td><td>" + (sprintf "%.2f" duration) + "</td></tr>\n") |> ignore
+                sb.Append("            <tr><td>" + string rowNo + "</td><td>" + entry.Type + "</td><td>" + (WebUtility.HtmlEncode entry.Name) + "</td><td>" + (WebUtility.HtmlEncode entry.SystemId) + "</td><td class=\"state-" + segment.State + "\">" + segment.StateFullName + "</td><td>" + (ReportFormats.fmtFloat startSec) + "</td><td>" + (ReportFormats.fmtFloat endSec) + "</td><td>" + (ReportFormats.fmtFloat duration) + "</td></tr>\n") |> ignore
                 rowNo <- rowNo + 1
 
         sb.Append("        </tbody>\n") |> ignore

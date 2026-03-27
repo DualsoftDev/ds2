@@ -54,6 +54,9 @@ public partial class SimulationPanelState : ObservableObject
         public static string ReportSaveFailed(string message) => $"리포트 저장 실패: {message}";
         public static string ReportError(string message) => $"리포트 오류: {message}";
         public static string StateCode(Status4 state) => Presentation.Status4Visuals.ShortCode(state);
+
+        public const string ClockFormat = @"hh\:mm\:ss\.fff";
+        public const string ClockZero   = "00:00:00.000";
     }
 
     public SimulationPanelState(
@@ -108,7 +111,7 @@ public partial class SimulationPanelState : ObservableObject
 
     [ObservableProperty] private double _simSpeed = 1.0;
     [ObservableProperty] private bool _simTimeIgnore;
-    [ObservableProperty] private string _simClock = "00:00:00.000";
+    [ObservableProperty] private string _simClock = SimText.ClockZero;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ExportReportCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportReportXlsxCommand))]

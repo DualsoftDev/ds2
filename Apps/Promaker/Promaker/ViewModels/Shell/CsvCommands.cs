@@ -4,6 +4,7 @@ using Ds2.Store;
 using Ds2.Editor;
 using Microsoft.Win32;
 using Promaker.Dialogs;
+using Promaker.Presentation;
 
 namespace Promaker.ViewModels;
 
@@ -66,7 +67,7 @@ public partial class MainViewModel
         {
             Title = "CSV 내보내기",
             Filter = "CSV Files (*.csv)|*.csv|All Files (*.*)|*.*",
-            DefaultExt = ".csv",
+            DefaultExt = FileExtensions.Csv,
             FileName = $"{suggestedName}.csv"
         };
 

@@ -30,10 +30,10 @@ module ExportHelper =
     /// 파일 확장자 가져오기
     let getExtension format =
         match format with
-        | Csv -> ".csv"
-        | CsvSummary -> ".csv"
-        | Html -> ".html"
-        | Excel -> ".xlsx"
+        | Csv -> ReportFormats.CsvExt
+        | CsvSummary -> ReportFormats.CsvExt
+        | Html -> ReportFormats.HtmlExt
+        | Excel -> ReportFormats.ExcelExt
 
     /// 파일 필터 가져오기
     let getFilter format =
