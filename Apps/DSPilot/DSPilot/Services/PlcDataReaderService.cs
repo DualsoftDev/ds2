@@ -309,7 +309,6 @@ public class PlcDataReaderService : BackgroundService
 
             var plcs = await _plcRepo.GetAllPlcsAsync();
             var tags = await _plcRepo.GetAllTagsAsync();
-            var totalLogs = await _plcRepo.GetTotalLogCountAsync();
 
             // 태그 Address → ID 매핑 캐시 생성 (EV2 이벤트 처리용, 중복 Address는 마지막 값 사용)
             _tagAddressToIdMap = tags
@@ -317,8 +316,8 @@ public class PlcDataReaderService : BackgroundService
                 .ToDictionary(g => g.Key, g => g.Last().Id);
             _logger.LogInformation("Tag address cache built: {Count} tags", _tagAddressToIdMap.Count);
 
-            _logger.LogInformation("Database initialized: {PlcCount} PLCs, {TagCount} tags, {LogCount} logs",
-                plcs.Count, tags.Count, totalLogs);
+            _logger.LogInformation("Database initialized: {PlcCount} PLCs, {TagCount} tags",
+                plcs.Count, tags.Count);
 
             if (_simulationMode)
                 await InitializeSimulationModeAsync(_plcRepo);

@@ -130,4 +130,17 @@ public interface IPlcRepository
     /// </summary>
     Task<List<PlcTagLogEntity>> GetTagLogsByTimeRangeAsync(
         string tagAddress, DateTime startTime, DateTime endTime);
+
+    /// <summary>
+    /// 모든 태그의 최신 값을 배치로 조회 (N+1 쿼리 방지)
+    /// </summary>
+    /// <returns>(address, value, maxLogId) 튜플 목록</returns>
+    Task<(Dictionary<string, string> TagValues, long MaxLogId)> GetLatestValuePerTagAsync();
+
+    /// <summary>
+    /// 지정 ID 이후의 새 로그를 일괄 조회 (델타 폴링용)
+    /// </summary>
+    /// <param name="afterId">이 ID보다 큰 로그만 조회</param>
+    /// <returns>새 로그 목록 (address 포함)</returns>
+    Task<List<PlcTagLogEntity>> GetLogsAfterIdAsync(long afterId);
 }
