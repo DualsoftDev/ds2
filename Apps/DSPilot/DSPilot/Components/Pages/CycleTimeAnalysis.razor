@@ -33,17 +33,11 @@
             <div class="filter-row">
                 <div class="filter-group">
                     <label>시작 시간</label>
-                    <input type="datetime-local" class="form-field" @bind="_chartStartTime" />
+                    <input type="datetime-local" class="form-field" @bind="_chartStartTime" @bind:after="OnTimeRangeChanged" />
                 </div>
                 <div class="filter-group">
                     <label>종료 시간</label>
-                    <input type="datetime-local" class="form-field" @bind="_chartEndTime" />
-                </div>
-                <div class="filter-group">
-                    <label>&nbsp;</label>
-                    <button class="btn btn-primary" @onclick="LoadGanttData">
-                        GAP 분석 시작
-                    </button>
+                    <input type="datetime-local" class="form-field" @bind="_chartEndTime" @bind:after="OnTimeRangeChanged" />
                 </div>
             </div>
             <div class="filter-row">
@@ -113,9 +107,12 @@
             </div>
             @if (_topGaps.Any())
             {
-                <div class="info-item highlight gap-picker">
-                    <span class="label">최대 GAP (Top 5):</span>
-                    <select class="form-field gap-picker-select" value="@_selectedGapIndex" @onchange="OnGapSelectedChanged">
+                <div style="display:flex;align-items:center;gap:10px;margin-left:12px;">
+                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:white;font-size:13px;">
+                        <input type="checkbox" @bind="_showGapOverlay" /> GAP
+                    </label>
+                    <select class="form-field gap-picker-select" value="@_selectedGapIndex" @onchange="OnGapSelectedChanged"
+                            disabled="@(!_showGapOverlay)" style="opacity:@(_showGapOverlay ? "1" : "0.4");">
                         @for (int i = 0; i < _topGaps.Count; i++)
                         {
                             var gap = _topGaps[i];
@@ -123,70 +120,69 @@
                             <option value="@i">@label</option>
                         }
                     </select>
+                    <span style="color:rgba(255,255,255,0.3);margin:0 2px;">|</span>
+                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:white;font-size:13px;">
+                        <input type="checkbox" @bind="_showCycleTimeOverlay" /> Cycle Time
+                    </label>
+                    <span style="font-size:11px;color:rgba(255,255,255,0.5);">신호 클릭 시 동일 신호의 다음 발생까지 표시</span>
                 </div>
             }
         </div>
 
         @if (_selectedItem != null)
         {
-            <div class="selection-path-bar">
-                <div class="selection-node previous @(_previousItem == null ? "empty" : string.Empty)">
-                    <span class="selection-node-label">이전 신호</span>
-                    @if (_previousItem != null)
-                    {
-                        <strong>@_previousItem.CallName</strong>
-                        <span>@GetEventTypeLabel(_previousItem.EventType) · @_previousItem.GoingStartTime.ToString("HH:mm:ss.fff")</span>
-                    }
-                    else
-                    {
-                        <strong>없음</strong>
-                        <span>Flow 시작 구간</span>
-                    }
-                </div>
-                <div class="selection-gap-pill">
-                    <span class="selection-gap-label">이전 GAP</span>
-                    <strong>@(_previousGap.HasValue ? FormatDurationTooltip(_previousGap.Value) : "-")</strong>
-                </div>
-                <div class="selection-node current">
-                    <span class="selection-node-label">선택 신호 (A)</span>
-                    <strong>@_selectedItem.CallName</strong>
-                    <span>@GetEventTypeLabel(_selectedItem.EventType) · @_selectedItem.GoingStartTime.ToString("HH:mm:ss.fff")</span>
-                </div>
-                <div class="selection-gap-pill">
-                    <span class="selection-gap-label">다음 GAP</span>
-                    <strong>@(_nextGap.HasValue ? FormatDurationTooltip(_nextGap.Value) : "-")</strong>
-                </div>
-                <div class="selection-node next @(_nextItem == null ? "empty" : string.Empty)">
-                    <span class="selection-node-label">다음 신호</span>
-                    @if (_nextItem != null)
-                    {
-                        <strong>@_nextItem.CallName</strong>
-                        <span>@GetEventTypeLabel(_nextItem.EventType) · @_nextItem.GoingStartTime.ToString("HH:mm:ss.fff")</span>
-                    }
-                    else
-                    {
-                        <strong>없음</strong>
-                        <span>Flow 종료 구간</span>
-                    }
-                </div>
-                @if (_comparisonItem != null)
-                {
-                    <div class="selection-gap-pill comparison">
-                        <span class="selection-gap-label">사용자 GAP</span>
-                        <strong>@(_comparisonGap.HasValue ? FormatDurationTooltip(_comparisonGap.Value) : "-")</strong>
+            <div class="sel-panel">
+                <!-- 선택 신호 헤더 -->
+                <div class="sel-header">
+                    <div class="sel-selected-signal">
+                        <span class="sel-badge sel-badge-selected">선택</span>
+                        <strong>@_selectedItem.CallName</strong>
+                        <span class="sel-event-type">@GetEventTypeLabel(_selectedItem.EventType)</span>
+                        <span class="sel-time">@_selectedItem.GoingStartTime.ToString("HH:mm:ss.fff")</span>
                     </div>
-                    <div class="selection-node compare">
-                        <span class="selection-node-label">비교 신호 (B)</span>
-                        <strong>@_comparisonItem.CallName</strong>
-                        <span>@GetEventTypeLabel(_comparisonItem.EventType) · @_comparisonItem.GoingStartTime.ToString("HH:mm:ss.fff")</span>
+                    <button class="btn btn-sm btn-outlined" @onclick="ClearSelection" style="white-space:nowrap;">선택 해제</button>
+                </div>
+
+                <!-- GAP + Cycle Time 정보 -->
+                <div class="sel-info-row">
+                    <!-- 이전 GAP -->
+                    <div class="sel-gap-card">
+                        <div class="sel-gap-direction">
+                            <span class="sel-arrow sel-arrow-left"></span> 이전 GAP
+                        </div>
+                        <div class="sel-gap-value">@(_previousGap.HasValue ? FormatDurationTooltip(_previousGap.Value) : "-")</div>
+                        @if (_previousItem != null)
+                        {
+                            <div class="sel-gap-signal">@_previousItem.CallName <span>@GetEventTypeLabel(_previousItem.EventType)</span></div>
+                        }
                     </div>
-                    <button class="btn btn-sm btn-outlined selection-clear-btn" @onclick="ClearComparison">
-                        비교선 지우기
-                    </button>
-                }
-                <button class="btn btn-sm btn-outlined selection-clear-btn" @onclick="ClearSelection">
-                    선택 해제
-                </button>
+
+                    <!-- 다음 GAP -->
+                    <div class="sel-gap-card">
+                        <div class="sel-gap-direction">
+                            다음 GAP <span class="sel-arrow sel-arrow-right"></span>
+                        </div>
+                        <div class="sel-gap-value">@(_nextGap.HasValue ? FormatDurationTooltip(_nextGap.Value) : "-")</div>
+                        @if (_nextItem != null)
+                        {
+                            <div class="sel-gap-signal">@_nextItem.CallName <span>@GetEventTypeLabel(_nextItem.EventType)</span></div>
+                        }
+                    </div>
+
+                    @if (_comparisonItem != null)
+                    {
+                        <!-- Cycle Time -->
+                        <div class="sel-cycle-card">
+                            <div class="sel-cycle-label">Cycle Time</div>
+                            <div class="sel-cycle-value">@(_comparisonGap.HasValue ? FormatDurationTooltip(_comparisonGap.Value) : "-")</div>
+                            <div class="sel-cycle-signal">
+                                <span class="sel-badge sel-badge-next">다음</span>
+                                @_comparisonItem.CallName
+                                <span class="sel-time">@_comparisonItem.GoingStartTime.ToString("HH:mm:ss.fff")</span>
+                            </div>
+                        </div>
+                    }
+                </div>
             </div>
         }
 
@@ -226,6 +222,7 @@
 
     private DateTime _chartStartTime = DateTime.Now.AddHours(-1);
     private DateTime _chartEndTime = DateTime.Now;
+    private CancellationTokenSource? _debounceCts;
 
     private GanttChartData? _ganttData;
     private GanttChartItem? _selectedItem;
@@ -239,6 +236,8 @@
     private double? _previousGap;
     private double? _nextGap;
 
+    private bool _showGapOverlay = true;
+    private bool _showCycleTimeOverlay = true;
     private ChartSortMode _chartSort = ChartSortMode.ByLane;
     private double _zoomLevel = 1.0;
 
@@ -337,6 +336,9 @@
 
     public async ValueTask DisposeAsync()
     {
+        _debounceCts?.Cancel();
+        _debounceCts?.Dispose();
+
         if (_isCrosshairInitialized)
         {
             try
@@ -390,18 +392,34 @@
         }
     }
 
-    private void SetTimeRange(int hours)
+    private async Task OnTimeRangeChanged()
+    {
+        _debounceCts?.Cancel();
+        _debounceCts = new CancellationTokenSource();
+        var token = _debounceCts.Token;
+        try
+        {
+            await Task.Delay(500, token);
+            if (!string.IsNullOrEmpty(_selectedFlowName))
+                await LoadGanttData();
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    private async Task SetTimeRange(int hours)
     {
         _chartEndTime = DateTime.Now;
         _chartStartTime = _chartEndTime.AddHours(-hours);
-        StateHasChanged();
+        if (!string.IsNullOrEmpty(_selectedFlowName))
+            await LoadGanttData();
     }
 
-    private void SetTimeRangeMinutes(int minutes)
+    private async Task SetTimeRangeMinutes(int minutes)
     {
         _chartEndTime = DateTime.Now;
         _chartStartTime = _chartEndTime.AddMinutes(-minutes);
-        StateHasChanged();
+        if (!string.IsNullOrEmpty(_selectedFlowName))
+            await LoadGanttData();
     }
 
     private async Task LoadGanttData()
@@ -656,17 +674,13 @@
 
     private void SelectItem(GanttChartItem item)
     {
-        if (_selectedItem == null)
+        if (_selectedItem != null && ReferenceEquals(_selectedItem, item))
         {
-            SetPrimarySelection(item);
-        }
-        else if (ReferenceEquals(_selectedItem, item))
-        {
-            ClearComparison();
+            ClearSelection();
         }
         else
         {
-            SetComparisonSelection(item);
+            SetPrimarySelection(item);
         }
 
         StateHasChanged();
@@ -697,18 +711,6 @@
             _comparisonItem = nextOccurrence;
             _comparisonGap = (nextOccurrence.GoingStartTime - item.GoingStartTime).TotalMilliseconds;
         }
-    }
-
-    private void SetComparisonSelection(GanttChartItem item)
-    {
-        if (_selectedItem == null)
-        {
-            SetPrimarySelection(item);
-            return;
-        }
-
-        _comparisonItem = item;
-        _comparisonGap = CalculateGapBetween(_selectedItem, item);
     }
 
     private void CalculateItemGaps(GanttChartItem item)
@@ -744,19 +746,6 @@
         {
             _nextItem = null;
         }
-    }
-
-    private static double CalculateGapBetween(GanttChartItem fromItem, GanttChartItem toItem)
-    {
-        var fromEnd = fromItem.FinishTime ?? fromItem.GoingStartTime;
-        return (toItem.GoingStartTime - fromEnd).TotalMilliseconds;
-    }
-
-    private void ClearComparison()
-    {
-        _comparisonItem = null;
-        _comparisonGap = null;
-        StateHasChanged();
     }
 
     private void ClearSelection()
@@ -863,7 +852,7 @@
         }
 
         // Longest GAP visualization
-        if (_longestGap.HasValue)
+        if (_showGapOverlay && _longestGap.HasValue)
         {
             var gapStart = _longestGap.Value.Start;
             var gapEnd = _longestGap.Value.End;
@@ -896,7 +885,7 @@
         }
 
         // Cycle Time 구간 오버레이 (A→B 비교 선택 시 자동 표시)
-        if (_selectedItem != null && _comparisonItem != null)
+        if (_showCycleTimeOverlay && _selectedItem != null && _comparisonItem != null)
         {
             var itemA = _selectedItem;
             var itemB = _comparisonItem;
@@ -1041,23 +1030,6 @@
             }
 
             builder.CloseElement();
-        }
-
-        if (_selectedItem != null && _comparisonItem != null && _comparisonGap.HasValue)
-        {
-            var selectedGeometry = GetBarGeometry(_selectedItem, displayLaneIndexByLane, topMargin, laneHeight, barHeight, xScale, chartStartTime);
-            var comparisonGeometry = GetBarGeometry(_comparisonItem, displayLaneIndexByLane, topMargin, laneHeight, barHeight, xScale, chartStartTime);
-            RenderGapConnector(
-                builder,
-                700,
-                selectedGeometry.EndX,
-                selectedGeometry.CenterY,
-                comparisonGeometry.StartX,
-                comparisonGeometry.CenterY,
-                "#8b5cf6",
-                $"A→B GAP {FormatDurationTooltip(_comparisonGap.Value)}",
-                leftMargin,
-                leftMargin + plotWidth + 80);
         }
 
         builder.OpenElement(820, "defs");
