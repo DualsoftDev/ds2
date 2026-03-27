@@ -577,6 +577,71 @@
     color: rgba(255, 255, 255, 0.87);
 }
 
+/* --- Signal Selection Panel (sel-*) --- */
+.dark-theme .sel-panel {
+    background: #1E1E1E;
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.dark-theme .sel-header {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .sel-selected-signal strong {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .sel-badge-selected {
+    background: rgba(234, 88, 12, 0.15);
+    color: #FB923C;
+    border-color: rgba(234, 88, 12, 0.30);
+}
+.dark-theme .sel-badge-next {
+    background: rgba(22, 163, 74, 0.15);
+    color: #4ADE80;
+    border-color: rgba(22, 163, 74, 0.30);
+}
+.dark-theme .sel-event-type {
+    color: rgba(255, 255, 255, 0.60);
+    background: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .sel-time {
+    color: rgba(255, 255, 255, 0.45);
+}
+.dark-theme .sel-gap-card {
+    background: #2C2C2C;
+    border-color: rgba(255, 255, 255, 0.10);
+}
+.dark-theme .sel-gap-direction {
+    color: rgba(255, 255, 255, 0.45);
+}
+.dark-theme .sel-arrow-left {
+    border-right-color: rgba(255, 255, 255, 0.45);
+}
+.dark-theme .sel-arrow-right {
+    border-left-color: rgba(255, 255, 255, 0.45);
+}
+.dark-theme .sel-gap-value {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .sel-gap-signal {
+    color: rgba(255, 255, 255, 0.60);
+}
+.dark-theme .sel-gap-signal span {
+    color: rgba(255, 255, 255, 0.40);
+}
+.dark-theme .sel-cycle-card {
+    background: linear-gradient(135deg, rgba(22, 163, 74, 0.12) 0%, rgba(22, 163, 74, 0.06) 100%);
+    border-color: rgba(74, 222, 128, 0.30);
+}
+.dark-theme .sel-cycle-label {
+    color: #4ADE80;
+}
+.dark-theme .sel-cycle-value {
+    color: #86EFAC;
+}
+.dark-theme .sel-cycle-signal {
+    color: rgba(255, 255, 255, 0.60);
+}
+
 /* --- Gantt Chart SVG --- */
 .dark-theme .gantt-chart {
     border-color: rgba(255, 255, 255, 0.10);
