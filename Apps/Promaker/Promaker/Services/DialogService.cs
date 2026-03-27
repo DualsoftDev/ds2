@@ -15,15 +15,7 @@ public class DialogService : IDialogService
     }
 
     public bool Confirm(string message, string title)
-    {
-        var result = MessageBox.Show(
-            message,
-            title,
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
-
-        return result == MessageBoxResult.Yes;
-    }
+        => Dialogs.DialogHelpers.Confirm(Application.Current.MainWindow, message, title);
 
     public void ShowWarning(string message)
     {
@@ -31,13 +23,7 @@ public class DialogService : IDialogService
     }
 
     public void ShowError(string message)
-    {
-        MessageBox.Show(
-            message,
-            "오류",
-            MessageBoxButton.OK,
-            MessageBoxImage.Error);
-    }
+        => Dialogs.DialogHelpers.Error(Application.Current.MainWindow, message);
 
     public void ShowInfo(string message)
     {

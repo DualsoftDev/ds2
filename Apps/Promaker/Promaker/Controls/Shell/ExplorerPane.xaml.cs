@@ -40,6 +40,18 @@ public partial class ExplorerPane : UserControl
             tree.Focus();
     }
 
+    private void Tree_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete || ViewModel is null)
+            return;
+
+        if (ViewModel.DeleteSelectedCommand.CanExecute(null))
+        {
+            ViewModel.DeleteSelectedCommand.Execute(null);
+            e.Handled = true;
+        }
+    }
+
     private void TreeViewItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is TreeViewItem { DataContext: EntityNode node }

@@ -9,6 +9,7 @@ open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 open Ds2.Runtime.Sim.Engine
 open Ds2.Runtime.Sim.Engine.Core
+open Ds2.Runtime.Sim.Model
 open Ds2.Runtime.Sim.Report
 
 module ReportServiceTests =
@@ -304,6 +305,34 @@ module StepModeTests =
             Assert.False(engine.HasStartableWork, "terminal finish should not leave any startable work")
             Assert.False(engine.HasActiveDuration, "terminal finish should not leave any active duration")
             Assert.False(engine.Step(), "terminal finish should not advance any further")
+        finally
+            engine.Stop()
+
+    [<Fact>]
+    let ``pause resume and restart reuse a clean engine thread lifecycle`` () =
+        let store = createStore ()
+        let _, _, _, work = setupBasicHierarchy store
+
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
+
+        let index = SimIndex.build store 10
+        let engine = new EventDrivenEngine(index)
+
+        try
+            engine.Start()
+            Assert.Equal(SimulationStatus.Running, engine.Status)
+
+            engine.Pause()
+            Assert.Equal(SimulationStatus.Paused, engine.Status)
+
+            engine.Resume()
+            Assert.Equal(SimulationStatus.Running, engine.Status)
+
+            engine.Stop()
+            Assert.Equal(SimulationStatus.Stopped, engine.Status)
+
+            engine.Start()
+            Assert.Equal(SimulationStatus.Running, engine.Status)
         finally
             engine.Stop()
 

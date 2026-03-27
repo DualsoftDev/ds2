@@ -114,7 +114,8 @@ public partial class MainViewModel : ObservableObject
 
     public Action? FocusNameEditorRequested { get; set; }
 
-    private bool CanFocusNameEditor() => SelectedNode is not null;
+    private bool CanFocusNameEditor() =>
+        SelectedNode is not null && Selection.OrderedNodeSelection.Count <= 1;
 
     [RelayCommand(CanExecute = nameof(CanFocusNameEditor))]
     private void FocusNameEditor()
@@ -148,12 +149,14 @@ public partial class MainViewModel : ObservableObject
             : "한국어 적용";
     }
 
-    partial void OnSelectedNodeChanged(EntityNode? value)
+    internal void HandleSelectionStateChanged()
     {
-        PropertyPanel.SyncSelectedNode(value);
+        PropertyPanel.SyncSelection(SelectedNode, Selection.OrderedNodeSelection);
         Simulation.SyncCanvasSelection(Selection.OrderedNodeSelection);
         RefreshEditorCommandStates();
     }
+
+    partial void OnSelectedNodeChanged(EntityNode? value) => HandleSelectionStateChanged();
 
     partial void OnSelectedArrowChanged(ArrowNode? value) => RefreshEditorCommandStates();
 

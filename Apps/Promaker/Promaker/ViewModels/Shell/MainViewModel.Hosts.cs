@@ -1,8 +1,10 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Collections.Generic;
 using System.Windows;
 using Ds2.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
@@ -65,6 +67,7 @@ public partial class MainViewModel
         }
 
         public EntityNode? SelectedNode => Owner.SelectedNode;
+        public IReadOnlyList<SelectionKey> OrderedNodeSelection => Owner.Selection.OrderedNodeSelection;
 
         public void RenameSelected(string newName) => Owner.RenameSelectedCommand.Execute(newName);
 
@@ -104,6 +107,6 @@ public partial class MainViewModel
             set => Owner.SelectedArrow = value;
         }
 
-        public void NotifyCommandStatesChanged() => Owner.RefreshEditorCommandStates();
+        public void NotifyCommandStatesChanged() => Owner.HandleSelectionStateChanged();
     }
 }

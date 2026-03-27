@@ -110,7 +110,7 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
         if (!string.IsNullOrWhiteSpace(textBox.Text?.Trim()))
             return true;
 
-        MessageBox.Show(owner, $"{label} 이름을 입력하세요.", "CSV 불러오기", MessageBoxButton.OK, MessageBoxImage.Information);
+        DialogHelpers.Info(owner, $"{label} 이름을 입력하세요.", "CSV 불러오기");
         textBox.Focus();
         return false;
     }
@@ -165,10 +165,10 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
     }
 
     private void ShowInfo(string message, string title = "CSV 불러오기") =>
-        MessageBox.Show(this, message, title, MessageBoxButton.OK, MessageBoxImage.Information);
+        DialogHelpers.Info(this, message, title);
 
     private void ShowError(string message, string title = "오류") =>
-        MessageBox.Show(this, message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+        DialogHelpers.Error(this, message, title);
 
     private void ApplyPreview(CsvDocument document, CsvImportPreview preview)
     {
