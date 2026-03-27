@@ -38,9 +38,9 @@ type ExcelExporter() =
         ws.Cell(1, 1).Style.Font.FontSize <- 16.0
 
         setText (ws.Cell(3, 1)) "시작 시간:"
-        setText (ws.Cell(3, 2)) (report.Metadata.StartTime.ToString("yyyy-MM-dd HH:mm:ss"))
+        setText (ws.Cell(3, 2)) (report.Metadata.StartTime.ToString(ReportFormats.DateTimeFormat))
         setText (ws.Cell(4, 1)) "종료 시간:"
-        setText (ws.Cell(4, 2)) (report.Metadata.EndTime.ToString("yyyy-MM-dd HH:mm:ss"))
+        setText (ws.Cell(4, 2)) (report.Metadata.EndTime.ToString(ReportFormats.DateTimeFormat))
         setText (ws.Cell(5, 1)) "총 소요 시간:"
         setText (ws.Cell(5, 2)) (report.Metadata.TotalDuration.ToString(@"hh\:mm\:ss\.fff"))
         setText (ws.Cell(6, 1)) "Work 수:"
@@ -64,7 +64,7 @@ type ExcelExporter() =
             setText (ws.Cell(row, 2)) entry.Type
             setText (ws.Cell(row, 3)) entry.Name
             setText (ws.Cell(row, 4)) entry.SystemId
-            setText (ws.Cell(row, 5)) (sprintf "%.2f" (ReportEntry.getTotalGoingTime entry))
+            setText (ws.Cell(row, 5)) (ReportFormats.fmtFloat (ReportEntry.getTotalGoingTime entry))
             setText (ws.Cell(row, 6)) (string (ReportEntry.getStateChangeCount entry))
 
             // Work 행 강조
@@ -102,9 +102,9 @@ type ExcelExporter() =
                 setText (ws.Cell(row, 5)) segment.State
                 ws.Cell(row, 5).Style.Font.FontColor <- getStateColor segment.State
                 setText (ws.Cell(row, 6)) segment.StateFullName
-                setText (ws.Cell(row, 7)) (sprintf "%.2f" startSec)
-                setText (ws.Cell(row, 8)) (sprintf "%.2f" endSec)
-                setText (ws.Cell(row, 9)) (sprintf "%.2f" duration)
+                setText (ws.Cell(row, 7)) (ReportFormats.fmtFloat startSec)
+                setText (ws.Cell(row, 8)) (ReportFormats.fmtFloat endSec)
+                setText (ws.Cell(row, 9)) (ReportFormats.fmtFloat duration)
 
                 rowNo <- rowNo + 1
                 row <- row + 1
@@ -154,7 +154,7 @@ type ExcelExporter() =
 
     interface IReportExporter with
         member _.SupportedFormat = Excel
-        member _.FileExtension = ".xlsx"
+        member _.FileExtension = ReportFormats.ExcelExt
         member _.FileFilter = "Excel 파일 (*.xlsx)|*.xlsx"
 
         member this.Export(report, options) =

@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using Microsoft.Win32;
+using Promaker.Presentation;
 
 namespace Promaker.Services;
 
@@ -50,7 +51,7 @@ public class DialogService : IDialogService
         var dialog = new SaveFileDialog
         {
             Filter = filter,
-            DefaultExt = ".sdf"
+            DefaultExt = FileExtensions.Sdf
         };
 
         if (!string.IsNullOrWhiteSpace(defaultFileName))

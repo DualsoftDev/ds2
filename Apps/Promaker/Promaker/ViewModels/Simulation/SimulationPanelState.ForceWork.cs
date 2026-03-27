@@ -9,6 +9,7 @@ using Ds2.Runtime.Sim.Engine.Core;
 using Ds2.Runtime.Sim.Model;
 using Ds2.Store;
 using Ds2.Editor;
+using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
 
@@ -73,7 +74,7 @@ public partial class SimulationPanelState
                 $"다음 Source Work의 선행 조건이 충족되지 않았습니다:\n{names}\n\n강제로 시작하시겠습니까?",
                 "선행 조건 미충족",
                 System.Windows.MessageBoxButton.YesNo,
-                "⚠",
+                DialogHelpers.IconWarn,
                 suppressKey: "source_pred_batch");
             if (answer != System.Windows.MessageBoxResult.Yes) return;
         }
@@ -182,7 +183,7 @@ public partial class SimulationPanelState
                 $"{workName}의 선행 조건이 충족되지 않았습니다.\n강제로 시작하시겠습니까?",
                 "선행 조건 미충족",
                 System.Windows.MessageBoxButton.YesNo,
-                "⚠",
+                DialogHelpers.IconWarn,
                 suppressKey: suppressKey);
             if (answer != System.Windows.MessageBoxResult.Yes) return false;
         }

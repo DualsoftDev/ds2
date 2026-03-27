@@ -59,7 +59,7 @@ public partial class SimulationPanelState
     private void UpdateSimClock()
     {
         if (_simEngine is not null)
-            SimClock = _simEngine.State.Clock.ToString(@"hh\:mm\:ss\.fff");
+            SimClock = _simEngine.State.Clock.ToString(SimText.ClockFormat);
     }
 
     private string GetSystemName(EntityKind kind, Guid entityGuid)

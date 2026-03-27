@@ -10,7 +10,7 @@ open Ds2.Runtime.Sim.Report.Templates
 type HtmlExporter() =
     interface IReportExporter with
         member _.SupportedFormat = Html
-        member _.FileExtension = ".html"
+        member _.FileExtension = ReportFormats.HtmlExt
         member _.FileFilter = "HTML 파일 (*.html)|*.html"
 
         member this.Export(report, options) =

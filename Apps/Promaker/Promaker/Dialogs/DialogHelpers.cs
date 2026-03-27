@@ -18,6 +18,11 @@ internal record GraphWarningSection(
 
 internal static class DialogHelpers
 {
+    internal const string IconWarn  = "⚠";
+    internal const string IconInfo  = "ℹ";
+    internal const string IconError = "✖";
+    internal const string IconQuestion = "?";
+
     internal static bool ShowOwnedDialog(Window dialog)
     {
         dialog.Owner = Application.Current.MainWindow;
@@ -29,19 +34,19 @@ internal static class DialogHelpers
         Warn(Application.Current.MainWindow, message);
 
     internal static void Warn(Window? owner, string message, string title = "경고") =>
-        ShowThemedMessageBox(owner, message, title, MessageBoxButton.OK, "⚠");
+        ShowThemedMessageBox(owner, message, title, MessageBoxButton.OK, IconWarn);
 
     internal static void Info(string message) =>
         Info(Application.Current.MainWindow, message);
 
     internal static void Info(Window? owner, string message, string title = "알림") =>
-        ShowThemedMessageBox(owner, message, title, MessageBoxButton.OK, "ℹ");
+        ShowThemedMessageBox(owner, message, title, MessageBoxButton.OK, IconInfo);
 
     internal static void Error(Window? owner, string message, string title = "오류") =>
-        ShowThemedMessageBox(owner, message, title, MessageBoxButton.OK, "✖");
+        ShowThemedMessageBox(owner, message, title, MessageBoxButton.OK, IconError);
 
     internal static bool Confirm(Window? owner, string message, string title) =>
-        ShowThemedMessageBox(owner, message, title, MessageBoxButton.YesNo, "?") == MessageBoxResult.Yes;
+        ShowThemedMessageBox(owner, message, title, MessageBoxButton.YesNo, IconQuestion) == MessageBoxResult.Yes;
 
     internal static string? PromptName(string title, string defaultName)
     {
@@ -168,7 +173,7 @@ internal static class DialogHelpers
 
         var iconBlock = new TextBlock
         {
-            Text = "⚠",
+            Text = IconWarn,
             FontSize = 28,
             Foreground = Brushes.Gold,
             VerticalAlignment = VerticalAlignment.Top,

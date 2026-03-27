@@ -7,7 +7,7 @@
 [![F#](https://img.shields.io/badge/F%23-Core_Engine-378BBA?logo=fsharp&logoColor=white)](https://fsharp.org/)
 [![C#](https://img.shields.io/badge/C%23-WPF_UI-239120?logo=csharp&logoColor=white)](https://learn.microsoft.com/dotnet/csharp/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-199_passing-brightgreen)](#빌드-및-테스트)
+[![Tests](https://img.shields.io/badge/Tests-249_passing-brightgreen)](#빌드-및-테스트)
 
 ---
 
@@ -274,7 +274,7 @@ graph TD
     style Tests fill:#fce4ec,stroke:#ef9a9a
 ```
 
-테스트 합계: **199개** (20 Core + 120 Store.Editor + 13 Integration + 28 Mermaid + 18 Promaker)
+테스트 합계: **249개** (21 Core + 140 Store.Editor + 13 Integration + 21 Mermaid + 54 Promaker)
 
 ---
 
@@ -519,11 +519,11 @@ graph TD
 
 | 프로젝트 | 역할 | 테스트 수 |
 |---------|------|:--------:|
-| `Ds2.Core.Tests` | Core 엔티티/DeepCopy/ValueSpec/JSON 단위 테스트 | 20 |
-| `Ds2.Store.Editor.Tests` | DsStore CRUD/Undo/Redo/캐스케이드/복사붙여넣기/패널/Projection/조건 테스트 | 120 |
+| `Ds2.Core.Tests` | Core 엔티티/DeepCopy/ValueSpec/JSON 단위 테스트 | 21 |
+| `Ds2.Store.Editor.Tests` | DsStore CRUD/Undo/Redo/캐스케이드/복사붙여넣기/패널/Projection/조건 테스트 | 140 |
 | `Ds2.Integration.Tests` | 통합 시나리오 테스트 (AASX 라운드트립 + Device 분리 저장) | 13 |
-| `Ds2.Mermaid.Tests` | Mermaid 파서/매퍼/Undo 검증 | 28 |
-| `Promaker.Tests` | Promaker ViewModel/시뮬레이션 테스트 | 18 |
+| `Ds2.Mermaid.Tests` | Mermaid 파서/매퍼/Undo 검증 | 21 |
+| `Promaker.Tests` | Promaker ViewModel/시뮬레이션 테스트 | 54 |
 
 </details>
 

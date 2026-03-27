@@ -6,6 +6,7 @@ using System.Linq;
 using System.Windows;
 using Ds2.Core;
 using Microsoft.Win32;
+using Promaker.Presentation;
 
 namespace Promaker.Dialogs;
 
@@ -64,7 +65,7 @@ public partial class TokenSpecDialog : Window
         {
             Title = "CSV 파일 불러오기",
             Filter = "CSV Files|*.csv|All Files|*.*",
-            DefaultExt = ".csv"
+            DefaultExt = FileExtensions.Csv
         };
         if (dlg.ShowDialog(this) != true) return;
 

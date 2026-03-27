@@ -18,7 +18,7 @@ module private CsvHelper =
 type CsvExporter() =
     interface IReportExporter with
         member _.SupportedFormat = Csv
-        member _.FileExtension = ".csv"
+        member _.FileExtension = ReportFormats.CsvExt
         member _.FileFilter = "CSV 파일 (*.csv)|*.csv"
 
         member this.Export(report, options) =
@@ -53,7 +53,7 @@ type CsvExporter() =
 type CsvSummaryExporter() =
     interface IReportExporter with
         member _.SupportedFormat = CsvSummary
-        member _.FileExtension = ".csv"
+        member _.FileExtension = ReportFormats.CsvExt
         member _.FileFilter = "요약 CSV 파일 (*.csv)|*.csv"
 
         member this.Export(report, options) =
