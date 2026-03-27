@@ -884,6 +884,10 @@ else
             {
                 _flowHistory = await DspRepository.GetFlowHistoryByDaysAsync(flowName, filter.MaxDays);
             }
+            else if (filter.FilterMode == "StartTime" && filter.StartTime.HasValue)
+            {
+                _flowHistory = await DspRepository.GetFlowHistoryByStartTimeAsync(flowName, filter.StartTime.Value);
+            }
             else
             {
                 // None: 제한 없이 로드 (안전 상한 10000)

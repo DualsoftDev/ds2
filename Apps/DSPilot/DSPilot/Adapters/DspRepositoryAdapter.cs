@@ -206,6 +206,13 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
         return fsharpList.Select(ToCSharpFlowHistoryEntity).ToList();
     }
 
+    public async Task<List<Models.Dsp.DspFlowHistoryEntity>> GetFlowHistoryByStartTimeAsync(string flowName, DateTime startTime)
+    {
+        if (!_enabled) return new List<Models.Dsp.DspFlowHistoryEntity>();
+        var fsharpList = await DSPilot.Engine.DspRepository.getFlowHistoryByStartTimeAsync(_paths, _logger, flowName, startTime);
+        return fsharpList.Select(ToCSharpFlowHistoryEntity).ToList();
+    }
+
     public async Task<int> ClearFlowHistoryAsync()
     {
         if (!_enabled) return 0;
