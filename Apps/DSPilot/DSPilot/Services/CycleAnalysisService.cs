@@ -125,6 +125,28 @@ public class CycleAnalysisService
     }
 
     /// <summary>
+    /// 최근 사이클의 시작시간만 빠르게 조회 (프로세스 순서 결정용 경량 버전).
+    /// DB에서 최근 2개 rising edge만 가져오므로 전체 로그 스캔 불필요.
+    /// </summary>
+    public async Task<DateTime?> GetLatestCycleStartTimeAsync(string flowName)
+    {
+        var flow = GetFlowByName(flowName);
+        if (flow == null) return null;
+
+        var headCall = GetHeadCall(flow);
+        if (headCall == null) return null;
+
+        var tags = _mapperService.GetCallTagsByCallId(headCall.Id);
+        if (!tags.HasValue || string.IsNullOrEmpty(tags.Value.InTag)) return null;
+
+        // 최근 2개 rising edge만 조회 (1개 사이클 = 2개 경계)
+        var edges = await _plcRepository.FindRecentRisingEdgesAsync(tags.Value.InTag, 2);
+        if (edges.Count < 2) return null;
+
+        return edges[0]; // 가장 최근 완료 사이클의 시작시간
+    }
+
+    /// <summary>
     /// 사이클 요약 정보 계산 (경량 버전)
     /// </summary>
     private async Task<CycleSummary> CalculateCycleSummaryAsync(CycleBoundary boundary)

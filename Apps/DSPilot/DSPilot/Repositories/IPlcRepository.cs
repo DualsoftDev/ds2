@@ -116,6 +116,11 @@ public interface IPlcRepository
         string address, DateTime startTime, DateTime endTime);
 
     /// <summary>
+    /// 특정 태그의 최근 N개 Rising Edge (0→1) 시점만 빠르게 조회 (최신순)
+    /// </summary>
+    Task<List<DateTime>> FindRecentRisingEdgesAsync(string address, int count);
+
+    /// <summary>
     /// 특정 태그의 최근 N개 로그 조회
     /// </summary>
     Task<List<PlcTagLogEntity>> GetTagLogsAsync(string tagAddress, int count);

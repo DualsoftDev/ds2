@@ -562,6 +562,50 @@ ORDER BY DateTime ASC, Id ASC";
     }
 
 
+    public async Task<List<DateTime>> FindRecentRisingEdgesAsync(string address, int count)
+    {
+        using var connection = CreateConnection();
+
+        // 최신 로그부터 역순으로 스캔하여 최근 N개 rising edge만 빠르게 조회
+        // 서브쿼리로 해당 태그의 최근 로그만 제한적으로 읽어 전체 테이블 스캔 방지
+        var sql = $@"
+WITH recent_logs AS (
+    SELECT
+        l.Id AS Id,
+        l.DateTime AS DateTime,
+        CASE
+            WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+            ELSE '0'
+        END AS NormalizedValue,
+        LAG(
+            CASE
+                WHEN lower(trim(coalesce(l.Value, ''))) IN ('1', 'true', 'on') THEN '1'
+                ELSE '0'
+            END
+        ) OVER (ORDER BY l.DateTime ASC, l.Id ASC) AS PreviousNormalizedValue
+    FROM plcTagLog l
+    INNER JOIN plcTag t ON l.PlcTagId = t.Id
+    WHERE t.Address = @Address
+),
+edges AS (
+    SELECT DateTime
+    FROM recent_logs
+    WHERE coalesce(PreviousNormalizedValue, '0') = '0'
+      AND NormalizedValue = '1'
+    ORDER BY DateTime DESC
+    LIMIT @Count
+)
+SELECT DateTime FROM edges ORDER BY DateTime ASC";
+
+        var rows = await connection.QueryAsync<PlcTagDateTimeRow>(sql, new
+        {
+            Address = address,
+            Count = count
+        });
+
+        return rows.Select(row => ParseSqliteDateTime(row.DateTime)).ToList();
+    }
+
     private static DateTime ParseSqliteDateTime(string value)
     {
         var fsharpOption = QueryHelpers.fromSqliteUtcString(value);
