@@ -328,26 +328,26 @@
             <div class="grid" style="gap:12px; grid-template-columns: repeat(4, 1fr);">
                 <div class="heatmap-detail-card @SelectedCall.ColorClassAvg">
                     <div class="typo-overline" style="color:inherit; opacity:0.85;">평균 시간</div>
-                    <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.AverageGoingTime:F0}") ms</div>
+                    <div style="font-size:1.25rem; font-weight:700;">@FormatMs(ChartCount > 0 ? ChartAvgMs : SelectedCall.AverageGoingTime)</div>
                     <div class="typo-caption" style="color:inherit; opacity:0.7;">낮을수록 빠름</div>
                 </div>
                 <div class="heatmap-detail-card @SelectedCall.ColorClassStdDev">
                     <div class="typo-overline" style="color:inherit; opacity:0.85;">표준편차</div>
-                    <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.StdDevGoingTime:F0}") ms</div>
+                    <div style="font-size:1.25rem; font-weight:700;">@FormatMs(ChartCount > 0 ? ChartStdDevMs : SelectedCall.StdDevGoingTime)</div>
                     <div class="typo-caption" style="color:inherit; opacity:0.7;">낮을수록 안정적</div>
                 </div>
                 <div class="heatmap-detail-card @SelectedCall.ColorClassCV">
                     <div class="typo-overline" style="color:inherit; opacity:0.85;">변동계수</div>
-                    <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.CoefficientOfVariation:F2}")</div>
+                    <div style="font-size:1.25rem; font-weight:700;">@($"{(ChartCount > 0 ? ChartCV : SelectedCall.CoefficientOfVariation):F2}")</div>
                     <div class="typo-caption" style="color:inherit; opacity:0.7;">
-                        @GetCVStatusText(SelectedCall.CoefficientOfVariation)
+                        @GetCVStatusText(ChartCount > 0 ? ChartCV : SelectedCall.CoefficientOfVariation)
                     </div>
                 </div>
                 <div class="heatmap-detail-card" style="background:linear-gradient(135deg, #475569, #64748b);">
                     <div class="typo-overline" style="color:inherit; opacity:0.85;">실행횟수</div>
-                    <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.GoingCount}")회</div>
+                    <div style="font-size:1.25rem; font-weight:700;">@(ChartCount > 0 ? ChartCount : SelectedCall.GoingCount)회</div>
                     <div class="typo-caption" style="color:inherit; opacity:0.7;">
-                        @GetGoingCountStatusText(SelectedCall.GoingCount)
+                        @GetGoingCountStatusText(ChartCount > 0 ? ChartCount : SelectedCall.GoingCount)
                     </div>
                 </div>
             </div>
@@ -409,6 +409,14 @@
     // 차트
     private List<CallExecutionRecord> CallExecutionHistory { get; set; } = new();
     private bool IsChartLoading { get; set; } = false;
+
+    // 차트 데이터 기반 통계 (PLC 로그 실측값)
+    private double ChartAvgMs => CallExecutionHistory.Count > 0
+        ? CallExecutionHistory.Average(r => r.GoingTimeMs) : 0;
+    private double ChartStdDevMs => CallExecutionHistory.Count > 0
+        ? Math.Sqrt(CallExecutionHistory.Average(r => Math.Pow(r.GoingTimeMs - ChartAvgMs, 2))) : 0;
+    private double ChartCV => ChartAvgMs > 0 ? ChartStdDevMs / ChartAvgMs : 0;
+    private int ChartCount => CallExecutionHistory.Count;
 
     // 정렬
     private enum SortField { CallName, WorkName, AvgTime, StdDev, CV }
@@ -679,6 +687,15 @@
         if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
             return "\"" + value.Replace("\"", "\"\"") + "\"";
         return value;
+    }
+
+    private static string FormatMs(double ms)
+    {
+        if (ms <= 0) return "0s";
+        if (ms < 1_000) return $"{ms:F0}ms";
+        if (ms < 60_000) return $"{ms / 1000.0:F1}s";
+        if (ms < 3_600_000) return $"{(int)(ms / 60000)}m {(int)(ms % 60000 / 1000)}s";
+        return $"{(int)(ms / 3_600_000)}h {(int)(ms % 3_600_000 / 60000)}m";
     }
 
     private sealed record WorkHeatmapGroup(string WorkName, List<CallHeatmapItem> Calls);
