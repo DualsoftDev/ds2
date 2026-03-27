@@ -531,7 +531,8 @@
                 await JS.InvokeVoidAsync("renderCallHistoryChart",
                     "callHistoryChart",
                     chartData,
-                    call.AverageGoingTime);
+                    call.AverageGoingTime,
+                    call.StdDevGoingTime);
             }
         }
         catch (Exception ex)
