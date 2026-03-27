@@ -12,15 +12,22 @@ public partial class PropertyPanelState
     [RelayCommand]
     private void ApplyCallTimeout()
     {
-        if (!TryRunCallMutation(
-                callId => Store.UpdateCallTimeoutMs(callId, CallTimeoutMs),
-                "Call timeout updated.",
-                _ =>
-                {
-                    _originalCallTimeoutMs = CallTimeoutMs;
-                    IsCallTimeoutDirty = false;
-                }))
+        var selectedCallIds = GetSelectedCallIds();
+        if (selectedCallIds.Count == 0)
             return;
+
+        var changeValue = CallTimeoutMs;
+        var changes = selectedCallIds.Select(callId => new ValueTuple<Guid, int?>(callId, changeValue)).ToList();
+
+        if (!_host.TryAction(() => Store.UpdateCallTimeoutsBatch(changes)))
+            return;
+
+        _originalCallTimeoutMs = CallTimeoutMs;
+        IsCallTimeoutDirty = false;
+        _host.SetStatusText(selectedCallIds.Count > 1
+            ? $"Call timeout updated for {selectedCallIds.Count} items."
+            : "Call timeout updated.");
+        Refresh();
     }
 
     [RelayCommand]

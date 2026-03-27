@@ -21,10 +21,28 @@ type EventDrivenEngine(index: SimIndex) =
     let mutable engineThread: Thread option = None
     let mutable cts: CancellationTokenSource option = None
     let processGate = obj()
+    let engineThreadJoinTimeoutMs = 1000
 
     let disposeCurrentCts () =
         cts |> Option.iter (fun c -> c.Dispose())
         cts <- None
+
+    let clearDeadEngineThreadReference () =
+        match engineThread with
+        | Some thread ->
+            if not thread.IsAlive then
+                engineThread <- None
+        | _ -> ()
+
+    let ensureEngineThreadExited operationName =
+        clearDeadEngineThreadReference ()
+        match engineThread with
+        | None -> ()
+        | Some thread when thread.Join(engineThreadJoinTimeoutMs) ->
+            engineThread <- None
+        | Some _ ->
+            raise (InvalidOperationException(
+                $"EventDrivenEngine thread did not exit within {engineThreadJoinTimeoutMs}ms during {operationName}."))
 
     let stateManager = StateManager(index, index.TickMs)
 
@@ -255,6 +273,7 @@ type EventDrivenEngine(index: SimIndex) =
 
     member this.Start() =
         if Volatile.Read(&status) = Running then () else
+        ensureEngineThreadExited "Start"
         let prev = Volatile.Read(&status)
         Volatile.Write(&status, Running)
         simulationStatusChangedEvent.Trigger({ PreviousStatus = prev; NewStatus = Running })
@@ -271,8 +290,7 @@ type EventDrivenEngine(index: SimIndex) =
 
     member _.Resume() =
         if Volatile.Read(&status) = Paused then
-            // 이전 스레드가 while 탈출 후 종료될 때까지 대기
-            engineThread |> Option.iter (fun t -> t.Join(1000) |> ignore)
+            ensureEngineThreadExited "Resume"
             disposeCurrentCts()
             Volatile.Write(&status, Running)
             simulationStatusChangedEvent.Trigger({ PreviousStatus = Paused; NewStatus = Running })
@@ -285,7 +303,7 @@ type EventDrivenEngine(index: SimIndex) =
             let prev = Volatile.Read(&status)
             Volatile.Write(&status, Stopped)
             cts |> Option.iter (fun c -> c.Cancel())
-            engineThread |> Option.iter (fun t -> t.Join(1000) |> ignore)
+            ensureEngineThreadExited "Stop"
             disposeCurrentCts()
             engineThread <- None
             simulationStatusChangedEvent.Trigger({ PreviousStatus = prev; NewStatus = Stopped })

@@ -73,7 +73,7 @@ public partial class IoBatchSettingsDialog : Window
         var selectedRows = _rows.Where(row => row.IsSelected).ToList();
         if (selectedRows.Count == 0)
         {
-            MessageBox.Show(this, "먼저 하나 이상의 행을 선택하세요.", "I/O 일괄 편집", MessageBoxButton.OK, MessageBoxImage.Information);
+            DialogHelpers.Info(this, "먼저 하나 이상의 행을 선택하세요.", "I/O 일괄 편집");
             return;
         }
 

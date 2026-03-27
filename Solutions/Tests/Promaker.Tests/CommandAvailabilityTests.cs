@@ -120,6 +120,7 @@ public sealed class CommandAvailabilityTests
 
             vm.Selection.SelectNodeFromCanvas(work2Node, ctrlPressed: true, shiftPressed: false);
             Assert.True(vm.ConnectSelectedNodesCommand.CanExecute(null));
+            Assert.False(vm.FocusNameEditorCommand.CanExecute(null));
         });
     }
 

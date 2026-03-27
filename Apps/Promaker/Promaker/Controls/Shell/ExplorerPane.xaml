@@ -113,6 +113,7 @@
                                   ItemsSource="{Binding ControlTreeRoots}"
                                   SelectedItemChanged="Tree_SelectedItemChanged"
                                   PreviewMouseDown="Tree_PreviewMouseDown"
+                                  PreviewKeyDown="Tree_PreviewKeyDown"
                                   ContextMenuOpening="Tree_ContextMenuOpening">
                             <TreeView.ItemContainerStyle>
                                 <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
@@ -131,6 +132,7 @@
                                   ItemsSource="{Binding DeviceTreeRoots}"
                                   SelectedItemChanged="Tree_SelectedItemChanged"
                                   PreviewMouseDown="Tree_PreviewMouseDown"
+                                  PreviewKeyDown="Tree_PreviewKeyDown"
                                   ContextMenuOpening="Tree_ContextMenuOpening">
                             <TreeView.ItemContainerStyle>
                                 <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
