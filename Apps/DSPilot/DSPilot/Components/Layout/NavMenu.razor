@@ -8,12 +8,11 @@
 <nav class="nav-menu">
     <div style="display:flex; align-items:center; border-radius:4px;
                 background: @(_isHome ? "rgba(var(--color-primary-rgb), 0.15)" : "transparent");">
-        <a class="nav-link @(_isHome ? "active" : "")" href=""
-           @onclick="@(() => Nav.NavigateTo("/"))" @onclick:preventDefault
-           style="flex:1; min-width:0; background: transparent !important;">
+        <NavLink class="nav-link" href="" Match="NavLinkMatch.All"
+                 style="flex:1; min-width:0; background: transparent !important;">
             <span class="material-icons">space_dashboard</span>
             대시보드
-        </a>
+        </NavLink>
         <button class="btn btn-sm @(EditService.IsEditing ? "btn-filled color-warning" : "btn-outlined")"
                 @onclick="EditService.Toggle"
                 style="margin:0 6px; padding:0 10px; min-width:0; font-size:11px; height:28px; border-radius:6px; flex-shrink:0;">
@@ -21,24 +20,21 @@
             @(EditService.IsEditing ? "완료" : "편집")
         </button>
     </div>
-    <a class="nav-link @(IsNavActive("/heatmap"))" href="heatmap"
-       @onclick="@(() => Nav.NavigateTo("/heatmap"))" @onclick:preventDefault>
+    <NavLink class="nav-link" href="heatmap" Match="NavLinkMatch.Prefix">
         <span class="material-icons">gradient</span>
         동작편차
-    </a>
-    <a class="nav-link @(IsNavActive("/cycle-time-analysis"))" href="cycle-time-analysis"
-       @onclick="@(() => Nav.NavigateTo("/cycle-time-analysis"))" @onclick:preventDefault>
+    </NavLink>
+    <NavLink class="nav-link" href="cycle-time-analysis" Match="NavLinkMatch.Prefix">
         <span class="material-icons">timeline</span>
         사이클 분석
-    </a>
+    </NavLink>
 
     @if (_showPlcDebug)
     {
-        <a class="nav-link @(IsNavActive("/plc-debug"))" href="plc-debug"
-           @onclick="@(() => Nav.NavigateTo("/plc-debug"))" @onclick:preventDefault>
+        <NavLink class="nav-link" href="plc-debug" Match="NavLinkMatch.Prefix">
             <span class="material-icons">bug_report</span>
             PLC 디버그
-        </a>
+        </NavLink>
     }
 
     <hr class="divider" style="margin: 8px 0;" />
@@ -123,12 +119,6 @@
     {
         _selectedFlow = flowName;
         Nav.NavigateTo($"/flow?name={Uri.EscapeDataString(flowName)}");
-    }
-
-    private string IsNavActive(string path)
-    {
-        var relativePath = "/" + Nav.ToBaseRelativePath(Nav.Uri);
-        return relativePath.StartsWith(path, StringComparison.OrdinalIgnoreCase) ? "active" : "";
     }
 
     private void UpdateLocationState(string location)
