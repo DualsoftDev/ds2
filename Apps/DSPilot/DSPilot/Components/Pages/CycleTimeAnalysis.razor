@@ -106,8 +106,8 @@
             </div>
             @if (_topGaps.Any())
             {
-                <div style="display:flex;align-items:center;gap:10px;margin-left:12px;">
-                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:white;font-size:13px;">
+                <div class="gantt-info-controls">
+                    <label class="gantt-info-label">
                         <input type="checkbox" @bind="_showGapOverlay" /> GAP
                     </label>
                     <select class="form-field gap-picker-select" value="@_selectedGapIndex" @onchange="OnGapSelectedChanged"
@@ -119,15 +119,14 @@
                             <option value="@i">@label</option>
                         }
                     </select>
-                    <span style="color:rgba(255,255,255,0.3);margin:0 2px;">|</span>
-                    <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:white;font-size:13px;">
+                    <span class="gantt-info-separator">|</span>
+                    <label class="gantt-info-label">
                         <input type="checkbox" @bind="_showCycleTimeOverlay" /> Cycle Time
                     </label>
-                    <span style="font-size:11px;color:rgba(255,255,255,0.5);">신호 클릭 시 동일 신호의 다음 발생까지 표시</span>
+                    <span class="gantt-info-hint">신호 클릭 시 동일 신호의 다음 발생까지 표시</span>
                 </div>
             }
-            <button class="btn btn-sm" @onclick="ExportCsv"
-                    style="margin-left:auto;background:rgba(255,255,255,0.15);color:white;border:1px solid rgba(255,255,255,0.3);white-space:nowrap;">
+            <button class="btn btn-sm gantt-info-export" @onclick="ExportCsv">
                 CSV 내보내기
             </button>
         </div>
@@ -201,7 +200,7 @@
         <div class="empty-state">
             <span class="material-icons">search_off</span>
             <p>선택한 시간 범위에 분석할 데이터가 없습니다</p>
-            <p style="font-size:0.85rem;color:#94a3b8;">시간 범위를 변경하거나 프리셋 버튼을 사용해 보세요</p>
+            <p class="empty-state-hint">시간 범위를 변경하거나 프리셋 버튼을 사용해 보세요</p>
         </div>
     }
     else
@@ -848,7 +847,6 @@
         builder.AddAttribute(6, "class", "gantt-bg");
         builder.AddAttribute(7, "width", "100%");
         builder.AddAttribute(8, "height", "100%");
-        builder.AddAttribute(9, "fill", "#fafafa");
         builder.CloseElement();
 
         // Time axis
@@ -867,9 +865,6 @@
             builder.AddAttribute(23, "y", y);
             builder.AddAttribute(24, "width", plotWidth);
             builder.AddAttribute(25, "height", laneHeight);
-            builder.AddAttribute(26, "fill", displayLane % 2 == 0 ? "#ffffff" : "#f5f5f5");
-            builder.AddAttribute(27, "stroke", "#e0e0e0");
-            builder.AddAttribute(28, "stroke-width", "1");
             builder.CloseElement();
 
             builder.OpenElement(29, "line");
@@ -878,8 +873,6 @@
             builder.AddAttribute(32, "y1", y + (laneHeight / 2));
             builder.AddAttribute(33, "x2", leftMargin + plotWidth);
             builder.AddAttribute(34, "y2", y + (laneHeight / 2));
-            builder.AddAttribute(35, "stroke", "#eceff1");
-            builder.AddAttribute(36, "stroke-width", "1");
             builder.CloseElement();
 
             // Lane label
@@ -891,7 +884,6 @@
             builder.AddAttribute(42, "dominant-baseline", "middle");
             builder.AddAttribute(43, "font-size", "12");
             builder.AddAttribute(44, "font-weight", "600");
-            builder.AddAttribute(45, "fill", "#333");
             builder.AddContent(46, lane >= 0 && lane < data.LaneLabels.Count ? data.LaneLabels[lane] : $"Lane {lane}");
             builder.CloseElement();
 
@@ -902,7 +894,6 @@
             builder.AddAttribute(51, "text-anchor", "end");
             builder.AddAttribute(52, "dominant-baseline", "middle");
             builder.AddAttribute(53, "font-size", "10");
-            builder.AddAttribute(54, "fill", "#78909c");
             builder.AddContent(55, "IN / OUT");
             builder.CloseElement();
         }
@@ -921,9 +912,6 @@
             builder.AddAttribute(43, "y", topMargin);
             builder.AddAttribute(44, "width", gapWidth);
             builder.AddAttribute(45, "height", data.TotalLanes * laneHeight);
-            builder.AddAttribute(46, "fill", "rgba(255, 0, 0, 0.1)");
-            builder.AddAttribute(47, "stroke", "rgba(255, 0, 0, 0.5)");
-            builder.AddAttribute(48, "stroke-width", "2");
             builder.AddAttribute(49, "stroke-dasharray", "5,5");
             builder.CloseElement();
 
@@ -935,7 +923,6 @@
             builder.AddAttribute(54, "text-anchor", "middle");
             builder.AddAttribute(55, "font-size", "11");
             builder.AddAttribute(56, "font-weight", "bold");
-            builder.AddAttribute(57, "fill", "#d32f2f");
             builder.AddContent(58, $"최대 GAP: {(_longestGap.Value.Duration / 1000.0):F2}s");
             builder.CloseElement();
         }
@@ -962,31 +949,26 @@
             builder.AddAttribute(103, "y", topMargin);
             builder.AddAttribute(104, "width", ctWidth);
             builder.AddAttribute(105, "height", data.TotalLanes * laneHeight);
-            builder.AddAttribute(106, "fill", "rgba(76, 175, 80, 0.08)");
-            builder.AddAttribute(107, "stroke", "rgba(76, 175, 80, 0.5)");
-            builder.AddAttribute(108, "stroke-width", "2");
             builder.AddAttribute(109, "stroke-dasharray", "6,3");
             builder.CloseElement();
 
             // 시작 경계선
             builder.OpenElement(110, "line");
-            builder.AddAttribute(111, "x1", ctX);
-            builder.AddAttribute(112, "y1", topMargin);
-            builder.AddAttribute(113, "x2", ctX);
-            builder.AddAttribute(114, "y2", topMargin + (data.TotalLanes * laneHeight));
-            builder.AddAttribute(115, "stroke", "#4caf50");
-            builder.AddAttribute(116, "stroke-width", "2");
+            builder.AddAttribute(111, "class", "gantt-cycletime-start");
+            builder.AddAttribute(112, "x1", ctX);
+            builder.AddAttribute(113, "y1", topMargin);
+            builder.AddAttribute(114, "x2", ctX);
+            builder.AddAttribute(115, "y2", topMargin + (data.TotalLanes * laneHeight));
             builder.CloseElement();
 
             // 종료 경계선
             var ctEndX = ctX + ctWidth;
             builder.OpenElement(120, "line");
-            builder.AddAttribute(121, "x1", ctEndX);
-            builder.AddAttribute(122, "y1", topMargin);
-            builder.AddAttribute(123, "x2", ctEndX);
-            builder.AddAttribute(124, "y2", topMargin + (data.TotalLanes * laneHeight));
-            builder.AddAttribute(125, "stroke", "#ff9800");
-            builder.AddAttribute(126, "stroke-width", "2");
+            builder.AddAttribute(121, "class", "gantt-cycletime-end");
+            builder.AddAttribute(122, "x1", ctEndX);
+            builder.AddAttribute(123, "y1", topMargin);
+            builder.AddAttribute(124, "x2", ctEndX);
+            builder.AddAttribute(125, "y2", topMargin + (data.TotalLanes * laneHeight));
             builder.CloseElement();
 
             // Cycle Time 라벨
@@ -997,7 +979,6 @@
             builder.AddAttribute(134, "text-anchor", "middle");
             builder.AddAttribute(135, "font-size", "12");
             builder.AddAttribute(136, "font-weight", "bold");
-            builder.AddAttribute(137, "fill", "#2e7d32");
             builder.AddContent(138, $"Cycle Time: {(ctDuration / 1000.0):F2}s");
             builder.CloseElement();
         }
@@ -1018,17 +999,7 @@
             var isComparison = _comparisonItem == item;
             var isPrevious = _previousItem == item;
             var isNext = _nextItem == item;
-            var fillColor = item.EventType == IOEventType.InTag ? "#42a5f5" : "#f8a8c8";
-            var strokeColor = isSelected
-                ? "#ff9800"
-                : isComparison
-                    ? "#8b5cf6"
-                    : isPrevious
-                    ? "#ff9800"
-                    : isNext
-                        ? "#26a69a"
-                        : (item.EventType == IOEventType.InTag ? "#1e88e5" : "#e58ab0");
-            var strokeWidth = (isSelected || isComparison) ? "3" : (isPrevious || isNext ? "2" : "1");
+            var isHighlighted = isSelected || isComparison || isPrevious || isNext;
             var eventLabel = item.EventType == IOEventType.InTag ? "InTag" : "OutTag";
             var endLabel = item.FinishTime?.ToString("HH:mm:ss.fff") ?? "진행중";
             var tooltipText = string.Join("\n", new[]
@@ -1057,15 +1028,11 @@
             builder.AddAttribute(68, "y", y);
             builder.AddAttribute(69, "width", width);
             builder.AddAttribute(70, "height", barHeight);
-            builder.AddAttribute(71, "fill", fillColor);
-            if (isSelected || isComparison || isPrevious || isNext)
+            if (isHighlighted)
             {
+                var strokeColor = isSelected || isPrevious ? "#ff9800" : isComparison ? "#8b5cf6" : "#26a69a";
+                var strokeWidth = (isSelected || isComparison) ? "3" : "2";
                 builder.AddAttribute(72, "style", $"stroke: {strokeColor}; stroke-width: {strokeWidth};");
-            }
-            else
-            {
-                builder.AddAttribute(72, "stroke", strokeColor);
-                builder.AddAttribute(73, "stroke-width", strokeWidth);
             }
             builder.AddAttribute(74, "rx", "4");
             builder.CloseElement();
@@ -1074,12 +1041,12 @@
             if (width > 30)
             {
                 builder.OpenElement(74, "text");
-                builder.AddAttribute(75, "x", x + (width / 2));
-                builder.AddAttribute(76, "y", y + (barHeight / 2));
-                builder.AddAttribute(77, "text-anchor", "middle");
-                builder.AddAttribute(78, "dominant-baseline", "middle");
-                builder.AddAttribute(79, "font-size", "10");
-                builder.AddAttribute(80, "fill", "white");
+                builder.AddAttribute(75, "class", "gantt-bar-label");
+                builder.AddAttribute(76, "x", x + (width / 2));
+                builder.AddAttribute(77, "y", y + (barHeight / 2));
+                builder.AddAttribute(78, "text-anchor", "middle");
+                builder.AddAttribute(79, "dominant-baseline", "middle");
+                builder.AddAttribute(80, "font-size", "10");
                 builder.AddAttribute(81, "style", "pointer-events: none;");
                 builder.AddContent(82, item.EventType == IOEventType.InTag ? "In" : "Out");
                 builder.CloseElement();
@@ -1098,8 +1065,8 @@
         builder.AddAttribute(826, "refY", "3");
         builder.AddAttribute(827, "orient", "auto");
         builder.OpenElement(828, "polygon");
-        builder.AddAttribute(829, "points", "0 0, 10 3, 0 6");
-        builder.AddAttribute(830, "fill", "#ff9800");
+        builder.AddAttribute(829, "class", "gantt-arrow-orange");
+        builder.AddAttribute(830, "points", "0 0, 10 3, 0 6");
         builder.CloseElement();
         builder.CloseElement();
 
@@ -1111,8 +1078,8 @@
         builder.AddAttribute(836, "refY", "3");
         builder.AddAttribute(837, "orient", "auto");
         builder.OpenElement(838, "polygon");
-        builder.AddAttribute(839, "points", "0 0, 10 3, 0 6");
-        builder.AddAttribute(840, "fill", "#26a69a");
+        builder.AddAttribute(839, "class", "gantt-arrow-teal");
+        builder.AddAttribute(840, "points", "0 0, 10 3, 0 6");
         builder.CloseElement();
         builder.CloseElement();
 
@@ -1124,8 +1091,8 @@
         builder.AddAttribute(846, "refY", "3");
         builder.AddAttribute(847, "orient", "auto");
         builder.OpenElement(848, "polygon");
-        builder.AddAttribute(849, "points", "0 0, 10 3, 0 6");
-        builder.AddAttribute(850, "fill", "#8b5cf6");
+        builder.AddAttribute(849, "class", "gantt-arrow-purple");
+        builder.AddAttribute(850, "points", "0 0, 10 3, 0 6");
         builder.CloseElement();
         builder.CloseElement();
 
@@ -1147,8 +1114,6 @@
         builder.AddAttribute(sequence++, "y1", topMargin - 5);
         builder.AddAttribute(sequence++, "x2", leftMargin + plotWidth);
         builder.AddAttribute(sequence++, "y2", topMargin - 5);
-        builder.AddAttribute(sequence++, "stroke", "#333");
-        builder.AddAttribute(sequence++, "stroke-width", "2");
         builder.CloseElement();
 
         // Ticks and labels
@@ -1164,8 +1129,6 @@
             builder.AddAttribute(sequence++, "y1", topMargin - 5);
             builder.AddAttribute(sequence++, "x2", x);
             builder.AddAttribute(sequence++, "y2", topMargin - 10);
-            builder.AddAttribute(sequence++, "stroke", "#333");
-            builder.AddAttribute(sequence++, "stroke-width", "1");
             builder.CloseElement();
 
             // Tick label
@@ -1175,7 +1138,6 @@
             builder.AddAttribute(sequence++, "y", topMargin - 15);
             builder.AddAttribute(sequence++, "text-anchor", "middle");
             builder.AddAttribute(sequence++, "font-size", "10");
-            builder.AddAttribute(sequence++, "fill", "#666");
             builder.AddContent(sequence++, tickTime.ToString("HH:mm:ss"));
             builder.CloseElement();
         }
@@ -1265,15 +1227,13 @@
         builder.CloseElement();
 
         builder.OpenElement(seq++, "rect");
+        builder.AddAttribute(seq++, "class", "gantt-connector-bg");
         builder.AddAttribute(seq++, "x", boxX);
         builder.AddAttribute(seq++, "y", midY - 14);
         builder.AddAttribute(seq++, "width", boxWidth);
         builder.AddAttribute(seq++, "height", 22);
-        builder.AddAttribute(seq++, "class", "gantt-connector-bg");
         builder.AddAttribute(seq++, "rx", "11");
-        builder.AddAttribute(seq++, "fill", "rgba(255,255,255,0.92)");
-        builder.AddAttribute(seq++, "stroke", color);
-        builder.AddAttribute(seq++, "stroke-width", "1");
+        builder.AddAttribute(seq++, "style", $"stroke: {color}; stroke-width: 1;");
         builder.CloseElement();
 
         builder.OpenElement(seq++, "text");

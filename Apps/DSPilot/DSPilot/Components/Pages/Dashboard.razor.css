@@ -220,6 +220,14 @@
     flex: 1;
     min-width: 0;
 }
+.ct-process-number {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-primary);
+    min-width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+}
 /* 2줄: 바 + 시간 */
 .ct-row-footer {
     display: flex;
@@ -499,9 +507,6 @@
 .ct-popup-history-list {
     max-height: 240px;
     overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
 }
 
 .ct-history-item {
@@ -509,6 +514,11 @@
     background: var(--color-background);
     border-radius: 6px;
     border: 1px solid var(--color-lines);
+    margin-bottom: 8px;
+}
+
+.ct-history-item:last-child {
+    margin-bottom: 0;
 }
 
 .ct-history-meta {

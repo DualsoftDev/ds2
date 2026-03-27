@@ -9,7 +9,6 @@
 @inject DSPilot.Adapters.DspRepositoryAdapter DspRepository
 @inject AppSettingsService SettingsService
 @inject ILogger<Dashboard> Logger
-@inject CycleAnalysisService CycleAnalysisService
 @implements IDisposable
 
 <PageTitle>Dashboard - DSPilot</PageTitle>
@@ -284,6 +283,10 @@ else
                                              @onmouseleave="OnRowMouseLeave">
                                             <div class="ct-row-header">
                                                 <span class="ct-row-name" style="font-weight:@(highlighted ? "700" : "500"); display: flex; align-items: center; gap: 6px;">
+                                                    @if (_sortField == "order")
+                                                    {
+                                                        <span class="ct-process-number">@(_flowProcessOrder.GetValueOrDefault(fn, 0) + 1)</span>
+                                                    }
                                                     <img src="images/aas.png" alt="" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
                                                     @flow.FlowName
                                                 </span>
@@ -447,14 +450,14 @@ else
                         <span style="margin-left:auto; font-size:12px; color:var(--color-text-secondary);">총 @(_flowHistory.Count)개</span>
                     </div>
                     <div class="ct-popup-history-list">
-                        @foreach (var history in _flowHistory)
-                        {
-                            var histCT = history.CT ?? 0;
-                            var histMT = history.MT ?? 0;
-                            var histWT = history.WT ?? 0;
-                            var histMtPct = histCT > 0 ? histMT * 100.0 / histCT : 0;
-                            var histWtPct = 100.0 - histMtPct;
-
+                        <Virtualize Items="_flowHistory" Context="history" ItemSize="76" OverscanCount="3">
+                            @{
+                                var histCT = history.CT ?? 0;
+                                var histMT = history.MT ?? 0;
+                                var histWT = history.WT ?? 0;
+                                var histMtPct = histCT > 0 ? histMT * 100.0 / histCT : 0;
+                                var histWtPct = 100.0 - histMtPct;
+                            }
                             <div class="ct-history-item">
                                 <div class="ct-history-meta">
                                     <span class="ct-history-cycle">#@(history.CycleNo ?? 0)</span>
@@ -470,7 +473,7 @@ else
                                     <span style="font-weight:600;">CT: @FormatMs(histCT)</span>
                                 </div>
                             </div>
-                        }
+                        </Virtualize>
                     </div>
                 </div>
             }
@@ -510,6 +513,7 @@ else
 
     // Flow History Data (최근 5개 표시)
     private List<Models.Dsp.DspFlowHistoryEntity> _flowHistory = new();
+    private DateTime _lastHistoryLoad = DateTime.MinValue;
 
     // 호버 툴팁 (고정 위치)
     private string? _hoverFlowName;
@@ -621,69 +625,33 @@ else
         }
         catch { }
 
-        // 공정 순서 로딩 (PLC 실행 순서 기반) — fire-and-forget으로 페이지 렌더링 비블로킹
+        // 공정 순서 로딩: 저장된 순서 사용, 없으면 배치 리스트 순서 그대로
         if (ProjectService.IsLoaded)
-            _ = LoadFlowProcessOrderAsync();
+            LoadFlowProcessOrder();
     }
 
-    private async Task LoadFlowProcessOrderAsync()
+    private void LoadFlowProcessOrder()
     {
-        try
+        var flows = BlueprintService.Layout.FlowPlacements;
+        if (flows.Count == 0) return;
+
+        var savedOrder = BlueprintService.Layout.FlowProcessOrder;
+        if (savedOrder.Count > 0)
         {
-            var flows = BlueprintService.Layout.FlowPlacements;
-            if (flows.Count == 0) return;
-
-            // 1) 저장된 공정 순서가 있으면 그것을 사용 (사용자 지정 또는 이전 자동 정렬 결과)
-            var savedOrder = BlueprintService.Layout.FlowProcessOrder;
-            if (savedOrder.Count > 0)
-            {
-                var orderMap = savedOrder.Select((e, i) => (e.FlowName, Rank: i))
-                    .ToDictionary(x => x.FlowName, x => x.Rank);
-                _flowProcessOrder = orderMap;
-                _processOrderAvailable = true;
-                UpdateChartCache();
-                await InvokeAsync(StateHasChanged);
-                return;
-            }
-
-            // 2) 저장된 순서 없음 → PLC 데이터 기반 자동 정렬 (1회만 수행)
-            var tasks = flows.Select(fp =>
-                CycleAnalysisService.GetLatestCycleStartTimeAsync(fp.FlowName)
-            ).ToArray();
-
-            var results = await Task.WhenAll(tasks);
-
-            // 모든 Flow가 사이클 데이터를 가지고 있는지 확인
-            if (results.Any(r => !r.HasValue))
-            {
-                _processOrderAvailable = false;
-                return;
-            }
-
-            var ordered = flows
-                .Select((fp, idx) => (fp.FlowName, fp.FlowId, StartTime: results[idx]!.Value))
-                .OrderBy(x => x.StartTime)
-                .ToList();
-
-            _flowProcessOrder = ordered
-                .Select((x, rank) => (x.FlowName, Rank: rank))
+            _flowProcessOrder = savedOrder
+                .Select((e, i) => (e.FlowName, Rank: i))
                 .ToDictionary(x => x.FlowName, x => x.Rank);
-
-            _processOrderAvailable = true;
-
-            // 자동 정렬 결과를 저장하여 이후 재정렬 방지
-            BlueprintService.Layout.FlowProcessOrder = ordered
-                .Select(x => new FlowOrderEntry { FlowId = x.FlowId, FlowName = x.FlowName })
-                .ToList();
-            BlueprintService.SaveLayout();
-
-            UpdateChartCache();
-            await InvokeAsync(StateHasChanged);
         }
-        catch (Exception ex)
+        else
         {
-            Logger.LogWarning(ex, "Failed to load flow process order");
+            // 저장된 순서 없으면 FlowPlacements 리스트 인덱스 순서 사용
+            _flowProcessOrder = flows
+                .Select((fp, i) => (fp.FlowName, Rank: i))
+                .ToDictionary(x => x.FlowName, x => x.Rank);
         }
+
+        _processOrderAvailable = true;
+        UpdateChartCache();
     }
 
     private bool _disposed;
@@ -692,8 +660,26 @@ else
     {
         if (_disposed) return;
         _dbSnapshot = DbService.Snapshot;
-        if (!_processOrderAvailable) _ = LoadFlowProcessOrderAsync();
         UpdateChartCache();
+
+        // 팝업이 열려 있으면 요약 데이터 + 히스토리 갱신
+        if (_popupFlow != null)
+        {
+            var openName = _popupFlow.Value.FlowName;
+            var updated = _chartData.FirstOrDefault(f => f.FlowName == openName);
+            if (updated.FlowName != null)
+            {
+                _popupFlow = updated;
+
+                // 히스토리는 2초 간격으로 갱신 (DB 부하 방지)
+                if ((DateTime.UtcNow - _lastHistoryLoad).TotalSeconds >= 2)
+                {
+                    _lastHistoryLoad = DateTime.UtcNow;
+                    await InvokeAsync(async () => await LoadFlowHistoryAsync(openName));
+                }
+            }
+        }
+
         try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
     }
 
@@ -916,6 +902,13 @@ else
                 // None: 제한 없이 로드 (안전 상한 10000)
                 _flowHistory = await DspRepository.GetFlowHistoryAsync(flowName, 10000);
             }
+
+            // UI 표시용 순번 재계산: 목록은 최신순(DESC)이므로 가장 최근 = 최대 번호
+            for (int i = 0; i < _flowHistory.Count; i++)
+            {
+                _flowHistory[i].CycleNo = _flowHistory.Count - i;
+            }
+
             StateHasChanged();
         }
         catch (Exception ex)

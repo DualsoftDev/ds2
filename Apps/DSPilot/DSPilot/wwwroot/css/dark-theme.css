@@ -20,6 +20,9 @@
     --color-success: #A5D6A7;
     --color-warning: #FFD54F;
     --color-error: #EF9A9A;
+    --color-success-rgb: 165, 214, 167;
+    --color-warning-rgb: 255, 213, 79;
+    --color-error-rgb: 239, 154, 154;
 
     /* AppBar / Drawer */
     --color-appbar-bg: #1E1E1E;
@@ -36,6 +39,36 @@
 
     /* Lines / Borders */
     --color-lines: rgba(255, 255, 255, 0.12);
+
+    /* Gantt Chart */
+    --gantt-bg: #1E1E1E;
+    --gantt-lane-even: #232323;
+    --gantt-lane-odd: #2A2A2A;
+    --gantt-lane-border: rgba(255, 255, 255, 0.06);
+    --gantt-lane-center: rgba(255, 255, 255, 0.05);
+    --gantt-label: rgba(255, 255, 255, 0.87);
+    --gantt-sublabel: rgba(255, 255, 255, 0.45);
+    --gantt-axis: rgba(255, 255, 255, 0.50);
+    --gantt-tick-label: rgba(255, 255, 255, 0.50);
+    --gantt-bar-in: #64B5F6;
+    --gantt-bar-in-stroke: #42A5F5;
+    --gantt-bar-out: #F48FB1;
+    --gantt-bar-out-stroke: #EC407A;
+    --gantt-gap-fill: rgba(239, 154, 154, 0.12);
+    --gantt-gap-stroke: rgba(239, 154, 154, 0.50);
+    --gantt-gap-text: #EF9A9A;
+    --gantt-ct-fill: rgba(165, 214, 167, 0.08);
+    --gantt-ct-stroke: rgba(165, 214, 167, 0.50);
+    --gantt-ct-start: #A5D6A7;
+    --gantt-ct-end: #FFD54F;
+    --gantt-ct-text: #A5D6A7;
+    --gantt-connector-bg: rgba(30, 30, 30, 0.92);
+    --gantt-info-from: #3949AB;
+    --gantt-info-to: #5E35B1;
+    --gantt-info-shadow: rgba(57, 73, 171, 0.3);
+    --gantt-arrow-orange: #FFB74D;
+    --gantt-arrow-teal: #80CBC4;
+    --gantt-arrow-purple: #B39DDB;
 
     /* Shadows — 다크에서는 더 강한 그림자 */
     --shadow-1: 0 2px 1px -1px rgba(0,0,0,.4), 0 1px 1px 0 rgba(0,0,0,.28), 0 1px 3px 0 rgba(0,0,0,.24);
