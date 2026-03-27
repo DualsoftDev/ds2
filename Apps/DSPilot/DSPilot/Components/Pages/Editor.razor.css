@@ -13,7 +13,6 @@
                        cursor: grab; border-left: 3px solid var(--color-primary); }
 .ed-flow-item.placed { background: var(--color-background); color: var(--color-text-disabled);
                        cursor: default; border-left: 3px solid var(--color-lines); }
-.ed-flow-item.placed .placed-label { color: var(--color-text-disabled); }
 
 /* Flow order number */
 .flow-order-num { min-width: 18px; height: 18px; border-radius: 9px; font-size: 0.7rem; font-weight: 700;
@@ -30,9 +29,6 @@
                      color: var(--color-primary); font-weight: 600; }
 .ed-flow-item.placed .flow-system-badge { background: color-mix(in srgb, var(--color-lines) 30%, transparent);
                                            color: var(--color-text-disabled); }
-
-/* Placed label */
-.placed-label { font-size: 0.65rem; flex-shrink: 0; }
 
 /* Drag handle */
 .flow-reorder-handle { font-size: 18px !important; cursor: grab; color: var(--color-text-secondary); flex-shrink: 0;

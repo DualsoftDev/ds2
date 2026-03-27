@@ -93,17 +93,16 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var (history, index) in _histories.Select((h, i) => (h, i)))
-                                {
+                                <Virtualize Items="_indexedHistories" Context="item" ItemSize="37" OverscanCount="5" SpacerElement="tr">
                                     <tr>
-                                        <td>@(index + 1)</td>
-                                        <td>@(history.CycleNo?.ToString() ?? "-")</td>
-                                        <td>@(history.CT?.ToString() ?? "-")</td>
-                                        <td>@(history.MT?.ToString() ?? "-")</td>
-                                        <td>@(history.WT?.ToString() ?? "-")</td>
-                                        <td>@history.RecordedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                        <td>@(item.Index + 1)</td>
+                                        <td>@(item.History.CycleNo?.ToString() ?? "-")</td>
+                                        <td>@(item.History.CT?.ToString() ?? "-")</td>
+                                        <td>@(item.History.MT?.ToString() ?? "-")</td>
+                                        <td>@(item.History.WT?.ToString() ?? "-")</td>
+                                        <td>@item.History.RecordedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
                                     </tr>
-                                }
+                                </Virtualize>
                             </tbody>
                         </table>
                     </div>
@@ -128,6 +127,7 @@
     private bool _isVisible = false;
     private bool _isLoading = false;
     private List<DspFlowHistoryEntity> _histories = new();
+    private List<(DspFlowHistoryEntity History, int Index)> _indexedHistories = new();
     private int _selectedLimit = 100;
     private HistoryStats _stats = new();
 
@@ -148,6 +148,7 @@
     {
         FlowName = flowName;
         _histories = histories;
+        _indexedHistories = _histories.Select((h, i) => (h, i)).ToList();
         _isVisible = true;
         _isLoading = false;
 

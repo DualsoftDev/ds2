@@ -232,11 +232,10 @@
         };
     }
 
-    // ── 블록 클릭 ──
+    // ── 블록 클릭 → 항상 팝업 열기 (배경 클릭으로 닫기)
     private async Task OnBlockClicked(string flowName)
     {
-        var next = flowName == SelectedFlowName ? null : flowName;
-        await OnFlowClicked.InvokeAsync(next);
+        await OnFlowClicked.InvokeAsync(flowName);
     }
 
     // ── 배경 클릭 → 선택 해제 ──
