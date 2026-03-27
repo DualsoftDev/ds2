@@ -35,7 +35,7 @@ public partial class MainViewModel
             return;
 
         var existingFlows = DsQuery.allFlows(_store);
-        var defaultName = GetUniqueNameForFlow("NewFlow", existingFlows);
+        var defaultName = GetUniqueName("NewFlow", existingFlows.Select(f => f.Name));
 
         var name = _dialogService.PromptName(Resources.Strings.NewFlow, defaultName);
         if (name is null) return;
@@ -67,7 +67,7 @@ public partial class MainViewModel
         }
 
         var existingWorks = DsQuery.worksOf(id, _store);
-        var defaultName = GetUniqueNameForWork("NewWork", existingWorks);
+        var defaultName = GetUniqueName("NewWork", existingWorks.Select(w => w.LocalName));
 
         var name = _dialogService.PromptName(Resources.Strings.NewWork, defaultName);
         if (name is null) return;

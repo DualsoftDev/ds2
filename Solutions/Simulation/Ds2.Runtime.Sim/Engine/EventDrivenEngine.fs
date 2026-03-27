@@ -45,6 +45,7 @@ type EventDrivenEngine(index: SimIndex) =
                 $"EventDrivenEngine thread did not exit within {engineThreadJoinTimeoutMs}ms during {operationName}."))
 
     let stateManager = StateManager(index, index.TickMs)
+    let durationTracker = DurationTracker(scheduler)
 
     // UI 이벤트
     let workStateChangedEvent = Event<WorkStateChangedArgs>()
@@ -65,30 +66,6 @@ type EventDrivenEngine(index: SimIndex) =
         |> Option.map index.ActiveSystemNames.Contains
         |> Option.defaultValue false
 
-    // ── IO값 관리 (EventPublisher 인라인) ────────────────────────────
-
-    /// Call F 시 ApiCall의 InputSpec을 IO값으로 설정
-    let setCallIOValues (callGuid: Guid) =
-        SimIndex.findOrEmpty callGuid index.CallApiCallGuids
-        |> List.iter (fun apiCallId ->
-            DsQuery.getApiCall apiCallId index.Store
-            |> Option.iter (fun apiCall ->
-                stateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)))
-
-    /// Call F → RxWork에 IO값 설정 (RxGuid가 있는 ApiCall만)
-    let setRxWorkIOValues (callGuid: Guid) =
-        SimIndex.findOrEmpty callGuid index.CallApiCallGuids
-        |> List.iter (fun apiCallId ->
-            DsQuery.getApiCall apiCallId index.Store
-            |> Option.iter (fun apiCall ->
-                let hasRx =
-                    apiCall.ApiDefId
-                    |> Option.bind (fun defId -> DsQuery.getApiDef defId index.Store)
-                    |> Option.bind (fun def -> def.Properties.RxGuid)
-                    |> Option.isSome
-                if hasRx then
-                    stateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)))
-
     let tokenFlowContext : TokenFlow.Context = {
         Index = index
         StateManager = stateManager
@@ -103,14 +80,6 @@ type EventDrivenEngine(index: SimIndex) =
     let shiftToken workGuid token = TokenFlow.shiftToken tokenFlowContext workGuid token
     let onWorkFinish workGuid = TokenFlow.onWorkFinish tokenFlowContext workGuid
 
-    // ── Duration 이벤트 추적 (Pause 시 취소/Resume 시 재스케줄) ──
-    /// workGuid → (eventId, scheduledTimeMs)
-    let mutable durationEvents = Map.empty<Guid, struct(Guid * int64)>
-    /// Pause 시 저장된 남은 시간: workGuid → remainingMs
-    let mutable pausedDurationRemaining = Map.empty<Guid, int64>
-    let onDurationScheduled workGuid eventId scheduledTimeMs =
-        durationEvents <- durationEvents.Add(workGuid, struct(eventId, scheduledTimeMs))
-
     let workTransitionContext : WorkTransitions.Context = {
         Index = index
         StateManager = stateManager
@@ -119,7 +88,7 @@ type EventDrivenEngine(index: SimIndex) =
         ScheduleConditionEvaluation = scheduleConditionEvaluation
         OnWorkFinish = onWorkFinish
         TriggerWorkStateChanged = workStateChangedEvent.Trigger
-        OnDurationScheduled = onDurationScheduled
+        OnDurationScheduled = fun wg eid ts -> durationTracker.OnDurationScheduled(wg, eid, ts)
     }
 
     let scheduleWorkIfReady workGuid targetState =
@@ -128,42 +97,19 @@ type EventDrivenEngine(index: SimIndex) =
     let applyWorkTransition workGuid newState =
         WorkTransitions.applyWorkTransition workTransitionContext workGuid newState
 
-    // ── Call 상태 전이 ──
+    let callTransitionContext : CallTransitions.Context = {
+        Index = index
+        StateManager = stateManager
+        Scheduler = scheduler
+        ShouldSkipCall = shouldSkipCall
+        TriggerCallStateChanged = callStateChangedEvent.Trigger
+        ScheduleWorkIfReady = scheduleWorkIfReady
+        ScheduleConditionEvaluation = scheduleConditionEvaluation
+        DurationTracker = durationTracker
+    }
 
-    let applyCallTransition (callGuid: Guid) newState =
-        let result = stateManager.ApplyCallTransition(callGuid, newState, shouldSkipCall)
-        if not result.HasChanged then () else
-        let clock = TimeSpan.FromMilliseconds(float scheduler.CurrentTimeMs)
-        if result.ActualNewState = Status4.Finish then setCallIOValues callGuid
-        callStateChangedEvent.Trigger({
-            CallGuid = callGuid; CallName = result.NodeName
-            PreviousState = result.OldState; NewState = result.ActualNewState; IsSkipped = result.IsSkipped; Clock = clock })
-        match result.ActualNewState with
-        | Status4.Going ->
-            SimIndex.txWorkGuids index callGuid |> List.iter (fun txGuid -> scheduleWorkIfReady txGuid Status4.Going)
-            scheduleConditionEvaluation ()
-        | Status4.Finish ->
-            if not result.IsSkipped then
-                setRxWorkIOValues callGuid
-                SimIndex.rxWorkGuids index callGuid |> List.iter (fun rxGuid -> scheduleWorkIfReady rxGuid Status4.Finish)
-            // Pause 중 마지막 Call Finish → 해당 Work의 중단된 duration 재스케줄
-            match index.CallWorkGuid |> Map.tryFind callGuid with
-            | Some workGuid ->
-                let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
-                if callGuids |> List.forall (fun cg -> stateManager.GetCallState(cg) = Status4.Finish) then
-                    match pausedDurationRemaining |> Map.tryFind workGuid with
-                    | Some remaining ->
-                        let eventId =
-                            scheduler.ScheduleAfter(
-                                ScheduledEventType.DurationComplete workGuid,
-                                (max 1L remaining),
-                                ScheduledEvent.PriorityDurationCheck)
-                        durationEvents <- durationEvents.Add(workGuid, struct(eventId, scheduler.CurrentTimeMs + remaining))
-                        pausedDurationRemaining <- pausedDurationRemaining.Remove(workGuid)
-                    | None -> ()
-            | None -> ()
-            scheduleConditionEvaluation ()
-        | _ -> ()
+    let applyCallTransition callGuid newState =
+        CallTransitions.applyCallTransition callTransitionContext callGuid newState
 
     let conditionEvaluationContext : ConditionEvaluation.Context = {
         Index = index
@@ -182,147 +128,40 @@ type EventDrivenEngine(index: SimIndex) =
     let evaluateConditions () =
         ConditionEvaluation.evaluateConditions conditionEvaluationContext ()
 
-    let clearAndApplyWorkTransition workGuid newState =
-        stateManager.ClearWorkPending(workGuid)
-        let shouldApply =
-            match newState with
-            | Status4.Going ->
-                stateManager.GetWorkState(workGuid) = Status4.Ready
-                && (
-                    not (isActiveSystemWork workGuid)
-                    || canStartWork workGuid
-                )
-            | Status4.Finish ->
-                if stateManager.GetWorkState(workGuid) <> Status4.Going then false
-                else
-                    let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
-                    stateManager.IsMinDurationMet(workGuid)
-                    && (callGuids |> List.forall (fun callGuid -> stateManager.GetCallState(callGuid) = Status4.Finish))
-            | Status4.Homing ->
-                stateManager.GetWorkState(workGuid) = Status4.Finish
-                && WorkConditionChecker.canResetWork index (stateManager.GetState()) workGuid
-            | Status4.Ready ->
-                stateManager.GetWorkState(workGuid) = Status4.Homing
-            | _ -> true
-
-        if shouldApply then
-            applyWorkTransition workGuid newState
-
-    let clearAndApplyCallTransition callGuid newState =
-        stateManager.ClearCallPending(callGuid)
-        let shouldApply =
-            match newState with
-            | Status4.Going ->
-                stateManager.GetCallState(callGuid) = Status4.Ready
-                && canStartCall callGuid
-            | Status4.Finish ->
-                stateManager.GetCallState(callGuid) = Status4.Going
-                && canCompleteCall callGuid
-            | Status4.Homing ->
-                match index.CallWorkGuid |> Map.tryFind callGuid with
-                | Some workGuid -> stateManager.GetWorkState(workGuid) = Status4.Homing
-                | None -> false
-            | Status4.Ready ->
-                match index.CallWorkGuid |> Map.tryFind callGuid with
-                | Some workGuid -> stateManager.GetWorkState(workGuid) = Status4.Ready
-                | None -> false
-            | _ -> true
-
-        if shouldApply then
-            applyCallTransition callGuid newState
-
-    let forceAndApplyWorkTransition workGuid newState =
-        stateManager.ClearWorkPending(workGuid)
-        applyWorkTransition workGuid newState
-
-    let forceAndApplyCallTransition callGuid newState =
-        stateManager.ClearCallPending(callGuid)
-        applyCallTransition callGuid newState
+    let transitionGuardsContext : TransitionGuards.Context = {
+        Index = index
+        StateManager = stateManager
+        IsActiveSystemWork = isActiveSystemWork
+        CanStartWork = canStartWork
+        CanStartCall = canStartCall
+        CanCompleteCall = canCompleteCall
+        ApplyWorkTransition = applyWorkTransition
+        ApplyCallTransition = applyCallTransition
+    }
 
     let hasGoingCall () =
         index.AllCallGuids
         |> List.exists (fun callGuid -> stateManager.GetCallState(callGuid) = Status4.Going)
 
-    let removeConnectionSensitiveScheduledEvents () =
-        scheduler.RemoveWhere(fun event ->
-            match event.EventType with
-            | ScheduledEventType.EvaluateConditions -> true
-            | _ -> false)
-        |> ignore
-
-    /// 화살표 삭제 후 선행 조건이 사라진 Going Work를 Ready로 되돌림
-    let revertOrphanedGoingWork workGuid =
-        stateManager.ClearWorkPending(workGuid)
-        // Duration 이벤트 취소
-        match durationEvents |> Map.tryFind workGuid with
-        | Some struct(eventId, _) ->
-            scheduler.Cancel(eventId)
-            durationEvents <- durationEvents.Remove(workGuid)
-        | None -> ()
-        pausedDurationRemaining <- pausedDurationRemaining.Remove(workGuid)
-        // 토큰 회수
-        match stateManager.GetWorkToken(workGuid) with
-        | Some token ->
-            stateManager.SetWorkToken(workGuid, None)
-            emitTokenEvent Discard token workGuid None
-        | None -> ()
-        // Call 상태 초기화
-        for callGuid in SimIndex.findOrEmpty workGuid index.WorkCallGuids do
-            stateManager.ClearCallPending(callGuid)
-            if stateManager.GetCallState(callGuid) <> Status4.Ready then
-                stateManager.ForceCallState(callGuid, Status4.Ready)
-        // Work → Ready
-        stateManager.ClearMinDuration(workGuid)
-        stateManager.ForceWorkState(workGuid, Status4.Ready)
-        let wName = index.WorkName |> Map.tryFind workGuid |> Option.defaultValue (string workGuid)
-        let clock = TimeSpan.FromMilliseconds(float scheduler.CurrentTimeMs)
-        workStateChangedEvent.Trigger({
-            WorkGuid = workGuid; WorkName = wName
-            PreviousState = Status4.Going; NewState = Status4.Ready; Clock = clock })
-
-    let memberHasValidStart (memberGuid: Guid) =
-        let isSource =
-            index.WorkTokenRole |> Map.tryFind memberGuid
-            |> Option.map (fun r -> r.HasFlag(TokenRole.Source))
-            |> Option.defaultValue false
-        let preds = SimIndex.findOrEmpty memberGuid index.WorkStartPreds
-        not preds.IsEmpty || isSource
-
-    /// 새 topology에서 선행 노드가 사라진 Going Work를 되돌림 (ReferenceOf 그룹 인식)
-    let invalidateOrphanedGoingWorks () =
-        let processedCanonicals = System.Collections.Generic.HashSet<Guid>()
-        for workGuid in index.AllWorkGuids do
-            let canonical = SimIndex.canonicalWorkGuid index workGuid
-            if not (processedCanonicals.Contains(canonical))
-               && isActiveSystemWork workGuid
-               && stateManager.GetWorkState(workGuid) = Status4.Going then
-                processedCanonicals.Add(canonical) |> ignore
-                let groupMembers = SimIndex.referenceGroupOf index workGuid
-                // 그룹 내 어느 멤버든 유효한 선행 노드가 있으면 전체 그룹 유지
-                let anyMemberJustified = groupMembers |> List.exists memberHasValidStart
-                if not anyMemberJustified then
-                    revertOrphanedGoingWork canonical
-
-    let invalidateOrphanedTokenHolders () =
-        for workGuid in index.AllWorkGuids do
-            if isActiveSystemWork workGuid
-               && not (index.TokenPathGuids.Contains workGuid)
-               && not (index.TokenSinkGuids.Contains workGuid) then
-                match stateManager.GetWorkToken(workGuid) with
-                | Some token ->
-                    stateManager.SetWorkToken(workGuid, None)
-                    emitTokenEvent Discard token workGuid None
-                | None -> ()
+    let connectionReloadContext : ConnectionReload.Context = {
+        Index = index
+        StateManager = stateManager
+        Scheduler = scheduler
+        IsActiveSystemWork = isActiveSystemWork
+        EmitTokenEvent = emitTokenEvent
+        TriggerWorkStateChanged = workStateChangedEvent.Trigger
+        CancelDurationEvent = durationTracker.Cancel
+        ClearPausedDuration = durationTracker.ClearPausedDuration
+    }
 
     let handleDurationComplete workGuid =
-        durationEvents <- durationEvents.Remove(workGuid)
+        durationTracker.Remove(workGuid)
         if stateManager.GetWorkState(workGuid) = Status4.Going then
             stateManager.MarkMinDurationMet(workGuid)
             let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
             if callGuids.IsEmpty then
                 applyWorkTransition workGuid Status4.Finish
             else
-                // Works with Calls: duration met, check if all calls also finished
                 if callGuids |> List.forall (fun cg -> stateManager.GetCallState(cg) = Status4.Finish) then
                     applyWorkTransition workGuid Status4.Finish
 
@@ -334,10 +173,10 @@ type EventDrivenEngine(index: SimIndex) =
         UpdateClock = stateManager.UpdateClock
         GetWorkState = stateManager.GetWorkState
         GetWorkToken = stateManager.GetWorkToken
-        ClearAndApplyWorkTransition = clearAndApplyWorkTransition
-        ClearAndApplyCallTransition = clearAndApplyCallTransition
-        ForceAndApplyWorkTransition = forceAndApplyWorkTransition
-        ForceAndApplyCallTransition = forceAndApplyCallTransition
+        ClearAndApplyWorkTransition = TransitionGuards.clearAndApplyWork transitionGuardsContext
+        ClearAndApplyCallTransition = TransitionGuards.clearAndApplyCall transitionGuardsContext
+        ForceAndApplyWorkTransition = TransitionGuards.forceAndApplyWork transitionGuardsContext
+        ForceAndApplyCallTransition = TransitionGuards.forceAndApplyCall transitionGuardsContext
         ApplyWorkTransition = applyWorkTransition
         HandleDurationComplete = handleDurationComplete
         ShiftToken = shiftToken
@@ -482,7 +321,6 @@ type EventDrivenEngine(index: SimIndex) =
     member private _.ActiveFlowGuids =
         index.AllFlowGuids
         |> List.filter (fun fg ->
-            // Flow → System: Flow의 Work들 중 하나의 SystemName이 Active이면 Active Flow
             index.AllWorkGuids
             |> List.exists (fun wg ->
                 index.WorkFlowGuid |> Map.tryFind wg = Some fg
@@ -493,47 +331,21 @@ type EventDrivenEngine(index: SimIndex) =
     member this.SetAllFlowStates(tag: FlowTag) =
         match tag with
         | FlowTag.Pause ->
-            // Active Flow만 Pause + duration 취소/남은 시간 저장
             for fg in this.ActiveFlowGuids do
                 stateManager.SetFlowState(fg, FlowTag.Pause)
-            // Active Flow에 속한 Going Work의 duration 이벤트 취소
-            // Going Call이 있으면 "진행 중인 STEP" → duration도 같이 흘러감 (취소 안 함)
-            // Going Call 없고 미시작 Call 있으면 → 다음 STEP 대기 → duration 취소
-            // 모든 Call Finish 또는 leaf → duration 계속 진행
-            for wg in index.AllWorkGuids do
-                if stateManager.GetWorkState(wg) = Status4.Going then
-                    let callGuids = SimIndex.findOrEmpty wg index.WorkCallGuids
-                    let hasGoingCall =
-                        callGuids |> List.exists (fun cg -> stateManager.GetCallState(cg) = Status4.Going)
-                    let hasUnfinishedCall =
-                        callGuids |> List.exists (fun cg -> stateManager.GetCallState(cg) <> Status4.Finish)
-                    if not hasGoingCall && hasUnfinishedCall then
-                        match index.WorkFlowGuid |> Map.tryFind wg with
-                        | Some fg when stateManager.GetFlowState(fg) = FlowTag.Pause ->
-                            match durationEvents |> Map.tryFind wg with
-                            | Some struct(eventId, scheduledTimeMs) ->
-                                scheduler.Cancel(eventId)
-                                let remaining = max 0L (scheduledTimeMs - scheduler.CurrentTimeMs)
-                                pausedDurationRemaining <- pausedDurationRemaining.Add(wg, remaining)
-                                durationEvents <- durationEvents.Remove(wg)
-                            | None -> ()
-                        | _ -> ()
+            let goingWorkGuids =
+                index.AllWorkGuids |> List.filter (fun wg -> stateManager.GetWorkState(wg) = Status4.Going)
+            durationTracker.SavePausedDurations(
+                goingWorkGuids,
+                stateManager.GetCallState,
+                stateManager.GetFlowState,
+                index.WorkCallGuids,
+                index.WorkFlowGuid)
         | FlowTag.Drive ->
-            // Active Flow만 Drive + 저장된 남은 시간으로 duration 재스케줄
             for fg in this.ActiveFlowGuids do
                 stateManager.SetFlowState(fg, FlowTag.Drive)
-            for kv in pausedDurationRemaining |> Map.toList do
-                let wg, remaining = kv
-                if stateManager.GetWorkState(wg) = Status4.Going then
-                    let eventId =
-                        scheduler.ScheduleAfter(
-                            ScheduledEventType.DurationComplete wg,
-                            (max 1L remaining),
-                            ScheduledEvent.PriorityDurationCheck)
-                    durationEvents <- durationEvents.Add(wg, struct(eventId, scheduler.CurrentTimeMs + remaining))
-            pausedDurationRemaining <- Map.empty
+            durationTracker.ResumePausedDurations(stateManager.GetWorkState)
         | _ ->
-            // Ready 등: 전체 Flow 대상
             stateManager.SetAllFlowStates(tag)
         scheduleConditionEvaluation ()
 
@@ -548,7 +360,6 @@ type EventDrivenEngine(index: SimIndex) =
         and set(i) =
             let prev = timeIgnore
             timeIgnore <- i
-            // 시뮬레이션 도중 TimeIgnore 켜면, 이미 스케줄된 Duration/Homing을 즉시 완료
             if i && not prev && Volatile.Read(&status) = Running then
                 for wg in index.AllWorkGuids do
                     match stateManager.GetWorkState(wg) with
@@ -569,10 +380,9 @@ type EventDrivenEngine(index: SimIndex) =
 
     member this.SeedToken(sourceWorkGuid: Guid, value: TokenValue) =
         match stateManager.GetWorkToken(sourceWorkGuid) with
-        | Some _ -> ()  // 이미 차있으면 무시
+        | Some _ -> ()
         | None ->
             let canonicalSourceWorkGuid = SimIndex.canonicalWorkGuid index sourceWorkGuid
-            // TokenSpec Label 우선, 없으면 Work 이름 fallback
             let originLabel =
                 DsQuery.getTokenSpecs index.Store
                 |> List.tryFind (fun spec ->
@@ -598,14 +408,11 @@ type EventDrivenEngine(index: SimIndex) =
     member _.NextToken() = stateManager.NextToken()
 
     member _.HasStartableWork =
-        // 1) Ready Work 중 실제 시작 조건(predecessor+token) 충족하는 게 있으면 → STEP 가능
         let hasStartableReadyWork =
             index.AllWorkGuids
             |> List.exists (fun wg ->
                 stateManager.GetWorkState(wg) = Status4.Ready
                 && canStartWork wg)
-        // 2) Going Work에 아직 끝나지 않은 Call이 있으면 → STEP으로 Call 진행 필요
-        //    (Going leaf Work / 모든 Call Finish인 경우는 HasGoingCall로 처리됨)
         let hasGoingWorkWithPendingCalls =
             index.AllWorkGuids
             |> List.exists (fun wg ->
@@ -616,8 +423,6 @@ type EventDrivenEngine(index: SimIndex) =
         hasStartableReadyWork || hasGoingWorkWithPendingCalls
 
     member _.HasActiveDuration =
-        // Pause에서도 duration timer가 취소되지 않는 Going Work:
-        // leaf Work (Call 없음) 또는 모든 Call이 Finish인 Work
         index.AllWorkGuids
         |> List.exists (fun wg ->
             stateManager.GetWorkState(wg) = Status4.Going
@@ -674,11 +479,11 @@ type EventDrivenEngine(index: SimIndex) =
 
     member _.ReloadConnections() =
         lock processGate (fun () ->
-            removeConnectionSensitiveScheduledEvents ()
+            ConnectionReload.removeScheduledConditionEvents connectionReloadContext
             stateManager.ClearConnectionTransientState ()
             SimIndex.reloadConnections index
-            invalidateOrphanedGoingWorks ()
-            invalidateOrphanedTokenHolders ()
+            ConnectionReload.invalidateOrphanedGoingWorks connectionReloadContext
+            ConnectionReload.invalidateOrphanedTokenHolders connectionReloadContext
             scheduleConditionEvaluation ())
 
     interface ISimulationEngine with
