@@ -10,6 +10,7 @@ public class AppSettingsModel
     public FlowCycleSettings FlowCycle { get; set; } = new();
     public PlcDatabaseSettings PlcDatabase { get; set; } = new();
     public PlcCaptureSettings PlcCapture { get; set; } = new();
+    public DspTablesSettings DspTables { get; set; } = new();
     public LoggingSettings Logging { get; set; } = new();
     public UiSettings Ui { get; set; } = new();
     public HistoryViewSettings HistoryView { get; set; } = new();
@@ -68,6 +69,14 @@ public class PlcCaptureSettings
     public int PlcPort { get; set; } = 9002;
     public int ScanIntervalMs { get; set; } = 100;
     public string Protocol { get; set; } = "TCP";
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+public class DspTablesSettings
+{
+    public bool Enabled { get; set; } = true;
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
