@@ -189,7 +189,7 @@
                                     </MultiDataTrigger.Conditions>
                                     <Setter Property="Foreground" Value="{DynamicResource IconOrangeBrush}"/>
                                 </MultiDataTrigger>
-                                <DataTrigger Binding="{Binding Simulation.SimStatusText}" Value="단계 제어 중">
+                                <DataTrigger Binding="{Binding Simulation.SimStatusText}" Value="시뮬레이션 단계 제어 중">
                                     <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
                                 </DataTrigger>
                             </Style.Triggers>

@@ -71,10 +71,10 @@ public partial class ExplorerPane : UserControl
     {
         if (sender is not TreeView tree || tree.ContextMenu is not { } menu) return;
         var vm = ViewModel;
-        var kind = vm?.SelectedNode?.EntityType;
+        var kind = ResolveContextMenuNode(tree, e.OriginalSource as DependencyObject)?.EntityType
+                   ?? vm?.SelectedNode?.EntityType;
         var isDeviceTree = ReferenceEquals(tree, DeviceTree);
         var hasProject = vm is not null && vm.ControlTreeRoots.Count > 0;
-        var hasSystem = hasProject && vm!.ControlTreeRoots.Any(p => p.Children.Count > 0);
 
         // 1차 노드 타입단계 메뉴 항목 표시/숨김
         foreach (var item in menu.Items)
@@ -95,6 +95,19 @@ public partial class ExplorerPane : UserControl
 
         // 2차 연속/선행/후행 구분선 제거
         CollapseDuplicateSeparators(menu);
+    }
+
+    private static EntityNode? ResolveContextMenuNode(TreeView tree, DependencyObject? originalSource)
+    {
+        if (FindAncestor<TreeViewItem>(originalSource) is { DataContext: EntityNode node })
+            return node;
+
+        if (Mouse.DirectlyOver is DependencyObject hovered
+            && ReferenceEquals(FindAncestor<TreeView>(hovered), tree)
+            && FindAncestor<TreeViewItem>(hovered) is { DataContext: EntityNode hoveredNode })
+            return hoveredNode;
+
+        return null;
     }
 
     private static void CollapseDuplicateSeparators(ContextMenu menu)

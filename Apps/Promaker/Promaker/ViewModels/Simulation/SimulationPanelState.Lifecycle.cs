@@ -20,7 +20,7 @@ public partial class SimulationPanelState
             _simEngine?.SetAllFlowStates(FlowTag.Ready);
             _simEngine?.Resume();
             _isStepMode = false;
-            SimStatusText = "동작 중";
+            SimStatusText = SimText.Running;
             ApplySimulationUiState(
                 ganttRunning: true,
                 isSimPaused: false,
@@ -55,7 +55,7 @@ public partial class SimulationPanelState
             _simEngine.Start();
 
             ApplySimStateToCanvas();
-            SimStatusText = "동작 중";
+            SimStatusText = SimText.Running;
             ApplySimulationUiState(
                 ganttRunning: true,
                 isSimulating: true,
@@ -77,7 +77,7 @@ public partial class SimulationPanelState
     {
         _simEngine?.SetAllFlowStates(FlowTag.Pause);
         _isStepMode = true;
-        SimStatusText = "단계 제어 중";
+        SimStatusText = SimText.StepMode;
         ApplySimulationUiState(
             isSimPaused: true,
             statusText: SimText.Paused,
@@ -96,7 +96,7 @@ public partial class SimulationPanelState
         HasWorkGoing = false;
         HasGoingCall = false;
         _isStepMode = false;
-        SimStatusText = "정지됨";
+        SimStatusText = SimText.Stopped;
         ApplySimulationUiState(
             ganttRunning: false,
             isSimulating: false,
@@ -118,7 +118,7 @@ public partial class SimulationPanelState
         HasWorkGoing = false;
         HasGoingCall = false;
         _isStepMode = false;
-        SimStatusText = "일시 정지됨";
+        SimStatusText = SimText.Reset;
         ApplySimulationUiState(
             statusText: SimText.Reset,
             logText: SimText.ResetLog);
@@ -130,7 +130,7 @@ public partial class SimulationPanelState
     private void StepSimulation()
     {
         if (_simEngine is null) return;
-        SimStatusText = "단계 제어 중";
+        SimStatusText = SimText.StepMode;
 
         if (_simEngine.Step())
             AddSimLog("STEP 실행");
@@ -226,6 +226,8 @@ public partial class SimulationPanelState
 
         if (!anyGoingCall && !hasActiveDuration)
             SimStatusText = SimText.Paused;
+        else
+            SimStatusText = SimText.StepMode;
     }
 
     private bool CanAdvanceStepCore() =>

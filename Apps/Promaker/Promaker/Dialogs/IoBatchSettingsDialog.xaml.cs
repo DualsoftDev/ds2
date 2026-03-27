@@ -14,10 +14,14 @@ public partial class IoBatchSettingsDialog : Window
 {
     private readonly ObservableCollection<IoBatchRow> _rows;
     private readonly ICollectionView _view;
+    private readonly Func<IReadOnlyList<IoBatchRow>, bool>? _applyChanges;
 
-    public IoBatchSettingsDialog(IReadOnlyList<IoBatchRow> rows)
+    public IoBatchSettingsDialog(
+        IReadOnlyList<IoBatchRow> rows,
+        Func<IReadOnlyList<IoBatchRow>, bool>? applyChanges = null)
     {
         InitializeComponent();
+        _applyChanges = applyChanges;
 
         _rows = new ObservableCollection<IoBatchRow>(rows);
 
@@ -32,6 +36,7 @@ public partial class IoBatchSettingsDialog : Window
         FlowFilterBox.TextChanged += (_, _) => _view.Refresh();
         WorkFilterBox.TextChanged += (_, _) => _view.Refresh();
         CallFilterBox.TextChanged += (_, _) => _view.Refresh();
+        RefreshApplyButtonState();
     }
 
     private bool FilterRow(object obj)
@@ -59,6 +64,8 @@ public partial class IoBatchSettingsDialog : Window
     {
         if (e.PropertyName == nameof(IoBatchRow.IsSelected))
             BatchDialogHelper.UpdateSelectedCount(_rows, SelectedCountText);
+
+        RefreshApplyButtonState();
     }
 
     private void ApplySelection_Click(object sender, RoutedEventArgs e)
@@ -114,9 +121,42 @@ public partial class IoBatchSettingsDialog : Window
     private void Grid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) =>
         BatchDialogHelper.DeselectOnEmptyAreaClick(sender, e);
 
-    private void Accept_Click(object sender, RoutedEventArgs e) => DialogResult = true;
+    private void RowCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { DataContext: IoBatchRow row } checkBox)
+            return;
+
+        BatchDialogHelper.ApplyCheckStateToSelectedRows(IoGrid, row, checkBox.IsChecked == true);
+    }
+
+    private void Apply_Click(object sender, RoutedEventArgs e)
+    {
+        IoGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+        IoGrid.CommitEdit(DataGridEditingUnit.Row, true);
+
+        var changed = ChangedRows;
+        if (changed.Count == 0)
+            return;
+
+        if (_applyChanges is null)
+        {
+            DialogResult = true;
+            return;
+        }
+
+        if (!_applyChanges(changed))
+            return;
+
+        foreach (var row in changed)
+            row.AcceptChanges();
+
+        RefreshApplyButtonState();
+    }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void RefreshApplyButtonState() =>
+        ApplyButton.IsEnabled = ChangedRows.Count > 0;
 }
 
 public sealed class IoBatchRow : BatchRowBase
@@ -126,6 +166,10 @@ public sealed class IoBatchRow : BatchRowBase
     private string _outAddress;
     private string _outSymbol;
     private string _memo;
+    private string _originalInAddress;
+    private string _originalInSymbol;
+    private string _originalOutAddress;
+    private string _originalOutSymbol;
 
     public IoBatchRow(Guid callId, Guid apiCallId, string flow, string work, string call,
                       string inAddress, string inSymbol, string outAddress, string outSymbol, string memo)
@@ -140,10 +184,10 @@ public sealed class IoBatchRow : BatchRowBase
         _outAddress = outAddress;
         _outSymbol = outSymbol;
         _memo = memo;
-        OriginalInAddress = inAddress;
-        OriginalInSymbol = inSymbol;
-        OriginalOutAddress = outAddress;
-        OriginalOutSymbol = outSymbol;
+        _originalInAddress = inAddress;
+        _originalInSymbol = inSymbol;
+        _originalOutAddress = outAddress;
+        _originalOutSymbol = outSymbol;
     }
 
     public Guid CallId { get; }
@@ -152,10 +196,10 @@ public sealed class IoBatchRow : BatchRowBase
     public string Work { get; }
     public string Call { get; }
 
-    public string OriginalInAddress { get; }
-    public string OriginalInSymbol { get; }
-    public string OriginalOutAddress { get; }
-    public string OriginalOutSymbol { get; }
+    public string OriginalInAddress => _originalInAddress;
+    public string OriginalInSymbol => _originalInSymbol;
+    public string OriginalOutAddress => _originalOutAddress;
+    public string OriginalOutSymbol => _originalOutSymbol;
 
     public string InAddress
     {
@@ -192,4 +236,12 @@ public sealed class IoBatchRow : BatchRowBase
         !string.Equals(InSymbol, OriginalInSymbol, StringComparison.Ordinal) ||
         !string.Equals(OutAddress, OriginalOutAddress, StringComparison.Ordinal) ||
         !string.Equals(OutSymbol, OriginalOutSymbol, StringComparison.Ordinal);
+
+    public void AcceptChanges()
+    {
+        _originalInAddress = InAddress;
+        _originalInSymbol = InSymbol;
+        _originalOutAddress = OutAddress;
+        _originalOutSymbol = OutSymbol;
+    }
 }

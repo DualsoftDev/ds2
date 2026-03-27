@@ -86,6 +86,44 @@ public sealed class CommandAvailabilityTests
     }
 
     [Fact]
+    public void Add_and_connect_commands_follow_selected_node_context()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = DsQuery.allProjects(store).Head.Id;
+            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = DsQuery.flowsOf(systemId, store).Head.Id;
+            var work1Id = store.AddWork("Work1", flowId);
+            var work2Id = store.AddWork("Work2", flowId);
+            vm.Canvas.OpenTabs.Add(new CanvasTab(systemId, TabKind.System, "System"));
+            vm.Canvas.ActiveTab = vm.Canvas.OpenTabs[0];
+
+            var work1Node = new EntityNode(work1Id, EntityKind.Work, "Flow.Work1");
+            var work2Node = new EntityNode(work2Id, EntityKind.Work, "Flow.Work2");
+            var callNode = new EntityNode(Guid.NewGuid(), EntityKind.Call, "Call1");
+            vm.Canvas.CanvasNodes.Add(work1Node);
+            vm.Canvas.CanvasNodes.Add(work2Node);
+            vm.Canvas.CanvasNodes.Add(callNode);
+
+            vm.SelectedNode = work1Node;
+            Assert.False(vm.AddWorkCommand.CanExecute(null));
+
+            vm.SelectedNode = callNode;
+            Assert.False(vm.AddCallCommand.CanExecute(null));
+
+            vm.Selection.SelectNodeFromCanvas(work1Node, ctrlPressed: false, shiftPressed: false);
+            Assert.False(vm.ConnectSelectedNodesCommand.CanExecute(null));
+
+            vm.Selection.SelectNodeFromCanvas(work2Node, ctrlPressed: true, shiftPressed: false);
+            Assert.True(vm.ConnectSelectedNodesCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
     public void Delete_command_requires_non_project_selection()
     {
         StaTestRunner.Run(() =>
