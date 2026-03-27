@@ -10,6 +10,11 @@ open log4net
 
 let private log = LogManager.GetLogger("Ds2.Aasx.AasxFileIO")
 
+type AasxThumbnail =
+    { EntryName: string
+      ContentType: string
+      Bytes: byte[] }
+
 /// AASX ZIP에서 Environment를 읽어 반환합니다.
 let readEnvironment (path: string) : Environment option =
     try
@@ -60,22 +65,52 @@ let private writeTextEntry (archive: ZipArchive) (entryName: string) (content: s
     use writer = new StreamWriter(entry.Open(), Encoding.UTF8)
     writer.Write(content)
 
+let private writeBinaryEntry (archive: ZipArchive) (entryName: string) (content: byte[]) =
+    let entry = archive.CreateEntry(entryName)
+    use stream = entry.Open()
+    stream.Write(content, 0, content.Length)
+
+let private buildThumbnailContentTypeXml (thumbnail: AasxThumbnail option) =
+    match thumbnail with
+    | Some thumb when thumb.EntryName.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ->
+        "\n  <Default Extension=\"png\" ContentType=\"image/png\" />"
+    | Some thumb when thumb.EntryName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+                    || thumb.EntryName.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ->
+        "\n  <Default Extension=\"jpg\" ContentType=\"image/jpeg\" />"
+    | Some thumb ->
+        $"\n  <Override PartName=\"/{thumb.EntryName}\" ContentType=\"{thumb.ContentType}\" />"
+    | None ->
+        ""
+
 /// Environment를 AASX ZIP으로 저장합니다 (XML 직렬화).
-let writeEnvironment (env: Environment) (path: string) : unit =
+let writeEnvironment (env: Environment) (path: string) (thumbnail: AasxThumbnail option) : unit =
     use fileStream = new FileStream(path, FileMode.Create)
     use archive = new ZipArchive(fileStream, ZipArchiveMode.Create)
 
-    writeTextEntry archive "[Content_Types].xml" """<?xml version="1.0" encoding="utf-8"?>
+    let thumbnailContentTypeXml = buildThumbnailContentTypeXml thumbnail
+
+    let thumbnailRelationship =
+        thumbnail
+        |> Option.map (fun thumb ->
+            $"\n  <Relationship Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail\" Target=\"/{thumb.EntryName}\" Id=\"Rthumbnail\" />")
+        |> Option.defaultValue ""
+
+    writeTextEntry archive "[Content_Types].xml" ($"""<?xml version="1.0" encoding="utf-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" />
   <Default Extension="xml" ContentType="text/xml" />
   <Override PartName="/aasx/aasx-origin" ContentType="text/plain" />
-</Types>"""
+  <Override PartName="/aasx/aas/aas.aas.xml" ContentType="text/xml" />{thumbnailContentTypeXml}
+</Types>""")
 
-    writeTextEntry archive "_rels/.rels" """<?xml version="1.0" encoding="utf-8"?>
+    let rootRelationshipsXml =
+        ($"""<?xml version="1.0" encoding="utf-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Type="http://www.admin-shell.io/aasx/relationships/aasx-origin" Target="/aasx/aasx-origin" Id="R320e13957d794f91" />
-</Relationships>"""
+</Relationships>""")
+            .Replace("</Relationships>", $"{thumbnailRelationship}\n</Relationships>")
+
+    writeTextEntry archive "_rels/.rels" rootRelationshipsXml
 
     writeTextEntry archive "aasx/aasx-origin" "Intentionally empty."
 
@@ -91,3 +126,6 @@ let writeEnvironment (env: Environment) (path: string) : unit =
         use xmlWriter = XmlWriter.Create(stream, settings)
         Xmlization.Serialize.To(env, xmlWriter)
     writeXmlEntry "aasx/aas/aas.aas.xml"
+
+    thumbnail
+    |> Option.iter (fun thumb -> writeBinaryEntry archive thumb.EntryName thumb.Bytes)

@@ -32,6 +32,33 @@ module AasxExporter =
         submodels.Add(docSm :> ISubmodel)
         smRefs.Add(mkSmRef docSm)
 
+    let private appendMetadataSubmodels (ownerId: Guid) (nameplate: Nameplate) (documentation: HandoverDocumentation) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
+        let npSm = nameplateToSubmodel nameplate ownerId
+        submodels.Add(npSm :> ISubmodel)
+        smRefs.Add(mkSmRef npSm)
+
+        let docSm = documentationToSubmodel documentation ownerId
+        submodels.Add(docSm :> ISubmodel)
+        smRefs.Add(mkSmRef docSm)
+
+    let private tryGetDefaultThumbnail () =
+        let resourceName = "Ds2.Aasx.Thumbnail.ds_aasx_thumbnail_icon.png"
+        let asm = System.Reflection.Assembly.GetExecutingAssembly()
+        use stream = asm.GetManifestResourceStream(resourceName)
+        if isNull stream then
+            log.Warn($"기본 AASX 썸네일 리소스를 찾을 수 없습니다: {resourceName}")
+            None
+        else
+            use mem = new MemoryStream()
+            stream.CopyTo(mem)
+            Some
+                { EntryName = "ds_aasx_thumbnail_icon.png"
+                  ContentType = "image/png"
+                  Bytes = mem.ToArray() }
+
+    let private appendDefaultDeviceMetadataSubmodels (device: DsSystem) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
+        appendMetadataSubmodels device.Id (Nameplate()) (HandoverDocumentation()) submodels smRefs
+
     /// Device 이름을 파일명으로 안전하게 변환 (특수문자 → _)
     let sanitizeDeviceName (name: string) : string =
         let invalid = Path.GetInvalidFileNameChars()
@@ -104,6 +131,7 @@ module AasxExporter =
 
     let internal exportToAasxFile (store: DsStore) (project: Project) (outputPath: string) : unit =
         let iriPrefix = resolveIriPrefix project
+        let thumbnail = tryGetDefaultThumbnail ()
 
         // 메인 프로젝트 Submodel
         let sm = exportToSubmodel store project
@@ -129,7 +157,7 @@ module AasxExporter =
                 submodels = submodels,
                 assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
                 conceptDescriptions = conceptDescs)
-        writeEnvironment env outputPath
+        writeEnvironment env outputPath thumbnail
 
     /// 단일 Device를 독립 AASX로 저장 (ev2처럼 ActiveSystems=[device] 래핑)
     let internal exportDeviceAasx (store: DsStore) (project: Project) (device: DsSystem) (outputPath: string) : unit =
@@ -157,7 +185,7 @@ module AasxExporter =
         shell.IdShort <- "DeviceShell"
         let submodels = ResizeArray<ISubmodel>([sm :> ISubmodel])
         let smRefs = ResizeArray<IReference>([mkSmRef sm])
-        appendProjectMetadataSubmodels project submodels smRefs
+        appendDefaultDeviceMetadataSubmodels device submodels smRefs
         shell.Submodels <- smRefs
 
         let conceptDescs = createAllConceptDescriptions true true
@@ -167,7 +195,8 @@ module AasxExporter =
                 submodels = submodels,
                 assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
                 conceptDescriptions = conceptDescs)
-        writeEnvironment env outputPath
+        let thumbnail = tryGetDefaultThumbnail ()
+        writeEnvironment env outputPath thumbnail
 
     /// Device 이름 → 유니크 파일명 (같은 이름이 있으면 Guid 해시 추가)
     let internal resolveDeviceFileName (usedNames: System.Collections.Generic.HashSet<string>) (device: DsSystem) : string =
@@ -220,7 +249,8 @@ module AasxExporter =
                 submodels = submodels,
                 assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
                 conceptDescriptions = conceptDescs)
-        writeEnvironment env outputPath
+        let thumbnail = tryGetDefaultThumbnail ()
+        writeEnvironment env outputPath thumbnail
         log.Info($"분리 저장 완료: {passiveSystems.Length}개 Device → {devicesDir}")
 
     /// Export helper for UI callers that should not access Project entity directly.

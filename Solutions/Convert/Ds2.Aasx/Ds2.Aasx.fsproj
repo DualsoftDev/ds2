@@ -23,6 +23,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Thumbnail\ds_aasx_thumbnail_icon.png">
+      <LogicalName>Ds2.Aasx.Thumbnail.ds_aasx_thumbnail_icon.png</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\Core\Ds2.Store\Ds2.Store.fsproj" />
   </ItemGroup>
