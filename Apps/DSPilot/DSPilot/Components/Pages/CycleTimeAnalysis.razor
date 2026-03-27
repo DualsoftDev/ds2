@@ -127,6 +127,10 @@
                     <span style="font-size:11px;color:rgba(255,255,255,0.5);">신호 클릭 시 동일 신호의 다음 발생까지 표시</span>
                 </div>
             }
+            <button class="btn btn-sm" @onclick="ExportCsv"
+                    style="margin-left:auto;background:rgba(255,255,255,0.15);color:white;border:1px solid rgba(255,255,255,0.3);white-space:nowrap;">
+                CSV 내보내기
+            </button>
         </div>
 
         @if (_selectedItem != null)
@@ -196,8 +200,9 @@
     else if (!string.IsNullOrEmpty(_selectedFlowName))
     {
         <div class="empty-state">
-            <span class="material-icons">bar_chart</span>
-            <p>시간 범위를 설정하고 'GAP 분석 시작' 버튼을 클릭하세요</p>
+            <span class="material-icons">search_off</span>
+            <p>선택한 시간 범위에 분석할 데이터가 없습니다</p>
+            <p style="font-size:0.85rem;color:#94a3b8;">시간 범위를 변경하거나 프리셋 버튼을 사용해 보세요</p>
         </div>
     }
     else
@@ -758,6 +763,58 @@
         _previousGap = null;
         _nextGap = null;
         StateHasChanged();
+    }
+
+    private async Task ExportCsv()
+    {
+        if (_ganttData == null || !_ganttData.Items.Any()) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("CallName,WorkName,FlowName,TagName,TagAddress,EventType,GoingStartTime,FinishTime,Duration(ms),Lane");
+
+        foreach (var item in _ganttData.Items.OrderBy(i => i.GoingStartTime))
+        {
+            var eventType = item.EventType == IOEventType.InTag ? "IN" : "OUT";
+            var finish = item.FinishTime?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "";
+            var duration = item.Duration?.ToString() ?? "";
+            sb.AppendLine(string.Join(",",
+                CsvEscape(item.CallName),
+                CsvEscape(item.WorkName),
+                CsvEscape(item.FlowName),
+                CsvEscape(item.TagName),
+                CsvEscape(item.TagAddress),
+                eventType,
+                item.GoingStartTime.ToString("yyyy-MM-dd HH:mm:ss.fff"),
+                finish,
+                duration,
+                item.Lane));
+        }
+
+        var fileName = $"CycleAnalysis_{_ganttData.FlowName}_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        var bytes = System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+        var base64 = Convert.ToBase64String(bytes);
+
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var byteChars = atob('{base64}');
+                var bytes = new Uint8Array(byteChars.length);
+                for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+                var blob = new Blob([bytes], {{ type: 'text/csv;charset=utf-8' }});
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = '{fileName}';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            }})();
+        ");
+    }
+
+    private static string CsvEscape(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        return value;
     }
 
     // SVG Gantt Chart Rendering

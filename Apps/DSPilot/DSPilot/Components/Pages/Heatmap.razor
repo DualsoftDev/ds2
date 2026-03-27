@@ -4,6 +4,7 @@
 @using DSPilot.Services
 @inject HeatmapService HeatmapService
 @inject ILogger<Heatmap> Logger
+@inject IJSRuntime JS
 
 <PageTitle>동작편차</PageTitle>
 
@@ -49,6 +50,9 @@
             <button class="btn btn-outlined" @onclick="ToggleFlowGroupMatrix">
                 <span class="material-icons" style="font-size:18px;">@(AllExpanded ? "unfold_less" : "unfold_more")</span>
                 @(AllExpanded ? "Flow Group Matrix 접기" : "Flow Group Matrix 펼치기")
+            </button>
+            <button class="btn btn-outlined" @onclick="ExportCsv" disabled="@(FilteredGroups.Count == 0)">
+                CSV 내보내기
             </button>
         </div>
     </div>
@@ -536,6 +540,56 @@
                $"변동계수: {call.CoefficientOfVariation:F2} ({GetCVStatusText(call.CoefficientOfVariation)})\n" +
                $"실행횟수: {call.GoingCount}회\n" +
                $"{selectedMetricName}: {selectedMetricValue}";
+    }
+
+    private async Task ExportCsv()
+    {
+        var groups = FilteredGroups;
+        if (groups.Count == 0) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Flow,Call,Work,평균(ms),표준편차(ms),변동계수,실행횟수");
+
+        foreach (var group in groups)
+        {
+            foreach (var call in GetSortedCalls(group))
+            {
+                sb.AppendLine(string.Join(",",
+                    CsvEscape(call.FlowName),
+                    CsvEscape(call.CallName),
+                    CsvEscape(call.WorkName),
+                    $"{call.AverageGoingTime:F0}",
+                    $"{call.StdDevGoingTime:F0}",
+                    $"{call.CoefficientOfVariation:F2}",
+                    call.GoingCount));
+            }
+        }
+
+        var fileName = $"Heatmap_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        var bytes = System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+        var base64 = Convert.ToBase64String(bytes);
+
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var byteChars = atob('{base64}');
+                var bytes = new Uint8Array(byteChars.length);
+                for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+                var blob = new Blob([bytes], {{ type: 'text/csv;charset=utf-8' }});
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = '{fileName}';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            }})();
+        ");
+    }
+
+    private static string CsvEscape(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        return value;
     }
 
     private sealed record WorkHeatmapGroup(string WorkName, List<CallHeatmapItem> Calls);

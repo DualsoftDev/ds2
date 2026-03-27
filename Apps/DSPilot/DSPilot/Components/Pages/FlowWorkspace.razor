@@ -6,6 +6,7 @@
 @inject PlcToCallMapperService MapperService
 @inject AppSettingsService SettingsService
 @inject IFlowMetricsService FlowMetricsService
+@inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>Flow Workspace - DSPilot</PageTitle>
@@ -173,6 +174,7 @@ else
                         <option value="@state">@state</option>
                     }
                 </select>
+                <button class="btn btn-sm btn-outlined" @onclick="ExportCsv" disabled="@(FilteredCallRows.Count == 0)">CSV 내보내기</button>
             </div>
         </div>
 
@@ -938,6 +940,56 @@ else
         var trimmed = callName.Trim();
         var option = options.FirstOrDefault(item => string.Equals(item.CallName, trimmed, StringComparison.OrdinalIgnoreCase));
         return option?.CallName ?? firstOption.CallName;
+    }
+
+    private async Task ExportCsv()
+    {
+        var rows = FilteredCallRows;
+        if (rows.Count == 0) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Work,Call,In Tag,Out Tag,State,Count,Avg Time,Device,Error");
+
+        foreach (var row in rows)
+        {
+            sb.AppendLine(string.Join(",",
+                CsvEscape(row.WorkName),
+                CsvEscape(row.CallName),
+                CsvEscape(row.InTag ?? "-"),
+                CsvEscape(row.OutTag ?? "-"),
+                CsvEscape(GetFlowStateLabel(row.State)),
+                row.GoingCount,
+                CsvEscape(FormatDurationMs(row.AverageGoingTime)),
+                CsvEscape(row.Device ?? "-"),
+                CsvEscape(row.ErrorText ?? "-")));
+        }
+
+        var flowName = _selectedFlowName ?? "Flow";
+        var fileName = $"CallInventory_{flowName}_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        var bytes = System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+        var base64 = Convert.ToBase64String(bytes);
+
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var byteChars = atob('{base64}');
+                var bytes = new Uint8Array(byteChars.length);
+                for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+                var blob = new Blob([bytes], {{ type: 'text/csv;charset=utf-8' }});
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = '{fileName}';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            }})();
+        ");
+    }
+
+    private static string CsvEscape(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        return value;
     }
 
     public void Dispose()
