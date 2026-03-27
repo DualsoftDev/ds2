@@ -82,4 +82,10 @@
     <None Remove="_backup/**" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 오프라인용 로컬 폰트/라이브러리를 publish에 포함 -->
+    <Content Update="wwwroot\fonts\**" CopyToPublishDirectory="PreserveNewest" />
+    <Content Update="wwwroot\lib\**" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
