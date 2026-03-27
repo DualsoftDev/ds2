@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Ds2.Store;
 using Ds2.Editor;
 using Promaker.ViewModels;
@@ -20,6 +21,7 @@ public partial class ExplorerPane : UserControl
     private bool _treeDragCandidate;
     private MainViewModel? _boundViewModel;
     private TreePaneKind _activeTreePane = TreePaneKind.Control;
+    private readonly DispatcherTimer _searchRefreshTimer;
 
     public ObservableCollection<EntityNode> FilteredControlTreeRoots { get; } = [];
     public ObservableCollection<EntityNode> FilteredDeviceTreeRoots { get; } = [];
@@ -27,6 +29,11 @@ public partial class ExplorerPane : UserControl
     public ExplorerPane()
     {
         InitializeComponent();
+        _searchRefreshTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(120)
+        };
+        _searchRefreshTimer.Tick += SearchRefreshTimer_Tick;
         DataContextChanged += ExplorerPane_DataContextChanged;
         Unloaded += ExplorerPane_Unloaded;
     }
@@ -57,6 +64,8 @@ public partial class ExplorerPane : UserControl
 
     private void RebindViewModel(MainViewModel? oldVm, MainViewModel? newVm)
     {
+        _searchRefreshTimer.Stop();
+
         if (oldVm is not null)
         {
             oldVm.ControlTreeRoots.CollectionChanged -= TreeRoots_CollectionChanged;
@@ -171,8 +180,29 @@ public partial class ExplorerPane : UserControl
         }
     }
 
-    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) =>
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!HasActiveSearch)
+        {
+            _searchRefreshTimer.Stop();
+            RefreshTreeItemsSource();
+            return;
+        }
+
+        QueueSearchRefresh();
+    }
+
+    private void SearchRefreshTimer_Tick(object? sender, EventArgs e)
+    {
+        _searchRefreshTimer.Stop();
         RefreshTreeItemsSource();
+    }
+
+    private void QueueSearchRefresh()
+    {
+        _searchRefreshTimer.Stop();
+        _searchRefreshTimer.Start();
+    }
 
     private void RefreshTreeItemsSource()
     {
@@ -390,7 +420,10 @@ public partial class ExplorerPane : UserControl
         ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
 
         if (HasActiveSearch)
-            RefreshTreeItemsSource();
+        {
+            NavigateToSearchSelection(node);
+            RefreshFilteredSelectionState();
+        }
     }
 
     private void HandleTreeItemMouseDown(TreePaneKind pane, object sender, MouseButtonEventArgs e, bool requireModifiers)
@@ -459,4 +492,62 @@ public partial class ExplorerPane : UserControl
 
         return null;
     }
+
+    private void NavigateToSearchSelection(EntityNode node)
+    {
+        if (ViewModel is null)
+            return;
+
+        switch (node.EntityType)
+        {
+            case EntityKind.System:
+            case EntityKind.Flow:
+                ViewModel.Canvas.OpenCanvasTab(node.Id, node.EntityType);
+                break;
+            case EntityKind.Work:
+            case EntityKind.Call:
+                ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
+                break;
+            case EntityKind.ApiDef:
+                ViewModel.EditApiDefNode(node.Id);
+                break;
+        }
+    }
+
+    private void RefreshFilteredSelectionState()
+    {
+        if (_boundViewModel is null || !HasActiveSearch)
+            return;
+
+        var controlIndex = TreeNodeSearch.EnumerateNodes(_boundViewModel.ControlTreeRoots)
+            .ToDictionary(NodeKey);
+        var deviceIndex = TreeNodeSearch.EnumerateNodes(_boundViewModel.DeviceTreeRoots)
+            .ToDictionary(NodeKey);
+
+        SyncFilteredNodes(FilteredControlTreeRoots, controlIndex);
+        SyncFilteredNodes(FilteredDeviceTreeRoots, deviceIndex);
+    }
+
+    private static void SyncFilteredNodes(
+        IEnumerable<EntityNode> filteredNodes,
+        IReadOnlyDictionary<string, EntityNode> sourceIndex)
+    {
+        foreach (var filteredNode in filteredNodes)
+        {
+            if (sourceIndex.TryGetValue(NodeKey(filteredNode), out var sourceNode))
+            {
+                filteredNode.IsTreeSelected = sourceNode.IsTreeSelected;
+                filteredNode.SelectionOrder = sourceNode.SelectionOrder;
+                filteredNode.IsExpanded = filteredNode.Children.Count > 0 || sourceNode.IsExpanded;
+                filteredNode.IsWarning = sourceNode.IsWarning;
+                filteredNode.SimState = sourceNode.SimState;
+                filteredNode.SimTokenDisplay = sourceNode.SimTokenDisplay;
+            }
+
+            SyncFilteredNodes(filteredNode.Children, sourceIndex);
+        }
+    }
+
+    private static string NodeKey(EntityNode node) =>
+        $"{(int)node.EntityType}:{node.Id}";
 }
