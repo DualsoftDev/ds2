@@ -274,8 +274,11 @@ module AasxRoundTripTests =
 /// SplitDeviceAasx 분리 저장 통합 테스트
 module SplitDeviceAasxTests =
 
+    open AasCore.Aas3_0
     open Ds2.Store
     open Ds2.Editor
+    open Ds2.Aasx.AasxFileIO
+    open Ds2.Aasx.AasxSemantics
 
     let private createStoreWithDevices () =
         let store = DsStore()
@@ -399,6 +402,38 @@ module SplitDeviceAasxTests =
             Assert.Equal(1, project2.ActiveSystemIds.Count)
             // 1개는 스킵되어 1개만 로드됨
             Assert.Equal(1, project2.PassiveSystemIds.Count)
+        finally
+            cleanupSplitFiles path
+
+    [<Fact>]
+    let ``SplitDeviceAasx device files include metadata submodels`` () =
+        let store, projectId = createStoreWithDevices()
+        let project = store.Projects.[projectId]
+        project.Properties.SplitDeviceAasx <- true
+
+        let path = getTempAasxPath()
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported)
+
+            let baseName = Path.GetFileNameWithoutExtension(path)
+            let devicesDir = Path.Combine(Path.GetDirectoryName(path), $"{baseName}_devices")
+            let deviceFiles = Directory.GetFiles(devicesDir, "*.aasx")
+            Assert.NotEmpty(deviceFiles)
+
+            let env = readEnvironment deviceFiles[0]
+            Assert.True(env.IsSome, "Device AASX should be readable")
+
+            let submodelIdShorts =
+                env.Value.Submodels
+                |> Seq.map (fun sm -> sm.IdShort)
+                |> Seq.toList
+
+            Assert.Contains(SubmodelIdShort, submodelIdShorts)
+            Assert.Contains(NameplateSubmodelIdShort, submodelIdShorts)
+            Assert.Contains(DocumentationSubmodelIdShort, submodelIdShorts)
+            Assert.NotNull(env.Value.ConceptDescriptions)
+            Assert.NotEmpty(env.Value.ConceptDescriptions)
         finally
             cleanupSplitFiles path
 

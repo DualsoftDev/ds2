@@ -98,7 +98,6 @@ public partial class SimulationPanelState : ObservableObject
     private bool _isSimPaused;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     private bool _hasWorkGoing;
 
     [ObservableProperty]
