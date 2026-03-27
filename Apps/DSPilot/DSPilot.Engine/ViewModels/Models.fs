@@ -8,6 +8,7 @@ module Models =
     /// Call Heatmap 아이템 (F# record)
     [<CLIMutable>]
     type CallHeatmapItem = {
+        CallId: System.Guid
         CallName: string
         FlowName: string
         WorkName: string
