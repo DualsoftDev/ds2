@@ -1,0 +1,177 @@
+<Window x:Class="Promaker.Windows.View3DWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
+        Title="3D 배치 뷰"
+        Width="1280" Height="860"
+        WindowStartupLocation="CenterOwner"
+        Background="#0f172a">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="LeftPanelColumn" Width="280"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Left Panel: Device Tree + Info + Mode -->
+        <Border Grid.Row="0" Grid.Column="0" Background="#1e293b" BorderBrush="#334155" BorderThickness="0,0,1,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>      <!-- Header -->
+                    <RowDefinition Height="*"/>         <!-- Tree -->
+                    <RowDefinition Height="Auto"/>      <!-- Device Info -->
+                    <RowDefinition Height="Auto"/>      <!-- Mode Selection -->
+                </Grid.RowDefinitions>
+
+                <!-- Tree Header -->
+                <Border Grid.Row="0" Background="#0f172a" BorderBrush="#334155" BorderThickness="0,0,0,1" Padding="12,8">
+                    <TextBlock Text="Devices" FontSize="13" FontWeight="SemiBold" Foreground="#e2e8f0"/>
+                </Border>
+
+                <!-- Tree View -->
+                <TreeView x:Name="DeviceTree" Grid.Row="1"
+                          Background="#1e293b" BorderThickness="0"
+                          Foreground="#e2e8f0" FontSize="12"
+                          SelectedItemChanged="DeviceTree_SelectedItemChanged">
+                    <TreeView.Resources>
+                        <Style TargetType="TreeViewItem">
+                            <Setter Property="Foreground" Value="#e2e8f0"/>
+                            <Setter Property="Padding" Value="4,2"/>
+                        </Style>
+                    </TreeView.Resources>
+                </TreeView>
+
+                <!-- Device Info Panel -->
+                <Border Grid.Row="2" Background="#1e293b" BorderBrush="#334155" BorderThickness="0,1,0,0" Padding="12,10"
+                        MaxHeight="200">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="InfoContent">
+                            <TextBlock x:Name="InfoTitle" Text="장비 정보" FontSize="11"
+                                       Foreground="#94a3b8" Margin="0,0,0,8" FontWeight="SemiBold"/>
+                            <TextBlock Text="장비를 선택하면 정보가 표시됩니다."
+                                       Foreground="#64748b" FontSize="10"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+
+                <!-- Edit Mode Toggle (bottom of tree panel) -->
+                <Border Grid.Row="3" Background="#0f172a" BorderBrush="#334155" BorderThickness="0,1,0,0" Padding="12,10">
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="모드 선택" FontSize="10" Foreground="#94a3b8" Margin="0,0,0,6" FontWeight="SemiBold"/>
+                        <RadioButton x:Name="CameraModeRadio" Content="카메라 모드 (회전/확대)"
+                                     GroupName="ViewMode" IsChecked="True"
+                                     Foreground="#e2e8f0" FontSize="11" Margin="0,0,0,6"
+                                     Checked="CameraMode_Checked"/>
+                        <RadioButton x:Name="MoveModeRadio" Content="장비 이동 모드"
+                                     GroupName="ViewMode"
+                                     Foreground="#e2e8f0" FontSize="11"
+                                     Checked="MoveMode_Checked"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- Center: 3D View -->
+        <wv2:WebView2 x:Name="WebView3D" Grid.Row="0" Grid.Column="1"/>
+
+        <!-- Left Panel Toggle Button (top-left of 3D view) -->
+        <Button x:Name="ToggleLeftPanelButton" Grid.Row="0" Grid.Column="1"
+                Content="☰" Click="ToggleLeftPanel_Click"
+                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10"
+                Background="#1e293b" Foreground="#e2e8f0" BorderBrush="#334155" BorderThickness="1"
+                Width="40" Height="40" FontSize="18" Cursor="Hand"
+                ToolTip="좌측 패널 숨기기/보이기 (F2)">
+            <Button.Style>
+                <Style TargetType="Button">
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="4">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                    <Style.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="#334155"/>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </Button.Style>
+        </Button>
+
+        <!-- Scene Mode Toggle (top-right corner of 3D view) -->
+        <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="10">
+            <Border Background="#1e293b" BorderBrush="#334155" BorderThickness="1" CornerRadius="4" Padding="8,4">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Scene Mode:" Foreground="#94a3b8" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                    <Button x:Name="DeviceSceneButton" Content="Device Placement" Click="DeviceSceneButton_Click"
+                            Background="#3b82f6" Foreground="White" BorderThickness="0" Padding="12,4" Margin="0,0,4,0"
+                            Cursor="Hand" FontSize="11" FontWeight="SemiBold">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button x:Name="WorkSceneButton" Content="Work Graph" Click="WorkSceneButton_Click"
+                            Background="#475569" Foreground="#94a3b8" BorderThickness="0" Padding="12,4"
+                            Cursor="Hand" FontSize="11" FontWeight="SemiBold">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <!-- Bottom: Shortcut Keys Info Panel -->
+        <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                Background="#0f172a" BorderBrush="#334155" BorderThickness="0,1,0,0" Padding="12,6">
+            <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <TextBlock Foreground="#64748b" FontSize="10" Margin="0,0,12,0">
+                    <Run Text="F2" Foreground="#94a3b8" FontWeight="SemiBold"/>
+                    <Run Text=": 좌측패널"/>
+                </TextBlock>
+                <TextBlock Foreground="#64748b" FontSize="10" Margin="0,0,12,0">
+                    <Run Text="F4" Foreground="#94a3b8" FontWeight="SemiBold"/>
+                    <Run Text=": 장비이동"/>
+                </TextBlock>
+                <TextBlock Foreground="#64748b" FontSize="10" Margin="0,0,12,0">
+                    <Run Text="F5" Foreground="#94a3b8" FontWeight="SemiBold"/>
+                    <Run Text=": 카메라"/>
+                </TextBlock>
+                <TextBlock Foreground="#64748b" FontSize="10">
+                    <Run Text="F" Foreground="#94a3b8" FontWeight="SemiBold"/>
+                    <Run Text=": 카메라맞춤"/>
+                </TextBlock>
+            </WrapPanel>
+        </Border>
+    </Grid>
+</Window>

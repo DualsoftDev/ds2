@@ -52,6 +52,12 @@
                     </Border>
                 </Popup>
             </Grid>
+            <Button Style="{StaticResource RibbonFlatButton}" Command="{Binding Open3DViewCommand}" ToolTip="3D 배치 뷰 열기">
+                <StackPanel Orientation="Vertical">
+                    <iconPacks:PackIconMaterial Kind="CubeOutline" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
+                    <TextBlock Text="3D" Style="{StaticResource RibbonIconLabel}"/>
+                </StackPanel>
+            </Button>
             <Button x:Name="ThemeButton" Style="{StaticResource RibbonFlatButton}" Command="{Binding ToggleThemeCommand}" ToolTip="{Binding ThemeButtonToolTip}">
                 <StackPanel Orientation="Vertical">
                     <Grid Width="18" Height="18" HorizontalAlignment="Center" Margin="0,0,0,2">

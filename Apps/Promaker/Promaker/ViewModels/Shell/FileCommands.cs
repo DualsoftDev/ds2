@@ -176,6 +176,13 @@ public partial class MainViewModel
 
         if (firstSystem is not null)
             Canvas.OpenCanvasTab(firstSystem.Id, EntityKind.System);
+
+        // 3D 창이 열려있으면 씬 자동 재빌드
+        if (_view3DWindow is { IsVisible: true })
+        {
+            var projectId = DsQuery.allProjects(_store).Head.Id;
+            _ = Simulation.ThreeD.BuildScene(_store, projectId);
+        }
     }
 
     private static void ExpandAllNodes(IEnumerable<EntityNode> nodes)

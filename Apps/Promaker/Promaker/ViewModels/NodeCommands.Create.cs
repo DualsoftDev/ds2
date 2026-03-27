@@ -113,6 +113,8 @@ public partial class MainViewModel
             ? FSharpOption<string>.None
             : FSharpOption<string>.Some(dialog.SelectedSystemType);
 
+        var worksBefore = _store.Works.Keys.ToHashSet();
+
         switch (dialog.Mode)
         {
             case CallCreateMode.CallReplication:
@@ -122,7 +124,10 @@ public partial class MainViewModel
                     targetWorkId,
                     rawPos,
                     siblings))
+                {
                     StatusText = $"Added {dialog.CallNames.Count} call(s).";
+                    AddMutualResetArrowsForNewDeviceWorks(worksBefore);
+                }
                 break;
 
             case CallCreateMode.ApiCallReplication:
@@ -140,7 +145,10 @@ public partial class MainViewModel
                                 systemTypeOption))),
                         rawPos,
                         siblings.Positions))
+                    {
                         StatusText = $"Added {dialog.CallNames.Count} call(s).";
+                        AddMutualResetArrowsForNewDeviceWorks(worksBefore);
+                    }
                 }
                 else
                 {
@@ -155,11 +163,14 @@ public partial class MainViewModel
                             systemTypeOption),
                         rawPos,
                         siblings.Positions))
+                    {
                         StatusText = "Call added.";
+                        AddMutualResetArrowsForNewDeviceWorks(worksBefore);
+                    }
                 }
                 break;
 
-            case CallCreateMode.ApiDefPicker:
+            case CallCreateMode.ApiDefPicker: // no passive device created, skip mutual reset
                 if (TryCreateSingleWithCascade(
                     () => _store.AddCallWithLinkedApiDefs(
                         targetWorkId,
@@ -172,4 +183,7 @@ public partial class MainViewModel
                 break;
         }
     }
+
+    private void AddMutualResetArrowsForNewDeviceWorks(HashSet<Guid> worksBefore) =>
+        _store.ConnectWorksWithMutualReset(_store.Works.Keys.Where(id => !worksBefore.Contains(id)));
 }

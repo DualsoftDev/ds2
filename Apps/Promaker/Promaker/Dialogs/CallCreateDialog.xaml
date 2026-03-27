@@ -48,7 +48,7 @@
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="DevicesAlias"
                                        FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                                        Margin="0,0,0,2"/>
-                            <TextBlock Grid.Row="0" Grid.Column="2" Text="프리셋"
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="SystemType"
                                        FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                                        Margin="0,0,0,2"/>
 
@@ -63,7 +63,7 @@
                                    FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                                    Margin="0,0,0,2"/>
                         <TextBox x:Name="BasicApiNameTextBox"
-                                 Padding="6,4" Text="ADV;RET" IsEnabled="False"
+                                 Padding="6,4" Text="" IsEnabled="False"
                                  Margin="0,0,0,12"/>
 
                         <!-- 추가 기능 (접힌 상태) -->

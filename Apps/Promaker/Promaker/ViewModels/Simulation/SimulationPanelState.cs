@@ -32,6 +32,7 @@ public partial class SimulationPanelState : ObservableObject
     private readonly HashSet<string> _suppressedWarnings = [];
     private readonly HashSet<Guid> _warningGuids = [];
     private bool _isStepMode;
+    private ISceneEventHandler? _sceneEventHandler;
 
     private static class SimText
     {
@@ -133,6 +134,7 @@ public partial class SimulationPanelState : ObservableObject
     public ObservableCollection<string> SimEventLog { get; } = [];
     public ObservableCollection<SimWorkItem> SimWorkItems { get; } = [];
     public GanttChartState GanttChart { get; } = new();
+    public ThreeDViewState ThreeD { get; } = new();
 
     public void SyncCanvasSelection(IReadOnlyList<SelectionKey> orderedSelection)
     {

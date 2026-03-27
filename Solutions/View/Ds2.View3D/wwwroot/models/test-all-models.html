@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>전체 모델 로드 테스트</title>
+<style>
+  body {
+    font-family: 'Courier New', monospace;
+    background: #0f172a;
+    color: #22d3ee;
+    padding: 20px;
+  }
+  .success { color: #22c55e; }
+  .error { color: #ef4444; }
+  .info { color: #fbbf24; }
+  pre { background: #1e293b; padding: 10px; border-radius: 8px; }
+</style>
+</head>
+<body>
+
+<h1>🧪 Ds2.View3D 모델 로드 테스트</h1>
+<p class="info">총 29개 모델 로딩 중...</p>
+
+<pre id="log"></pre>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="./index.js"></script>
+
+<script>
+const logElement = document.getElementById('log');
+
+function log(message, type = 'info') {
+  const timestamp = new Date().toLocaleTimeString();
+  const colorClass = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+  logElement.innerHTML += `<span class="${colorClass}">[${timestamp}] ${message}</span>\n`;
+  console.log(message);
+}
+
+async function testAllModels() {
+  log('='.repeat(60), 'info');
+  log('Ds2View3DLibrary 테스트 시작', 'info');
+  log('='.repeat(60), 'info');
+  log('');
+
+  // 1. 라이브러리 정보 확인
+  log(`버전: ${Ds2View3DLibrary.version}`, 'info');
+  const allTypes = Ds2View3DLibrary.getAllDeviceTypes();
+  log(`등록된 모델 수: ${allTypes.length}`, 'info');
+  log('');
+
+  // 2. 모든 모델 목록 출력
+  log('등록된 모델 목록:', 'info');
+  allTypes.forEach((type, index) => {
+    const info = Ds2View3DLibrary.getDeviceInfo(type);
+    log(`  ${(index + 1).toString().padStart(2, '0')}. ${type.padEnd(25)} - ${info.description}`, 'info');
+  });
+  log('');
+
+  // 3. 각 모델 파일 로드 테스트
+  log('='.repeat(60), 'info');
+  log('모델 로드 테스트 시작', 'info');
+  log('='.repeat(60), 'info');
+  log('');
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const deviceType of allTypes) {
+    try {
+      const startTime = performance.now();
+      const model = await Ds2View3DLibrary.create(deviceType, THREE);
+      const loadTime = (performance.now() - startTime).toFixed(2);
+
+      if (model && model.userData && model.userData.deviceType === deviceType) {
+        log(`✅ ${deviceType.padEnd(25)} - 로드 성공 (${loadTime}ms)`, 'success');
+        successCount++;
+      } else {
+        log(`❌ ${deviceType.padEnd(25)} - 모델 구조 이상`, 'error');
+        failCount++;
+      }
+    } catch (e) {
+      log(`❌ ${deviceType.padEnd(25)} - 로드 실패: ${e.message}`, 'error');
+      failCount++;
+    }
+  }
+
+  log('');
+  log('='.repeat(60), 'info');
+  log('테스트 완료', 'info');
+  log('='.repeat(60), 'info');
+  log('');
+  log(`✅ 성공: ${successCount}개`, 'success');
+  log(`❌ 실패: ${failCount}개`, failCount > 0 ? 'error' : 'success');
+  log(`📊 성공률: ${((successCount / allTypes.length) * 100).toFixed(1)}%`, failCount > 0 ? 'error' : 'success');
+  log('');
+
+  if (failCount === 0) {
+    log('🎉 모든 모델이 정상적으로 로드되었습니다!', 'success');
+  } else {
+    log('⚠️  일부 모델 로드 실패. 위 로그를 확인하세요.', 'error');
+  }
+}
+
+// 테스트 실행
+window.addEventListener('load', () => {
+  setTimeout(testAllModels, 100);
+});
+</script>
+
+</body>
+</html>

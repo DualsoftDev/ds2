@@ -20,6 +20,7 @@
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="log4net" />
     <PackageReference Include="MahApps.Metro.IconPacks.Material" />
+    <PackageReference Include="Microsoft.Web.WebView2" />
   </ItemGroup>
   <ItemGroup>
     <None Update="log4net.config">
@@ -43,6 +44,14 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
+    <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Ds2.View3D Lib3D 모델 파일: wwwroot\models\에 링크 -->
+    <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\models\**\*"
+             Link="wwwroot\models\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Solutions\View\Ds2.View3D\Ds2.View3D.Core\Ds2.View3D.Core.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" />

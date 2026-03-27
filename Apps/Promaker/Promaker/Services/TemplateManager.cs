@@ -12,8 +12,7 @@ public static class TemplateManager
 {
     private static readonly string TemplatesPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Promaker",
-        "Templates");
+        "Dualsoft", "Promaker", "Templates");
 
     /// <summary>
     /// 템플릿 폴더 경로

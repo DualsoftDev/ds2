@@ -17,4 +17,9 @@
   <ItemGroup>
     <PackageVersion Include="MahApps.Metro.IconPacks.Material" Version="6.0.0" />
   </ItemGroup>
+
+  <!-- WebView2 -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.2277.86" />
+  </ItemGroup>
 </Project>

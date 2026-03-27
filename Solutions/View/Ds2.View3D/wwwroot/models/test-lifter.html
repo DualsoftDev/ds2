@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Lifter Test</title>
+<style>
+  body { margin: 0; background: #0f172a; }
+  #container { width: 100vw; height: 100vh; }
+  #info {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: white;
+    font-family: monospace;
+    background: rgba(0,0,0,0.5);
+    padding: 10px;
+  }
+</style>
+</head>
+<body>
+<div id="info">Lifter Test - 승강 리프터</div>
+<div id="container"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="./Lib3D/Lifter.js"></script>
+
+<script>
+const container = document.getElementById('container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0f172a);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(3, 2.5, 5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+container.appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const light = new THREE.DirectionalLight(0xffffff, 0.8);
+light.position.set(5, 10, 5);
+light.castShadow = true;
+scene.add(light);
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(10, 10),
+  new THREE.MeshStandardMaterial({ color: 0x1e293b })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Check if Lifter class is loaded
+console.log('Lifter class:', typeof Lifter);
+
+if (typeof Lifter !== 'undefined') {
+  try {
+    const lifter = Lifter.create(THREE, { targetHeight: 2.5 });
+    scene.add(lifter);
+    console.log('✅ Lifter created successfully');
+    
+    // Test state changes
+    let state = 'R';
+    setInterval(() => {
+      const states = ['R', 'G', 'F', 'H'];
+      const idx = states.indexOf(state);
+      state = states[(idx + 1) % states.length];
+      Lifter.updateState(lifter, state);
+      console.log('State changed to:', state);
+    }, 2000);
+  } catch (e) {
+    console.error('❌ Error creating Lifter:', e);
+    document.getElementById('info').innerHTML += '<br>ERROR: ' + e.message;
+  }
+} else {
+  console.error('❌ Lifter class not found!');
+  document.getElementById('info').innerHTML += '<br>ERROR: Lifter class not loaded';
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
