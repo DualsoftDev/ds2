@@ -365,6 +365,9 @@ WHERE RowNum = 1";
                 return false;
             }
 
+            // 인덱스 자동 생성 (이미 존재하면 무시)
+            await EnsureIndexesAsync(connection);
+
             _logger.LogInformation("Database connection test successful");
             return true;
         }
@@ -373,6 +376,33 @@ WHERE RowNum = 1";
             _logger.LogError(ex, "Database connection test failed");
             return false;
         }
+    }
+
+    /// <summary>
+    /// plcTagLog 성능 최적화 인덱스 생성 (IF NOT EXISTS로 안전)
+    /// </summary>
+    private async Task EnsureIndexesAsync(IDbConnection connection)
+    {
+        var indexes = new[]
+        {
+            "CREATE INDEX IF NOT EXISTS idx_plcTagLog_dateTime_id ON plcTagLog(dateTime, id)",
+            "CREATE INDEX IF NOT EXISTS idx_plcTagLog_tagId_id ON plcTagLog(plcTagId, id DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_plcTag_address ON plcTag(address)",
+        };
+
+        foreach (var ddl in indexes)
+        {
+            try
+            {
+                await connection.ExecuteAsync(ddl);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to create index: {Sql}", ddl);
+            }
+        }
+
+        _logger.LogInformation("Database indexes ensured");
     }
 
     public async Task<List<PlcTagLogEntity>> GetTagLogsByAddressInRangeAsync(
@@ -733,5 +763,62 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
             _logger.LogError(ex, "Unexpected error in GetTagLogsByTimeRangeAsync for address {Address}", tagAddress);
             return new List<PlcTagLogEntity>();
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<(Dictionary<string, string> TagValues, long MaxLogId)> GetLatestValuePerTagAsync()
+    {
+        using var connection = CreateConnection();
+
+        // 모든 태그의 최신 로그 값을 단일 쿼리로 조회
+        const string sql = @"
+            SELECT t.address AS Address, l.value AS Value
+            FROM plcTag t
+            INNER JOIN plcTagLog l ON l.id = (
+                SELECT MAX(l2.id) FROM plcTagLog l2 WHERE l2.plcTagId = t.id
+            )
+            WHERE t.address IS NOT NULL AND t.address != ''";
+
+        var rows = await connection.QueryAsync<(string Address, string? Value)>(sql);
+        var dict = new Dictionary<string, string>();
+        foreach (var row in rows)
+        {
+            dict[row.Address] = row.Value ?? "0";
+        }
+
+        // 현재 최대 log ID 조회 (델타 폴링 시작점)
+        var maxId = await connection.ExecuteScalarAsync<long?>("SELECT MAX(id) FROM plcTagLog") ?? 0L;
+
+        return (dict, maxId);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<PlcTagLogEntity>> GetLogsAfterIdAsync(long afterId)
+    {
+        using var connection = CreateConnection();
+
+        const string sql = @"
+            SELECT
+                l.id AS Id,
+                l.plcTagId AS PlcTagId,
+                l.dateTime AS DateTime,
+                l.value AS Value,
+                t.name AS TagName,
+                t.address AS Address
+            FROM plcTagLog l
+            INNER JOIN plcTag t ON l.plcTagId = t.id
+            WHERE l.id > @AfterId
+            ORDER BY l.id ASC";
+
+        var rows = await connection.QueryAsync<PlcTagLogAddressRow>(sql, new { AfterId = afterId });
+        return rows.Select(row => new PlcTagLogEntity
+        {
+            Id = row.Id,
+            PlcTagId = row.PlcTagId,
+            DateTime = ParseSqliteDateTime(row.DateTime),
+            Value = row.Value,
+            TagName = row.TagName,
+            Address = row.Address
+        }).ToList();
     }
 }
