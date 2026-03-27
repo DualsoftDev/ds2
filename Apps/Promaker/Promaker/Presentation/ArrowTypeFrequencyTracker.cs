@@ -14,7 +14,7 @@ public static class ArrowTypeFrequencyTracker
 {
     private static readonly string PinnedFilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Promaker", "arrow-pinned.txt");
+        "Dualsoft", "Promaker", "Settings", "arrow-pinned.txt");
 
     private static HashSet<ArrowType>? _pinned;
 

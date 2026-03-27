@@ -12,8 +12,7 @@ public static class RecentFilesManager
 {
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Promaker",
-        "recent_files.txt");
+        "Dualsoft", "Promaker", "RecentFiles", "recent_files.txt");
 
     private const int MaxRecentFiles = 10;
 

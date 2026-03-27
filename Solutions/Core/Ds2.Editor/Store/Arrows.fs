@@ -176,3 +176,45 @@ type DsStoreArrowsExtensions =
                     | _ -> ())
             store.EmitRefreshAndHistory()
             links.Length
+
+    /// 지정된 Work ID 목록에서 같은 System에 속한 Work들끼리 ResetReset 화살표를 전체 쌍으로 연결.
+    /// 쌍 (A, B)에 A→B 또는 B→A ResetReset 이 이미 있으면 스킵 → 중복 방지.
+    /// N개 Work → 최대 N*(N-1)/2 화살표 (단일 트랜잭션)
+    [<Extension>]
+    static member ConnectWorksWithMutualReset(store: DsStore, workIds: seq<Guid>) : int =
+        let bySystem =
+            workIds
+            |> Seq.distinct
+            |> Seq.choose (fun id ->
+                DsQuery.trySystemIdOfWork id store
+                |> Option.map (fun sysId -> sysId, id))
+            |> Seq.groupBy fst
+            |> Seq.map (fun (sysId, pairs) -> sysId, pairs |> Seq.map snd |> Seq.toList)
+            |> Seq.filter (fun (_, works) -> List.length works >= 2)
+            |> Seq.toList
+        if bySystem.IsEmpty then 0
+        else
+            // 기존 ResetReset 화살표를 양방향 key 세트로 프리빌드
+            let existing =
+                DsQuery.allArrowWorks store
+                |> List.filter (fun a -> a.ArrowType = ArrowType.ResetReset)
+                |> List.collect (fun a ->
+                    [ ConnectionQueries.arrowKey a.SourceId a.TargetId a.ArrowType
+                      ConnectionQueries.arrowKey a.TargetId a.SourceId a.ArrowType ])
+                |> System.Collections.Generic.HashSet
+            let links =
+                bySystem
+                |> List.collect (fun (sysId, works) ->
+                    [ for i in 0 .. works.Length - 2 do
+                        for j in i + 1 .. works.Length - 1 do
+                            let key = ConnectionQueries.arrowKey works.[i] works.[j] ArrowType.ResetReset
+                            if not (existing.Contains(key)) then
+                                yield (sysId, works.[i], works.[j]) ])
+            if links.IsEmpty then 0
+            else
+                StoreLog.debug($"상호리셋 arrows={links.Length}")
+                store.WithTransaction("상호리셋 연결", fun () ->
+                    for (sysId, srcId, tgtId) in links do
+                        store.TrackAdd(store.ArrowWorks, ArrowBetweenWorks(sysId, srcId, tgtId, ArrowType.ResetReset)))
+                store.EmitRefreshAndHistory()
+                links.Length

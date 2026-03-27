@@ -37,6 +37,7 @@ public partial class SimulationPanelState
             WireSimEvents();
             InitSimNodes();
             InitTokenSources();
+            InitSceneEventHandler();
 
             _simStartTime = DateTime.Now;
             _stateChangeRecords.Clear();
@@ -97,6 +98,7 @@ public partial class SimulationPanelState
         HasGoingCall = false;
         _isStepMode = false;
         SimStatusText = SimText.Stopped;
+        _sceneEventHandler?.Reset();
         ApplySimulationUiState(
             ganttRunning: false,
             isSimulating: false,
@@ -228,6 +230,11 @@ public partial class SimulationPanelState
             SimStatusText = SimText.Paused;
         else
             SimStatusText = SimText.StepMode;
+    }
+
+    private void InitSceneEventHandler()
+    {
+        _sceneEventHandler = new DeviceSceneEventHandler(ThreeD);
     }
 
     private bool CanAdvanceStepCore() =>

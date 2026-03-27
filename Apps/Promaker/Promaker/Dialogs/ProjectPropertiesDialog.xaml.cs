@@ -1,13 +1,18 @@
+using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using Ds2.Core;
 using Ds2.Editor;
-using Microsoft.FSharp.Core;
 
 namespace Promaker.Dialogs;
 
 public partial class ProjectPropertiesDialog : Window
 {
+    private static readonly string PresetFilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Dualsoft", "Promaker", "systemTypePreset", "systemTypePreset.json");
+
     private const string DefaultIriPrefix = "http://your-company.com/";
     private readonly string _initialProjectName;
 
@@ -36,31 +41,48 @@ public partial class ProjectPropertiesDialog : Window
         SplitDeviceAasxBox.IsChecked = properties.SplitDeviceAasx;
 
         // 프리셋 SystemType 매핑 로드
-        LoadPresetMappings(properties);
+        LoadPresetMappings();
 
         // 기본 값 설정
-        PresetTextBox.Text = "ADV;RET";
+        PresetTextBox.Text = Ds2.View3D.DevicePresets.Entries[0].Item2;
 
         Loaded += (_, _) => ProjectNameBox.Focus();
     }
 
-    private void LoadPresetMappings(ProjectProperties properties)
+    private void LoadPresetMappings()
     {
-        var presets = ProjectPropertiesHelper.getPresetSystemTypes(properties);
         PresetMappingListBox.Items.Clear();
 
-        foreach (var preset in presets)
-        {
-            PresetMappingListBox.Items.Add(preset);
-        }
+        // 파일에서 로드 → 없으면 기본값 사용
+        var filePresets = LoadPresetsFromFile();
+        var source = filePresets.Length > 0
+            ? filePresets
+            : Ds2.View3D.DevicePresets.DefaultMappingStrings;
 
-        // 기본값이 없으면 기본 매핑 추가
-        if (presets.Length == 0)
+        foreach (var mapping in source)
+            PresetMappingListBox.Items.Add(mapping);
+    }
+
+    private static string[] LoadPresetsFromFile()
+    {
+        try
         {
-            PresetMappingListBox.Items.Add("ADV;RET:Unit");
-            PresetMappingListBox.Items.Add("UP;DOWN:UpDn");
-            PresetMappingListBox.Items.Add("FWD;BWD:Motor");
+            if (!File.Exists(PresetFilePath)) return [];
+            var json = File.ReadAllText(PresetFilePath);
+            return JsonSerializer.Deserialize<string[]>(json) ?? [];
         }
+        catch { return []; }
+    }
+
+    private static void SavePresetsToFile(string[] presets)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(PresetFilePath)!);
+            File.WriteAllText(PresetFilePath,
+                JsonSerializer.Serialize(presets, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch { }
     }
 
     private void PresetMappingListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -138,6 +160,9 @@ public partial class ProjectPropertiesDialog : Window
         ResultPresetSystemTypes = PresetMappingListBox.Items
             .Cast<string>()
             .ToArray();
+
+        // 글로벌 설정 파일에 저장
+        SavePresetsToFile(ResultPresetSystemTypes);
 
         DialogResult = true;
     }

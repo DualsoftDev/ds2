@@ -16,8 +16,7 @@ public static class ThemeManager
     private static readonly Uri LightThemeUri = new("Themes/Theme.Light.xaml", UriKind.Relative);
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Promaker",
-        "theme.txt");
+        "Dualsoft", "Promaker", "Settings", "theme.txt");
 
     public static AppTheme CurrentTheme { get; private set; } = AppTheme.Dark;
     public static event Action<AppTheme>? ThemeChanged;

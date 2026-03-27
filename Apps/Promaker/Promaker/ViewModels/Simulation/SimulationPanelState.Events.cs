@@ -33,6 +33,7 @@ public partial class SimulationPanelState
         if (args.NewState == Status4.Homing || (args.PreviousState == Status4.Homing && args.NewState == Status4.Ready))
             AddSimLog($"[Reset] {args.WorkName}: {args.PreviousState} → {args.NewState}");
 
+        _sceneEventHandler?.OnWorkStateChanged(args.WorkGuid, args.NewState);
         RefreshSimulationProgressUi();
     }
 
@@ -41,6 +42,7 @@ public partial class SimulationPanelState
         var suffix = args.IsSkipped ? " (Skip)" : "";
         ApplyNodeStateChange(args.CallGuid, args.NewState, args.CallName + suffix, EntityKind.Call, GetSystemName(EntityKind.Call, args.CallGuid));
 
+        _sceneEventHandler?.OnCallStateChanged(args.CallGuid, args.NewState);
         RefreshSimulationProgressUi();
     }
 

@@ -37,12 +37,11 @@ public enum AppLanguage
 public static class LanguageManager
 {
     /// <summary>
-    /// 언어 설정 저장 경로: %AppData%/Promaker/language.txt
+    /// 언어 설정 저장 경로: %AppData%/Dualsoft/Promaker/Settings/language.txt
     /// </summary>
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Promaker",
-        "language.txt");
+        "Dualsoft", "Promaker", "Settings", "language.txt");
 
     /// <summary>
     /// 현재 언어 (기본값: Korean)

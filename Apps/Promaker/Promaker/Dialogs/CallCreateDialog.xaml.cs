@@ -3,7 +3,6 @@ using System.Windows.Controls;
 using Ds2.Core;
 using Ds2.Store;
 using Ds2.Editor;
-using Microsoft.FSharp.Core;
 
 namespace Promaker.Dialogs;
 
@@ -58,41 +57,62 @@ public partial class CallCreateDialog : Window
                 var parts = preset.Split(':');
                 if (parts.Length == 2)
                 {
-                    var presetName = parts[0];
-                    var displayName = presetName.Replace(";", "-");
-                    var item = new ComboBoxItem
+                    var sysType  = parts[0];  // "ADV;RET" — ApiName 템플릿
+                    var modelType = parts[1]; // "Unit"    — SystemType으로 저장될 값
+                    PresetComboBox.Items.Add(new ComboBoxItem
                     {
-                        Content = displayName,
-                        Tag = presetName
-                    };
-                    PresetComboBox.Items.Add(item);
+                        Content = modelType,
+                        Tag = $"{sysType}|{modelType}"
+                    });
                 }
             }
         }
 
-        // 프리셋이 없으면 기본값 추가
+        // 프리셋이 없으면 기본값 추가 (DevicePresets.Entries 단일 정의 참조)
         if (PresetComboBox.Items.Count == 0)
         {
-            PresetComboBox.Items.Add(new ComboBoxItem { Content = "ADV-RET", Tag = "ADV;RET" });
-            PresetComboBox.Items.Add(new ComboBoxItem { Content = "UP-DOWN", Tag = "UP;DOWN" });
-            PresetComboBox.Items.Add(new ComboBoxItem { Content = "FWD-BWD", Tag = "FWD;BWD" });
+            foreach (var (modelType, sysType) in Ds2.View3D.DevicePresets.Entries)
+            {
+                if (string.IsNullOrEmpty(sysType)) continue;
+                PresetComboBox.Items.Add(new ComboBoxItem
+                {
+                    Content = modelType,
+                    Tag = $"{sysType}|{modelType}"
+                });
+            }
         }
+
+        // 직접 입력 항목 추가 (Tag = null → Dummy SystemType)
+        PresetComboBox.Items.Add(new ComboBoxItem
+        {
+            Content = "직접 입력",
+            Tag = null
+        });
 
         // 첫 번째 항목 선택
         if (PresetComboBox.Items.Count > 0)
             PresetComboBox.SelectedIndex = 0;
     }
 
-    // ─── 프리셋 ───
+    private bool IsCustomInputSelected() =>
+        PresetComboBox.SelectedItem is ComboBoxItem { Tag: null };
+
+    // ─── SystemType 선택 ───
     private void OnPresetChanged(object sender, SelectionChangedEventArgs e)
     {
         if (BasicApiNameTextBox is null) return;
 
-        if (PresetComboBox.SelectedItem is ComboBoxItem item)
+        if (IsCustomInputSelected())
         {
-            var tag = item.Tag?.ToString();
+            BasicApiNameTextBox.IsEnabled = true;
+            BasicApiNameTextBox.Text = "";
+            BasicApiNameTextBox.Focus();
+        }
+        else if (PresetComboBox.SelectedItem is ComboBoxItem item)
+        {
+            var sysType = ParseSysType(item.Tag?.ToString());
             BasicApiNameTextBox.IsEnabled = false;
-            BasicApiNameTextBox.Text = tag ?? "";
+            BasicApiNameTextBox.Text = sysType ?? "";
         }
     }
 
@@ -192,34 +212,21 @@ public partial class CallCreateDialog : Window
         DialogResult = true;
     }
 
+    // Tag 형식: "ADV;RET|Unit"  (sysType|modelType)
+    private static string? ParseSysType(string? tag) =>
+        tag?.Split('|') is [var s, ..] ? s : tag;
+
+    private static string? ParseModelType(string? tag) =>
+        tag?.Split('|') is [_, var m] ? m : null;
+
     private string? GetSystemTypeForCurrentPreset()
     {
         if (PresetComboBox.SelectedItem is not ComboBoxItem item)
             return null;
-
-        if (_projectProperties == null)
-            return "ROBOT"; // 프로젝트가 없으면 기본값
-
-        var presetTag = item.Tag?.ToString();
-        if (string.IsNullOrEmpty(presetTag))
-            return "ROBOT";
-
-        // ProjectProperties에서 프리셋별 SystemType 조회
-        var systemType = ProjectPropertiesHelper.getSystemTypeForPreset(presetTag, _projectProperties);
-
-        // 기본값 설정
-        if (systemType == null || !FSharpOption<string>.get_IsSome(systemType))
-        {
-            return presetTag switch
-            {
-                "ADV;RET" => "Unit",
-                "UP;DOWN" => "UpDn",
-                "FWD;BWD" => "Motor",
-                _ => "Multi"
-            };
-        }
-
-        return systemType.Value;
+        // 직접 입력 선택 시 → Dummy (Tag=null)
+        if (IsCustomInputSelected()) return "Dummy";
+        // ModelType("Unit")을 SystemType으로 저장 — inferModelType이 직접 인식
+        return ParseModelType(item.Tag?.ToString());
     }
 
     private void CommitCallReplication(string alias, List<string> apiNames)

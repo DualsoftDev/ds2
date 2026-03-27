@@ -2,17 +2,19 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\Ds2.View3D.Core.xml</DocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="Types.fs" />
-    <Compile Include="DeviceClassifier.fs" />
-    <Compile Include="LayoutAlgorithm.fs" />
-    <Compile Include="SelectionState.fs" />
+    <Compile Include="ResultExtensions.fs" />
+    <Compile Include="Log.fs" />
     <Compile Include="ContextBuilder.fs" />
+    <Compile Include="LayoutEngine.fs" />
     <Compile Include="Persistence.fs" />
-    <Compile Include="SceneEngine.fs" />
+    <Compile Include="SceneBuilder.fs" />
+    <Compile Include="Interop.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,8 +24,7 @@
 
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
-    <PackageReference Include="System.Text.Json" />
-    <PackageReference Include="FSharp.SystemTextJson" />
+    <PackageReference Include="log4net" />
   </ItemGroup>
 
 </Project>
