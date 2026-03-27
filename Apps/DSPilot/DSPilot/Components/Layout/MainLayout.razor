@@ -3,6 +3,7 @@
 @inject DsProjectService ProjectService
 @inject NavigationManager Nav
 @inject ThemeService ThemeService
+@inject DspDbService DbService
 
 <div class="layout @ThemeService.GetThemeClass()">
     <header class="app-bar">
@@ -18,6 +19,13 @@
             <a href="heatmap" class="header-nav-link @(IsActive("/heatmap"))">동작편차</a>
             <a href="cycle-time-analysis" class="header-nav-link @(IsActive("/cycle-time-analysis"))">사이클 분석</a>
         </nav>
+        @if (!DbService.HasData)
+        {
+            <div class="header-loading-indicator" title="PLC 데이터 수집 중">
+                <span class="material-icons">sync</span>
+                <span>데이터 수집 중</span>
+            </div>
+        }
         <button class="btn-icon" @onclick="ToggleTheme" title="테마 전환">
             <span class="material-icons">@(ThemeService.IsDarkMode ? "light_mode" : "dark_mode")</span>
         </button>
@@ -57,9 +65,12 @@
 
     protected override void OnAfterRender(bool firstRender)
     {
-        if (firstRender)
-            ThemeService.OnThemeChanged += OnThemeChanged;
+        if (!firstRender) return;
+        ThemeService.OnThemeChanged += OnThemeChanged;
+        DbService.OnDataChanged += OnDbDataChanged;
     }
+
+    private void OnDbDataChanged() => InvokeAsync(StateHasChanged);
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
@@ -83,5 +94,6 @@
     {
         Nav.LocationChanged -= OnLocationChanged;
         ThemeService.OnThemeChanged -= OnThemeChanged;
+        DbService.OnDataChanged -= OnDbDataChanged;
     }
 }

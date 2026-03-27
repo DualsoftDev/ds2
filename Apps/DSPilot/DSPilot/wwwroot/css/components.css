@@ -99,6 +99,30 @@
     opacity: 1;
 }
 
+/* ── 헤더 로딩 인디케이터 ── */
+.header-loading-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+.header-loading-indicator .material-icons {
+    font-size: 16px;
+    animation: header-loading-spin 1.5s linear infinite;
+}
+.header-loading-spin {
+    animation: header-loading-spin 1.5s linear infinite;
+}
+@keyframes header-loading-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .divider {
     border: none;
     border-top: 1px solid var(--color-lines);
