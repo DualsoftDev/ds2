@@ -33,6 +33,21 @@ type ISimulationEngine =
     abstract GetWorkState: workGuid: Guid -> Status4 option
     abstract GetCallState: callGuid: Guid -> Status4 option
 
+    // Flow 단계 제어
+    abstract SetAllFlowStates: tag: FlowTag -> unit
+    abstract GetFlowState: flowGuid: Guid -> FlowTag
+
+    /// 시작 가능한(Ready + 조건 충족) Work가 있는지
+    abstract HasStartableWork: bool
+
+    /// Pause에서도 duration이 자동 진행 중인 Going Work가 있는지
+    /// (leaf Work 또는 모든 Call이 Finish인 Work — timer 취소 안 됨)
+    abstract HasActiveDuration: bool
+
+    /// Pause/STEP 모드에서 다음 의미 단위까지 진행합니다.
+    /// true면 상태 또는 시뮬레이션 시간이 실제로 전진했습니다.
+    abstract Step: unit -> bool
+
     // 설정
     abstract SpeedMultiplier: float with get, set
     abstract TimeIgnore: bool with get, set

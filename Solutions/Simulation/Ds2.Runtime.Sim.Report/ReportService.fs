@@ -95,9 +95,9 @@ module ReportService =
 
     let private inferFormat (filePath: string) : ExportFormat =
         match Path.GetExtension(filePath).ToLowerInvariant() with
-        | ".html" | ".htm" -> Html
-        | ".xlsx" | ".xls" -> Excel
-        | ".csv"           -> Csv
+        | ReportFormats.HtmlExt | ".htm" -> Html
+        | ReportFormats.ExcelExt | ".xls" -> Excel
+        | ReportFormats.CsvExt           -> Csv
         | _                -> Csv
 
     /// 파일 확장자에 따라 자동 내보내기

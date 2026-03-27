@@ -13,7 +13,7 @@ file static class ConverterHelpers
     private static readonly IReadOnlyDictionary<EntityKind, string> EntityBrushKeys =
         new Dictionary<EntityKind, string>
         {
-            [EntityKind.Work] = "NodeWorkBackgroundBrush",
+            [EntityKind.Work] = "PurpleAccentBrush",
             [EntityKind.Call] = "NodeCallBackgroundBrush",
             [EntityKind.Flow] = "AccentBrush",
             [EntityKind.System] = "OrangeAccentBrush",
@@ -92,6 +92,7 @@ public sealed class EntityTypeToForegroundConverter : IValueConverter
             EntityKind.System => "ContrastDarkTextBrush",
             EntityKind.Project => "ContrastDarkTextBrush",
             EntityKind.Flow => "AccentTextBrush",
+            EntityKind.Work => "AlwaysLightTextBrush",
             EntityKind.DeviceRoot => "AlwaysLightTextBrush",
             EntityKind.ApiDefCategory => "AlwaysLightTextBrush",
             _ => "PrimaryTextBrush"
@@ -197,6 +198,27 @@ public sealed class Status4ToStringConverter : IValueConverter
         => value is Status4 s
             ? ConverterHelpers.ResolveStatusText(s)
             : "?";
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
+public sealed class TabKindToBrushConverter : IValueConverter
+{
+    private static readonly IReadOnlyDictionary<TabKind, string> TabBrushKeys =
+        new Dictionary<TabKind, string>
+        {
+            [TabKind.System] = "OrangeAccentBrush",
+            [TabKind.Flow] = "AccentBrush",
+            [TabKind.Work] = "PurpleAccentBrush"
+        };
+
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var kind = value is TabKind tk ? tk : TabKind.System;
+        var key = TabBrushKeys.TryGetValue(kind, out var k) ? k : "AccentBrush";
+        return ConverterHelpers.ResolveBrush(key);
+    }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => Binding.DoNothing;

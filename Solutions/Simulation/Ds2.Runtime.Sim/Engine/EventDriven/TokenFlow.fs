@@ -20,9 +20,6 @@ module internal TokenFlow =
         ctx.StateManager.GetWorkState(workGuid) = Status4.Ready
         && (SimState.getWorkToken workGuid (ctx.StateManager.GetState()) |> Option.isNone)
 
-    let hasNoSuccessors (ctx: Context) workGuid =
-        ctx.Index.WorkTokenSuccessors |> Map.tryFind workGuid |> Option.defaultValue [] |> List.isEmpty
-
     let emitTokenEvent (ctx: Context) kind token workGuid (targetGuid: Guid option) =
         let clock = TimeSpan.FromMilliseconds(float (ctx.CurrentTimeMs()))
         ctx.TriggerTokenEvent({
@@ -52,7 +49,7 @@ module internal TokenFlow =
                 emitTokenEvent ctx Shift token workGuid (Some targetGuid)
             ctx.StateManager.SetWorkToken(workGuid, None)
 
-        if ctx.Index.TokenSinkGuids.Contains(workGuid) || hasNoSuccessors ctx workGuid then
+        if ctx.Index.TokenSinkGuids.Contains(workGuid) then
             completeTokenAtWork ()
         else
             match receivableSuccessors () with

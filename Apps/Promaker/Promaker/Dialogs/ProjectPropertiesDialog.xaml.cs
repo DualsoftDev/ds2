@@ -9,7 +9,9 @@ namespace Promaker.Dialogs;
 public partial class ProjectPropertiesDialog : Window
 {
     private const string DefaultIriPrefix = "http://your-company.com/";
+    private readonly string _initialProjectName;
 
+    public string? ResultProjectName { get; private set; }
     public string? ResultIriPrefix { get; private set; }
     public string? ResultGlobalAssetId { get; private set; }
     public string? ResultAuthor { get; private set; }
@@ -20,10 +22,12 @@ public partial class ProjectPropertiesDialog : Window
     // 프리셋 SystemType 매핑 결과 (배열)
     public string[] ResultPresetSystemTypes { get; private set; } = Array.Empty<string>();
 
-    public ProjectPropertiesDialog(ProjectProperties properties)
+    public ProjectPropertiesDialog(string projectName, ProjectProperties properties)
     {
         InitializeComponent();
 
+        _initialProjectName = string.IsNullOrWhiteSpace(projectName) ? "NewProject" : projectName.Trim();
+        ProjectNameBox.Text = _initialProjectName;
         IriPrefixBox.Text     = properties.IriPrefix?.Value     ?? DefaultIriPrefix;
         GlobalAssetIdBox.Text = properties.GlobalAssetId?.Value  ?? "";
         AuthorBox.Text        = properties.Author?.Value         ?? "";
@@ -37,7 +41,7 @@ public partial class ProjectPropertiesDialog : Window
         // 기본 값 설정
         PresetTextBox.Text = "ADV;RET";
 
-        Loaded += (_, _) => IriPrefixBox.Focus();
+        Loaded += (_, _) => ProjectNameBox.Focus();
     }
 
     private void LoadPresetMappings(ProjectProperties properties)
@@ -122,6 +126,7 @@ public partial class ProjectPropertiesDialog : Window
 
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
+        ResultProjectName   = string.IsNullOrWhiteSpace(ProjectNameBox.Text) ? _initialProjectName : ProjectNameBox.Text.Trim();
         ResultIriPrefix     = IriPrefixBox.Text.Trim();
         ResultGlobalAssetId = GlobalAssetIdBox.Text.Trim();
         ResultAuthor        = AuthorBox.Text.Trim();

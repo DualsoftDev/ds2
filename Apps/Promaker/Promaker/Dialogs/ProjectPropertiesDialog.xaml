@@ -64,8 +64,16 @@
                        Foreground="{DynamicResource PrimaryTextBrush}"
                        Margin="0,0,0,10"/>
 
-            <!-- Author -->
+            <!-- Project Name -->
             <StackPanel Grid.Row="5" Margin="0,0,0,8">
+                <TextBlock Text="프로젝트 이름"
+                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,0,0,2"/>
+                <TextBox x:Name="ProjectNameBox" Padding="6,4"/>
+            </StackPanel>
+
+            <!-- Author -->
+            <StackPanel Grid.Row="6" Margin="0,0,0,8">
                 <TextBlock Text="작성자"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
@@ -73,7 +81,7 @@
             </StackPanel>
 
             <!-- Version -->
-            <StackPanel Grid.Row="6" Margin="0,0,0,8">
+            <StackPanel Grid.Row="7" Margin="0,0,0,8">
                 <TextBlock Text="버전"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
@@ -81,7 +89,7 @@
             </StackPanel>
 
             <!-- Description -->
-            <StackPanel Grid.Row="7" Margin="0,0,0,8">
+            <StackPanel Grid.Row="8" Margin="0,0,0,8">
                 <TextBlock Text="설명"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="0,0,0,2"/>
@@ -93,7 +101,7 @@
             </StackPanel>
 
             <!-- 구분선 -->
-            <Border Grid.Row="8" Height="1" Margin="0,4,0,12"
+            <Border Grid.Row="9" Height="1" Margin="0,4,0,12"
                     Background="{DynamicResource BorderBrush}"/>
 
             <!-- 섹션 헤더: 프리셋 SystemType 매핑 -->

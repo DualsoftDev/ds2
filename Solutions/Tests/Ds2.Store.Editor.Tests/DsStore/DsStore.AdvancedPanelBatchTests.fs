@@ -31,7 +31,7 @@ module PanelTimingTests =
     let ``UpdateCallTimeoutMs sets and gets timeout as int`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
         let callId = store.Calls |> Seq.head |> fun kv -> kv.Key
         store.UpdateCallTimeoutMs(callId, Some 3000)
         let result = store.GetCallTimeoutMs(callId)
@@ -42,7 +42,7 @@ module PanelTimingTests =
     let ``UpdateCallTimeoutMs with None clears timeout`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
         let callId = store.Calls |> Seq.head |> fun kv -> kv.Key
         store.UpdateCallTimeoutMs(callId, Some 5000)
         store.UpdateCallTimeoutMs(callId, None)
@@ -116,7 +116,7 @@ module DsQueryTests =
     let ``callsOf returns calls under work`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.A"; "Dev.B" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.A"; "Dev.B" ], true, None)
         let calls = DsQuery.callsOf work.Id store
         Assert.Equal(2, calls.Length)
 
@@ -133,7 +133,7 @@ module DsQueryTests =
         let _, system, flow, work = setupBasicHierarchy store
         Assert.Equal(Some "TestSystem", DsQuery.tryGetName store EntityKind.System system.Id)
         Assert.Equal(Some "TestFlow", DsQuery.tryGetName store EntityKind.Flow flow.Id)
-        Assert.Equal(Some "TestWork", DsQuery.tryGetName store EntityKind.Work work.Id)
+        Assert.Equal(Some "TestFlow.TestWork", DsQuery.tryGetName store EntityKind.Work work.Id)
         Assert.Equal(None, DsQuery.tryGetName store EntityKind.Work (Guid.NewGuid()))
 
     [<Fact>]
@@ -240,7 +240,7 @@ module BatchTests =
         let activeSystem = addSystem store "A" project.Id true
         let flow = addFlow store "Flow1" activeSystem.Id
         let work = addWork store "Work1" flow.Id
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
         let call = store.Calls.Values |> Seq.head
         let apiDef = addApiDef store "Api1" system.Id
         let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "outAddr", "", "inAddr", 0, "", 0, "")
@@ -260,7 +260,7 @@ module BatchTests =
         let activeSystem = addSystem store "A" project.Id true
         let flow = addFlow store "F" activeSystem.Id
         let work = addWork store "W" flow.Id
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
         let call = store.Calls.Values |> Seq.head
         let apiDef = addApiDef store "Api1" system.Id
         let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "", "", "", 0, "", 0, "")
@@ -288,7 +288,7 @@ module BatchTests =
         let activeSystem = addSystem store "A" project.Id true
         let flow = addFlow store "F" activeSystem.Id
         let work = addWork store "W" flow.Id
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
         let call = store.Calls.Values |> Seq.head
         let apiDef = addApiDef store "Api1" system.Id
         let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "", "", "", 0, "", 0, "")
@@ -343,3 +343,73 @@ module BatchTests =
             Assert.Equal(2000.0, loadedWork.Properties.Period.Value.TotalMilliseconds)
         finally
             System.IO.File.Delete(tmpPath)
+
+    [<Fact>]
+    let ``UpdateWorkPeriodsBatch updates multiple works and supports undo`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let system = addSystem store "S" project.Id true
+        let flow = addFlow store "F" system.Id
+        let work1 = addWork store "W1" flow.Id
+        let work2 = addWork store "W2" flow.Id
+
+        store.UpdateWorkPeriodsBatch([
+            struct(work1.Id, Nullable<int>(1200))
+            struct(work2.Id, Nullable<int>(3400))
+        ])
+
+        Assert.Equal(1200.0, store.Works.[work1.Id].Properties.Period.Value.TotalMilliseconds)
+        Assert.Equal(3400.0, store.Works.[work2.Id].Properties.Period.Value.TotalMilliseconds)
+
+        store.Undo()
+        Assert.True(store.Works.[work1.Id].Properties.Period.IsNone)
+        Assert.True(store.Works.[work2.Id].Properties.Period.IsNone)
+
+    [<Fact>]
+    let ``UpdateWorkTokenRolesBatch updates multiple works and supports undo`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let system = addSystem store "S" project.Id true
+        let flow = addFlow store "F" system.Id
+        let work1 = addWork store "W1" flow.Id
+        let work2 = addWork store "W2" flow.Id
+
+        store.UpdateWorkTokenRolesBatch([
+            struct(work1.Id, TokenRole.Source ||| TokenRole.Ignore)
+            struct(work2.Id, TokenRole.Source ||| TokenRole.Ignore)
+        ])
+
+        Assert.Equal(TokenRole.Source ||| TokenRole.Ignore, store.Works.[work1.Id].TokenRole)
+        Assert.Equal(TokenRole.Source ||| TokenRole.Ignore, store.Works.[work2.Id].TokenRole)
+
+        store.Undo()
+        Assert.Equal(TokenRole.None, store.Works.[work1.Id].TokenRole)
+        Assert.Equal(TokenRole.None, store.Works.[work2.Id].TokenRole)
+
+    [<Fact>]
+    let ``UpdateCallTimeoutsBatch updates multiple calls and supports undo`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let _ = addSystem store "Device" project.Id false
+        let activeSystem = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSystem.Id
+        let work1 = addWork store "W1" flow.Id
+        let work2 = addWork store "W2" flow.Id
+
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api1" ], true, None)
+        store.AddCallsWithDevice(project.Id, work2.Id, [ "Dev.Api2" ], true, None)
+
+        let call1 = DsQuery.callsOf work1.Id store |> List.head
+        let call2 = DsQuery.callsOf work2.Id store |> List.head
+
+        store.UpdateCallTimeoutsBatch([
+            struct(call1.Id, Nullable<int>(1500))
+            struct(call2.Id, Nullable<int>(2600))
+        ])
+
+        Assert.Equal(1500.0, store.Calls.[call1.Id].Properties.Timeout.Value.TotalMilliseconds)
+        Assert.Equal(2600.0, store.Calls.[call2.Id].Properties.Timeout.Value.TotalMilliseconds)
+
+        store.Undo()
+        Assert.True(store.Calls.[call1.Id].Properties.Timeout.IsNone)
+        Assert.True(store.Calls.[call2.Id].Properties.Timeout.IsNone)

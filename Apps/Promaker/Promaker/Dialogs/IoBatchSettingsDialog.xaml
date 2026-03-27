@@ -139,6 +139,7 @@
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              Click="RowCheckBox_Click"
                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
@@ -296,10 +297,12 @@
                            Foreground="{DynamicResource SecondaryTextBrush}"/>
 
                 <Button Grid.Column="1"
+                        x:Name="ApplyButton"
                         MinWidth="82"
                         Style="{StaticResource DarkButton}"
                         Content="적용"
-                        Click="Accept_Click"/>
+                        IsEnabled="False"
+                        Click="Apply_Click"/>
 
                 <Button Grid.Column="3"
                         MinWidth="82"

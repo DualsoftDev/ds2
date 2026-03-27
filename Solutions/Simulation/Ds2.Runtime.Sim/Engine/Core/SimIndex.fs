@@ -16,12 +16,17 @@ type SimIndex = {
     Store: DsStore
     AllWorkGuids: Guid list
     AllCallGuids: Guid list
+    AllFlowGuids: Guid list
+    /// Work Guid -> canonical/original Work Guid
+    WorkCanonicalGuids: Map<Guid, Guid>
     WorkCallGuids: Map<Guid, Guid list>
     WorkStartPreds: Map<Guid, Guid list>
     WorkResetPreds: Map<Guid, Guid list>
     WorkDuration: Map<Guid, float>
     WorkSystemName: Map<Guid, string>
     WorkName: Map<Guid, string>
+    /// Work → 소속 Flow Guid
+    WorkFlowGuid: Map<Guid, Guid>
     CallStartPreds: Map<Guid, Guid list>
     CallWorkGuid: Map<Guid, Guid>
     CallApiCallGuids: Map<Guid, Guid list>
@@ -36,7 +41,7 @@ type SimIndex = {
     WorkTokenRole: Map<Guid, TokenRole>
     WorkTokenSuccessors: Map<Guid, Guid list>
     TokenSourceGuids: Guid list
-    /// Sink Work: successor 없는 Work (선형) + 순환 진입점 (순환)
+    /// Sink Work: TokenRole.Sink로 수동 지정된 Work
     TokenSinkGuids: Set<Guid>
     /// 토큰 경로에 포함된 Work (Source → successor 체인의 모든 Work)
     TokenPathGuids: Set<Guid>
@@ -49,12 +54,14 @@ module SimIndex =
     type private BuildState = {
         mutable AllWorkGuids: Guid list
         mutable AllCallGuids: Guid list
+        mutable AllFlowGuids: Guid list
         mutable WorkCallGuids: Map<Guid, Guid list>
         mutable WorkStartPreds: Map<Guid, Guid list>
         mutable WorkResetPreds: Map<Guid, Guid list>
         mutable WorkDuration: Map<Guid, float>
         mutable WorkSystemName: Map<Guid, string>
         mutable WorkName: Map<Guid, string>
+        mutable WorkFlowGuid: Map<Guid, Guid>
         mutable CallStartPreds: Map<Guid, Guid list>
         mutable CallWorkGuid: Map<Guid, Guid>
         mutable CallApiCallGuids: Map<Guid, Guid list>
@@ -65,6 +72,21 @@ module SimIndex =
 
     let findOrEmpty key map =
         map |> Map.tryFind key |> Option.defaultValue []
+
+    let canonicalWorkGuid (index: SimIndex) (workGuid: Guid) =
+        index.WorkCanonicalGuids
+        |> Map.tryFind workGuid
+        |> Option.defaultValue workGuid
+
+    let referenceGroupOf (index: SimIndex) (workGuid: Guid) =
+        let canonical = canonicalWorkGuid index workGuid
+        index.WorkReferenceGroups
+        |> Map.tryFind canonical
+        |> Option.defaultValue [ canonical ]
+
+    let isTokenSource (index: SimIndex) (workGuid: Guid) =
+        let canonical = canonicalWorkGuid index workGuid
+        index.TokenSourceGuids |> List.contains canonical
 
     // ── 타입별 조회 헬퍼 ─────────────────────────────────────────────
 
@@ -125,9 +147,9 @@ module SimIndex =
         let mutable tokenSources = []
 
         let state = {
-            AllWorkGuids = []; AllCallGuids = []
+            AllWorkGuids = []; AllCallGuids = []; AllFlowGuids = []
             WorkCallGuids = Map.empty; WorkStartPreds = Map.empty; WorkResetPreds = Map.empty
-            WorkDuration = Map.empty; WorkSystemName = Map.empty; WorkName = Map.empty
+            WorkDuration = Map.empty; WorkSystemName = Map.empty; WorkName = Map.empty; WorkFlowGuid = Map.empty
             CallStartPreds = Map.empty; CallWorkGuid = Map.empty; CallApiCallGuids = Map.empty
             CallAutoAuxConditions = Map.empty; CallComAuxConditions = Map.empty; CallSkipUnmatchConditions = Map.empty
         }
@@ -155,7 +177,7 @@ module SimIndex =
             state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, conditionSpecs store CallConditionType.SkipUnmatch call)
             state.AllCallGuids <- call.Id :: state.AllCallGuids
 
-        let addWorkData (system: DsSystem) (work: Work) (callGuids: Guid list) (workStartPreds: Map<Guid, Guid list>) (workResetPreds: Map<Guid, Guid list>) =
+        let addWorkData (system: DsSystem) (flowId: Guid) (work: Work) (callGuids: Guid list) (workStartPreds: Map<Guid, Guid list>) (workResetPreds: Map<Guid, Guid list>) =
             let periodSource =
                 match work.ReferenceOf with
                 | Some origId -> DsQuery.getWork origId store |> Option.bind (fun w -> w.Properties.Period)
@@ -180,6 +202,7 @@ module SimIndex =
             state.WorkDuration <- state.WorkDuration.Add(work.Id, duration)
             state.WorkSystemName <- state.WorkSystemName.Add(work.Id, system.Name)
             state.WorkName <- state.WorkName.Add(work.Id, work.Name)
+            state.WorkFlowGuid <- state.WorkFlowGuid.Add(work.Id, flowId)
             state.AllWorkGuids <- work.Id :: state.AllWorkGuids
 
         for system in allSystems do
@@ -218,6 +241,7 @@ module SimIndex =
             let cStartPreds = SimIndexGroupExpansion.expandCallGroupArrows callGroupArrows cStartPreds
 
             for flow in flows do
+                state.AllFlowGuids <- flow.Id :: state.AllFlowGuids
                 let works = DsQuery.worksOf flow.Id store
                 for work in works do
                     // 레퍼런스 Work → 원본의 Call을 공유
@@ -228,7 +252,7 @@ module SimIndex =
                         for call in calls do
                             addCallData work cStartPreds call
 
-                    addWorkData system work callGuids wStartPreds wResetPreds
+                    addWorkData system flow.Id work callGuids wStartPreds wResetPreds
 
                     // ── Token role/successor 수집 ──
                     if work.TokenRole <> TokenRole.None then
@@ -238,48 +262,103 @@ module SimIndex =
 
         log.Debug($"SimIndex built: {state.AllWorkGuids.Length} works, {state.AllCallGuids.Length} calls")
 
-        // ReferenceOf 기반 OR 그룹 빌드
-        let workReferenceGroups =
+        let workCanonicalGuids =
             state.AllWorkGuids
             |> List.choose (fun wg ->
                 DsQuery.getWork wg store
-                |> Option.map (fun w -> (w.ReferenceOf |> Option.defaultValue wg), wg))
-            |> List.groupBy fst
-            |> List.filter (fun (_, pairs) -> pairs.Length > 1)
-            |> List.map (fun (origId, pairs) -> origId, pairs |> List.map snd)
+                |> Option.map (fun w -> wg, (w.ReferenceOf |> Option.defaultValue wg)))
             |> Map.ofList
 
-        // ── Sink 감지 ──
-        let allWorkGuidsRev = state.AllWorkGuids |> List.rev
-        // 선형 sink: successor가 없는 Work
-        let linearSinks =
-            allWorkGuidsRev
-            |> List.filter (fun wg ->
-                tokenSuccMap |> Map.tryFind wg |> Option.defaultValue [] |> List.isEmpty)
-            |> Set.ofList
-        // 순환 sink: DFS로 back edge 감지 → back edge의 source가 sink
-        // 예: A→B→C→A → back edge C→A → C가 sink
-        let cycleSinks = SimIndexTokenGraph.findCycleSinks tokenSources tokenSuccMap
-        // Source 기반 sink: successor가 Source인 Work → Source로 토큰 유입 방지
-        let sourceBasedSinks = SimIndexTokenGraph.findSourceBasedSinks tokenSources tokenSuccMap
-        // Source Work는 sink에서 제외 (Source이면서 sink이면 자기 토큰 즉시 complete → 모순)
-        let tokenSourceSet = tokenSources |> Set.ofList
-        let tokenSinkGuids =
-            linearSinks |> Set.union cycleSinks |> Set.union sourceBasedSinks
-            |> Set.filter (fun wg -> not (tokenSourceSet.Contains wg))
+        // ReferenceOf 기반 OR 그룹 빌드
+        let workReferenceGroups =
+            workCanonicalGuids
+            |> Map.toList
+            |> List.groupBy snd
+            |> List.filter (fun (_, members) -> members.Length > 1)
+            |> List.map (fun (origId, members) -> origId, (members |> List.map fst |> List.sort))
+            |> Map.ofList
 
-        // 토큰 경로: Source에서 successor를 BFS로 따라간 모든 Work
-        let tokenPathGuids = SimIndexTokenGraph.buildTokenPathGuids tokenSources tokenSuccMap
+        let expandReferenceMembers canonicalWorkGuid =
+            workReferenceGroups
+            |> Map.tryFind canonicalWorkGuid
+            |> Option.defaultValue [ canonicalWorkGuid ]
+
+        let mergeTokenRoleByCanonical =
+            tokenRoleMap
+            |> Map.fold (fun acc workGuid role ->
+                let canonical = workCanonicalGuids |> Map.tryFind workGuid |> Option.defaultValue workGuid
+                let existing = acc |> Map.tryFind canonical |> Option.defaultValue TokenRole.None
+                acc.Add(canonical, existing ||| role)) Map.empty
+
+        let expandedTokenRoleMap =
+            workCanonicalGuids
+            |> Map.toSeq
+            |> Seq.choose (fun (workGuid, canonical) ->
+                let role = mergeTokenRoleByCanonical |> Map.tryFind canonical |> Option.defaultValue TokenRole.None
+                if role = TokenRole.None then None else Some (workGuid, role))
+            |> Map.ofSeq
+
+        let canonicalTokenSuccMap =
+            tokenSuccMap
+            |> Map.toSeq
+            |> Seq.collect (fun (sourceGuid, targetGuids) ->
+                let canonicalSource = workCanonicalGuids |> Map.tryFind sourceGuid |> Option.defaultValue sourceGuid
+                targetGuids
+                |> Seq.map (fun targetGuid ->
+                    canonicalSource,
+                    (workCanonicalGuids |> Map.tryFind targetGuid |> Option.defaultValue targetGuid)))
+            |> Seq.filter (fun (sourceGuid, targetGuid) -> sourceGuid <> targetGuid)
+            |> Seq.groupBy fst
+            |> Seq.map (fun (sourceGuid, pairs) ->
+                sourceGuid,
+                (pairs |> Seq.map snd |> Seq.distinct |> Seq.toList))
+            |> Map.ofSeq
+
+        let expandedTokenSuccMap =
+            workCanonicalGuids
+            |> Map.toSeq
+            |> Seq.choose (fun (workGuid, canonical) ->
+                canonicalTokenSuccMap
+                |> Map.tryFind canonical
+                |> Option.map (fun targetGuids -> workGuid, targetGuids))
+            |> Map.ofSeq
+
+        let tokenSourceCanonicals =
+            mergeTokenRoleByCanonical
+            |> Map.toSeq
+            |> Seq.choose (fun (workGuid, role) ->
+                if role.HasFlag(TokenRole.Source) then Some workGuid else None)
+            |> Seq.toList
+
+        // ── Sink: TokenRole.Sink로 수동 지정된 Work ──
+        let tokenSinkGuids =
+            mergeTokenRoleByCanonical
+            |> Map.toSeq
+            |> Seq.choose (fun (workGuid, role) ->
+                if role.HasFlag(TokenRole.Sink) then Some workGuid else None)
+            |> Seq.collect expandReferenceMembers
+            |> Set.ofSeq
+
+        // 토큰 경로: Source에서 successor를 BFS로 따라간 canonical Work
+        let tokenPathGuids =
+            SimIndexTokenGraph.buildTokenPathGuids tokenSourceCanonicals canonicalTokenSuccMap
+            |> Seq.collect expandReferenceMembers
+            |> Set.ofSeq
+
+        let allWorkGuidsRev = state.AllWorkGuids |> List.rev
 
         { Store = store
           AllWorkGuids = allWorkGuidsRev
           AllCallGuids = state.AllCallGuids |> List.rev
+          AllFlowGuids = state.AllFlowGuids |> List.rev
+          WorkCanonicalGuids = workCanonicalGuids
           WorkCallGuids = state.WorkCallGuids
           WorkStartPreds = state.WorkStartPreds
           WorkResetPreds = state.WorkResetPreds
           WorkDuration = state.WorkDuration
           WorkSystemName = state.WorkSystemName
           WorkName = state.WorkName
+          WorkFlowGuid = state.WorkFlowGuid
           CallStartPreds = state.CallStartPreds
           CallWorkGuid = state.CallWorkGuid
           CallApiCallGuids = state.CallApiCallGuids
@@ -289,9 +368,9 @@ module SimIndex =
           WorkReferenceGroups = workReferenceGroups
           ActiveSystemNames = activeSystemNames
           TickMs = tickMs
-          WorkTokenRole = tokenRoleMap
-          WorkTokenSuccessors = tokenSuccMap
-          TokenSourceGuids = tokenSources |> List.rev
+          WorkTokenRole = expandedTokenRoleMap
+          WorkTokenSuccessors = expandedTokenSuccMap
+          TokenSourceGuids = tokenSourceCanonicals |> List.distinct |> List.sort
           TokenSinkGuids = tokenSinkGuids
           TokenPathGuids = tokenPathGuids }
 

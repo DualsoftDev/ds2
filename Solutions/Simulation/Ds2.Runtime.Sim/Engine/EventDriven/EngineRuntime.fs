@@ -9,9 +9,11 @@ open Ds2.Runtime.Sim.Engine.Scheduler
 module internal EventDrivenEngineRuntime =
 
     type RuntimeContext = {
+        ProcessGate: obj
         Scheduler: EventScheduler
         GetStatus: unit -> SimulationStatus
         SpeedMultiplier: unit -> float
+        UpdateClock: TimeSpan -> unit
         GetWorkState: Guid -> Status4
         GetWorkToken: Guid -> TokenValue option
         ClearAndApplyWorkTransition: Guid -> Status4 -> unit
@@ -47,6 +49,39 @@ module internal EventDrivenEngineRuntime =
         | ScheduledEventType.EvaluateConditions ->
             ctx.EvaluateConditions ()
 
+    let private advanceTo (ctx: RuntimeContext) (targetMs: int64) =
+        let events = ctx.Scheduler.AdvanceTo(targetMs)
+        ctx.UpdateClock(TimeSpan.FromMilliseconds(float ctx.Scheduler.CurrentTimeMs))
+        events
+
+    let advanceAndDrainWhileRunning (ctx: RuntimeContext) (targetMs: int64) =
+        for event in advanceTo ctx targetMs do
+            if ctx.GetStatus () = Running then
+                processEvent ctx event
+
+        let mutable draining = true
+        while draining && ctx.GetStatus () = Running do
+            let pending = advanceTo ctx targetMs
+            if pending.IsEmpty then
+                draining <- false
+            else
+                for event in pending do
+                    if ctx.GetStatus () = Running then
+                        processEvent ctx event
+
+    let advanceAndDrain (ctx: RuntimeContext) (targetMs: int64) =
+        for event in advanceTo ctx targetMs do
+            processEvent ctx event
+
+        let mutable draining = true
+        while draining do
+            let pending = advanceTo ctx targetMs
+            if pending.IsEmpty then
+                draining <- false
+            else
+                for event in pending do
+                    processEvent ctx event
+
     let simulationLoop (ctx: RuntimeContext) (ct: CancellationToken) =
         let mutable lastRealTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
 
@@ -58,18 +93,7 @@ module internal EventDrivenEngineRuntime =
             let simDelta = int64 (float realDelta * ctx.SpeedMultiplier ())
             let targetMs = ctx.Scheduler.CurrentTimeMs + simDelta
 
-            for event in ctx.Scheduler.AdvanceTo(targetMs) do
-                if ctx.GetStatus () = Running then
-                    processEvent ctx event
-
-            let mutable draining = true
-            while draining && ctx.GetStatus () = Running do
-                let pending = ctx.Scheduler.AdvanceTo(targetMs)
-                if pending.IsEmpty then
-                    draining <- false
-                else
-                    for event in pending do
-                        if ctx.GetStatus () = Running then
-                            processEvent ctx event
+            lock ctx.ProcessGate (fun () ->
+                advanceAndDrainWhileRunning ctx targetMs)
 
             Thread.Sleep(1)

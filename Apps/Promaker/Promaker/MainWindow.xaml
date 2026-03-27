@@ -30,6 +30,7 @@
         <KeyBinding Gesture="Ctrl+N" Command="{Binding NewProjectCommand}"/>
         <KeyBinding Gesture="Delete" Command="{Binding DeleteSelectedCommand}"/>
         <KeyBinding Key="F2" Command="{Binding FocusNameEditorCommand}"/>
+        <KeyBinding Gesture="Ctrl+W" Command="{Binding Canvas.CloseActiveTabCommand}"/>
         <KeyBinding Key="F1" Command="{x:Static help:HelpNavigator.NavigateCommand}" CommandParameter="general"/>
     </Window.InputBindings>
 

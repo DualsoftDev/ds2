@@ -99,6 +99,47 @@ type DsStorePanelBatchExtensions =
                     store.TrackMutate(store.Works, workId, fun w -> w.Properties.Period <- period))
             store.EmitRefreshAndHistory()
 
+    /// Work Duration 일괄 변경 (Nullable 허용)
+    [<Extension>]
+    static member UpdateWorkPeriodsBatch(store: DsStore, changes: seq<struct(Guid * Nullable<int>)>) =
+        let changeList =
+            changes
+            |> Seq.map (fun struct(workId, periodMs) ->
+                let resolvedId = DsQuery.resolveOriginalWorkId workId store
+                let period = if periodMs.HasValue && periodMs.Value > 0 then Some (TimeSpan.FromMilliseconds(float periodMs.Value)) else None
+                struct(resolvedId, period))
+            |> Seq.distinctBy (fun struct(workId, _) -> workId)
+            |> Seq.filter (fun struct(workId, period) ->
+                match DsQuery.getWork workId store with
+                | Some work -> work.Properties.Period <> period
+                | None -> false)
+            |> Seq.toList
+        if not changeList.IsEmpty then
+            StoreLog.debug($"UpdateWorkPeriodsBatch: {changeList.Length} items")
+            store.WithTransaction("Work Duration 일괄 변경", fun () ->
+                for struct(workId, period) in changeList do
+                    store.TrackMutate(store.Works, workId, fun work -> work.Properties.Period <- period))
+            store.EmitRefreshAndHistory()
+
+    /// Work TokenRole 일괄 변경 (단일 Undo 트랜잭션)
+    [<Extension>]
+    static member UpdateWorkTokenRolesBatch(store: DsStore, changes: seq<struct(Guid * TokenRole)>) =
+        let changeList =
+            changes
+            |> Seq.map (fun struct(workId, role) -> struct(DsQuery.resolveOriginalWorkId workId store, role))
+            |> Seq.distinctBy (fun struct(workId, _) -> workId)
+            |> Seq.filter (fun struct(workId, role) ->
+                match DsQuery.getWork workId store with
+                | Some work -> work.TokenRole <> role
+                | None -> false)
+            |> Seq.toList
+        if not changeList.IsEmpty then
+            StoreLog.debug($"UpdateWorkTokenRolesBatch: {changeList.Length} items")
+            store.WithTransaction("Work TokenRole 일괄 변경", fun () ->
+                for struct(workId, role) in changeList do
+                    store.TrackMutate(store.Works, workId, fun work -> work.TokenRole <- role))
+            store.EmitRefreshAndHistory()
+
     /// ApiCall IO 태그 일괄 변경 (단일 Undo 트랜잭션)
     [<Extension>]
     static member UpdateApiCallIOTagsBatch(store: DsStore, changes: seq<struct(Guid * string * string * string * string)>) =
@@ -136,7 +177,6 @@ type DsStorePanelBatchExtensions =
                                     if call.Name = callName then
                                         call.ApiCalls
                                         |> Seq.tryPick (fun apiCall ->
-                                            // DeviceName을 ApiCall의 ApiDef 이름과 비교
                                             let apiCallDeviceName =
                                                 match apiCall.ApiDefId with
                                                 | Some defId ->
@@ -154,3 +194,24 @@ type DsStorePanelBatchExtensions =
                                 None)
                     else
                         None)))
+
+    /// Call Timeout 일괄 변경 (Nullable 허용)
+    [<Extension>]
+    static member UpdateCallTimeoutsBatch(store: DsStore, changes: seq<struct(Guid * Nullable<int>)>) =
+        let changeList =
+            changes
+            |> Seq.map (fun struct(callId, timeoutMs) ->
+                let timeout = if timeoutMs.HasValue && timeoutMs.Value > 0 then Some (TimeSpan.FromMilliseconds(float timeoutMs.Value)) else None
+                struct(callId, timeout))
+            |> Seq.distinctBy (fun struct(callId, _) -> callId)
+            |> Seq.filter (fun struct(callId, timeout) ->
+                match DsQuery.getCall callId store with
+                | Some call -> call.Properties.Timeout <> timeout
+                | None -> false)
+            |> Seq.toList
+        if not changeList.IsEmpty then
+            StoreLog.debug($"UpdateCallTimeoutsBatch: {changeList.Length} items")
+            store.WithTransaction("Call Timeout 일괄 변경", fun () ->
+                for struct(callId, timeout) in changeList do
+                    store.TrackMutate(store.Calls, callId, fun call -> call.Properties.Timeout <- timeout))
+            store.EmitRefreshAndHistory()

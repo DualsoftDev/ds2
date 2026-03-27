@@ -6,6 +6,7 @@ using System.Linq;
 using System.Windows;
 using Ds2.Core;
 using Microsoft.Win32;
+using Promaker.Presentation;
 
 namespace Promaker.Dialogs;
 
@@ -64,7 +65,7 @@ public partial class TokenSpecDialog : Window
         {
             Title = "CSV 파일 불러오기",
             Filter = "CSV Files|*.csv|All Files|*.*",
-            DefaultExt = ".csv"
+            DefaultExt = FileExtensions.Csv
         };
         if (dlg.ShowDialog(this) != true) return;
 
@@ -78,8 +79,7 @@ public partial class TokenSpecDialog : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"CSV 불러오기 실패: {ex.Message}", "오류",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            DialogHelpers.Error(this, $"CSV 불러오기 실패: {ex.Message}");
         }
     }
 
@@ -97,8 +97,7 @@ public partial class TokenSpecDialog : Window
         var emptyLabel = _rows.FirstOrDefault(r => string.IsNullOrWhiteSpace(r.Label));
         if (emptyLabel is not null)
         {
-            MessageBox.Show(this, $"ID {emptyLabel.Id}의 Label이 비어있습니다.", "검증 오류",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            DialogHelpers.Warn(this, $"ID {emptyLabel.Id}의 Label이 비어있습니다.", "검증 오류");
             return;
         }
 
@@ -106,8 +105,7 @@ public partial class TokenSpecDialog : Window
         var duplicateId = _rows.GroupBy(r => r.Id).FirstOrDefault(g => g.Count() > 1);
         if (duplicateId is not null)
         {
-            MessageBox.Show(this, $"ID {duplicateId.Key}이(가) {duplicateId.Count()}건 중복됩니다.", "검증 오류",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            DialogHelpers.Warn(this, $"ID {duplicateId.Key}이(가) {duplicateId.Count()}건 중복됩니다.", "검증 오류");
             return;
         }
 

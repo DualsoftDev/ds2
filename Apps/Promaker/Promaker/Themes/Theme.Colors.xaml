@@ -35,6 +35,7 @@
     <!-- Accent Colors -->
     <Color x:Key="OrangeAccentColor">#F5B33C</Color>
     <Color x:Key="GreenAccentColor">#5BC56D</Color>
+    <Color x:Key="PurpleAccentColor">#AB47BC</Color>
     <Color x:Key="RedAccentColor">#E46566</Color>
 
     <!-- Toolbar grouped flat palette -->

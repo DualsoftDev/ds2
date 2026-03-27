@@ -23,14 +23,20 @@ public partial class IoBatchSettingsDialog : Window
     private readonly ObservableCollection<IoBatchRow> _rows;
     private readonly ICollectionView _view;
     private readonly string? _currentFilePath;
+    private readonly Func<IReadOnlyList<IoBatchRow>, bool>? _applyChanges;
 
-    public IoBatchSettingsDialog(DsStore store, IReadOnlyList<IoBatchRow> rows, string? currentFilePath = null)
+    public IoBatchSettingsDialog(
+        DsStore store,
+        IReadOnlyList<IoBatchRow> rows,
+        string? currentFilePath = null,
+        Func<IReadOnlyList<IoBatchRow>, bool>? applyChanges = null)
     {
         InitializeComponent();
-
         _store = store ?? throw new ArgumentNullException(nameof(store));
-        _rows = new ObservableCollection<IoBatchRow>(rows);
+        _applyChanges = applyChanges;
         _currentFilePath = currentFilePath;
+
+        _rows = new ObservableCollection<IoBatchRow>(rows);
 
         foreach (var row in _rows)
             row.PropertyChanged += Row_PropertyChanged;
@@ -43,6 +49,7 @@ public partial class IoBatchSettingsDialog : Window
         FlowFilterBox.TextChanged += (_, _) => _view.Refresh();
         DeviceFilterBox.TextChanged += (_, _) => _view.Refresh();
         ApiFilterBox.TextChanged += (_, _) => _view.Refresh();
+        RefreshApplyButtonState();
     }
 
     private bool FilterRow(object obj)
@@ -70,6 +77,8 @@ public partial class IoBatchSettingsDialog : Window
     {
         if (e.PropertyName == nameof(IoBatchRow.IsSelected))
             BatchDialogHelper.UpdateSelectedCount(_rows, SelectedCountText);
+
+        RefreshApplyButtonState();
     }
 
     private void GenerateOutTags_Click(object sender, RoutedEventArgs e)
@@ -95,7 +104,6 @@ public partial class IoBatchSettingsDialog : Window
 
         foreach (var row in selectedRows)
         {
-            // Out Tag 생성 (매크로 치환: $(F), $(D), $(A)만 사용)
             string outTag = pattern
                 .Replace("$(F)", row.Flow)
                 .Replace("$(D)", row.Device)
@@ -103,10 +111,8 @@ public partial class IoBatchSettingsDialog : Window
 
             row.OutSymbol = outTag;
 
-            // Out Address 생성 (DataType에 따라 주소 증가)
             if (row.OutDataType.Equals("BOOL", StringComparison.OrdinalIgnoreCase))
             {
-                // BOOL: 비트 주소 사용 (.0, .1, ... .15)
                 row.OutAddress = $"{prefix}{currentWord}.{currentBit}";
                 currentBit++;
                 if (currentBit >= 16)
@@ -117,10 +123,9 @@ public partial class IoBatchSettingsDialog : Window
             }
             else
             {
-                // INT, DINT 등: 워드 단위 증가
                 row.OutAddress = $"{prefix}{currentWord}";
                 currentWord++;
-                currentBit = 0;  // 워드가 증가하면 비트 초기화
+                currentBit = 0;
             }
         }
 
@@ -154,7 +159,6 @@ public partial class IoBatchSettingsDialog : Window
 
         foreach (var row in selectedRows)
         {
-            // In Tag 생성 (매크로 치환: $(F), $(D), $(A)만 사용)
             string inTag = pattern
                 .Replace("$(F)", row.Flow)
                 .Replace("$(D)", row.Device)
@@ -162,10 +166,8 @@ public partial class IoBatchSettingsDialog : Window
 
             row.InSymbol = inTag;
 
-            // In Address 생성 (DataType에 따라 주소 증가)
             if (row.InDataType.Equals("BOOL", StringComparison.OrdinalIgnoreCase))
             {
-                // BOOL: 비트 주소 사용 (.0, .1, ... .15)
                 row.InAddress = $"{prefix}{currentWord}.{currentBit}";
                 currentBit++;
                 if (currentBit >= 16)
@@ -176,10 +178,9 @@ public partial class IoBatchSettingsDialog : Window
             }
             else
             {
-                // INT, DINT 등: 워드 단위 증가
                 row.InAddress = $"{prefix}{currentWord}";
                 currentWord++;
-                currentBit = 0;  // 워드가 증가하면 비트 초기화
+                currentBit = 0;
             }
         }
 
@@ -197,30 +198,26 @@ public partial class IoBatchSettingsDialog : Window
 
         try
         {
-            // ApiCall 조회
             var apiCallKvp = _store.ApiCalls.FirstOrDefault(ac => ac.Key == apiCallId);
             if (apiCallKvp.Key == Guid.Empty)
                 return ("UNKNOWN", "UNKNOWN");
 
             var apiCall = apiCallKvp.Value;
 
-            // ApiDefId 확인
             if (!FSharpOption<Guid>.get_IsSome(apiCall.ApiDefId))
                 return ("UNKNOWN", "UNKNOWN");
 
             var apiDefId = apiCall.ApiDefId.Value;
 
-            // ApiDef 조회
             var apiDefKvp = _store.ApiDefs.FirstOrDefault(ad => ad.Key == apiDefId);
             if (apiDefKvp.Key == Guid.Empty)
                 return ("UNKNOWN", "UNKNOWN");
 
             var apiDef = apiDefKvp.Value;
-            var apiDefName = apiDef.Name;  // $(A)
+            var apiDefName = apiDef.Name;
 
-            // PassiveSystem 조회
             var passiveSystemKvp = _store.Systems.FirstOrDefault(s => s.Key == apiDef.ParentId);
-            var deviceName = passiveSystemKvp.Key != Guid.Empty ? passiveSystemKvp.Value.Name : "UNKNOWN";  // $(D)
+            var deviceName = passiveSystemKvp.Key != Guid.Empty ? passiveSystemKvp.Value.Name : "UNKNOWN";
 
             return (deviceName, apiDefName);
         }
@@ -245,15 +242,40 @@ public partial class IoBatchSettingsDialog : Window
     private void Grid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) =>
         BatchDialogHelper.DeselectOnEmptyAreaClick(sender, e);
 
-    private void Accept_Click(object sender, RoutedEventArgs e) => DialogResult = true;
+    private void RowCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { DataContext: IoBatchRow row } checkBox)
+            return;
 
-    /// <summary>
-    /// TAG Wizard 버튼 클릭 - 3단계 위자드로 변경됨
-    /// </summary>
+        BatchDialogHelper.ApplyCheckStateToSelectedRows(IoGrid, row, checkBox.IsChecked == true);
+    }
+
+    private void Apply_Click(object sender, RoutedEventArgs e)
+    {
+        IoGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+        IoGrid.CommitEdit(DataGridEditingUnit.Row, true);
+
+        var changed = ChangedRows;
+        if (changed.Count == 0)
+            return;
+
+        if (_applyChanges is null)
+        {
+            DialogResult = true;
+            return;
+        }
+
+        if (!_applyChanges(changed))
+            return;
+
+        foreach (var row in changed)
+            row.AcceptChanges();
+
+        RefreshApplyButtonState();
+    }
+
     private void TagWizard_Click(object sender, RoutedEventArgs e)
     {
-        // TAG Wizard는 이제 독립적인 3단계 위자드로 동작합니다.
-        // 신호를 생성하고 자동으로 Store에 적용합니다.
         var wizardDialog = new TagWizardDialog(_store)
         {
             Owner = this
@@ -261,7 +283,6 @@ public partial class IoBatchSettingsDialog : Window
 
         wizardDialog.ShowDialog();
 
-        // 위자드가 완료되면 안내 메시지만 표시 (창은 유지)
         if (wizardDialog.DialogResult == true)
         {
             DialogHelpers.ShowThemedMessageBox(
@@ -271,17 +292,11 @@ public partial class IoBatchSettingsDialog : Window
                 "TAG Wizard",
                 MessageBoxButton.OK,
                 "ℹ");
-
-            // Batch Settings 창은 유지 - 사용자가 수동으로 닫을 수 있음
         }
     }
 
-    /// <summary>
-    /// Export IO List 버튼 클릭
-    /// </summary>
     private void ExportIoList_Click(object sender, RoutedEventArgs e)
     {
-        // Step 1: 포맷 선택 다이얼로그
         var formatDialog = new ExportFormatDialog
         {
             Owner = this
@@ -294,10 +309,8 @@ public partial class IoBatchSettingsDialog : Window
         var useTemplate = formatDialog.UseTemplate;
         var templatePath = formatDialog.TemplatePath;
 
-        // Step 2: 파일 저장 경로 선택
         var saveDialog = new SaveFileDialog();
 
-        // 기본 파일 이름 설정: 모델파일명_IOList
         var modelName = !string.IsNullOrEmpty(_currentFilePath)
             ? Path.GetFileNameWithoutExtension(_currentFilePath)
             : "iolist";
@@ -327,7 +340,6 @@ public partial class IoBatchSettingsDialog : Window
         var directory = Path.GetDirectoryName(selectedPath) ?? Environment.CurrentDirectory;
         var fileNameWithoutExt = Path.GetFileNameWithoutExtension(selectedPath);
 
-        // Step 3: Template 디렉토리 사용 (TemplateManager에서 관리)
         var templateDir = TemplateManager.TemplatesFolderPath;
 
         if (!Directory.Exists(templateDir))
@@ -343,15 +355,13 @@ public partial class IoBatchSettingsDialog : Window
 
         try
         {
-            // Step 4: 신호 생성
             var generationResult = Pipeline.generate(_store, templateDir);
 
-            // Step 5: 에러 확인
             var errorCount = Microsoft.FSharp.Collections.ListModule.Length(generationResult.Errors);
             if (errorCount > 0)
             {
                 var errorList = Microsoft.FSharp.Collections.ListModule.ToArray(generationResult.Errors);
-                var errorMessages = string.Join("\n", errorList.Take(5).Select(e => $"- {e.Message}"));
+                var errorMessages = string.Join("\n", errorList.Take(5).Select(err => $"- {err.Message}"));
                 if (errorCount > 5)
                     errorMessages += $"\n... 외 {errorCount - 5}개";
 
@@ -360,12 +370,8 @@ public partial class IoBatchSettingsDialog : Window
                     "Export IO List",
                     MessageBoxButton.YesNo,
                     "⚠");
-
-                // 사용자가 No를 선택하면 중단
-                // TODO: DialogHelpers.ShowThemedMessageBox가 MessageBoxResult를 반환하도록 수정 필요
             }
 
-            // Step 6: Export 수행
             switch (format)
             {
                 case ExportFormat.Csv:
@@ -378,15 +384,13 @@ public partial class IoBatchSettingsDialog : Window
 
                         if (ioResult.IsError)
                         {
-                            var error = ioResult.ErrorValue;
-                            DialogHelpers.ShowThemedMessageBox($"IO CSV 내보내기 실패:\n{error}", "Export Error", MessageBoxButton.OK, "❌");
+                            DialogHelpers.ShowThemedMessageBox($"IO CSV 내보내기 실패:\n{ioResult.ErrorValue}", "Export Error", MessageBoxButton.OK, "❌");
                             return;
                         }
 
                         if (dummyResult.IsError)
                         {
-                            var error = dummyResult.ErrorValue;
-                            DialogHelpers.ShowThemedMessageBox($"Dummy CSV 내보내기 실패:\n{error}", "Export Error", MessageBoxButton.OK, "❌");
+                            DialogHelpers.ShowThemedMessageBox($"Dummy CSV 내보내기 실패:\n{dummyResult.ErrorValue}", "Export Error", MessageBoxButton.OK, "❌");
                             return;
                         }
 
@@ -404,17 +408,10 @@ public partial class IoBatchSettingsDialog : Window
 
                         if (openResult == MessageBoxResult.Yes)
                         {
-                            try
-                            {
-                                Process.Start("explorer.exe", directory);
-                            }
+                            try { Process.Start("explorer.exe", directory); }
                             catch (Exception ex)
                             {
-                                DialogHelpers.ShowThemedMessageBox(
-                                    $"폴더를 열 수 없습니다:\n{ex.Message}",
-                                    "오류",
-                                    MessageBoxButton.OK,
-                                    "⚠");
+                                DialogHelpers.ShowThemedMessageBox($"폴더를 열 수 없습니다:\n{ex.Message}", "오류", MessageBoxButton.OK, "⚠");
                             }
                         }
                     }
@@ -422,19 +419,13 @@ public partial class IoBatchSettingsDialog : Window
 
                 case ExportFormat.Excel:
                     {
-                        // 템플릿 사용 여부에 따라 적절한 함수 호출
                         Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, string> result;
 
                         if (useTemplate && !string.IsNullOrEmpty(templatePath))
                         {
-                            // 템플릿 파일 존재 확인
                             if (!File.Exists(templatePath))
                             {
-                                DialogHelpers.ShowThemedMessageBox(
-                                    $"템플릿 파일을 찾을 수 없습니다:\n{templatePath}",
-                                    "Export Error",
-                                    MessageBoxButton.OK,
-                                    "❌");
+                                DialogHelpers.ShowThemedMessageBox($"템플릿 파일을 찾을 수 없습니다:\n{templatePath}", "Export Error", MessageBoxButton.OK, "❌");
                                 return;
                             }
 
@@ -448,8 +439,7 @@ public partial class IoBatchSettingsDialog : Window
 
                         if (result.IsError)
                         {
-                            var error = result.ErrorValue;
-                            DialogHelpers.ShowThemedMessageBox($"Excel 내보내기 실패:\n{error}", "Export Error", MessageBoxButton.OK, "❌");
+                            DialogHelpers.ShowThemedMessageBox($"Excel 내보내기 실패:\n{result.ErrorValue}", "Export Error", MessageBoxButton.OK, "❌");
                             return;
                         }
 
@@ -474,19 +464,11 @@ public partial class IoBatchSettingsDialog : Window
                         {
                             try
                             {
-                                var processInfo = new ProcessStartInfo(selectedPath)
-                                {
-                                    UseShellExecute = true
-                                };
-                                Process.Start(processInfo);
+                                Process.Start(new ProcessStartInfo(selectedPath) { UseShellExecute = true });
                             }
                             catch (Exception ex)
                             {
-                                DialogHelpers.ShowThemedMessageBox(
-                                    $"파일을 열 수 없습니다:\n{ex.Message}",
-                                    "오류",
-                                    MessageBoxButton.OK,
-                                    "⚠");
+                                DialogHelpers.ShowThemedMessageBox($"파일을 열 수 없습니다:\n{ex.Message}", "오류", MessageBoxButton.OK, "⚠");
                             }
                         }
                     }
@@ -495,13 +477,14 @@ public partial class IoBatchSettingsDialog : Window
         }
         catch (Exception ex)
         {
-            DialogHelpers.ShowThemedMessageBox(
-                $"내보내기 중 오류 발생:\n\n{ex.Message}",
-                "Export Error",
-                MessageBoxButton.OK,
-                "❌");
+            DialogHelpers.ShowThemedMessageBox($"내보내기 중 오류 발생:\n\n{ex.Message}", "Export Error", MessageBoxButton.OK, "❌");
         }
     }
+
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void RefreshApplyButtonState() =>
+        ApplyButton.IsEnabled = ChangedRows.Count > 0;
 }
 
 public sealed class IoBatchRow : BatchRowBase
@@ -512,6 +495,10 @@ public sealed class IoBatchRow : BatchRowBase
     private string _outSymbol;
     private string _outDataType;
     private string _inDataType;
+    private string _originalInAddress;
+    private string _originalInSymbol;
+    private string _originalOutAddress;
+    private string _originalOutSymbol;
 
     public IoBatchRow(Guid callId, Guid apiCallId, string flow, string device, string api,
                       string inAddress, string inSymbol, string outAddress, string outSymbol,
@@ -528,12 +515,10 @@ public sealed class IoBatchRow : BatchRowBase
         _outSymbol = outSymbol;
         _outDataType = outDataType;
         _inDataType = inDataType;
-        OriginalInAddress = inAddress;
-        OriginalInSymbol = inSymbol;
-        OriginalOutAddress = outAddress;
-        OriginalOutSymbol = outSymbol;
-        OriginalOutDataType = outDataType;
-        OriginalInDataType = inDataType;
+        _originalInAddress = inAddress;
+        _originalInSymbol = inSymbol;
+        _originalOutAddress = outAddress;
+        _originalOutSymbol = outSymbol;
     }
 
     public Guid CallId { get; }
@@ -542,12 +527,10 @@ public sealed class IoBatchRow : BatchRowBase
     public string Device { get; }
     public string Api { get; }
 
-    public string OriginalInAddress { get; }
-    public string OriginalInSymbol { get; }
-    public string OriginalOutAddress { get; }
-    public string OriginalOutSymbol { get; }
-    public string OriginalOutDataType { get; }
-    public string OriginalInDataType { get; }
+    public string OriginalInAddress => _originalInAddress;
+    public string OriginalInSymbol => _originalInSymbol;
+    public string OriginalOutAddress => _originalOutAddress;
+    public string OriginalOutSymbol => _originalOutSymbol;
 
     public string InAddress
     {
@@ -589,7 +572,13 @@ public sealed class IoBatchRow : BatchRowBase
         !string.Equals(InAddress, OriginalInAddress, StringComparison.Ordinal) ||
         !string.Equals(InSymbol, OriginalInSymbol, StringComparison.Ordinal) ||
         !string.Equals(OutAddress, OriginalOutAddress, StringComparison.Ordinal) ||
-        !string.Equals(OutSymbol, OriginalOutSymbol, StringComparison.Ordinal) ||
-        !string.Equals(OutDataType, OriginalOutDataType, StringComparison.Ordinal) ||
-        !string.Equals(InDataType, OriginalInDataType, StringComparison.Ordinal);
+        !string.Equals(OutSymbol, OriginalOutSymbol, StringComparison.Ordinal);
+
+    public void AcceptChanges()
+    {
+        _originalInAddress = InAddress;
+        _originalInSymbol = InSymbol;
+        _originalOutAddress = OutAddress;
+        _originalOutSymbol = OutSymbol;
+    }
 }

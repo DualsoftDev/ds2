@@ -9,6 +9,7 @@ open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 open Ds2.Runtime.Sim.Engine
 open Ds2.Runtime.Sim.Engine.Core
+open Ds2.Runtime.Sim.Model
 open Ds2.Runtime.Sim.Report
 
 module ReportServiceTests =
@@ -66,7 +67,7 @@ module SimIndexTests =
 
         store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
         store.ConnectSelectionInOrder([ work2.Id; work1.Id ], ArrowType.Reset) |> ignore
-        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api1"; "Dev.Api2" ], true)
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
 
         let callIds =
             DsQuery.callsOf work1.Id store
@@ -88,7 +89,7 @@ module SimIndexTests =
         let project, _, flow, work = setupBasicHierarchy store
         let rxWork = addWork store "RxWork" flow.Id
 
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true, None)
 
         let calls = DsQuery.callsOf work.Id store
         let sourceCall = calls[0]
@@ -115,78 +116,68 @@ module SimIndexTests =
         Assert.Equal(Some sourceApiCall.Id, specs[0].ApiCallGuid)
 
     [<Fact>]
-    let ``build collects token role successor and sink maps`` () =
+    let ``build collects token role successor and manual sink`` () =
         let store = createStore ()
         let _, _, flow, work1 = setupBasicHierarchy store
         let work2 = addWork store "Work2" flow.Id
         let work3 = addWork store "Work3" flow.Id
 
         store.UpdateWorkTokenRole(work1.Id, TokenRole.Source)
+        store.UpdateWorkTokenRole(work3.Id, TokenRole.Sink)
         store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
         store.ConnectSelectionInOrder([ work2.Id; work3.Id ], ArrowType.StartReset) |> ignore
-        store.ConnectSelectionInOrder([ work3.Id; work1.Id ], ArrowType.Reset) |> ignore
 
         let index = SimIndex.build store 10
 
-        // Source 워크 수집
         Assert.Equal<Guid list>([ work1.Id ], index.TokenSourceGuids)
-        // TokenRole 매핑
         Assert.Equal(TokenRole.Source, index.WorkTokenRole[work1.Id])
-        // wStartPreds 역전 방식 successor (Group 확장 포함)
+        Assert.Equal(TokenRole.Sink, index.WorkTokenRole[work3.Id])
         Assert.Equal<Guid list>([ work2.Id ], index.WorkTokenSuccessors[work1.Id])
         Assert.Equal<Guid list>([ work3.Id ], index.WorkTokenSuccessors[work2.Id])
-        // Reset 화살표는 successor 아님
-        Assert.False(index.WorkTokenSuccessors.ContainsKey work3.Id)
-        // Sink 감지: work3는 successor 없음 → sink
+        // Sink는 수동 지정: work3만 sink
         Assert.True(index.TokenSinkGuids.Contains work3.Id)
-        // work1, work2는 successor 있음 → sink 아님
         Assert.False(index.TokenSinkGuids.Contains work1.Id)
         Assert.False(index.TokenSinkGuids.Contains work2.Id)
 
     [<Fact>]
-    let ``build detects cycle sink in cyclic token graph`` () =
+    let ``build without manual sink produces empty TokenSinkGuids`` () =
         let store = createStore ()
         let _, _, flow, work1 = setupBasicHierarchy store
         let work2 = addWork store "Work2" flow.Id
-        let work3 = addWork store "Work3" flow.Id
 
         store.UpdateWorkTokenRole(work1.Id, TokenRole.Source)
         store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
-        store.ConnectSelectionInOrder([ work2.Id; work3.Id ], ArrowType.Start) |> ignore
-        // 순환: work3 → work1
-        store.ConnectSelectionInOrder([ work3.Id; work1.Id ], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
 
-        // work3→work1 back edge → work3(source)가 cycle sink
-        Assert.True(index.TokenSinkGuids.Contains work3.Id)
-        Assert.False(index.TokenSinkGuids.Contains work1.Id)
-        Assert.False(index.TokenSinkGuids.Contains work2.Id)
+        // Sink 수동 지정 없으면 비어있음
+        Assert.True(index.TokenSinkGuids.IsEmpty)
 
     [<Fact>]
-    let ``build detects cycle sink with Start arrow back to mid-chain`` () =
-        // A→B(SR), B→C(SR), C→D(SR), D→B(Start) — D가 cycle sink이어야 함
+    let ``build canonicalizes token source guid for reference works`` () =
         let store = createStore ()
-        let _, _, flow, workA = setupBasicHierarchy store
-        let workB = addWork store "WorkB" flow.Id
-        let workC = addWork store "WorkC" flow.Id
-        let workD = addWork store "WorkD" flow.Id
+        let _, _, _, work = setupBasicHierarchy store
+        let refId = store.AddReferenceWork(work.Id)
 
-        store.UpdateWorkTokenRole(workA.Id, TokenRole.Source)
-        store.ConnectSelectionInOrder([ workA.Id; workB.Id ], ArrowType.StartReset) |> ignore
-        store.ConnectSelectionInOrder([ workB.Id; workC.Id ], ArrowType.StartReset) |> ignore
-        store.ConnectSelectionInOrder([ workC.Id; workD.Id ], ArrowType.StartReset) |> ignore
-        store.ConnectSelectionInOrder([ workD.Id; workB.Id ], ArrowType.Start) |> ignore
+        store.UpdateWorkTokenRole(refId, TokenRole.Source)
 
         let index = SimIndex.build store 10
 
-        // D→B back edge → D가 cycle sink
-        Assert.True(index.TokenSinkGuids.Contains workD.Id, "D should be cycle sink")
-        Assert.False(index.TokenSinkGuids.Contains workA.Id)
-        Assert.False(index.TokenSinkGuids.Contains workB.Id)
-        Assert.False(index.TokenSinkGuids.Contains workC.Id)
-        // successor 확인: D→B가 tokenSuccMap에 있어야 함
-        Assert.Contains(workB.Id, index.WorkTokenSuccessors[workD.Id])
+        Assert.Equal<Guid list>([ work.Id ], index.TokenSourceGuids)
+        Assert.Equal(TokenRole.Source, index.WorkTokenRole[work.Id])
+        Assert.Equal(TokenRole.Source, index.WorkTokenRole[refId])
+
+    [<Fact>]
+    let ``build collects WorkFlowGuid and AllFlowGuids`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "Work2" flow.Id
+
+        let index = SimIndex.build store 10
+
+        Assert.Contains(flow.Id, index.AllFlowGuids)
+        Assert.Equal(flow.Id, index.WorkFlowGuid[work1.Id])
+        Assert.Equal(flow.Id, index.WorkFlowGuid[work2.Id])
 
     [<Fact>]
     let ``build with no token roles produces empty token maps`` () =
@@ -200,6 +191,151 @@ module SimIndexTests =
         Assert.Empty(index.TokenSourceGuids)
         Assert.True(index.WorkTokenRole.IsEmpty)
 
+    [<Fact>]
+    let ``GraphValidator finds works without reset predecessors using manual sink`` () =
+        let store = createStore ()
+        let _, _system, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "Work2" flow.Id
+        let work3 = addWork store "Work3" flow.Id
+
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work2.Id; work3.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work3.Id; work2.Id ], ArrowType.Reset) |> ignore
+        // work3를 Sink로 수동 지정
+        store.UpdateWorkTokenRole(work3.Id, TokenRole.Sink)
+
+        let index = SimIndex.build store 10
+        let unreset = GraphValidator.findUnresetWorks index
+
+        // work1: sink 아니고 reset pred 없음 → 경고 대상
+        // work3: Sink 지정 → 경고 대상 아님
+        // work2: reset pred 있음 → 경고 대상 아님
+        let unresetGuids = unreset |> List.map (fun (g, _, _) -> g)
+        Assert.Contains(work1.Id, unresetGuids)
+        Assert.DoesNotContain(work2.Id, unresetGuids)
+        Assert.DoesNotContain(work3.Id, unresetGuids)
+
+module StepModeTests =
+
+    let private waitUntil timeoutMs predicate =
+        let deadline = DateTime.UtcNow.AddMilliseconds(float timeoutMs)
+        let mutable matched = predicate ()
+        while not matched && DateTime.UtcNow < deadline do
+            Thread.Sleep(10)
+            matched <- predicate ()
+        matched
+
+    [<Fact>]
+    let ``STEP mode: repeated step after pause at work start eventually reaches successor work`` () =
+        let store = createStore ()
+        let project, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "Work2" flow.Id
+
+        store.UpdateWorkTokenRole(work1.Id, TokenRole.Source)
+        store.UpdateWorkPeriodMs(work1.Id, Some 2000)
+        store.UpdateWorkPeriodMs(work2.Id, Some 2000)
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.StartReset) |> ignore
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
+
+        let index = SimIndex.build store 10
+        let engine = new EventDrivenEngine(index)
+
+        let dumpState () =
+            let w1 = engine.GetWorkState(work1.Id)
+            let w2 = engine.GetWorkState(work2.Id)
+            let w1Token = engine.GetWorkToken(work1.Id)
+            let w2Token = engine.GetWorkToken(work2.Id)
+            let calls =
+                SimIndex.findOrEmpty work1.Id index.WorkCallGuids
+                |> List.map (fun callGuid -> engine.GetCallState(callGuid))
+            $"W1={w1}, W2={w2}, W1tok={w1Token}, W2tok={w2Token}, Calls={calls}, HSW={engine.HasStartableWork}, HAD={engine.HasActiveDuration}"
+
+        try
+            engine.Start()
+
+            let token = engine.NextToken()
+            engine.SeedToken(work1.Id, token)
+
+            Assert.True(
+                waitUntil 2000 (fun () -> engine.GetWorkState(work1.Id) = Some Status4.Going),
+                $"Work1 should start before pause. {dumpState ()}")
+
+            engine.SetAllFlowStates(FlowTag.Pause)
+
+            let mutable work2Going = false
+            let mutable step = 0
+            let mutable lastState = dumpState ()
+
+            while not work2Going && step < 16 do
+                step <- step + 1
+                let progressed = engine.Step()
+                Thread.Sleep(10)
+                lastState <- $"Step {step}: progressed={progressed}, {dumpState ()}"
+                work2Going <- engine.GetWorkState(work2.Id) = Some Status4.Going
+
+            Assert.True(work2Going, $"Work2 should become Going after repeated STEP. Last={lastState}")
+        finally
+            engine.Stop()
+
+    [<Fact>]
+    let ``STEP mode: terminal finish leaves no further step work`` () =
+        let store = createStore ()
+        let _, _, _, work = setupBasicHierarchy store
+
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
+        store.UpdateWorkPeriodMs(work.Id, Some 1)
+
+        let index = SimIndex.build store 10
+        let engine = new EventDrivenEngine(index)
+
+        try
+            engine.Start()
+            engine.SetAllFlowStates(FlowTag.Pause)
+
+            let token = engine.NextToken()
+            engine.SeedToken(work.Id, token)
+
+            let mutable guard = 0
+            while (engine.HasStartableWork || engine.HasActiveDuration) && guard < 8 do
+                guard <- guard + 1
+                engine.Step() |> ignore
+                Thread.Sleep(10)
+
+            Assert.Equal(Some Status4.Finish, engine.GetWorkState(work.Id))
+            Assert.False(engine.HasStartableWork, "terminal finish should not leave any startable work")
+            Assert.False(engine.HasActiveDuration, "terminal finish should not leave any active duration")
+            Assert.False(engine.Step(), "terminal finish should not advance any further")
+        finally
+            engine.Stop()
+
+    [<Fact>]
+    let ``pause resume and restart reuse a clean engine thread lifecycle`` () =
+        let store = createStore ()
+        let _, _, _, work = setupBasicHierarchy store
+
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
+
+        let index = SimIndex.build store 10
+        let engine = new EventDrivenEngine(index)
+
+        try
+            engine.Start()
+            Assert.Equal(SimulationStatus.Running, engine.Status)
+
+            engine.Pause()
+            Assert.Equal(SimulationStatus.Paused, engine.Status)
+
+            engine.Resume()
+            Assert.Equal(SimulationStatus.Running, engine.Status)
+
+            engine.Stop()
+            Assert.Equal(SimulationStatus.Stopped, engine.Status)
+
+            engine.Start()
+            Assert.Equal(SimulationStatus.Running, engine.Status)
+        finally
+            engine.Stop()
+
 module EventDrivenEngineTokenTests =
 
     let private waitUntil timeoutMs predicate =
@@ -209,6 +345,45 @@ module EventDrivenEngineTokenTests =
             Thread.Sleep(10)
             matched <- predicate ()
         matched
+
+    [<Fact>]
+    let ``reference work shares token and runtime state with original work`` () =
+        let store = createStore ()
+        let _, _, _, work = setupBasicHierarchy store
+        let refId = store.AddReferenceWork(work.Id)
+
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
+        store.UpdateWorkPeriodMs(work.Id, Some 2000)
+
+        let index = SimIndex.build store 10
+        let engine = new EventDrivenEngine(index)
+
+        try
+            let token = engine.NextToken()
+            engine.SeedToken(work.Id, token)
+
+            Assert.Equal(Some token, engine.GetWorkToken(work.Id))
+            Assert.Equal(Some token, engine.GetWorkToken(refId))
+
+            engine.Start()
+            engine.ForceWorkState(work.Id, Status4.Going)
+            Assert.True(
+                waitUntil 1000 (fun () ->
+                    engine.GetWorkState(work.Id) = Some Status4.Going
+                    && engine.GetWorkState(refId) = Some Status4.Going),
+                "reference group should share Going state")
+
+            engine.ForceWorkState(work.Id, Status4.Finish)
+            Assert.True(
+                waitUntil 1000 (fun () ->
+                    engine.GetWorkState(work.Id) = Some Status4.Finish
+                    && engine.GetWorkState(refId) = Some Status4.Finish),
+                "reference group should share Finish state")
+
+            Assert.Equal(engine.GetWorkToken(work.Id), engine.GetWorkToken(refId))
+        finally
+            engine.Stop()
+
 
     [<Fact>]
     let ``blocked token waits for successor ready before shifting`` () =
@@ -282,29 +457,6 @@ module EventDrivenEngineTokenTests =
         finally
             engine.Stop()
 
-    [<Fact>]
-    let ``GraphValidator finds works without reset predecessors`` () =
-        let store = createStore ()
-        let _, _system, flow, work1 = setupBasicHierarchy store
-        let work2 = addWork store "Work2" flow.Id
-        let work3 = addWork store "Work3" flow.Id
-
-        // work1→work2 (Start), work2→work3 (Start)
-        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
-        store.ConnectSelectionInOrder([ work2.Id; work3.Id ], ArrowType.Start) |> ignore
-        // work3→work2 (Reset) — work2에만 reset 연결
-        store.ConnectSelectionInOrder([ work3.Id; work2.Id ], ArrowType.Reset) |> ignore
-
-        let index = SimIndex.build store 10
-        let unreset = GraphValidator.findUnresetWorks index
-
-        // work1은 sink(successor 없음)이 아니고 reset pred도 없음 → 경고 대상
-        // work3는 sink (successor 없음) → 경고 대상 아님
-        // work2는 reset pred 있음 → 경고 대상 아님
-        let unresetGuids = unreset |> List.map (fun (g, _, _) -> g)
-        Assert.Contains(work1.Id, unresetGuids)
-        Assert.DoesNotContain(work2.Id, unresetGuids)
-        Assert.DoesNotContain(work3.Id, unresetGuids)
 
     [<Fact>]
     let ``GraphValidator finds deadlock candidates in cyclic token path`` () =
@@ -391,31 +543,3 @@ module EventDrivenEngineTokenTests =
         // A는 이미 Source → 후보 아님
         Assert.DoesNotContain(workA.Id, candidateGuids)
 
-    [<Fact>]
-    let ``source based sink detects predecessor of Source as sink`` () =
-        // A(Source)→B(SR)→C(SR)→D(Source)→B(Start)
-        // C→D에서 D가 Source → C가 sink
-        // D는 cycle sink이지만 Source이므로 sink 제외
-        let store = createStore ()
-        let _, _, flow, workA = setupBasicHierarchy store
-        let workB = addWork store "WorkB" flow.Id
-        let workC = addWork store "WorkC" flow.Id
-        let workD = addWork store "WorkD" flow.Id
-
-        store.UpdateWorkTokenRole(workA.Id, TokenRole.Source)
-        store.UpdateWorkTokenRole(workD.Id, TokenRole.Source)
-        store.ConnectSelectionInOrder([ workA.Id; workB.Id ], ArrowType.StartReset) |> ignore
-        store.ConnectSelectionInOrder([ workB.Id; workC.Id ], ArrowType.StartReset) |> ignore
-        store.ConnectSelectionInOrder([ workC.Id; workD.Id ], ArrowType.StartReset) |> ignore
-        store.ConnectSelectionInOrder([ workD.Id; workB.Id ], ArrowType.Start) |> ignore
-
-        let index = SimIndex.build store 10
-
-        // C: successor D가 Source → source-based sink
-        Assert.True(index.TokenSinkGuids.Contains workC.Id, "C should be sink (predecessor of Source D)")
-        // D: cycle sink이지만 Source → sink 제외
-        Assert.False(index.TokenSinkGuids.Contains workD.Id, "D should not be sink (is Source)")
-        // A: Source, sink 아님
-        Assert.False(index.TokenSinkGuids.Contains workA.Id)
-        // B: 중간 노드, sink 아님
-        Assert.False(index.TokenSinkGuids.Contains workB.Id)

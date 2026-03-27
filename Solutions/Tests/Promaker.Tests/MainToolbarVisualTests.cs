@@ -20,11 +20,53 @@ public sealed class MainToolbarVisualTests
 
             var speedCombo = FindRequiredDescendant<ComboBox>(toolbar, "SimSpeedComboBox");
             var items = speedCombo.Items.OfType<ComboBoxItem>().ToArray();
+            var labels = items.Select(item => item.Content?.ToString()).ToArray();
 
             Assert.Equal(1.0, vm.Simulation.SimSpeed);
-            Assert.All(items, item => Assert.IsType<double>(item.Tag));
-            Assert.Equal(1.0, Assert.IsType<double>(items[1].Tag));
-            Assert.Equal(1.0, Assert.IsType<double>(speedCombo.SelectedValue));
+            Assert.Equal(6, items.Length);
+            Assert.Equal("0.5x", labels[0]);
+            Assert.Equal("1x", labels[1]);
+            Assert.Equal("2x", labels[2]);
+            Assert.Equal("5x", labels[3]);
+            Assert.Equal("10x", labels[4]);
+            Assert.False(string.IsNullOrWhiteSpace(labels[5]));
+        });
+    }
+
+    [Fact]
+    public void MainToolbar_simulation_controls_bind_to_main_view_model_and_simulation_state()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var toolbar = CreateToolbar(vm);
+
+            var startButton = FindRequiredDescendant<Button>(toolbar, "SimulationStartStopButton");
+            var pauseButton = FindRequiredDescendant<Button>(toolbar, "SimulationPauseStepButton");
+            var tokenButton = FindRequiredDescendant<Button>(toolbar, "OpenTokenSpecButton");
+            var speedCombo = FindRequiredDescendant<ComboBox>(toolbar, "SimSpeedComboBox");
+
+            Assert.False(vm.HasProject);
+            Assert.False(startButton.IsEnabled);
+            Assert.False(pauseButton.IsEnabled);
+            Assert.False(tokenButton.IsEnabled);
+
+            vm.NewProjectCommand.Execute(null);
+            toolbar.UpdateLayout();
+
+            Assert.True(vm.HasProject);
+            Assert.Same(vm.Simulation.StartSimulationCommand, startButton.Command);
+            Assert.Same(vm.OpenTokenSpecDialogCommand, tokenButton.Command);
+            Assert.True(startButton.IsEnabled);
+            Assert.False(pauseButton.IsEnabled);
+            Assert.True(tokenButton.IsEnabled);
+            Assert.Equal("1x", ((ComboBoxItem)speedCombo.SelectedItem).Content?.ToString());
+            Assert.True(speedCombo.ActualHeight >= 20);
+
+            startButton.Command.Execute(null);
+            toolbar.UpdateLayout();
+
+            Assert.True(vm.Simulation.IsSimulating);
         });
     }
 

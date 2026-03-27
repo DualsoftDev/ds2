@@ -231,7 +231,7 @@ public partial class CallCreateDialog : Window
 
         var deviceAliases = count == 1
             ? [alias]
-            : Enumerable.Range(1, count).Select(i => $"{alias}_{i}").ToList();
+            : Enumerable.Range(1, count).Select(i => $"{alias}{i}").ToList();
 
         var names = new List<string>();
         foreach (var dev in deviceAliases)
@@ -254,7 +254,7 @@ public partial class CallCreateDialog : Window
         // 여러 ApiName이면 여러 Call이 생기되, 각 Call 안에 count개 ApiCall
         var deviceAliases = count == 1
             ? [alias]
-            : Enumerable.Range(1, count).Select(i => $"{alias}_{i}").ToList();
+            : Enumerable.Range(1, count).Select(i => $"{alias}{i}").ToList();
 
         // 편의상 첫 번째 apiName 기준. 여러 apiName → 여러 Call.
         // 각 Call별로 DeviceAliases를 동일하게 사용.

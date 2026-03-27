@@ -1,9 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
+using System.Windows;
 using Ds2.Core;
 using Ds2.Store;
 using Ds2.Editor;
+using Promaker.Dialogs;
+using Promaker.Services;
 using Promaker.ViewModels;
 using Xunit;
 
@@ -70,4 +74,99 @@ public sealed class MainViewModelTests
         });
     }
 
+    [Fact]
+    public void ExportCsv_creates_file_for_new_project()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var path = Path.Combine(Path.GetTempPath(), $"promaker-export-{Guid.NewGuid():N}.csv");
+            try
+            {
+                var export = typeof(MainViewModel).GetMethod(
+                    "ExportCsvToPath",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+                var result = (bool)export.Invoke(vm, [path])!;
+
+                Assert.True(result);
+                Assert.True(File.Exists(path));
+
+                var content = File.ReadAllText(path);
+                Assert.Contains("Flow", content, StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
+        });
+    }
+
+    [Fact]
+    public void ShowProjectSettings_updates_project_name_from_dialog()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            SetDialogService(vm, new StubDialogService(dialog =>
+            {
+                var projectDialog = Assert.IsType<ProjectPropertiesDialog>(dialog);
+                SetAutoProperty(projectDialog, "ResultProjectName", "ConfiguredProject");
+                SetAutoProperty(projectDialog, "ResultIriPrefix", "");
+                SetAutoProperty(projectDialog, "ResultGlobalAssetId", "");
+                SetAutoProperty(projectDialog, "ResultAuthor", "");
+                SetAutoProperty(projectDialog, "ResultVersion", "");
+                SetAutoProperty(projectDialog, "ResultDescription", "");
+                SetAutoProperty(projectDialog, "ResultSplitDeviceAasx", false);
+
+                return true;
+            }));
+
+            vm.ShowProjectSettingsCommand.Execute(null);
+
+            var project = DsQuery.allProjects(GetStore(vm)).Head;
+            Assert.Equal("ConfiguredProject", project.Name);
+        });
+    }
+
+    private static void SetDialogService(MainViewModel vm, IDialogService dialogService)
+    {
+        typeof(MainViewModel)
+            .GetField("_dialogService", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(vm, dialogService);
+    }
+
+    private static DsStore GetStore(MainViewModel vm)
+    {
+        var field = typeof(MainViewModel).GetField("_store", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        return (DsStore)field.GetValue(vm)!;
+    }
+
+    private static void SetAutoProperty<T>(object target, string propertyName, T value)
+    {
+        var field = target.GetType()
+            .GetField($"<{propertyName}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        field.SetValue(target, value);
+    }
+
+    private sealed class StubDialogService(Func<Window, bool?> showDialog) : IDialogService
+    {
+        private readonly Func<Window, bool?> _showDialog = showDialog;
+
+        public string? PromptName(string title, string defaultName) => defaultName;
+        public bool Confirm(string message, string title) => true;
+        public void ShowWarning(string message) { }
+        public void ShowError(string message) { }
+        public void ShowInfo(string message) { }
+        public MessageBoxResult AskSaveChanges() => MessageBoxResult.No;
+        public string? ShowOpenFileDialog(string filter) => null;
+        public string? ShowSaveFileDialog(string filter, string? defaultFileName = null) => null;
+        public T? ShowDialog<T>(Window dialog) where T : class => _showDialog(dialog) == true ? dialog.DataContext as T : null;
+        public bool? ShowDialog(Window dialog) => _showDialog(dialog);
+    }
 }

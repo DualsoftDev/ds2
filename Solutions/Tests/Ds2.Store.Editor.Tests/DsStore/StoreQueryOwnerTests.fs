@@ -29,7 +29,7 @@ module CallConditionQueryTests =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
 
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true, None)
 
         let targetCall =
             DsQuery.callsOf work.Id store
@@ -46,7 +46,7 @@ module CallConditionQueryTests =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
 
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true, None)
 
         let calls = DsQuery.callsOf work.Id store
         let sourceCall = calls[0]

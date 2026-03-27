@@ -114,21 +114,30 @@ public partial class EditorCanvas : UserControl
             ? Visibility.Visible : Visibility.Collapsed;
         AddCallMenuItem.Visibility = tabKind == Ds2.Editor.TabKind.Work
             ? Visibility.Visible : Visibility.Collapsed;
+        AddWorkMenuItem.IsEnabled = VM?.AddWorkCommand.CanExecute(null) == true;
+        AddCallMenuItem.IsEnabled = VM?.AddCallCommand.CanExecute(null) == true;
         // 레퍼런스 노드: Work가 선택된 상태 + Flow/System 탭에서만
         AddRefWorkMenuItem.Visibility =
             VM?.SelectedNode?.EntityType == EntityKind.Work
             && tabKind is Ds2.Editor.TabKind.System or Ds2.Editor.TabKind.Flow
                 ? Visibility.Visible : Visibility.Collapsed;
 
-        // 노드 선택 없으면 화살표 연결/복사/삭제 숨김
-        bool hasSelection = VM?.SelectedNode is not null;
-        ConnectMenuItem.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
-        CopyMenuItem.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
+        // 선택 상태에 따라 연결/복사/삭제 가시성 및 활성화 갱신
+        bool hasNodeSelection = VM?.SelectedNode is not null || (VM?.Selection.OrderedNodeSelection.Count ?? 0) > 0;
+        bool hasArrowSelection = (VM?.Selection.OrderedArrowSelection.Count ?? 0) > 0;
+        bool hasSelection = hasNodeSelection || hasArrowSelection;
+        bool canStartConnect = VM?.ConnectSelectedNodesCommand.CanExecute(null) == true;
+        ConnectMenuItem.Visibility = hasNodeSelection ? Visibility.Visible : Visibility.Collapsed;
+        ConnectMenuItem.IsEnabled = canStartConnect;
+        CopyMenuItem.Visibility = hasNodeSelection ? Visibility.Visible : Visibility.Collapsed;
+        CopyMenuItem.IsEnabled = VM?.CopySelectedCommand.CanExecute(null) == true;
         DeleteMenuItem.Visibility = hasSelection ? Visibility.Visible : Visibility.Collapsed;
+        DeleteMenuItem.IsEnabled = VM?.DeleteSelectedCommand.CanExecute(null) == true;
 
         // 클립보드 비어있으면 붙여넣기 숨김
         PasteMenuItem.Visibility = VM?.HasClipboardData == true
             ? Visibility.Visible : Visibility.Collapsed;
+        PasteMenuItem.IsEnabled = VM?.PasteCopiedCommand.CanExecute(null) == true;
 
         // 연속/선행/후행 구분선 정리
         CollapseBoundarySeparators(CanvasContextMenu);
@@ -178,7 +187,7 @@ public partial class EditorCanvas : UserControl
 
     private void AddWork_Click(object sender, RoutedEventArgs e)
     {
-        if (VM is null) return;
+        if (VM is null || !VM.AddWorkCommand.CanExecute(null)) return;
         VM.PendingAddPosition = new Xywh(
             (int)_lastContextMenuCanvasPos.X, (int)_lastContextMenuCanvasPos.Y,
             UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight);
@@ -187,7 +196,7 @@ public partial class EditorCanvas : UserControl
 
     private void AddCall_Click(object sender, RoutedEventArgs e)
     {
-        if (VM is null) return;
+        if (VM is null || !VM.AddCallCommand.CanExecute(null)) return;
         VM.PendingAddPosition = new Xywh(
             (int)_lastContextMenuCanvasPos.X, (int)_lastContextMenuCanvasPos.Y,
             UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight);

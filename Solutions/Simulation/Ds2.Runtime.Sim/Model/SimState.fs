@@ -60,6 +60,7 @@ type SimState = {
     WorkStates: Map<Guid, Status4>
     CallStates: Map<Guid, Status4>
     WorkProgress: Map<Guid, float>
+    FlowStates: Map<Guid, FlowTag>
     Clock: TimeSpan
     TickMs: int
     IOValues: Map<Guid, string>
@@ -75,10 +76,11 @@ type SimState = {
 }
 
 module SimState =
-    let create tickMs (workGuids: Guid seq) (callGuids: Guid seq) = {
+    let create tickMs (workGuids: Guid seq) (callGuids: Guid seq) (flowGuids: Guid seq) = {
         WorkStates = workGuids |> Seq.map (fun guid -> guid, Status4.Ready) |> Map.ofSeq
         CallStates = callGuids |> Seq.map (fun guid -> guid, Status4.Ready) |> Map.ofSeq
         WorkProgress = workGuids |> Seq.map (fun guid -> guid, 0.0) |> Map.ofSeq
+        FlowStates = flowGuids |> Seq.map (fun guid -> guid, FlowTag.Ready) |> Map.ofSeq
         Clock = TimeSpan.Zero
         TickMs = tickMs
         IOValues = Map.empty
@@ -128,11 +130,15 @@ module SimState =
         let counter = simState.TokenCounter + 1
         IntToken counter, { simState with TokenCounter = counter }
 
+    let setFlowState (guid: Guid) (tag: FlowTag) simState =
+        { simState with FlowStates = simState.FlowStates.Add(guid, tag) }
+
     let reset simState = {
         simState with
             WorkStates = simState.WorkStates |> Map.map (fun _ _ -> Status4.Ready)
             CallStates = simState.CallStates |> Map.map (fun _ _ -> Status4.Ready)
             WorkProgress = simState.WorkProgress |> Map.map (fun _ _ -> 0.0)
+            FlowStates = simState.FlowStates |> Map.map (fun _ _ -> FlowTag.Ready)
             Clock = TimeSpan.Zero
             IOValues = Map.empty
             SkippedCalls = Set.empty

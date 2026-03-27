@@ -19,7 +19,7 @@ module ConditionCrudTests =
         let activeSystem = addSystem store "A" project.Id true
         let flow = addFlow store "F" activeSystem.Id
         let work = addWork store "W" flow.Id
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
         let call = store.Calls.Values |> Seq.head
         let apiDef = addApiDef store "Api1" system.Id
         let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "", "", "", 0, "", 0, "")

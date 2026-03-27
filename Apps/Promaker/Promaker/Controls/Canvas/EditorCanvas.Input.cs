@@ -255,8 +255,11 @@ public partial class EditorCanvas
 
         if (e.Key == Key.Delete)
         {
-            VM?.DeleteSelectedCommand.Execute(null);
-            e.Handled = true;
+            if (VM?.DeleteSelectedCommand.CanExecute(null) == true)
+            {
+                VM.DeleteSelectedCommand.Execute(null);
+                e.Handled = true;
+            }
             return;
         }
 
@@ -270,7 +273,10 @@ public partial class EditorCanvas
 
         if (e.Key == Key.L && Keyboard.Modifiers == ModifierKeys.Control)
         {
-            VM?.AutoLayoutCommand.Execute(null);
+            if (VM?.AutoLayoutCommand.CanExecute(null) == true)
+                VM.AutoLayoutCommand.Execute(null);
+            else if (VM is not null)
+                VM.StatusText = "Open a canvas tab to run auto layout.";
             e.Handled = true;
         }
     }

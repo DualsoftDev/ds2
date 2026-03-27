@@ -14,6 +14,7 @@ namespace Promaker.ViewModels;
 public partial class PropertyPanelState : ObservableObject
 {
     private readonly MainViewModel.PropertyPanelHost _host;
+    private List<SelectionKey> _selectedNodeKeys = [];
 
     internal MainViewModel.PropertyPanelHost Host => _host;
 
@@ -35,21 +36,35 @@ public partial class PropertyPanelState : ObservableObject
     public string CallApiCallsHeader => $"ApiCalls [{CallApiCalls.Count}]";
     public string SystemApiDefsHeader => $"ApiDefs [{SystemApiDefs.Count}]";
     public bool IsDebugBuild => MainViewModel.IsDebugBuild;
+    public bool ShowDebugSelectionDetails => IsDebugBuild && IsSingleSelection;
 
-    [ObservableProperty] private EntityNode? _selectedNode;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplyNameCommand))]
+    private EntityNode? _selectedNode;
+    [ObservableProperty] private bool _isSingleSelection;
+    [ObservableProperty] private bool _isMultiSelection;
+    [ObservableProperty] private int _selectedNodeCount;
+    [ObservableProperty] private bool _isSingleWorkSelected;
+    [ObservableProperty] private bool _isSingleCallSelected;
     [ObservableProperty] private bool _isWorkSelected;
     [ObservableProperty] private bool _isCallSelected;
     [ObservableProperty] private bool _isSystemSelected;
     [ObservableProperty] private string _systemType = string.Empty;
     [ObservableProperty] private bool _isSystemTypeDirty;
+    [ObservableProperty] private string _selectionTypeText = "선택 없음";
+    [ObservableProperty] private string _selectionNameText = "";
+    [ObservableProperty] private bool _showNameEditor;
     [ObservableProperty] private int? _workPeriodMs;
-    [ObservableProperty] private bool _isTokenSource;
-    [ObservableProperty] private bool _isTokenIgnore;
+    [ObservableProperty] private bool? _isTokenSource;
+    [ObservableProperty] private bool? _isTokenIgnore;
+    [ObservableProperty] private bool? _isTokenSink;
     [ObservableProperty] private bool _hasLinkedTokenSpec;
     [ObservableProperty] private string _linkedTokenSpecLabel = "";
     [ObservableProperty] private int? _callTimeoutMs;
     [ObservableProperty] private CallApiCallItem? _selectedCallApiCall;
-    [ObservableProperty] private string _nameEditorText = string.Empty;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplyNameCommand))]
+    private string _nameEditorText = string.Empty;
     [ObservableProperty] private string _namePrefix = string.Empty;
     [ObservableProperty] private bool _isNameDirty;
     [ObservableProperty] private bool _isWorkPeriodDirty;
@@ -64,41 +79,16 @@ public partial class PropertyPanelState : ObservableObject
     private int? _originalCallTimeoutMs;
     private string _originalSystemType = string.Empty;
 
-    partial void OnSelectedNodeChanged(EntityNode? value) => Refresh();
-
     partial void OnNameEditorTextChanged(string value)
     {
         var currentFull = NamePrefix + value.Trim();
         IsNameDirty = !string.Equals(currentFull, SelectedNode?.Name ?? string.Empty, StringComparison.Ordinal);
     }
-
-    private TokenRole _originalWorkTokenRole;
     private bool _suppressTokenRoleSync;
 
-    private TokenRole CurrentTokenRole =>
-        (IsTokenSource ? TokenRole.Source : TokenRole.None) |
-        (IsTokenIgnore ? TokenRole.Ignore : TokenRole.None);
-
-    private void SyncTokenRoleToStore()
-    {
-        if (_suppressTokenRoleSync) return;
-        var newRole = CurrentTokenRole;
-        if (newRole != _originalWorkTokenRole && RequireSelectedAs(EntityKind.Work) is { } work)
-        {
-            if (_host.TryAction(() => Store.UpdateWorkTokenRole(work.Id, newRole)))
-                _originalWorkTokenRole = newRole;
-            else
-            {
-                _suppressTokenRoleSync = true;
-                IsTokenSource = _originalWorkTokenRole.HasFlag(TokenRole.Source);
-                IsTokenIgnore = _originalWorkTokenRole.HasFlag(TokenRole.Ignore);
-                _suppressTokenRoleSync = false;
-            }
-        }
-    }
-
-    partial void OnIsTokenSourceChanged(bool value) => SyncTokenRoleToStore();
-    partial void OnIsTokenIgnoreChanged(bool value) => SyncTokenRoleToStore();
+    partial void OnIsTokenSourceChanged(bool? value) => SyncTokenRoleFlag(TokenRole.Source, value);
+    partial void OnIsTokenIgnoreChanged(bool? value) => SyncTokenRoleFlag(TokenRole.Ignore, value);
+    partial void OnIsTokenSinkChanged(bool? value) => SyncTokenRoleFlag(TokenRole.Sink, value);
 
     partial void OnWorkPeriodMsChanged(int? value) =>
         IsWorkPeriodDirty = value != _originalWorkPeriodMs;
@@ -109,17 +99,53 @@ public partial class PropertyPanelState : ObservableObject
     partial void OnSystemTypeChanged(string value) =>
         IsSystemTypeDirty = !string.Equals(value, _originalSystemType, StringComparison.Ordinal);
 
-    public void SyncSelectedNode(EntityNode? value)
+    public void SyncSelection(EntityNode? value, IReadOnlyList<SelectionKey> orderedSelection)
     {
+        _selectedNodeKeys = orderedSelection.Count > 0
+            ? orderedSelection.ToList()
+            : value is null
+                ? []
+                : [new SelectionKey(value.Id, value.EntityType)];
         SelectedNode = value;
+        Refresh();
     }
 
     public void Refresh()
     {
         var selected = SelectedNode;
+        var selectedKeys = _selectedNodeKeys;
+        var uniformKind = selectedKeys.Count > 0 && selectedKeys.All(key => key.EntityKind == selectedKeys[0].EntityKind)
+            ? selectedKeys[0].EntityKind
+            : (EntityKind?)null;
+
+        SelectedNodeCount = selectedKeys.Count;
+        IsSingleSelection = selectedKeys.Count == 1;
+        IsMultiSelection = selectedKeys.Count > 1;
+        IsSingleWorkSelected = IsSingleSelection && uniformKind == EntityKind.Work;
+        IsSingleCallSelected = IsSingleSelection && uniformKind == EntityKind.Call;
+        IsWorkSelected = uniformKind == EntityKind.Work;
+        IsCallSelected = uniformKind == EntityKind.Call;
+        IsSystemSelected = IsSingleSelection && uniformKind == EntityKind.System;
+        ShowNameEditor = IsSingleSelection && selected is not null;
+        OnPropertyChanged(nameof(ShowDebugSelectionDetails));
+
+        SelectionTypeText = selectedKeys.Count switch
+        {
+            0 => "선택 없음",
+            1 => $"Type: {selected?.EntityType}",
+            _ when uniformKind is { } kind => $"Type: {kind} ({selectedKeys.Count} selected)",
+            _ => $"Type: Mixed ({selectedKeys.Count} selected)"
+        };
+        SelectionNameText = selectedKeys.Count switch
+        {
+            0 => "",
+            1 => $"Name: {selected?.Name}",
+            _ => $"{selectedKeys.Count} items selected"
+        };
+
         var fullName = selected?.Name ?? string.Empty;
         // Work 이름: "FlowPrefix.LocalName" → prefix를 분리해서 텍스트박스에는 LocalName만
-        if (selected?.EntityType == EntityKind.Work && fullName.IndexOf('.') is var dotIdx && dotIdx >= 0)
+        if (IsSingleWorkSelected && fullName.IndexOf('.') is var dotIdx && dotIdx >= 0)
         {
             NamePrefix = fullName[..(dotIdx + 1)]; // "FlowName."
             NameEditorText = fullName[(dotIdx + 1)..];
@@ -129,33 +155,44 @@ public partial class PropertyPanelState : ObservableObject
             NamePrefix = string.Empty;
             NameEditorText = fullName;
         }
-        IsWorkSelected = selected?.EntityType == EntityKind.Work;
-        IsCallSelected = selected?.EntityType == EntityKind.Call;
-        IsSystemSelected = selected?.EntityType == EntityKind.System;
-
-        if (IsWorkSelected && selected is not null)
+        if (IsWorkSelected)
         {
-            // 레퍼런스 노드 → 원본 Work ID로 Duration/DeviceDuration 조회
-            var resolvedWorkId = selected.ReferenceOfId ?? selected.Id;
-
-            _originalWorkPeriodMs = LoadOptionalMsFromStore(resolvedWorkId, Store.GetWorkPeriodMsOrNull);
+            var selectedWorkIds = GetSelectedCanonicalWorkIds();
+            var periodValues = selectedWorkIds.Select(workId => Store.GetWorkPeriodMsOrNull(workId)).Distinct().ToList();
+            _originalWorkPeriodMs = periodValues.Count == 1 ? periodValues[0] : null;
             WorkPeriodMs = _originalWorkPeriodMs;
-            var devOpt = DsQuery.tryGetDeviceDurationMs(resolvedWorkId, Store);
-            _deviceDurationMs = devOpt != null ? (int?)devOpt.Value : null;
-            DeviceDurationHint = _deviceDurationMs is { } ms ? $"예상 소요 시간: {ms}ms" : "";
 
-            var workOpt = Ds2.Store.DsQuery.getWork(selected.Id, Store);
-            _originalWorkTokenRole = workOpt != null ? workOpt.Value.TokenRole : TokenRole.None;
+            if (IsSingleWorkSelected && selected is not null)
+            {
+                var resolvedWorkId = selected.ReferenceOfId ?? selected.Id;
+                var devOpt = DsQuery.tryGetDeviceDurationMs(resolvedWorkId, Store);
+                _deviceDurationMs = devOpt != null ? (int?)devOpt.Value : null;
+                DeviceDurationHint = _deviceDurationMs is { } ms ? $"예상 소요 시간: {ms}ms" : "";
+
+                var canonicalSelectedWorkId = DsQuery.resolveOriginalWorkId(selected.Id, Store);
+                var linkedSpec = DsQuery.getTokenSpecs(Store)
+                    .FirstOrDefault(s =>
+                        s.WorkId is { } wid
+                        && DsQuery.resolveOriginalWorkId(wid.Value, Store) == canonicalSelectedWorkId);
+                HasLinkedTokenSpec = linkedSpec is not null;
+                LinkedTokenSpecLabel = linkedSpec is not null ? $"#{linkedSpec.Id} {linkedSpec.Label}" : "";
+            }
+            else
+            {
+                _deviceDurationMs = null;
+                DeviceDurationHint = "";
+                HasLinkedTokenSpec = false;
+                LinkedTokenSpecLabel = "";
+            }
+
+            var workRoles = selectedWorkIds
+                .Select(workId => DsQuery.getWork(workId, Store)?.Value.TokenRole ?? TokenRole.None)
+                .ToList();
             _suppressTokenRoleSync = true;
-            IsTokenSource = _originalWorkTokenRole.HasFlag(TokenRole.Source);
-            IsTokenIgnore = _originalWorkTokenRole.HasFlag(TokenRole.Ignore);
+            IsTokenSource = ResolveTokenRoleFlagState(workRoles, TokenRole.Source);
+            IsTokenIgnore = ResolveTokenRoleFlagState(workRoles, TokenRole.Ignore);
+            IsTokenSink = ResolveTokenRoleFlagState(workRoles, TokenRole.Sink);
             _suppressTokenRoleSync = false;
-
-            // 연결된 TokenSpec 표시 (원본 ID도 매칭)
-            var linkedSpec = DsQuery.getTokenSpecs(Store)
-                .FirstOrDefault(s => s.WorkId is { } wid && (wid.Value == selected.Id || wid.Value == resolvedWorkId));
-            HasLinkedTokenSpec = linkedSpec is not null;
-            LinkedTokenSpecLabel = linkedSpec is not null ? $"#{linkedSpec.Id} {linkedSpec.Label}" : "";
         }
         else
         {
@@ -163,20 +200,30 @@ public partial class PropertyPanelState : ObservableObject
             WorkPeriodMs = null;
             _deviceDurationMs = null;
             DeviceDurationHint = "";
-            _originalWorkTokenRole = TokenRole.None;
             _suppressTokenRoleSync = true;
             IsTokenSource = false;
             IsTokenIgnore = false;
+            IsTokenSink = false;
             _suppressTokenRoleSync = false;
             HasLinkedTokenSpec = false;
             LinkedTokenSpecLabel = "";
         }
 
-        if (IsCallSelected && selected is not null)
+        if (IsCallSelected)
         {
-            _originalCallTimeoutMs = LoadOptionalMsFromStore(selected.Id, Store.GetCallTimeoutMsOrNull);
+            var selectedCallIds = GetSelectedCallIds();
+            var timeoutValues = selectedCallIds.Select(callId => Store.GetCallTimeoutMsOrNull(callId)).Distinct().ToList();
+            _originalCallTimeoutMs = timeoutValues.Count == 1 ? timeoutValues[0] : null;
             CallTimeoutMs = _originalCallTimeoutMs;
-            RefreshCallPanel(selected.Id);
+            if (IsSingleCallSelected && selected is not null)
+                RefreshCallPanel(selected.Id);
+            else
+            {
+                CallApiCalls.Clear();
+                DeviceApiDefOptions.Clear();
+                SelectedCallApiCall = null;
+                ClearConditionSections();
+            }
         }
         else
         {
@@ -235,13 +282,20 @@ public partial class PropertyPanelState : ObservableObject
         }
     }
 
-    [RelayCommand]
+    private bool CanApplyName() =>
+        IsSingleSelection && SelectedNode is not null && !string.IsNullOrWhiteSpace(NameEditorText);
+
+    [RelayCommand(CanExecute = nameof(CanApplyName))]
     private void ApplyName()
     {
         if (SelectedNode is null) return;
 
         var localName = NameEditorText.Trim();
-        if (string.IsNullOrEmpty(localName)) return;
+        if (string.IsNullOrEmpty(localName))
+        {
+            _host.SetStatusText("Name cannot be empty.");
+            return;
+        }
 
         // prefix가 있으면 전체 이름으로 전달 (RenameEntity가 다시 분리함)
         var newName = string.IsNullOrEmpty(NamePrefix)
@@ -253,9 +307,10 @@ public partial class PropertyPanelState : ObservableObject
     [RelayCommand]
     private void ApplyWorkPeriod()
     {
-        if (RequireSelectedAs(EntityKind.Work) is not { } selectedWork) return;
+        var selectedWorkIds = GetSelectedCanonicalWorkIds();
+        if (selectedWorkIds.Count == 0) return;
 
-        if (_deviceDurationMs is { } devMs)
+        if (IsSingleWorkSelected && _deviceDurationMs is { } devMs)
         {
             var userMs = WorkPeriodMs ?? 0;
             var ruleText = userMs > devMs
@@ -269,12 +324,18 @@ public partial class PropertyPanelState : ObservableObject
             if (result != System.Windows.MessageBoxResult.Yes) return;
         }
 
-        if (!_host.TryAction(() => Store.UpdateWorkPeriodMs(selectedWork.Id, WorkPeriodMs)))
+        var changeValue = WorkPeriodMs;
+        var changes = selectedWorkIds.Select(workId => new ValueTuple<Guid, int?>(workId, changeValue)).ToList();
+
+        if (!_host.TryAction(() => Store.UpdateWorkPeriodsBatch(changes)))
             return;
 
         _originalWorkPeriodMs = WorkPeriodMs;
         IsWorkPeriodDirty = false;
-        _host.SetStatusText("Work period updated.");
+        _host.SetStatusText(selectedWorkIds.Count > 1
+            ? $"Work period updated for {selectedWorkIds.Count} items."
+            : "Work period updated.");
+        Refresh();
     }
 
     private int? LoadOptionalMsFromStore(Guid entityId, Func<Guid, int?> getter)
@@ -285,7 +346,7 @@ public partial class PropertyPanelState : ObservableObject
     }
 
     private EntityNode? RequireSelectedAs(EntityKind entityType) =>
-        SelectedNode is { } n && n.EntityType == entityType ? n : null;
+        IsSingleSelection && SelectedNode is { } n && n.EntityType == entityType ? n : null;
 
     private bool TryGetSelectedNode(EntityKind entityType, [NotNullWhen(true)] out EntityNode? selectedNode)
     {
@@ -300,5 +361,60 @@ public partial class PropertyPanelState : ObservableObject
         target.Clear();
         foreach (var item in items)
             target.Add(item);
+    }
+
+    private IReadOnlyList<Guid> GetSelectedCanonicalWorkIds() =>
+        _selectedNodeKeys
+            .Where(key => key.EntityKind == EntityKind.Work)
+            .Select(key => DsQuery.resolveOriginalWorkId(key.Id, Store))
+            .Distinct()
+            .ToList();
+
+    private IReadOnlyList<Guid> GetSelectedCallIds() =>
+        _selectedNodeKeys
+            .Where(key => key.EntityKind == EntityKind.Call)
+            .Select(key => key.Id)
+            .Distinct()
+            .ToList();
+
+    private static bool? ResolveTokenRoleFlagState(IReadOnlyList<TokenRole> roles, TokenRole flag)
+    {
+        if (roles.Count == 0)
+            return false;
+
+        var first = roles[0].HasFlag(flag);
+        return roles.All(role => role.HasFlag(flag)) == roles.Any(role => role.HasFlag(flag))
+            ? first
+            : null;
+    }
+
+    private void SyncTokenRoleFlag(TokenRole flag, bool? value)
+    {
+        if (_suppressTokenRoleSync || value is null)
+            return;
+
+        var selectedWorkIds = GetSelectedCanonicalWorkIds();
+        if (selectedWorkIds.Count == 0)
+            return;
+
+        var changes = selectedWorkIds
+            .Select(workId =>
+            {
+                var currentRole = DsQuery.getWork(workId, Store)?.Value.TokenRole ?? TokenRole.None;
+                var nextRole = value.Value ? currentRole | flag : currentRole & ~flag;
+                return new ValueTuple<Guid, TokenRole>(workId, nextRole);
+            })
+            .ToList();
+
+        if (!_host.TryAction(() => Store.UpdateWorkTokenRolesBatch(changes)))
+        {
+            Refresh();
+            return;
+        }
+
+        _host.SetStatusText(selectedWorkIds.Count > 1
+            ? $"Token role updated for {selectedWorkIds.Count} items."
+            : "Work token role updated.");
+        Refresh();
     }
 }
