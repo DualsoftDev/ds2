@@ -184,24 +184,27 @@ else
                             @* ── 헤더 (항상 표시, 도면 레이아웃 카드와 동일 높이) ── *@
                             <div class="ds-card-header">
                                 <span class="ct-section-title">Time 분석</span>
-                                <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.35); flex-wrap:wrap;">
+                                @{ var noData = _chartData.Count == 0; }
+                                <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.35); flex-wrap:wrap; opacity:@(noData ? "0.4" : "1"); pointer-events:@(noData ? "none" : "auto");">
                                     @* 평균/이전 토글 - 두 버튼으로 표시 *@
                                     <div style="display:flex; gap:4px; background:var(--color-background); padding:4px; border-radius:8px;">
                                         <button class="btn btn-sm @(!_showAverage ? "btn-filled" : "btn-outlined")"
                                                 @onclick="@(() => SetDisplayMode(false))"
+                                                disabled="@noData"
                                                 title="이전 사이클 값 표시">
                                             <span class="material-icons" style="font-size:18px;">history</span>
                                             이전
                                         </button>
                                         <button class="btn btn-sm @(_showAverage ? "btn-filled" : "btn-outlined")"
                                                 @onclick="@(() => SetDisplayMode(true))"
+                                                disabled="@noData"
                                                 title="평균값 표시">
                                             <span class="material-icons" style="font-size:18px;">analytics</span>
                                             평균
                                         </button>
                                     </div>
                                     <div style="width:1px; height:16px; background:var(--color-border);"></div>
-                                    <select class="ct-sort-select" value="@_sortField" @onchange="OnSortFieldChanged">
+                                    <select class="ct-sort-select" value="@_sortField" @onchange="OnSortFieldChanged" disabled="@noData">
                                         <option value="ct">전체시간</option>
                                         <option value="mt">가동시간</option>
                                         <option value="wt">대기시간</option>
@@ -209,39 +212,50 @@ else
                                         <option value="order" disabled="@(!_processOrderAvailable)">공정</option>
                                     </select>
                                     <button class="btn-icon" title="@(_sortDesc ? "내림차순" : "오름차순")"
-                                            @onclick="ToggleSortDir">
+                                            @onclick="ToggleSortDir" disabled="@noData">
                                         <span class="material-icons">@(_sortDesc ? "arrow_downward" : "arrow_upward")</span>
                                     </button>
                                 </div>
                             </div>
 
-                            @* ── 요약 셀 (항상 표시) ── *@
-                            <div class="ct-summary-bar">
-                                <div class="ct-summary-group group-time">
-                                    <div class="ct-combined-cell">
-                                        <div class="ct-combined-half danger @(_selectedFlowName != null && _selectedFlowName == _maxCtName ? "active" : "")"
-                                             @onclick="() => OnFlowSelected(_maxCtName == _selectedFlowName ? null : _maxCtName)">
-                                            <span class="ct-summary-title">최대시간</span>
-                                            <span class="ct-summary-sub" title="@_maxCtName">@(_maxCtName ?? "-")</span>
-                                            <span class="ct-summary-value">@(_maxCtName != null ? FormatMs(_maxCtVal) : "--")</span>
+                            @if (_chartData.Count > 0)
+                            {
+                                @* ── 요약 셀 ── *@
+                                <div class="ct-summary-bar">
+                                    <div class="ct-summary-group group-time">
+                                        <div class="ct-combined-cell">
+                                            <div class="ct-combined-half danger @(_selectedFlowName != null && _selectedFlowName == _maxCtName ? "active" : "")"
+                                                 @onclick="() => OnFlowSelected(_maxCtName == _selectedFlowName ? null : _maxCtName)">
+                                                <span class="ct-summary-title">최대시간</span>
+                                                <span class="ct-summary-sub" title="@_maxCtName">@(_maxCtName ?? "-")</span>
+                                                <span class="ct-summary-value">@(_maxCtName != null ? FormatMs(_maxCtVal) : "--")</span>
+                                            </div>
+                                            <div class="ct-combined-half success @(_selectedFlowName != null && _selectedFlowName == _minCtName ? "active" : "")"
+                                                 @onclick="() => OnFlowSelected(_minCtName == _selectedFlowName ? null : _minCtName)">
+                                                <span class="ct-summary-title">최소시간</span>
+                                                <span class="ct-summary-sub" title="@_minCtName">@(_minCtName ?? "-")</span>
+                                                <span class="ct-summary-value">@(_minCtName != null ? FormatMs(_chartData.Min(f => f.CT)) : "--")</span>
+                                            </div>
                                         </div>
-                                        <div class="ct-combined-half success @(_selectedFlowName != null && _selectedFlowName == _minCtName ? "active" : "")"
-                                             @onclick="() => OnFlowSelected(_minCtName == _selectedFlowName ? null : _minCtName)">
-                                            <span class="ct-summary-title">최소시간</span>
-                                            <span class="ct-summary-sub" title="@_minCtName">@(_minCtName ?? "-")</span>
-                                            <span class="ct-summary-value">@(_minCtName != null ? FormatMs(_chartData.Min(f => f.CT)) : "--")</span>
+                                    </div>
+                                    <div class="ct-summary-group group-wait">
+                                        <div class="ct-top-cell warning @(_selectedFlowName != null && _selectedFlowName == _maxWtName ? "active" : "")"
+                                             @onclick="() => OnFlowSelected(_maxWtName == _selectedFlowName ? null : _maxWtName)">
+                                            <span class="ct-summary-title">최대 대기율</span>
+                                            <span class="ct-summary-sub" title="@_maxWtName">@(_maxWtName ?? "-")</span>
+                                            <span class="ct-summary-value">@(_maxWtName != null ? $"{_chartData.FirstOrDefault(f => f.FlowName == _maxWtName).WTRatio * 100:F1}%" : "--")</span>
                                         </div>
                                     </div>
                                 </div>
-                                <div class="ct-summary-group group-wait">
-                                    <div class="ct-top-cell warning @(_selectedFlowName != null && _selectedFlowName == _maxWtName ? "active" : "")"
-                                         @onclick="() => OnFlowSelected(_maxWtName == _selectedFlowName ? null : _maxWtName)">
-                                        <span class="ct-summary-title">최대 대기율</span>
-                                        <span class="ct-summary-sub" title="@_maxWtName">@(_maxWtName ?? "-")</span>
-                                        <span class="ct-summary-value">@(_maxWtName != null ? $"{_chartData.FirstOrDefault(f => f.FlowName == _maxWtName).WTRatio * 100:F1}%" : "--")</span>
-                                    </div>
+                            }
+                            else
+                            {
+                                <div class="ds-card-body" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:40px 0; color:var(--color-text-disabled);">
+                                    <span class="material-icons header-loading-spin" style="font-size:32px;">sync</span>
+                                    <span class="typo-body2">PLC 데이터 수집 중...</span>
+                                    <span style="font-size:11px;">데이터가 수집되면 자동으로 표시됩니다</span>
                                 </div>
-                            </div>
+                            }
 
                             @if (_chartData.Count > 0)
                             {

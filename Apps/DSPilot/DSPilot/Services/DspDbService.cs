@@ -37,6 +37,8 @@ public class DspDbService : IDisposable
 
     public DspDbSnapshot Snapshot => _snapshot;
 
+    public bool HasData => _snapshot.Flows.Count > 0;
+
     public event Action? OnDataChanged;
 
     public DspDbService(
