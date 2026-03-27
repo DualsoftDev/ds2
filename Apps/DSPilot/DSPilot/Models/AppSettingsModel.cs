@@ -121,7 +121,7 @@ public class UiSettings
 public class HistoryViewSettings
 {
     /// <summary>
-    /// 필터 모드: "None" = 필터 없음, "Cycles" = 최근 N 사이클, "Days" = 최근 N일
+    /// 필터 모드: "None" = 필터 없음, "Cycles" = 최근 N 사이클, "Days" = 최근 N일, "StartTime" = 특정 시작시간 이후
     /// </summary>
     public string FilterMode { get; set; } = "None";
 
@@ -134,6 +134,11 @@ public class HistoryViewSettings
     /// 표시할 최근 일수 (FilterMode = "Days"일 때 사용)
     /// </summary>
     public int MaxDays { get; set; } = 7;
+
+    /// <summary>
+    /// 시작 시간 (FilterMode = "StartTime"일 때 사용). 이 시간 이후의 히스토리만 표시
+    /// </summary>
+    public DateTime? StartTime { get; set; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

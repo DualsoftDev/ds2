@@ -548,6 +548,33 @@ module DspRepository =
                     return []
         }
 
+    /// Flow History 조회 (특정 시작시간 이후)
+    let getFlowHistoryByStartTimeAsync (paths: DatabasePaths) (logger: ILogger) (flowName: string) (startTime: DateTime) : Task<DspFlowHistoryEntity list> =
+        task {
+            use connection = createConnection (DatabaseConfig.createConnectionString paths.SharedDbPath)
+            do! connection.OpenAsync()
+
+            let historyTable = "dspFlowHistory"
+
+            let! tableExists = tableExistsAsync connection historyTable
+            if not tableExists then
+                return []
+            else
+                try
+                    let sql = sprintf """
+                        SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt
+                        FROM %s
+                        WHERE FlowName = @FlowName
+                          AND RecordedAt >= @SinceDate
+                        ORDER BY RecordedAt DESC""" historyTable
+
+                    let! results = connection.QueryAsync<DspFlowHistoryEntity>(sql, {| FlowName = flowName; SinceDate = startTime |})
+                    return results |> Seq.toList
+                with ex ->
+                    logger.LogError(ex, "Failed to get Flow history by start time for '{FlowName}'", flowName)
+                    return []
+        }
+
     /// Flow History 전체 삭제
     let clearFlowHistoryAsync (paths: DatabasePaths) (logger: ILogger) : Task<int> =
         task {
