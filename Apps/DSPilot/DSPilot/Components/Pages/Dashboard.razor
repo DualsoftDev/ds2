@@ -633,7 +633,20 @@ else
             var flows = BlueprintService.Layout.FlowPlacements;
             if (flows.Count == 0) return;
 
-            // 경량 메서드 사용: 각 Flow의 최근 사이클 시작시간만 조회 (Summary 계산 생략)
+            // 1) 저장된 공정 순서가 있으면 그것을 사용 (사용자 지정 또는 이전 자동 정렬 결과)
+            var savedOrder = BlueprintService.Layout.FlowProcessOrder;
+            if (savedOrder.Count > 0)
+            {
+                var orderMap = savedOrder.Select((e, i) => (e.FlowName, Rank: i))
+                    .ToDictionary(x => x.FlowName, x => x.Rank);
+                _flowProcessOrder = orderMap;
+                _processOrderAvailable = true;
+                UpdateChartCache();
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+
+            // 2) 저장된 순서 없음 → PLC 데이터 기반 자동 정렬 (1회만 수행)
             var tasks = flows.Select(fp =>
                 CycleAnalysisService.GetLatestCycleStartTimeAsync(fp.FlowName)
             ).ToArray();
@@ -647,13 +660,23 @@ else
                 return;
             }
 
-            _flowProcessOrder = flows
-                .Select((fp, idx) => (fp.FlowName, StartTime: results[idx]!.Value))
+            var ordered = flows
+                .Select((fp, idx) => (fp.FlowName, fp.FlowId, StartTime: results[idx]!.Value))
                 .OrderBy(x => x.StartTime)
+                .ToList();
+
+            _flowProcessOrder = ordered
                 .Select((x, rank) => (x.FlowName, Rank: rank))
                 .ToDictionary(x => x.FlowName, x => x.Rank);
 
             _processOrderAvailable = true;
+
+            // 자동 정렬 결과를 저장하여 이후 재정렬 방지
+            BlueprintService.Layout.FlowProcessOrder = ordered
+                .Select(x => new FlowOrderEntry { FlowId = x.FlowId, FlowName = x.FlowName })
+                .ToList();
+            BlueprintService.SaveLayout();
+
             UpdateChartCache();
             await InvokeAsync(StateHasChanged);
         }

@@ -152,6 +152,7 @@ public class BlueprintService : IDisposable
         _layout.OffsetRight = imported.OffsetRight;
         _layout.OffsetBottom = imported.OffsetBottom;
         _layout.FlowPlacements = imported.FlowPlacements;
+        _layout.FlowProcessOrder = imported.FlowProcessOrder ?? [];
         Save();
     }
 
