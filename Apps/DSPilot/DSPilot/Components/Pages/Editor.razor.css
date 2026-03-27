@@ -7,12 +7,41 @@
 .ed-card-header { background: var(--color-background); border-bottom: 1px solid var(--color-lines); padding: 10px 14px;
                   font-weight: 600; color: var(--color-primary); font-size: 0.875rem;
                   display: flex; align-items: center; justify-content: space-between; }
-.ed-flow-item { padding: 6px 10px; margin: 2px 0; border-radius: 4px; font-size: 0.85rem; font-weight: 500; }
+.ed-flow-item { padding: 6px 10px; margin: 2px 0; border-radius: 4px; font-size: 0.85rem; font-weight: 500;
+               display: flex; align-items: center; gap: 6px; }
 .ed-flow-item.active { background: var(--color-background); color: var(--color-primary);
                        cursor: grab; border-left: 3px solid var(--color-primary); }
 .ed-flow-item.placed { background: var(--color-background); color: var(--color-text-disabled);
                        cursor: default; border-left: 3px solid var(--color-lines); }
 .ed-flow-item.placed .placed-label { color: var(--color-text-disabled); }
+
+/* Flow order number */
+.flow-order-num { min-width: 18px; height: 18px; border-radius: 9px; font-size: 0.7rem; font-weight: 700;
+                  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+                  background: var(--color-primary); color: #fff; }
+.ed-flow-item.placed .flow-order-num { background: var(--color-lines); color: var(--color-text-disabled); }
+
+/* Flow name */
+.flow-name-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* System badge */
+.flow-system-badge { font-size: 0.65rem; padding: 1px 5px; border-radius: 3px; flex-shrink: 0;
+                     background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+                     color: var(--color-primary); font-weight: 600; }
+.ed-flow-item.placed .flow-system-badge { background: color-mix(in srgb, var(--color-lines) 30%, transparent);
+                                           color: var(--color-text-disabled); }
+
+/* Placed label */
+.placed-label { font-size: 0.65rem; flex-shrink: 0; }
+
+/* Drag handle */
+.flow-reorder-handle { font-size: 18px !important; cursor: grab; color: var(--color-text-secondary); flex-shrink: 0;
+                       opacity: 0.5; transition: opacity 150ms; touch-action: none; user-select: none; margin-left: auto; }
+.flow-reorder-handle:hover { opacity: 1; }
+
+/* Dragging state */
+::deep .reorder-dragging { opacity: 0.85; background: var(--color-primary) !important; color: #fff !important;
+                           box-shadow: 0 4px 12px rgba(0,0,0,0.25); border-radius: 6px; z-index: 100; }
 .ed-offset-label { font-size: 10px; color: var(--color-text-secondary); }
 .ed-offset-input { width: 52px; padding: 2px 4px; border: 1px solid var(--color-lines); border-radius: 4px;
                    text-align: center; font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-primary); }

@@ -109,28 +109,27 @@
                     </div>
                 </div>
 
-                @* Flows — 남은 높이 채움 *@
+                @* Flows — 남은 높이 채움 (공정 순서 드래그 정렬 지원) *@
                 <div class="ed-card ed-flows-card">
                     <div class="ed-card-header">Flows</div>
-                    <div class="ed-flows-body">
-                        @foreach (var sys in _systems)
+                    <div class="ed-flows-body" id="flow-reorder-list">
+                        @for (int i = 0; i < _orderedFlows.Count; i++)
                         {
-                            <span class="typo-overline px-2 mt-1" style="display:block; color: var(--color-secondary);">
-                                @sys.Name
-                            </span>
-                            @foreach (var flow in _systemFlows.GetValueOrDefault(sys.Id, []))
-                            {
-                                var placed = BlueprintService.Layout.FlowPlacements.Any(p => p.FlowId == flow.Id);
-                                <div draggable="@(!placed ? "true" : "false")"
-                                     data-drag-flow-id="@flow.Id"
-                                     class="ed-flow-item @(placed ? "placed" : "active")">
-                                    @flow.Name
-                                    @if (placed)
-                                    {
-                                        <span class="placed-label" style="float: right; font-size: 0.7rem;">placed</span>
-                                    }
-                                </div>
-                            }
+                            var idx = i;
+                            var f = _orderedFlows[idx];
+                            var placed = BlueprintService.Layout.FlowPlacements.Any(p => p.FlowId == f.FlowId);
+                            <div draggable="@(!placed ? "true" : "false")"
+                                 data-drag-flow-id="@f.FlowId"
+                                 class="ed-flow-item @(placed ? "placed" : "active")">
+                                <span class="flow-order-num">@(idx + 1)</span>
+                                <span class="flow-name-text">@f.FlowName</span>
+                                <span class="flow-system-badge">@f.SystemName</span>
+                                @if (placed)
+                                {
+                                    <span class="placed-label">placed</span>
+                                }
+                                <span class="material-icons flow-reorder-handle" data-reorder-handle="true">drag_indicator</span>
+                            </div>
                         }
                     </div>
                 </div>
@@ -257,6 +256,7 @@
     private List<Ds2.Core.DsSystem> _systems = [];
     private Dictionary<Guid, List<Ds2.Core.Flow>> _systemFlows = [];
     private Dictionary<Guid, (string SystemName, string FlowName, Guid SystemId)> _flowInfo = [];
+    private List<(Guid FlowId, string FlowName, string SystemName, Guid SystemId)> _orderedFlows = [];
     private DotNetObjectReference<Editor>? _dotNetRef;
     private bool _isDirty;
 
@@ -284,6 +284,27 @@
                 _flowInfo[flow.Id] = (sys.Name, flow.Name, sys.Id);
             }
         }
+
+        // Build flat ordered flow list
+        var allFlows = _systems.SelectMany(sys =>
+            ProjectService.GetFlows(sys.Id).Select(f => (f.Id, f.Name, SystemName: sys.Name, SystemId: sys.Id))
+        ).ToList();
+
+        var savedOrder = BlueprintService.Layout.FlowProcessOrder;
+        if (savedOrder.Count > 0)
+        {
+            var orderMap = savedOrder.Select((e, i) => (e.FlowId, Index: i))
+                .ToDictionary(x => x.FlowId, x => x.Index);
+            _orderedFlows = allFlows
+                .OrderBy(f => orderMap.GetValueOrDefault(f.Id, int.MaxValue))
+                .Select(f => (f.Id, f.Name, f.SystemName, f.SystemId))
+                .ToList();
+        }
+        else
+        {
+            _orderedFlows = allFlows.Select(f => (f.Id, f.Name, f.SystemName, f.SystemId)).ToList();
+        }
+
         _gridColumns = BlueprintService.Layout.GridColumns;
         _gridRows = BlueprintService.Layout.GridRows;
         _offsetX = BlueprintService.Layout.OffsetX;
@@ -301,6 +322,7 @@
             await JS.InvokeVoidAsync("canvasInterop.init",
                 _dotNetRef, "editor-svg", layout.CellWidth, layout.CellHeight,
                 layout.GridColumns, layout.GridRows, layout.OffsetX, layout.OffsetY);
+            await JS.InvokeVoidAsync("flowReorder.init", _dotNetRef, "flow-reorder-list");
         }
     }
 
@@ -444,8 +466,27 @@
         StateHasChanged();
     }
 
+    [JSInvokable]
+    public void OnFlowReordered(int fromIndex, int toIndex)
+    {
+        if (fromIndex < 0 || fromIndex >= _orderedFlows.Count) return;
+        if (toIndex < 0 || toIndex >= _orderedFlows.Count) return;
+        if (fromIndex == toIndex) return;
+
+        var item = _orderedFlows[fromIndex];
+        _orderedFlows.RemoveAt(fromIndex);
+        _orderedFlows.Insert(toIndex, item);
+        _isDirty = true;
+        InvokeAsync(StateHasChanged);
+    }
+
     private void ApplyChanges()
     {
+        // Save flow process order
+        BlueprintService.Layout.FlowProcessOrder = _orderedFlows
+            .Select(f => new FlowOrderEntry { FlowId = f.FlowId, FlowName = f.FlowName })
+            .ToList();
+
         BlueprintService.SaveLayout();
         _isDirty = false;
         _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "저장되었습니다.", "success");
@@ -537,6 +578,7 @@
     public async ValueTask DisposeAsync()
     {
         try { await JS.InvokeVoidAsync("canvasInterop.dispose"); } catch { }
+        try { await JS.InvokeVoidAsync("flowReorder.dispose"); } catch { }
         _dotNetRef?.Dispose();
     }
 }

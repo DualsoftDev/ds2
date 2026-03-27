@@ -14,6 +14,7 @@ public class BlueprintLayout
     public int OffsetRight { get; set; }
     public int OffsetBottom { get; set; }
     public List<FlowPlacement> FlowPlacements { get; set; } = [];
+    public List<FlowOrderEntry> FlowProcessOrder { get; set; } = [];
 
     [JsonIgnore]
     public int CellWidth => GridColumns > 0 ? (CanvasWidth - OffsetX - OffsetRight) / GridColumns : 200;
@@ -31,4 +32,10 @@ public class FlowPlacement
     public int Row { get; set; }
     public int ColSpan { get; set; } = 1;
     public int RowSpan { get; set; } = 1;
+}
+
+public class FlowOrderEntry
+{
+    public Guid FlowId { get; set; }
+    public string FlowName { get; set; } = "";
 }
