@@ -14,9 +14,9 @@
         </div>
         <div class="spacer"></div>
         <nav class="header-nav">
-            <a href="" @onclick="@(() => Nav.NavigateTo("/"))" @onclick:preventDefault class="header-nav-link @(IsActive("/"))">대시보드</a>
-            <a href="heatmap" @onclick="@(() => Nav.NavigateTo("/heatmap"))" @onclick:preventDefault class="header-nav-link @(IsActive("/heatmap"))">동작편차</a>
-            <a href="cycle-time-analysis" @onclick="@(() => Nav.NavigateTo("/cycle-time-analysis"))" @onclick:preventDefault class="header-nav-link @(IsActive("/cycle-time-analysis"))">사이클 분석</a>
+            <a href="" class="header-nav-link @(IsActive("/"))">대시보드</a>
+            <a href="heatmap" class="header-nav-link @(IsActive("/heatmap"))">동작편차</a>
+            <a href="cycle-time-analysis" class="header-nav-link @(IsActive("/cycle-time-analysis"))">사이클 분석</a>
         </nav>
         <button class="btn-icon" @onclick="ToggleTheme" title="테마 전환">
             <span class="material-icons">@(ThemeService.IsDarkMode ? "light_mode" : "dark_mode")</span>
@@ -53,7 +53,12 @@
 
         _currentPath = "/" + Nav.ToBaseRelativePath(Nav.Uri);
         Nav.LocationChanged += OnLocationChanged;
-        ThemeService.OnThemeChanged += OnThemeChanged;
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+            ThemeService.OnThemeChanged += OnThemeChanged;
     }
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)

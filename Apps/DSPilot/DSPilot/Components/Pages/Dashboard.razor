@@ -558,8 +558,6 @@ else
     protected override void OnInitialized()
     {
         _dbSnapshot = DbService.Snapshot;
-        DbService.OnDataChanged += OnDbDataChanged;
-        EditService.OnChanged += OnEditStateChanged;
 
         var layout = BlueprintService.Layout;
         _cw = layout.CanvasWidth; _ch = layout.CanvasHeight;
@@ -576,6 +574,9 @@ else
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
+
+        DbService.OnDataChanged += OnDbDataChanged;
+        EditService.OnChanged += OnEditStateChanged;
 
         _dotNetRef = DotNetObjectReference.Create(this);
 

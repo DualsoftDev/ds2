@@ -595,8 +595,13 @@ else
 
     protected override void OnInitialized()
     {
-        DbService.OnDataChanged += OnDbDataChanged;
         ApplySnapshot(DbService.Snapshot, true);
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender) return;
+        DbService.OnDataChanged += OnDbDataChanged;
     }
 
     protected override void OnParametersSet()
