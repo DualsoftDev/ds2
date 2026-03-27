@@ -3,13 +3,17 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Windows.Threading;
 using Ds2.Core;
+using Ds2.Runtime.Sim.Engine;
+using Ds2.Runtime.Sim.Engine.Core;
 using Ds2.Runtime.Sim.Model;
 using Ds2.Runtime.Sim.Report;
 using Ds2.Runtime.Sim.Report.Model;
 using Ds2.Store;
 using Ds2.Editor;
+using Microsoft.FSharp.Core;
 using Promaker.ViewModels;
 using Xunit;
 
@@ -108,6 +112,24 @@ public sealed class SimulationPanelStateTests
     }
 
     [Fact]
+    public void Selected_work_preference_is_instance_local()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var state1 = CreateState();
+            var state2 = CreateState();
+            var workId = Guid.NewGuid();
+
+            state1.SelectedSimWork = new SimWorkItem(workId, "Work1");
+
+            var field = typeof(SimulationPanelState).GetField("_lastSelectedWorkId", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            Assert.Equal(workId, field.GetValue(state1));
+            Assert.Null(field.GetValue(state2));
+        });
+    }
+
+    [Fact]
     public void BuildReport_uses_simulation_clock_instead_of_wall_clock()
     {
         StaTestRunner.Run(() =>
@@ -155,9 +177,252 @@ public sealed class SimulationPanelStateTests
         });
     }
 
-    private static SimulationPanelState CreateState() =>
+    [Fact]
+    public void StepSimulationCommand_is_disabled_when_terminal_work_has_no_further_progress()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var store = new DsStore();
+            var projectId = store.AddProject("P");
+            var systemId = store.AddSystem("S", projectId, true);
+            var flowId = store.AddFlow("F", systemId);
+            var workId = store.AddWork("W", flowId);
+
+            store.UpdateWorkTokenRole(workId, TokenRole.Source);
+            store.UpdateWorkPeriodMs(workId, 1);
+
+            var index = SimIndexModule.build(store, 10);
+            using var engine = new EventDrivenEngine(index);
+            engine.Start();
+            engine.SetAllFlowStates(FlowTag.Pause);
+
+            var token = engine.NextToken();
+            engine.SeedToken(workId, token);
+
+            var guard = 0;
+            while ((engine.HasStartableWork || engine.HasActiveDuration) && guard < 8)
+            {
+                guard++;
+                engine.Step();
+            }
+
+            var state = CreateState(() => store);
+            SetPrivateField(state, "_simEngine", engine);
+            SetPrivateField(state, "_isStepMode", true);
+            state.IsSimulating = true;
+            state.IsSimPaused = true;
+            state.HasGoingCall = false;
+
+            Assert.False(engine.HasStartableWork);
+            Assert.False(engine.HasActiveDuration);
+            Assert.False(state.StepSimulationCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
+    public void TokenEvent_notifies_step_command_when_token_shift_makes_next_work_startable()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var store = new DsStore();
+            var projectId = store.AddProject("P");
+            var systemId = store.AddSystem("S", projectId, true);
+            var flowId = store.AddFlow("F", systemId);
+            var work1Id = store.AddWork("W1", flowId);
+            var work2Id = store.AddWork("W2", flowId);
+
+            store.UpdateWorkTokenRole(work1Id, TokenRole.Source);
+            store.UpdateWorkPeriodMs(work1Id, 1);
+            store.UpdateWorkPeriodMs(work2Id, 2000);
+            store.ConnectSelectionInOrder([ work1Id, work2Id ], ArrowType.StartReset);
+
+            var index = SimIndexModule.build(store, 10);
+            using var engine = new EventDrivenEngine(index);
+            engine.Start();
+            engine.SetAllFlowStates(FlowTag.Pause);
+
+            var token = engine.NextToken();
+            engine.SeedToken(work1Id, token);
+
+            engine.ForceWorkState(work1Id, Status4.Going);
+            engine.ForceWorkState(work1Id, Status4.Finish);
+
+            var shifted = false;
+            for (var i = 0; i < 200 && !shifted; i++)
+            {
+                shifted = engine.GetWorkToken(work2Id) is not null;
+                if (!shifted)
+                    Thread.Sleep(10);
+            }
+
+            Assert.True(shifted);
+            Assert.True(engine.HasStartableWork);
+
+            var state = CreateState(() => store);
+            SetPrivateField(state, "_simEngine", engine);
+            SetPrivateField(state, "_isStepMode", true);
+            state.IsSimulating = true;
+            state.IsSimPaused = true;
+            state.HasGoingCall = false;
+
+            var eventRaised = false;
+            state.StepSimulationCommand.CanExecuteChanged += (_, _) => eventRaised = true;
+
+            var onTokenEvent = typeof(SimulationPanelState).GetMethod(
+                "OnTokenEvent",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            onTokenEvent.Invoke(state, [new TokenEventArgs(
+                TokenEventKind.Shift,
+                token,
+                work1Id,
+                "W1",
+                FSharpOption<Guid>.Some(work2Id),
+                FSharpOption<string>.Some("W2"),
+                engine.State.Clock)]);
+
+            Assert.True(eventRaised);
+            Assert.True(state.StepSimulationCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
+    public void TokenEvent_refreshes_step_mode_ui_when_only_token_shift_occurs()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var store = new DsStore();
+            var projectId = store.AddProject("P");
+            var systemId = store.AddSystem("S", projectId, true);
+            var flowId = store.AddFlow("F", systemId);
+            var work1Id = store.AddWork("W1", flowId);
+            var work2Id = store.AddWork("W2", flowId);
+
+            store.UpdateWorkTokenRole(work1Id, TokenRole.Source);
+            store.UpdateWorkPeriodMs(work1Id, 1);
+            store.UpdateWorkPeriodMs(work2Id, 2000);
+            store.ConnectSelectionInOrder([ work1Id, work2Id ], ArrowType.StartReset);
+
+            var index = SimIndexModule.build(store, 10);
+            using var engine = new EventDrivenEngine(index);
+            engine.Start();
+            engine.SetAllFlowStates(FlowTag.Pause);
+
+            var token = engine.NextToken();
+            engine.SeedToken(work1Id, token);
+
+            engine.ForceWorkState(work1Id, Status4.Going);
+            engine.ForceWorkState(work1Id, Status4.Finish);
+
+            var shifted = false;
+            for (var i = 0; i < 200 && !shifted; i++)
+            {
+                shifted = engine.GetWorkToken(work2Id) is not null;
+                if (!shifted)
+                    Thread.Sleep(10);
+            }
+
+            Assert.True(shifted);
+            Assert.True(engine.HasStartableWork);
+            Assert.False(engine.HasActiveDuration);
+
+            var state = CreateState(() => store);
+            SetPrivateField(state, "_simEngine", engine);
+            SetPrivateField(state, "_isStepMode", true);
+            state.IsSimulating = true;
+            state.IsSimPaused = true;
+            state.HasGoingCall = false;
+            state.GanttChart.IsRunning = true;
+            state.SimStatusText = "시뮬레이션 단계 제어 중";
+
+            var onTokenEvent = typeof(SimulationPanelState).GetMethod(
+                "OnTokenEvent",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            onTokenEvent.Invoke(state, [new TokenEventArgs(
+                TokenEventKind.Shift,
+                token,
+                work1Id,
+                "W1",
+                FSharpOption<Guid>.Some(work2Id),
+                FSharpOption<string>.Some("W2"),
+                engine.State.Clock)]);
+
+            Assert.False(state.GanttChart.IsRunning);
+            Assert.Equal("시뮬레이션 일시정지", state.SimStatusText);
+            Assert.True(state.StepSimulationCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
+    public void Reference_work_event_updates_shared_state_and_token_for_group()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var store = new DsStore();
+            var projectId = store.AddProject("P");
+            var systemId = store.AddSystem("S", projectId, true);
+            var flowId = store.AddFlow("F", systemId);
+            var workId = store.AddWork("W1", flowId);
+            var referenceWorkId = store.AddReferenceWork(workId);
+
+            store.UpdateWorkTokenRole(workId, TokenRole.Source);
+
+            var index = SimIndexModule.build(store, 10);
+            using var engine = new EventDrivenEngine(index);
+            var state = CreateState(() => store);
+
+            SetPrivateField(state, "_simEngine", engine);
+            SetPrivateField(state, "_isStepMode", true);
+            state.IsSimulating = true;
+            state.IsSimPaused = true;
+
+            var initSimNodes = typeof(SimulationPanelState).GetMethod(
+                "InitSimNodes",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            initSimNodes.Invoke(state, null);
+
+            var onWorkStateChanged = typeof(SimulationPanelState).GetMethod(
+                "OnWorkStateChanged",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            onWorkStateChanged.Invoke(state, [new WorkStateChangedArgs(
+                workId,
+                "W1",
+                Status4.Ready,
+                Status4.Going,
+                TimeSpan.Zero)]);
+
+            Assert.Equal(Status4.Going, state.SimNodes.Single(node => node.NodeGuid == workId).State);
+            Assert.Equal(Status4.Going, state.SimNodes.Single(node => node.NodeGuid == referenceWorkId).State);
+
+            var token = engine.NextToken();
+            engine.SeedToken(workId, token);
+
+            var onTokenEvent = typeof(SimulationPanelState).GetMethod(
+                "OnTokenEvent",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            onTokenEvent.Invoke(state, [new TokenEventArgs(
+                TokenEventKind.Seed,
+                token,
+                workId,
+                "W1",
+                null,
+                null,
+                TimeSpan.Zero)]);
+
+            var originalDisplay = state.SimNodes.Single(node => node.NodeGuid == workId).TokenDisplay;
+            var referenceDisplay = state.SimNodes.Single(node => node.NodeGuid == referenceWorkId).TokenDisplay;
+
+            Assert.False(string.IsNullOrWhiteSpace(originalDisplay));
+            Assert.EndsWith("#1", originalDisplay, StringComparison.Ordinal);
+            Assert.Equal(originalDisplay, referenceDisplay);
+        });
+    }
+
+
+    private static SimulationPanelState CreateState(Func<DsStore>? storeProvider = null) =>
         new(
-            () => new DsStore(),
+            storeProvider ?? (() => new DsStore()),
             Dispatcher.CurrentDispatcher,
             () => new ObservableCollection<EntityNode>(),
             Enumerable.Empty<EntityNode>,

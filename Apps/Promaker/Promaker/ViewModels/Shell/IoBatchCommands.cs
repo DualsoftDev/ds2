@@ -27,20 +27,24 @@ public partial class MainViewModel
             return;
         }
 
-        var dialog = new IoBatchSettingsDialog(_store, rows, _currentFilePath);
-        if (_dialogService.ShowDialog(dialog) != true)
-            return;
+        var dialog = new IoBatchSettingsDialog(_store, rows, _currentFilePath, ApplyIoBatchChanges);
+        _dialogService.ShowDialog(dialog);
+    }
 
-        var changed = dialog.ChangedRows;
+    private bool ApplyIoBatchChanges(IReadOnlyList<IoBatchRow> changed)
+    {
         if (changed.Count == 0)
-            return;
+            return false;
 
         var changes = changed
             .Select(r => new ValueTuple<Guid, string, string, string, string>(
                 r.ApiCallId, r.InAddress, r.InSymbol, r.OutAddress, r.OutSymbol))
             .ToList();
 
-        if (TryEditorAction(() => _store.UpdateApiCallIOTagsBatch(changes)))
-            StatusText = $"I/O 태그 일괄 변경: {changes.Count}건 적용됨";
+        if (!TryEditorAction(() => _store.UpdateApiCallIOTagsBatch(changes)))
+            return false;
+
+        StatusText = $"I/O 태그 일괄 변경: {changes.Count}건 적용됨";
+        return true;
     }
 }

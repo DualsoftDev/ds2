@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Runtime.Sim.Model;
+using Ds2.Store;
 
 namespace Promaker.ViewModels;
 
@@ -81,9 +82,23 @@ public partial class SimulationPanelState
         }
 
         // SimNodes에 토큰 정보 갱신
-        UpdateSimNodeToken(args.WorkGuid);
+        UpdateSimNodeTokenGroup(args.WorkGuid);
         if (args.TargetWorkGuid is not null)
-            UpdateSimNodeToken(args.TargetWorkGuid.Value);
+            UpdateSimNodeTokenGroup(args.TargetWorkGuid.Value);
+
+        // 토큰 이동만으로도 다음 Work가 startable 상태가 될 수 있으므로
+        // 토큰 이벤트도 step-mode UI 재평가 경로를 타야 한다.
+        RefreshSimulationProgressUi();
+    }
+
+    private void UpdateSimNodeTokenGroup(Guid workGuid)
+    {
+        var groupGuids = DsQuery.referenceGroupOf(workGuid, Store).ToList();
+        if (groupGuids.Count == 0)
+            groupGuids.Add(workGuid);
+
+        foreach (var groupGuid in groupGuids)
+            UpdateSimNodeToken(groupGuid);
     }
 
     private void UpdateSimNodeToken(Guid workGuid)

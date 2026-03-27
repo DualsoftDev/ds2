@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Ds2.Core;
+using Ds2.Runtime.Sim.Engine.Core;
 using Ds2.Store;
 using Ds2.Editor;
 
@@ -9,7 +10,7 @@ namespace Promaker.ViewModels;
 
 public partial class SimulationPanelState
 {
-    private static Guid? _lastSelectedWorkId;
+    private Guid? _lastSelectedWorkId;
 
     private void InitSimNodes()
     {
@@ -32,7 +33,6 @@ public partial class SimulationPanelState
         if (_simEngine is null) return;
 
         var activeSystemNames = _simEngine.Index.ActiveSystemNames;
-        var sourceGuids = new HashSet<Guid>(_simEngine.Index.TokenSourceGuids);
         var sourceItems = new List<SimWorkItem>();
         var normalItems = new List<SimWorkItem>();
 
@@ -42,7 +42,7 @@ public partial class SimulationPanelState
                 continue;
 
             var item = new SimWorkItem(entry.Id, entry.Name);
-            if (sourceGuids.Contains(entry.Id))
+            if (SimIndexModule.isTokenSource(_simEngine.Index, entry.Id))
                 sourceItems.Add(item);
             else
                 normalItems.Add(item);
@@ -112,7 +112,7 @@ public partial class SimulationPanelState
     }
 
     /// <summary>캔버스 노드가 새로 생성된 후 시뮬레이션 상태/토큰 뱃지를 복원합니다.</summary>
-    internal void RestoreSimStateToCavas()
+    internal void RestoreSimStateToCanvas()
     {
         ApplyWarningsToCanvas();
 

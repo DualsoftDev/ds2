@@ -125,7 +125,7 @@ module AasxRoundTripTests =
         let flowId = store.AddFlow("F", systemId)
         let workId = store.AddWork("W", flowId)
 
-        store.AddCallsWithDevice(projectId, workId, [ "Dev.Api1"; "Dev.Api2" ], true)
+        store.AddCallsWithDevice(projectId, workId, [ "Dev.Api1"; "Dev.Api2" ], true, None)
         let callIds = DsQuery.callsOf workId store |> List.map (fun c -> c.Id)
         let arrowCount = store.ConnectSelectionInOrder(callIds, ArrowType.ResetReset)
         Assert.Equal(1, arrowCount)

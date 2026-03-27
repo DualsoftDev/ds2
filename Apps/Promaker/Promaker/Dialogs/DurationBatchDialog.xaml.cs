@@ -90,7 +90,7 @@ public partial class DurationBatchDialog : Window
         var selected = _workRows.Where(r => r.IsSelected).ToList();
         if (selected.Count == 0)
         {
-            MessageBox.Show(this, "먼저 하나 이상의 행을 선택하세요.", "Duration 일괄 편집", MessageBoxButton.OK, MessageBoxImage.Information);
+            DialogHelpers.Info(this, "먼저 하나 이상의 행을 선택하세요.", "Duration 일괄 편집");
             return;
         }
 

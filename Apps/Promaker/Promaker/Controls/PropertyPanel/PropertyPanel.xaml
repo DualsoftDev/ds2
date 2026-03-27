@@ -33,42 +33,34 @@
             </Border>
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
-                    <TextBlock Text="{Binding SelectedNode.EntityType, StringFormat='Type: {0}', FallbackValue='선택 없음'}"
+                    <TextBlock Text="{Binding SelectionTypeText}"
                                FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,4"/>
-                    <TextBlock Text="{Binding SelectedNode.Name, StringFormat='Name: {0}'}"
+                    <TextBlock Text="{Binding SelectionNameText}"
                                FontSize="13" FontWeight="SemiBold" Margin="0,0,0,12"/>
 
-                    <TextBlock Text="Name" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0"
-                                   Text="{Binding NamePrefix}"
-                                   FontSize="12" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource SecondaryTextBrush}"
-                                   VerticalAlignment="Center"
-                                   Margin="0,0,2,0"/>
-                        <TextBox x:Name="NameEditor" Grid.Column="1"
-                                 Text="{Binding NameEditorText, UpdateSourceTrigger=PropertyChanged}"
-                                 Padding="6,4" FontSize="12"
-                                 KeyDown="NameEditor_KeyDown"/>
-                        <Button Grid.Column="2" Content="✓" Style="{StaticResource DarkButton}"
-                                Margin="4,0,0,0" Padding="8,4"
-                                Command="{Binding ApplyNameCommand}"
-                                IsEnabled="{Binding IsNameDirty}"/>
-                    </Grid>
-
-                    <Separator Margin="0,12"/>
-
-                    <TextBlock Text="Position" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,2"/>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="X:" Margin="0,0,4,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding SelectedNode.X, StringFormat='{}{0:0}'}" Margin="0,0,12,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="Y:" Margin="0,0,4,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding SelectedNode.Y, StringFormat='{}{0:0}'}" VerticalAlignment="Center"/>
+                    <StackPanel Visibility="{Binding ShowNameEditor, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="Name" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding NamePrefix}"
+                                       FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,2,0"/>
+                            <TextBox x:Name="NameEditor" Grid.Column="1"
+                                     Text="{Binding NameEditorText, UpdateSourceTrigger=PropertyChanged}"
+                                     Padding="6,4" FontSize="12"
+                                     KeyDown="NameEditor_KeyDown"/>
+                            <Button Grid.Column="2" Content="✓" Style="{StaticResource DarkButton}"
+                                    Margin="4,0,0,0" Padding="8,4"
+                                    Command="{Binding ApplyNameCommand}"
+                                    IsEnabled="{Binding IsNameDirty}"/>
+                        </Grid>
                     </StackPanel>
 
                     <Separator Margin="0,12"/>
@@ -205,10 +197,16 @@
                                    Margin="0,2,0,2"/>
                         <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                             <CheckBox Content="Source"
+                                      IsThreeState="True"
                                       IsChecked="{Binding IsTokenSource}"
                                       FontSize="12" Margin="0,0,16,0"/>
                             <CheckBox Content="Ignore"
+                                      IsThreeState="True"
                                       IsChecked="{Binding IsTokenIgnore}"
+                                      FontSize="12" Margin="0,0,16,0"/>
+                            <CheckBox Content="Sink"
+                                      IsThreeState="True"
+                                      IsChecked="{Binding IsTokenSink}"
                                       FontSize="12"/>
                         </StackPanel>
                         <TextBlock Text="연결된 TokenSpec"
@@ -248,9 +246,11 @@
                                     IsEnabled="{Binding IsCallTimeoutDirty}"
                                     Command="{Binding ApplyCallTimeoutCommand}"/>
                         </Grid>
-                        <ctrl:ApiCallsGridControl DataContext="{Binding}"/>
+                        <ctrl:ApiCallsGridControl DataContext="{Binding}"
+                                                  Visibility="{Binding IsSingleCallSelected, Converter={StaticResource BoolToVis}}"/>
 
-                        <ItemsControl ItemsSource="{Binding ConditionSections}">
+                        <ItemsControl ItemsSource="{Binding ConditionSections}"
+                                      Visibility="{Binding IsSingleCallSelected, Converter={StaticResource BoolToVis}}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:ConditionSectionItem}">
                                     <ctrl:ConditionSectionControl
@@ -270,7 +270,15 @@
                         <Separator Margin="0,12"/>
                     </StackPanel>
 
-                    <StackPanel Visibility="{Binding IsDebugBuild, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Visibility="{Binding ShowDebugSelectionDetails, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="Position" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,2"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="X:" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding SelectedNode.X, StringFormat='{}{0:0}'}" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Y:" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding SelectedNode.Y, StringFormat='{}{0:0}'}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Separator Margin="0,12"/>
                         <TextBlock Text="ID" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,2"/>
                         <TextBox Text="{Binding SelectedNode.Id, Mode=OneWay}" IsReadOnly="True"
                                  Padding="6,4" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"/>

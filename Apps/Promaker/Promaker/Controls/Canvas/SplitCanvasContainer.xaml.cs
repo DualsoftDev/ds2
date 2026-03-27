@@ -42,6 +42,7 @@ public partial class SplitCanvasContainer : UserControl
         {
             oldVm.CanvasManager.PropertyChanged -= OnManagerPropertyChanged;
             UnwirePaneCallbacks(oldVm.CanvasManager.PrimaryPane, PrimaryWorkspace);
+            UnwirePaneCallbacks(oldVm.CanvasManager.SecondaryPane, _secondaryWorkspace);
         }
 
         if (VM is not null)

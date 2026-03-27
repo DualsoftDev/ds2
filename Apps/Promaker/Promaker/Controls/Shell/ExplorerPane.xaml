@@ -11,6 +11,37 @@
         <conv:PositiveIntToVisibilityConverter x:Key="PositiveIntToVis"/>
         <conv:BindingProxy x:Key="Proxy" Data="{Binding}"/>
 
+        <Style x:Key="TreePaneToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Padding" Value="12,4"/>
+            <Setter Property="MinWidth" Value="72"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="0">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource SelectedBrush}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="TreeViewItemBaseStyle" TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
             <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
             <EventSetter Event="MouseDoubleClick" Handler="TreeViewItem_MouseDoubleClick"/>
@@ -77,6 +108,7 @@
             <MenuItem Tag="AddCall" Header="Add Call" Command="{Binding AddCallCommand}"/>
             <Separator Tag="SepAdd"/>
             <MenuItem Tag="ImportMermaid" Header="Mermaid 불러오기..." Command="{Binding ImportMermaidCommand}"/>
+            <MenuItem Tag="ExportCsv" Header="CSV 내보내기..." Command="{Binding ExportCsvCommand}"/>
             <Separator Tag="SepImport"/>
             <MenuItem Tag="Copy" Header="Copy" Command="{Binding CopySelectedCommand}"/>
             <MenuItem Tag="Paste" Header="Paste" Command="{Binding PasteCopiedCommand}"/>
@@ -91,59 +123,82 @@
     </UserControl.Resources>
 
     <Border Style="{StaticResource PanelContainer}">
-        <Grid x:Name="ExplorerLayoutRoot">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
+            <Grid x:Name="ExplorerLayoutRoot">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
             <Border Style="{StaticResource PanelHeader}">
                 <Grid>
                     <TextBlock Text="Explorer" FontWeight="SemiBold" FontSize="12"/>
                     <Button Style="{StaticResource HelpButton}" HorizontalAlignment="Right"
                             Command="{x:Static help:HelpNavigator.NavigateCommand}"
                             CommandParameter="explorer"/>
-                </Grid>
+                    </Grid>
             </Border>
 
-            <Grid x:Name="UpperPanelsHost" Grid.Row="1">
-                <TabControl x:Name="TreeTabs" SelectionChanged="TreeTabs_SelectionChanged">
-                    <TabItem x:Name="ControlTreeTab" Header="Control">
-                        <TreeView x:Name="ControlTree"
-                                  ItemsSource="{Binding ControlTreeRoots}"
-                                  SelectedItemChanged="Tree_SelectedItemChanged"
-                                  PreviewMouseDown="Tree_PreviewMouseDown"
-                                  ContextMenuOpening="Tree_ContextMenuOpening">
-                            <TreeView.ItemContainerStyle>
-                                <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
-                            </TreeView.ItemContainerStyle>
-                            <TreeView.ItemTemplate>
-                                <StaticResource ResourceKey="EntityTreeItemTemplate"/>
-                            </TreeView.ItemTemplate>
-                            <TreeView.ContextMenu>
-                                <StaticResource ResourceKey="EntityTreeContextMenu"/>
-                            </TreeView.ContextMenu>
-                        </TreeView>
-                    </TabItem>
+            <Border Grid.Row="1" Padding="8,8,8,6" BorderThickness="0,0,0,1"
+                    BorderBrush="{DynamicResource BorderBrush}">
+                <TextBox x:Name="SearchBox"
+                         Padding="6,4"
+                         VerticalContentAlignment="Center"
+                         ToolTip="이름으로 Explorer 항목 검색"
+                         TextChanged="SearchBox_TextChanged"
+                         PreviewKeyDown="SearchBox_PreviewKeyDown"/>
+            </Border>
 
-                    <TabItem x:Name="DeviceTreeTab" Header="Device">
-                        <TreeView x:Name="DeviceTree"
-                                  ItemsSource="{Binding DeviceTreeRoots}"
-                                  SelectedItemChanged="Tree_SelectedItemChanged"
-                                  PreviewMouseDown="Tree_PreviewMouseDown"
-                                  ContextMenuOpening="Tree_ContextMenuOpening">
-                            <TreeView.ItemContainerStyle>
-                                <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
-                            </TreeView.ItemContainerStyle>
-                            <TreeView.ItemTemplate>
-                                <StaticResource ResourceKey="EntityTreeItemTemplate"/>
-                            </TreeView.ItemTemplate>
-                            <TreeView.ContextMenu>
-                                <StaticResource ResourceKey="EntityTreeContextMenu"/>
-                            </TreeView.ContextMenu>
-                        </TreeView>
-                    </TabItem>
-                </TabControl>
+            <Grid x:Name="UpperPanelsHost" Grid.Row="2">
+                <TreeView x:Name="ControlTree"
+                          ItemsSource="{Binding ControlTreeRoots}"
+                          SelectedItemChanged="Tree_SelectedItemChanged"
+                          PreviewMouseDown="Tree_PreviewMouseDown"
+                          PreviewKeyDown="Tree_PreviewKeyDown"
+                          ContextMenuOpening="Tree_ContextMenuOpening">
+                    <TreeView.ItemContainerStyle>
+                        <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
+                    </TreeView.ItemContainerStyle>
+                    <TreeView.ItemTemplate>
+                        <StaticResource ResourceKey="EntityTreeItemTemplate"/>
+                    </TreeView.ItemTemplate>
+                    <TreeView.ContextMenu>
+                        <StaticResource ResourceKey="EntityTreeContextMenu"/>
+                    </TreeView.ContextMenu>
+                </TreeView>
+
+                <TreeView x:Name="DeviceTree"
+                          Visibility="Collapsed"
+                          ItemsSource="{Binding DeviceTreeRoots}"
+                          SelectedItemChanged="Tree_SelectedItemChanged"
+                          PreviewMouseDown="Tree_PreviewMouseDown"
+                          PreviewKeyDown="Tree_PreviewKeyDown"
+                          ContextMenuOpening="Tree_ContextMenuOpening">
+                    <TreeView.ItemContainerStyle>
+                        <StaticResource ResourceKey="TreeViewItemInteractiveStyle"/>
+                    </TreeView.ItemContainerStyle>
+                    <TreeView.ItemTemplate>
+                        <StaticResource ResourceKey="EntityTreeItemTemplate"/>
+                    </TreeView.ItemTemplate>
+                    <TreeView.ContextMenu>
+                        <StaticResource ResourceKey="EntityTreeContextMenu"/>
+                    </TreeView.ContextMenu>
+                </TreeView>
             </Grid>
+
+            <Border Grid.Row="3" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource BorderBrush}">
+                <UniformGrid Columns="2">
+                    <ToggleButton x:Name="ControlTreeButton"
+                                  Style="{StaticResource TreePaneToggleStyle}"
+                                  Content="Control"
+                                  IsChecked="True"
+                                  Click="ControlTreeButton_Click"/>
+                    <ToggleButton x:Name="DeviceTreeButton"
+                                  Style="{StaticResource TreePaneToggleStyle}"
+                                  Content="Device"
+                                  Click="DeviceTreeButton_Click"/>
+                </UniformGrid>
+            </Border>
         </Grid>
     </Border>
 </UserControl>

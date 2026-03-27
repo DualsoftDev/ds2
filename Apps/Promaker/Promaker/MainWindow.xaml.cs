@@ -46,7 +46,8 @@ public partial class MainWindow : Window
             e.Cancel = true;
     }
 
-    private static readonly string[] SupportedExtensions = [".sdf", ".json", ".aasx", ".md", ".mmd"];
+    private static readonly string[] SupportedExtensions =
+        [FileExtensions.Sdf, FileExtensions.Json, FileExtensions.Aasx, FileExtensions.Mermaid, FileExtensions.MermaidAlt];
 
     private bool IsSupportedFileDrop(DragEventArgs e) =>
         e.Data.GetDataPresent(DataFormats.FileDrop)
@@ -66,10 +67,10 @@ public partial class MainWindow : Window
         var filePath = files[0];
         var ext = System.IO.Path.GetExtension(filePath).ToLowerInvariant();
 
-        if (ext == ".sdf") return "sdf";
-        if (ext == ".json") return "json";
-        if (ext == ".aasx") return "aasx";
-        if (ext == ".md" || ext == ".mmd") return "mermaid";
+        if (ext == FileExtensions.Sdf) return "sdf";
+        if (ext == FileExtensions.Json) return "json";
+        if (ext == FileExtensions.Aasx) return "aasx";
+        if (ext == FileExtensions.Mermaid || ext == FileExtensions.MermaidAlt) return "mermaid";
         return null;
     }
 

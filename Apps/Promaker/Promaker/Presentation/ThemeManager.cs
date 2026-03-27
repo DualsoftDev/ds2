@@ -73,42 +73,10 @@ public static class ThemeManager
     }
 
     private static AppTheme LoadSavedTheme()
-    {
-        try
-        {
-            if (!File.Exists(SettingsPath))
-            {
-                return AppTheme.Dark;
-            }
-
-            var raw = File.ReadAllText(SettingsPath).Trim();
-            return Enum.TryParse<AppTheme>(raw, ignoreCase: true, out var theme)
-                ? theme
-                : AppTheme.Dark;
-        }
-        catch
-        {
-            return AppTheme.Dark;
-        }
-    }
+        => AppSettingStore.LoadEnumOrDefault(SettingsPath, AppTheme.Dark);
 
     private static void SaveTheme(AppTheme theme)
-    {
-        try
-        {
-            var directory = Path.GetDirectoryName(SettingsPath);
-            if (!string.IsNullOrEmpty(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            File.WriteAllText(SettingsPath, theme.ToString());
-        }
-        catch
-        {
-            // Ignore theme persistence failures.
-        }
-    }
+        => AppSettingStore.SaveEnum(SettingsPath, theme);
 
     private static bool IsThemeDictionary(ResourceDictionary dictionary)
     {

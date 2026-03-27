@@ -47,7 +47,7 @@ module PasteTests =
         // ApiCall 복제 모드: 1 Call + 3 ApiCalls pointing to 3 different Device Systems
         let callId = store.AddCallWithMultipleDevicesResolved(
                         EntityKind.Work, work.Id, work.Id,
-                        "Conv", "ADV", [ "Conv_1"; "Conv_2"; "Conv_3" ])
+                        "Conv", "ADV", [ "Conv_1"; "Conv_2"; "Conv_3" ], None)
         let originalCall = store.Calls.[callId]
         Assert.Equal(3, originalCall.ApiCalls.Count)
         // 다른 Flow 생성
@@ -76,7 +76,7 @@ module PasteTests =
         let _, system, _, work = setupBasicHierarchy store
         let callId = store.AddCallWithMultipleDevicesResolved(
                         EntityKind.Work, work.Id, work.Id,
-                        "Conv", "ADV", [ "Conv_1" ])
+                        "Conv", "ADV", [ "Conv_1" ], None)
         let originalCall = store.Calls.[callId]
         // 원본 Device System의 Work에 Period 설정
         let srcApiCall = originalCall.ApiCalls.[0]
@@ -163,7 +163,7 @@ module MoveTests =
     let ``MoveEntities updates call position by id lookup`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1" ], true, None)
         let call = DsQuery.callsOf work.Id store |> List.head
         let request = MoveEntityRequest(call.Id, Xywh(50, 60, 120, 40))
         let moved = store.MoveEntities([ request ])
@@ -194,7 +194,7 @@ module PanelTests =
     let ``TryGetCallApiCallForPanel returns item when api call exists`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
 
         let call = store.Calls.Values |> Seq.head
         let apiCall = call.ApiCalls |> Seq.head
@@ -210,7 +210,7 @@ module PanelTests =
         let system = addSystem store "S" project.Id false
         let flow = addFlow store "F" system.Id
         let work = addWork store "W" flow.Id
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Seed.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Seed.Api" ], true, None)
         let callId = store.Calls.Values |> Seq.head |> fun call -> call.Id
         let apiDef = addApiDef store "DeviceApi" system.Id
 
@@ -257,7 +257,7 @@ module PanelTests =
     let ``UpdateConditionApiCallOutputSpec updates selected condition api call`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
 
         let call = store.Calls.Values |> Seq.head
         let sourceApiCallId = call.ApiCalls |> Seq.head |> fun ac -> ac.Id

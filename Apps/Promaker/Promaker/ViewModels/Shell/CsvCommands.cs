@@ -2,7 +2,9 @@ using CommunityToolkit.Mvvm.Input;
 using Ds2.CSV;
 using Ds2.Store;
 using Ds2.Editor;
+using Microsoft.Win32;
 using Promaker.Dialogs;
+using Promaker.Presentation;
 
 namespace Promaker.ViewModels;
 
@@ -54,6 +56,48 @@ public partial class MainViewModel
                 ImportCsvStore(store, sourceName);
             },
             ex => $"CSV 불러오기 실패: {ex.Message}");
+    }
+
+    [RelayCommand(CanExecute = nameof(HasProject))]
+    private void ExportCsv()
+    {
+        var projects = DsQuery.allProjects(_store);
+        var suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
+        var dialog = new SaveFileDialog
+        {
+            Title = "CSV 내보내기",
+            Filter = "CSV Files (*.csv)|*.csv|All Files (*.*)|*.*",
+            DefaultExt = FileExtensions.Csv,
+            FileName = $"{suggestedName}.csv"
+        };
+
+        if (dialog.ShowDialog() != true)
+            return;
+
+        ExportCsvToPath(dialog.FileName);
+    }
+
+    private bool ExportCsvToPath(string filePath)
+    {
+        try
+        {
+            var result = CsvExporter.saveProjectToFile(_store, filePath);
+            if (result.IsOk)
+            {
+                Log.Info($"CSV exported: {filePath}");
+                StatusText = $"CSV 내보내기 완료 ({filePath})";
+                return true;
+            }
+
+            _dialogService.ShowWarning(result.ErrorValue);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"CSV export failed: {filePath}", ex);
+            _dialogService.ShowWarning($"CSV 내보내기 실패: {ex.Message}");
+            return false;
+        }
     }
 
 }

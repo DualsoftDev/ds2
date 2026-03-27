@@ -18,6 +18,11 @@ internal record GraphWarningSection(
 
 internal static class DialogHelpers
 {
+    internal const string IconWarn  = "⚠";
+    internal const string IconInfo  = "ℹ";
+    internal const string IconError = "✖";
+    internal const string IconQuestion = "?";
+
     internal static bool ShowOwnedDialog(Window dialog)
     {
         dialog.Owner = Application.Current.MainWindow;
@@ -26,10 +31,22 @@ internal static class DialogHelpers
     }
 
     internal static void Warn(string message) =>
-        ShowThemedMessageBox(message, "경고", MessageBoxButton.OK, "⚠");
+        Warn(Application.Current.MainWindow, message);
+
+    internal static void Warn(Window? owner, string message, string title = "경고") =>
+        ShowThemedMessageBox(owner, message, title, MessageBoxButton.OK, IconWarn);
 
     internal static void Info(string message) =>
-        ShowThemedMessageBox(message, "알림", MessageBoxButton.OK, "ℹ");
+        Info(Application.Current.MainWindow, message);
+
+    internal static void Info(Window? owner, string message, string title = "알림") =>
+        ShowThemedMessageBox(owner, message, title, MessageBoxButton.OK, IconInfo);
+
+    internal static void Error(Window? owner, string message, string title = "오류") =>
+        ShowThemedMessageBox(owner, message, title, MessageBoxButton.OK, IconError);
+
+    internal static bool Confirm(Window? owner, string message, string title) =>
+        ShowThemedMessageBox(owner, message, title, MessageBoxButton.YesNo, IconQuestion) == MessageBoxResult.Yes;
 
     internal static string? PromptName(string title, string defaultName)
     {
@@ -60,7 +77,7 @@ internal static class DialogHelpers
         return dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(result) ? result : null;
     }
 
-    internal static Guid? PickCallFromList(string title, IReadOnlyList<(Guid Id, string Name)> calls,
+    internal static void PickCallFromList(string title, IReadOnlyList<(Guid Id, string Name)> calls,
         Action<Guid> onNavigate)
     {
         var dialog = new Window
@@ -93,7 +110,6 @@ internal static class DialogHelpers
 
         dialog.Content = listBox;
         dialog.ShowDialog();
-        return null;
     }
 
     /// <summary>그래프 검증 경고를 심각도별 색상으로 표시합니다.</summary>
@@ -157,7 +173,7 @@ internal static class DialogHelpers
 
         var iconBlock = new TextBlock
         {
-            Text = "⚠",
+            Text = IconWarn,
             FontSize = 28,
             Foreground = Brushes.Gold,
             VerticalAlignment = VerticalAlignment.Top,
@@ -200,6 +216,7 @@ internal static class DialogHelpers
 
     internal static MessageBoxResult AskSaveChanges() =>
         ShowThemedMessageBox(
+            Application.Current.MainWindow,
             "현재 프로젝트에 저장되지 않은 변경이 있습니다.\n저장하시겠습니까?",
             "저장 확인",
             MessageBoxButton.YesNoCancel,
@@ -207,11 +224,20 @@ internal static class DialogHelpers
 
     internal static MessageBoxResult ShowThemedMessageBox(
         string message, string title, MessageBoxButton buttons, string icon) =>
-        ShowThemedMessageBox(message, title, buttons, icon, showDontShowAgain: false, out _);
+        ShowThemedMessageBox(Application.Current.MainWindow, message, title, buttons, icon, showDontShowAgain: false, out _);
+
+    internal static MessageBoxResult ShowThemedMessageBox(
+        Window? owner, string message, string title, MessageBoxButton buttons, string icon) =>
+        ShowThemedMessageBox(owner, message, title, buttons, icon, showDontShowAgain: false, out _);
+
+    internal static MessageBoxResult ShowThemedMessageBox(
+        string message, string title, MessageBoxButton buttons, string icon,
+        bool showDontShowAgain, out bool dontShowAgain) =>
+        ShowThemedMessageBox(Application.Current.MainWindow, message, title, buttons, icon, showDontShowAgain, out dontShowAgain);
 
     /// <summary>"다시 보지 않기" 체크박스 포함 오버로드</summary>
     internal static MessageBoxResult ShowThemedMessageBox(
-        string message, string title, MessageBoxButton buttons, string icon,
+        Window? owner, string message, string title, MessageBoxButton buttons, string icon,
         bool showDontShowAgain, out bool dontShowAgain)
     {
         var result = MessageBoxResult.None;
@@ -223,7 +249,7 @@ internal static class DialogHelpers
             Width = 420,
             SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Owner = Application.Current.MainWindow,
+            Owner = owner ?? Application.Current.MainWindow,
             ResizeMode = ResizeMode.NoResize,
             ShowInTaskbar = false
         };

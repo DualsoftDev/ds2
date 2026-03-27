@@ -54,6 +54,31 @@ public partial class CanvasWorkspace : UserControl, INotifyPropertyChanged
             Pane.CloseTabCommand.Execute(tab);
     }
 
+    private void TabContextMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        if (Pane is null || ViewModel is null || sender is not ContextMenu menu)
+            return;
+
+        var openTabCount = Pane.OpenTabs.Count;
+        var canCloseOtherTabs = openTabCount > 1;
+        var canSplit = openTabCount > 1 && !ViewModel.CanvasManager.IsSplit;
+
+        if (menu.Items[1] is MenuItem closeOtherTabs)
+            closeOtherTabs.IsEnabled = canCloseOtherTabs;
+
+        if (menu.Items[4] is MenuItem splitRight)
+            splitRight.IsEnabled = canSplit;
+
+        if (menu.Items[5] is MenuItem splitDown)
+            splitDown.IsEnabled = canSplit;
+
+        if (menu.Items[6] is MenuItem splitLeft)
+            splitLeft.IsEnabled = canSplit;
+
+        if (menu.Items[7] is MenuItem splitUp)
+            splitUp.IsEnabled = canSplit;
+    }
+
     private void CloseOtherTabs_Click(object sender, RoutedEventArgs e)
     {
         if (Pane is null) return;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.FSharp.Collections;
 using Ds2.Core;
 using Ds2.Store;
 using Ds2.Editor;
@@ -37,6 +38,7 @@ public class SelectionState
         _selectionAnchor = null;
         _host.SelectedNode = null;
         _host.SelectedArrow = null;
+        _host.NotifyCommandStatesChanged();
     }
 
     public void SetActiveTreePane(TreePaneKind pane) => _activeTreePane = pane;
@@ -115,21 +117,14 @@ public class SelectionState
     public bool TryGetOrderedSelectionConnectEntityType(out EntityKind entityType)
     {
         entityType = default;
-
-        if (_orderedNodeSelection.Count < 2)
+        if (!TryGetOrderedConnectLinks(out var links))
             return false;
-
-        foreach (var key in _orderedNodeSelection)
-        {
-            if (key.EntityKind is EntityKind.Work or EntityKind.Call)
-            {
-                entityType = key.EntityKind;
-                return true;
-            }
-        }
-
-        return false;
+        entityType = links.Head.Item1;
+        return true;
     }
+
+    public bool CanConnectSelectedNodesInOrder() =>
+        TryGetOrderedConnectLinks(out _);
 
     public bool ConnectSelectedNodesInOrder(ArrowType arrowType)
     {
@@ -148,6 +143,22 @@ public class SelectionState
 
         _host.SetStatusText($"Connected {created} arrow(s) from ordered selection.");
         return true;
+    }
+
+    private bool TryGetOrderedConnectLinks(out FSharpList<System.Tuple<EntityKind, Guid, Guid, Guid>> links)
+    {
+        links = FSharpList<System.Tuple<EntityKind, Guid, Guid, Guid>>.Empty;
+
+        if (_orderedNodeSelection.Count < 2)
+            return false;
+
+        if (!_host.TryRef(
+                () => ConnectionQueries.orderedArrowLinksForSelection(Store, _orderedNodeSelection.Select(s => s.Id), ArrowType.Start),
+                out var resolvedLinks))
+            return false;
+
+        links = resolvedLinks;
+        return !links.IsEmpty;
     }
 
     public void SelectArrowFromCanvas(ArrowNode arrow, bool ctrlPressed)
@@ -260,6 +271,7 @@ public class SelectionState
         ApplySelectionTo(EnumerateTreeNodes(), selectionOrder, static (n, s) => n.IsTreeSelected = s);
 
         _host.SelectedNode = ResolvePrimarySelectedNode();
+        _host.NotifyCommandStatesChanged();
     }
 
     private List<SelectionKey> CanvasSelectionOrderKeys() =>
@@ -340,6 +352,7 @@ public class SelectionState
         _host.SelectedArrow = primaryArrowId is { } id
             ? _host.CanvasArrows.FirstOrDefault(a => a.Id == id)
             : null;
+        _host.NotifyCommandStatesChanged();
     }
 
     private IEnumerable<EntityNode> EnumerateActiveTreeRoots() =>

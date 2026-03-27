@@ -88,21 +88,16 @@ let private buildSystemChildren (store: DsStore) (systemId: Guid) =
 
     flows @ hwAndApi
 
-let private buildProjectTree (store: DsStore) (systems: DsSystem list) (project: Project) =
-    let systemNodes =
-        systems
-        |> List.map (fun sys ->
-            { Id = sys.Id
+let private buildControlRoots (store: DsStore) : TreeNodeInfo list =
+    DsQuery.allProjects store
+    |> List.collect (fun project ->
+        DsQuery.activeSystemsOf project.Id store
+        |> List.map (fun system ->
+            { Id = system.Id
               EntityKind = EntityKind.System
-              Name = sys.Name
-              ParentId = Some project.Id
-              Children = buildSystemChildren store sys.Id })
-
-    { Id = project.Id
-      EntityKind = EntityKind.Project
-      Name = project.Name
-      ParentId = None
-      Children = systemNodes }
+              Name = system.Name
+              ParentId = None
+              Children = buildSystemChildren store system.Id }))
 
 let private buildDeviceTree (store: DsStore) : TreeNodeInfo list =
     let deviceRootId = UiDefaults.DeviceTreeRootId
@@ -130,10 +125,7 @@ let private buildDeviceTree (store: DsStore) : TreeNodeInfo list =
 
 [<CompiledName("BuildTrees")>]
 let buildTrees (store: DsStore) : TreeNodeInfo list * TreeNodeInfo list =
-    let controlTree =
-        DsQuery.allProjects store
-        |> List.map (fun proj -> buildProjectTree store (DsQuery.activeSystemsOf proj.Id store) proj)
-
+    let controlTree = buildControlRoots store
     let deviceTree = buildDeviceTree store
 
     controlTree, deviceTree

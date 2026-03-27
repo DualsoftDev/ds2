@@ -23,7 +23,7 @@ module RemoveTests =
     let ``RemoveEntities with work removes descendant calls`` () =
         let store = createStore ()
         let _, _, _, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(Guid.Empty, work.Id, ["Dev.Api"], false)
+        store.AddCallsWithDevice(Guid.Empty, work.Id, ["Dev.Api"], false, None)
         Assert.True(store.Calls.Count > 0)
         store.RemoveEntities([ (EntityKind.Work, work.Id) ])
         Assert.Equal(0, store.Calls.Count)
@@ -32,7 +32,7 @@ module RemoveTests =
     let ``RemoveEntities keeps nested condition api call reference alive`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true, None)
 
         let sourceCall = DsQuery.callsOf work.Id store |> List.find (fun c -> c.Name = "Src.Api")
         let targetCall = DsQuery.callsOf work.Id store |> List.find (fun c -> c.Name = "Target.Api")
@@ -90,7 +90,7 @@ module RenameTests =
     let ``RenameEntity for Call changes only DevicesAlias`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
         let call = store.Calls |> Seq.head |> (fun kv -> kv.Value)
         Assert.Equal("Dev", call.DevicesAlias)
         Assert.Equal("Api", call.ApiName)
@@ -122,7 +122,7 @@ module ArrowTests =
     let ``ConnectSelectionInOrder creates ArrowBetweenCalls with parentId = workId`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
-        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1"; "Dev.Api2" ], true)
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
         let callIds = DsQuery.callsOf work.Id store |> List.map (fun c -> c.Id)
         let count = store.ConnectSelectionInOrder(callIds, ArrowType.ResetReset)
         Assert.Equal(1, count)

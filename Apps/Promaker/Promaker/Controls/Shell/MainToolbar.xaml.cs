@@ -3,7 +3,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using Ds2.Core;
-using Promaker.Dialogs;
 using Promaker.Presentation;
 using Promaker.ViewModels;
 
@@ -15,32 +14,13 @@ public partial class MainToolbar : UserControl
     {
         InitializeComponent();
         Loaded += (_, _) => InitializeConnectPinStates();
-        DataContextChanged += OnDataContextChanged;
     }
 
     private MainViewModel? VM => DataContext as MainViewModel;
 
-    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
-    {
-        if (e.OldValue is MainViewModel oldVm)
-        {
-            oldVm.PropertyChanged -= OnViewModelPropertyChanged;
-        }
-
-        if (VM is { } vm)
-        {
-            vm.PropertyChanged += OnViewModelPropertyChanged;
-        }
-    }
-
-    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-    {
-    }
-
     private void CloseSavePopup(object sender, RoutedEventArgs e) => SaveMenuToggle.IsChecked = false;
     private void CloseOpenPopup(object sender, RoutedEventArgs e) => OpenMenuToggle.IsChecked = false;
     private void CloseEditPopup(object sender, RoutedEventArgs e) => EditMenuToggle.IsChecked = false;
-    private void CloseUtilPopup(object sender, RoutedEventArgs e) => UtilMenuToggle.IsChecked = false;
 
     private void ConnectType_Click(object sender, RoutedEventArgs e)
     {
@@ -79,17 +59,6 @@ public partial class MainToolbar : UserControl
         {
             ArrowTypeFrequencyTracker.TogglePin(type);
         }
-    }
-
-    private void AboutButton_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new AboutDialog();
-        if (Application.Current.MainWindow is { } owner)
-        {
-            dialog.Owner = owner;
-            dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        }
-        dialog.ShowDialog();
     }
 
     private void InitializeConnectPinStates()

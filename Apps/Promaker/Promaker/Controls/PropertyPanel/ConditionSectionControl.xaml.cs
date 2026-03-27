@@ -179,7 +179,7 @@ internal static class FormulaColorizer
     {
         inlines.Add(new Run(item.ApiDefDisplayName) { Foreground = NameBrush });
         var spec = item.OutputSpecText;
-        if (!string.IsNullOrEmpty(spec) && spec != "Undefined")
+        if (!string.IsNullOrEmpty(spec) && spec != ValueSpecEditorControl.UndefinedText)
         {
             inlines.Add(new Run("=") { Foreground = OperatorBrush });
             inlines.Add(new Run(spec) { Foreground = ValueBrush });
