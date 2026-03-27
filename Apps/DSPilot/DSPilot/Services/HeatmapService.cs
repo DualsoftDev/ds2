@@ -12,13 +12,19 @@ namespace DSPilot.Services;
 public class HeatmapService
 {
     private readonly IDspRepository _dspRepository;
+    private readonly IPlcRepository _plcRepository;
+    private readonly PlcToCallMapperService _mapperService;
     private readonly ILogger<HeatmapService> _logger;
 
     public HeatmapService(
         IDspRepository dspRepository,
+        IPlcRepository plcRepository,
+        PlcToCallMapperService mapperService,
         ILogger<HeatmapService> logger)
     {
         _dspRepository = dspRepository;
+        _plcRepository = plcRepository;
+        _mapperService = mapperService;
         _logger = logger;
     }
 
@@ -42,6 +48,7 @@ public class HeatmapService
             // 2. Heatmap 아이템 리스트 생성
             var items = statistics.Select(s => new CallHeatmapItem
             {
+                CallId = s.CallId,
                 CallName = s.CallName,
                 FlowName = s.FlowName,
                 WorkName = s.WorkName,
@@ -108,6 +115,93 @@ public class HeatmapService
     }
 
     /// <summary>
+    /// Call의 실행 이력 조회 (PLCTagLog에서 InTag↔OutTag 매칭)
+    /// </summary>
+    public async Task<List<CallExecutionRecord>> GetCallExecutionHistoryAsync(Guid callId)
+    {
+        var records = new List<CallExecutionRecord>();
+
+        try
+        {
+            // 1. Call의 InTag/OutTag 주소 조회
+            var tags = _mapperService.GetCallTagsByCallId(callId);
+            if (!tags.HasValue)
+            {
+                _logger.LogWarning("Call {CallId}: No tag mapping found", callId);
+                return records;
+            }
+
+            var (inTag, outTag) = tags.Value;
+            if (string.IsNullOrEmpty(inTag) || string.IsNullOrEmpty(outTag))
+            {
+                _logger.LogWarning("Call {CallId}: InTag or OutTag is missing (InTag={InTag}, OutTag={OutTag})",
+                    callId, inTag, outTag);
+                return records;
+            }
+
+            // 2. 전체 시간 범위 조회
+            var oldest = await _plcRepository.GetOldestLogDateTimeAsync();
+            var latest = await _plcRepository.GetLatestLogDateTimeAsync();
+            if (!oldest.HasValue || !latest.HasValue)
+            {
+                _logger.LogWarning("Call {CallId}: No PLC log data available", callId);
+                return records;
+            }
+
+            // 3. InTag/OutTag Rising Edge 조회
+            var inTagEdges = await _plcRepository.FindRisingEdgesAsync(inTag, oldest.Value, latest.Value);
+            var outTagEdges = await _plcRepository.FindRisingEdgesAsync(outTag, oldest.Value, latest.Value);
+
+            _logger.LogInformation(
+                "Call {CallId}: Found {InCount} InTag edges, {OutCount} OutTag edges",
+                callId, inTagEdges.Count, outTagEdges.Count);
+
+            // 4. InTag↔OutTag 순서 매칭 → GoingTime 계산
+            // InTag(Going 시작) 후 가장 가까운 OutTag(Going 종료)를 매칭
+            int outIndex = 0;
+            int executionNumber = 0;
+
+            foreach (var inTime in inTagEdges)
+            {
+                // inTime 이후의 첫 번째 outTag를 찾기
+                while (outIndex < outTagEdges.Count && outTagEdges[outIndex] <= inTime)
+                {
+                    outIndex++;
+                }
+
+                if (outIndex >= outTagEdges.Count)
+                    break;
+
+                var outTime = outTagEdges[outIndex];
+                var goingTimeMs = (int)(outTime - inTime).TotalMilliseconds;
+
+                // 비정상적으로 긴 시간 필터링 (30초 이상은 제외)
+                if (goingTimeMs > 0 && goingTimeMs < 30000)
+                {
+                    executionNumber++;
+                    records.Add(new CallExecutionRecord
+                    {
+                        ExecutionNumber = executionNumber,
+                        Timestamp = inTime,
+                        GoingTimeMs = goingTimeMs
+                    });
+                }
+
+                outIndex++;
+            }
+
+            _logger.LogInformation(
+                "Call {CallId}: Matched {Count} executions", callId, records.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get execution history for Call {CallId}", callId);
+        }
+
+        return records;
+    }
+
+    /// <summary>
     /// 메트릭 표시 이름 반환
     /// </summary>
     public static string GetMetricDisplayName(HeatmapMetric metric) =>
@@ -132,4 +226,14 @@ public class HeatmapService
             return $"{value:F2}";
         return $"{value:F1}";
     }
+}
+
+/// <summary>
+/// Call 개별 실행 기록
+/// </summary>
+public class CallExecutionRecord
+{
+    public int ExecutionNumber { get; set; }
+    public DateTime Timestamp { get; set; }
+    public int GoingTimeMs { get; set; }
 }

@@ -173,7 +173,9 @@
                                         @foreach (var call in workGroup.Calls)
                                         {
                                             <div class="flow-dashboard-call-cell @call.GetColorClass(SelectedMetric)"
-                                                 title="@BuildCallTooltip(call)">
+                                                 title="@BuildCallTooltip(call)"
+                                                 style="cursor:pointer;"
+                                                 @onclick="@(() => SelectCall(call))">
                                                 <div class="flow-dashboard-call-name">@call.CallName</div>
                                                 <div class="flow-dashboard-call-value">
                                                     @HeatmapService.FormatMetricValue(SelectedMetric, call.GetMetricValue(SelectedMetric))
@@ -301,50 +303,82 @@
                     </table>
                 </div>
 
-                @* 상세 패널 (선택된 Call이 이 그룹에 속할 때) *@
-                @if (SelectedCall != null && SelectedCall.FlowName == group.FlowName)
-                {
-                    <div style="margin:0 16px 16px; padding:16px; border-left:4px solid var(--color-primary); background:var(--color-surface); border-radius:0 8px 8px 0;">
-                        <div class="d-flex" style="justify-content:space-between; align-items:center; margin-bottom:12px;">
-                            <h6 class="typo-h6" style="margin:0;">@SelectedCall.CallName 상세</h6>
-                            <button class="btn-icon btn-sm" @onclick="@(() => SelectedCall = null)">
-                                <span class="material-icons">close</span>
-                            </button>
-                        </div>
-                        <div class="grid" style="gap:12px; grid-template-columns: repeat(4, 1fr);">
-                            <div class="heatmap-detail-card @SelectedCall.ColorClassAvg">
-                                <div class="typo-overline" style="color:inherit; opacity:0.85;">평균 시간</div>
-                                <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.AverageGoingTime:F0}") ms</div>
-                                <div class="typo-caption" style="color:inherit; opacity:0.7;">낮을수록 빠름</div>
-                            </div>
-                            <div class="heatmap-detail-card @SelectedCall.ColorClassStdDev">
-                                <div class="typo-overline" style="color:inherit; opacity:0.85;">표준편차</div>
-                                <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.StdDevGoingTime:F0}") ms</div>
-                                <div class="typo-caption" style="color:inherit; opacity:0.7;">낮을수록 안정적</div>
-                            </div>
-                            <div class="heatmap-detail-card @SelectedCall.ColorClassCV">
-                                <div class="typo-overline" style="color:inherit; opacity:0.85;">변동계수</div>
-                                <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.CoefficientOfVariation:F2}")</div>
-                                <div class="typo-caption" style="color:inherit; opacity:0.7;">
-                                    @GetCVStatusText(SelectedCall.CoefficientOfVariation)
-                                </div>
-                            </div>
-                            <div class="heatmap-detail-card" style="background:linear-gradient(135deg, #475569, #64748b);">
-                                <div class="typo-overline" style="color:inherit; opacity:0.85;">실행횟수</div>
-                                <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.GoingCount}")회</div>
-                                <div class="typo-caption" style="color:inherit; opacity:0.7;">
-                                    @GetGoingCountStatusText(SelectedCall.GoingCount)
-                                </div>
-                            </div>
-                        </div>
-                        <div class="typo-caption mt-2" style="color:var(--color-text-secondary);">
-                            실행횟수: @(SelectedCall.GoingCount)회 | Flow: @SelectedCall.FlowName | Work: @SelectedCall.WorkName
-                        </div>
-                    </div>
-                }
             }
         </div>
     }
+}
+
+@* Call 상세 모달 *@
+@if (SelectedCall != null)
+{
+    <div class="modal-overlay" @onclick="CloseCallModal">
+        <div class="modal-content" style="max-width:720px; width:90vw;" @onclick:stopPropagation>
+            <div class="d-flex" style="justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <div>
+                    <h6 class="typo-h6" style="margin:0;">@SelectedCall.CallName</h6>
+                    <span class="typo-caption" style="color:var(--color-text-secondary);">
+                        Flow: @SelectedCall.FlowName | Work: @SelectedCall.WorkName
+                    </span>
+                </div>
+                <button class="btn-icon btn-sm" @onclick="CloseCallModal">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+
+            <div class="grid" style="gap:12px; grid-template-columns: repeat(4, 1fr);">
+                <div class="heatmap-detail-card @SelectedCall.ColorClassAvg">
+                    <div class="typo-overline" style="color:inherit; opacity:0.85;">평균 시간</div>
+                    <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.AverageGoingTime:F0}") ms</div>
+                    <div class="typo-caption" style="color:inherit; opacity:0.7;">낮을수록 빠름</div>
+                </div>
+                <div class="heatmap-detail-card @SelectedCall.ColorClassStdDev">
+                    <div class="typo-overline" style="color:inherit; opacity:0.85;">표준편차</div>
+                    <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.StdDevGoingTime:F0}") ms</div>
+                    <div class="typo-caption" style="color:inherit; opacity:0.7;">낮을수록 안정적</div>
+                </div>
+                <div class="heatmap-detail-card @SelectedCall.ColorClassCV">
+                    <div class="typo-overline" style="color:inherit; opacity:0.85;">변동계수</div>
+                    <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.CoefficientOfVariation:F2}")</div>
+                    <div class="typo-caption" style="color:inherit; opacity:0.7;">
+                        @GetCVStatusText(SelectedCall.CoefficientOfVariation)
+                    </div>
+                </div>
+                <div class="heatmap-detail-card" style="background:linear-gradient(135deg, #475569, #64748b);">
+                    <div class="typo-overline" style="color:inherit; opacity:0.85;">실행횟수</div>
+                    <div style="font-size:1.25rem; font-weight:700;">@($"{SelectedCall.GoingCount}")회</div>
+                    <div class="typo-caption" style="color:inherit; opacity:0.7;">
+                        @GetGoingCountStatusText(SelectedCall.GoingCount)
+                    </div>
+                </div>
+            </div>
+
+            @* 실행 이력 차트 *@
+            <div style="margin-top:16px; border-top:1px solid var(--color-lines); padding-top:16px;">
+                <div class="d-flex" style="align-items:center; gap:8px; margin-bottom:8px;">
+                    <span class="material-icons" style="font-size:18px; color:var(--color-primary);">show_chart</span>
+                    <span class="typo-subtitle2">실행 시간 추이</span>
+                    @if (IsChartLoading)
+                    {
+                        <span class="typo-caption" style="color:var(--color-text-secondary);">로딩 중...</span>
+                    }
+                </div>
+
+                @if (CallExecutionHistory.Count > 0)
+                {
+                    <div style="height:280px; position:relative;">
+                        <canvas id="callHistoryChart"></canvas>
+                    </div>
+                }
+                else if (!IsChartLoading)
+                {
+                    <div class="typo-body2" style="color:var(--color-text-secondary); padding:24px; text-align:center; background:var(--color-surface-variant, #f5f5f5); border-radius:8px;">
+                        <span class="material-icons" style="font-size:32px; display:block; margin-bottom:8px; opacity:0.5;">timeline</span>
+                        실행 이력이 없습니다.
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
 }
 
 @code {
@@ -371,6 +405,10 @@
     private bool AllExpanded { get; set; } = true;
     private int MatrixColumns { get; set; } = 6;
     private CallHeatmapItem? SelectedCall { get; set; } = null;
+
+    // 차트
+    private List<CallExecutionRecord> CallExecutionHistory { get; set; } = new();
+    private bool IsChartLoading { get; set; } = false;
 
     // 정렬
     private enum SortField { CallName, WorkName, AvgTime, StdDev, CV }
@@ -459,9 +497,59 @@
         AllExpanded = !AllExpanded;
     }
 
-    private void SelectCall(CallHeatmapItem call)
+    private async Task SelectCall(CallHeatmapItem call)
     {
-        SelectedCall = SelectedCall == call ? null : call;
+        if (SelectedCall == call)
+        {
+            SelectedCall = null;
+            CallExecutionHistory = new();
+            await JS.InvokeVoidAsync("destroyCallHistoryChart");
+            return;
+        }
+
+        SelectedCall = call;
+        CallExecutionHistory = new();
+        IsChartLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            CallExecutionHistory = await HeatmapService.GetCallExecutionHistoryAsync(call.CallId);
+
+            if (CallExecutionHistory.Count > 0)
+            {
+                StateHasChanged();
+                await Task.Delay(50); // canvas 렌더링 대기
+
+                var chartData = CallExecutionHistory.Select(r => new
+                {
+                    executionNumber = r.ExecutionNumber,
+                    goingTimeMs = r.GoingTimeMs,
+                    timestamp = r.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")
+                }).ToArray();
+
+                await JS.InvokeVoidAsync("renderCallHistoryChart",
+                    "callHistoryChart",
+                    chartData,
+                    call.AverageGoingTime);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load execution history for Call {CallName}", call.CallName);
+        }
+        finally
+        {
+            IsChartLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CloseCallModal()
+    {
+        SelectedCall = null;
+        CallExecutionHistory = new();
+        await JS.InvokeVoidAsync("destroyCallHistoryChart");
     }
 
     // 정렬
