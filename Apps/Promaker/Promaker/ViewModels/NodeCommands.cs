@@ -25,14 +25,37 @@ public partial class MainViewModel
         return activeSystems.IsEmpty;
     }
 
-    private bool CanAddWork() =>
-        HasProject &&
-        (ResolveTargetId(EntityKind.Flow, TabKind.Flow).HasValue
-         || ResolveFirstFlowInSystemTab().HasValue);
+    private bool CanAddWork()
+    {
+        if (!HasProject)
+            return false;
 
-    private bool CanAddCall() =>
-        HasProject &&
-        ResolveTargetId(EntityKind.Work, TabKind.Work).HasValue;
+        if (SelectedNode is { } selected)
+        {
+            return selected.EntityType switch
+            {
+                EntityKind.Flow => true,
+                EntityKind.System => !DsQuery.flowsOf(selected.Id, _store).IsEmpty,
+                _ => false
+            };
+        }
+
+        if (Canvas.ActiveTab is { Kind: TabKind.Flow })
+            return true;
+
+        return ResolveFirstFlowInSystemTab().HasValue;
+    }
+
+    private bool CanAddCall()
+    {
+        if (!HasProject)
+            return false;
+
+        if (SelectedNode is { } selected)
+            return selected.EntityType == EntityKind.Work;
+
+        return Canvas.ActiveTab is { Kind: TabKind.Work };
+    }
 
     private bool CanDeleteSelected()
     {
@@ -55,7 +78,7 @@ public partial class MainViewModel
         _clipboardSelection.Count > 0 && ResolvePasteTarget().HasValue;
 
     private bool CanConnectSelectedNodes() =>
-        HasProject && Selection.TryGetOrderedSelectionConnectEntityType(out _);
+        HasProject && Selection.CanConnectSelectedNodesInOrder();
 
     private bool CanAutoLayout() =>
         HasProject && Canvas.ActiveTab is not null;

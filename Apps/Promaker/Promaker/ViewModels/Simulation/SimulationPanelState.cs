@@ -35,10 +35,12 @@ public partial class SimulationPanelState : ObservableObject
 
     private static class SimText
     {
+        public const string Running = "시뮬레이션 동작 중";
+        public const string StepMode = "시뮬레이션 단계 제어 중";
         public const string Resumed = "시뮬레이션 재개";
         public const string Started = "시뮬레이션 시작";
         public const string Paused = "시뮬레이션 일시정지";
-        public const string Stopped = "시뮬레이션 중지";
+        public const string Stopped = "시뮬레이션 정지 됨";
         public const string Completed = "시뮬레이션 완료";
         public const string Reset = "시뮬레이션 리셋";
         public const string ResetLog = "시뮬레이션 리셋 (F5/정지)";
@@ -100,7 +102,7 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
     private bool _hasGoingCall;
 
-    [ObservableProperty] private string _simStatusText = "정지됨";
+    [ObservableProperty] private string _simStatusText = SimText.Stopped;
 
     public bool CanChangeSpeed => !IsSimulating || IsSimPaused;
 

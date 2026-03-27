@@ -27,6 +27,7 @@ public partial class MainViewModel
             AutoLayoutCommand,
             FocusNameEditorCommand,
             ImportMermaidCommand,
+            ExportCsvCommand,
             Canvas.FocusSelectedInCanvasCommand
         ];
     }

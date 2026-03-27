@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using Ds2.Core;
 using Ds2.Store;
@@ -67,6 +68,37 @@ public sealed class MainViewModelTests
             Assert.Empty(vm.Simulation.SimEventLog);
             Assert.Empty(vm.Simulation.SimWorkItems);
             Assert.Empty(vm.Simulation.GanttChart.Entries);
+        });
+    }
+
+    [Fact]
+    public void ExportCsv_creates_file_for_new_project()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var path = Path.Combine(Path.GetTempPath(), $"promaker-export-{Guid.NewGuid():N}.csv");
+            try
+            {
+                var export = typeof(MainViewModel).GetMethod(
+                    "ExportCsvToPath",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+                var result = (bool)export.Invoke(vm, [path])!;
+
+                Assert.True(result);
+                Assert.True(File.Exists(path));
+
+                var content = File.ReadAllText(path);
+                Assert.Contains("Flow", content, StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
         });
     }
 

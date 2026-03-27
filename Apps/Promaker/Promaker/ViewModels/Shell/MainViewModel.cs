@@ -88,6 +88,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(OpenIoBatchDialogCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenDurationBatchDialogCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenTokenSpecDialogCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(ConnectSelectedNodesCommand))]
     private bool _hasProject;
     [ObservableProperty] private bool _isDarkTheme = ThemeManager.CurrentTheme == AppTheme.Dark;

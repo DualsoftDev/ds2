@@ -333,7 +333,7 @@ public sealed class SimulationPanelStateTests
             state.IsSimPaused = true;
             state.HasGoingCall = false;
             state.GanttChart.IsRunning = true;
-            state.SimStatusText = "단계 제어 중";
+            state.SimStatusText = "시뮬레이션 단계 제어 중";
 
             var onTokenEvent = typeof(SimulationPanelState).GetMethod(
                 "OnTokenEvent",

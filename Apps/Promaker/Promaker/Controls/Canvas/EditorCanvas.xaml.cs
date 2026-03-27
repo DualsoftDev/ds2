@@ -126,7 +126,7 @@ public partial class EditorCanvas : UserControl
         bool hasNodeSelection = VM?.SelectedNode is not null || (VM?.Selection.OrderedNodeSelection.Count ?? 0) > 0;
         bool hasArrowSelection = (VM?.Selection.OrderedArrowSelection.Count ?? 0) > 0;
         bool hasSelection = hasNodeSelection || hasArrowSelection;
-        bool canStartConnect = TryResolveConnectSourceEntityType(VM, out _);
+        bool canStartConnect = VM?.ConnectSelectedNodesCommand.CanExecute(null) == true;
         ConnectMenuItem.Visibility = hasNodeSelection ? Visibility.Visible : Visibility.Collapsed;
         ConnectMenuItem.IsEnabled = canStartConnect;
         CopyMenuItem.Visibility = hasNodeSelection ? Visibility.Visible : Visibility.Collapsed;

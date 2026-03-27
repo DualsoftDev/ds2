@@ -63,16 +63,6 @@
 
                     <Separator Margin="0,12"/>
 
-                    <TextBlock Text="Position" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,2"/>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="X:" Margin="0,0,4,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding SelectedNode.X, StringFormat='{}{0:0}'}" Margin="0,0,12,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="Y:" Margin="0,0,4,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding SelectedNode.Y, StringFormat='{}{0:0}'}" VerticalAlignment="Center"/>
-                    </StackPanel>
-
-                    <Separator Margin="0,12"/>
-
                     <StackPanel Visibility="{Binding IsSystemSelected, Converter={StaticResource BoolToVis}}">
                         <Border BorderBrush="{DynamicResource BorderBrush}"
                                 BorderThickness="1"
@@ -251,6 +241,14 @@
                     </StackPanel>
 
                     <StackPanel Visibility="{Binding IsDebugBuild, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="Position" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,2"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="X:" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding SelectedNode.X, StringFormat='{}{0:0}'}" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Y:" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding SelectedNode.Y, StringFormat='{}{0:0}'}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Separator Margin="0,12"/>
                         <TextBlock Text="ID" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,2"/>
                         <TextBox Text="{Binding SelectedNode.Id, Mode=OneWay}" IsReadOnly="True"
                                  Padding="6,4" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"/>
