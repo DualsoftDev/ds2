@@ -13,12 +13,36 @@
     <link href="css/app.css" rel="stylesheet" />
     <link href="css/flow-card.css" rel="stylesheet" />
     <link href="DSPilot.styles.css" rel="stylesheet" />
-    <HeadOutlet @rendermode="new InteractiveServerRenderMode(prerender: true)" />
+    <HeadOutlet @rendermode="new InteractiveServerRenderMode(prerender: false)" />
 </head>
 
 <body>
-    <Routes @rendermode="new InteractiveServerRenderMode(prerender: true)" />
+    <div id="app-loading" style="display:flex;align-items:center;justify-content:center;height:100vh;
+         font-family:'Noto Sans KR',sans-serif;color:#666;gap:12px;">
+        <svg width="24" height="24" viewBox="0 0 24 24" style="animation:spin 1s linear infinite;">
+            <circle cx="12" cy="12" r="10" stroke="#1976d2" stroke-width="3" fill="none"
+                    stroke-dasharray="31.4 31.4" stroke-linecap="round"/>
+        </svg>
+        <span>Loading...</span>
+        <style>@@keyframes spin{to{transform:rotate(360deg)}}</style>
+    </div>
+    <Routes @rendermode="new InteractiveServerRenderMode(prerender: false)" />
     <script src="_framework/blazor.web.js"></script>
+    <script>
+        // Blazor 회로 연결 후 로딩 인디케이터 제거
+        Blazor.addEventListener('enhancedload', function() {
+            var el = document.getElementById('app-loading');
+            if (el) el.remove();
+        });
+        // 폴백: Blazor 컴포넌트가 렌더링되면 로딩 제거
+        new MutationObserver(function(m, obs) {
+            if (document.querySelector('[b-]') || document.querySelector('.layout')) {
+                var el = document.getElementById('app-loading');
+                if (el) el.remove();
+                obs.disconnect();
+            }
+        }).observe(document.body, {childList: true, subtree: true});
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="js/ui-utils.js"></script>

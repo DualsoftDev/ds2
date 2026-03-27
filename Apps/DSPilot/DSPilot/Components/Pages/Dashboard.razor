@@ -184,27 +184,24 @@ else
                             @* ── 헤더 (항상 표시, 도면 레이아웃 카드와 동일 높이) ── *@
                             <div class="ds-card-header">
                                 <span class="ct-section-title">Time 분석</span>
-                                @{ var noData = _chartData.Count == 0; }
-                                <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.35); flex-wrap:wrap; opacity:@(noData ? "0.4" : "1"); pointer-events:@(noData ? "none" : "auto");">
+                                <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.35); flex-wrap:wrap;">
                                     @* 평균/이전 토글 - 두 버튼으로 표시 *@
                                     <div style="display:flex; gap:4px; background:var(--color-background); padding:4px; border-radius:8px;">
                                         <button class="btn btn-sm @(!_showAverage ? "btn-filled" : "btn-outlined")"
                                                 @onclick="@(() => SetDisplayMode(false))"
-                                                disabled="@noData"
                                                 title="이전 사이클 값 표시">
                                             <span class="material-icons" style="font-size:18px;">history</span>
                                             이전
                                         </button>
                                         <button class="btn btn-sm @(_showAverage ? "btn-filled" : "btn-outlined")"
                                                 @onclick="@(() => SetDisplayMode(true))"
-                                                disabled="@noData"
                                                 title="평균값 표시">
                                             <span class="material-icons" style="font-size:18px;">analytics</span>
                                             평균
                                         </button>
                                     </div>
                                     <div style="width:1px; height:16px; background:var(--color-border);"></div>
-                                    <select class="ct-sort-select" value="@_sortField" @onchange="OnSortFieldChanged" disabled="@noData">
+                                    <select class="ct-sort-select" value="@_sortField" @onchange="OnSortFieldChanged">
                                         <option value="ct">전체시간</option>
                                         <option value="mt">가동시간</option>
                                         <option value="wt">대기시간</option>
@@ -212,7 +209,7 @@ else
                                         <option value="order" disabled="@(!_processOrderAvailable)">공정</option>
                                     </select>
                                     <button class="btn-icon" title="@(_sortDesc ? "내림차순" : "오름차순")"
-                                            @onclick="ToggleSortDir" disabled="@noData">
+                                            @onclick="ToggleSortDir">
                                         <span class="material-icons">@(_sortDesc ? "arrow_downward" : "arrow_upward")</span>
                                     </button>
                                 </div>
@@ -250,10 +247,8 @@ else
                             }
                             else
                             {
-                                <div class="ds-card-body" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:40px 0; color:var(--color-text-disabled);">
-                                    <span class="material-icons header-loading-spin" style="font-size:32px;">sync</span>
-                                    <span class="typo-body2">PLC 데이터 수집 중...</span>
-                                    <span style="font-size:11px;">데이터가 수집되면 자동으로 표시됩니다</span>
+                                <div class="ds-card-body" style="display:flex; align-items:center; justify-content:center; padding:24px 0; color:var(--color-text-disabled);">
+                                    <span class="typo-body2">사이클 데이터 대기 중</span>
                                 </div>
                             }
 
@@ -626,9 +621,9 @@ else
         }
         catch { }
 
-        // 공정 순서 로딩 (PLC 실행 순서 기반)
+        // 공정 순서 로딩 (PLC 실행 순서 기반) — fire-and-forget으로 페이지 렌더링 비블로킹
         if (ProjectService.IsLoaded)
-            await LoadFlowProcessOrderAsync();
+            _ = LoadFlowProcessOrderAsync();
     }
 
     private async Task LoadFlowProcessOrderAsync()
@@ -638,21 +633,22 @@ else
             var flows = BlueprintService.Layout.FlowPlacements;
             if (flows.Count == 0) return;
 
+            // 경량 메서드 사용: 각 Flow의 최근 사이클 시작시간만 조회 (Summary 계산 생략)
             var tasks = flows.Select(fp =>
-                CycleAnalysisService.DetectRecentCyclesAsync(fp.FlowName, 1)
+                CycleAnalysisService.GetLatestCycleStartTimeAsync(fp.FlowName)
             ).ToArray();
 
             var results = await Task.WhenAll(tasks);
 
             // 모든 Flow가 사이클 데이터를 가지고 있는지 확인
-            if (results.Any(r => r.Count == 0))
+            if (results.Any(r => !r.HasValue))
             {
                 _processOrderAvailable = false;
                 return;
             }
 
             _flowProcessOrder = flows
-                .Select((fp, idx) => (fp.FlowName, StartTime: results[idx][0].StartTime))
+                .Select((fp, idx) => (fp.FlowName, StartTime: results[idx]!.Value))
                 .OrderBy(x => x.StartTime)
                 .Select((x, rank) => (x.FlowName, Rank: rank))
                 .ToDictionary(x => x.FlowName, x => x.Rank);
