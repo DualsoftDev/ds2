@@ -1,0 +1,76 @@
+namespace Ds2.Runtime.Sim.Engine
+
+open System
+open Ds2.Core
+open Ds2.Runtime.Sim.Engine.Core
+
+/// 스케줄된 전이 이벤트 실행 전 상태 검증 (shouldApply) 로직
+module internal TransitionGuards =
+
+    type Context = {
+        Index: SimIndex
+        StateManager: StateManager
+        IsActiveSystemWork: Guid -> bool
+        CanStartWork: Guid -> bool
+        CanStartCall: Guid -> bool
+        CanCompleteCall: Guid -> bool
+        ApplyWorkTransition: Guid -> Status4 -> unit
+        ApplyCallTransition: Guid -> Status4 -> unit
+    }
+
+    let clearAndApplyWork (ctx: Context) workGuid newState =
+        ctx.StateManager.ClearWorkPending(workGuid)
+        let shouldApply =
+            match newState with
+            | Status4.Going ->
+                ctx.StateManager.GetWorkState(workGuid) = Status4.Ready
+                && (
+                    not (ctx.IsActiveSystemWork workGuid)
+                    || ctx.CanStartWork workGuid
+                )
+            | Status4.Finish ->
+                if ctx.StateManager.GetWorkState(workGuid) <> Status4.Going then false
+                else
+                    let callGuids = SimIndex.findOrEmpty workGuid ctx.Index.WorkCallGuids
+                    ctx.StateManager.IsMinDurationMet(workGuid)
+                    && (callGuids |> List.forall (fun callGuid -> ctx.StateManager.GetCallState(callGuid) = Status4.Finish))
+            | Status4.Homing ->
+                ctx.StateManager.GetWorkState(workGuid) = Status4.Finish
+                && WorkConditionChecker.canResetWork ctx.Index (ctx.StateManager.GetState()) workGuid
+            | Status4.Ready ->
+                ctx.StateManager.GetWorkState(workGuid) = Status4.Homing
+            | _ -> true
+
+        if shouldApply then
+            ctx.ApplyWorkTransition workGuid newState
+
+    let clearAndApplyCall (ctx: Context) callGuid newState =
+        ctx.StateManager.ClearCallPending(callGuid)
+        let shouldApply =
+            match newState with
+            | Status4.Going ->
+                ctx.StateManager.GetCallState(callGuid) = Status4.Ready
+                && ctx.CanStartCall callGuid
+            | Status4.Finish ->
+                ctx.StateManager.GetCallState(callGuid) = Status4.Going
+                && ctx.CanCompleteCall callGuid
+            | Status4.Homing ->
+                match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
+                | Some workGuid -> ctx.StateManager.GetWorkState(workGuid) = Status4.Homing
+                | None -> false
+            | Status4.Ready ->
+                match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
+                | Some workGuid -> ctx.StateManager.GetWorkState(workGuid) = Status4.Ready
+                | None -> false
+            | _ -> true
+
+        if shouldApply then
+            ctx.ApplyCallTransition callGuid newState
+
+    let forceAndApplyWork (ctx: Context) workGuid newState =
+        ctx.StateManager.ClearWorkPending(workGuid)
+        ctx.ApplyWorkTransition workGuid newState
+
+    let forceAndApplyCall (ctx: Context) callGuid newState =
+        ctx.StateManager.ClearCallPending(callGuid)
+        ctx.ApplyCallTransition callGuid newState

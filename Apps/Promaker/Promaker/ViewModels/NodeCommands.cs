@@ -83,36 +83,19 @@ public partial class MainViewModel
     private bool CanAutoLayout() =>
         HasProject && Canvas.ActiveTab is not null;
 
-    private static string GetUniqueNameForFlow(string baseName, Microsoft.FSharp.Collections.FSharpList<Flow> existingFlows)
+    private static string GetUniqueName(string baseName, IEnumerable<string> existingNames, string separator = "")
     {
-        var existingNames = new HashSet<string>(existingFlows.Select(f => f.Name));
-        if (!existingNames.Contains(baseName))
+        var names = new HashSet<string>(existingNames);
+        if (!names.Contains(baseName))
             return baseName;
 
         var counter = 1;
         string candidateName;
         do
         {
-            candidateName = $"{baseName}{counter}";
+            candidateName = $"{baseName}{separator}{counter}";
             counter++;
-        } while (existingNames.Contains(candidateName));
-
-        return candidateName;
-    }
-
-    private static string GetUniqueNameForWork(string baseName, Microsoft.FSharp.Collections.FSharpList<Work> existingWorks)
-    {
-        var existingNames = new HashSet<string>(existingWorks.Select(w => w.LocalName));
-        if (!existingNames.Contains(baseName))
-            return baseName;
-
-        var counter = 1;
-        string candidateName;
-        do
-        {
-            candidateName = $"{baseName}{counter}";
-            counter++;
-        } while (existingNames.Contains(candidateName));
+        } while (names.Contains(candidateName));
 
         return candidateName;
     }
@@ -307,11 +290,4 @@ public partial class MainViewModel
         });
     }
 
-    private static string NextUniqueName(string baseName, List<string> existing)
-    {
-        if (!existing.Contains(baseName)) return baseName;
-        var i = 1;
-        while (existing.Contains($"{baseName}_{i}")) i++;
-        return $"{baseName}_{i}";
-    }
 }

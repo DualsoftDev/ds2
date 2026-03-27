@@ -182,7 +182,7 @@ public partial class MainViewModel
 
             var sysId = targetSystemIdOpt != null ? targetSystemIdOpt.Value : srcFlow.ParentId;
             var existingNames = DsQuery.flowsOf(sysId, _store).Select(f => f.Name).ToList();
-            var suggestedName = NextUniqueName(srcFlow.Name, existingNames);
+            var suggestedName = GetUniqueName(srcFlow.Name, existingNames, "_");
             var newName = _dialogService.PromptName("Flow 복사 — 새 이름", suggestedName);
             if (newName is null) return;
 
