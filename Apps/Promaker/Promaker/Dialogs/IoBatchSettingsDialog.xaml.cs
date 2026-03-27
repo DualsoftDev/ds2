@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -479,6 +480,134 @@ public partial class IoBatchSettingsDialog : Window
         {
             DialogHelpers.ShowThemedMessageBox($"내보내기 중 오류 발생:\n\n{ex.Message}", "Export Error", MessageBoxButton.OK, "❌");
         }
+    }
+
+    private static string EscapeCsvField(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        return value;
+    }
+
+    private static int ApplyImportedRows(
+        IEnumerable<IoBatchRow> targetRows,
+        IEnumerable<CsvImporter.IoImportRow> importRows)
+    {
+        var rowMap = targetRows.ToDictionary(
+            row => BuildImportKey(row.Flow, row.Device, row.Api),
+            StringComparer.OrdinalIgnoreCase);
+
+        var matched = 0;
+        foreach (var importRow in importRows)
+        {
+            if (!rowMap.TryGetValue(BuildImportKey(importRow.FlowName, importRow.DeviceName, importRow.ApiName), out var target))
+                continue;
+
+            if (string.Equals(importRow.Direction, "Output", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrEmpty(importRow.Address))
+                    target.OutAddress = importRow.Address;
+                if (!string.IsNullOrEmpty(importRow.VarName))
+                    target.OutSymbol = importRow.VarName;
+                if (!string.IsNullOrEmpty(importRow.DataType))
+                    target.OutDataType = importRow.DataType;
+                matched++;
+                continue;
+            }
+
+            if (!string.Equals(importRow.Direction, "Input", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!string.IsNullOrEmpty(importRow.Address))
+                target.InAddress = importRow.Address;
+            if (!string.IsNullOrEmpty(importRow.VarName))
+                target.InSymbol = importRow.VarName;
+            if (!string.IsNullOrEmpty(importRow.DataType))
+                target.InDataType = importRow.DataType;
+            matched++;
+        }
+
+        return matched;
+    }
+
+    private static string BuildImportKey(string flow, string device, string api) =>
+        string.Join("\u001F", flow, device, api);
+
+    private void ExportCsv_Click(object sender, RoutedEventArgs e)
+    {
+        if (_rows.Count == 0)
+        {
+            DialogHelpers.ShowThemedMessageBox("내보낼 데이터가 없습니다.", "CSV 내보내기", MessageBoxButton.OK, "⚠");
+            return;
+        }
+
+        var modelName = !string.IsNullOrEmpty(_currentFilePath)
+            ? Path.GetFileNameWithoutExtension(_currentFilePath)
+            : "io_batch";
+
+        var picker = new SaveFileDialog
+        {
+            Title = "I/O CSV 내보내기",
+            Filter = "CSV Files (*.csv)|*.csv",
+            FileName = $"{modelName}_io_batch.csv"
+        };
+
+        if (picker.ShowDialog(this) != true)
+            return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Flow,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress");
+        foreach (var row in _rows)
+        {
+            sb.AppendLine(string.Join(",",
+                EscapeCsvField(row.Flow),
+                EscapeCsvField(row.Device),
+                EscapeCsvField(row.Api),
+                EscapeCsvField(row.OutSymbol),
+                EscapeCsvField(row.OutDataType),
+                EscapeCsvField(row.OutAddress),
+                EscapeCsvField(row.InSymbol),
+                EscapeCsvField(row.InDataType),
+                EscapeCsvField(row.InAddress)));
+        }
+
+        File.WriteAllText(picker.FileName, sb.ToString(), new UTF8Encoding(false));
+        DialogHelpers.ShowThemedMessageBox(
+            $"CSV 내보내기 완료: {_rows.Count}건\n\n파일: {Path.GetFileName(picker.FileName)}",
+            "CSV 내보내기", MessageBoxButton.OK, "✓");
+    }
+
+    private void ImportCsv_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new OpenFileDialog
+        {
+            Title = "I/O CSV 가져오기",
+            Filter = "CSV Files|*.csv|All Files|*.*",
+            DefaultExt = ".csv"
+        };
+
+        if (picker.ShowDialog(this) != true)
+            return;
+
+        var result = Ds2.IOList.CsvImporter.parseIoCsv(picker.FileName);
+        if (result.IsError)
+        {
+            DialogHelpers.ShowThemedMessageBox(result.ErrorValue, "CSV Import 오류", MessageBoxButton.OK, "⚠");
+            return;
+        }
+
+        var importRows = Microsoft.FSharp.Collections.ListModule.ToArray(result.ResultValue);
+        if (importRows.Length == 0)
+            return;
+
+        var matched = ApplyImportedRows(_rows, importRows);
+
+        RefreshApplyButtonState();
+        var total = importRows.Length;
+        DialogHelpers.ShowThemedMessageBox(
+            $"CSV 가져오기 완료:\n\n- 전체: {total}건\n- 매칭: {matched}건\n- 미매칭: {total - matched}건",
+            "CSV Import", MessageBoxButton.OK, "✓");
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
