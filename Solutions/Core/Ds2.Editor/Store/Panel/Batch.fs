@@ -140,6 +140,28 @@ type DsStorePanelBatchExtensions =
                     store.TrackMutate(store.Works, workId, fun work -> work.TokenRole <- role))
             store.EmitRefreshAndHistory()
 
+    /// Work TokenRole 플래그 토글 (비트 XOR 방식, 단일 Undo 트랜잭션)
+    [<Extension>]
+    static member ToggleWorkTokenRoleFlag(store: DsStore, workIds: seq<Guid>, flag: TokenRole) =
+        let changes =
+            workIds
+            |> Seq.map (fun workId -> DsQuery.resolveOriginalWorkId workId store)
+            |> Seq.distinct
+            |> Seq.choose (fun workId ->
+                match DsQuery.getWork workId store with
+                | Some work ->
+                    let current = work.TokenRole
+                    let next = if current.HasFlag(flag) then current &&& ~~~flag else current ||| flag
+                    if next <> current then Some (struct(workId, next)) else None
+                | None -> None)
+            |> Seq.toList
+        if not changes.IsEmpty then
+            StoreLog.debug($"ToggleWorkTokenRoleFlag: {changes.Length} items, flag={flag}")
+            store.WithTransaction("Work TokenRole 토글", fun () ->
+                for struct(workId, role) in changes do
+                    store.TrackMutate(store.Works, workId, fun work -> work.TokenRole <- role))
+            store.EmitRefreshAndHistory()
+
     /// ApiCall IO 태그 일괄 변경 (단일 Undo 트랜잭션)
     [<Extension>]
     static member UpdateApiCallIOTagsBatch(store: DsStore, changes: seq<struct(Guid * string * string * string * string)>) =

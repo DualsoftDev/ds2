@@ -139,6 +139,19 @@ public partial class EditorCanvas : UserControl
             ? Visibility.Visible : Visibility.Collapsed;
         PasteMenuItem.IsEnabled = VM?.PasteCopiedCommand.CanExecute(null) == true;
 
+        // Work 선택 시에만 TokenRole 메뉴 표시 + 체크 상태 반영
+        var isWorkSelected = VM?.SelectedNode is { EntityType: EntityKind.Work };
+        TokenRoleMenuItem.Visibility = isWorkSelected == true ? Visibility.Visible : Visibility.Collapsed;
+        SepBeforeTokenRole.Visibility = TokenRoleMenuItem.Visibility;
+        if (isWorkSelected == true && VM?.SelectedNode is { } workNode)
+        {
+            var store = VM.PropertyPanel.Host.Store;
+            var role = DsQuery.getWork(workNode.Id, store)?.Value.TokenRole ?? TokenRole.None;
+            TokenRoleSourceItem.Header = (role.HasFlag(TokenRole.Source) ? "✔ " : "    ") + "Source";
+            TokenRoleIgnoreItem.Header = (role.HasFlag(TokenRole.Ignore) ? "✔ " : "    ") + "Ignore";
+            TokenRoleSinkItem.Header = (role.HasFlag(TokenRole.Sink) ? "✔ " : "    ") + "Sink";
+        }
+
         // 연속/선행/후행 구분선 정리
         CollapseBoundarySeparators(CanvasContextMenu);
     }
@@ -192,6 +205,31 @@ public partial class EditorCanvas : UserControl
             (int)_lastContextMenuCanvasPos.X, (int)_lastContextMenuCanvasPos.Y,
             UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight);
         VM.AddWorkCommand.Execute(null);
+    }
+
+    private void TokenRole_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string tag } || VM is null) return;
+
+        var flag = tag switch
+        {
+            "Source" => TokenRole.Source,
+            "Ignore" => TokenRole.Ignore,
+            "Sink" => TokenRole.Sink,
+            _ => TokenRole.None
+        };
+        if (flag == TokenRole.None) return;
+
+        // 선택된 Work ID 수집 (입력 캡처)
+        var workIds = VM.Selection.OrderedNodeSelection
+            .Where(n => n.EntityKind == EntityKind.Work)
+            .Select(n => n.Id).ToList();
+        if (workIds.Count == 0 && VM.SelectedNode is { EntityType: EntityKind.Work } w)
+            workIds.Add(w.Id);
+        if (workIds.Count == 0) return;
+
+        // F# 비즈니스 API 호출 (비트 토글 로직은 F#에 위임)
+        VM.PropertyPanel.Host.Store.ToggleWorkTokenRoleFlag(workIds, flag);
     }
 
     private void AddCall_Click(object sender, RoutedEventArgs e)

@@ -39,6 +39,12 @@
                 <MenuItem x:Name="CopyMenuItem" Header="복사" Command="{Binding CopySelectedCommand}"/>
                 <MenuItem x:Name="PasteMenuItem" Header="붙여넣기" Command="{Binding PasteCopiedCommand}"/>
                 <MenuItem x:Name="DeleteMenuItem" Header="삭제" Command="{Binding DeleteSelectedCommand}"/>
+                <Separator x:Name="SepBeforeTokenRole"/>
+                <MenuItem x:Name="TokenRoleMenuItem" Header="TokenRole">
+                    <MenuItem x:Name="TokenRoleSourceItem" Header="Source" Click="TokenRole_Click" Tag="Source"/>
+                    <MenuItem x:Name="TokenRoleIgnoreItem" Header="Ignore" Click="TokenRole_Click" Tag="Ignore"/>
+                    <MenuItem x:Name="TokenRoleSinkItem" Header="Sink" Click="TokenRole_Click" Tag="Sink"/>
+                </MenuItem>
             </ContextMenu>
         </Grid.ContextMenu>
 
