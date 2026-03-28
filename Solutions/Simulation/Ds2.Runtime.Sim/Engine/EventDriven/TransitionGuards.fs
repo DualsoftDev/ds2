@@ -11,6 +11,7 @@ module internal TransitionGuards =
         Index: SimIndex
         StateManager: StateManager
         IsActiveSystemWork: Guid -> bool
+        IsWorkFrozen: Guid -> bool
         CanStartWork: Guid -> bool
         CanStartCall: Guid -> bool
         CanCompleteCall: Guid -> bool
@@ -30,6 +31,7 @@ module internal TransitionGuards =
                 )
             | Status4.Finish ->
                 if ctx.StateManager.GetWorkState(workGuid) <> Status4.Going then false
+                elif ctx.IsWorkFrozen workGuid then false
                 else
                     let callGuids = SimIndex.findOrEmpty workGuid ctx.Index.WorkCallGuids
                     ctx.StateManager.IsMinDurationMet(workGuid)
@@ -49,11 +51,19 @@ module internal TransitionGuards =
         let shouldApply =
             match newState with
             | Status4.Going ->
-                ctx.StateManager.GetCallState(callGuid) = Status4.Ready
-                && ctx.CanStartCall callGuid
+                match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
+                | Some workGuid ->
+                    ctx.StateManager.GetCallState(callGuid) = Status4.Ready
+                    && not (ctx.IsWorkFrozen workGuid)
+                    && ctx.CanStartCall callGuid
+                | None -> false
             | Status4.Finish ->
-                ctx.StateManager.GetCallState(callGuid) = Status4.Going
-                && ctx.CanCompleteCall callGuid
+                match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
+                | Some workGuid ->
+                    ctx.StateManager.GetCallState(callGuid) = Status4.Going
+                    && not (ctx.IsWorkFrozen workGuid)
+                    && ctx.CanCompleteCall callGuid
+                | None -> false
             | Status4.Homing ->
                 match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
                 | Some workGuid -> ctx.StateManager.GetWorkState(workGuid) = Status4.Homing

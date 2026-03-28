@@ -24,6 +24,7 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     let mutable pendingWorkTransitions = Set.empty<Guid>
     let mutable workGTriggeredResets = Set.empty<Guid * Guid>
     let mutable workMinDurationMet = Set.empty<Guid>
+    let mutable frozenWorks = Set.empty<Guid>
 
     let canonicalWorkGuid (guid: Guid) =
         SimIndex.canonicalWorkGuid index guid
@@ -105,6 +106,18 @@ type StateManager(index: SimIndex, initialTickMs: int) =
         lock syncRoot (fun () ->
             workGTriggeredResets <- Set.empty)
 
+    member _.FreezeWork(guid: Guid) =
+        lock syncRoot (fun () ->
+            frozenWorks <- frozenWorks.Add(canonicalWorkGuid guid))
+
+    member _.UnfreezeWork(guid: Guid) =
+        lock syncRoot (fun () ->
+            frozenWorks <- frozenWorks.Remove(canonicalWorkGuid guid))
+
+    member _.IsWorkFrozen(guid: Guid) =
+        lock syncRoot (fun () ->
+            frozenWorks.Contains(canonicalWorkGuid guid))
+
     member _.SetIOValue(apiCallGuid: Guid, value: string) =
         lock syncRoot (fun () -> state <- SimState.setIOValue apiCallGuid value state)
 
@@ -114,7 +127,8 @@ type StateManager(index: SimIndex, initialTickMs: int) =
             pendingCallTransitions <- Set.empty
             pendingWorkTransitions <- Set.empty
             workGTriggeredResets   <- Set.empty
-            workMinDurationMet     <- Set.empty)
+            workMinDurationMet     <- Set.empty
+            frozenWorks            <- Set.empty)
 
     // ── Token ──
     member _.SetWorkToken(workGuid: Guid, token: TokenValue option) =

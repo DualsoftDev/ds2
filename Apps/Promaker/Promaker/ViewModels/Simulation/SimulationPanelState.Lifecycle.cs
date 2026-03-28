@@ -10,13 +10,53 @@ using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
 
-public partial class SimulationPanelState
-{
-    [RelayCommand(CanExecute = nameof(CanStartSimulation))]
-    private void StartSimulation()
-    {
-        if (IsSimulating && IsSimPaused)
-        {
+public partial class SimulationPanelState
+{
+    private bool TryWithSimEngine(string operationName, Action<ISimulationEngine> action)
+    {
+        if (_simEngine is null)
+            return false;
+
+        try
+        {
+            action(_simEngine);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SimLog.Error($"{operationName} failed", ex);
+            _setStatusText(SimText.SimulationError(ex.Message));
+            return false;
+        }
+    }
+
+    private bool TryDisposeCurrentEngine(string operationName)
+    {
+        if (_simEngine is null)
+            return true;
+
+        AdvanceSimUiGeneration();
+        var engine = _simEngine;
+        _simEngine = null;
+
+        try
+        {
+            engine.Dispose();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SimLog.Error($"{operationName} failed", ex);
+            _setStatusText(SimText.SimulationError(ex.Message));
+            return false;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanStartSimulation))]
+    private void StartSimulation()
+    {
+        if (IsSimulating && IsSimPaused)
+        {
             _simEngine?.SetAllFlowStates(FlowTag.Ready);
             _simEngine?.Resume();
             _isStepMode = false;
@@ -28,14 +68,16 @@ public partial class SimulationPanelState
             return;
         }
 
-        try
-        {
-            var index = SimIndexModule.build(Store, 10);
-            _simEngine?.Dispose();
-            _simEngine = new EventDrivenEngine(index);
-
-            WireSimEvents();
-            InitSimNodes();
+        try
+        {
+            var index = SimIndexModule.build(Store, 10);
+            if (!TryDisposeCurrentEngine("Simulation restart"))
+                return;
+            _simEngine = new EventDrivenEngine(index);
+            AdvanceSimUiGeneration();
+
+            WireSimEvents();
+            InitSimNodes();
             InitTokenSources();
 
             _simStartTime = DateTime.Now;
@@ -87,14 +129,17 @@ public partial class SimulationPanelState
 
     private bool CanPauseSimulation() => IsSimulating && !IsSimPaused;
 
-    [RelayCommand(CanExecute = nameof(CanStopSimulation))]
-    private void StopSimulation()
-    {
-        _simEngine?.Stop();
-        ClearSimStateFromCanvas();
-        ClearAllWarnings();
-        HasWorkGoing = false;
-        HasGoingCall = false;
+    [RelayCommand(CanExecute = nameof(CanStopSimulation))]
+    private void StopSimulation()
+    {
+        AdvanceSimUiGeneration();
+        if (_simEngine is not null
+            && !TryWithSimEngine("Simulation stop", engine => engine.Stop()))
+            return;
+        ClearSimStateFromCanvas();
+        ClearAllWarnings();
+        HasWorkGoing = false;
+        HasGoingCall = false;
         _isStepMode = false;
         SimStatusText = SimText.Stopped;
         ApplySimulationUiState(
@@ -107,14 +152,17 @@ public partial class SimulationPanelState
 
     private bool CanStopSimulation() => IsSimulating;
 
-    [RelayCommand(CanExecute = nameof(CanResetSimulation))]
-    private void ResetSimulation()
-    {
-        _simEngine?.Reset();
-        _simStartTime = DateTime.Now;
-        ApplySimulationResetUiState(clearCollections: false);
-        GanttChart.Reset(_simStartTime);
-        InitGanttEntries();
+    [RelayCommand(CanExecute = nameof(CanResetSimulation))]
+    private void ResetSimulation()
+    {
+        AdvanceSimUiGeneration();
+        if (_simEngine is not null
+            && !TryWithSimEngine("Simulation reset", engine => engine.Reset()))
+            return;
+        _simStartTime = DateTime.Now;
+        ApplySimulationResetUiState(clearCollections: false);
+        GanttChart.Reset(_simStartTime);
+        InitGanttEntries();
         HasWorkGoing = false;
         HasGoingCall = false;
         _isStepMode = false;
@@ -180,6 +228,19 @@ public partial class SimulationPanelState
     public void NotifyConnectionsChanged()
     {
         if (!IsSimulating || _simEngine is null) return;
+
+        if (HasWorkGoing || HasGoingCall)
+        {
+            const string msg =
+                "시뮬레이션 중 연결을 변경하면 이미 Going 상태인 Work/Call은 현재 상태와 토큰을 유지합니다.\n" +
+                "순수 Start 연결이 끊긴 항목은 진행이 일시 정지되고, StartReset 기반 항목은 계속 진행됩니다.";
+            ShowPausedMessageBox(
+                msg,
+                "연결 변경 반영",
+                MessageBoxButton.OK,
+                DialogHelpers.IconWarn,
+                suppressKey: "ConnectionsChangedInFlight");
+        }
 
         try
         {
@@ -309,13 +370,12 @@ public partial class SimulationPanelState
         return result;
     }
 
-    private void DisposeSimEngine()
-    {
-        _simEngine?.Dispose();
-        _simEngine = null;
-        ClearSimStateFromCanvas();
-        IsSimulating = false;
-        IsSimPaused = false;
+    private void DisposeSimEngine()
+    {
+        TryDisposeCurrentEngine("Simulation dispose");
+        ClearSimStateFromCanvas();
+        IsSimulating = false;
+        IsSimPaused = false;
         _stateCache.Clear();
     }
 

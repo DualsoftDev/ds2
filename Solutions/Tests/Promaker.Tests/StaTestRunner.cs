@@ -38,6 +38,27 @@ internal static class StaTestRunner
         item.Error?.Throw();
     }
 
+    public static bool WaitUntil(int timeoutMs, Func<bool> predicate)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        do
+        {
+            if (predicate())
+                return true;
+
+            PumpPendingUi();
+            Thread.Yield();
+        }
+        while (DateTime.UtcNow < deadline);
+
+        return predicate();
+    }
+
+    public static void PumpPendingUi() =>
+        Dispatcher.CurrentDispatcher.Invoke(
+            () => { },
+            DispatcherPriority.Background);
+
     private static void ThreadMain()
     {
         SynchronizationContext.SetSynchronizationContext(
@@ -69,7 +90,7 @@ internal static class StaTestRunner
             }
             finally
             {
-                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+                PumpPendingUi();
                 item.Done.Set();
             }
         }

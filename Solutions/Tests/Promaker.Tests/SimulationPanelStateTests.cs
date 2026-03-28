@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
-using System.Threading;
 using System.Windows.Threading;
 using Ds2.Core;
 using Ds2.Runtime.Sim.Engine;
@@ -262,13 +261,7 @@ public sealed class SimulationPanelStateTests
             engine.ForceWorkState(work1Id, Status4.Going);
             engine.ForceWorkState(work1Id, Status4.Finish);
 
-            var shifted = false;
-            for (var i = 0; i < 200 && !shifted; i++)
-            {
-                shifted = engine.GetWorkToken(work2Id) is not null;
-                if (!shifted)
-                    Thread.Sleep(10);
-            }
+            var shifted = StaTestRunner.WaitUntil(2000, () => engine.GetWorkToken(work2Id) is not null);
 
             Assert.True(shifted);
             Assert.True(engine.HasStartableWork);
@@ -329,13 +322,7 @@ public sealed class SimulationPanelStateTests
             engine.ForceWorkState(work1Id, Status4.Going);
             engine.ForceWorkState(work1Id, Status4.Finish);
 
-            var shifted = false;
-            for (var i = 0; i < 200 && !shifted; i++)
-            {
-                shifted = engine.GetWorkToken(work2Id) is not null;
-                if (!shifted)
-                    Thread.Sleep(10);
-            }
+            var shifted = StaTestRunner.WaitUntil(2000, () => engine.GetWorkToken(work2Id) is not null);
 
             Assert.True(shifted);
             Assert.True(engine.HasStartableWork);
