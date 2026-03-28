@@ -25,6 +25,8 @@
     <Compile Include="Engine\EventDriven\ConditionEvaluation.fs" />
     <Compile Include="Engine\EventDriven\TransitionGuards.fs" />
     <Compile Include="Engine\EventDriven\ConnectionReload.fs" />
+    <Compile Include="Engine\EventDriven\EngineLifecycle.fs" />
+    <Compile Include="Engine\EventDriven\EngineFlowStep.fs" />
     <Compile Include="Engine\EventDriven\EngineRuntime.fs" />
     <Compile Include="Engine\EventDrivenEngine.fs" />
   </ItemGroup>

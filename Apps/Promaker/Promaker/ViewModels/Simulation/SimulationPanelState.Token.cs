@@ -1,9 +1,11 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
+using Ds2.Runtime.Sim.Engine;
 using Ds2.Runtime.Sim.Model;
 using Ds2.Store;
 
@@ -45,12 +47,15 @@ public partial class SimulationPanelState
             SelectedTokenSource = TokenSourceWorks[0];
     }
 
-    private void WireTokenEvent()
+    private void WireTokenEvent(ISimulationEngine engine, long generation)
     {
-        if (_simEngine is null) return;
-
-        _simEngine.TokenEvent += (_, args) =>
-            _dispatcher.BeginInvoke(() => OnTokenEvent(args));
+        engine.TokenEvent += (_, args) =>
+            _dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_simEngine, engine) || Interlocked.Read(ref _simUiGeneration) != generation)
+                    return;
+                OnTokenEvent(args);
+            });
     }
 
     private void OnTokenEvent(TokenEventArgs args)

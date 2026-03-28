@@ -1,7 +1,6 @@
 module Ds2.Store.Editor.Tests.SimulationTests
 
 open System
-open System.Threading
 open Xunit
 open Ds2.Core
 open Ds2.Store
@@ -217,14 +216,6 @@ module SimIndexTests =
 
 module StepModeTests =
 
-    let private waitUntil timeoutMs predicate =
-        let deadline = DateTime.UtcNow.AddMilliseconds(float timeoutMs)
-        let mutable matched = predicate ()
-        while not matched && DateTime.UtcNow < deadline do
-            Thread.Sleep(10)
-            matched <- predicate ()
-        matched
-
     [<Fact>]
     let ``STEP mode: repeated step after pause at work start eventually reaches successor work`` () =
         let store = createStore ()
@@ -269,7 +260,6 @@ module StepModeTests =
             while not work2Going && step < 16 do
                 step <- step + 1
                 let progressed = engine.Step()
-                Thread.Sleep(10)
                 lastState <- $"Step {step}: progressed={progressed}, {dumpState ()}"
                 work2Going <- engine.GetWorkState(work2.Id) = Some Status4.Going
 
@@ -299,7 +289,6 @@ module StepModeTests =
             while (engine.HasStartableWork || engine.HasActiveDuration) && guard < 8 do
                 guard <- guard + 1
                 engine.Step() |> ignore
-                Thread.Sleep(10)
 
             Assert.Equal(Some Status4.Finish, engine.GetWorkState(work.Id))
             Assert.False(engine.HasStartableWork, "terminal finish should not leave any startable work")
@@ -337,14 +326,6 @@ module StepModeTests =
             engine.Stop()
 
 module EventDrivenEngineTokenTests =
-
-    let private waitUntil timeoutMs predicate =
-        let deadline = DateTime.UtcNow.AddMilliseconds(float timeoutMs)
-        let mutable matched = predicate ()
-        while not matched && DateTime.UtcNow < deadline do
-            Thread.Sleep(10)
-            matched <- predicate ()
-        matched
 
     [<Fact>]
     let ``reference work shares token and runtime state with original work`` () =

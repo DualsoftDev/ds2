@@ -11,6 +11,7 @@ module internal ConditionEvaluation =
         Index: SimIndex
         StateManager: StateManager
         Scheduler: EventScheduler
+        IsWorkFrozen: Guid -> bool
         CanStartWork: Guid -> bool
         CanStartCall: Guid -> bool
         CanCompleteCall: Guid -> bool
@@ -97,6 +98,7 @@ module internal ConditionEvaluation =
             match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
             | Some workGuid ->
                 if ctx.StateManager.GetCallState(callGuid) = Status4.Ready
+                   && not (ctx.IsWorkFrozen workGuid)
                    && not (isFlowPausedForWork ctx workGuid)
                    && ctx.StateManager.GetWorkState(workGuid) = Status4.Going
                    && ctx.CanStartCall callGuid
@@ -106,14 +108,19 @@ module internal ConditionEvaluation =
 
     let evaluateCallCompletions (ctx: Context) () =
         for callGuid in ctx.Index.AllCallGuids do
-            if ctx.StateManager.GetCallState(callGuid) = Status4.Going
-               && ctx.CanCompleteCall callGuid
-               && not (ctx.StateManager.IsCallPending(callGuid)) then
-                scheduleCallTransition ctx callGuid Status4.Finish
+            match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
+            | Some workGuid ->
+                if ctx.StateManager.GetCallState(callGuid) = Status4.Going
+                   && not (ctx.IsWorkFrozen workGuid)
+                   && ctx.CanCompleteCall callGuid
+                   && not (ctx.StateManager.IsCallPending(callGuid)) then
+                    scheduleCallTransition ctx callGuid Status4.Finish
+            | None -> ()
 
     let evaluateWorkCompletions (ctx: Context) () =
         for workGuid in ctx.Index.AllWorkGuids do
             if ctx.StateManager.GetWorkState(workGuid) = Status4.Going
+               && not (ctx.IsWorkFrozen workGuid)
                && not (ctx.StateManager.IsWorkPending(workGuid)) then
                 let callGuids = SimIndex.findOrEmpty workGuid ctx.Index.WorkCallGuids
                 if not callGuids.IsEmpty

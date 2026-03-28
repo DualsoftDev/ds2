@@ -1,5 +1,7 @@
 module Ds2.Store.Editor.Tests.TestHelpers
 
+open System
+open System.Threading
 open Ds2.Store
 open Ds2.Editor
 open Ds2.Core
@@ -33,3 +35,6 @@ let setupBasicHierarchy (store: DsStore) =
     let flow = addFlow store "TestFlow" system.Id
     let work = addWork store "TestWork" flow.Id
     project, system, flow, work
+
+let waitUntil (timeoutMs: int) predicate =
+    SpinWait.SpinUntil(Func<bool>(predicate), timeoutMs)

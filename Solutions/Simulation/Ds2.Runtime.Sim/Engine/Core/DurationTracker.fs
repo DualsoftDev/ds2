@@ -29,6 +29,16 @@ type DurationTracker(scheduler: EventScheduler) =
     member _.Remove(workGuid: Guid) =
         durationEvents <- durationEvents.Remove(workGuid)
 
+    /// 진행 중 Work를 현재 시점에서 정지시키고 남은 duration을 보존
+    member _.PauseDuration(workGuid: Guid) =
+        match durationEvents |> Map.tryFind workGuid with
+        | Some struct(eventId, scheduledTimeMs) ->
+            scheduler.Cancel(eventId)
+            let remaining = max 0L (scheduledTimeMs - scheduler.CurrentTimeMs)
+            pausedDurationRemaining <- pausedDurationRemaining.Add(workGuid, remaining)
+            durationEvents <- durationEvents.Remove(workGuid)
+        | None -> ()
+
     /// Paused duration 제거
     member _.ClearPausedDuration(workGuid: Guid) =
         pausedDurationRemaining <- pausedDurationRemaining.Remove(workGuid)

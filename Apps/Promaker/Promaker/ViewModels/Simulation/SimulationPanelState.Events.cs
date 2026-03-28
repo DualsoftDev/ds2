@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using Ds2.Core;
 using Ds2.Runtime.Sim.Engine;
 using Ds2.Runtime.Sim.Model;
@@ -14,16 +15,34 @@ public partial class SimulationPanelState
     {
         if (_simEngine is null) return;
 
-        _simEngine.WorkStateChanged += (_, args) =>
-            _dispatcher.BeginInvoke(() => OnWorkStateChanged(args));
+        var engine = _simEngine;
+        var generation = Interlocked.Read(ref _simUiGeneration);
 
-        _simEngine.CallStateChanged += (_, args) =>
-            _dispatcher.BeginInvoke(() => OnCallStateChanged(args));
+        engine.WorkStateChanged += (_, args) =>
+            _dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_simEngine, engine) || Interlocked.Read(ref _simUiGeneration) != generation)
+                    return;
+                OnWorkStateChanged(args);
+            });
 
-        _simEngine.SimulationStatusChanged += (_, args) =>
-            _dispatcher.BeginInvoke(() => OnSimStatusChanged(args));
+        engine.CallStateChanged += (_, args) =>
+            _dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_simEngine, engine) || Interlocked.Read(ref _simUiGeneration) != generation)
+                    return;
+                OnCallStateChanged(args);
+            });
 
-        WireTokenEvent();
+        engine.SimulationStatusChanged += (_, args) =>
+            _dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_simEngine, engine) || Interlocked.Read(ref _simUiGeneration) != generation)
+                    return;
+                OnSimStatusChanged(args);
+            });
+
+        WireTokenEvent(engine, generation);
     }
 
     private void OnWorkStateChanged(WorkStateChangedArgs args)
