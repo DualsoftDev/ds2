@@ -3,6 +3,7 @@ using System.Linq;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using Ds2.Core;
 using Ds2.Store;
@@ -30,29 +31,17 @@ public sealed class ExplorerPaneTests
             var targetWorkId = store.AddWork("SearchTargetWork", flowId);
             store.AddWork("OtherWork", flowId);
 
-            typeof(MainViewModel)
-                .GetMethod("RequestRebuildAll", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(vm, [null]);
-            DoEvents();
-
+            RebuildAll(vm);
             Assert.DoesNotContain(vm.ControlTreeRoots, node => node.EntityType == EntityKind.Project);
 
-            var pane = new ExplorerPane { DataContext = vm };
-            var host = new Window { Content = pane, Width = 400, Height = 300, ShowInTaskbar = false };
-            host.Show();
+            var host = CreateHost(vm, out var pane);
             try
             {
-                DoEvents();
-
-                var searchBox = (TextBox)typeof(ExplorerPane)
-                    .GetField("SearchBox", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .GetValue(pane)!;
-                var controlTree = (TreeView)typeof(ExplorerPane)
-                    .GetField("ControlTree", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .GetValue(pane)!;
+                var searchBox = GetField<TextBox>(pane, "SearchBox");
+                var controlTree = GetField<TreeView>(pane, "ControlTree");
 
                 searchBox.Text = "SearchTargetWork";
-                DoEvents();
+                ApplySearchFilter(pane);
 
                 var controlRoots = controlTree.ItemsSource!.Cast<EntityNode>().ToList();
                 var systemNode = Assert.Single(controlRoots);
@@ -72,6 +61,100 @@ public sealed class ExplorerPaneTests
     }
 
     [Fact]
+    public void Search_selection_opens_parent_canvas_for_work_match()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = DsQuery.allProjects(store).Head.Id;
+            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = DsQuery.flowsOf(systemId, store).Head.Id;
+            var workId = store.AddWork("CanvasSearchWork", flowId);
+
+            RebuildAll(vm);
+
+            var host = CreateHost(vm, out var pane);
+            try
+            {
+                var searchBox = GetField<TextBox>(pane, "SearchBox");
+                var controlTree = GetField<TreeView>(pane, "ControlTree");
+
+                searchBox.Text = "CanvasSearchWork";
+                ApplySearchFilter(pane);
+
+                var workNode = controlTree.ItemsSource!
+                    .Cast<EntityNode>()
+                    .Single()
+                    .Children
+                    .Single()
+                    .Children
+                    .Single();
+
+                InvokeHandleTreeSelectionChanged(pane, TreePaneKind.Control, workNode);
+
+                Assert.NotNull(vm.Canvas.ActiveTab);
+                Assert.Contains(vm.Canvas.CanvasNodes, node => node.Id == workId && node.EntityType == EntityKind.Work);
+            }
+            finally
+            {
+                host.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void Search_selection_opens_parent_canvas_for_device_work_match()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = DsQuery.allProjects(store).Head.Id;
+            var deviceId = store.AddSystem("DeviceSearchTarget", projectId, false);
+            var flowId = store.AddFlow("DeviceFlow", deviceId);
+            var workId = store.AddWork("DeviceSearchWork", flowId);
+
+            RebuildAll(vm);
+
+            var host = CreateHost(vm, out var pane);
+            try
+            {
+                var searchBox = GetField<TextBox>(pane, "SearchBox");
+                var deviceTree = GetField<TreeView>(pane, "DeviceTree");
+                var deviceButton = GetField<ToggleButton>(pane, "DeviceTreeButton");
+
+                deviceButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                DoEvents();
+
+                searchBox.Text = "DeviceSearchWork";
+                ApplySearchFilter(pane);
+
+                var workNode = deviceTree.ItemsSource!
+                    .Cast<EntityNode>()
+                    .Single()
+                    .Children
+                    .Single()
+                    .Children
+                    .Single();
+
+                InvokeHandleTreeSelectionChanged(pane, TreePaneKind.Device, workNode);
+
+                Assert.NotNull(vm.Canvas.ActiveTab);
+                Assert.Contains(vm.Canvas.CanvasNodes, node => node.Id == workId && node.EntityType == EntityKind.Work);
+            }
+            finally
+            {
+                host.Close();
+            }
+        });
+    }
+
+    [Fact]
     public void Device_button_switches_tree_pane_visibility()
     {
         StaTestRunner.Run(() =>
@@ -79,22 +162,12 @@ public sealed class ExplorerPaneTests
             var vm = new MainViewModel();
             vm.NewProjectCommand.Execute(null);
 
-            var pane = new ExplorerPane { DataContext = vm };
-            var host = new Window { Content = pane, Width = 400, Height = 300, ShowInTaskbar = false };
-            host.Show();
+            var host = CreateHost(vm, out var pane);
             try
             {
-                DoEvents();
-
-                var controlTree = (TreeView)typeof(ExplorerPane)
-                    .GetField("ControlTree", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .GetValue(pane)!;
-                var deviceTree = (TreeView)typeof(ExplorerPane)
-                    .GetField("DeviceTree", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .GetValue(pane)!;
-                var deviceButton = (System.Windows.Controls.Primitives.ToggleButton)typeof(ExplorerPane)
-                    .GetField("DeviceTreeButton", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .GetValue(pane)!;
+                var controlTree = GetField<TreeView>(pane, "ControlTree");
+                var deviceTree = GetField<TreeView>(pane, "DeviceTree");
+                var deviceButton = GetField<ToggleButton>(pane, "DeviceTreeButton");
 
                 Assert.Equal(Visibility.Visible, controlTree.Visibility);
                 Assert.Equal(Visibility.Collapsed, deviceTree.Visibility);
@@ -126,10 +199,7 @@ public sealed class ExplorerPaneTests
             var flowId = DsQuery.flowsOf(systemId, store).Head.Id;
             var workId = store.AddWork("TreeDeleteWork", flowId);
 
-            typeof(MainViewModel)
-                .GetMethod("RequestRebuildAll", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(vm, [null]);
-            DoEvents();
+            RebuildAll(vm);
 
             var workNode = FindNode(vm.ControlTreeRoots, workId);
             Assert.NotNull(workNode);
@@ -137,13 +207,9 @@ public sealed class ExplorerPaneTests
             vm.Selection.SelectNodeFromTree(workNode!, ctrlPressed: false, shiftPressed: false);
             Assert.True(vm.DeleteSelectedCommand.CanExecute(null));
 
-            var pane = new ExplorerPane { DataContext = vm };
-            var host = new Window { Content = pane, Width = 400, Height = 300, ShowInTaskbar = false };
-            host.Show();
+            var host = CreateHost(vm, out var pane);
             try
             {
-                DoEvents();
-
                 var source = PresentationSource.FromVisual(host);
                 Assert.NotNull(source);
 
@@ -152,8 +218,9 @@ public sealed class ExplorerPaneTests
                     RoutedEvent = Keyboard.PreviewKeyDownEvent
                 };
 
-                var method = typeof(ExplorerPane).GetMethod("Tree_PreviewKeyDown", BindingFlags.Instance | BindingFlags.NonPublic)!;
-                method.Invoke(pane, [pane, args]);
+                typeof(ExplorerPane)
+                    .GetMethod("Tree_PreviewKeyDown", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(pane, [pane, args]);
 
                 DoEvents();
                 Assert.False(store.WorksReadOnly.ContainsKey(workId));
@@ -164,6 +231,44 @@ public sealed class ExplorerPaneTests
             }
         });
     }
+
+    private static Window CreateHost(MainViewModel vm, out ExplorerPane pane)
+    {
+        pane = new ExplorerPane { DataContext = vm };
+        var host = new Window { Content = pane, Width = 400, Height = 300, ShowInTaskbar = false };
+        host.Show();
+        DoEvents();
+        return host;
+    }
+
+    private static void RebuildAll(MainViewModel vm)
+    {
+        typeof(MainViewModel)
+            .GetMethod("RequestRebuildAll", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(vm, [null]);
+        DoEvents();
+    }
+
+    private static void ApplySearchFilter(ExplorerPane pane)
+    {
+        typeof(ExplorerPane)
+            .GetMethod("RefreshTreeItemsSource", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(pane, null);
+        DoEvents();
+    }
+
+    private static void InvokeHandleTreeSelectionChanged(ExplorerPane pane, TreePaneKind paneKind, EntityNode node)
+    {
+        typeof(ExplorerPane)
+            .GetMethod("HandleTreeSelectionChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(pane, [paneKind, node]);
+        DoEvents();
+    }
+
+    private static T GetField<T>(object owner, string name) where T : class =>
+        (T)owner.GetType()
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(owner)!;
 
     private static void DoEvents() =>
         System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(

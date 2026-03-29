@@ -19,6 +19,46 @@ module AasxExporter =
     open AasxExportGraph
     open AasxExportMetadata
 
+    let private mkSmRef (submodel: Submodel) : IReference =
+        let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
+        Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
+
+    let private appendProjectMetadataSubmodels (project: Project) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
+        let npSm = nameplateToSubmodel project.Nameplate project.Id
+        submodels.Add(npSm :> ISubmodel)
+        smRefs.Add(mkSmRef npSm)
+
+        let docSm = documentationToSubmodel project.HandoverDocumentation project.Id
+        submodels.Add(docSm :> ISubmodel)
+        smRefs.Add(mkSmRef docSm)
+
+    let private appendMetadataSubmodels (ownerId: Guid) (nameplate: Nameplate) (documentation: HandoverDocumentation) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
+        let npSm = nameplateToSubmodel nameplate ownerId
+        submodels.Add(npSm :> ISubmodel)
+        smRefs.Add(mkSmRef npSm)
+
+        let docSm = documentationToSubmodel documentation ownerId
+        submodels.Add(docSm :> ISubmodel)
+        smRefs.Add(mkSmRef docSm)
+
+    let private tryGetDefaultThumbnail () =
+        let resourceName = "Ds2.Aasx.Thumbnail.ds_aasx_thumbnail_icon.png"
+        let asm = System.Reflection.Assembly.GetExecutingAssembly()
+        use stream = asm.GetManifestResourceStream(resourceName)
+        if isNull stream then
+            log.Warn($"기본 AASX 썸네일 리소스를 찾을 수 없습니다: {resourceName}")
+            None
+        else
+            use mem = new MemoryStream()
+            stream.CopyTo(mem)
+            Some
+                { EntryName = "ds_aasx_thumbnail_icon.png"
+                  ContentType = "image/png"
+                  Bytes = mem.ToArray() }
+
+    let private appendDefaultDeviceMetadataSubmodels (device: DsSystem) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
+        appendMetadataSubmodels device.Id (Nameplate()) (HandoverDocumentation()) submodels smRefs
+
     /// Device 이름을 파일명으로 안전하게 변환 (특수문자 → _)
     let sanitizeDeviceName (name: string) : string =
         let invalid = Path.GetInvalidFileNameChars()
@@ -91,25 +131,16 @@ module AasxExporter =
 
     let internal exportToAasxFile (store: DsStore) (project: Project) (outputPath: string) : unit =
         let iriPrefix = resolveIriPrefix project
+        let thumbnail = tryGetDefaultThumbnail ()
 
         // 메인 프로젝트 Submodel
         let sm = exportToSubmodel store project
-        let mkSmRef (submodel: Submodel) : IReference =
-            let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
-            Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
 
         let submodels = ResizeArray<ISubmodel>([sm :> ISubmodel])
         let smRefs = ResizeArray<IReference>([mkSmRef sm])
 
-        // Nameplate Submodel (항상 포함 — Ev2 동일)
-        let npSm = nameplateToSubmodel project.Nameplate project.Id
-        submodels.Add(npSm :> ISubmodel)
-        smRefs.Add(mkSmRef npSm)
-
-        // Documentation Submodel (항상 포함 — Ev2 동일)
-        let docSm = documentationToSubmodel project.HandoverDocumentation project.Id
-        submodels.Add(docSm :> ISubmodel)
-        smRefs.Add(mkSmRef docSm)
+        // Nameplate / Documentation (항상 포함 — Ev2 동일)
+        appendProjectMetadataSubmodels project submodels smRefs
 
         // Shell — IriPrefix 기반 ID
         let globalAssetId = resolveGlobalAssetId project
@@ -126,7 +157,7 @@ module AasxExporter =
                 submodels = submodels,
                 assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
                 conceptDescriptions = conceptDescs)
-        writeEnvironment env outputPath
+        writeEnvironment env outputPath thumbnail
 
     /// 단일 Device를 독립 AASX로 저장 (ev2처럼 ActiveSystems=[device] 래핑)
     let internal exportDeviceAasx (store: DsStore) (project: Project) (device: DsSystem) (outputPath: string) : unit =
@@ -152,16 +183,20 @@ module AasxExporter =
         let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
         let shell = AssetAdministrationShell(id = $"{iriPrefix}shell/{device.Name}", assetInformation = assetInfo)
         shell.IdShort <- "DeviceShell"
-        shell.Submodels <- ResizeArray<IReference>([
-            let key = Key(KeyTypes.Submodel, sm.Id) :> IKey
-            Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
-        ])
+        let submodels = ResizeArray<ISubmodel>([sm :> ISubmodel])
+        let smRefs = ResizeArray<IReference>([mkSmRef sm])
+        appendDefaultDeviceMetadataSubmodels device submodels smRefs
+        shell.Submodels <- smRefs
+
+        let conceptDescs = createAllConceptDescriptions true true
 
         let env =
             Environment(
-                submodels = ResizeArray<ISubmodel>([sm :> ISubmodel]),
-                assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]))
-        writeEnvironment env outputPath
+                submodels = submodels,
+                assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
+                conceptDescriptions = conceptDescs)
+        let thumbnail = tryGetDefaultThumbnail ()
+        writeEnvironment env outputPath thumbnail
 
     /// Device 이름 → 유니크 파일명 (같은 이름이 있으면 Guid 해시 추가)
     let internal resolveDeviceFileName (usedNames: System.Collections.Generic.HashSet<string>) (device: DsSystem) : string =
@@ -195,20 +230,11 @@ module AasxExporter =
 
         // 메인 AASX에는 DeviceReference만 포함
         let sm = exportToSubmodelSplit store project deviceRefs
-        let mkSmRef (submodel: Submodel) : IReference =
-            let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
-            Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
 
         let submodels = ResizeArray<ISubmodel>([sm :> ISubmodel])
         let smRefs = ResizeArray<IReference>([mkSmRef sm])
 
-        let npSm = nameplateToSubmodel project.Nameplate project.Id
-        submodels.Add(npSm :> ISubmodel)
-        smRefs.Add(mkSmRef npSm)
-
-        let docSm = documentationToSubmodel project.HandoverDocumentation project.Id
-        submodels.Add(docSm :> ISubmodel)
-        smRefs.Add(mkSmRef docSm)
+        appendProjectMetadataSubmodels project submodels smRefs
 
         let iriPrefix = resolveIriPrefix project
         let globalAssetId = resolveGlobalAssetId project
@@ -223,7 +249,8 @@ module AasxExporter =
                 submodels = submodels,
                 assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
                 conceptDescriptions = conceptDescs)
-        writeEnvironment env outputPath
+        let thumbnail = tryGetDefaultThumbnail ()
+        writeEnvironment env outputPath thumbnail
         log.Info($"분리 저장 완료: {passiveSystems.Length}개 Device → {devicesDir}")
 
     /// Export helper for UI callers that should not access Project entity directly.

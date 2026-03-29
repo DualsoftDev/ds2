@@ -20,14 +20,15 @@ type SimIndex = {
     /// Work Guid -> canonical/original Work Guid
     WorkCanonicalGuids: Map<Guid, Guid>
     WorkCallGuids: Map<Guid, Guid list>
-    WorkStartPreds: Map<Guid, Guid list>
-    WorkResetPreds: Map<Guid, Guid list>
+    mutable WorkStartPreds: Map<Guid, Guid list>
+    mutable WorkPureStartPreds: Map<Guid, Guid list>
+    mutable WorkResetPreds: Map<Guid, Guid list>
     WorkDuration: Map<Guid, float>
     WorkSystemName: Map<Guid, string>
     WorkName: Map<Guid, string>
     /// Work → 소속 Flow Guid
     WorkFlowGuid: Map<Guid, Guid>
-    CallStartPreds: Map<Guid, Guid list>
+    mutable CallStartPreds: Map<Guid, Guid list>
     CallWorkGuid: Map<Guid, Guid>
     CallApiCallGuids: Map<Guid, Guid list>
     CallAutoAuxConditions: Map<Guid, ConditionEntry list>
@@ -39,12 +40,12 @@ type SimIndex = {
     TickMs: int
     // ── Token ──
     WorkTokenRole: Map<Guid, TokenRole>
-    WorkTokenSuccessors: Map<Guid, Guid list>
+    mutable WorkTokenSuccessors: Map<Guid, Guid list>
     TokenSourceGuids: Guid list
     /// Sink Work: TokenRole.Sink로 수동 지정된 Work
     TokenSinkGuids: Set<Guid>
     /// 토큰 경로에 포함된 Work (Source → successor 체인의 모든 Work)
-    TokenPathGuids: Set<Guid>
+    mutable TokenPathGuids: Set<Guid>
 }
 
 module SimIndex =
@@ -57,6 +58,7 @@ module SimIndex =
         mutable AllFlowGuids: Guid list
         mutable WorkCallGuids: Map<Guid, Guid list>
         mutable WorkStartPreds: Map<Guid, Guid list>
+        mutable WorkPureStartPreds: Map<Guid, Guid list>
         mutable WorkResetPreds: Map<Guid, Guid list>
         mutable WorkDuration: Map<Guid, float>
         mutable WorkSystemName: Map<Guid, string>
@@ -148,7 +150,7 @@ module SimIndex =
 
         let state = {
             AllWorkGuids = []; AllCallGuids = []; AllFlowGuids = []
-            WorkCallGuids = Map.empty; WorkStartPreds = Map.empty; WorkResetPreds = Map.empty
+            WorkCallGuids = Map.empty; WorkStartPreds = Map.empty; WorkPureStartPreds = Map.empty; WorkResetPreds = Map.empty
             WorkDuration = Map.empty; WorkSystemName = Map.empty; WorkName = Map.empty; WorkFlowGuid = Map.empty
             CallStartPreds = Map.empty; CallWorkGuid = Map.empty; CallApiCallGuids = Map.empty
             CallAutoAuxConditions = Map.empty; CallComAuxConditions = Map.empty; CallSkipUnmatchConditions = Map.empty
@@ -177,7 +179,14 @@ module SimIndex =
             state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, conditionSpecs store CallConditionType.SkipUnmatch call)
             state.AllCallGuids <- call.Id :: state.AllCallGuids
 
-        let addWorkData (system: DsSystem) (flowId: Guid) (work: Work) (callGuids: Guid list) (workStartPreds: Map<Guid, Guid list>) (workResetPreds: Map<Guid, Guid list>) =
+        let addWorkData
+            (system: DsSystem)
+            (flowId: Guid)
+            (work: Work)
+            (callGuids: Guid list)
+            (workStartPreds: Map<Guid, Guid list>)
+            (workPureStartPreds: Map<Guid, Guid list>)
+            (workResetPreds: Map<Guid, Guid list>) =
             let periodSource =
                 match work.ReferenceOf with
                 | Some origId -> DsQuery.getWork origId store |> Option.bind (fun w -> w.Properties.Period)
@@ -198,6 +207,7 @@ module SimIndex =
                     max userDurationMs deviceMs
             state.WorkCallGuids <- state.WorkCallGuids.Add(work.Id, callGuids)
             state.WorkStartPreds <- state.WorkStartPreds.Add(work.Id, findOrEmpty work.Id workStartPreds)
+            state.WorkPureStartPreds <- state.WorkPureStartPreds.Add(work.Id, findOrEmpty work.Id workPureStartPreds)
             state.WorkResetPreds <- state.WorkResetPreds.Add(work.Id, findOrEmpty work.Id workResetPreds)
             state.WorkDuration <- state.WorkDuration.Add(work.Id, duration)
             state.WorkSystemName <- state.WorkSystemName.Add(work.Id, system.Name)
@@ -212,6 +222,8 @@ module SimIndex =
             let wTgt  = fun (a: ArrowBetweenWorks) -> a.TargetId
             let wStartPreds =
                 groupArrows [ ArrowType.Start; ArrowType.StartReset ] wType wTgt wSrc workArrows
+            let wPureStartPreds =
+                groupArrows [ ArrowType.Start ] wType wTgt wSrc workArrows
             let wResetPreds =
                 mergeGroupedMaps [
                     groupArrows [ ArrowType.Reset; ArrowType.ResetReset ] wType wTgt wSrc workArrows
@@ -220,6 +232,7 @@ module SimIndex =
             // Work Group Arrow 분해
             let workGroupArrows = workArrows |> List.filter (fun a -> a.ArrowType = ArrowType.Group)
             let wStartPreds, wResetPreds = SimIndexGroupExpansion.expandWorkGroupArrows workGroupArrows wStartPreds wResetPreds
+            let wPureStartPreds, _ = SimIndexGroupExpansion.expandWorkGroupArrows workGroupArrows wPureStartPreds Map.empty
 
             // ── Token successor 맵 (wStartPreds 역전: predecessor→successor) ──
             // Group 확장 후의 wStartPreds에서 빌드하므로 Group 멤버 관계도 포함
@@ -252,7 +265,7 @@ module SimIndex =
                         for call in calls do
                             addCallData work cStartPreds call
 
-                    addWorkData system flow.Id work callGuids wStartPreds wResetPreds
+                    addWorkData system flow.Id work callGuids wStartPreds wPureStartPreds wResetPreds
 
                     // ── Token role/successor 수집 ──
                     if work.TokenRole <> TokenRole.None then
@@ -354,6 +367,7 @@ module SimIndex =
           WorkCanonicalGuids = workCanonicalGuids
           WorkCallGuids = state.WorkCallGuids
           WorkStartPreds = state.WorkStartPreds
+          WorkPureStartPreds = state.WorkPureStartPreds
           WorkResetPreds = state.WorkResetPreds
           WorkDuration = state.WorkDuration
           WorkSystemName = state.WorkSystemName
@@ -373,6 +387,35 @@ module SimIndex =
           TokenSourceGuids = tokenSourceCanonicals |> List.distinct |> List.sort
           TokenSinkGuids = tokenSinkGuids
           TokenPathGuids = tokenPathGuids }
+
+    type ConnectionSnapshot = {
+        WorkStartPreds: Map<Guid, Guid list>
+        WorkPureStartPreds: Map<Guid, Guid list>
+        WorkResetPreds: Map<Guid, Guid list>
+        CallStartPreds: Map<Guid, Guid list>
+        WorkTokenSuccessors: Map<Guid, Guid list>
+        TokenPathGuids: Set<Guid>
+    }
+
+    let snapshotConnections (index: SimIndex) = {
+        WorkStartPreds = index.WorkStartPreds
+        WorkPureStartPreds = index.WorkPureStartPreds
+        WorkResetPreds = index.WorkResetPreds
+        CallStartPreds = index.CallStartPreds
+        WorkTokenSuccessors = index.WorkTokenSuccessors
+        TokenPathGuids = index.TokenPathGuids
+    }
+
+    let reloadConnections (index: SimIndex) =
+        let previous = snapshotConnections index
+        let rebuilt = build index.Store index.TickMs
+        index.WorkStartPreds <- rebuilt.WorkStartPreds
+        index.WorkPureStartPreds <- rebuilt.WorkPureStartPreds
+        index.WorkResetPreds <- rebuilt.WorkResetPreds
+        index.CallStartPreds <- rebuilt.CallStartPreds
+        index.WorkTokenSuccessors <- rebuilt.WorkTokenSuccessors
+        index.TokenPathGuids <- rebuilt.TokenPathGuids
+        previous, snapshotConnections index
 
     // ── InitialFlag 헬퍼 ─────────────────────────────────────────────
 

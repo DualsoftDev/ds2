@@ -90,7 +90,7 @@ type DsStoreArrowsExtensions =
                 for (arrowId, isWork) in toRemove do
                     if isWork then store.TrackRemove(store.ArrowWorks, arrowId)
                     else store.TrackRemove(store.ArrowCalls, arrowId))
-            store.EmitRefreshAndHistory()
+            store.EmitConnectionsChangedAndHistory()
             toRemove.Length
 
     [<Extension>]
@@ -99,7 +99,7 @@ type DsStoreArrowsExtensions =
         let mutable success = false
         store.WithTransaction("화살표 재연결", fun () ->
             success <- DirectArrowOps.tryReconnectArrow store arrowId replaceSource newEndpointId)
-        if success then store.EmitRefreshAndHistory()
+        if success then store.EmitConnectionsChangedAndHistory()
         else StoreLog.warn($"Reconnect failed. arrowId={arrowId}")
         success
 
@@ -110,7 +110,7 @@ type DsStoreArrowsExtensions =
         | Some arrow when arrow.ArrowType <> newArrowType ->
             store.WithTransaction("화살표 타입 변경", fun () ->
                 store.TrackMutate(store.ArrowWorks, arrowId, fun a -> a.ArrowType <- newArrowType))
-            store.EmitRefreshAndHistory()
+            store.EmitConnectionsChangedAndHistory()
             true
         | Some _ -> false
         | None ->
@@ -118,7 +118,7 @@ type DsStoreArrowsExtensions =
             | Some arrow when arrow.ArrowType <> newArrowType ->
                 store.WithTransaction("화살표 타입 변경", fun () ->
                     store.TrackMutate(store.ArrowCalls, arrowId, fun a -> a.ArrowType <- newArrowType))
-                store.EmitRefreshAndHistory()
+                store.EmitConnectionsChangedAndHistory()
                 true
             | _ -> false
 
@@ -138,7 +138,7 @@ type DsStoreArrowsExtensions =
                         let src = a.SourceId
                         a.SourceId <- a.TargetId
                         a.TargetId <- src))
-                store.EmitRefreshAndHistory()
+                store.EmitConnectionsChangedAndHistory()
                 true
         | None ->
             match DsQuery.getArrowCall arrowId store with
@@ -154,7 +154,7 @@ type DsStoreArrowsExtensions =
                             let src = a.SourceId
                             a.SourceId <- a.TargetId
                             a.TargetId <- src))
-                    store.EmitRefreshAndHistory()
+                    store.EmitConnectionsChangedAndHistory()
                     true
             | None -> false
 
@@ -174,7 +174,7 @@ type DsStoreArrowsExtensions =
                         let arrow = ArrowBetweenCalls(parentId, sourceId, targetId, arrowType)
                         store.TrackAdd(store.ArrowCalls, arrow)
                     | _ -> ())
-            store.EmitRefreshAndHistory()
+            store.EmitConnectionsChangedAndHistory()
             links.Length
 
     /// 지정된 Work ID 목록에서 같은 System에 속한 Work들끼리 ResetReset 화살표를 전체 쌍으로 연결.

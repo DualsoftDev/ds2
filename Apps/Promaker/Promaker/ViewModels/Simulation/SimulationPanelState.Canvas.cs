@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.FSharp.Core;
 using Ds2.Core;
 using Ds2.Runtime.Sim.Engine.Core;
 using Ds2.Store;
@@ -88,6 +89,35 @@ public partial class SimulationPanelState
     {
         SetCanvasSimState(Status4.Ready, static node =>
             node.EntityType == EntityKind.Work || node.EntityType == EntityKind.Call);
+    }
+
+    private void SyncSimulationStateFromEngine()
+    {
+        if (_simEngine is null || !IsSimulating) return;
+
+        var timestamp = GanttChart.AdjustedNow;
+
+        foreach (var entry in EnumerateSimulationEntries())
+        {
+            FSharpOption<Status4> state = entry.Kind switch
+            {
+                EntityKind.Work => _simEngine.GetWorkState(entry.Id),
+                EntityKind.Call => _simEngine.GetCallState(entry.Id),
+                _ => FSharpOption<Status4>.None
+            };
+
+            if (state is null)
+                continue;
+
+            var currentState = state.Value;
+
+            _stateCache.Set(entry.Id, currentState);
+            UpdateSimNodeState(entry.Id, currentState);
+            GanttChart.SyncNodeState(entry.Id, currentState, timestamp);
+
+            if (entry.Kind == EntityKind.Work)
+                UpdateSimNodeToken(entry.Id);
+        }
     }
 
     private void ClearSimStateFromCanvas()

@@ -15,6 +15,9 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void OpenTokenSpecDialog()
     {
+        if (!GuardSimulationSemanticEdit("TokenSpec 변경"))
+            return;
+
         var specs = NormalizeTokenSpecsForDialog(_store, DsQuery.getTokenSpecs(_store));
         var sourceWorks = BuildTokenSpecSourceWorks(_store);
 

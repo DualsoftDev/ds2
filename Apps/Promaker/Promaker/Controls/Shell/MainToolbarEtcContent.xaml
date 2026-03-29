@@ -9,6 +9,7 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="MainToolbarResources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -19,7 +20,7 @@
         </Grid.RowDefinitions>
         <WrapPanel Orientation="Horizontal">
             <Grid>
-                <ToggleButton x:Name="UtilMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="유틸리티" IsEnabled="{Binding HasProject}">
+                <ToggleButton x:Name="UtilMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="유틸리티" IsEnabled="{Binding HasProject}" Checked="UtilMenuToggle_Checked">
                     <StackPanel Orientation="Vertical">
                         <iconPacks:PackIconMaterial Kind="Wrench" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                         <TextBlock Text="유틸" Style="{StaticResource RibbonIconLabel}"/>
@@ -48,9 +49,11 @@
                             <Separator Margin="4,4"/>
                             <TextBlock Text="CSV" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="CSV 불러오기"/></Button>
-                            <Separator Margin="4,4"/>
-                            <TextBlock Text="뷰" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
-                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Open3DViewCommand}" Click="CloseUtilPopup"><TextBlock Text="3D 배치 뷰"/></Button>
+                            <StackPanel Visibility="{Binding Is3DViewEnabled, Converter={StaticResource BoolToVis}}">
+                                <Separator Margin="4,4"/>
+                                <TextBlock Text="뷰" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Open3DViewCommand}" Click="CloseUtilPopup"><TextBlock Text="3D 배치 뷰"/></Button>
+                            </StackPanel>
                         </StackPanel>
                     </Border>
                 </Popup>

@@ -12,6 +12,7 @@
     <Compile Include="ContextBuilder.fs" />
     <Compile Include="SignalGenerator.fs" />
     <Compile Include="ExportTypes.fs" />
+    <Compile Include="CsvImporter.fs" />
     <Compile Include="CsvExporter.fs" />
     <Compile Include="ExcelExporter.fs" />
     <Compile Include="Pipeline.fs" />

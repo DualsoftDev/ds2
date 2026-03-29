@@ -67,6 +67,10 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="10"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0">
@@ -107,8 +111,18 @@
                         MinWidth="102"
                         VerticalAlignment="Bottom"
                         Style="{StaticResource DarkButton}"
-                        IsEnabled="False"
-                        Content="CSV 가져오기"/>
+                        Click="ExportCsv_Click"
+                        Content="CSV 내보내기"
+                        ToolTip="현재 I/O 데이터를 CSV 파일로 내보냅니다"/>
+
+                <Button Grid.Column="12"
+                        Height="34"
+                        MinWidth="102"
+                        VerticalAlignment="Bottom"
+                        Style="{StaticResource DarkButton}"
+                        Click="ImportCsv_Click"
+                        Content="CSV 가져오기"
+                        ToolTip="CSV 파일을 불러와 I/O 태그를 매핑합니다"/>
             </Grid>
 
             <Border Grid.Row="3"

@@ -12,6 +12,9 @@ public partial class PropertyPanelState
     [RelayCommand]
     private void ApplyCallTimeout()
     {
+        if (!GuardSimulationSemanticEdit("Call timeout 변경"))
+            return;
+
         var selectedCallIds = GetSelectedCallIds();
         if (selectedCallIds.Count == 0)
             return;
@@ -33,6 +36,9 @@ public partial class PropertyPanelState
     [RelayCommand]
     private void AddCallApiCall()
     {
+        if (!GuardSimulationSemanticEdit("ApiCall 추가"))
+            return;
+
         var apiDefChoices = DeviceApiDefOptions
             .Select(x => new ApiCallCreateDialog.ApiDefChoice(x.Id, x.DisplayName))
             .ToList();
@@ -110,6 +116,8 @@ public partial class PropertyPanelState
     private void EditCallApiCallSpec(CallApiCallItem? item)
     {
         if (item is null) return;
+        if (!GuardSimulationSemanticEdit("ApiCall spec 편집"))
+            return;
 
         var dialog = new ApiCallSpecDialog(
             item.Name,
@@ -144,6 +152,9 @@ public partial class PropertyPanelState
     [RelayCommand]
     private void UpdateCallApiCall(CallApiCallItem? _)
     {
+        if (!GuardSimulationSemanticEdit("ApiCall 편집"))
+            return;
+
         Guid ignoredCallId;
 
         if (!TryRunCallQuery(
@@ -186,6 +197,7 @@ public partial class PropertyPanelState
         if (!TryRunCallMutation(
                 callId => Store.RemoveApiCallFromCall(callId, item.ApiCallId),
                 "ApiCall removed.",
+                "ApiCall 삭제",
                 RefreshCallPanel))
             return;
     }

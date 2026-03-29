@@ -34,6 +34,8 @@ public partial class MainViewModel
         public void RequestRebuildAll(Action? afterRebuild = null) => Owner.RequestRebuildAll(afterRebuild);
 
         public void SetStatusText(string text) => Owner.StatusText = text;
+
+        public bool GuardSimulationSemanticEdit(string editName) => Owner.GuardSimulationSemanticEdit(editName);
     }
 
     public sealed class CanvasHost : HostBase

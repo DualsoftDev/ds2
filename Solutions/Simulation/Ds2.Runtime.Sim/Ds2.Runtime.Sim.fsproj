@@ -14,12 +14,19 @@
     <Compile Include="Engine\Core\SimIndex.TokenGraph.fs" />
     <Compile Include="Engine\Core\SimIndex.fs" />
     <Compile Include="Engine\Core\WorkConditionChecker.fs" />
+    <Compile Include="Engine\Core\StepSemantics.fs" />
+    <Compile Include="Engine\Core\DurationTracker.fs" />
     <Compile Include="Engine\Core\StateManager.fs" />
     <Compile Include="Engine\Core\GraphValidator.fs" />
     <Compile Include="Engine\ISimulationEngine.fs" />
     <Compile Include="Engine\EventDriven\TokenFlow.fs" />
     <Compile Include="Engine\EventDriven\WorkTransitions.fs" />
+    <Compile Include="Engine\EventDriven\CallTransitions.fs" />
     <Compile Include="Engine\EventDriven\ConditionEvaluation.fs" />
+    <Compile Include="Engine\EventDriven\TransitionGuards.fs" />
+    <Compile Include="Engine\EventDriven\ConnectionReload.fs" />
+    <Compile Include="Engine\EventDriven\EngineLifecycle.fs" />
+    <Compile Include="Engine\EventDriven\EngineFlowStep.fs" />
     <Compile Include="Engine\EventDriven\EngineRuntime.fs" />
     <Compile Include="Engine\EventDrivenEngine.fs" />
   </ItemGroup>

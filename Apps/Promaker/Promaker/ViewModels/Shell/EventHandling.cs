@@ -80,9 +80,11 @@ public partial class MainViewModel
             case EditorEvent.ArrowWorkRemoved:
             case EditorEvent.ArrowCallAdded:
             case EditorEvent.ArrowCallRemoved:
+            case { IsConnectionsChanged: true }:
+                Simulation.NotifyConnectionsChanged();
                 Canvas.RefreshCanvasForActiveTab();
+                Simulation.RestoreSimStateToCanvas();
                 Selection.ApplyArrowSelectionVisuals();
-                Simulation.NotifyStoreChanged();
                 return;
 
             case { IsStoreRefreshed: true }:
