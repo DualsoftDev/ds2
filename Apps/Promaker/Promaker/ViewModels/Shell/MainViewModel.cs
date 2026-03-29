@@ -222,7 +222,12 @@ public partial class MainViewModel : ObservableObject
         RefreshEditorCommandStates();
     }
 
-    [RelayCommand(CanExecute = nameof(HasProject))]
+    /// <summary>Shift 키를 누르고 앱을 실행했을 때만 true로 설정됩니다.</summary>
+    internal static bool Is3DViewEnabled { get; set; } = false;
+
+    private bool CanOpen3DView() => HasProject && Is3DViewEnabled;
+
+    [RelayCommand(CanExecute = nameof(CanOpen3DView))]
     private void Open3DView()
     {
         if (_view3DWindow is { IsVisible: true })

@@ -2,9 +2,11 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using log4net;
 using log4net.Config;
 using Promaker.Presentation;
+using Promaker.ViewModels;
 
 namespace Promaker;
 
@@ -19,6 +21,9 @@ public partial class App : Application
     {
         if (e.Args.Length > 0 && File.Exists(e.Args[0]))
             StartupFilePath = e.Args[0];
+
+        // Shift 키를 누른 채 실행하면 3D 뷰 활성화
+        MainViewModel.Is3DViewEnabled = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
         var configFile = new FileInfo("log4net.config");
         if (configFile.Exists)
             XmlConfigurator.Configure(configFile);
