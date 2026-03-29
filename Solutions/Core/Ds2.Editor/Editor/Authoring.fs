@@ -90,6 +90,10 @@ module internal StoreAuthoring =
         emitEvent store evt
         emitHistoryChanged store
 
+    let emitConnectionsChangedAndHistory (store: DsStore) =
+        emitEvent store ConnectionsChanged
+        emitHistoryChanged store
+
     let emitRefreshAndHistory (store: DsStore) =
         emitEvent store StoreRefreshed
         emitHistoryChanged store
@@ -198,6 +202,10 @@ type DsStoreAuthoringExtensions =
     [<Extension>]
     static member EmitAndHistory(store: DsStore, evt: EditorEvent) =
         StoreAuthoring.emitAndHistory store evt
+
+    [<Extension>]
+    static member EmitConnectionsChangedAndHistory(store: DsStore) =
+        StoreAuthoring.emitConnectionsChangedAndHistory store
 
     [<Extension>]
     static member EmitRefreshAndHistory(store: DsStore) =

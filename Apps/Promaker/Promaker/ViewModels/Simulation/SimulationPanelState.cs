@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Threading;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -32,6 +33,7 @@ public partial class SimulationPanelState : ObservableObject
     private readonly HashSet<string> _suppressedWarnings = [];
     private readonly HashSet<Guid> _warningGuids = [];
     private bool _isStepMode;
+    private long _simUiGeneration;
     private ISceneEventHandler? _sceneEventHandler;
 
     private static class SimText
@@ -75,6 +77,7 @@ public partial class SimulationPanelState : ObservableObject
     }
 
     private DsStore Store => _storeProvider();
+    private long AdvanceSimUiGeneration() => Interlocked.Increment(ref _simUiGeneration);
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanChangeSpeed))]
@@ -99,7 +102,6 @@ public partial class SimulationPanelState : ObservableObject
     private bool _isSimPaused;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     private bool _hasWorkGoing;
 
     [ObservableProperty]
@@ -122,6 +124,7 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
     private SimWorkItem? _selectedSimWork;
 
     partial void OnSelectedSimWorkChanged(SimWorkItem? value)

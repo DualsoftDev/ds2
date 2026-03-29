@@ -204,12 +204,9 @@
                 </Border.Effect>
                 <StackPanel HorizontalAlignment="Center">
                     <!-- SDF Icon (shown for .sdf files) -->
-                    <Grid x:Name="DragDropSdfIcon" Width="100" Height="100" Margin="0,0,0,20"
-                          HorizontalAlignment="Center" Visibility="Collapsed">
-                        <Rectangle Fill="#FF4CAF50" RadiusX="12" RadiusY="12"/>
-                        <TextBlock Text="SDF" FontSize="28" FontWeight="Bold" Foreground="White"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Grid>
+                    <Image x:Name="DragDropSdfIcon" Source="Assets/SdfFile.ico"
+                           Width="100" Height="100" Margin="0,0,0,20"
+                           HorizontalAlignment="Center" Stretch="Uniform" Visibility="Collapsed"/>
 
                     <!-- JSON Icon (shown for .json files) -->
                     <Grid x:Name="DragDropJsonIcon" Width="100" Height="100" Margin="0,0,0,20"

@@ -11,6 +11,7 @@ module internal ConditionEvaluation =
         Index: SimIndex
         StateManager: StateManager
         Scheduler: EventScheduler
+        IsWorkFrozen: Guid -> bool
         CanStartWork: Guid -> bool
         CanStartCall: Guid -> bool
         CanCompleteCall: Guid -> bool
@@ -20,6 +21,22 @@ module internal ConditionEvaluation =
         CanReceiveToken: Guid -> bool
         ApplyWorkTransition: Guid -> Status4 -> unit
     }
+
+    /// MarkWorkPending + ScheduleNow(WorkTransition) 공통 시퀀스
+    let private scheduleWorkTransition (ctx: Context) workGuid targetStatus =
+        ctx.StateManager.MarkWorkPending(workGuid)
+        ctx.Scheduler.ScheduleNow(
+            ScheduledEventType.WorkTransition(workGuid, targetStatus),
+            ScheduledEvent.PriorityStateChange)
+        |> ignore
+
+    /// MarkCallPending + ScheduleNow(CallTransition) 공통 시퀀스
+    let private scheduleCallTransition (ctx: Context) callGuid targetStatus =
+        ctx.StateManager.MarkCallPending(callGuid)
+        ctx.Scheduler.ScheduleNow(
+            ScheduledEventType.CallTransition(callGuid, targetStatus),
+            ScheduledEvent.PriorityStateChange)
+        |> ignore
 
     let private tryQueueWorkReset (ctx: Context) (scheduledGoingGuids: Set<Guid>) workGuid =
         let tryFindResetTriggerPred resetPreds =
@@ -39,11 +56,7 @@ module internal ConditionEvaluation =
 
         let queueWorkResetTransition predGuid =
             ctx.StateManager.AddResetTrigger(predGuid, workGuid)
-            ctx.StateManager.MarkWorkPending(workGuid)
-            ctx.Scheduler.ScheduleNow(
-                ScheduledEventType.WorkTransition(workGuid, Status4.Homing),
-                ScheduledEvent.PriorityStateChange)
-            |> ignore
+            scheduleWorkTransition ctx workGuid Status4.Homing
 
         match WorkConditionChecker.collectResetPreds ctx.Index workGuid with
         | Some (_, _, resetPreds) ->
@@ -69,11 +82,7 @@ module internal ConditionEvaluation =
                && not (isFlowPausedForWork ctx workGuid)
                && ctx.CanStartWork workGuid
                && not (ctx.StateManager.IsWorkPending(workGuid)) then
-                ctx.StateManager.MarkWorkPending(workGuid)
-                ctx.Scheduler.ScheduleNow(
-                    ScheduledEventType.WorkTransition(workGuid, Status4.Going),
-                    ScheduledEvent.PriorityStateChange)
-                |> ignore
+                scheduleWorkTransition ctx workGuid Status4.Going
                 scheduledGoingGuids <- scheduledGoingGuids.Add(workGuid)
         scheduledGoingGuids
 
@@ -89,41 +98,35 @@ module internal ConditionEvaluation =
             match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
             | Some workGuid ->
                 if ctx.StateManager.GetCallState(callGuid) = Status4.Ready
+                   && not (ctx.IsWorkFrozen workGuid)
                    && not (isFlowPausedForWork ctx workGuid)
                    && ctx.StateManager.GetWorkState(workGuid) = Status4.Going
                    && ctx.CanStartCall callGuid
                    && not (ctx.StateManager.IsCallPending(callGuid)) then
-                    ctx.StateManager.MarkCallPending(callGuid)
-                    ctx.Scheduler.ScheduleNow(
-                        ScheduledEventType.CallTransition(callGuid, Status4.Going),
-                        ScheduledEvent.PriorityStateChange)
-                    |> ignore
+                    scheduleCallTransition ctx callGuid Status4.Going
             | None -> ()
 
     let evaluateCallCompletions (ctx: Context) () =
         for callGuid in ctx.Index.AllCallGuids do
-            if ctx.StateManager.GetCallState(callGuid) = Status4.Going
-               && ctx.CanCompleteCall callGuid
-               && not (ctx.StateManager.IsCallPending(callGuid)) then
-                ctx.StateManager.MarkCallPending(callGuid)
-                ctx.Scheduler.ScheduleNow(
-                    ScheduledEventType.CallTransition(callGuid, Status4.Finish),
-                    ScheduledEvent.PriorityStateChange)
-                |> ignore
+            match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
+            | Some workGuid ->
+                if ctx.StateManager.GetCallState(callGuid) = Status4.Going
+                   && not (ctx.IsWorkFrozen workGuid)
+                   && ctx.CanCompleteCall callGuid
+                   && not (ctx.StateManager.IsCallPending(callGuid)) then
+                    scheduleCallTransition ctx callGuid Status4.Finish
+            | None -> ()
 
     let evaluateWorkCompletions (ctx: Context) () =
         for workGuid in ctx.Index.AllWorkGuids do
             if ctx.StateManager.GetWorkState(workGuid) = Status4.Going
+               && not (ctx.IsWorkFrozen workGuid)
                && not (ctx.StateManager.IsWorkPending(workGuid)) then
                 let callGuids = SimIndex.findOrEmpty workGuid ctx.Index.WorkCallGuids
                 if not callGuids.IsEmpty
                    && ctx.StateManager.IsMinDurationMet(workGuid)
                    && callGuids |> List.forall (fun callGuid -> ctx.StateManager.GetCallState(callGuid) = Status4.Finish) then
-                    ctx.StateManager.MarkWorkPending(workGuid)
-                    ctx.Scheduler.ScheduleNow(
-                        ScheduledEventType.WorkTransition(workGuid, Status4.Finish),
-                        ScheduledEvent.PriorityStateChange)
-                    |> ignore
+                    scheduleWorkTransition ctx workGuid Status4.Finish
 
     let retryBlockedTokens (ctx: Context) () =
         let canRetryBlockedToken workGuid =

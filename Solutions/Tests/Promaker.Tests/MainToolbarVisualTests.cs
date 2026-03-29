@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
+using Ds2.Core;
 using Promaker.Controls;
 using Promaker.ViewModels;
 using Xunit;
@@ -67,6 +68,42 @@ public sealed class MainToolbarVisualTests
             toolbar.UpdateLayout();
 
             Assert.True(vm.Simulation.IsSimulating);
+            Assert.True(pauseButton.IsEnabled);
+        });
+    }
+
+    [Fact]
+    public void MainToolbar_connect_icon_reflects_selected_arrow_type()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+            var toolbar = CreateToolbar(vm);
+
+            var startIcon = FindRequiredDescendant<Canvas>(toolbar, "ConnectStartIcon");
+            var resetIcon = FindRequiredDescendant<Canvas>(toolbar, "ConnectResetIcon");
+            var startResetIcon = FindRequiredDescendant<Canvas>(toolbar, "ConnectStartResetIcon");
+            var resetResetIcon = FindRequiredDescendant<Canvas>(toolbar, "ConnectResetResetIcon");
+            var groupIcon = FindRequiredDescendant<Canvas>(toolbar, "ConnectGroupIcon");
+
+            Assert.Equal(Visibility.Visible, startIcon.Visibility);
+            Assert.Equal(Visibility.Collapsed, resetIcon.Visibility);
+
+            vm.SelectedConnectArrowType = ArrowType.StartReset;
+            toolbar.UpdateLayout();
+            Assert.Equal(Visibility.Visible, startResetIcon.Visibility);
+            Assert.Equal(Visibility.Collapsed, startIcon.Visibility);
+
+            vm.SelectedConnectArrowType = ArrowType.ResetReset;
+            toolbar.UpdateLayout();
+            Assert.Equal(Visibility.Visible, resetResetIcon.Visibility);
+            Assert.Equal(Visibility.Collapsed, startResetIcon.Visibility);
+
+            vm.SelectedConnectArrowType = ArrowType.Group;
+            toolbar.UpdateLayout();
+            Assert.Equal(Visibility.Visible, groupIcon.Visibility);
+            Assert.Equal(Visibility.Collapsed, resetResetIcon.Visibility);
         });
     }
 

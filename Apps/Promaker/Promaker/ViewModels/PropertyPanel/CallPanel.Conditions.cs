@@ -13,12 +13,14 @@ public partial class PropertyPanelState
 {
     [RelayCommand]
     private void AddCondition(CallConditionType type) =>
-        CallPanelAction(id => Store.AddCallCondition(id, type));
+        CallPanelAction(id => Store.AddCallCondition(id, type), "Call 조건 추가");
 
     [RelayCommand]
     private void RemoveCallCondition(CallConditionItem? item)
     {
         if (item is null) return;
+        if (!GuardSimulationSemanticEdit("Call 조건 삭제"))
+            return;
         if (!_host.TryAction(
                 () => Store.RemoveCallCondition(item.CallId, item.ConditionId)))
             return;
@@ -29,6 +31,8 @@ public partial class PropertyPanelState
     private void DropCallToConditionSection(ConditionDropInfo? info)
     {
         if (info is null || SelectedNode is null) return;
+        if (!GuardSimulationSemanticEdit("Call 조건 변경"))
+            return;
         var callId = SelectedNode.Id;
 
         if (Controls.ConditionDropHelper.ExecuteConditionDrop(
@@ -40,6 +44,8 @@ public partial class PropertyPanelState
     private void EditConditions(ConditionSectionItem? section)
     {
         if (section is null || SelectedNode is null) return;
+        if (!GuardSimulationSemanticEdit("Call 조건 편집"))
+            return;
         var callId = SelectedNode.Id;
 
         var dialog = new ConditionEditDialog(Store, _host, callId, section.ConditionType);

@@ -9,6 +9,9 @@ namespace Promaker.ViewModels;
 
 public partial class PropertyPanelState
 {
+    private bool GuardSimulationSemanticEdit(string editName) =>
+        _host.GuardSimulationSemanticEdit(editName);
+
     private bool TryGetSelectedCall([NotNullWhen(true)] out EntityNode? selectedCall) =>
         TryGetSelectedNode(EntityKind.Call, out selectedCall);
 
@@ -24,8 +27,15 @@ public partial class PropertyPanelState
         return false;
     }
 
-    private bool TryRunCallMutation(Action<Guid> mutation, string successText, Action<Guid>? afterSuccess = null)
+    private bool TryRunCallMutation(
+        Action<Guid> mutation,
+        string successText,
+        string blockedEditName,
+        Action<Guid>? afterSuccess = null)
     {
+        if (!GuardSimulationSemanticEdit(blockedEditName))
+            return false;
+
         if (!TryGetSelectedCallId(out var callId)) return false;
         if (!_host.TryAction(() => mutation(callId))) return false;
 
@@ -47,8 +57,11 @@ public partial class PropertyPanelState
         return _host.TryFunc(() => query(resolvedCallId), out value, fallback);
     }
 
-    private void CallPanelAction(Action<Guid> storeAction)
+    private void CallPanelAction(Action<Guid> storeAction, string blockedEditName)
     {
+        if (!GuardSimulationSemanticEdit(blockedEditName))
+            return;
+
         if (!TryGetSelectedCallId(out var callId)) return;
         if (!_host.TryAction(() => storeAction(callId))) return;
         RefreshCallPanel(callId);

@@ -6,6 +6,35 @@ open Xunit
 open Ds2.Core
 open Ds2.Serialization
 
+module private AasxPackageAssertions =
+
+    let assertPngThumbnailInAasxPackage (path: string) =
+        use fileStream = new FileStream(path, FileMode.Open, FileAccess.Read)
+        use archive = new System.IO.Compression.ZipArchive(fileStream, System.IO.Compression.ZipArchiveMode.Read)
+        let relsEntry : System.IO.Compression.ZipArchiveEntry =
+            match archive.GetEntry("_rels/.rels") with
+            | null -> failwith "_rels/.rels entry missing"
+            | entry -> entry
+        use relsReader = new StreamReader(relsEntry.Open())
+        let relsXml = relsReader.ReadToEnd()
+        Assert.Contains("http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail", relsXml)
+        Assert.Contains("/ds_aasx_thumbnail_icon.png", relsXml)
+
+        let thumbnailEntry : System.IO.Compression.ZipArchiveEntry =
+            match archive.GetEntry("ds_aasx_thumbnail_icon.png") with
+            | null -> failwith "thumbnail entry missing"
+            | entry -> entry
+        Assert.True(thumbnailEntry.Length > 0L)
+
+        let contentTypesEntry : System.IO.Compression.ZipArchiveEntry =
+            match archive.GetEntry("[Content_Types].xml") with
+            | null -> failwith "[Content_Types].xml entry missing"
+            | entry -> entry
+        use contentTypesReader = new StreamReader(contentTypesEntry.Open())
+        let contentTypesXml = contentTypesReader.ReadToEnd()
+        Assert.Contains("Extension=\"png\"", contentTypesXml)
+        Assert.Contains("image/png", contentTypesXml)
+
 /// JSON 직렬화 통합 테스트
 module JsonSerializationTests =
 
@@ -274,8 +303,11 @@ module AasxRoundTripTests =
 /// SplitDeviceAasx 분리 저장 통합 테스트
 module SplitDeviceAasxTests =
 
+    open AasCore.Aas3_0
     open Ds2.Store
     open Ds2.Editor
+    open Ds2.Aasx.AasxFileIO
+    open Ds2.Aasx.AasxSemantics
 
     let private createStoreWithDevices () =
         let store = DsStore()
@@ -399,6 +431,83 @@ module SplitDeviceAasxTests =
             Assert.Equal(1, project2.ActiveSystemIds.Count)
             // 1개는 스킵되어 1개만 로드됨
             Assert.Equal(1, project2.PassiveSystemIds.Count)
+        finally
+            cleanupSplitFiles path
+
+    [<Fact>]
+    let ``SplitDeviceAasx device files include default metadata submodels and png thumbnail`` () =
+        let store, projectId = createStoreWithDevices()
+        let project = store.Projects.[projectId]
+        project.Properties.SplitDeviceAasx <- true
+        project.Nameplate.ManufacturerName <- "Project Manufacturer"
+        let projectDoc = Document()
+        projectDoc.DocumentIds.Add(DocumentId(DocumentDomainId = "Project", ValueId = "DOC-001", IsPrimary = true))
+        project.HandoverDocumentation.Documents.Add(projectDoc)
+
+        let path = getTempAasxPath()
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported)
+
+            let baseName = Path.GetFileNameWithoutExtension(path)
+            let devicesDir = Path.Combine(Path.GetDirectoryName(path), $"{baseName}_devices")
+            let deviceFiles = Directory.GetFiles(devicesDir, "*.aasx")
+            Assert.NotEmpty(deviceFiles)
+
+            let devicePath = deviceFiles[0]
+            let env = readEnvironment devicePath
+            Assert.True(env.IsSome, "Device AASX should be readable")
+
+            let submodelIdShorts =
+                env.Value.Submodels
+                |> Seq.map (fun sm -> sm.IdShort)
+                |> Seq.toList
+
+            Assert.Contains(SubmodelIdShort, submodelIdShorts)
+            Assert.Contains(NameplateSubmodelIdShort, submodelIdShorts)
+            Assert.Contains(DocumentationSubmodelIdShort, submodelIdShorts)
+            Assert.NotNull(env.Value.ConceptDescriptions)
+            Assert.NotEmpty(env.Value.ConceptDescriptions)
+
+            let nameplate =
+                env.Value.Submodels
+                |> Seq.find (fun sm -> sm.IdShort = NameplateSubmodelIdShort)
+
+            let manufacturerName =
+                nameplate.SubmodelElements
+                |> Seq.tryPick (function
+                    | :? MultiLanguageProperty as mlp when mlp.IdShort = "ManufacturerName" ->
+                        if isNull mlp.Value || mlp.Value.Count = 0 then Some ""
+                        else Some mlp.Value.[0].Text
+                    | _ -> None)
+                |> Option.defaultValue "<missing>"
+
+            Assert.Equal("", manufacturerName)
+
+            let documentation =
+                env.Value.Submodels
+                |> Seq.find (fun sm -> sm.IdShort = DocumentationSubmodelIdShort)
+
+            let hasDocuments =
+                documentation.SubmodelElements
+                |> Seq.exists (function
+                    | :? SubmodelElementList as sml when sml.IdShort = "Documents" && not (isNull sml.Value) && sml.Value.Count > 0 -> true
+                    | _ -> false)
+
+            Assert.False(hasDocuments)
+
+            AasxPackageAssertions.assertPngThumbnailInAasxPackage devicePath
+        finally
+            cleanupSplitFiles path
+
+    [<Fact>]
+    let ``Main AASX export includes png thumbnail`` () =
+        let store, _projectId = createStoreWithDevices()
+        let path = getTempAasxPath()
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported)
+            AasxPackageAssertions.assertPngThumbnailInAasxPackage path
         finally
             cleanupSplitFiles path
 

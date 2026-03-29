@@ -8,6 +8,8 @@ open Ds2.Core
 type ScheduledEventType =
     | WorkTransition of workGuid: Guid * targetState: Status4
     | CallTransition of callGuid: Guid * targetState: Status4
+    | ForcedWorkTransition of workGuid: Guid * targetState: Status4
+    | ForcedCallTransition of callGuid: Guid * targetState: Status4
     | DurationComplete of workGuid: Guid
     | HomingComplete of workGuid: Guid
     | EvaluateConditions

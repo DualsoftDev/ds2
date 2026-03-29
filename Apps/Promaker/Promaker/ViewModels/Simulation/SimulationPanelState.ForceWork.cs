@@ -58,6 +58,17 @@ public partial class SimulationPanelState
 
     private bool CanForceWork() => IsSimulating && !IsSimPaused && SelectedSimWork is not null;
 
+    private (Guid SelectedSourceGuid, bool AutoStartSources) GetStepAdvanceSelection()
+    {
+        if (SelectedSimWork is null)
+            return (Guid.Empty, false);
+        if (SelectedSimWork.IsAutoStart)
+            return (Guid.Empty, true);
+        if (SelectedSimWork.Guid == Guid.Empty)
+            return (Guid.Empty, false);
+        return (SelectedSimWork.Guid, false);
+    }
+
     // ── 배치 시작 ──────────────────────────────────────────────────
 
     private void BatchStartSources(ISimulationEngine engine)

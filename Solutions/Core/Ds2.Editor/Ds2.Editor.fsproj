@@ -36,6 +36,8 @@
     <Compile Include="Store\Nodes\Nodes.fs" />
     <Compile Include="Store\Arrows.fs" />
     <Compile Include="Store\Panel\Panel.fs" />
+    <Compile Include="Store\Panel\Panel.Condition.fs" />
+    <Compile Include="Store\Panel\Panel.Properties.fs" />
     <Compile Include="Store\Panel\Api.fs" />
     <Compile Include="Store\Panel\Batch.fs" />
     <Compile Include="Editor\ImportPlanApply.fs" />

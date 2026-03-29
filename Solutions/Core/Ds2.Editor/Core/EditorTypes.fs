@@ -32,6 +32,7 @@ type EditorEvent =
     | ArrowWorkRemoved of Guid
     | ArrowCallAdded of ArrowBetweenCalls
     | ArrowCallRemoved of Guid
+    | ConnectionsChanged
     | EntityRenamed of id: Guid * newName: string
     | ProjectPropsChanged of id: Guid
     | WorkPropsChanged of id: Guid

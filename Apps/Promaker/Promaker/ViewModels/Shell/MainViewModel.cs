@@ -222,8 +222,9 @@ public partial class MainViewModel : ObservableObject
         RefreshEditorCommandStates();
     }
 
-    /// <summary>Shift 키를 누르고 앱을 실행했을 때만 true로 설정됩니다.</summary>
-    internal static bool Is3DViewEnabled { get; set; } = false;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(Open3DViewCommand))]
+    private bool _is3DViewEnabled = false;
 
     private bool CanOpen3DView() => HasProject && Is3DViewEnabled;
 

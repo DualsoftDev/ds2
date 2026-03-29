@@ -71,24 +71,39 @@
                             BorderBrush="{DynamicResource BorderBrush}"
                             BorderThickness="1"
                             CornerRadius="3"
-                            Padding="8,6">
+                            Padding="0">
                         <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="18"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid Width="14" Height="14" VerticalAlignment="Top" Margin="0,2,0,0">
-                                <Ellipse Stroke="{DynamicResource AccentBrush}" StrokeThickness="2"/>
-                                <Ellipse x:Name="Dot" Width="7" Height="7" Fill="{DynamicResource AccentBrush}" Visibility="Collapsed"/>
+                            <Rectangle x:Name="SelectedBar"
+                                       Width="3"
+                                       HorizontalAlignment="Left"
+                                       Fill="{DynamicResource AccentBrush}"
+                                       Visibility="Collapsed"/>
+                            <Grid Margin="8,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="18"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid Width="14" Height="14" VerticalAlignment="Top" Margin="0,2,0,0">
+                                    <Ellipse x:Name="Ring" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2"/>
+                                    <iconPacks:PackIconMaterial x:Name="SelectedIcon"
+                                                                Kind="CheckCircle"
+                                                                Width="14"
+                                                                Height="14"
+                                                                Foreground="{DynamicResource AccentBrush}"
+                                                                Visibility="Collapsed"/>
+                                </Grid>
+                                <ContentPresenter Grid.Column="1"/>
                             </Grid>
-                            <ContentPresenter Grid.Column="1"/>
                         </Grid>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Dot" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="SelectedBar" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="Ring" Property="Visibility" Value="Collapsed"/>
+                            <Setter TargetName="SelectedIcon" Property="Visibility" Value="Visible"/>
                             <Setter TargetName="OptionBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                             <Setter TargetName="OptionBorder" Property="Background" Value="{DynamicResource SelectedBrush}"/>
+                            <Setter TargetName="OptionBorder" Property="BorderThickness" Value="2"/>
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="OptionBorder" Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
