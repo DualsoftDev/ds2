@@ -35,6 +35,8 @@ public partial class MainViewModel
 
         public void SetStatusText(string text) => Owner.StatusText = text;
 
+        public void ShowWarning(string message) => Owner._dialogService.ShowWarning(message);
+
         public bool GuardSimulationSemanticEdit(string editName) => Owner.GuardSimulationSemanticEdit(editName);
     }
 
