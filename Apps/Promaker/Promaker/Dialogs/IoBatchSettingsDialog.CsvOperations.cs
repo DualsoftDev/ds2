@@ -308,7 +308,7 @@ public partial class IoBatchSettingsDialog
                 EscapeCsvField(row.InAddress)));
         }
 
-        File.WriteAllText(picker.FileName, sb.ToString(), new UTF8Encoding(false));
+        File.WriteAllText(picker.FileName, sb.ToString(), Encoding.UTF8);
         DialogHelpers.ShowThemedMessageBox(
             $"CSV 내보내기 완료: {_rows.Count}건\n\n파일: {Path.GetFileName(picker.FileName)}",
             "CSV 내보내기", MessageBoxButton.OK, "✓");

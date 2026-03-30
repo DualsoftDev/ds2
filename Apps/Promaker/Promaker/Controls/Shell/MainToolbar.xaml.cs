@@ -46,9 +46,10 @@ public partial class MainToolbar : UserControl
         var isWorkMode = vm.Canvas.ActiveTab is { } tab
             && EntityKindRules.isWorkArrowModeForTab(tab.Kind);
 
-        ConnResetRadio.Visibility = isWorkMode ? Visibility.Visible : Visibility.Collapsed;
-        ConnStartResetRadio.Visibility = isWorkMode ? Visibility.Visible : Visibility.Collapsed;
-        ConnResetResetRadio.Visibility = isWorkMode ? Visibility.Visible : Visibility.Collapsed;
+        var vis = isWorkMode ? Visibility.Visible : Visibility.Collapsed;
+        ConnResetRadio.Visibility = vis;
+        ConnStartResetRadio.Visibility = vis;
+        ConnResetResetRadio.Visibility = vis;
 
         // Call 모드에서 Work 전용 타입이 선택돼 있으면 Start로 폴백
         if (!isWorkMode && vm.SelectedConnectArrowType is ArrowType.Reset or ArrowType.StartReset or ArrowType.ResetReset)
