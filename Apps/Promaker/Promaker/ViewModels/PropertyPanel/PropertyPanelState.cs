@@ -55,6 +55,7 @@ public partial class PropertyPanelState : ObservableObject
     [ObservableProperty] private string _selectionNameText = "";
     [ObservableProperty] private bool _showNameEditor;
     [ObservableProperty] private int? _workPeriodMs;
+    [ObservableProperty] private bool? _isWorkFinished;
     [ObservableProperty] private bool? _isTokenSource;
     [ObservableProperty] private bool? _isTokenIgnore;
     [ObservableProperty] private bool? _isTokenSink;
@@ -86,6 +87,7 @@ public partial class PropertyPanelState : ObservableObject
     }
     private bool _suppressTokenRoleSync;
 
+    partial void OnIsWorkFinishedChanged(bool? value) => SyncIsFinishedFlag(value);
     partial void OnIsTokenSourceChanged(bool? value) => SyncTokenRoleFlag(TokenRole.Source, value);
     partial void OnIsTokenIgnoreChanged(bool? value) => SyncTokenRoleFlag(TokenRole.Ignore, value);
     partial void OnIsTokenSinkChanged(bool? value) => SyncTokenRoleFlag(TokenRole.Sink, value);
@@ -185,10 +187,15 @@ public partial class PropertyPanelState : ObservableObject
                 LinkedTokenSpecLabel = "";
             }
 
+            var isFinishedValues = selectedWorkIds
+                .Select(workId => Store.GetWorkIsFinished(workId))
+                .Distinct().ToList();
+
             var workRoles = selectedWorkIds
                 .Select(workId => DsQuery.getWork(workId, Store)?.Value.TokenRole ?? TokenRole.None)
                 .ToList();
             _suppressTokenRoleSync = true;
+            IsWorkFinished = isFinishedValues.Count == 1 ? isFinishedValues[0] : null;
             IsTokenSource = ResolveTokenRoleFlagState(workRoles, TokenRole.Source);
             IsTokenIgnore = ResolveTokenRoleFlagState(workRoles, TokenRole.Ignore);
             IsTokenSink = ResolveTokenRoleFlagState(workRoles, TokenRole.Sink);
@@ -201,6 +208,7 @@ public partial class PropertyPanelState : ObservableObject
             _deviceDurationMs = null;
             DeviceDurationHint = "";
             _suppressTokenRoleSync = true;
+            IsWorkFinished = false;
             IsTokenSource = false;
             IsTokenIgnore = false;
             IsTokenSink = false;
@@ -389,6 +397,38 @@ public partial class PropertyPanelState : ObservableObject
         return roles.All(role => role.HasFlag(flag)) == roles.Any(role => role.HasFlag(flag))
             ? first
             : null;
+    }
+
+    private void SyncIsFinishedFlag(bool? value)
+    {
+        if (_suppressTokenRoleSync)
+            return;
+        if (value is null)
+            value = false;
+
+        var selectedWorkIds = GetSelectedCanonicalWorkIds();
+        if (selectedWorkIds.Count == 0)
+            return;
+
+        if (!GuardSimulationSemanticEdit("Work IsFinished 변경"))
+        {
+            Refresh();
+            return;
+        }
+
+        var changes = selectedWorkIds
+            .Select(workId => new ValueTuple<Guid, bool>(workId, value.Value))
+            .ToList();
+
+        if (!_host.TryAction(() => Store.UpdateWorkIsFinishedBatch(changes)))
+        {
+            Refresh();
+            return;
+        }
+
+        _host.SetStatusText(selectedWorkIds.Count > 1
+            ? $"IsFinished updated for {selectedWorkIds.Count} items."
+            : "Work IsFinished updated.");
     }
 
     private void SyncTokenRoleFlag(TokenRole flag, bool? value)

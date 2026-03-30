@@ -150,6 +150,13 @@ module internal DirectDeviceOps =
             | Some flow ->
                 let systemId = flow.ParentId
                 let existingArrows = DsQuery.arrowWorksOf systemId store
+
+                // 프리셋 마지막 Work에 IsFinished 자동 설정 (workOrderRev는 역순이므로 head가 마지막)
+                match workOrderRev with
+                | lastWork :: _ when not lastWork.Properties.IsFinished ->
+                    store.TrackMutate(store.Works, lastWork.Id, fun w -> w.Properties.IsFinished <- true)
+                | _ -> ()
+
                 workOrderRev
                 |> List.rev
                 |> List.pairwise

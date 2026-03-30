@@ -192,6 +192,11 @@
                                    Margin="0,2,0,0"/>
 
                         <Separator Margin="0,12"/>
+                        <CheckBox Content="IsFinished (초기 Finish 상태)"
+                                  IsThreeState="True"
+                                  IsChecked="{Binding IsWorkFinished}"
+                                  FontSize="12" Margin="0,2,0,4"/>
+                        <Separator Margin="0,12"/>
                         <TextBlock Text="TokenRole"
                                    FontSize="11"
                                    Foreground="{DynamicResource SecondaryTextBrush}"

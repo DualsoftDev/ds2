@@ -440,19 +440,26 @@ module SimIndex =
 
     // ── InitialFlag 헬퍼 ─────────────────────────────────────────────
 
-    /// RET 방향 Call인지 확인
-    let isCallRetDirection (index: SimIndex) (callGuid: Guid) : bool =
-        rxWorkGuids index callGuid
-        |> List.exists (fun rxGuid ->
-            DsQuery.getWork rxGuid index.Store
-            |> Option.map (fun work -> work.Name.ToUpperInvariant().Contains("RET"))
-            |> Option.defaultValue false)
-
-    let findInitialFlagCallGuids (index: SimIndex) : Set<Guid> =
-        index.AllCallGuids |> List.filter (isCallRetDirection index) |> Set.ofList
-
+    /// WorkProperties.IsFinished가 true인 Work들을 찾아 초기 Finish 상태로 설정할 대상 반환.
+    /// IsFinished가 하나도 설정되지 않은 기존 프로젝트는 RET 이름 기반 폴백 사용 (하위 호환).
     let findInitialFlagRxWorkGuids (index: SimIndex) : Set<Guid> =
-        findInitialFlagCallGuids index
-        |> Set.toSeq
-        |> Seq.collect (fun callGuid -> rxWorkGuids index callGuid)
-        |> Set.ofSeq
+        let isFinishedWorks =
+            index.AllWorkGuids
+            |> List.filter (fun workGuid ->
+                DsQuery.getWork workGuid index.Store
+                |> Option.map (fun work -> work.Properties.IsFinished)
+                |> Option.defaultValue false)
+        if not isFinishedWorks.IsEmpty then
+            isFinishedWorks |> Set.ofList
+        else
+            // Backward compatibility: IsFinished 미설정 프로젝트 → RET 이름 기반 폴백
+            let isRetDirection callGuid =
+                rxWorkGuids index callGuid
+                |> List.exists (fun rxGuid ->
+                    DsQuery.getWork rxGuid index.Store
+                    |> Option.map (fun work -> work.Name.ToUpperInvariant().Contains("RET"))
+                    |> Option.defaultValue false)
+            index.AllCallGuids
+            |> List.filter isRetDirection
+            |> Seq.collect (fun callGuid -> rxWorkGuids index callGuid)
+            |> Set.ofSeq
