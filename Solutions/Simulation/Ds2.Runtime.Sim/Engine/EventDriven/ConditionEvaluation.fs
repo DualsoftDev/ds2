@@ -7,7 +7,6 @@ open Ds2.Runtime.Sim.Engine.Core
 open Ds2.Runtime.Sim.Engine.Scheduler
 
 module internal ConditionEvaluation =
-    let private log = log4net.LogManager.GetLogger("ConditionEvaluation")
 
     type Context = {
         Index: SimIndex
@@ -80,17 +79,12 @@ module internal ConditionEvaluation =
     let evaluateWorkStarts (ctx: Context) () =
         let mutable scheduledGoingGuids = Set.empty<Guid>
         for workGuid in ctx.Index.AllWorkGuids do
-            let state = ctx.StateManager.GetWorkState(workGuid)
-            if state = Status4.Ready then
-                let paused = isFlowPausedForWork ctx workGuid
-                let canStart = ctx.CanStartWork workGuid
-                let pending = ctx.StateManager.IsWorkPending(workGuid)
-                if not canStart || paused || pending then
-                    let name = ctx.Index.WorkName |> Map.tryFind workGuid |> Option.defaultValue ""
-                    log.Debug($"[EvalStart] SKIP {name}: paused={paused} canStart={canStart} pending={pending}")
-                if not paused && canStart && not pending then
-                    scheduleWorkTransition ctx workGuid Status4.Going
-                    scheduledGoingGuids <- scheduledGoingGuids.Add(workGuid)
+            if ctx.StateManager.GetWorkState(workGuid) = Status4.Ready
+               && not (isFlowPausedForWork ctx workGuid)
+               && ctx.CanStartWork workGuid
+               && not (ctx.StateManager.IsWorkPending(workGuid)) then
+                scheduleWorkTransition ctx workGuid Status4.Going
+                scheduledGoingGuids <- scheduledGoingGuids.Add(workGuid)
         scheduledGoingGuids
 
     let evaluateWorkResets (ctx: Context) (scheduledGoingGuids: Set<Guid>) =
@@ -164,10 +158,27 @@ module internal ConditionEvaluation =
             if workState = Status4.Finish || workState = Status4.Homing then
                 retryBlockedTokenForWork workGuid workState
 
+    /// Going 상태 Call의 TxWork가 Ready인데 스케줄되지 않은 경우 재트리거.
+    /// IsFinished=true인 Device Work가 리셋 후 Ready로 돌아왔을 때,
+    /// 이미 Going 상태인 Call이 TxWork 스케줄링을 재시도할 수 있게 한다.
+    let retriggerGoingCallTxWorks (ctx: Context) () =
+        for callGuid in ctx.Index.AllCallGuids do
+            match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
+            | Some workGuid ->
+                if ctx.StateManager.GetCallState(callGuid) = Status4.Going
+                   && not (ctx.IsWorkFrozen workGuid) then
+                    let txGuids = SimIndex.txWorkGuids ctx.Index callGuid
+                    for txGuid in txGuids do
+                        if ctx.StateManager.GetWorkState(txGuid) = Status4.Ready
+                           && not (ctx.StateManager.IsWorkPending(txGuid)) then
+                            scheduleWorkTransition ctx txGuid Status4.Going
+            | None -> ()
+
     let evaluateConditions (ctx: Context) () =
         let scheduledGoingGuids = evaluateWorkStarts ctx ()
         evaluateWorkResets ctx scheduledGoingGuids
         evaluateCallStarts ctx ()
+        retriggerGoingCallTxWorks ctx ()
         evaluateCallCompletions ctx ()
         evaluateWorkCompletions ctx ()
         retryBlockedTokens ctx ()
