@@ -146,6 +146,18 @@ type StateManager(index: SimIndex, initialTickMs: int) =
             state <- newState
             token)
 
+    // ── Epoch (WaitForCompletion) ──
+    member _.IncrementWorkEpoch(workGuid: Guid) =
+        lock syncRoot (fun () -> state <- SimState.incrementWorkEpoch (canonicalWorkGuid workGuid) state)
+    member _.GetWorkEpoch(workGuid: Guid) =
+        lock syncRoot (fun () -> SimState.getWorkEpoch (canonicalWorkGuid workGuid) state)
+    member _.SnapshotCallRxEpochs(callGuid: Guid, rxGuids: Guid list) =
+        lock syncRoot (fun () ->
+            let epochMap = rxGuids |> List.map (fun rx -> rx, SimState.getWorkEpoch (canonicalWorkGuid rx) state) |> Map.ofList
+            state <- SimState.snapshotCallRxEpochs callGuid epochMap state)
+    member _.ClearCallRxEpochSnapshot(callGuid: Guid) =
+        lock syncRoot (fun () -> state <- SimState.clearCallRxEpochSnapshot callGuid state)
+
     member _.UpdateClock(newClock: TimeSpan) = lock syncRoot (fun () -> state <- { state with Clock = newClock })
     member _.GetState() = lock syncRoot (fun () -> state)
     member _.GetWorkState(workGuid: Guid) =

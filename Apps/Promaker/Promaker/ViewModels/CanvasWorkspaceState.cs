@@ -46,6 +46,7 @@ public partial class CanvasWorkspaceState : ObservableObject
         _host.Selection.ClearNodeSelection();
         _host.Selection.ClearArrowSelection();
         RefreshCanvasForActiveTab();
+        _host.RestoreSimStateToCanvas();
         if (_suppressFitToView)
             _suppressFitToView = false;
         else

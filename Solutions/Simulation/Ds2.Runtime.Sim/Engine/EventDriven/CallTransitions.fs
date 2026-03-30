@@ -53,6 +53,9 @@ module internal CallTransitions =
             PreviousState = result.OldState; NewState = result.ActualNewState; IsSkipped = result.IsSkipped; Clock = clock })
         match result.ActualNewState with
         | Status4.Going ->
+            let rxGuids = SimIndex.rxWorkGuids ctx.Index callGuid
+            if not rxGuids.IsEmpty then
+                ctx.StateManager.SnapshotCallRxEpochs(callGuid, rxGuids)
             SimIndex.txWorkGuids ctx.Index callGuid |> List.iter (fun txGuid -> ctx.ScheduleWorkIfReady txGuid Status4.Going)
             ctx.ScheduleConditionEvaluation ()
         | Status4.Finish ->
@@ -67,4 +70,6 @@ module internal CallTransitions =
                     ctx.DurationTracker.TryResumePausedDuration(workGuid)
             | None -> ()
             ctx.ScheduleConditionEvaluation ()
+        | Status4.Ready ->
+            ctx.StateManager.ClearCallRxEpochSnapshot(callGuid)
         | _ -> ()

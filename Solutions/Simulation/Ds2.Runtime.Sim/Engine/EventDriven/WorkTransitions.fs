@@ -114,6 +114,7 @@ module internal WorkTransitions =
             |> ignore
 
     let handleWorkGoingTransition (ctx: Context) workGuid =
+        ctx.StateManager.IncrementWorkEpoch(workGuid)
         scheduleDuration ctx workGuid
         triggerImmediateResets ctx workGuid
         ctx.ScheduleConditionEvaluation()

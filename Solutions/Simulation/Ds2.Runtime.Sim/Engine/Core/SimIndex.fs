@@ -46,6 +46,8 @@ type SimIndex = {
     TokenSinkGuids: Set<Guid>
     /// 토큰 경로에 포함된 Work (Source → successor 체인의 모든 Work)
     mutable TokenPathGuids: Set<Guid>
+    /// Call Guid → CallType (WaitForCompletion / SkipIfCompleted)
+    CallTypeMap: Map<Guid, CallType>
 }
 
 module SimIndex =
@@ -70,6 +72,7 @@ module SimIndex =
         mutable CallAutoAuxConditions: Map<Guid, ConditionEntry list>
         mutable CallComAuxConditions: Map<Guid, ConditionEntry list>
         mutable CallSkipUnmatchConditions: Map<Guid, ConditionEntry list>
+        mutable CallTypeMap: Map<Guid, CallType>
     }
 
     let findOrEmpty key map =
@@ -154,6 +157,7 @@ module SimIndex =
             WorkDuration = Map.empty; WorkSystemName = Map.empty; WorkName = Map.empty; WorkFlowGuid = Map.empty
             CallStartPreds = Map.empty; CallWorkGuid = Map.empty; CallApiCallGuids = Map.empty
             CallAutoAuxConditions = Map.empty; CallComAuxConditions = Map.empty; CallSkipUnmatchConditions = Map.empty
+            CallTypeMap = Map.empty
         }
 
         let groupArrows arrowTypes getArrowType keySelector valueSelector arrows =
@@ -177,6 +181,7 @@ module SimIndex =
             state.CallAutoAuxConditions <- state.CallAutoAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.AutoAux call)
             state.CallComAuxConditions <- state.CallComAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.ComAux call)
             state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, conditionSpecs store CallConditionType.SkipUnmatch call)
+            state.CallTypeMap <- state.CallTypeMap.Add(call.Id, call.Properties.CallType)
             state.AllCallGuids <- call.Id :: state.AllCallGuids
 
         let addWorkData
@@ -386,7 +391,8 @@ module SimIndex =
           WorkTokenSuccessors = expandedTokenSuccMap
           TokenSourceGuids = tokenSourceCanonicals |> List.distinct |> List.sort
           TokenSinkGuids = tokenSinkGuids
-          TokenPathGuids = tokenPathGuids }
+          TokenPathGuids = tokenPathGuids
+          CallTypeMap = state.CallTypeMap }
 
     type ConnectionSnapshot = {
         WorkStartPreds: Map<Guid, Guid list>
