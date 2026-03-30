@@ -161,6 +161,67 @@ const crosshairPlugin = {
     }
 };
 
+// 이상치 구간 하이라이트 플러그인 - 평균±2σ 밖의 데이터 구간에 붉은 반투명 박스
+const anomalyHighlightPlugin = {
+    id: 'anomalyHighlight',
+    beforeDraw(chart) {
+        const meta = chart._anomalyZones;
+        if (!meta || meta.length === 0) return;
+
+        const { ctx, chartArea: { top, bottom }, scales: { x } } = chart;
+        ctx.save();
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.08)';
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.25)';
+        ctx.lineWidth = 1;
+
+        for (const zone of meta) {
+            const xStart = x.getPixelForValue(zone.start);
+            const xEnd = x.getPixelForValue(zone.end);
+            const pad = (xEnd - xStart) < 10 ? 8 : 4; // 좁은 구간이면 패딩 더 넓게
+            const left = xStart - pad;
+            const width = (xEnd - xStart) + pad * 2;
+            const radius = 4;
+
+            // rounded rect
+            ctx.beginPath();
+            ctx.moveTo(left + radius, top);
+            ctx.lineTo(left + width - radius, top);
+            ctx.quadraticCurveTo(left + width, top, left + width, top + radius);
+            ctx.lineTo(left + width, bottom - radius);
+            ctx.quadraticCurveTo(left + width, bottom, left + width - radius, bottom);
+            ctx.lineTo(left + radius, bottom);
+            ctx.quadraticCurveTo(left, bottom, left, bottom - radius);
+            ctx.lineTo(left, top + radius);
+            ctx.quadraticCurveTo(left, top, left + radius, top);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    }
+};
+
+// 이상치 연속 구간 감지 (인접한 이상치 포인트를 하나의 구간으로 병합)
+function detectAnomalyZones(data, avg, threshold) {
+    const zones = [];
+    let zoneStart = -1;
+
+    for (let i = 0; i < data.length; i++) {
+        const isOutlier = Math.abs(data[i] - avg) > threshold;
+        if (isOutlier && zoneStart === -1) {
+            zoneStart = i;
+        } else if (!isOutlier && zoneStart !== -1) {
+            zones.push({ start: zoneStart, end: i - 1 });
+            zoneStart = -1;
+        }
+    }
+    if (zoneStart !== -1) {
+        zones.push({ start: zoneStart, end: data.length - 1 });
+    }
+    return zones;
+}
+
 window.renderCallHistoryChart = function (canvasId, executionData, averageMs, stdDevMs) {
     const canvas = document.getElementById(canvasId);
     if (!canvas) {
@@ -193,6 +254,9 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
     const pointColors = goingTimes.map(v =>
         Math.abs(v - chartAvg) > threshold ? 'rgb(239, 68, 68)' : 'rgb(59, 130, 246)'
     );
+
+    // 이상치 연속 구간 감지
+    const anomalyZones = detectAnomalyZones(goingTimes, chartAvg, threshold);
 
     callHistoryChartInstance = new Chart(ctx, {
         type: 'line',
@@ -305,8 +369,11 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                 }
             }
         },
-        plugins: [crosshairPlugin, wheelZoomPlugin]
+        plugins: [crosshairPlugin, wheelZoomPlugin, anomalyHighlightPlugin]
     });
+
+    // 이상치 구간 데이터를 차트 인스턴스에 연결
+    callHistoryChartInstance._anomalyZones = anomalyZones;
 };
 
 window.destroyCallHistoryChart = function () {
