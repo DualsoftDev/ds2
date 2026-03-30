@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using Ds2.Core;
+using Ds2.Editor;
 using Promaker.Presentation;
 using Promaker.ViewModels;
 
@@ -41,6 +42,18 @@ public partial class MainToolbar : UserControl
     private void ConnectTypePopup_Opened(object sender, EventArgs e)
     {
         if (VM is not { } vm) return;
+
+        var isWorkMode = vm.Canvas.ActiveTab is { } tab
+            && EntityKindRules.isWorkArrowModeForTab(tab.Kind);
+
+        ConnResetRadio.Visibility = isWorkMode ? Visibility.Visible : Visibility.Collapsed;
+        ConnStartResetRadio.Visibility = isWorkMode ? Visibility.Visible : Visibility.Collapsed;
+        ConnResetResetRadio.Visibility = isWorkMode ? Visibility.Visible : Visibility.Collapsed;
+
+        // Call 모드에서 Work 전용 타입이 선택돼 있으면 Start로 폴백
+        if (!isWorkMode && vm.SelectedConnectArrowType is ArrowType.Reset or ArrowType.StartReset or ArrowType.ResetReset)
+            vm.SelectedConnectArrowType = ArrowType.Start;
+
         var radio = vm.SelectedConnectArrowType switch
         {
             ArrowType.Reset => ConnResetRadio,

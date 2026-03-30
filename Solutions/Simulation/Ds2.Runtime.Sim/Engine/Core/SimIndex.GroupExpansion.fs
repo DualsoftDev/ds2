@@ -36,18 +36,19 @@ module internal SimIndexGroupExpansion =
     let private expandSingleGroup (groupSet: Set<Guid>) (startMap: Map<Guid, Guid list>) (resetMap: Map<Guid, Guid list>) =
         let members = groupSet |> Set.toList
 
-        let externalStartPreds =
+        // 내부+외부 모든 Start predecessor를 그룹 전원에 분배 (자기 자신 제외 → 교착 방지)
+        let allStartPreds =
             members
             |> List.collect (fun memberId -> startMap.TryFind memberId |> Option.defaultValue [])
-            |> List.filter (fun predId -> not (Set.contains predId groupSet))
             |> List.distinct
 
-        let startWithExternal =
-            List.allPairs members externalStartPreds
+        let startWithAll =
+            List.allPairs members allStartPreds
+            |> List.filter (fun (memberId, predId) -> memberId <> predId)
             |> List.fold (fun acc (memberId, predId) -> addPredecessor memberId predId acc) startMap
 
         let startSuccessors =
-            startWithExternal
+            startWithAll
             |> Map.toSeq
             |> Seq.filter (fun (succId, preds) -> not (Set.contains succId groupSet) && preds |> List.exists (fun predId -> Set.contains predId groupSet))
             |> Seq.map fst
@@ -55,20 +56,21 @@ module internal SimIndexGroupExpansion =
 
         let finalStart =
             List.allPairs startSuccessors members
-            |> List.fold (fun acc (succId, memberId) -> addPredecessor succId memberId acc) startWithExternal
+            |> List.fold (fun acc (succId, memberId) -> addPredecessor succId memberId acc) startWithAll
 
-        let externalResetPreds =
+        // 내부+외부 모든 Reset predecessor를 그룹 전원에 분배 (자기 자신 제외)
+        let allResetPreds =
             members
             |> List.collect (fun memberId -> resetMap.TryFind memberId |> Option.defaultValue [])
-            |> List.filter (fun predId -> not (Set.contains predId groupSet))
             |> List.distinct
 
-        let resetWithExternal =
-            List.allPairs members externalResetPreds
+        let resetWithAll =
+            List.allPairs members allResetPreds
+            |> List.filter (fun (memberId, predId) -> memberId <> predId)
             |> List.fold (fun acc (memberId, predId) -> addPredecessor memberId predId acc) resetMap
 
         let resetSuccessors =
-            resetWithExternal
+            resetWithAll
             |> Map.toSeq
             |> Seq.filter (fun (succId, preds) -> not (Set.contains succId groupSet) && preds |> List.exists (fun predId -> Set.contains predId groupSet))
             |> Seq.map fst
@@ -76,7 +78,7 @@ module internal SimIndexGroupExpansion =
 
         let finalReset =
             List.allPairs resetSuccessors members
-            |> List.fold (fun acc (succId, memberId) -> addPredecessor succId memberId acc) resetWithExternal
+            |> List.fold (fun acc (succId, memberId) -> addPredecessor succId memberId acc) resetWithAll
 
         finalStart, finalReset
 
@@ -89,25 +91,25 @@ module internal SimIndexGroupExpansion =
     let private expandCallSingleGroup (groupSet: Set<Guid>) (predsMap: Map<Guid, Guid list>) =
         let members = groupSet |> Set.toList
 
-        let externalPreds =
+        let allPreds =
             members
             |> List.collect (fun memberId -> predsMap.TryFind memberId |> Option.defaultValue [])
-            |> List.filter (fun predId -> not (Set.contains predId groupSet))
             |> List.distinct
 
-        let predsWithExternal =
-            List.allPairs members externalPreds
+        let predsWithAll =
+            List.allPairs members allPreds
+            |> List.filter (fun (memberId, predId) -> memberId <> predId)
             |> List.fold (fun acc (memberId, predId) -> addPredecessor memberId predId acc) predsMap
 
         let successors =
-            predsWithExternal
+            predsWithAll
             |> Map.toSeq
             |> Seq.filter (fun (succId, preds) -> not (Set.contains succId groupSet) && preds |> List.exists (fun predId -> Set.contains predId groupSet))
             |> Seq.map fst
             |> Seq.toList
 
         List.allPairs successors members
-        |> List.fold (fun acc (succId, memberId) -> addPredecessor succId memberId acc) predsWithExternal
+        |> List.fold (fun acc (succId, memberId) -> addPredecessor succId memberId acc) predsWithAll
 
     let expandCallGroupArrows (groupArrows: ArrowBetweenCalls list) (predsMap: Map<Guid, Guid list>) =
         let sources = groupArrows |> List.map (fun arrow -> arrow.SourceId)

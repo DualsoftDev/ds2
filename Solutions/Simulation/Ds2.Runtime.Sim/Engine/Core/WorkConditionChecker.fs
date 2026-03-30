@@ -104,8 +104,21 @@ module WorkConditionChecker =
             (autoAuxSpecs |> List.forall (checkConditionSpec state)) &&
             (comAuxSpecs |> List.forall (checkConditionSpec state))
 
-    /// Call 완료 가능 여부 (RxWork 모두 F)
+    /// Call 완료 가능 여부 (RxWork 모두 F + WaitForCompletion 시 epoch 체크)
     let canCompleteCall (index: SimIndex) (state: SimState) (callGuid: Guid) : bool =
         let rxGuids = SimIndex.rxWorkGuids index callGuid
         if rxGuids.IsEmpty then true
-        else rxGuids |> List.forall (fun rxGuid -> Map.tryFind rxGuid state.WorkStates = Some Status4.Finish)
+        else
+            let allRxFinish = rxGuids |> List.forall (fun rxGuid -> Map.tryFind rxGuid state.WorkStates = Some Status4.Finish)
+            if not allRxFinish then false
+            else
+                let callType = index.CallTypeMap |> Map.tryFind callGuid |> Option.defaultValue CallType.WaitForCompletion
+                if callType = CallType.SkipIfCompleted then true
+                else
+                    match state.CallRxEpochSnapshot |> Map.tryFind callGuid with
+                    | None -> true
+                    | Some epochMap ->
+                        rxGuids |> List.forall (fun rxGuid ->
+                            let savedEpoch = epochMap |> Map.tryFind rxGuid |> Option.defaultValue 0
+                            let currentEpoch = SimState.getWorkEpoch rxGuid state
+                            currentEpoch > savedEpoch)

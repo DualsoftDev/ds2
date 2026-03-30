@@ -53,6 +53,7 @@ public partial class MainViewModel
 
         public void ExpandNodeAndAncestors(Guid nodeId) => Owner.Selection.ExpandNodeAndAncestors(nodeId);
         public void NotifyCommandStatesChanged() => Owner.RefreshEditorCommandStates();
+        public void RestoreSimStateToCanvas() => Owner.Simulation.RestoreSimStateToCanvas();
 
         public void SelectNodeFromCanvas(EntityNode node, bool ctrlPressed, bool shiftPressed)
         {

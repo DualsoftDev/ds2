@@ -73,6 +73,11 @@ type SimState = {
     TokenOrigins: Map<int, string * int>
     /// 이름별 발행 카운터
     TokenOriginCounters: Map<string, int>
+    // ── Epoch (WaitForCompletion 지원) ──
+    /// Work의 Going 진입 횟수 (canonical 기준)
+    WorkCycleEpoch: Map<Guid, int>
+    /// Call Going 시점의 RxWork epoch 스냅샷
+    CallRxEpochSnapshot: Map<Guid, Map<Guid, int>>
 }
 
 module SimState =
@@ -90,6 +95,8 @@ module SimState =
         CompletedTokens = []
         TokenOrigins = Map.empty
         TokenOriginCounters = Map.empty
+        WorkCycleEpoch = Map.empty
+        CallRxEpochSnapshot = Map.empty
     }
 
     let setWorkState (guid: Guid) state simState =
@@ -133,6 +140,24 @@ module SimState =
     let setFlowState (guid: Guid) (tag: FlowTag) simState =
         { simState with FlowStates = simState.FlowStates.Add(guid, tag) }
 
+    // ── Epoch helpers (WaitForCompletion) ──
+
+    let incrementWorkEpoch (guid: Guid) simState =
+        let current = simState.WorkCycleEpoch |> Map.tryFind guid |> Option.defaultValue 0
+        { simState with WorkCycleEpoch = simState.WorkCycleEpoch.Add(guid, current + 1) }
+
+    let getWorkEpoch (guid: Guid) simState =
+        simState.WorkCycleEpoch |> Map.tryFind guid |> Option.defaultValue 0
+
+    let snapshotCallRxEpochs (callGuid: Guid) (rxEpochs: Map<Guid, int>) simState =
+        { simState with CallRxEpochSnapshot = simState.CallRxEpochSnapshot.Add(callGuid, rxEpochs) }
+
+    let getCallRxEpochSnapshot (callGuid: Guid) simState =
+        simState.CallRxEpochSnapshot |> Map.tryFind callGuid
+
+    let clearCallRxEpochSnapshot (callGuid: Guid) simState =
+        { simState with CallRxEpochSnapshot = simState.CallRxEpochSnapshot.Remove(callGuid) }
+
     let reset simState = {
         simState with
             WorkStates = simState.WorkStates |> Map.map (fun _ _ -> Status4.Ready)
@@ -147,4 +172,6 @@ module SimState =
             CompletedTokens = []
             TokenOrigins = Map.empty
             TokenOriginCounters = Map.empty
+            WorkCycleEpoch = Map.empty
+            CallRxEpochSnapshot = Map.empty
     }
