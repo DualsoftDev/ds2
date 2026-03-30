@@ -71,7 +71,7 @@ public partial class CallCreateDialog : Window
         // 프리셋이 없으면 기본값 추가 (DevicePresets.Entries 단일 정의 참조)
         if (PresetComboBox.Items.Count == 0)
         {
-            foreach (var (modelType, sysType) in Ds2.View3D.DevicePresets.Entries)
+            foreach (var (modelType, sysType) in Ds2.Store.DevicePresets.Entries)
             {
                 if (string.IsNullOrEmpty(sysType)) continue;
                 PresetComboBox.Items.Add(new ComboBoxItem

@@ -44,7 +44,7 @@ public partial class ProjectPropertiesDialog : Window
         LoadPresetMappings();
 
         // 기본 값 설정
-        PresetTextBox.Text = Ds2.View3D.DevicePresets.Entries[0].Item2;
+        PresetTextBox.Text = Ds2.Store.DevicePresets.Entries[0].Item2;
 
         Loaded += (_, _) => ProjectNameBox.Focus();
     }
@@ -57,7 +57,7 @@ public partial class ProjectPropertiesDialog : Window
         var filePresets = LoadPresetsFromFile();
         var source = filePresets.Length > 0
             ? filePresets
-            : Ds2.View3D.DevicePresets.DefaultMappingStrings;
+            : Ds2.Store.DevicePresets.DefaultMappingStrings;
 
         foreach (var mapping in source)
             PresetMappingListBox.Items.Add(mapping);
