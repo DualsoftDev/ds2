@@ -153,10 +153,7 @@ public partial class IoBatchSettingsDialog : Window
         if (!_applyChanges(changed))
             return;
 
-        foreach (var row in changed)
-            row.AcceptChanges();
-
-        RefreshApplyButtonState();
+        DialogResult = true;
     }
 
     private void TagWizard_Click(object sender, RoutedEventArgs e)

@@ -309,9 +309,24 @@ public partial class IoBatchSettingsDialog
         }
 
         File.WriteAllText(picker.FileName, sb.ToString(), Encoding.UTF8);
-        DialogHelpers.ShowThemedMessageBox(
-            $"CSV 내보내기 완료: {_rows.Count}건\n\n파일: {Path.GetFileName(picker.FileName)}",
-            "CSV 내보내기", MessageBoxButton.OK, "✓");
+
+        var openResult = DialogHelpers.ShowThemedMessageBox(
+            $"CSV 내보내기 완료: {_rows.Count}건\n\n" +
+            $"파일: {Path.GetFileName(picker.FileName)}\n\n" +
+            $"파일이 저장된 폴더를 여시겠습니까?",
+            "CSV 내보내기",
+            MessageBoxButton.YesNo,
+            "✓");
+
+        if (openResult == MessageBoxResult.Yes)
+        {
+            try { Process.Start("explorer.exe", Path.GetDirectoryName(picker.FileName)!); }
+            catch (Exception ex)
+            {
+                DialogHelpers.ShowThemedMessageBox(
+                    $"폴더를 열 수 없습니다:\n{ex.Message}", "오류", MessageBoxButton.OK, "⚠");
+            }
+        }
     }
 
     private void ImportCsv_Click(object sender, RoutedEventArgs e)

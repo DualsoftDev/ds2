@@ -119,16 +119,44 @@ module ArrowTests =
         Assert.Equal(system.Id, arrow.ParentId)
 
     [<Fact>]
-    let ``ConnectSelectionInOrder creates ArrowBetweenCalls with parentId = workId`` () =
+    let ``ConnectSelectionInOrder creates ArrowBetweenCalls with parentId = workId for allowed call arrow type`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
         let callIds = DsQuery.callsOf work.Id store |> List.map (fun c -> c.Id)
-        let count = store.ConnectSelectionInOrder(callIds, ArrowType.ResetReset)
+        let count = store.ConnectSelectionInOrder(callIds, ArrowType.Start)
         Assert.Equal(1, count)
         Assert.Equal(1, store.ArrowCalls.Count)
         let arrow = store.ArrowCalls.Values |> Seq.head
         Assert.Equal(work.Id, arrow.ParentId)
+        Assert.Equal(ArrowType.Start, arrow.ArrowType)
+
+    [<Fact>]
+    let ``ConnectSelectionInOrder blocks disallowed call arrow types`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
+        let callIds = DsQuery.callsOf work.Id store |> List.map (fun c -> c.Id)
+
+        Assert.Equal(0, store.ConnectSelectionInOrder(callIds, ArrowType.Reset))
+        Assert.Equal(0, store.ConnectSelectionInOrder(callIds, ArrowType.StartReset))
+        Assert.Equal(0, store.ConnectSelectionInOrder(callIds, ArrowType.ResetReset))
+        Assert.Equal(0, store.ArrowCalls.Count)
+
+    [<Fact>]
+    let ``UpdateArrowType blocks disallowed call arrow types`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
+        let callIds = DsQuery.callsOf work.Id store |> List.map (fun c -> c.Id)
+        store.ConnectSelectionInOrder(callIds, ArrowType.Start) |> ignore
+
+        let arrowId = store.ArrowCalls.Values |> Seq.head |> fun a -> a.Id
+
+        Assert.False(store.UpdateArrowType(arrowId, ArrowType.Reset))
+        Assert.False(store.UpdateArrowType(arrowId, ArrowType.StartReset))
+        Assert.False(store.UpdateArrowType(arrowId, ArrowType.ResetReset))
+        Assert.Equal(ArrowType.Start, store.ArrowCalls.[arrowId].ArrowType)
 
     [<Fact>]
     let ``ConnectSelectionInOrder creates cross-flow ArrowBetweenWorks in same system`` () =

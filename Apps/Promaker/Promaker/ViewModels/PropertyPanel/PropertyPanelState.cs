@@ -68,6 +68,7 @@ public partial class PropertyPanelState : ObservableObject
     private string _nameEditorText = string.Empty;
     [ObservableProperty] private string _namePrefix = string.Empty;
     [ObservableProperty] private bool _isNameDirty;
+    [ObservableProperty] private bool _isNameEditHighlighted;
     [ObservableProperty] private bool _isWorkPeriodDirty;
     [ObservableProperty] private bool _isCallTimeoutDirty;
     [ObservableProperty]
@@ -103,6 +104,7 @@ public partial class PropertyPanelState : ObservableObject
 
     public void SyncSelection(EntityNode? value, IReadOnlyList<SelectionKey> orderedSelection)
     {
+        IsNameEditHighlighted = false;
         _selectedNodeKeys = orderedSelection.Count > 0
             ? orderedSelection.ToList()
             : value is null
@@ -287,7 +289,36 @@ public partial class PropertyPanelState : ObservableObject
                 NameEditorText = newName;
             }
             IsNameDirty = false;
+            IsNameEditHighlighted = false;
         }
+    }
+
+    public void BeginNameEditGuidance() => IsNameEditHighlighted = true;
+
+    public void ClearNameEditGuidance() => IsNameEditHighlighted = false;
+
+    public void CancelNameEdit()
+    {
+        if (SelectedNode is null)
+        {
+            IsNameEditHighlighted = false;
+            return;
+        }
+
+        var fullName = SelectedNode.Name ?? string.Empty;
+        if (SelectedNode.EntityType == EntityKind.Work && fullName.IndexOf('.') is var dotIdx && dotIdx >= 0)
+        {
+            NamePrefix = fullName[..(dotIdx + 1)];
+            NameEditorText = fullName[(dotIdx + 1)..];
+        }
+        else
+        {
+            NamePrefix = string.Empty;
+            NameEditorText = fullName;
+        }
+
+        IsNameDirty = false;
+        IsNameEditHighlighted = false;
     }
 
     private bool CanApplyName() =>
@@ -310,6 +341,7 @@ public partial class PropertyPanelState : ObservableObject
             ? localName
             : NamePrefix + localName;
         _host.RenameSelected(newName);
+        IsNameEditHighlighted = false;
     }
 
     [RelayCommand]

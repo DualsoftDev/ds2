@@ -243,7 +243,12 @@ type DsStoreNodesExtensions =
                 | EntityKind.Call -> store.Calls.[id].Name
                 | EntityKind.Work -> store.Works.[id].Name
                 | _ -> resolvedName
-            store.EmitAndHistory(EntityRenamed(id, displayName))
+            // treeName: 트리에서 표시할 이름 (Work만 LocalName, 나머지는 displayName과 동일)
+            let treeName =
+                match entityKind with
+                | EntityKind.Work -> resolvedName
+                | _ -> displayName
+            store.EmitAndHistory(EntityRenamed(id, displayName, treeName))
         | Some _ -> () // 이름 변경 없음
         | None ->
             StoreLog.warn($"Entity not found. kind={entityKind}, id={id}")

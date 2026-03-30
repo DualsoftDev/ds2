@@ -40,6 +40,21 @@ let ``RenameEntity Work changes LocalName only`` () =
     Assert.Equal("TestFlow.Renamed", work.Name)
 
 [<Fact>]
+let ``RenameEntity Work emits treeName as LocalName`` () =
+    let store = createStore()
+    let _, _, _, work = setupBasicHierarchy store
+    let mutable captured = None
+    use _sub = store.ObserveEvents().Subscribe(fun evt ->
+        match evt with
+        | EntityRenamed(id, newName, treeName) when id = work.Id ->
+            captured <- Some (newName, treeName)
+        | _ -> ())
+    store.RenameEntity(work.Id, EntityKind.Work, "Renamed")
+    let (displayName, treeName) = captured.Value
+    Assert.Equal("TestFlow.Renamed", displayName) // 캔버스용: Flow.LocalName
+    Assert.Equal("Renamed", treeName)              // 트리용: LocalName만
+
+[<Fact>]
 let ``RenameEntity Work with dot extracts LocalName`` () =
     let store = createStore()
     let _, _, _, work = setupBasicHierarchy store

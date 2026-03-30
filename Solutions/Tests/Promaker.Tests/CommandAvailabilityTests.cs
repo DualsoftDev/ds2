@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Windows.Controls;
+using System.Windows;
 using Ds2.Core;
 using Ds2.Store;
 using Ds2.Editor;
+using Promaker.Controls;
 using Promaker.ViewModels;
 using Xunit;
 
@@ -158,6 +161,61 @@ public sealed class CommandAvailabilityTests
 
             vm.PropertyPanel.NameEditorText = "Renamed";
             Assert.True(vm.PropertyPanel.ApplyNameCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
+    public void Focus_name_editor_highlight_stays_visible_until_selection_changes()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var panel = new PropertyPanel
+            {
+                DataContext = vm.PropertyPanel
+            };
+
+            panel.Measure(new System.Windows.Size(400, 600));
+            panel.Arrange(new System.Windows.Rect(0, 0, 400, 600));
+            panel.UpdateLayout();
+
+            vm.SelectedNode = new EntityNode(Guid.NewGuid(), EntityKind.Work, "Flow1.Work1");
+            vm.FocusNameEditorRequested = panel.FocusNameEditorControl;
+
+            vm.FocusNameEditorCommand.Execute(null);
+
+            var nameEditor = (TextBox)panel.FindName("NameEditor")!;
+            var highlight = (Border)panel.FindName("NameEditorHighlight")!;
+            Assert.True(vm.PropertyPanel.IsNameEditHighlighted);
+            Assert.Equal("Work1", vm.PropertyPanel.NameEditorText);
+            Assert.Equal(nameEditor.Text.Length, nameEditor.SelectionLength);
+            Assert.Equal(1d, highlight.Opacity);
+            Assert.Equal(0, Grid.GetColumn(highlight));
+            Assert.Equal(1, Grid.GetColumnSpan(highlight));
+
+            vm.SelectedNode = new EntityNode(Guid.NewGuid(), EntityKind.Work, "Flow1.Work2");
+
+            Assert.False(vm.PropertyPanel.IsNameEditHighlighted);
+        });
+    }
+
+    [Fact]
+    public void Cancel_name_edit_restores_current_name_and_clears_highlight()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.SelectedNode = new EntityNode(Guid.NewGuid(), EntityKind.Work, "Flow1.Work1");
+
+            vm.PropertyPanel.BeginNameEditGuidance();
+            vm.PropertyPanel.NameEditorText = "Renamed";
+
+            vm.PropertyPanel.CancelNameEdit();
+
+            Assert.False(vm.PropertyPanel.IsNameEditHighlighted);
+            Assert.False(vm.PropertyPanel.IsNameDirty);
+            Assert.Equal("Flow1.", vm.PropertyPanel.NamePrefix);
+            Assert.Equal("Work1", vm.PropertyPanel.NameEditorText);
         });
     }
 

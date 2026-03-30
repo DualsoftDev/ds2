@@ -70,6 +70,7 @@ public partial class ExplorerPane : UserControl
         {
             oldVm.ControlTreeRoots.CollectionChanged -= TreeRoots_CollectionChanged;
             oldVm.DeviceTreeRoots.CollectionChanged -= TreeRoots_CollectionChanged;
+            oldVm.SearchResetRequested -= ClearSearch;
         }
 
         _boundViewModel = newVm;
@@ -78,10 +79,13 @@ public partial class ExplorerPane : UserControl
         {
             newVm.ControlTreeRoots.CollectionChanged += TreeRoots_CollectionChanged;
             newVm.DeviceTreeRoots.CollectionChanged += TreeRoots_CollectionChanged;
+            newVm.SearchResetRequested += ClearSearch;
         }
 
         RefreshTreeItemsSource();
     }
+
+    private void ClearSearch() => SearchBox.Clear();
 
     private void TreeRoots_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
         RefreshTreeItemsSource();

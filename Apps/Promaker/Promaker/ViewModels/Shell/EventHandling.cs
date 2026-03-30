@@ -56,7 +56,7 @@ public partial class MainViewModel
         switch (evt)
         {
             case EditorEvent.EntityRenamed ren:
-                ApplyEntityRename(ren.id, ren.newName);
+                ApplyEntityRename(ren.id, ren.newName, ren.treeName);
                 return;
 
             case EditorEvent.HistoryChanged h:
@@ -118,7 +118,7 @@ public partial class MainViewModel
             node.UpdateConditionTypes(types);
     }
 
-    private void ApplyEntityRename(Guid entityId, string newName)
+    private void ApplyEntityRename(Guid entityId, string newName, string treeName)
     {
         static void UpdateMatching<TItem>(
             IEnumerable<TItem> items,
@@ -133,7 +133,7 @@ public partial class MainViewModel
         }
 
         UpdateMatching(Canvas.CanvasNodes, entityId, static n => n.Id, static (n, value) => n.Name = value, newName);
-        UpdateMatching(Selection.EnumerateTreeNodes(), entityId, static n => n.Id, static (n, value) => n.Name = value, newName);
+        UpdateMatching(Selection.EnumerateTreeNodes(), entityId, static n => n.Id, static (n, value) => n.Name = value, treeName);
         UpdateMatching(Canvas.OpenTabs, entityId, static t => t.RootId, static (t, value) => t.Title = value, newName);
         PropertyPanel.ApplyEntityRename(entityId, newName);
     }

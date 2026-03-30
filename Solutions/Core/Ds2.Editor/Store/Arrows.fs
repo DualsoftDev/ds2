@@ -107,7 +107,8 @@ type DsStoreArrowsExtensions =
     static member UpdateArrowType(store: DsStore, arrowId: Guid, newArrowType: ArrowType) : bool =
         StoreLog.debug($"arrowId={arrowId}, newArrowType={newArrowType}")
         match DsQuery.getArrowWork arrowId store with
-        | Some arrow when arrow.ArrowType <> newArrowType ->
+        | Some arrow when arrow.ArrowType <> newArrowType
+                          && EntityKindRules.isArrowTypeAllowedForKind EntityKind.Work newArrowType ->
             store.WithTransaction("화살표 타입 변경", fun () ->
                 store.TrackMutate(store.ArrowWorks, arrowId, fun a -> a.ArrowType <- newArrowType))
             store.EmitConnectionsChangedAndHistory()
@@ -115,7 +116,8 @@ type DsStoreArrowsExtensions =
         | Some _ -> false
         | None ->
             match DsQuery.getArrowCall arrowId store with
-            | Some arrow when arrow.ArrowType <> newArrowType ->
+            | Some arrow when arrow.ArrowType <> newArrowType
+                              && EntityKindRules.isArrowTypeAllowedForKind EntityKind.Call newArrowType ->
                 store.WithTransaction("화살표 타입 변경", fun () ->
                     store.TrackMutate(store.ArrowCalls, arrowId, fun a -> a.ArrowType <- newArrowType))
                 store.EmitConnectionsChangedAndHistory()
