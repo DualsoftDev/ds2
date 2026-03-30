@@ -7,7 +7,7 @@ namespace DSPilot.Engine.Tests.Console;
 
 /// <summary>
 /// Real Mitsubishi PLC Connector
-/// Connects to actual PLC at 192.168.9.120:5555 and monitors D100-D105 tags
+/// Connects to actual PLC and monitors D100-D105 tags
 /// </summary>
 public class RealPlcConnector : IDisposable
 {

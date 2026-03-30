@@ -63,12 +63,18 @@ public class FlowCycleOverride
 
 public class PlcCaptureSettings
 {
+    public const string DefaultPlcName = "MitsubishiPLC";
+    public const string DefaultPlcIpAddress = "192.168.0.1";
+    public const int DefaultPlcPort = 9002;
+    public const int DefaultScanIntervalMs = 100;
+    public const string DefaultProtocol = "TCP";
+
     public bool Enabled { get; set; }
-    public string PlcName { get; set; } = "MitsubishiPLC";
-    public string PlcIpAddress { get; set; } = "192.168.0.1";
-    public int PlcPort { get; set; } = 9002;
-    public int ScanIntervalMs { get; set; } = 100;
-    public string Protocol { get; set; } = "TCP";
+    public string PlcName { get; set; } = DefaultPlcName;
+    public string PlcIpAddress { get; set; } = DefaultPlcIpAddress;
+    public int PlcPort { get; set; } = DefaultPlcPort;
+    public int ScanIntervalMs { get; set; } = DefaultScanIntervalMs;
+    public string Protocol { get; set; } = DefaultProtocol;
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
