@@ -365,6 +365,21 @@ module SimIndex =
 
         let allWorkGuidsRev = state.AllWorkGuids |> List.rev
 
+        // ── 디버그: Group expansion + 토큰 경로 확인 ──
+        let nameOf guid = state.WorkName |> Map.tryFind guid |> Option.defaultValue (string guid)
+        for wg in allWorkGuidsRev do
+            let preds = state.WorkStartPreds |> Map.tryFind wg |> Option.defaultValue []
+            let succs = expandedTokenSuccMap |> Map.tryFind wg |> Option.defaultValue []
+            let inPath = tokenPathGuids.Contains wg
+            let canonical = workCanonicalGuids |> Map.tryFind wg |> Option.defaultValue wg
+            let isRef = canonical <> wg
+            let role = expandedTokenRoleMap |> Map.tryFind wg |> Option.defaultValue TokenRole.None
+            if preds.Length > 0 || succs.Length > 0 || inPath || isRef then
+                let predsStr = preds |> List.map nameOf |> String.concat ","
+                let succsStr = succs |> List.map nameOf |> String.concat ","
+                let canonStr = nameOf canonical
+                log.Debug($"[SimIndex] {nameOf wg}: preds=[{predsStr}] tokenSucc=[{succsStr}] inTokenPath={inPath} role={role} isRef={isRef} canonical={canonStr}")
+
         { Store = store
           AllWorkGuids = allWorkGuidsRev
           AllCallGuids = state.AllCallGuids |> List.rev

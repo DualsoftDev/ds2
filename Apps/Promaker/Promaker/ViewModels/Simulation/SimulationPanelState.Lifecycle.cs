@@ -1,25 +1,15 @@
 using System;
-
 using System.Collections.Generic;
-
 using System.Linq;
-
 using System.Windows;
-
 using CommunityToolkit.Mvvm.Input;
-
 using Ds2.Core;
-
 using Ds2.Runtime.Sim.Engine;
-
 using Ds2.Runtime.Sim.Engine.Core;
-
 using Promaker.Dialogs;
 
-
 namespace Promaker.ViewModels;
 
-
 public partial class SimulationPanelState
 {
     private bool TryWithSimEngine(string operationName, Action<ISimulationEngine> action)
@@ -68,29 +58,34 @@ public partial class SimulationPanelState
         if (IsSimulating && IsSimPaused)
         {
             _simEngine?.SetAllFlowStates(FlowTag.Ready);
-
             _simEngine?.Resume();
-
             _isStepMode = false;
-
             SimStatusText = SimText.Running;
-
             ApplySimulationUiState(
-
                 ganttRunning: true,
-
                 isSimPaused: false,
-
                 statusText: SimText.Resumed);
-
             return;
-
         }
 
-
         try
         {
             var index = SimIndexModule.build(Store, 10);
+
+            // 토큰 역할이 설정되어 있으면 PLAY 전 자동 검증
+            var hasPreStartWarnings = false;
+            if (HasAnyTokenRole(index))
+            {
+                var sections = RunGraphValidation(index);
+                if (sections.Count > 0)
+                {
+                    hasPreStartWarnings = true;
+                    AddGraphWarningLogs(sections);
+                    Dialogs.DialogHelpers.ShowGraphWarnings(sections);
+                    _setStatusText($"모델 검증: {sections.Count}건의 경고 발견");
+                }
+            }
+
             if (!TryDisposeCurrentEngine("Simulation restart"))
                 return;
             _simEngine = new EventDrivenEngine(index);
@@ -101,96 +96,57 @@ public partial class SimulationPanelState
             InitTokenSources();
             InitSceneEventHandler();
 
-
             _simStartTime = DateTime.Now;
-
             _stateChangeRecords.Clear();
-
             _suppressedWarnings.Clear();
-
             HasReportData = false;
-
             SimEventLog.Clear();
 
-
             GanttChart.Reset(_simStartTime);
-
             InitGanttEntries();
-
             GanttChart.IsRunning = true;
 
-
-            _warningGuids.Clear();
+            if (!hasPreStartWarnings)
+                _warningGuids.Clear();
 
-            ApplyWarningsToCanvas();
-
-
             _simEngine.ApplyInitialStates();
-
             _simEngine.Start();
 
-
             ApplySimStateToCanvas();
+            ApplyWarningsToCanvas();
 
             SimStatusText = SimText.Running;
-
             ApplySimulationUiState(
-
                 ganttRunning: true,
-
                 isSimulating: true,
-
                 isSimPaused: false,
-
                 statusText: SimText.Started,
-
                 logText: SimText.Started);
-
         }
-
         catch (Exception ex)
-
         {
-
             SimLog.Error("Simulation start failed", ex);
-
             _setStatusText(SimText.SimulationError(ex.Message));
-
         }
-
     }
 
-
     private bool CanStartSimulation() => !IsSimulating || IsSimPaused;
 
-
     [RelayCommand(CanExecute = nameof(CanPauseSimulation))]
-
     private void PauseSimulation()
-
     {
-
         _simEngine?.SetAllFlowStates(FlowTag.Pause);
-
         _isStepMode = true;
-
         SimStatusText = SimText.StepMode;
-
         ApplySimulationUiState(
-
             isSimPaused: true,
-
             statusText: SimText.Paused,
-
             logText: "단계 제어 모드 진입");
-
         RefreshSimulationProgressUi();
-
     }
 
-
-    private bool CanPauseSimulation() => IsSimulating && !IsSimPaused;
-
+    private bool CanPauseSimulation() => IsSimulating && !IsSimPaused;
+
     [RelayCommand(CanExecute = nameof(CanStopSimulation))]
     private void StopSimulation()
     {
@@ -207,17 +163,11 @@ public partial class SimulationPanelState
         SimStatusText = SimText.Stopped;
         _sceneEventHandler?.Reset();
         ApplySimulationUiState(
-
             ganttRunning: false,
-
             isSimulating: false,
-
             isSimPaused: false,
-
             statusText: SimText.Stopped,
-
             logText: SimText.Stopped);
-
     }
 
     private void InitSceneEventHandler()
@@ -225,10 +175,8 @@ public partial class SimulationPanelState
         _sceneEventHandler = new DeviceSceneEventHandler(ThreeD);
     }
 
-
     private bool CanStopSimulation() => IsSimulating;
 
-
     [RelayCommand(CanExecute = nameof(CanResetSimulation))]
     private void ResetSimulation()
     {
@@ -241,27 +189,17 @@ public partial class SimulationPanelState
         GanttChart.Reset(_simStartTime);
         InitGanttEntries();
         HasWorkGoing = false;
-
         HasGoingCall = false;
-
         _isStepMode = false;
-
         SimStatusText = SimText.Reset;
-
         ApplySimulationUiState(
-
             statusText: SimText.Reset,
-
             logText: SimText.ResetLog);
-
     }
 
-
     private bool CanResetSimulation() => IsSimulating;
 
-
     [RelayCommand(CanExecute = nameof(CanStepSimulation))]
-
     private void StepSimulation()
     {
         if (_simEngine is null) return;
@@ -276,56 +214,34 @@ public partial class SimulationPanelState
         RefreshSimulationProgressUi();
     }
 
-
     private bool CanStepSimulation() => IsSimulating
         && IsSimPaused
         && _simEngine is { } engine
         && engine.CanAdvanceStep(GetStepAdvanceSelection().SelectedSourceGuid, GetStepAdvanceSelection().AutoStartSources);
-
+
     partial void OnSimSpeedChanged(double value)
-
     {
-
         if (value == 0)
-
         {
-
             SimTimeIgnore = true;
-
             if (_simEngine is { } engine) engine.TimeIgnore = true;
-
         }
-
         else
-
         {
-
             SimTimeIgnore = false;
-
             if (_simEngine is { } engine)
-
             {
-
                 engine.TimeIgnore = false;
-
                 engine.SpeedMultiplier = value;
-
             }
-
         }
-
     }
 
-
     partial void OnSimTimeIgnoreChanged(bool value)
-
     {
-
         if (_simEngine is { } engine) engine.TimeIgnore = value;
-
     }
 
-
     public void NotifyStoreChanged()
     {
         if (!IsSimulating) return;
@@ -364,106 +280,60 @@ public partial class SimulationPanelState
             _setStatusText(SimText.SimulationError(ex.Message));
         }
     }
-
+
     public void ResetForNewStore()
-
     {
-
         DisposeSimEngine();
-
         _simStartTime = DateTime.Now;
-
         ApplySimulationResetUiState(clearCollections: true);
-
         GanttChart.Reset(_simStartTime);
-
         PopulateWorkItems();
-
     }
 
-
     private void ApplySimulationUiState(
-
         bool? ganttRunning = null,
-
         bool? isSimulating = null,
-
         bool? isSimPaused = null,
-
         string? statusText = null,
-
         string? logText = null)
-
     {
-
         if (ganttRunning.HasValue)
-
             GanttChart.IsRunning = ganttRunning.Value;
-
         if (isSimulating.HasValue)
-
             IsSimulating = isSimulating.Value;
-
         if (isSimPaused.HasValue)
-
             IsSimPaused = isSimPaused.Value;
-
         if (!string.IsNullOrWhiteSpace(statusText))
-
             SetSimStatus(statusText, logText);
-
         else if (!string.IsNullOrWhiteSpace(logText))
-
             AddSimLog(logText);
-
     }
 
-
     private void RefreshSimulationProgressUi()
-
     {
-
         if (_simEngine is null) return;
 
-
         var anyGoingWork = _simEngine.State.WorkStates.Any(kv => kv.Value == Status4.Going);
-
         var anyGoingCall = _simEngine.State.CallStates.Any(kv => kv.Value == Status4.Going);
 
-
         HasWorkGoing = anyGoingWork || anyGoingCall;
-
         HasGoingCall = anyGoingCall;
-
         RefreshStepModeUi(anyGoingCall);
-
     }
 
-
     private void RefreshStepModeUi(bool anyGoingCall)
-
     {
-
         if (!_isStepMode || _simEngine is null)
-
             return;
 
-
         var hasActiveDuration = !anyGoingCall && _simEngine.HasActiveDuration;
-
         GanttChart.IsRunning = anyGoingCall || hasActiveDuration;
-
         StepSimulationCommand.NotifyCanExecuteChanged();
 
-
         if (!anyGoingCall && !hasActiveDuration)
-
             SimStatusText = SimText.Paused;
-
         else
-
             SimStatusText = SimText.StepMode;
-
     }
 
     private bool CanAdvanceStepCore() =>
@@ -471,117 +341,65 @@ public partial class SimulationPanelState
         && !HasGoingCall
         && (engine.HasStartableWork || engine.HasActiveDuration);
 
-
     private void AddSimLog(string message)
     {
         var ts = _simEngine?.State.Clock.ToString(SimText.ClockFormat) ?? SimText.ClockZero;
-
         SimEventLog.Insert(0, $"[{ts}] {message}");
-
         if (SimEventLog.Count > 500)
-
             SimEventLog.RemoveAt(SimEventLog.Count - 1);
-
     }
 
-
     private void AddWarningLog(string severity, string message)
-
     {
-
         var ts = _simEngine?.State.Clock.ToString(SimText.ClockFormat) ?? SimText.ClockZero;
-
         SimEventLog.Insert(0, $"[{ts}] [{severity}] {message}");
-
         if (SimEventLog.Count > 500)
-
             SimEventLog.RemoveAt(SimEventLog.Count - 1);
-
     }
 
-
     private void AddGraphWarningLogs(List<GraphWarningSection> sections)
-
     {
-
         for (var i = sections.Count - 1; i >= 0; i--)
-
         {
-
             var section = sections[i];
-
             var severityTag = section.Severity == WarningSeverity.Red ? "ERROR" : "WARN";
-
             if (!string.IsNullOrWhiteSpace(section.Detail))
-
                 AddWarningLog(severityTag, $"  {section.Detail}");
-
             for (var j = section.Lines.Count - 1; j >= 0; j--)
-
                 AddWarningLog(severityTag, section.Lines[j].Trim());
-
             AddWarningLog(severityTag, $"[{section.Title}]");
-
         }
-
     }
 
-
     private void SetSimStatus(string statusText, string? logText = null)
-
     {
-
         _setStatusText(statusText);
-
         if (!string.IsNullOrWhiteSpace(logText))
-
             AddSimLog(logText);
-
     }
 
-
     private MessageBoxResult ShowPausedMessageBox(
-
         string message,
-
         string caption,
-
         MessageBoxButton buttons = MessageBoxButton.OK,
-
         string icon = DialogHelpers.IconWarn,
-
         string? suppressKey = null)
-
     {
-
         if (suppressKey is not null && _suppressedWarnings.Contains(suppressKey))
-
             return buttons == MessageBoxButton.OK ? MessageBoxResult.OK : MessageBoxResult.Yes;
 
-
         _simEngine?.Pause();
-
         GanttChart.IsRunning = false;
-
         var result = Dialogs.DialogHelpers.ShowThemedMessageBox(
-
             message, caption, buttons, icon,
-
             showDontShowAgain: suppressKey is not null, out var dontShowAgain);
-
         if (dontShowAgain && suppressKey is not null)
-
             _suppressedWarnings.Add(suppressKey);
-
         _simEngine?.Resume();
-
         GanttChart.IsRunning = true;
-
         return result;
-
     }
 
-
     private void DisposeSimEngine()
     {
         TryDisposeCurrentEngine("Simulation dispose");
@@ -589,71 +407,38 @@ public partial class SimulationPanelState
         IsSimulating = false;
         IsSimPaused = false;
         _stateCache.Clear();
-
     }
 
-
     private void ApplySimulationResetUiState(bool clearCollections)
-
     {
-
         GanttChart.IsRunning = false;
-
         _stateChangeRecords.Clear();
-
         HasReportData = false;
-
         SimClock = SimText.ClockZero;
-
         SelectedSimWork = null;
-
         IsSimulating = false;
-
         IsSimPaused = false;
-
         _isStepMode = false;
-
         SimSpeed = 1.0;
-
         _stateCache.Clear();
-
         _suppressedWarnings.Clear();
-
         ClearSimStateFromCanvas();
 
-
         if (clearCollections)
-
         {
-
             SimNodes.Clear();
-
             SimEventLog.Clear();
-
             SimWorkItems.Clear();
-
             TokenSourceWorks.Clear();
-
             SelectedTokenSource = null;
-
             return;
-
         }
 
-
         SimEventLog.Clear();
-
         foreach (var row in SimNodes)
-
         {
-
             row.State = Status4.Ready;
-
             row.TokenDisplay = "";
-
         }
-
     }
-
 }
-

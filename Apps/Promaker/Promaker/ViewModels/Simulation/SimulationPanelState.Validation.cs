@@ -11,6 +11,37 @@ namespace Promaker.ViewModels;
 
 public partial class SimulationPanelState
 {
+    /// 그래프 검증 실행 — 경고 섹션 목록을 반환하고 캔버스에 마킹
+    private List<GraphWarningSection> RunGraphValidation(SimIndex index)
+    {
+        _warningGuids.Clear();
+
+        var sections = new List<GraphWarningSection>();
+        CollectWarning(sections, "순환 데드락 위험", WarningSeverity.Red,
+            GraphValidator.findDeadlockCandidates(index),
+            "(해당 Work의 Start 선행조건에 순환 후속 Work가 포함되어 있습니다)");
+        CollectWarning(sections, "Source 자동 시작 불가", WarningSeverity.Red,
+            GraphValidator.findSourcesWithPredecessors(index),
+            "(predecessor가 있어 자동 시작되지 않습니다. 순환 경로에 있으면 데드락이 발생합니다)");
+        CollectGroupIgnoreWarning(sections, index);
+        CollectTokenUnreachableWarning(sections, index);
+        CollectWarning(sections, "Reset 연결 누락", WarningSeverity.Yellow,
+            GraphValidator.findUnresetWorks(index));
+        CollectWarning(sections, "Source 후보", WarningSeverity.Yellow,
+            GraphValidator.findSourceCandidates(index),
+            "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)");
+        CollectDurationWarning(sections, index);
+        CollectTokenSpecWarning(sections, index);
+
+        ApplyWarningsToCanvas();
+        return sections;
+    }
+
+    /// 토큰 역할(Source/Ignore)이 하나라도 설정되어 있는지 확인
+    private static bool HasAnyTokenRole(SimIndex index) =>
+        index.WorkTokenRole.Any(kv =>
+            kv.Value.HasFlag(TokenRole.Source) || kv.Value.HasFlag(TokenRole.Ignore));
+
     [RelayCommand]
     private void CheckModel()
     {
@@ -18,27 +49,9 @@ public partial class SimulationPanelState
         {
             var store = Store;
             var index = SimIndexModule.build(store, 10);
-            _warningGuids.Clear();
             SimEventLog.Clear();
 
-            var sections = new List<GraphWarningSection>();
-            CollectWarning(sections, "순환 데드락 위험", WarningSeverity.Red,
-                GraphValidator.findDeadlockCandidates(index),
-                "(해당 Work의 Start 선행조건에 순환 후속 Work가 포함되어 있습니다)");
-            CollectWarning(sections, "Source 자동 시작 불가", WarningSeverity.Red,
-                GraphValidator.findSourcesWithPredecessors(index),
-                "(predecessor가 있어 자동 시작되지 않습니다. 순환 경로에 있으면 데드락이 발생합니다)");
-            CollectGroupIgnoreWarning(sections, index);
-            CollectTokenUnreachableWarning(sections, index);
-            CollectWarning(sections, "Reset 연결 누락", WarningSeverity.Yellow,
-                GraphValidator.findUnresetWorks(index));
-            CollectWarning(sections, "Source 후보", WarningSeverity.Yellow,
-                GraphValidator.findSourceCandidates(index),
-                "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)");
-            CollectDurationWarning(sections, index);
-            CollectTokenSpecWarning(sections, index);
-
-            ApplyWarningsToCanvas();
+            var sections = RunGraphValidation(index);
 
             if (sections.Count > 0)
             {
