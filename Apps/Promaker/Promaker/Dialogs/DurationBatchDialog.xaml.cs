@@ -33,6 +33,9 @@ public partial class DurationBatchDialog : Window
         WorkFlowFilterBox.TextChanged += (_, _) => _view.Refresh();
         WorkNameFilterBox.TextChanged += (_, _) => _view.Refresh();
         WorkDurationFilterBox.TextChanged += (_, _) => _view.Refresh();
+
+        // 초기 컬럼 헤더 설정 (디바이스가 기본)
+        UpdateCategoryColumnHeader();
     }
 
     public IReadOnlyList<DurationRow> ChangedRows =>
@@ -41,6 +44,14 @@ public partial class DurationBatchDialog : Window
     private bool FilterRow(object obj)
     {
         if (obj is not DurationRow row) return false;
+
+        // Work 타입 필터
+        // 컨트롤 = ApiCall이 있는 Work (디바이스 통신)
+        // 디바이스 = ApiCall이 없는 Work (Flow 내부 로직)
+        if (ShowControlWorkRadio.IsChecked == true && !row.IsDeviceWork)
+            return false;
+        if (ShowDeviceWorkRadio.IsChecked == true && row.IsDeviceWork)
+            return false;
 
         var flow = WorkFlowFilterBox.Text;
         var work = WorkNameFilterBox.Text;
@@ -54,6 +65,22 @@ public partial class DurationBatchDialog : Window
             return false;
 
         return true;
+    }
+
+    private void WorkTypeToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_view != null)
+        {
+            UpdateCategoryColumnHeader();
+            _view.Refresh();
+            BatchDialogHelper.UpdateSelectedCount(_workRows.Where(r => _view.Filter == null || _view.Filter(r)).ToList(), WorkSelectedCountText);
+        }
+    }
+
+    private void UpdateCategoryColumnHeader()
+    {
+        // 디바이스 선택 시 "System", 컨트롤 선택 시 "Flow"
+        CategoryColumn.Header = ShowDeviceWorkRadio.IsChecked == true ? "System" : "Flow";
     }
 
     private static bool MatchDurationFilter(string durationStr, string filter)
@@ -122,19 +149,23 @@ public sealed class DurationRow : BatchRowBase
 {
     private string _duration;
 
-    public DurationRow(Guid workId, string flowName, string workName, string duration)
+    public DurationRow(Guid workId, string systemName, string flowName, string workName, string duration, bool isDeviceWork)
     {
         WorkId = workId;
+        SystemName = systemName;
         FlowName = flowName;
         WorkName = workName;
         _duration = duration;
         OriginalDuration = duration;
+        IsDeviceWork = isDeviceWork;
     }
 
     public Guid WorkId { get; }
+    public string SystemName { get; }
     public string FlowName { get; }
     public string WorkName { get; }
     public string OriginalDuration { get; }
+    public bool IsDeviceWork { get; }
 
     public string Duration
     {
@@ -143,4 +174,7 @@ public sealed class DurationRow : BatchRowBase
     }
 
     public bool IsChanged => Duration != OriginalDuration;
+
+    // UI에 표시할 첫번째 컬럼 (디바이스=System, 컨트롤=Flow)
+    public string DisplayCategory => IsDeviceWork ? FlowName : SystemName;
 }

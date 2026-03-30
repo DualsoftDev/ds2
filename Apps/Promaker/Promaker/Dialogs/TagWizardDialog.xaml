@@ -3,10 +3,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         Title="TAG Wizard - 신호 자동 생성"
-        Width="1000"
-        Height="700"
-        MinWidth="900"
-        MinHeight="650"
+        Width="1400"
+        Height="850"
+        MinWidth="1200"
+        MinHeight="750"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         ResizeMode="CanResize">
@@ -278,7 +278,7 @@
                     </ScrollViewer>
                 </Grid>
 
-                <!-- Step 2: 템플릿 편집 -->
+                <!-- Step 2: 주소 설정 (3개 탭) -->
                 <Grid x:Name="Step2Content" Visibility="Collapsed">
                     <Grid Margin="40,30">
                         <Grid.RowDefinitions>
@@ -288,75 +288,26 @@
                         </Grid.RowDefinitions>
 
                         <StackPanel Grid.Row="0">
-                            <TextBlock Text="Step 2: 템플릿 편집"
+                            <TextBlock Text="Step 2: 주소 설정"
                                        FontSize="22"
                                        FontWeight="Bold"
                                        Foreground="{DynamicResource PrimaryTextBrush}"/>
 
-                            <TextBlock Text="좌측에서 파일을 선택하여 주소 할당 규칙을 편집하세요."
+                            <TextBlock Text="각 탭에서 시스템 주소, Flow 주소, 신호 템플릿을 설정하세요."
                                        FontSize="14"
                                        Foreground="{DynamicResource SecondaryTextBrush}"
                                        Margin="0,8,0,0"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
 
-                        <!-- 2-pane 레이아웃 -->
-                        <Grid Grid.Row="2">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="250"/>
-                                <ColumnDefinition Width="8"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
+                        <!-- 3개 탭 -->
+                        <TabControl Grid.Row="2"
+                                    Background="{DynamicResource SecondaryBackgroundBrush}"
+                                    BorderThickness="0">
 
-                            <!-- 좌측: 파일 리스트 -->
-                            <Border Grid.Column="0"
-                                    Background="{DynamicResource PrimaryBackgroundBrush}"
-                                    BorderBrush="{DynamicResource BorderBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="8">
-                                <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="*"/>
-                                    </Grid.RowDefinitions>
-
-                                    <!-- 파일 리스트 헤더 -->
-                                    <Border Grid.Row="0"
-                                            Background="{DynamicResource SecondaryBackgroundBrush}"
-                                            BorderBrush="{DynamicResource BorderBrush}"
-                                            BorderThickness="0,0,0,1"
-                                            Padding="15,12">
-                                        <TextBlock Text="📂 템플릿 파일"
-                                                   FontSize="14"
-                                                   FontWeight="SemiBold"
-                                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
-                                    </Border>
-
-                                    <!-- 파일 리스트 -->
-                                    <ListBox x:Name="TemplateFilesListBox"
-                                             Grid.Row="1"
-                                             Background="Transparent"
-                                             BorderThickness="0"
-                                             Padding="5"
-                                             SelectionChanged="TemplateFilesListBox_SelectionChanged">
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding}"
-                                                           FontSize="12"
-                                                           Padding="8,6"
-                                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
-                                </Grid>
-                            </Border>
-
-                            <!-- 우측: 편집 영역 -->
-                            <Border Grid.Column="2"
-                                    Background="{DynamicResource PrimaryBackgroundBrush}"
-                                    BorderBrush="{DynamicResource BorderBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="8">
+                            <!-- Tab 1: 시스템 주소 -->
+                            <TabItem Header="🔧 시스템 주소"
+                                     Foreground="{DynamicResource PrimaryTextBrush}">
                                 <Grid>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
@@ -365,98 +316,587 @@
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
 
-                                    <!-- 파일명 헤더 -->
+                                    <!-- 헤더 -->
                                     <Border Grid.Row="0"
-                                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                                            Background="{DynamicResource PrimaryBackgroundBrush}"
                                             BorderBrush="{DynamicResource BorderBrush}"
                                             BorderThickness="0,0,0,1"
                                             Padding="20,12">
                                         <Grid>
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="📝 "
-                                                           FontSize="14"
-                                                           VerticalAlignment="Center"/>
-                                                <TextBlock x:Name="CurrentFileNameText"
-                                                           Text="파일을 선택하세요"
-                                                           FontSize="14"
-                                                           FontWeight="SemiBold"
-                                                           Foreground="{DynamicResource PrimaryTextBrush}"
-                                                           VerticalAlignment="Center"/>
-                                            </StackPanel>
+                                            <TextBlock Text="시스템 타입별 주소 설정"
+                                                       FontSize="14"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                                       VerticalAlignment="Center"/>
                                             <Button Content="💾 저장"
                                                     Style="{StaticResource WizardButton}"
                                                     Padding="12,6"
                                                     HorizontalAlignment="Right"
-                                                    Click="SaveTemplate_Click"/>
+                                                    Click="SaveSystemBase_Click"/>
                                         </Grid>
                                     </Border>
 
-                                    <!-- 예시/도움말 (접을 수 있음) -->
-                                    <Expander Grid.Row="1"
-                                              IsExpanded="True"
-                                              Background="{DynamicResource SecondaryBackgroundBrush}"
+                                    <!-- 안내 메시지 -->
+                                    <Border Grid.Row="1"
+                                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="0,0,0,1"
+                                            Padding="15,12">
+                                        <TextBlock FontSize="12"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   TextWrapping="Wrap">
+                                            <Run Text="💡 "/>
+                                            <Run Text="각 시스템 타입(RBT, PIN, CLAMP 등)의 글로벌 주소를 설정합니다. 입력/출력/메모리 워드의 시작 주소를 지정하세요."/>
+                                        </TextBlock>
+                                    </Border>
+
+                                    <!-- 시스템 주소 그리드 -->
+                                    <DataGrid x:Name="SystemBaseGrid"
+                                              Grid.Row="2"
+                                              AutoGenerateColumns="False"
+                                              CanUserAddRows="False"
+                                              CanUserDeleteRows="False"
+                                              CanUserSortColumns="True"
+                                              CanUserReorderColumns="False"
+                                              CanUserResizeColumns="True"
+                                              SelectionMode="Single"
+                                              GridLinesVisibility="All"
                                               BorderBrush="{DynamicResource BorderBrush}"
-                                              BorderThickness="0,0,0,1">
-                                        <Expander.Header>
-                                            <TextBlock Text="💡 편집 예시"
-                                                       FontSize="12"
-                                                       FontWeight="SemiBold"
-                                                       Foreground="{DynamicResource AccentBrush}"
-                                                       Padding="5"/>
-                                        </Expander.Header>
-                                        <Border Background="{DynamicResource PrimaryBackgroundBrush}"
-                                                Padding="15,10">
-                                            <TextBlock FontFamily="Consolas"
-                                                       FontSize="11"
-                                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                                       TextWrapping="Wrap">
-                                                <Run Text="# 주석: '#'으로 시작하는 라인은 무시됩니다"/>
-                                                <LineBreak/>
-                                                <Run Text="# 형식: 카테고리:시작주소:개수" FontWeight="Bold"/>
-                                                <LineBreak/>
-                                                <LineBreak/>
-                                                <Run Text="RBT:3000:100" Foreground="{DynamicResource GreenAccentBrush}"/>
-                                                <Run Text="  # 로봇 신호: 주소 3000부터 100개"/>
-                                                <LineBreak/>
-                                                <Run Text="CNV:3100:50" Foreground="{DynamicResource GreenAccentBrush}"/>
-                                                <Run Text="   # 컨베이어 신호: 주소 3100부터 50개"/>
-                                                <LineBreak/>
-                                                <Run Text="SNS:3200:80" Foreground="{DynamicResource GreenAccentBrush}"/>
-                                                <Run Text="   # 센서 신호: 주소 3200부터 80개"/>
-                                            </TextBlock>
-                                        </Border>
-                                    </Expander>
+                                              BorderThickness="1"
+                                              HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
+                                              VerticalGridLinesBrush="{DynamicResource BorderBrush}"
+                                              Foreground="{DynamicResource PrimaryTextBrush}"
+                                              Background="{DynamicResource SecondaryBackgroundBrush}">
+                                        <DataGrid.Columns>
+                                            <DataGridCheckBoxColumn Header="사용"
+                                                                    Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}"
+                                                                    Width="60">
+                                                <DataGridCheckBoxColumn.ElementStyle>
+                                                    <Style TargetType="CheckBox">
+                                                        <Setter Property="HorizontalAlignment" Value="Center"/>
+                                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                                    </Style>
+                                                </DataGridCheckBoxColumn.ElementStyle>
+                                            </DataGridCheckBoxColumn>
+                                            <DataGridTextColumn Header="시스템 타입"
+                                                                Binding="{Binding SystemType}"
+                                                                Width="120"
+                                                                IsReadOnly="True">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                                        <Setter Property="Padding" Value="8,0"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="입력 워드 시작 (IW_BASE)"
+                                                                Binding="{Binding IW_Base, UpdateSourceTrigger=PropertyChanged}"
+                                                                Width="*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                                        <Setter Property="Padding" Value="8,0"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="출력 워드 시작 (QW_BASE)"
+                                                                Binding="{Binding QW_Base, UpdateSourceTrigger=PropertyChanged}"
+                                                                Width="*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                                        <Setter Property="Padding" Value="8,0"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="메모리 워드 시작 (MW_BASE)"
+                                                                Binding="{Binding MW_Base, UpdateSourceTrigger=PropertyChanged}"
+                                                                Width="*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                                        <Setter Property="Padding" Value="8,0"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
 
-                                    <!-- 텍스트 편집기 -->
-                                    <TextBox x:Name="TemplateEditBox"
-                                             Grid.Row="2"
-                                             FontFamily="Consolas"
-                                             FontSize="12"
-                                             TextWrapping="NoWrap"
-                                             AcceptsReturn="True"
-                                             AcceptsTab="True"
-                                             VerticalScrollBarVisibility="Auto"
-                                             HorizontalScrollBarVisibility="Auto"
-                                             Padding="15"
-                                             Background="{DynamicResource PrimaryBackgroundBrush}"
-                                             Foreground="{DynamicResource PrimaryTextBrush}"
-                                             BorderThickness="0"
-                                             IsEnabled="False"/>
-
-                                    <!-- 하단 상태바 -->
+                                    <!-- 상태바 -->
                                     <Border Grid.Row="3"
                                             Background="{DynamicResource SecondaryBackgroundBrush}"
                                             BorderBrush="{DynamicResource BorderBrush}"
                                             BorderThickness="0,1,0,0"
                                             Padding="15,10">
-                                        <TextBlock x:Name="TemplateStatusText"
-                                                   Text="파일을 선택하면 편집할 수 있습니다."
+                                        <TextBlock x:Name="SystemBaseStatusText"
+                                                   Text="시스템 타입별 글로벌 주소를 설정합니다."
                                                    FontSize="11"
                                                    Foreground="{DynamicResource SecondaryTextBrush}"/>
                                     </Border>
                                 </Grid>
-                            </Border>
-                        </Grid>
+                            </TabItem>
+
+                            <!-- Tab 2: Flow 주소 -->
+                            <TabItem Header="📊 Flow 주소"
+                                     Foreground="{DynamicResource PrimaryTextBrush}">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- 헤더 -->
+                                    <Border Grid.Row="0"
+                                            Background="{DynamicResource PrimaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="0,0,0,1"
+                                            Padding="20,12">
+                                        <Grid>
+                                            <TextBlock Text="Flow별 주소 설정"
+                                                       FontSize="14"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                                       VerticalAlignment="Center"/>
+                                            <Button Content="💾 저장"
+                                                    Style="{StaticResource WizardButton}"
+                                                    Padding="12,6"
+                                                    HorizontalAlignment="Right"
+                                                    Click="SaveFlowBase_Click"/>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- 안내 메시지 -->
+                                    <Border Grid.Row="1"
+                                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="0,0,0,1"
+                                            Padding="15,12">
+                                        <TextBlock FontSize="12"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   TextWrapping="Wrap">
+                                            <Run Text="💡 "/>
+                                            <Run Text="프로젝트의 각 Flow에 대해 별도 주소 영역을 할당할 수 있습니다. Flow 목록은 현재 열려있는 모델에서 자동으로 가져옵니다."/>
+                                        </TextBlock>
+                                    </Border>
+
+                                    <!-- Flow 주소 그리드 -->
+                                    <DataGrid x:Name="FlowBaseGrid"
+                                              Grid.Row="2"
+                                              AutoGenerateColumns="False"
+                                              CanUserAddRows="False"
+                                              CanUserDeleteRows="False"
+                                              CanUserSortColumns="True"
+                                              CanUserReorderColumns="False"
+                                              CanUserResizeColumns="True"
+                                              SelectionMode="Single"
+                                              GridLinesVisibility="All"
+                                              BorderBrush="{DynamicResource BorderBrush}"
+                                              BorderThickness="1"
+                                              HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
+                                              VerticalGridLinesBrush="{DynamicResource BorderBrush}"
+                                              Foreground="{DynamicResource PrimaryTextBrush}"
+                                              Background="{DynamicResource SecondaryBackgroundBrush}">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="Flow 이름"
+                                                                Binding="{Binding FlowName}"
+                                                                Width="150"
+                                                                IsReadOnly="True">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                                        <Setter Property="Padding" Value="8,0"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="입력 워드 시작 (IW_BASE)"
+                                                                Binding="{Binding IW_Base, UpdateSourceTrigger=PropertyChanged}"
+                                                                Width="*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                                        <Setter Property="Padding" Value="8,0"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="출력 워드 시작 (QW_BASE)"
+                                                                Binding="{Binding QW_Base, UpdateSourceTrigger=PropertyChanged}"
+                                                                Width="*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                                        <Setter Property="Padding" Value="8,0"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="메모리 워드 시작 (MW_BASE)"
+                                                                Binding="{Binding MW_Base, UpdateSourceTrigger=PropertyChanged}"
+                                                                Width="*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                                        <Setter Property="Padding" Value="8,0"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+
+                                    <!-- 상태바 -->
+                                    <Border Grid.Row="3"
+                                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="0,1,0,0"
+                                            Padding="15,10">
+                                        <TextBlock x:Name="FlowBaseStatusText"
+                                                   Text="Flow별 로컬 주소를 설정합니다. (선택사항)"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                    </Border>
+                                </Grid>
+                            </TabItem>
+
+                            <!-- Tab 3: 신호 템플릿 -->
+                            <TabItem Header="📋 신호 템플릿"
+                                     Foreground="{DynamicResource PrimaryTextBrush}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="200"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- 좌측: SystemType 리스트 -->
+                                    <Border Grid.Column="0"
+                                            Background="{DynamicResource PrimaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="8">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+
+                                            <!-- SystemType 리스트 헤더 -->
+                                            <Border Grid.Row="0"
+                                                    Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                    BorderBrush="{DynamicResource BorderBrush}"
+                                                    BorderThickness="0,0,0,1"
+                                                    Padding="15,12">
+                                                <TextBlock Text="📂 시스템 타입"
+                                                           FontSize="13"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                            </Border>
+
+                                            <!-- SystemType 리스트 -->
+                                            <ListBox x:Name="DeviceTemplateListBox"
+                                                     Grid.Row="1"
+                                                     Background="Transparent"
+                                                     BorderThickness="0"
+                                                     Padding="5"
+                                                     SelectionChanged="DeviceTemplateListBox_SelectionChanged">
+                                                <ListBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding}"
+                                                                   FontSize="12"
+                                                                   Padding="8,6"
+                                                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                                    </DataTemplate>
+                                                </ListBox.ItemTemplate>
+                                            </ListBox>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- 우측: 템플릿 편집 영역 (TabControl 방식) -->
+                                    <Border Grid.Column="2"
+                                            Background="{DynamicResource PrimaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="8">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+
+                                            <!-- 헤더: SystemType 이름 + 저장 버튼 -->
+                                            <Border Grid.Row="0"
+                                                    Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                    BorderBrush="{DynamicResource BorderBrush}"
+                                                    BorderThickness="0,0,0,1"
+                                                    Padding="20,12">
+                                                <Grid>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="📝 "
+                                                                   FontSize="14"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock x:Name="CurrentDeviceTemplateText"
+                                                                   Text="템플릿을 선택하세요"
+                                                                   FontSize="14"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                   VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                    <Button Content="💾 저장"
+                                                            Style="{StaticResource WizardButton}"
+                                                            Padding="12,6"
+                                                            HorizontalAlignment="Right"
+                                                            Click="SaveDeviceTemplate_Click"/>
+                                                </Grid>
+                                            </Border>
+
+                                            <!-- 안내 메시지 -->
+                                            <Border Grid.Row="1"
+                                                    Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                    BorderBrush="{DynamicResource BorderBrush}"
+                                                    BorderThickness="0,0,0,1"
+                                                    Padding="15,12">
+                                                <TextBlock FontSize="12"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                           TextWrapping="Wrap">
+                                                    <Run Text="💡 "/>
+                                                    <Run Text="각 API별 신호 패턴을 설정합니다. 변수 치환: $(F)=Flow명, $(D)=Device명, $(A)=Api명"/>
+                                                </TextBlock>
+                                            </Border>
+
+                                            <!-- 메인 편집 영역: IW/QW/MW 탭 -->
+                                            <TabControl x:Name="SignalSectionTabControl"
+                                                        Grid.Row="2"
+                                                        Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                        BorderThickness="0">
+
+                                                <!-- IW 탭 -->
+                                                <TabItem Header="입력 워드 (IW)"
+                                                         Foreground="{DynamicResource PrimaryTextBrush}">
+                                                    <Grid>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="*"/>
+                                                        </Grid.RowDefinitions>
+
+                                                        <!-- 툴바 -->
+                                                        <Border Grid.Row="0"
+                                                                Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                                BorderThickness="0,0,0,1"
+                                                                Padding="10,8">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <Button Content="➕ 행 추가"
+                                                                        Padding="10,5"
+                                                                        Margin="0,0,5,0"
+                                                                        Click="AddIwRow_Click"/>
+                                                                <Button Content="➖ 선택 행 삭제"
+                                                                        Padding="10,5"
+                                                                        Click="RemoveIwRow_Click"/>
+                                                            </StackPanel>
+                                                        </Border>
+
+                                                        <!-- IW 그리드 -->
+                                                        <DataGrid x:Name="IwSignalGrid"
+                                                                  Grid.Row="1"
+                                                                  AutoGenerateColumns="False"
+                                                                  CanUserAddRows="False"
+                                                                  CanUserDeleteRows="False"
+                                                                  CanUserSortColumns="False"
+                                                                  SelectionMode="Extended"
+                                                                  GridLinesVisibility="All"
+                                                                  BorderBrush="{DynamicResource BorderBrush}"
+                                                                  BorderThickness="0"
+                                                                  HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
+                                                                  VerticalGridLinesBrush="{DynamicResource BorderBrush}"
+                                                                  Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                  Background="{DynamicResource SecondaryBackgroundBrush}">
+                                                            <DataGrid.Columns>
+                                                                <DataGridTextColumn Header="API 이름"
+                                                                                    Binding="{Binding ApiName, UpdateSourceTrigger=PropertyChanged}"
+                                                                                    Width="150">
+                                                                    <DataGridTextColumn.ElementStyle>
+                                                                        <Style TargetType="TextBlock">
+                                                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                                                            <Setter Property="Padding" Value="8,0"/>
+                                                                        </Style>
+                                                                    </DataGridTextColumn.ElementStyle>
+                                                                </DataGridTextColumn>
+                                                                <DataGridTextColumn Header="신호 패턴"
+                                                                                    Binding="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}"
+                                                                                    Width="*">
+                                                                    <DataGridTextColumn.ElementStyle>
+                                                                        <Style TargetType="TextBlock">
+                                                                            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                                                            <Setter Property="FontFamily" Value="Consolas"/>
+                                                                            <Setter Property="Padding" Value="8,0"/>
+                                                                        </Style>
+                                                                    </DataGridTextColumn.ElementStyle>
+                                                                </DataGridTextColumn>
+                                                            </DataGrid.Columns>
+                                                        </DataGrid>
+                                                    </Grid>
+                                                </TabItem>
+
+                                                <!-- QW 탭 -->
+                                                <TabItem Header="출력 워드 (QW)"
+                                                         Foreground="{DynamicResource PrimaryTextBrush}">
+                                                    <Grid>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="*"/>
+                                                        </Grid.RowDefinitions>
+
+                                                        <!-- 툴바 -->
+                                                        <Border Grid.Row="0"
+                                                                Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                                BorderThickness="0,0,0,1"
+                                                                Padding="10,8">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <Button Content="➕ 행 추가"
+                                                                        Padding="10,5"
+                                                                        Margin="0,0,5,0"
+                                                                        Click="AddQwRow_Click"/>
+                                                                <Button Content="➖ 선택 행 삭제"
+                                                                        Padding="10,5"
+                                                                        Click="RemoveQwRow_Click"/>
+                                                            </StackPanel>
+                                                        </Border>
+
+                                                        <!-- QW 그리드 -->
+                                                        <DataGrid x:Name="QwSignalGrid"
+                                                                  Grid.Row="1"
+                                                                  AutoGenerateColumns="False"
+                                                                  CanUserAddRows="False"
+                                                                  CanUserDeleteRows="False"
+                                                                  CanUserSortColumns="False"
+                                                                  SelectionMode="Extended"
+                                                                  GridLinesVisibility="All"
+                                                                  BorderBrush="{DynamicResource BorderBrush}"
+                                                                  BorderThickness="0"
+                                                                  HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
+                                                                  VerticalGridLinesBrush="{DynamicResource BorderBrush}"
+                                                                  Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                  Background="{DynamicResource SecondaryBackgroundBrush}">
+                                                            <DataGrid.Columns>
+                                                                <DataGridTextColumn Header="API 이름"
+                                                                                    Binding="{Binding ApiName, UpdateSourceTrigger=PropertyChanged}"
+                                                                                    Width="150">
+                                                                    <DataGridTextColumn.ElementStyle>
+                                                                        <Style TargetType="TextBlock">
+                                                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                                                            <Setter Property="Padding" Value="8,0"/>
+                                                                        </Style>
+                                                                    </DataGridTextColumn.ElementStyle>
+                                                                </DataGridTextColumn>
+                                                                <DataGridTextColumn Header="신호 패턴"
+                                                                                    Binding="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}"
+                                                                                    Width="*">
+                                                                    <DataGridTextColumn.ElementStyle>
+                                                                        <Style TargetType="TextBlock">
+                                                                            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                                                            <Setter Property="FontFamily" Value="Consolas"/>
+                                                                            <Setter Property="Padding" Value="8,0"/>
+                                                                        </Style>
+                                                                    </DataGridTextColumn.ElementStyle>
+                                                                </DataGridTextColumn>
+                                                            </DataGrid.Columns>
+                                                        </DataGrid>
+                                                    </Grid>
+                                                </TabItem>
+
+                                                <!-- MW 탭 -->
+                                                <TabItem Header="메모리 워드 (MW)"
+                                                         Foreground="{DynamicResource PrimaryTextBrush}">
+                                                    <Grid>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="*"/>
+                                                        </Grid.RowDefinitions>
+
+                                                        <!-- 툴바 -->
+                                                        <Border Grid.Row="0"
+                                                                Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                                BorderThickness="0,0,0,1"
+                                                                Padding="10,8">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <Button Content="➕ 행 추가"
+                                                                        Padding="10,5"
+                                                                        Margin="0,0,5,0"
+                                                                        Click="AddMwRow_Click"/>
+                                                                <Button Content="➖ 선택 행 삭제"
+                                                                        Padding="10,5"
+                                                                        Click="RemoveMwRow_Click"/>
+                                                            </StackPanel>
+                                                        </Border>
+
+                                                        <!-- MW 그리드 -->
+                                                        <DataGrid x:Name="MwSignalGrid"
+                                                                  Grid.Row="1"
+                                                                  AutoGenerateColumns="False"
+                                                                  CanUserAddRows="False"
+                                                                  CanUserDeleteRows="False"
+                                                                  CanUserSortColumns="False"
+                                                                  SelectionMode="Extended"
+                                                                  GridLinesVisibility="All"
+                                                                  BorderBrush="{DynamicResource BorderBrush}"
+                                                                  BorderThickness="0"
+                                                                  HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
+                                                                  VerticalGridLinesBrush="{DynamicResource BorderBrush}"
+                                                                  Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                  Background="{DynamicResource SecondaryBackgroundBrush}">
+                                                            <DataGrid.Columns>
+                                                                <DataGridTextColumn Header="API 이름"
+                                                                                    Binding="{Binding ApiName, UpdateSourceTrigger=PropertyChanged}"
+                                                                                    Width="150">
+                                                                    <DataGridTextColumn.ElementStyle>
+                                                                        <Style TargetType="TextBlock">
+                                                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                                                            <Setter Property="Padding" Value="8,0"/>
+                                                                        </Style>
+                                                                    </DataGridTextColumn.ElementStyle>
+                                                                </DataGridTextColumn>
+                                                                <DataGridTextColumn Header="신호 패턴"
+                                                                                    Binding="{Binding Pattern, UpdateSourceTrigger=PropertyChanged}"
+                                                                                    Width="*">
+                                                                    <DataGridTextColumn.ElementStyle>
+                                                                        <Style TargetType="TextBlock">
+                                                                            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                                                            <Setter Property="FontFamily" Value="Consolas"/>
+                                                                            <Setter Property="Padding" Value="8,0"/>
+                                                                        </Style>
+                                                                    </DataGridTextColumn.ElementStyle>
+                                                                </DataGridTextColumn>
+                                                            </DataGrid.Columns>
+                                                        </DataGrid>
+                                                    </Grid>
+                                                </TabItem>
+
+                                            </TabControl>
+
+                                            <!-- 하단 상태바 -->
+                                            <Border Grid.Row="3"
+                                                    Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                    BorderBrush="{DynamicResource BorderBrush}"
+                                                    BorderThickness="0,1,0,0"
+                                                    Padding="15,10">
+                                                <TextBlock x:Name="DeviceTemplateStatusText"
+                                                           Text="템플릿을 선택하면 편집할 수 있습니다."
+                                                           FontSize="11"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </Grid>
+                            </TabItem>
+                        </TabControl>
                     </Grid>
                 </Grid>
 
@@ -750,6 +1190,83 @@
                                             </DataGridTextColumn>
                                         </DataGrid.Columns>
                                     </DataGrid>
+                                </Grid>
+                            </TabItem>
+
+                            <!-- 오류 탭 -->
+                            <TabItem x:Name="ErrorsTabItem"
+                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                     Visibility="Collapsed">
+                                <TabItem.Header>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="✖ 오류 (" Foreground="{DynamicResource RedAccentBrush}"/>
+                                        <TextBlock x:Name="ErrorCountText" Text="0" Foreground="{DynamicResource RedAccentBrush}" FontWeight="Bold"/>
+                                        <TextBlock Text=")" Foreground="{DynamicResource RedAccentBrush}"/>
+                                    </StackPanel>
+                                </TabItem.Header>
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- 안내 메시지 -->
+                                    <Border Grid.Row="0"
+                                            Background="{DynamicResource SecondaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource RedAccentBrush}"
+                                            BorderThickness="0,0,0,2"
+                                            Padding="15,12">
+                                        <TextBlock FontSize="12"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   TextWrapping="Wrap">
+                                            <Run Text="✖ "/>
+                                            <Run Text="신호 생성 중 오류가 발생했습니다. 템플릿 설정을 확인하세요."/>
+                                        </TextBlock>
+                                    </Border>
+
+                                    <!-- 오류 항목 리스트 -->
+                                    <ListBox x:Name="ErrorsListBox"
+                                             Grid.Row="1"
+                                             Background="{DynamicResource PrimaryBackgroundBrush}"
+                                             BorderThickness="0"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                        BorderBrush="{DynamicResource RedAccentBrush}"
+                                                        BorderThickness="1,0,0,0"
+                                                        Padding="15,12"
+                                                        Margin="5">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+
+                                                        <TextBlock Grid.Column="0"
+                                                                   Text="✖"
+                                                                   FontSize="16"
+                                                                   FontWeight="Bold"
+                                                                   Foreground="{DynamicResource RedAccentBrush}"
+                                                                   VerticalAlignment="Top"
+                                                                   Margin="0,0,15,0"/>
+
+                                                        <StackPanel Grid.Column="1">
+                                                            <TextBlock Text="{Binding ErrorType}"
+                                                                       FontSize="13"
+                                                                       FontWeight="SemiBold"
+                                                                       Foreground="{DynamicResource RedAccentBrush}"
+                                                                       Margin="0,0,0,5"/>
+                                                            <TextBlock Text="{Binding Message}"
+                                                                       FontSize="12"
+                                                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                                                       TextWrapping="Wrap"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
                                 </Grid>
                             </TabItem>
                         </TabControl>

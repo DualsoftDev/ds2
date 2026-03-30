@@ -39,14 +39,14 @@ module AddressConfig =
         LocalFlows = Map.empty
     }
 
-    /// Check if SystemType uses GLOBAL allocation
+    /// Check if SystemType uses GLOBAL allocation (case-insensitive)
     let isGlobalSystem (config: AddressConfig) (systemType: string) : bool =
-        config.GlobalSystems |> Map.containsKey systemType
+        config.GlobalSystems |> Map.containsKey (systemType.ToUpperInvariant())
 
-    /// Get base address for a GLOBAL SystemType
+    /// Get base address for a GLOBAL SystemType (case-insensitive)
     let getSystemBase (config: AddressConfig) (systemType: string) (memoryArea: MemoryArea) : int option =
         config.GlobalSystems
-        |> Map.tryFind systemType
+        |> Map.tryFind (systemType.ToUpperInvariant())
         |> Option.bind (fun sysConfig ->
             match memoryArea with
             | InputWord -> sysConfig.IW_BaseAddress
@@ -143,7 +143,7 @@ module AddressConfigParser =
             | "@SYSTEM" ->
                 // Flush previous system if any
                 let flushed = flushSystem state
-                { flushed with CurrentSystem = Some parts.[1] }
+                { flushed with CurrentSystem = Some (parts.[1].ToUpperInvariant()) }
 
             | "@FLOW" ->
                 // Flush previous flow if any
@@ -199,7 +199,7 @@ module AddressConfigParser =
             state
 
     /// Build AddressConfig from parse state
-    let private buildConfig (filePath: string) (state: ParseState) : Result<AddressConfig, string> =
+    let private buildConfig (state: ParseState) : Result<AddressConfig, string> =
         // Flush any pending system/flow
         let flushed = state |> flushSystem |> flushFlow
 
@@ -208,7 +208,7 @@ module AddressConfigParser =
             LocalFlows = flushed.LocalFlows
         }
 
-    /// Parse address config file
+    /// Parse address config file (single file with both @SYSTEM and @FLOW directives)
     let parseFile (filePath: string) : Result<AddressConfig, string> =
         try
             if not (File.Exists(filePath)) then
@@ -217,11 +217,62 @@ module AddressConfigParser =
             else
                 let lines = File.ReadAllLines(filePath)
                 let finalState = lines |> Array.fold (fun state line -> parseLine line state) emptyState
-                buildConfig filePath finalState
+                buildConfig finalState
         with ex ->
             Error $"Failed to parse address config file '{filePath}': {ex.Message}"
 
-    /// Load address config from directory (looks for address_config.txt)
+    /// Parse system base file (only @SYSTEM directives)
+    let parseSystemBaseFile (filePath: string) : Result<Map<string, SystemAddressConfig>, string> =
+        try
+            if not (File.Exists(filePath)) then
+                Ok Map.empty
+            else
+                let lines = File.ReadAllLines(filePath)
+                let finalState = lines |> Array.fold (fun state line -> parseLine line state) emptyState
+                let flushed = flushSystem finalState
+                Ok flushed.GlobalSystems
+        with ex ->
+            Error $"Failed to parse system base file '{filePath}': {ex.Message}"
+
+    /// Parse flow base file (only @FLOW directives)
+    let parseFlowBaseFile (filePath: string) : Result<Map<string, FlowAddressConfig>, string> =
+        try
+            if not (File.Exists(filePath)) then
+                Ok Map.empty
+            else
+                let lines = File.ReadAllLines(filePath)
+                let finalState = lines |> Array.fold (fun state line -> parseLine line state) emptyState
+                let flushed = flushFlow finalState
+                Ok flushed.LocalFlows
+        with ex ->
+            Error $"Failed to parse flow base file '{filePath}': {ex.Message}"
+
+    /// Load address config from directory (supports multiple file naming conventions)
     let loadFromDirectory (templateDir: string) : Result<AddressConfig, string> =
-        let configPath = Path.Combine(templateDir, "address_config.txt")
-        parseFile configPath
+        // Try new file naming: systemAddress.txt / flowAddress.txt
+        let systemAddressPath = Path.Combine(templateDir, "systemAddress.txt")
+        let flowAddressPath = Path.Combine(templateDir, "flowAddress.txt")
+
+        if File.Exists(systemAddressPath) || File.Exists(flowAddressPath) then
+            // New naming: systemAddress.txt / flowAddress.txt
+            match parseSystemBaseFile systemAddressPath, parseFlowBaseFile flowAddressPath with
+            | Ok systems, Ok flows ->
+                Ok { GlobalSystems = systems; LocalFlows = flows }
+            | Error e, _ -> Error e
+            | _, Error e -> Error e
+        else
+            // Try legacy naming: system_base.txt / flow_base.txt
+            let systemBasePath = Path.Combine(templateDir, "system_base.txt")
+            let flowBasePath = Path.Combine(templateDir, "flow_base.txt")
+
+            if File.Exists(systemBasePath) || File.Exists(flowBasePath) then
+                // Legacy naming: system_base.txt / flow_base.txt
+                match parseSystemBaseFile systemBasePath, parseFlowBaseFile flowBasePath with
+                | Ok systems, Ok flows ->
+                    Ok { GlobalSystems = systems; LocalFlows = flows }
+                | Error e, _ -> Error e
+                | _, Error e -> Error e
+            else
+                // Oldest legacy: single address_config.txt file
+                let configPath = Path.Combine(templateDir, "address_config.txt")
+                parseFile configPath

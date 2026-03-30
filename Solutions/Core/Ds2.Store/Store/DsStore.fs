@@ -93,11 +93,19 @@ type DsStore() =
                         work.LocalName <- work.Name
                 | _ -> ()
 
+    /// JSON 마이그레이션: SystemType이 없는 System에 "Unit" 기본값 설정
+    member private this.MigrateSystemType() =
+        for system in this.Systems.Values do
+            if system.Properties.SystemType.IsNone then
+                system.Properties.SystemType <- Some "Unit"
+                log.Info($"MigrateSystemType: Set SystemType='Unit' for System '{system.Name}' (Id={system.Id})")
+
     member private this.ApplyNewStore(newStore: DsStore, contextLabel: string) =
         try
             this.ReplaceAllCollections(newStore)
             this.RewireApiCallReferences()
             this.MigrateWorkNaming()
+            this.MigrateSystemType()
             log.Info($"Store applied: {contextLabel}")
         with ex ->
             log.Error($"ApplyNewStore failed: {contextLabel} - {ex.Message}", ex)

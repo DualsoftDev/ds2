@@ -46,10 +46,11 @@ module SignalGenerator =
         |> List.tryPick id
 
     /// Substitute template variables in pattern
-    let private substitutePattern (pattern: string) (flowName: string) (deviceAlias: string) : string =
+    let private substitutePattern (pattern: string) (flowName: string) (deviceAlias: string) (apiDefName: string) : string =
         pattern
             .Replace("$(F)", flowName)
             .Replace("$(D)", deviceAlias)
+            .Replace("$(A)", apiDefName)
 
     /// Calculate PLC address from slot index and base address
     let private calculateAddress (memoryArea: MemoryArea) (baseAddress: int) (slotIndex: int) : string =
@@ -67,6 +68,7 @@ module SignalGenerator =
 
     /// Get base address based on allocation strategy
     /// NOTE: Template base addresses are ignored - only address_config.txt is used
+    /// If GLOBAL address not found, fallback to LOCAL (Flow) allocation starting from 0
     let private getBaseAddress
         (addressConfig: AddressConfig)
         (_template: MacroTemplate)
@@ -77,10 +79,18 @@ module SignalGenerator =
         // Check if this SystemType is GLOBAL
         if AddressConfig.isGlobalSystem addressConfig context.SystemType then
             // GLOBAL: Use SystemType-based address from address_config.txt
-            AddressConfig.getSystemBase addressConfig context.SystemType memoryArea
+            match AddressConfig.getSystemBase addressConfig context.SystemType memoryArea with
+            | Some addr -> Some addr
+            | None ->
+                // No GLOBAL address configured - fallback to LOCAL allocation from 0
+                Some 0
         else
             // LOCAL: Use Flow-based address from address_config.txt
-            AddressConfig.getFlowBase addressConfig context.FlowName memoryArea
+            match AddressConfig.getFlowBase addressConfig context.FlowName memoryArea with
+            | Some addr -> Some addr
+            | None ->
+                // No LOCAL address configured - use 0 as default
+                Some 0
 
     /// Generate signals for a single context and memory area
     let private generateForMemoryArea
@@ -113,30 +123,25 @@ module SignalGenerator =
                     // LOCAL: Use Flow counter
                     AllocationState.getAndIncrementLocal context.FlowName memoryArea state
 
-            // Get base address
-            match getBaseAddress addressConfig template context memoryArea with
-            | None ->
-                let error = {
-                    ApiCallId = Some context.ApiCallId
-                    Message = $"No base address configured for {context.SystemType}/{context.FlowName} in {memoryArea}"
-                    ErrorType = MissingOriginFlowId context.ApiCallId  // Reuse error type
-                }
-                ([], [error], newState)
+            // Get base address (always returns Some - defaults to 0 if not configured)
+            let baseAddress =
+                match getBaseAddress addressConfig template context memoryArea with
+                | Some addr -> addr
+                | None -> 0  // Fallback (should never happen with new logic)
 
-            | Some baseAddress ->
-                // Generate signal
-                let varName = substitutePattern pattern context.FlowName context.DeviceAlias
-                let address = calculateAddress memoryArea baseAddress slotIndex
+            // Generate signal
+            let varName = substitutePattern pattern context.FlowName context.DeviceAlias context.ApiDefName
+            let address = calculateAddress memoryArea baseAddress slotIndex
 
-                // Select data type based on memory area
-                let dataType =
-                    match memoryArea with
-                    | InputWord -> context.InputDataType
-                    | OutputWord -> context.OutputDataType
-                    | MemoryWord -> context.OutputDataType  // MW uses output data type
+            // Select data type based on memory area
+            let dataType =
+                match memoryArea with
+                | InputWord -> context.InputDataType
+                | OutputWord -> context.OutputDataType
+                | MemoryWord -> context.OutputDataType  // MW uses output data type
 
-                let signal = SignalRecord.createIo varName address ioType context.SystemType dataType context.FlowName context.WorkName context.CallName context.ApiDefName
-                ([signal], [], newState)
+            let signal = SignalRecord.createIo varName address ioType context.SystemType dataType context.FlowName context.WorkName context.CallName context.ApiDefName
+            ([signal], [], newState)
 
     /// Generate IO signals (IW/QW) for a context
     let private generateIoSignals
@@ -184,7 +189,7 @@ module SignalGenerator =
         (state: AllocationState)
         : (GenerationResult * AllocationState) =
 
-        match Map.tryFind context.SystemType templates with
+        match Map.tryFind (context.SystemType.ToUpperInvariant()) templates with
         | None ->
             // Template not found - ERROR
             let result = {

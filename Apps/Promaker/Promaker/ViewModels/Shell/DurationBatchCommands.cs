@@ -18,7 +18,7 @@ public partial class MainViewModel
 
         var storeRows = _store.GetAllWorkDurationRows();
         var rows = storeRows
-            .Select(r => new DurationRow(r.WorkId, r.FlowName, r.WorkName, r.PeriodMs.ToString()))
+            .Select(r => new DurationRow(r.WorkId, r.SystemName, r.FlowName, r.WorkName, r.PeriodMs.ToString(), r.IsDeviceWork))
             .ToList();
 
         if (rows.Count == 0)

@@ -20,7 +20,27 @@ public static class TemplateManager
     public static string TemplatesFolderPath => TemplatesPath;
 
     /// <summary>
-    /// address_config.txt 경로
+    /// systemAddress.txt 경로 (시스템 타입별 글로벌 주소)
+    /// </summary>
+    public static string SystemAddressPath => Path.Combine(TemplatesPath, "systemAddress.txt");
+
+    /// <summary>
+    /// flowAddress.txt 경로 (Flow별 로컬 주소)
+    /// </summary>
+    public static string FlowAddressPath => Path.Combine(TemplatesPath, "flowAddress.txt");
+
+    /// <summary>
+    /// Legacy system_base.txt 경로 (하위 호환성)
+    /// </summary>
+    public static string SystemBasePath => Path.Combine(TemplatesPath, "system_base.txt");
+
+    /// <summary>
+    /// Legacy flow_base.txt 경로 (하위 호환성)
+    /// </summary>
+    public static string FlowBasePath => Path.Combine(TemplatesPath, "flow_base.txt");
+
+    /// <summary>
+    /// Legacy address_config.txt 경로 (하위 호환성)
     /// </summary>
     public static string AddressConfigPath => Path.Combine(TemplatesPath, "address_config.txt");
 
@@ -29,8 +49,9 @@ public static class TemplateManager
     /// </summary>
     private static readonly Dictionary<string, string> DefaultTemplates = new()
     {
-        ["address_config.txt"] = @"# Address Configuration
-# All SystemTypes use GLOBAL mode (continuous addressing)
+        ["systemAddress.txt"] = @"# System Address Configuration
+# 시스템 타입별 글로벌 주소 설정
+# 형식: @SYSTEM [타입명] 다음에 @IW_BASE, @QW_BASE, @MW_BASE 지정
 
 @SYSTEM RBT
 @IW_BASE 3070
@@ -72,137 +93,219 @@ public static class TemplateManager
 @QW_BASE 3700
 @MW_BASE 9900
 ",
-        ["RBT.txt"] = @"@META RBT
-@CATEGORY RBT
+        ["flowAddress.txt"] = @"# Flow Address Configuration
+# Flow별 로컬 주소 설정
+# 형식: @FLOW [Flow명] 다음에 @IW_BASE, @QW_BASE, @MW_BASE 지정
 
-[RBT.IW]
-ADV: W_$(F)_I_$(D)_ADV_LS
-RET: W_$(F)_I_$(D)_RET_LS
-
-[RBT.QW]
-ADV: W_$(F)_Q_$(D)_ADV_CMD
-RET: W_$(F)_Q_$(D)_RET_CMD
-
-[RBT.MW]
-ADV: W_$(F)_M_$(D)_ADV_BUSY
-RET: W_$(F)_M_$(D)_RET_BUSY
+# 예시:
+# @FLOW Flow1
+# @IW_BASE 4000
+# @QW_BASE 4000
+# @MW_BASE 10000
+#
+# @FLOW Flow2
+# @IW_BASE 4100
+# @QW_BASE 4100
+# @MW_BASE 10100
 ",
-        ["PIN.txt"] = @"@META PIN
-@CATEGORY PIN
+        ["system_base.txt"] = @"# System Base Address Configuration (Legacy)
+# 시스템 타입별 글로벌 주소 설정
+# 형식: @SYSTEM [타입명] 다음에 @IW_BASE, @QW_BASE, @MW_BASE 지정
 
-[PIN.IW]
-UP: W_$(F)_I_$(D)_UP_LS
-DOWN: W_$(F)_I_$(D)_DOWN_LS
+@SYSTEM RBT
+@IW_BASE 3070
+@QW_BASE 3070
+@MW_BASE 9110
 
-[PIN.QW]
-UP: W_$(F)_Q_$(D)_UP_CMD
-DOWN: W_$(F)_Q_$(D)_DOWN_CMD
+@SYSTEM PIN
+@IW_BASE 3200
+@QW_BASE 3200
+@MW_BASE 9300
 
-[PIN.MW]
-UP: W_$(F)_M_$(D)_UP_BUSY
-DOWN: W_$(F)_M_$(D)_DOWN_BUSY
+@SYSTEM CLAMP
+@IW_BASE 3300
+@QW_BASE 3300
+@MW_BASE 9500
+
+@SYSTEM LATCH
+@IW_BASE 3250
+@QW_BASE 3250
+@MW_BASE 9400
+
+@SYSTEM Unit
+@IW_BASE 3400
+@QW_BASE 3400
+@MW_BASE 9600
+
+@SYSTEM UpDn
+@IW_BASE 3500
+@QW_BASE 3500
+@MW_BASE 9700
+
+@SYSTEM Motor
+@IW_BASE 3600
+@QW_BASE 3600
+@MW_BASE 9800
+
+@SYSTEM Multi
+@IW_BASE 3700
+@QW_BASE 3700
+@MW_BASE 9900
 ",
-        ["CLAMP.txt"] = @"@META CLAMP
-@CATEGORY CLAMP
+        ["flow_base.txt"] = @"# Flow Base Address Configuration
+# Flow별 로컬 주소 설정
+# 형식: @FLOW [Flow명] 다음에 @IW_BASE, @QW_BASE, @MW_BASE 지정
 
-[CLAMP.IW]
-CLOSE: W_$(F)_I_$(D)_CLOSE_LS
-OPEN: W_$(F)_I_$(D)_OPEN_LS
-
-[CLAMP.QW]
-CLOSE: W_$(F)_Q_$(D)_CLOSE_CMD
-OPEN: W_$(F)_Q_$(D)_OPEN_CMD
-
-[CLAMP.MW]
-CLOSE: W_$(F)_M_$(D)_CLOSE_BUSY
-OPEN: W_$(F)_M_$(D)_OPEN_BUSY
+# 예시:
+# @FLOW Flow1
+# @IW_BASE 4000
+# @QW_BASE 4000
+# @MW_BASE 10000
+#
+# @FLOW Flow2
+# @IW_BASE 4100
+# @QW_BASE 4100
+# @MW_BASE 10100
 ",
-        ["LATCH.txt"] = @"@META LATCH
-@CATEGORY LATCH
+        ["RBT.txt"] = @"# RBT (Robot) 신호 템플릿
+# 파일명(RBT.txt)이 SystemType으로 사용됩니다.
+# $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
-[LATCH.IW]
-LOCK: W_$(F)_I_$(D)_LOCK_LS
-UNLOCK: W_$(F)_I_$(D)_UNLOCK_LS
+[IW]
+ADV: W_$(F)_I_$(D)_$(A)_LS
+RET: W_$(F)_I_$(D)_$(A)_LS
 
-[LATCH.QW]
-LOCK: W_$(F)_Q_$(D)_LOCK_CMD
-UNLOCK: W_$(F)_Q_$(D)_UNLOCK_CMD
+[QW]
+ADV: W_$(F)_Q_$(D)_$(A)_CMD
+RET: W_$(F)_Q_$(D)_$(A)_CMD
 
-[LATCH.MW]
-LOCK: W_$(F)_M_$(D)_LOCK_BUSY
-UNLOCK: W_$(F)_M_$(D)_UNLOCK_BUSY
+[MW]
+ADV: W_$(F)_M_$(D)_$(A)_BUSY
+RET: W_$(F)_M_$(D)_$(A)_BUSY
 ",
-        ["Unit.txt"] = @"@META Unit
-@CATEGORY Unit
+        ["PIN.txt"] = @"# PIN 신호 템플릿
+# 파일명(PIN.txt)이 SystemType으로 사용됩니다.
+# $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
-[Unit.IW]
-ADV: W_$(F)_I_$(D)_UP_LS
-RET: W_$(F)_I_$(D)_DOWN_LS
+[IW]
+UP: W_$(F)_I_$(D)_$(A)_LS
+DOWN: W_$(F)_I_$(D)_$(A)_LS
 
-[Unit.QW]
-ADV: W_$(F)_Q_$(D)_UP_CMD
-RET: W_$(F)_Q_$(D)_DOWN_CMD
+[QW]
+UP: W_$(F)_Q_$(D)_$(A)_CMD
+DOWN: W_$(F)_Q_$(D)_$(A)_CMD
 
-[Unit.MW]
-ADV: W_$(F)_M_$(D)_UP_BUSY
-RET: W_$(F)_M_$(D)_DOWN_BUSY
+[MW]
+UP: W_$(F)_M_$(D)_$(A)_BUSY
+DOWN: W_$(F)_M_$(D)_$(A)_BUSY
 ",
-        ["UpDn.txt"] = @"@META UpDn
-@CATEGORY UpDn
+        ["CLAMP.txt"] = @"# CLAMP 신호 템플릿
+# 파일명(CLAMP.txt)이 SystemType으로 사용됩니다.
+# $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
-[UpDn.IW]
-UP: W_$(F)_I_$(D)_UP_LS
-DOWN: W_$(F)_I_$(D)_DOWN_LS
+[IW]
+CLOSE: W_$(F)_I_$(D)_$(A)_LS
+OPEN: W_$(F)_I_$(D)_$(A)_LS
 
-[UpDn.QW]
-UP: W_$(F)_Q_$(D)_UP_CMD
-DOWN: W_$(F)_Q_$(D)_DOWN_CMD
+[QW]
+CLOSE: W_$(F)_Q_$(D)_$(A)_CMD
+OPEN: W_$(F)_Q_$(D)_$(A)_CMD
 
-[UpDn.MW]
-UP: W_$(F)_M_$(D)_UP_BUSY
-DOWN: W_$(F)_M_$(D)_DOWN_BUSY
+[MW]
+CLOSE: W_$(F)_M_$(D)_$(A)_BUSY
+OPEN: W_$(F)_M_$(D)_$(A)_BUSY
 ",
-        ["Motor.txt"] = @"@META Motor
-@CATEGORY Motor
+        ["LATCH.txt"] = @"# LATCH 신호 템플릿
+# 파일명(LATCH.txt)이 SystemType으로 사용됩니다.
+# $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
-[Motor.IW]
-FWD: W_$(F)_I_$(D)_FWD_LS
-BWD: W_$(F)_I_$(D)_BWD_LS
+[IW]
+LOCK: W_$(F)_I_$(D)_$(A)_LS
+UNLOCK: W_$(F)_I_$(D)_$(A)_LS
 
-[Motor.QW]
-FWD: W_$(F)_Q_$(D)_FWD_CMD
-BWD: W_$(F)_Q_$(D)_BWD_CMD
+[QW]
+LOCK: W_$(F)_Q_$(D)_$(A)_CMD
+UNLOCK: W_$(F)_Q_$(D)_$(A)_CMD
 
-[Motor.MW]
-FWD: W_$(F)_M_$(D)_FWD_BUSY
-BWD: W_$(F)_M_$(D)_BWD_BUSY
+[MW]
+LOCK: W_$(F)_M_$(D)_$(A)_BUSY
+UNLOCK: W_$(F)_M_$(D)_$(A)_BUSY
 ",
-        ["Multi.txt"] = @"@META Multi
-@CATEGORY Multi
+        ["Unit.txt"] = @"# Unit 신호 템플릿
+# 파일명(Unit.txt)이 SystemType으로 사용됩니다.
+# $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
-[Multi.IW]
-ADV: W_$(F)_I_$(D)_ADV_LS
-RET: W_$(F)_I_$(D)_RET_LS
-UP: W_$(F)_I_$(D)_UP_LS
-DOWN: W_$(F)_I_$(D)_DOWN_LS
-FWD: W_$(F)_I_$(D)_FWD_LS
-BWD: W_$(F)_I_$(D)_BWD_LS
+[IW]
+ADV: W_$(F)_I_$(D)_$(A)_LS
+RET: W_$(F)_I_$(D)_$(A)_LS
 
-[Multi.QW]
-ADV: W_$(F)_Q_$(D)_ADV_CMD
-RET: W_$(F)_Q_$(D)_RET_CMD
-UP: W_$(F)_Q_$(D)_UP_CMD
-DOWN: W_$(F)_Q_$(D)_DOWN_CMD
-FWD: W_$(F)_Q_$(D)_FWD_CMD
-BWD: W_$(F)_Q_$(D)_BWD_CMD
+[QW]
+ADV: W_$(F)_Q_$(D)_$(A)_CMD
+RET: W_$(F)_Q_$(D)_$(A)_CMD
 
-[Multi.MW]
-ADV: W_$(F)_M_$(D)_ADV_BUSY
-RET: W_$(F)_M_$(D)_RET_BUSY
-UP: W_$(F)_M_$(D)_UP_BUSY
-DOWN: W_$(F)_M_$(D)_DOWN_BUSY
-FWD: W_$(F)_M_$(D)_FWD_BUSY
-BWD: W_$(F)_M_$(D)_BWD_BUSY
+[MW]
+ADV: W_$(F)_M_$(D)_$(A)_BUSY
+RET: W_$(F)_M_$(D)_$(A)_BUSY
+",
+        ["UpDn.txt"] = @"# UpDn 신호 템플릿
+# 파일명(UpDn.txt)이 SystemType으로 사용됩니다.
+# $(F) = Flow명, $(D) = Device명, $(A) = Api명
+
+[IW]
+UP: W_$(F)_I_$(D)_$(A)_LS
+DOWN: W_$(F)_I_$(D)_$(A)_LS
+
+[QW]
+UP: W_$(F)_Q_$(D)_$(A)_CMD
+DOWN: W_$(F)_Q_$(D)_$(A)_CMD
+
+[MW]
+UP: W_$(F)_M_$(D)_$(A)_BUSY
+DOWN: W_$(F)_M_$(D)_$(A)_BUSY
+",
+        ["Motor.txt"] = @"# Motor 신호 템플릿
+# 파일명(Motor.txt)이 SystemType으로 사용됩니다.
+# $(F) = Flow명, $(D) = Device명, $(A) = Api명
+
+[IW]
+FWD: W_$(F)_I_$(D)_$(A)_LS
+BWD: W_$(F)_I_$(D)_$(A)_LS
+
+[QW]
+FWD: W_$(F)_Q_$(D)_$(A)_CMD
+BWD: W_$(F)_Q_$(D)_$(A)_CMD
+
+[MW]
+FWD: W_$(F)_M_$(D)_$(A)_BUSY
+BWD: W_$(F)_M_$(D)_$(A)_BUSY
+",
+        ["Multi.txt"] = @"# Multi 신호 템플릿
+# 파일명(Multi.txt)이 SystemType으로 사용됩니다.
+# $(F) = Flow명, $(D) = Device명, $(A) = Api명
+
+[IW]
+ADV: W_$(F)_I_$(D)_$(A)_LS
+RET: W_$(F)_I_$(D)_$(A)_LS
+UP: W_$(F)_I_$(D)_$(A)_LS
+DOWN: W_$(F)_I_$(D)_$(A)_LS
+FWD: W_$(F)_I_$(D)_$(A)_LS
+BWD: W_$(F)_I_$(D)_$(A)_LS
+
+[QW]
+ADV: W_$(F)_Q_$(D)_$(A)_CMD
+RET: W_$(F)_Q_$(D)_$(A)_CMD
+UP: W_$(F)_Q_$(D)_$(A)_CMD
+DOWN: W_$(F)_Q_$(D)_$(A)_CMD
+FWD: W_$(F)_Q_$(D)_$(A)_CMD
+BWD: W_$(F)_Q_$(D)_$(A)_CMD
+
+[MW]
+ADV: W_$(F)_M_$(D)_$(A)_BUSY
+RET: W_$(F)_M_$(D)_$(A)_BUSY
+UP: W_$(F)_M_$(D)_$(A)_BUSY
+DOWN: W_$(F)_M_$(D)_$(A)_BUSY
+FWD: W_$(F)_M_$(D)_$(A)_BUSY
+BWD: W_$(F)_M_$(D)_$(A)_BUSY
 "
     };
 
@@ -236,7 +339,60 @@ BWD: W_$(F)_M_$(D)_BWD_BUSY
     }
 
     /// <summary>
-    /// 템플릿 파일 목록 조회
+    /// 설정 파일 목록 조회 (system_base.txt, flow_base.txt)
+    /// </summary>
+    public static List<string> GetConfigFiles()
+    {
+        EnsureTemplatesExist();
+
+        try
+        {
+            var files = new List<string>();
+            var systemBase = Path.Combine(TemplatesPath, "system_base.txt");
+            var flowBase = Path.Combine(TemplatesPath, "flow_base.txt");
+
+            if (File.Exists(systemBase))
+                files.Add("system_base.txt");
+            if (File.Exists(flowBase))
+                files.Add("flow_base.txt");
+
+            return files;
+        }
+        catch
+        {
+            return new List<string>();
+        }
+    }
+
+    /// <summary>
+    /// 장치 템플릿 파일 목록 조회 (RBT.txt, PIN.txt 등)
+    /// </summary>
+    public static List<string> GetDeviceTemplateFiles()
+    {
+        EnsureTemplatesExist();
+
+        try
+        {
+            return Directory.GetFiles(TemplatesPath, "*.txt")
+                .Select(Path.GetFileName)
+                .Where(name => name != null)
+                .Select(name => name!)
+                .Where(name => name != "systemAddress.txt" &&
+                              name != "flowAddress.txt" &&
+                              name != "system_base.txt" &&
+                              name != "flow_base.txt" &&
+                              name != "address_config.txt")
+                .OrderBy(name => name)
+                .ToList();
+        }
+        catch
+        {
+            return new List<string>();
+        }
+    }
+
+    /// <summary>
+    /// 템플릿 파일 목록 조회 (모든 .txt 파일)
     /// </summary>
     public static List<string> GetTemplateFiles()
     {
@@ -248,7 +404,9 @@ BWD: W_$(F)_M_$(D)_BWD_BUSY
                 .Select(Path.GetFileName)
                 .Where(name => name != null)
                 .Select(name => name!)
-                .OrderBy(name => name == "address_config.txt" ? 0 : 1)
+                .OrderBy(name => name == "system_base.txt" ? 0 :
+                               name == "flow_base.txt" ? 1 :
+                               name == "address_config.txt" ? 2 : 3)
                 .ThenBy(name => name)
                 .ToList();
         }
