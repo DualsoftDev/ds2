@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Reflection;
 using CommunityToolkit.Mvvm.Input;
+using Ds2.Core;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
@@ -10,8 +12,21 @@ public partial class MainViewModel
 
     internal void RefreshEditorCommandStates()
     {
+        NormalizeConnectArrowTypeForActiveTab();
+
         foreach (var command in GetEditorCommandsNeedingRefresh())
             command.NotifyCanExecuteChanged();
+    }
+
+    private void NormalizeConnectArrowTypeForActiveTab()
+    {
+        if (Canvas.ActiveTab is not { } tab) return;
+
+        if (!EntityKindRules.isWorkArrowModeForTab(tab.Kind)
+            && SelectedConnectArrowType is ArrowType.Reset or ArrowType.StartReset or ArrowType.ResetReset)
+        {
+            SelectedConnectArrowType = ArrowType.Start;
+        }
     }
 
     private IReadOnlyList<IRelayCommand> GetEditorCommandsNeedingRefresh()

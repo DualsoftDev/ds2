@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using Ds2.Core;
+using Ds2.Editor;
 using Promaker.Presentation;
 using Promaker.ViewModels;
 
@@ -41,6 +42,15 @@ public partial class MainToolbar : UserControl
     private void ConnectTypePopup_Opened(object sender, EventArgs e)
     {
         if (VM is not { } vm) return;
+
+        var isWorkMode = vm.Canvas.ActiveTab is { } tab
+            && EntityKindRules.isWorkArrowModeForTab(tab.Kind);
+
+        var vis = isWorkMode ? Visibility.Visible : Visibility.Collapsed;
+        ConnResetRadio.Visibility = vis;
+        ConnStartResetRadio.Visibility = vis;
+        ConnResetResetRadio.Visibility = vis;
+
         var radio = vm.SelectedConnectArrowType switch
         {
             ArrowType.Reset => ConnResetRadio,
