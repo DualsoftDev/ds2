@@ -288,7 +288,7 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                     fill: false
                 },
                 {
-                    label: '\ud3c9\uade0+2\u03c3',
+                    label: '\uc815\uc0c1 \ubc94\uc704 (' + formatMs(Math.round(Math.max(0, chartAvg - threshold))) + ' ~ ' + formatMs(Math.round(chartAvg + threshold)) + ')',
                     data: labels.map(() => chartAvg + threshold),
                     borderColor: 'rgba(239, 68, 68, 0.15)',
                     borderWidth: 1,
@@ -299,7 +299,7 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                     backgroundColor: 'rgba(239, 68, 68, 0.04)'
                 },
                 {
-                    label: '\ud3c9\uade0-2\u03c3',
+                    label: '\uc815\uc0c1\ubc94\uc704_\ud558\ud55c',
                     data: labels.map(() => Math.max(0, chartAvg - threshold)),
                     borderColor: 'rgba(239, 68, 68, 0.15)',
                     borderWidth: 1,
@@ -324,7 +324,20 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                         padding: 12,
                         font: { size: 11, weight: '600' },
                         filter: function (item) {
-                            return item.datasetIndex <= 1;
+                            // GoingTime, 평균, 정상 범위(상한)만 표시. 하한은 숨김
+                            return item.datasetIndex <= 2;
+                        },
+                        generateLabels: function (chart) {
+                            const defaultLabels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+                            return defaultLabels.map(label => {
+                                // 정상 범위 (index 2): 분홍색 사각형 스타일로 표시
+                                if (label.datasetIndex === 2) {
+                                    label.pointStyle = 'rectRounded';
+                                    label.fillStyle = 'rgba(239, 68, 68, 0.12)';
+                                    label.strokeStyle = 'rgba(239, 68, 68, 0.3)';
+                                }
+                                return label;
+                            });
                         }
                     }
                 },
@@ -343,9 +356,10 @@ window.renderCallHistoryChart = function (canvasId, executionData, averageMs, st
                         label: function (context) {
                             if (context.datasetIndex === 0) return 'GoingTime: ' + formatMs(context.parsed.y);
                             if (context.datasetIndex === 1) return '\ud3c9\uade0: ' + formatMs(Math.round(context.parsed.y));
+                            if (context.datasetIndex === 2) return '\uc815\uc0c1 \uc0c1\ud55c: ' + formatMs(Math.round(context.parsed.y));
                         },
                         filter: function (item) {
-                            return item.datasetIndex <= 1;
+                            return item.datasetIndex <= 2;
                         }
                     }
                 }
