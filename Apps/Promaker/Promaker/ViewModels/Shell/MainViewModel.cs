@@ -219,7 +219,17 @@ public partial class MainViewModel : ObservableObject
         HasProject = true;
         UpdateTitle();
         StatusText = "New project created.";
-        RefreshEditorCommandStates();
+
+        RequestRebuildAll(() =>
+        {
+            ExpandAllNodes(ControlTreeRoots);
+            var firstSystem = TreeNodeSearch
+                .EnumerateNodes(ControlTreeRoots)
+                .FirstOrDefault(node => node.EntityType == EntityKind.System);
+            if (firstSystem is not null)
+                Canvas.OpenCanvasTab(firstSystem.Id, EntityKind.System);
+            RefreshEditorCommandStates();
+        });
     }
 
     [ObservableProperty]
