@@ -66,6 +66,36 @@ module UiDefaults =
 
 
 // =============================================================================
+// DevicePresets — 3D 모델 프리셋 레지스트리 (단일 정의 위치)
+// =============================================================================
+//
+//   C# 사용: Ds2.Store.DevicePresets.Entries / DefaultMappingStrings
+//   F# 사용: DevicePresets.KnownNames / DefaultMappingStrings (open Ds2.Store 후)
+
+/// 등록된 3D 모델 프리셋 레지스트리
+module DevicePresets =
+    /// (modelType, canonicalSystemType) 쌍 배열 — Dummy 포함
+    let Entries : (string * string)[] = [|
+        ("Unit",        "ADV;RET")
+        ("Lifter",      "UP;DOWN")
+        ("Pusher",      "FWD;BWD")
+        ("Conveyor",    "MOVE;STOP")
+        ("Robot_6Axis", "CMD1;CMD2;HOME")
+        ("Robot_SCARA", "POS1;POS2;HOME")
+        ("Dummy",       "")
+    |]
+
+    /// 등록된 ModelType 이름 집합 (inferModelType 직접 매칭용)
+    let KnownNames : Set<string> =
+        Entries |> Array.map fst |> Set.ofArray
+
+    /// "SystemType:ModelType" 기본 매핑 문자열 배열 (ProjectProperties 초기값, Dummy 제외)
+    let DefaultMappingStrings : string[] =
+        Entries
+        |> Array.filter (fun (_, s) -> s <> "")
+        |> Array.map (fun (model, sysType) -> $"{sysType}:{model}")
+
+// =============================================================================
 // EntityKind — 엔티티/노드 타입 열거형 (C# == 비교 가능)
 // =============================================================================
 

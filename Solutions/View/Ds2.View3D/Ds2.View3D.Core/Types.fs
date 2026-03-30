@@ -3,44 +3,6 @@ namespace Ds2.View3D
 open System
 
 // =============================================================================
-// Preset Registry — 단일 정의 위치
-// =============================================================================
-//
-// ModelType(3D 모델 이름) ↔ 기본 SystemType 매핑.
-// 모든 곳(C#, F#)에서 이 모듈만 참조한다.
-//
-//   C# 사용:
-//     - DevicePresets.Entries          → ComboBox 항목 생성 (Item1=modelType, Item2=sysType)
-//     - DevicePresets.DefaultMappingStrings → ProjectProperties 기본값 ("SysType:ModelType")
-//
-//   F# 사용:
-//     - DevicePresets.KnownNames       → inferModelType 직접 매칭
-//     - DevicePresets.DefaultMappingStrings → 동일
-
-/// 등록된 3D 모델 프리셋 레지스트리
-module DevicePresets =
-    /// (modelType, canonicalSystemType) 쌍 배열 — Dummy 포함
-    let Entries : (string * string)[] = [|
-        ("Unit",        "ADV;RET")
-        ("Lifter",      "UP;DOWN")
-        ("Pusher",      "FWD;BWD")
-        ("Conveyor",    "MOVE;STOP")
-        ("Robot_6Axis", "CMD1;CMD2;HOME")
-        ("Robot_SCARA", "POS1;POS2;HOME")
-        ("Dummy",       "")
-    |]
-
-    /// 등록된 ModelType 이름 집합 (inferModelType 직접 매칭용)
-    let KnownNames : Set<string> =
-        Entries |> Array.map fst |> Set.ofArray
-
-    /// "SystemType:ModelType" 기본 매핑 문자열 배열 (ProjectProperties 초기값, Dummy 제외)
-    let DefaultMappingStrings : string[] =
-        Entries
-        |> Array.filter (fun (_, s) -> s <> "")
-        |> Array.map (fun (model, sysType) -> $"{sysType}:{model}")
-
-// =============================================================================
 // Coordinate Types
 // =============================================================================
 
