@@ -2,7 +2,9 @@
 @using DSPilot.Engine
 @using static DSPilot.Engine.Models
 @using DSPilot.Services
+@using DSPilot.Models
 @inject HeatmapService HeatmapService
+@inject AppSettingsService SettingsService
 @inject ILogger<Heatmap> Logger
 @inject IJSRuntime JS
 
@@ -55,6 +57,15 @@
                 CSV 내보내기
             </button>
         </div>
+        @if (!string.IsNullOrEmpty(_filterStatusText))
+        {
+            <div style="flex:0 0 auto; display:flex; align-items:flex-end; padding-top:18px;">
+                <span class="chip" style="background:var(--color-warning, #FF9800); color:white; font-size:13px; padding:4px 12px; border-radius:16px; display:inline-flex; align-items:center; gap:4px;">
+                    <span class="material-icons" style="font-size:16px;">filter_list</span>
+                    @_filterStatusText
+                </span>
+            </div>
+        }
     </div>
 </div>
 
@@ -71,7 +82,14 @@
 {
     <div class="card mb-4" style="padding:16px; border-left:4px solid var(--color-info, #2196F3);">
         <span class="material-icons" style="font-size:18px; vertical-align:middle; margin-right:8px; color:var(--color-info, #2196F3);">info</span>
-        표시할 데이터가 없습니다. PLC 데이터가 수집되면 자동으로 표시됩니다.
+        @if (!string.IsNullOrEmpty(_filterStatusText))
+        {
+            <span>필터 조건(@_filterStatusText)에 해당하는 데이터가 없습니다.</span>
+        }
+        else
+        {
+            <span>표시할 데이터가 없습니다. PLC 데이터가 수집되면 자동으로 표시됩니다.</span>
+        }
     </div>
 }
 
@@ -404,6 +422,10 @@
     private bool IsLoading { get; set; } = false;
     private bool AllExpanded { get; set; } = true;
     private int MatrixColumns { get; set; } = 6;
+
+    // 히스토리 필터
+    private HistoryViewSettings? _activeFilter;
+    private string _filterStatusText = string.Empty;
     private CallHeatmapItem? SelectedCall { get; set; } = null;
 
     // 차트
@@ -485,8 +507,23 @@
 
         try
         {
-            AllGroups = await HeatmapService.GetHeatmapDataAsync();
-            Logger.LogInformation("Heatmap matrix data loaded: {Count} flow groups", AllGroups.Count);
+            var settings = SettingsService.LoadSettings();
+            var filter = settings.HistoryView;
+            _activeFilter = filter;
+
+            if (filter.FilterMode == "None")
+            {
+                AllGroups = await HeatmapService.GetHeatmapDataAsync();
+                _filterStatusText = string.Empty;
+            }
+            else
+            {
+                _filterStatusText = GetFilterDescription(filter);
+                AllGroups = await HeatmapService.GetHeatmapDataFilteredAsync(filter);
+            }
+
+            Logger.LogInformation("Heatmap matrix data loaded: {Count} flow groups (filter={Filter})",
+                AllGroups.Count, filter.FilterMode);
         }
         catch (Exception ex)
         {
@@ -522,7 +559,17 @@
 
         try
         {
-            CallExecutionHistory = await HeatmapService.GetCallExecutionHistoryAsync(call.CallId);
+            if (_activeFilter != null && _activeFilter.FilterMode != "None")
+            {
+                var (startTime, endTime) = GetFilterTimeRange(_activeFilter);
+                int? maxCycles = _activeFilter.FilterMode == "Cycles" ? _activeFilter.MaxCycles : null;
+                CallExecutionHistory = await HeatmapService.GetCallExecutionHistoryAsync(
+                    call.CallId, startTime, endTime, maxCycles);
+            }
+            else
+            {
+                CallExecutionHistory = await HeatmapService.GetCallExecutionHistoryAsync(call.CallId);
+            }
 
             if (CallExecutionHistory.Count > 0)
             {
@@ -697,6 +744,23 @@
         if (ms < 3_600_000) return $"{(int)(ms / 60000)}m {(int)(ms % 60000 / 1000)}s";
         return $"{(int)(ms / 3_600_000)}h {(int)(ms % 3_600_000 / 60000)}m";
     }
+
+    // 히스토리 필터 헬퍼
+    private static string GetFilterDescription(HistoryViewSettings filter) => filter.FilterMode switch
+    {
+        "Cycles" => $"최근 {filter.MaxCycles} 사이클",
+        "Days" => $"최근 {filter.MaxDays}일",
+        "StartTime" when filter.StartTime.HasValue =>
+            $"{filter.StartTime.Value:yyyy-MM-dd HH:mm} 이후",
+        _ => ""
+    };
+
+    private static (DateTime? StartTime, DateTime? EndTime) GetFilterTimeRange(HistoryViewSettings filter) => filter.FilterMode switch
+    {
+        "Days" => (DateTime.Now.AddDays(-filter.MaxDays), null),
+        "StartTime" when filter.StartTime.HasValue => (filter.StartTime.Value, null),
+        _ => (null, null)
+    };
 
     private sealed record WorkHeatmapGroup(string WorkName, List<CallHeatmapItem> Calls);
 }

@@ -95,6 +95,7 @@ public class PlcToCallMapperService
                             ApiCall = apiCall,
                             IsInTag = false,
                             FlowName = flow.Name,
+                            WorkName = work.Name,
                             Direction = direction
                         };
 
@@ -112,6 +113,7 @@ public class PlcToCallMapperService
                             ApiCall = apiCall,
                             IsInTag = true,
                             FlowName = flow.Name,
+                            WorkName = work.Name,
                             Direction = direction
                         };
 
@@ -230,6 +232,36 @@ public class PlcToCallMapperService
             return (inTag, outTag);
 
         return null;
+    }
+
+    /// <summary>
+    /// 모든 Call의 태그 쌍 정보를 반환 (Heatmap 필터용)
+    /// </summary>
+    public List<(Guid CallId, string CallName, string FlowName, string WorkName, string? InTag, string? OutTag)> GetAllCallTagPairs()
+    {
+        var callMap = new Dictionary<Guid, (string CallName, string FlowName, string WorkName, string? InTag, string? OutTag)>();
+
+        foreach (var kvp in _tagMappings)
+        {
+            var mapping = kvp.Value;
+            var callId = mapping.Call.Id;
+
+            if (!callMap.TryGetValue(callId, out var existing))
+            {
+                existing = (mapping.Call.Name, mapping.FlowName, mapping.WorkName, null, null);
+            }
+
+            if (mapping.IsInTag)
+                existing.InTag = kvp.Key;
+            else
+                existing.OutTag = kvp.Key;
+
+            callMap[callId] = existing;
+        }
+
+        return callMap.Select(kvp =>
+            (kvp.Key, kvp.Value.CallName, kvp.Value.FlowName, kvp.Value.WorkName, kvp.Value.InTag, kvp.Value.OutTag))
+            .ToList();
     }
 
     public void ValidateWithPlcTags(HashSet<string> plcTagKeys)

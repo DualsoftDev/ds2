@@ -30,6 +30,11 @@ public record CallMappingInfo
     public required string FlowName { get; init; }
 
     /// <summary>
+    /// Work 이름
+    /// </summary>
+    public string WorkName { get; init; } = string.Empty;
+
+    /// <summary>
     /// Call Direction (InOut, InOnly, OutOnly)
     /// </summary>
     public CallDirection Direction { get; init; } = CallDirection.None;
