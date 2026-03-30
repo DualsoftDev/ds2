@@ -6,6 +6,7 @@ open Ds2.Runtime.Sim.Model
 
 /// Work/Call 상태 전이 조건 검사 모듈 (순수 함수)
 module WorkConditionChecker =
+    let private log = log4net.LogManager.GetLogger("WorkConditionChecker")
 
     /// ReferenceOf 기반 OR 그룹에서 같은 그룹의 Work ID 목록을 반환
     let private orGroupGuidsOf (index: SimIndex) (workGuid: Guid) : Guid list =
@@ -43,7 +44,17 @@ module WorkConditionChecker =
 
     /// Work 시작 가능 여부: predecessor + 토큰 조건 (AND)
     let canStartWork (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
-        predecessorSatisfied index state workGuid && tokenReady index state workGuid
+        let ps = predecessorSatisfied index state workGuid
+        let tr = tokenReady index state workGuid
+        if not ps || not tr then
+            let name = index.WorkName |> Map.tryFind workGuid |> Option.defaultValue ""
+            let preds = SimIndex.findOrEmpty workGuid index.WorkStartPreds
+            let predNames = preds |> List.map (fun p -> index.WorkName |> Map.tryFind p |> Option.defaultValue "?")
+            let predStates = preds |> List.map (fun p -> state.WorkStates |> Map.tryFind p |> Option.map string |> Option.defaultValue "?")
+            let inPath = index.TokenPathGuids.Contains workGuid
+            let hasToken = SimState.getWorkToken workGuid state |> Option.isSome
+            log.Debug($"[canStartWork] FAIL {name}: predSatisfied={ps} tokenReady={tr} preds={predNames} predStates={predStates} inTokenPath={inPath} hasToken={hasToken}")
+        ps && tr
 
     /// Predecessor 조건만 체크 (토큰 무시) — 수동 강제 시작 시 사용
     let canStartWorkPredOnly (index: SimIndex) (state: SimState) (workGuid: Guid) : bool =
@@ -119,6 +130,7 @@ module WorkConditionChecker =
                     | None -> true
                     | Some epochMap ->
                         rxGuids |> List.forall (fun rxGuid ->
+                            let canonical = SimIndex.canonicalWorkGuid index rxGuid
                             let savedEpoch = epochMap |> Map.tryFind rxGuid |> Option.defaultValue 0
-                            let currentEpoch = SimState.getWorkEpoch rxGuid state
+                            let currentEpoch = SimState.getWorkEpoch canonical state
                             currentEpoch > savedEpoch)

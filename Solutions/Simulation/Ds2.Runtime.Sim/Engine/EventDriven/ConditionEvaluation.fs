@@ -7,6 +7,8 @@ open Ds2.Runtime.Sim.Engine.Core
 open Ds2.Runtime.Sim.Engine.Scheduler
 
 module internal ConditionEvaluation =
+    let private log = log4net.LogManager.GetLogger("ConditionEvaluation")
+
     type Context = {
         Index: SimIndex
         StateManager: StateManager
@@ -78,12 +80,17 @@ module internal ConditionEvaluation =
     let evaluateWorkStarts (ctx: Context) () =
         let mutable scheduledGoingGuids = Set.empty<Guid>
         for workGuid in ctx.Index.AllWorkGuids do
-            if ctx.StateManager.GetWorkState(workGuid) = Status4.Ready
-               && not (isFlowPausedForWork ctx workGuid)
-               && ctx.CanStartWork workGuid
-               && not (ctx.StateManager.IsWorkPending(workGuid)) then
-                scheduleWorkTransition ctx workGuid Status4.Going
-                scheduledGoingGuids <- scheduledGoingGuids.Add(workGuid)
+            let state = ctx.StateManager.GetWorkState(workGuid)
+            if state = Status4.Ready then
+                let paused = isFlowPausedForWork ctx workGuid
+                let canStart = ctx.CanStartWork workGuid
+                let pending = ctx.StateManager.IsWorkPending(workGuid)
+                if not canStart || paused || pending then
+                    let name = ctx.Index.WorkName |> Map.tryFind workGuid |> Option.defaultValue ""
+                    log.Debug($"[EvalStart] SKIP {name}: paused={paused} canStart={canStart} pending={pending}")
+                if not paused && canStart && not pending then
+                    scheduleWorkTransition ctx workGuid Status4.Going
+                    scheduledGoingGuids <- scheduledGoingGuids.Add(workGuid)
         scheduledGoingGuids
 
     let evaluateWorkResets (ctx: Context) (scheduledGoingGuids: Set<Guid>) =

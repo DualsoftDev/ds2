@@ -10,9 +10,7 @@ module internal TransitionGuards =
     type Context = {
         Index: SimIndex
         StateManager: StateManager
-        IsActiveSystemWork: Guid -> bool
         IsWorkFrozen: Guid -> bool
-        CanStartWork: Guid -> bool
         CanStartCall: Guid -> bool
         CanCompleteCall: Guid -> bool
         ApplyWorkTransition: Guid -> Status4 -> unit
@@ -24,11 +22,9 @@ module internal TransitionGuards =
         let shouldApply =
             match newState with
             | Status4.Going ->
+                // Ready 상태만 확인 — canStartWork는 스케줄 시점(evaluateWorkStarts)에서 이미 검증됨.
+                // 여기서 재검증하면 선행 Work가 이미 Homing/Ready로 리셋된 경우 레이스 컨디션 발생.
                 ctx.StateManager.GetWorkState(workGuid) = Status4.Ready
-                && (
-                    not (ctx.IsActiveSystemWork workGuid)
-                    || ctx.CanStartWork workGuid
-                )
             | Status4.Finish ->
                 if ctx.StateManager.GetWorkState(workGuid) <> Status4.Going then false
                 elif ctx.IsWorkFrozen workGuid then false
