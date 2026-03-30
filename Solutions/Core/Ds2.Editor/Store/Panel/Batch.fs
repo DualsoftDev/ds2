@@ -87,6 +87,25 @@ type DsStorePanelBatchExtensions =
                             ApiCallIOBatchRow(call.Id, apiCall.Id, flow.Name, work.Name, call.Name, deviceName, apiName, inAddr, inSym, outAddr, outSym, outDataType, inDataType))
                         |> Seq.toList))))
 
+    /// Work IsFinished 일괄 변경 (단일 Undo 트랜잭션)
+    [<Extension>]
+    static member UpdateWorkIsFinishedBatch(store: DsStore, changes: seq<struct(Guid * bool)>) =
+        let changeList =
+            changes
+            |> Seq.map (fun struct(workId, isFinished) -> struct(DsQuery.resolveOriginalWorkId workId store, isFinished))
+            |> Seq.distinctBy (fun struct(workId, _) -> workId)
+            |> Seq.filter (fun struct(workId, isFinished) ->
+                match DsQuery.getWork workId store with
+                | Some work -> work.Properties.IsFinished <> isFinished
+                | None -> false)
+            |> Seq.toList
+        if not changeList.IsEmpty then
+            StoreLog.debug($"UpdateWorkIsFinishedBatch: {changeList.Length} items")
+            store.WithTransaction("Work IsFinished 일괄 변경", fun () ->
+                for struct(workId, isFinished) in changeList do
+                    store.TrackMutate(store.Works, workId, fun work -> work.Properties.IsFinished <- isFinished))
+            store.EmitRefreshAndHistory()
+
     /// Work Duration 일괄 변경 (단일 Undo 트랜잭션)
     [<Extension>]
     static member UpdateWorkDurationsBatch(store: DsStore, changes: seq<struct(Guid * int)>) =

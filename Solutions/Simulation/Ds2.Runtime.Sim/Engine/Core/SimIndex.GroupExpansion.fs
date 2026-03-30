@@ -33,19 +33,33 @@ module internal SimIndexGroupExpansion =
             |> List.groupBy (findRoot finalParent)
             |> List.map (fun (_, nodes) -> Set.ofList nodes)
 
+    /// 그룹 멤버 간 기존 predecessor 관계를 제거 (Group = 동시 시작/리셋이므로 내부 순서 무의미)
+    let private removeIntraGroupPreds (groupSet: Set<Guid>) (members: Guid list) (predMap: Map<Guid, Guid list>) =
+        members
+        |> List.fold (fun acc memberId ->
+            match Map.tryFind memberId acc with
+            | Some preds ->
+                let cleaned = preds |> List.filter (fun p -> not (Set.contains p groupSet))
+                if cleaned.IsEmpty then Map.remove memberId acc
+                else Map.add memberId cleaned acc
+            | None -> acc) predMap
+
     let private expandSingleGroup (groupSet: Set<Guid>) (startMap: Map<Guid, Guid list>) (resetMap: Map<Guid, Guid list>) =
         let members = groupSet |> Set.toList
 
-        // 내부+외부 모든 Start predecessor를 그룹 전원에 분배 (자기 자신 제외 → 교착 방지)
+        // 그룹 멤버가 아닌 외부 Start predecessor만 수집 (멤버 간 순서 의존성 제거)
         let allStartPreds =
             members
             |> List.collect (fun memberId -> startMap.TryFind memberId |> Option.defaultValue [])
+            |> List.filter (fun predId -> not (Set.contains predId groupSet))
             |> List.distinct
 
+        // 기존 맵에서 그룹 내부 Start predecessor 제거 후 외부 predecessor 분배
+        let cleanedStartMap = removeIntraGroupPreds groupSet members startMap
         let startWithAll =
             List.allPairs members allStartPreds
             |> List.filter (fun (memberId, predId) -> memberId <> predId)
-            |> List.fold (fun acc (memberId, predId) -> addPredecessor memberId predId acc) startMap
+            |> List.fold (fun acc (memberId, predId) -> addPredecessor memberId predId acc) cleanedStartMap
 
         let startSuccessors =
             startWithAll
@@ -58,16 +72,18 @@ module internal SimIndexGroupExpansion =
             List.allPairs startSuccessors members
             |> List.fold (fun acc (succId, memberId) -> addPredecessor succId memberId acc) startWithAll
 
-        // 내부+외부 모든 Reset predecessor를 그룹 전원에 분배 (자기 자신 제외)
+        // Reset도 동일: 그룹 멤버가 아닌 외부 Reset predecessor만 수집
         let allResetPreds =
             members
             |> List.collect (fun memberId -> resetMap.TryFind memberId |> Option.defaultValue [])
+            |> List.filter (fun predId -> not (Set.contains predId groupSet))
             |> List.distinct
 
+        let cleanedResetMap = removeIntraGroupPreds groupSet members resetMap
         let resetWithAll =
             List.allPairs members allResetPreds
             |> List.filter (fun (memberId, predId) -> memberId <> predId)
-            |> List.fold (fun acc (memberId, predId) -> addPredecessor memberId predId acc) resetMap
+            |> List.fold (fun acc (memberId, predId) -> addPredecessor memberId predId acc) cleanedResetMap
 
         let resetSuccessors =
             resetWithAll

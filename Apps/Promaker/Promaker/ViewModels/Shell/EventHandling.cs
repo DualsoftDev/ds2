@@ -83,7 +83,6 @@ public partial class MainViewModel
             case { IsConnectionsChanged: true }:
                 Simulation.NotifyConnectionsChanged();
                 Canvas.RefreshCanvasForActiveTab();
-                Simulation.RestoreSimStateToCanvas();
                 Selection.ApplyArrowSelectionVisuals();
                 return;
 

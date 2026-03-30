@@ -196,6 +196,25 @@ type DsStorePanelTimeExtensions =
         DsStorePanelTimeExtensions.UpdateWorkPeriodMs(store, workId, Option.ofNullable periodMs)
 
     [<Extension>]
+    static member GetWorkIsFinished(store: DsStore, workId: Guid) : bool =
+        let resolvedId = DsQuery.resolveOriginalWorkId workId store
+        match DsQuery.getWork resolvedId store with
+        | Some work -> work.Properties.IsFinished
+        | None -> false
+
+    [<Extension>]
+    static member UpdateWorkIsFinished(store: DsStore, workId: Guid, isFinished: bool) =
+        let resolvedId = DsQuery.resolveOriginalWorkId workId store
+        PanelMutationOps.updateWorkIfChanged
+            store
+            resolvedId
+            "Work IsFinished 변경"
+            WorkPropsChanged
+            (fun work -> work.Properties.IsFinished)
+            isFinished
+            (fun work value -> work.Properties.IsFinished <- value)
+
+    [<Extension>]
     static member UpdateWorkTokenRole(store: DsStore, workId: Guid, role: TokenRole) =
         StoreLog.debug($"workId={workId}, role={role}")
         PanelMutationOps.updateWorkIfChanged
