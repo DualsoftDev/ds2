@@ -335,7 +335,7 @@ public class PlcCaptureService : IHostedService, IDisposable
         ApplyRedisSettings(appSettings);
 
         // ScanConfiguration 설정
-        var protocolStr = _configuration["PlcCapture:Protocol"] ?? "UDP";
+        var protocolStr = _configuration["PlcCapture:Protocol"] ?? "TCP";
         var protocol = protocolStr.Equals("TCP", StringComparison.OrdinalIgnoreCase)
             ? Ev2.PLC.Protocol.MX.TransportProtocol.TCP
             : Ev2.PLC.Protocol.MX.TransportProtocol.UDP;
@@ -344,7 +344,7 @@ public class PlcCaptureService : IHostedService, IDisposable
 
         var connectionConfig = new MxConnectionConfig
         {
-            IpAddress = _configuration["PlcCapture:PlcIpAddress"] ?? "192.168.9.120",
+            IpAddress = _configuration["PlcCapture:PlcIpAddress"] ?? "192.168.0.1",
             Port = _configuration.GetValue<int>("PlcCapture:PlcPort", 5555),
             Name = _configuration["PlcCapture:PlcName"] ?? "MitsubishiPLC",
             EnableScan = true,
