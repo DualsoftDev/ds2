@@ -1,5 +1,6 @@
 using Ds2.Core;
 using Ds2.UI.Core;
+using DSPilot.Models;
 using Dual.Common.Db.FS;
 using Ev2.Backend.Common;
 using Ev2.Backend.PLC;
@@ -335,7 +336,7 @@ public class PlcCaptureService : IHostedService, IDisposable
         ApplyRedisSettings(appSettings);
 
         // ScanConfiguration 설정
-        var protocolStr = _configuration["PlcCapture:Protocol"] ?? "TCP";
+        var protocolStr = _configuration["PlcCapture:Protocol"] ?? PlcCaptureSettings.DefaultProtocol;
         var protocol = protocolStr.Equals("TCP", StringComparison.OrdinalIgnoreCase)
             ? Ev2.PLC.Protocol.MX.TransportProtocol.TCP
             : Ev2.PLC.Protocol.MX.TransportProtocol.UDP;
@@ -344,9 +345,9 @@ public class PlcCaptureService : IHostedService, IDisposable
 
         var connectionConfig = new MxConnectionConfig
         {
-            IpAddress = _configuration["PlcCapture:PlcIpAddress"] ?? "192.168.0.1",
-            Port = _configuration.GetValue<int>("PlcCapture:PlcPort", 5555),
-            Name = _configuration["PlcCapture:PlcName"] ?? "MitsubishiPLC",
+            IpAddress = _configuration["PlcCapture:PlcIpAddress"] ?? PlcCaptureSettings.DefaultPlcIpAddress,
+            Port = _configuration.GetValue<int>("PlcCapture:PlcPort", PlcCaptureSettings.DefaultPlcPort),
+            Name = _configuration["PlcCapture:PlcName"] ?? PlcCaptureSettings.DefaultPlcName,
             EnableScan = true,
             Timeout = TimeSpan.FromSeconds(5),
             ScanInterval = appSettings.ScanInterval,

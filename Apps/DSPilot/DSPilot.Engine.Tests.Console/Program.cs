@@ -72,7 +72,7 @@ class Program
         System.Console.WriteLine("=========================================================");
         System.Console.WriteLine("  [0] Step 0: Basic Database CRUD Test");
         System.Console.WriteLine("  [2] Step 2: Integration Test");
-        System.Console.WriteLine("  [3] Real PLC Connection Test (Mitsubishi 192.168.9.120)");
+        System.Console.WriteLine($"  [3] Real PLC Connection Test (Mitsubishi {PlcDefaults.IpAddress})");
         System.Console.WriteLine("  [4] Real PLC Integration with AASX");
         System.Console.WriteLine("  [5] Database Verification");
         System.Console.WriteLine("  [6] Inspect PLC Database");
@@ -244,7 +244,7 @@ class Program
             System.Console.WriteLine("------------------------");
 
             var tags = new[] { "D100", "D101", "D102", "D103", "D104", "D105" };
-            using var plcConnector = new RealPlcConnector("192.168.9.120", 5555, tags);
+            using var plcConnector = new RealPlcConnector(PlcDefaults.IpAddress, PlcDefaults.Port, tags);
 
             int eventCount = 0;
             plcConnector.TagChanged += async (sender, e) =>

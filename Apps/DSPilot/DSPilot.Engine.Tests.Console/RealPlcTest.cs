@@ -19,7 +19,7 @@ namespace DSPilot.Engine.Tests.Console;
 
 /// <summary>
 /// Real PLC Connection Test
-/// Connects to Mitsubishi PLC at 192.168.9.120:4444 (TCP)
+/// Connects to Mitsubishi PLC via TCP
 /// Monitors ApiCall InTag/OutTag addresses and processes state transitions
 /// </summary>
 public class RealPlcTest
@@ -155,9 +155,9 @@ public class RealPlcTest
         System.Console.WriteLine("[5]  Configuring Mitsubishi PLC connection...");
         var connectionConfig = new MxConnectionConfig
         {
-            IpAddress = "192.168.9.120",
+            IpAddress = PlcDefaults.IpAddress,
             Port = 4444,
-            Name = "MitsubishiPLC",
+            Name = PlcDefaults.Name,
             EnableScan = true,
             Timeout = TimeSpan.FromSeconds(5),
             ScanInterval = TimeSpan.FromMilliseconds(100), // 100ms PLC scan interval

@@ -5,11 +5,11 @@ namespace DSPilot.Engine.Tests.Console;
 
 /// <summary>
 /// Step 2: PLC Connection Test
-/// Test connection to 192.168.9.120 PLC and read tags
+/// Test connection to PLC and read tags
 /// </summary>
 public class Step2PlcConnectionTest
 {
-    private readonly string _plcHost = "192.168.9.120";
+    private readonly string _plcHost = PlcDefaults.IpAddress;
     private readonly int _plcPort = 102; // S7 default port
 
     public async Task Run()

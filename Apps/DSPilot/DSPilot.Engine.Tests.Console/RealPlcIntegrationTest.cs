@@ -10,14 +10,14 @@ namespace DSPilot.Engine.Tests.Console;
 /// <summary>
 /// Real PLC Integration Test
 /// - Load AASX model
-/// - Connect to real PLC (192.168.9.120:5555)
+/// - Connect to real PLC
 /// - Map PLC Tags to Calls
 /// - Monitor real-time state transitions
 /// </summary>
 public class RealPlcIntegrationTest
 {
-    private readonly string _plcHost = "192.168.9.120";
-    private readonly int _plcPort = 5555;
+    private readonly string _plcHost = PlcDefaults.IpAddress;
+    private readonly int _plcPort = PlcDefaults.Port;
     private readonly string _aasxPath = @"C:\ds\ds2\Apps\DSPilot\DsCSV_0318_C.aasx";
     private readonly string _testDbPath;
 

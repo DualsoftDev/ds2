@@ -301,9 +301,9 @@ public static class CaptureMode
         // ScanConfiguration 설정
         var connectionConfig = new MxConnectionConfig
         {
-            IpAddress = "192.168.9.120",
-            Port = 5555,
-            Name = "MitsubishiPLC",
+            IpAddress = PlcDefaults.IpAddress,
+            Port = PlcDefaults.Port,
+            Name = PlcDefaults.Name,
             EnableScan = true,
             Timeout = TimeSpan.FromSeconds(5),
             ScanInterval = TimeSpan.FromMilliseconds(500),
