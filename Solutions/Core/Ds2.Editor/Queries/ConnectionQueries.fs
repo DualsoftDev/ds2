@@ -63,7 +63,9 @@ let orderedArrowLinksForSelection
     orderedContexts
     |> List.pairwise
     |> List.choose (fun ((sourceType, sourceParent, sourceId), (targetType, targetParent, targetId)) ->
-        if sourceType <> targetType || sourceId = targetId then
+        if sourceType <> targetType
+            || sourceId = targetId
+            || not (EntityKindRules.isArrowTypeAllowedForKind sourceType arrowType) then
             None
         else
             match sourceType with

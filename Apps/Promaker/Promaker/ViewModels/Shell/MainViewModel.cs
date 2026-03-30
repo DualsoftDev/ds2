@@ -136,6 +136,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private ArrowType _selectedConnectArrowType = ArrowType.Start;
 
     public Action? FocusNameEditorRequested { get; set; }
+    public Action? SearchResetRequested { get; set; }
 
     private bool CanFocusNameEditor() =>
         SelectedNode is not null && Selection.OrderedNodeSelection.Count <= 1;
@@ -144,7 +145,10 @@ public partial class MainViewModel : ObservableObject
     private void FocusNameEditor()
     {
         if (SelectedNode is not null)
+        {
+            PropertyPanel.BeginNameEditGuidance();
             FocusNameEditorRequested?.Invoke();
+        }
     }
 
     [RelayCommand]
@@ -432,6 +436,7 @@ public partial class MainViewModel : ObservableObject
         UpdateTitle();
         StatusText = "Ready";
         RefreshEditorCommandStates();
+        SearchResetRequested?.Invoke();
     }
 
     private bool ConfirmDiscardChanges()
@@ -462,6 +467,7 @@ public partial class MainViewModel : ObservableObject
         SelectedNode = null;
         SelectedArrow = null;
         RefreshEditorCommandStates();
+        SearchResetRequested?.Invoke();
     }
 
     private bool TrySaveFileDuringDiscardCheck()

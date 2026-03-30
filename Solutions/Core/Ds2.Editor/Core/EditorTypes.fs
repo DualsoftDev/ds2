@@ -33,7 +33,7 @@ type EditorEvent =
     | ArrowCallAdded of ArrowBetweenCalls
     | ArrowCallRemoved of Guid
     | ConnectionsChanged
-    | EntityRenamed of id: Guid * newName: string
+    | EntityRenamed of id: Guid * newName: string * treeName: string
     | ProjectPropsChanged of id: Guid
     | WorkPropsChanged of id: Guid
     | CallPropsChanged of id: Guid

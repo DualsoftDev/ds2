@@ -15,6 +15,15 @@
             <Setter Property="MinWidth" Value="24"/>
             <Setter Property="Height" Value="22"/>
         </Style>
+
+        <Style x:Key="NameEditorHighlightStyle" TargetType="Border">
+            <Setter Property="Opacity" Value="0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsNameEditHighlighted}" Value="True">
+                    <Setter Property="Opacity" Value="1"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
     <Border Style="{StaticResource PanelContainer}">
@@ -52,10 +61,20 @@
                                        Foreground="{DynamicResource SecondaryTextBrush}"
                                        VerticalAlignment="Center"
                                        Margin="0,0,2,0"/>
-                            <TextBox x:Name="NameEditor" Grid.Column="1"
-                                     Text="{Binding NameEditorText, UpdateSourceTrigger=PropertyChanged}"
-                                     Padding="6,4" FontSize="12"
-                                     KeyDown="NameEditor_KeyDown"/>
+                            <Grid Grid.Column="1">
+                                <TextBox x:Name="NameEditor"
+                                         Text="{Binding NameEditorText, UpdateSourceTrigger=PropertyChanged}"
+                                         Padding="6,4" FontSize="12"
+                                         KeyDown="NameEditor_KeyDown"/>
+                                <Border x:Name="NameEditorHighlight"
+                                        Margin="-3"
+                                        BorderThickness="2"
+                                        BorderBrush="{DynamicResource AccentBrush}"
+                                        Background="Transparent"
+                                        CornerRadius="3"
+                                        Style="{StaticResource NameEditorHighlightStyle}"
+                                        IsHitTestVisible="False"/>
+                            </Grid>
                             <Button Grid.Column="2" Content="✓" Style="{StaticResource DarkButton}"
                                     Margin="4,0,0,0" Padding="8,4"
                                     Command="{Binding ApplyNameCommand}"

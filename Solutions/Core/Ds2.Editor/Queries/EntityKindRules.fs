@@ -53,6 +53,13 @@ module EntityKindRules =
         else
             [ ArrowType.Start; ArrowType.Group ]
 
+    /// EntityKind별 허용 가능한 ArrowType인지 판정
+    let isArrowTypeAllowedForKind (kind: EntityKind) (arrowType: ArrowType) : bool =
+        match kind with
+        | EntityKind.Work -> true
+        | EntityKind.Call -> arrowType = ArrowType.Start || arrowType = ArrowType.Group
+        | _ -> false
+
     /// Canvas 좌표를 격자에 정렬
     let snapToGrid (x: float) (y: float) (ctrlHeld: bool) : float * float =
         let gridX = 120.0

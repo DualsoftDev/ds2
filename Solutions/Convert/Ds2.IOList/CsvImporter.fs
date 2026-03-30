@@ -58,9 +58,12 @@ module CsvImporter =
         | -1 -> callName
         | idx -> callName.Substring(idx + 1)
 
-    /// CSV 파일 텍스트를 줄 배열로 변환
+    /// CSV 파일 텍스트를 줄 배열로 변환 (다른 프로세스가 파일을 열고 있어도 읽기 가능)
     let private readLines (filePath: string) =
-        let text = File.ReadAllText(filePath, Encoding.UTF8)
+        let text =
+            use fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete)
+            use sr = new StreamReader(fs, Encoding.UTF8)
+            sr.ReadToEnd()
         text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n')
         |> Array.map (fun s -> s.Trim())
         |> Array.filter (fun s -> s.Length > 0)
