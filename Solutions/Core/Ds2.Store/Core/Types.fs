@@ -77,6 +77,7 @@ module DevicePresets =
     /// (modelType, canonicalSystemType) 쌍 배열 — Dummy 포함
     let Entries : (string * string)[] = [|
         ("Unit",        "ADV;RET")
+        ("Robot",       "START;1ST_IN_OK;2ND_IN_OK;WORK_COMMP_RST")
         ("Lifter",      "UP;DOWN")
         ("Pusher",      "FWD;BWD")
         ("Conveyor",    "MOVE;STOP")

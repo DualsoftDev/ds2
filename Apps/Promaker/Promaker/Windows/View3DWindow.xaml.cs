@@ -342,7 +342,10 @@ public partial class View3DWindow : Window
     {
         try { _ = WebView3D.CoreWebView2?.ExecuteScriptAsync("if(window.Ds2Sound)Ds2Sound.stopAll();"); }
         catch { }
-        WebView3D.CoreWebView2.WebMessageReceived -= OnWebMessageReceived;
+        if (WebView3D.CoreWebView2 != null)
+        {
+            WebView3D.CoreWebView2.WebMessageReceived -= OnWebMessageReceived;
+        }
         _vm.SetWebViewSender(null);
     }
 

@@ -6,11 +6,13 @@ open Ds2.Core
 open Ds2.Store
 
 /// Duration 일괄편집용 행
-type WorkDurationBatchRow(workId: Guid, flowName: string, workName: string, periodMs: int) =
+type WorkDurationBatchRow(workId: Guid, systemName: string, flowName: string, workName: string, periodMs: int, isDeviceWork: bool) =
     member val WorkId = workId
+    member val SystemName = systemName
     member val FlowName = flowName
     member val WorkName = workName
     member val PeriodMs = periodMs
+    member val IsDeviceWork = isDeviceWork
 
 /// I/O 일괄편집용 행
 type ApiCallIOBatchRow(callId: Guid, apiCallId: Guid, flowName: string, workName: string, callName: string,
@@ -45,7 +47,11 @@ type DsStorePanelBatchExtensions =
                 DsQuery.worksOf flow.Id store
                 |> List.map (fun work ->
                     let ms = work.Properties.Period |> Option.map (fun t -> int t.TotalMilliseconds) |> Option.defaultValue 0
-                    WorkDurationBatchRow(work.Id, flow.Name, work.LocalName, ms))))
+                    // Device Work = Work에 ApiCall이 있는 Call이 하나라도 있으면 true
+                    let isDeviceWork =
+                        DsQuery.callsOf work.Id store
+                        |> List.exists (fun call -> not (Seq.isEmpty call.ApiCalls))
+                    WorkDurationBatchRow(work.Id, sys.Name, flow.Name, work.LocalName, ms, isDeviceWork))))
 
     /// 모든 ApiCall의 IO 태그 정보를 일괄 조회
     [<Extension>]

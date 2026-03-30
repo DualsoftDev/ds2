@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using Ds2.Store;
+using Ds2.Editor;
 using Microsoft.FSharp.Core;
 
 namespace Promaker.Dialogs;
@@ -141,8 +142,13 @@ public partial class IoBatchSettingsDialog : Window
         IoGrid.CommitEdit(DataGridEditingUnit.Row, true);
 
         var changed = ChangedRows;
+
+        // 변경사항이 없으면 사용자에게 알림
         if (changed.Count == 0)
+        {
+            DialogHelpers.Info(this, "변경된 항목이 없습니다.", "I/O 일괄 편집");
             return;
+        }
 
         if (_applyChanges is null)
         {
@@ -167,20 +173,59 @@ public partial class IoBatchSettingsDialog : Window
 
         if (wizardDialog.DialogResult == true)
         {
+            // Reload rows from store to reflect wizard changes
+            ReloadRowsFromStore();
+
             DialogHelpers.ShowThemedMessageBox(
                 "TAG Wizard가 완료되었습니다.\n\n" +
-                "IO 태그가 ApiCall에 자동으로 적용되었습니다.\n" +
-                "필요한 경우 추가 편집 후 프로젝트를 저장하세요.",
+                "IO 태그가 ApiCall에 자동으로 적용되었으며, 프로젝트에 저장되었습니다.\n\n" +
+                "추가 편집이 필요하면 이 창에서 수정 후 '적용'을 클릭하세요.\n" +
+                "편집이 필요없으면 '닫기'를 클릭하세요.",
                 "TAG Wizard",
                 MessageBoxButton.OK,
                 "ℹ");
         }
     }
 
+    private void ReloadRowsFromStore()
+    {
+        // Commit any pending edits
+        IoGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+        IoGrid.CommitEdit(DataGridEditingUnit.Row, true);
+
+        // Unsubscribe from old rows
+        foreach (var row in _rows)
+            row.PropertyChanged -= Row_PropertyChanged;
+
+        // Get fresh data from store using the extension method from Ds2.Editor
+        var storeRows = _store.GetAllApiCallIORows();
+
+        // Clear and repopulate
+        _rows.Clear();
+        foreach (var r in storeRows)
+        {
+            var row = new IoBatchRow(
+                r.CallId, r.ApiCallId, r.FlowName, r.DeviceName, r.ApiName,
+                r.InAddress, r.InSymbol, r.OutAddress, r.OutSymbol,
+                r.OutDataType, r.InDataType);
+
+            row.PropertyChanged += Row_PropertyChanged;
+            _rows.Add(row);
+        }
+
+        // Refresh view
+        _view.Refresh();
+        BatchDialogHelper.UpdateSelectedCount(_rows, SelectedCountText);
+        RefreshApplyButtonState();
+    }
+
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 
-    private void RefreshApplyButtonState() =>
-        ApplyButton.IsEnabled = ChangedRows.Count > 0;
+    private void RefreshApplyButtonState()
+    {
+        // 적용 버튼 항상 활성화 (변경사항이 없어도 재적용 가능)
+        ApplyButton.IsEnabled = true;
+    }
 }
 
 public sealed class IoBatchRow : BatchRowBase

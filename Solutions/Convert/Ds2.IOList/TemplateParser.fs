@@ -12,8 +12,6 @@ module TemplateParser =
 
     /// Parse state
     type private ParseState = {
-        SystemType: string option
-        Category: string option
         InputSlots: TemplateSlot list
         OutputSlots: TemplateSlot list
         MemorySlots: TemplateSlot list
@@ -26,38 +24,46 @@ module TemplateParser =
         | MemorySection
 
     let private emptyState = {
-        SystemType = None
-        Category = None
         InputSlots = []
         OutputSlots = []
         MemorySlots = []
         CurrentSection = None
     }
 
-    /// Parse a directive line (@META, @CATEGORY)
-    let private parseDirective (line: string) (state: ParseState) =
-        let parts = line.Split([|' '; '\t'|], StringSplitOptions.RemoveEmptyEntries)
-        if parts.Length < 2 then state
-        else
-            match parts.[0].ToUpperInvariant() with
-            | "@META" -> { state with SystemType = Some parts.[1] }
-            | "@CATEGORY" -> { state with Category = Some parts.[1] }
-            | _ -> state  // Ignore all other directives (like @IW_BASE)
+    /// Parse a directive line (now only used for unknown directives - ignored)
+    let private parseDirective (_line: string) (state: ParseState) =
+        // All directives like @META, @CATEGORY, @IW_BASE are now ignored
+        // SystemType comes from filename instead
+        state
 
-    /// Parse a section header ([RBT.IW], [RBT.QW], [RBT.MW])
+    /// Parse a section header ([IW], [QW], [MW] or legacy [RBT.IW] format)
     let private parseSectionHeader (line: string) (state: ParseState) =
-        let pattern = @"\[([^\.]+)\.(IW|QW|MW)\]"
-        let m = Regex.Match(line, pattern)
-        if m.Success then
+        // New simplified format: [IW], [QW], [MW]
+        let simplePattern = @"\[(IW|QW|MW)\]"
+        let simpleMatch = Regex.Match(line, simplePattern)
+
+        if simpleMatch.Success then
             let sectionType =
-                match m.Groups.[2].Value with
+                match simpleMatch.Groups.[1].Value with
                 | "IW" -> Some InputSection
                 | "QW" -> Some OutputSection
                 | "MW" -> Some MemorySection
                 | _ -> None
             { state with CurrentSection = sectionType }
         else
-            state
+            // Legacy format: [RBT.IW], [PIN.QW], etc.
+            let legacyPattern = @"\[([^\.]+)\.(IW|QW|MW)\]"
+            let legacyMatch = Regex.Match(line, legacyPattern)
+            if legacyMatch.Success then
+                let sectionType =
+                    match legacyMatch.Groups.[2].Value with
+                    | "IW" -> Some InputSection
+                    | "QW" -> Some OutputSection
+                    | "MW" -> Some MemorySection
+                    | _ -> None
+                { state with CurrentSection = sectionType }
+            else
+                state
 
     /// Parse a signal line (e.g., "HOME_POS: W_$(F)_I_$(D)_HOME_POS" or "-")
     let private parseSignalLine (line: string) (state: ParseState) =
@@ -110,26 +116,22 @@ module TemplateParser =
         else
             parseSignalLine trimmed state
 
-    /// Build MacroTemplate from parse state
+    /// Build MacroTemplate from parse state (SystemType from filename)
     let private buildTemplate (filePath: string) (state: ParseState) : Result<MacroTemplate, GenerationError> =
-        match state.SystemType with
-        | None ->
-            Error {
-                ApiCallId = None
-                Message = $"Template file '{filePath}' missing @META directive"
-                ErrorType = InvalidTemplateFormat(filePath, "Missing @META directive")
-            }
-        | Some systemType ->
-            Ok {
-                SystemType = systemType
-                Category = state.Category |> Option.defaultValue systemType
-                IW_BaseAddress = 0  // No longer used - will come from address_config.txt
-                QW_BaseAddress = 0
-                MW_BaseAddress = 0
-                InputSlots = state.InputSlots
-                OutputSlots = state.OutputSlots
-                MemorySlots = state.MemorySlots
-            }
+        // Extract SystemType from filename (e.g., "RBT.txt" -> "RBT")
+        let fileName = Path.GetFileNameWithoutExtension(filePath)
+        let systemType = fileName
+
+        Ok {
+            SystemType = systemType
+            Category = systemType  // Category = SystemType (same as filename)
+            IW_BaseAddress = 0  // No longer used - will come from address_config.txt
+            QW_BaseAddress = 0
+            MW_BaseAddress = 0
+            InputSlots = state.InputSlots
+            OutputSlots = state.OutputSlots
+            MemorySlots = state.MemorySlots
+        }
 
     /// Parse a template file
     let parseFile (filePath: string) : Result<MacroTemplate, GenerationError> =
@@ -177,7 +179,7 @@ module TemplateParser =
                 else
                     let templateMap =
                         templates
-                        |> List.map (fun t -> t.SystemType, t)
+                        |> List.map (fun t -> t.SystemType.ToUpperInvariant(), t)
                         |> Map.ofList
                     Ok templateMap
         with ex ->

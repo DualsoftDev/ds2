@@ -19,10 +19,16 @@ public partial class TagWizardDialog : Window
     private readonly ObservableCollection<IoBatchRow> _ioRows;
     private readonly ObservableCollection<DummySignalRow> _dummyRows;
     private readonly ObservableCollection<UnmatchedSignalRow> _unmatchedRows;
+    private readonly ObservableCollection<SystemBaseRow> _systemBaseRows;
+    private readonly ObservableCollection<FlowBaseRow> _flowBaseRows;
+    private readonly ObservableCollection<SignalPatternRow> _iwSignalRows;
+    private readonly ObservableCollection<SignalPatternRow> _qwSignalRows;
+    private readonly ObservableCollection<SignalPatternRow> _mwSignalRows;
+    private readonly ObservableCollection<ErrorDisplayItem> _errorItems;
     private ICollectionView _ioView;
     private int _currentStep = 1;
     private int _successCount;
-    private string _currentTemplateFile = "";
+    private string _currentDeviceTemplateFile = "";
 
     public TagWizardDialog(DsStore store)
     {
@@ -32,6 +38,12 @@ public partial class TagWizardDialog : Window
         _ioRows = new ObservableCollection<IoBatchRow>();
         _dummyRows = new ObservableCollection<DummySignalRow>();
         _unmatchedRows = new ObservableCollection<UnmatchedSignalRow>();
+        _systemBaseRows = new ObservableCollection<SystemBaseRow>();
+        _flowBaseRows = new ObservableCollection<FlowBaseRow>();
+        _iwSignalRows = new ObservableCollection<SignalPatternRow>();
+        _qwSignalRows = new ObservableCollection<SignalPatternRow>();
+        _mwSignalRows = new ObservableCollection<SignalPatternRow>();
+        _errorItems = new ObservableCollection<ErrorDisplayItem>();
 
         // Setup CollectionView with filtering
         _ioView = CollectionViewSource.GetDefaultView(_ioRows);
@@ -40,6 +52,14 @@ public partial class TagWizardDialog : Window
 
         DummySignalPreviewGrid.ItemsSource = _dummyRows;
         UnmatchedSignalGrid.ItemsSource = _unmatchedRows;
+        ErrorsListBox.ItemsSource = _errorItems;
+
+        // Bind DataGrids
+        SystemBaseGrid.ItemsSource = _systemBaseRows;
+        FlowBaseGrid.ItemsSource = _flowBaseRows;
+        IwSignalGrid.ItemsSource = _iwSignalRows;
+        QwSignalGrid.ItemsSource = _qwSignalRows;
+        MwSignalGrid.ItemsSource = _mwSignalRows;
 
         // Bind filter text boxes
         PreviewFlowFilterBox.TextChanged += (_, _) => _ioView.Refresh();
@@ -262,3 +282,131 @@ public record UnmatchedSignalRow(
     string InAddress,
     string FailureReason
 );
+
+/// <summary>
+/// 시스템 주소 설정 행 (DataGrid 바인딩용)
+/// </summary>
+public class SystemBaseRow : INotifyPropertyChanged
+{
+    private string _systemType = "";
+    private bool _isEnabled = false;
+    private string _iwBase = "";
+    private string _qwBase = "";
+    private string _mwBase = "";
+
+    public string SystemType
+    {
+        get => _systemType;
+        set { _systemType = value; OnPropertyChanged(nameof(SystemType)); }
+    }
+
+    public bool IsEnabled
+    {
+        get => _isEnabled;
+        set { _isEnabled = value; OnPropertyChanged(nameof(IsEnabled)); }
+    }
+
+    public string IW_Base
+    {
+        get => _iwBase;
+        set { _iwBase = value; OnPropertyChanged(nameof(IW_Base)); }
+    }
+
+    public string QW_Base
+    {
+        get => _qwBase;
+        set { _qwBase = value; OnPropertyChanged(nameof(QW_Base)); }
+    }
+
+    public string MW_Base
+    {
+        get => _mwBase;
+        set { _mwBase = value; OnPropertyChanged(nameof(MW_Base)); }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    protected void OnPropertyChanged(string propertyName)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}
+
+/// <summary>
+/// Flow 주소 설정 행 (DataGrid 바인딩용)
+/// </summary>
+public class FlowBaseRow : INotifyPropertyChanged
+{
+    private string _flowName = "";
+    private string _iwBase = "";
+    private string _qwBase = "";
+    private string _mwBase = "";
+
+    public string FlowName
+    {
+        get => _flowName;
+        set { _flowName = value; OnPropertyChanged(nameof(FlowName)); }
+    }
+
+    public string IW_Base
+    {
+        get => _iwBase;
+        set { _iwBase = value; OnPropertyChanged(nameof(IW_Base)); }
+    }
+
+    public string QW_Base
+    {
+        get => _qwBase;
+        set { _qwBase = value; OnPropertyChanged(nameof(QW_Base)); }
+    }
+
+    public string MW_Base
+    {
+        get => _mwBase;
+        set { _mwBase = value; OnPropertyChanged(nameof(MW_Base)); }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    protected void OnPropertyChanged(string propertyName)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}
+
+/// <summary>
+/// 신호 패턴 행 (IW/QW/MW 그리드 바인딩용)
+/// </summary>
+public class SignalPatternRow : INotifyPropertyChanged
+{
+    private string _apiName = "";
+    private string _pattern = "";
+
+    public string ApiName
+    {
+        get => _apiName;
+        set { _apiName = value; OnPropertyChanged(nameof(ApiName)); }
+    }
+
+    public string Pattern
+    {
+        get => _pattern;
+        set { _pattern = value; OnPropertyChanged(nameof(Pattern)); }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    protected void OnPropertyChanged(string propertyName)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}
+
+/// <summary>
+/// 오류 표시 항목 (ListBox 바인딩용)
+/// </summary>
+public class ErrorDisplayItem
+{
+    public string ErrorType { get; set; } = "";
+    public string Message { get; set; } = "";
+}

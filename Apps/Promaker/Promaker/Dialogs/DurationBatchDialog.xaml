@@ -9,6 +9,34 @@
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         ResizeMode="CanResize">
+    <Window.Resources>
+        <!-- Toggle RadioButton Style -->
+        <Style x:Key="ToggleRadioButtonStyle" TargetType="RadioButton">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Border"
+                                Background="{DynamicResource PrimaryBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="3"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource AlwaysLightTextBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1">
@@ -61,6 +89,8 @@
                 <!-- Work Filters -->
                 <Grid Grid.Row="0">
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="16"/>
                         <ColumnDefinition Width="1.1*"/>
                         <ColumnDefinition Width="8"/>
                         <ColumnDefinition Width="1.1*"/>
@@ -72,20 +102,50 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
+                    <!-- Work Type Toggle -->
                     <StackPanel Grid.Column="0">
+                        <TextBlock Text="Work 유형" Margin="0,0,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <Border Background="{DynamicResource PrimaryBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="2">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="ShowDeviceWorkRadio"
+                                             Content="디바이스"
+                                             GroupName="WorkType"
+                                             Style="{StaticResource ToggleRadioButtonStyle}"
+                                             Margin="0"
+                                             Padding="10,6"
+                                             IsChecked="True"
+                                             Checked="WorkTypeToggle_Changed"
+                                             ToolTip="Flow 내부 로직 Work"/>
+                                <RadioButton x:Name="ShowControlWorkRadio"
+                                             Content="컨트롤"
+                                             GroupName="WorkType"
+                                             Style="{StaticResource ToggleRadioButtonStyle}"
+                                             Margin="0"
+                                             Padding="10,6"
+                                             Checked="WorkTypeToggle_Changed"
+                                             ToolTip="디바이스 통신 Work (TxWork, passive device 등)"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2">
                         <TextBlock Text="Flow" Margin="0,0,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <TextBox x:Name="WorkFlowFilterBox" Padding="8,6" ToolTip="Flow 이름으로 필터링"/>
                     </StackPanel>
-                    <StackPanel Grid.Column="2">
+                    <StackPanel Grid.Column="4">
                         <TextBlock Text="Work" Margin="0,0,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <TextBox x:Name="WorkNameFilterBox" Padding="8,6" ToolTip="Work 이름으로 필터링"/>
                     </StackPanel>
-                    <StackPanel Grid.Column="4">
+                    <StackPanel Grid.Column="6">
                         <TextBlock Text="Duration" Margin="0,0,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <TextBox x:Name="WorkDurationFilterBox" Padding="8,6" ToolTip="duration 값으로 필터링 (예: 1000, &gt;500, &lt;2000)"/>
                     </StackPanel>
 
-                    <Button Grid.Column="6"
+                    <Button Grid.Column="8"
                             Height="34"
                             MinWidth="102"
                             VerticalAlignment="Bottom"
@@ -93,7 +153,7 @@
                             IsEnabled="False"
                             Content="CSV 내보내기"/>
 
-                    <Button Grid.Column="8"
+                    <Button Grid.Column="10"
                             Height="34"
                             MinWidth="102"
                             VerticalAlignment="Bottom"
@@ -137,7 +197,7 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Flow" Binding="{Binding FlowName}" Width="120" IsReadOnly="True"/>
+                            <DataGridTextColumn x:Name="CategoryColumn" Header="System" Binding="{Binding DisplayCategory}" Width="120" IsReadOnly="True"/>
                             <DataGridTextColumn Header="Work" Binding="{Binding WorkName}" Width="*" IsReadOnly="True"/>
                             <DataGridTextColumn Header="Duration (ms)" Binding="{Binding Duration, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                         </DataGrid.Columns>
