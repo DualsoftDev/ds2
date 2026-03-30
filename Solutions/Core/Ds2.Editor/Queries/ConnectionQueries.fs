@@ -19,6 +19,19 @@ let hasArrowKeyExcept
         exceptId <> Some arrow.Id &&
         arrowKeyOf arrow = expectedKey)
 
+/// 새 화살표를 추가하면 Call 그래프에 사이클이 생기는지 검사
+let wouldCreateCallCycle (store: DsStore) (sourceId: Guid) (targetId: Guid) : bool =
+    // targetId에서 기존 화살표를 따라가서 sourceId에 도달하면 사이클
+    let arrows = DsQuery.allArrowCalls store
+    let visited = System.Collections.Generic.HashSet<Guid>()
+    let rec reachable (current: Guid) =
+        if current = sourceId then true
+        elif not (visited.Add current) then false
+        else
+            arrows
+            |> List.exists (fun a -> a.SourceId = current && reachable a.TargetId)
+    reachable targetId
+
 /// Ordered multi-selection -> connectable arrow links.
 /// Result tuple: (entityKind, parentId, sourceId, targetId)
 ///   Work arrow: parentId = systemId

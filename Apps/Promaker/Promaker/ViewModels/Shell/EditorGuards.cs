@@ -123,6 +123,14 @@ public partial class MainViewModel
 
     public bool TryConnectNodesFromCanvas(Guid sourceId, Guid targetId, ArrowType arrowType)
     {
+        if (DsQuery.getCall(sourceId, _store) is not null
+            && DsQuery.getCall(targetId, _store) is not null
+            && ConnectionQueries.wouldCreateCallCycle(_store, sourceId, targetId))
+        {
+            _dialogService.ShowWarning("Call 노드 간 순환 연결은 허용되지 않습니다.\n순환 구조가 필요한 경우 Work 레벨에서 연결해 주세요.");
+            return false;
+        }
+
         if (!TryEditorFunc(
                 () => _store.ConnectSelectionInOrder(new Guid[] { sourceId, targetId }, arrowType),
                 out int createdCount,

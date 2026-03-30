@@ -132,6 +132,28 @@ module ArrowTests =
         Assert.Equal(ArrowType.Start, arrow.ArrowType)
 
     [<Fact>]
+    let ``wouldCreateCallCycle detects simple cycle among calls`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "D.A1"; "D.A2"; "D.A3" ], true, None)
+        let calls = DsQuery.callsOf work.Id store
+        let c1, c2, c3 = calls.[0], calls.[1], calls.[2]
+        // c1 → c2 → c3, then check if c3 → c1 would create cycle
+        store.ConnectSelectionInOrder([ c1.Id; c2.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ c2.Id; c3.Id ], ArrowType.Start) |> ignore
+        Assert.True(ConnectionQueries.wouldCreateCallCycle store c3.Id c1.Id)
+        // c1 → c3 직접 연결은 사이클 아님 (c3에서 c1로 가는 기존 경로 없음)
+        Assert.False(ConnectionQueries.wouldCreateCallCycle store c1.Id c3.Id)
+
+    [<Fact>]
+    let ``wouldCreateCallCycle returns false for non-cycle connection`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "D.A1"; "D.A2" ], true, None)
+        let calls = DsQuery.callsOf work.Id store
+        Assert.False(ConnectionQueries.wouldCreateCallCycle store calls.[0].Id calls.[1].Id)
+
+    [<Fact>]
     let ``ConnectSelectionInOrder blocks disallowed call arrow types`` () =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
