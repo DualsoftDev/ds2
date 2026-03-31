@@ -15,6 +15,8 @@
     <Compile Include="CsvImporter.fs" />
     <Compile Include="CsvExporter.fs" />
     <Compile Include="ExcelExporter.fs" />
+    <Compile Include="TagGeneration.fs" />
+    <Compile Include="SignalMatching.fs" />
     <Compile Include="Pipeline.fs" />
   </ItemGroup>
 

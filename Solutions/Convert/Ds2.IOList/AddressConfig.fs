@@ -247,32 +247,20 @@ module AddressConfigParser =
         with ex ->
             Error $"Failed to parse flow base file '{filePath}': {ex.Message}"
 
-    /// Load address config from directory (supports multiple file naming conventions)
+    /// Load address config from directory
     let loadFromDirectory (templateDir: string) : Result<AddressConfig, string> =
-        // Try new file naming: systemAddress.txt / flowAddress.txt
-        let systemAddressPath = Path.Combine(templateDir, "systemAddress.txt")
-        let flowAddressPath = Path.Combine(templateDir, "flowAddress.txt")
+        // Use standard naming: system_base.txt / flow_base.txt
+        let systemBasePath = Path.Combine(templateDir, "system_base.txt")
+        let flowBasePath = Path.Combine(templateDir, "flow_base.txt")
 
-        if File.Exists(systemAddressPath) || File.Exists(flowAddressPath) then
-            // New naming: systemAddress.txt / flowAddress.txt
-            match parseSystemBaseFile systemAddressPath, parseFlowBaseFile flowAddressPath with
+        if File.Exists(systemBasePath) || File.Exists(flowBasePath) then
+            // Standard naming: system_base.txt / flow_base.txt
+            match parseSystemBaseFile systemBasePath, parseFlowBaseFile flowBasePath with
             | Ok systems, Ok flows ->
                 Ok { GlobalSystems = systems; LocalFlows = flows }
             | Error e, _ -> Error e
             | _, Error e -> Error e
         else
-            // Try legacy naming: system_base.txt / flow_base.txt
-            let systemBasePath = Path.Combine(templateDir, "system_base.txt")
-            let flowBasePath = Path.Combine(templateDir, "flow_base.txt")
-
-            if File.Exists(systemBasePath) || File.Exists(flowBasePath) then
-                // Legacy naming: system_base.txt / flow_base.txt
-                match parseSystemBaseFile systemBasePath, parseFlowBaseFile flowBasePath with
-                | Ok systems, Ok flows ->
-                    Ok { GlobalSystems = systems; LocalFlows = flows }
-                | Error e, _ -> Error e
-                | _, Error e -> Error e
-            else
-                // Oldest legacy: single address_config.txt file
-                let configPath = Path.Combine(templateDir, "address_config.txt")
-                parseFile configPath
+            // Legacy fallback: single address_config.txt file
+            let configPath = Path.Combine(templateDir, "address_config.txt")
+            parseFile configPath

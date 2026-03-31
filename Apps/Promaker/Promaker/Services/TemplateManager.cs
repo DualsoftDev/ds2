@@ -20,22 +20,12 @@ public static class TemplateManager
     public static string TemplatesFolderPath => TemplatesPath;
 
     /// <summary>
-    /// systemAddress.txt 경로 (시스템 타입별 글로벌 주소)
-    /// </summary>
-    public static string SystemAddressPath => Path.Combine(TemplatesPath, "systemAddress.txt");
-
-    /// <summary>
-    /// flowAddress.txt 경로 (Flow별 로컬 주소)
-    /// </summary>
-    public static string FlowAddressPath => Path.Combine(TemplatesPath, "flowAddress.txt");
-
-    /// <summary>
-    /// Legacy system_base.txt 경로 (하위 호환성)
+    /// system_base.txt 경로 (시스템 타입별 글로벌 주소)
     /// </summary>
     public static string SystemBasePath => Path.Combine(TemplatesPath, "system_base.txt");
 
     /// <summary>
-    /// Legacy flow_base.txt 경로 (하위 호환성)
+    /// flow_base.txt 경로 (Flow별 로컬 주소)
     /// </summary>
     public static string FlowBasePath => Path.Combine(TemplatesPath, "flow_base.txt");
 
@@ -49,66 +39,7 @@ public static class TemplateManager
     /// </summary>
     private static readonly Dictionary<string, string> DefaultTemplates = new()
     {
-        ["systemAddress.txt"] = @"# System Address Configuration
-# 시스템 타입별 글로벌 주소 설정
-# 형식: @SYSTEM [타입명] 다음에 @IW_BASE, @QW_BASE, @MW_BASE 지정
-
-@SYSTEM RBT
-@IW_BASE 3070
-@QW_BASE 3070
-@MW_BASE 9110
-
-@SYSTEM PIN
-@IW_BASE 3200
-@QW_BASE 3200
-@MW_BASE 9300
-
-@SYSTEM CLAMP
-@IW_BASE 3300
-@QW_BASE 3300
-@MW_BASE 9500
-
-@SYSTEM LATCH
-@IW_BASE 3250
-@QW_BASE 3250
-@MW_BASE 9400
-
-@SYSTEM Unit
-@IW_BASE 3400
-@QW_BASE 3400
-@MW_BASE 9600
-
-@SYSTEM UpDn
-@IW_BASE 3500
-@QW_BASE 3500
-@MW_BASE 9700
-
-@SYSTEM Motor
-@IW_BASE 3600
-@QW_BASE 3600
-@MW_BASE 9800
-
-@SYSTEM Multi
-@IW_BASE 3700
-@QW_BASE 3700
-@MW_BASE 9900
-",
-        ["flowAddress.txt"] = @"# Flow Address Configuration
-# Flow별 로컬 주소 설정
-# 형식: @FLOW [Flow명] 다음에 @IW_BASE, @QW_BASE, @MW_BASE 지정
-
-# 예시:
-# @FLOW Flow1
-# @IW_BASE 4000
-# @QW_BASE 4000
-# @MW_BASE 10000
-#
-# @FLOW Flow2
-# @IW_BASE 4100
-# @QW_BASE 4100
-# @MW_BASE 10100
-",
-        ["system_base.txt"] = @"# System Base Address Configuration (Legacy)
+        ["system_base.txt"] = @"# System Base Address Configuration
 # 시스템 타입별 글로벌 주소 설정
 # 형식: @SYSTEM [타입명] 다음에 @IW_BASE, @QW_BASE, @MW_BASE 지정
 
@@ -377,9 +308,7 @@ BWD: W_$(F)_M_$(D)_$(A)_BUSY
                 .Select(Path.GetFileName)
                 .Where(name => name != null)
                 .Select(name => name!)
-                .Where(name => name != "systemAddress.txt" &&
-                              name != "flowAddress.txt" &&
-                              name != "system_base.txt" &&
+                .Where(name => name != "system_base.txt" &&
                               name != "flow_base.txt" &&
                               name != "address_config.txt")
                 .OrderBy(name => name)
