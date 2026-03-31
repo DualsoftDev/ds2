@@ -88,7 +88,7 @@ public partial class TagWizardDialog
     }
 
     /// <summary>
-    /// systemAddress.txt 파일 파싱 (기존 설정 읽기)
+    /// system_base.txt 파일 파싱 (기존 설정 읽기)
     /// </summary>
     private Dictionary<string, (int? IW_Base, int? QW_Base, int? MW_Base)> ParseSystemBaseFile()
     {
@@ -96,14 +96,7 @@ public partial class TagWizardDialog
 
         try
         {
-            // Try new naming first
-            var content = TemplateManager.ReadTemplateFile("systemAddress.txt");
-
-            // Fallback to legacy naming
-            if (string.IsNullOrWhiteSpace(content))
-            {
-                content = TemplateManager.ReadTemplateFile("system_base.txt");
-            }
+            var content = TemplateManager.ReadTemplateFile("system_base.txt");
             var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
             string? currentSystem = null;
@@ -198,7 +191,7 @@ public partial class TagWizardDialog
                 }
             }
 
-            TemplateManager.WriteTemplateFile("systemAddress.txt", sb.ToString());
+            TemplateManager.WriteTemplateFile("system_base.txt", sb.ToString());
 
             SystemBaseStatusText.Text = $"✓ 저장 완료 ({enabledSystems.Count}개 시스템) | {DateTime.Now:HH:mm:ss}";
 
@@ -279,7 +272,7 @@ public partial class TagWizardDialog
     }
 
     /// <summary>
-    /// flowAddress.txt 파일 파싱 (기존 설정 읽기)
+    /// flow_base.txt 파일 파싱 (기존 설정 읽기)
     /// </summary>
     private Dictionary<string, (int? IW_Base, int? QW_Base, int? MW_Base)> ParseFlowBaseFile()
     {
@@ -287,14 +280,7 @@ public partial class TagWizardDialog
 
         try
         {
-            // Try new naming first
-            var content = TemplateManager.ReadTemplateFile("flowAddress.txt");
-
-            // Fallback to legacy naming
-            if (string.IsNullOrWhiteSpace(content))
-            {
-                content = TemplateManager.ReadTemplateFile("flow_base.txt");
-            }
+            var content = TemplateManager.ReadTemplateFile("flow_base.txt");
             var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
             string? currentFlow = null;
@@ -395,7 +381,7 @@ public partial class TagWizardDialog
                 }
             }
 
-            TemplateManager.WriteTemplateFile("flowAddress.txt", sb.ToString());
+            TemplateManager.WriteTemplateFile("flow_base.txt", sb.ToString());
 
             FlowBaseStatusText.Text = $"✓ 저장 완료 | {DateTime.Now:HH:mm:ss}";
 
