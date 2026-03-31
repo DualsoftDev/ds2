@@ -54,12 +54,22 @@ module internal PasteDeviceOps =
                     sys, mapping
                 | None ->
                     let newSystem = DsSystem(targetName)
+
+                    // 원본 System의 SystemType 복사
+                    match DsQuery.getSystem sourceSystemId store with
+                    | Some sourceSystem ->
+                        newSystem.Properties.SystemType <- sourceSystem.Properties.SystemType
+                    | None -> ()
+
                     store.TrackAdd(store.Systems, newSystem)
                     store.TrackMutate(store.Projects, projectId, fun p ->
                         p.PassiveSystemIds.Add(newSystem.Id))
                     let newFlow = Flow($"{devAlias}_Flow", newSystem.Id)
                     store.TrackAdd(store.Flows, newFlow)
                     let sourceApiDefs = DsQuery.apiDefsOf sourceSystemId store
+
+                    // Work 생성 및 수집
+                    let createdWorks = ResizeArray<Work>()
                     let mapping =
                         sourceApiDefs
                         |> List.map (fun src ->
@@ -71,11 +81,17 @@ module internal PasteDeviceOps =
                             |> Option.bind (fun srcWorkId -> DsQuery.getWork srcWorkId store)
                             |> Option.iter (fun srcWork -> work.Properties <- srcWork.Properties.DeepCopy())
                             store.TrackAdd(store.Works, work)
+                            createdWorks.Add(work)
                             cloned.Properties.TxGuid <- Some work.Id
                             cloned.Properties.RxGuid <- Some work.Id
                             store.TrackAdd(store.ApiDefs, cloned)
                             src.Id, cloned.Id)
                         |> Map.ofList
+
+                    // 생성된 Work들 사이에 상호 리셋 Arrow 생성 (공통 함수 사용)
+                    let workList = createdWorks |> Seq.toList
+                    DirectDeviceOps.createMutualResetArrows store newSystem.Id workList
+
                     newSystem, mapping
             { ClonedSystems = Map.add targetName (targetSystem, mapping) state.ClonedSystems }, mapping
 

@@ -5,7 +5,7 @@
  * ※ SystemType → Preset 매핑은 F# ContextBuilder.modelTypeMap (단일 정의 위치)
  *
  * 등록된 Preset: 6개 + Dummy(fallback)
- *   Unit · Lifter · Pusher · Conveyor · Robot_6Axis · Robot_SCARA · Dummy
+ *   Unit · Lifter · Pusher · Conveyor · Robot · Robot_SCARA · Dummy
  */
 
 // index.js 로드 시점에 현재 스크립트의 디렉토리 경로를 캡처
@@ -28,7 +28,7 @@ const Ds2View3DLibrary = {
     'Lifter':      { file: 'Lib3D/Lifter.js',      class: 'Lifter',      height: 2.5, description: '승강 리프터 (UP;DOWN)',                             dirs: ['UP','DOWN'] },
     'Pusher':      { file: 'Lib3D/Pusher.js',      class: 'Pusher',      height: 1.8, description: '푸셔 (FWD;BWD)',                                    dirs: ['FWD','BWD'] },
     'Conveyor':    { file: 'Lib3D/Conveyor.js',    class: 'Conveyor',    height: 2.0, description: '컨베이어 (MOVE;STOP)',                              dirs: ['MOVE','STOP'] },
-    'Robot_6Axis': { file: 'Lib3D/Robot_6Axis.js', class: 'Robot_6Axis', height: 3.0, description: '6축 로봇 (CMD1;CMD2;HOME)',                         dirs: ['CMD1','CMD2','HOME'] },
+    'Robot':       { file: 'Lib3D/Robot.js',       class: 'Robot',       height: 3.0, description: '6축 로봇 (CMD1;CMD2;HOME)',                         dirs: ['CMD1','CMD2','HOME'] },
     'Robot_SCARA': { file: 'Lib3D/Robot_SCARA.js', class: 'Robot_SCARA', height: 2.5, description: 'SCARA 로봇 (POS1;POS2;HOME)',                       dirs: ['POS1','POS2','HOME'] },
     'AGV':         { file: 'Lib3D/AGV.js',         class: 'AGV',         height: 1.5, description: 'AGV (MOVE;TURN;STOP)',                              dirs: ['MOVE','TURN','STOP'] },
     'Stacker':     { file: 'Lib3D/Stacker.js',     class: 'Stacker',     height: 3.0, description: '스태커 (UP;DOWN;EXTEND)',                           dirs: ['UP','DOWN','EXTEND'] },

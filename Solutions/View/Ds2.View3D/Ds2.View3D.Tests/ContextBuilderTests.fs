@@ -7,8 +7,8 @@ open Ds2.View3D.ContextBuilder
 open Ds2.View3D.Tests.TestHelpers
 
 [<Fact>]
-let ``inferModelType should return Robot_6Axis for Robot_6Axis`` () =
-    shouldEqual "Robot_6Axis" (inferModelType (Some "Robot_6Axis"))
+let ``inferModelType should return Robot for Robot`` () =
+    shouldEqual "Robot" (inferModelType (Some "Robot"))
 
 [<Fact>]
 let ``inferModelType should return Unit for Unit`` () =
@@ -66,7 +66,7 @@ let ``extractDevices should return all systems in project`` () =
     match extractDevices store projectId with
     | Ok devices ->
         Assert.Equal(4, devices.Length)
-        Assert.Contains(devices, fun d -> d.ModelType = "Robot_6Axis")
+        Assert.Contains(devices, fun d -> d.ModelType = "Robot")
         Assert.Contains(devices, fun d -> d.ModelType = "Conveyor")
         Assert.Contains(devices, fun d -> d.ModelType = "Unit")
         Assert.Contains(devices, fun d -> d.ModelType = "Dummy")

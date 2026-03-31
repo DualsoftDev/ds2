@@ -81,7 +81,6 @@ module DevicePresets =
         ("Lifter",      "UP;DOWN")
         ("Pusher",      "FWD;BWD")
         ("Conveyor",    "MOVE;STOP")
-        ("Robot_6Axis", "CMD1;CMD2;HOME")
         ("Robot_SCARA", "POS1;POS2;HOME")
         ("Dummy",       "")
     |]
