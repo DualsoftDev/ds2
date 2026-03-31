@@ -1,11 +1,11 @@
 /**
- * Robot_6Axis - 6축 산업용 로봇 (Cartoon Style)
+ * Robot - 6축 산업용 로봇 (Cartoon Style)
  * 명령어: CMD1, CMD2, HOME
  * 용도: 용접, 핸들링, 조립
  * @version 2.1 - Enhanced animation with clearly different CMD1 and CMD2 movements
  */
 
-class Robot_6Axis {
+class Robot {
   static createToonGradient(THREE) {
     const colors = new Uint8Array(3);
     colors[0] = 50;
@@ -36,7 +36,7 @@ class Robot_6Axis {
 
     const gradientMap = this.createToonGradient(THREE);
     const robot = new THREE.Group();
-    robot.userData.deviceType = 'Robot_6Axis';
+    robot.userData.deviceType = 'Robot';
     robot.userData.jointAngles = { base: 0, shoulder: 0, elbow: 0 };
 
     // ===== BASE PLATFORM =====
@@ -341,9 +341,9 @@ class Robot_6Axis {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = Robot_6Axis;
+  module.exports = Robot;
 }
 
 if (typeof window !== 'undefined') {
-  window.Robot_6Axis = Robot_6Axis;
+  window.Robot = Robot;
 }

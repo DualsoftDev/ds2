@@ -9,12 +9,36 @@ open Ds2.Store
 module internal DirectDeviceOps =
     type private DeviceBatchState = {
         PendingSystems     : Map<string, DsSystem>
-        PendingFlows       : Map<string, Flow>
+        PendingFlows        : Map<string, Flow>
         PendingWorks       : Map<string * Guid, Work>
         PendingApiDefs     : Map<string * Guid, ApiDef>
         NewSystemIds       : Set<Guid>
         PendingWorkOrderRev: Map<string, Work list>
     }
+
+    /// 순서대로 나열된 Work들 사이에 상호 리셋 Arrow 생성 (공통 헬퍼)
+    let createMutualResetArrows (store: DsStore) (systemId: Guid) (works: Work list) =
+        if works.Length > 1 then
+            let existingArrows = DsQuery.arrowWorksOf systemId store
+
+            // 마지막 Work에 IsFinished 자동 설정
+            match List.tryLast works with
+            | Some lastWork when not lastWork.Properties.IsFinished ->
+                store.TrackMutate(store.Works, lastWork.Id, fun w -> w.Properties.IsFinished <- true)
+            | _ -> ()
+
+            // Work 쌍마다 상호 리셋 Arrow 생성
+            works
+            |> List.pairwise
+            |> List.iter (fun (src, dst) ->
+                let alreadyExists =
+                    existingArrows |> List.exists (fun a ->
+                        a.ArrowType = ArrowType.ResetReset &&
+                        ((a.SourceId = src.Id && a.TargetId = dst.Id) ||
+                         (a.SourceId = dst.Id && a.TargetId = src.Id)))
+                if not alreadyExists then
+                    let arrow = ArrowBetweenWorks(systemId, src.Id, dst.Id, ArrowType.ResetReset)
+                    store.TrackAdd(store.ArrowWorks, arrow))
 
     let private initialState = {
         PendingSystems      = Map.empty
@@ -149,26 +173,9 @@ module internal DirectDeviceOps =
             | None -> ()
             | Some flow ->
                 let systemId = flow.ParentId
-                let existingArrows = DsQuery.arrowWorksOf systemId store
-
-                // 프리셋 마지막 Work에 IsFinished 자동 설정 (workOrderRev는 역순이므로 head가 마지막)
-                match workOrderRev with
-                | lastWork :: _ when not lastWork.Properties.IsFinished ->
-                    store.TrackMutate(store.Works, lastWork.Id, fun w -> w.Properties.IsFinished <- true)
-                | _ -> ()
-
-                workOrderRev
-                |> List.rev
-                |> List.pairwise
-                |> List.iter (fun (src, dst) ->
-                    let alreadyExists =
-                        existingArrows |> List.exists (fun a ->
-                            a.ArrowType = ArrowType.ResetReset &&
-                            ((a.SourceId = src.Id && a.TargetId = dst.Id) ||
-                             (a.SourceId = dst.Id && a.TargetId = src.Id)))
-                    if not alreadyExists then
-                        let arrow = ArrowBetweenWorks(systemId, src.Id, dst.Id, ArrowType.ResetReset)
-                        store.TrackAdd(store.ArrowWorks, arrow)))
+                // workOrderRev는 역순이므로 정순으로 변환 후 공통 함수 호출
+                let worksInOrder = List.rev workOrderRev
+                createMutualResetArrows store systemId worksInOrder)
 
     let addCallsWithDevice (store: DsStore) (projectId: Guid) (workId: Guid) (callNames: string list) (createDeviceSystem: bool) (systemType: string option) =
         if callNames.IsEmpty then ()
