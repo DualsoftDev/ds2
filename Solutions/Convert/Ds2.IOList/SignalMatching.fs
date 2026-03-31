@@ -3,6 +3,7 @@ namespace Ds2.IOList
 open System
 open System.Linq
 open Ds2.Store
+open Ds2.Store.DsQuery
 open Ds2.Core
 open Microsoft.FSharp.Core
 
@@ -47,16 +48,16 @@ module SignalMatching =
 
     /// Find Call by name in the store
     let private findCallByName (store: DsStore) (flowName: string) (workName: string) (callName: string) : Call option =
-        let flows = DsQuery.allFlows store
+        let flows = Queries.allFlows store
 
         flows
         |> List.tryPick (fun flow ->
             if flow.Name.Equals(flowName, StringComparison.OrdinalIgnoreCase) then
-                let works = DsQuery.worksOf flow.Id store
+                let works = Queries.worksOf flow.Id store
                 works
                 |> List.tryPick (fun work ->
                     if work.Name.Equals(workName, StringComparison.OrdinalIgnoreCase) then
-                        let calls = DsQuery.callsOf work.Id store
+                        let calls = Queries.callsOf work.Id store
                         calls
                         |> List.tryFind (fun call ->
                             call.Name.Equals(callName, StringComparison.OrdinalIgnoreCase))
@@ -71,7 +72,7 @@ module SignalMatching =
         |> Seq.tryFind (fun apiCall ->
             match apiCall.ApiDefId with
             | Some apiDefId ->
-                match DsQuery.getApiDef apiDefId store with
+                match Queries.getApiDef apiDefId store with
                 | Some apiDef ->
                     apiDef.Name.Equals(apiDefName, StringComparison.OrdinalIgnoreCase)
                 | None -> false
@@ -81,7 +82,7 @@ module SignalMatching =
     let private getDeviceNameFromApiCall (store: DsStore) (apiCall: ApiCall) : string option =
         match apiCall.ApiDefId with
         | Some apiDefId ->
-            match DsQuery.getApiDef apiDefId store with
+            match Queries.getApiDef apiDefId store with
             | Some apiDef ->
                 match store.Systems.TryGetValue(apiDef.ParentId) with
                 | (true, system) -> Some system.Name
