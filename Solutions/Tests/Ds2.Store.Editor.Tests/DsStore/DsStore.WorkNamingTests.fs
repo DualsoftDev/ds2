@@ -4,6 +4,7 @@ open System
 open Xunit
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 
@@ -116,9 +117,9 @@ let ``RemoveEntities cascades to reference Works`` () =
 
 [<Fact>]
 let ``DsQuery nextUniqueName auto-increments`` () =
-    Assert.Equal("Work", DsQuery.nextUniqueName "Work" [])
-    Assert.Equal("Work_1", DsQuery.nextUniqueName "Work" ["Work"])
-    Assert.Equal("Work_2", DsQuery.nextUniqueName "Work" ["Work"; "Work_1"])
+    Assert.Equal("Work", Queries.nextUniqueName "Work" [])
+    Assert.Equal("Work_1", Queries.nextUniqueName "Work" ["Work"])
+    Assert.Equal("Work_2", Queries.nextUniqueName "Work" ["Work"; "Work_1"])
 
 [<Fact>]
 let ``DsQuery referenceGroupOf returns original plus references`` () =
@@ -126,13 +127,13 @@ let ``DsQuery referenceGroupOf returns original plus references`` () =
     let _, _, _, work = setupBasicHierarchy store
     let refId = store.AddReferenceWork(work.Id)
 
-    let group = DsQuery.referenceGroupOf work.Id store
+    let group = Queries.referenceGroupOf work.Id store
     Assert.Contains(work.Id, group)
     Assert.Contains(refId, group)
     Assert.Equal(2, group.Length)
 
     // reference에서 조회해도 같은 그룹
-    let group2 = DsQuery.referenceGroupOf refId store
+    let group2 = Queries.referenceGroupOf refId store
     Assert.Equal(2, group2.Length)
 
 [<Fact>]
@@ -141,9 +142,9 @@ let ``DsQuery originalWorksOf excludes reference Works`` () =
     let _, _, flow, work = setupBasicHierarchy store
     store.AddReferenceWork(work.Id) |> ignore
 
-    let originals = DsQuery.originalWorksOf flow.Id store
+    let originals = Queries.originalWorksOf flow.Id store
     Assert.Equal(1, originals.Length)
     Assert.Equal(work.Id, originals.[0].Id)
 
-    let all = DsQuery.worksOf flow.Id store
+    let all = Queries.worksOf flow.Id store
     Assert.Equal(2, all.Length)

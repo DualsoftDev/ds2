@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 // =============================================================================
 // PasteResolvers — 붙여넣기 대상 해석 유틸리티 (internal)
@@ -26,7 +27,7 @@ type DsStorePasteExtensions =
     [<Extension>]
     static member PasteFlowWithRename
         (store: DsStore, sourceFlowId: Guid, targetSystemId: Guid, newFlowName: string) : Guid option =
-        match DsQuery.getFlow sourceFlowId store with
+        match Queries.getFlow sourceFlowId store with
         | None -> None
         | Some sourceFlow ->
             StoreLog.debug($"PasteFlowWithRename: {sourceFlow.Name} → {newFlowName}, targetSystem={targetSystemId}")

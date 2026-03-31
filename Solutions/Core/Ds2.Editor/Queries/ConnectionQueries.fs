@@ -3,6 +3,7 @@ module Ds2.Editor.ConnectionQueries
 open System
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 let arrowKey (sourceId: Guid) (targetId: Guid) (arrowType: ArrowType) =
     struct (sourceId, targetId, arrowType)
@@ -22,7 +23,7 @@ let hasArrowKeyExcept
 /// 새 화살표를 추가하면 Call 그래프에 사이클이 생기는지 검사
 let wouldCreateCallCycle (store: DsStore) (sourceId: Guid) (targetId: Guid) : bool =
     // targetId에서 기존 화살표를 따라가서 sourceId에 도달하면 사이클
-    let arrows = DsQuery.allArrowCalls store
+    let arrows = Queries.allArrowCalls store
     let visited = System.Collections.Generic.HashSet<Guid>()
     let rec reachable (current: Guid) =
         if current = sourceId then true
@@ -31,6 +32,15 @@ let wouldCreateCallCycle (store: DsStore) (sourceId: Guid) (targetId: Guid) : bo
             arrows
             |> List.exists (fun a -> a.SourceId = current && reachable a.TargetId)
     reachable targetId
+
+/// 연속된 ID 쌍에서 Call 간 순환 연결이 발견되면 true
+let hasCallCycleInSequence (store: DsStore) (ids: Guid seq) : bool =
+    ids
+    |> Seq.pairwise
+    |> Seq.exists (fun (a, b) ->
+        (Queries.getCall a store).IsSome
+        && (Queries.getCall b store).IsSome
+        && wouldCreateCallCycle store a b)
 
 /// Ordered multi-selection -> connectable arrow links.
 /// Result tuple: (entityKind, parentId, sourceId, targetId)
@@ -43,12 +53,12 @@ let orderedArrowLinksForSelection
     : (EntityKind * Guid * Guid * Guid) list =
 
     let resolveOrderedNodeContext (nodeId: Guid) : (EntityKind * Guid * Guid) option =
-        match DsQuery.getWork nodeId store with
+        match Queries.getWork nodeId store with
         | Some work ->
-            DsQuery.trySystemIdOfWork work.Id store
+            Queries.trySystemIdOfWork work.Id store
             |> Option.map (fun systemId -> (EntityKind.Work, systemId, work.Id))
         | None ->
-            match DsQuery.getCall nodeId store with
+            match Queries.getCall nodeId store with
             | Some call -> Some (EntityKind.Call, call.ParentId, call.Id)
             | None -> None
 
@@ -64,12 +74,12 @@ let orderedArrowLinksForSelection
 
     // 기존 화살표를 (Source, Target, ArrowType)으로 프리빌드 — 동일 타입만 중복 제외
     let existingWorkArrows =
-        DsQuery.allArrowWorks store
+        Queries.allArrowWorks store
         |> List.map arrowKeyOf
         |> System.Collections.Generic.HashSet
 
     let existingCallArrows =
-        DsQuery.allArrowCalls store
+        Queries.allArrowCalls store
         |> List.map arrowKeyOf
         |> System.Collections.Generic.HashSet
 

@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 let inline private namedLeafNodes entityType parentId items =
     items
@@ -17,10 +18,10 @@ let inline private namedLeafNodes entityType parentId items =
 /// PassiveSystem 하위 노드: Flow(+Work) 목록 + ApiDefs 카테고리 폴더
 let private buildDeviceSystemChildren (store: DsStore) (systemId: Guid) : TreeNodeInfo list =
     let flows =
-        DsQuery.flowsOf systemId store
+        Queries.flowsOf systemId store
         |> List.map (fun flow ->
             let works =
-                DsQuery.originalWorksOf flow.Id store
+                Queries.originalWorksOf flow.Id store
                 |> List.map (fun work ->
                     { Id = work.Id
                       EntityKind = EntityKind.Work
@@ -33,7 +34,7 @@ let private buildDeviceSystemChildren (store: DsStore) (systemId: Guid) : TreeNo
               ParentId = Some systemId
               Children = works })
 
-    let apiDefs = DsQuery.apiDefsOf systemId store
+    let apiDefs = Queries.apiDefsOf systemId store
     let apiDefsCategory =
         if apiDefs.IsEmpty then []
         else
@@ -54,13 +55,13 @@ let private buildDeviceSystemChildren (store: DsStore) (systemId: Guid) : TreeNo
 
 let private buildSystemChildren (store: DsStore) (systemId: Guid) =
     let flows =
-        DsQuery.flowsOf systemId store
+        Queries.flowsOf systemId store
         |> List.map (fun flow ->
             let works =
-                DsQuery.originalWorksOf flow.Id store
+                Queries.originalWorksOf flow.Id store
                 |> List.map (fun work ->
                     let calls =
-                        DsQuery.callsOf work.Id store
+                        Queries.callsOf work.Id store
                         |> List.map (fun c ->
                             { Id = c.Id
                               EntityKind = EntityKind.Call
@@ -79,19 +80,19 @@ let private buildSystemChildren (store: DsStore) (systemId: Guid) =
               Children = works })
 
     let hwAndApi = [
-        yield! namedLeafNodes EntityKind.ApiDef    systemId (DsQuery.apiDefsOf    systemId store)
-        yield! namedLeafNodes EntityKind.Button    systemId (DsQuery.buttonsOf    systemId store)
-        yield! namedLeafNodes EntityKind.Lamp      systemId (DsQuery.lampsOf      systemId store)
-        yield! namedLeafNodes EntityKind.Condition systemId (DsQuery.conditionsOf systemId store)
-        yield! namedLeafNodes EntityKind.Action    systemId (DsQuery.actionsOf    systemId store)
+        yield! namedLeafNodes EntityKind.ApiDef    systemId (Queries.apiDefsOf    systemId store)
+        yield! namedLeafNodes EntityKind.Button    systemId (Queries.buttonsOf    systemId store)
+        yield! namedLeafNodes EntityKind.Lamp      systemId (Queries.lampsOf      systemId store)
+        yield! namedLeafNodes EntityKind.Condition systemId (Queries.conditionsOf systemId store)
+        yield! namedLeafNodes EntityKind.Action    systemId (Queries.actionsOf    systemId store)
     ]
 
     flows @ hwAndApi
 
 let private buildControlRoots (store: DsStore) : TreeNodeInfo list =
-    DsQuery.allProjects store
+    Queries.allProjects store
     |> List.collect (fun project ->
-        DsQuery.activeSystemsOf project.Id store
+        Queries.activeSystemsOf project.Id store
         |> List.map (fun system ->
             { Id = system.Id
               EntityKind = EntityKind.System
@@ -103,8 +104,8 @@ let private buildDeviceTree (store: DsStore) : TreeNodeInfo list =
     let deviceRootId = UiDefaults.DeviceTreeRootId
 
     let deviceSystems =
-        DsQuery.allProjects store
-        |> List.collect (fun p -> DsQuery.passiveSystemsOf p.Id store)
+        Queries.allProjects store
+        |> List.collect (fun p -> Queries.passiveSystemsOf p.Id store)
         |> List.distinctBy (fun s -> s.Id)
         |> List.sortBy (fun s -> s.Name)
 

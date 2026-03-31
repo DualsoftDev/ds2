@@ -4,6 +4,7 @@ using System.Linq;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 
 namespace Promaker.ViewModels;
@@ -181,7 +182,7 @@ public partial class MainViewModel
             }
 
             var sysId = targetSystemIdOpt != null ? targetSystemIdOpt.Value : srcFlow.ParentId;
-            var existingNames = DsQuery.flowsOf(sysId, _store).Select(f => f.Name).ToList();
+            var existingNames = Queries.flowsOf(sysId, _store).Select(f => f.Name).ToList();
             var suggestedName = GetUniqueName(srcFlow.Name, existingNames, "_");
             var newName = _dialogService.PromptName("Flow 복사 — 새 이름", suggestedName);
             if (newName is null) return;
@@ -196,7 +197,7 @@ public partial class MainViewModel
         }
 
         var workIds = pastedFlowIds
-            .SelectMany(fId => DsQuery.worksOf(fId, _store))
+            .SelectMany(fId => Queries.worksOf(fId, _store))
             .Select(w => w.Id)
             .ToList();
 

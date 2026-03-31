@@ -4,6 +4,7 @@ open System
 open Xunit
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 
@@ -34,8 +35,8 @@ module RemoveTests =
         let project, _, _, work = setupBasicHierarchy store
         store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true, None)
 
-        let sourceCall = DsQuery.callsOf work.Id store |> List.find (fun c -> c.Name = "Src.Api")
-        let targetCall = DsQuery.callsOf work.Id store |> List.find (fun c -> c.Name = "Target.Api")
+        let sourceCall = Queries.callsOf work.Id store |> List.find (fun c -> c.Name = "Src.Api")
+        let targetCall = Queries.callsOf work.Id store |> List.find (fun c -> c.Name = "Target.Api")
         let sourceApiCallId = sourceCall.ApiCalls |> Seq.head |> fun ac -> ac.Id
 
         store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
@@ -123,7 +124,7 @@ module ArrowTests =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
-        let callIds = DsQuery.callsOf work.Id store |> List.map (fun c -> c.Id)
+        let callIds = Queries.callsOf work.Id store |> List.map (fun c -> c.Id)
         let count = store.ConnectSelectionInOrder(callIds, ArrowType.Start)
         Assert.Equal(1, count)
         Assert.Equal(1, store.ArrowCalls.Count)
@@ -136,7 +137,7 @@ module ArrowTests =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         store.AddCallsWithDevice(project.Id, work.Id, [ "D.A1"; "D.A2"; "D.A3" ], true, None)
-        let calls = DsQuery.callsOf work.Id store
+        let calls = Queries.callsOf work.Id store
         let c1, c2, c3 = calls.[0], calls.[1], calls.[2]
         // c1 → c2 → c3, then check if c3 → c1 would create cycle
         store.ConnectSelectionInOrder([ c1.Id; c2.Id ], ArrowType.Start) |> ignore
@@ -150,7 +151,7 @@ module ArrowTests =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         store.AddCallsWithDevice(project.Id, work.Id, [ "D.A1"; "D.A2" ], true, None)
-        let calls = DsQuery.callsOf work.Id store
+        let calls = Queries.callsOf work.Id store
         Assert.False(ConnectionQueries.wouldCreateCallCycle store calls.[0].Id calls.[1].Id)
 
     [<Fact>]
@@ -158,7 +159,7 @@ module ArrowTests =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
-        let callIds = DsQuery.callsOf work.Id store |> List.map (fun c -> c.Id)
+        let callIds = Queries.callsOf work.Id store |> List.map (fun c -> c.Id)
 
         Assert.Equal(0, store.ConnectSelectionInOrder(callIds, ArrowType.Reset))
         Assert.Equal(0, store.ConnectSelectionInOrder(callIds, ArrowType.StartReset))
@@ -170,7 +171,7 @@ module ArrowTests =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
-        let callIds = DsQuery.callsOf work.Id store |> List.map (fun c -> c.Id)
+        let callIds = Queries.callsOf work.Id store |> List.map (fun c -> c.Id)
         store.ConnectSelectionInOrder(callIds, ArrowType.Start) |> ignore
 
         let arrowId = store.ArrowCalls.Values |> Seq.head |> fun a -> a.Id

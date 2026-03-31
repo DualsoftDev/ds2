@@ -4,6 +4,7 @@ open System
 open System.IO
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 module CsvImporter =
 
@@ -55,7 +56,7 @@ module CsvImporter =
         content |> CsvParser.parse |> parseResultToStrings
 
     let buildSystemImportPlan (store: DsStore) (document: CsvDocument) (systemId: Guid) : Result<ImportPlan, string list> =
-        match DsQuery.getSystem systemId store, CsvMapper.tryResolveProjectId store systemId with
+        match Queries.getSystem systemId store, CsvMapper.tryResolveProjectId store systemId with
         | None, _ ->
             Error [ $"System({systemId})을 찾을 수 없습니다." ]
         | Some _, None ->

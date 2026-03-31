@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using Ds2.Core;
+using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Microsoft.Win32;
 using Promaker.Presentation;
 
@@ -157,18 +159,8 @@ public partial class TokenSpecDialog : Window
     }
 
     private static string FormatFields(Microsoft.FSharp.Collections.FSharpMap<string, string> fields) =>
-        string.Join(", ", fields.Select(kv => $"{kv.Key}={kv.Value}"));
+        Format.formatTokenSpecFields(fields);
 
-    private static Microsoft.FSharp.Collections.FSharpMap<string, string> ParseFields(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return Microsoft.FSharp.Collections.MapModule.Empty<string, string>();
-
-        var pairs = text.Split(',')
-            .Select(p => p.Trim().Split('=', 2))
-            .Where(p => p.Length == 2 && !string.IsNullOrWhiteSpace(p[0]))
-            .Select(p => Tuple.Create(p[0].Trim(), p[1].Trim()));
-
-        return new Microsoft.FSharp.Collections.FSharpMap<string, string>(pairs);
-    }
+    private static Microsoft.FSharp.Collections.FSharpMap<string, string> ParseFields(string text) =>
+        Format.parseTokenSpecFields(text ?? "");
 }

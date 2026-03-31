@@ -66,7 +66,7 @@ type WorkProperties() =
     member val ExternalStart : bool            = false with get, set
     member val IsFinished    : bool            = false with get, set
     member val NumRepeat     : int             = 0     with get, set
-    member val Period        : TimeSpan option = None  with get, set
+    member val Duration      : TimeSpan option = None  with get, set
 
 type CallProperties() =
     inherit PropertiesBase<CallProperties>()
@@ -79,4 +79,3 @@ type ApiDefProperties() =
     member val IsPush    : bool        = false with get, set
     member val TxGuid    : Guid option = None  with get, set
     member val RxGuid    : Guid option = None  with get, set
-    member val Period    : int         = 0     with get, set

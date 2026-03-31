@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 
 [<Extension>]
@@ -36,7 +37,7 @@ type DsStoreNodesExtensions =
     static member AddFlow(store: DsStore, name: string, systemId: Guid) : Guid =
         StoreLog.debug($"name={name}, systemId={systemId}")
         StoreLog.requireSystem(store, systemId) |> ignore
-        if not (DsQuery.isFlowNameUniqueInSystem systemId name None store) then
+        if not (Queries.isFlowNameUniqueInSystem systemId name None store) then
             invalidOp $"같은 System 내에 이미 '{name}' Flow가 존재합니다."
         let flow = Flow(name, systemId)
         store.WithTransaction($"Flow 추가 \"{name}\"", fun () ->
@@ -48,7 +49,7 @@ type DsStoreNodesExtensions =
     static member AddWork(store: DsStore, name: string, flowId: Guid) : Guid =
         StoreLog.debug($"name={name}, flowId={flowId}")
         let flow = StoreLog.requireFlow(store, flowId)
-        if not (DsQuery.isLocalNameUniqueInFlow flowId name None store) then
+        if not (Queries.isLocalNameUniqueInFlow flowId name None store) then
             invalidOp $"같은 Flow 내에 이미 '{name}' Work가 존재합니다."
         let work = Work(flow.Name, name, flowId)
         store.WithTransaction($"Work 추가 \"{work.Name}\"", fun () ->
@@ -145,11 +146,11 @@ type DsStoreNodesExtensions =
             |> Seq.distinctBy (fun r -> r.Id)
             |> Seq.choose (fun r ->
                 let newPos = Some r.Position
-                match DsQuery.getWork r.Id store with
+                match Queries.getWork r.Id store with
                 | Some work when work.Position <> newPos -> Some(r.Id, true, newPos)
                 | Some _ -> None
                 | None ->
-                    match DsQuery.getCall r.Id store with
+                    match Queries.getCall r.Id store with
                     | Some call when call.Position <> newPos -> Some(r.Id, false, newPos)
                     | _ -> None)
             |> Seq.toList
@@ -203,7 +204,7 @@ type DsStoreNodesExtensions =
                 | true, w  -> Some w.LocalName, w.LocalName <> resolvedName
                 | false, _ -> None, false
             | _ ->
-                let n = DsQuery.tryGetName store entityKind id
+                let n = Queries.tryGetName store entityKind id
                 n, n |> Option.map (fun o -> o <> resolvedName) |> Option.defaultValue false
         match oldName with
         | Some _ when isChanged ->
@@ -212,11 +213,11 @@ type DsStoreNodesExtensions =
             match entityKind with
             | EntityKind.Work ->
                 let work = store.Works.[id]
-                if not (DsQuery.isLocalNameUniqueInFlow work.ParentId resolvedName (Some id) store) then
+                if not (Queries.isLocalNameUniqueInFlow work.ParentId resolvedName (Some id) store) then
                     invalidOp $"같은 Flow 내에 이미 '{resolvedName}' Work가 존재합니다."
             | EntityKind.Flow ->
                 let flow = store.Flows.[id]
-                if not (DsQuery.isFlowNameUniqueInSystem flow.ParentId resolvedName (Some id) store) then
+                if not (Queries.isFlowNameUniqueInSystem flow.ParentId resolvedName (Some id) store) then
                     invalidOp $"같은 System 내에 이미 '{resolvedName}' Flow가 존재합니다."
             | _ -> ()
             store.WithTransaction($"이름 변경 → \"{resolvedName}\"", fun () ->
@@ -226,7 +227,7 @@ type DsStoreNodesExtensions =
                 | EntityKind.Flow      ->
                     store.TrackMutate(store.Flows, id, fun e -> e.Name <- resolvedName)
                     // Cascade: 자식 Work들의 FlowPrefix 갱신
-                    for work in DsQuery.worksOf id store do
+                    for work in Queries.worksOf id store do
                         store.TrackMutate(store.Works, work.Id, fun w -> w.FlowPrefix <- resolvedName)
                 | EntityKind.Work      ->
                     store.TrackMutate(store.Works, id, fun e -> e.LocalName <- resolvedName)

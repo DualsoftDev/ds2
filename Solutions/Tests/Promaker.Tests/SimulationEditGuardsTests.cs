@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Windows;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Promaker.Services;
 using Promaker.ViewModels;
@@ -26,19 +27,19 @@ public sealed class SimulationEditGuardsTests
             vm.NewProjectCommand.Execute(null);
 
             var store = GetStore(vm);
-            var projectId = DsQuery.allProjects(store).Head.Id;
-            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
-            var flowId = DsQuery.flowsOf(systemId, store).Head.Id;
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
 
             vm.Canvas.OpenTabs.Add(new CanvasTab(systemId, TabKind.System, "System"));
             vm.Canvas.ActiveTab = vm.Canvas.OpenTabs[0];
             vm.Simulation.IsSimulating = true;
 
-            var beforeCount = DsQuery.worksOf(flowId, store).Count();
+            var beforeCount = Queries.worksOf(flowId, store).Count();
 
             vm.AddWorkCommand.Execute(null);
 
-            Assert.Equal(beforeCount, DsQuery.worksOf(flowId, store).Count());
+            Assert.Equal(beforeCount, Queries.worksOf(flowId, store).Count());
             Assert.Single(dialog.WarningMessages);
             Assert.Equal(0, dialog.PromptNameCount);
         });
@@ -56,9 +57,9 @@ public sealed class SimulationEditGuardsTests
             vm.NewProjectCommand.Execute(null);
 
             var store = GetStore(vm);
-            var projectId = DsQuery.allProjects(store).Head.Id;
-            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
-            var flowId = DsQuery.flowsOf(systemId, store).Head.Id;
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
             var work1Id = store.AddWork("Work1", flowId);
             var work2Id = store.AddWork("Work2", flowId);
             store.ConnectSelectionInOrder([work1Id, work2Id], ArrowType.StartReset);
@@ -100,9 +101,9 @@ public sealed class SimulationEditGuardsTests
             vm.NewProjectCommand.Execute(null);
 
             var store = GetStore(vm);
-            var projectId = DsQuery.allProjects(store).Head.Id;
-            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
-            var flowId = DsQuery.flowsOf(systemId, store).Head.Id;
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
             var workId = store.AddWork("Work1", flowId);
             store.UpdateWorkPeriodMs(workId, 1000);
 

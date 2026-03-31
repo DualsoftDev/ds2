@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.FSharp.Core;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Ds2.View3D;
 using log4net;
@@ -214,7 +215,7 @@ public partial class MainViewModel : ObservableObject
         TryEditorAction(() => _store.AddProject("NewProject"));
 
         // 기본 System + Flow 자동 추가
-        var projectId = DsQuery.allProjects(_store).Head.Id;
+        var projectId = Queries.allProjects(_store).Head.Id;
         var systemId = _store.AddSystem("NewSystem", projectId, isActive: true);
         _store.AddFlow("NewFlow", systemId);
 
@@ -252,7 +253,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         var store = _store;
-        var projectId = DsQuery.allProjects(_store).Head.Id;
+        var projectId = Queries.allProjects(_store).Head.Id;
         _view3DWindow = new View3DWindow(Simulation.ThreeD,
             onReady: () => Simulation.ThreeD.BuildScene(store, projectId));
         _view3DWindow.SetSceneData(store, projectId);
@@ -309,7 +310,7 @@ public partial class MainViewModel : ObservableObject
             foreach (var call in matchingCalls)
             {
                 var workId = call.ParentId;
-                var arrows = DsQuery.arrowCallsOf(workId, _store);
+                var arrows = Queries.arrowCallsOf(workId, _store);
 
                 // Incoming: arrows pointing TO this call
                 foreach (var arrow in arrows.Where(a => a.TargetId == call.Id))

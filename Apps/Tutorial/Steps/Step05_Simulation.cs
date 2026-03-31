@@ -4,7 +4,7 @@
 // Step 01~02 에서 만든 프로젝트에 Duration 과 Token 을 설정하고 시뮬레이션.
 //
 // 학습 내용:
-//   - WorkProperties.Period: Work 실행 시간 (TimeSpan)
+//   - WorkProperties.Duration: Work 실행 시간 (TimeSpan)
 //   - SimIndexModule.build(store, tickMs): SimIndex 빌드
 //   - EventDrivenEngine + ISimulationEngine
 //   - SpeedMultiplier, TimeIgnore
@@ -39,9 +39,9 @@ static class Step05_Simulation
         var store = ctx.Store;
 
         // ── 1. Duration + Token 설정 ─────────────────────────
-        store.Works[ctx.W1Id].Properties.Period = TimeSpan.FromMilliseconds(300);
-        store.Works[ctx.W2Id].Properties.Period = TimeSpan.FromMilliseconds(500);
-        store.Works[ctx.W3Id].Properties.Period = TimeSpan.FromMilliseconds(300);
+        store.Works[ctx.W1Id].Properties.Duration = TimeSpan.FromMilliseconds(300);
+        store.Works[ctx.W2Id].Properties.Duration = TimeSpan.FromMilliseconds(500);
+        store.Works[ctx.W3Id].Properties.Duration = TimeSpan.FromMilliseconds(300);
         store.Works[ctx.W1Id].TokenRole = TokenRole.Source;
 
         Console.WriteLine("  [설정]");

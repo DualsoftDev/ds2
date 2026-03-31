@@ -7,6 +7,7 @@ using System.Windows.Data;
 using System.Windows.Media;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Promaker.Services;
 
@@ -93,10 +94,10 @@ public partial class TagWizardDialog : Window
     private void InitializeStep1()
     {
         // 프로젝트 통계 조회
-        var flows = DsQuery.allFlows(_store);
-        var works = flows.SelectMany(f => DsQuery.worksOf(f.Id, _store)).ToArray();
-        var calls = works.SelectMany(w => DsQuery.callsOf(w.Id, _store)).ToArray();
-        var allApiCalls = DsQuery.allApiCalls(_store);
+        var flows = Queries.allFlows(_store);
+        var works = flows.SelectMany(f => Queries.worksOf(f.Id, _store)).ToArray();
+        var calls = works.SelectMany(w => Queries.callsOf(w.Id, _store)).ToArray();
+        var allApiCalls = Queries.allApiCalls(_store);
 
         FlowCountText.Text = $"{flows.Length}개";
         WorkCountText.Text = $"{works.Length}개";

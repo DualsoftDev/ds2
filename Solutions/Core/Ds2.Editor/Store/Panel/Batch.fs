@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 /// Duration 일괄편집용 행
 type WorkDurationBatchRow(workId: Guid, systemName: string, flowName: string, workName: string, periodMs: int, isDeviceWork: bool) =
@@ -39,31 +40,31 @@ type DsStorePanelBatchExtensions =
     /// 모든 Work의 Duration 정보를 일괄 조회
     [<Extension>]
     static member GetAllWorkDurationRows(store: DsStore) : WorkDurationBatchRow list =
-        DsQuery.allProjects store
-        |> List.collect (fun p -> DsQuery.projectSystemsOf p.Id store)
+        Queries.allProjects store
+        |> List.collect (fun p -> Queries.projectSystemsOf p.Id store)
         |> List.collect (fun sys ->
-            DsQuery.flowsOf sys.Id store
+            Queries.flowsOf sys.Id store
             |> List.collect (fun flow ->
-                DsQuery.worksOf flow.Id store
+                Queries.worksOf flow.Id store
                 |> List.map (fun work ->
-                    let ms = work.Properties.Period |> Option.map (fun t -> int t.TotalMilliseconds) |> Option.defaultValue 0
+                    let ms = work.Properties.Duration |> Option.map (fun t -> int t.TotalMilliseconds) |> Option.defaultValue 0
                     // Device Work = Work에 ApiCall이 있는 Call이 하나라도 있으면 true
                     let isDeviceWork =
-                        DsQuery.callsOf work.Id store
+                        Queries.callsOf work.Id store
                         |> List.exists (fun call -> not (Seq.isEmpty call.ApiCalls))
                     WorkDurationBatchRow(work.Id, sys.Name, flow.Name, work.LocalName, ms, isDeviceWork))))
 
     /// 모든 ApiCall의 IO 태그 정보를 일괄 조회
     [<Extension>]
     static member GetAllApiCallIORows(store: DsStore) : ApiCallIOBatchRow list =
-        DsQuery.allProjects store
-        |> List.collect (fun p -> DsQuery.projectSystemsOf p.Id store)
+        Queries.allProjects store
+        |> List.collect (fun p -> Queries.projectSystemsOf p.Id store)
         |> List.collect (fun sys ->
-            DsQuery.flowsOf sys.Id store
+            Queries.flowsOf sys.Id store
             |> List.collect (fun flow ->
-                DsQuery.worksOf flow.Id store
+                Queries.worksOf flow.Id store
                 |> List.collect (fun work ->
-                    DsQuery.callsOf work.Id store
+                    Queries.callsOf work.Id store
                     |> List.collect (fun call ->
                         call.ApiCalls
                         |> Seq.map (fun apiCall ->
@@ -98,10 +99,10 @@ type DsStorePanelBatchExtensions =
     static member UpdateWorkIsFinishedBatch(store: DsStore, changes: seq<struct(Guid * bool)>) =
         let changeList =
             changes
-            |> Seq.map (fun struct(workId, isFinished) -> struct(DsQuery.resolveOriginalWorkId workId store, isFinished))
+            |> Seq.map (fun struct(workId, isFinished) -> struct(Queries.resolveOriginalWorkId workId store, isFinished))
             |> Seq.distinctBy (fun struct(workId, _) -> workId)
             |> Seq.filter (fun struct(workId, isFinished) ->
-                match DsQuery.getWork workId store with
+                match Queries.getWork workId store with
                 | Some work -> work.Properties.IsFinished <> isFinished
                 | None -> false)
             |> Seq.toList
@@ -121,7 +122,7 @@ type DsStorePanelBatchExtensions =
             store.WithTransaction("Work Duration 일괄 변경", fun () ->
                 for struct(workId, newMs) in changeList do
                     let period = if newMs <= 0 then None else Some (TimeSpan.FromMilliseconds(float newMs))
-                    store.TrackMutate(store.Works, workId, fun w -> w.Properties.Period <- period))
+                    store.TrackMutate(store.Works, workId, fun w -> w.Properties.Duration <- period))
             store.EmitRefreshAndHistory()
 
     /// Work Duration 일괄 변경 (Nullable 허용)
@@ -130,20 +131,20 @@ type DsStorePanelBatchExtensions =
         let changeList =
             changes
             |> Seq.map (fun struct(workId, periodMs) ->
-                let resolvedId = DsQuery.resolveOriginalWorkId workId store
+                let resolvedId = Queries.resolveOriginalWorkId workId store
                 let period = if periodMs.HasValue && periodMs.Value > 0 then Some (TimeSpan.FromMilliseconds(float periodMs.Value)) else None
                 struct(resolvedId, period))
             |> Seq.distinctBy (fun struct(workId, _) -> workId)
             |> Seq.filter (fun struct(workId, period) ->
-                match DsQuery.getWork workId store with
-                | Some work -> work.Properties.Period <> period
+                match Queries.getWork workId store with
+                | Some work -> work.Properties.Duration <> period
                 | None -> false)
             |> Seq.toList
         if not changeList.IsEmpty then
             StoreLog.debug($"UpdateWorkPeriodsBatch: {changeList.Length} items")
             store.WithTransaction("Work Duration 일괄 변경", fun () ->
                 for struct(workId, period) in changeList do
-                    store.TrackMutate(store.Works, workId, fun work -> work.Properties.Period <- period))
+                    store.TrackMutate(store.Works, workId, fun work -> work.Properties.Duration <- period))
             store.EmitRefreshAndHistory()
 
     /// Work TokenRole 일괄 변경 (단일 Undo 트랜잭션)
@@ -151,10 +152,10 @@ type DsStorePanelBatchExtensions =
     static member UpdateWorkTokenRolesBatch(store: DsStore, changes: seq<struct(Guid * TokenRole)>) =
         let changeList =
             changes
-            |> Seq.map (fun struct(workId, role) -> struct(DsQuery.resolveOriginalWorkId workId store, role))
+            |> Seq.map (fun struct(workId, role) -> struct(Queries.resolveOriginalWorkId workId store, role))
             |> Seq.distinctBy (fun struct(workId, _) -> workId)
             |> Seq.filter (fun struct(workId, role) ->
-                match DsQuery.getWork workId store with
+                match Queries.getWork workId store with
                 | Some work -> work.TokenRole <> role
                 | None -> false)
             |> Seq.toList
@@ -170,10 +171,10 @@ type DsStorePanelBatchExtensions =
     static member ToggleWorkTokenRoleFlag(store: DsStore, workIds: seq<Guid>, flag: TokenRole) =
         let changes =
             workIds
-            |> Seq.map (fun workId -> DsQuery.resolveOriginalWorkId workId store)
+            |> Seq.map (fun workId -> Queries.resolveOriginalWorkId workId store)
             |> Seq.distinct
             |> Seq.choose (fun workId ->
-                match DsQuery.getWork workId store with
+                match Queries.getWork workId store with
                 | Some work ->
                     let current = work.TokenRole
                     let next = if current.HasFlag(flag) then current &&& ~~~flag else current ||| flag
@@ -188,38 +189,33 @@ type DsStorePanelBatchExtensions =
             store.EmitRefreshAndHistory()
 
     /// ApiCall IO 태그 일괄 변경 (단일 Undo 트랜잭션)
+    /// C#에서는 IOTag 또는 null을 넘기면 됩니다.
     [<Extension>]
-    static member UpdateApiCallIOTagsBatch(store: DsStore, changes: seq<struct(Guid * string * string * string * string)>) =
+    static member UpdateApiCallIOTagsBatch(store: DsStore, changes: seq<struct(Guid * IOTag * IOTag)>) =
         let changeList = changes |> Seq.toList
         if not changeList.IsEmpty then
             StoreLog.debug($"UpdateApiCallIOTagsBatch: {changeList.Length} items")
             store.WithTransaction("I/O 태그 일괄 변경", fun () ->
-                for struct(apiCallId, inAddr, inSym, outAddr, outSym) in changeList do
+                for struct(apiCallId, inTag, outTag) in changeList do
                     store.TrackMutate(store.ApiCalls, apiCallId, fun apiCall ->
-                        if String.IsNullOrWhiteSpace(inAddr) && String.IsNullOrWhiteSpace(inSym) then
-                            apiCall.InTag <- None
-                        else
-                            apiCall.InTag <- Some(IOTag((if isNull inSym then "" else inSym), (if isNull inAddr then "" else inAddr), ""))
-                        if String.IsNullOrWhiteSpace(outAddr) && String.IsNullOrWhiteSpace(outSym) then
-                            apiCall.OutTag <- None
-                        else
-                            apiCall.OutTag <- Some(IOTag((if isNull outSym then "" else outSym), (if isNull outAddr then "" else outAddr), ""))))
+                        apiCall.InTag <- Option.ofObj inTag
+                        apiCall.OutTag <- Option.ofObj outTag))
             store.EmitRefreshAndHistory()
 
     /// 이름 기반으로 ApiCall의 CallId와 ApiCallId 조회 (TAG Wizard용)
     [<Extension>]
     static member FindApiCallIds(store: DsStore, flowName: string, workName: string, callName: string, deviceName: string) : struct(Guid * Guid) option =
-        DsQuery.allProjects store
+        Queries.allProjects store
         |> List.tryPick (fun p ->
-            DsQuery.projectSystemsOf p.Id store
+            Queries.projectSystemsOf p.Id store
             |> List.tryPick (fun sys ->
-                DsQuery.flowsOf sys.Id store
+                Queries.flowsOf sys.Id store
                 |> List.tryPick (fun flow ->
                     if flow.Name = flowName then
-                        DsQuery.worksOf flow.Id store
+                        Queries.worksOf flow.Id store
                         |> List.tryPick (fun work ->
                             if work.Name = workName then
-                                DsQuery.callsOf work.Id store
+                                Queries.callsOf work.Id store
                                 |> List.tryPick (fun call ->
                                     if call.Name = callName then
                                         call.ApiCalls
@@ -227,7 +223,7 @@ type DsStorePanelBatchExtensions =
                                             let apiCallDeviceName =
                                                 match apiCall.ApiDefId with
                                                 | Some defId ->
-                                                    match DsQuery.getApiDef defId store with
+                                                    match Queries.getApiDef defId store with
                                                     | Some apiDef -> apiDef.Name
                                                     | None -> ""
                                                 | None -> ""
@@ -252,7 +248,7 @@ type DsStorePanelBatchExtensions =
                 struct(callId, timeout))
             |> Seq.distinctBy (fun struct(callId, _) -> callId)
             |> Seq.filter (fun struct(callId, timeout) ->
-                match DsQuery.getCall callId store with
+                match Queries.getCall callId store with
                 | Some call -> call.Properties.Timeout <> timeout
                 | None -> false)
             |> Seq.toList

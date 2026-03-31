@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using Ds2.Core;
 using Ds2.Store;
 using Ds2.Editor;
+using Microsoft.FSharp.Core;
 
 namespace Promaker.Dialogs;
 
@@ -13,11 +15,7 @@ public partial class ApiDefEditDialog : Window
 
     // 출력
     public string ApiDefName { get; private set; } = string.Empty;
-    public bool IsPush { get; private set; } = false;
-    public Guid? TxWorkId { get; private set; }
-    public Guid? RxWorkId { get; private set; }
-    public int Period { get; private set; }
-    public string Description { get; private set; } = string.Empty;
+    public ApiDefProperties ResultProperties { get; private set; } = new();
 
     public ApiDefEditDialog(IReadOnlyList<WorkDropdownItem> works, ApiDefPanelItem? existing = null)
     {
@@ -34,7 +32,6 @@ public partial class ApiDefEditDialog : Window
             NameBox.Text = existing.Name;
             NormalRadio.IsChecked = !existing.IsPush;
             PushRadio.IsChecked = existing.IsPush;
-            PeriodBox.Text = existing.Period.ToString();
             DescriptionBox.Text = existing.Description;
 
             TxWorkCombo.SelectedItem = existing.TxWorkIdOrNull is { } txId
@@ -62,19 +59,19 @@ public partial class ApiDefEditDialog : Window
             return;
         }
 
-        if (!int.TryParse(PeriodBox.Text.Trim(), out int period) || period < 0)
-        {
-            DialogHelpers.Warn("Period는 0 이상의 정수를 입력해주세요.");
-            return;
-        }
-
         ApiDefName = name;
-        IsPush = PushRadio.IsChecked == true; // Normal=false, Push=true
-        Period = period;
-        Description = DescriptionBox.Text.Trim();
 
-        TxWorkId = TxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } tx ? tx.Id : null;
-        RxWorkId = RxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } rx ? rx.Id : null;
+        var txId = TxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } tx ? tx.Id : (Guid?)null;
+        var rxId = RxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } rx ? rx.Id : (Guid?)null;
+        var desc = DescriptionBox.Text.Trim();
+
+        ResultProperties = new ApiDefProperties
+        {
+            IsPush = PushRadio.IsChecked == true,
+            TxGuid = txId.HasValue ? FSharpOption<Guid>.Some(txId.Value) : null,
+            RxGuid = rxId.HasValue ? FSharpOption<Guid>.Some(rxId.Value) : null,
+            Description = string.IsNullOrEmpty(desc) ? null : FSharpOption<string>.Some(desc),
+        };
 
         DialogResult = true;
     }

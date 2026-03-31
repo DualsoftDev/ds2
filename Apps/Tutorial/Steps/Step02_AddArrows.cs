@@ -12,11 +12,12 @@
 //   - ArrowType.Start: 선행 Work 완료 → 후속 Work 시작
 //   - ArrowType.Reset: 마지막 Work 완료 → 첫 Work 리셋 (순환)
 //   - ImportPlanOperation.NewAddArrowWork: 화살표 추가
-//   - DsQuery.arrowWorksOf: 시스템 내 화살표 조회
+//   - Queries.arrowWorksOf: 시스템 내 화살표 조회
 // ============================================================================
 
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 
 namespace Ds2.Tutorial.Steps;
 
@@ -47,13 +48,13 @@ static class Step02_AddArrows
         if (silent) return;
 
         // ── 화살표 확인 ──────────────────────────────────────
-        var arrows = DsQuery.arrowWorksOf(ctx.SystemId, store);
+        var arrows = Queries.arrowWorksOf(ctx.SystemId, store);
         Console.WriteLine($"  화살표 {arrows.Length}개 연결 완료:");
         foreach (var a in arrows)
         {
             // tryGetName 은 F# option → C# 에서 null 이면 None
-            var src = DsQuery.tryGetName(store, EntityKind.Work, a.SourceId)?.Value ?? "?";
-            var tgt = DsQuery.tryGetName(store, EntityKind.Work, a.TargetId)?.Value ?? "?";
+            var src = Queries.tryGetName(store, EntityKind.Work, a.SourceId)?.Value ?? "?";
+            var tgt = Queries.tryGetName(store, EntityKind.Work, a.TargetId)?.Value ?? "?";
             Console.WriteLine($"    {src} ──{a.ArrowType}──> {tgt}");
         }
         Console.WriteLine();

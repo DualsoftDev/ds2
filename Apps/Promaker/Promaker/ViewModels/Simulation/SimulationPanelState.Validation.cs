@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Runtime.Sim.Engine.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
@@ -37,10 +38,8 @@ public partial class SimulationPanelState
         return sections;
     }
 
-    /// 토큰 역할(Source/Ignore)이 하나라도 설정되어 있는지 확인
     private static bool HasAnyTokenRole(SimIndex index) =>
-        index.WorkTokenRole.Any(kv =>
-            kv.Value.HasFlag(TokenRole.Source) || kv.Value.HasFlag(TokenRole.Ignore));
+        SimIndexModule.hasAnyTokenRole(index);
 
     [RelayCommand]
     private void CheckModel()
@@ -133,13 +132,13 @@ public partial class SimulationPanelState
         var lines = new List<string>();
         foreach (var workGuid in index.AllWorkGuids)
         {
-            var workOpt = DsQuery.getWork(workGuid, index.Store);
+            var workOpt = Queries.getWork(workGuid, index.Store);
             if (workOpt is null) continue;
 
-            var periodOpt = workOpt.Value.Properties.Period;
+            var periodOpt = workOpt.Value.Properties.Duration;
             var userMs = periodOpt != null ? (int)periodOpt.Value.TotalMilliseconds : 0;
 
-            var deviceOpt = DsQuery.tryGetDeviceDurationMs(workGuid, index.Store);
+            var deviceOpt = Queries.tryGetDeviceDurationMs(workGuid, index.Store);
             if (deviceOpt is null) continue;
             var deviceMs = deviceOpt.Value;
 
@@ -175,11 +174,11 @@ public partial class SimulationPanelState
 
     private void CollectTokenSpecWarning(List<GraphWarningSection> sections, SimIndex index)
     {
-        var specs = DsQuery.getTokenSpecs(Store);
+        var specs = Queries.getTokenSpecs(Store);
         var specWorkIds = new HashSet<Guid>(
             specs
                 .Where(s => s.WorkId != null)
-                .Select(s => DsQuery.resolveOriginalWorkId(s.WorkId.Value, Store)));
+                .Select(s => Queries.resolveOriginalWorkId(s.WorkId.Value, Store)));
 
         var missing = index.TokenSourceGuids
             .Where(g => !specWorkIds.Contains(g))

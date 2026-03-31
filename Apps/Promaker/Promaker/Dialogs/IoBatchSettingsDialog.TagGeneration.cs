@@ -1,6 +1,8 @@
 using System;
 using System.Linq;
 using System.Windows;
+using Ds2.Store;
+using Ds2.Store.DsQuery;
 
 namespace Promaker.Dialogs;
 
@@ -55,29 +57,12 @@ public partial class IoBatchSettingsDialog
 
         foreach (var row in selectedRows)
         {
-            string tag = pattern
-                .Replace("$(F)", row.Flow)
-                .Replace("$(D)", row.Device)
-                .Replace("$(A)", row.Api);
+            setSymbol(row, Format.expandTagPattern(pattern, row.Flow, row.Device, row.Api));
 
-            setSymbol(row, tag);
-
-            if (getDataType(row).Equals("BOOL", StringComparison.OrdinalIgnoreCase))
-            {
-                setAddress(row, $"{addressPrefix}{currentWord}.{currentBit}");
-                currentBit++;
-                if (currentBit >= 16)
-                {
-                    currentBit = 0;
-                    currentWord++;
-                }
-            }
-            else
-            {
-                setAddress(row, $"{addressPrefix}{currentWord}");
-                currentWord++;
-                currentBit = 0;
-            }
+            var alloc = Format.allocatePlcAddress(addressPrefix, currentWord, currentBit, getDataType(row));
+            setAddress(row, alloc.Address);
+            currentWord = alloc.NextWord;
+            currentBit = alloc.NextBit;
         }
 
         DialogHelpers.ShowThemedMessageBox(

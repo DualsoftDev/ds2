@@ -7,6 +7,7 @@ open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxConceptDescriptions
 open Ds2.Aasx.AasxFileIO
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 module internal AasxExportGraph =
 
@@ -34,11 +35,11 @@ module internal AasxExportGraph =
         ]
 
     let workToSmc (store: DsStore) (work: Work) : ISubmodelElement =
-        let rawCalls = DsQuery.callsOf work.Id store
+        let rawCalls = Queries.callsOf work.Id store
         let calls    = rawCalls |> List.map callToSmc
         let callIds  = rawCalls |> List.map (fun c -> c.Id) |> Set.ofList
         let arrows   =
-            DsQuery.arrowCallsOf work.Id store
+            Queries.arrowCallsOf work.Id store
             |> List.filter (fun a -> callIds.Contains a.SourceId && callIds.Contains a.TargetId)
             |> List.map arrowCallToSmc
         mkSmc "Work" [
@@ -87,21 +88,21 @@ module internal AasxExportGraph =
         ]
 
     let systemToSmc (store: DsStore) (system: DsSystem) (isActive: bool) : ISubmodelElement =
-        let allFlows  = DsQuery.flowsOf system.Id store
+        let allFlows  = Queries.flowsOf system.Id store
         let flows     = allFlows |> List.map flowToSmc
-        let works     = allFlows |> List.collect (fun f -> DsQuery.worksOf f.Id store)
+        let works     = allFlows |> List.collect (fun f -> Queries.worksOf f.Id store)
                                  |> List.map (workToSmc store)
-        let arrows    = DsQuery.arrowWorksOf system.Id store
+        let arrows    = Queries.arrowWorksOf system.Id store
                         |> List.map arrowWorkToSmc
-        let apiDefs   = DsQuery.apiDefsOf system.Id store |> List.map apiDefToSmc
+        let apiDefs   = Queries.apiDefsOf system.Id store |> List.map apiDefToSmc
         // ApiCalls/ReferencedApiDefs는 ActiveSystem 전용 — DeviceSystem은 빈 목록
         let apiCalls, referencedApiDefs =
             if isActive then
-                let allAcs = DsQuery.allApiCalls store
+                let allAcs = Queries.allApiCalls store
                 let acs = allAcs |> List.map apiCallToSmc
                 let refs =
                     allAcs
-                    |> List.choose (fun ac -> ac.ApiDefId |> Option.bind (fun id -> DsQuery.getApiDef id store))
+                    |> List.choose (fun ac -> ac.ApiDefId |> Option.bind (fun id -> Queries.getApiDef id store))
                     |> List.filter (fun ad -> ad.ParentId <> system.Id)
                     |> List.distinctBy (fun ad -> ad.Id)
                     |> List.map apiDefToSmc

@@ -3,6 +3,7 @@ module Ds2.Store.CallConditionQueries
 open System
 open System.Runtime.CompilerServices
 open Ds2.Core
+open Ds2.Store.DsQuery
 
 let rec private allConditions (conditions: seq<CallCondition>) : seq<CallCondition> =
     seq {
@@ -34,7 +35,7 @@ let containsApiCallReference (apiCallId: Guid) (call: Call) : bool =
 
 [<CompiledName("GetCallConditionTypes")>]
 let getCallConditionTypes (store: DsStore) (callId: Guid) : CallConditionType list =
-    match DsQuery.getCall callId store with
+    match Queries.getCall callId store with
     | Some call -> conditionTypes call
     | None -> []
 

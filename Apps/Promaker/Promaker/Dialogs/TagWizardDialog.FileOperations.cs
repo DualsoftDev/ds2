@@ -5,6 +5,7 @@ using System.Text;
 using System.Windows;
 using Promaker.Services;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 
 namespace Promaker.Dialogs;
 
@@ -234,7 +235,7 @@ public partial class TagWizardDialog
             _flowBaseRows.Clear();
 
             // DsStore에서 Flow 목록 추출
-            var flows = DsQuery.allFlows(_store);
+            var flows = Queries.allFlows(_store);
             var flowNames = flows
                 .Select(f => f.Name)
                 .OrderBy(n => n)

@@ -4,6 +4,7 @@ open System
 open System.IO
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 /// Mermaid 임포트 공개 진입점
 module MermaidImporter =
@@ -38,7 +39,7 @@ module MermaidImporter =
                 | true, flow -> Some flow.ParentId
                 | _ -> None
         | WorkLevel ->
-            DsQuery.trySystemIdOfWork parentId store
+            Queries.trySystemIdOfWork parentId store
 
     /// parentId에서 projectId 조회 (Device auto-creation용)
     let private resolveProjectId (store: DsStore) (level: ImportLevel) (parentId: Guid) : Guid option =
@@ -55,7 +56,7 @@ module MermaidImporter =
                 | true, flow -> findProject flow.ParentId
                 | _ -> None
         | WorkLevel ->
-            DsQuery.trySystemIdOfWork parentId store
+            Queries.trySystemIdOfWork parentId store
             |> Option.bind findProject
 
     /// Mermaid 그래프를 현재 문서에 적용할 ImportPlan 생성

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 
 namespace Promaker.ViewModels;
@@ -19,9 +20,9 @@ public partial class MainViewModel
     private bool CanAddSystem()
     {
         if (!HasProject) return false;
-        var projects = DsQuery.allProjects(_store);
+        var projects = Queries.allProjects(_store);
         if (projects.IsEmpty) return true;
-        var activeSystems = DsQuery.activeSystemsOf(projects.Head.Id, _store);
+        var activeSystems = Queries.activeSystemsOf(projects.Head.Id, _store);
         return activeSystems.IsEmpty;
     }
 
@@ -35,7 +36,7 @@ public partial class MainViewModel
             return selected.EntityType switch
             {
                 EntityKind.Flow => true,
-                EntityKind.System => !DsQuery.flowsOf(selected.Id, _store).IsEmpty,
+                EntityKind.System => !Queries.flowsOf(selected.Id, _store).IsEmpty,
                 _ => false
             };
         }
@@ -257,7 +258,7 @@ public partial class MainViewModel
     private Guid? ResolveFirstFlowInSystemTab()
     {
         if (Canvas.ActiveTab is not { Kind: TabKind.System } tab) return null;
-        var flows = DsQuery.flowsOf(tab.RootId, _store);
+        var flows = Queries.flowsOf(tab.RootId, _store);
         return flows.IsEmpty ? null : (Guid?)flows.Head.Id;
     }
 

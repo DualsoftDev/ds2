@@ -6,6 +6,7 @@ using System.Windows;
 using Microsoft.FSharp.Core;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Ds2.IOList;
 using Promaker.Services;
@@ -179,10 +180,8 @@ public partial class TagWizardDialog
                     _store.UpdateApiCallIoTags(
                         row.CallId,
                         row.ApiCallId,
-                        row.OutSymbol,
-                        row.OutAddress,
-                        row.InSymbol,
-                        row.InAddress);
+                        new IOTag(row.OutSymbol ?? "", row.OutAddress ?? "", ""),
+                        new IOTag(row.InSymbol ?? "", row.InAddress ?? "", ""));
 
                     _successCount++;
                 }
@@ -260,43 +259,17 @@ public partial class TagWizardDialog
 
             if (matchedCall != null)
             {
-                // DeviceName은 ApiDef.Name이므로 ApiDefId를 통해 매칭
-                var matchedApiCall = matchedCall.ApiCalls
-                    .FirstOrDefault(ac =>
-                    {
-                        // ApiDefId 확인
-                        if (!FSharpOption<Guid>.get_IsSome(ac.ApiDefId))
-                            return false;
-
-                        var apiDefId = ac.ApiDefId.Value;
-
-                        // ApiDef 조회
-                        var apiDefOption = DsQuery.getApiDef(apiDefId, _store);
-                        if (!FSharpOption<ApiDef>.get_IsSome(apiDefOption))
-                            return false;
-
-                        var apiDef = apiDefOption.Value;
-
-                        // ApiDef.Name과 DeviceName 비교
-                        return apiDef.Name.Equals(key.DeviceName, StringComparison.OrdinalIgnoreCase);
-                    });
+                var matchedApiCall = Device.findApiCallByDeviceName(matchedCall, key.DeviceName, _store)?.Value;
                 apiCallId = matchedApiCall?.Id ?? Guid.Empty;
 
-                // Extract Device (System.Name) and Api (ApiDef.Name) from matched ApiCall
-                if (matchedApiCall != null && FSharpOption<Guid>.get_IsSome(matchedApiCall.ApiDefId))
+                if (matchedApiCall?.ApiDefId?.Value is { } apiDefId)
                 {
-                    var apiDefId = matchedApiCall.ApiDefId.Value;
-                    var apiDefOption = DsQuery.getApiDef(apiDefId, _store);
-                    if (FSharpOption<ApiDef>.get_IsSome(apiDefOption))
+                    var apiDef = Queries.getApiDef(apiDefId, _store)?.Value;
+                    if (apiDef != null)
                     {
-                        var apiDef = apiDefOption.Value;
                         api = apiDef.Name;
-
-                        // Get parent System name
                         if (_store.Systems.TryGetValue(apiDef.ParentId, out var system))
-                        {
                             device = system.Name;
-                        }
                     }
                 }
             }
@@ -568,7 +541,7 @@ public partial class TagWizardDialog
                         {
                             if (!existingApiNames.Contains(apiName))
                             {
-                                _store.AddApiDefWithProperties(apiName, system.Id, false, null, null, 0, "");
+                                _store.AddApiDefWithProperties(apiName, system.Id, new Ds2.Core.ApiDefProperties());
                                 GenerationStatusText.Text += $"\n  → {system.Name}.{apiName} ApiDef 생성됨";
                             }
                         }
@@ -638,32 +611,8 @@ public partial class TagWizardDialog
     /// <summary>
     /// Call 이름으로 검색
     /// </summary>
-    private static Call? FindCallByName(DsStore store, string flowName, string workName, string callName)
-    {
-        var flows = DsQuery.allFlows(store);
-
-        foreach (var flow in flows)
-        {
-            if (!flow.Name.Equals(flowName, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var works = DsQuery.worksOf(flow.Id, store);
-            foreach (var work in works)
-            {
-                if (!work.Name.Equals(workName, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                var calls = DsQuery.callsOf(work.Id, store);
-                foreach (var call in calls)
-                {
-                    if (call.Name.Equals(callName, StringComparison.OrdinalIgnoreCase))
-                        return call;
-                }
-            }
-        }
-
-        return null;
-    }
+    private static Call? FindCallByName(DsStore store, string flowName, string workName, string callName) =>
+        Device.findCallByName(flowName, workName, callName, store)?.Value;
 
     /// <summary>
     /// 오류를 다이얼로그 탭에 표시

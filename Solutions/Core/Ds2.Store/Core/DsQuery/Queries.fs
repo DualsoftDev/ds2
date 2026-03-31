@@ -1,7 +1,8 @@
-namespace Ds2.Store
+namespace Ds2.Store.DsQuery
 
 open System
 open Ds2.Core
+open Ds2.Store
 
 // =============================================================================
 // Query 모듈 - 읽기 전용 쿼리 API
@@ -15,12 +16,13 @@ open Ds2.Core
 /// <example>
 /// <code>
 /// let store = DsStore.empty()
-/// let project = DsQuery.getProject projectId store
-/// let flows = DsQuery.flowsOf systemId store
+/// let project = Queries.getProject projectId store
+/// let flows = Queries.flowsOf systemId store
 /// </code>
 /// </example>
 /// </summary>
-module DsQuery =
+[<AutoOpen>]
+module Queries =
 
     // ─────────────────────────────────────────────────────────────────────────
     // 내부 헬퍼 — Dictionary 보일러플레이트 제거
@@ -299,7 +301,7 @@ module DsQuery =
             |> Option.bind (fun defId -> getApiDef defId store)
             |> Option.bind (fun def -> def.Properties.RxGuid)
             |> Option.bind (fun rxWorkId -> getWork rxWorkId store)
-            |> Option.bind (fun rxWork -> rxWork.Properties.Period)
+            |> Option.bind (fun rxWork -> rxWork.Properties.Duration)
             |> Option.map (fun ts -> int ts.TotalMilliseconds))
         |> Seq.tryHead
         |> Option.defaultValue 0

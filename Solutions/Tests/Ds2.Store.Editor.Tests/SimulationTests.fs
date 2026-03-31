@@ -4,6 +4,7 @@ open System
 open Xunit
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 open Ds2.Runtime.Sim.Engine
@@ -69,7 +70,7 @@ module SimIndexTests =
         store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
 
         let callIds =
-            DsQuery.callsOf work1.Id store
+            Queries.callsOf work1.Id store
             |> List.map (fun call -> call.Id)
 
         store.ConnectSelectionInOrder(callIds, ArrowType.Start) |> ignore
@@ -90,7 +91,7 @@ module SimIndexTests =
 
         store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true, None)
 
-        let calls = DsQuery.callsOf work.Id store
+        let calls = Queries.callsOf work.Id store
         let sourceCall = calls[0]
         let targetCall = calls[1]
         let sourceApiCall = sourceCall.ApiCalls |> Seq.head

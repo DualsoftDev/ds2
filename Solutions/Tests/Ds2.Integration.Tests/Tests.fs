@@ -4,6 +4,7 @@ open System
 open System.IO
 open Xunit
 open Ds2.Core
+open Ds2.Store.DsQuery
 open Ds2.Serialization
 
 module private AasxPackageAssertions =
@@ -155,8 +156,9 @@ module AasxRoundTripTests =
         let workId = store.AddWork("W", flowId)
 
         store.AddCallsWithDevice(projectId, workId, [ "Dev.Api1"; "Dev.Api2" ], true, None)
-        let callIds = DsQuery.callsOf workId store |> List.map (fun c -> c.Id)
-        let arrowCount = store.ConnectSelectionInOrder(callIds, ArrowType.ResetReset)
+        let callIds = Queries.callsOf workId store |> List.map (fun c -> c.Id)
+        // Call 간 화살표는 Start 또는 Group만 허용 (EntityKindRules)
+        let arrowCount = store.ConnectSelectionInOrder(callIds, ArrowType.Start)
         Assert.Equal(1, arrowCount)
         let originalArrow = store.ArrowCalls.Values |> Seq.head
         Assert.Equal(workId, originalArrow.ParentId)

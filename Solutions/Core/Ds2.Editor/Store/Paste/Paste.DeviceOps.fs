@@ -3,6 +3,7 @@ namespace Ds2.Editor
 open System
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 module internal PasteDeviceOps =
 
@@ -37,13 +38,13 @@ module internal PasteDeviceOps =
         | Some (_, mapping) -> state, mapping
         | None ->
             let existing =
-                DsQuery.passiveSystemsOf projectId store
+                Queries.passiveSystemsOf projectId store
                 |> List.tryFind (fun s -> s.Name = targetName)
             let targetSystem, mapping =
                 match existing with
                 | Some sys ->
-                    let targetApiDefs = DsQuery.apiDefsOf sys.Id store
-                    let sourceApiDefs = DsQuery.apiDefsOf sourceSystemId store
+                    let targetApiDefs = Queries.apiDefsOf sys.Id store
+                    let sourceApiDefs = Queries.apiDefsOf sourceSystemId store
                     let mapping =
                         sourceApiDefs
                         |> List.choose (fun src ->
@@ -56,7 +57,7 @@ module internal PasteDeviceOps =
                     let newSystem = DsSystem(targetName)
 
                     // 원본 System의 SystemType 복사
-                    match DsQuery.getSystem sourceSystemId store with
+                    match Queries.getSystem sourceSystemId store with
                     | Some sourceSystem ->
                         newSystem.Properties.SystemType <- sourceSystem.Properties.SystemType
                     | None -> ()
@@ -66,7 +67,7 @@ module internal PasteDeviceOps =
                         p.PassiveSystemIds.Add(newSystem.Id))
                     let newFlow = Flow($"{devAlias}_Flow", newSystem.Id)
                     store.TrackAdd(store.Flows, newFlow)
-                    let sourceApiDefs = DsQuery.apiDefsOf sourceSystemId store
+                    let sourceApiDefs = Queries.apiDefsOf sourceSystemId store
 
                     // Work 생성 및 수집
                     let createdWorks = ResizeArray<Work>()
@@ -78,7 +79,7 @@ module internal PasteDeviceOps =
                             let work = Work(newFlow.Name, src.Name, newFlow.Id)
                             // 원본 ApiDef의 TxGuid Work에서 Properties(Period 등) 복사
                             src.Properties.TxGuid
-                            |> Option.bind (fun srcWorkId -> DsQuery.getWork srcWorkId store)
+                            |> Option.bind (fun srcWorkId -> Queries.getWork srcWorkId store)
                             |> Option.iter (fun srcWork -> work.Properties <- srcWork.Properties.DeepCopy())
                             store.TrackAdd(store.Works, work)
                             createdWorks.Add(work)
@@ -107,9 +108,9 @@ module internal PasteDeviceOps =
 
     let private tryFindPassiveSystemId (store: DsStore) (apiDefIdOpt: Guid option) : Guid option =
         apiDefIdOpt
-        |> Option.bind (fun aid -> DsQuery.getApiDef aid store)
+        |> Option.bind (fun aid -> Queries.getApiDef aid store)
         |> Option.bind (fun d ->
-            if DsQuery.allProjects store |> List.exists (fun p -> p.PassiveSystemIds.Contains(d.ParentId))
+            if Queries.allProjects store |> List.exists (fun p -> p.PassiveSystemIds.Contains(d.ParentId))
             then Some d.ParentId else None)
 
     let private copyApiCallsAcrossFlows
@@ -160,11 +161,11 @@ module internal PasteDeviceOps =
                 deviceState
 
     let makeDeviceFlowCtx (store: DsStore) (targetFlowId: Guid) : DeviceFlowCtx option =
-        match DsQuery.getFlow targetFlowId store with
+        match Queries.getFlow targetFlowId store with
         | None -> None
         | Some targetFlow ->
             let projectIdOpt =
-                DsQuery.getSystem targetFlow.ParentId store
+                Queries.getSystem targetFlow.ParentId store
                 |> Option.bind (fun s -> StoreHierarchyQueries.findProjectOfSystem store s.Id)
             projectIdOpt |> Option.map (fun pid ->
                 { Store = store; ProjectId = pid; TargetFlowName = targetFlow.Name })

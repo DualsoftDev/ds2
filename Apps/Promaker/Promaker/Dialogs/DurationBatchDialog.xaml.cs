@@ -8,6 +8,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using Ds2.Store;
+using Ds2.Store.DsQuery;
 
 namespace Promaker.Dialogs;
 
@@ -83,23 +85,8 @@ public partial class DurationBatchDialog : Window
         CategoryColumn.Header = ShowDeviceWorkRadio.IsChecked == true ? "System" : "Flow";
     }
 
-    private static bool MatchDurationFilter(string durationStr, string filter)
-    {
-        filter = filter.Trim();
-        if (string.IsNullOrEmpty(filter)) return true;
-
-        if (!int.TryParse(durationStr, out var value))
-            return durationStr.Contains(filter, StringComparison.OrdinalIgnoreCase);
-
-        if (filter.StartsWith(">=") && int.TryParse(filter[2..], out var gte)) return value >= gte;
-        if (filter.StartsWith("<=") && int.TryParse(filter[2..], out var lte)) return value <= lte;
-        if (filter.StartsWith('>') && int.TryParse(filter[1..], out var gt)) return value > gt;
-        if (filter.StartsWith('<') && int.TryParse(filter[1..], out var lt)) return value < lt;
-        if (filter.StartsWith('=') && int.TryParse(filter[1..], out var eq)) return value == eq;
-        if (int.TryParse(filter, out var exact)) return value == exact;
-
-        return durationStr.Contains(filter, StringComparison.OrdinalIgnoreCase);
-    }
+    private static bool MatchDurationFilter(string durationStr, string filter) =>
+        Format.matchDurationFilter(durationStr, filter);
 
     private void BatchValueBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
     {

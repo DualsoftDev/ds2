@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Windows;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Promaker.Dialogs;
 using Promaker.Services;
@@ -117,19 +118,14 @@ public sealed class MainViewModelTests
             {
                 var projectDialog = Assert.IsType<ProjectPropertiesDialog>(dialog);
                 SetAutoProperty(projectDialog, "ResultProjectName", "ConfiguredProject");
-                SetAutoProperty(projectDialog, "ResultIriPrefix", "");
-                SetAutoProperty(projectDialog, "ResultGlobalAssetId", "");
-                SetAutoProperty(projectDialog, "ResultAuthor", "");
-                SetAutoProperty(projectDialog, "ResultVersion", "");
-                SetAutoProperty(projectDialog, "ResultDescription", "");
-                SetAutoProperty(projectDialog, "ResultSplitDeviceAasx", false);
+                SetAutoProperty(projectDialog, "ResultProperties", new Ds2.Core.ProjectProperties());
 
                 return true;
             }));
 
             vm.ShowProjectSettingsCommand.Execute(null);
 
-            var project = DsQuery.allProjects(GetStore(vm)).Head;
+            var project = Queries.allProjects(GetStore(vm)).Head;
             Assert.Equal("ConfiguredProject", project.Name);
         });
     }

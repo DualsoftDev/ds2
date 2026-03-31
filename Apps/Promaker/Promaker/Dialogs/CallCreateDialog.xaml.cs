@@ -1,7 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
+using Microsoft.FSharp.Collections;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 
 namespace Promaker.Dialogs;
@@ -153,35 +155,15 @@ public partial class CallCreateDialog : Window
     private (string alias, List<string> apiNames)? ValidateAliasAndApiNames(TextBox aliasBox, TextBox apiNameBox)
     {
         var alias = aliasBox.Text.Trim();
-        var apiDefText = apiNameBox.Text.Trim();
+        var aliasResult = InputValidation.validateDevicesAlias(alias);
+        if (aliasResult.IsEmptyAlias) { DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return null; }
+        if (aliasResult.IsAliasDotForbidden) { DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return null; }
 
-        if (string.IsNullOrEmpty(alias))
-        {
-            DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return null;
-        }
-        if (alias.Contains('.'))
-        {
-            DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return null;
-        }
-        if (string.IsNullOrEmpty(apiDefText))
-        {
-            DialogHelpers.Warn("ApiName을 입력해주세요."); return null;
-        }
+        var apiResult = InputValidation.validateApiNames(apiNameBox.Text);
+        if (apiResult.IsEmptyInput || apiResult.IsEmptyAfterParse) { DialogHelpers.Warn("ApiName을 입력해주세요."); return null; }
+        if (apiResult.IsApiNameDotForbidden) { DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return null; }
 
-        var apiNames = apiDefText.Split(';', StringSplitOptions.RemoveEmptyEntries)
-            .Select(s => s.Trim())
-            .Where(s => !string.IsNullOrEmpty(s))
-            .ToList();
-
-        if (apiNames.Count == 0)
-        {
-            DialogHelpers.Warn("ApiName을 입력해주세요."); return null;
-        }
-        if (apiNames.Any(n => n.Contains('.')))
-        {
-            DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return null;
-        }
-
+        var apiNames = ((InputValidation.ApiNameValidationResult.Valid)apiResult).Item.ToList();
         return (alias, apiNames);
     }
 
@@ -236,17 +218,13 @@ public partial class CallCreateDialog : Window
             DialogHelpers.Warn("개수는 1~100 사이의 숫자를 입력해주세요."); return;
         }
 
-        var deviceAliases = count == 1
-            ? [alias]
-            : Enumerable.Range(1, count).Select(i => $"{alias}{i}").ToList();
-
-        var names = new List<string>();
-        foreach (var dev in deviceAliases)
-            foreach (var apiName in apiNames)
-                names.Add($"{dev}.{apiName}");
+        var deviceAliases = Device.generateDeviceAliases(alias, count);
+        var names = Device.generateCallNames(
+            ListModule.OfSeq(deviceAliases),
+            ListModule.OfSeq(apiNames));
 
         Mode = CallCreateMode.CallReplication;
-        CallNames = names;
+        CallNames = names.ToList();
         DialogResult = true;
     }
 
@@ -257,11 +235,7 @@ public partial class CallCreateDialog : Window
             DialogHelpers.Warn("개수는 1~100 사이의 숫자를 입력해주세요."); return;
         }
 
-        // ApiCall 복제: apiNames 각각에 대해 1개 Call 생성
-        // 여러 ApiName이면 여러 Call이 생기되, 각 Call 안에 count개 ApiCall
-        var deviceAliases = count == 1
-            ? [alias]
-            : Enumerable.Range(1, count).Select(i => $"{alias}{i}").ToList();
+        var deviceAliases = Device.generateDeviceAliases(alias, count);
 
         // 편의상 첫 번째 apiName 기준. 여러 apiName → 여러 Call.
         // 각 Call별로 DeviceAliases를 동일하게 사용.
@@ -292,24 +266,14 @@ public partial class CallCreateDialog : Window
     private void CommitAdvancedTab()
     {
         var alias = AdvAliasFilterBox.Text.Trim();
-        if (string.IsNullOrEmpty(alias))
-        {
-            DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return;
-        }
-        if (alias.Contains('.'))
-        {
-            DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return;
-        }
+        var aliasResult = InputValidation.validateDevicesAlias(alias);
+        if (aliasResult.IsEmptyAlias) { DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return; }
+        if (aliasResult.IsAliasDotForbidden) { DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return; }
 
         var apiName = AdvApiNameFilterBox.Text.Trim();
-        if (string.IsNullOrEmpty(apiName))
-        {
-            DialogHelpers.Warn("ApiName을 입력해주세요."); return;
-        }
-        if (apiName.Contains('.'))
-        {
-            DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return;
-        }
+        var apiResult = InputValidation.validateApiNames(apiName);
+        if (apiResult.IsEmptyInput || apiResult.IsEmptyAfterParse) { DialogHelpers.Warn("ApiName을 입력해주세요."); return; }
+        if (apiResult.IsApiNameDotForbidden) { DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return; }
 
         var selected = ApiDefListBox.SelectedItems.OfType<ApiDefMatch>().ToList();
         if (selected.Count == 0)

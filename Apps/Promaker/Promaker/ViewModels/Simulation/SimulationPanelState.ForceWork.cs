@@ -125,12 +125,8 @@ public partial class SimulationPanelState
 
     private List<(Guid Guid, string Name)> CollectBlockedSources(ISimulationEngine engine)
     {
-        return engine.Index.TokenSourceGuids
-            .Where(g => _stateCache.GetOrDefault(g, Status4.Ready) == Status4.Ready
-                     && !WorkConditionChecker.canStartWorkPredOnly(engine.Index, engine.State, g))
-            .Select(g => (Guid: g, Name: engine.Index.WorkName.TryFind(g)))
-            .Where(x => x.Name is not null)
-            .Select(x => (x.Guid, Name: x.Name!.Value))
+        return WorkConditionChecker.collectBlockedSources(engine.Index, engine.State)
+            .Select(t => (t.Item1, t.Item2))
             .ToList();
     }
 

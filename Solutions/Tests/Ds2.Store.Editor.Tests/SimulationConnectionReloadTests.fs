@@ -4,6 +4,7 @@ open System
 open Xunit
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 open Ds2.Runtime.Sim.Engine
@@ -23,7 +24,7 @@ let private buildTwoWorkScenario arrowType =
 
 let private removeDirectWorkArrows store systemId sourceId targetId =
     let arrowIds =
-        DsQuery.arrowWorksOf systemId store
+        Queries.arrowWorksOf systemId store
         |> List.filter (fun arrow -> arrow.SourceId = sourceId && arrow.TargetId = targetId)
         |> List.map (fun arrow -> arrow.Id)
     store.RemoveArrows(arrowIds)

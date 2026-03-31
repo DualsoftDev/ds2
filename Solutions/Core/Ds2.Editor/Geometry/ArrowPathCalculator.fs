@@ -5,6 +5,7 @@ open System.Collections.Generic
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 /// Arrow path calculation result.
 /// When Points has 4 items, C# renders it as cubic Bezier: [start; cp1; cp2; end].
@@ -294,30 +295,30 @@ let private tryResolveNodePosition
     match positions.TryGetValue nodeId with
     | true, pos -> Some pos
     | _ ->
-        match DsQuery.getWork nodeId store with
+        match Queries.getWork nodeId store with
         | Some work -> Some(defaultArg work.Position (UiDefaults.createDefaultNodeBounds ()))
         | None ->
-            match DsQuery.getCall nodeId store with
+            match Queries.getCall nodeId store with
             | Some call -> Some(defaultArg call.Position (UiDefaults.createDefaultNodeBounds ()))
             | None -> None
 
 [<CompiledName("ComputeFlowArrowPaths")>]
 let computeFlowArrowPaths (store: DsStore) (flowId: Guid) : Map<Guid, ArrowVisual> =
     let positions = Dictionary<Guid, Xywh>()
-    for work in DsQuery.worksOf flowId store do
+    for work in Queries.worksOf flowId store do
         positions.[work.Id] <- defaultArg work.Position (UiDefaults.createDefaultNodeBounds ())
-        for call in DsQuery.callsOf work.Id store do
+        for call in Queries.callsOf work.Id store do
             positions.[call.Id] <- defaultArg call.Position (UiDefaults.createDefaultNodeBounds ())
 
     let arrows = ResizeArray<DsArrow>()
-    match DsQuery.getFlow flowId store with
+    match Queries.getFlow flowId store with
     | Some flow ->
-        for a in DsQuery.arrowWorksOf flow.ParentId store do
+        for a in Queries.arrowWorksOf flow.ParentId store do
             arrows.Add(a :> DsArrow)
     | None -> ()
 
-    for work in DsQuery.worksOf flowId store do
-        for a in DsQuery.arrowCallsOf work.Id store do
+    for work in Queries.worksOf flowId store do
+        for a in Queries.arrowCallsOf work.Id store do
             arrows.Add(a :> DsArrow)
 
     let resolved = ResizeArray<struct (DsArrow * Xywh * Xywh * DockFace * DockFace)>()

@@ -4,6 +4,7 @@ open System
 open Xunit
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 
@@ -101,7 +102,7 @@ module DsQueryTests =
         let store = createStore ()
         let _, system, _, _ = setupBasicHierarchy store
         let _ = store.AddFlow("F2", system.Id)
-        let flows = DsQuery.flowsOf system.Id store
+        let flows = Queries.flowsOf system.Id store
         Assert.Equal(2, flows.Length)
 
     [<Fact>]
@@ -109,7 +110,7 @@ module DsQueryTests =
         let store = createStore ()
         let _, _, flow, _ = setupBasicHierarchy store
         let _ = store.AddWork("W2", flow.Id)
-        let works = DsQuery.worksOf flow.Id store
+        let works = Queries.worksOf flow.Id store
         Assert.Equal(2, works.Length)
 
     [<Fact>]
@@ -117,24 +118,24 @@ module DsQueryTests =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.A"; "Dev.B" ], true, None)
-        let calls = DsQuery.callsOf work.Id store
+        let calls = Queries.callsOf work.Id store
         Assert.Equal(2, calls.Length)
 
     [<Fact>]
     let ``trySystemIdOfWork resolves Work → Flow → System`` () =
         let store = createStore ()
         let _, system, _, work = setupBasicHierarchy store
-        let result = DsQuery.trySystemIdOfWork work.Id store
+        let result = Queries.trySystemIdOfWork work.Id store
         Assert.Equal(Some system.Id, result)
 
     [<Fact>]
     let ``tryGetName resolves entity names`` () =
         let store = createStore ()
         let _, system, flow, work = setupBasicHierarchy store
-        Assert.Equal(Some "TestSystem", DsQuery.tryGetName store EntityKind.System system.Id)
-        Assert.Equal(Some "TestFlow", DsQuery.tryGetName store EntityKind.Flow flow.Id)
-        Assert.Equal(Some "TestFlow.TestWork", DsQuery.tryGetName store EntityKind.Work work.Id)
-        Assert.Equal(None, DsQuery.tryGetName store EntityKind.Work (Guid.NewGuid()))
+        Assert.Equal(Some "TestSystem", Queries.tryGetName store EntityKind.System system.Id)
+        Assert.Equal(Some "TestFlow", Queries.tryGetName store EntityKind.Flow flow.Id)
+        Assert.Equal(Some "TestFlow.TestWork", Queries.tryGetName store EntityKind.Work work.Id)
+        Assert.Equal(None, Queries.tryGetName store EntityKind.Work (Guid.NewGuid()))
 
     [<Fact>]
     let ``buttonsOf returns HwButtons under system`` () =
@@ -142,7 +143,7 @@ module DsQueryTests =
         let _, system, _, _ = setupBasicHierarchy store
         let btn = HwButton("Btn1", system.Id)
         store.HwButtons.[btn.Id] <- btn
-        let buttons = DsQuery.buttonsOf system.Id store
+        let buttons = Queries.buttonsOf system.Id store
         Assert.Equal(1, buttons.Length)
         Assert.Equal("Btn1", buttons.[0].Name)
 
@@ -152,7 +153,7 @@ module DsQueryTests =
         let _, system, _, _ = setupBasicHierarchy store
         let lamp = HwLamp("Lamp1", system.Id)
         store.HwLamps.[lamp.Id] <- lamp
-        let lamps = DsQuery.lampsOf system.Id store
+        let lamps = Queries.lampsOf system.Id store
         Assert.Equal(1, lamps.Length)
         Assert.Equal("Lamp1", lamps.[0].Name)
 
@@ -162,7 +163,7 @@ module DsQueryTests =
         let _, system, _, _ = setupBasicHierarchy store
         let cond = HwCondition("Cond1", system.Id)
         store.HwConditions.[cond.Id] <- cond
-        let conditions = DsQuery.conditionsOf system.Id store
+        let conditions = Queries.conditionsOf system.Id store
         Assert.Equal(1, conditions.Length)
 
     [<Fact>]
@@ -171,7 +172,7 @@ module DsQueryTests =
         let _, system, _, _ = setupBasicHierarchy store
         let action = HwAction("Act1", system.Id)
         store.HwActions.[action.Id] <- action
-        let actions = DsQuery.actionsOf system.Id store
+        let actions = Queries.actionsOf system.Id store
         Assert.Equal(1, actions.Length)
 
     [<Fact>]
@@ -180,7 +181,7 @@ module DsQueryTests =
         let _, system, flow, work = setupBasicHierarchy store
         let work2 = addWork store "W2" flow.Id
         store.ConnectSelectionInOrder([| work.Id; work2.Id |], ArrowType.Start) |> ignore
-        let arrows = DsQuery.arrowWorksOf system.Id store
+        let arrows = Queries.arrowWorksOf system.Id store
         Assert.True(arrows.Length >= 1)
 
     [<Fact>]
@@ -188,7 +189,7 @@ module DsQueryTests =
         let child = CallCondition()
         let parent = CallCondition()
         parent.Children.Add(child)
-        let result = DsQuery.tryFindConditionRec [parent] child.Id
+        let result = Queries.tryFindConditionRec [parent] child.Id
         Assert.True(result.IsSome)
         Assert.Equal(child.Id, result.Value.Id)
 
@@ -221,16 +222,16 @@ module BatchTests =
 
         store.UpdateWorkDurationsBatch([ struct(work1.Id, 3000); struct(work2.Id, 7000) ])
 
-        let p1 = work1.Properties.Period
+        let p1 = work1.Properties.Duration
         Assert.True(p1.IsSome)
         Assert.Equal(3000.0, p1.Value.TotalMilliseconds)
-        let p2 = work2.Properties.Period
+        let p2 = work2.Properties.Duration
         Assert.True(p2.IsSome)
         Assert.Equal(7000.0, p2.Value.TotalMilliseconds)
 
         store.Undo()
-        Assert.True(store.Works.[work1.Id].Properties.Period.IsNone)
-        Assert.True(store.Works.[work2.Id].Properties.Period.IsNone)
+        Assert.True(store.Works.[work1.Id].Properties.Duration.IsNone)
+        Assert.True(store.Works.[work2.Id].Properties.Duration.IsNone)
 
     [<Fact>]
     let ``GetAllApiCallIORows returns apiCalls with IO tags`` () =
@@ -265,7 +266,7 @@ module BatchTests =
         let apiDef = addApiDef store "Api1" system.Id
         let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "", "", "", 0, "", 0, "")
 
-        store.UpdateApiCallIOTagsBatch([ struct(apiCallId, "newIn", "inSym", "newOut", "outSym") ])
+        store.UpdateApiCallIOTagsBatch([ struct(apiCallId, IOTag("inSym", "newIn", ""), IOTag("outSym", "newOut", "")) ])
 
         let apiCall = store.ApiCalls.[apiCallId]
         Assert.True(apiCall.InTag.IsSome)
@@ -293,7 +294,7 @@ module BatchTests =
         let apiDef = addApiDef store "Api1" system.Id
         let apiCallId = store.AddApiCallFromPanel(call.Id, apiDef.Id, "", "", "", "", 0, "", 0, "")
 
-        store.UpdateApiCallIOTagsBatch([ struct(apiCallId, "192.168.0.1", "InSensor", "192.168.0.2", "OutActuator") ])
+        store.UpdateApiCallIOTagsBatch([ struct(apiCallId, IOTag("InSensor", "192.168.0.1", ""), IOTag("OutActuator", "192.168.0.2", "")) ])
 
         let tmpPath = System.IO.Path.GetTempFileName()
         try
@@ -339,8 +340,8 @@ module BatchTests =
             let loaded = DsStore()
             loaded.LoadFromFile(tmpPath)
             let loadedWork = loaded.Works.Values |> Seq.head
-            Assert.True(loadedWork.Properties.Period.IsSome)
-            Assert.Equal(2000.0, loadedWork.Properties.Period.Value.TotalMilliseconds)
+            Assert.True(loadedWork.Properties.Duration.IsSome)
+            Assert.Equal(2000.0, loadedWork.Properties.Duration.Value.TotalMilliseconds)
         finally
             System.IO.File.Delete(tmpPath)
 
@@ -358,12 +359,12 @@ module BatchTests =
             struct(work2.Id, Nullable<int>(3400))
         ])
 
-        Assert.Equal(1200.0, store.Works.[work1.Id].Properties.Period.Value.TotalMilliseconds)
-        Assert.Equal(3400.0, store.Works.[work2.Id].Properties.Period.Value.TotalMilliseconds)
+        Assert.Equal(1200.0, store.Works.[work1.Id].Properties.Duration.Value.TotalMilliseconds)
+        Assert.Equal(3400.0, store.Works.[work2.Id].Properties.Duration.Value.TotalMilliseconds)
 
         store.Undo()
-        Assert.True(store.Works.[work1.Id].Properties.Period.IsNone)
-        Assert.True(store.Works.[work2.Id].Properties.Period.IsNone)
+        Assert.True(store.Works.[work1.Id].Properties.Duration.IsNone)
+        Assert.True(store.Works.[work2.Id].Properties.Duration.IsNone)
 
     [<Fact>]
     let ``UpdateWorkTokenRolesBatch updates multiple works and supports undo`` () =
@@ -399,8 +400,8 @@ module BatchTests =
         store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api1" ], true, None)
         store.AddCallsWithDevice(project.Id, work2.Id, [ "Dev.Api2" ], true, None)
 
-        let call1 = DsQuery.callsOf work1.Id store |> List.head
-        let call2 = DsQuery.callsOf work2.Id store |> List.head
+        let call1 = Queries.callsOf work1.Id store |> List.head
+        let call2 = Queries.callsOf work2.Id store |> List.head
 
         store.UpdateCallTimeoutsBatch([
             struct(call1.Id, Nullable<int>(1500))

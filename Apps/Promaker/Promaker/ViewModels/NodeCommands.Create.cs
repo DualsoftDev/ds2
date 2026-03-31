@@ -5,6 +5,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Microsoft.FSharp.Core;
 using Promaker.Dialogs;
@@ -34,7 +35,7 @@ public partial class MainViewModel
         if (!GuardSimulationSemanticEdit("Flow 추가"))
             return;
 
-        var existingFlows = DsQuery.allFlows(_store);
+        var existingFlows = Queries.allFlows(_store);
         var defaultName = GetUniqueName("NewFlow", existingFlows.Select(f => f.Name));
 
         var name = _dialogService.PromptName(Resources.Strings.NewFlow, defaultName);
@@ -66,7 +67,7 @@ public partial class MainViewModel
             return;
         }
 
-        var existingWorks = DsQuery.worksOf(id, _store);
+        var existingWorks = Queries.worksOf(id, _store);
         var defaultName = GetUniqueName("NewWork", existingWorks.Select(w => w.LocalName));
 
         var name = _dialogService.PromptName(Resources.Strings.NewWork, defaultName);
@@ -98,7 +99,7 @@ public partial class MainViewModel
         }
 
         var projectProperties = HasProject
-            ? DsQuery.allProjects(_store).Head.Properties
+            ? Queries.allProjects(_store).Head.Properties
             : null;
 
         var dialog = new CallCreateDialog(

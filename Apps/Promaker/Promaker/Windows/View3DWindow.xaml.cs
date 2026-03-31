@@ -11,6 +11,7 @@ using System.Windows.Media.Animation;
 using Microsoft.Web.WebView2.Core;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.View3D;
 using Promaker.ViewModels;
 
@@ -406,7 +407,7 @@ public partial class View3DWindow : Window
         try
         {
             // Get first flow for WorkGraph scene
-            var firstFlow = DsQuery.allFlows(_store).FirstOrDefault();
+            var firstFlow = Queries.allFlows(_store).FirstOrDefault();
             if (firstFlow != null)
             {
                 await _vm.BuildWorkScene(_store, firstFlow.Id);

@@ -3,6 +3,7 @@ namespace Ds2.Runtime.Sim.Engine
 open System
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 open Ds2.Runtime.Sim.Model
 open Ds2.Runtime.Sim.Engine.Core
 open Ds2.Runtime.Sim.Engine.Scheduler
@@ -25,7 +26,7 @@ module internal CallTransitions =
     let setCallIOValues (ctx: Context) (callGuid: Guid) =
         SimIndex.findOrEmpty callGuid ctx.Index.CallApiCallGuids
         |> List.iter (fun apiCallId ->
-            DsQuery.getApiCall apiCallId ctx.Index.Store
+            Queries.getApiCall apiCallId ctx.Index.Store
             |> Option.iter (fun apiCall ->
                 ctx.StateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)))
 
@@ -33,11 +34,11 @@ module internal CallTransitions =
     let setRxWorkIOValues (ctx: Context) (callGuid: Guid) =
         SimIndex.findOrEmpty callGuid ctx.Index.CallApiCallGuids
         |> List.iter (fun apiCallId ->
-            DsQuery.getApiCall apiCallId ctx.Index.Store
+            Queries.getApiCall apiCallId ctx.Index.Store
             |> Option.iter (fun apiCall ->
                 let hasRx =
                     apiCall.ApiDefId
-                    |> Option.bind (fun defId -> DsQuery.getApiDef defId ctx.Index.Store)
+                    |> Option.bind (fun defId -> Queries.getApiDef defId ctx.Index.Store)
                     |> Option.bind (fun def -> def.Properties.RxGuid)
                     |> Option.isSome
                 if hasRx then

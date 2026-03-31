@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 /// DsStore 확장 메서드 공유 로깅 + 엔티티 검증 헬퍼.
 /// 쓰기 연산에서 엔티티가 없으면 Warn 로깅 + InvalidOperationException.
@@ -32,22 +33,22 @@ type internal StoreLog private () =
         | None -> StoreLog.fail(StoreLog.resolve op, $"{entityType} not found. id={id}")
 
     static member requireProject(store: DsStore, id: Guid, [<CallerMemberName>] ?op: string) : Project =
-        StoreLog.requireEntity(DsQuery.getProject, "Project", store, id, op)
+        StoreLog.requireEntity(Queries.getProject, "Project", store, id, op)
 
     static member requireSystem(store: DsStore, id: Guid, [<CallerMemberName>] ?op: string) : DsSystem =
-        StoreLog.requireEntity(DsQuery.getSystem, "System", store, id, op)
+        StoreLog.requireEntity(Queries.getSystem, "System", store, id, op)
 
     static member requireFlow(store: DsStore, id: Guid, [<CallerMemberName>] ?op: string) : Flow =
-        StoreLog.requireEntity(DsQuery.getFlow, "Flow", store, id, op)
+        StoreLog.requireEntity(Queries.getFlow, "Flow", store, id, op)
 
     static member requireWork(store: DsStore, id: Guid, [<CallerMemberName>] ?op: string) : Work =
-        StoreLog.requireEntity(DsQuery.getWork, "Work", store, id, op)
+        StoreLog.requireEntity(Queries.getWork, "Work", store, id, op)
 
     static member requireCall(store: DsStore, id: Guid, [<CallerMemberName>] ?op: string) : Call =
-        StoreLog.requireEntity(DsQuery.getCall, "Call", store, id, op)
+        StoreLog.requireEntity(Queries.getCall, "Call", store, id, op)
 
     static member requireApiDef(store: DsStore, id: Guid, [<CallerMemberName>] ?op: string) : ApiDef =
-        StoreLog.requireEntity(DsQuery.getApiDef, "ApiDef", store, id, op)
+        StoreLog.requireEntity(Queries.getApiDef, "ApiDef", store, id, op)
 
     // ─── Seq 내 검색 (not found → Warn + throw) ──────────────────
     static member private requireInSeq<'T>(items: 'T seq, predicate: 'T -> bool, errMsg: string, op: string) : 'T =
@@ -56,7 +57,7 @@ type internal StoreLog private () =
         | None -> StoreLog.fail(op, errMsg)
 
     static member private tryFindConditionRec (conditions: CallCondition seq) (condId: Guid) : CallCondition option =
-        DsQuery.tryFindConditionRec conditions condId
+        Queries.tryFindConditionRec conditions condId
 
     static member requireCallCondition(store: DsStore, callId: Guid, condId: Guid, [<CallerMemberName>] ?op: string) : CallCondition =
         let op = StoreLog.resolve op

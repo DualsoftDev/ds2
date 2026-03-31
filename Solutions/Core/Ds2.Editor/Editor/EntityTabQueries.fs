@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 [<CompiledName("EntityKindForTabKind")>]
 let entityKindForTabKind (tabKind: TabKind) : EntityKind =
@@ -15,9 +16,9 @@ let entityKindForTabKind (tabKind: TabKind) : EntityKind =
 
 let private lookupEntity (store: DsStore) (tabKind: TabKind) (id: Guid) : (Guid * string) option =
     match tabKind with
-    | TabKind.System -> DsQuery.getSystem id store |> Option.map (fun system -> system.Id, system.Name)
-    | TabKind.Flow   -> DsQuery.getFlow id store |> Option.map (fun flow -> flow.Id, flow.Name)
-    | TabKind.Work   -> DsQuery.getWork id store |> Option.map (fun work -> work.Id, work.Name)
+    | TabKind.System -> Queries.getSystem id store |> Option.map (fun system -> system.Id, system.Name)
+    | TabKind.Flow   -> Queries.getFlow id store |> Option.map (fun flow -> flow.Id, flow.Name)
+    | TabKind.Work   -> Queries.getWork id store |> Option.map (fun work -> work.Id, work.Name)
     | _              -> None
 
 [<CompiledName("TryOpenTabForEntity")>]
@@ -72,7 +73,7 @@ let flowIdsForTab (store: DsStore) (tabKind: TabKind) (rootId: Guid) : Guid list
         |> List.map fst
     | TabKind.Flow -> [ rootId ]
     | TabKind.Work ->
-        DsQuery.getWork rootId store
+        Queries.getWork rootId store
         |> Option.map (fun work -> [ work.ParentId ])
         |> Option.defaultValue []
     | _ -> []

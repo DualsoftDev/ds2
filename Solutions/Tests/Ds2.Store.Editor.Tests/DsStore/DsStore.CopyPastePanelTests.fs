@@ -4,6 +4,7 @@ open System
 open Xunit
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 
@@ -16,7 +17,7 @@ module PasteTests =
         let pastedIds = store.PasteEntities(EntityKind.Flow, [ flow.Id ], EntityKind.System, system.Id, 0)
         Assert.Equal(1, pastedIds.Length)
         Assert.NotEqual(flow.Id, pastedIds.Head)
-        Assert.Equal(2, DsQuery.flowsOf system.Id store |> List.length)
+        Assert.Equal(2, Queries.flowsOf system.Id store |> List.length)
 
     [<Fact>]
     let ``PasteEntities copies works and returns new work ids`` () =
@@ -25,19 +26,19 @@ module PasteTests =
         let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id, 0)
         Assert.Equal(1, pastedIds.Length)
         Assert.NotEqual(work.Id, pastedIds.Head)
-        Assert.Equal(2, DsQuery.worksOf flow.Id store |> List.length)
+        Assert.Equal(2, Queries.worksOf flow.Id store |> List.length)
 
     [<Fact>]
     let ``PasteEntities copies Work TokenRole and Properties`` () =
         let store = createStore ()
         let _, _, flow, work = setupBasicHierarchy store
         work.TokenRole <- TokenRole.Source
-        work.Properties.Period <- Some (TimeSpan.FromSeconds 5.0)
+        work.Properties.Duration <- Some (TimeSpan.FromSeconds 5.0)
         work.Properties.NumRepeat <- 3
         let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id, 0)
-        let pastedWork = DsQuery.getWork pastedIds.Head store |> Option.get
+        let pastedWork = Queries.getWork pastedIds.Head store |> Option.get
         Assert.Equal(TokenRole.Source, pastedWork.TokenRole)
-        Assert.Equal(Some (TimeSpan.FromSeconds 5.0), pastedWork.Properties.Period)
+        Assert.Equal(Some (TimeSpan.FromSeconds 5.0), pastedWork.Properties.Duration)
         Assert.Equal(3, pastedWork.Properties.NumRepeat)
 
     [<Fact>]
@@ -66,7 +67,7 @@ module PasteTests =
             |> Seq.distinct |> Seq.toList
         Assert.Equal(3, pastedApiDefIds.Length)
         // 새 Device System이 Flow2 기준으로 생성되어야 함
-        let passiveSystems = DsQuery.passiveSystemsOf project.Id store
+        let passiveSystems = Queries.passiveSystemsOf project.Id store
         // 원본 3 + 복사본 3 = 6 Device Systems
         Assert.True(passiveSystems.Length >= 6)
 
@@ -80,22 +81,22 @@ module PasteTests =
         let originalCall = store.Calls.[callId]
         // 원본 Device System의 Work에 Period 설정
         let srcApiCall = originalCall.ApiCalls.[0]
-        let srcApiDef = DsQuery.getApiDef (srcApiCall.ApiDefId.Value) store |> Option.get
-        let srcWork = DsQuery.getWork (srcApiDef.Properties.TxGuid.Value) store |> Option.get
-        srcWork.Properties.Period <- Some (TimeSpan.FromSeconds 3.5)
+        let srcApiDef = Queries.getApiDef (srcApiCall.ApiDefId.Value) store |> Option.get
+        let srcWork = Queries.getWork (srcApiDef.Properties.TxGuid.Value) store |> Option.get
+        srcWork.Properties.Duration <- Some (TimeSpan.FromSeconds 3.5)
         // 다른 Flow 생성 후 Cross-flow paste
         let flow2Id = store.AddFlow("Flow2", system.Id)
         let work2Id = store.AddWork("Work2", flow2Id)
         let pastedIds = store.PasteEntities(EntityKind.Call, [ callId ], EntityKind.Work, work2Id, 0)
         let pastedCall = store.Calls.[pastedIds.Head]
-        let pastedApiDef = DsQuery.getApiDef (pastedCall.ApiCalls.[0].ApiDefId.Value) store |> Option.get
+        let pastedApiDef = Queries.getApiDef (pastedCall.ApiCalls.[0].ApiDefId.Value) store |> Option.get
         // TxGuid, RxGuid 모두 설정되어야 함
         Assert.True(pastedApiDef.Properties.TxGuid.IsSome)
         Assert.True(pastedApiDef.Properties.RxGuid.IsSome)
-        let pastedWork = DsQuery.getWork (pastedApiDef.Properties.RxGuid.Value) store |> Option.get
-        Assert.Equal(Some (TimeSpan.FromSeconds 3.5), pastedWork.Properties.Period)
+        let pastedWork = Queries.getWork (pastedApiDef.Properties.RxGuid.Value) store |> Option.get
+        Assert.Equal(Some (TimeSpan.FromSeconds 3.5), pastedWork.Properties.Duration)
         // tryGetDeviceDurationMs 경로 검증 (시뮬레이션에서 사용하는 경로)
-        let deviceDuration = DsQuery.tryGetDeviceDurationMs work2Id store
+        let deviceDuration = Queries.tryGetDeviceDurationMs work2Id store
         Assert.Equal(Some 3500, deviceDuration)
 
     [<Fact>]
@@ -164,7 +165,7 @@ module MoveTests =
         let store = createStore ()
         let project, _, _, work = setupBasicHierarchy store
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1" ], true, None)
-        let call = DsQuery.callsOf work.Id store |> List.head
+        let call = Queries.callsOf work.Id store |> List.head
         let request = MoveEntityRequest(call.Id, Xywh(50, 60, 120, 40))
         let moved = store.MoveEntities([ request ])
         Assert.Equal(1, moved)
@@ -176,19 +177,6 @@ module MoveTests =
 
 module PanelTests =
 
-
-    [<Fact>]
-    let ``AddApiDefWithProperties creates apiDef with all properties set`` () =
-        let store = createStore ()
-        let project = addProject store "P"
-        let system = addSystem store "S" project.Id false
-        let id = store.AddApiDefWithProperties("Api1", system.Id, true, None, None, 200, Some "test desc")
-        let apiDef = store.ApiDefs.[id]
-        Assert.Equal("Api1", apiDef.Name)
-        Assert.Equal(system.Id, apiDef.ParentId)
-        Assert.True(apiDef.Properties.IsPush)
-        Assert.Equal(200, apiDef.Properties.Period)
-        Assert.Equal(Some "test desc", apiDef.Properties.Description)
 
     [<Fact>]
     let ``TryGetCallApiCallForPanel returns item when api call exists`` () =
@@ -228,16 +216,29 @@ module PanelTests =
         Assert.Equal(Some apiDef.Id, created.ApiDefId)
 
     [<Fact>]
+    let ``AddApiDefWithProperties creates apiDef with properties object`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let system = addSystem store "S" project.Id false
+        let props = ApiDefProperties(IsPush = true, Description = Some "test desc")
+        let id = store.AddApiDefWithProperties("Api1", system.Id, props)
+        let apiDef = store.ApiDefs.[id]
+        Assert.Equal("Api1", apiDef.Name)
+        Assert.Equal(system.Id, apiDef.ParentId)
+        Assert.True(apiDef.Properties.IsPush)
+        Assert.Equal(Some "test desc", apiDef.Properties.Description)
+
+    [<Fact>]
     let ``UpdateApiDef changes name and properties atomically`` () =
         let store = createStore ()
         let project = addProject store "P"
         let system = addSystem store "S" project.Id false
         let apiDef = addApiDef store "Api1" system.Id
-        store.UpdateApiDef(apiDef.Id, "ApiRenamed", true, None, None, 300, Some "new desc")
+        let props = ApiDefProperties(IsPush = true, Description = Some "new desc")
+        store.UpdateApiDef(apiDef.Id, "ApiRenamed", props)
         let updated = store.ApiDefs.[apiDef.Id]
         Assert.Equal("ApiRenamed", updated.Name)
         Assert.True(updated.Properties.IsPush)
-        Assert.Equal(300, updated.Properties.Period)
         Assert.Equal(Some "new desc", updated.Properties.Description)
 
     [<Fact>]
@@ -246,12 +247,11 @@ module PanelTests =
         let project = addProject store "P"
         let system = addSystem store "S" project.Id false
         let apiDef = addApiDef store "OldName" system.Id
-        store.UpdateApiDef(apiDef.Id, "NewName", true, None, None, 100, None)
+        store.UpdateApiDef(apiDef.Id, "NewName", ApiDefProperties(IsPush = true))
         store.Undo()
         let reverted = store.ApiDefs.[apiDef.Id]
         Assert.Equal("OldName", reverted.Name)
         Assert.False(reverted.Properties.IsPush)
-        Assert.Equal(0, reverted.Properties.Period)
 
     [<Fact>]
     let ``UpdateConditionApiCallOutputSpec updates selected condition api call`` () =

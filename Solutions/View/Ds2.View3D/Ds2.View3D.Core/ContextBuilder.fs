@@ -2,6 +2,7 @@ module Ds2.View3D.ContextBuilder
 
 open System
 open Ds2.Store
+open Ds2.Store.DsQuery
 open Ds2.View3D
 open Ds2.View3D.ResultExtensions
 
@@ -25,11 +26,11 @@ let private buildSystemToFlowsMap (store: DsStore) : Map<Guid, Set<string>> =
         |> Seq.choose (fun apiCall ->
             match apiCall.ApiDefId with
             | Some apiDefId ->
-                match DsQuery.getApiDef apiDefId store with
+                match Queries.getApiDef apiDefId store with
                 | Some apiDef ->
-                    match DsQuery.getWork call.ParentId store with
+                    match Queries.getWork call.ParentId store with
                     | Some work ->
-                        match DsQuery.getFlow work.ParentId store with
+                        match Queries.getFlow work.ParentId store with
                         | Some flow -> Some (apiDef.ParentId, flow.Name)
                         | None -> None
                     | None -> None
@@ -97,7 +98,7 @@ let extractApiDefs (store: DsStore) (callerCountMap: Map<Guid, int>) (systemId: 
 
 /// Project의 모든 Device 추출 (성능 최적화: 전체 맵 미리 빌드)
 let extractDevices (store: DsStore) (projectId: Guid) : Result<DeviceInfo list, SceneError> =
-    match DsQuery.getProject projectId store with
+    match Queries.getProject projectId store with
     | None ->
         Log.error "Project not found: %A" projectId
         Error (ProjectNotFound projectId)
@@ -117,7 +118,7 @@ let extractDevices (store: DsStore) (projectId: Guid) : Result<DeviceInfo list, 
 
         allSystemIds
         |> List.map (fun systemId ->
-            match DsQuery.getSystem systemId store with
+            match Queries.getSystem systemId store with
             | None ->
                 Log.warn "System not found: %A" systemId
                 Error (SystemNotFound systemId)
