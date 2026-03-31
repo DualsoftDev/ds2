@@ -21,9 +21,7 @@ public partial class PropertyPanelState
 
     private bool TryUpdateApiDef(Guid apiDefId, ApiDefEditDialog dialog) =>
         _host.TryAction(
-            () => Store.UpdateApiDef(
-                apiDefId, dialog.ApiDefName, dialog.IsPush,
-                dialog.TxWorkId, dialog.RxWorkId, dialog.Period, dialog.Description));
+            () => Store.UpdateApiDef(apiDefId, dialog.ApiDefName, dialog.ResultProperties));
 
     [RelayCommand]
     private void AddSystemApiDef()
@@ -36,8 +34,7 @@ public partial class PropertyPanelState
 
         if (!_host.TryAction(
                 () => Store.AddApiDefWithProperties(
-                    dialog.ApiDefName, systemNode.Id, dialog.IsPush,
-                    dialog.TxWorkId, dialog.RxWorkId, dialog.Period, dialog.Description)))
+                    dialog.ApiDefName, systemNode.Id, dialog.ResultProperties)))
             return;
 
         RefreshSystemPanel(systemNode.Id);

@@ -100,7 +100,7 @@ type NodeSelectionResult(orderedKeys: SelectionKey list, anchor: SelectionKey op
 
 /// System 프로퍼티 패널 — ApiDef 항목 (C# 소비용)
 [<Sealed>]
-type ApiDefPanelItem(id: Guid, name: string, isPush: bool, txWorkId: Guid option, rxWorkId: Guid option, period: int, description: string) =
+type ApiDefPanelItem(id: Guid, name: string, isPush: bool, txWorkId: Guid option, rxWorkId: Guid option, description: string) =
     member _.Id          = id
     member _.Name        = name
     member _.IsPush      = isPush
@@ -108,7 +108,6 @@ type ApiDefPanelItem(id: Guid, name: string, isPush: bool, txWorkId: Guid option
     member _.RxWorkId    = rxWorkId
     member _.TxWorkIdOrNull = txWorkId |> Option.toNullable
     member _.RxWorkIdOrNull = rxWorkId |> Option.toNullable
-    member _.Period      = period
     member _.Description = description
 
 [<Sealed>]

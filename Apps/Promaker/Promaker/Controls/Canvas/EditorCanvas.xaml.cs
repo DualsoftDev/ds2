@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Promaker.Dialogs;
 using Promaker.ViewModels;
@@ -146,7 +147,7 @@ public partial class EditorCanvas : UserControl
         if (isWorkSelected == true && VM?.SelectedNode is { } workNode)
         {
             var store = VM.PropertyPanel.Host.Store;
-            var role = DsQuery.getWork(workNode.Id, store)?.Value.TokenRole ?? TokenRole.None;
+            var role = Queries.getWork(workNode.Id, store)?.Value.TokenRole ?? TokenRole.None;
             TokenRoleSourceItem.Header = (role.HasFlag(TokenRole.Source) ? "✔ " : "    ") + "Source";
             TokenRoleIgnoreItem.Header = (role.HasFlag(TokenRole.Ignore) ? "✔ " : "    ") + "Ignore";
             TokenRoleSinkItem.Header = (role.HasFlag(TokenRole.Sink) ? "✔ " : "    ") + "Sink";

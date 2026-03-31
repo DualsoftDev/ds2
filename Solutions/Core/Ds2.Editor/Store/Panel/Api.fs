@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 // ─── ApiDef helpers ──────────────────────────────────────────────────
 
@@ -12,7 +13,6 @@ module internal PanelApiDefOps =
         ApiDefPanelItem(
             apiDef.Id, apiDef.Name, apiDef.Properties.IsPush,
             apiDef.Properties.TxGuid, apiDef.Properties.RxGuid,
-            apiDef.Properties.Period,
             apiDef.Properties.Description |> Option.defaultValue "")
 
 // ─── ApiDef extensions ───────────────────────────────────────────────
@@ -21,18 +21,18 @@ module internal PanelApiDefOps =
 type DsStorePanelApiDefExtensions =
     [<Extension>]
     static member GetApiDefsForSystem(store: DsStore, systemId: Guid) : ApiDefPanelItem list =
-        DsQuery.apiDefsOf systemId store
+        Queries.apiDefsOf systemId store
         |> List.map PanelApiDefOps.toApiDefPanelItem
 
     [<Extension>]
     static member GetWorksForSystem(store: DsStore, systemId: Guid) : WorkDropdownItem list =
-        DsQuery.flowsOf systemId store
-        |> List.collect (fun flow -> DsQuery.worksOf flow.Id store)
+        Queries.flowsOf systemId store
+        |> List.collect (fun flow -> Queries.worksOf flow.Id store)
         |> List.map (fun work -> WorkDropdownItem(work.Id, work.Name))
 
     [<Extension>]
     static member TryGetApiDefForEdit(store: DsStore, apiDefId: Guid) : (Guid * ApiDefPanelItem) option =
-        DsQuery.getApiDef apiDefId store
+        Queries.getApiDef apiDefId store
         |> Option.map (fun apiDef -> apiDef.ParentId, PanelApiDefOps.toApiDefPanelItem apiDef)
 
     [<Extension>]
@@ -43,16 +43,11 @@ type DsStorePanelApiDefExtensions =
 
     [<Extension>]
     static member AddApiDefWithProperties
-        (store: DsStore, name: string, systemId: Guid, isPush: bool, txGuid: Guid option, rxGuid: Guid option,
-         period: int, description: string option) : Guid =
-        StoreLog.debug($"name={name}, systemId={systemId}, isPush={isPush}")
+        (store: DsStore, name: string, systemId: Guid, props: ApiDefProperties) : Guid =
+        StoreLog.debug($"name={name}, systemId={systemId}")
         StoreLog.requireSystem(store, systemId) |> ignore
         let apiDef = ApiDef(name, systemId)
-        apiDef.Properties.IsPush <- isPush
-        apiDef.Properties.TxGuid <- txGuid
-        apiDef.Properties.RxGuid <- rxGuid
-        apiDef.Properties.Period <- period
-        apiDef.Properties.Description <- description
+        apiDef.Properties <- props.DeepCopy()
         store.WithTransaction($"ApiDef 추가 \"{name}\"", fun () ->
             store.TrackAdd(store.ApiDefs, apiDef))
         store.EmitAndHistory(ApiDefAdded apiDef)
@@ -60,18 +55,13 @@ type DsStorePanelApiDefExtensions =
 
     [<Extension>]
     static member UpdateApiDef
-        (store: DsStore, apiDefId: Guid, newName: string, isPush: bool, txGuid: Guid option, rxGuid: Guid option,
-         period: int, description: string option) =
-        StoreLog.debug($"apiDefId={apiDefId}, newName={newName}, isPush={isPush}")
+        (store: DsStore, apiDefId: Guid, newName: string, props: ApiDefProperties) =
+        StoreLog.debug($"apiDefId={apiDefId}, newName={newName}")
         StoreLog.requireApiDef(store, apiDefId) |> ignore
         store.WithTransaction("ApiDef 편집", fun () ->
             store.TrackMutate(store.ApiDefs, apiDefId, fun d ->
                 d.Name <- newName
-                d.Properties.IsPush <- isPush
-                d.Properties.TxGuid <- txGuid
-                d.Properties.RxGuid <- rxGuid
-                d.Properties.Period <- period
-                d.Properties.Description <- description))
+                d.Properties <- props.DeepCopy()))
         store.EmitRefreshAndHistory()
 
 // ─── ApiCall extensions ──────────────────────────────────────────────
@@ -82,12 +72,12 @@ type DsStorePanelApiCallExtensions =
     static member GetDeviceApiDefOptionsForCall(store: DsStore, callId: Guid) : DeviceApiDefOption list =
         let systems =
             match StoreHierarchyQueries.tryFindProjectIdForEntity store EntityKind.Call callId with
-            | Some projectId -> DsQuery.passiveSystemsOf projectId store
-            | None -> DsQuery.allProjects store |> List.collect (fun p -> DsQuery.passiveSystemsOf p.Id store)
+            | Some projectId -> Queries.passiveSystemsOf projectId store
+            | None -> Queries.allProjects store |> List.collect (fun p -> Queries.passiveSystemsOf p.Id store)
         systems
         |> List.distinctBy (fun s -> s.Id)
         |> List.collect (fun system ->
-            DsQuery.apiDefsOf system.Id store
+            Queries.apiDefsOf system.Id store
             |> List.map (fun apiDef -> DeviceApiDefOption(apiDef.Id, system.Name, apiDef.Name)))
         |> List.sortBy (fun item -> item.DisplayName)
 
@@ -98,7 +88,7 @@ type DsStorePanelApiCallExtensions =
 
     [<Extension>]
     static member TryGetCallApiCallForPanel(store: DsStore, callId: Guid, apiCallId: Guid) : CallApiCallPanelItem option =
-        match DsQuery.getCall callId store with
+        match Queries.getCall callId store with
         | Some call ->
             call.ApiCalls
             |> Seq.tryFind (fun apiCall -> apiCall.Id = apiCallId)

@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 
 namespace Promaker.ViewModels;
@@ -148,11 +149,11 @@ public partial class PropertyPanelState : ObservableObject
         };
 
         var fullName = selected?.Name ?? string.Empty;
-        // Work 이름: "FlowPrefix.LocalName" → prefix를 분리해서 텍스트박스에는 LocalName만
-        if (IsSingleWorkSelected && fullName.IndexOf('.') is var dotIdx && dotIdx >= 0)
+        if (IsSingleWorkSelected)
         {
-            NamePrefix = fullName[..(dotIdx + 1)]; // "FlowName."
-            NameEditorText = fullName[(dotIdx + 1)..];
+            var (prefix, localName) = TokenRoleOps.parseWorkNameParts(fullName);
+            NamePrefix = prefix;
+            NameEditorText = localName;
         }
         else
         {
@@ -169,15 +170,15 @@ public partial class PropertyPanelState : ObservableObject
             if (IsSingleWorkSelected && selected is not null)
             {
                 var resolvedWorkId = selected.ReferenceOfId ?? selected.Id;
-                var devOpt = DsQuery.tryGetDeviceDurationMs(resolvedWorkId, Store);
+                var devOpt = Queries.tryGetDeviceDurationMs(resolvedWorkId, Store);
                 _deviceDurationMs = devOpt != null ? (int?)devOpt.Value : null;
                 DeviceDurationHint = _deviceDurationMs is { } ms ? $"예상 소요 시간: {ms}ms" : "";
 
-                var canonicalSelectedWorkId = DsQuery.resolveOriginalWorkId(selected.Id, Store);
-                var linkedSpec = DsQuery.getTokenSpecs(Store)
+                var canonicalSelectedWorkId = Queries.resolveOriginalWorkId(selected.Id, Store);
+                var linkedSpec = Queries.getTokenSpecs(Store)
                     .FirstOrDefault(s =>
                         s.WorkId is { } wid
-                        && DsQuery.resolveOriginalWorkId(wid.Value, Store) == canonicalSelectedWorkId);
+                        && Queries.resolveOriginalWorkId(wid.Value, Store) == canonicalSelectedWorkId);
                 HasLinkedTokenSpec = linkedSpec is not null;
                 LinkedTokenSpecLabel = linkedSpec is not null ? $"#{linkedSpec.Id} {linkedSpec.Label}" : "";
             }
@@ -194,13 +195,13 @@ public partial class PropertyPanelState : ObservableObject
                 .Distinct().ToList();
 
             var workRoles = selectedWorkIds
-                .Select(workId => DsQuery.getWork(workId, Store)?.Value.TokenRole ?? TokenRole.None)
+                .Select(workId => Queries.getWork(workId, Store)?.Value.TokenRole ?? TokenRole.None)
                 .ToList();
             _suppressTokenRoleSync = true;
             IsWorkFinished = isFinishedValues.Count == 1 ? isFinishedValues[0] : null;
-            IsTokenSource = ResolveTokenRoleFlagState(workRoles, TokenRole.Source);
-            IsTokenIgnore = ResolveTokenRoleFlagState(workRoles, TokenRole.Ignore);
-            IsTokenSink = ResolveTokenRoleFlagState(workRoles, TokenRole.Sink);
+            IsTokenSource = TokenRoleOps.resolveTokenRoleFlagState(workRoles, TokenRole.Source);
+            IsTokenIgnore = TokenRoleOps.resolveTokenRoleFlagState(workRoles, TokenRole.Ignore);
+            IsTokenSink = TokenRoleOps.resolveTokenRoleFlagState(workRoles, TokenRole.Sink);
             _suppressTokenRoleSync = false;
         }
         else
@@ -250,7 +251,7 @@ public partial class PropertyPanelState : ObservableObject
             RefreshSystemPanel(selected.Id);
 
             // Load SystemType
-            var systemOpt = DsQuery.getSystem(selected.Id, Store);
+            var systemOpt = Queries.getSystem(selected.Id, Store);
             if (systemOpt != null && Microsoft.FSharp.Core.FSharpOption<DsSystem>.get_IsSome(systemOpt))
             {
                 var systemTypeOpt = systemOpt.Value.Properties.SystemType;
@@ -409,7 +410,7 @@ public partial class PropertyPanelState : ObservableObject
     private IReadOnlyList<Guid> GetSelectedCanonicalWorkIds() =>
         _selectedNodeKeys
             .Where(key => key.EntityKind == EntityKind.Work)
-            .Select(key => DsQuery.resolveOriginalWorkId(key.Id, Store))
+            .Select(key => Queries.resolveOriginalWorkId(key.Id, Store))
             .Distinct()
             .ToList();
 
@@ -419,17 +420,6 @@ public partial class PropertyPanelState : ObservableObject
             .Select(key => key.Id)
             .Distinct()
             .ToList();
-
-    private static bool? ResolveTokenRoleFlagState(IReadOnlyList<TokenRole> roles, TokenRole flag)
-    {
-        if (roles.Count == 0)
-            return false;
-
-        var first = roles[0].HasFlag(flag);
-        return roles.All(role => role.HasFlag(flag)) == roles.Any(role => role.HasFlag(flag))
-            ? first
-            : null;
-    }
 
     private void SyncIsFinishedFlag(bool? value)
     {
@@ -484,8 +474,8 @@ public partial class PropertyPanelState : ObservableObject
         var changes = selectedWorkIds
             .Select(workId =>
             {
-                var currentRole = DsQuery.getWork(workId, Store)?.Value.TokenRole ?? TokenRole.None;
-                var nextRole = value.Value ? currentRole | flag : currentRole & ~flag;
+                var currentRole = Queries.getWork(workId, Store)?.Value.TokenRole ?? TokenRole.None;
+                var nextRole = TokenRoleOps.computeNextTokenRole(currentRole, flag, value.Value);
                 return new ValueTuple<Guid, TokenRole>(workId, nextRole);
             })
             .ToList();

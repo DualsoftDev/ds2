@@ -6,6 +6,7 @@ open System.Text.RegularExpressions
 open System.Collections.Generic
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 /// DsStore → Mermaid flowchart 변환 모듈
 module MermaidExporter =
@@ -77,7 +78,7 @@ module MermaidExporter =
         sb.AppendLine($"""{indent}subgraph {workId}["{work.Name}"]""") |> ignore
         let innerIndent = indent + "    "
 
-        let calls = DsQuery.callsOf work.Id store
+        let calls = Queries.callsOf work.Id store
         for call in calls do
             let nodeId = sanitizeId $"{prefix}_{workName}_{call.Name}"
             callIdToNodeId.[call.Id] <- nodeId
@@ -89,7 +90,7 @@ module MermaidExporter =
             sb.AppendLine($"""{innerIndent}{nodeId}["{call.Name}{condSuffix}"]""") |> ignore
 
         // Call 간 화살표 (ArrowBetweenCalls)
-        let callArrows = DsQuery.arrowCallsOf work.Id store
+        let callArrows = Queries.arrowCallsOf work.Id store
         for arrow in callArrows do
             match callIdToNodeId.TryGetValue(arrow.SourceId), callIdToNodeId.TryGetValue(arrow.TargetId) with
             | (true, sourceId), (true, targetId) ->
@@ -104,7 +105,7 @@ module MermaidExporter =
 
     /// 단일 Flow를 Mermaid flowchart 문자열로 변환
     let flowToMermaid (store: DsStore) (flowId: Guid) : string =
-        match DsQuery.getFlow flowId store with
+        match Queries.getFlow flowId store with
         | None -> ""
         | Some flow ->
             let sb = StringBuilder()
@@ -114,14 +115,14 @@ module MermaidExporter =
             let callIdToNodeId = Dictionary<Guid, string>()
             let workIdMap = Dictionary<Guid, string>()
 
-            let works = DsQuery.worksOf flow.Id store
+            let works = Queries.worksOf flow.Id store
             for work in works do
                 convertWork sb store flowName "    " work callIdToNodeId workIdMap
 
             // 해당 Flow의 Work들 간 화살표만 추출
             let flowWorkIds = works |> List.map (fun w -> w.Id) |> Set.ofList
             let systemId = flow.ParentId
-            let workArrows = DsQuery.arrowWorksOf systemId store
+            let workArrows = Queries.arrowWorksOf systemId store
             let relevantArrows =
                 workArrows
                 |> List.filter (fun a -> flowWorkIds.Contains(a.SourceId) && flowWorkIds.Contains(a.TargetId))
@@ -143,19 +144,19 @@ module MermaidExporter =
         let systemName = sanitizeId system.Name
         sb.AppendLine($"""    subgraph {systemName}["{system.Name}"]""") |> ignore
 
-        let flows = DsQuery.flowsOf system.Id store
+        let flows = Queries.flowsOf system.Id store
         for flow in flows do
             let flowName = sanitizeId $"{systemName}_{flow.Name}"
             sb.AppendLine($"""        subgraph {flowName}["{flow.Name}"]""") |> ignore
 
-            let works = DsQuery.worksOf flow.Id store
+            let works = Queries.worksOf flow.Id store
             for work in works do
                 convertWork sb store flowName "            " work callIdToNodeId workIdMap
 
             sb.AppendLine("        end") |> ignore
 
         // ArrowBetweenWorks (System 레벨)
-        let workArrows = DsQuery.arrowWorksOf system.Id store
+        let workArrows = Queries.arrowWorksOf system.Id store
         for arrow in workArrows do
             match workIdMap.TryGetValue(arrow.SourceId), workIdMap.TryGetValue(arrow.TargetId) with
             | (true, sourceId), (true, targetId) ->
@@ -173,11 +174,11 @@ module MermaidExporter =
         let callIdToNodeId = Dictionary<Guid, string>()
         let workIdMap = Dictionary<Guid, string>()
 
-        let activeSystems = DsQuery.activeSystemsOf projectId store
+        let activeSystems = Queries.activeSystemsOf projectId store
         for system in activeSystems do
             emitSystem sb store system callIdToNodeId workIdMap
 
-        let passiveSystems = DsQuery.passiveSystemsOf projectId store
+        let passiveSystems = Queries.passiveSystemsOf projectId store
         if not passiveSystems.IsEmpty then
             sb.AppendLine("    %% [Passive]") |> ignore
             for system in passiveSystems do
@@ -187,7 +188,7 @@ module MermaidExporter =
 
     /// 프로젝트 전체를 Mermaid 파일로 저장
     let saveProjectToFile (store: DsStore) (outputPath: string) : Result<unit, string> =
-        let projects = DsQuery.allProjects store
+        let projects = Queries.allProjects store
         if projects.IsEmpty then
             Error "프로젝트가 없습니다."
         else

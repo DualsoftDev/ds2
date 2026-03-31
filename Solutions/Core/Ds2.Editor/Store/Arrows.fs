@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 // =============================================================================
 // 내부 헬퍼 — 화살표 재연결 해석
@@ -23,12 +24,12 @@ module internal DirectArrowOps =
             | None -> false
             | Some(keepId, newSourceId, newTargetId) ->
                 // ArrowBetweenWorks.parentId = systemId — 새 endpoint도 같은 System에 속해야 함
-                match DsQuery.trySystemIdOfWork newEndpointId store, DsQuery.trySystemIdOfWork keepId store with
+                match Queries.trySystemIdOfWork newEndpointId store, Queries.trySystemIdOfWork keepId store with
                 | Some newSysId, Some keepSysId
                     when newSysId = arrow.ParentId && keepSysId = arrow.ParentId ->
                     let expectedKey = ConnectionQueries.arrowKey newSourceId newTargetId arrow.ArrowType
                     let hasDuplicate =
-                        DsQuery.arrowWorksOf arrow.ParentId store
+                        Queries.arrowWorksOf arrow.ParentId store
                         |> ConnectionQueries.hasArrowKeyExcept expectedKey (Some arrow.Id)
                     if hasDuplicate then false
                     else
@@ -43,12 +44,12 @@ module internal DirectArrowOps =
             | None -> false
             | Some(keepId, newSourceId, newTargetId) ->
                 // ArrowBetweenCalls.parentId = workId — 새 endpoint도 같은 Work에 속해야 함
-                match DsQuery.getCall newEndpointId store, DsQuery.getCall keepId store with
+                match Queries.getCall newEndpointId store, Queries.getCall keepId store with
                 | Some newCall, Some keepCall
                     when newCall.ParentId = arrow.ParentId && keepCall.ParentId = arrow.ParentId ->
                     let expectedKey = ConnectionQueries.arrowKey newSourceId newTargetId arrow.ArrowType
                     let hasDuplicate =
-                        DsQuery.arrowCallsOf arrow.ParentId store
+                        Queries.arrowCallsOf arrow.ParentId store
                         |> ConnectionQueries.hasArrowKeyExcept expectedKey (Some arrow.Id)
                     if hasDuplicate then false
                     else
@@ -58,7 +59,7 @@ module internal DirectArrowOps =
                         true
                 | _ -> false
 
-        match DsQuery.getArrowWork arrowId store, DsQuery.getArrowCall arrowId store with
+        match Queries.getArrowWork arrowId store, Queries.getArrowCall arrowId store with
         | Some arrow, _ -> tryWork arrow
         | None, Some arrow -> tryCall arrow
         | _ -> false
@@ -76,10 +77,10 @@ type DsStoreArrowsExtensions =
             arrowIds
             |> Seq.distinct
             |> Seq.choose (fun arrowId ->
-                match DsQuery.getArrowWork arrowId store with
+                match Queries.getArrowWork arrowId store with
                 | Some _ -> Some(arrowId, true)
                 | None ->
-                    match DsQuery.getArrowCall arrowId store with
+                    match Queries.getArrowCall arrowId store with
                     | Some _ -> Some(arrowId, false)
                     | None -> None)
             |> Seq.toList
@@ -106,7 +107,7 @@ type DsStoreArrowsExtensions =
     [<Extension>]
     static member UpdateArrowType(store: DsStore, arrowId: Guid, newArrowType: ArrowType) : bool =
         StoreLog.debug($"arrowId={arrowId}, newArrowType={newArrowType}")
-        match DsQuery.getArrowWork arrowId store with
+        match Queries.getArrowWork arrowId store with
         | Some arrow when arrow.ArrowType <> newArrowType
                           && EntityKindRules.isArrowTypeAllowedForKind EntityKind.Work newArrowType ->
             store.WithTransaction("화살표 타입 변경", fun () ->
@@ -115,7 +116,7 @@ type DsStoreArrowsExtensions =
             true
         | Some _ -> false
         | None ->
-            match DsQuery.getArrowCall arrowId store with
+            match Queries.getArrowCall arrowId store with
             | Some arrow when arrow.ArrowType <> newArrowType
                               && EntityKindRules.isArrowTypeAllowedForKind EntityKind.Call newArrowType ->
                 store.WithTransaction("화살표 타입 변경", fun () ->
@@ -127,11 +128,11 @@ type DsStoreArrowsExtensions =
     [<Extension>]
     static member ReverseArrow(store: DsStore, arrowId: Guid) : bool =
         StoreLog.debug($"arrowId={arrowId}")
-        match DsQuery.getArrowWork arrowId store with
+        match Queries.getArrowWork arrowId store with
         | Some arrow ->
             let expectedKey = ConnectionQueries.arrowKey arrow.TargetId arrow.SourceId arrow.ArrowType
             let hasDuplicate =
-                DsQuery.arrowWorksOf arrow.ParentId store
+                Queries.arrowWorksOf arrow.ParentId store
                 |> ConnectionQueries.hasArrowKeyExcept expectedKey (Some arrow.Id)
             if hasDuplicate then false
             else
@@ -143,11 +144,11 @@ type DsStoreArrowsExtensions =
                 store.EmitConnectionsChangedAndHistory()
                 true
         | None ->
-            match DsQuery.getArrowCall arrowId store with
+            match Queries.getArrowCall arrowId store with
             | Some arrow ->
                 let expectedKey = ConnectionQueries.arrowKey arrow.TargetId arrow.SourceId arrow.ArrowType
                 let hasDuplicate =
-                    DsQuery.arrowCallsOf arrow.ParentId store
+                    Queries.arrowCallsOf arrow.ParentId store
                     |> ConnectionQueries.hasArrowKeyExcept expectedKey (Some arrow.Id)
                 if hasDuplicate then false
                 else
@@ -188,7 +189,7 @@ type DsStoreArrowsExtensions =
             workIds
             |> Seq.distinct
             |> Seq.choose (fun id ->
-                DsQuery.trySystemIdOfWork id store
+                Queries.trySystemIdOfWork id store
                 |> Option.map (fun sysId -> sysId, id))
             |> Seq.groupBy fst
             |> Seq.map (fun (sysId, pairs) -> sysId, pairs |> Seq.map snd |> Seq.toList)
@@ -198,7 +199,7 @@ type DsStoreArrowsExtensions =
         else
             // 기존 ResetReset 화살표를 양방향 key 세트로 프리빌드
             let existing =
-                DsQuery.allArrowWorks store
+                Queries.allArrowWorks store
                 |> List.filter (fun a -> a.ArrowType = ArrowType.ResetReset)
                 |> List.collect (fun a ->
                     [ ConnectionQueries.arrowKey a.SourceId a.TargetId a.ArrowType

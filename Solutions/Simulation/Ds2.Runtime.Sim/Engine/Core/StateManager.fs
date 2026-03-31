@@ -2,6 +2,7 @@ namespace Ds2.Runtime.Sim.Engine.Core
 
 open System
 open Ds2.Store
+open Ds2.Store.DsQuery
 open Ds2.Core
 open Ds2.Runtime.Sim.Model
 
@@ -67,7 +68,7 @@ type StateManager(index: SimIndex, initialTickMs: int) =
         lock syncRoot (fun () ->
             let oldState = state.CallStates |> Map.tryFind guid |> Option.defaultValue Status4.Ready
             let nodeName =
-                DsQuery.getCall guid index.Store
+                Queries.getCall guid index.Store
                 |> Option.map (fun c -> c.Name) |> Option.defaultValue (string guid)
             let deviceName =
                 index.CallWorkGuid |> Map.tryFind guid

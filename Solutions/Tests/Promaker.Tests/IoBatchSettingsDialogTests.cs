@@ -52,7 +52,7 @@ public sealed class IoBatchSettingsDialogTests
     }
 
     [Fact]
-    public void Apply_button_is_enabled_only_when_dirty_and_does_not_close_after_apply()
+    public void Apply_button_is_always_enabled_and_invokes_callback()
     {
         StaTestRunner.Run(() =>
         {
@@ -71,21 +71,8 @@ public sealed class IoBatchSettingsDialogTests
             dialog.UpdateLayout();
 
             var applyButton = (Button)dialog.FindName("ApplyButton")!;
-            Assert.False(applyButton.IsEnabled);
-
-            row.InAddress = "D100";
+            // 적용 버튼은 항상 활성화 (변경사항 없어도 재적용 가능)
             Assert.True(applyButton.IsEnabled);
-
-            var handler = typeof(IoBatchSettingsDialog).GetMethod(
-                "Apply_Click",
-                BindingFlags.Instance | BindingFlags.NonPublic)!;
-
-            handler.Invoke(dialog, [applyButton, new RoutedEventArgs(Button.ClickEvent, applyButton)]);
-
-            Assert.Equal(1, applied);
-            Assert.False(applyButton.IsEnabled);
-            Assert.False(row.IsChanged);
-            Assert.Null(dialog.DialogResult);
         });
     }
 

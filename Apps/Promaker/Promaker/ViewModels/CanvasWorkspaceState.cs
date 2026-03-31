@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 
 namespace Promaker.ViewModels;
@@ -70,7 +71,7 @@ public partial class CanvasWorkspaceState : ObservableObject
         // Flow 더블클릭 → 부모 System 탭에서 해당 Flow의 Work만 하이라이트 (토글)
         if (entityType == EntityKind.Flow)
         {
-            var flow = DsQuery.getFlow(entityId, Store);
+            var flow = Queries.getFlow(entityId, Store);
             if (flow == null) return;
 
             // 같은 Flow 다시 더블클릭 → 하이라이트 해제 (토글)
@@ -221,7 +222,7 @@ public partial class CanvasWorkspaceState : ObservableObject
         HashSet<Guid>? highlightWorkIds = null;
         if (HighlightedFlowId.HasValue && ActiveTab.Kind == TabKind.System)
         {
-            var works = DsQuery.worksOf(HighlightedFlowId.Value, Store);
+            var works = Queries.worksOf(HighlightedFlowId.Value, Store);
             highlightWorkIds = works.Select(w => w.Id).ToHashSet();
         }
 

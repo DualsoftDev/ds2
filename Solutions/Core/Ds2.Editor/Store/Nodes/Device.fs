@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 
 module internal DirectDeviceOps =
@@ -19,7 +20,7 @@ module internal DirectDeviceOps =
     /// 순서대로 나열된 Work들 사이에 상호 리셋 Arrow 생성 (공통 헬퍼)
     let createMutualResetArrows (store: DsStore) (systemId: Guid) (works: Work list) =
         if works.Length > 1 then
-            let existingArrows = DsQuery.arrowWorksOf systemId store
+            let existingArrows = Queries.arrowWorksOf systemId store
 
             // 마지막 Work에 IsFinished 자동 설정
             match List.tryLast works with
@@ -62,7 +63,7 @@ module internal DirectDeviceOps =
         match Map.tryFind systemName state.PendingSystems with
         | Some system -> system, state
         | None ->
-            match DsQuery.passiveSystemsOf projectId store |> List.tryFind (fun s -> s.Name = systemName) with
+            match Queries.passiveSystemsOf projectId store |> List.tryFind (fun s -> s.Name = systemName) with
             | Some existing ->
                 // 기존 System에 SystemType 설정 (없으면)
                 match systemType with
@@ -71,9 +72,9 @@ module internal DirectDeviceOps =
                         s.Properties.SystemType <- Some sysType)
                 | _ -> ()
 
-                match DsQuery.flowsOf existing.Id store with
+                match Queries.flowsOf existing.Id store with
                 | flow :: _ ->
-                    let existingWorks = DsQuery.worksOf flow.Id store
+                    let existingWorks = Queries.worksOf flow.Id store
                     let existingWorkOrder =
                         Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []
                         |> List.append existingWorks
@@ -123,7 +124,7 @@ module internal DirectDeviceOps =
             let flow = Map.find devAlias state.PendingFlows
             // 기존 시스템에 이미 같은 이름의 Work가 있으면 재사용, 없으면 생성
             let work =
-                DsQuery.worksOf flow.Id store
+                Queries.worksOf flow.Id store
                 |> List.tryFind (fun w -> w.Name = apiName)
                 |> Option.defaultWith (fun () ->
                     let w = Work(flow.Name, apiName, flow.Id)
@@ -139,7 +140,7 @@ module internal DirectDeviceOps =
         match Map.tryFind key state.PendingApiDefs with
         | Some apiDef -> apiDef, state
         | None ->
-            match DsQuery.apiDefsOf system.Id store |> List.tryFind (fun d -> d.Name = apiName) with
+            match Queries.apiDefsOf system.Id store |> List.tryFind (fun d -> d.Name = apiName) with
             | Some existing ->
                 existing, { state with PendingApiDefs = Map.add key existing state.PendingApiDefs }
             | None ->
@@ -159,7 +160,7 @@ module internal DirectDeviceOps =
 
         // Set OriginFlowId by traversing: Call → Work → Flow
         apiCall.OriginFlowId <-
-            DsQuery.getWork call.ParentId store
+            Queries.getWork call.ParentId store
             |> Option.map (fun work -> work.ParentId)
 
         store.TrackAdd(store.ApiCalls, apiCall)
@@ -181,8 +182,8 @@ module internal DirectDeviceOps =
         if callNames.IsEmpty then ()
         else
             let flowName =
-                DsQuery.getWork workId store
-                |> Option.bind (fun w -> DsQuery.getFlow w.ParentId store)
+                Queries.getWork workId store
+                |> Option.bind (fun w -> Queries.getFlow w.ParentId store)
                 |> Option.map (fun f -> f.Name)
                 |> Option.defaultValue ""
 
@@ -228,7 +229,7 @@ module internal DirectDeviceOps =
         let call = Call(devicesAlias, apiName, workId)
         store.TrackAdd(store.Calls, call)
         apiDefIds
-        |> Seq.choose (fun id -> DsQuery.getApiDef id store)
+        |> Seq.choose (fun id -> Queries.getApiDef id store)
         |> Seq.iter (fun apiDef ->
             createAndRegisterApiCall store call $"{devicesAlias}.{apiDef.Name}" apiDef.Id)
         call.Id
@@ -243,8 +244,8 @@ module internal DirectDeviceOps =
         store.TrackAdd(store.Calls, call)
 
         let flowName =
-            DsQuery.getWork workId store
-            |> Option.bind (fun w -> DsQuery.getFlow w.ParentId store)
+            Queries.getWork workId store
+            |> Option.bind (fun w -> Queries.getFlow w.ParentId store)
             |> Option.map (fun f -> f.Name)
             |> Option.defaultValue ""
 

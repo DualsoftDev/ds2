@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Microsoft.FSharp.Core;
 using Promaker.Dialogs;
@@ -33,7 +34,7 @@ public sealed class TokenSpecCommandsTests
         var items = (List<WorkOption>)method.Invoke(null, [store])!;
 
         var item = Assert.Single(items);
-        var originalWork = DsQuery.getWork(workId, store)!.Value;
+        var originalWork = Queries.getWork(workId, store)!.Value;
 
         Assert.Equal(workId, item.Id);
         Assert.Equal(originalWork.Name, item.Name);

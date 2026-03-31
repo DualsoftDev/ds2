@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.Input;
 using Ds2.CSV;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Microsoft.Win32;
 using Promaker.Dialogs;
@@ -61,7 +62,7 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void ExportCsv()
     {
-        var projects = DsQuery.allProjects(_store);
+        var projects = Queries.allProjects(_store);
         var suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
         var dialog = new SaveFileDialog
         {

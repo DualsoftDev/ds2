@@ -1,6 +1,7 @@
 using System;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Promaker.Controls;
 using Promaker.ViewModels;
@@ -56,9 +57,9 @@ public sealed class EditorCanvasConnectTests
 
             var storeField = typeof(MainViewModel).GetField("_store", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
             var store = (DsStore)storeField.GetValue(vm)!;
-            var projectId = DsQuery.allProjects(store).Head.Id;
-            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
-            var flowId = DsQuery.flowsOf(systemId, store).Head.Id;
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
             var work1Id = store.AddWork("Work1", flowId);
             var work2Id = store.AddWork("Work2", flowId);
 

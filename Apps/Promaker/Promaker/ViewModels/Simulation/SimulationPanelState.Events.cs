@@ -5,6 +5,7 @@ using Ds2.Core;
 using Ds2.Runtime.Sim.Engine;
 using Ds2.Runtime.Sim.Model;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 
 namespace Promaker.ViewModels;
@@ -112,7 +113,7 @@ public partial class SimulationPanelState
     private void ApplyWorkStateChangeToReferenceGroup(WorkStateChangedArgs args)
     {
         var systemName = GetSystemName(EntityKind.Work, args.WorkGuid);
-        var groupGuids = DsQuery.referenceGroupOf(args.WorkGuid, Store).ToList();
+        var groupGuids = Queries.referenceGroupOf(args.WorkGuid, Store).ToList();
         if (groupGuids.Count == 0)
             groupGuids.Add(args.WorkGuid);
 

@@ -3,6 +3,7 @@ namespace Ds2.IOList
 open System
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 // =============================================================================
 // DS2 Context Builder
@@ -21,7 +22,7 @@ module ContextBuilder =
                 ErrorType = MissingApiDefId apiCall.Id
             }
         | Some apiDefId ->
-            match DsQuery.getApiDef apiDefId store with
+            match Queries.getApiDef apiDefId store with
             | None ->
                 Error {
                     ApiCallId = Some apiCall.Id
@@ -30,7 +31,7 @@ module ContextBuilder =
                 }
             | Some apiDef ->
                 // 2. Get System
-                match DsQuery.getSystem apiDef.ParentId store with
+                match Queries.getSystem apiDef.ParentId store with
                 | None ->
                     Error {
                         ApiCallId = Some apiCall.Id
@@ -49,7 +50,7 @@ module ContextBuilder =
                             Error (GenerationError.missingOriginFlowId apiCall.Id)
                         | Some flowId ->
                             // 5. Get Flow
-                            match DsQuery.getFlow flowId store with
+                            match Queries.getFlow flowId store with
                             | None ->
                                 Error {
                                     ApiCallId = Some apiCall.Id
@@ -71,7 +72,7 @@ module ContextBuilder =
                                     }
                                 | Some call ->
                                     // 7. Get Work
-                                    let workOpt = DsQuery.getWork call.ParentId store
+                                    let workOpt = Queries.getWork call.ParentId store
                                     let workName = workOpt |> Option.map (fun w -> w.Name) |> Option.defaultValue ""
 
                                     // 8. Extract data types from ValueSpec

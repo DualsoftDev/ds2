@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 [<Extension>]
 type DsStorePanelConditionExtensions =
@@ -29,7 +30,7 @@ type DsStorePanelConditionExtensions =
     /// 단일 트랜잭션: 조건 생성 + ApiCall 추가 (드래그&드롭용)
     [<Extension>]
     static member AddConditionWithApiCalls(store: DsStore, callId: Guid, condType: CallConditionType, sourceApiCallIds: Guid seq) : Guid =
-        let sources = sourceApiCallIds |> Seq.choose (fun id -> DsQuery.getApiCall id store) |> Seq.toList
+        let sources = sourceApiCallIds |> Seq.choose (fun id -> Queries.getApiCall id store) |> Seq.toList
         StoreLog.debug($"callId={callId}, condType={condType}, count={sources.Length}")
         StoreLog.requireCall(store, callId) |> ignore
         let cond = CallCondition(Type = Some condType)
@@ -73,7 +74,7 @@ type DsStorePanelConditionExtensions =
 
     [<Extension>]
     static member AddApiCallsToConditionBatch(store: DsStore, callId: Guid, condId: Guid, sourceApiCallIds: Guid seq) : int =
-        let sources = sourceApiCallIds |> Seq.choose (fun id -> DsQuery.getApiCall id store) |> Seq.toList
+        let sources = sourceApiCallIds |> Seq.choose (fun id -> Queries.getApiCall id store) |> Seq.toList
         if sources.IsEmpty then 0
         else
             StoreLog.debug($"callId={callId}, condId={condId}, count={sources.Length}")

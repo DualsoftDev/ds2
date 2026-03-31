@@ -4,6 +4,7 @@ using System.Linq;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
@@ -180,7 +181,7 @@ public partial class MainViewModel
         // 3D 창이 열려있으면 씬 자동 재빌드
         if (_view3DWindow is { IsVisible: true })
         {
-            var projectId = DsQuery.allProjects(_store).Head.Id;
+            var projectId = Queries.allProjects(_store).Head.Id;
             _ = Simulation.ThreeD.BuildScene(_store, projectId);
         }
     }
@@ -198,7 +199,7 @@ public partial class MainViewModel
     private void ShowProjectSettings()
     {
         var project = HasProject
-            ? DsQuery.allProjects(_store).Head
+            ? Queries.allProjects(_store).Head
             : null;
         var properties = project?.Properties ?? new Ds2.Core.ProjectProperties();
         var dlg = new ProjectPropertiesDialog(project?.Name ?? "", properties);
@@ -215,12 +216,7 @@ public partial class MainViewModel
                 _store.RenameEntity(project.Id, EntityKind.Project, nextProjectName);
 
             _store.UpdateProjectProperties(
-                dlg.ResultIriPrefix ?? "",
-                dlg.ResultGlobalAssetId ?? "",
-                dlg.ResultAuthor ?? "",
-                dlg.ResultVersion ?? "",
-                dlg.ResultDescription ?? "",
-                dlg.ResultSplitDeviceAasx,
+                dlg.ResultProperties,
                 dlg.ResultPresetSystemTypes);
         });
         StatusText = "프로젝트 속성이 변경되었습니다.";
@@ -250,7 +246,7 @@ public partial class MainViewModel
 
     private bool TrySaveFileAs()
     {
-        var projects = DsQuery.allProjects(_store);
+        var projects = Queries.allProjects(_store);
         var suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
         var dlg = new SaveFileDialog
         {

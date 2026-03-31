@@ -3,13 +3,14 @@ module Ds2.Store.StoreHierarchyQueries
 open System
 open System.Runtime.CompilerServices
 open Ds2.Core
+open Ds2.Store.DsQuery
 
 let flowsForSystem (store: DsStore) (systemId: Guid) : (Guid * string) list =
-    DsQuery.flowsOf systemId store
+    Queries.flowsOf systemId store
     |> List.map (fun flow -> (flow.Id, flow.Name))
 
 let findProjectOfSystem (store: DsStore) (systemId: Guid) : Guid option =
-    DsQuery.allProjects store
+    Queries.allProjects store
     |> List.tryPick (fun project ->
         if project.ActiveSystemIds.Contains(systemId) || project.PassiveSystemIds.Contains(systemId)
         then Some project.Id
@@ -22,17 +23,17 @@ let resolveTarget (store: DsStore) (targetKind: EntityKind) (entityKind: EntityK
         if kind = targetKind then Some id
         else
             match kind with
-            | EntityKind.Call -> DsQuery.getCall id store |> Option.bind (fun call -> walk EntityKind.Work call.ParentId)
-            | EntityKind.Work -> DsQuery.getWork id store |> Option.bind (fun work -> walk EntityKind.Flow work.ParentId)
-            | EntityKind.Flow -> DsQuery.getFlow id store |> Option.bind (fun flow -> walk EntityKind.System flow.ParentId)
+            | EntityKind.Call -> Queries.getCall id store |> Option.bind (fun call -> walk EntityKind.Work call.ParentId)
+            | EntityKind.Work -> Queries.getWork id store |> Option.bind (fun work -> walk EntityKind.Flow work.ParentId)
+            | EntityKind.Flow -> Queries.getFlow id store |> Option.bind (fun flow -> walk EntityKind.System flow.ParentId)
             | _ -> None
     walk entityKind entityId
 
 let parentIdOf (store: DsStore) (entityKind: EntityKind) (entityId: Guid) : Guid option =
     match entityKind with
-    | EntityKind.Call -> DsQuery.getCall entityId store |> Option.map (fun call -> call.ParentId)
-    | EntityKind.Work -> DsQuery.getWork entityId store |> Option.map (fun work -> work.ParentId)
-    | EntityKind.Flow -> DsQuery.getFlow entityId store |> Option.map (fun flow -> flow.ParentId)
+    | EntityKind.Call -> Queries.getCall entityId store |> Option.map (fun call -> call.ParentId)
+    | EntityKind.Work -> Queries.getWork entityId store |> Option.map (fun work -> work.ParentId)
+    | EntityKind.Flow -> Queries.getFlow entityId store |> Option.map (fun flow -> flow.ParentId)
     | _ -> None
 
 let tryFindSystemIdForEntity store entityKind entityId =
@@ -41,7 +42,7 @@ let tryFindSystemIdForEntity store entityKind entityId =
 let tryFindProjectIdForEntity (store: DsStore) (entityKind: EntityKind) (entityId: Guid) : Guid option =
     match entityKind with
     | EntityKind.Project ->
-        DsQuery.getProject entityId store
+        Queries.getProject entityId store
         |> Option.map (fun project -> project.Id)
     | _ ->
         tryFindSystemIdForEntity store entityKind entityId
@@ -52,11 +53,11 @@ let tryFindProjectIdForEntity (store: DsStore) (entityKind: EntityKind) (entityI
 [<CompiledName("FindApiDefsByName")>]
 let findApiDefs (store: DsStore) (apiNameFilter: string) : ApiDefMatch list =
     let apiNameFilter = apiNameFilter.Trim()
-    DsQuery.allProjects store
-    |> List.collect (fun project -> DsQuery.passiveSystemsOf project.Id store)
+    Queries.allProjects store
+    |> List.collect (fun project -> Queries.passiveSystemsOf project.Id store)
     |> List.distinctBy (fun system -> system.Id)
     |> List.collect (fun system ->
-        DsQuery.apiDefsOf system.Id store
+        Queries.apiDefsOf system.Id store
         |> List.filter (fun apiDef ->
             String.IsNullOrEmpty(apiNameFilter) ||
             apiDef.Name.IndexOf(apiNameFilter, StringComparison.OrdinalIgnoreCase) >= 0)

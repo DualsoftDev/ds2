@@ -17,12 +17,7 @@ public partial class ProjectPropertiesDialog : Window
     private readonly string _initialProjectName;
 
     public string? ResultProjectName { get; private set; }
-    public string? ResultIriPrefix { get; private set; }
-    public string? ResultGlobalAssetId { get; private set; }
-    public string? ResultAuthor { get; private set; }
-    public string? ResultVersion { get; private set; }
-    public string? ResultDescription { get; private set; }
-    public bool ResultSplitDeviceAasx { get; private set; }
+    public ProjectProperties ResultProperties { get; private set; } = new();
 
     // 프리셋 SystemType 매핑 결과 (배열)
     public string[] ResultPresetSystemTypes { get; private set; } = Array.Empty<string>();
@@ -148,13 +143,20 @@ public partial class ProjectPropertiesDialog : Window
 
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
-        ResultProjectName   = string.IsNullOrWhiteSpace(ProjectNameBox.Text) ? _initialProjectName : ProjectNameBox.Text.Trim();
-        ResultIriPrefix     = IriPrefixBox.Text.Trim();
-        ResultGlobalAssetId = GlobalAssetIdBox.Text.Trim();
-        ResultAuthor        = AuthorBox.Text.Trim();
-        ResultVersion       = VersionBox.Text.Trim();
-        ResultDescription   = DescriptionBox.Text.Trim();
-        ResultSplitDeviceAasx = SplitDeviceAasxBox.IsChecked == true;
+        ResultProjectName = string.IsNullOrWhiteSpace(ProjectNameBox.Text) ? _initialProjectName : ProjectNameBox.Text.Trim();
+
+        static Microsoft.FSharp.Core.FSharpOption<string>? ToOpt(string s) =>
+            string.IsNullOrWhiteSpace(s) ? null : Microsoft.FSharp.Core.FSharpOption<string>.Some(s.Trim());
+
+        ResultProperties = new ProjectProperties
+        {
+            IriPrefix     = ToOpt(IriPrefixBox.Text),
+            GlobalAssetId = ToOpt(GlobalAssetIdBox.Text),
+            Author        = ToOpt(AuthorBox.Text),
+            Version       = ToOpt(VersionBox.Text),
+            Description   = ToOpt(DescriptionBox.Text),
+            SplitDeviceAasx = SplitDeviceAasxBox.IsChecked == true,
+        };
 
         // 프리셋 SystemType 매핑 저장 (ListBox에서 가져오기)
         ResultPresetSystemTypes = PresetMappingListBox.Items

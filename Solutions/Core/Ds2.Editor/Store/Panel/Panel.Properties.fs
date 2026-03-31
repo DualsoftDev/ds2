@@ -4,23 +4,18 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 [<Extension>]
 type DsStorePanelPropertiesExtensions =
     /// 프로젝트 속성 일괄 변경 (Undo 지원)
     [<Extension>]
-    static member UpdateProjectProperties(store: DsStore, iriPrefix: string, globalAssetId: string, author: string, version: string, description: string, splitDeviceAasx: bool,
-                                          presetSystemTypes: string[]) =
-        StoreLog.debug($"UpdateProjectProperties iri={iriPrefix}")
-        let project = DsQuery.allProjects store |> List.head
+    static member UpdateProjectProperties(store: DsStore, props: ProjectProperties, presetSystemTypes: string[]) =
+        StoreLog.debug($"UpdateProjectProperties")
+        let project = Queries.allProjects store |> List.head
         store.WithTransaction("프로젝트 속성 변경", fun () ->
             store.TrackMutate(store.Projects, project.Id, fun p ->
-                p.Properties.IriPrefix     <- DirectPanelOps.toOpt iriPrefix
-                p.Properties.GlobalAssetId <- DirectPanelOps.toOpt globalAssetId
-                p.Properties.Author        <- DirectPanelOps.toOpt author
-                p.Properties.Version       <- DirectPanelOps.toOpt version
-                p.Properties.Description   <- DirectPanelOps.toOpt description
-                p.Properties.SplitDeviceAasx <- splitDeviceAasx
+                p.Properties <- props.DeepCopy()
                 ProjectPropertiesHelper.setPresetSystemTypes p.Properties presetSystemTypes))
 
     /// 시스템 타입 변경 (Undo 지원)
@@ -31,34 +26,18 @@ type DsStorePanelPropertiesExtensions =
             store.TrackMutate(store.Systems, systemId, fun sys ->
                 sys.Properties.SystemType <- DirectPanelOps.toOpt systemType))
 
-    /// <summary>
     /// ApiCall의 IO 태그 정보 업데이트 (TAG Wizard에서 사용)
-    /// </summary>
+    /// C#에서는 IOTag 또는 null을 넘기면 됩니다.
     [<Extension>]
     static member UpdateApiCallIoTags(store: DsStore, callId: Guid, apiCallId: Guid,
-                                      outSymbol: string, outAddress: string,
-                                      inSymbol: string, inAddress: string) : bool =
+                                      outTag: IOTag, inTag: IOTag) : bool =
         StoreLog.debug($"UpdateApiCallIoTags callId={callId}, apiCallId={apiCallId}")
-
-        let createTag name addr =
-            match DirectPanelOps.toOpt name, DirectPanelOps.toOpt addr with
-            | Some n, Some a ->
-                let tag = IOTag()
-                tag.Name <- n
-                tag.Address <- a
-                Some tag
-            | _ -> None
-
-        let newOutTag = createTag outSymbol outAddress
-        let newInTag = createTag inSymbol inAddress
-
         DirectPanelOps.mutateCallProps store callId "IO 태그 업데이트" (fun call ->
             let targetApiCall =
                 call.ApiCalls
                 |> Seq.tryFind (fun ac -> ac.Id = apiCallId)
                 |> Option.defaultWith (fun () ->
                     failwith $"ApiCall {apiCallId} not found in Call {callId}")
-
-            targetApiCall.OutTag <- newOutTag
-            targetApiCall.InTag <- newInTag)
+            targetApiCall.OutTag <- Option.ofObj outTag
+            targetApiCall.InTag <- Option.ofObj inTag)
         true

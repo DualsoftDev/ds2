@@ -4,6 +4,7 @@ open System
 open System.Collections.Generic
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 module internal MermaidMapperTargets =
 
@@ -168,7 +169,7 @@ module internal MermaidMapperTargets =
             match subgraphToWorkId.TryGetValue(edge.SourceId), subgraphToWorkId.TryGetValue(edge.TargetId) with
             | (true, srcWorkId), (true, tgtWorkId) when srcWorkId <> tgtWorkId ->
                 // Work의 System을 찾아서 parentId로 사용
-                match DsQuery.trySystemIdOfWork srcWorkId store with
+                match Queries.trySystemIdOfWork srcWorkId store with
                 | Some systemId ->
                     let arrow = ArrowBetweenWorks(systemId, srcWorkId, tgtWorkId, mapArrowType edge.Label)
                     operations.Add(AddArrowWork arrow)

@@ -123,3 +123,12 @@ module WorkConditionChecker =
                             let savedEpoch = epochMap |> Map.tryFind rxGuid |> Option.defaultValue 0
                             let currentEpoch = SimState.getWorkEpoch canonical state
                             currentEpoch > savedEpoch)
+
+    /// TokenSource 중 Ready 상태이면서 predecessor 조건이 미충족인 Work 목록
+    let collectBlockedSources (index: SimIndex) (state: SimState) : (Guid * string) list =
+        index.TokenSourceGuids
+        |> List.filter (fun g ->
+            (state.WorkStates |> Map.tryFind g |> Option.defaultValue Status4.Ready) = Status4.Ready
+            && not (canStartWorkPredOnly index state g))
+        |> List.choose (fun g ->
+            index.WorkName |> Map.tryFind g |> Option.map (fun name -> g, name))

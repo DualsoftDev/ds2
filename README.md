@@ -15,7 +15,7 @@
 
 </div>
 
-> **Last Sync:** 2026-03-25 — Device System AASX 분리 저장, Ds2.Store/Editor 분리, TokenSpec, Report 모듈
+> **Last Sync:** 2026-03-31 — DsQuery 디렉토리 분리, Period→Duration 리네임, Properties 객체 통째 전달 리팩토링
 
 ## 핵심 설계 원칙
 
@@ -58,7 +58,7 @@ block-beta
 
   STORETITLE["Ds2.Store (F# / 스토어)"]:4
   DS["DsStore\n13 Dictionaries\nFile I/O"]
-  DQ["DsQuery\nHierarchy\nImportPlan"]
+  DQ["DsQuery/\nQueries·Format·Device\nImportPlan"]
   CC["CallConditionQueries"]
   CP["Compat\nLegacyJsonImport"]
 
@@ -122,7 +122,7 @@ graph LR
 > - 상위 레이어는 하위 레이어만 의존합니다
 > - `Ds2.Editor/Store → Ds2.Aasx` 순환 의존은 없습니다
 > - C#용 공유 타입(`EntityKind`, `TabKind` 등)은 `Ds2.Editor/Core/EditorTypes.fs`에서 정의
-> - 스토어 타입(`DsStore`, `DsQuery`)은 `Ds2.Store`에서 정의
+> - 스토어 타입(`DsStore`)은 `Ds2.Store`에서 정의, 쿼리 모듈(`Queries`, `Format`, `Device` 등)은 `Ds2.Store.DsQuery` namespace에서 정의
 
 ---
 
@@ -317,7 +317,11 @@ graph TD
 |------|------|
 | `Core/Types.fs` | `UndoRecord`/`UndoTransaction`, `Labels`, `EditorEvent` DU 기초 타입 |
 | `Store/DsStore.fs` | `DsStore` 타입 — 13개 Dictionary + File I/O |
-| `Core/DsQuery.fs` | 엔티티 조회 쿼리 (`getXxx`, `allXxxs`, `xxxsOf`, `tryGetDeviceDurationMs`) |
+| `Core/DsQuery/Queries.fs` | 엔티티 조회 쿼리 (`getXxx`, `allXxxs`, `xxxsOf`, `tryGetDeviceDurationMs`) |
+| `Core/DsQuery/Format.fs` | TokenSpec 파싱/포맷, Duration 필터, 태그 패턴, PLC 주소 할당 |
+| `Core/DsQuery/Device.fs` | Device 이름/별칭 생성, Call/ApiCall 검색 |
+| `Core/DsQuery/TokenRole.fs` | Work명 파싱, TokenRole 플래그 해석/순환 |
+| `Core/DsQuery/Validation.fs` | Device 별칭/ApiName 유효성 검증 |
 | `Store/ImportPlan.fs` | Mermaid/CSV 임포트 계획 타입 |
 | `Store/ImportPlan.Device.fs` | 디바이스 임포트 계획 |
 | `Queries/CallConditionQueries.fs` | CallCondition 조회 쿼리 |

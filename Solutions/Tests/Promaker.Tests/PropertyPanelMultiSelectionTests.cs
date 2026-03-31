@@ -2,6 +2,7 @@ using System;
 using System.Reflection;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Promaker.ViewModels;
 using Xunit;
@@ -19,9 +20,9 @@ public sealed class PropertyPanelMultiSelectionTests
             vm.NewProjectCommand.Execute(null);
 
             var store = GetStore(vm);
-            var projectId = DsQuery.allProjects(store).Head.Id;
-            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
-            var flow = DsQuery.flowsOf(systemId, store).Head;
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flow = Queries.flowsOf(systemId, store).Head;
             var work1Id = store.AddWork("Work1", flow.Id);
             var work2Id = store.AddWork("Work2", flow.Id);
 
@@ -39,8 +40,8 @@ public sealed class PropertyPanelMultiSelectionTests
             vm.PropertyPanel.WorkPeriodMs = 2500;
             vm.PropertyPanel.ApplyWorkPeriodCommand.Execute(null);
 
-            Assert.Equal(2500.0, store.Works[work1Id].Properties.Period!.Value.TotalMilliseconds);
-            Assert.Equal(2500.0, store.Works[work2Id].Properties.Period!.Value.TotalMilliseconds);
+            Assert.Equal(2500.0, store.Works[work1Id].Properties.Duration!.Value.TotalMilliseconds);
+            Assert.Equal(2500.0, store.Works[work2Id].Properties.Duration!.Value.TotalMilliseconds);
         });
     }
 
@@ -53,9 +54,9 @@ public sealed class PropertyPanelMultiSelectionTests
             vm.NewProjectCommand.Execute(null);
 
             var store = GetStore(vm);
-            var projectId = DsQuery.allProjects(store).Head.Id;
-            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
-            var flow = DsQuery.flowsOf(systemId, store).Head;
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flow = Queries.flowsOf(systemId, store).Head;
             var work1Id = store.AddWork("Work1", flow.Id);
             var work2Id = store.AddWork("Work2", flow.Id);
 
@@ -88,9 +89,9 @@ public sealed class PropertyPanelMultiSelectionTests
             vm.NewProjectCommand.Execute(null);
 
             var store = GetStore(vm);
-            var projectId = DsQuery.allProjects(store).Head.Id;
-            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
-            var flow = DsQuery.flowsOf(systemId, store).Head;
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flow = Queries.flowsOf(systemId, store).Head;
             var workId = store.AddWork("Work1", flow.Id);
 
             store.UpdateWorkTokenRole(workId, TokenRole.Ignore);
@@ -118,17 +119,17 @@ public sealed class PropertyPanelMultiSelectionTests
             vm.NewProjectCommand.Execute(null);
 
             var store = GetStore(vm);
-            var projectId = DsQuery.allProjects(store).Head.Id;
-            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
-            var flow = DsQuery.flowsOf(systemId, store).Head;
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flow = Queries.flowsOf(systemId, store).Head;
             var work1Id = store.AddWork("Work1", flow.Id);
             var work2Id = store.AddWork("Work2", flow.Id);
 
             store.AddCallsWithDevice(projectId, work1Id, ["Dev.Api1"], true, null);
             store.AddCallsWithDevice(projectId, work2Id, ["Dev.Api2"], true, null);
 
-            var call1 = DsQuery.callsOf(work1Id, store).Head;
-            var call2 = DsQuery.callsOf(work2Id, store).Head;
+            var call1 = Queries.callsOf(work1Id, store).Head;
+            var call2 = Queries.callsOf(work2Id, store).Head;
 
             var call1Node = new EntityNode(call1.Id, EntityKind.Call, call1.Name);
             var call2Node = new EntityNode(call2.Id, EntityKind.Call, call2.Name);

@@ -132,16 +132,11 @@ public class SelectionState
             return false;
 
         // Call 노드 간 사이클 검사
-        var ids = _orderedNodeSelection.Select(s => s.Id).ToList();
-        for (var i = 0; i < ids.Count - 1; i++)
+        var ids = _orderedNodeSelection.Select(s => s.Id);
+        if (ConnectionQueries.hasCallCycleInSequence(Store, ids))
         {
-            if (DsQuery.getCall(ids[i], Store) is not null
-                && DsQuery.getCall(ids[i + 1], Store) is not null
-                && ConnectionQueries.wouldCreateCallCycle(Store, ids[i], ids[i + 1]))
-            {
-                _host.ShowWarning("Call 노드 간 순환 연결은 허용되지 않습니다.");
-                return false;
-            }
+            _host.ShowWarning("Call 노드 간 순환 연결은 허용되지 않습니다.");
+            return false;
         }
 
         if (!_host.TryFunc(

@@ -3,6 +3,7 @@ module Ds2.Editor.AddTargetQueries
 open System
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 let private resolveFromEntity
     (resolve: DsStore -> EntityKind -> Guid -> Guid option)
@@ -42,7 +43,7 @@ let tryResolveAddSystemTarget
         resolveFromActiveTab StoreHierarchyQueries.tryFindProjectIdForEntity store activeTabKind activeTabRootId
 
     let singleProjectInStore =
-        match DsQuery.allProjects store with
+        match Queries.allProjects store with
         | [ single ] -> Some single.Id
         | _ -> None
 
@@ -68,7 +69,7 @@ let tryResolveAddFlowTarget
     let fromSelection =
         match selectedEntityKind, selectedEntityId with
         | Some EntityKind.Project, Some projectId ->
-            DsQuery.getProject projectId store
+            Queries.getProject projectId store
             |> Option.bind (fun project ->
                 match systemIdsOfProject project with
                 | [ systemId ] -> Some systemId
@@ -79,7 +80,7 @@ let tryResolveAddFlowTarget
         resolveFromActiveTab StoreHierarchyQueries.tryFindSystemIdForEntity store activeTabKind activeTabRootId
 
     let singleSystemInStore =
-        DsQuery.allProjects store
+        Queries.allProjects store
         |> List.collect systemIdsOfProject
         |> List.distinct
         |> function

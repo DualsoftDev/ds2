@@ -8,6 +8,7 @@ open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxConceptDescriptions
 open Ds2.Aasx.AasxFileIO
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 open log4net
 
@@ -68,8 +69,8 @@ module AasxExporter =
 
     /// 메인 AASX의 Submodel 생성 (인라인 모드 — 모든 PassiveSystem 포함)
     let internal exportToSubmodel (store: DsStore) (project: Project) : Submodel =
-        let activeSystems  = DsQuery.activeSystemsOf  project.Id store |> List.map (fun s -> systemToSmc store s true)
-        let passiveSystems = DsQuery.passiveSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s false)
+        let activeSystems  = Queries.activeSystemsOf  project.Id store |> List.map (fun s -> systemToSmc store s true)
+        let passiveSystems = Queries.passiveSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s false)
         let projectElems : ISubmodelElement list = [
             mkProp     Name_         project.Name
             mkProp     Guid_         (project.Id.ToString())
@@ -99,7 +100,7 @@ module AasxExporter =
 
     /// 분리 모드용 Submodel 생성 (PassiveSystem 대신 DeviceReference 참조만 포함)
     let internal exportToSubmodelSplit (store: DsStore) (project: Project) (deviceRefs: ISubmodelElement list) : Submodel =
-        let activeSystems = DsQuery.activeSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s true)
+        let activeSystems = Queries.activeSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s true)
         let projectElems : ISubmodelElement list = [
             mkProp     Name_         project.Name
             mkProp     Guid_         (project.Id.ToString())
@@ -216,7 +217,7 @@ module AasxExporter =
         let devicesDir = Path.Combine(mainDir, $"{baseName}_devices")
         Directory.CreateDirectory(devicesDir) |> ignore
 
-        let passiveSystems = DsQuery.passiveSystemsOf project.Id store
+        let passiveSystems = Queries.passiveSystemsOf project.Id store
         let usedNames = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
 
         let deviceRefs =
@@ -256,14 +257,14 @@ module AasxExporter =
     /// Export helper for UI callers that should not access Project entity directly.
     /// Returns false when there is no project in the store.
     let internal tryExportFirstProjectToAasxFile (store: DsStore) (outputPath: string) : bool =
-        match DsQuery.allProjects store |> List.tryHead with
+        match Queries.allProjects store |> List.tryHead with
         | None -> false
         | Some project ->
             exportToAasxFile store project outputPath
             true
 
     let exportFromStore (store: DsStore) (path: string) : bool =
-        match DsQuery.allProjects store |> List.tryHead with
+        match Queries.allProjects store |> List.tryHead with
         | None -> false
         | Some project ->
             if project.Properties.SplitDeviceAasx then

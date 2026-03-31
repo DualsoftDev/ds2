@@ -5,6 +5,7 @@ using Microsoft.FSharp.Core;
 using Ds2.Core;
 using Ds2.Runtime.Sim.Engine.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 
 namespace Promaker.ViewModels;
@@ -222,7 +223,7 @@ public partial class SimulationPanelState
 
             foreach (var callGuid in callGuids.Value)
             {
-                var call = DsQuery.getCall(callGuid, Store);
+                var call = Queries.getCall(callGuid, Store);
                 if (call == null) continue;
 
                 yield return new SimIndexedEntry(callGuid, call.Value.Name, EntityKind.Call, systemName.Value, workGuid);

@@ -3,6 +3,7 @@ module Ds2.Store.Editor.Tests.StoreQueryOwnerTests
 open Xunit
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 
@@ -32,7 +33,7 @@ module CallConditionQueryTests =
         store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true, None)
 
         let targetCall =
-            DsQuery.callsOf work.Id store
+            Queries.callsOf work.Id store
             |> List.last
 
         store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
@@ -48,7 +49,7 @@ module CallConditionQueryTests =
 
         store.AddCallsWithDevice(project.Id, work.Id, [ "Src.Api"; "Target.Api" ], true, None)
 
-        let calls = DsQuery.callsOf work.Id store
+        let calls = Queries.callsOf work.Id store
         let sourceCall = calls[0]
         let targetCall = calls[1]
         let sourceApiCall = sourceCall.ApiCalls |> Seq.head

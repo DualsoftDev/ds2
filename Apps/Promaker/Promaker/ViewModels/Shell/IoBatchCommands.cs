@@ -37,8 +37,10 @@ public partial class MainViewModel
             return false;
 
         var changes = changed
-            .Select(r => new ValueTuple<Guid, string, string, string, string>(
-                r.ApiCallId, r.InAddress, r.InSymbol, r.OutAddress, r.OutSymbol))
+            .Select(r => new ValueTuple<Guid, Ds2.Core.IOTag?, Ds2.Core.IOTag?>(
+                r.ApiCallId,
+                string.IsNullOrWhiteSpace(r.InAddress) && string.IsNullOrWhiteSpace(r.InSymbol) ? null : new Ds2.Core.IOTag(r.InSymbol ?? "", r.InAddress ?? "", ""),
+                string.IsNullOrWhiteSpace(r.OutAddress) && string.IsNullOrWhiteSpace(r.OutSymbol) ? null : new Ds2.Core.IOTag(r.OutSymbol ?? "", r.OutAddress ?? "", "")))
             .ToList();
 
         if (!TryEditorAction(() => _store.UpdateApiCallIOTagsBatch(changes)))

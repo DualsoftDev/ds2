@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 // ─── Internal helpers shared by all Panel extensions ─────────────────
 
@@ -15,10 +16,10 @@ module internal DirectPanelOps =
         tagOpt |> Option.map (fun tag -> tag.Address) |> Option.defaultValue ""
 
     let resolveApiDefDisplay (store: DsStore) (apiDefIdOpt: Guid option) : Guid option * string =
-        match apiDefIdOpt |> Option.bind (fun id -> DsQuery.getApiDef id store) with
+        match apiDefIdOpt |> Option.bind (fun id -> Queries.getApiDef id store) with
         | Some apiDef ->
             let deviceName =
-                DsQuery.getSystem apiDef.ParentId store
+                Queries.getSystem apiDef.ParentId store
                 |> Option.map (fun system -> system.Name)
                 |> Option.defaultValue "UnknownDevice"
             Some apiDef.Id, $"{deviceName}.{apiDef.Name}"
@@ -82,7 +83,7 @@ module internal DirectPanelOps =
         store.TrackRemove(store.ApiCalls, apiCallId)
 
     let tryFindConditionRec (conditions: ResizeArray<CallCondition>) (condId: Guid) : CallCondition option =
-        DsQuery.tryFindConditionRec conditions condId
+        Queries.tryFindConditionRec conditions condId
 
     let tryFindCondition (call: Call) (condId: Guid) =
         tryFindConditionRec call.CallConditions condId
@@ -98,7 +99,7 @@ module internal DirectPanelOps =
         | None -> invalidOp $"ApiCall not found in condition. callId={callId}, condId={condId}, apiCallId={apiCallId}"
 
     let withCallOrEmpty (store: DsStore) (callId: Guid) (mapCall: Call -> 'T list) : 'T list =
-        match DsQuery.getCall callId store with
+        match Queries.getCall callId store with
         | Some call -> mapCall call
         | None ->
             StoreLog.warn($"Call not found. id={callId}")
@@ -160,8 +161,8 @@ module internal PanelMutationOps =
 type DsStorePanelTimeExtensions =
     [<Extension>]
     static member GetWorkPeriodMs(store: DsStore, workId: Guid) : int option =
-        let resolvedId = DsQuery.resolveOriginalWorkId workId store
-        PanelTimeOps.readMs DsQuery.getWork (fun w -> w.Properties.Period) EntityKind.Work store resolvedId
+        let resolvedId = Queries.resolveOriginalWorkId workId store
+        PanelTimeOps.readMs Queries.getWork (fun w -> w.Properties.Duration) EntityKind.Work store resolvedId
 
     [<Extension>]
     static member GetWorkPeriodMsOrNull(store: DsStore, workId: Guid) : Nullable<int> =
@@ -170,7 +171,7 @@ type DsStorePanelTimeExtensions =
 
     [<Extension>]
     static member GetCallTimeoutMs(store: DsStore, callId: Guid) : int option =
-        PanelTimeOps.readMs DsQuery.getCall (fun c -> c.Properties.Timeout) EntityKind.Call store callId
+        PanelTimeOps.readMs Queries.getCall (fun c -> c.Properties.Timeout) EntityKind.Call store callId
 
     [<Extension>]
     static member GetCallTimeoutMsOrNull(store: DsStore, callId: Guid) : Nullable<int> =
@@ -179,7 +180,7 @@ type DsStorePanelTimeExtensions =
 
     [<Extension>]
     static member UpdateWorkPeriodMs(store: DsStore, workId: Guid, periodMs: int option) =
-        let resolvedId = DsQuery.resolveOriginalWorkId workId store
+        let resolvedId = Queries.resolveOriginalWorkId workId store
         StoreLog.debug($"workId={workId}, resolvedId={resolvedId}, periodMs={periodMs}")
         let period = PanelTimeOps.fromMs periodMs
         PanelMutationOps.updateWorkIfChanged
@@ -187,9 +188,9 @@ type DsStorePanelTimeExtensions =
             resolvedId
             "Work 속성 변경"
             WorkPropsChanged
-            (fun work -> work.Properties.Period)
+            (fun work -> work.Properties.Duration)
             period
-            (fun work value -> work.Properties.Period <- value)
+            (fun work value -> work.Properties.Duration <- value)
 
     [<Extension>]
     static member UpdateWorkPeriodMs(store: DsStore, workId: Guid, periodMs: Nullable<int>) =
@@ -197,14 +198,14 @@ type DsStorePanelTimeExtensions =
 
     [<Extension>]
     static member GetWorkIsFinished(store: DsStore, workId: Guid) : bool =
-        let resolvedId = DsQuery.resolveOriginalWorkId workId store
-        match DsQuery.getWork resolvedId store with
+        let resolvedId = Queries.resolveOriginalWorkId workId store
+        match Queries.getWork resolvedId store with
         | Some work -> work.Properties.IsFinished
         | None -> false
 
     [<Extension>]
     static member UpdateWorkIsFinished(store: DsStore, workId: Guid, isFinished: bool) =
-        let resolvedId = DsQuery.resolveOriginalWorkId workId store
+        let resolvedId = Queries.resolveOriginalWorkId workId store
         PanelMutationOps.updateWorkIfChanged
             store
             resolvedId
@@ -251,7 +252,7 @@ type DsStorePanelTokenSpecExtensions =
     static member UpdateTokenSpecs(store: DsStore, specs: TokenSpec seq) =
         let specList = specs |> Seq.toList
         StoreLog.debug($"count={specList.Length}")
-        let project = DsQuery.allProjects store |> List.head
+        let project = Queries.allProjects store |> List.head
         store.WithTransaction("TokenSpec 변경", fun () ->
             store.TrackMutate(store.Projects, project.Id, fun p ->
                 p.TokenSpecs.Clear()

@@ -4,6 +4,7 @@ open System
 open System.Threading
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 open Ds2.Runtime.Sim.Model
 open Ds2.Runtime.Sim.Engine.Core
 open Ds2.Runtime.Sim.Engine.Scheduler
@@ -288,7 +289,7 @@ type EventDrivenEngine(index: SimIndex) =
         | None ->
             let canonicalSourceWorkGuid = SimIndex.canonicalWorkGuid index sourceWorkGuid
             let originLabel =
-                DsQuery.getTokenSpecs index.Store
+                Queries.getTokenSpecs index.Store
                 |> List.tryFind (fun spec ->
                     spec.WorkId
                     |> Option.map (fun workGuid -> SimIndex.canonicalWorkGuid index workGuid = canonicalSourceWorkGuid)

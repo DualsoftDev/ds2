@@ -7,6 +7,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using Ds2.Core;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 using Ds2.Editor;
 using Promaker.Controls;
 using Promaker.ViewModels;
@@ -25,9 +26,9 @@ public sealed class ExplorerPaneTests
             vm.NewProjectCommand.Execute(null);
 
             var store = GetStore(vm);
-            var projectId = DsQuery.allProjects(store).Head.Id;
-            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
-            var flowId = DsQuery.flowsOf(systemId, store).Head.Id;
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
             var targetWorkId = store.AddWork("SearchTargetWork", flowId);
             store.AddWork("OtherWork", flowId);
 
@@ -69,9 +70,9 @@ public sealed class ExplorerPaneTests
             vm.NewProjectCommand.Execute(null);
 
             var store = GetStore(vm);
-            var projectId = DsQuery.allProjects(store).Head.Id;
-            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
-            var flowId = DsQuery.flowsOf(systemId, store).Head.Id;
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
             var workId = store.AddWork("CanvasSearchWork", flowId);
 
             RebuildAll(vm);
@@ -114,7 +115,7 @@ public sealed class ExplorerPaneTests
             vm.NewProjectCommand.Execute(null);
 
             var store = GetStore(vm);
-            var projectId = DsQuery.allProjects(store).Head.Id;
+            var projectId = Queries.allProjects(store).Head.Id;
             var deviceId = store.AddSystem("DeviceSearchTarget", projectId, false);
             var flowId = store.AddFlow("DeviceFlow", deviceId);
             var workId = store.AddWork("DeviceSearchWork", flowId);
@@ -194,9 +195,9 @@ public sealed class ExplorerPaneTests
             vm.NewProjectCommand.Execute(null);
 
             var store = GetStore(vm);
-            var projectId = DsQuery.allProjects(store).Head.Id;
-            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
-            var flowId = DsQuery.flowsOf(systemId, store).Head.Id;
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
             var workId = store.AddWork("TreeDeleteWork", flowId);
 
             RebuildAll(vm);
@@ -241,9 +242,9 @@ public sealed class ExplorerPaneTests
             vm.NewProjectCommand.Execute(null);
 
             var store = GetStore(vm);
-            var projectId = DsQuery.allProjects(store).Head.Id;
-            var systemId = DsQuery.activeSystemsOf(projectId, store).Head.Id;
-            var flowId = DsQuery.flowsOf(systemId, store).Head.Id;
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
             var workId = store.AddWork("OriginalWork", flowId);
 
             RebuildAll(vm);

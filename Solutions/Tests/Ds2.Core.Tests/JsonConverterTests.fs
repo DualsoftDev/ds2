@@ -264,7 +264,7 @@ module WorkRoundTripTests =
     let ``JsonConverter should roundtrip Work with FlowPrefix LocalName and ReferenceOf`` () =
         let flowId = Guid.NewGuid()
         let work = Work("TestFlow", "TestWork", flowId)
-        work.Properties.Period <- Some(TimeSpan.FromSeconds(5.0))
+        work.Properties.Duration <- Some(TimeSpan.FromSeconds(5.0))
         work.Position <- Some(Xywh(11, 22, 100, 40))
         work.TokenRole <- TokenRole.Source
         work.Status4 <- Status4.Homing
@@ -276,7 +276,7 @@ module WorkRoundTripTests =
         Assert.Equal("TestFlow", actual.FlowPrefix)
         Assert.Equal("TestWork", actual.LocalName)
         Assert.Equal("TestFlow.TestWork", actual.Name)
-        Assert.Equal(work.Properties.Period, actual.Properties.Period)
+        Assert.Equal(work.Properties.Duration, actual.Properties.Duration)
         Assert.Equal(work.TokenRole, actual.TokenRole)
         Assert.Equal(work.Status4, actual.Status4)
         assertXywhEqual work.Position actual.Position

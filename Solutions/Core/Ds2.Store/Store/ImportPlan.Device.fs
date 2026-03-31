@@ -3,6 +3,7 @@ namespace Ds2.Store
 open System
 open System.Collections.Generic
 open Ds2.Core
+open Ds2.Store.DsQuery
 
 module internal ImportPlanDeviceOps =
 
@@ -45,11 +46,11 @@ module internal ImportPlanDeviceOps =
         match Map.tryFind systemName state.PendingSystems with
         | Some system -> system, state
         | None ->
-            match DsQuery.passiveSystemsOf projectId store |> List.tryFind (fun s -> s.Name = systemName) with
+            match Queries.passiveSystemsOf projectId store |> List.tryFind (fun s -> s.Name = systemName) with
             | Some existing ->
-                match DsQuery.flowsOf existing.Id store with
+                match Queries.flowsOf existing.Id store with
                 | flow :: _ ->
-                    let existingWorks = DsQuery.worksOf flow.Id store
+                    let existingWorks = Queries.worksOf flow.Id store
                     let existingWorkOrder =
                         Map.tryFind devAlias state.PendingWorkOrderRev
                         |> Option.defaultValue []
@@ -97,7 +98,7 @@ module internal ImportPlanDeviceOps =
         else
             let flow = Map.find devAlias state.PendingFlows
             let work =
-                DsQuery.worksOf flow.Id store
+                Queries.worksOf flow.Id store
                 |> List.tryFind (fun existing -> existing.Name = apiName)
                 |> Option.defaultWith (fun () ->
                     let created = Work(flow.Name, apiName, flow.Id)
@@ -118,7 +119,7 @@ module internal ImportPlanDeviceOps =
         match Map.tryFind key state.PendingApiDefs with
         | Some apiDef -> apiDef, state
         | None ->
-            match DsQuery.apiDefsOf system.Id store |> List.tryFind (fun existing -> existing.Name = apiName) with
+            match Queries.apiDefsOf system.Id store |> List.tryFind (fun existing -> existing.Name = apiName) with
             | Some existing ->
                 existing, { state with PendingApiDefs = Map.add key existing state.PendingApiDefs }
             | None ->
@@ -152,7 +153,7 @@ module internal ImportPlanDeviceOps =
             | None -> currentState
             | Some flow ->
                 let systemId = flow.ParentId
-                let existingArrows = DsQuery.arrowWorksOf systemId store
+                let existingArrows = Queries.arrowWorksOf systemId store
                 let nextPairs =
                     workOrderRev
                     |> List.rev

@@ -4,6 +4,7 @@ open System
 open System.Runtime.CompilerServices
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 
 module internal CascadeRemove =
@@ -33,11 +34,11 @@ module internal CascadeRemove =
 
     let removeHwComponents (store: DsStore) (systemIds: Guid list) =
         for sid in systemIds do
-            DsQuery.apiDefsOf    sid store |> List.iter (fun d -> store.TrackRemove(store.ApiDefs,      d.Id))
-            DsQuery.buttonsOf    sid store |> List.iter (fun b -> store.TrackRemove(store.HwButtons,    b.Id))
-            DsQuery.lampsOf      sid store |> List.iter (fun l -> store.TrackRemove(store.HwLamps,      l.Id))
-            DsQuery.conditionsOf sid store |> List.iter (fun c -> store.TrackRemove(store.HwConditions, c.Id))
-            DsQuery.actionsOf    sid store |> List.iter (fun a -> store.TrackRemove(store.HwActions,    a.Id))
+            Queries.apiDefsOf    sid store |> List.iter (fun d -> store.TrackRemove(store.ApiDefs,      d.Id))
+            Queries.buttonsOf    sid store |> List.iter (fun b -> store.TrackRemove(store.HwButtons,    b.Id))
+            Queries.lampsOf      sid store |> List.iter (fun l -> store.TrackRemove(store.HwLamps,      l.Id))
+            Queries.conditionsOf sid store |> List.iter (fun c -> store.TrackRemove(store.HwConditions, c.Id))
+            Queries.actionsOf    sid store |> List.iter (fun a -> store.TrackRemove(store.HwActions,    a.Id))
 
     let removeSystem (store: DsStore) (systemId: Guid) =
         for p in store.Projects.Values do
@@ -60,25 +61,25 @@ module internal CascadeRemove =
         |> Seq.filter (fun w -> w.ReferenceOf = Some workId)
         |> Seq.toList
         |> List.iter (fun refW -> cascadeRemoveWork store refW.Id)
-        DsQuery.callsOf workId store
+        Queries.callsOf workId store
         |> List.iter (fun call -> cascadeRemoveCall store call.Id)
         arrowWorksFor store (Set.singleton workId)
         |> List.iter (fun a -> store.TrackRemove(store.ArrowWorks, a.Id))
         store.TrackRemove(store.Works, workId)
 
     let cascadeRemoveFlow (store: DsStore) (flowId: Guid) =
-        DsQuery.worksOf flowId store 
+        Queries.worksOf flowId store 
         |> List.iter (fun work -> cascadeRemoveWork store work.Id)
         store.TrackRemove(store.Flows, flowId)
 
     let cascadeRemoveSystem (store: DsStore) (systemId: Guid) =
-        DsQuery.flowsOf systemId store 
+        Queries.flowsOf systemId store 
         |> List.iter (fun flow -> cascadeRemoveFlow store flow.Id)
         removeHwComponents store [ systemId ]
         removeSystem store systemId
 
     let cascadeRemoveProject (store: DsStore) (projectId: Guid) =
-        DsQuery.projectSystemsOf projectId store 
+        Queries.projectSystemsOf projectId store 
         |> List.iter (fun system -> cascadeRemoveSystem store system.Id)
         store.TrackRemove(store.Projects, projectId)
 
@@ -89,7 +90,7 @@ module internal CascadeRemove =
             match ek with
             | EntityKind.Call ->
                 // 부모 Work가 함께 선택된 Call은 건너뜀 — Work 캐스케이드가 처리
-                match DsQuery.getCall id store with
+                match Queries.getCall id store with
                 | Some call when not (selIds.Contains call.ParentId) ->
                     cascadeRemoveCall store id
                 | _ -> ()

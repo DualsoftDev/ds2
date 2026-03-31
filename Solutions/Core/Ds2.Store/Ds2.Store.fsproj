@@ -9,7 +9,11 @@
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Core\Types.fs" />
     <Compile Include="Store\DsStore.fs" />
-    <Compile Include="Core\DsQuery.fs" />
+    <Compile Include="Core\DsQuery\Queries.fs" />
+    <Compile Include="Core\DsQuery\TokenRole.fs" />
+    <Compile Include="Core\DsQuery\Format.fs" />
+    <Compile Include="Core\DsQuery\Validation.fs" />
+    <Compile Include="Core\DsQuery\Device.fs" />
     <Compile Include="Store\ImportPlan.fs" />
     <Compile Include="Store\ImportPlan.Device.fs" />
     <Compile Include="Queries\CallConditionQueries.fs" />

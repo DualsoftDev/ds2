@@ -33,9 +33,9 @@ static class Step07_SimCli
         var store = ctx.Store;
 
         // Duration 설정 (독립 실행 대비)
-        store.Works[ctx.W1Id].Properties.Period = TimeSpan.FromMilliseconds(500);
-        store.Works[ctx.W2Id].Properties.Period = TimeSpan.FromMilliseconds(800);
-        store.Works[ctx.W3Id].Properties.Period = TimeSpan.FromMilliseconds(500);
+        store.Works[ctx.W1Id].Properties.Duration = TimeSpan.FromMilliseconds(500);
+        store.Works[ctx.W2Id].Properties.Duration = TimeSpan.FromMilliseconds(800);
+        store.Works[ctx.W3Id].Properties.Duration = TimeSpan.FromMilliseconds(500);
 
         var index = SimIndexModule.build(store, 50);
         using var engine = new EventDrivenEngine(index);

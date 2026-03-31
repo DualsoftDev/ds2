@@ -8,6 +8,7 @@ using Ds2.Core;
 using Ds2.Runtime.Sim.Engine;
 using Ds2.Runtime.Sim.Model;
 using Ds2.Store;
+using Ds2.Store.DsQuery;
 
 namespace Promaker.ViewModels;
 
@@ -98,7 +99,7 @@ public partial class SimulationPanelState
 
     private void UpdateSimNodeTokenGroup(Guid workGuid)
     {
-        var groupGuids = DsQuery.referenceGroupOf(workGuid, Store).ToList();
+        var groupGuids = Queries.referenceGroupOf(workGuid, Store).ToList();
         if (groupGuids.Count == 0)
             groupGuids.Add(workGuid);
 

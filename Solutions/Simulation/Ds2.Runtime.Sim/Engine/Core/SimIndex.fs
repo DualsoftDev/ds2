@@ -3,6 +3,7 @@ namespace Ds2.Runtime.Sim.Engine.Core
 open System
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 /// 조건 평가 엔트리 (ValueSpec 원본 보존)
 type ConditionEntry = {
@@ -98,9 +99,9 @@ module SimIndex =
     /// ApiCall → ApiDef → property Guid 체인 (TxGuid/RxGuid 공용)
     let private resolveApiDefGuids (store: DsStore) (apiCallGuids: Guid list) (propGetter: ApiDefProperties -> Guid option) =
         apiCallGuids |> List.choose (fun apiCallId ->
-            DsQuery.getApiCall apiCallId store
+            Queries.getApiCall apiCallId store
             |> Option.bind (fun ac -> ac.ApiDefId)
-            |> Option.bind (fun defId -> DsQuery.getApiDef defId store)
+            |> Option.bind (fun defId -> Queries.getApiDef defId store)
             |> Option.bind (fun def -> propGetter def.Properties))
 
     /// Call의 ApiCall들에서 TxWork Guid 목록 추출
@@ -118,7 +119,7 @@ module SimIndex =
             cond.Conditions |> Seq.choose (fun apiCall ->
                 match apiCall.ApiDefId with
                 | Some apiDefId ->
-                    match DsQuery.getApiDef apiDefId store with
+                    match Queries.getApiDef apiDefId store with
                     | Some apiDef ->
                         match apiDef.Properties.RxGuid with
                         | Some rxWorkGuid ->
@@ -135,16 +136,16 @@ module SimIndex =
 
     /// DsStore에서 SimIndex 빌드
     let build (store: DsStore) (tickMs: int) : SimIndex =
-        let project = DsQuery.allProjects store |> List.tryHead
+        let project = Queries.allProjects store |> List.tryHead
 
         let activeSystemNames =
             match project with
-            | Some p -> DsQuery.activeSystemsOf p.Id store |> List.map (fun s -> s.Name) |> Set.ofList
+            | Some p -> Queries.activeSystemsOf p.Id store |> List.map (fun s -> s.Name) |> Set.ofList
             | None -> Set.empty
 
         let allSystems =
             match project with
-            | Some p -> DsQuery.projectSystemsOf p.Id store
+            | Some p -> Queries.projectSystemsOf p.Id store
             | None -> []
 
         let mutable tokenRoleMap = Map.empty<Guid, TokenRole>
@@ -194,8 +195,8 @@ module SimIndex =
             (workResetPreds: Map<Guid, Guid list>) =
             let periodSource =
                 match work.ReferenceOf with
-                | Some origId -> DsQuery.getWork origId store |> Option.bind (fun w -> w.Properties.Period)
-                | None -> work.Properties.Period
+                | Some origId -> Queries.getWork origId store |> Option.bind (fun w -> w.Properties.Duration)
+                | None -> work.Properties.Duration
             let userDurationMs =
                 periodSource
                 |> Option.map (fun ts -> ts.TotalMilliseconds)
@@ -206,7 +207,7 @@ module SimIndex =
                 if callGuids.IsEmpty then userDurationMs
                 else
                     let deviceMs =
-                        DsQuery.tryGetDeviceDurationMs resolvedId store
+                        Queries.tryGetDeviceDurationMs resolvedId store
                         |> Option.defaultValue 0
                         |> float
                     max userDurationMs deviceMs
@@ -221,7 +222,7 @@ module SimIndex =
             state.AllWorkGuids <- work.Id :: state.AllWorkGuids
 
         for system in allSystems do
-            let workArrows = DsQuery.arrowWorksOf system.Id store
+            let workArrows = Queries.arrowWorksOf system.Id store
             let wType = fun (a: ArrowBetweenWorks) -> a.ArrowType
             let wSrc  = fun (a: ArrowBetweenWorks) -> a.SourceId
             let wTgt  = fun (a: ArrowBetweenWorks) -> a.TargetId
@@ -243,12 +244,12 @@ module SimIndex =
             // Group 확장 후의 wStartPreds에서 빌드하므로 Group 멤버 관계도 포함
             tokenSuccMap <- SimIndexTokenGraph.appendSuccessorsFromStartPreds tokenSuccMap wStartPreds
 
-            let flows = DsQuery.flowsOf system.Id store
+            let flows = Queries.flowsOf system.Id store
             // Call Arrow: Work별 수집 후 합산 → Group 분해
             let allCallArrows =
                 flows
-                |> List.collect (fun f -> DsQuery.worksOf f.Id store)
-                |> List.collect (fun w -> DsQuery.arrowCallsOf w.Id store)
+                |> List.collect (fun f -> Queries.worksOf f.Id store)
+                |> List.collect (fun w -> Queries.arrowCallsOf w.Id store)
             let cType = fun (a: ArrowBetweenCalls) -> a.ArrowType
             let cSrc  = fun (a: ArrowBetweenCalls) -> a.SourceId
             let cTgt  = fun (a: ArrowBetweenCalls) -> a.TargetId
@@ -260,11 +261,11 @@ module SimIndex =
 
             for flow in flows do
                 state.AllFlowGuids <- flow.Id :: state.AllFlowGuids
-                let works = DsQuery.worksOf flow.Id store
+                let works = Queries.worksOf flow.Id store
                 for work in works do
                     // 레퍼런스 Work → 원본의 Call을 공유
                     let resolvedWorkId = work.ReferenceOf |> Option.defaultValue work.Id
-                    let calls = DsQuery.callsOf resolvedWorkId store
+                    let calls = Queries.callsOf resolvedWorkId store
                     let callGuids = calls |> List.map (fun c -> c.Id)
                     if work.ReferenceOf.IsNone then
                         for call in calls do
@@ -283,7 +284,7 @@ module SimIndex =
         let workCanonicalGuids =
             state.AllWorkGuids
             |> List.choose (fun wg ->
-                DsQuery.getWork wg store
+                Queries.getWork wg store
                 |> Option.map (fun w -> wg, (w.ReferenceOf |> Option.defaultValue wg)))
             |> Map.ofList
 
@@ -446,7 +447,7 @@ module SimIndex =
         let isFinishedWorks =
             index.AllWorkGuids
             |> List.filter (fun workGuid ->
-                DsQuery.getWork workGuid index.Store
+                Queries.getWork workGuid index.Store
                 |> Option.map (fun work -> work.Properties.IsFinished)
                 |> Option.defaultValue false)
         if not isFinishedWorks.IsEmpty then
@@ -456,10 +457,16 @@ module SimIndex =
             let isRetDirection callGuid =
                 rxWorkGuids index callGuid
                 |> List.exists (fun rxGuid ->
-                    DsQuery.getWork rxGuid index.Store
+                    Queries.getWork rxGuid index.Store
                     |> Option.map (fun work -> work.Name.ToUpperInvariant().Contains("RET"))
                     |> Option.defaultValue false)
             index.AllCallGuids
             |> List.filter isRetDirection
             |> Seq.collect (fun callGuid -> rxWorkGuids index callGuid)
             |> Set.ofSeq
+
+    /// 토큰 역할(Source/Ignore)이 하나라도 설정되어 있는지 확인
+    let hasAnyTokenRole (index: SimIndex) : bool =
+        index.WorkTokenRole
+        |> Map.exists (fun _ role -> role.HasFlag(TokenRole.Source) || role.HasFlag(TokenRole.Ignore))
+

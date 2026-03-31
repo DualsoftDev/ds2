@@ -4,11 +4,12 @@ open System
 open System.Collections.Generic
 open Ds2.Core
 open Ds2.Store
+open Ds2.Store.DsQuery
 
 module internal CsvMapper =
 
     let tryResolveProjectId (store: DsStore) (systemId: Guid) =
-        DsQuery.allProjects store
+        Queries.allProjects store
         |> List.tryFind (fun project ->
             project.ActiveSystemIds.Contains(systemId) ||
             project.PassiveSystemIds.Contains(systemId))
