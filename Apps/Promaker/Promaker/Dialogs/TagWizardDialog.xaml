@@ -691,9 +691,15 @@
                                                                 <Button Content="➕ 행 추가"
                                                                         Padding="10,5"
                                                                         Margin="0,0,5,0"
+                                                                        Background="{DynamicResource AccentBrush}"
+                                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                                        BorderBrush="{DynamicResource AccentBrush}"
                                                                         Click="AddIwRow_Click"/>
                                                                 <Button Content="➖ 선택 행 삭제"
                                                                         Padding="10,5"
+                                                                        Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                                        BorderBrush="{DynamicResource BorderBrush}"
                                                                         Click="RemoveIwRow_Click"/>
                                                             </StackPanel>
                                                         </Border>
@@ -760,9 +766,15 @@
                                                                 <Button Content="➕ 행 추가"
                                                                         Padding="10,5"
                                                                         Margin="0,0,5,0"
+                                                                        Background="{DynamicResource AccentBrush}"
+                                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                                        BorderBrush="{DynamicResource AccentBrush}"
                                                                         Click="AddQwRow_Click"/>
                                                                 <Button Content="➖ 선택 행 삭제"
                                                                         Padding="10,5"
+                                                                        Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                                        BorderBrush="{DynamicResource BorderBrush}"
                                                                         Click="RemoveQwRow_Click"/>
                                                             </StackPanel>
                                                         </Border>
@@ -829,9 +841,15 @@
                                                                 <Button Content="➕ 행 추가"
                                                                         Padding="10,5"
                                                                         Margin="0,0,5,0"
+                                                                        Background="{DynamicResource AccentBrush}"
+                                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                                        BorderBrush="{DynamicResource AccentBrush}"
                                                                         Click="AddMwRow_Click"/>
                                                                 <Button Content="➖ 선택 행 삭제"
                                                                         Padding="10,5"
+                                                                        Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                                        BorderBrush="{DynamicResource BorderBrush}"
                                                                         Click="RemoveMwRow_Click"/>
                                                             </StackPanel>
                                                         </Border>

@@ -314,8 +314,8 @@ public partial class TagWizardDialog
     {
         try
         {
-            // systemAddress.txt 확인 및 생성
-            var systemAddressPath = TemplateManager.SystemAddressPath;
+            // system_base.txt 확인 및 생성
+            var systemAddressPath = TemplateManager.SystemBasePath;
             if (!System.IO.File.Exists(systemAddressPath))
             {
                 // Legacy 파일이 있으면 복사
@@ -324,18 +324,18 @@ public partial class TagWizardDialog
                 {
                     var content = System.IO.File.ReadAllText(legacySystemPath);
                     System.IO.File.WriteAllText(systemAddressPath, content);
-                    GenerationStatusText.Text = "✓ systemAddress.txt 파일이 생성되었습니다 (system_base.txt에서 마이그레이션)";
+                    GenerationStatusText.Text = "✓ system_base.txt 파일이 생성되었습니다";
                 }
                 else
                 {
                     // 기본 템플릿으로 생성
                     TemplateManager.EnsureTemplatesExist();
-                    GenerationStatusText.Text = "✓ systemAddress.txt 파일이 생성되었습니다 (기본값)";
+                    GenerationStatusText.Text = "✓ system_base.txt 파일이 생성되었습니다 (기본값)";
                 }
             }
 
-            // flowAddress.txt 확인 및 생성
-            var flowAddressPath = TemplateManager.FlowAddressPath;
+            // flow_base.txt 확인 및 생성
+            var flowAddressPath = TemplateManager.FlowBasePath;
             if (!System.IO.File.Exists(flowAddressPath))
             {
                 // Legacy 파일이 있으면 복사
@@ -344,13 +344,13 @@ public partial class TagWizardDialog
                 {
                     var content = System.IO.File.ReadAllText(legacyFlowPath);
                     System.IO.File.WriteAllText(flowAddressPath, content);
-                    GenerationStatusText.Text = "✓ flowAddress.txt 파일이 생성되었습니다 (flow_base.txt에서 마이그레이션)";
+                    GenerationStatusText.Text = "✓ flow_base.txt 파일이 생성되었습니다";
                 }
                 else
                 {
                     // 기본 템플릿으로 생성
                     TemplateManager.EnsureTemplatesExist();
-                    GenerationStatusText.Text = "✓ flowAddress.txt 파일이 생성되었습니다 (기본값)";
+                    GenerationStatusText.Text = "✓ flow_base.txt 파일이 생성되었습니다 (기본값)";
                 }
             }
         }
@@ -556,13 +556,13 @@ public partial class TagWizardDialog
     }
 
     /// <summary>
-    /// systemAddress.txt에 SystemType의 주소가 없으면 기본값 추가
+    /// system_base.txt에 SystemType의 주소가 없으면 기본값 추가
     /// </summary>
     private void EnsureSystemBaseAddress(string systemType)
     {
         try
         {
-            var systemAddressPath = TemplateManager.SystemAddressPath;
+            var systemAddressPath = TemplateManager.SystemBasePath;
             var content = System.IO.File.Exists(systemAddressPath)
                 ? System.IO.File.ReadAllText(systemAddressPath)
                 : "";
@@ -600,7 +600,7 @@ public partial class TagWizardDialog
             content += newEntry;
             System.IO.File.WriteAllText(systemAddressPath, content);
 
-            GenerationStatusText.Text += $"\n  → systemAddress.txt에 {systemType} 주소 추가 (IW/QW: {newBaseAddress}, MW: {newBaseAddress + 6000})";
+            GenerationStatusText.Text += $"\n  → system_base.txt에 {systemType} 주소 추가 (IW/QW: {newBaseAddress}, MW: {newBaseAddress + 6000})";
         }
         catch (Exception ex)
         {
