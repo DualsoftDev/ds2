@@ -212,3 +212,9 @@ public sealed class ConditionDropInfo(CallConditionType conditionType, Guid drop
     public CallConditionType ConditionType { get; } = conditionType;
     public Guid DroppedCallId { get; } = droppedCallId;
 }
+
+public sealed class ConditionItemDropInfo(Guid conditionId, Guid droppedCallId)
+{
+    public Guid ConditionId { get; } = conditionId;
+    public Guid DroppedCallId { get; } = droppedCallId;
+}

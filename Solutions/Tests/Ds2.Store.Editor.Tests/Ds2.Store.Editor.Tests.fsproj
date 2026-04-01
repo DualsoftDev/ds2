@@ -19,6 +19,7 @@
     <Compile Include="EditorProjectionTests.fs" />
     <Compile Include="SimulationTests.fs" />
     <Compile Include="SimulationConnectionReloadTests.fs" />
+    <Compile Include="UndoMergeTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

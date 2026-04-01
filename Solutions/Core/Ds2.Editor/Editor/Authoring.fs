@@ -245,5 +245,11 @@ type DsStoreAuthoringExtensions =
         StoreAuthoring.redoTo store steps
 
     [<Extension>]
+    static member MergeLastTransactions(store: DsStore, count: int, label: string) =
+        let editorState = StoreEditorState.get store
+        editorState.UndoManager.MergeTop(count, label)
+        StoreAuthoring.emitHistoryChanged store
+
+    [<Extension>]
     static member ClearHistory(store: DsStore) =
         StoreAuthoring.clearHistory store

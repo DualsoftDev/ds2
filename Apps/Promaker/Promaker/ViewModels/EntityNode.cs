@@ -51,6 +51,9 @@ public partial class EntityNode : ObservableObject
     /// 시뮬레이션 상태 (null = 비시뮬)
     [ObservableProperty] private Status4? _simState;
 
+    /// 시뮬레이션 중 SkipUnmatch에 의해 스킵됨
+    [ObservableProperty] private bool _isSimSkipped;
+
     /// 시뮬레이션 토큰 표시 (빈 문자열 = 토큰 없음)
     [ObservableProperty] private string _simTokenDisplay = "";
 
