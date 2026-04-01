@@ -16,7 +16,7 @@ public partial class MainViewModel
         var storeRows = _store.GetAllApiCallIORows();
         var rows = storeRows
             .Select(r => new IoBatchRow(
-                r.CallId, r.ApiCallId, r.FlowName, r.DeviceName, r.ApiName,
+                r.CallId, r.ApiCallId, r.FlowName, r.WorkName, r.DeviceName, r.ApiName,
                 r.InAddress, r.InSymbol, r.OutAddress, r.OutSymbol,
                 r.OutDataType, r.InDataType))
             .ToList();

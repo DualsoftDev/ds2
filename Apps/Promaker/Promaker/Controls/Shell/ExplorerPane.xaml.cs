@@ -257,20 +257,54 @@ public partial class ExplorerPane : UserControl
 
     private static EntityNode? CloneFilteredNode(EntityNode source, string query)
     {
+        var isMatch = source.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase);
+
         var filteredChildren = source.Children
             .Select(child => CloneFilteredNode(child, query))
             .Where(child => child is not null)
             .Cast<EntityNode>()
             .ToList();
 
-        var isMatch = source.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase);
-        if (!isMatch && filteredChildren.Count == 0)
+        if (isMatch)
+        {
+            var clone = CloneNode(source);
+
+            if (filteredChildren.Count > 0)
+            {
+                // 부모 매칭 + 자식도 매칭 → 펼침, 모든 자식 포함 (매칭 자식은 필터 버전 사용)
+                clone.IsExpanded = true;
+                var filteredIds = new HashSet<Guid>(filteredChildren.Select(c => c.Id));
+                foreach (var child in source.Children)
+                    clone.Children.Add(filteredIds.Contains(child.Id)
+                        ? filteredChildren.First(c => c.Id == child.Id)
+                        : CloneSubtree(child));
+            }
+            else
+            {
+                // 부모만 매칭 → 접힘, 모든 자식 포함
+                clone.IsExpanded = false;
+                foreach (var child in source.Children)
+                    clone.Children.Add(CloneSubtree(child));
+            }
+
+            return clone;
+        }
+
+        if (filteredChildren.Count == 0)
             return null;
 
-        var clone = CloneNode(source);
-        clone.IsExpanded = filteredChildren.Count > 0;
+        var filteredClone = CloneNode(source);
+        filteredClone.IsExpanded = true;
         foreach (var child in filteredChildren)
-            clone.Children.Add(child);
+            filteredClone.Children.Add(child);
+        return filteredClone;
+    }
+
+    private static EntityNode CloneSubtree(EntityNode source)
+    {
+        var clone = CloneNode(source);
+        foreach (var child in source.Children)
+            clone.Children.Add(CloneSubtree(child));
         return clone;
     }
 

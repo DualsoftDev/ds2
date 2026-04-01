@@ -91,7 +91,7 @@ type DsStorePanelBatchExtensions =
                             let outDataType = "BOOL"
                             let inDataType = "BOOL"
 
-                            ApiCallIOBatchRow(call.Id, apiCall.Id, flow.Name, work.Name, call.Name, deviceName, apiName, inAddr, inSym, outAddr, outSym, outDataType, inDataType))
+                            ApiCallIOBatchRow(call.Id, apiCall.Id, flow.Name, work.LocalName, call.Name, deviceName, apiName, inAddr, inSym, outAddr, outSym, outDataType, inDataType))
                         |> Seq.toList))))
 
     /// Work IsFinished 일괄 변경 (단일 Undo 트랜잭션)

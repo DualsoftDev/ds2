@@ -169,6 +169,7 @@ public partial class TagWizardDialog
                 callId: callId,
                 apiCallId: apiCallId,
                 flow: key.FlowName,
+                work: key.WorkName,
                 device: device,
                 api: api,
                 inAddress: inputSignal?.Address ?? "",
