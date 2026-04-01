@@ -11,7 +11,6 @@ module AasxImporter =
     open AasxImportCore
     open AasxImportGraph
     open AasxImportMetadata
-    open Ds2.Aasx.Compat
 
     let internal importFromAasxFile (path: string) : DsStore option =
         let mainDir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path))
@@ -24,16 +23,13 @@ module AasxImporter =
                 let result =
                     env.Submodels
                     |> Seq.tryPick (fun sm ->
-                        if sm.IdShort = SubmodelIdShort then
-                            // legacy(dsev2) 감지 → 호환 경로, 아니면 정규 경로
-                            if LegacyAasxDetector.isLegacyFormat sm then
-                                LegacyImportGraph.legacySubmodelToProjectStore sm
-                            else
-                                submodelToProjectStore sm (Some mainDir)
+                        // SequenceModel 서브모델 찾기
+                        if sm.IdShort = SubmodelModelIdShort then
+                            submodelToProjectStore sm (Some mainDir)
                         else None)
                 match result with
                 | None ->
-                    log.Warn($"AASX 파싱 실패: '{SubmodelIdShort}' Submodel을 찾을 수 없습니다 ({path})")
+                    log.Warn($"AASX 파싱 실패: '{SubmodelModelIdShort}' Submodel을 찾을 수 없습니다 ({path})")
                     None
                 | Some (project, store) ->
                     // Nameplate Submodel 파싱
@@ -44,6 +40,10 @@ module AasxImporter =
                     env.Submodels
                     |> Seq.tryFind (fun sm -> sm.IdShort = DocumentationSubmodelIdShort)
                     |> Option.iter (fun sm -> project.HandoverDocumentation <- submodelToDocumentation sm)
+
+                    // 도메인별 Submodel import (Simulation, Control, Monitoring, Logging, Maintenance)
+                    // TODO: 향후 구현 필요
+
                     Some store)
 
     let importIntoStore (store: DsStore) (path: string) : bool =

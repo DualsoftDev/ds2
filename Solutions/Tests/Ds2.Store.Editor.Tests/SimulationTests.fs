@@ -98,7 +98,7 @@ module SimIndexTests =
 
         let apiDefId = sourceApiCall.ApiDefId |> Option.defaultValue Guid.Empty
         let apiDef = store.ApiDefs[apiDefId]
-        apiDef.Properties.RxGuid <- Some rxWork.Id
+        apiDef.RxGuid <- Some rxWork.Id
 
         store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
         let conditionId =

@@ -299,9 +299,11 @@ module Queries =
         |> Seq.choose (fun apiCall ->
             apiCall.ApiDefId
             |> Option.bind (fun defId -> getApiDef defId store)
-            |> Option.bind (fun def -> def.Properties.RxGuid)
+            |> Option.bind (fun def -> def.RxGuid)
             |> Option.bind (fun rxWorkId -> getWork rxWorkId store)
-            |> Option.bind (fun rxWork -> rxWork.Properties.Duration)
+            |> Option.bind (fun rxWork ->
+                rxWork.SimulationProperties
+                |> Option.bind (fun props -> props.Duration))
             |> Option.map (fun ts -> int ts.TotalMilliseconds))
         |> Seq.tryHead
         |> Option.defaultValue 0

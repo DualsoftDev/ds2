@@ -39,7 +39,7 @@ module internal CallTransitions =
                 let hasRx =
                     apiCall.ApiDefId
                     |> Option.bind (fun defId -> Queries.getApiDef defId ctx.Index.Store)
-                    |> Option.bind (fun def -> def.Properties.RxGuid)
+                    |> Option.bind (fun def -> def.RxGuid)
                     |> Option.isSome
                 if hasRx then
                     ctx.StateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)))

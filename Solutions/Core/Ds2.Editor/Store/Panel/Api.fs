@@ -11,9 +11,9 @@ open Ds2.Store.DsQuery
 module internal PanelApiDefOps =
     let toApiDefPanelItem (apiDef: ApiDef) =
         ApiDefPanelItem(
-            apiDef.Id, apiDef.Name, apiDef.Properties.IsPush,
-            apiDef.Properties.TxGuid, apiDef.Properties.RxGuid,
-            apiDef.Properties.Description |> Option.defaultValue "")
+            apiDef.Id, apiDef.Name, apiDef.IsPush,
+            apiDef.TxGuid, apiDef.RxGuid,
+            "")
 
 // ─── ApiDef extensions ───────────────────────────────────────────────
 
@@ -43,11 +43,10 @@ type DsStorePanelApiDefExtensions =
 
     [<Extension>]
     static member AddApiDefWithProperties
-        (store: DsStore, name: string, systemId: Guid, props: ApiDefProperties) : Guid =
+        (store: DsStore, name: string, systemId: Guid) : Guid =
         StoreLog.debug($"name={name}, systemId={systemId}")
         StoreLog.requireSystem(store, systemId) |> ignore
         let apiDef = ApiDef(name, systemId)
-        apiDef.Properties <- props.DeepCopy()
         store.WithTransaction($"ApiDef 추가 \"{name}\"", fun () ->
             store.TrackAdd(store.ApiDefs, apiDef))
         store.EmitAndHistory(ApiDefAdded apiDef)
@@ -55,13 +54,12 @@ type DsStorePanelApiDefExtensions =
 
     [<Extension>]
     static member UpdateApiDef
-        (store: DsStore, apiDefId: Guid, newName: string, props: ApiDefProperties) =
+        (store: DsStore, apiDefId: Guid, newName: string) =
         StoreLog.debug($"apiDefId={apiDefId}, newName={newName}")
         StoreLog.requireApiDef(store, apiDefId) |> ignore
         store.WithTransaction("ApiDef 편집", fun () ->
             store.TrackMutate(store.ApiDefs, apiDefId, fun d ->
-                d.Name <- newName
-                d.Properties <- props.DeepCopy()))
+                d.Name <- newName))
         store.EmitRefreshAndHistory()
 
 // ─── ApiCall extensions ──────────────────────────────────────────────

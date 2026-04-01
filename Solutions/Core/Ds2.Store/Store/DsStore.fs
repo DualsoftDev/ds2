@@ -96,9 +96,11 @@ type DsStore() =
     /// JSON 마이그레이션: SystemType이 없는 System에 "Unit" 기본값 설정
     member private this.MigrateSystemType() =
         for system in this.Systems.Values do
-            if system.Properties.SystemType.IsNone then
-                system.Properties.SystemType <- Some "Unit"
+            match system.SimulationProperties with
+            | Some props when props.SystemType.IsNone ->
+                props.SystemType <- Some "Unit"
                 log.Info($"MigrateSystemType: Set SystemType='Unit' for System '{system.Name}' (Id={system.Id})")
+            | _ -> ()
 
     member private this.ApplyNewStore(newStore: DsStore, contextLabel: string) =
         try

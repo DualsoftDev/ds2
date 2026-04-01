@@ -97,16 +97,16 @@ module SimIndex =
     // ── 타입별 조회 헬퍼 ─────────────────────────────────────────────
 
     /// ApiCall → ApiDef → property Guid 체인 (TxGuid/RxGuid 공용)
-    let private resolveApiDefGuids (store: DsStore) (apiCallGuids: Guid list) (propGetter: ApiDefProperties -> Guid option) =
+    let private resolveApiDefGuids (store: DsStore) (apiCallGuids: Guid list) (propGetter: ApiDef -> Guid option) =
         apiCallGuids |> List.choose (fun apiCallId ->
             Queries.getApiCall apiCallId store
             |> Option.bind (fun ac -> ac.ApiDefId)
             |> Option.bind (fun defId -> Queries.getApiDef defId store)
-            |> Option.bind (fun def -> propGetter def.Properties))
+            |> Option.bind propGetter)
 
     /// Call의 ApiCall들에서 TxWork Guid 목록 추출
     let txWorkGuids (index: SimIndex) (callGuid: Guid) =
-        resolveApiDefGuids index.Store (findOrEmpty callGuid index.CallApiCallGuids) (fun p -> p.TxGuid)
+        resolveApiDefGuids index.Store (findOrEmpty callGuid index.CallApiCallGuids) (fun d -> d.TxGuid)
 
     /// Call의 ApiCall들에서 RxWork Guid 목록 추출
     let rxWorkGuids (index: SimIndex) (callGuid: Guid) =
@@ -121,7 +121,7 @@ module SimIndex =
                 | Some apiDefId ->
                     match Queries.getApiDef apiDefId store with
                     | Some apiDef ->
-                        match apiDef.Properties.RxGuid with
+                        match apiDef.RxGuid with
                         | Some rxWorkGuid ->
                             Some { RxWorkGuid = rxWorkGuid; ApiCallGuid = Some apiCall.Id; InputSpec = apiCall.InputSpec }
                         | None -> None
@@ -182,7 +182,8 @@ module SimIndex =
             state.CallAutoAuxConditions <- state.CallAutoAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.AutoAux call)
             state.CallComAuxConditions <- state.CallComAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.ComAux call)
             state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, conditionSpecs store CallConditionType.SkipUnmatch call)
-            state.CallTypeMap <- state.CallTypeMap.Add(call.Id, call.Properties.CallType)
+            let callType = call.SimulationProperties |> Option.map (fun p -> p.CallType) |> Option.defaultValue CallType.WaitForCompletion
+            state.CallTypeMap <- state.CallTypeMap.Add(call.Id, callType)
             state.AllCallGuids <- call.Id :: state.AllCallGuids
 
         let addWorkData
@@ -195,8 +196,8 @@ module SimIndex =
             (workResetPreds: Map<Guid, Guid list>) =
             let periodSource =
                 match work.ReferenceOf with
-                | Some origId -> Queries.getWork origId store |> Option.bind (fun w -> w.Properties.Duration)
-                | None -> work.Properties.Duration
+                | Some origId -> Queries.getWork origId store |> Option.bind (fun w -> w.SimulationProperties) |> Option.bind (fun p -> p.Duration)
+                | None -> work.SimulationProperties |> Option.bind (fun p -> p.Duration)
             let userDurationMs =
                 periodSource
                 |> Option.map (fun ts -> ts.TotalMilliseconds)
@@ -448,7 +449,8 @@ module SimIndex =
             index.AllWorkGuids
             |> List.filter (fun workGuid ->
                 Queries.getWork workGuid index.Store
-                |> Option.map (fun work -> work.Properties.IsFinished)
+                |> Option.bind (fun work -> work.SimulationProperties)
+                |> Option.map (fun p -> p.IsFinished)
                 |> Option.defaultValue false)
         if not isFinishedWorks.IsEmpty then
             isFinishedWorks |> Set.ofList

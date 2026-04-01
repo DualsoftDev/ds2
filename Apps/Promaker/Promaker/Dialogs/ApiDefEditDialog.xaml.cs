@@ -15,7 +15,9 @@ public partial class ApiDefEditDialog : Window
 
     // 출력
     public string ApiDefName { get; private set; } = string.Empty;
-    public ApiDefProperties ResultProperties { get; private set; } = new();
+    public bool IsPush { get; private set; }
+    public Guid? TxGuid { get; private set; }
+    public Guid? RxGuid { get; private set; }
 
     public ApiDefEditDialog(IReadOnlyList<WorkDropdownItem> works, ApiDefPanelItem? existing = null)
     {
@@ -61,17 +63,9 @@ public partial class ApiDefEditDialog : Window
 
         ApiDefName = name;
 
-        var txId = TxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } tx ? tx.Id : (Guid?)null;
-        var rxId = RxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } rx ? rx.Id : (Guid?)null;
-        var desc = DescriptionBox.Text.Trim();
-
-        ResultProperties = new ApiDefProperties
-        {
-            IsPush = PushRadio.IsChecked == true,
-            TxGuid = txId.HasValue ? FSharpOption<Guid>.Some(txId.Value) : null,
-            RxGuid = rxId.HasValue ? FSharpOption<Guid>.Some(rxId.Value) : null,
-            Description = string.IsNullOrEmpty(desc) ? null : FSharpOption<string>.Some(desc),
-        };
+        IsPush = PushRadio.IsChecked == true;
+        TxGuid = TxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } tx ? tx.Id : null;
+        RxGuid = RxWorkCombo.SelectedItem is WorkDropdownItem { IsNone: false } rx ? rx.Id : null;
 
         DialogResult = true;
     }

@@ -41,6 +41,10 @@ module AasxConceptDescriptions =
             shortName = shortName,
             definition = definition
         )
+        // AASc-3a-010: value와 valueList는 상호배타적
+        // ConceptDescription은 value/valueList 불필요 — 명시적으로 제거
+        dataSpecContent.Value <- Unchecked.defaultof<string>
+        dataSpecContent.ValueList <- Unchecked.defaultof<_>
         let embeddedDataSpec = EmbeddedDataSpecification(
             dataSpecification = iec61360DataSpecificationRef,
             dataSpecificationContent = dataSpecContent
@@ -48,15 +52,22 @@ module AasxConceptDescriptions =
         let isCaseOfRef = Reference(
             ReferenceTypes.ModelReference,
             ResizeArray<IKey>([
-                Key(KeyTypes.GlobalReference, info.Id) :> IKey
+                Key(KeyTypes.ConceptDescription, info.Id) :> IKey
             ])
         )
-        ConceptDescription(
+        let cd = ConceptDescription(
             id = info.Id,
-            administration = AdministrativeInformation(revision = "1"),
             embeddedDataSpecifications = ResizeArray<IEmbeddedDataSpecification>([ embeddedDataSpec :> IEmbeddedDataSpecification ]),
             isCaseOf = ResizeArray<IReference>([ isCaseOfRef :> IReference ])
         )
+        // AASd-117: idShort 설정 (IRDI 전체를 sanitize)
+        // IRDI 형식: 0173-1#02-AAY811#001 → sanitize하여 영문자로 시작하도록
+        let sanitized =
+            info.Id.ToCharArray()
+            |> Array.map (fun c -> if System.Char.IsLetterOrDigit(c) then c else '_')
+            |> System.String
+        cd.IdShort <- if System.Char.IsLetter(sanitized.[0]) then sanitized else "N" + sanitized
+        cd
 
     /// Nameplate에서 사용하는 모든 IRDI 수집
     let collectNameplateIrdis () : string list =
@@ -123,3 +134,29 @@ module AasxConceptDescriptions =
                 result.Add(createConceptDescription info :> IConceptDescription)
             | false, _ -> ()
         result
+
+
+        
+    // Submodel ID offset 상수 (GUID 마지막 바이트에 더할 값)
+    [<Literal>]
+    let SubmodelOffsetModel        = 0uy  // SequenceModel
+    [<Literal>]
+    let SubmodelOffsetSimulation   = 1uy  // SequenceSimulation
+    [<Literal>]
+    let SubmodelOffsetControl      = 2uy  // SequenceControl
+    [<Literal>]
+    let SubmodelOffsetMonitoring   = 3uy  // SequenceMonitoring
+    [<Literal>]
+    let SubmodelOffsetLogging      = 4uy  // SequenceLogging
+    [<Literal>]
+    let SubmodelOffsetMaintenance  = 5uy  // SequenceMaintenance
+
+    /// Submodel ID 생성 (Project GUID 마지막 바이트에 offset 더하기)
+    /// - 원본 Project ID 보존 (역산 가능)
+    /// - 고유성 보장 (동일 Project 내 6개 Submodel 구분)
+    /// - GUID 표준 형식 유지
+    let mkSubmodelId (projectId: System.Guid) (offset: byte) : string =
+        let bytes = projectId.ToByteArray()
+        bytes.[15] <- bytes.[15] + offset  // 마지막 바이트에 offset 더하기
+        let newGuid = System.Guid(bytes)
+        newGuid.ToString()

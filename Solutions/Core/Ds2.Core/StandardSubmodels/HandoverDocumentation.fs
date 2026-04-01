@@ -75,3 +75,37 @@ module HandoverDocumentationTypes =
     type HandoverDocumentation() =
         /// 문서 목록 (0..*)
         member val Documents = ResizeArray<Document>() with get, set
+
+        /// 기본 샘플 Document 생성 (프로젝트 초기화 시 호출)
+        static member CreateWithDefaultDocument() : HandoverDocumentation =
+            let doc = HandoverDocumentation()
+
+            let sampleDoc = Document()
+
+            // DocumentId 추가 (필수)
+            let docId = DocumentId()
+            docId.DocumentDomainId <- "ManufacturerDocumentId"
+            docId.ValueId <- "DS2-DOC-001"
+            docId.IsPrimary <- true
+            sampleDoc.DocumentIds.Add(docId)
+
+            // DocumentClassification 추가 (필수)
+            let classification = DocumentClassification()
+            classification.ClassId <- "03-02"
+            classification.ClassName <- "Operating instructions"
+            classification.ClassificationSystem <- "VDI2770:2018"
+            sampleDoc.DocumentClassifications.Add(classification)
+
+            // DocumentVersion 추가 (필수)
+            let version = DocumentVersion()
+            version.Languages.Add("en")
+            version.DocumentVersionId <- "1.0"
+            version.Title <- "Project Documentation"
+            version.SubTitle <- "DS2 Sequence Model"
+            version.OrganizationName <- "Dualsoft"
+            version.Role <- "Manufacturer"
+            version.StatusValue <- "Released"
+            sampleDoc.DocumentVersions.Add(version)
+
+            doc.Documents.Add(sampleDoc)
+            doc

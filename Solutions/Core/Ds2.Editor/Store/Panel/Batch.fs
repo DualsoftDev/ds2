@@ -47,7 +47,11 @@ type DsStorePanelBatchExtensions =
             |> List.collect (fun flow ->
                 Queries.worksOf flow.Id store
                 |> List.map (fun work ->
-                    let ms = work.Properties.Duration |> Option.map (fun t -> int t.TotalMilliseconds) |> Option.defaultValue 0
+                    let ms =
+                        work.SimulationProperties
+                        |> Option.bind (fun p -> p.Duration)
+                        |> Option.map (fun t -> int t.TotalMilliseconds)
+                        |> Option.defaultValue 0
                     // Device Work = Work에 ApiCall이 있는 Call이 하나라도 있으면 true
                     let isDeviceWork =
                         Queries.callsOf work.Id store
@@ -103,14 +107,22 @@ type DsStorePanelBatchExtensions =
             |> Seq.distinctBy (fun struct(workId, _) -> workId)
             |> Seq.filter (fun struct(workId, isFinished) ->
                 match Queries.getWork workId store with
-                | Some work -> work.Properties.IsFinished <> isFinished
+                | Some work ->
+                    let currentFinished = work.SimulationProperties |> Option.map (fun p -> p.IsFinished) |> Option.defaultValue false
+                    currentFinished <> isFinished
                 | None -> false)
             |> Seq.toList
         if not changeList.IsEmpty then
             StoreLog.debug($"UpdateWorkIsFinishedBatch: {changeList.Length} items")
             store.WithTransaction("Work IsFinished 일괄 변경", fun () ->
                 for struct(workId, isFinished) in changeList do
-                    store.TrackMutate(store.Works, workId, fun work -> work.Properties.IsFinished <- isFinished))
+                    store.TrackMutate(store.Works, workId, fun work ->
+                        match work.SimulationProperties with
+                        | Some props -> props.IsFinished <- isFinished
+                        | None ->
+                            let props = SimulationWorkProperties()
+                            props.IsFinished <- isFinished
+                            work.SimulationProperties <- Some props))
             store.EmitRefreshAndHistory()
 
     /// Work Duration 일괄 변경 (단일 Undo 트랜잭션)
@@ -122,7 +134,13 @@ type DsStorePanelBatchExtensions =
             store.WithTransaction("Work Duration 일괄 변경", fun () ->
                 for struct(workId, newMs) in changeList do
                     let period = if newMs <= 0 then None else Some (TimeSpan.FromMilliseconds(float newMs))
-                    store.TrackMutate(store.Works, workId, fun w -> w.Properties.Duration <- period))
+                    store.TrackMutate(store.Works, workId, fun w ->
+                        match w.SimulationProperties with
+                        | Some props -> props.Duration <- period
+                        | None ->
+                            let props = SimulationWorkProperties()
+                            props.Duration <- period
+                            w.SimulationProperties <- Some props))
             store.EmitRefreshAndHistory()
 
     /// Work Duration 일괄 변경 (Nullable 허용)
@@ -137,14 +155,22 @@ type DsStorePanelBatchExtensions =
             |> Seq.distinctBy (fun struct(workId, _) -> workId)
             |> Seq.filter (fun struct(workId, period) ->
                 match Queries.getWork workId store with
-                | Some work -> work.Properties.Duration <> period
+                | Some work ->
+                    let currentDuration = work.SimulationProperties |> Option.bind (fun p -> p.Duration)
+                    currentDuration <> period
                 | None -> false)
             |> Seq.toList
         if not changeList.IsEmpty then
             StoreLog.debug($"UpdateWorkPeriodsBatch: {changeList.Length} items")
             store.WithTransaction("Work Duration 일괄 변경", fun () ->
                 for struct(workId, period) in changeList do
-                    store.TrackMutate(store.Works, workId, fun work -> work.Properties.Duration <- period))
+                    store.TrackMutate(store.Works, workId, fun work ->
+                        match work.SimulationProperties with
+                        | Some props -> props.Duration <- period
+                        | None ->
+                            let props = SimulationWorkProperties()
+                            props.Duration <- period
+                            work.SimulationProperties <- Some props))
             store.EmitRefreshAndHistory()
 
     /// Work TokenRole 일괄 변경 (단일 Undo 트랜잭션)
@@ -249,12 +275,20 @@ type DsStorePanelBatchExtensions =
             |> Seq.distinctBy (fun struct(callId, _) -> callId)
             |> Seq.filter (fun struct(callId, timeout) ->
                 match Queries.getCall callId store with
-                | Some call -> call.Properties.Timeout <> timeout
+                | Some call ->
+                    let currentTimeout = call.SimulationProperties |> Option.bind (fun p -> p.Timeout)
+                    currentTimeout <> timeout
                 | None -> false)
             |> Seq.toList
         if not changeList.IsEmpty then
             StoreLog.debug($"UpdateCallTimeoutsBatch: {changeList.Length} items")
             store.WithTransaction("Call Timeout 일괄 변경", fun () ->
                 for struct(callId, timeout) in changeList do
-                    store.TrackMutate(store.Calls, callId, fun call -> call.Properties.Timeout <- timeout))
+                    store.TrackMutate(store.Calls, callId, fun call ->
+                        match call.SimulationProperties with
+                        | Some props -> props.Timeout <- timeout
+                        | None ->
+                            let props = SimulationCallProperties()
+                            props.Timeout <- timeout
+                            call.SimulationProperties <- Some props))
             store.EmitRefreshAndHistory()

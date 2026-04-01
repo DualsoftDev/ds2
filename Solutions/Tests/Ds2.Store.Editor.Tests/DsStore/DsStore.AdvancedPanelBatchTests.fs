@@ -222,16 +222,19 @@ module BatchTests =
 
         store.UpdateWorkDurationsBatch([ struct(work1.Id, 3000); struct(work2.Id, 7000) ])
 
-        let p1 = work1.Properties.Duration
+        let p1 = store.Works.[work1.Id].SimulationProperties.Value.Duration
         Assert.True(p1.IsSome)
         Assert.Equal(3000.0, p1.Value.TotalMilliseconds)
-        let p2 = work2.Properties.Duration
+        let p2 = store.Works.[work2.Id].SimulationProperties.Value.Duration
         Assert.True(p2.IsSome)
         Assert.Equal(7000.0, p2.Value.TotalMilliseconds)
 
         store.Undo()
-        Assert.True(store.Works.[work1.Id].Properties.Duration.IsNone)
-        Assert.True(store.Works.[work2.Id].Properties.Duration.IsNone)
+        // Undo 후 SimulationProperties가 None이거나 Duration이 None이어야 함
+        let w1AfterUndo = store.Works.[work1.Id]
+        let w2AfterUndo = store.Works.[work2.Id]
+        Assert.True(w1AfterUndo.SimulationProperties.IsNone || w1AfterUndo.SimulationProperties.Value.Duration.IsNone)
+        Assert.True(w2AfterUndo.SimulationProperties.IsNone || w2AfterUndo.SimulationProperties.Value.Duration.IsNone)
 
     [<Fact>]
     let ``GetAllApiCallIORows returns apiCalls with IO tags`` () =
@@ -340,8 +343,8 @@ module BatchTests =
             let loaded = DsStore()
             loaded.LoadFromFile(tmpPath)
             let loadedWork = loaded.Works.Values |> Seq.head
-            Assert.True(loadedWork.Properties.Duration.IsSome)
-            Assert.Equal(2000.0, loadedWork.Properties.Duration.Value.TotalMilliseconds)
+            Assert.True(loadedWork.SimulationProperties.Value.Duration.IsSome)
+            Assert.Equal(2000.0, loadedWork.SimulationProperties.Value.Duration.Value.TotalMilliseconds)
         finally
             System.IO.File.Delete(tmpPath)
 
@@ -359,12 +362,15 @@ module BatchTests =
             struct(work2.Id, Nullable<int>(3400))
         ])
 
-        Assert.Equal(1200.0, store.Works.[work1.Id].Properties.Duration.Value.TotalMilliseconds)
-        Assert.Equal(3400.0, store.Works.[work2.Id].Properties.Duration.Value.TotalMilliseconds)
+        Assert.Equal(1200.0, store.Works.[work1.Id].SimulationProperties.Value.Duration.Value.TotalMilliseconds)
+        Assert.Equal(3400.0, store.Works.[work2.Id].SimulationProperties.Value.Duration.Value.TotalMilliseconds)
 
         store.Undo()
-        Assert.True(store.Works.[work1.Id].Properties.Duration.IsNone)
-        Assert.True(store.Works.[work2.Id].Properties.Duration.IsNone)
+        // Undo 후 SimulationProperties가 None이거나 Duration이 None이어야 함
+        let w1AfterUndo = store.Works.[work1.Id]
+        let w2AfterUndo = store.Works.[work2.Id]
+        Assert.True(w1AfterUndo.SimulationProperties.IsNone || w1AfterUndo.SimulationProperties.Value.Duration.IsNone)
+        Assert.True(w2AfterUndo.SimulationProperties.IsNone || w2AfterUndo.SimulationProperties.Value.Duration.IsNone)
 
     [<Fact>]
     let ``UpdateWorkTokenRolesBatch updates multiple works and supports undo`` () =
@@ -408,9 +414,12 @@ module BatchTests =
             struct(call2.Id, Nullable<int>(2600))
         ])
 
-        Assert.Equal(1500.0, store.Calls.[call1.Id].Properties.Timeout.Value.TotalMilliseconds)
-        Assert.Equal(2600.0, store.Calls.[call2.Id].Properties.Timeout.Value.TotalMilliseconds)
+        Assert.Equal(1500.0, store.Calls.[call1.Id].SimulationProperties.Value.Timeout.Value.TotalMilliseconds)
+        Assert.Equal(2600.0, store.Calls.[call2.Id].SimulationProperties.Value.Timeout.Value.TotalMilliseconds)
 
         store.Undo()
-        Assert.True(store.Calls.[call1.Id].Properties.Timeout.IsNone)
-        Assert.True(store.Calls.[call2.Id].Properties.Timeout.IsNone)
+        // Undo 후 SimulationProperties가 None이거나 Timeout이 None이어야 함
+        let c1AfterUndo = store.Calls.[call1.Id]
+        let c2AfterUndo = store.Calls.[call2.Id]
+        Assert.True(c1AfterUndo.SimulationProperties.IsNone || c1AfterUndo.SimulationProperties.Value.Timeout.IsNone)
+        Assert.True(c2AfterUndo.SimulationProperties.IsNone || c2AfterUndo.SimulationProperties.Value.Timeout.IsNone)

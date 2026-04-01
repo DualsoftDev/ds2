@@ -126,9 +126,9 @@ module internal ImportPlanDeviceOps =
                 let apiDef = ApiDef(apiName, system.Id)
                 match Map.tryFind key state.PendingWorks with
                 | Some work ->
-                    apiDef.Properties.IsPush <- false
-                    apiDef.Properties.TxGuid <- Some work.Id
-                    apiDef.Properties.RxGuid <- Some work.Id
+                    apiDef.IsPush <- false
+                    apiDef.TxGuid <- Some work.Id
+                    apiDef.RxGuid <- Some work.Id
                 | None -> ()
                 queueOperation (AddApiDef apiDef) operations
                 apiDef, { state with PendingApiDefs = Map.add key apiDef state.PendingApiDefs }

@@ -1,3 +1,5 @@
+using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.FSharp.Collections;
@@ -12,8 +14,12 @@ public enum CallCreateMode { CallReplication, ApiCallReplication, ApiDefPicker }
 
 public partial class CallCreateDialog : Window
 {
+    private static readonly string PresetFilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Dualsoft", "Promaker", "systemTypePreset", "systemTypePreset.json");
+
     private readonly Func<string, IReadOnlyList<ApiDefMatch>> _findApiDefsByName;
-    private readonly ProjectProperties? _projectProperties;
+    private readonly Project? _project;
 
     // ─── 공통 출력 ───
     public CallCreateMode Mode { get; private set; }
@@ -34,10 +40,10 @@ public partial class CallCreateDialog : Window
     // ─── SystemType 출력 ───
     public string? SelectedSystemType { get; private set; } = null;
 
-    public CallCreateDialog(Func<string, IReadOnlyList<ApiDefMatch>> findApiDefsByName, ProjectProperties? projectProperties = null)
+    public CallCreateDialog(Func<string, IReadOnlyList<ApiDefMatch>> findApiDefsByName, Project? project = null)
     {
         _findApiDefsByName = findApiDefsByName;
-        _projectProperties = projectProperties;
+        _project = project;
         InitializeComponent();
         LoadPresets();
         Loaded += (_, _) =>
@@ -47,13 +53,24 @@ public partial class CallCreateDialog : Window
         };
     }
 
+    private static string[] LoadPresetsFromFile()
+    {
+        try
+        {
+            if (!File.Exists(PresetFilePath)) return [];
+            var json = File.ReadAllText(PresetFilePath);
+            return JsonSerializer.Deserialize<string[]>(json) ?? [];
+        }
+        catch { return []; }
+    }
+
     private void LoadPresets()
     {
         PresetComboBox.Items.Clear();
 
-        if (_projectProperties != null)
+        if (_project != null)
         {
-            var presets = ProjectPropertiesHelper.getPresetSystemTypes(_projectProperties);
+            var presets = LoadPresetsFromFile();
             foreach (var preset in presets)
             {
                 var parts = preset.Split(':');
