@@ -3,7 +3,6 @@ using Ds2.UI.Core;
 using Dual.Common.Db.FS;
 using Ev2.Backend.Common;
 using Ev2.Backend.PLC;
-using Ev2.PLC.Protocol.MX;
 using log4net;
 using log4net.Config;
 using Microsoft.FSharp.Core;
@@ -29,7 +28,7 @@ public static class CaptureMode
     private static IDisposable? _c2sSubscription;
     private static IDisposable? _serviceDisposable;
 
-    public static async Task RunAsync()
+    internal static async Task RunAsync(PlcConnectionSettings plcSettings)
     {
         Console.WriteLine("=== Capture Mode: AASX → PLC → DB + Events ===");
         Console.WriteLine();
@@ -106,8 +105,9 @@ public static class CaptureMode
 
             // 6. BackendAppSettings 생성
             Console.WriteLine("4️⃣  Creating BackendAppSettings...");
+            Console.WriteLine($"   🔌 PLC Type: {plcSettings.PlcType}");
             var dbPath = "C:/ds/ds2/Apps/DSPilot/DSPilot/sample/db/dsdb_capture.sqlite3";
-            var appSettings = CreateBackendAppSettings(tagSpecs, dbPath);
+            var appSettings = CreateBackendAppSettings(tagSpecs, dbPath, plcSettings);
             Console.WriteLine($"   ✅ AppSettings configured");
             Console.WriteLine($"      DB: {dbPath}");
 
@@ -283,7 +283,7 @@ public static class CaptureMode
         return PlcDataType.Bool;
     }
 
-    private static BackendAppSettings CreateBackendAppSettings(TagSpec[] tagSpecs, string dbPath)
+    private static BackendAppSettings CreateBackendAppSettings(TagSpec[] tagSpecs, string dbPath, PlcConnectionSettings plcSettings)
     {
         var appSettings = new BackendAppSettings();
 
@@ -298,29 +298,8 @@ public static class CaptureMode
             FlushInterval = TimeSpan.FromSeconds(5)
         };
 
-        // ScanConfiguration 설정
-        var connectionConfig = new MxConnectionConfig
-        {
-            IpAddress = PlcDefaults.IpAddress,
-            Port = PlcDefaults.Port,
-            Name = PlcDefaults.Name,
-            EnableScan = true,
-            Timeout = TimeSpan.FromSeconds(5),
-            ScanInterval = TimeSpan.FromMilliseconds(500),
-            FrameType = Ev2.PLC.Protocol.MX.FrameType.QnA_3E_Binary,
-            Protocol = Ev2.PLC.Protocol.MX.TransportProtocol.UDP,
-            AccessRoute = new Ev2.PLC.Protocol.MX.AccessRoute(0, 255, 1023, 0),
-            MonitoringTimer = 16
-        };
-
-        appSettings.ScanConfigurations = new[]
-        {
-            new ScanConfiguration
-            {
-                Connection = connectionConfig,
-                TagSpecs = tagSpecs
-            }
-        };
+        // ScanConfiguration 설정 (PlcType에 따라 MX 또는 LS 연결 생성)
+        appSettings.ScanConfigurations = new[] { plcSettings.CreateScanConfig(tagSpecs) };
 
         return appSettings;
     }
@@ -332,6 +311,7 @@ public static class CaptureMode
         Ev2.PLC.Protocol.AB.ModuleInitializer.Initialize(log);
         Ev2.PLC.Protocol.MX.ModuleInitializer.Initialize(log);
         Ev2.PLC.Protocol.S7.ModuleInitializer.Initialize(log);
+        Ev2.PLC.Protocol.LS.ModuleInitializer.Initialize(log);
         Ev2.Core.FS.ModuleInitializer.Initialize(log, appSettings);
 
         // AppDbApi 생성 (DB 자동 생성)

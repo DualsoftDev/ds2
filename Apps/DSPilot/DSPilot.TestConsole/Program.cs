@@ -13,6 +13,9 @@ class Program
             .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
             .Build();
 
+        var plcSettings = PlcConnectionSettings.FromConfig(config);
+        var defaultAasxPath = config["AasxPath"] ?? @"C:\ds\ds2\Apps\DSPilot\DsCSV_0318_C.aasx";
+
         // 로거 생성
         using var loggerFactory = LoggerFactory.Create(builder =>
         {
@@ -28,6 +31,7 @@ class Program
             Console.WriteLine("╔════════════════════════════════════════════╗");
             Console.WriteLine("║     DSPilot Test Console - 2 Modes         ║");
             Console.WriteLine("╚════════════════════════════════════════════╝");
+            Console.WriteLine($"  PLC: {plcSettings.DisplayName}");
             Console.WriteLine();
             Console.WriteLine("Select mode:");
             Console.WriteLine();
@@ -69,13 +73,13 @@ class Program
                             dbPath = "C:/ds/ds2/Apps/DSPilot/DSPilot/sample/db/dsdb_capture.sqlite3";
                         }
                         Console.WriteLine($"   📖 Reading from: {dbPath}");
-                        await ReplayMode.RunAsync(dbPath);
+                        await ReplayMode.RunAsync(dbPath, plcSettings);
                         break;
 
                     case "2":
                         Console.WriteLine("=== Capture Mode ===");
                         Console.WriteLine($"   💾 Writing to: C:/ds/ds2/Apps/DSPilot/DSPilot/sample/db/dsdb_capture.sqlite3");
-                        await CaptureMode.RunAsync();
+                        await CaptureMode.RunAsync(plcSettings);
                         break;
 
                     case "3":
@@ -91,7 +95,7 @@ class Program
 
                     case "4":
                         Console.WriteLine("=== AASX Flow Simulation ===");
-                        await FlowSimulationTest.RunAsync();
+                        await FlowSimulationTest.RunAsync(plcSettings, defaultAasxPath);
                         break;
 
                     case "5":
