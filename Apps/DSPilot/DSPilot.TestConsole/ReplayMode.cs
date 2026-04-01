@@ -1,7 +1,6 @@
 using Dapper;
 using Ev2.Backend.Common;
 using Ev2.Backend.PLC;
-using Ev2.PLC.Protocol.MX;
 using Microsoft.Data.Sqlite;
 using Microsoft.FSharp.Core;
 using static Ev2.PLC.Common.TagSpecModule;
@@ -29,7 +28,7 @@ public static class ReplayMode
         public int? PlcId { get; set; }
     }
 
-    public static async Task RunAsync(string dbPath)
+    internal static async Task RunAsync(string dbPath, PlcConnectionSettings plcSettings)
     {
         Console.WriteLine("=== Replay Mode: DB → PLC ===");
         Console.WriteLine();
@@ -105,21 +104,9 @@ public static class ReplayMode
 
             // 4. PLC 연결 설정
             Console.WriteLine("4️⃣  Configuring PLC connection...");
-            var connectionConfig = new MxConnectionConfig
-            {
-                IpAddress = PlcDefaults.IpAddress,
-                Port = PlcDefaults.Port,
-                Name = PlcDefaults.Name,
-                EnableScan = true,
-                Timeout = TimeSpan.FromSeconds(5),
-                ScanInterval = TimeSpan.FromMilliseconds(500),
-                FrameType = FrameType.QnA_3E_Binary,
-                Protocol = TransportProtocol.UDP,
-                AccessRoute = new AccessRoute(0, 255, 1023, 0),
-                MonitoringTimer = 16
-            };
-
-            var scanConfigs = new[] { new ScanConfiguration(connectionConfig, tagSpecs) };
+            Console.WriteLine($"   🔌 {plcSettings.DisplayName}");
+            var scanConfig = plcSettings.CreateScanConfig(tagSpecs);
+            var scanConfigs = new[] { scanConfig };
             Console.WriteLine($"   ✅ Config ready");
 
             // 5. PLC 서비스 시작
