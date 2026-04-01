@@ -119,7 +119,36 @@ public partial class ConditionEditDialog : Window
         ReloadList();
     }
 
-    // ── Drag & Drop (delegates to ConditionDropHelper) ──
+    // ── Drag & Drop: individual condition item ──
+
+    private void ConditionItem_DragEnter(object sender, DragEventArgs e) =>
+        Controls.ConditionDropHelper.HandleDragEnter(e, sender as Border, ref _savedBrush, this);
+
+    private void ConditionItem_DragLeave(object sender, DragEventArgs e)
+    {
+        Controls.ConditionDropHelper.RestoreBorder(sender as Border, ref _savedBrush, this);
+        e.Handled = true;
+    }
+
+    private void ConditionItem_DragOver(object sender, DragEventArgs e)
+    {
+        Controls.ConditionDropHelper.HandleDragOver(e);
+        e.Handled = true;
+    }
+
+    private void ConditionItem_Drop(object sender, DragEventArgs e)
+    {
+        Controls.ConditionDropHelper.RestoreBorder(sender as Border, ref _savedBrush, this);
+        if (Controls.ConditionDropHelper.GetDroppedCallNode(e) is not { } callNode) return;
+        if (sender is not Border { Tag: CallConditionItem item }) return;
+
+        if (Controls.ConditionDropHelper.ExecuteAddApiCallsToCondition(
+                _store, _host, _callId, item.ConditionId, callNode.Id, ownerWindow: this))
+            ReloadList();
+        e.Handled = true;
+    }
+
+    // ── Drag & Drop: section-level (creates new condition) ──
 
     private void DropArea_DragEnter(object sender, DragEventArgs e) =>
         Controls.ConditionDropHelper.HandleDragEnter(e, sender as Border, ref _savedBrush, this);
@@ -246,7 +275,21 @@ public partial class ConditionEditDialog : Window
             panel.Children.Add(childHost);
         }
 
-        cc.Content = panel;
+        var dropBorder = new Border
+        {
+            AllowDrop = true,
+            BorderThickness = new Thickness(1),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            Padding = new Thickness(6),
+            Margin = new Thickness(2),
+            Child = panel,
+            Tag = item
+        };
+        dropBorder.DragEnter += ConditionItem_DragEnter;
+        dropBorder.DragLeave += ConditionItem_DragLeave;
+        dropBorder.DragOver += ConditionItem_DragOver;
+        dropBorder.Drop += ConditionItem_Drop;
+        cc.Content = dropBorder;
     }
 
     private Button CreateButton(string content, string? toolTip, object tag, RoutedEventHandler handler)

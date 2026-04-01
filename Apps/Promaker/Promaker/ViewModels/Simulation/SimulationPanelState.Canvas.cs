@@ -121,11 +121,21 @@ public partial class SimulationPanelState
         }
     }
 
+    private void SetSimSkipped(Guid nodeGuid, bool isSkipped)
+    {
+        foreach (var canvasNode in _allCanvasNodes())
+        {
+            if (canvasNode.Id == nodeGuid)
+                canvasNode.IsSimSkipped = isSkipped;
+        }
+    }
+
     private void ClearSimStateFromCanvas()
     {
         foreach (var node in _allCanvasNodes())
         {
             node.SimState = null;
+            node.IsSimSkipped = false;
             node.SimTokenDisplay = "";
         }
     }
@@ -149,11 +159,14 @@ public partial class SimulationPanelState
 
         if (_simEngine is null || !IsSimulating) return;
 
+        var skippedCalls = _simEngine.State.SkippedCalls;
         foreach (var node in _allCanvasNodes())
         {
             var cached = _stateCache.TryGet(node.Id);
             if (cached is not null)
                 node.SimState = cached.Value;
+
+            node.IsSimSkipped = skippedCalls.Contains(node.Id);
 
             var tokenOpt = _simEngine.GetWorkToken(node.Id);
             if (tokenOpt is not null)

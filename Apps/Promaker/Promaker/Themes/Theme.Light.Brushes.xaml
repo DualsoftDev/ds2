@@ -75,6 +75,8 @@
     <SolidColorBrush x:Key="SimulationGoingBackgroundBrush" Color="{StaticResource SimulationGoingBackgroundColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="SimulationFinishBackgroundBrush" Color="{StaticResource SimulationFinishBackgroundColor}" po:Freeze="False"/>
     <SolidColorBrush x:Key="SimulationHomingBackgroundBrush" Color="{StaticResource SimulationHomingBackgroundColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationSkipBrush" Color="{StaticResource SimulationSkipColor}" po:Freeze="False"/>
+    <SolidColorBrush x:Key="SimulationSkipBackgroundBrush" Color="{StaticResource SimulationSkipBackgroundColor}" po:Freeze="False"/>
 
     <!-- Gantt Bar Brushes -->
     <SolidColorBrush x:Key="GanttBarReadyBrush" Color="{StaticResource GanttBarReadyColor}" po:Freeze="False"/>

@@ -81,7 +81,7 @@ public partial class MainViewModel
 
         var basePos = ConsumeAddPosition();
         var siblings = GetSiblingSnapshot(TabKind.Flow, id);
-        if (TryCreateSingleWithCascade(() => _store.AddWork(name, id), basePos, siblings.Positions))
+        if (TryCreateSingleWithCascade(() => _store.AddWork(name, id), basePos, siblings.Positions, "Work 추가"))
             StatusText = $"Work '{name}' added.";
     }
 
@@ -136,10 +136,11 @@ public partial class MainViewModel
                     TabKind.Work,
                     targetWorkId,
                     rawPos,
-                    siblings))
+                    siblings,
+                    "Call 추가"))
                 {
                     StatusText = $"Added {dialog.CallNames.Count} call(s).";
-                    AddMutualResetArrowsForNewDeviceWorks(worksBefore);
+                    MergeWithMutualResetArrows(worksBefore, "Call 추가");
                 }
                 break;
 
@@ -157,10 +158,11 @@ public partial class MainViewModel
                                 dialog.DeviceAliases,
                                 systemTypeOption))),
                         rawPos,
-                        siblings.Positions))
+                        siblings.Positions,
+                        "Call 추가"))
                     {
                         StatusText = $"Added {dialog.CallNames.Count} call(s).";
-                        AddMutualResetArrowsForNewDeviceWorks(worksBefore);
+                        MergeWithMutualResetArrows(worksBefore, "Call 추가");
                     }
                 }
                 else
@@ -175,10 +177,11 @@ public partial class MainViewModel
                             dialog.DeviceAliases,
                             systemTypeOption),
                         rawPos,
-                        siblings.Positions))
+                        siblings.Positions,
+                        "Call 추가"))
                     {
                         StatusText = "Call added.";
-                        AddMutualResetArrowsForNewDeviceWorks(worksBefore);
+                        MergeWithMutualResetArrows(worksBefore, "Call 추가");
                     }
                 }
                 break;
@@ -191,12 +194,18 @@ public partial class MainViewModel
                         dialog.ApiName,
                         dialog.SelectedApiDefs.Select(m => m.ApiDefId)),
                     rawPos,
-                    siblings.Positions))
+                    siblings.Positions,
+                    "Call 추가"))
                     StatusText = "Call added.";
                 break;
         }
     }
 
-    private void AddMutualResetArrowsForNewDeviceWorks(HashSet<Guid> worksBefore) =>
-        _store.ConnectWorksWithMutualReset(_store.Works.Keys.Where(id => !worksBefore.Contains(id)));
+    private void MergeWithMutualResetArrows(HashSet<Guid> worksBefore, string mergeLabel)
+    {
+        var arrowCount = _store.ConnectWorksWithMutualReset(
+            _store.Works.Keys.Where(id => !worksBefore.Contains(id)));
+        if (arrowCount > 0)
+            _store.MergeLastTransactions(2, mergeLabel);
+    }
 }

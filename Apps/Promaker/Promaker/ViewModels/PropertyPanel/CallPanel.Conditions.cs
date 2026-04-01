@@ -41,6 +41,19 @@ public partial class PropertyPanelState
     }
 
     [RelayCommand]
+    private void DropCallToConditionItem(ConditionItemDropInfo? info)
+    {
+        if (info is null || SelectedNode is null) return;
+        if (!GuardSimulationSemanticEdit("Call 조건 변경"))
+            return;
+        var callId = SelectedNode.Id;
+
+        if (Controls.ConditionDropHelper.ExecuteAddApiCallsToCondition(
+                Store, _host, callId, info.ConditionId, info.DroppedCallId))
+            RefreshCallPanel(callId);
+    }
+
+    [RelayCommand]
     private void EditConditions(ConditionSectionItem? section)
     {
         if (section is null || SelectedNode is null) return;
