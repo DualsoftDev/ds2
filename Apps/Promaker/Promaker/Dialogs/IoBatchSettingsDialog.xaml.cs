@@ -43,6 +43,7 @@ public partial class IoBatchSettingsDialog : Window
         BatchDialogHelper.UpdateSelectedCount(_rows, SelectedCountText);
 
         FlowFilterBox.TextChanged += (_, _) => _view.Refresh();
+        WorkFilterBox.TextChanged += (_, _) => _view.Refresh();
         DeviceFilterBox.TextChanged += (_, _) => _view.Refresh();
         ApiFilterBox.TextChanged += (_, _) => _view.Refresh();
         RefreshApplyButtonState();
@@ -53,10 +54,13 @@ public partial class IoBatchSettingsDialog : Window
         if (obj is not IoBatchRow row) return false;
 
         var flow = FlowFilterBox.Text;
+        var work = WorkFilterBox.Text;
         var device = DeviceFilterBox.Text;
         var api = ApiFilterBox.Text;
 
         if (!string.IsNullOrEmpty(flow) && !row.Flow.Contains(flow, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!string.IsNullOrEmpty(work) && !row.Work.Contains(work, StringComparison.OrdinalIgnoreCase))
             return false;
         if (!string.IsNullOrEmpty(device) && !row.Device.Contains(device, StringComparison.OrdinalIgnoreCase))
             return false;
@@ -241,13 +245,14 @@ public sealed class IoBatchRow : BatchRowBase
     private string _originalOutAddress;
     private string _originalOutSymbol;
 
-    public IoBatchRow(Guid callId, Guid apiCallId, string flow, string device, string api,
+    public IoBatchRow(Guid callId, Guid apiCallId, string flow, string work, string device, string api,
                       string inAddress, string inSymbol, string outAddress, string outSymbol,
                       string outDataType = "BOOL", string inDataType = "BOOL")
     {
         CallId = callId;
         ApiCallId = apiCallId;
         Flow = flow;
+        Work = work;
         Device = device;
         Api = api;
         _inAddress = inAddress;
@@ -265,6 +270,7 @@ public sealed class IoBatchRow : BatchRowBase
     public Guid CallId { get; }
     public Guid ApiCallId { get; }
     public string Flow { get; }
+    public string Work { get; }
     public string Device { get; }
     public string Api { get; }
 

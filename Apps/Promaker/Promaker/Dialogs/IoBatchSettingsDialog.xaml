@@ -56,11 +56,13 @@
 
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1.2*"/>
-                    <ColumnDefinition Width="12"/>
-                    <ColumnDefinition Width="1.2*"/>
-                    <ColumnDefinition Width="12"/>
-                    <ColumnDefinition Width="1.2*"/>
+                    <ColumnDefinition Width="1*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="1*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="1*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="1*"/>
                     <ColumnDefinition Width="12"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="10"/>
@@ -79,16 +81,21 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="2">
+                    <TextBlock Text="Work" Margin="0,0,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <TextBox x:Name="WorkFilterBox" Padding="8,6" ToolTip="Work 이름으로 필터링"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="4">
                     <TextBlock Text="Device" Margin="0,0,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
                     <TextBox x:Name="DeviceFilterBox" Padding="8,6" ToolTip="Device 이름으로 필터링"/>
                 </StackPanel>
 
-                <StackPanel Grid.Column="4">
+                <StackPanel Grid.Column="6">
                     <TextBlock Text="Api" Margin="0,0,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
                     <TextBox x:Name="ApiFilterBox" Padding="8,6" ToolTip="Api 이름으로 필터링"/>
                 </StackPanel>
 
-                <Button Grid.Column="6"
+                <Button Grid.Column="8"
                         Height="34"
                         MinWidth="102"
                         VerticalAlignment="Bottom"
@@ -97,7 +104,7 @@
                         Click="TagWizard_Click"
                         ToolTip="템플릿 기반 자동 신호 생성"/>
 
-                <Button Grid.Column="8"
+                <Button Grid.Column="10"
                         Height="34"
                         MinWidth="120"
                         VerticalAlignment="Bottom"
@@ -106,7 +113,7 @@
                         Click="ExportIoList_Click"
                         ToolTip="IO 신호를 CSV/Excel로 내보내기"/>
 
-                <Button Grid.Column="10"
+                <Button Grid.Column="12"
                         Height="34"
                         MinWidth="102"
                         VerticalAlignment="Bottom"
@@ -115,7 +122,7 @@
                         Content="CSV 내보내기"
                         ToolTip="현재 I/O 데이터를 CSV 파일로 내보냅니다"/>
 
-                <Button Grid.Column="12"
+                <Button Grid.Column="14"
                         Height="34"
                         MinWidth="102"
                         VerticalAlignment="Bottom"
@@ -159,6 +166,7 @@
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
                         <DataGridTextColumn Header="Flow" Binding="{Binding Flow}" Width="100" IsReadOnly="True"/>
+                        <DataGridTextColumn Header="Work" Binding="{Binding Work}" Width="120" IsReadOnly="True"/>
                         <DataGridTextColumn Header="Device" Binding="{Binding Device}" Width="120" IsReadOnly="True"/>
                         <DataGridTextColumn Header="Api" Binding="{Binding Api}" Width="120" IsReadOnly="True"/>
                         <DataGridTextColumn Header="Out tag" Binding="{Binding OutSymbol, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>

@@ -124,6 +124,14 @@ public partial class DurationBatchDialog : Window
     private void UncheckAll_Click(object sender, RoutedEventArgs e) =>
         BatchDialogHelper.UncheckAll(_workRows);
 
+    private void RowCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { DataContext: DurationRow row } checkBox)
+            return;
+
+        BatchDialogHelper.ApplyCheckStateToSelectedRows(WorkDurationGrid, row, checkBox.IsChecked == true);
+    }
+
     private void Grid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) =>
         BatchDialogHelper.DeselectOnEmptyAreaClick(sender, e);
 

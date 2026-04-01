@@ -20,9 +20,9 @@ public sealed class IoBatchSettingsDialogTests
         StaTestRunner.Run(() =>
         {
             var store = new DsStore();
-            var row1 = new IoBatchRow(Guid.NewGuid(), Guid.NewGuid(), "Flow1", "Dev1", "Api1", "", "", "", "");
-            var row2 = new IoBatchRow(Guid.NewGuid(), Guid.NewGuid(), "Flow1", "Dev1", "Api2", "", "", "", "");
-            var row3 = new IoBatchRow(Guid.NewGuid(), Guid.NewGuid(), "Flow1", "Dev2", "Api3", "", "", "", "");
+            var row1 = new IoBatchRow(Guid.NewGuid(), Guid.NewGuid(), "Flow1", "Work1", "Dev1", "Api1", "", "", "", "");
+            var row2 = new IoBatchRow(Guid.NewGuid(), Guid.NewGuid(), "Flow1", "Work1", "Dev1", "Api2", "", "", "", "");
+            var row3 = new IoBatchRow(Guid.NewGuid(), Guid.NewGuid(), "Flow1", "Work2", "Dev2", "Api3", "", "", "", "");
 
             var dialog = new IoBatchSettingsDialog(store, [row1, row2, row3]);
             dialog.Measure(new Size(1200, 800));
@@ -57,7 +57,7 @@ public sealed class IoBatchSettingsDialogTests
         StaTestRunner.Run(() =>
         {
             var store = new DsStore();
-            var row = new IoBatchRow(Guid.NewGuid(), Guid.NewGuid(), "Flow1", "Dev1", "Api1", "", "", "", "");
+            var row = new IoBatchRow(Guid.NewGuid(), Guid.NewGuid(), "Flow1", "Work1", "Dev1", "Api1", "", "", "", "");
             var applied = 0;
 
             var dialog = new IoBatchSettingsDialog(store, [row], null, _ =>
@@ -71,13 +71,12 @@ public sealed class IoBatchSettingsDialogTests
             dialog.UpdateLayout();
 
             var applyButton = (Button)dialog.FindName("ApplyButton")!;
-            // 적용 버튼은 항상 활성화 (변경사항 없어도 재적용 가능)
             Assert.True(applyButton.IsEnabled);
         });
     }
 
     [Fact]
-    public void ParseIoCsv_parses_io_batch_template_rows()
+    public void ParseIoCsv_parses_10col_template_with_work()
     {
         var path = Path.GetTempFileName();
 
@@ -87,8 +86,8 @@ public sealed class IoBatchSettingsDialogTests
                 path,
                 string.Join(
                     Environment.NewLine,
-                    "Flow,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress",
-                    "FlowA,DeviceA,ApiA,OUT_TAG,BOOL,D100,IN_TAG,INT,D200"),
+                    "Flow,Work,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress",
+                    "FlowA,WorkA,DeviceA,ApiA,OUT_TAG,BOOL,D100,IN_TAG,INT,D200"),
                 new UTF8Encoding(false));
 
             var result = Ds2.IOList.CsvImporter.parseIoCsv(path);
@@ -123,7 +122,7 @@ public sealed class IoBatchSettingsDialogTests
     }
 
     [Fact]
-    public void Csv_import_apply_updates_matching_rows_case_insensitively()
+    public void ParseIoCsv_parses_legacy_9col_template_without_work()
     {
         var path = Path.GetTempFileName();
 
@@ -134,16 +133,50 @@ public sealed class IoBatchSettingsDialogTests
                 string.Join(
                     Environment.NewLine,
                     "Flow,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress",
-                    "flowa,devicea,apia,OUT_TAG,BOOL,D100,IN_TAG,INT,D200",
-                    "FlowB,DeviceB,ApiB,OUT_B,BOOL,D300,IN_B,BOOL,D400"),
+                    "FlowA,DeviceA,ApiA,OUT_TAG,BOOL,D100,IN_TAG,INT,D200"),
+                new UTF8Encoding(false));
+
+            var result = Ds2.IOList.CsvImporter.parseIoCsv(path);
+
+            Assert.False(result.IsError);
+
+            var rows = ListModule.ToArray(result.ResultValue);
+            Assert.Equal(2, rows.Length);
+
+            Assert.Contains(rows, row =>
+                row.Direction == "Output" &&
+                row.FlowName == "FlowA" &&
+                row.DeviceName == "DeviceA" &&
+                row.ApiName == "ApiA");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Csv_import_apply_updates_matching_rows_case_insensitively()
+    {
+        var path = Path.GetTempFileName();
+
+        try
+        {
+            File.WriteAllText(
+                path,
+                string.Join(
+                    Environment.NewLine,
+                    "Flow,Work,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress",
+                    "flowa,worka,devicea,apia,OUT_TAG,BOOL,D100,IN_TAG,INT,D200",
+                    "FlowB,WorkB,DeviceB,ApiB,OUT_B,BOOL,D300,IN_B,BOOL,D400"),
                 new UTF8Encoding(false));
 
             var parseResult = Ds2.IOList.CsvImporter.parseIoCsv(path);
             Assert.False(parseResult.IsError);
 
             var importRows = ListModule.ToArray(parseResult.ResultValue);
-            var target = new IoBatchRow(Guid.NewGuid(), Guid.NewGuid(), "FlowA", "DeviceA", "ApiA", "", "", "", "");
-            var untouched = new IoBatchRow(Guid.NewGuid(), Guid.NewGuid(), "FlowX", "DeviceX", "ApiX", "", "", "", "");
+            var target = new IoBatchRow(Guid.NewGuid(), Guid.NewGuid(), "FlowA", "WorkA", "DeviceA", "ApiA", "", "", "", "");
+            var untouched = new IoBatchRow(Guid.NewGuid(), Guid.NewGuid(), "FlowX", "WorkX", "DeviceX", "ApiX", "", "", "", "");
 
             var applyMethod = typeof(IoBatchSettingsDialog).GetMethod(
                 "ApplyImportedRows",
