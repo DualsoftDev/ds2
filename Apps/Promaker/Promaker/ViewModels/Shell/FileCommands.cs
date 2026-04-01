@@ -201,13 +201,12 @@ public partial class MainViewModel
         var project = HasProject
             ? Queries.allProjects(_store).Head
             : null;
-        var properties = project?.Properties ?? new Ds2.Core.ProjectProperties();
-        var dlg = new ProjectPropertiesDialog(project?.Name ?? "", properties);
-        var accepted = _dialogService.ShowDialog(dlg) == true;
-        if (!accepted) return;
 
         if (project is null) return;
 
+        var dlg = new ProjectPropertiesDialog(project.Name, project);
+        var accepted = _dialogService.ShowDialog(dlg) == true;
+        if (!accepted) return;
 
         TryEditorAction(() =>
         {
@@ -216,8 +215,14 @@ public partial class MainViewModel
                 _store.RenameEntity(project.Id, EntityKind.Project, nextProjectName);
 
             _store.UpdateProjectProperties(
-                dlg.ResultProperties,
-                dlg.ResultPresetSystemTypes);
+                dlg.ResultAuthor,
+                dlg.ResultDateTime,
+                dlg.ResultVersion);
+
+            // 앱 설정으로 저장
+            SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
+            SetIriPrefix(dlg.ResultIriPrefix);
+            // PresetSystemTypes는 Dialog 내부에서 이미 파일에 저장됨
         });
         StatusText = "프로젝트 속성이 변경되었습니다.";
     }
@@ -284,7 +289,7 @@ public partial class MainViewModel
         {
             try
             {
-                var exported = AasxExporter.exportFromStore(_store, filePath);
+                var exported = AasxExporter.exportFromStore(_store, filePath, IriPrefix, SplitDeviceAasx);
                 if (!exported)
                     Log.Warn($"AASX save failed: no project ({filePath})");
 

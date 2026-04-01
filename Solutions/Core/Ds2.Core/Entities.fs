@@ -11,36 +11,64 @@ open System.Text.Json.Serialization
 // 이유: 두 타입은 실제 서로를 참조하지 않음
 type Project [<JsonConstructor>] internal (name) =
     inherit DsEntity(name)
-    member val Properties             = ProjectProperties()        with get, set
-    member val ActiveSystemIds        = ResizeArray<Guid>()        with get, set
-    member val PassiveSystemIds       = ResizeArray<Guid>()        with get, set
-    member val Nameplate              = Nameplate()                with get, set
-    member val HandoverDocumentation  = HandoverDocumentation()    with get, set
-    member val TokenSpecs             = ResizeArray<TokenSpec>()   with get, set
+    member val ActiveSystemIds        = ResizeArray<Guid>()                              with get, set
+    member val PassiveSystemIds       = ResizeArray<Guid>()                              with get, set
+    member val Nameplate              = Nameplate()                                      with get, set
+    member val HandoverDocumentation  = HandoverDocumentation.CreateWithDefaultDocument() with get, set
+    member val TokenSpecs             = ResizeArray<TokenSpec>()                         with get, set
+
+    member val Author           : string          = "" with get, set
+    member val DateTime         : DateTimeOffset  = DateTimeOffset.Now with get, set
+    member val Version          : string          = "1.0.0" with get, set
+
 
 type DsSystem [<JsonConstructor>] internal (name) =
     inherit DsEntity(name)
-    member val Properties = SystemProperties() with get, set
-    member val IRI : string option = None      with get, set
+    
+    // ========== 도메인별 서브모델 속성 (5개) ==========
+    member val SimulationProperties: SimulationSystemProperties option = None with get, set
+    member val ControlProperties: ControlSystemProperties option = None with get, set
+    member val MonitoringProperties: MonitoringSystemProperties option = None with get, set
+    member val LoggingProperties: LoggingSystemProperties option = None with get, set
+    member val MaintenanceProperties: MaintenanceSystemProperties option = None with get, set
+
+    member val IRI : string option = None with get, set
+
+
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 type Flow [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
-    member val Properties = FlowProperties() with get, set
+
+    // ========== 도메인별 서브모델 속성 (5개) ==========
+    member val SimulationProperties: SimulationFlowProperties option = None with get, set
+    member val ControlProperties: ControlFlowProperties option = None with get, set
+    member val MonitoringProperties: MonitoringFlowProperties option = None with get, set
+    member val LoggingProperties: LoggingFlowProperties option = None with get, set
+    member val MaintenanceProperties: MaintenanceFlowProperties option = None with get, set
+
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, parentId: Guid) =
     inherit DsChild("", parentId)
+    
+    // ========== 도메인별 서브모델 속성 (5개) ==========
+    member val SimulationProperties: SimulationWorkProperties option = None with get, set
+    member val ControlProperties: ControlWorkProperties option = None with get, set
+    member val MonitoringProperties: MonitoringWorkProperties option = None with get, set
+    member val LoggingProperties: LoggingWorkProperties option = None with get, set
+    member val MaintenanceProperties: MaintenanceWorkProperties option = None with get, set
+
     /// 부모 Flow의 이름 (자동 설정, Flow rename 시 cascade)
     member val FlowPrefix  = (if isNull flowPrefix then "" else flowPrefix) with get, set
     /// Work 고유 이름 (사용자가 입력하는 부분)
     member val LocalName   = (if isNull localName then "" else localName)   with get, set
     /// None=원본 Work, Some guid=참조 대상 원본 Work의 ID
     member val ReferenceOf : Guid option = None with get, set
-    member val Properties  = WorkProperties()    with get, set
     member val Status4     : Status4 = Status4.Ready with get, set
     member val Position    : Xywh option = None  with get, set
     member val TokenRole   : TokenRole = TokenRole.None with get, set
+
 
     override this.Name
         with get() =
@@ -60,7 +88,14 @@ type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, p
 //   CallCondition → ApiCall
 type Call [<JsonConstructor>] internal (devicesAlias: string, apiName: string, parentId: Guid) =
     inherit DsChild("", parentId)
-    member val Properties     = CallProperties()             with get, set
+    
+    // ========== 도메인별 서브모델 속성 (5개) ==========
+    member val SimulationProperties: SimulationCallProperties option = None with get, set
+    member val ControlProperties: ControlCallProperties option = None with get, set
+    member val MonitoringProperties: MonitoringCallProperties option = None with get, set
+    member val LoggingProperties: LoggingCallProperties option = None with get, set
+    member val MaintenanceProperties: MaintenanceCallProperties option = None with get, set
+
     member val Status4        : Status4 = Status4.Ready      with get, set
     member val Position       : Xywh option = None           with get, set
     member val ApiCalls       = ResizeArray<ApiCall>()       with get, set
@@ -109,7 +144,11 @@ and CallCondition [<JsonConstructor>] internal () =
 
 and ApiDef [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
-    member val Properties = ApiDefProperties() with get, set
+
+    member val IsPush : bool = false with get, set
+    member val TxGuid : Guid option = None with get, set
+    member val RxGuid : Guid option = None with get, set
+
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 // =============================================================================
@@ -122,24 +161,4 @@ type ArrowBetweenWorks [<JsonConstructor>] internal (parentId, sourceId, targetI
 
 type ArrowBetweenCalls [<JsonConstructor>] internal (parentId, sourceId, targetId, arrowType) =
     inherit DsArrow(parentId, sourceId, targetId, arrowType)
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
-
-// =============================================================================
-// Hardware Component
-// =============================================================================
-
-type HwButton    [<JsonConstructor>] internal (name, parentId) =
-    inherit HwComponent(name, parentId)
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
-
-type HwLamp      [<JsonConstructor>] internal (name, parentId) =
-    inherit HwComponent(name, parentId)
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
-
-type HwCondition [<JsonConstructor>] internal (name, parentId) =
-    inherit HwComponent(name, parentId)
-    member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
-
-type HwAction    [<JsonConstructor>] internal (name, parentId) =
-    inherit HwComponent(name, parentId)
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this

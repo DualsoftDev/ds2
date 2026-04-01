@@ -12,16 +12,43 @@ module internal AasxImportGraph =
 
     open AasxImportCore
 
+    let smcToApiCall (smc: SubmodelElementCollection) : ApiCall option =
+        try
+            let name = getProp smc Name_ |> Option.defaultValue ""
+            let apiCall = ApiCall(name)
+            getProp smc Guid_ |> Option.iter (fun g -> apiCall.Id <- Guid.Parse g)
+            getProp smc ApiDefId_ |> Option.bind (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None)
+                                  |> Option.iter (fun g -> apiCall.ApiDefId <- Some g)
+            fromJsonProp<IOTag option> smc InTag_     |> Option.iter (fun t -> apiCall.InTag <- t)
+            fromJsonProp<IOTag option> smc OutTag_    |> Option.iter (fun t -> apiCall.OutTag <- t)
+            fromJsonProp<ValueSpec>    smc InputSpec_ |> Option.iter (fun s -> apiCall.InputSpec <- s)
+            fromJsonProp<ValueSpec>    smc OutputSpec_|> Option.iter (fun s -> apiCall.OutputSpec <- s)
+            getProp smc OriginFlowId_ |> Option.bind (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None)
+                                      |> Option.iter (fun g -> apiCall.OriginFlowId <- Some g)
+            Some apiCall
+        with ex -> log.Warn($"smcToApiCall 실패: {ex.Message}", ex); None
+
     let smcToCall (smc: SubmodelElementCollection) (workId: Guid) : Call option =
         try
             let devAlias = getProp smc DevicesAlias_ |> Option.defaultValue ""
             let apiName  = getProp smc ApiName_       |> Option.defaultValue ""
             let call = Call(devAlias, apiName, workId)
             getProp smc Guid_ |> Option.iter (fun g -> call.Id <- Guid.Parse g)
-            fromJsonProp<CallProperties> smc Properties_     |> Option.iter (fun p -> call.Properties <- p)
+            // 모든 도메인 속성 Import
+            fromJsonProp<SimulationCallProperties> smc SimulationProperties_  |> Option.iter (fun p -> call.SimulationProperties <- Some p)
+            fromJsonProp<ControlCallProperties>    smc ControlProperties_     |> Option.iter (fun p -> call.ControlProperties <- Some p)
+            fromJsonProp<MonitoringCallProperties> smc MonitoringProperties_  |> Option.iter (fun p -> call.MonitoringProperties <- Some p)
+            fromJsonProp<LoggingCallProperties>    smc LoggingProperties_     |> Option.iter (fun p -> call.LoggingProperties <- Some p)
+            fromJsonProp<MaintenanceCallProperties> smc MaintenanceProperties_ |> Option.iter (fun p -> call.MaintenanceProperties <- Some p)
             fromJsonProp<Xywh option>    smc Position_       |> Option.flatten |> Option.iter (fun pos -> call.Position <- Some pos)
             getProp smc Status_          |> Option.iter (fun s -> call.Status4 <- parseStatus4 s)
-            fromJsonProp<ResizeArray<ApiCall>>       smc ApiCalls_       |> Option.iter (fun acs -> call.ApiCalls <- acs)
+            // ApiCalls를 SubmodelElementList에서 읽기 (새 형식)
+            let apiCalls = getChildSmlSmcs smc ApiCalls_ |> List.choose smcToApiCall
+            if not apiCalls.IsEmpty then
+                call.ApiCalls <- ResizeArray(apiCalls)
+            else
+                // 하위 호환성: JSON blob에서 읽기 (구 형식)
+                fromJsonProp<ResizeArray<ApiCall>> smc ApiCalls_ |> Option.iter (fun acs -> call.ApiCalls <- acs)
             fromJsonProp<ResizeArray<CallCondition>> smc CallConditions_ |> Option.iter (fun ccs -> call.CallConditions <- ccs)
             Some call
         with ex -> log.Warn($"smcToCall 실패: {ex.Message}", ex); None
@@ -46,7 +73,12 @@ module internal AasxImportGraph =
                 | Some fp, Some ln -> work.FlowPrefix <- fp; work.LocalName <- ln
                 | _ -> getProp smc Name_ |> Option.iter (fun n -> work.Name <- n)
                 getProp smc ReferenceOf_ |> Option.bind tryParseGuid |> Option.iter (fun g -> work.ReferenceOf <- Some g)
-                fromJsonProp<WorkProperties> smc Properties_  |> Option.iter (fun p -> work.Properties <- p)
+                // 모든 도메인 속성 Import
+                fromJsonProp<SimulationWorkProperties> smc SimulationProperties_  |> Option.iter (fun p -> work.SimulationProperties <- Some p)
+                fromJsonProp<ControlWorkProperties>    smc ControlProperties_     |> Option.iter (fun p -> work.ControlProperties <- Some p)
+                fromJsonProp<MonitoringWorkProperties> smc MonitoringProperties_  |> Option.iter (fun p -> work.MonitoringProperties <- Some p)
+                fromJsonProp<LoggingWorkProperties>    smc LoggingProperties_     |> Option.iter (fun p -> work.LoggingProperties <- Some p)
+                fromJsonProp<MaintenanceWorkProperties> smc MaintenanceProperties_ |> Option.iter (fun p -> work.MaintenanceProperties <- Some p)
                 fromJsonProp<Xywh option>    smc Position_    |> Option.flatten |> Option.iter (fun pos -> work.Position <- Some pos)
                 getProp smc Status_ |> Option.iter (fun s -> work.Status4 <- parseStatus4 s)
                 getProp smc TokenRole_ |> Option.iter (fun s ->
@@ -67,7 +99,12 @@ module internal AasxImportGraph =
             let flow = Flow("", systemId)
             getProp smc Guid_ |> Option.iter (fun g -> flow.Id <- Guid.Parse g)
             getProp smc Name_ |> Option.iter (fun n -> flow.Name <- n)
-            fromJsonProp<FlowProperties> smc Properties_ |> Option.iter (fun p -> flow.Properties <- p)
+            // 모든 도메인 속성 Import
+            fromJsonProp<SimulationFlowProperties> smc SimulationProperties_  |> Option.iter (fun p -> flow.SimulationProperties <- Some p)
+            fromJsonProp<ControlFlowProperties>    smc ControlProperties_     |> Option.iter (fun p -> flow.ControlProperties <- Some p)
+            fromJsonProp<MonitoringFlowProperties> smc MonitoringProperties_  |> Option.iter (fun p -> flow.MonitoringProperties <- Some p)
+            fromJsonProp<LoggingFlowProperties>    smc LoggingProperties_     |> Option.iter (fun p -> flow.LoggingProperties <- Some p)
+            fromJsonProp<MaintenanceFlowProperties> smc MaintenanceProperties_ |> Option.iter (fun p -> flow.MaintenanceProperties <- Some p)
             Some flow
         with ex -> log.Warn($"smcToFlow 실패: {ex.Message}", ex); None
 
@@ -76,7 +113,14 @@ module internal AasxImportGraph =
             let apiDef = ApiDef("", systemId)
             getProp smc Guid_ |> Option.iter (fun g -> apiDef.Id <- Guid.Parse g)
             getProp smc Name_ |> Option.iter (fun n -> apiDef.Name <- n)
-            fromJsonProp<ApiDefProperties> smc Properties_ |> Option.iter (fun p -> apiDef.Properties <- p)
+            getProp smc IsPush_ |> Option.iter (fun s ->
+                match System.Boolean.TryParse(s) with
+                | true, b -> apiDef.IsPush <- b
+                | _ -> ())
+            getProp smc TxGuid_ |> Option.bind (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None)
+                                |> Option.iter (fun g -> apiDef.TxGuid <- Some g)
+            getProp smc RxGuid_ |> Option.bind (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None)
+                                |> Option.iter (fun g -> apiDef.RxGuid <- Some g)
             Some apiDef
         with ex -> log.Warn($"smcToApiDef 실패: {ex.Message}", ex); None
 
@@ -92,7 +136,12 @@ module internal AasxImportGraph =
                 let system = DsSystem("")
                 guid |> Option.iter (fun g -> system.Id <- Guid.Parse g)
                 name |> Option.iter (fun n -> system.Name <- n)
-                fromJsonProp<SystemProperties> smc Properties_ |> Option.iter (fun p -> system.Properties <- p)
+                // 모든 도메인 속성 Import
+                fromJsonProp<SimulationSystemProperties> smc SimulationProperties_ |> Option.iter (fun p -> system.SimulationProperties <- Some p)
+                fromJsonProp<ControlSystemProperties>    smc ControlProperties_     |> Option.iter (fun p -> system.ControlProperties <- Some p)
+                fromJsonProp<MonitoringSystemProperties> smc MonitoringProperties_  |> Option.iter (fun p -> system.MonitoringProperties <- Some p)
+                fromJsonProp<LoggingSystemProperties>    smc LoggingProperties_     |> Option.iter (fun p -> system.LoggingProperties <- Some p)
+                fromJsonProp<MaintenanceSystemProperties> smc MaintenanceProperties_ |> Option.iter (fun p -> system.MaintenanceProperties <- Some p)
                 let iri = getProp smc IRI_ |> Option.bind (fun s -> if String.IsNullOrEmpty s then None else Some s)
                 system.IRI <- iri
 
@@ -144,13 +193,14 @@ module internal AasxImportGraph =
         systemResults
         |> List.iter (fun (system, flows, works, calls, arrowCalls, arrowWorks, apiDefs) ->
             store.DirectWrite(store.Systems, system)
-            if isActive then 
+            if isActive then
                 project.ActiveSystemIds.Add(system.Id) |> ignore
             else
                 project.PassiveSystemIds.Add(system.Id) |> ignore
 
             flows |> List.iter (fun f -> store.DirectWrite(store.Flows, f))
             works |> List.iter (fun w -> store.DirectWrite(store.Works, w))
+
             let rec registerConditionApiCalls (cond: CallCondition) =
                 cond.Conditions
                 |> Seq.filter (fun apiCall -> not (store.ApiCalls.ContainsKey(apiCall.Id)))
@@ -159,6 +209,7 @@ module internal AasxImportGraph =
 
             calls |> List.iter (fun call ->
                 store.DirectWrite(store.Calls, call)
+                // Call 내부 ApiCalls 등록
                 call.ApiCalls |> Seq.iter (fun apiCall -> store.DirectWrite(store.ApiCalls, apiCall))
                 call.CallConditions |> Seq.iter registerConditionApiCalls)
             arrowCalls |> List.iter (fun a -> store.DirectWrite(store.ArrowCalls, a))
@@ -204,7 +255,7 @@ module internal AasxImportGraph =
                     else
                         env.Submodels
                         |> Seq.tryPick (fun sm ->
-                            if sm.IdShort = SubmodelIdShort then
+                            if sm.IdShort = SubmodelModelIdShort then
                                 sm.SubmodelElements
                                 |> Seq.tryPick (function
                                     | :? SubmodelElementCollection as pSmc ->
@@ -227,10 +278,18 @@ module internal AasxImportGraph =
                         let project = Project("")
                         getProp pSmc Guid_ |> Option.iter (fun g -> project.Id <- Guid.Parse g)
                         getProp pSmc Name_ |> Option.iter (fun n -> project.Name <- n)
-                        fromJsonProp<ProjectProperties> pSmc Properties_ |> Option.iter (fun p -> project.Properties <- p)
                         fromJsonProp<ResizeArray<TokenSpec>> pSmc TokenSpecs_ |> Option.iter (fun ts ->
                             project.TokenSpecs.Clear()
                             for spec in ts do project.TokenSpecs.Add(spec))
+
+                        // Project 메타데이터 로드
+                        getProp pSmc Author_ |> Option.iter (fun v -> project.Author <- v)
+                        getProp pSmc Version_ |> Option.iter (fun v -> project.Version <- v)
+                        // IriPrefix는 앱 설정에서 관리되므로 import하지 않음
+                        getProp pSmc DateTime_ |> Option.iter (fun dtStr ->
+                            match DateTimeOffset.TryParse(dtStr) with
+                            | true, dt -> project.DateTime <- dt
+                            | _ -> ())
 
                         match parseSystemsStrict $"Project '{project.Name}' ActiveSystems" (getChildSmlSmcs pSmc ActiveSystems_) with
                         | None -> None
@@ -251,22 +310,12 @@ module internal AasxImportGraph =
                                         if hasDeviceRelativePath smc then
                                             loadExternalDevice dir smc
                                         else
-                                            // DeviceRelativePath 없는 인라인 참조 (역호환)
+                                            // DeviceRelativePath 없는 인라인 참조
                                             smcToSystem smc |> Option.map id)
                                     |> Some
                                 else
-                                    // 기존 인라인 모드
-                                    let passiveSmcs =
-                                        if deviceRefSmcs.IsEmpty then
-                                            getChildSmlSmcs pSmc PassiveSystems_
-                                        else
-                                            deviceRefSmcs
-                                    let label =
-                                        if deviceRefSmcs.IsEmpty then
-                                            $"Project '{project.Name}' PassiveSystems"
-                                        else
-                                            $"Project '{project.Name}' DeviceReferences"
-                                    parseSystemsStrict label passiveSmcs
+                                    // 인라인 모드
+                                    parseSystemsStrict $"Project '{project.Name}' DeviceReferences" deviceRefSmcs
 
                             match passiveSystems with
                             | None -> None

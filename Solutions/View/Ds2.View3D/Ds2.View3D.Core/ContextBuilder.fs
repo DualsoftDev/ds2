@@ -125,7 +125,8 @@ let extractDevices (store: DsStore) (projectId: Guid) : Result<DeviceInfo list, 
             | Some system ->
                 let participatingFlows = extractParticipatingFlows systemToFlowsMap systemId
                 let primaryFlow = determinePrimaryFlow participatingFlows
-                let modelType = inferModelType system.Properties.SystemType
+                let systemType = system.SimulationProperties |> Option.bind (fun p -> p.SystemType)
+                let modelType = inferModelType systemType
                 let apiDefs = extractApiDefs store callerCountMap systemId
 
                 Log.debug "Device: %s, ModelType: %s, Flows: %A" system.Name modelType participatingFlows
@@ -133,7 +134,7 @@ let extractDevices (store: DsStore) (projectId: Guid) : Result<DeviceInfo list, 
                 Ok {
                     Id = systemId
                     Name = system.Name
-                    SystemType = system.Properties.SystemType
+                    SystemType = systemType
                     ModelType  = modelType
                     FlowName = primaryFlow |> Option.defaultValue "Unassigned"
                     ParticipatingFlows = participatingFlows

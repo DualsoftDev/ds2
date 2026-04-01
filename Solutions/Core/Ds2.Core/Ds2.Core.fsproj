@@ -3,19 +3,23 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <AppDesignerFolder>SubmodelProperties</AppDesignerFolder>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Enum.fs" />
-    <Compile Include="Class.fs" />
-    <Compile Include="Properties.fs" />
-    <Compile Include="Nameplate.fs" />
-    <Compile Include="HandoverDocumentation.fs" />
-    <Compile Include="ValueSpec.fs" />
-    <Compile Include="TokenTypes.fs" />
     <Compile Include="JsonOptions.fs" />
     <Compile Include="AbstractClass.fs" />
+    <Compile Include="StandardSubmodels\Nameplate.fs" />
+    <Compile Include="StandardSubmodels\HandoverDocumentation.fs" />
+    <Compile Include="SequenceSubmodels\Simulation.fs" />
+    <Compile Include="SequenceSubmodels\Control.fs" />
+    <Compile Include="SequenceSubmodels\Monitoring.fs" />
+    <Compile Include="SequenceSubmodels\Logging.fs" />
+    <Compile Include="SequenceSubmodels\Maintenance.fs" />
+    <Compile Include="ValueSpec.fs" />
+    <Compile Include="TokenTypes.fs" />
     <Compile Include="Entities.fs" />
     <Compile Include="JsonConverter.fs" />
   </ItemGroup>

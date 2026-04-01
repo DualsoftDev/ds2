@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using Ds2.Core;
 using Ds2.Editor;
+using Promaker.Presentation;
 
 namespace Promaker.Dialogs;
 
@@ -13,27 +14,40 @@ public partial class ProjectPropertiesDialog : Window
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Dualsoft", "Promaker", "systemTypePreset", "systemTypePreset.json");
 
-    private const string DefaultIriPrefix = "http://your-company.com/";
+    private static readonly string SplitDeviceAasxSettingsPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Dualsoft", "Promaker", "splitDeviceAasx.txt");
+
+    private static readonly string IriPrefixSettingsPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Dualsoft", "Promaker", "iriPrefix.txt");
+
+    private const string DefaultIriPrefix = "https://dualsoft.com/";
     private readonly string _initialProjectName;
 
     public string? ResultProjectName { get; private set; }
-    public ProjectProperties ResultProperties { get; private set; } = new();
+    public string ResultAuthor { get; private set; } = "";
+    public DateTimeOffset ResultDateTime { get; private set; } = DateTimeOffset.Now;
+    public string ResultVersion { get; private set; } = "1.0.0";
+    public string ResultIriPrefix { get; private set; } = "https://dualsoft.com/";  // 앱 설정으로 저장됨
+    public bool ResultSplitDeviceAasx { get; private set; }
 
     // 프리셋 SystemType 매핑 결과 (배열)
     public string[] ResultPresetSystemTypes { get; private set; } = Array.Empty<string>();
 
-    public ProjectPropertiesDialog(string projectName, ProjectProperties properties)
+    public ProjectPropertiesDialog(string projectName, Project project)
     {
         InitializeComponent();
 
         _initialProjectName = string.IsNullOrWhiteSpace(projectName) ? "NewProject" : projectName.Trim();
         ProjectNameBox.Text = _initialProjectName;
-        IriPrefixBox.Text     = properties.IriPrefix?.Value     ?? DefaultIriPrefix;
-        GlobalAssetIdBox.Text = properties.GlobalAssetId?.Value  ?? "";
-        AuthorBox.Text        = properties.Author?.Value         ?? "";
-        VersionBox.Text       = properties.Version?.Value        ?? "";
-        DescriptionBox.Text   = properties.Description?.Value    ?? "";
-        SplitDeviceAasxBox.IsChecked = properties.SplitDeviceAasx;
+        AuthorBox.Text        = project.Author ?? "";
+        VersionBox.Text       = project.Version ?? "";
+        DescriptionBox.Text   = "";  // Description removed from Project
+
+        // 앱 설정에서 로드
+        IriPrefixBox.Text = AppSettingStore.LoadStringOrDefault(IriPrefixSettingsPath, DefaultIriPrefix);
+        SplitDeviceAasxBox.IsChecked = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxSettingsPath, false);
 
         // 프리셋 SystemType 매핑 로드
         LoadPresetMappings();
@@ -145,18 +159,16 @@ public partial class ProjectPropertiesDialog : Window
     {
         ResultProjectName = string.IsNullOrWhiteSpace(ProjectNameBox.Text) ? _initialProjectName : ProjectNameBox.Text.Trim();
 
-        static Microsoft.FSharp.Core.FSharpOption<string>? ToOpt(string s) =>
-            string.IsNullOrWhiteSpace(s) ? null : Microsoft.FSharp.Core.FSharpOption<string>.Some(s.Trim());
+        ResultAuthor = AuthorBox.Text?.Trim() ?? "";
+        ResultVersion = string.IsNullOrWhiteSpace(VersionBox.Text) ? "1.0.0" : VersionBox.Text.Trim();
+        ResultDateTime = DateTimeOffset.Now;  // Not editable in this dialog, use current time
 
-        ResultProperties = new ProjectProperties
-        {
-            IriPrefix     = ToOpt(IriPrefixBox.Text),
-            GlobalAssetId = ToOpt(GlobalAssetIdBox.Text),
-            Author        = ToOpt(AuthorBox.Text),
-            Version       = ToOpt(VersionBox.Text),
-            Description   = ToOpt(DescriptionBox.Text),
-            SplitDeviceAasx = SplitDeviceAasxBox.IsChecked == true,
-        };
+        // 앱 설정으로 저장
+        ResultIriPrefix = string.IsNullOrWhiteSpace(IriPrefixBox.Text) ? DefaultIriPrefix : IriPrefixBox.Text.Trim();
+        AppSettingStore.SaveString(IriPrefixSettingsPath, ResultIriPrefix);
+
+        ResultSplitDeviceAasx = SplitDeviceAasxBox.IsChecked == true;
+        AppSettingStore.SaveBool(SplitDeviceAasxSettingsPath, ResultSplitDeviceAasx);
 
         // 프리셋 SystemType 매핑 저장 (ListBox에서 가져오기)
         ResultPresetSystemTypes = PresetMappingListBox.Items

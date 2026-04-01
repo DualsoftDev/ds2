@@ -162,7 +162,7 @@ type DsStorePanelTimeExtensions =
     [<Extension>]
     static member GetWorkPeriodMs(store: DsStore, workId: Guid) : int option =
         let resolvedId = Queries.resolveOriginalWorkId workId store
-        PanelTimeOps.readMs Queries.getWork (fun w -> w.Properties.Duration) EntityKind.Work store resolvedId
+        PanelTimeOps.readMs Queries.getWork (fun w -> w.SimulationProperties |> Option.bind (fun p -> p.Duration)) EntityKind.Work store resolvedId
 
     [<Extension>]
     static member GetWorkPeriodMsOrNull(store: DsStore, workId: Guid) : Nullable<int> =
@@ -171,7 +171,7 @@ type DsStorePanelTimeExtensions =
 
     [<Extension>]
     static member GetCallTimeoutMs(store: DsStore, callId: Guid) : int option =
-        PanelTimeOps.readMs Queries.getCall (fun c -> c.Properties.Timeout) EntityKind.Call store callId
+        PanelTimeOps.readMs Queries.getCall (fun c -> c.SimulationProperties |> Option.bind (fun p -> p.Timeout)) EntityKind.Call store callId
 
     [<Extension>]
     static member GetCallTimeoutMsOrNull(store: DsStore, callId: Guid) : Nullable<int> =
@@ -188,9 +188,15 @@ type DsStorePanelTimeExtensions =
             resolvedId
             "Work 속성 변경"
             WorkPropsChanged
-            (fun work -> work.Properties.Duration)
+            (fun work -> work.SimulationProperties |> Option.bind (fun p -> p.Duration))
             period
-            (fun work value -> work.Properties.Duration <- value)
+            (fun work value ->
+                match work.SimulationProperties with
+                | Some props -> props.Duration <- value
+                | None ->
+                    let props = SimulationWorkProperties()
+                    props.Duration <- value
+                    work.SimulationProperties <- Some props)
 
     [<Extension>]
     static member UpdateWorkPeriodMs(store: DsStore, workId: Guid, periodMs: Nullable<int>) =
@@ -200,7 +206,7 @@ type DsStorePanelTimeExtensions =
     static member GetWorkIsFinished(store: DsStore, workId: Guid) : bool =
         let resolvedId = Queries.resolveOriginalWorkId workId store
         match Queries.getWork resolvedId store with
-        | Some work -> work.Properties.IsFinished
+        | Some work -> work.SimulationProperties |> Option.bind (fun p -> if p.IsFinished then Some true else Some false) |> Option.defaultValue false
         | None -> false
 
     [<Extension>]
@@ -211,9 +217,15 @@ type DsStorePanelTimeExtensions =
             resolvedId
             "Work IsFinished 변경"
             WorkPropsChanged
-            (fun work -> work.Properties.IsFinished)
+            (fun work -> work.SimulationProperties |> Option.map (fun p -> p.IsFinished) |> Option.defaultValue false)
             isFinished
-            (fun work value -> work.Properties.IsFinished <- value)
+            (fun work value ->
+                match work.SimulationProperties with
+                | Some props -> props.IsFinished <- value
+                | None ->
+                    let props = SimulationWorkProperties()
+                    props.IsFinished <- value
+                    work.SimulationProperties <- Some props)
 
     [<Extension>]
     static member UpdateWorkTokenRole(store: DsStore, workId: Guid, role: TokenRole) =
@@ -236,9 +248,15 @@ type DsStorePanelTimeExtensions =
             callId
             "Call 속성 변경"
             CallPropsChanged
-            (fun call -> call.Properties.Timeout)
+            (fun call -> call.SimulationProperties |> Option.bind (fun p -> p.Timeout))
             timeout
-            (fun call value -> call.Properties.Timeout <- value)
+            (fun call value ->
+                match call.SimulationProperties with
+                | Some props -> props.Timeout <- value
+                | None ->
+                    let props = SimulationCallProperties()
+                    props.Timeout <- value
+                    call.SimulationProperties <- Some props)
 
     [<Extension>]
     static member UpdateCallTimeoutMs(store: DsStore, callId: Guid, timeoutMs: Nullable<int>) =

@@ -45,6 +45,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.View3D.Core", "View\Ds2
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.View3D.Tests", "View\Ds2.View3D\Ds2.View3D.Tests\Ds2.View3D.Tests.fsproj", "{C3D4E5F6-A7B8-4901-C3D4-E5F6A7B89012}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CostSim", "..\Apps\CostSim\CostSim.csproj", "{D4E3B170-D64A-73BE-C129-3337BCD2D37A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -235,6 +237,18 @@ Global
 		{C3D4E5F6-A7B8-4901-C3D4-E5F6A7B89012}.Release|x64.Build.0 = Release|Any CPU
 		{C3D4E5F6-A7B8-4901-C3D4-E5F6A7B89012}.Release|x86.ActiveCfg = Release|Any CPU
 		{C3D4E5F6-A7B8-4901-C3D4-E5F6A7B89012}.Release|x86.Build.0 = Release|Any CPU
+		{D4E3B170-D64A-73BE-C129-3337BCD2D37A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4E3B170-D64A-73BE-C129-3337BCD2D37A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4E3B170-D64A-73BE-C129-3337BCD2D37A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D4E3B170-D64A-73BE-C129-3337BCD2D37A}.Debug|x64.Build.0 = Debug|Any CPU
+		{D4E3B170-D64A-73BE-C129-3337BCD2D37A}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D4E3B170-D64A-73BE-C129-3337BCD2D37A}.Debug|x86.Build.0 = Debug|Any CPU
+		{D4E3B170-D64A-73BE-C129-3337BCD2D37A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4E3B170-D64A-73BE-C129-3337BCD2D37A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D4E3B170-D64A-73BE-C129-3337BCD2D37A}.Release|x64.ActiveCfg = Release|Any CPU
+		{D4E3B170-D64A-73BE-C129-3337BCD2D37A}.Release|x64.Build.0 = Release|Any CPU
+		{D4E3B170-D64A-73BE-C129-3337BCD2D37A}.Release|x86.ActiveCfg = Release|Any CPU
+		{D4E3B170-D64A-73BE-C129-3337BCD2D37A}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
