@@ -272,6 +272,7 @@ module WorkRoundTripTests =
         let workProps = SimulationWorkProperties()
         workProps.Duration <- Some(TimeSpan.FromSeconds(5.0))
         workProps.OperationCode <- Some "OP-001"
+        workProps.SequenceOrder <- 20
         work.SimulationProperties <- Some workProps
         work.Position <- Some(Xywh(11, 22, 100, 40))
         work.TokenRole <- TokenRole.Source
@@ -288,6 +289,8 @@ module WorkRoundTripTests =
                      actual.SimulationProperties |> Option.bind (fun p -> p.Duration))
         Assert.Equal(work.SimulationProperties |> Option.bind (fun p -> p.OperationCode),
                      actual.SimulationProperties |> Option.bind (fun p -> p.OperationCode))
+        Assert.Equal(work.SimulationProperties |> Option.map (fun p -> p.SequenceOrder),
+                     actual.SimulationProperties |> Option.map (fun p -> p.SequenceOrder))
         Assert.Equal(work.TokenRole, actual.TokenRole)
         Assert.Equal(work.Status4, actual.Status4)
         assertXywhEqual work.Position actual.Position
