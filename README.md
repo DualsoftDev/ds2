@@ -20,6 +20,7 @@
 ## 핵심 설계 원칙
 
 ```mermaid
+%%{init: {'theme': 'neutral'}}%%
 mindmap
   root((Promaker))
     편집 코어 분리
