@@ -95,6 +95,7 @@ public partial class ConditionSectionControl : UserControl
     // ── Drag & Drop (delegates to ConditionDropHelper) ──
 
     private Brush? _savedBrush;
+    private Brush? _savedItemBrush;
 
     private void Border_DragEnter(object sender, DragEventArgs e) =>
         ConditionDropHelper.HandleDragEnter(e, sender as Border, ref _savedBrush, this);
@@ -123,13 +124,13 @@ public partial class ConditionSectionControl : UserControl
 
     private void ConditionItem_DragEnter(object sender, DragEventArgs e)
     {
-        ConditionDropHelper.HandleDragEnter(e, sender as Border, ref _savedBrush, this);
+        ConditionDropHelper.HandleDragEnter(e, sender as Border, ref _savedItemBrush, this);
         e.Handled = true;
     }
 
     private void ConditionItem_DragLeave(object sender, DragEventArgs e)
     {
-        ConditionDropHelper.RestoreBorder(sender as Border, ref _savedBrush, this);
+        ConditionDropHelper.RestoreBorder(sender as Border, ref _savedItemBrush, this);
         e.Handled = true;
     }
 
@@ -141,7 +142,7 @@ public partial class ConditionSectionControl : UserControl
 
     private void ConditionItem_Drop(object sender, DragEventArgs e)
     {
-        ConditionDropHelper.RestoreBorder(sender as Border, ref _savedBrush, this);
+        ConditionDropHelper.RestoreBorder(sender as Border, ref _savedItemBrush, this);
         if (ConditionDropHelper.GetDroppedCallNode(e) is not { } callNode) return;
         if (sender is not Border { Tag: ViewModels.CallConditionItem item }) return;
 

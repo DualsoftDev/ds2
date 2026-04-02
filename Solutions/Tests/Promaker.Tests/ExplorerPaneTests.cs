@@ -392,6 +392,49 @@ public sealed class ExplorerPaneTests
         });
     }
 
+    [Fact]
+    public void Call_drag_candidate_does_not_sync_selection_until_mouse_up()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
+            var workId = store.AddWork("DragWork", flowId);
+            store.AddCallsWithDevice(projectId, workId, ["Dev.Api"], true, null);
+            var callId = Queries.callsOf(workId, store).Head.Id;
+
+            RebuildAll(vm);
+
+            var host = CreateHost(vm, out var pane);
+            try
+            {
+                var callNode = FindNode(vm.ControlTreeRoots, callId);
+                Assert.NotNull(callNode);
+
+                var treeItem = CreateTreeItem(callNode!);
+                InvokePreviewMouseLeftButtonDown(pane, treeItem);
+                InvokeHandleTreeSelectionChanged(pane, TreePaneKind.Control, callNode!);
+
+                Assert.Null(vm.SelectedNode);
+
+                InvokeCommitPendingCallSelection(pane, callNode!, TreePaneKind.Control);
+
+                Assert.NotNull(vm.SelectedNode);
+                Assert.Equal(callId, vm.SelectedNode!.Id);
+                Assert.Equal(EntityKind.Call, vm.SelectedNode.EntityType);
+            }
+            finally
+            {
+                host.Close();
+            }
+        });
+    }
+
     private static Window CreateHost(MainViewModel vm, out ExplorerPane pane)
     {
         pane = new ExplorerPane { DataContext = vm };
@@ -424,6 +467,37 @@ public sealed class ExplorerPaneTests
             .Invoke(pane, [paneKind, node]);
         DoEvents();
     }
+
+    private static void InvokePreviewMouseLeftButtonDown(ExplorerPane pane, TreeViewItem item)
+    {
+        var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+        {
+            RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
+        };
+
+        typeof(ExplorerPane)
+            .GetMethod("TreeViewItem_PreviewMouseLeftButtonDown", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(pane, [item, args]);
+    }
+
+    private static void InvokeCommitPendingCallSelection(ExplorerPane pane, EntityNode node, TreePaneKind paneKind)
+    {
+        typeof(ExplorerPane)
+            .GetMethod("SetActiveTreePane", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(pane, [paneKind]);
+
+        var vm = (MainViewModel)pane.DataContext!;
+        vm.Selection.SetActiveTreePane(paneKind);
+        vm.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
+        DoEvents();
+    }
+
+    private static TreeViewItem CreateTreeItem(EntityNode node) =>
+        new()
+        {
+            DataContext = node,
+            Header = node.Name
+        };
 
     private static T GetField<T>(object owner, string name) where T : class =>
         (T)owner.GetType()

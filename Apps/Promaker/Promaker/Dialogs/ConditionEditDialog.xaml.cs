@@ -17,7 +17,6 @@ public partial class ConditionEditDialog : Window
     private readonly MainViewModel.PropertyPanelHost _host;
     private readonly Guid _callId;
     private readonly CallConditionType _condType;
-    private Brush? _savedBrush;
 
     public ConditionEditDialog(
         DsStore store,
@@ -117,60 +116,6 @@ public partial class ConditionEditDialog : Window
                 _callId, row.ConditionId, row.ApiCallId,
                 dialog.OutSpecTypeIndex, dialog.OutSpecText));
         ReloadList();
-    }
-
-    // ── Drag & Drop: individual condition item ──
-
-    private void ConditionItem_DragEnter(object sender, DragEventArgs e) =>
-        Controls.ConditionDropHelper.HandleDragEnter(e, sender as Border, ref _savedBrush, this);
-
-    private void ConditionItem_DragLeave(object sender, DragEventArgs e)
-    {
-        Controls.ConditionDropHelper.RestoreBorder(sender as Border, ref _savedBrush, this);
-        e.Handled = true;
-    }
-
-    private void ConditionItem_DragOver(object sender, DragEventArgs e)
-    {
-        Controls.ConditionDropHelper.HandleDragOver(e);
-        e.Handled = true;
-    }
-
-    private void ConditionItem_Drop(object sender, DragEventArgs e)
-    {
-        Controls.ConditionDropHelper.RestoreBorder(sender as Border, ref _savedBrush, this);
-        if (Controls.ConditionDropHelper.GetDroppedCallNode(e) is not { } callNode) return;
-        if (sender is not Border { Tag: CallConditionItem item }) return;
-
-        if (Controls.ConditionDropHelper.ExecuteAddApiCallsToCondition(
-                _store, _host, _callId, item.ConditionId, callNode.Id, ownerWindow: this))
-            ReloadList();
-        e.Handled = true;
-    }
-
-    // ── Drag & Drop: section-level (creates new condition) ──
-
-    private void DropArea_DragEnter(object sender, DragEventArgs e) =>
-        Controls.ConditionDropHelper.HandleDragEnter(e, sender as Border, ref _savedBrush, this);
-
-    private void DropArea_DragLeave(object sender, DragEventArgs e)
-    {
-        Controls.ConditionDropHelper.RestoreBorder(sender as Border, ref _savedBrush, this);
-        e.Handled = true;
-    }
-
-    private void DropArea_DragOver(object sender, DragEventArgs e) =>
-        Controls.ConditionDropHelper.HandleDragOver(e);
-
-    private void DropArea_Drop(object sender, DragEventArgs e)
-    {
-        Controls.ConditionDropHelper.RestoreBorder(sender as Border, ref _savedBrush, this);
-        if (Controls.ConditionDropHelper.GetDroppedCallNode(e) is not { } callNode) return;
-
-        if (Controls.ConditionDropHelper.ExecuteConditionDrop(
-                _store, _host, _callId, _condType, callNode.Id, ownerWindow: this))
-            ReloadList();
-        e.Handled = true;
     }
 
     // ── Recursive children template (code-behind because WPF can't self-reference DataTemplate) ──
@@ -275,21 +220,15 @@ public partial class ConditionEditDialog : Window
             panel.Children.Add(childHost);
         }
 
-        var dropBorder = new Border
+        var childBorder = new Border
         {
-            AllowDrop = true,
             BorderThickness = new Thickness(1),
             BorderBrush = (Brush)FindResource("BorderBrush"),
             Padding = new Thickness(6),
             Margin = new Thickness(2),
-            Child = panel,
-            Tag = item
+            Child = panel
         };
-        dropBorder.DragEnter += ConditionItem_DragEnter;
-        dropBorder.DragLeave += ConditionItem_DragLeave;
-        dropBorder.DragOver += ConditionItem_DragOver;
-        dropBorder.Drop += ConditionItem_Drop;
-        cc.Content = dropBorder;
+        cc.Content = childBorder;
     }
 
     private Button CreateButton(string content, string? toolTip, object tag, RoutedEventHandler handler)

@@ -212,6 +212,34 @@ module BatchTests =
         Assert.Equal(5000, rows.[0].PeriodMs)
 
     [<Fact>]
+    let ``GetAllWorkDurationRows classifies rows by explorer tree ownership`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSystem = addSystem store "ControlSystem" project.Id true
+        let passiveSystem = addSystem store "DeviceSystem" project.Id false
+        let controlFlow = addFlow store "ControlFlow" activeSystem.Id
+        let deviceFlow = addFlow store "DeviceFlow" passiveSystem.Id
+        let controlWork = addWork store "ControlWork" controlFlow.Id
+        let deviceWork = addWork store "DeviceWork" deviceFlow.Id
+
+        store.AddCallsWithDevice(project.Id, controlWork.Id, [ "Dev.Api" ], true, None)
+        let controlCall = Queries.callsOf controlWork.Id store |> List.head
+        let apiDef = addApiDef store "Api1" passiveSystem.Id
+        store.AddApiCallFromPanel(controlCall.Id, apiDef.Id, "", "", "", "", 0, "", 0, "") |> ignore
+
+        let rows = store.GetAllWorkDurationRows()
+        let controlRow = rows |> List.find (fun row -> row.WorkId = controlWork.Id)
+        let deviceRow = rows |> List.find (fun row -> row.WorkId = deviceWork.Id)
+
+        Assert.False(controlRow.IsDeviceWork)
+        Assert.Equal("ControlSystem", controlRow.SystemName)
+        Assert.Equal("ControlFlow", controlRow.FlowName)
+
+        Assert.True(deviceRow.IsDeviceWork)
+        Assert.Equal("DeviceSystem", deviceRow.SystemName)
+        Assert.Equal("DeviceFlow", deviceRow.FlowName)
+
+    [<Fact>]
     let ``UpdateWorkDurationsBatch changes work periods and supports undo`` () =
         let store = createStore ()
         let project = addProject store "P"
