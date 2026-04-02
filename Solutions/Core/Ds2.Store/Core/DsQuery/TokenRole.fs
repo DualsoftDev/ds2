@@ -10,7 +10,7 @@ module TokenRoleOps =
     /// <returns>(prefix, localName) — prefix는 "FlowName." 포함, 구분자 없으면 ("", fullName)</returns>
     let parseWorkNameParts (fullName: string) : struct(string * string) =
         match fullName.IndexOf('.') with
-        | dotIdx when dotIdx >= 0 -> struct(fullName.[..dotIdx] + ".", fullName.[(dotIdx + 1)..])
+        | dotIdx when dotIdx >= 0 -> struct(fullName.[..dotIdx], fullName.[(dotIdx + 1)..])
         | _ -> struct("", fullName)
 
     /// <summary>다중 선택 시 TokenRole flag의 3-state 체크박스 상태 결정</summary>

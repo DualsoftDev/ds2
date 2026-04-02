@@ -19,6 +19,8 @@ public partial class ExplorerPane : UserControl
 {
     private Point _treeDragStartPoint;
     private bool _treeDragCandidate;
+    private EntityNode? _pendingTreeSelectionNode;
+    private TreePaneKind _pendingTreeSelectionPane = TreePaneKind.Control;
     private MainViewModel? _boundViewModel;
     private TreePaneKind _activeTreePane = TreePaneKind.Control;
     private readonly DispatcherTimer _searchRefreshTimer;
@@ -119,22 +121,32 @@ public partial class ExplorerPane : UserControl
 
     private void TreeViewItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        var pane = ResolveTreePane(sender);
+        var ctrlPressed = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+        var shiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
+
         if (sender is TreeViewItem { DataContext: EntityNode node }
-            && node.EntityType == EntityKind.Call)
+            && node.EntityType == EntityKind.Call
+            && !ctrlPressed
+            && !shiftPressed)
         {
             _treeDragStartPoint = e.GetPosition(null);
             _treeDragCandidate = true;
+            _pendingTreeSelectionNode = node;
+            _pendingTreeSelectionPane = pane;
         }
         else
         {
-            _treeDragCandidate = false;
+            ClearPendingTreeDragSelection();
         }
 
-        HandleTreeItemMouseDown(ResolveTreePane(sender), sender, e, requireModifiers: true);
+        HandleTreeItemMouseDown(pane, sender, e, requireModifiers: true);
     }
 
     private void TreeViewItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
+        ClearPendingTreeDragSelection();
+
         // 이미 선택된 노드를 우클릭한 경우 선택 변경하지 않음 (다중 선택 유지)
         if (sender is TreeViewItem { DataContext: EntityNode node } && node.IsTreeSelected)
         {
@@ -142,6 +154,24 @@ public partial class ExplorerPane : UserControl
             return;
         }
         HandleTreeItemMouseDown(ResolveTreePane(sender), sender, e, requireModifiers: false);
+    }
+
+    private void TreeViewItem_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_treeDragCandidate || _pendingTreeSelectionNode is null || ViewModel is null)
+            return;
+
+        if (sender is not TreeViewItem { DataContext: EntityNode node } item)
+            return;
+        if (!ReferenceEquals(item, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject)))
+            return;
+        if (!ReferenceEquals(node, _pendingTreeSelectionNode))
+            return;
+
+        ViewModel.Selection.SetActiveTreePane(_pendingTreeSelectionPane);
+        ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
+        ClearPendingTreeDragSelection();
+        e.Handled = true;
     }
 
     private void Tree_ContextMenuOpening(object sender, ContextMenuEventArgs e)
@@ -438,7 +468,7 @@ public partial class ExplorerPane : UserControl
         if (sender is not TreeViewItem { DataContext: EntityNode node }) return;
         if (node.EntityType != EntityKind.Call) return;
 
-        _treeDragCandidate = false;
+        ClearPendingTreeDragSelection();
         var data = new DataObject("ConditionCallNode", node);
         DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy);
     }
@@ -454,6 +484,11 @@ public partial class ExplorerPane : UserControl
 
         ViewModel.Selection.SetActiveTreePane(pane);
         if (newValue is not EntityNode node) return;
+
+        if (_treeDragCandidate
+            && _pendingTreeSelectionNode is not null
+            && ReferenceEquals(node, _pendingTreeSelectionNode))
+            return;
 
         ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
 
@@ -550,6 +585,12 @@ public partial class ExplorerPane : UserControl
                 ViewModel.EditApiDefNode(node.Id);
                 break;
         }
+    }
+
+    private void ClearPendingTreeDragSelection()
+    {
+        _treeDragCandidate = false;
+        _pendingTreeSelectionNode = null;
     }
 
     private void RefreshFilteredSelectionState()
