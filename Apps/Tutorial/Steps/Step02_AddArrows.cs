@@ -30,6 +30,9 @@ static class Step02_AddArrows
         var store = ctx.Store;
 
         // ── 화살표 추가 ──────────────────────────────────────
+        // PickPart ──Start──→ WeldJoint ──Start──→ PlacePart
+        // ↑                                        │
+        // └──────────── Reset ─────────────────────┘
         // ArrowBetweenWorks(systemId, sourceId, targetId, arrowType)
         // parentId = systemId (DsSystem 의 자식)
         var plan = ImportPlanModule.ofSeq([
@@ -42,7 +45,6 @@ static class Step02_AddArrows
             ImportPlanOperation.NewAddArrowWork(
                 new ArrowBetweenWorks(ctx.SystemId, ctx.W3Id, ctx.W1Id, ArrowType.Reset)),
         ]);
-
         ImportPlanModule.applyDirect(store, plan);
 
         if (silent) return;

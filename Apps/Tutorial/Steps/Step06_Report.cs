@@ -92,8 +92,8 @@ static class Step06_Report
         Console.WriteLine();
 
         // ── 4. HTML / CSV 내보내기 ───────────────────────────
-        var htmlPath = Path.Combine(Path.GetTempPath(), "ds2_report.html");
-        var csvPath  = Path.Combine(Path.GetTempPath(), "ds2_report.csv");
+        var htmlPath = Path.Combine(".", "ds2_report.html");
+        var csvPath  = Path.Combine(".", "ds2_report.csv");
 
         var htmlResult = ReportService.exportAuto(report, htmlPath);
         var csvOptions = ExportOptionsModule.defaults(ExportFormat.Csv, csvPath);
@@ -108,8 +108,7 @@ static class Step06_Report
         if (File.Exists(csvPath))
             Console.WriteLine($"    CSV 크기:  {new FileInfo(csvPath).Length:N0} bytes");
 
-        foreach (var p in new[] { htmlPath, csvPath })
-            if (File.Exists(p)) File.Delete(p);
+        // 발표/확인용으로 파일 유지 (삭제 안 함)
 
         Console.WriteLine();
         Console.WriteLine("  → 다음은 이 모든 것을 인터랙티브 콘솔로 조합한다.");
