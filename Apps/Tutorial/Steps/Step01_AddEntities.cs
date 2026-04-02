@@ -45,9 +45,9 @@ static class Step01_AddEntities
         var project = new Project("CarAssembly")  { Id = ctx.ProjectId };
         var system  = new DsSystem("WeldingLine") { Id = ctx.SystemId };
         var flow    = new Flow("MainProcess", ctx.SystemId) { Id = ctx.FlowId };
-        var w1      = new Work("PickPart",  ctx.FlowId) { Id = ctx.W1Id };
-        var w2      = new Work("WeldJoint", ctx.FlowId) { Id = ctx.W2Id };
-        var w3      = new Work("PlacePart", ctx.FlowId) { Id = ctx.W3Id };
+        var w1      = new Work("MainProcess", "PickPart",  ctx.FlowId) { Id = ctx.W1Id };
+        var w2      = new Work("MainProcess", "WeldJoint", ctx.FlowId) { Id = ctx.W2Id };
+        var w3      = new Work("MainProcess", "PlacePart", ctx.FlowId) { Id = ctx.W3Id };
 
         // ── ImportPlan 으로 일괄 등록 ────────────────────────
         // ImportPlanOperation: F# DU (Discriminated Union)
