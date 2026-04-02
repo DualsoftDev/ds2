@@ -182,6 +182,7 @@ type SimulationWorkProperties() =
     member val RecordStateChanges = true with get, set
     member val EnableResourceContention = false with get, set
     member val OperationCode: string option = None with get, set
+    member val SequenceOrder = 0 with get, set
     // NOTE: RequiredResourceIds 제거됨 (array는 MemberwiseClone shallow copy 위험)
     // → 필요시 별도 컬렉션으로 관리 (예: Work.RequiredResources: ResizeArray<Guid>)
     member val ResourceLockDuration: TimeSpan option = None with get, set

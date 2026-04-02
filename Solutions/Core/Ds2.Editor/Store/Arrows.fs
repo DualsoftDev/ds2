@@ -64,12 +64,46 @@ module internal DirectArrowOps =
         | None, Some arrow -> tryCall arrow
         | _ -> false
 
+    let orderedWorkChainLinks (store: DsStore) (orderedWorkIds: seq<Guid>) =
+        orderedWorkIds
+        |> Seq.distinct
+        |> Seq.pairwise
+        |> Seq.choose (fun (sourceId, targetId) ->
+            match Queries.trySystemIdOfWork sourceId store, Queries.trySystemIdOfWork targetId store with
+            | Some sourceSystemId, Some targetSystemId when sourceSystemId = targetSystemId ->
+                Some(sourceSystemId, sourceId, targetId)
+            | _ -> None)
+        |> Seq.toList
+
 // =============================================================================
 // DsStore 화살표 확장 — 삭제/재연결/순서 연결
 // =============================================================================
 
 [<Extension>]
 type DsStoreArrowsExtensions =
+
+    [<Extension>]
+    static member TrackSyncOrderedWorkChain(store: DsStore, orderedWorkIds: seq<Guid>, arrowType: ArrowType) : int =
+        let orderedIds = orderedWorkIds |> Seq.distinct |> Seq.toList
+        let workIdSet = orderedIds |> Set.ofList
+        let arrowIdsToRemove =
+            orderedIds
+            |> Seq.choose (fun workId -> Queries.trySystemIdOfWork workId store |> Option.map (fun systemId -> systemId, workId))
+            |> Seq.groupBy fst
+            |> Seq.collect (fun (systemId, pairs) ->
+                let systemWorkIds = pairs |> Seq.map snd |> Set.ofSeq
+                Queries.arrowWorksOf systemId store
+                |> Seq.filter (fun arrow -> Set.contains arrow.SourceId systemWorkIds && Set.contains arrow.TargetId systemWorkIds)
+                |> Seq.map _.Id)
+            |> Seq.distinct
+            |> Seq.toList
+        let links = DirectArrowOps.orderedWorkChainLinks store orderedIds
+        for arrowId in arrowIdsToRemove do
+            store.TrackRemove(store.ArrowWorks, arrowId)
+        for (systemId, sourceId, targetId) in links do
+            if Set.contains sourceId workIdSet && Set.contains targetId workIdSet then
+                store.TrackAdd(store.ArrowWorks, ArrowBetweenWorks(systemId, sourceId, targetId, arrowType))
+        links.Length
 
     [<Extension>]
     static member RemoveArrows(store: DsStore, arrowIds: seq<Guid>) : int =
@@ -179,6 +213,42 @@ type DsStoreArrowsExtensions =
                     | _ -> ())
             store.EmitConnectionsChangedAndHistory()
             links.Length
+
+    /// 지정된 Work 순서를 기준으로 같은 집합 내부 화살표를 제거하고 새 선형 체인으로 재구성.
+    /// 순서 기반 편집기에서 Flow 내 Work 인과 관계를 트리 순서에 맞춰 동기화할 때 사용.
+    [<Extension>]
+    static member SyncOrderedWorkChain(store: DsStore, orderedWorkIds: seq<Guid>, arrowType: ArrowType) : int =
+        let orderedIds = orderedWorkIds |> Seq.distinct |> Seq.toList
+        if orderedIds.IsEmpty then 0
+        else
+            let mutable linkCount = 0
+            store.WithTransaction("순서 기반 Work 체인 동기화", fun () ->
+                linkCount <- DsStoreArrowsExtensions.TrackSyncOrderedWorkChain(store, orderedIds, arrowType))
+            store.EmitConnectionsChangedAndHistory()
+            linkCount
+
+    /// Undo/History 없이 순서 기반 Work 체인만 직접 동기화.
+    [<Extension>]
+    static member SyncOrderedWorkChainDirect(store: DsStore, orderedWorkIds: seq<Guid>, arrowType: ArrowType) : int =
+        let orderedIds = orderedWorkIds |> Seq.distinct |> Seq.toList
+        let arrowIdsToRemove =
+            orderedIds
+            |> Seq.choose (fun workId -> Queries.trySystemIdOfWork workId store |> Option.map (fun systemId -> systemId, workId))
+            |> Seq.groupBy fst
+            |> Seq.collect (fun (systemId, pairs) ->
+                let systemWorkIds = pairs |> Seq.map snd |> Set.ofSeq
+                Queries.arrowWorksOf systemId store
+                |> Seq.filter (fun arrow -> Set.contains arrow.SourceId systemWorkIds && Set.contains arrow.TargetId systemWorkIds)
+                |> Seq.map _.Id)
+            |> Seq.distinct
+            |> Seq.toList
+        let links = DirectArrowOps.orderedWorkChainLinks store orderedIds
+        for arrowId in arrowIdsToRemove do
+            store.ArrowWorks.Remove(arrowId) |> ignore
+        for (systemId, sourceId, targetId) in links do
+            let arrow = ArrowBetweenWorks(systemId, sourceId, targetId, arrowType)
+            store.ArrowWorks[arrow.Id] <- arrow
+        links.Length
 
     /// 지정된 Work ID 목록에서 같은 System에 속한 Work들끼리 ResetReset 화살표를 전체 쌍으로 연결.
     /// 쌍 (A, B)에 A→B 또는 B→A ResetReset 이 이미 있으면 스킵 → 중복 방지.
