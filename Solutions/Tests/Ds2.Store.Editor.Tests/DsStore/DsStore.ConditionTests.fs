@@ -105,46 +105,46 @@ module FormulaTextTests =
 
     [<Fact>]
     let ``Single ApiCall shows name only`` () =
-        let apiItem = CallConditionApiCallItem(Guid.NewGuid(), "ac1", "MyApi", "", 0)
+        let apiItem = CallConditionApiCallItem(Guid.NewGuid(), "ac1", "MyApi", "", 0, "", 0)
         let item = CallConditionPanelItem(Guid.NewGuid(), CallConditionType.ComAux, false, false, [apiItem], [])
         Assert.Equal("MyApi", item.FormulaText())
 
     [<Fact>]
     let ``ApiCall with spec shows name=spec`` () =
-        let apiItem = CallConditionApiCallItem(Guid.NewGuid(), "ac1", "MyApi", "True", 0)
+        let apiItem = CallConditionApiCallItem(Guid.NewGuid(), "ac1", "MyApi", "True", 0, "", 0)
         let item = CallConditionPanelItem(Guid.NewGuid(), CallConditionType.ComAux, false, false, [apiItem], [])
         Assert.Equal("MyApi=True", item.FormulaText())
 
     [<Fact>]
     let ``Undefined spec is hidden`` () =
-        let apiItem = CallConditionApiCallItem(Guid.NewGuid(), "ac1", "MyApi", "Undefined", 0)
+        let apiItem = CallConditionApiCallItem(Guid.NewGuid(), "ac1", "MyApi", "Undefined", 0, "", 0)
         let item = CallConditionPanelItem(Guid.NewGuid(), CallConditionType.ComAux, false, false, [apiItem], [])
         Assert.Equal("MyApi", item.FormulaText())
 
     [<Fact>]
     let ``AND operator joins with &`` () =
-        let a = CallConditionApiCallItem(Guid.NewGuid(), "a", "A", "", 0)
-        let b = CallConditionApiCallItem(Guid.NewGuid(), "b", "B", "", 0)
+        let a = CallConditionApiCallItem(Guid.NewGuid(), "a", "A", "", 0, "", 0)
+        let b = CallConditionApiCallItem(Guid.NewGuid(), "b", "B", "", 0, "", 0)
         let item = CallConditionPanelItem(Guid.NewGuid(), CallConditionType.ComAux, false, false, [a; b], [])
         Assert.Equal("A&B", item.FormulaText())
 
     [<Fact>]
     let ``OR operator joins with |`` () =
-        let a = CallConditionApiCallItem(Guid.NewGuid(), "a", "A", "", 0)
-        let b = CallConditionApiCallItem(Guid.NewGuid(), "b", "B", "", 0)
+        let a = CallConditionApiCallItem(Guid.NewGuid(), "a", "A", "", 0, "", 0)
+        let b = CallConditionApiCallItem(Guid.NewGuid(), "b", "B", "", 0, "", 0)
         let item = CallConditionPanelItem(Guid.NewGuid(), CallConditionType.ComAux, true, false, [a; b], [])
         Assert.Equal("A|B", item.FormulaText())
 
     [<Fact>]
     let ``Rising appends arrow`` () =
-        let a = CallConditionApiCallItem(Guid.NewGuid(), "a", "A", "", 0)
+        let a = CallConditionApiCallItem(Guid.NewGuid(), "a", "A", "", 0, "", 0)
         let item = CallConditionPanelItem(Guid.NewGuid(), CallConditionType.ComAux, false, true, [a], [])
         Assert.Equal("A \u2191", item.FormulaText())
 
     [<Fact>]
     let ``Children are wrapped in parentheses`` () =
-        let a = CallConditionApiCallItem(Guid.NewGuid(), "a", "A", "", 0)
+        let a = CallConditionApiCallItem(Guid.NewGuid(), "a", "A", "", 0, "", 0)
         let child = CallConditionPanelItem(Guid.NewGuid(), CallConditionType.ComAux, true, false, [a], [])
-        let b = CallConditionApiCallItem(Guid.NewGuid(), "b", "B", "", 0)
+        let b = CallConditionApiCallItem(Guid.NewGuid(), "b", "B", "", 0, "", 0)
         let item = CallConditionPanelItem(Guid.NewGuid(), CallConditionType.ComAux, false, false, [b], [child])
         Assert.Equal("B&(A)", item.FormulaText())

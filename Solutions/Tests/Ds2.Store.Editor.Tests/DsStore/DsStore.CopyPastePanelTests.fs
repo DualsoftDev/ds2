@@ -357,6 +357,38 @@ module PanelTests =
         | Int32Value (Single v) -> Assert.Equal(123, v)
         | _ -> Assert.Fail("OutputSpec should be Int32Value(Single 123)")
 
+    [<Fact>]
+    let ``UpdateConditionApiCallInputSpec updates selected condition api call`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+
+        let call = store.Calls.Values |> Seq.head
+        let sourceApiCallId = call.ApiCalls |> Seq.head |> fun ac -> ac.Id
+
+        store.AddCallCondition(call.Id, CallConditionType.ComAux)
+        let condId = store.Calls.[call.Id].CallConditions |> Seq.head |> fun cc -> cc.Id
+
+        let added = store.AddApiCallsToConditionBatch(call.Id, condId, [ sourceApiCallId ])
+        Assert.Equal(1, added)
+
+        let conditionApiCallId =
+            store.Calls.[call.Id].CallConditions
+            |> Seq.head
+            |> fun cc -> cc.Conditions |> Seq.head |> fun ac -> ac.Id
+
+        let changed = store.UpdateConditionApiCallInputSpec(call.Id, condId, conditionApiCallId, 4, "456")
+        Assert.True(changed)
+
+        let updatedSpec =
+            store.Calls.[call.Id].CallConditions
+            |> Seq.head
+            |> fun cc -> cc.Conditions |> Seq.find (fun ac -> ac.Id = conditionApiCallId) |> fun ac -> ac.InputSpec
+
+        match updatedSpec with
+        | Int32Value (Single v) -> Assert.Equal(456, v)
+        | _ -> Assert.Fail("InputSpec should be Int32Value(Single 456)")
+
 // =============================================================================
 // File I/O
 // =============================================================================

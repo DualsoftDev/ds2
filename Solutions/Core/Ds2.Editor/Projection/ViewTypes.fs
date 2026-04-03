@@ -166,12 +166,16 @@ type CallApiCallPanelItem
 
 [<Sealed>]
 type CallConditionApiCallItem
-    (apiCallId: Guid, apiCallName: string, apiDefDisplayName: string, outputSpecText: string, outputSpecTypeIndex: int) =
-    member _.ApiCallId         = apiCallId
-    member _.ApiCallName       = apiCallName
-    member _.ApiDefDisplayName = apiDefDisplayName
-    member _.OutputSpecText    = outputSpecText
+    (apiCallId: Guid, apiCallName: string, apiDefDisplayName: string,
+     outputSpecText: string, outputSpecTypeIndex: int,
+     inputSpecText: string, inputSpecTypeIndex: int) =
+    member _.ApiCallId          = apiCallId
+    member _.ApiCallName        = apiCallName
+    member _.ApiDefDisplayName  = apiDefDisplayName
+    member _.OutputSpecText     = outputSpecText
     member _.OutputSpecTypeIndex = outputSpecTypeIndex
+    member _.InputSpecText      = inputSpecText
+    member _.InputSpecTypeIndex = inputSpecTypeIndex
 
 [<Sealed>]
 type CallConditionPanelItem

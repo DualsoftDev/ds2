@@ -97,6 +97,20 @@ type DsStorePanelConditionExtensions =
             targetCond.Conditions.RemoveAll(fun ac -> ac.Id = apiCallId) |> ignore)
 
     [<Extension>]
+    static member UpdateConditionApiCallInputSpec(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid, inTypeIndex: int, inText: string) : bool =
+        StoreLog.debug($"callId={callId}, condId={condId}, apiCallId={apiCallId}")
+        let cond = StoreLog.requireCallCondition(store, callId, condId)
+        let ac = StoreLog.requireApiCallInCondition(cond, apiCallId)
+        let newSpec = PropertyPanelValueSpec.parseFromPanel inTypeIndex inText
+        if ac.InputSpec <> newSpec then
+            DirectPanelOps.mutateCallProps store callId "조건 InputSpec 변경" (fun c ->
+                let targetCond = DirectPanelOps.requireCondition callId c condId
+                let targetApiCall = DirectPanelOps.requireApiCallInCondition callId condId targetCond apiCallId
+                targetApiCall.InputSpec <- newSpec)
+            true
+        else false
+
+    [<Extension>]
     static member UpdateConditionApiCallOutputSpec(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid, outTypeIndex: int, outText: string) : bool =
         StoreLog.debug($"callId={callId}, condId={condId}, apiCallId={apiCallId}")
         let cond = StoreLog.requireCallCondition(store, callId, condId)

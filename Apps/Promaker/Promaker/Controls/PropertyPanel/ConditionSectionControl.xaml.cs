@@ -47,6 +47,10 @@ public partial class ConditionSectionControl : UserControl
         DependencyProperty.Register(nameof(EditConditionsParameter), typeof(object), typeof(ConditionSectionControl),
             new PropertyMetadata(null));
 
+    public static readonly DependencyProperty AddChildGroupCommandProperty =
+        DependencyProperty.Register(nameof(AddChildGroupCommand), typeof(ICommand), typeof(ConditionSectionControl),
+            new PropertyMetadata(null));
+
     public static readonly DependencyProperty DropCallCommandProperty =
         DependencyProperty.Register(nameof(DropCallCommand), typeof(ICommand), typeof(ConditionSectionControl),
             new PropertyMetadata(null));
@@ -69,6 +73,7 @@ public partial class ConditionSectionControl : UserControl
     public string HelpTopic { get => (string)GetValue(HelpTopicProperty); set => SetValue(HelpTopicProperty, value); }
     public ICommand? EditConditionsCommand { get => (ICommand?)GetValue(EditConditionsCommandProperty); set => SetValue(EditConditionsCommandProperty, value); }
     public object? EditConditionsParameter { get => GetValue(EditConditionsParameterProperty); set => SetValue(EditConditionsParameterProperty, value); }
+    public ICommand? AddChildGroupCommand { get => (ICommand?)GetValue(AddChildGroupCommandProperty); set => SetValue(AddChildGroupCommandProperty, value); }
     public ICommand? DropCallCommand { get => (ICommand?)GetValue(DropCallCommandProperty); set => SetValue(DropCallCommandProperty, value); }
     public ICommand? DropCallToConditionItemCommand { get => (ICommand?)GetValue(DropCallToConditionItemCommandProperty); set => SetValue(DropCallToConditionItemCommandProperty, value); }
 

@@ -302,6 +302,33 @@ module AasxRoundTripTests =
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 
 
+    [<Fact>]
+    let ``AASX round-trip preserves Work Duration`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("P")
+        let systemId = store.AddSystem("S", projectId, true)
+        let flowId = store.AddFlow("F", systemId)
+        let workId = store.AddWork("W", flowId)
+
+        store.Works.[workId].Properties.Duration <- Some (TimeSpan.FromMilliseconds(5000.0))
+        Assert.Equal(5000.0, store.Works.[workId].Properties.Duration.Value.TotalMilliseconds)
+
+        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            Assert.True(exported, "Export should succeed")
+
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed")
+
+            let restoredWork = store2.Works.Values |> Seq.head
+            Assert.True(restoredWork.Properties.Duration.IsSome, "Duration should be preserved")
+            Assert.Equal(5000.0, restoredWork.Properties.Duration.Value.TotalMilliseconds)
+        finally
+            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+
+
 /// SplitDeviceAasx 분리 저장 통합 테스트
 module SplitDeviceAasxTests =
 
