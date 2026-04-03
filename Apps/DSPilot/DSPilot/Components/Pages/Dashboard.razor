@@ -205,7 +205,7 @@ else
                                         <option value="mt">가동시간</option>
                                         <option value="wt">대기시간</option>
                                         <option value="name">이름</option>
-                                        <option value="order" disabled="@(!_processOrderAvailable)">공정</option>
+                                        <option value="order">공정</option>
                                     </select>
                                     <button class="btn-icon" title="@(_sortDesc ? "내림차순" : "오름차순")"
                                             @onclick="ToggleSortDir">
@@ -525,7 +525,6 @@ else
 
     // 공정 순서 (PLC 실행 순서 기반)
     private Dictionary<string, int> _flowProcessOrder = new();
-    private bool _processOrderAvailable = false;
 
     // 평균/이전 표시 토글
     private bool _showAverage = false;  // false: 이전값, true: 평균값
@@ -650,7 +649,6 @@ else
                 .ToDictionary(x => x.FlowName, x => x.Rank);
         }
 
-        _processOrderAvailable = true;
         UpdateChartCache();
     }
 
