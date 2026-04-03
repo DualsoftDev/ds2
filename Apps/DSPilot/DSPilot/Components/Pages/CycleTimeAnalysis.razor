@@ -6,6 +6,8 @@
 @inject PlcToCallMapperService CallMapper
 @inject IPlcRepository PlcRepository
 @inject CycleAnalysisService CycleAnalysis
+@inject IFlowMetricsService FlowMetrics
+@inject AppSettingsService SettingsService
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
@@ -33,19 +35,27 @@
                 <div class="filter-group">
                     <label>시작 시간</label>
                     <input type="datetime-local" class="form-field" @bind="_chartStartTime" @bind:after="OnTimeRangeChanged" />
+                    <div class="time-preset-buttons">
+                        <button class="btn btn-sm" @onclick="() => SetDurationMinutes(1)">시작 1분</button>
+                        <button class="btn btn-sm" @onclick="() => SetDurationMinutes(2)">시작 2분</button>
+                        <button class="btn btn-sm" @onclick="() => SetDurationMinutes(5)">시작 5분</button>
+                        <button class="btn btn-sm" @onclick="() => SetDurationMinutes(10)">시작 10분</button>
+                        <button class="btn btn-sm" @onclick="() => SetDurationMinutes(30)">시작 30분</button>
+                        <button class="btn btn-sm" @onclick="() => SetDurationHours(1)">시작 1시간</button>
+                    </div>
                 </div>
                 <div class="filter-group">
                     <label>종료 시간</label>
                     <input type="datetime-local" class="form-field" @bind="_chartEndTime" @bind:after="OnTimeRangeChanged" />
+                    <div class="time-preset-buttons">
+                        <button class="btn btn-sm" @onclick="() => SetRecentMinutes(1)">최근 1분</button>
+                        <button class="btn btn-sm" @onclick="() => SetRecentMinutes(2)">최근 2분</button>
+                        <button class="btn btn-sm" @onclick="() => SetRecentMinutes(5)">최근 5분</button>
+                        <button class="btn btn-sm" @onclick="() => SetRecentMinutes(10)">최근 10분</button>
+                        <button class="btn btn-sm" @onclick="() => SetRecentMinutes(30)">최근 30분</button>
+                        <button class="btn btn-sm" @onclick="() => SetRecentHours(1)">최근 1시간</button>
+                    </div>
                 </div>
-            </div>
-            <div class="filter-row">
-                <button class="btn btn-sm" @onclick="() => SetTimeRangeMinutes(1)">최근 1분</button>
-                <button class="btn btn-sm" @onclick="() => SetTimeRangeMinutes(2)">최근 2분</button>
-                <button class="btn btn-sm" @onclick="() => SetTimeRangeMinutes(5)">최근 5분</button>
-                <button class="btn btn-sm" @onclick="() => SetTimeRangeMinutes(10)">최근 10분</button>
-                <button class="btn btn-sm" @onclick="() => SetTimeRangeMinutes(30)">최근 30분</button>
-                <button class="btn btn-sm" @onclick="() => SetTimeRange(1)">최근 1시간</button>
             </div>
 
             @if (_ganttData != null)
@@ -124,6 +134,14 @@
                         <input type="checkbox" @bind="_showCycleTimeOverlay" /> Cycle Time
                     </label>
                     <span class="gantt-info-hint">신호 클릭 시 동일 신호의 다음 발생까지 표시</span>
+                    @if (_idleRegions.Any())
+                    {
+                        <span class="gantt-info-separator">|</span>
+                        <span class="gantt-idle-legend">
+                            <span class="gantt-idle-swatch"></span>
+                            Idle (유휴시간 초과)
+                        </span>
+                    }
                 </div>
             }
             <button class="btn btn-sm gantt-info-export" @onclick="ExportCsv">
@@ -228,6 +246,7 @@
     private CancellationTokenSource? _debounceCts;
 
     private GanttChartData? _ganttData;
+    private List<(DateTime Start, DateTime End)> _idleRegions = new();
     private GanttChartItem? _selectedItem;
     private GanttChartItem? _comparisonItem;
     private GanttChartItem? _previousItem;
@@ -409,7 +428,21 @@
         catch (TaskCanceledException) { }
     }
 
-    private async Task SetTimeRange(int hours)
+    private async Task SetDurationHours(int hours)
+    {
+        _chartEndTime = _chartStartTime.AddHours(hours);
+        if (!string.IsNullOrEmpty(_selectedFlowName))
+            await LoadGanttData();
+    }
+
+    private async Task SetDurationMinutes(int minutes)
+    {
+        _chartEndTime = _chartStartTime.AddMinutes(minutes);
+        if (!string.IsNullOrEmpty(_selectedFlowName))
+            await LoadGanttData();
+    }
+
+    private async Task SetRecentHours(int hours)
     {
         _chartEndTime = DateTime.Now;
         _chartStartTime = _chartEndTime.AddHours(-hours);
@@ -417,7 +450,7 @@
             await LoadGanttData();
     }
 
-    private async Task SetTimeRangeMinutes(int minutes)
+    private async Task SetRecentMinutes(int minutes)
     {
         _chartEndTime = DateTime.Now;
         _chartStartTime = _chartEndTime.AddMinutes(-minutes);
@@ -430,6 +463,7 @@
         _isLoading = true;
         _errorMessage = null;
         _ganttData = null;
+        _idleRegions.Clear();
         _selectedItem = null;
         _comparisonItem = null;
         _previousItem = null;
@@ -455,6 +489,9 @@
 
                 CalculateLongestGap();
                 _needsCrosshairInit = true;
+
+                // idle 사이클 구간 감지
+                await DetectIdleRegionsAsync();
             }
         }
         catch (Exception ex)
@@ -761,6 +798,69 @@
         _previousGap = null;
         _nextGap = null;
         StateHasChanged();
+    }
+
+    private async Task DetectIdleRegionsAsync()
+    {
+        _idleRegions.Clear();
+        var settings = SettingsService.LoadSettings();
+        var maxCT = settings.HistoryView.MaxCycleTimeMs;
+        if (maxCT <= 0 || string.IsNullOrEmpty(_selectedFlowName)) return;
+
+        // FlowMetricsService가 실제 사용하는 HeadCall의 InTag로 사이클 경계 감지
+        var (headCallName, _) = FlowMetrics.GetCycleBoundaryCallNames(_selectedFlowName);
+        string? inTagAddress = null;
+
+        if (!string.IsNullOrEmpty(headCallName))
+        {
+            // HeadCallName으로 InTag 주소 찾기
+            var allPairs = CallMapper.GetAllCallTagPairs();
+            var match = allPairs.FirstOrDefault(p =>
+                p.FlowName == _selectedFlowName && p.CallName == headCallName);
+            if (match != default)
+                inTagAddress = match.InTag;
+        }
+
+        // FlowMetrics에서 못 찾으면 CycleAnalysisService 폴백
+        List<DateTime> edges;
+        if (!string.IsNullOrEmpty(inTagAddress))
+        {
+            edges = await PlcRepository.FindRisingEdgesAsync(inTagAddress, _chartStartTime, _chartEndTime);
+        }
+        else
+        {
+            edges = await CycleAnalysis.GetCycleBoundaryTimesAsync(
+                _selectedFlowName, _chartStartTime, _chartEndTime);
+        }
+
+        if (edges.Count == 0) return;
+
+        var sorted = edges.OrderBy(t => t).ToList();
+
+        // 인접 edge 사이 idle 구간
+        for (int i = 0; i < sorted.Count - 1; i++)
+        {
+            var cycleStart = sorted[i];
+            var cycleEnd = sorted[i + 1];
+            if ((cycleEnd - cycleStart).TotalMilliseconds > maxCT)
+            {
+                _idleRegions.Add((cycleStart, cycleEnd));
+            }
+        }
+
+        // 마지막 edge ~ 차트 끝: 사이클 시작 후 다음 사이클이 없는 경우
+        var lastEdge = sorted[^1];
+        if ((_chartEndTime - lastEdge).TotalMilliseconds > maxCT)
+        {
+            _idleRegions.Add((lastEdge, _chartEndTime));
+        }
+
+        // 차트 시작 ~ 첫 edge: 이전 사이클이 오래 전에 시작된 경우
+        var firstEdge = sorted[0];
+        if ((firstEdge - _chartStartTime).TotalMilliseconds > maxCT)
+        {
+            _idleRegions.Add((_chartStartTime, firstEdge));
+        }
     }
 
     private async Task ExportCsv()
@@ -1097,6 +1197,38 @@
         builder.CloseElement();
 
         builder.CloseElement();
+
+        // Idle cycle region overlays (최상위에 렌더링하여 모든 bar 위에 표시)
+        foreach (var (idleStart, idleEnd) in _idleRegions)
+        {
+            var idleX = leftMargin + Math.Max(0, (idleStart - chartStartTime).TotalMilliseconds * xScale);
+            var idleW = (idleEnd - idleStart).TotalMilliseconds * xScale;
+            // Clamp to plot area
+            if (idleX + idleW < leftMargin || idleX > leftMargin + plotWidth) continue;
+            if (idleX < leftMargin) { idleW -= (leftMargin - idleX); idleX = leftMargin; }
+            if (idleX + idleW > leftMargin + plotWidth) idleW = leftMargin + plotWidth - idleX;
+
+            builder.OpenElement(0, "rect");
+            builder.AddAttribute(1, "class", "gantt-idle-region");
+            builder.AddAttribute(2, "x", idleX);
+            builder.AddAttribute(3, "y", topMargin);
+            builder.AddAttribute(4, "width", idleW);
+            builder.AddAttribute(5, "height", data.TotalLanes * laneHeight);
+            builder.CloseElement();
+
+            // Idle 라벨 표시 (충분한 너비가 있을 때만)
+            if (idleW > 30)
+            {
+                builder.OpenElement(0, "text");
+                builder.AddAttribute(1, "class", "gantt-idle-label");
+                builder.AddAttribute(2, "x", idleX + idleW / 2);
+                builder.AddAttribute(3, "y", topMargin + 16);
+                builder.AddAttribute(4, "text-anchor", "middle");
+                builder.AddAttribute(5, "dominant-baseline", "middle");
+                builder.AddContent(6, "Idle");
+                builder.CloseElement();
+            }
+        }
 
         builder.CloseElement(); // svg
     };

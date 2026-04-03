@@ -327,37 +327,55 @@ public class FlowMetricsService : IFlowMetricsService
     {
         try
         {
-            // 평균값 계산 (누적 평균)
-            state.CycleCount++;
-            state.SumMT += mt;
-            state.SumWT += wt;
-            state.SumCT += ct;
+            // idle 판정: CT가 MaxCycleTimeMs 초과이면 유휴 사이클
+            var settings = _appSettingsService.LoadSettings();
+            var maxCT = settings.HistoryView.MaxCycleTimeMs;
+            bool isIdle = maxCT > 0 && ct > maxCT;
 
-            double avgMT = state.SumMT / state.CycleCount;
-            double avgWT = state.SumWT / state.CycleCount;
-            double avgCT = state.SumCT / state.CycleCount;
+            if (!isIdle)
+            {
+                // 평균값 계산 (누적 평균) — idle 사이클은 평균에서 제외
+                state.CycleCount++;
+                state.SumMT += mt;
+                state.SumWT += wt;
+                state.SumCT += ct;
 
-            // FlowName.CallName 형식으로 고유하게 저장
-            var movingStartName = state.HeadCallName != null
-                ? $"{flowName}.{state.HeadCallName}"
-                : null;
-            var movingEndName = state.TailCallName != null
-                ? $"{flowName}.{state.TailCallName}"
-                : null;
+                double avgMT = state.SumMT / state.CycleCount;
+                double avgWT = state.SumWT / state.CycleCount;
+                double avgCT = state.SumCT / state.CycleCount;
 
-            // 1. Flow 테이블 업데이트 (현재값 + 평균값)
-            await _dspRepository.UpdateFlowWithAveragesAsync(
-                flowName,
-                mt: mt,
-                wt: wt,
-                ct: ct,
-                avgMT: avgMT,
-                avgWT: avgWT,
-                avgCT: avgCT,
-                movingStartName: movingStartName,
-                movingEndName: movingEndName);
+                // FlowName.CallName 형식으로 고유하게 저장
+                var movingStartName = state.HeadCallName != null
+                    ? $"{flowName}.{state.HeadCallName}"
+                    : null;
+                var movingEndName = state.TailCallName != null
+                    ? $"{flowName}.{state.TailCallName}"
+                    : null;
 
-            // 2. History 테이블 삽입
+                // 1. Flow 테이블 업데이트 (현재값 + 평균값)
+                await _dspRepository.UpdateFlowWithAveragesAsync(
+                    flowName,
+                    mt: mt,
+                    wt: wt,
+                    ct: ct,
+                    avgMT: avgMT,
+                    avgWT: avgWT,
+                    avgCT: avgCT,
+                    movingStartName: movingStartName,
+                    movingEndName: movingEndName);
+
+                _logger.LogInformation(
+                    "Flow '{FlowName}' Cycle #{CycleNo}: MT={MT}ms, WT={WT}ms, CT={CT}ms | Avg: MT={AvgMT:F0}ms, WT={AvgWT:F0}ms, CT={AvgCT:F0}ms",
+                    flowName, state.CycleCount, mt, wt, ct, avgMT, avgWT, avgCT);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Flow '{FlowName}' IDLE cycle skipped: CT={CT}ms > MaxCycleTimeMs={MaxCT}ms",
+                    flowName, ct, maxCT);
+            }
+
+            // 2. History 테이블 삽입 (idle 포함, IsIdle 플래그와 함께)
             var history = new Models.Dsp.DspFlowHistoryEntity
             {
                 FlowName = flowName,
@@ -365,14 +383,11 @@ public class FlowMetricsService : IFlowMetricsService
                 WT = wt,
                 CT = ct,
                 CycleNo = state.CycleCount,
-                RecordedAt = DateTime.UtcNow
+                RecordedAt = DateTime.UtcNow,
+                IsIdle = isIdle
             };
 
             await _dspRepository.InsertFlowHistoryAsync(history);
-
-            _logger.LogInformation(
-                "Flow '{FlowName}' Cycle #{CycleNo}: MT={MT}ms, WT={WT}ms, CT={CT}ms | Avg: MT={AvgMT:F0}ms, WT={AvgWT:F0}ms, CT={AvgCT:F0}ms",
-                flowName, state.CycleCount, mt, wt, ct, avgMT, avgWT, avgCT);
         }
         catch (Exception ex)
         {

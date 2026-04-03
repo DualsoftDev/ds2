@@ -36,7 +36,8 @@ type DapperFlowHistoryDto =
       WT: Nullable<int>
       CT: Nullable<int>
       CycleNo: Nullable<int>
-      RecordedAt: DateTime }
+      RecordedAt: DateTime
+      IsIdle: bool }
 
     static member FromEntity(entity: DspFlowHistoryEntity) =
         { FlowName = entity.FlowName
@@ -44,7 +45,8 @@ type DapperFlowHistoryDto =
           WT = match entity.WT with Some v -> Nullable v | None -> Nullable()
           CT = match entity.CT with Some v -> Nullable v | None -> Nullable()
           CycleNo = match entity.CycleNo with Some v -> Nullable v | None -> Nullable()
-          RecordedAt = entity.RecordedAt }
+          RecordedAt = entity.RecordedAt
+          IsIdle = entity.IsIdle }
 
 /// Dapper Call DTO (converts Option types to Nullable)
 [<CLIMutable>]

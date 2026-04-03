@@ -32,6 +32,26 @@ module DspRepository =
             return count > 0L
         }
 
+    /// 컬럼 존재 여부 확인
+    let private columnExistsAsync (connection: SqliteConnection) (tableName: string) (columnName: string) =
+        task {
+            let sql = sprintf "PRAGMA table_info(%s)" tableName
+            let! columns = connection.QueryAsync<{| name: string |}>(sql)
+            return columns |> Seq.exists (fun c -> c.name = columnName)
+        }
+
+    /// IsIdle 컬럼 자동 마이그레이션 (dspFlowHistory)
+    let private ensureIsIdleColumnAsync (connection: SqliteConnection) (logger: ILogger) =
+        task {
+            let! exists = columnExistsAsync connection "dspFlowHistory" "IsIdle"
+            if not exists then
+                try
+                    let! _ = connection.ExecuteAsync("ALTER TABLE dspFlowHistory ADD COLUMN IsIdle INTEGER NOT NULL DEFAULT 0")
+                    logger.LogInformation("Added IsIdle column to dspFlowHistory table")
+                with ex ->
+                    logger.LogWarning(ex, "Failed to add IsIdle column (may already exist)")
+        }
+
     // ===== Public API =====
 
     /// Unified 모드 전용: 스키마 생성은 Ev2Bootstrap이 담당
@@ -475,10 +495,13 @@ module DspRepository =
                 logger.LogWarning("dspFlowHistory table does not exist yet")
                 return 0
             else
+                // IsIdle 컬럼 자동 마이그레이션
+                do! ensureIsIdleColumnAsync connection logger
+
                 try
                     let sql = sprintf """
-                        INSERT INTO %s (FlowName, MT, WT, CT, CycleNo, RecordedAt)
-                        VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt)""" historyTable
+                        INSERT INTO %s (FlowName, MT, WT, CT, CycleNo, RecordedAt, IsIdle)
+                        VALUES (@FlowName, @MT, @WT, @CT, @CycleNo, @RecordedAt, @IsIdle)""" historyTable
 
                     let dto = DapperFlowHistoryDto.FromEntity(history)
                     let! result = connection.ExecuteAsync(sql, dto)
@@ -507,7 +530,7 @@ module DspRepository =
             else
                 try
                     let sql = sprintf """
-                        SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt
+                        SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle
                         FROM %s
                         WHERE FlowName = @FlowName
                         ORDER BY RecordedAt DESC
@@ -534,7 +557,7 @@ module DspRepository =
             else
                 try
                     let sql = sprintf """
-                        SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt
+                        SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle
                         FROM %s
                         WHERE FlowName = @FlowName
                           AND RecordedAt >= @SinceDate
@@ -562,7 +585,7 @@ module DspRepository =
             else
                 try
                     let sql = sprintf """
-                        SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt
+                        SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle
                         FROM %s
                         WHERE FlowName = @FlowName
                           AND RecordedAt >= @SinceDate

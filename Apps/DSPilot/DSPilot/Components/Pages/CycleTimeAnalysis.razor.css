@@ -77,6 +77,18 @@
     flex: 1;
 }
 
+.time-preset-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.time-preset-buttons .btn-sm {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+}
+
 /* Gantt Info Bar */
 .gantt-info-bar {
     background: linear-gradient(135deg, var(--gantt-info-from) 0%, var(--gantt-info-to) 100%);
@@ -138,6 +150,25 @@
 .gantt-info-hint {
     font-size: 11px;
     color: rgba(255, 255, 255, 0.5);
+}
+
+.gantt-idle-legend {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 13px;
+    color: white;
+    opacity: 0.9;
+}
+
+.gantt-idle-swatch {
+    display: inline-block;
+    width: 16px;
+    height: 12px;
+    background: #9e9e9e;
+    opacity: 0.5;
+    border-radius: 2px;
+    border: 1px solid rgba(255, 255, 255, 0.4);
 }
 
 .gantt-info-export {
@@ -484,6 +515,20 @@
    ============================================= */
 ::deep .gantt-bg {
     fill: var(--gantt-bg);
+}
+
+::deep .gantt-idle-region {
+    fill: #9e9e9e;
+    opacity: 0.25;
+    pointer-events: none;
+}
+
+::deep .gantt-idle-label {
+    fill: #666;
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.7;
+    pointer-events: none;
 }
 
 ::deep .gantt-lane-even {

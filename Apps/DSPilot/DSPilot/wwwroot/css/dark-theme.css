@@ -683,6 +683,14 @@
 .dark-theme .gantt-bg {
     fill: #1E1E1E;
 }
+.dark-theme .gantt-idle-region {
+    fill: #ffffff;
+    opacity: 0.12;
+}
+.dark-theme .gantt-idle-label {
+    fill: #aaa;
+    opacity: 0.6;
+}
 .dark-theme .gantt-lane-even {
     fill: #232323;
     stroke: rgba(255, 255, 255, 0.06);

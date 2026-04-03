@@ -164,6 +164,18 @@ public class HistoryViewSettings
     /// </summary>
     public DateTime? StartTime { get; set; }
 
+    /// <summary>
+    /// 사이클 시간 제한(ms). CT가 이 값 초과 시 유휴 사이클로 판정. 0이면 비활성.
+    /// 가장 긴 Flow의 평균 CT + 여유시간으로 설정 권장.
+    /// </summary>
+    public int MaxCycleTimeMs { get; set; } = 0;
+
+    /// <summary>
+    /// 개별 Call 최대 실행시간(ms). GoingTime이 이 값 초과 시 동작편차 통계에서 제외.
+    /// 기본 30000 (30초).
+    /// </summary>
+    public int MaxCallGoingTimeMs { get; set; } = 30000;
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
