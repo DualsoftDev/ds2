@@ -10,6 +10,7 @@ open Ds2.Store.DsQuery
 type DsStorePanelConditionExtensions =
     [<Extension>]
     static member GetCallConditionsForPanel(store: DsStore, callId: Guid) : CallConditionPanelItem list =
+        let resolvedId = Queries.resolveOriginalCallId callId store
         let rec toPanel (cond: CallCondition) : CallConditionPanelItem =
             let items = cond.Conditions |> Seq.map (DirectPanelOps.toConditionApiCallItem store) |> Seq.toList
             let children = cond.Children |> Seq.map toPanel |> Seq.toList
@@ -17,11 +18,12 @@ type DsStorePanelConditionExtensions =
                 cond.Id,
                 (cond.Type |> Option.defaultValue CallConditionType.AutoAux),
                 cond.IsOR, cond.IsRising, items, children)
-        DirectPanelOps.withCallOrEmpty store callId (fun call ->
+        DirectPanelOps.withCallOrEmpty store resolvedId (fun call ->
             call.CallConditions |> Seq.map toPanel |> Seq.toList)
 
     [<Extension>]
     static member AddCallCondition(store: DsStore, callId: Guid, condType: CallConditionType) =
+        Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, condType={condType}")
         StoreLog.requireCall(store, callId) |> ignore
         let cond = CallCondition(Type = Some condType)
@@ -30,6 +32,7 @@ type DsStorePanelConditionExtensions =
     /// 단일 트랜잭션: 조건 생성 + ApiCall 추가 (드래그&드롭용)
     [<Extension>]
     static member AddConditionWithApiCalls(store: DsStore, callId: Guid, condType: CallConditionType, sourceApiCallIds: Guid seq) : Guid =
+        Queries.requireNonReferenceCall callId store
         let sources = sourceApiCallIds |> Seq.choose (fun id -> Queries.getApiCall id store) |> Seq.toList
         StoreLog.debug($"callId={callId}, condType={condType}, count={sources.Length}")
         StoreLog.requireCall(store, callId) |> ignore
@@ -44,6 +47,7 @@ type DsStorePanelConditionExtensions =
 
     [<Extension>]
     static member RemoveCallCondition(store: DsStore, callId: Guid, conditionId: Guid) =
+        Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, conditionId={conditionId}")
         StoreLog.requireCallCondition(store, callId, conditionId) |> ignore
         let rec removeRec (list: ResizeArray<CallCondition>) =
@@ -54,6 +58,7 @@ type DsStorePanelConditionExtensions =
     /// 기존 조건 안에 하위 조건 추가
     [<Extension>]
     static member AddChildCondition(store: DsStore, callId: Guid, parentCondId: Guid, isOR: bool) =
+        Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, parentCondId={parentCondId}, isOR={isOR}")
         StoreLog.requireCallCondition(store, callId, parentCondId) |> ignore
         let child = CallCondition(IsOR = isOR)
@@ -63,6 +68,7 @@ type DsStorePanelConditionExtensions =
 
     [<Extension>]
     static member UpdateCallConditionSettings(store: DsStore, callId: Guid, condId: Guid, isOR: bool, isRising: bool) : bool =
+        Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, condId={condId}, isOR={isOR}, isRising={isRising}")
         let cond = StoreLog.requireCallCondition(store, callId, condId)
         if cond.IsOR <> isOR || cond.IsRising <> isRising then
@@ -74,6 +80,7 @@ type DsStorePanelConditionExtensions =
 
     [<Extension>]
     static member AddApiCallsToConditionBatch(store: DsStore, callId: Guid, condId: Guid, sourceApiCallIds: Guid seq) : int =
+        Queries.requireNonReferenceCall callId store
         let sources = sourceApiCallIds |> Seq.choose (fun id -> Queries.getApiCall id store) |> Seq.toList
         if sources.IsEmpty then 0
         else
@@ -89,6 +96,7 @@ type DsStorePanelConditionExtensions =
 
     [<Extension>]
     static member RemoveApiCallFromCondition(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid) =
+        Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, condId={condId}, apiCallId={apiCallId}")
         let cond = StoreLog.requireCallCondition(store, callId, condId)
         StoreLog.requireApiCallInCondition(cond, apiCallId) |> ignore
@@ -112,6 +120,7 @@ type DsStorePanelConditionExtensions =
 
     [<Extension>]
     static member UpdateConditionApiCallOutputSpec(store: DsStore, callId: Guid, condId: Guid, apiCallId: Guid, outTypeIndex: int, outText: string) : bool =
+        Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, condId={condId}, apiCallId={apiCallId}")
         let cond = StoreLog.requireCallCondition(store, callId, condId)
         let ac = StoreLog.requireApiCallInCondition(cond, apiCallId)

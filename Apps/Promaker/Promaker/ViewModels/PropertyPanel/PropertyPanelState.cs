@@ -131,12 +131,13 @@ public partial class PropertyPanelState : ObservableObject
         IsWorkSelected = uniformKind == EntityKind.Work;
         IsCallSelected = uniformKind == EntityKind.Call;
         IsSystemSelected = IsSingleSelection && uniformKind == EntityKind.System;
-        ShowNameEditor = IsSingleSelection && selected is not null;
+        ShowNameEditor = IsSingleSelection && selected is not null && selected.IsReference == false;
         OnPropertyChanged(nameof(ShowDebugSelectionDetails));
 
         SelectionTypeText = selectedKeys.Count switch
         {
             0 => "선택 없음",
+            1 when selected?.IsReference == true => $"Type: {selected.EntityType} (Reference)",
             1 => $"Type: {selected?.EntityType}",
             _ when uniformKind is { } kind => $"Type: {kind} ({selectedKeys.Count} selected)",
             _ => $"Type: Mixed ({selectedKeys.Count} selected)"
@@ -434,7 +435,7 @@ public partial class PropertyPanelState : ObservableObject
     private IReadOnlyList<Guid> GetSelectedCallIds() =>
         _selectedNodeKeys
             .Where(key => key.EntityKind == EntityKind.Call)
-            .Select(key => key.Id)
+            .Select(key => Queries.resolveOriginalCallId(key.Id, Store))
             .Distinct()
             .ToList();
 

@@ -65,6 +65,8 @@ type Call [<JsonConstructor>] internal (devicesAlias: string, apiName: string, p
     member val Position       : Xywh option = None           with get, set
     member val ApiCalls       = ResizeArray<ApiCall>()       with get, set
     member val CallConditions = ResizeArray<CallCondition>() with get, set
+    /// None=원본 Call, Some guid=참조 대상 원본 Call의 ID
+    member val ReferenceOf : Guid option = None with get, set
     /// 저장된 Device 별칭 — '.'을 포함할 수 없음
     member val DevicesAlias   = devicesAlias with get, set
     /// 저장된 ApiDef 이름 — Rename 대상이 아님, ApiDef에 연동

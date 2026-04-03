@@ -50,7 +50,12 @@ module internal CascadeRemove =
                     if inPassive then proj.PassiveSystemIds.Remove(systemId) |> ignore)
         store.TrackRemove(store.Systems, systemId)
 
-    let cascadeRemoveCall (store: DsStore) (callId: Guid) =
+    let rec cascadeRemoveCall (store: DsStore) (callId: Guid) =
+        // 원본 Call 삭제 시 → 이 Call을 참조하는 모든 reference Call도 삭제
+        store.CallsReadOnly.Values
+        |> Seq.filter (fun c -> c.ReferenceOf = Some callId)
+        |> Seq.toList
+        |> List.iter (fun refC -> cascadeRemoveCall store refC.Id)
         arrowCallsFor store (Set.singleton callId)
         |> List.iter (fun a -> store.TrackRemove(store.ArrowCalls, a.Id))
         store.TrackRemove(store.Calls, callId)

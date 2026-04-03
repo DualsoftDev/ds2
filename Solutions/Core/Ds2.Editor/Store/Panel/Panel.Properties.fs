@@ -31,6 +31,7 @@ type DsStorePanelPropertiesExtensions =
     [<Extension>]
     static member UpdateApiCallIoTags(store: DsStore, callId: Guid, apiCallId: Guid,
                                       outTag: IOTag, inTag: IOTag) : bool =
+        Queries.requireNonReferenceCall callId store
         StoreLog.debug($"UpdateApiCallIoTags callId={callId}, apiCallId={apiCallId}")
         DirectPanelOps.mutateCallProps store callId "IO 태그 업데이트" (fun call ->
             let targetApiCall =

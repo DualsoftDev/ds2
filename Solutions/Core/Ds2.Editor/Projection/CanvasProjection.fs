@@ -87,7 +87,7 @@ let canvasContentForWorkCalls (store: DsStore) (workId: Guid) : CanvasContent =
 
         let nodes =
             calls
-            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position (CallConditionQueries.conditionTypes c) false false None)
+            |> List.map (fun c -> nodeFromPosition c.Id EntityKind.Call c.Name c.ParentId c.Position (CallConditionQueries.conditionTypes c) false c.ReferenceOf.IsSome c.ReferenceOf)
 
         let arrows =
             Queries.arrowCallsOf workId store

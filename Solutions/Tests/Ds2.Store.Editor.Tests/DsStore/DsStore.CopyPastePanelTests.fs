@@ -10,11 +10,16 @@ open Ds2.Store.Editor.Tests.TestHelpers
 
 module PasteTests =
 
+    let private unwrapOk (result: PasteResult) =
+        match result with
+        | PasteResult.Ok ids -> ids
+        | PasteResult.Blocked reason -> failwith $"Expected Ok but got Blocked({reason})"
+
     [<Fact>]
     let ``PasteEntities copies flow and returns new flow id`` () =
         let store = createStore ()
         let _, system, flow, _ = setupBasicHierarchy store
-        let pastedIds = store.PasteEntities(EntityKind.Flow, [ flow.Id ], EntityKind.System, system.Id, 0)
+        let pastedIds = store.PasteEntities(EntityKind.Flow, [ flow.Id ], EntityKind.System, system.Id, 0) |> unwrapOk
         Assert.Equal(1, pastedIds.Length)
         Assert.NotEqual(flow.Id, pastedIds.Head)
         Assert.Equal(2, Queries.flowsOf system.Id store |> List.length)
@@ -23,7 +28,7 @@ module PasteTests =
     let ``PasteEntities copies works and returns new work ids`` () =
         let store = createStore ()
         let _, _, flow, work = setupBasicHierarchy store
-        let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id, 0)
+        let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id, 0) |> unwrapOk
         Assert.Equal(1, pastedIds.Length)
         Assert.NotEqual(work.Id, pastedIds.Head)
         Assert.Equal(2, Queries.worksOf flow.Id store |> List.length)
@@ -35,7 +40,7 @@ module PasteTests =
         work.TokenRole <- TokenRole.Source
         work.Properties.Duration <- Some (TimeSpan.FromSeconds 5.0)
         work.Properties.NumRepeat <- 3
-        let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id, 0)
+        let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id, 0) |> unwrapOk
         let pastedWork = Queries.getWork pastedIds.Head store |> Option.get
         Assert.Equal(TokenRole.Source, pastedWork.TokenRole)
         Assert.Equal(Some (TimeSpan.FromSeconds 5.0), pastedWork.Properties.Duration)
@@ -45,30 +50,23 @@ module PasteTests =
     let ``PasteEntities copies call with multiple device ApiCalls across flows`` () =
         let store = createStore ()
         let project, system, _, work = setupBasicHierarchy store
-        // ApiCall 복제 모드: 1 Call + 3 ApiCalls pointing to 3 different Device Systems
         let callId = store.AddCallWithMultipleDevicesResolved(
                         EntityKind.Work, work.Id, work.Id,
                         "Conv", "ADV", [ "Conv_1"; "Conv_2"; "Conv_3" ], None)
         let originalCall = store.Calls.[callId]
         Assert.Equal(3, originalCall.ApiCalls.Count)
-        // 다른 Flow 생성
         let flow2Id = store.AddFlow("Flow2", system.Id)
         let work2Id = store.AddWork("Work2", flow2Id)
-        // Call을 다른 Flow의 Work로 복사
-        let pastedIds = store.PasteEntities(EntityKind.Call, [ callId ], EntityKind.Work, work2Id, 0)
+        let pastedIds = store.PasteEntities(EntityKind.Call, [ callId ], EntityKind.Work, work2Id, 0) |> unwrapOk
         Assert.Equal(1, pastedIds.Length)
         let pastedCall = store.Calls.[pastedIds.Head]
-        // 복사된 Call에 3개 ApiCall이 있어야 함
         Assert.Equal(3, pastedCall.ApiCalls.Count)
-        // 각 ApiCall이 서로 다른 ApiDef를 가리켜야 함 (원본과 다른 ID)
         let pastedApiDefIds =
             pastedCall.ApiCalls
             |> Seq.choose (fun ac -> ac.ApiDefId)
             |> Seq.distinct |> Seq.toList
         Assert.Equal(3, pastedApiDefIds.Length)
-        // 새 Device System이 Flow2 기준으로 생성되어야 함
         let passiveSystems = Queries.passiveSystemsOf project.Id store
-        // 원본 3 + 복사본 3 = 6 Device Systems
         Assert.True(passiveSystems.Length >= 6)
 
     [<Fact>]
@@ -79,23 +77,19 @@ module PasteTests =
                         EntityKind.Work, work.Id, work.Id,
                         "Conv", "ADV", [ "Conv_1" ], None)
         let originalCall = store.Calls.[callId]
-        // 원본 Device System의 Work에 Period 설정
         let srcApiCall = originalCall.ApiCalls.[0]
         let srcApiDef = Queries.getApiDef (srcApiCall.ApiDefId.Value) store |> Option.get
         let srcWork = Queries.getWork (srcApiDef.Properties.TxGuid.Value) store |> Option.get
         srcWork.Properties.Duration <- Some (TimeSpan.FromSeconds 3.5)
-        // 다른 Flow 생성 후 Cross-flow paste
         let flow2Id = store.AddFlow("Flow2", system.Id)
         let work2Id = store.AddWork("Work2", flow2Id)
-        let pastedIds = store.PasteEntities(EntityKind.Call, [ callId ], EntityKind.Work, work2Id, 0)
+        let pastedIds = store.PasteEntities(EntityKind.Call, [ callId ], EntityKind.Work, work2Id, 0) |> unwrapOk
         let pastedCall = store.Calls.[pastedIds.Head]
         let pastedApiDef = Queries.getApiDef (pastedCall.ApiCalls.[0].ApiDefId.Value) store |> Option.get
-        // TxGuid, RxGuid 모두 설정되어야 함
         Assert.True(pastedApiDef.Properties.TxGuid.IsSome)
         Assert.True(pastedApiDef.Properties.RxGuid.IsSome)
         let pastedWork = Queries.getWork (pastedApiDef.Properties.RxGuid.Value) store |> Option.get
         Assert.Equal(Some (TimeSpan.FromSeconds 3.5), pastedWork.Properties.Duration)
-        // tryGetDeviceDurationMs 경로 검증 (시뮬레이션에서 사용하는 경로)
         let deviceDuration = Queries.tryGetDeviceDurationMs work2Id store
         Assert.Equal(Some 3500, deviceDuration)
 
@@ -105,71 +99,79 @@ module PasteTests =
         let _, _, flow, workA = setupBasicHierarchy store
         let workB = addWork store "WorkB" flow.Id
         let workC = addWork store "WorkC" flow.Id
-
         workA.Position <- Some (Xywh(220, 20, 100, 40))
         workB.Position <- Some (Xywh(20, 120, 100, 40))
         workC.Position <- Some (Xywh(20, 20, 100, 40))
-
         let copiedIds = [ workB.Id; workA.Id; workC.Id ]
-        let pastedIds = store.PasteEntities(EntityKind.Work, copiedIds, EntityKind.Flow, flow.Id, 0)
-
+        let pastedIds = store.PasteEntities(EntityKind.Work, copiedIds, EntityKind.Flow, flow.Id, 0) |> unwrapOk
         let pastedPositions =
-            pastedIds
-            |> List.map (fun id -> Queries.getWork id store |> Option.get)
+            pastedIds |> List.map (fun id -> Queries.getWork id store |> Option.get)
             |> List.map (fun work -> work.Position |> Option.get)
-
         let expectedPositions =
             [ workC.Position; workA.Position; workB.Position ]
             |> List.map Option.get
             |> List.map (fun pos -> Xywh(pos.X + 30, pos.Y + 30, pos.W, pos.H))
-
         Assert.Equal(3, pastedIds.Length)
-        Assert.Equal<int list>(
-            expectedPositions |> List.map (fun pos -> pos.X),
-            pastedPositions |> List.map (fun pos -> pos.X))
-        Assert.Equal<int list>(
-            expectedPositions |> List.map (fun pos -> pos.Y),
-            pastedPositions |> List.map (fun pos -> pos.Y))
+        Assert.Equal<int list>(expectedPositions |> List.map (fun p -> p.X), pastedPositions |> List.map (fun p -> p.X))
+        Assert.Equal<int list>(expectedPositions |> List.map (fun p -> p.Y), pastedPositions |> List.map (fun p -> p.Y))
 
     [<Fact>]
     let ``PasteEntities keeps multiple Call order and relative positions`` () =
         let store = createStore ()
         let project, _, flow, work = setupBasicHierarchy store
         let targetWork = addWork store "TargetWork" flow.Id
-
         store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.ApiA"; "Dev.ApiB"; "Dev.ApiC" ], true, None)
-        let calls =
-            Queries.callsOf work.Id store
-            |> List.sortBy (fun call -> call.Name)
-
-        let callA = calls.[0]
-        let callB = calls.[1]
-        let callC = calls.[2]
-
+        let calls = Queries.callsOf work.Id store |> List.sortBy (fun c -> c.Name)
+        let callA, callB, callC = calls.[0], calls.[1], calls.[2]
         callA.Position <- Some (Xywh(220, 10, 120, 40))
         callB.Position <- Some (Xywh(20, 110, 120, 40))
         callC.Position <- Some (Xywh(20, 10, 120, 40))
-
         let copiedIds = [ callB.Id; callA.Id; callC.Id ]
-        let pastedIds = store.PasteEntities(EntityKind.Call, copiedIds, EntityKind.Work, targetWork.Id, 0)
-
+        let pastedIds = store.PasteEntities(EntityKind.Call, copiedIds, EntityKind.Work, targetWork.Id, 0) |> unwrapOk
         let pastedPositions =
-            pastedIds
-            |> List.map (fun id -> Queries.getCall id store |> Option.get)
+            pastedIds |> List.map (fun id -> Queries.getCall id store |> Option.get)
             |> List.map (fun call -> call.Position |> Option.get)
-
         let expectedPositions =
             [ callC.Position; callA.Position; callB.Position ]
             |> List.map Option.get
             |> List.map (fun pos -> Xywh(pos.X + 30, pos.Y + 30, pos.W, pos.H))
-
         Assert.Equal(3, pastedIds.Length)
-        Assert.Equal<int list>(
-            expectedPositions |> List.map (fun pos -> pos.X),
-            pastedPositions |> List.map (fun pos -> pos.X))
-        Assert.Equal<int list>(
-            expectedPositions |> List.map (fun pos -> pos.Y),
-            pastedPositions |> List.map (fun pos -> pos.Y))
+        Assert.Equal<int list>(expectedPositions |> List.map (fun p -> p.X), pastedPositions |> List.map (fun p -> p.X))
+        Assert.Equal<int list>(expectedPositions |> List.map (fun p -> p.Y), pastedPositions |> List.map (fun p -> p.Y))
+
+    [<Fact>]
+    let ``PasteEntities blocks same-Work Call paste`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+        let callId = Queries.callsOf work.Id store |> List.head |> fun c -> c.Id
+        let result = store.PasteEntities(EntityKind.Call, [ callId ], EntityKind.Work, work.Id, 0)
+        match result with
+        | PasteResult.Blocked r -> Assert.True(r.IsSameWorkPaste)
+        | _ -> Assert.Fail("Expected Blocked(SameWorkPaste)")
+
+    [<Fact>]
+    let ``PasteEntities blocks Call paste to different Work with same name`` () =
+        let store = createStore ()
+        let project, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api" ], true, None)
+        store.AddCallsWithDevice(project.Id, work2.Id, [ "Dev.Api" ], true, None)
+        let call1 = Queries.callsOf work1.Id store |> List.head
+        let result = store.PasteEntities(EntityKind.Call, [ call1.Id ], EntityKind.Work, work2.Id, 0)
+        match result with
+        | PasteResult.Blocked r -> Assert.True(r.IsDuplicateCallInWork)
+        | _ -> Assert.Fail("Expected Blocked(DuplicateCallInWork)")
+
+    [<Fact>]
+    let ``PasteEntities allows Call paste to different Work without same name`` () =
+        let store = createStore ()
+        let project, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api" ], true, None)
+        let callId = Queries.callsOf work1.Id store |> List.head |> fun c -> c.Id
+        let result = store.PasteEntities(EntityKind.Call, [ callId ], EntityKind.Work, work2.Id, 0) |> unwrapOk
+        Assert.Equal(1, result.Length)
 
     [<Fact>]
     let ``ValidateCopySelection returns Ok for single copyable entity`` () =

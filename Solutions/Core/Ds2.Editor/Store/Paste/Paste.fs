@@ -42,16 +42,50 @@ type DsStorePasteExtensions =
     [<Extension>]
     static member PasteEntities
         (store: DsStore, copiedEntityKind: EntityKind, copiedEntityIds: seq<Guid>,
-         targetEntityKind: EntityKind, targetEntityId: Guid, pasteIndex: int) : Guid list =
+         targetEntityKind: EntityKind, targetEntityId: Guid, pasteIndex: int) : PasteResult =
         let ids = copiedEntityIds |> Seq.distinct |> Seq.toList
-        if not (PasteResolvers.isCopyableEntityKind copiedEntityKind) || ids.IsEmpty then []
+        if not (PasteResolvers.isCopyableEntityKind copiedEntityKind) || ids.IsEmpty then PasteResult.Ok []
         else
-            StoreLog.debug($"kind={copiedEntityKind}, count={ids.Length}, targetKind={targetEntityKind}, targetId={targetEntityId}")
-            let mutable pastedIds = []
-            store.WithTransaction($"Paste {copiedEntityKind}s", fun () ->
-                pastedIds <- DirectPasteOps.dispatchPaste store copiedEntityKind ids targetEntityKind targetEntityId pasteIndex)
-            if not pastedIds.IsEmpty then store.EmitRefreshAndHistory()
-            pastedIds
+            // Call 붙여넣기 사전 검증 (참조 Call은 원본으로 resolve)
+            if copiedEntityKind = EntityKind.Call then
+                let resolvedIds = ids |> List.map (fun id -> Queries.resolveOriginalCallId id store) |> List.distinct
+                let targetWorkIdOpt =
+                    StoreHierarchyQueries.resolveTarget store EntityKind.Work targetEntityKind targetEntityId
+                match targetWorkIdOpt with
+                | Some targetWorkId ->
+                    let anyFromSameWork =
+                        resolvedIds |> List.exists (fun id ->
+                            match Queries.getCall id store with
+                            | Some call -> call.ParentId = targetWorkId
+                            | None -> false)
+                    if anyFromSameWork then PasteResult.Blocked PasteValidationResult.SameWorkPaste
+                    else
+                        let existingNames =
+                            Queries.originalCallsOf targetWorkId store
+                            |> List.map (fun c -> c.Name)
+                            |> Set.ofList
+                        let hasDuplicate =
+                            resolvedIds |> List.exists (fun id ->
+                                match Queries.getCall id store with
+                                | Some call -> existingNames.Contains(call.Name)
+                                | None -> false)
+                        if hasDuplicate then PasteResult.Blocked PasteValidationResult.DuplicateCallInWork
+                        else
+                            StoreLog.debug($"kind={copiedEntityKind}, count={resolvedIds.Length}, targetKind={targetEntityKind}, targetId={targetEntityId}")
+                            let mutable pastedIds = []
+                            store.WithTransaction($"Paste {copiedEntityKind}s", fun () ->
+                                pastedIds <- DirectPasteOps.dispatchPaste store copiedEntityKind resolvedIds targetEntityKind targetEntityId pasteIndex)
+                            if not pastedIds.IsEmpty then store.EmitRefreshAndHistory()
+                            PasteResult.Ok pastedIds
+                | None ->
+                    PasteResult.Ok []
+            else
+                StoreLog.debug($"kind={copiedEntityKind}, count={ids.Length}, targetKind={targetEntityKind}, targetId={targetEntityId}")
+                let mutable pastedIds = []
+                store.WithTransaction($"Paste {copiedEntityKind}s", fun () ->
+                    pastedIds <- DirectPasteOps.dispatchPaste store copiedEntityKind ids targetEntityKind targetEntityId pasteIndex)
+                if not pastedIds.IsEmpty then store.EmitRefreshAndHistory()
+                PasteResult.Ok pastedIds
 
     [<Extension>]
     static member ValidateCopySelection(store: DsStore, keys: seq<SelectionKey>) : CopyValidationResult =

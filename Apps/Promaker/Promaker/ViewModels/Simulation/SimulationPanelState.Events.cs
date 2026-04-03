@@ -59,12 +59,30 @@ public partial class SimulationPanelState
 
     private void OnCallStateChanged(CallStateChangedArgs args)
     {
-        var suffix = args.IsSkipped ? " (Skip)" : "";
-        ApplyNodeStateChange(args.CallGuid, args.NewState, args.CallName + suffix, EntityKind.Call, GetSystemName(EntityKind.Call, args.CallGuid));
+        ApplyCallStateChangeToReferenceGroup(args);
         SetSimSkipped(args.CallGuid, args.IsSkipped);
 
         _sceneEventHandler?.OnCallStateChanged(args.CallGuid, args.NewState);
         RefreshSimulationProgressUi();
+    }
+
+    private void ApplyCallStateChangeToReferenceGroup(CallStateChangedArgs args)
+    {
+        var suffix = args.IsSkipped ? " (Skip)" : "";
+        var systemName = GetSystemName(EntityKind.Call, args.CallGuid);
+        var groupGuids = Queries.callReferenceGroupOf(args.CallGuid, Store).ToList();
+        if (groupGuids.Count == 0)
+            groupGuids.Add(args.CallGuid);
+
+        foreach (var groupGuid in groupGuids)
+        {
+            _stateCache.Set(groupGuid, args.NewState);
+            UpdateSimNodeState(groupGuid, args.NewState);
+            GanttChart.UpdateNodeState(groupGuid, args.NewState, GanttChart.AdjustedNow);
+        }
+
+        RecordStateChange(args.CallGuid.ToString(), args.CallName + suffix, EntityKind.Call.ToString(), systemName, args.NewState);
+        UpdateSimClock();
     }
 
     private void OnSimStatusChanged(SimulationStatusChangedArgs args)

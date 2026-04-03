@@ -22,8 +22,8 @@ public partial class MainViewModel
         Log.Error($"UI operation failed: {operation}", ex);
         StatusText = statusOverride ?? $"[ERROR] {operation} failed. See log.";
 
-        if (warnDialog)
-            _dialogService.ShowWarning($"{operation} failed: {ex.Message}");
+        if (warnDialog || ex is InvalidOperationException)
+            _dialogService.ShowWarning(ex.Message);
     }
 
     private bool TryEditorAction(

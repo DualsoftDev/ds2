@@ -33,6 +33,18 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     let referenceGroupOf (guid: Guid) =
         SimIndex.referenceGroupOf index guid
 
+    let canonicalCallGuid (guid: Guid) =
+        SimIndex.canonicalCallGuid index guid
+
+    let callReferenceGroupOf (guid: Guid) =
+        SimIndex.callReferenceGroupOf index guid
+
+    let setCallStateForGroup (guid: Guid) (newState: Status4) =
+        let groupGuids = callReferenceGroupOf guid
+        state <-
+            groupGuids
+            |> List.fold (fun acc groupGuid -> SimState.setCallState groupGuid newState acc) state
+
     let setWorkStateForGroup (guid: Guid) (newState: Status4) =
         let groupGuids = referenceGroupOf guid
         state <-
@@ -80,17 +92,21 @@ type StateManager(index: SimIndex, initialTickMs: int) =
             if oldState = actualNewState then
                 { ActualNewState = actualNewState; OldState = oldState; IsSkipped = false; HasChanged = false; NodeName = nodeName; DeviceName = deviceName }
             else
-                state <- SimState.setCallState guid actualNewState state
-                if isSkipped then state <- { state with SkippedCalls = state.SkippedCalls.Add(guid) }
-                elif actualNewState = Status4.Ready then state <- { state with SkippedCalls = state.SkippedCalls.Remove(guid) }
+                setCallStateForGroup guid actualNewState
+                if isSkipped then
+                    for g in callReferenceGroupOf guid do
+                        state <- { state with SkippedCalls = state.SkippedCalls.Add(g) }
+                elif actualNewState = Status4.Ready then
+                    for g in callReferenceGroupOf guid do
+                        state <- { state with SkippedCalls = state.SkippedCalls.Remove(g) }
                 { ActualNewState = actualNewState; OldState = oldState; IsSkipped = isSkipped; HasChanged = true; NodeName = nodeName; DeviceName = deviceName })
 
     member _.MarkWorkPending(guid: Guid)  = lock syncRoot (fun () -> pendingWorkTransitions <- pendingWorkTransitions.Add(canonicalWorkGuid guid))
-    member _.MarkCallPending(guid: Guid)  = lock syncRoot (fun () -> pendingCallTransitions <- pendingCallTransitions.Add(guid))
+    member _.MarkCallPending(guid: Guid)  = lock syncRoot (fun () -> pendingCallTransitions <- pendingCallTransitions.Add(canonicalCallGuid guid))
     member _.ClearWorkPending(guid: Guid) = lock syncRoot (fun () -> pendingWorkTransitions <- pendingWorkTransitions.Remove(canonicalWorkGuid guid))
-    member _.ClearCallPending(guid: Guid) = lock syncRoot (fun () -> pendingCallTransitions <- pendingCallTransitions.Remove(guid))
+    member _.ClearCallPending(guid: Guid) = lock syncRoot (fun () -> pendingCallTransitions <- pendingCallTransitions.Remove(canonicalCallGuid guid))
     member _.IsWorkPending(guid: Guid)    = lock syncRoot (fun () -> pendingWorkTransitions.Contains(canonicalWorkGuid guid))
-    member _.IsCallPending(guid: Guid)    = lock syncRoot (fun () -> pendingCallTransitions.Contains(guid))
+    member _.IsCallPending(guid: Guid)    = lock syncRoot (fun () -> pendingCallTransitions.Contains(canonicalCallGuid guid))
 
     member _.IsResetTriggered(predKey, targetKey) =
         lock syncRoot (fun () ->

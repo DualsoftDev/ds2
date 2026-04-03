@@ -32,6 +32,126 @@ let ``AddFlow rejects duplicate name in same System`` () =
         store.AddFlow("TestFlow", system.Id) |> ignore)
 
 [<Fact>]
+let ``isCallNameUniqueInWork detects duplicate Call name`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    Assert.False(Queries.isCallNameUniqueInWork work.Id "Dev.Api" None store)
+
+[<Fact>]
+let ``isCallNameUniqueInWork allows different Call name`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    Assert.True(Queries.isCallNameUniqueInWork work.Id "Dev.Api2" None store)
+
+[<Fact>]
+let ``AddCallsWithDevice allows duplicate Call name`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let calls = Queries.originalCallsOf work.Id store |> List.filter (fun c -> c.Name = "Dev.Api")
+    Assert.Equal(2, calls.Length)
+
+[<Fact>]
+let ``isCallNameUniqueInWork with excludeId ignores self`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let call = Queries.originalCallsOf work.Id store |> List.head
+    Assert.False(Queries.isCallNameUniqueInWork work.Id "Dev.Api" None store)
+    Assert.True(Queries.isCallNameUniqueInWork work.Id "Dev.Api" (Some call.Id) store)
+
+[<Fact>]
+let ``RenameEntity Call rejects duplicate name in same Work`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev2.Api" ], true, None)
+    let call2 = Queries.originalCallsOf work.Id store |> List.find (fun c -> c.DevicesAlias = "Dev2")
+    Assert.Throws<InvalidOperationException>(fun () ->
+        store.RenameEntity(call2.Id, EntityKind.Call, "Dev"))
+
+[<Fact>]
+let ``AddReferenceCall creates reference with same naming`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let originalCall = Queries.callsOf work.Id store |> List.head
+    let refId = store.AddReferenceCall(originalCall.Id)
+    let refCall = store.Calls.[refId]
+    Assert.Equal(Some originalCall.Id, refCall.ReferenceOf)
+    Assert.Equal("Dev", refCall.DevicesAlias)
+    Assert.Equal("Api", refCall.ApiName)
+    Assert.Equal(work.Id, refCall.ParentId)
+
+[<Fact>]
+let ``Reference Call blocks property mutations`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let originalCall = Queries.callsOf work.Id store |> List.head
+    let refId = store.AddReferenceCall(originalCall.Id)
+    // Timeout 수정 차단
+    Assert.Throws<InvalidOperationException>(fun () ->
+        store.UpdateCallTimeoutMs(refId, Some 1000))
+    // 조건 추가 차단
+    Assert.Throws<InvalidOperationException>(fun () ->
+        store.AddCallCondition(refId, CallConditionType.AutoAux))
+    // Rename 차단
+    Assert.Throws<InvalidOperationException>(fun () ->
+        store.RenameEntity(refId, EntityKind.Call, "NewName"))
+    // 원본은 정상 편집 가능
+    store.UpdateCallTimeoutMs(originalCall.Id, Some 1000)
+
+[<Fact>]
+let ``RemoveEntities cascades to reference Calls`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let originalCall = Queries.callsOf work.Id store |> List.head
+    let refId = store.AddReferenceCall(originalCall.Id)
+    store.RemoveEntities([ (EntityKind.Call, originalCall.Id) ])
+    Assert.False(store.Calls.ContainsKey(refId))
+
+[<Fact>]
+let ``originalCallsOf excludes reference Calls`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let originalCall = Queries.callsOf work.Id store |> List.head
+    store.AddReferenceCall(originalCall.Id) |> ignore
+    let originals = Queries.originalCallsOf work.Id store
+    Assert.Equal(1, originals.Length)
+    let all = Queries.callsOf work.Id store
+    Assert.Equal(2, all.Length)
+
+[<Fact>]
+let ``callReferenceGroupOf returns original plus references`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let originalCall = Queries.callsOf work.Id store |> List.head
+    let refId = store.AddReferenceCall(originalCall.Id)
+    let group = Queries.callReferenceGroupOf originalCall.Id store
+    Assert.Contains(originalCall.Id, group)
+    Assert.Contains(refId, group)
+    Assert.Equal(2, group.Length)
+
+[<Fact>]
+let ``isCallNameUniqueInWork ignores reference Calls`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let originalCall = Queries.callsOf work.Id store |> List.head
+    store.AddReferenceCall(originalCall.Id) |> ignore
+    // 참조 Call이 있어도 원본 1개만 있으므로 같은 이름은 중복
+    Assert.False(Queries.isCallNameUniqueInWork work.Id "Dev.Api" None store)
+    // 다른 이름은 허용
+    Assert.True(Queries.isCallNameUniqueInWork work.Id "Dev.Api2" None store)
+
+[<Fact>]
 let ``RenameEntity Work changes LocalName only`` () =
     let store = createStore()
     let _, _, _, work = setupBasicHierarchy store
@@ -104,6 +224,28 @@ let ``AddReferenceWork creates reference with same naming`` () =
     Assert.Equal("TestFlow", refWork.FlowPrefix)
     Assert.Equal("TestWork", refWork.LocalName)
     Assert.Equal(work.ParentId, refWork.ParentId)
+
+[<Fact>]
+let ``AddReferenceWork from reference resolves to original`` () =
+    let store = createStore()
+    let _, _, _, work = setupBasicHierarchy store
+    let refId = store.AddReferenceWork(work.Id)
+    // Ref에서 또 Ref를 만들면 원본을 직접 가리켜야 함
+    let refOfRefId = store.AddReferenceWork(refId)
+    let refOfRef = store.Works.[refOfRefId]
+    Assert.Equal(Some work.Id, refOfRef.ReferenceOf)
+
+[<Fact>]
+let ``AddReferenceCall from reference resolves to original`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+    let originalCall = Queries.callsOf work.Id store |> List.head
+    let refId = store.AddReferenceCall(originalCall.Id)
+    // Ref에서 또 Ref를 만들면 원본을 직접 가리켜야 함
+    let refOfRefId = store.AddReferenceCall(refId)
+    let refOfRef = store.Calls.[refOfRefId]
+    Assert.Equal(Some originalCall.Id, refOfRef.ReferenceOf)
 
 [<Fact>]
 let ``RemoveEntities cascades to reference Works`` () =
