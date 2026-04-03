@@ -7,4 +7,5 @@ namespace System.Runtime.CompilerServices
 [<assembly: InternalsVisibleTo("Ds2.CSV")>]
 [<assembly: InternalsVisibleTo("Ds2.Mermaid")>]
 [<assembly: InternalsVisibleTo("Ds2.Tutorial")>]
+[<assembly: InternalsVisibleTo("Ds2.JsonFormatter")>]
 do ()

@@ -39,11 +39,20 @@ module AasxImporter =
                     // Nameplate Submodel 파싱
                     env.Submodels
                     |> Seq.tryFind (fun sm -> sm.IdShort = NameplateSubmodelIdShort)
-                    |> Option.iter (fun sm -> project.Nameplate <- submodelToNameplate sm)
+                    |> Option.iter (fun sm ->
+                        let np = submodelToNameplate sm
+                        let isEmpty =
+                            String.IsNullOrEmpty(np.ManufacturerName)
+                            && String.IsNullOrEmpty(np.URIOfTheProduct)
+                            && String.IsNullOrEmpty(np.SerialNumber)
+                            && np.Markings.Count = 0
+                        if not isEmpty then project.Nameplate <- Some np)
                     // Documentation Submodel 파싱
                     env.Submodels
                     |> Seq.tryFind (fun sm -> sm.IdShort = DocumentationSubmodelIdShort)
-                    |> Option.iter (fun sm -> project.HandoverDocumentation <- submodelToDocumentation sm)
+                    |> Option.iter (fun sm ->
+                        let doc = submodelToDocumentation sm
+                        if doc.Documents.Count > 0 then project.HandoverDocumentation <- Some doc)
                     Some store)
 
     let importIntoStore (store: DsStore) (path: string) : bool =

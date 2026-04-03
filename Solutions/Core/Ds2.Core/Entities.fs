@@ -14,8 +14,8 @@ type Project [<JsonConstructor>] internal (name) =
     member val Properties             = ProjectProperties()        with get, set
     member val ActiveSystemIds        = ResizeArray<Guid>()        with get, set
     member val PassiveSystemIds       = ResizeArray<Guid>()        with get, set
-    member val Nameplate              = Nameplate()                with get, set
-    member val HandoverDocumentation  = HandoverDocumentation()    with get, set
+    member val Nameplate              : Nameplate option             = None with get, set
+    member val HandoverDocumentation  : HandoverDocumentation option = None with get, set
     member val TokenSpecs             = ResizeArray<TokenSpec>()   with get, set
 
 type DsSystem [<JsonConstructor>] internal (name) =

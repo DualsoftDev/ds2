@@ -25,13 +25,19 @@ module AasxExporter =
         Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
 
     let private appendProjectMetadataSubmodels (project: Project) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
-        let npSm = nameplateToSubmodel project.Nameplate project.Id
-        submodels.Add(npSm :> ISubmodel)
-        smRefs.Add(mkSmRef npSm)
+        match project.Nameplate with
+        | Some np ->
+            let npSm = nameplateToSubmodel np project.Id
+            submodels.Add(npSm :> ISubmodel)
+            smRefs.Add(mkSmRef npSm)
+        | None -> ()
 
-        let docSm = documentationToSubmodel project.HandoverDocumentation project.Id
-        submodels.Add(docSm :> ISubmodel)
-        smRefs.Add(mkSmRef docSm)
+        match project.HandoverDocumentation with
+        | Some doc ->
+            let docSm = documentationToSubmodel doc project.Id
+            submodels.Add(docSm :> ISubmodel)
+            smRefs.Add(mkSmRef docSm)
+        | None -> ()
 
     let private appendMetadataSubmodels (ownerId: Guid) (nameplate: Nameplate) (documentation: HandoverDocumentation) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
         let npSm = nameplateToSubmodel nameplate ownerId

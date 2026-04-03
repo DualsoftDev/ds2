@@ -16,7 +16,7 @@ type DsStore() =
     member val Works = Dictionary<Guid, Work>() with get, set
     member val Calls = Dictionary<Guid, Call>() with get, set
     member val ApiDefs = Dictionary<Guid, ApiDef>() with get, set
-    member val ApiCalls = Dictionary<Guid, ApiCall>() with get, set
+    [<JsonIgnore>] member val ApiCalls = Dictionary<Guid, ApiCall>() with get, set
     member val ArrowWorks   = Dictionary<Guid, ArrowBetweenWorks>() with get, set
     member val ArrowCalls   = Dictionary<Guid, ArrowBetweenCalls>() with get, set
     member val HwButtons = Dictionary<Guid, HwButton>() with get, set
@@ -42,6 +42,20 @@ type DsStore() =
 
     member internal _.DirectWrite<'T when 'T :> DsEntity>(dict: Dictionary<Guid, 'T>, entity: 'T) =
         dict.[entity.Id] <- entity
+
+    /// JSON 로드 후 Calls[].ApiCalls + CallConditions[].Conditions에서 ApiCalls 딕셔너리 재구축
+    member internal this.RebuildApiCallsDictionary() =
+        this.ApiCalls.Clear()
+        let register (ac: ApiCall) =
+            this.ApiCalls.[ac.Id] <- ac
+        for call in this.Calls.Values do
+            for ac in call.ApiCalls do register ac
+            let rec walkConditions (conds: ResizeArray<CallCondition>) =
+                for cond in conds do
+                    for ac in cond.Conditions do
+                        if not (this.ApiCalls.ContainsKey(ac.Id)) then register ac
+                    walkConditions cond.Children
+            walkConditions call.CallConditions
 
     member internal this.RewireApiCallReferences() =
         let rewire (source: ResizeArray<ApiCall>) =
@@ -104,6 +118,7 @@ type DsStore() =
     member private this.ApplyNewStore(newStore: DsStore, contextLabel: string) =
         try
             this.ReplaceAllCollections(newStore)
+            this.RebuildApiCallsDictionary()
             this.RewireApiCallReferences()
             this.MigrateWorkNaming()
             this.MigrateSystemType()
