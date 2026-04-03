@@ -37,6 +37,11 @@ public class PlcDataReaderService : BackgroundService
     private Dictionary<string, int> _tagAddressToIdMap = new();
     private CancellationTokenSource? _serviceCts;
 
+    // EV2 이벤트 순차 처리용 Channel (async void race condition 방지)
+    private readonly Channel<List<PlcTagLogEntity>> _ev2Channel;
+    private readonly ChannelReader<List<PlcTagLogEntity>> _ev2Reader;
+    private readonly ChannelWriter<List<PlcTagLogEntity>> _ev2Writer;
+
     public PlcDataReaderService(
         ILogger<PlcDataReaderService> logger,
         IConfiguration configuration,
@@ -63,6 +68,14 @@ public class PlcDataReaderService : BackgroundService
         _plcRepo = plcRepo;
 
         _lastReadTime = DateTime.Now;
+
+        // Channel 초기화 (Bounded + DropOldest로 메모리 제한)
+        _ev2Channel = Channel.CreateBounded<List<PlcTagLogEntity>>(new BoundedChannelOptions(200)
+        {
+            FullMode = BoundedChannelFullMode.Wait
+        });
+        _ev2Reader = _ev2Channel.Reader;
+        _ev2Writer = _ev2Channel.Writer;
     }
 
     // ──────────────────────────────────────────────
@@ -98,8 +111,20 @@ public class PlcDataReaderService : BackgroundService
                 _logger.LogInformation("Event-driven mode: Subscribing to EV2 GlobalCommunication.SubjectC2S");
                 SubscribeToEv2Events();
 
-                // 이벤트 기반이므로 무한 대기 (이벤트가 자동으로 처리됨)
-                await WaitForCancellationAsync(stoppingToken);
+                // Channel Consumer: 순차 처리 (단일 스레드에서 순서대로 처리)
+                await foreach (var logs in _ev2Reader.ReadAllAsync(stoppingToken))
+                {
+                    try
+                    {
+                        await ProcessLogsAsync(logs, stoppingToken);
+                        Interlocked.Add(ref _totalLogsRead, logs.Count);
+                    }
+                    catch (OperationCanceledException) { break; }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error processing EV2 event batch");
+                    }
+                }
             }
             else
             {
@@ -157,6 +182,9 @@ public class PlcDataReaderService : BackgroundService
         _ev2Subscription?.Dispose();
         _ev2Subscription = null;
 
+        // Channel 닫기 (Consumer 종료)
+        _ev2Writer.TryComplete();
+
         // Dispose cancellation token source
         _serviceCts?.Dispose();
         _serviceCts = null;
@@ -172,58 +200,41 @@ public class PlcDataReaderService : BackgroundService
     {
         try
         {
-            _ev2Subscription = GlobalCommunication.SubjectC2S.Subscribe(async info =>
+            // Producer: EV2 이벤트를 Channel에 enqueue (빠르게 반환, 처리는 Consumer에서)
+            _ev2Subscription = GlobalCommunication.SubjectC2S.Subscribe(info =>
             {
                 try
                 {
                     if (info.Tags == null || info.Tags.Length == 0) return;
+                    if (_serviceCts == null || _serviceCts.Token.IsCancellationRequested) return;
 
                     // EV2 이벤트를 PlcTagLog로 변환
                     var logs = new List<PlcTagLogEntity>();
                     foreach (var (tagSpec, value) in info.Tags)
                     {
-                        // 캐시된 태그 ID 조회
                         if (!_tagAddressToIdMap.TryGetValue(tagSpec.Address, out var tagId))
-                        {
-                            _logger.LogDebug("Tag ID not found in cache for address: {Address}", tagSpec.Address);
                             continue;
-                        }
 
-                        var log = new PlcTagLogEntity
+                        logs.Add(new PlcTagLogEntity
                         {
                             PlcTagId = tagId,
                             Value = value.GetValue()?.ToString() ?? "",
                             DateTime = info.Timestamp
-                        };
-                        logs.Add(log);
+                        });
                     }
 
                     if (logs.Count > 0)
                     {
-                        // Check if service is still running
-                        if (_serviceCts == null || _serviceCts.Token.IsCancellationRequested)
+                        // Channel에 enqueue (TryWrite: full이면 skip하여 producer를 블로킹하지 않음)
+                        if (!_ev2Writer.TryWrite(logs))
                         {
-                            _logger.LogDebug("Service is stopping, ignoring event");
-                            return;
+                            _logger.LogWarning("EV2 event channel full, dropping batch of {Count} logs", logs.Count);
                         }
-
-                        // 기존 처리 로직 호출 (비동기)
-                        await ProcessLogsAsync(logs, _serviceCts.Token);
-                        Interlocked.Add(ref _totalLogsRead, logs.Count);
                     }
-                }
-                catch (OperationCanceledException)
-                {
-                    // Service is stopping, ignore
-                }
-                catch (ObjectDisposedException)
-                {
-                    // Service is disposed, ignore
-                    _logger.LogDebug("Service already disposed, ignoring event");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error processing EV2 event");
+                    _logger.LogError(ex, "Error enqueuing EV2 event");
                 }
             });
 
