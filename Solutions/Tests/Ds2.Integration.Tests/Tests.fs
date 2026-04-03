@@ -441,10 +441,14 @@ module SplitDeviceAasxTests =
         let store, projectId = createStoreWithDevices()
         let project = store.Projects.[projectId]
         project.Properties.SplitDeviceAasx <- true
-        project.Nameplate.ManufacturerName <- "Project Manufacturer"
+        let np = Nameplate()
+        np.ManufacturerName <- "Project Manufacturer"
+        project.Nameplate <- Some np
+        let doc = HandoverDocumentation()
         let projectDoc = Document()
         projectDoc.DocumentIds.Add(DocumentId(DocumentDomainId = "Project", ValueId = "DOC-001", IsPrimary = true))
-        project.HandoverDocumentation.Documents.Add(projectDoc)
+        doc.Documents.Add(projectDoc)
+        project.HandoverDocumentation <- Some doc
 
         let path = getTempAasxPath()
         try
