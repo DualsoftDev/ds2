@@ -258,7 +258,7 @@ public class CycleAnalysisService
         metrics.TotalActiveTime = TimeSpan.FromSeconds(
             data.CallSequence.Sum(c => c.Duration.TotalSeconds));
 
-        // 총 유휴 시간
+        // 총 비가동 시간
         metrics.TotalIdleTime = data.TotalGapDuration;
 
         // 가동률
@@ -344,7 +344,7 @@ public class CycleAnalysisService
 
     /// <summary>
     /// 시간 범위 내 사이클 경계(rising edge) 시각 목록 조회 (경량).
-    /// Gantt 차트에서 idle 사이클 구간 표시용.
+    /// Gantt 차트에서 비가동 사이클 구간 표시용.
     /// </summary>
     public async Task<List<DateTime>> GetCycleBoundaryTimesAsync(string flowName, DateTime startTime, DateTime endTime)
     {

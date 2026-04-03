@@ -901,7 +901,7 @@ else
                 _flowHistory = await DspRepository.GetFlowHistoryAsync(flowName, 10000);
             }
 
-            // 유휴 사이클 제외
+            // 비가동 사이클 제외
             _flowHistory = _flowHistory.Where(h => !h.IsIdle).ToList();
 
             // UI 표시용 순번 재계산: 목록은 최신순(DESC)이므로 가장 최근 = 최대 번호

@@ -39,7 +39,7 @@ public class CycleAnalysisData
 public class PerformanceMetrics
 {
     public TimeSpan TotalActiveTime { get; set; }   // 총 동작 시간 (모든 Call Duration 합)
-    public TimeSpan TotalIdleTime { get; set; }     // 총 유휴 시간 (모든 Gap 합)
+    public TimeSpan TotalIdleTime { get; set; }     // 총 비가동 시간 (모든 Gap 합)
     public double UtilizationRate { get; set; }     // 가동률 (Active / Total * 100)
     public double Throughput { get; set; }          // 처리율 (CallCount / TotalDuration.TotalMinutes)
     public TimeSpan AverageCycleTime { get; set; }  // 평균 사이클 시간 (단일 사이클인 경우 = TotalDuration)

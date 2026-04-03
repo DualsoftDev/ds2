@@ -165,7 +165,7 @@ public class HistoryViewSettings
     public DateTime? StartTime { get; set; }
 
     /// <summary>
-    /// 사이클 시간 제한(ms). CT가 이 값 초과 시 유휴 사이클로 판정. 0이면 비활성.
+    /// 사이클 시간 제한(ms). CT가 이 값 초과 시 비가동 사이클로 판정. 0이면 비활성.
     /// 가장 긴 Flow의 평균 CT + 여유시간으로 설정 권장.
     /// </summary>
     public int MaxCycleTimeMs { get; set; } = 0;
