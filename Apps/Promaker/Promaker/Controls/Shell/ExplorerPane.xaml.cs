@@ -130,10 +130,11 @@ public partial class ExplorerPane : UserControl
             && !ctrlPressed
             && !shiftPressed)
         {
-            _treeDragStartPoint = e.GetPosition(null);
             _treeDragCandidate = true;
             _pendingTreeSelectionNode = node;
             _pendingTreeSelectionPane = pane;
+            try { _treeDragStartPoint = e.GetPosition(null); }
+            catch { _treeDragStartPoint = default; }
         }
         else
         {

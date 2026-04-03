@@ -413,6 +413,9 @@ public sealed class ExplorerPaneTests
             var host = CreateHost(vm, out var pane);
             try
             {
+                // TreeView 초기화 시 자동 선택이 발생할 수 있으므로 클리어
+                vm.SelectedNode = null;
+
                 var callNode = FindNode(vm.ControlTreeRoots, callId);
                 Assert.NotNull(callNode);
 
