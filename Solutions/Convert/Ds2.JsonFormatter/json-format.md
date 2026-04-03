@@ -232,7 +232,7 @@ Ds2 프로젝트 파일(`.json`)은 `DsStore`를 `System.Text.Json`으로 직렬
 ```json
 {
   "id": "<guid>",
-  "type": 0,                          // CallConditionType option: AutoAux=0, ComAux=1, SkipUnmatch=2
+  "type": 0,                          // CallConditionType option: AutoAux=0(자동 전용), ComAux=1(공통), SkipUnmatch=2
   "conditions": [ ... ],              // ApiCall[] — 조건에 참조되는 ApiCall 목록
   "children": [ ... ],                // CallCondition[] — 재귀 트리 (하위 조건)
   "isOR": false,                       // bool: OR 조건 여부
@@ -313,9 +313,9 @@ Project
 ### CallConditionType
 | 값 | 이름 | 설명 |
 |----|------|------|
-| 0 | AutoAux | 자동 보조 |
-| 1 | ComAux | 통신 보조 |
-| 2 | SkipUnmatch | 불일치 건너뛰기 |
+| 0 | AutoAux | 자동 기동(Auto) 상태에서만 체크하는 전제 조건 |
+| 1 | ComAux | 공통(Common) 전제 조건 — 자동/수동 상관없이 만족해야 action 가능 |
+| 2 | SkipUnmatch | 불일치 시 건너뛰기 — 조건 불만족 시 Call을 실행하지 않고 Finish 처리 |
 
 ### Status4
 | 값 | 이름 | 설명 |
@@ -444,6 +444,125 @@ Project
 
 ---
 
+## Auto/Comm Aux 조건 예시
+
+Call의 실행 전제 조건을 `callConditions` 배열로 지정합니다.
+
+| 조건 종류 | `type` | 설명 |
+|-----------|--------|------|
+| **AutoAux** | 0 | 자동 기동(Auto) 상태에서만 체크하는 전제 조건 |
+| **ComAux** | 1 | 공통(Common) 전제 조건 — 자동/수동 상관없이 만족해야 action 가능 |
+| **SkipUnmatch** | 2 | 조건 불만족 시 Call을 건너뛰고 바로 Finish 처리 |
+
+### conditions 배열 내 ApiCall 필드 역할
+
+`conditions` 배열에는 ApiCall 객체가 들어갑니다. 시뮬레이션에서 실제 사용하는 필드는 3개입니다:
+
+| 필드 | 시뮬레이션 사용 | 역할 |
+|------|:-:|------|
+| **`id`** | O | IOValues 맵 키 — 런타임 값 조회용 |
+| **`apiDefId`** | O | ApiDef → RxWork(Device Work) 해석 — RxWork가 Finish인지 체크 |
+| **`inputSpec`** | O | 조건의 기대값 (ApiDef 것과 별개, 조건마다 독립 지정 가능) |
+| `outputSpec` | X | 에디터 UI 표시용 (생략 가능) |
+| `name` | X | 에디터 UI 표시용 (생략 가능) |
+| `inTag` / `outTag` | X | 에디터 UI 표시용 (생략 가능) |
+
+### 최소 AutoAux 예시 — type: 0
+
+```json
+"callConditions": [
+  {
+    "id": "<guid>",
+    "type": 0,
+    "conditions": [
+      {
+        "id": "<apicall-guid>",
+        "apiDefId": "<apidef-guid>",
+        "inputSpec": { "Case": "UndefinedValue" }
+      }
+    ],
+    "children": [],
+    "isOR": false,
+    "isRising": false
+  }
+]
+```
+
+- `type: 0` → AutoAux (자동 기동 시에만 체크)
+- `inputSpec: UndefinedValue` → 값 무관, RxWork가 Finish이면 통과
+
+### 최소 ComAux 예시 — type: 1
+
+```json
+"callConditions": [
+  {
+    "id": "<guid>",
+    "type": 1,
+    "conditions": [
+      {
+        "id": "<apicall-guid-1>",
+        "apiDefId": "<apidef-guid-1>",
+        "inputSpec": { "Case": "Int32Value", "Fields": [{ "Case": "Single", "Fields": [1] }] }
+      },
+      {
+        "id": "<apicall-guid-2>",
+        "apiDefId": "<apidef-guid-2>",
+        "inputSpec": { "Case": "BoolValue", "Fields": [{ "Case": "Single", "Fields": [true] }] }
+      }
+    ],
+    "children": [],
+    "isOR": true,
+    "isRising": false
+  }
+]
+```
+
+- `type: 1` → ComAux (자동/수동 모두 체크)
+- `inputSpec`에 기대값 지정 — RxWork의 IO 값과 매칭
+- `isOR: true` / `isRising: false` → 에디터 UI 수식 표시용 (시뮬레이션에서는 미사용)
+
+### children (트리 중첩)
+
+```json
+"callConditions": [
+  {
+    "id": "<guid-parent>",
+    "type": 0,
+    "conditions": [
+      { "id": "<ac1>", "apiDefId": "<ad1>", "inputSpec": { "Case": "UndefinedValue" } }
+    ],
+    "children": [
+      {
+        "id": "<guid-child>",
+        "type": 1,
+        "conditions": [
+          { "id": "<ac2>", "apiDefId": "<ad2>", "inputSpec": { "Case": "Int32Value", "Fields": [{ "Case": "Single", "Fields": [1] }] } }
+        ],
+        "children": [],
+        "isOR": false,
+        "isRising": true
+      }
+    ],
+    "isOR": false,
+    "isRising": false
+  }
+]
+```
+
+- `children`은 에디터 UI에서 트리 구조로 표시하기 위한 용도
+- 현재 시뮬레이션 엔진은 최상위 conditions만 평가 (children 미평가)
+
+### isOR / isRising 참고
+
+| 필드 | 시뮬레이션 사용 | 용도 |
+|------|:-:|------|
+| `isOR` | X | 에디터 수식 표시: `false` → `A & B`, `true` → `A \| B` |
+| `isRising` | X | 에디터 수식 표시: `true`이면 `↑` (상승 엣지) 표기 |
+
+현재 시뮬레이션에서는 동일 type의 모든 conditions를 AND(`List.forall`)로 평가합니다.
+
+---
+
 ## Ds2.JsonFormatter 사용법 (F#)
 
 ```fsharp
@@ -472,7 +591,17 @@ Builder.setApiCallIOTags store apiCallId
     (Some (IOTag("OutCmd", "QW100", "")))
     (Some (IOTag("InSensor", "IW100", "")))
 
-// 7. 저장
+// 7. 두 번째 Device + Call
+let devSysId2, _, _, apiDefId2 = Builder.addDevice store projectId "Robot1" "RET"
+let callId2, apiCallId2 = Builder.addCall store w2 "Robot1" "RET" apiDefId2
+
+// 8. AutoAux 조건: 자동 기동 시 apiCallId(Robot1.ADV)가 Finish여야 callId2 실행
+Builder.addCondition store callId2 CallConditionType.AutoAux [apiCallId] false |> ignore
+
+// 9. ComAux 조건: 자동/수동 모두에서 apiCallId2(Robot1.RET)가 Finish여야 실행
+Builder.addCondition store callId2 CallConditionType.ComAux [apiCallId2] false |> ignore
+
+// 10. 저장
 Exporter.save store "output.json"
 ```
 
@@ -486,5 +615,19 @@ var (store, projectId, systemId, flowId) = Builder.createStore("MyProject", "MyS
 var w1 = Builder.addWork(store, flowId, "PickPart", TimeSpan.FromMilliseconds(300), TokenRole.Source);
 var w2 = Builder.addWork(store, flowId, "WeldJoint", TimeSpan.FromMilliseconds(500), TokenRole.None);
 Builder.addArrowWork(store, systemId, w1, w2, ArrowType.Start);
+
+// Device + Call
+var (devSysId, _, _, apiDefId) = Builder.addDevice(store, projectId, "Robot1", "ADV");
+var (callId1, apiCallId1) = Builder.addCall(store, w1, "Robot1", "ADV", apiDefId);
+var (devSysId2, _, _, apiDefId2) = Builder.addDevice(store, projectId, "Robot1", "RET");
+var (callId2, apiCallId2) = Builder.addCall(store, w2, "Robot1", "RET", apiDefId2);
+
+// AutoAux 조건 추가
+Builder.addCondition(store, callId2, CallConditionType.AutoAux,
+    new FSharpList<Guid>(apiCallId1, FSharpList<Guid>.Empty), false);
+// ComAux 조건 추가
+Builder.addCondition(store, callId2, CallConditionType.ComAux,
+    new FSharpList<Guid>(apiCallId2, FSharpList<Guid>.Empty), false);
+
 Exporter.save(store, "output.json");
 ```
