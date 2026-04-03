@@ -19,14 +19,14 @@ module TagStateTracker =
     /// Edge detection helper
     let private detectEdge (prevValue: string option) (newValue: string) : EdgeType =
         match prevValue with
-        | None -> EdgeType.RisingEdge  // First value, assume rising
+        | None -> EdgeType.NoChange  // First value, just initialize state
         | Some prev ->
             if prev = "0" && newValue = "1" then
                 EdgeType.RisingEdge
             elif prev = "1" && newValue = "0" then
                 EdgeType.FallingEdge
             else
-                EdgeType.RisingEdge  // Default to Rising for other cases
+                EdgeType.NoChange
 
     /// 빈 상태 맵
     let empty : Map<string, TagEdgeState> = Map.empty

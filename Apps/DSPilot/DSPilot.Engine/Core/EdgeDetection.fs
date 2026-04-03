@@ -7,6 +7,7 @@ open System.Collections.Generic
 type EdgeType =
     | RisingEdge = 0
     | FallingEdge = 1
+    | NoChange = 2
 
 /// Edge event detected from PLC tag
 type EdgeEvent =
