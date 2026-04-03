@@ -5,6 +5,7 @@ using Dual.Common.Db.FS;
 using Ev2.Backend.Common;
 using Ev2.Backend.PLC;
 using Ev2.Core.FS;
+using Ev2.PLC.Protocol.LS;
 using Ev2.PLC.Protocol.MX;
 using log4net;
 using log4net.Config;
@@ -335,27 +336,62 @@ public class PlcCaptureService : IHostedService, IDisposable
         ApplyAasSettings(appSettings);
         ApplyRedisSettings(appSettings);
 
-        // ScanConfiguration 설정
-        var protocolStr = _configuration["PlcCapture:Protocol"] ?? PlcCaptureSettings.DefaultProtocol;
-        var protocol = protocolStr.Equals("TCP", StringComparison.OrdinalIgnoreCase)
-            ? Ev2.PLC.Protocol.MX.TransportProtocol.TCP
-            : Ev2.PLC.Protocol.MX.TransportProtocol.UDP;
+        // ScanConfiguration 설정 - PLC 타입에 따라 분기
+        var plcType = _configuration["PlcCapture:PlcType"] ?? PlcCaptureSettings.DefaultPlcType;
+        var plcIpAddress = _configuration["PlcCapture:PlcIpAddress"] ?? PlcCaptureSettings.DefaultPlcIpAddress;
+        var plcPort = _configuration.GetValue<int>("PlcCapture:PlcPort", PlcCaptureSettings.DefaultPlcPort);
+        var plcName = _configuration["PlcCapture:PlcName"] ?? PlcCaptureSettings.DefaultPlcName;
 
-        _logger.LogInformation("PLC Protocol: {Protocol}", protocol);
+        Ev2.PLC.Common.InterfacesModule.IConnectionConfiguration connectionConfig;
 
-        var connectionConfig = new MxConnectionConfig
+        if (plcType.Equals("LS", StringComparison.OrdinalIgnoreCase))
         {
-            IpAddress = _configuration["PlcCapture:PlcIpAddress"] ?? PlcCaptureSettings.DefaultPlcIpAddress,
-            Port = _configuration.GetValue<int>("PlcCapture:PlcPort", PlcCaptureSettings.DefaultPlcPort),
-            Name = _configuration["PlcCapture:PlcName"] ?? PlcCaptureSettings.DefaultPlcName,
-            EnableScan = true,
-            Timeout = TimeSpan.FromSeconds(5),
-            ScanInterval = appSettings.ScanInterval,
-            FrameType = Ev2.PLC.Protocol.MX.FrameType.QnA_3E_Binary,
-            Protocol = protocol,
-            AccessRoute = new Ev2.PLC.Protocol.MX.AccessRoute(0, 255, 1023, 0),
-            MonitoringTimer = 16
-        };
+            // LS PLC (XGI/XGK/XGT)
+            var plcModelStr = _configuration["PlcCapture:PlcModel"] ?? PlcCaptureSettings.DefaultPlcModel;
+            var lsModel = plcModelStr.ToUpperInvariant() switch
+            {
+                "XGK" => LsPlcModel.XGK,
+                "XGT" => LsPlcModel.XGT,
+                _ => LsPlcModel.XGI,
+            };
+
+            connectionConfig = new LsConnectionConfig
+            {
+                IpAddress = plcIpAddress,
+                Port = plcPort,
+                Name = plcName,
+                PlcModel = lsModel,
+                EnableScan = true,
+                Timeout = TimeSpan.FromSeconds(5),
+                ScanInterval = appSettings.ScanInterval,
+            };
+
+            _logger.LogInformation("PLC Type: LS ({PlcModel}), IP: {IpAddress}:{Port}", plcModelStr, plcIpAddress, plcPort);
+        }
+        else
+        {
+            // Mitsubishi PLC
+            var protocolStr = _configuration["PlcCapture:Protocol"] ?? PlcCaptureSettings.DefaultProtocol;
+            var protocol = protocolStr.Equals("TCP", StringComparison.OrdinalIgnoreCase)
+                ? Ev2.PLC.Protocol.MX.TransportProtocol.TCP
+                : Ev2.PLC.Protocol.MX.TransportProtocol.UDP;
+
+            connectionConfig = new MxConnectionConfig
+            {
+                IpAddress = plcIpAddress,
+                Port = plcPort,
+                Name = plcName,
+                EnableScan = true,
+                Timeout = TimeSpan.FromSeconds(5),
+                ScanInterval = appSettings.ScanInterval,
+                FrameType = Ev2.PLC.Protocol.MX.FrameType.QnA_3E_Binary,
+                Protocol = protocol,
+                AccessRoute = new Ev2.PLC.Protocol.MX.AccessRoute(0, 255, 1023, 0),
+                MonitoringTimer = 16
+            };
+
+            _logger.LogInformation("PLC Type: Mitsubishi ({Protocol}), IP: {IpAddress}:{Port}", protocolStr, plcIpAddress, plcPort);
+        }
 
         appSettings.ScanConfigurations = new[]
         {

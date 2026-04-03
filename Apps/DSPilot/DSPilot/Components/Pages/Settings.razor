@@ -287,25 +287,50 @@
                         캡처 활성화
                     </label>
                     <div class="form-group mb-3">
+                        <label class="form-label">PLC 타입</label>
+                        <select class="form-select" value="@_settings.PlcCapture.PlcType"
+                                @onchange="OnPlcTypeChanged">
+                            <option value="Mitsubishi">Mitsubishi (MX)</option>
+                            <option value="LS">LS (XGI/XGK/XGT)</option>
+                        </select>
+                    </div>
+                    <div class="form-group mb-3">
                         <label class="form-label">PLC 이름</label>
-                        <input class="form-field" @bind="_settings.PlcCapture.PlcName" placeholder="MitsubishiPLC" />
+                        <input class="form-field" @bind="_settings.PlcCapture.PlcName"
+                               placeholder="@(_settings.PlcCapture.IsLS ? "LSPLC" : "MitsubishiPLC")" />
                     </div>
                     <div class="form-group mb-3">
                         <label class="form-label">IP 주소</label>
-                        <input class="form-field" @bind="_settings.PlcCapture.PlcIpAddress" placeholder="예: 192.168.9.120" />
+                        <input class="form-field" @bind="_settings.PlcCapture.PlcIpAddress"
+                               placeholder="@(_settings.PlcCapture.IsLS ? "예: 192.168.9.100" : "예: 192.168.9.120")" />
                     </div>
                     <div class="form-group mb-3">
                         <label class="form-label">포트</label>
                         <input type="number" class="form-field" @bind="_settings.PlcCapture.PlcPort"
-                               min="1" max="65535" placeholder="5555" />
+                               min="1" max="65535"
+                               placeholder="@(_settings.PlcCapture.IsLS ? "2004" : "5555")" />
                     </div>
-                    <div class="form-group mb-3">
-                        <label class="form-label">프로토콜</label>
-                        <select class="form-select" @bind="_settings.PlcCapture.Protocol">
-                            <option value="UDP">UDP</option>
-                            <option value="TCP">TCP</option>
-                        </select>
-                    </div>
+                    @if (_settings.PlcCapture.IsLS)
+                    {
+                        <div class="form-group mb-3">
+                            <label class="form-label">PLC 모델</label>
+                            <select class="form-select" @bind="_settings.PlcCapture.PlcModel">
+                                <option value="XGI">XGI</option>
+                                <option value="XGK">XGK</option>
+                                <option value="XGT">XGT</option>
+                            </select>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="form-group mb-3">
+                            <label class="form-label">프로토콜</label>
+                            <select class="form-select" @bind="_settings.PlcCapture.Protocol">
+                                <option value="UDP">UDP</option>
+                                <option value="TCP">TCP</option>
+                            </select>
+                        </div>
+                    }
                     <div class="form-group">
                         <label class="form-label">스캔 간격 (ms)</label>
                         <input type="number" class="form-field" @bind="_settings.PlcCapture.ScanIntervalMs"
@@ -510,6 +535,32 @@ else
         catch (Exception ex)
         {
             _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", $"삭제 실패: {ex.Message}", "error");
+        }
+    }
+
+    private void OnPlcTypeChanged(ChangeEventArgs e)
+    {
+        if (_settings is null) return;
+        var newType = e.Value?.ToString() ?? "Mitsubishi";
+        var previousType = _settings.PlcCapture.PlcType;
+        _settings.PlcCapture.PlcType = newType;
+
+        if (!string.Equals(previousType, newType, StringComparison.OrdinalIgnoreCase))
+        {
+            if (newType.Equals("LS", StringComparison.OrdinalIgnoreCase))
+            {
+                _settings.PlcCapture.PlcName = "LSPLC";
+                _settings.PlcCapture.PlcIpAddress = "192.168.9.100";
+                _settings.PlcCapture.PlcPort = 2004;
+                _settings.PlcCapture.PlcModel = "XGI";
+            }
+            else
+            {
+                _settings.PlcCapture.PlcName = "MitsubishiPLC";
+                _settings.PlcCapture.PlcIpAddress = "192.168.9.120";
+                _settings.PlcCapture.PlcPort = 5555;
+                _settings.PlcCapture.Protocol = "UDP";
+            }
         }
     }
 

@@ -24,6 +24,9 @@ public class FlowMetricsService : IFlowMetricsService
     // Flow별 사이클 상태 추적 (Phase 2)
     private readonly ConcurrentDictionary<string, FlowCycleState> _flowCycleStates = new();
 
+    private volatile bool _isInitialized = false;
+    public bool IsInitialized => _isInitialized;
+
     public FlowMetricsService(
         DsProjectService projectService,
         AppSettingsService appSettingsService,
@@ -130,6 +133,8 @@ public class FlowMetricsService : IFlowMetricsService
                     failCount++;
                 }
             }
+
+            _isInitialized = true;
 
             _logger.LogInformation(
                 "Flow metrics initialization completed. Success: {Success}, Failed: {Failed}",
@@ -374,7 +379,7 @@ public class FlowMetricsService : IFlowMetricsService
 
         await _dspRepository.UpdateFlowCycleBoundariesAsync(flowName, movingStartName, movingEndName);
 
-        _flowCycleStates[flowName] = new FlowCycleState
+        var state = new FlowCycleState
         {
             FlowName = flowName,
             HeadCallName = startCallName,
@@ -387,6 +392,26 @@ public class FlowMetricsService : IFlowMetricsService
             CurrentWT = null,
             CurrentCT = null
         };
+
+        // DB 히스토리에서 마지막 사이클 데이터로 부트스트래핑
+        // → 재시작 후 첫 번째 사이클 시작 시 바로 WT/CT 계산 가능
+        try
+        {
+            var lastHistory = await _dspRepository.GetFlowHistoryAsync(flowName, 1);
+            if (lastHistory.Count > 0 && lastHistory[0].MT.HasValue)
+            {
+                state.CurrentMT = lastHistory[0].MT;
+                state.PreviousCycleFinish = lastHistory[0].RecordedAt;
+                state.CycleCount = 1;
+                _logger.LogInformation("Flow '{FlowName}' bootstrapped from history: MT={MT}ms", flowName, lastHistory[0].MT);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Flow '{FlowName}' history bootstrap failed, starting fresh", flowName);
+        }
+
+        _flowCycleStates[flowName] = state;
     }
 
     private static string? NormalizeCallName(string? callName)

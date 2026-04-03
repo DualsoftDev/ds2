@@ -9,6 +9,11 @@ namespace DSPilot.Services;
 public interface IFlowMetricsService
 {
     /// <summary>
+    /// 초기화 완료 여부
+    /// </summary>
+    bool IsInitialized { get; }
+
+    /// <summary>
     /// 모든 Flow 분석 및 MovingStartName/MovingEndName 설정
     /// </summary>
     Task InitializeAsync();

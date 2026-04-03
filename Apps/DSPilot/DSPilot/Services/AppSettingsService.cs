@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using DSPilot.Models;
 using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.Data.Sqlite;
 
 namespace DSPilot.Services;
 
@@ -187,6 +188,10 @@ public class AppSettingsService
 
         try
         {
+            // 모든 SQLite 연결 풀 해제 (파일 잠금 방지)
+            SqliteConnection.ClearAllPools();
+            _logger.LogInformation("SQLite 연결 풀 해제 완료");
+
             // plc.db 삭제
             if (File.Exists(dbPath))
             {
