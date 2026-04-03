@@ -325,6 +325,13 @@
                                         <Setter TargetName="NodeBorder" Property="BorderBrush" Value="{DynamicResource SimulationHomingBrush}"/>
                                         <Setter TargetName="NodeBorder" Property="BorderThickness" Value="2"/>
                                     </DataTrigger>
+                                    <!-- Skipped node overlay (SkipUnmatch에 의해 스킵된 Call) -->
+                                    <DataTrigger Binding="{Binding IsSimSkipped}" Value="True">
+                                        <Setter TargetName="NodeBorder" Property="Background" Value="{DynamicResource SimulationSkipBackgroundBrush}"/>
+                                        <Setter TargetName="NodeBorder" Property="BorderBrush" Value="{DynamicResource SimulationSkipBrush}"/>
+                                        <Setter TargetName="NodeBorder" Property="BorderThickness" Value="2"/>
+                                        <Setter TargetName="NodeBorder" Property="Opacity" Value="0.6"/>
+                                    </DataTrigger>
                                 </DataTemplate.Triggers>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>

@@ -288,6 +288,7 @@
                                         EditConditionsCommand="{Binding DataContext.EditConditionsCommand, ElementName=PanelRoot}"
                                         EditConditionsParameter="{Binding}"
                                         DropCallCommand="{Binding DataContext.DropCallToConditionSectionCommand, ElementName=PanelRoot}"
+                                        DropCallToConditionItemCommand="{Binding DataContext.DropCallToConditionItemCommand, ElementName=PanelRoot}"
                                         AddCommandParameter="{Binding ConditionType}"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>

@@ -148,3 +148,15 @@ let ``DsQuery originalWorksOf excludes reference Works`` () =
 
     let all = Queries.worksOf flow.Id store
     Assert.Equal(2, all.Length)
+
+[<Fact>]
+let ``parseWorkNameParts splits prefix and localName`` () =
+    let struct(prefix, local) = TokenRoleOps.parseWorkNameParts "Flow1.Work1"
+    Assert.Equal("Flow1.", prefix)
+    Assert.Equal("Work1", local)
+
+[<Fact>]
+let ``parseWorkNameParts with no dot returns empty prefix`` () =
+    let struct(prefix, local) = TokenRoleOps.parseWorkNameParts "JustName"
+    Assert.Equal("", prefix)
+    Assert.Equal("JustName", local)

@@ -100,6 +100,78 @@ module PasteTests =
         Assert.Equal(Some 3500, deviceDuration)
 
     [<Fact>]
+    let ``PasteEntities keeps multiple Work order and relative positions`` () =
+        let store = createStore ()
+        let _, _, flow, workA = setupBasicHierarchy store
+        let workB = addWork store "WorkB" flow.Id
+        let workC = addWork store "WorkC" flow.Id
+
+        workA.Position <- Some (Xywh(220, 20, 100, 40))
+        workB.Position <- Some (Xywh(20, 120, 100, 40))
+        workC.Position <- Some (Xywh(20, 20, 100, 40))
+
+        let copiedIds = [ workB.Id; workA.Id; workC.Id ]
+        let pastedIds = store.PasteEntities(EntityKind.Work, copiedIds, EntityKind.Flow, flow.Id, 0)
+
+        let pastedPositions =
+            pastedIds
+            |> List.map (fun id -> Queries.getWork id store |> Option.get)
+            |> List.map (fun work -> work.Position |> Option.get)
+
+        let expectedPositions =
+            [ workC.Position; workA.Position; workB.Position ]
+            |> List.map Option.get
+            |> List.map (fun pos -> Xywh(pos.X + 30, pos.Y + 30, pos.W, pos.H))
+
+        Assert.Equal(3, pastedIds.Length)
+        Assert.Equal<int list>(
+            expectedPositions |> List.map (fun pos -> pos.X),
+            pastedPositions |> List.map (fun pos -> pos.X))
+        Assert.Equal<int list>(
+            expectedPositions |> List.map (fun pos -> pos.Y),
+            pastedPositions |> List.map (fun pos -> pos.Y))
+
+    [<Fact>]
+    let ``PasteEntities keeps multiple Call order and relative positions`` () =
+        let store = createStore ()
+        let project, _, flow, work = setupBasicHierarchy store
+        let targetWork = addWork store "TargetWork" flow.Id
+
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.ApiA"; "Dev.ApiB"; "Dev.ApiC" ], true, None)
+        let calls =
+            Queries.callsOf work.Id store
+            |> List.sortBy (fun call -> call.Name)
+
+        let callA = calls.[0]
+        let callB = calls.[1]
+        let callC = calls.[2]
+
+        callA.Position <- Some (Xywh(220, 10, 120, 40))
+        callB.Position <- Some (Xywh(20, 110, 120, 40))
+        callC.Position <- Some (Xywh(20, 10, 120, 40))
+
+        let copiedIds = [ callB.Id; callA.Id; callC.Id ]
+        let pastedIds = store.PasteEntities(EntityKind.Call, copiedIds, EntityKind.Work, targetWork.Id, 0)
+
+        let pastedPositions =
+            pastedIds
+            |> List.map (fun id -> Queries.getCall id store |> Option.get)
+            |> List.map (fun call -> call.Position |> Option.get)
+
+        let expectedPositions =
+            [ callC.Position; callA.Position; callB.Position ]
+            |> List.map Option.get
+            |> List.map (fun pos -> Xywh(pos.X + 30, pos.Y + 30, pos.W, pos.H))
+
+        Assert.Equal(3, pastedIds.Length)
+        Assert.Equal<int list>(
+            expectedPositions |> List.map (fun pos -> pos.X),
+            pastedPositions |> List.map (fun pos -> pos.X))
+        Assert.Equal<int list>(
+            expectedPositions |> List.map (fun pos -> pos.Y),
+            pastedPositions |> List.map (fun pos -> pos.Y))
+
+    [<Fact>]
     let ``ValidateCopySelection returns Ok for single copyable entity`` () =
         let store = createStore ()
         let _, _, flow, _ = setupBasicHierarchy store

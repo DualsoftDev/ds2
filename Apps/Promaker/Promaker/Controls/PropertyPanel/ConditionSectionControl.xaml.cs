@@ -51,6 +51,10 @@ public partial class ConditionSectionControl : UserControl
         DependencyProperty.Register(nameof(DropCallCommand), typeof(ICommand), typeof(ConditionSectionControl),
             new PropertyMetadata(null));
 
+    public static readonly DependencyProperty DropCallToConditionItemCommandProperty =
+        DependencyProperty.Register(nameof(DropCallToConditionItemCommand), typeof(ICommand), typeof(ConditionSectionControl),
+            new PropertyMetadata(null));
+
     public ConditionSectionControl()
     {
         InitializeComponent();
@@ -66,6 +70,7 @@ public partial class ConditionSectionControl : UserControl
     public ICommand? EditConditionsCommand { get => (ICommand?)GetValue(EditConditionsCommandProperty); set => SetValue(EditConditionsCommandProperty, value); }
     public object? EditConditionsParameter { get => GetValue(EditConditionsParameterProperty); set => SetValue(EditConditionsParameterProperty, value); }
     public ICommand? DropCallCommand { get => (ICommand?)GetValue(DropCallCommandProperty); set => SetValue(DropCallCommandProperty, value); }
+    public ICommand? DropCallToConditionItemCommand { get => (ICommand?)GetValue(DropCallToConditionItemCommandProperty); set => SetValue(DropCallToConditionItemCommandProperty, value); }
 
     // ── Drop hint visibility ──
 
@@ -90,6 +95,7 @@ public partial class ConditionSectionControl : UserControl
     // ── Drag & Drop (delegates to ConditionDropHelper) ──
 
     private Brush? _savedBrush;
+    private Brush? _savedItemBrush;
 
     private void Border_DragEnter(object sender, DragEventArgs e) =>
         ConditionDropHelper.HandleDragEnter(e, sender as Border, ref _savedBrush, this);
@@ -111,6 +117,37 @@ public partial class ConditionSectionControl : UserControl
         DropCallCommand?.Execute(new ConditionDropInfo(
             AddCommandParameter is Ds2.Core.CallConditionType ct ? ct : Ds2.Core.CallConditionType.ComAux,
             callNode.Id));
+        e.Handled = true;
+    }
+
+    // ── Drag & Drop: individual condition item ──
+
+    private void ConditionItem_DragEnter(object sender, DragEventArgs e)
+    {
+        ConditionDropHelper.HandleDragEnter(e, sender as Border, ref _savedItemBrush, this);
+        e.Handled = true;
+    }
+
+    private void ConditionItem_DragLeave(object sender, DragEventArgs e)
+    {
+        ConditionDropHelper.RestoreBorder(sender as Border, ref _savedItemBrush, this);
+        e.Handled = true;
+    }
+
+    private void ConditionItem_DragOver(object sender, DragEventArgs e)
+    {
+        ConditionDropHelper.HandleDragOver(e);
+        e.Handled = true;
+    }
+
+    private void ConditionItem_Drop(object sender, DragEventArgs e)
+    {
+        ConditionDropHelper.RestoreBorder(sender as Border, ref _savedItemBrush, this);
+        if (ConditionDropHelper.GetDroppedCallNode(e) is not { } callNode) return;
+        if (sender is not Border { Tag: ViewModels.CallConditionItem item }) return;
+
+        DropCallToConditionItemCommand?.Execute(
+            new ViewModels.ConditionItemDropInfo(item.ConditionId, callNode.Id));
         e.Handled = true;
     }
 

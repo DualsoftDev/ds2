@@ -40,19 +40,22 @@ type DsStorePanelBatchExtensions =
     /// 모든 Work의 Duration 정보를 일괄 조회
     [<Extension>]
     static member GetAllWorkDurationRows(store: DsStore) : WorkDurationBatchRow list =
+        let rowsForSystems isDeviceWork (systems: DsSystem list) =
+            systems
+            |> List.collect (fun sys ->
+                Queries.flowsOf sys.Id store
+                |> List.collect (fun flow ->
+                    Queries.worksOf flow.Id store
+                    |> List.map (fun work ->
+                        let ms = work.Properties.Duration |> Option.map (fun t -> int t.TotalMilliseconds) |> Option.defaultValue 0
+                        WorkDurationBatchRow(work.Id, sys.Name, flow.Name, work.LocalName, ms, isDeviceWork))))
+
         Queries.allProjects store
-        |> List.collect (fun p -> Queries.projectSystemsOf p.Id store)
-        |> List.collect (fun sys ->
-            Queries.flowsOf sys.Id store
-            |> List.collect (fun flow ->
-                Queries.worksOf flow.Id store
-                |> List.map (fun work ->
-                    let ms = work.Properties.Duration |> Option.map (fun t -> int t.TotalMilliseconds) |> Option.defaultValue 0
-                    // Device Work = Work에 ApiCall이 있는 Call이 하나라도 있으면 true
-                    let isDeviceWork =
-                        Queries.callsOf work.Id store
-                        |> List.exists (fun call -> not (Seq.isEmpty call.ApiCalls))
-                    WorkDurationBatchRow(work.Id, sys.Name, flow.Name, work.LocalName, ms, isDeviceWork))))
+        |> List.collect (fun project ->
+            [
+                yield! rowsForSystems false (Queries.activeSystemsOf project.Id store)
+                yield! rowsForSystems true (Queries.passiveSystemsOf project.Id store)
+            ])
 
     /// 모든 ApiCall의 IO 태그 정보를 일괄 조회
     [<Extension>]
@@ -91,7 +94,7 @@ type DsStorePanelBatchExtensions =
                             let outDataType = "BOOL"
                             let inDataType = "BOOL"
 
-                            ApiCallIOBatchRow(call.Id, apiCall.Id, flow.Name, work.Name, call.Name, deviceName, apiName, inAddr, inSym, outAddr, outSym, outDataType, inDataType))
+                            ApiCallIOBatchRow(call.Id, apiCall.Id, flow.Name, work.LocalName, call.Name, deviceName, apiName, inAddr, inSym, outAddr, outSym, outDataType, inDataType))
                         |> Seq.toList))))
 
     /// Work IsFinished 일괄 변경 (단일 Undo 트랜잭션)

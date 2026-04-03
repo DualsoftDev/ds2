@@ -107,7 +107,9 @@ public partial class MainViewModel
     private void CascadeMoveCreatedEntities(
         IReadOnlyCollection<Guid> createdIds,
         Xywh basePos,
-        IReadOnlyList<(int X, int Y)> existingPositions)
+        IReadOnlyList<(int X, int Y)> existingPositions,
+        int mergeCount = 0,
+        string? mergeLabel = null)
     {
         var ids = createdIds
             .Where(id => id != Guid.Empty)
@@ -125,37 +127,49 @@ public partial class MainViewModel
             assigned.Add((pos.X, pos.Y));
         }
 
-        TryEditorAction(() => _store.MoveEntities(requests));
+        TryEditorFunc(() => _store.MoveEntities(requests), out int movedCount, fallback: 0);
+
+        if (mergeLabel is not null)
+        {
+            var actualMerge = movedCount > 0 ? mergeCount : mergeCount - 1;
+            if (actualMerge >= 2)
+                _store.MergeLastTransactions(actualMerge, mergeLabel);
+        }
     }
 
     private void CascadeMoveNewSiblingDiff(
         TabKind tabKind,
         Guid rootId,
         Xywh basePos,
-        SiblingSnapshot before)
+        SiblingSnapshot before,
+        string? mergeLabel = null)
     {
         var createdIds = GetSiblingSnapshot(tabKind, rootId).Ids
             .Where(id => !before.Ids.Contains(id))
             .ToList();
-        CascadeMoveCreatedEntities(createdIds, basePos, before.Positions);
+        // SiblingDiff: 1 create transaction + 1 move transaction
+        CascadeMoveCreatedEntities(createdIds, basePos, before.Positions, mergeCount: 2, mergeLabel: mergeLabel);
     }
 
     private bool TryCreateSingleWithCascade(
         Func<Guid> create,
         Xywh basePos,
-        IReadOnlyList<(int X, int Y)> existingPositions)
+        IReadOnlyList<(int X, int Y)> existingPositions,
+        string? mergeLabel = null)
     {
         if (!TryEditorFunc(create, out Guid createdId, fallback: Guid.Empty) || createdId == Guid.Empty)
             return false;
 
-        CascadeMoveCreatedEntities([createdId], basePos, existingPositions);
+        // Single: 1 create transaction + 1 move transaction
+        CascadeMoveCreatedEntities([createdId], basePos, existingPositions, mergeCount: 2, mergeLabel: mergeLabel);
         return true;
     }
 
     private bool TryCreateMultipleWithCascade(
         IEnumerable<Func<Guid>> creators,
         Xywh basePos,
-        IReadOnlyList<(int X, int Y)> existingPositions)
+        IReadOnlyList<(int X, int Y)> existingPositions,
+        string? mergeLabel = null)
     {
         var createdIds = new List<Guid>();
         foreach (var create in creators)
@@ -166,7 +180,9 @@ public partial class MainViewModel
                 createdIds.Add(createdId);
         }
 
-        CascadeMoveCreatedEntities(createdIds, basePos, existingPositions);
+        // Multiple: N create transactions + 1 move transaction
+        CascadeMoveCreatedEntities(createdIds, basePos, existingPositions,
+            mergeCount: createdIds.Count + 1, mergeLabel: mergeLabel);
         return createdIds.Count > 0;
     }
 
@@ -175,19 +191,19 @@ public partial class MainViewModel
         TabKind tabKind,
         Guid rootId,
         Xywh basePos,
-        SiblingSnapshot before)
+        SiblingSnapshot before,
+        string? mergeLabel = null)
     {
         if (!TryEditorAction(create))
             return false;
 
-        CascadeMoveNewSiblingDiff(tabKind, rootId, basePos, before);
+        CascadeMoveNewSiblingDiff(tabKind, rootId, basePos, before, mergeLabel);
         return true;
     }
 
     private static string NormalizeApiName(string fullName) =>
         fullName.Contains('.') ? fullName[(fullName.IndexOf('.') + 1)..] : fullName;
 
-    private const int CascadeOffset = 30;
     private const int DefaultViewportCenterX = 1300;
     private const int DefaultViewportCenterY = 1000;
 
@@ -225,20 +241,45 @@ public partial class MainViewModel
 
     private Xywh CascadePosition(Xywh basePos, int index, IReadOnlyList<(int X, int Y)>? storePositions = null)
     {
-        var x = basePos.X + CascadeOffset * index;
-        var y = basePos.Y + CascadeOffset * index;
+        var gridX = UiDefaults.DefaultNodeWidth;
+        var gridY = UiDefaults.DefaultNodeHeight;
+        var maxX = 3000 - gridX;
+
+        var startX = (int)(Math.Round((double)basePos.X / gridX) * gridX);
+        var startY = (int)(Math.Round((double)basePos.Y / gridY) * gridY);
+        startX = Math.Clamp(startX, 0, maxX);
+        startY = Math.Max(startY, 0);
+
+        var cols = (maxX - startX) / gridX + 1;
+        int x, y;
+        if (cols > 0 && index >= cols)
+        {
+            x = startX + gridX * (index % cols);
+            y = startY + gridY * (index / cols);
+        }
+        else
+        {
+            x = startX + gridX * index;
+            y = startY;
+        }
 
         bool HasOverlap(int cx, int cy)
         {
-            if (Canvas.CanvasNodes.Any(n => Math.Abs(n.X - cx) < 10 && Math.Abs(n.Y - cy) < 10))
+            if (Canvas.CanvasNodes.Any(n => Math.Abs(n.X - cx) < gridX && Math.Abs(n.Y - cy) < gridY))
                 return true;
-            return storePositions?.Any(p => Math.Abs(p.X - cx) < 10 && Math.Abs(p.Y - cy) < 10) == true;
+            return storePositions?.Any(p => Math.Abs(p.X - cx) < gridX && Math.Abs(p.Y - cy) < gridY) == true;
         }
 
-        while (HasOverlap(x, y))
+        var maxAttempts = (3000 / gridX) * (2000 / gridY);
+        var attempts = 0;
+        while (HasOverlap(x, y) && attempts++ < maxAttempts)
         {
-            x += CascadeOffset;
-            y += CascadeOffset;
+            x += gridX;
+            if (x > maxX)
+            {
+                x = startX;
+                y += gridY;
+            }
         }
 
         return new Xywh(x, y, basePos.W, basePos.H);

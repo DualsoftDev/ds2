@@ -59,7 +59,39 @@ internal static class ConditionDropHelper
     }
 
     /// <summary>
-    /// 드롭된 Call의 ApiCall을 조회 → Picker → store.AddConditionWithApiCalls 호출.
+    /// 드롭된 Call의 ApiCall을 조회 → Picker → 선택된 ID 반환.
+    /// </summary>
+    private static IReadOnlyList<Guid>? ResolveApiCallIds(
+        DsStore store,
+        MainViewModel.HostBase host,
+        Guid sourceCallId,
+        Window? ownerWindow)
+    {
+        if (!host.TryRef(() => store.GetCallApiCallsForPanel(sourceCallId), out var rows))
+            return null;
+
+        if (rows.Length == 0)
+        {
+            host.SetStatusText("드롭된 Call에 ApiCall이 없습니다.");
+            return null;
+        }
+
+        if (rows.Length == 1)
+            return [rows[0].ApiCallId];
+
+        var choices = rows
+            .Select(r => new ApiCallPickerDialog.Choice(r.ApiCallId, $"{r.ApiDefDisplayName} / {r.Name}"))
+            .ToList();
+        var picker = new ApiCallPickerDialog(choices);
+        if (ownerWindow is not null) picker.Owner = ownerWindow;
+        else if (Application.Current.MainWindow is { } main) picker.Owner = main;
+        if (picker.ShowDialog() != true || picker.SelectedApiCallIds.Count == 0)
+            return null;
+        return picker.SelectedApiCallIds;
+    }
+
+    /// <summary>
+    /// 드롭된 Call의 ApiCall을 조회 → Picker → store.AddConditionWithApiCalls 호출 (새 조건 생성).
     /// PropertyPanelState, ConditionEditDialog, EditorCanvas에서 공용.
     /// </summary>
     internal static bool ExecuteConditionDrop(
@@ -70,37 +102,36 @@ internal static class ConditionDropHelper
         Guid droppedCallId,
         Window? ownerWindow = null)
     {
-        if (!host.TryRef(() => store.GetCallApiCallsForPanel(droppedCallId), out var rows))
+        var selectedIds = ResolveApiCallIds(store, host, droppedCallId, ownerWindow);
+        if (selectedIds is null)
             return false;
-
-        if (rows.Length == 0)
-        {
-            host.SetStatusText("드롭된 Call에 ApiCall이 없습니다.");
-            return false;
-        }
-
-        IReadOnlyList<Guid> selectedIds;
-        if (rows.Length == 1)
-        {
-            selectedIds = [rows[0].ApiCallId];
-        }
-        else
-        {
-            var choices = rows
-                .Select(r => new ApiCallPickerDialog.Choice(r.ApiCallId, $"{r.ApiDefDisplayName} / {r.Name}"))
-                .ToList();
-            var picker = new ApiCallPickerDialog(choices);
-            if (ownerWindow is not null) picker.Owner = ownerWindow;
-            else if (Application.Current.MainWindow is { } main) picker.Owner = main;
-            if (picker.ShowDialog() != true || picker.SelectedApiCallIds.Count == 0)
-                return false;
-            selectedIds = picker.SelectedApiCallIds;
-        }
 
         if (!host.TryAction(() => store.AddConditionWithApiCalls(targetCallId, condType, selectedIds)))
             return false;
 
         host.SetStatusText($"{selectedIds.Count} ApiCall(s) added to {condType}.");
+        return true;
+    }
+
+    /// <summary>
+    /// 드롭된 Call의 ApiCall을 조회 → Picker → store.AddApiCallsToConditionBatch 호출 (기존 조건에 추가).
+    /// </summary>
+    internal static bool ExecuteAddApiCallsToCondition(
+        DsStore store,
+        MainViewModel.HostBase host,
+        Guid targetCallId,
+        Guid targetConditionId,
+        Guid droppedCallId,
+        Window? ownerWindow = null)
+    {
+        var selectedIds = ResolveApiCallIds(store, host, droppedCallId, ownerWindow);
+        if (selectedIds is null)
+            return false;
+
+        if (!host.TryAction(() => store.AddApiCallsToConditionBatch(targetCallId, targetConditionId, selectedIds)))
+            return false;
+
+        host.SetStatusText($"{selectedIds.Count} ApiCall(s) added to condition.");
         return true;
     }
 }

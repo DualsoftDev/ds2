@@ -7,7 +7,7 @@
 [![F#](https://img.shields.io/badge/F%23-Core_Engine-378BBA?logo=fsharp&logoColor=white)](https://fsharp.org/)
 [![C#](https://img.shields.io/badge/C%23-WPF_UI-239120?logo=csharp&logoColor=white)](https://learn.microsoft.com/dotnet/csharp/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-249_passing-brightgreen)](#빌드-및-테스트)
+[![Tests](https://img.shields.io/badge/Tests-313_passing-brightgreen)](#빌드-및-테스트)
 
 ---
 
@@ -15,11 +15,12 @@
 
 </div>
 
-> **Last Sync:** 2026-03-31 — DsQuery 디렉토리 분리, Period→Duration 리네임, Properties 객체 통째 전달 리팩토링
+> **Last Sync:** 2026-04-02 — Ds2.View3D 병합, TagWizardDialog 파일 분리, I/O 일괄 편집 Work 컬럼 추가, Explorer 검색 개선, SkipUnmatch 고스트 노드
 
 ## 핵심 설계 원칙
 
 ```mermaid
+%%{init: {'theme': 'neutral'}}%%
 mindmap
   root((Promaker))
     편집 코어 분리
@@ -86,16 +87,20 @@ graph LR
   AASX["<b>Ds2.Aasx</b><br/>F#, AASX I/O"]
   MER["<b>Ds2.Mermaid</b><br/>F#, Mermaid 변환"]
   CSV["<b>Ds2.CSV</b><br/>F#, CSV I/O"]
+  IOL["<b>Ds2.IOList</b><br/>F#, I/O 신호 생성"]
   SIM["<b>Ds2.Runtime.Sim</b><br/>F#, 시뮬레이션"]
   RPT["<b>Ds2.Runtime.Sim.Report</b><br/>F#, 리포트"]
+  V3D["<b>Ds2.View3D.Core</b><br/>F#, 3D 시각화"]
 
   PM -->|편집 API| EDI
   PM -->|도메인 타입| CORE
   PM --> AASX
   PM --> MER
   PM --> CSV
+  PM --> IOL
   PM --> SIM
   PM --> RPT
+  PM --> V3D
   EDI --> STO
   STO --> CORE
   AASX --> EDI
@@ -104,9 +109,13 @@ graph LR
   MER --> CORE
   CSV --> EDI
   CSV --> CORE
+  IOL --> STO
+  IOL --> CORE
   SIM --> STO
   SIM --> CORE
   RPT --> SIM
+  V3D --> STO
+  V3D --> CORE
 
   style PM fill:#4a90d9,color:#fff,stroke:#2c5f8a
   style EDI fill:#7b68ee,color:#fff,stroke:#5a4db5
@@ -115,14 +124,18 @@ graph LR
   style AASX fill:#cd853f,color:#fff,stroke:#8b5e2b
   style MER fill:#cd853f,color:#fff,stroke:#8b5e2b
   style CSV fill:#cd853f,color:#fff,stroke:#8b5e2b
+  style IOL fill:#cd853f,color:#fff,stroke:#8b5e2b
   style SIM fill:#2e8b57,color:#fff,stroke:#1e6b47
   style RPT fill:#2e8b57,color:#fff,stroke:#1e6b47
+  style V3D fill:#4682b4,color:#fff,stroke:#2c5f8a
 ```
 
 > - 상위 레이어는 하위 레이어만 의존합니다
 > - `Ds2.Editor/Store → Ds2.Aasx` 순환 의존은 없습니다
 > - C#용 공유 타입(`EntityKind`, `TabKind` 등)은 `Ds2.Editor/Core/EditorTypes.fs`에서 정의
 > - 스토어 타입(`DsStore`)은 `Ds2.Store`에서 정의, 쿼리 모듈(`Queries`, `Format`, `Device` 등)은 `Ds2.Store.DsQuery` namespace에서 정의
+> - `Ds2.IOList`는 I/O 신호 생성/매칭 전용 — `SignalMatching`, `TagGeneration` 모듈 포함
+> - `Ds2.View3D.Core`는 3D 시각화 엔진 — 로봇(6축/SCARA/Delta 등) 모델 라이브러리 포함
 
 ---
 
@@ -246,11 +259,16 @@ graph TD
             AASX["Ds2.Aasx<br/><sub>AASX I/O<br/>14개 모듈</sub>"]
             MER["Ds2.Mermaid<br/><sub>Mermaid 변환<br/>12개 모듈</sub>"]
             CSV["Ds2.CSV<br/><sub>CSV I/O<br/>5개 모듈</sub>"]
+            IOL["Ds2.IOList<br/><sub>I/O 신호 생성<br/>12개 모듈</sub>"]
         end
 
         subgraph Sim["Simulation/"]
             SIM["Ds2.Runtime.Sim<br/><sub>시뮬레이션 엔진<br/>16개 모듈</sub>"]
             RPT["Ds2.Runtime.Sim.Report<br/><sub>리포트 생성</sub>"]
+        end
+
+        subgraph View["View/"]
+            V3D["Ds2.View3D.Core<br/><sub>3D 시각화 엔진<br/>8개 모듈</sub>"]
         end
 
         subgraph Tests["Tests/"]
@@ -259,6 +277,7 @@ graph TD
             T3["Integration.Tests<br/><sub>13개</sub>"]
             T4["Mermaid.Tests<br/><sub>31개</sub>"]
             T5["Promaker.Tests<br/><sub>31개</sub>"]
+            T6["View3D.Tests"]
         end
     end
 
@@ -271,10 +290,11 @@ graph TD
     style Core fill:#e3f2fd,stroke:#90caf9
     style Convert fill:#fff3e0,stroke:#ffcc80
     style Sim fill:#e8f5e9,stroke:#a5d6a7
+    style View fill:#e3f2fd,stroke:#90caf9
     style Tests fill:#fce4ec,stroke:#ef9a9a
 ```
 
-테스트 합계: **249개** (21 Core + 140 Store.Editor + 13 Integration + 21 Mermaid + 54 Promaker)
+테스트 합계: **313개** (21 Core + 154 Store.Editor + 15 Integration + 21 Mermaid + 73 Promaker + 29 View3D)
 
 ---
 
@@ -380,6 +400,45 @@ graph TD
 | `Export/Entry.fs` | `exportFromStore` 진입점 |
 | `Concepts/Builder.fs` | ConceptDescription 빌더 |
 | `Concepts/Catalog.fs` | 41개 IRDI 카탈로그 |
+
+</details>
+
+<details>
+<summary><b>Ds2.IOList — I/O 신호 생성 (F#)</b></summary>
+
+| 파일 | 역할 |
+|------|------|
+| `Types.fs` | I/O 신호 타입 정의 |
+| `AddressConfig.fs` | 주소 설정 (PLC 주소 패턴) |
+| `TemplateParser.fs` | 템플릿 파싱 |
+| `TagGeneration.fs` | IO 태그 자동 생성 (`$(F)`, `$(D)`, `$(A)` 플레이스홀더) |
+| `SignalGenerator.fs` | 신호 생성 엔진 |
+| `SignalMatching.fs` | 생성된 신호 ↔ DsStore 엔티티(IoBatchRow) 매칭 |
+| `Pipeline.fs` | 생성 파이프라인 오케스트레이션 |
+| `ContextBuilder.fs` | 생성 컨텍스트 빌더 |
+| `ExportTypes.fs` | 익스포트 타입 정의 |
+| `CsvImporter.fs` | CSV 가져오기 (9컬럼 레거시 + 10컬럼 Work 포함) |
+| `CsvExporter.fs` | CSV 내보내기 |
+| `ExcelExporter.fs` | Excel 내보내기 |
+
+</details>
+
+<details>
+<summary><b>Ds2.View3D.Core — 3D 시각화 엔진 (F#)</b></summary>
+
+| 파일 | 역할 |
+|------|------|
+| `Types.fs` | 3D 씬 타입 정의 |
+| `ContextBuilder.fs` | 디바이스/시스템 → 3D 컨텍스트 빌드 |
+| `SceneBuilder.fs` | 3D 씬 그래프 생성 |
+| `LayoutEngine.fs` | 자동 배치 알고리즘 |
+| `Interop.fs` | WebView2/JS 인터옵 |
+| `Persistence.fs` | 씬 상태 저장/복원 |
+| `ResultExtensions.fs` | Result 타입 확장 |
+| `Log.fs` | 로깅 |
+
+**로봇 3D 모델 라이브러리** (`wwwroot/models/`):
+Robot (Generic), Robot_6Axis (6축 산업용), Robot_SCARA, Robot_Delta, Robot_Gantry, Robot_Collaborative
 
 </details>
 
@@ -513,8 +572,20 @@ graph TD
 | `DurationBatchDialog.xaml(.cs)` | Duration 일괄 설정 |
 | `IoBatchSettingsDialog.xaml(.cs)` | I/O 태그 일괄 설정 |
 | `ValueSpecDialog.xaml(.cs)` | ValueSpec 독립 편집 |
+| `ConditionEditDialog.xaml(.cs)` | 조건 편집 다이얼로그 |
+| `TagWizardDialog.xaml(.cs)` | 태그 위저드 메인 다이얼로그 |
+| `TagWizardDialog.FileOperations.cs` | 태그 위저드 — 파일 I/O |
+| `TagWizardDialog.SignalGeneration.cs` | 태그 위저드 — 신호 생성 |
+| `TagWizardDialog.SignalApplication.cs` | 태그 위저드 — 신호 적용 |
+| `TagWizardDialog.TemplateAutoGeneration.cs` | 태그 위저드 — 템플릿 자동 생성 |
 | `DialogHelpers.cs` | 공통 다이얼로그 헬퍼 |
 | `BatchDialogHelper.cs` | 일괄편집 다이얼로그 헬퍼 |
+
+#### Windows/
+
+| 파일 | 역할 |
+|------|------|
+| `View3DWindow.xaml(.cs)` | 3D 시각화 창 (WebView2 기반) |
 
 </details>
 
@@ -524,10 +595,11 @@ graph TD
 | 프로젝트 | 역할 | 테스트 수 |
 |---------|------|:--------:|
 | `Ds2.Core.Tests` | Core 엔티티/DeepCopy/ValueSpec/JSON 단위 테스트 | 21 |
-| `Ds2.Store.Editor.Tests` | DsStore CRUD/Undo/Redo/캐스케이드/복사붙여넣기/패널/Projection/조건 테스트 | 140 |
-| `Ds2.Integration.Tests` | 통합 시나리오 테스트 (AASX 라운드트립 + Device 분리 저장) | 13 |
+| `Ds2.Store.Editor.Tests` | DsStore CRUD/Undo/Redo/캐스케이드/복사붙여넣기/패널/Projection/조건/UndoMerge 테스트 | 154 |
+| `Ds2.Integration.Tests` | 통합 시나리오 테스트 (AASX 라운드트립 + Device 분리 저장) | 15 |
 | `Ds2.Mermaid.Tests` | Mermaid 파서/매퍼/Undo 검증 | 21 |
-| `Promaker.Tests` | Promaker ViewModel/시뮬레이션 테스트 | 54 |
+| `Promaker.Tests` | Promaker ViewModel/시뮬레이션/Explorer 검색 테스트 | 73 |
+| `Ds2.View3D.Tests` | View3D ContextBuilder/LayoutEngine/SceneBuilder 테스트 | 29 |
 
 </details>
 

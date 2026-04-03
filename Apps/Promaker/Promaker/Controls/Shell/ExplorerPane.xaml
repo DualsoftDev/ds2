@@ -49,6 +49,7 @@
 
         <Style x:Key="TreeViewItemInteractiveStyle" TargetType="TreeViewItem" BasedOn="{StaticResource TreeViewItemBaseStyle}">
             <EventSetter Event="PreviewMouseLeftButtonDown" Handler="TreeViewItem_PreviewMouseLeftButtonDown"/>
+            <EventSetter Event="PreviewMouseLeftButtonUp" Handler="TreeViewItem_PreviewMouseLeftButtonUp"/>
             <EventSetter Event="PreviewMouseRightButtonDown" Handler="TreeViewItem_PreviewMouseRightButtonDown"/>
             <EventSetter Event="PreviewMouseMove" Handler="TreeViewItem_PreviewMouseMove_Drag"/>
         </Style>

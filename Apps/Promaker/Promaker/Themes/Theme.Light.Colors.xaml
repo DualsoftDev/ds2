@@ -50,6 +50,8 @@
     <Color x:Key="SimulationGoingBackgroundColor">#33D38A22</Color>
     <Color x:Key="SimulationFinishBackgroundColor">#332F7ED8</Color>
     <Color x:Key="SimulationHomingBackgroundColor">#338A8D92</Color>
+    <Color x:Key="SimulationSkipColor">#A0A4AA</Color>
+    <Color x:Key="SimulationSkipBackgroundColor">#33A0A4AA</Color>
 
     <!-- Gantt Bar Colors -->
     <Color x:Key="GanttBarReadyColor">#47A26A</Color>

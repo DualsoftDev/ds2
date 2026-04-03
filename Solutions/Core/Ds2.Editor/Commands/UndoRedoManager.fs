@@ -38,6 +38,16 @@ type UndoRedoManager(maxSize: int) =
     member _.PushUndo(tx: UndoTransaction) = undoStack.AddFirst(tx) |> ignore
     member _.PushRedo(tx: UndoTransaction) = redoStack.AddFirst(tx) |> ignore
 
+    member _.MergeTop(count: int, label: string) =
+        if count >= 2 && undoStack.Count >= count then
+            let records = ResizeArray<UndoRecord>()
+            for _ in 1 .. count do
+                match popFirst undoStack with
+                | Some tx -> records.InsertRange(0, tx.Records)
+                | None -> ()
+            undoStack.AddFirst({ Label = label; Records = Seq.toList records }) |> ignore
+            redoStack.Clear()
+
     member _.Clear() =
         undoStack.Clear()
         redoStack.Clear()

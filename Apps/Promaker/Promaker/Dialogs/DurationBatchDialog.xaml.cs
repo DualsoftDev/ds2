@@ -47,12 +47,12 @@ public partial class DurationBatchDialog : Window
     {
         if (obj is not DurationRow row) return false;
 
-        // Work 타입 필터
-        // 컨트롤 = ApiCall이 있는 Work (디바이스 통신)
-        // 디바이스 = ApiCall이 없는 Work (Flow 내부 로직)
-        if (ShowControlWorkRadio.IsChecked == true && !row.IsDeviceWork)
+        // Work type filter
+        // Control = Explorer Control tree (active system) work
+        // Device = Explorer Device tree (passive system) work
+        if (ShowControlWorkRadio.IsChecked == true && row.IsDeviceWork)
             return false;
-        if (ShowDeviceWorkRadio.IsChecked == true && row.IsDeviceWork)
+        if (ShowDeviceWorkRadio.IsChecked == true && !row.IsDeviceWork)
             return false;
 
         var flow = WorkFlowFilterBox.Text;
@@ -124,6 +124,14 @@ public partial class DurationBatchDialog : Window
     private void UncheckAll_Click(object sender, RoutedEventArgs e) =>
         BatchDialogHelper.UncheckAll(_workRows);
 
+    private void RowCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { DataContext: DurationRow row } checkBox)
+            return;
+
+        BatchDialogHelper.ApplyCheckStateToSelectedRows(WorkDurationGrid, row, checkBox.IsChecked == true);
+    }
+
     private void Grid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) =>
         BatchDialogHelper.DeselectOnEmptyAreaClick(sender, e);
 
@@ -162,6 +170,6 @@ public sealed class DurationRow : BatchRowBase
 
     public bool IsChanged => Duration != OriginalDuration;
 
-    // UI에 표시할 첫번째 컬럼 (디바이스=System, 컨트롤=Flow)
-    public string DisplayCategory => IsDeviceWork ? FlowName : SystemName;
+    // UI first column (Device=System, Control=Flow)
+    public string DisplayCategory => IsDeviceWork ? SystemName : FlowName;
 }

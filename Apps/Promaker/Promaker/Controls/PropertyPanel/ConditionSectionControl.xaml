@@ -50,25 +50,33 @@
             <ItemsControl ItemsSource="{Binding ItemsSource, ElementName=Root}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Grid Margin="4,2">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Button Grid.Column="0"
-                                    Content="x"
-                                    Style="{DynamicResource InlineListButton}"
-                                    Command="{Binding RemoveConditionCommand, ElementName=Root}"
-                                    CommandParameter="{Binding}"/>
-                            <TextBlock Grid.Column="1"
-                                       FontSize="10"
-                                       VerticalAlignment="Center"
-                                       TextTrimming="CharacterEllipsis"
-                                       ToolTip="{Binding FormulaText}"
-                                       Margin="4,0"
-                                       Loaded="FormulaBlock_Loaded"
-                                       DataContextChanged="FormulaBlock_DataContextChanged"/>
-                        </Grid>
+                        <Border AllowDrop="True"
+                                Background="Transparent"
+                                DragEnter="ConditionItem_DragEnter"
+                                DragLeave="ConditionItem_DragLeave"
+                                DragOver="ConditionItem_DragOver"
+                                Drop="ConditionItem_Drop"
+                                Tag="{Binding}">
+                            <Grid Margin="4,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0"
+                                        Content="x"
+                                        Style="{DynamicResource InlineListButton}"
+                                        Command="{Binding RemoveConditionCommand, ElementName=Root}"
+                                        CommandParameter="{Binding}"/>
+                                <TextBlock Grid.Column="1"
+                                           FontSize="10"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding FormulaText}"
+                                           Margin="4,0"
+                                           Loaded="FormulaBlock_Loaded"
+                                           DataContextChanged="FormulaBlock_DataContextChanged"/>
+                            </Grid>
+                        </Border>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
