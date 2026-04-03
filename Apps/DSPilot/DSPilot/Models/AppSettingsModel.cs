@@ -63,31 +63,33 @@ public class FlowCycleOverride
 
 public class PlcCaptureSettings
 {
-    public const string DefaultPlcName = "MitsubishiPLC";
-    public const string DefaultPlcIpAddress = "192.168.0.1";
-    public const int DefaultPlcPort = 9002;
+    // Mitsubishi 기본값
+    public const string DefaultMitsubishiName = "MitsubishiPLC";
+    public const string DefaultMitsubishiIp = "192.168.9.120";
+    public const int DefaultMitsubishiPort = 5555;
+    public const string DefaultMitsubishiProtocol = "UDP";
+
+    // LS 기본값
+    public const string DefaultLsName = "LSPLC";
+    public const string DefaultLsIp = "192.168.9.100";
+    public const int DefaultLsPort = 2004;
+    public const string DefaultLsModel = "XGI";
+
     public const int DefaultScanIntervalMs = 100;
-    public const string DefaultProtocol = "TCP";
     public const string DefaultPlcType = "Mitsubishi";
-    public const string DefaultPlcModel = "XGI";
 
     public bool Enabled { get; set; }
-
-    /// <summary>
-    /// PLC 타입: "Mitsubishi" 또는 "LS"
-    /// </summary>
     public string PlcType { get; set; } = DefaultPlcType;
-
-    public string PlcName { get; set; } = DefaultPlcName;
-    public string PlcIpAddress { get; set; } = DefaultPlcIpAddress;
-    public int PlcPort { get; set; } = DefaultPlcPort;
+    public string PlcName { get; set; } = DefaultMitsubishiName;
+    public string PlcIpAddress { get; set; } = DefaultMitsubishiIp;
+    public int PlcPort { get; set; } = DefaultMitsubishiPort;
     public int ScanIntervalMs { get; set; } = DefaultScanIntervalMs;
-    public string Protocol { get; set; } = DefaultProtocol;
+    public string Protocol { get; set; } = DefaultMitsubishiProtocol;
 
     /// <summary>
     /// LS PLC 모델: "XGI", "XGK", "XGT" (PlcType이 "LS"일 때 사용)
     /// </summary>
-    public string PlcModel { get; set; } = DefaultPlcModel;
+    public string PlcModel { get; set; } = DefaultLsModel;
 
     [JsonIgnore]
     public bool IsLS => PlcType.Equals("LS", StringComparison.OrdinalIgnoreCase);

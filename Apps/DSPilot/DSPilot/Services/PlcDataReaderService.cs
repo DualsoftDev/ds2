@@ -625,23 +625,20 @@ public class PlcDataReaderService : BackgroundService
     /// </summary>
     private async Task TryUpdateFlowStateAsync(IDspRepository dspRepo, string flowName, string callName, string callState)
     {
-        var flow = _dspDbService.Snapshot.Flows.FirstOrDefault(f => f.FlowName == flowName);
-        if (flow == null) return;
-
-        var fullCallId = $"{flowName}.{callName}";
+        var (headCallName, tailCallName) = _flowMetricsService.GetCycleBoundaryCallNames(flowName);
 
         var shouldUpdate = callState switch
         {
-            "Going"  => fullCallId == flow.MovingStartName,
-            "Finish" => fullCallId == flow.MovingEndName,
-            "Ready"  => fullCallId == flow.MovingEndName,
+            "Going"  => callName == headCallName,
+            "Finish" => callName == tailCallName,
+            "Ready"  => callName == tailCallName,
             _ => false
         };
 
         if (shouldUpdate)
         {
             await dspRepo.UpdateFlowStateAsync(flowName, callState);
-            _logger.LogInformation("Flow '{FlowName}' → {State} (by {CallId})", flowName, callState, fullCallId);
+            _logger.LogInformation("Flow '{FlowName}' → {State} (by {CallName})", flowName, callState, callName);
         }
     }
 

@@ -338,16 +338,20 @@ public class PlcCaptureService : IHostedService, IDisposable
 
         // ScanConfiguration 설정 - PLC 타입에 따라 분기
         var plcType = _configuration["PlcCapture:PlcType"] ?? PlcCaptureSettings.DefaultPlcType;
-        var plcIpAddress = _configuration["PlcCapture:PlcIpAddress"] ?? PlcCaptureSettings.DefaultPlcIpAddress;
-        var plcPort = _configuration.GetValue<int>("PlcCapture:PlcPort", PlcCaptureSettings.DefaultPlcPort);
-        var plcName = _configuration["PlcCapture:PlcName"] ?? PlcCaptureSettings.DefaultPlcName;
+        var isLS = plcType.Equals("LS", StringComparison.OrdinalIgnoreCase);
+
+        var plcIpAddress = _configuration["PlcCapture:PlcIpAddress"]
+            ?? (isLS ? PlcCaptureSettings.DefaultLsIp : PlcCaptureSettings.DefaultMitsubishiIp);
+        var plcPort = _configuration.GetValue<int?>("PlcCapture:PlcPort")
+            ?? (isLS ? PlcCaptureSettings.DefaultLsPort : PlcCaptureSettings.DefaultMitsubishiPort);
+        var plcName = _configuration["PlcCapture:PlcName"]
+            ?? (isLS ? PlcCaptureSettings.DefaultLsName : PlcCaptureSettings.DefaultMitsubishiName);
 
         Ev2.PLC.Common.InterfacesModule.IConnectionConfiguration connectionConfig;
 
-        if (plcType.Equals("LS", StringComparison.OrdinalIgnoreCase))
+        if (isLS)
         {
-            // LS PLC (XGI/XGK/XGT)
-            var plcModelStr = _configuration["PlcCapture:PlcModel"] ?? PlcCaptureSettings.DefaultPlcModel;
+            var plcModelStr = _configuration["PlcCapture:PlcModel"] ?? PlcCaptureSettings.DefaultLsModel;
             var lsModel = plcModelStr.ToUpperInvariant() switch
             {
                 "XGK" => LsPlcModel.XGK,
@@ -370,8 +374,7 @@ public class PlcCaptureService : IHostedService, IDisposable
         }
         else
         {
-            // Mitsubishi PLC
-            var protocolStr = _configuration["PlcCapture:Protocol"] ?? PlcCaptureSettings.DefaultProtocol;
+            var protocolStr = _configuration["PlcCapture:Protocol"] ?? PlcCaptureSettings.DefaultMitsubishiProtocol;
             var protocol = protocolStr.Equals("TCP", StringComparison.OrdinalIgnoreCase)
                 ? Ev2.PLC.Protocol.MX.TransportProtocol.TCP
                 : Ev2.PLC.Protocol.MX.TransportProtocol.UDP;

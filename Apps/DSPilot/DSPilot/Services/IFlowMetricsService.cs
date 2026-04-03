@@ -29,6 +29,11 @@ public interface IFlowMetricsService
     Task ApplyCycleBoundaryOverrideAsync(string flowName, string? startCallName, string? endCallName);
 
     /// <summary>
+    /// Flow의 사이클 시작/종료 Call 이름 조회 (런타임 기준)
+    /// </summary>
+    (string? HeadCallName, string? TailCallName) GetCycleBoundaryCallNames(string flowName);
+
+    /// <summary>
     /// Call Going 시작 이벤트 처리
     /// </summary>
     void OnCallGoingStarted(string flowName, string callName, DateTime timestamp);
