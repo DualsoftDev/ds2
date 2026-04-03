@@ -102,6 +102,7 @@ module internal ImportPlanDeviceOps =
                 |> List.tryFind (fun existing -> existing.Name = apiName)
                 |> Option.defaultWith (fun () ->
                     let created = Work(flow.Name, apiName, flow.Id)
+                    created.Properties.Duration <- Some (TimeSpan.FromMilliseconds 500.)
                     queueOperation (AddWork created) operations
                     created)
             let current = Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []

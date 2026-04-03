@@ -54,6 +54,18 @@ public partial class PropertyPanelState
     }
 
     [RelayCommand]
+    private void AddChildGroup(CallConditionItem? item)
+    {
+        if (item is null || SelectedNode is null) return;
+        if (!GuardSimulationSemanticEdit("하위 그룹 추가"))
+            return;
+        var callId = SelectedNode.Id;
+        if (!_host.TryAction(() => Store.AddChildCondition(callId, item.ConditionId, false)))
+            return;
+        RefreshCallPanel(callId);
+    }
+
+    [RelayCommand]
     private void EditConditions(ConditionSectionItem? section)
     {
         if (section is null || SelectedNode is null) return;

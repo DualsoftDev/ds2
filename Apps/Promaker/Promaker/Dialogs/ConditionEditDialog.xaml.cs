@@ -95,6 +95,36 @@ public partial class ConditionEditDialog : Window
 
     // ── ApiCall management ──
 
+    private void AddApiCallToCondition_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: CallConditionItem item }) return;
+        if (!_store.Calls.TryGetValue(_callId, out var call)) return;
+
+        var available = call.ApiCalls
+            .Select(ac => new { ac.Id, ac.Name })
+            .ToList();
+
+        // 현재 Flow의 모든 ApiCalls
+        var flowApiCalls = new List<ApiCallPickItem>();
+        if (_store.Works.TryGetValue(call.ParentId, out var parentWork)
+            && _store.Flows.TryGetValue(parentWork.ParentId, out var parentFlow))
+        {
+            foreach (var w in _store.Works.Values.Where(w => w.ParentId == parentFlow.Id))
+                foreach (var c in _store.Calls.Values.Where(c => c.ParentId == w.Id))
+                    foreach (var ac in c.ApiCalls)
+                        flowApiCalls.Add(new ApiCallPickItem(ac.Id, ac.Name, $"{w.LocalName}/{c.Name}"));
+        }
+
+        // 전체 System의 ApiCalls (Flow에 없는 것만)
+        var flowIds = flowApiCalls.Select(x => x.Id).ToHashSet();
+        var systemApiCalls = new List<ApiCallPickItem>();
+        foreach (var ac in _store.ApiCalls.Values)
+            if (!flowIds.Contains(ac.Id))
+                systemApiCalls.Add(new ApiCallPickItem(ac.Id, ac.Name, ""));
+
+        ShowApiCallPicker(item.ConditionId, flowApiCalls, systemApiCalls);
+    }
+
     private void RemoveApiCall_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { Tag: ConditionApiCallRow row }) return;
@@ -108,13 +138,17 @@ public partial class ConditionEditDialog : Window
         var dialog = new ApiCallSpecDialog(
             row.ApiCallName,
             row.OutputSpecText, row.OutputSpecTypeIndex,
-            "", 0);
+            row.InputSpecText, row.InputSpecTypeIndex);
         dialog.Owner = this;
         if (dialog.ShowDialog() != true) return;
         _host.TryAction(() =>
             _store.UpdateConditionApiCallOutputSpec(
                 _callId, row.ConditionId, row.ApiCallId,
                 dialog.OutSpecTypeIndex, dialog.OutSpecText));
+        _host.TryAction(() =>
+            _store.UpdateConditionApiCallInputSpec(
+                _callId, row.ConditionId, row.ApiCallId,
+                dialog.InSpecTypeIndex, dialog.InSpecText));
         ReloadList();
     }
 
@@ -169,6 +203,10 @@ public partial class ConditionEditDialog : Window
 
         var addChildBtn = CreateButton("+ 하위그룹", null, item, AddChildCondition_Click);
         headerPanel.Children.Add(addChildBtn);
+
+        var addApiBtn = CreateButton("+", "ApiCall 추가", item, AddApiCallToCondition_Click);
+        addApiBtn.FontWeight = FontWeights.Bold;
+        headerPanel.Children.Add(addApiBtn);
 
         panel.Children.Add(headerPanel);
 
@@ -244,5 +282,117 @@ public partial class ConditionEditDialog : Window
         return btn;
     }
 
+    private void ShowApiCallPicker(
+        Guid conditionId,
+        List<ApiCallPickItem> flowItems,
+        List<ApiCallPickItem> systemItems)
+    {
+        var bg = Application.Current.TryFindResource("SecondaryBackgroundBrush") as Brush;
+        var fg = Application.Current.TryFindResource("PrimaryTextBrush") as Brush;
+        var borderBrush = Application.Current.TryFindResource("BorderBrush") as Brush;
+
+        var picker = new Window
+        {
+            Title = "ApiCall 선택",
+            Width = 400, Height = 460,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ShowInTaskbar = false,
+            ResizeMode = ResizeMode.NoResize
+        };
+        if (bg is not null) picker.Background = bg;
+
+        var mainPanel = new StackPanel { Margin = new Thickness(10) };
+
+        // 검색
+        var searchBox = new TextBox
+        {
+            Margin = new Thickness(0, 0, 0, 8),
+            Padding = new Thickness(6, 4, 6, 4),
+            FontSize = 12
+        };
+        if (bg is not null) searchBox.Background = bg;
+        if (fg is not null) searchBox.Foreground = fg;
+        if (borderBrush is not null) searchBox.BorderBrush = borderBrush;
+        mainPanel.Children.Add(searchBox);
+
+        // 탭
+        var tabControl = new TabControl { Height = 320 };
+        if (bg is not null) tabControl.Background = bg;
+
+        var flowTab = CreatePickerTab("현재 Flow", flowItems, bg, fg);
+        var systemTab = CreatePickerTab("전체 System", systemItems, bg, fg);
+        tabControl.Items.Add(flowTab.tab);
+        tabControl.Items.Add(systemTab.tab);
+        mainPanel.Children.Add(tabControl);
+
+        // 검색 필터
+        searchBox.TextChanged += (_, _) =>
+        {
+            var filter = searchBox.Text.Trim();
+            ApplyPickerFilter(flowTab.listBox, flowItems, filter);
+            ApplyPickerFilter(systemTab.listBox, systemItems, filter);
+        };
+
+        // 추가 버튼
+        var okBtn = new Button
+        {
+            Content = "추가", Padding = new Thickness(20, 6, 20, 6),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        if (Application.Current.TryFindResource("DarkButton") is Style s)
+            okBtn.Style = s;
+        okBtn.Click += (_, _) => { picker.DialogResult = true; picker.Close(); };
+        mainPanel.Children.Add(okBtn);
+
+        picker.Content = mainPanel;
+        if (picker.ShowDialog() != true) return;
+
+        // 모든 탭에서 선택된 항목 수집
+        var selectedIds = new List<Guid>();
+        CollectSelected(flowTab.listBox, selectedIds);
+        CollectSelected(systemTab.listBox, selectedIds);
+
+        if (selectedIds.Count == 0) return;
+        _host.TryAction(() => _store.AddApiCallsToConditionBatch(_callId, conditionId, selectedIds));
+        ReloadList();
+    }
+
+    private static (TabItem tab, ListBox listBox) CreatePickerTab(string header, List<ApiCallPickItem> items, Brush? bg, Brush? fg)
+    {
+        var listBox = new ListBox
+        {
+            SelectionMode = SelectionMode.Multiple,
+            DisplayMemberPath = "Display",
+            FontSize = 12
+        };
+        if (bg is not null) listBox.Background = bg;
+        if (fg is not null) listBox.Foreground = fg;
+        listBox.ItemsSource = items;
+
+        var tab = new TabItem { Header = $"{header} ({items.Count})", Content = listBox };
+        return (tab, listBox);
+    }
+
+    private static void ApplyPickerFilter(ListBox listBox, List<ApiCallPickItem> source, string filter)
+    {
+        listBox.ItemsSource = string.IsNullOrEmpty(filter)
+            ? source
+            : source.Where(a => a.Display.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private static void CollectSelected(ListBox listBox, List<Guid> ids)
+    {
+        foreach (var item in listBox.SelectedItems)
+            if (item is ApiCallPickItem pick)
+                ids.Add(pick.Id);
+    }
+
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
+}
+
+internal sealed record ApiCallPickItem(Guid Id, string Name, string Context)
+{
+    public string Display => string.IsNullOrEmpty(Context) ? Name : $"{Name}  ({Context})";
 }

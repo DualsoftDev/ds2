@@ -57,39 +57,53 @@
                                             Margin="2,2">
                                         <StackPanel>
                                             <!-- Condition header -->
-                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                                <Button Content="x"
+                                            <Grid Margin="0,0,0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                                    <Button Content="x"
+                                                            Style="{StaticResource DarkButton}"
+                                                            Padding="6,2"
+                                                            FontSize="10"
+                                                            Margin="0,0,6,0"
+                                                            ToolTip="조건 삭제"
+                                                            Tag="{Binding}"
+                                                            Click="RemoveCondition_Click"/>
+                                                    <CheckBox Content="OR"
+                                                              IsChecked="{Binding IsOR, Mode=OneWay}"
+                                                              Foreground="{DynamicResource PrimaryTextBrush}"
+                                                              Margin="0,0,8,0"
+                                                              VerticalAlignment="Center"
+                                                              FontSize="11"
+                                                              Tag="{Binding}"
+                                                              Click="ToggleOR_Click"/>
+                                                    <CheckBox Content="Rising"
+                                                              IsChecked="{Binding IsRising, Mode=OneWay}"
+                                                              Foreground="{DynamicResource PrimaryTextBrush}"
+                                                              Margin="0,0,8,0"
+                                                              VerticalAlignment="Center"
+                                                              FontSize="11"
+                                                              Tag="{Binding}"
+                                                              Click="ToggleRising_Click"/>
+                                                    <Button Content="+ 하위그룹"
+                                                            Style="{StaticResource DarkButton}"
+                                                            Padding="8,2"
+                                                            FontSize="10"
+                                                            Tag="{Binding}"
+                                                            Click="AddChildCondition_Click"/>
+                                                </StackPanel>
+                                                <Button Grid.Column="1"
+                                                        Content="+"
                                                         Style="{StaticResource DarkButton}"
                                                         Padding="6,2"
-                                                        FontSize="10"
-                                                        Margin="0,0,6,0"
-                                                        ToolTip="조건 삭제"
+                                                        FontSize="12"
+                                                        FontWeight="Bold"
+                                                        ToolTip="ApiCall 추가"
                                                         Tag="{Binding}"
-                                                        Click="RemoveCondition_Click"/>
-                                                <CheckBox Content="OR"
-                                                          IsChecked="{Binding IsOR, Mode=OneWay}"
-                                                          Foreground="{DynamicResource PrimaryTextBrush}"
-                                                          Margin="0,0,8,0"
-                                                          VerticalAlignment="Center"
-                                                          FontSize="11"
-                                                          Tag="{Binding}"
-                                                          Click="ToggleOR_Click"/>
-                                                <CheckBox Content="Rising"
-                                                          IsChecked="{Binding IsRising, Mode=OneWay}"
-                                                          Foreground="{DynamicResource PrimaryTextBrush}"
-                                                          Margin="0,0,8,0"
-                                                          VerticalAlignment="Center"
-                                                          FontSize="11"
-                                                          Tag="{Binding}"
-                                                          Click="ToggleRising_Click"/>
-                                                <Button Content="+ 하위그룹"
-                                                        Style="{StaticResource DarkButton}"
-                                                        Padding="8,2"
-                                                        FontSize="10"
-                                                        Tag="{Binding}"
-                                                        Click="AddChildCondition_Click"/>
-                                            </StackPanel>
-                                            <!-- ApiCall items -->
+                                                        Click="AddApiCallToCondition_Click"/>
+                                            </Grid>
                                             <ItemsControl ItemsSource="{Binding Items}" Margin="12,0,0,0">
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate>

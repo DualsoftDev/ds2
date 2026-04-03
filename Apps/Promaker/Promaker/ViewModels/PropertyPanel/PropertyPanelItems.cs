@@ -172,6 +172,8 @@ public sealed class ConditionApiCallRow
         ApiDefDisplayName    = item.ApiDefDisplayName;
         OutputSpecText       = item.OutputSpecText;
         OutputSpecTypeIndex  = item.OutputSpecTypeIndex;
+        InputSpecText        = item.InputSpecText;
+        InputSpecTypeIndex   = item.InputSpecTypeIndex;
     }
 
     public Guid   CallId               { get; }
@@ -181,6 +183,8 @@ public sealed class ConditionApiCallRow
     public string ApiDefDisplayName    { get; }
     public string OutputSpecText       { get; }
     public int    OutputSpecTypeIndex  { get; }
+    public string InputSpecText        { get; }
+    public int    InputSpecTypeIndex   { get; }
 }
 
 public sealed class ConditionSectionItem : ObservableObject
