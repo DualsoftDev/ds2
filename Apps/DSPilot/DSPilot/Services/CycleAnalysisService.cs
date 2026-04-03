@@ -343,6 +343,25 @@ public class CycleAnalysisService
     }
 
     /// <summary>
+    /// 시간 범위 내 사이클 경계(rising edge) 시각 목록 조회 (경량).
+    /// Gantt 차트에서 idle 사이클 구간 표시용.
+    /// </summary>
+    public async Task<List<DateTime>> GetCycleBoundaryTimesAsync(string flowName, DateTime startTime, DateTime endTime)
+    {
+        var flow = GetFlowByName(flowName);
+        if (flow == null) return new();
+
+        var headCall = GetHeadCall(flow);
+        if (headCall == null) return new();
+
+        var tags = _mapperService.GetCallTagsByCallId(headCall.Id);
+        if (!tags.HasValue || string.IsNullOrEmpty(tags.Value.InTag)) return new();
+
+        var edges = await _plcRepository.FindRisingEdgesAsync(tags.Value.InTag, startTime, endTime);
+        return edges;
+    }
+
+    /// <summary>
     /// 시간 범위 기준 IO 이벤트를 읽어 Gantt 렌더 데이터로 변환한다.
     /// </summary>
     public async Task<GanttChartData> GetIOEventsInTimeRangeAsync(

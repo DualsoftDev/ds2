@@ -330,7 +330,8 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
             ToFSharpOption(entity.WT),
             ToFSharpOption(entity.CT),
             ToFSharpOption(entity.CycleNo),
-            entity.RecordedAt
+            entity.RecordedAt,
+            entity.IsIdle
         );
     }
 
@@ -344,7 +345,8 @@ public class DspRepositoryAdapter : Repositories.IDspRepository
             WT = FromFSharpOptionStruct(entity.WT),
             CT = FromFSharpOptionStruct(entity.CT),
             CycleNo = FromFSharpOptionStruct(entity.CycleNo),
-            RecordedAt = entity.RecordedAt
+            RecordedAt = entity.RecordedAt,
+            IsIdle = entity.IsIdle
         };
     }
 }

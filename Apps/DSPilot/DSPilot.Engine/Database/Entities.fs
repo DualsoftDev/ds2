@@ -120,16 +120,18 @@ type DspFlowHistoryEntity =
       WT: int option
       CT: int option
       CycleNo: int option
-      RecordedAt: DateTime }
+      RecordedAt: DateTime
+      IsIdle: bool }
 
-    static member Create(flowName: string, mt: int option, wt: int option, ct: int option, cycleNo: int option) =
+    static member Create(flowName: string, mt: int option, wt: int option, ct: int option, cycleNo: int option, isIdle: bool) =
         { Id = 0
           FlowName = flowName
           MT = mt
           WT = wt
           CT = ct
           CycleNo = cycleNo
-          RecordedAt = DateTime.UtcNow }
+          RecordedAt = DateTime.UtcNow
+          IsIdle = isIdle }
 
 /// DSP Database snapshot (used by DspDbService)
 type DspDbSnapshot =

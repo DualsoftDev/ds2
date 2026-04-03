@@ -16,17 +16,20 @@ public class HeatmapService
     private readonly IDspRepository _dspRepository;
     private readonly IPlcRepository _plcRepository;
     private readonly PlcToCallMapperService _mapperService;
+    private readonly AppSettingsService _settingsService;
     private readonly ILogger<HeatmapService> _logger;
 
     public HeatmapService(
         IDspRepository dspRepository,
         IPlcRepository plcRepository,
         PlcToCallMapperService mapperService,
+        AppSettingsService settingsService,
         ILogger<HeatmapService> logger)
     {
         _dspRepository = dspRepository;
         _plcRepository = plcRepository;
         _mapperService = mapperService;
+        _settingsService = settingsService;
         _logger = logger;
     }
 
@@ -328,6 +331,7 @@ public class HeatmapService
         // InTag↔OutTag 순서 매칭 → GoingTime 계산
         int outIndex = 0;
         int executionNumber = 0;
+        var maxGoingTime = _settingsService.LoadSettings().HistoryView.MaxCallGoingTimeMs;
 
         foreach (var inTime in inTagEdges)
         {
@@ -342,8 +346,8 @@ public class HeatmapService
             var outTime = outTagEdges[outIndex];
             var goingTimeMs = (int)(outTime - inTime).TotalMilliseconds;
 
-            // 비정상적으로 긴 시간 필터링 (30초 이상은 제외)
-            if (goingTimeMs > 0 && goingTimeMs < 30000)
+            // 비정상적으로 긴 시간 필터링 (설정값 초과 시 제외)
+            if (goingTimeMs > 0 && goingTimeMs < maxGoingTime)
             {
                 executionNumber++;
                 records.Add(new CallExecutionRecord

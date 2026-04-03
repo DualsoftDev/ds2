@@ -181,19 +181,27 @@
 
         @* 오른쪽 열: 히스토리 필터 + PLC 데이터베이스 *@
         <div class="grid-item-6" style="display:flex; flex-direction:column; gap:16px;">
-            @* 히스토리 보기 필터 설정 *@
+            @* 필터 설정 (히스토리 보기 + 유휴 사이클 판정) *@
             <div class="card" style="box-shadow: var(--shadow-2);">
                 <div class="card-header">
                     <span class="material-icons mr-2">filter_list</span>
-                    <h6 class="typo-h6">히스토리 보기 필터</h6>
+                    <h6 class="typo-h6">필터</h6>
                 </div>
                 <div class="card-content">
                     <div style="padding:8px 12px; margin-bottom:12px; background:var(--color-surface-variant, #f5f5f5); border-radius:6px; border-left:3px solid var(--color-primary);">
                         <small style="color: var(--color-text-secondary); line-height:1.5;">
-                            대시보드와 동작편차 페이지에 표시되는 데이터 범위를 설정합니다.<br/>
-                            이 설정은 변겅 후 저장하면 서버 재시작 없이 즉시 적용됩니다.
+                            저장하면 서버 재시작 없이 즉시 적용됩니다.
                         </small>
                     </div>
+
+                    @* 히스토리 보기 *@
+                    <h6 class="typo-subtitle2" style="margin-bottom:8px; color:var(--color-text-primary);">
+                        <span class="material-icons" style="font-size:16px; vertical-align:middle; margin-right:4px;">history</span>
+                        히스토리 보기
+                    </h6>
+                    <small style="color: var(--color-text-secondary); display:block; margin-bottom:8px;">
+                        대시보드와 동작편차 페이지에 표시되는 데이터 범위를 설정합니다.
+                    </small>
                     <div class="form-group mb-3">
                         <label class="form-label">필터 기준</label>
                         <select class="form-select" @bind="_settings.HistoryView.FilterMode">
@@ -205,7 +213,7 @@
                     </div>
                     @if (_settings.HistoryView.FilterMode == "Cycles")
                     {
-                        <div class="form-group">
+                        <div class="form-group mb-3">
                             <label class="form-label">최근 사이클 수</label>
                             <input type="number" class="form-field" @bind="_settings.HistoryView.MaxCycles"
                                    min="10" max="10000" placeholder="100" />
@@ -216,7 +224,7 @@
                     }
                     @if (_settings.HistoryView.FilterMode == "Days")
                     {
-                        <div class="form-group">
+                        <div class="form-group mb-3">
                             <label class="form-label">최근 일수</label>
                             <input type="number" class="form-field" @bind="_settings.HistoryView.MaxDays"
                                    min="1" max="365" placeholder="7" />
@@ -231,7 +239,7 @@
                             <label class="form-label">시작 날짜</label>
                             <input type="date" class="form-field" @bind="StartTimeDate" />
                         </div>
-                        <div class="form-group">
+                        <div class="form-group mb-3">
                             <label class="form-label">시작 시간</label>
                             <input type="time" class="form-field" @bind="StartTimeTime" />
                             <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
@@ -239,6 +247,61 @@
                             </small>
                         </div>
                     }
+
+                    <hr style="border:none; border-top:1px solid var(--color-lines, #e0e0e0); margin:16px 0;" />
+
+                    @* 유휴 사이클 판정 *@
+                    <h6 class="typo-subtitle2" style="margin-bottom:8px; color:var(--color-text-primary);">
+                        <span class="material-icons" style="font-size:16px; vertical-align:middle; margin-right:4px;">timer_off</span>
+                        유휴 사이클 판정
+                    </h6>
+                    <small style="color: var(--color-text-secondary); display:block; margin-bottom:8px;">
+                        CT가 제한값을 초과하면 유휴 사이클로 판정합니다.
+                        대시보드·동작편차·Flow 평균에서 제외되며, 사이클 분석에서는 회색 배경으로 표시됩니다.
+                    </small>
+                    <div class="form-group">
+                        <label class="form-label">사이클 시간 제한</label>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <div style="display:flex; align-items:center; gap:4px;">
+                                <input type="number" class="form-field" style="width:70px; text-align:center;"
+                                       @bind="MaxCycleHours" min="0" max="99" />
+                                <span style="font-size:13px; color:var(--color-text-secondary);">시</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:4px;">
+                                <input type="number" class="form-field" style="width:70px; text-align:center;"
+                                       @bind="MaxCycleMinutes" min="0" max="59" />
+                                <span style="font-size:13px; color:var(--color-text-secondary);">분</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:4px;">
+                                <input type="number" class="form-field" style="width:70px; text-align:center;"
+                                       @bind="MaxCycleSeconds" min="0" max="59" />
+                                <span style="font-size:13px; color:var(--color-text-secondary);">초</span>
+                            </div>
+                        </div>
+                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                            가장 긴 Flow의 평균 CT + 여유시간으로 설정하세요. 모두 0이면 비활성
+                        </small>
+                    </div>
+
+                    <hr style="border:none; border-top:1px solid var(--color-lines, #e0e0e0); margin:16px 0;" />
+
+                    @* 개별 Call 최대 실행시간 *@
+                    <h6 class="typo-subtitle2" style="margin-bottom:8px; color:var(--color-text-primary);">
+                        <span class="material-icons" style="font-size:16px; vertical-align:middle; margin-right:4px;">speed</span>
+                        개별 Call 최대 실행시간
+                    </h6>
+                    <small style="color: var(--color-text-secondary); display:block; margin-bottom:8px;">
+                        개별 Call의 GoingTime이 이 값을 초과하면 동작편차 통계에서 제외합니다.
+                    </small>
+                    <div class="form-group">
+                        <label class="form-label">최대 실행시간 (ms)</label>
+                        <input type="number" class="form-field"
+                               @bind="_settings.HistoryView.MaxCallGoingTimeMs"
+                               min="1000" max="600000" placeholder="30000" />
+                        <small style="color: var(--color-text-secondary); margin-top: 4px; display: block;">
+                            기본: 30,000ms (30초)
+                        </small>
+                    </div>
                 </div>
             </div>
 
@@ -391,6 +454,25 @@ else
                 : DateOnly.FromDateTime(DateTime.Now);
             _settings.HistoryView.StartTime = date.ToDateTime(value);
         }
+    }
+
+    // MaxCycleTimeMs ↔ 시/분/초 변환 프로퍼티
+    private int MaxCycleHours
+    {
+        get => _settings?.HistoryView.MaxCycleTimeMs / 3_600_000 ?? 0;
+        set { if (_settings is not null) _settings.HistoryView.MaxCycleTimeMs = value * 3_600_000 + MaxCycleMinutes * 60_000 + MaxCycleSeconds * 1_000; }
+    }
+
+    private int MaxCycleMinutes
+    {
+        get => (_settings?.HistoryView.MaxCycleTimeMs ?? 0) % 3_600_000 / 60_000;
+        set { if (_settings is not null) _settings.HistoryView.MaxCycleTimeMs = MaxCycleHours * 3_600_000 + value * 60_000 + MaxCycleSeconds * 1_000; }
+    }
+
+    private int MaxCycleSeconds
+    {
+        get => (_settings?.HistoryView.MaxCycleTimeMs ?? 0) % 60_000 / 1_000;
+        set { if (_settings is not null) _settings.HistoryView.MaxCycleTimeMs = MaxCycleHours * 3_600_000 + MaxCycleMinutes * 60_000 + value * 1_000; }
     }
 
     // DB ConnectionString 분리 편집용 필드
