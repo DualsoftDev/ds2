@@ -24,13 +24,7 @@ type Project [<JsonConstructor>] internal (name) =
 
 type DsSystem [<JsonConstructor>] internal (name) =
     inherit DsEntity(name)
-    
-    // ========== 도메인별 서브모델 속성 (5개) ==========
-    member val SimulationProperties: SimulationSystemProperties option = None with get, set
-    member val ControlProperties: ControlSystemProperties option = None with get, set
-    member val MonitoringProperties: MonitoringSystemProperties option = None with get, set
-    member val LoggingProperties: LoggingSystemProperties option = None with get, set
-    member val MaintenanceProperties: MaintenanceSystemProperties option = None with get, set
+    member val Properties = ResizeArray<SystemSubmodelProperty>() with get, set
 
     member val IRI : string option = None with get, set
 
@@ -39,26 +33,15 @@ type DsSystem [<JsonConstructor>] internal (name) =
 
 type Flow [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
+    member val Properties = ResizeArray<FlowSubmodelProperty>() with get, set
 
-    // ========== 도메인별 서브모델 속성 (5개) ==========
-    member val SimulationProperties: SimulationFlowProperties option = None with get, set
-    member val ControlProperties: ControlFlowProperties option = None with get, set
-    member val MonitoringProperties: MonitoringFlowProperties option = None with get, set
-    member val LoggingProperties: LoggingFlowProperties option = None with get, set
-    member val MaintenanceProperties: MaintenanceFlowProperties option = None with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, parentId: Guid) =
     inherit DsChild("", parentId)
-    
-    // ========== 도메인별 서브모델 속성 (5개) ==========
-    member val SimulationProperties: SimulationWorkProperties option = None with get, set
-    member val ControlProperties: ControlWorkProperties option = None with get, set
-    member val MonitoringProperties: MonitoringWorkProperties option = None with get, set
-    member val LoggingProperties: LoggingWorkProperties option = None with get, set
-    member val MaintenanceProperties: MaintenanceWorkProperties option = None with get, set
-
+    member val Properties = ResizeArray<WorkSubmodelProperty>() with get, set
+   
     /// 부모 Flow의 이름 (자동 설정, Flow rename 시 cascade)
     member val FlowPrefix  = (if isNull flowPrefix then "" else flowPrefix) with get, set
     /// Work 고유 이름 (사용자가 입력하는 부분)
@@ -88,14 +71,8 @@ type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, p
 //   CallCondition → ApiCall
 type Call [<JsonConstructor>] internal (devicesAlias: string, apiName: string, parentId: Guid) =
     inherit DsChild("", parentId)
+    member val Properties = ResizeArray<CallSubmodelProperty>() with get, set
     
-    // ========== 도메인별 서브모델 속성 (5개) ==========
-    member val SimulationProperties: SimulationCallProperties option = None with get, set
-    member val ControlProperties: ControlCallProperties option = None with get, set
-    member val MonitoringProperties: MonitoringCallProperties option = None with get, set
-    member val LoggingProperties: LoggingCallProperties option = None with get, set
-    member val MaintenanceProperties: MaintenanceCallProperties option = None with get, set
-
     member val Status4        : Status4 = Status4.Ready      with get, set
     member val Position       : Xywh option = None           with get, set
     member val ApiCalls       = ResizeArray<ApiCall>()       with get, set

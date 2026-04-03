@@ -71,7 +71,7 @@ internal static class DemoLibraryBuilder
 
     private static void ConfigureDemoSystem(DsSystem system, DemoDocumentSeed document, DemoSystemSeed seed)
     {
-        system.SimulationProperties = FSharpOption<SimulationSystemProperties>.Some(new SimulationSystemProperties
+        system.SetSimulationProperties(new SimulationSystemProperties
         {
             Description = CostSimStoreHelper.ToOption(seed.Description),
             EngineVersion = CostSimStoreHelper.ToOption("CostSim EventDriven 2026"),
@@ -82,28 +82,32 @@ internal static class DemoLibraryBuilder
             SystemType = CostSimStoreHelper.ToOption(seed.SystemType),
             SimulationMode = "EventDriven",
             EnablePhysicsSimulation = false,
-            EnableCollisionDetection = false,
             EnableBreakpoints = true,
             RandomSeed = FSharpOption<int>.Some(seed.RandomSeed),
             UseRandomVariation = true,
-            VariationPercentage = 6.5,
-            EnableCostSimulation = true,
+            VariationPercentage = 6.5
+        });
+
+        system.SetCostAnalysisProperties(new CostAnalysisSystemProperties
+        {
+            EnableCostAnalysis = true,
             DefaultCurrency = "KRW",
             EnableOEETracking = true,
             OEECalculationInterval = TimeSpan.FromMinutes(30),
             TargetOEE = seed.TargetOee,
             EnableCapacitySimulation = true,
             ProductionLineCount = 1,
-            ShiftPattern = SimShiftPattern.TwoShift,
+            ShiftPattern = "TwoShift",
             ShiftDuration = TimeSpan.FromHours(10),
             EnableBOMTracking = true,
-            EnableInventorySimulation = true
+            EnableInventorySimulation = true,
+            EnableCollisionDetection = false
         });
     }
 
     private static void ConfigureDemoFlow(Flow flow, DemoFlowSeed seed)
     {
-        flow.SimulationProperties = FSharpOption<SimulationFlowProperties>.Some(new SimulationFlowProperties
+        flow.SetSimulationProperties(new SimulationFlowProperties
         {
             Description = CostSimStoreHelper.ToOption(seed.Description),
             FlowSimulationEnabled = true,
@@ -146,7 +150,7 @@ internal static class DemoLibraryBuilder
         props.EnableResourceContention = true;
         props.SequenceOrder = sequenceOrder;
         props.ResourceLockDuration = FSharpOption<TimeSpan>.Some(TimeSpan.FromSeconds(Math.Max(12.0, seed.DurationSeconds * 0.35)));
-        props.SkillLevel = seed.SkillLevel;
+        props.SkillLevel = seed.SkillLevel.ToString();
         props.ReworkRate = seed.ActualProductionQty > 0 ? (double)seed.ReworkQty / seed.ActualProductionQty : 0.0;
         props.PlannedOperatingTime = TimeSpan.FromHours(seed.PlannedOperatingHours);
         props.ActualOperatingTime = TimeSpan.FromHours(seed.ActualOperatingHours);
@@ -158,13 +162,13 @@ internal static class DemoLibraryBuilder
         props.DefectQty = seed.DefectQty;
         props.ReworkQty = seed.ReworkQty;
 
-        var availability = SimulationHelpers.calculateAvailability(props.ActualOperatingTime, props.PlannedOperatingTime);
-        var performance = SimulationHelpers.calculatePerformance(props.ActualProductionQty, props.StandardCycleTime, props.ActualOperatingTime);
-        var quality = SimulationHelpers.calculateQuality(props.GoodProductQty, props.ActualProductionQty);
+        var availability = CostAnalysisHelpers.calculateAvailability(props.ActualOperatingTime, props.PlannedOperatingTime);
+        var performance = CostAnalysisHelpers.calculatePerformance(props.ActualProductionQty, props.StandardCycleTime, props.ActualOperatingTime);
+        var quality = CostAnalysisHelpers.calculateQuality(props.GoodProductQty, props.ActualProductionQty);
         props.Availability = FSharpOption<double>.Some(availability);
         props.Performance = FSharpOption<double>.Some(performance);
         props.Quality = FSharpOption<double>.Some(quality);
-        props.OEE = FSharpOption<double>.Some(SimulationHelpers.calculateOEE(availability, performance, quality));
+        props.OEE = FSharpOption<double>.Some(CostAnalysisHelpers.calculateOEE(availability, performance, quality));
 
         work.TokenRole = TokenRole.None;
         if (seed.IsSource)

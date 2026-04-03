@@ -934,7 +934,7 @@ public partial class MainWindow : Window
 
     private LibraryCatalogNode BuildLibrarySystemNode(string filePath, DsStore sourceStore, DsSystem system)
     {
-        var props = system.SimulationProperties is { } simProps ? simProps.Value : null;
+        var props = system.GetCostAnalysisProperties() is { } simProps ? simProps.Value : null;
         var systemType = ReadOption(props?.SystemType);
         var flows = GetFlowsInSystem(sourceStore, system.Id).ToList();
         var works = flows.Sum(flow => GetOrderedWorksInFlow(sourceStore, flow.Id).Count());
@@ -959,7 +959,7 @@ public partial class MainWindow : Window
 
     private LibraryCatalogNode BuildLibraryFlowNode(string filePath, DsStore sourceStore, Flow flow)
     {
-        var props = flow.SimulationProperties is { } simProps ? simProps.Value : null;
+        var props = flow.GetSimulationProperties() is { } simProps ? simProps.Value : null;
         var mode = string.IsNullOrWhiteSpace(props?.FlowSimulationMode) ? "TreeOrder" : props!.FlowSimulationMode;
         var works = GetOrderedWorksInFlow(sourceStore, flow.Id).ToList();
 
@@ -1069,7 +1069,7 @@ public partial class MainWindow : Window
 
     private TreeNodeItem BuildSystemNode(DsSystem system, Guid projectId)
     {
-        var props = system.SimulationProperties is { } simProps ? simProps.Value : null;
+        var props = system.GetCostAnalysisProperties() is { } simProps ? simProps.Value : null;
         var systemType = ReadOption(props?.SystemType);
         var currency = props?.DefaultCurrency ?? "KRW";
         var displayType = string.IsNullOrWhiteSpace(systemType) ? "System" : systemType;
@@ -1092,7 +1092,7 @@ public partial class MainWindow : Window
 
     private TreeNodeItem BuildFlowNode(Flow flow, Guid systemId)
     {
-        var props = flow.SimulationProperties is { } simProps ? simProps.Value : null;
+        var props = flow.GetSimulationProperties() is { } simProps ? simProps.Value : null;
         var mode = string.IsNullOrWhiteSpace(props?.FlowSimulationMode) ? "TreeOrder" : props!.FlowSimulationMode;
         var works = GetOrderedWorksInFlow(flow.Id).ToList();
 
@@ -1381,7 +1381,7 @@ public partial class MainWindow : Window
             return;
 
         SystemPanel.Visibility = Visibility.Visible;
-        var props = system.SimulationProperties is { } simProps ? simProps.Value : null;
+        var props = system.GetCostAnalysisProperties() is { } simProps ? simProps.Value : null;
         SystemTypeTextBox.Text = ReadOption(props?.SystemType);
         SystemCurrencyTextBox.Text = props?.DefaultCurrency ?? "KRW";
         SystemEnableCostCheckBox.IsChecked = props?.EnableCostSimulation ?? true;
@@ -1393,7 +1393,7 @@ public partial class MainWindow : Window
             return;
 
         FlowPanel.Visibility = Visibility.Visible;
-        var props = flow.SimulationProperties is { } simProps ? simProps.Value : null;
+        var props = flow.GetSimulationProperties() is { } simProps ? simProps.Value : null;
         FlowEnabledCheckBox.IsChecked = props?.FlowSimulationEnabled ?? true;
         FlowModeTextBox.Text = string.IsNullOrWhiteSpace(props?.FlowSimulationMode) ? "TreeOrder" : props!.FlowSimulationMode;
         FlowSequencePreviewTextBox.Text = BuildFlowSequencePreview(flowId);
@@ -1485,7 +1485,7 @@ public partial class MainWindow : Window
             case LibraryNodeKind.System when node.SourceEntityId is { } systemId && node.SourceStore.Systems.TryGetValue(systemId, out var system):
             {
                 var systemFlows = GetFlowsInSystem(node.SourceStore, systemId).ToList();
-                var systemProps = system.SimulationProperties is { } simProps ? simProps.Value : null;
+                var systemProps = system.GetCostAnalysisProperties() is { } simProps ? simProps.Value : null;
                 builder.AppendLine($"SystemType     : {ReadOption(systemProps?.SystemType)}");
                 builder.AppendLine($"Currency       : {systemProps?.DefaultCurrency ?? "KRW"}");
                 builder.AppendLine($"Flows          : {systemFlows.Count}");
@@ -1864,7 +1864,9 @@ public partial class MainWindow : Window
 
         TrackMutate(_store, _store.Systems, targetSystemId, target =>
         {
-            target.SimulationProperties = CloneOption(sourceSystem.SimulationProperties, props => props.DeepCopy());
+            var clonedProps = CloneOption(sourceSystem.GetSimulationProperties(), props => props.DeepCopy());
+            if (clonedProps != null && FSharpOption<SimulationSystemProperties>.get_IsSome(clonedProps))
+                target.SetSimulationProperties(clonedProps.Value);
             target.IRI = sourceSystem.IRI;
         });
 
@@ -1879,7 +1881,9 @@ public partial class MainWindow : Window
 
         TrackMutate(_store, _store.Flows, targetFlowId, target =>
         {
-            target.SimulationProperties = CloneOption(sourceFlow.SimulationProperties, props => props.DeepCopy());
+            var clonedProps = CloneOption(sourceFlow.GetSimulationProperties(), props => props.DeepCopy());
+            if (clonedProps != null && FSharpOption<SimulationFlowProperties>.get_IsSome(clonedProps))
+                target.SetSimulationProperties(clonedProps.Value);
         });
 
         CopyWorksToFlow(GetOrderedWorksInFlow(sourceStore, sourceFlowId), targetFlowId, SequenceStep, clearBoundaryRoles: false);
@@ -1978,16 +1982,15 @@ public partial class MainWindow : Window
         {
             TrackMutate(_store, _store.Systems, systemId, system =>
             {
-                var props = system.SimulationProperties is { } simProps
+                var props = system.GetCostAnalysisProperties() is { } simProps
                     ? simProps.Value
-                    : new SimulationSystemProperties();
+                    : new CostAnalysisSystemProperties();
 
                 props.SystemType = ToOption(SystemTypeTextBox.Text);
                 props.DefaultCurrency = string.IsNullOrWhiteSpace(SystemCurrencyTextBox.Text) ? "KRW" : SystemCurrencyTextBox.Text.Trim();
                 props.EnableCostSimulation = SystemEnableCostCheckBox.IsChecked != false;
 
-                if (system.SimulationProperties is null)
-                    system.SimulationProperties = FSharpOption<SimulationSystemProperties>.Some(props);
+                system.SetCostAnalysisProperties(props);
             });
         });
         _store.EmitRefreshAndHistory();
@@ -2006,15 +2009,14 @@ public partial class MainWindow : Window
         {
             TrackMutate(_store, _store.Flows, flowId, flow =>
             {
-                var props = flow.SimulationProperties is { } simProps
+                var props = flow.GetSimulationProperties() is { } simProps
                     ? simProps.Value
                     : new SimulationFlowProperties();
 
                 props.FlowSimulationEnabled = FlowEnabledCheckBox.IsChecked != false;
                 props.FlowSimulationMode = string.IsNullOrWhiteSpace(FlowModeTextBox.Text) ? "TreeOrder" : FlowModeTextBox.Text.Trim();
 
-                if (flow.SimulationProperties is null)
-                    flow.SimulationProperties = FSharpOption<SimulationFlowProperties>.Some(props);
+                flow.SetSimulationProperties(props);
             });
         });
         _store.EmitRefreshAndHistory();
@@ -2697,10 +2699,10 @@ public partial class MainWindow : Window
 
         var durationSeconds = props.Duration is { } duration ? duration.Value.TotalSeconds : 0.0;
         var workerCount = Math.Max(1, props.WorkerCount);
-        var laborCost = SimulationHelpers.calculateLaborCost(props.LaborCostPerHour, durationSeconds, workerCount);
+        var laborCost = CostAnalysisHelpers.calculateLaborCost(props.LaborCostPerHour, durationSeconds, workerCount);
         var equipmentCost = (props.EquipmentCostPerHour / 3600.0) * durationSeconds;
         var overheadCost = (props.OverheadCostPerHour / 3600.0) * durationSeconds;
-        var utilityCost = SimulationHelpers.calculateUtilityCost(props.UtilityCostPerHour, durationSeconds);
+        var utilityCost = CostAnalysisHelpers.calculateUtilityCost(props.UtilityCostPerHour, durationSeconds);
         var totalCost = laborCost + equipmentCost + overheadCost + utilityCost;
         var effectiveYield = Math.Max(0.01, props.YieldRate * (1.0 - props.DefectRate));
         var unitCost = totalCost / effectiveYield;
@@ -2716,10 +2718,10 @@ public partial class MainWindow : Window
             effectiveYield);
     }
 
-    private static SimulationWorkProperties? GetExistingProps(Work work)
+    private static CostAnalysisWorkProperties? GetExistingProps(Work work)
         => CostSimStoreHelper.GetExistingProps(work);
 
-    private static SimulationWorkProperties GetOrCreateProps(Work work)
+    private static CostAnalysisWorkProperties GetOrCreateProps(Work work)
         => CostSimStoreHelper.GetOrCreateProps(work);
 
     private void EnsureSystemCostSettings(Guid systemId, bool emitHistory)
@@ -2731,16 +2733,15 @@ public partial class MainWindow : Window
         {
             TrackMutate(store, store.Systems, systemId, system =>
             {
-                var props = system.SimulationProperties is { } simProps
+                var props = system.GetCostAnalysisProperties() is { } simProps
                     ? simProps.Value
-                    : new SimulationSystemProperties();
+                    : new CostAnalysisSystemProperties();
 
                 props.EnableCostSimulation = true;
                 props.DefaultCurrency = "KRW";
                 props.SystemType = props.SystemType ?? FSharpOption<string>.Some("Line");
 
-                if (system.SimulationProperties is null)
-                    system.SimulationProperties = FSharpOption<SimulationSystemProperties>.Some(props);
+                system.SetCostAnalysisProperties(props);
             });
         });
 
@@ -2906,7 +2907,7 @@ public partial class MainWindow : Window
     {
         foreach (var system in _store.Systems.Values)
         {
-            if (system.SimulationProperties is { } props && !string.IsNullOrWhiteSpace(props.Value.DefaultCurrency))
+            if (system.GetCostAnalysisProperties() is { } props && !string.IsNullOrWhiteSpace(props.Value.DefaultCurrency))
                 return props.Value.DefaultCurrency;
         }
 

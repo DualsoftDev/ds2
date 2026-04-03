@@ -254,7 +254,7 @@ public partial class PropertyPanelState : ObservableObject
             var systemOpt = Queries.getSystem(selected.Id, Store);
             if (systemOpt != null && Microsoft.FSharp.Core.FSharpOption<DsSystem>.get_IsSome(systemOpt))
             {
-                var simPropsOpt = systemOpt.Value.SimulationProperties;
+                var simPropsOpt = systemOpt.Value.GetSimulationProperties();
                 var systemTypeOpt = simPropsOpt != null && Microsoft.FSharp.Core.FSharpOption<SimulationSystemProperties>.get_IsSome(simPropsOpt)
                     ? simPropsOpt.Value.SystemType
                     : null;

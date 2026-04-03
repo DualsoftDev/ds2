@@ -11,16 +11,20 @@
     <Compile Include="Enum.fs" />
     <Compile Include="JsonOptions.fs" />
     <Compile Include="AbstractClass.fs" />
+    <Compile Include="ModelClass.fs" />
     <Compile Include="StandardSubmodels\Nameplate.fs" />
     <Compile Include="StandardSubmodels\HandoverDocumentation.fs" />
     <Compile Include="SequenceSubmodels\Simulation.fs" />
+    <Compile Include="SequenceSubmodels\CostAnalysis.fs" />
     <Compile Include="SequenceSubmodels\Control.fs" />
     <Compile Include="SequenceSubmodels\Monitoring.fs" />
     <Compile Include="SequenceSubmodels\Logging.fs" />
     <Compile Include="SequenceSubmodels\Maintenance.fs" />
     <Compile Include="ValueSpec.fs" />
     <Compile Include="TokenTypes.fs" />
+    <Compile Include="SubmodelProperties.fs" />
     <Compile Include="Entities.fs" />
+    <Compile Include="EntitiesExtension.fs" />
     <Compile Include="JsonConverter.fs" />
   </ItemGroup>
 

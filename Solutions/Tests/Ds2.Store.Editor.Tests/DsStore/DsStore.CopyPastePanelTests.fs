@@ -36,12 +36,12 @@ module PasteTests =
         let props = SimulationWorkProperties()
         props.Duration <- Some (TimeSpan.FromSeconds 5.0)
         props.NumRepeat <- 3
-        work.SimulationProperties <- Some props
+        work.SetSimulationProperties(props)
         let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id, 0)
         let pastedWork = Queries.getWork pastedIds.Head store |> Option.get
         Assert.Equal(TokenRole.Source, pastedWork.TokenRole)
-        Assert.Equal(Some (TimeSpan.FromSeconds 5.0), pastedWork.SimulationProperties.Value.Duration)
-        Assert.Equal(3, pastedWork.SimulationProperties.Value.NumRepeat)
+        Assert.Equal(Some (TimeSpan.FromSeconds 5.0), pastedWork.GetSimulationProperties().Value.Duration)
+        Assert.Equal(3, pastedWork.GetSimulationProperties().Value.NumRepeat)
 
     [<Fact>]
     let ``PasteEntities copies call with multiple device ApiCalls across flows`` () =
@@ -87,7 +87,7 @@ module PasteTests =
         let srcWork = Queries.getWork (srcApiDef.TxGuid.Value) store |> Option.get
         let srcProps = SimulationWorkProperties()
         srcProps.Duration <- Some (TimeSpan.FromSeconds 3.5)
-        srcWork.SimulationProperties <- Some srcProps
+        srcWork.SetSimulationProperties(srcProps)
         // 다른 Flow 생성 후 Cross-flow paste
         let flow2Id = store.AddFlow("Flow2", system.Id)
         let work2Id = store.AddWork("Work2", flow2Id)
@@ -98,7 +98,7 @@ module PasteTests =
         Assert.True(pastedApiDef.TxGuid.IsSome)
         Assert.True(pastedApiDef.RxGuid.IsSome)
         let pastedWork = Queries.getWork (pastedApiDef.RxGuid.Value) store |> Option.get
-        Assert.Equal(Some (TimeSpan.FromSeconds 3.5), pastedWork.SimulationProperties.Value.Duration)
+        Assert.Equal(Some (TimeSpan.FromSeconds 3.5), pastedWork.GetSimulationProperties().Value.Duration)
         // tryGetDeviceDurationMs 경로 검증 (시뮬레이션에서 사용하는 경로)
         let deviceDuration = Queries.tryGetDeviceDurationMs work2Id store
         Assert.Equal(Some 3500, deviceDuration)

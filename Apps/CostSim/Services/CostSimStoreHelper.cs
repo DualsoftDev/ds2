@@ -46,16 +46,16 @@ internal static class CostSimStoreHelper
             store.EmitRefreshAndHistory();
     }
 
-    public static SimulationWorkProperties? GetExistingProps(Work work)
-        => work.SimulationProperties is { } option ? option.Value : null;
+    public static CostAnalysisWorkProperties? GetExistingProps(Work work)
+        => work.GetCostAnalysisProperties() is { } option ? option.Value : null;
 
-    public static SimulationWorkProperties GetOrCreateProps(Work work)
+    public static CostAnalysisWorkProperties GetOrCreateProps(Work work)
     {
-        if (work.SimulationProperties is { } option)
+        if (work.GetCostAnalysisProperties() is { } option)
             return option.Value;
 
-        var props = new SimulationWorkProperties();
-        work.SimulationProperties = FSharpOption<SimulationWorkProperties>.Some(props);
+        var props = new CostAnalysisWorkProperties();
+        work.SetCostAnalysisProperties(props);
         return props;
     }
 
@@ -78,10 +78,10 @@ internal static class CostSimStoreHelper
         var props = GetOrCreateProps(work);
         var durationSeconds = props.Duration is { } duration ? duration.Value.TotalSeconds : 0.0;
         var workerCount = Math.Max(1, props.WorkerCount);
-        var laborCost = SimulationHelpers.calculateLaborCost(props.LaborCostPerHour, durationSeconds, workerCount);
-        var equipmentCost = (props.EquipmentCostPerHour / 3600.0) * durationSeconds;
-        var overheadCost = (props.OverheadCostPerHour / 3600.0) * durationSeconds;
-        var utilityCost = SimulationHelpers.calculateUtilityCost(props.UtilityCostPerHour, durationSeconds);
+        var laborCost = CostAnalysisHelpers.calculateLaborCost(props.LaborCostPerHour, durationSeconds, workerCount);
+        var equipmentCost = CostAnalysisHelpers.calculateEquipmentCost(props.EquipmentCostPerHour, durationSeconds);
+        var overheadCost = CostAnalysisHelpers.calculateOverheadCost(props.OverheadCostPerHour, durationSeconds);
+        var utilityCost = CostAnalysisHelpers.calculateUtilityCost(props.UtilityCostPerHour, durationSeconds);
         var totalCost = laborCost + equipmentCost + overheadCost + utilityCost;
         var effectiveYield = Math.Max(0.01, props.YieldRate * (1.0 - props.DefectRate));
 

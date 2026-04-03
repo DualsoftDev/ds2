@@ -57,5 +57,5 @@ module MermaidAnalyzer =
         if depth.TotalNodeCount = 0 && not depth.HasSubgraphs then
             errors.Add("임포트할 노드가 없습니다.")
 
-        if errors.Count = 0 then Valid
-        else Invalid (errors |> Seq.toList)
+        if errors.Count = 0 then MermaidValid
+        else MermaidInvalid (errors |> Seq.toList)

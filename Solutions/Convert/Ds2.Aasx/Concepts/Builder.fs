@@ -135,22 +135,6 @@ module AasxConceptDescriptions =
             | false, _ -> ()
         result
 
-
-        
-    // Submodel ID offset 상수 (GUID 마지막 바이트에 더할 값)
-    [<Literal>]
-    let SubmodelOffsetModel        = 0uy  // SequenceModel
-    [<Literal>]
-    let SubmodelOffsetSimulation   = 1uy  // SequenceSimulation
-    [<Literal>]
-    let SubmodelOffsetControl      = 2uy  // SequenceControl
-    [<Literal>]
-    let SubmodelOffsetMonitoring   = 3uy  // SequenceMonitoring
-    [<Literal>]
-    let SubmodelOffsetLogging      = 4uy  // SequenceLogging
-    [<Literal>]
-    let SubmodelOffsetMaintenance  = 5uy  // SequenceMaintenance
-
     /// Submodel ID 생성 (Project GUID 마지막 바이트에 offset 더하기)
     /// - 원본 Project ID 보존 (역산 가능)
     /// - 고유성 보장 (동일 Project 내 6개 Submodel 구분)

@@ -59,15 +59,15 @@ module internal PasteDeviceOps =
                     // 원본 System의 SystemType 복사
                     match Queries.getSystem sourceSystemId store with
                     | Some sourceSystem ->
-                        sourceSystem.SimulationProperties
+                        sourceSystem.GetSimulationProperties()
                         |> Option.bind (fun p -> p.SystemType)
                         |> Option.iter (fun sysType ->
-                            match newSystem.SimulationProperties with
+                            match newSystem.GetSimulationProperties() with
                             | Some props -> props.SystemType <- Some sysType
                             | None ->
                                 let props = SimulationSystemProperties()
                                 props.SystemType <- Some sysType
-                                newSystem.SimulationProperties <- Some props)
+                                newSystem.SetSimulationProperties(props))
                     | None -> ()
 
                     store.TrackAdd(store.Systems, newSystem)
@@ -88,7 +88,7 @@ module internal PasteDeviceOps =
                             // 원본 ApiDef의 TxGuid Work에서 SimulationProperties(Duration 등) 복사
                             src.TxGuid
                             |> Option.bind (fun srcWorkId -> Queries.getWork srcWorkId store)
-                            |> Option.iter (fun srcWork -> work.SimulationProperties <- srcWork.SimulationProperties |> Option.map (fun p -> p.DeepCopy()))
+                            |> Option.iter (fun srcWork -> srcWork.GetSimulationProperties() |> Option.iter (fun p -> work.SetSimulationProperties(p.DeepCopy())))
                             store.TrackAdd(store.Works, work)
                             createdWorks.Add(work)
                             cloned.TxGuid <- Some work.Id

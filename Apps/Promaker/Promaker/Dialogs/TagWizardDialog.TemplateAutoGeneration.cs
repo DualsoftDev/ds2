@@ -84,7 +84,7 @@ public partial class TagWizardDialog
             {
                 if (_store.Systems.TryGetValue(apiDef.ParentId, out var system))
                 {
-                    var simPropsOpt = system.SimulationProperties;
+                    var simPropsOpt = system.GetSimulationProperties();
                     if (simPropsOpt != null && FSharpOption<SimulationSystemProperties>.get_IsSome(simPropsOpt))
                     {
                         var systemTypeOpt = simPropsOpt.Value.SystemType;
@@ -199,7 +199,7 @@ public partial class TagWizardDialog
             // 해당 SystemType을 가진 모든 System 찾기
             foreach (var system in _store.Systems.Values)
             {
-                var simPropsOpt = system.SimulationProperties;
+                var simPropsOpt = system.GetSimulationProperties();
                 if (simPropsOpt != null && FSharpOption<SimulationSystemProperties>.get_IsSome(simPropsOpt))
                 {
                     var systemTypeOpt = simPropsOpt.Value.SystemType;
@@ -244,7 +244,7 @@ public partial class TagWizardDialog
             // 해당 SystemType을 가진 System 찾기
             foreach (var system in _store.Systems.Values)
             {
-                var simPropsOpt = system.SimulationProperties;
+                var simPropsOpt = system.GetSimulationProperties();
                 if (simPropsOpt != null && FSharpOption<SimulationSystemProperties>.get_IsSome(simPropsOpt))
                 {
                     var systemTypeOpt = simPropsOpt.Value.SystemType;
