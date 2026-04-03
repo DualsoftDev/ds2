@@ -89,21 +89,24 @@ module CsvImporter =
             else None)
         |> Array.toList
 
-    /// 9열 양식 파싱: Flow,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress
-    let private parseTemplate9 (lines: string array) : IoImportRow list =
+    /// 9열/10열 양식 파싱
+    /// 9열: Flow,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress
+    /// 10열: Flow,Work,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress
+    let private parseTemplate (hasWork: bool) (lines: string array) : IoImportRow list =
+        let offset = if hasWork then 1 else 0
         lines
         |> Array.collect (fun line ->
             let fields = parseFields line
-            if fields.Length >= 3 then
+            if fields.Length >= 3 + offset then
                 let flow = fields.[0]
-                let device = fields.[1]
-                let api = fields.[2]
-                let outSymbol   = if fields.Length >= 4 then fields.[3] else ""
-                let outDataType = if fields.Length >= 5 then fields.[4] else ""
-                let outAddress  = if fields.Length >= 6 then fields.[5] else ""
-                let inSymbol    = if fields.Length >= 7 then fields.[6] else ""
-                let inDataType  = if fields.Length >= 8 then fields.[7] else ""
-                let inAddress   = if fields.Length >= 9 then fields.[8] else ""
+                let device = fields.[1 + offset]
+                let api = fields.[2 + offset]
+                let outSymbol   = if fields.Length >= 4 + offset then fields.[3 + offset] else ""
+                let outDataType = if fields.Length >= 5 + offset then fields.[4 + offset] else ""
+                let outAddress  = if fields.Length >= 6 + offset then fields.[5 + offset] else ""
+                let inSymbol    = if fields.Length >= 7 + offset then fields.[6 + offset] else ""
+                let inDataType  = if fields.Length >= 8 + offset then fields.[7 + offset] else ""
+                let inAddress   = if fields.Length >= 9 + offset then fields.[8 + offset] else ""
 
                 [|  if inAddress <> "" && inAddress <> "-" then
                         yield { VarName = inSymbol; DataType = inDataType; Address = inAddress
@@ -128,8 +131,9 @@ module CsvImporter =
                 if header.Contains("var_name") && header.Contains("direction") then
                     Ok (parseExtended11 dataLines)
                 elif header.Contains("flow") && header.Contains("device") && header.Contains("api") then
-                    Ok (parseTemplate9 dataLines)
+                    let hasWork = header.Contains("work")
+                    Ok (parseTemplate hasWork dataLines)
                 else
-                    Error "CSV 헤더를 인식할 수 없습니다.\n\n지원 형식:\n- 양식: Flow,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress\n- Extended: var_name,...,direction,comment (11열)"
+                    Error "CSV 헤더를 인식할 수 없습니다.\n\n지원 형식:\n- 양식: Flow,Work,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress\n- 양식(구버전): Flow,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress\n- Extended: var_name,...,direction,comment (11열)"
         with ex ->
             Error $"CSV 파일 읽기 실패: {ex.Message}"

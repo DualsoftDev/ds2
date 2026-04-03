@@ -19,6 +19,8 @@ public partial class ExplorerPane : UserControl
 {
     private Point _treeDragStartPoint;
     private bool _treeDragCandidate;
+    private EntityNode? _pendingTreeSelectionNode;
+    private TreePaneKind _pendingTreeSelectionPane = TreePaneKind.Control;
     private MainViewModel? _boundViewModel;
     private TreePaneKind _activeTreePane = TreePaneKind.Control;
     private readonly DispatcherTimer _searchRefreshTimer;
@@ -119,22 +121,32 @@ public partial class ExplorerPane : UserControl
 
     private void TreeViewItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        var pane = ResolveTreePane(sender);
+        var ctrlPressed = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+        var shiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
+
         if (sender is TreeViewItem { DataContext: EntityNode node }
-            && node.EntityType == EntityKind.Call)
+            && node.EntityType == EntityKind.Call
+            && !ctrlPressed
+            && !shiftPressed)
         {
             _treeDragStartPoint = e.GetPosition(null);
             _treeDragCandidate = true;
+            _pendingTreeSelectionNode = node;
+            _pendingTreeSelectionPane = pane;
         }
         else
         {
-            _treeDragCandidate = false;
+            ClearPendingTreeDragSelection();
         }
 
-        HandleTreeItemMouseDown(ResolveTreePane(sender), sender, e, requireModifiers: true);
+        HandleTreeItemMouseDown(pane, sender, e, requireModifiers: true);
     }
 
     private void TreeViewItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
+        ClearPendingTreeDragSelection();
+
         // 이미 선택된 노드를 우클릭한 경우 선택 변경하지 않음 (다중 선택 유지)
         if (sender is TreeViewItem { DataContext: EntityNode node } && node.IsTreeSelected)
         {
@@ -142,6 +154,24 @@ public partial class ExplorerPane : UserControl
             return;
         }
         HandleTreeItemMouseDown(ResolveTreePane(sender), sender, e, requireModifiers: false);
+    }
+
+    private void TreeViewItem_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_treeDragCandidate || _pendingTreeSelectionNode is null || ViewModel is null)
+            return;
+
+        if (sender is not TreeViewItem { DataContext: EntityNode node } item)
+            return;
+        if (!ReferenceEquals(item, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject)))
+            return;
+        if (!ReferenceEquals(node, _pendingTreeSelectionNode))
+            return;
+
+        ViewModel.Selection.SetActiveTreePane(_pendingTreeSelectionPane);
+        ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
+        ClearPendingTreeDragSelection();
+        e.Handled = true;
     }
 
     private void Tree_ContextMenuOpening(object sender, ContextMenuEventArgs e)
@@ -257,20 +287,54 @@ public partial class ExplorerPane : UserControl
 
     private static EntityNode? CloneFilteredNode(EntityNode source, string query)
     {
+        var isMatch = source.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase);
+
         var filteredChildren = source.Children
             .Select(child => CloneFilteredNode(child, query))
             .Where(child => child is not null)
             .Cast<EntityNode>()
             .ToList();
 
-        var isMatch = source.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase);
-        if (!isMatch && filteredChildren.Count == 0)
+        if (isMatch)
+        {
+            var clone = CloneNode(source);
+
+            if (filteredChildren.Count > 0)
+            {
+                // 부모 매칭 + 자식도 매칭 → 펼침, 모든 자식 포함 (매칭 자식은 필터 버전 사용)
+                clone.IsExpanded = true;
+                var filteredIds = new HashSet<Guid>(filteredChildren.Select(c => c.Id));
+                foreach (var child in source.Children)
+                    clone.Children.Add(filteredIds.Contains(child.Id)
+                        ? filteredChildren.First(c => c.Id == child.Id)
+                        : CloneSubtree(child));
+            }
+            else
+            {
+                // 부모만 매칭 → 접힘, 모든 자식 포함
+                clone.IsExpanded = false;
+                foreach (var child in source.Children)
+                    clone.Children.Add(CloneSubtree(child));
+            }
+
+            return clone;
+        }
+
+        if (filteredChildren.Count == 0)
             return null;
 
-        var clone = CloneNode(source);
-        clone.IsExpanded = filteredChildren.Count > 0;
+        var filteredClone = CloneNode(source);
+        filteredClone.IsExpanded = true;
         foreach (var child in filteredChildren)
-            clone.Children.Add(child);
+            filteredClone.Children.Add(child);
+        return filteredClone;
+    }
+
+    private static EntityNode CloneSubtree(EntityNode source)
+    {
+        var clone = CloneNode(source);
+        foreach (var child in source.Children)
+            clone.Children.Add(CloneSubtree(child));
         return clone;
     }
 
@@ -404,7 +468,7 @@ public partial class ExplorerPane : UserControl
         if (sender is not TreeViewItem { DataContext: EntityNode node }) return;
         if (node.EntityType != EntityKind.Call) return;
 
-        _treeDragCandidate = false;
+        ClearPendingTreeDragSelection();
         var data = new DataObject("ConditionCallNode", node);
         DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy);
     }
@@ -420,6 +484,11 @@ public partial class ExplorerPane : UserControl
 
         ViewModel.Selection.SetActiveTreePane(pane);
         if (newValue is not EntityNode node) return;
+
+        if (_treeDragCandidate
+            && _pendingTreeSelectionNode is not null
+            && ReferenceEquals(node, _pendingTreeSelectionNode))
+            return;
 
         ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
 
@@ -516,6 +585,12 @@ public partial class ExplorerPane : UserControl
                 ViewModel.EditApiDefNode(node.Id);
                 break;
         }
+    }
+
+    private void ClearPendingTreeDragSelection()
+    {
+        _treeDragCandidate = false;
+        _pendingTreeSelectionNode = null;
     }
 
     private void RefreshFilteredSelectionState()

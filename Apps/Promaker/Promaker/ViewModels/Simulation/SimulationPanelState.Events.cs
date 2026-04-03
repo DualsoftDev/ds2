@@ -61,6 +61,7 @@ public partial class SimulationPanelState
     {
         var suffix = args.IsSkipped ? " (Skip)" : "";
         ApplyNodeStateChange(args.CallGuid, args.NewState, args.CallName + suffix, EntityKind.Call, GetSystemName(EntityKind.Call, args.CallGuid));
+        SetSimSkipped(args.CallGuid, args.IsSkipped);
 
         _sceneEventHandler?.OnCallStateChanged(args.CallGuid, args.NewState);
         RefreshSimulationProgressUi();

@@ -293,11 +293,12 @@ public partial class IoBatchSettingsDialog
             return;
 
         var sb = new StringBuilder();
-        sb.AppendLine("Flow,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress");
+        sb.AppendLine("Flow,Work,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress");
         foreach (var row in _rows)
         {
             sb.AppendLine(string.Join(",",
                 EscapeCsvField(row.Flow),
+                EscapeCsvField(row.Work),
                 EscapeCsvField(row.Device),
                 EscapeCsvField(row.Api),
                 EscapeCsvField(row.OutSymbol),

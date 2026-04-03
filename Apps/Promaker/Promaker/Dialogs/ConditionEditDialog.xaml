@@ -44,12 +44,7 @@
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="1"
                     CornerRadius="3"
-                    Background="{DynamicResource TertiaryBackgroundBrush}"
-                    AllowDrop="True"
-                    DragEnter="DropArea_DragEnter"
-                    DragLeave="DropArea_DragLeave"
-                    DragOver="DropArea_DragOver"
-                    Drop="DropArea_Drop">
+                    Background="{DynamicResource TertiaryBackgroundBrush}">
                 <Grid>
                     <ScrollViewer VerticalScrollBarVisibility="Auto"
                                   Padding="4">
@@ -159,7 +154,7 @@
                                Visibility="Collapsed">
                         <Run Text="조건이 없습니다."/>
                         <LineBreak/>
-                        <Run Text="'+ 조건 추가' 버튼을 누르거나 트리에서 Call을 드래그하세요."/>
+                        <Run Text="'+ 조건 추가' 버튼을 눌러 조건을 추가하세요."/>
                     </TextBlock>
                 </Grid>
             </Border>
