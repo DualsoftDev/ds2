@@ -196,6 +196,15 @@ public class FlowMetricsService : IFlowMetricsService
             effectiveEndCallName);
     }
 
+    public (string? HeadCallName, string? TailCallName) GetCycleBoundaryCallNames(string flowName)
+    {
+        if (_flowCycleStates.TryGetValue(flowName, out var state))
+        {
+            return (state.HeadCallName, state.TailCallName);
+        }
+        return (null, null);
+    }
+
     /// <summary>
     /// Phase 2: Call Going 시작 이벤트 처리
     /// </summary>

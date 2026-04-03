@@ -541,7 +541,7 @@ else
     private void OnPlcTypeChanged(ChangeEventArgs e)
     {
         if (_settings is null) return;
-        var newType = e.Value?.ToString() ?? "Mitsubishi";
+        var newType = e.Value?.ToString() ?? PlcCaptureSettings.DefaultPlcType;
         var previousType = _settings.PlcCapture.PlcType;
         _settings.PlcCapture.PlcType = newType;
 
@@ -549,17 +549,17 @@ else
         {
             if (newType.Equals("LS", StringComparison.OrdinalIgnoreCase))
             {
-                _settings.PlcCapture.PlcName = "LSPLC";
-                _settings.PlcCapture.PlcIpAddress = "192.168.9.100";
-                _settings.PlcCapture.PlcPort = 2004;
-                _settings.PlcCapture.PlcModel = "XGI";
+                _settings.PlcCapture.PlcName = PlcCaptureSettings.DefaultLsName;
+                _settings.PlcCapture.PlcIpAddress = PlcCaptureSettings.DefaultLsIp;
+                _settings.PlcCapture.PlcPort = PlcCaptureSettings.DefaultLsPort;
+                _settings.PlcCapture.PlcModel = PlcCaptureSettings.DefaultLsModel;
             }
             else
             {
-                _settings.PlcCapture.PlcName = "MitsubishiPLC";
-                _settings.PlcCapture.PlcIpAddress = "192.168.9.120";
-                _settings.PlcCapture.PlcPort = 5555;
-                _settings.PlcCapture.Protocol = "UDP";
+                _settings.PlcCapture.PlcName = PlcCaptureSettings.DefaultMitsubishiName;
+                _settings.PlcCapture.PlcIpAddress = PlcCaptureSettings.DefaultMitsubishiIp;
+                _settings.PlcCapture.PlcPort = PlcCaptureSettings.DefaultMitsubishiPort;
+                _settings.PlcCapture.Protocol = PlcCaptureSettings.DefaultMitsubishiProtocol;
             }
         }
     }
