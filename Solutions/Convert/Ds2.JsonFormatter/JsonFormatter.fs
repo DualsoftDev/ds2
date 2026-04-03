@@ -102,6 +102,22 @@ module Builder =
             ac.InTag <- inTag
         | _ -> invalidOp $"ApiCall {apiCallId} not found"
 
+    /// CallCondition 추가. 반환: conditionId
+    let addCondition (store: DsStore) (callId: Guid) (conditionType: CallConditionType) (apiCallIds: Guid list) (isOR: bool) =
+        let call =
+            match store.Calls.TryGetValue(callId) with
+            | true, c -> c
+            | _ -> invalidOp $"Call {callId} not found"
+        let condition = CallCondition()
+        condition.Type <- Some conditionType
+        condition.IsOR <- isOR
+        for apiCallId in apiCallIds do
+            match store.ApiCalls.TryGetValue(apiCallId) with
+            | true, ac -> condition.Conditions.Add(ac)
+            | _ -> invalidOp $"ApiCall {apiCallId} not found"
+        call.CallConditions.Add(condition)
+        condition.Id
+
     /// TokenSpec 추가
     let addTokenSpec (store: DsStore) (id: int) (label: string) (workId: Guid option) =
         let project = store.Projects.Values |> Seq.head
