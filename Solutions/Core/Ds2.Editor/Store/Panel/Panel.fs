@@ -248,6 +248,18 @@ type DsStorePanelTimeExtensions =
     static member UpdateCallTimeoutMs(store: DsStore, callId: Guid, timeoutMs: Nullable<int>) =
         DsStorePanelTimeExtensions.UpdateCallTimeoutMs(store, callId, Option.ofNullable timeoutMs)
 
+    [<Extension>]
+    static member UpdateCallType(store: DsStore, callId: Guid, callType: CallType) =
+        StoreLog.debug($"callId={callId}, callType={callType}")
+        PanelMutationOps.updateCallIfChanged
+            store
+            callId
+            "Call CallType 변경"
+            CallPropsChanged
+            (fun call -> call.Properties.CallType)
+            callType
+            (fun call value -> call.Properties.CallType <- value)
+
 // ─── TokenSpec ───────────────────────────────────────────────────────
 
 [<Extension>]
