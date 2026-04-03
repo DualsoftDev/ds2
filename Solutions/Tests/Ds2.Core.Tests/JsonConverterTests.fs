@@ -231,7 +231,7 @@ module JsonRoundTripTests =
         callProps.CallType <- CallType.SkipIfCompleted
         callProps.Timeout <- Some(TimeSpan.FromSeconds(33.0))
         callProps.SensorDelay <- Some 12
-        call.SimulationProperties <- Some callProps
+        call.SetSimulationProperties(callProps)
         call.Status4 <- Status4.Homing
         call.Position <- Some(Xywh(11, 22, 33, 44))
         call.ApiCalls.Add(apiInt)
@@ -243,14 +243,14 @@ module JsonRoundTripTests =
         Assert.Equal(call.Id, actual.Id)
         Assert.Equal(call.Name, actual.Name)
         Assert.Equal(call.ParentId, actual.ParentId)
-        Assert.Equal(call.SimulationProperties |> Option.bind (fun p -> p.Description),
-                     actual.SimulationProperties |> Option.bind (fun p -> p.Description))
-        Assert.Equal(call.SimulationProperties |> Option.map (fun p -> p.CallType),
-                     actual.SimulationProperties |> Option.map (fun p -> p.CallType))
-        Assert.Equal(call.SimulationProperties |> Option.bind (fun p -> p.Timeout),
-                     actual.SimulationProperties |> Option.bind (fun p -> p.Timeout))
-        Assert.Equal(call.SimulationProperties |> Option.bind (fun p -> p.SensorDelay),
-                     actual.SimulationProperties |> Option.bind (fun p -> p.SensorDelay))
+        Assert.Equal(call.GetSimulationProperties() |> Option.bind (fun p -> p.Description),
+                     actual.GetSimulationProperties() |> Option.bind (fun p -> p.Description))
+        Assert.Equal(call.GetSimulationProperties() |> Option.map (fun p -> p.CallType),
+                     actual.GetSimulationProperties() |> Option.map (fun p -> p.CallType))
+        Assert.Equal(call.GetSimulationProperties() |> Option.bind (fun p -> p.Timeout),
+                     actual.GetSimulationProperties() |> Option.bind (fun p -> p.Timeout))
+        Assert.Equal(call.GetSimulationProperties() |> Option.bind (fun p -> p.SensorDelay),
+                     actual.GetSimulationProperties() |> Option.bind (fun p -> p.SensorDelay))
         Assert.Equal(call.Status4, actual.Status4)
         assertXywhEqual call.Position actual.Position
 
@@ -273,7 +273,7 @@ module WorkRoundTripTests =
         workProps.Duration <- Some(TimeSpan.FromSeconds(5.0))
         workProps.OperationCode <- Some "OP-001"
         workProps.SequenceOrder <- 20
-        work.SimulationProperties <- Some workProps
+        work.SetSimulationProperties(workProps)
         work.Position <- Some(Xywh(11, 22, 100, 40))
         work.TokenRole <- TokenRole.Source
         work.Status4 <- Status4.Homing
@@ -285,12 +285,12 @@ module WorkRoundTripTests =
         Assert.Equal("TestFlow", actual.FlowPrefix)
         Assert.Equal("TestWork", actual.LocalName)
         Assert.Equal("TestFlow.TestWork", actual.Name)
-        Assert.Equal(work.SimulationProperties |> Option.bind (fun p -> p.Duration),
-                     actual.SimulationProperties |> Option.bind (fun p -> p.Duration))
-        Assert.Equal(work.SimulationProperties |> Option.bind (fun p -> p.OperationCode),
-                     actual.SimulationProperties |> Option.bind (fun p -> p.OperationCode))
-        Assert.Equal(work.SimulationProperties |> Option.map (fun p -> p.SequenceOrder),
-                     actual.SimulationProperties |> Option.map (fun p -> p.SequenceOrder))
+        Assert.Equal(work.GetSimulationProperties() |> Option.bind (fun p -> p.Duration),
+                     actual.GetSimulationProperties() |> Option.bind (fun p -> p.Duration))
+        Assert.Equal(work.GetSimulationProperties() |> Option.bind (fun p -> p.OperationCode),
+                     actual.GetSimulationProperties() |> Option.bind (fun p -> p.OperationCode))
+        Assert.Equal(work.GetSimulationProperties() |> Option.map (fun p -> p.SequenceOrder),
+                     actual.GetSimulationProperties() |> Option.map (fun p -> p.SequenceOrder))
         Assert.Equal(work.TokenRole, actual.TokenRole)
         Assert.Equal(work.Status4, actual.Status4)
         assertXywhEqual work.Position actual.Position
@@ -326,7 +326,7 @@ module FileRoundTripTests =
         activeProps.Author <- Some "author-A"
         activeProps.DateTime <- Some(DateTimeOffset(2026, 2, 20, 13, 0, 0, TimeSpan.Zero))
         activeProps.IRI <- Some "urn:active"
-        active.SimulationProperties <- Some activeProps
+        active.SetSimulationProperties(activeProps)
         active.IRI <- Some "https://example.local/active"
 
         let passive = DsSystem("System-Passive")
@@ -337,7 +337,7 @@ module FileRoundTripTests =
         passiveProps.Author <- Some "author-P"
         passiveProps.DateTime <- Some(DateTimeOffset(2026, 2, 20, 14, 0, 0, TimeSpan.Zero))
         passiveProps.IRI <- Some "urn:passive"
-        passive.SimulationProperties <- Some passiveProps
+        passive.SetSimulationProperties(passiveProps)
         passive.IRI <- Some "https://example.local/passive"
 
         project.ActiveSystemIds.Add(active.Id)

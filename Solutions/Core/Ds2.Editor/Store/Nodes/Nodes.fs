@@ -233,10 +233,6 @@ type DsStoreNodesExtensions =
                     store.TrackMutate(store.Works, id, fun e -> e.LocalName <- resolvedName)
                 | EntityKind.Call      -> store.TrackMutate(store.Calls, id, fun e -> e.DevicesAlias <- resolvedName)
                 | EntityKind.ApiDef    -> store.TrackMutate(store.ApiDefs, id, fun e -> e.Name <- resolvedName)
-                | EntityKind.Button    -> store.TrackMutate(store.HwButtons, id, fun e -> e.Name <- resolvedName)
-                | EntityKind.Lamp      -> store.TrackMutate(store.HwLamps, id, fun e -> e.Name <- resolvedName)
-                | EntityKind.Condition -> store.TrackMutate(store.HwConditions, id, fun e -> e.Name <- resolvedName)
-                | EntityKind.Action    -> store.TrackMutate(store.HwActions, id, fun e -> e.Name <- resolvedName)
                 | _                    -> failwithf "Unknown entity kind: %A" entityKind)
             // Call/Work은 표시명 조합이 다름
             let displayName =

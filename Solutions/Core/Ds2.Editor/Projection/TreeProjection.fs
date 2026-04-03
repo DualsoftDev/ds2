@@ -81,10 +81,6 @@ let private buildSystemChildren (store: DsStore) (systemId: Guid) =
 
     let hwAndApi = [
         yield! namedLeafNodes EntityKind.ApiDef    systemId (Queries.apiDefsOf    systemId store)
-        yield! namedLeafNodes EntityKind.Button    systemId (Queries.buttonsOf    systemId store)
-        yield! namedLeafNodes EntityKind.Lamp      systemId (Queries.lampsOf      systemId store)
-        yield! namedLeafNodes EntityKind.Condition systemId (Queries.conditionsOf systemId store)
-        yield! namedLeafNodes EntityKind.Action    systemId (Queries.actionsOf    systemId store)
     ]
 
     flows @ hwAndApi

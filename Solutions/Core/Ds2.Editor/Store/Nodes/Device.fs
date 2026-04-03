@@ -25,15 +25,15 @@ module internal DirectDeviceOps =
             // 마지막 Work에 IsFinished 자동 설정
             match List.tryLast works with
             | Some lastWork ->
-                let isFinished = lastWork.SimulationProperties |> Option.map (fun p -> p.IsFinished) |> Option.defaultValue false
+                let isFinished = lastWork.GetSimulationProperties() |> Option.map (fun p -> p.IsFinished) |> Option.defaultValue false
                 if not isFinished then
                     store.TrackMutate(store.Works, lastWork.Id, fun w ->
-                        match w.SimulationProperties with
+                        match w.GetSimulationProperties() with
                         | Some props -> props.IsFinished <- true
                         | None ->
                             let props = SimulationWorkProperties()
                             props.IsFinished <- true
-                            w.SimulationProperties <- Some props)
+                            w.SetSimulationProperties(props))
             | _ -> ()
 
             // Work 쌍마다 상호 리셋 Arrow 생성
@@ -76,15 +76,15 @@ module internal DirectDeviceOps =
                 // 기존 System에 SystemType 설정 (없으면)
                 match systemType with
                 | Some sysType ->
-                    let existingType = existing.SimulationProperties |> Option.bind (fun p -> p.SystemType)
+                    let existingType = existing.GetSimulationProperties() |> Option.bind (fun p -> p.SystemType)
                     if Option.isNone existingType then
                         store.TrackMutate(store.Systems, existing.Id, fun s ->
-                            match s.SimulationProperties with
+                            match s.GetSimulationProperties() with
                             | Some props -> props.SystemType <- Some sysType
                             | None ->
                                 let props = SimulationSystemProperties()
                                 props.SystemType <- Some sysType
-                                s.SimulationProperties <- Some props)
+                                s.SetSimulationProperties(props))
                 | _ -> ()
 
                 match Queries.flowsOf existing.Id store with
@@ -121,7 +121,7 @@ module internal DirectDeviceOps =
                 systemType |> Option.iter (fun sysType ->
                     let props = SimulationSystemProperties()
                     props.SystemType <- Some sysType
-                    system.SimulationProperties <- Some props)
+                    system.SetSimulationProperties(props))
                 let flow = Flow($"{devAlias}_Flow", system.Id)
                 store.TrackAdd(store.Systems, system)
                 store.TrackMutate(store.Projects, projectId, fun p ->

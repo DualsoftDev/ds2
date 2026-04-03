@@ -103,7 +103,7 @@ module AasxExporter =
         projectSmc.IdShort <- "Project"
         projectSmc.Value <- ResizeArray<ISubmodelElement>(projectElems)
 
-        let sm = Submodel(id = mkSubmodelId project.Id SubmodelOffsetModel)
+        let sm = Submodel(id = mkSubmodelId project.Id SubmodelOffsets.Model)
         sm.IdShort <- SubmodelModelIdShort
         sm.SemanticId <- mkSemanticRef $"{SubmodelSemanticId}/model"
         sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
@@ -116,7 +116,7 @@ module AasxExporter =
     /// SequenceModel의 System 참조 생성
     /// AASd-128: SubmodelElementList 이후 Key는 정수 인덱스를 사용
     let private mkSystemReference (store: DsStore) (project: Project) (system: DsSystem) : ISubmodelElement =
-        let modelSubmodelId = mkSubmodelId project.Id SubmodelOffsetModel
+        let modelSubmodelId = mkSubmodelId project.Id SubmodelOffsets.Model
         // AASd-128: SubmodelElementList 자식은 정수 인덱스로 참조
         let allSystems = Queries.activeSystemsOf project.Id store |> List.sortBy (fun s -> s.Id)
         let systemIndex = allSystems |> List.findIndex (fun s -> s.Id = system.Id)
@@ -136,7 +136,7 @@ module AasxExporter =
     /// SequenceModel의 Work 참조 생성
     /// AASd-128: SubmodelElementList 이후 Key는 정수 인덱스를 사용
     let private mkWorkReference (store: DsStore) (project: Project) (work: Work) : ISubmodelElement =
-        let modelSubmodelId = mkSubmodelId project.Id SubmodelOffsetModel
+        let modelSubmodelId = mkSubmodelId project.Id SubmodelOffsets.Model
         // Flow → System 경로 찾기 및 인덱스 계산
         let flowOpt = Queries.getFlow work.ParentId store
         let systemIndexOpt =
@@ -170,7 +170,7 @@ module AasxExporter =
     /// SequenceModel의 Call 참조 생성
     /// AASd-128: SubmodelElementList 이후 Key는 정수 인덱스를 사용
     let private mkCallReference (store: DsStore) (project: Project) (call: Call) : ISubmodelElement =
-        let modelSubmodelId = mkSubmodelId project.Id SubmodelOffsetModel
+        let modelSubmodelId = mkSubmodelId project.Id SubmodelOffsets.Model
         // Work → Flow → System 경로 찾기 및 인덱스 계산
         let workOpt = Queries.getWork call.ParentId store
         let flowOpt = workOpt |> Option.bind (fun work -> Queries.getFlow work.ParentId store)
@@ -220,9 +220,11 @@ module AasxExporter =
         (idShort: string)
         (semanticPath: string)
         (getSysProp: DsSystem -> 'TSys option)
+        (getFlowProp: Flow -> 'TFlow option)
         (getWorkProp: Work -> 'TWork option)
         (getCallProp: Call -> 'TCall option)
         (sysConverter: 'TSys -> ISubmodelElement list)
+        (flowConverter: 'TFlow -> ISubmodelElement list)
         (workConverter: 'TWork -> ISubmodelElement list)
         (callConverter: 'TCall -> ISubmodelElement list) : Submodel option =
 
@@ -240,6 +242,17 @@ module AasxExporter =
                     let propElements = sysConverter props
                     // Use GUID-based idShort: "System_" + GUID (N format, no hyphens)
                     Some (mkSmc (sanitizeIdShort ("System_" + sys.Id.ToString("N"))) propElements)
+                | None -> None)
+
+        // Flow Properties (without References - AASd-128 constraint for cross-submodel refs)
+        // Use GUID-based idShorts since entity names may contain invalid characters
+        let flowPropsWithRefs =
+            allFlows |> List.choose (fun f ->
+                match getFlowProp f with
+                | Some props ->
+                    let propElements = flowConverter props
+                    // Use GUID-based idShort: "Flow_" + GUID (N format, no hyphens)
+                    Some (mkSmc (sanitizeIdShort ("Flow_" + f.Id.ToString("N"))) propElements)
                 | None -> None)
 
         // Work Properties (without References - AASd-128 constraint for cross-submodel refs)
@@ -266,6 +279,7 @@ module AasxExporter =
 
         let elements =
             [ yield! mkSml "SystemProperties" sysPropsWithRefs |> Option.toList
+              yield! mkSml "FlowProperties" flowPropsWithRefs |> Option.toList
               yield! mkSml "WorkProperties" workPropsWithRefs |> Option.toList
               yield! mkSml "CallProperties" callPropsWithRefs |> Option.toList ]
 
@@ -283,33 +297,39 @@ module AasxExporter =
 
     /// SequenceSimulation Submodel 생성
     let internal tryExportToSimulationSubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsetSimulation SubmodelSimulationIdShort "Simulation"
-            (fun sys -> sys.SimulationProperties) (fun w -> w.SimulationProperties) (fun c -> c.SimulationProperties)
-            simulationSystemPropsToElements simulationWorkPropsToElements simulationCallPropsToElements
+        tryCreateSubmodel store project SubmodelOffsets.Simulation SubmodelSimulationIdShort "Simulation"
+            (fun sys -> sys.GetSimulationProperties()) (fun f -> f.GetSimulationProperties()) (fun w -> w.GetSimulationProperties()) (fun c -> c.GetSimulationProperties())
+            simulationSystemPropsToElements simulationFlowPropsToElements simulationWorkPropsToElements simulationCallPropsToElements
 
     /// SequenceControl Submodel 생성
     let internal tryExportToControlSubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsetControl SubmodelControlIdShort "Control"
-            (fun sys -> sys.ControlProperties) (fun w -> w.ControlProperties) (fun c -> c.ControlProperties)
-            controlSystemPropsToElements controlWorkPropsToElements controlCallPropsToElements
+        tryCreateSubmodel store project SubmodelOffsets.Control SubmodelControlIdShort "Control"
+            (fun sys -> sys.GetControlProperties()) (fun f -> f.GetControlProperties()) (fun w -> w.GetControlProperties()) (fun c -> c.GetControlProperties())
+            controlSystemPropsToElements controlFlowPropsToElements controlWorkPropsToElements controlCallPropsToElements
 
     /// SequenceMonitoring Submodel 생성
     let internal tryExportToMonitoringSubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsetMonitoring SubmodelMonitoringIdShort "Monitoring"
-            (fun sys -> sys.MonitoringProperties) (fun w -> w.MonitoringProperties) (fun _ -> None)
-            monitoringSystemPropsToElements monitoringWorkPropsToElements (fun _ -> [])
+        tryCreateSubmodel store project SubmodelOffsets.Monitoring SubmodelMonitoringIdShort "Monitoring"
+            (fun sys -> sys.GetMonitoringProperties()) (fun f -> f.GetMonitoringProperties()) (fun w -> w.GetMonitoringProperties()) (fun c -> c.GetMonitoringProperties())
+            monitoringSystemPropsToElements monitoringFlowPropsToElements monitoringWorkPropsToElements monitoringCallPropsToElements
 
     /// SequenceLogging Submodel 생성
     let internal tryExportToLoggingSubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsetLogging SubmodelLoggingIdShort "Logging"
-            (fun sys -> sys.LoggingProperties) (fun w -> w.LoggingProperties) (fun c -> c.LoggingProperties)
-            loggingSystemPropsToElements loggingWorkPropsToElements loggingCallPropsToElements
+        tryCreateSubmodel store project SubmodelOffsets.Logging SubmodelLoggingIdShort "Logging"
+            (fun sys -> sys.GetLoggingProperties()) (fun f -> f.GetLoggingProperties()) (fun w -> w.GetLoggingProperties()) (fun c -> c.GetLoggingProperties())
+            loggingSystemPropsToElements loggingFlowPropsToElements loggingWorkPropsToElements loggingCallPropsToElements
 
     /// SequenceMaintenance Submodel 생성
     let internal tryExportToMaintenanceSubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsetMaintenance SubmodelMaintenanceIdShort "Maintenance"
-            (fun sys -> sys.MaintenanceProperties) (fun w -> w.MaintenanceProperties) (fun c -> c.MaintenanceProperties)
-            maintenanceSystemPropsToElements maintenanceWorkPropsToElements maintenanceCallPropsToElements
+        tryCreateSubmodel store project SubmodelOffsets.Maintenance SubmodelMaintenanceIdShort "Maintenance"
+            (fun sys -> sys.GetMaintenanceProperties()) (fun f -> f.GetMaintenanceProperties()) (fun w -> w.GetMaintenanceProperties()) (fun c -> c.GetMaintenanceProperties())
+            maintenanceSystemPropsToElements maintenanceFlowPropsToElements maintenanceWorkPropsToElements maintenanceCallPropsToElements
+            
+    /// SequenceCostAnalysis Submodel 생성
+    let internal tryExportToCostAnalysisSubmodel (store: DsStore) (project: Project) : Submodel option =
+        tryCreateSubmodel store project SubmodelOffsets.CostAnalysis SubmodelCostAnalysisIdShort "CostAnalysis"
+            (fun sys -> sys.GetCostAnalysisProperties()) (fun f -> f.GetCostAnalysisProperties()) (fun w -> w.GetCostAnalysisProperties()) (fun c -> c.GetCostAnalysisProperties())
+            costAnalysisSystemPropsToElements costAnalysisFlowPropsToElements costAnalysisWorkPropsToElements costAnalysisCallPropsToElements
 
     // ────────────────────────────────────────────────────────────────────────────
     // 레거시 호환 함수들
@@ -351,7 +371,7 @@ module AasxExporter =
         projectSmc.IdShort <- "Project"
         projectSmc.Value <- ResizeArray<ISubmodelElement>(projectElems)
 
-        let sm = Submodel(id = mkSubmodelId project.Id SubmodelOffsetModel)
+        let sm = Submodel(id = mkSubmodelId project.Id SubmodelOffsets.Model)
         sm.IdShort <- SubmodelModelIdShort
         sm.SemanticId <- mkSemanticRef $"{SubmodelSemanticId}/model"
         sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
@@ -386,7 +406,8 @@ module AasxExporter =
               tryExportToControlSubmodel store project
               tryExportToMonitoringSubmodel store project
               tryExportToLoggingSubmodel store project
-              tryExportToMaintenanceSubmodel store project ]
+              tryExportToMaintenanceSubmodel store project
+              tryExportToCostAnalysisSubmodel store project ]
             |> List.choose id
 
         let allSubmodels = modelSm :: optionalSubmodels
@@ -495,7 +516,8 @@ module AasxExporter =
               tryExportToControlSubmodel store project
               tryExportToMonitoringSubmodel store project
               tryExportToLoggingSubmodel store project
-              tryExportToMaintenanceSubmodel store project ]
+              tryExportToMaintenanceSubmodel store project
+              tryExportToCostAnalysisSubmodel store project ]
             |> List.choose id
 
         let allSubmodels = modelSm :: optionalSubmodels

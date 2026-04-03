@@ -182,7 +182,7 @@ module SimIndex =
             state.CallAutoAuxConditions <- state.CallAutoAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.AutoAux call)
             state.CallComAuxConditions <- state.CallComAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.ComAux call)
             state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, conditionSpecs store CallConditionType.SkipUnmatch call)
-            let callType = call.SimulationProperties |> Option.map (fun p -> p.CallType) |> Option.defaultValue CallType.WaitForCompletion
+            let callType = call.GetSimulationProperties() |> Option.map (fun p -> p.CallType) |> Option.defaultValue CallType.WaitForCompletion
             state.CallTypeMap <- state.CallTypeMap.Add(call.Id, callType)
             state.AllCallGuids <- call.Id :: state.AllCallGuids
 
@@ -196,8 +196,8 @@ module SimIndex =
             (workResetPreds: Map<Guid, Guid list>) =
             let periodSource =
                 match work.ReferenceOf with
-                | Some origId -> Queries.getWork origId store |> Option.bind (fun w -> w.SimulationProperties) |> Option.bind (fun p -> p.Duration)
-                | None -> work.SimulationProperties |> Option.bind (fun p -> p.Duration)
+                | Some origId -> Queries.getWork origId store |> Option.bind (fun w -> w.GetSimulationProperties()) |> Option.bind (fun p -> p.Duration)
+                | None -> work.GetSimulationProperties() |> Option.bind (fun p -> p.Duration)
             let userDurationMs =
                 periodSource
                 |> Option.map (fun ts -> ts.TotalMilliseconds)
@@ -449,7 +449,7 @@ module SimIndex =
             index.AllWorkGuids
             |> List.filter (fun workGuid ->
                 Queries.getWork workGuid index.Store
-                |> Option.bind (fun work -> work.SimulationProperties)
+                |> Option.bind (fun work -> work.GetSimulationProperties())
                 |> Option.map (fun p -> p.IsFinished)
                 |> Option.defaultValue false)
         if not isFinishedWorks.IsEmpty then

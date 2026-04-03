@@ -40,8 +40,8 @@ public sealed class PropertyPanelMultiSelectionTests
             vm.PropertyPanel.WorkPeriodMs = 2500;
             vm.PropertyPanel.ApplyWorkPeriodCommand.Execute(null);
 
-            Assert.Equal(2500.0, store.Works[work1Id].SimulationProperties!.Value.Duration!.Value.TotalMilliseconds);
-            Assert.Equal(2500.0, store.Works[work2Id].SimulationProperties!.Value.Duration!.Value.TotalMilliseconds);
+            Assert.Equal(2500.0, store.Works[work1Id].GetSimulationProperties()!.Value.Duration!.Value.TotalMilliseconds);
+            Assert.Equal(2500.0, store.Works[work2Id].GetSimulationProperties()!.Value.Duration!.Value.TotalMilliseconds);
         });
     }
 
@@ -145,8 +145,8 @@ public sealed class PropertyPanelMultiSelectionTests
             vm.PropertyPanel.CallTimeoutMs = 1800;
             vm.PropertyPanel.ApplyCallTimeoutCommand.Execute(null);
 
-            Assert.Equal(1800.0, store.Calls[call1.Id].SimulationProperties!.Value.Timeout!.Value.TotalMilliseconds);
-            Assert.Equal(1800.0, store.Calls[call2.Id].SimulationProperties!.Value.Timeout!.Value.TotalMilliseconds);
+            Assert.Equal(1800.0, store.Calls[call1.Id].GetSimulationProperties()!.Value.Timeout!.Value.TotalMilliseconds);
+            Assert.Equal(1800.0, store.Calls[call2.Id].GetSimulationProperties()!.Value.Timeout!.Value.TotalMilliseconds);
         });
     }
 

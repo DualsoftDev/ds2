@@ -18,10 +18,6 @@ type DsStore() =
     member val ApiCalls = Dictionary<Guid, ApiCall>() with get, set
     member val ArrowWorks   = Dictionary<Guid, ArrowBetweenWorks>() with get, set
     member val ArrowCalls   = Dictionary<Guid, ArrowBetweenCalls>() with get, set
-    member val HwButtons = Dictionary<Guid, HwButton>() with get, set
-    member val HwLamps = Dictionary<Guid, HwLamp>() with get, set
-    member val HwConditions = Dictionary<Guid, HwCondition>() with get, set
-    member val HwActions = Dictionary<Guid, HwAction>() with get, set
 
     member this.ProjectsReadOnly : IReadOnlyDictionary<Guid, Project> = ReadOnlyDictionary(this.Projects)
     member this.SystemsReadOnly : IReadOnlyDictionary<Guid, DsSystem> = ReadOnlyDictionary(this.Systems)
@@ -32,10 +28,6 @@ type DsStore() =
     member this.ApiCallsReadOnly : IReadOnlyDictionary<Guid, ApiCall> = ReadOnlyDictionary(this.ApiCalls)
     member this.ArrowWorksReadOnly   : IReadOnlyDictionary<Guid, ArrowBetweenWorks> = ReadOnlyDictionary(this.ArrowWorks)
     member this.ArrowCallsReadOnly   : IReadOnlyDictionary<Guid, ArrowBetweenCalls> = ReadOnlyDictionary(this.ArrowCalls)
-    member this.HwButtonsReadOnly : IReadOnlyDictionary<Guid, HwButton> = ReadOnlyDictionary(this.HwButtons)
-    member this.HwLampsReadOnly : IReadOnlyDictionary<Guid, HwLamp> = ReadOnlyDictionary(this.HwLamps)
-    member this.HwConditionsReadOnly : IReadOnlyDictionary<Guid, HwCondition> = ReadOnlyDictionary(this.HwConditions)
-    member this.HwActionsReadOnly : IReadOnlyDictionary<Guid, HwAction> = ReadOnlyDictionary(this.HwActions)
 
     static member empty() = DsStore()
 
@@ -77,10 +69,6 @@ type DsStore() =
         replace source.ApiCalls     this.ApiCalls
         replace source.ArrowWorks   this.ArrowWorks
         replace source.ArrowCalls   this.ArrowCalls
-        replace source.HwButtons    this.HwButtons
-        replace source.HwLamps      this.HwLamps
-        replace source.HwConditions this.HwConditions
-        replace source.HwActions    this.HwActions
 
     /// JSON 마이그레이션: FlowPrefix가 비어있는 Work에 부모 Flow 이름 설정
     member private this.MigrateWorkNaming() =
@@ -96,7 +84,7 @@ type DsStore() =
     /// JSON 마이그레이션: SystemType이 없는 System에 "Unit" 기본값 설정
     member private this.MigrateSystemType() =
         for system in this.Systems.Values do
-            match system.SimulationProperties with
+            match system.GetSimulationProperties() with
             | Some props when props.SystemType.IsNone ->
                 props.SystemType <- Some "Unit"
                 log.Info($"MigrateSystemType: Set SystemType='Unit' for System '{system.Name}' (Id={system.Id})")

@@ -205,20 +205,32 @@ module internal AasxExportCore =
     // ────────────────────────────────────────────────────────────────────────────
 
     let simulationSystemPropsToElements = propsToElements<SimulationSystemProperties>
+    let simulationFlowPropsToElements = propsToElements<SimulationFlowProperties>
     let simulationWorkPropsToElements = propsToElements<SimulationWorkProperties>
     let simulationCallPropsToElements = propsToElements<SimulationCallProperties>
 
     let controlSystemPropsToElements = propsToElements<ControlSystemProperties>
+    let controlFlowPropsToElements = propsToElements<ControlFlowProperties>
     let controlWorkPropsToElements = propsToElements<ControlWorkProperties>
     let controlCallPropsToElements = propsToElements<ControlCallProperties>
 
     let monitoringSystemPropsToElements = propsToElements<MonitoringSystemProperties>
+    let monitoringFlowPropsToElements = propsToElements<MonitoringFlowProperties>
     let monitoringWorkPropsToElements = propsToElements<MonitoringWorkProperties>
+    let monitoringCallPropsToElements = propsToElements<MonitoringCallProperties>
 
     let loggingSystemPropsToElements = propsToElements<LoggingSystemProperties>
+    let loggingFlowPropsToElements = propsToElements<LoggingFlowProperties>
     let loggingWorkPropsToElements = propsToElements<LoggingWorkProperties>
     let loggingCallPropsToElements = propsToElements<LoggingCallProperties>
 
     let maintenanceSystemPropsToElements = propsToElements<MaintenanceSystemProperties>
+    let maintenanceFlowPropsToElements = propsToElements<MaintenanceFlowProperties>
     let maintenanceWorkPropsToElements = propsToElements<MaintenanceWorkProperties>
     let maintenanceCallPropsToElements = propsToElements<MaintenanceCallProperties>
+
+    let costAnalysisSystemPropsToElements = propsToElements<CostAnalysisSystemProperties>
+    let costAnalysisFlowPropsToElements = propsToElements<CostAnalysisFlowProperties>
+    let costAnalysisWorkPropsToElements = propsToElements<CostAnalysisWorkProperties>
+    let costAnalysisCallPropsToElements = propsToElements<CostAnalysisCallProperties>
+

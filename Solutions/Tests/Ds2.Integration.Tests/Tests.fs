@@ -342,7 +342,7 @@ module SplitDeviceAasxTests =
     [<Fact>]
     let ``SplitDeviceAasx round-trip preserves all entities`` () =
         let store, projectId = createStoreWithDevices()
-        let project = store.Projects.[projectId]
+        let _ = store.Projects.[projectId]
         // SplitDeviceAasx는 export 함수의 파라미터로 전달
 
         let path = getTempAasxPath()
@@ -397,7 +397,7 @@ module SplitDeviceAasxTests =
             let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
             Assert.True(imported)
 
-            let project2 = store2.Projects.Values |> Seq.head
+            let _ = store2.Projects.Values |> Seq.head
             // SplitDeviceAasx는 더 이상 Project 속성이 아니므로 검사 제거
 
             // _devices 폴더가 생성되지 않아야 함
@@ -410,7 +410,7 @@ module SplitDeviceAasxTests =
     [<Fact>]
     let ``SplitDeviceAasx graceful degradation — missing device file skips`` () =
         let store, projectId = createStoreWithDevices()
-        let project = store.Projects.[projectId]
+        let _ = store.Projects.[projectId]
         // SplitDeviceAasx는 export 함수의 파라미터로 전달
 
         let path = getTempAasxPath()

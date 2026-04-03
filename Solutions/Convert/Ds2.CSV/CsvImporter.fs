@@ -10,7 +10,7 @@ module CsvImporter =
 
     let private parseResultToStrings = Result.mapError (List.map ParseError.toString)
 
-    let private distinctEntries map entries =
+    let private distinctEntries (map: CsvEntry -> string) (entries: CsvEntry list) : string list =
         entries |> List.map map |> List.distinct
 
     let private buildStore projectName systemName =

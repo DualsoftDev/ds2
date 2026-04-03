@@ -63,8 +63,8 @@ module MermaidImporter =
     let buildImportPlan (store: DsStore) (graph: MermaidGraph) (level: ImportLevel) (parentId: Guid) : Result<ImportPlan, string list> =
         // 검증
         match MermaidAnalyzer.validate graph level with
-        | Invalid errors -> Error errors
-        | Valid ->
+        | MermaidInvalid errors -> Error errors
+        | MermaidValid ->
 
         let hasSubgraphs = not graph.Subgraphs.IsEmpty
         let projectId = resolveProjectId store level parentId

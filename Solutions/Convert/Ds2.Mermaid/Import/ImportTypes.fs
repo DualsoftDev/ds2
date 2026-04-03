@@ -30,5 +30,5 @@ type ImportPreview = {
 
 /// 검증 결과
 type ValidationResult =
-    | Valid
-    | Invalid of errors: string list
+    | MermaidValid
+    | MermaidInvalid of errors: string list

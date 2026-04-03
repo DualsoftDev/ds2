@@ -48,7 +48,7 @@ module internal DirectPasteOps =
         (deviceState: PasteDeviceOps.DevicePasteState) (deviceFlowCtxOpt: PasteDeviceOps.DeviceFlowCtx option) (baseIndex: int) (index: int)
         : Call * PasteDeviceOps.DevicePasteState =
         let pastedCall = Call(sourceCall.DevicesAlias, sourceCall.ApiName, targetWorkId)
-        pastedCall.SimulationProperties <- sourceCall.SimulationProperties |> Option.map (fun p -> p.DeepCopy())
+        sourceCall.GetSimulationProperties() |> Option.iter (fun p -> pastedCall.SetSimulationProperties(p.DeepCopy()))
         pastedCall.Position <- offsetPosition baseIndex index sourceCall.Position
         store.TrackAdd(store.Calls, pastedCall)
         let newDeviceState =
@@ -63,7 +63,7 @@ module internal DirectPasteOps =
         let existingLocalNames = Queries.worksOf targetFlowId store |> List.map (fun w -> w.LocalName)
         let newLocalName = Queries.nextUniqueName sourceWork.LocalName existingLocalNames
         let pastedWork = Work(targetFlow.Name, newLocalName, targetFlowId)
-        pastedWork.SimulationProperties <- sourceWork.SimulationProperties |> Option.map (fun p -> p.DeepCopy())
+        sourceWork.GetSimulationProperties() |> Option.iter (fun p -> pastedWork.SetSimulationProperties(p.DeepCopy()))
         pastedWork.TokenRole <- sourceWork.TokenRole
         pastedWork.Position <- offsetPosition baseIndex index sourceWork.Position
         store.TrackAdd(store.Works, pastedWork)
