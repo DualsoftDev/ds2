@@ -320,6 +320,13 @@ type EventDrivenEngine(index: SimIndex) =
     member _.ReloadConnections() =
         lock processGate (fun () ->
             EngineFlowStep.reloadConnections reloadContext)
+    member _.ReloadDurations() =
+        lock processGate (fun () ->
+            let goingGuids =
+                index.AllWorkGuids
+                |> List.filter (fun wg -> stateManager.GetWorkState(wg) = Status4.Going)
+                |> Set.ofList
+            SimIndex.reloadDurations index goingGuids)
     interface ISimulationEngine with
         member this.State = this.State
         member this.Status = this.Status
@@ -344,6 +351,7 @@ type EventDrivenEngine(index: SimIndex) =
         member this.StepWithSourcePriming(selectedSourceGuid, autoStartSources) =
             this.StepWithSourcePriming(selectedSourceGuid, autoStartSources)
         member this.ReloadConnections() = this.ReloadConnections()
+        member this.ReloadDurations() = this.ReloadDurations()
         member this.SpeedMultiplier
             with get() = this.SpeedMultiplier
             and set(value) = this.SpeedMultiplier <- value

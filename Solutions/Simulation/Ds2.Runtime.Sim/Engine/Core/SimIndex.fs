@@ -24,7 +24,7 @@ type SimIndex = {
     mutable WorkStartPreds: Map<Guid, Guid list>
     mutable WorkPureStartPreds: Map<Guid, Guid list>
     mutable WorkResetPreds: Map<Guid, Guid list>
-    WorkDuration: Map<Guid, float>
+    mutable WorkDuration: Map<Guid, float>
     WorkSystemName: Map<Guid, string>
     WorkName: Map<Guid, string>
     /// Work → 소속 Flow Guid
@@ -438,6 +438,43 @@ module SimIndex =
         index.WorkTokenSuccessors <- rebuilt.WorkTokenSuccessors
         index.TokenPathGuids <- rebuilt.TokenPathGuids
         previous, snapshotConnections index
+
+    // ── Duration 재빌드 ────────────────────────────────────────────
+
+    /// 단일 Work의 Duration을 Store에서 재계산
+    let private computeWorkDuration (store: DsStore) (index: SimIndex) (workGuid: Guid) : float =
+        match Queries.getWork workGuid store with
+        | None -> 0.0
+        | Some work ->
+            let periodSource =
+                match work.ReferenceOf with
+                | Some origId -> Queries.getWork origId store |> Option.bind (fun w -> w.Properties.Duration)
+                | None -> work.Properties.Duration
+            let userDurationMs =
+                periodSource
+                |> Option.map (fun ts -> ts.TotalMilliseconds)
+                |> Option.defaultValue 0.0
+            let resolvedId = work.ReferenceOf |> Option.defaultValue work.Id
+            let callGuids = findOrEmpty resolvedId index.WorkCallGuids
+            if callGuids.IsEmpty then userDurationMs
+            else
+                let deviceMs =
+                    Queries.tryGetDeviceDurationMs resolvedId store
+                    |> Option.defaultValue 0
+                    |> float
+                max userDurationMs deviceMs
+
+    /// Store에서 모든 Work의 Duration을 재계산하여 SimIndex.WorkDuration을 갱신.
+    /// skipGuids에 포함된 Work는 기존 값 유지 (Going 중인 Work 보호용).
+    let reloadDurations (index: SimIndex) (skipGuids: Set<Guid>) =
+        let store = index.Store
+        let newDurations =
+            index.AllWorkGuids
+            |> List.fold (fun (acc: Map<Guid, float>) workGuid ->
+                if skipGuids.Contains workGuid then acc
+                else acc.Add(workGuid, computeWorkDuration store index workGuid)
+            ) index.WorkDuration
+        index.WorkDuration <- newDurations
 
     // ── InitialFlag 헬퍼 ─────────────────────────────────────────────
 

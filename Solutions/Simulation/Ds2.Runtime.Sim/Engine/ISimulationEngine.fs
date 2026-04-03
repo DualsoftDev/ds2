@@ -57,6 +57,10 @@ type ISimulationEngine =
     /// 현재 Store 기준으로 연결 topology만 다시 계산합니다.
     abstract ReloadConnections: unit -> unit
 
+    /// 현재 Store 기준으로 Duration만 다시 계산합니다.
+    /// Going 상태 Work는 기존 Duration 유지 (진행 중 타이머 보호).
+    abstract ReloadDurations: unit -> unit
+
     // 설정
     abstract SpeedMultiplier: float with get, set
     abstract TimeIgnore: bool with get, set

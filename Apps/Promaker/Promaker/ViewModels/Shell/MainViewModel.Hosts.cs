@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Generic;
 using System.Windows;
+using Ds2.Core;
 using Ds2.Store;
 using Ds2.Editor;
 
@@ -38,6 +39,15 @@ public partial class MainViewModel
         public void ShowWarning(string message) => Owner._dialogService.ShowWarning(message);
 
         public bool GuardSimulationSemanticEdit(string editName) => Owner.GuardSimulationSemanticEdit(editName);
+
+        public bool IsSimulating => Owner.Simulation.IsSimulating;
+
+        public Status4? GetSimWorkState(Guid workGuid) =>
+            Owner.Simulation.IsSimulating
+                ? (Owner.Simulation.SimEngine?.GetWorkState(workGuid)?.Value)
+                : null;
+
+        public void ReloadSimDurations() => Owner.Simulation.SimEngine?.ReloadDurations();
     }
 
     public sealed class CanvasHost : HostBase

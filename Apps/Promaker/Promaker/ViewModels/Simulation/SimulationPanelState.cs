@@ -27,6 +27,7 @@ public partial class SimulationPanelState : ObservableObject
     private readonly Func<IEnumerable<EntityNode>> _allTreeNodes;
     private readonly Action<string> _setStatusText;
     private ISimulationEngine? _simEngine;
+    internal ISimulationEngine? SimEngine => _simEngine;
     private DateTime _simStartTime = DateTime.Now;
     private readonly List<StateChangeRecord> _stateChangeRecords = [];
     private readonly StateCache _stateCache = new();
