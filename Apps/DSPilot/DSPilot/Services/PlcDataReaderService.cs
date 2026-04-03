@@ -678,13 +678,4 @@ public class PlcDataReaderService : BackgroundService
             _ => "0"
         };
     }
-
-    private static async Task WaitForCancellationAsync(CancellationToken cancellationToken)
-    {
-        var tcs = new TaskCompletionSource<bool>();
-        using (cancellationToken.Register(() => tcs.TrySetResult(true)))
-        {
-            await tcs.Task;
-        }
-    }
 }
