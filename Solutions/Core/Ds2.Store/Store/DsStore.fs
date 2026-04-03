@@ -3,6 +3,7 @@ namespace rec Ds2.Store
 open System
 open System.Collections.Generic
 open System.Collections.ObjectModel
+open System.Text.Json.Serialization
 open Ds2.Core
 open log4net
 
@@ -23,19 +24,19 @@ type DsStore() =
     member val HwConditions = Dictionary<Guid, HwCondition>() with get, set
     member val HwActions = Dictionary<Guid, HwAction>() with get, set
 
-    member this.ProjectsReadOnly : IReadOnlyDictionary<Guid, Project> = ReadOnlyDictionary(this.Projects)
-    member this.SystemsReadOnly : IReadOnlyDictionary<Guid, DsSystem> = ReadOnlyDictionary(this.Systems)
-    member this.FlowsReadOnly : IReadOnlyDictionary<Guid, Flow> = ReadOnlyDictionary(this.Flows)
-    member this.WorksReadOnly : IReadOnlyDictionary<Guid, Work> = ReadOnlyDictionary(this.Works)
-    member this.CallsReadOnly : IReadOnlyDictionary<Guid, Call> = ReadOnlyDictionary(this.Calls)
-    member this.ApiDefsReadOnly : IReadOnlyDictionary<Guid, ApiDef> = ReadOnlyDictionary(this.ApiDefs)
-    member this.ApiCallsReadOnly : IReadOnlyDictionary<Guid, ApiCall> = ReadOnlyDictionary(this.ApiCalls)
-    member this.ArrowWorksReadOnly   : IReadOnlyDictionary<Guid, ArrowBetweenWorks> = ReadOnlyDictionary(this.ArrowWorks)
-    member this.ArrowCallsReadOnly   : IReadOnlyDictionary<Guid, ArrowBetweenCalls> = ReadOnlyDictionary(this.ArrowCalls)
-    member this.HwButtonsReadOnly : IReadOnlyDictionary<Guid, HwButton> = ReadOnlyDictionary(this.HwButtons)
-    member this.HwLampsReadOnly : IReadOnlyDictionary<Guid, HwLamp> = ReadOnlyDictionary(this.HwLamps)
-    member this.HwConditionsReadOnly : IReadOnlyDictionary<Guid, HwCondition> = ReadOnlyDictionary(this.HwConditions)
-    member this.HwActionsReadOnly : IReadOnlyDictionary<Guid, HwAction> = ReadOnlyDictionary(this.HwActions)
+    [<JsonIgnore>] member this.ProjectsReadOnly : IReadOnlyDictionary<Guid, Project> = ReadOnlyDictionary(this.Projects)
+    [<JsonIgnore>] member this.SystemsReadOnly : IReadOnlyDictionary<Guid, DsSystem> = ReadOnlyDictionary(this.Systems)
+    [<JsonIgnore>] member this.FlowsReadOnly : IReadOnlyDictionary<Guid, Flow> = ReadOnlyDictionary(this.Flows)
+    [<JsonIgnore>] member this.WorksReadOnly : IReadOnlyDictionary<Guid, Work> = ReadOnlyDictionary(this.Works)
+    [<JsonIgnore>] member this.CallsReadOnly : IReadOnlyDictionary<Guid, Call> = ReadOnlyDictionary(this.Calls)
+    [<JsonIgnore>] member this.ApiDefsReadOnly : IReadOnlyDictionary<Guid, ApiDef> = ReadOnlyDictionary(this.ApiDefs)
+    [<JsonIgnore>] member this.ApiCallsReadOnly : IReadOnlyDictionary<Guid, ApiCall> = ReadOnlyDictionary(this.ApiCalls)
+    [<JsonIgnore>] member this.ArrowWorksReadOnly   : IReadOnlyDictionary<Guid, ArrowBetweenWorks> = ReadOnlyDictionary(this.ArrowWorks)
+    [<JsonIgnore>] member this.ArrowCallsReadOnly   : IReadOnlyDictionary<Guid, ArrowBetweenCalls> = ReadOnlyDictionary(this.ArrowCalls)
+    [<JsonIgnore>] member this.HwButtonsReadOnly : IReadOnlyDictionary<Guid, HwButton> = ReadOnlyDictionary(this.HwButtons)
+    [<JsonIgnore>] member this.HwLampsReadOnly : IReadOnlyDictionary<Guid, HwLamp> = ReadOnlyDictionary(this.HwLamps)
+    [<JsonIgnore>] member this.HwConditionsReadOnly : IReadOnlyDictionary<Guid, HwCondition> = ReadOnlyDictionary(this.HwConditions)
+    [<JsonIgnore>] member this.HwActionsReadOnly : IReadOnlyDictionary<Guid, HwAction> = ReadOnlyDictionary(this.HwActions)
 
     static member empty() = DsStore()
 
