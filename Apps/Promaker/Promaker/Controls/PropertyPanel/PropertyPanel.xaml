@@ -5,6 +5,7 @@
              xmlns:ctrl="clr-namespace:Promaker.Controls"
              xmlns:conv="clr-namespace:Promaker.Presentation"
              xmlns:core="clr-namespace:Ds2.Store;assembly=Ds2.Store"
+             xmlns:coreEnum="clr-namespace:Ds2.Core;assembly=Ds2.Core"
              xmlns:help="clr-namespace:Promaker.Help"
              x:Name="PanelRoot">
     <UserControl.Resources>
@@ -271,6 +272,17 @@
                                     IsEnabled="{Binding IsCallTimeoutDirty}"
                                     Command="{Binding ApplyCallTimeoutCommand}"/>
                         </Grid>
+                        <TextBlock Text="CallType"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,4,0,2"/>
+                        <ComboBox SelectedItem="{Binding SelectedCallType}"
+                                  Margin="0,0,0,8"
+                                  Padding="6,4">
+                            <coreEnum:CallType>WaitForCompletion</coreEnum:CallType>
+                            <coreEnum:CallType>SkipIfCompleted</coreEnum:CallType>
+                        </ComboBox>
+                        <Separator Margin="0,8"/>
                         <ctrl:ApiCallsGridControl DataContext="{Binding}"
                                                   Visibility="{Binding IsSingleCallSelected, Converter={StaticResource BoolToVis}}"/>
 

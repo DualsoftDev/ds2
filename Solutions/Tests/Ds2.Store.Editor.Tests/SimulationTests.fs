@@ -546,3 +546,64 @@ module EventDrivenEngineTokenTests =
         // A는 이미 Source → 후보 아님
         Assert.DoesNotContain(workA.Id, candidateGuids)
 
+    [<Fact>]
+    let ``reverse Call order with SkipIfCompleted completes normally`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSys.Id
+        let work = addWork store "W" flow.Id
+        work.Properties.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
+
+        // Device System: ADV, RET (RET에 IsFinished=true)
+        let deviceSys = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DF" deviceSys.Id
+        let advWork = addWork store "ADV" deviceFlow.Id
+        advWork.Properties.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
+        let retWork = addWork store "RET" deviceFlow.Id
+        retWork.Properties.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
+        retWork.Properties.IsFinished <- true
+
+        let advApiDef = addApiDef store "ADV" deviceSys.Id
+        advApiDef.Properties.TxGuid <- Some advWork.Id
+        advApiDef.Properties.RxGuid <- Some advWork.Id
+        let retApiDef = addApiDef store "RET" deviceSys.Id
+        retApiDef.Properties.TxGuid <- Some retWork.Id
+        retApiDef.Properties.RxGuid <- Some retWork.Id
+
+        // Call 2개: Device.RET, Device.ADV (역순 화살표)
+        let retCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "RET", [retApiDef.Id])
+        let advCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [advApiDef.Id])
+        store.ConnectSelectionInOrder([retCallId; advCallId], ArrowType.Start) |> ignore
+
+        // SkipIfCompleted로 설정 → IsFinished인 RET도 바로 Complete
+        store.Calls.[retCallId].Properties.CallType <- CallType.SkipIfCompleted
+        store.Calls.[advCallId].Properties.CallType <- CallType.SkipIfCompleted
+
+        let index = SimIndex.build store 10
+        use engine = new EventDrivenEngine(index)
+        let sim = engine :> ISimulationEngine
+
+        sim.SpeedMultiplier <- 100.0
+        sim.ApplyInitialStates()
+
+        let token = sim.NextToken()
+        sim.SeedToken(work.Id, token)
+
+        sim.Start()
+
+        // Work가 Going을 거쳐 Finish/Homing/Ready까지 가는지 확인
+        let completed = waitUntil 5000 (fun () ->
+            sim.GetWorkState(work.Id)
+            |> Option.exists (fun s -> s = Status4.Finish || s = Status4.Homing || s = Status4.Ready))
+
+        sim.Stop()
+
+        let workState = sim.GetWorkState(work.Id)
+        let retCallState = sim.GetCallState(retCallId)
+        let advCallState = sim.GetCallState(advCallId)
+        printfn $"  Work={workState}, RET Call={retCallState}, ADV Call={advCallState}"
+
+        Assert.True(completed, $"SkipIfCompleted should prevent stuck Going. State={workState}")
+

@@ -63,6 +63,7 @@ public partial class PropertyPanelState : ObservableObject
     [ObservableProperty] private bool _hasLinkedTokenSpec;
     [ObservableProperty] private string _linkedTokenSpecLabel = "";
     [ObservableProperty] private int? _callTimeoutMs;
+    [ObservableProperty] private CallType _selectedCallType = CallType.WaitForCompletion;
     [ObservableProperty] private CallApiCallItem? _selectedCallApiCall;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ApplyNameCommand))]
@@ -99,6 +100,8 @@ public partial class PropertyPanelState : ObservableObject
 
     partial void OnCallTimeoutMsChanged(int? value) =>
         IsCallTimeoutDirty = value != _originalCallTimeoutMs;
+
+    partial void OnSelectedCallTypeChanged(CallType value) => SyncCallType(value);
 
     partial void OnSystemTypeChanged(string value) =>
         IsSystemTypeDirty = !string.Equals(value, _originalSystemType, StringComparison.Ordinal);
@@ -227,6 +230,11 @@ public partial class PropertyPanelState : ObservableObject
             var timeoutValues = selectedCallIds.Select(callId => Store.GetCallTimeoutMsOrNull(callId)).Distinct().ToList();
             _originalCallTimeoutMs = timeoutValues.Count == 1 ? timeoutValues[0] : null;
             CallTimeoutMs = _originalCallTimeoutMs;
+
+            var callTypeValues = selectedCallIds
+                .Select(callId => Queries.getCall(callId, Store)?.Value.Properties.CallType ?? CallType.WaitForCompletion)
+                .Distinct().ToList();
+            SelectedCallType = callTypeValues.Count == 1 ? callTypeValues[0] : CallType.WaitForCompletion;
             if (IsSingleCallSelected && selected is not null)
                 RefreshCallPanel(selected.Id);
             else
@@ -508,5 +516,39 @@ public partial class PropertyPanelState : ObservableObject
             ? $"Token role updated for {selectedWorkIds.Count} items."
             : "Work token role updated.");
         Refresh();
+    }
+
+    private void SyncCallType(CallType value)
+    {
+        if (_suppressTokenRoleSync)
+            return;
+
+        var selectedCallIds = GetSelectedCallIds();
+        if (selectedCallIds.Count == 0)
+            return;
+
+        if (!GuardSimulationSemanticEdit("Call type 변경"))
+        {
+            Refresh();
+            return;
+        }
+
+        if (!_host.TryAction(() =>
+        {
+            foreach (var callId in selectedCallIds)
+            {
+                var call = Queries.getCall(callId, Store)?.Value;
+                if (call != null && call.Properties.CallType != value)
+                    Store.UpdateCallType(callId, value);
+            }
+        }))
+        {
+            Refresh();
+            return;
+        }
+
+        _host.SetStatusText(selectedCallIds.Count > 1
+            ? $"CallType updated for {selectedCallIds.Count} items."
+            : "Call type updated.");
     }
 }
