@@ -37,6 +37,11 @@
             <span class="material-icons" style="font-size:18px;">file_download</span>
             Export JSON
         </button>
+        <button class="btn btn-outlined color-warning mr-2" @onclick="ClearAllPlacements"
+                disabled="@(!BlueprintService.Layout.FlowPlacements.Any())">
+            <span class="material-icons" style="font-size:18px;">delete_sweep</span>
+            블럭 모두 지우기
+        </button>
         <button class="btn btn-outlined" @onclick="@(() => Nav.NavigateTo("/"))">
             <span class="material-icons" style="font-size:18px;">dashboard</span>
             대시보드
@@ -459,6 +464,23 @@
         BlueprintService.RemovePlacementLocal(flowId);
         _isDirty = true;
         _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "Removed.", "info");
+        StateHasChanged();
+    }
+
+    private async Task ClearAllPlacements()
+    {
+        var count = BlueprintService.Layout.FlowPlacements.Count;
+        if (count == 0) return;
+
+        var confirmed = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
+            "블럭 모두 지우기",
+            $"배치된 오버레이 블럭 {count}개를 모두 삭제하시겠습니까?",
+            "삭제", "취소");
+        if (!confirmed) return;
+
+        BlueprintService.Layout.FlowPlacements.Clear();
+        _isDirty = true;
+        await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"블럭 {count}개가 삭제되었습니다.", "info");
         StateHasChanged();
     }
 
