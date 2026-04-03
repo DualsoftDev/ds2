@@ -68,13 +68,29 @@ public class PlcCaptureSettings
     public const int DefaultPlcPort = 9002;
     public const int DefaultScanIntervalMs = 100;
     public const string DefaultProtocol = "TCP";
+    public const string DefaultPlcType = "Mitsubishi";
+    public const string DefaultPlcModel = "XGI";
 
     public bool Enabled { get; set; }
+
+    /// <summary>
+    /// PLC 타입: "Mitsubishi" 또는 "LS"
+    /// </summary>
+    public string PlcType { get; set; } = DefaultPlcType;
+
     public string PlcName { get; set; } = DefaultPlcName;
     public string PlcIpAddress { get; set; } = DefaultPlcIpAddress;
     public int PlcPort { get; set; } = DefaultPlcPort;
     public int ScanIntervalMs { get; set; } = DefaultScanIntervalMs;
     public string Protocol { get; set; } = DefaultProtocol;
+
+    /// <summary>
+    /// LS PLC 모델: "XGI", "XGK", "XGT" (PlcType이 "LS"일 때 사용)
+    /// </summary>
+    public string PlcModel { get; set; } = DefaultPlcModel;
+
+    [JsonIgnore]
+    public bool IsLS => PlcType.Equals("LS", StringComparison.OrdinalIgnoreCase);
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }

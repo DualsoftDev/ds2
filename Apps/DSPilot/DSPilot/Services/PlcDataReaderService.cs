@@ -84,6 +84,7 @@ public class PlcDataReaderService : BackgroundService
             // Retry initialization if database schema is not ready yet
             if (!await InitializeWithRetryAsync(stoppingToken)) return;
             if (!await WaitForMapperInitializationAsync(stoppingToken)) return;
+            if (!await WaitForFlowMetricsInitializationAsync(stoppingToken)) return;
 
             await PostInitializeAsync();
 
@@ -366,6 +367,22 @@ public class PlcDataReaderService : BackgroundService
             if (_mapper.IsInitialized)
             {
                 _logger.LogInformation("DSP mapper initialized.");
+                return true;
+            }
+
+            await Task.Delay(500, stoppingToken);
+        }
+
+        return false;
+    }
+
+    private async Task<bool> WaitForFlowMetricsInitializationAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            if (_flowMetricsService.IsInitialized)
+            {
+                _logger.LogInformation("FlowMetricsService initialized.");
                 return true;
             }
 
