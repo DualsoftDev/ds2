@@ -139,7 +139,7 @@
                         <span class="gantt-info-separator">|</span>
                         <span class="gantt-idle-legend">
                             <span class="gantt-idle-swatch"></span>
-                            Idle (유휴시간 초과)
+                            비가동 구간
                         </span>
                     }
                 </div>
@@ -490,7 +490,7 @@
                 CalculateLongestGap();
                 _needsCrosshairInit = true;
 
-                // idle 사이클 구간 감지
+                // 비가동 사이클 구간 감지
                 await DetectIdleRegionsAsync();
             }
         }
@@ -837,7 +837,7 @@
 
         var sorted = edges.OrderBy(t => t).ToList();
 
-        // 인접 edge 사이 idle 구간
+        // 인접 edge 사이 비가동 구간
         for (int i = 0; i < sorted.Count - 1; i++)
         {
             var cycleStart = sorted[i];
@@ -1198,7 +1198,7 @@
 
         builder.CloseElement();
 
-        // Idle cycle region overlays (최상위에 렌더링하여 모든 bar 위에 표시)
+        // 비가동 구간 overlay (최상위에 렌더링하여 모든 bar 위에 표시)
         foreach (var (idleStart, idleEnd) in _idleRegions)
         {
             var idleX = leftMargin + Math.Max(0, (idleStart - chartStartTime).TotalMilliseconds * xScale);
@@ -1216,7 +1216,7 @@
             builder.AddAttribute(5, "height", data.TotalLanes * laneHeight);
             builder.CloseElement();
 
-            // Idle 라벨 표시 (충분한 너비가 있을 때만)
+            // 비가동 라벨 표시 (충분한 너비가 있을 때만)
             if (idleW > 30)
             {
                 builder.OpenElement(0, "text");
@@ -1225,7 +1225,7 @@
                 builder.AddAttribute(3, "y", topMargin + 16);
                 builder.AddAttribute(4, "text-anchor", "middle");
                 builder.AddAttribute(5, "dominant-baseline", "middle");
-                builder.AddContent(6, "Idle");
+                builder.AddContent(6, "비가동");
                 builder.CloseElement();
             }
         }

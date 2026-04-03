@@ -42,7 +42,7 @@ public class DspFlowHistoryEntity
     public DateTime RecordedAt { get; set; }
 
     /// <summary>
-    /// 유휴 사이클 여부 (CT > MaxCycleTimeMs)
+    /// 비가동 사이클 여부 (CT > MaxCycleTimeMs)
     /// </summary>
     public bool IsIdle { get; set; } = false;
 }

@@ -327,14 +327,14 @@ public class FlowMetricsService : IFlowMetricsService
     {
         try
         {
-            // idle 판정: CT가 MaxCycleTimeMs 초과이면 유휴 사이클
+            // 비가동 판정: CT가 MaxCycleTimeMs 초과이면 비가동 사이클
             var settings = _appSettingsService.LoadSettings();
             var maxCT = settings.HistoryView.MaxCycleTimeMs;
             bool isIdle = maxCT > 0 && ct > maxCT;
 
             if (!isIdle)
             {
-                // 평균값 계산 (누적 평균) — idle 사이클은 평균에서 제외
+                // 평균값 계산 (누적 평균) — 비가동 사이클은 평균에서 제외
                 state.CycleCount++;
                 state.SumMT += mt;
                 state.SumWT += wt;
@@ -371,11 +371,11 @@ public class FlowMetricsService : IFlowMetricsService
             else
             {
                 _logger.LogInformation(
-                    "Flow '{FlowName}' IDLE cycle skipped: CT={CT}ms > MaxCycleTimeMs={MaxCT}ms",
+                    "Flow '{FlowName}' 비가동 cycle skipped: CT={CT}ms > MaxCycleTimeMs={MaxCT}ms",
                     flowName, ct, maxCT);
             }
 
-            // 2. History 테이블 삽입 (idle 포함, IsIdle 플래그와 함께)
+            // 2. History 테이블 삽입 (비가동 포함, IsIdle 플래그와 함께)
             var history = new Models.Dsp.DspFlowHistoryEntity
             {
                 FlowName = flowName,
