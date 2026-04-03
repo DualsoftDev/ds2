@@ -348,11 +348,24 @@ public partial class PropertyPanelState : ObservableObject
     [RelayCommand]
     private void ApplyWorkPeriod()
     {
-        if (!GuardSimulationSemanticEdit("Work duration 변경"))
-            return;
-
         var selectedWorkIds = GetSelectedCanonicalWorkIds();
         if (selectedWorkIds.Count == 0) return;
+
+        // 시뮬레이션 중 Going Work가 포함되어 있으면 경고 후 거부
+        if (_host.IsSimulating)
+        {
+            var goingIds = selectedWorkIds
+                .Where(id => _host.GetSimWorkState(id) == Ds2.Core.Status4.Going)
+                .ToList();
+            if (goingIds.Count > 0)
+            {
+                Dialogs.DialogHelpers.ShowThemedMessageBox(
+                    "Going 상태인 Work의 Duration은 변경할 수 없습니다.\n실행이 완료된 후 변경하세요.",
+                    "Duration 변경 불가",
+                    System.Windows.MessageBoxButton.OK, "⚠");
+                return;
+            }
+        }
 
         if (IsSingleWorkSelected && _deviceDurationMs is { } devMs)
         {
@@ -373,6 +386,10 @@ public partial class PropertyPanelState : ObservableObject
 
         if (!_host.TryAction(() => Store.UpdateWorkPeriodsBatch(changes)))
             return;
+
+        // 시뮬레이션 중이면 엔진에 Duration 변경 반영
+        if (_host.IsSimulating)
+            _host.ReloadSimDurations();
 
         _originalWorkPeriodMs = WorkPeriodMs;
         IsWorkPeriodDirty = false;

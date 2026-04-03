@@ -90,7 +90,7 @@ public sealed class SimulationEditGuardsTests
     }
 
     [Fact]
-    public void ApplyWorkPeriod_is_blocked_during_simulation()
+    public void ApplyWorkPeriod_is_allowed_during_simulation_for_non_going_work()
     {
         StaTestRunner.Run(() =>
         {
@@ -115,8 +115,9 @@ public sealed class SimulationEditGuardsTests
             vm.PropertyPanel.WorkPeriodMs = 2500;
             vm.PropertyPanel.ApplyWorkPeriodCommand.Execute(null);
 
-            Assert.Equal(1000, store.GetWorkPeriodMsOrNull(workId));
-            Assert.Single(dialog.WarningMessages);
+            // 시뮬 중이지만 Going이 아니므로 Duration 변경 허용
+            Assert.Equal(2500, store.GetWorkPeriodMsOrNull(workId));
+            Assert.Empty(dialog.WarningMessages);
         });
     }
 
