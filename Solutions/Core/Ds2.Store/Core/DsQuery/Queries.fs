@@ -169,6 +169,40 @@ module Queries =
     let callsOf (workId: Guid) (store: DsStore) : Call list =
         childrenOf store.CallsReadOnly.Values workId (fun c -> c.ParentId)
 
+    /// Work 내 원본 Call만 (ReferenceOf = None)
+    let originalCallsOf (workId: Guid) (store: DsStore) : Call list =
+        callsOf workId store |> List.filter (fun c -> c.ReferenceOf.IsNone)
+
+    /// Reference Call이면 invalidOp — 원본에서 수정하도록 유도
+    let requireNonReferenceCall (callId: Guid) (store: DsStore) =
+        match getCall callId store with
+        | Some c when c.ReferenceOf.IsSome ->
+            invalidOp "레퍼런스 Call은 수정할 수 없습니다. 원본 Call에서 수정하세요."
+        | _ -> ()
+
+    /// Reference Call이면 원본 ID, 아니면 자기 자신 ID 반환
+    let resolveOriginalCallId (callId: Guid) (store: DsStore) : Guid =
+        getCall callId store
+        |> Option.bind (fun c -> c.ReferenceOf)
+        |> Option.defaultValue callId
+
+    /// Reference OR 그룹: 원본 Call + 해당 원본을 참조하는 모든 reference Call의 ID
+    let callReferenceGroupOf (callId: Guid) (store: DsStore) : Guid list =
+        let origId =
+            getCall callId store
+            |> Option.bind (fun c -> c.ReferenceOf)
+            |> Option.defaultValue callId
+        store.CallsReadOnly.Values
+        |> Seq.filter (fun c -> c.Id = origId || c.ReferenceOf = Some origId)
+        |> Seq.map (fun c -> c.Id)
+        |> Seq.toList
+
+    /// Work 내 Call 이름(DevicesAlias.ApiName) 중복 검사 — 원본 Call만 대상
+    let isCallNameUniqueInWork (workId: Guid) (callName: string) (excludeId: Guid option) (store: DsStore) : bool =
+        originalCallsOf workId store
+        |> List.exists (fun c -> c.Name = callName && excludeId <> Some c.Id)
+        |> not
+
     // ─────────────────────────────────────────────────────────────────────────
     // ApiDef 쿼리
     // ─────────────────────────────────────────────────────────────────────────

@@ -61,7 +61,7 @@ let private buildSystemChildren (store: DsStore) (systemId: Guid) =
                 Queries.originalWorksOf flow.Id store
                 |> List.map (fun work ->
                     let calls =
-                        Queries.callsOf work.Id store
+                        Queries.originalCallsOf work.Id store
                         |> List.map (fun c ->
                             { Id = c.Id
                               EntityKind = EntityKind.Call

@@ -31,8 +31,10 @@
             <ContextMenu x:Name="CanvasContextMenu">
                 <MenuItem x:Name="AddWorkMenuItem" Header="Work 추가" Click="AddWork_Click"/>
                 <MenuItem x:Name="AddCallMenuItem" Header="Call 추가" Click="AddCall_Click"/>
-                <MenuItem x:Name="AddRefWorkMenuItem" Header="레퍼런스 노드 만들기"
+                <MenuItem x:Name="AddRefWorkMenuItem" Header="레퍼런스 Work 만들기"
                           Command="{Binding AddReferenceWorkCommand}"/>
+                <MenuItem x:Name="AddRefCallMenuItem" Header="레퍼런스 Call 만들기"
+                          Command="{Binding AddReferenceCallCommand}"/>
                 <Separator x:Name="SepAfterAdd"/>
                 <MenuItem x:Name="ConnectMenuItem" Header="화살표 연결" Click="StartConnect_Click"/>
                 <Separator x:Name="SepAfterConnect"/>
@@ -148,7 +150,7 @@
                                             Width="{Binding Width}" Height="{Binding Height}"
                                             Background="{DynamicResource TertiaryBackgroundBrush}"
                                             BorderBrush="{DynamicResource BorderBrush}"
-                                            BorderThickness="1" CornerRadius="3" Cursor="Hand"
+                                            BorderThickness="2" CornerRadius="3" Cursor="Hand"
                                             Tag="{Binding Id}">
                                         <Border.Effect>
                                             <DropShadowEffect BlurRadius="8" ShadowDepth="2" Opacity="0.5"
@@ -280,6 +282,13 @@
                                     <DataTrigger Binding="{Binding IsGhost}" Value="True">
                                         <Setter TargetName="NodeBorder" Property="Opacity" Value="0.45"/>
                                         <Setter TargetName="NodeBorder" Property="BorderThickness" Value="1.5"/>
+                                    </DataTrigger>
+                                    <!-- Reference node: gray border + muted background -->
+                                    <DataTrigger Binding="{Binding IsReference}" Value="True">
+                                        <Setter TargetName="NodeBorder" Property="BorderBrush"
+                                                Value="{DynamicResource ReferenceBorderBrush}"/>
+                                        <Setter TargetName="NodeBorder" Property="Background"
+                                                Value="{DynamicResource ReferenceBackgroundBrush}"/>
                                     </DataTrigger>
                                     <!-- Warning highlight (graph validation) -->
                                     <DataTrigger Binding="{Binding IsWarning}" Value="True">

@@ -83,6 +83,17 @@ type CopyValidationResult =
     | MixedParents
     | NothingToCopy
 
+[<RequireQualifiedAccess>]
+type PasteValidationResult =
+    | Ok
+    | SameWorkPaste
+    | DuplicateCallInWork
+
+[<RequireQualifiedAccess>]
+type PasteResult =
+    | Ok of Guid list
+    | Blocked of PasteValidationResult
+
 [<Sealed>]
 type CanvasSelectionCandidate(key: SelectionKey, x: float, y: float, width: float, height: float, name: string) =
     member _.Key = key

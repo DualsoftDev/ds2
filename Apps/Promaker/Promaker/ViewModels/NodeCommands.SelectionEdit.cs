@@ -60,6 +60,16 @@ public partial class MainViewModel
         TryEditorAction(() => _store.AddReferenceWork(node.Id));
     }
 
+    [RelayCommand(CanExecute = nameof(HasProject))]
+    private void AddReferenceCall()
+    {
+        if (!GuardSimulationSemanticEdit("레퍼런스 Call 추가"))
+            return;
+
+        if (SelectedNode is not { EntityType: EntityKind.Call } node) return;
+        TryEditorAction(() => _store.AddReferenceCall(node.Id));
+    }
+
     [RelayCommand]
     private void RenameSelected(string newName)
     {
@@ -152,16 +162,27 @@ public partial class MainViewModel
         }
 
         var pasteIndex = _pasteCount * _clipboardSelection.Count;
-        if (!TryEditorRef(
+        if (!TryEditorFunc(
                 () => _store.PasteEntities(
                     batchType,
                     _clipboardSelection.Select(k => k.Id),
                     target.Value.EntityType,
                     target.Value.EntityId,
                     pasteIndex),
-                out var pastedIds))
+                out PasteResult pasteResult,
+                fallback: PasteResult.NewOk(Microsoft.FSharp.Collections.ListModule.Empty<Guid>())))
             return;
 
+        if (pasteResult is PasteResult.Blocked blocked)
+        {
+            if (blocked.Item.IsSameWorkPaste)
+                _dialogService.ShowWarning("같은 Work 내의 Call은 복사할 수 없습니다.");
+            else if (blocked.Item.IsDuplicateCallInWork)
+                _dialogService.ShowWarning("대상 Work에 이미 동일한 이름의 Call이 존재합니다.");
+            return;
+        }
+
+        var pastedIds = ((PasteResult.Ok)pasteResult).Item;
         _pasteCount++;
         ApplyPasteSelection(pastedIds, $"Pasted {pastedIds.Length} {batchType}(s).");
     }

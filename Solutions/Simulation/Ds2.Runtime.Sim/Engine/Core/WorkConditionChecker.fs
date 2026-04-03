@@ -95,7 +95,9 @@ module WorkConditionChecker =
         let callPreds = SimIndex.findOrEmpty callGuid index.CallStartPreds
         let basicOk =
             callWork |> Option.map (fun wg -> Map.tryFind wg state.WorkStates = Some Status4.Going) |> Option.defaultValue false &&
-            callPreds |> List.forall (fun pred -> Map.tryFind pred state.CallStates = Some Status4.Finish)
+            callPreds |> List.forall (fun pred ->
+                let orGuids = SimIndex.callReferenceGroupOf index pred
+                orGuids |> List.exists (fun cg -> Map.tryFind cg state.CallStates = Some Status4.Finish))
         if not basicOk then false
         elif shouldSkipCall index state callGuid then true
         else

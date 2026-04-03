@@ -122,6 +122,11 @@ public partial class EditorCanvas : UserControl
             VM?.SelectedNode?.EntityType == EntityKind.Work
             && tabKind is Ds2.Editor.TabKind.System or Ds2.Editor.TabKind.Flow
                 ? Visibility.Visible : Visibility.Collapsed;
+        // 레퍼런스 Call: Call이 선택된 상태 + Work 탭에서만
+        AddRefCallMenuItem.Visibility =
+            VM?.SelectedNode?.EntityType == EntityKind.Call
+            && tabKind == Ds2.Editor.TabKind.Work
+                ? Visibility.Visible : Visibility.Collapsed;
 
         // 선택 상태에 따라 연결/복사/삭제 가시성 및 활성화 갱신
         bool hasNodeSelection = VM?.SelectedNode is not null || (VM?.Selection.OrderedNodeSelection.Count ?? 0) > 0;

@@ -215,6 +215,27 @@ module SimIndexTests =
         Assert.DoesNotContain(work2.Id, unresetGuids)
         Assert.DoesNotContain(work3.Id, unresetGuids)
 
+    [<Fact>]
+    let ``build includes reference calls in AllCallGuids with original data`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+        let originalCall = Queries.callsOf work.Id store |> List.head
+        let refId = store.AddReferenceCall(originalCall.Id)
+
+        let index = SimIndex.build store 10
+
+        // 레퍼런스 Call이 AllCallGuids에 포함
+        Assert.Contains(refId, index.AllCallGuids)
+        Assert.Contains(originalCall.Id, index.AllCallGuids)
+        // 레퍼런스 Call의 CallWorkGuid가 원본과 동일한 Work를 가리킴
+        Assert.Equal(index.CallWorkGuid[originalCall.Id], index.CallWorkGuid[refId])
+        // OR 그룹 형성 확인
+        let group = SimIndex.callReferenceGroupOf index originalCall.Id
+        Assert.Contains(originalCall.Id, group)
+        Assert.Contains(refId, group)
+        Assert.Equal(2, group.Length)
+
 module StepModeTests =
 
     [<Fact>]

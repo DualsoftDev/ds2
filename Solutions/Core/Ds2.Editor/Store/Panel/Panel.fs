@@ -173,7 +173,8 @@ type DsStorePanelTimeExtensions =
 
     [<Extension>]
     static member GetCallTimeoutMs(store: DsStore, callId: Guid) : int option =
-        PanelTimeOps.readMs Queries.getCall (fun c -> c.Properties.Timeout) EntityKind.Call store callId
+        let resolvedId = Queries.resolveOriginalCallId callId store
+        PanelTimeOps.readMs Queries.getCall (fun c -> c.Properties.Timeout) EntityKind.Call store resolvedId
 
     [<Extension>]
     static member GetCallTimeoutMsOrNull(store: DsStore, callId: Guid) : Nullable<int> =
@@ -231,6 +232,7 @@ type DsStorePanelTimeExtensions =
 
     [<Extension>]
     static member UpdateCallTimeoutMs(store: DsStore, callId: Guid, timeoutMs: int option) =
+        Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, timeoutMs={timeoutMs}")
         let timeout = PanelTimeOps.fromMs timeoutMs
         PanelMutationOps.updateCallIfChanged

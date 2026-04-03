@@ -247,8 +247,9 @@ type DsStorePanelBatchExtensions =
         let changeList =
             changes
             |> Seq.map (fun struct(callId, timeoutMs) ->
+                let resolvedId = Queries.resolveOriginalCallId callId store
                 let timeout = if timeoutMs.HasValue && timeoutMs.Value > 0 then Some (TimeSpan.FromMilliseconds(float timeoutMs.Value)) else None
-                struct(callId, timeout))
+                struct(resolvedId, timeout))
             |> Seq.distinctBy (fun struct(callId, _) -> callId)
             |> Seq.filter (fun struct(callId, timeout) ->
                 match Queries.getCall callId store with

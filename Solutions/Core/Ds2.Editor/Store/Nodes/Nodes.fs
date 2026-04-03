@@ -59,10 +59,11 @@ type DsStoreNodesExtensions =
 
     [<Extension>]
     static member AddReferenceWork(store: DsStore, originalWorkId: Guid) : Guid =
-        StoreLog.debug($"originalWorkId={originalWorkId}")
-        let original = StoreLog.requireWork(store, originalWorkId)
+        let resolvedId = Queries.resolveOriginalWorkId originalWorkId store
+        StoreLog.debug($"originalWorkId={originalWorkId}, resolvedId={resolvedId}")
+        let original = StoreLog.requireWork(store, resolvedId)
         let refWork = Work(original.FlowPrefix, original.LocalName, original.ParentId)
-        refWork.ReferenceOf <- Some originalWorkId
+        refWork.ReferenceOf <- Some resolvedId
         refWork.Position <-
             original.Position
             |> Option.map (fun pos -> Xywh(pos.X + 40, pos.Y + 40, pos.W, pos.H))
@@ -70,6 +71,21 @@ type DsStoreNodesExtensions =
             store.TrackAdd(store.Works, refWork))
         store.EmitAndHistory(WorkAdded refWork)
         refWork.Id
+
+    [<Extension>]
+    static member AddReferenceCall(store: DsStore, originalCallId: Guid) : Guid =
+        let resolvedId = Queries.resolveOriginalCallId originalCallId store
+        StoreLog.debug($"originalCallId={originalCallId}, resolvedId={resolvedId}")
+        let original = StoreLog.requireCall(store, resolvedId)
+        let refCall = Call(original.DevicesAlias, original.ApiName, original.ParentId)
+        refCall.ReferenceOf <- Some resolvedId
+        refCall.Position <-
+            original.Position
+            |> Option.map (fun pos -> Xywh(pos.X + 40, pos.Y + 40, pos.W, pos.H))
+        store.WithTransaction("레퍼런스 Call 생성", fun () ->
+            store.TrackAdd(store.Calls, refCall))
+        store.EmitRefreshAndHistory()
+        refCall.Id
 
     // ─── Add (배치/디바이스) ──────────────────────────────────────────
     [<Extension>]
@@ -180,6 +196,8 @@ type DsStoreNodesExtensions =
     // ─── Rename ──────────────────────────────────────────────────────
     [<Extension>]
     static member RenameEntity(store: DsStore, id: Guid, entityKind: EntityKind, newName: string) =
+        if entityKind = EntityKind.Call then
+            Queries.requireNonReferenceCall id store
         // Call은 DevicesAlias만 변경, Work는 LocalName만 변경
         let resolvedName =
             match entityKind with
@@ -219,6 +237,11 @@ type DsStoreNodesExtensions =
                 let flow = store.Flows.[id]
                 if not (Queries.isFlowNameUniqueInSystem flow.ParentId resolvedName (Some id) store) then
                     invalidOp $"같은 System 내에 이미 '{resolvedName}' Flow가 존재합니다."
+            | EntityKind.Call ->
+                let call = store.Calls.[id]
+                let fullName = $"{resolvedName}.{call.ApiName}"
+                if not (Queries.isCallNameUniqueInWork call.ParentId fullName (Some id) store) then
+                    invalidOp $"같은 Work 내에 이미 '{fullName}' Call이 존재합니다."
             | _ -> ()
             store.WithTransaction($"이름 변경 → \"{resolvedName}\"", fun () ->
                 match entityKind with

@@ -83,12 +83,14 @@ type DsStorePanelApiCallExtensions =
 
     [<Extension>]
     static member GetCallApiCallsForPanel(store: DsStore, callId: Guid) : CallApiCallPanelItem list =
-        DirectPanelOps.withCallOrEmpty store callId (fun call ->
+        let resolvedId = Queries.resolveOriginalCallId callId store
+        DirectPanelOps.withCallOrEmpty store resolvedId (fun call ->
             call.ApiCalls |> Seq.map (DirectPanelOps.toCallApiCallPanelItem store) |> Seq.toList)
 
     [<Extension>]
     static member TryGetCallApiCallForPanel(store: DsStore, callId: Guid, apiCallId: Guid) : CallApiCallPanelItem option =
-        match Queries.getCall callId store with
+        let resolvedId = Queries.resolveOriginalCallId callId store
+        match Queries.getCall resolvedId store with
         | Some call ->
             call.ApiCalls
             |> Seq.tryFind (fun apiCall -> apiCall.Id = apiCallId)
@@ -109,6 +111,7 @@ type DsStorePanelApiCallExtensions =
          inputTagName: string, inputAddress: string,
          outTypeIndex: int, outText: string, inTypeIndex: int, inText: string)
         : Guid =
+        Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, apiDefId={apiDefId}")
         let apiDef = StoreLog.requireApiDef(store, apiDefId)
         let call = StoreLog.requireCall(store, callId)
@@ -126,6 +129,7 @@ type DsStorePanelApiCallExtensions =
          inputTagName: string, inputAddress: string,
          outTypeIndex: int, outText: string, inTypeIndex: int, inText: string)
         : bool =
+        Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, apiCallId={apiCallId}, apiDefId={apiDefId}")
         let call = StoreLog.requireCall(store, callId)
         let newApiDef = StoreLog.requireApiDef(store, apiDefId)
@@ -140,6 +144,7 @@ type DsStorePanelApiCallExtensions =
 
     [<Extension>]
     static member RemoveApiCallFromCall(store: DsStore, callId: Guid, apiCallId: Guid) =
+        Queries.requireNonReferenceCall callId store
         StoreLog.debug($"callId={callId}, apiCallId={apiCallId}")
         let call = StoreLog.requireCall(store, callId)
         StoreLog.requireApiCallInCall(call, apiCallId)

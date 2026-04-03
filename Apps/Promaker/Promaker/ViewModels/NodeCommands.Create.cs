@@ -126,6 +126,28 @@ public partial class MainViewModel
             ? FSharpOption<string>.None
             : FSharpOption<string>.Some(dialog.SelectedSystemType);
 
+        // Call 이름 중복 경고: 동일 이름이 있으면 확인 후 진행
+        var callNamesToCheck = dialog.Mode switch
+        {
+            CallCreateMode.CallReplication => dialog.CallNames.ToList(),
+            CallCreateMode.ApiCallReplication => dialog.CallNames
+                .Select(fullName => $"{dialog.CallDevicesAlias}.{NormalizeApiName(fullName)}")
+                .ToList(),
+            CallCreateMode.ApiDefPicker => [$"{dialog.DevicesAlias}.{dialog.ApiName}"],
+            _ => []
+        };
+        var duplicateCallNames = callNamesToCheck
+            .Where(name => !Queries.isCallNameUniqueInWork(targetWorkId, name, FSharpOption<Guid>.None, _store))
+            .ToList();
+        if (duplicateCallNames.Count > 0)
+        {
+            var nameList = string.Join(", ", duplicateCallNames);
+            if (!_dialogService.Confirm(
+                $"'{nameList}' 이름의 Call이 이미 존재합니다.\nApiCall은 동일한 ApiDef를 참조합니다.\n그래도 생성하시겠습니까?",
+                "Call 이름 중복"))
+                return;
+        }
+
         var worksBefore = _store.Works.Keys.ToHashSet();
 
         switch (dialog.Mode)

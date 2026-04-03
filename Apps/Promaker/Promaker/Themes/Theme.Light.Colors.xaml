@@ -80,6 +80,8 @@
     <Color x:Key="ConditionAutoBadgeColor">#A65B00</Color>
     <Color x:Key="ConditionComBadgeColor">#2A7A4E</Color>
     <Color x:Key="ConditionSkipBadgeColor">#8A8D92</Color>
+    <Color x:Key="ReferenceBorderColor">#9E9EAA</Color>
+    <Color x:Key="ReferenceBackgroundColor">#E8E8EE</Color>
 
     <!-- Token UI Colors -->
     <Color x:Key="TokenOrangeColor">#B87A1A</Color>

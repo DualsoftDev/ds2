@@ -37,6 +37,10 @@ type SimIndex = {
     CallSkipUnmatchConditions: Map<Guid, ConditionEntry list>
     /// ReferenceOf 기반 OR 그룹: 원본 WorkId → [원본 + 참조 Work Guid 목록]
     WorkReferenceGroups: Map<Guid, Guid list>
+    /// Call Guid → canonical/original Call Guid
+    CallCanonicalGuids: Map<Guid, Guid>
+    /// ReferenceOf 기반 OR 그룹: 원본 CallId → [원본 + 참조 Call Guid 목록]
+    CallReferenceGroups: Map<Guid, Guid list>
     ActiveSystemNames: Set<string>
     TickMs: int
     // ── Token ──
@@ -87,6 +91,17 @@ module SimIndex =
     let referenceGroupOf (index: SimIndex) (workGuid: Guid) =
         let canonical = canonicalWorkGuid index workGuid
         index.WorkReferenceGroups
+        |> Map.tryFind canonical
+        |> Option.defaultValue [ canonical ]
+
+    let canonicalCallGuid (index: SimIndex) (callGuid: Guid) =
+        index.CallCanonicalGuids
+        |> Map.tryFind callGuid
+        |> Option.defaultValue callGuid
+
+    let callReferenceGroupOf (index: SimIndex) (callGuid: Guid) =
+        let canonical = canonicalCallGuid index callGuid
+        index.CallReferenceGroups
         |> Map.tryFind canonical
         |> Option.defaultValue [ canonical ]
 
@@ -175,14 +190,19 @@ module SimIndex =
             |> Map.ofList
 
         let addCallData (work: Work) (callStartPreds: Map<Guid, Guid list>) (call: Call) =
-            let apiCallIds = call.ApiCalls |> Seq.map (fun apiCall -> apiCall.Id) |> Seq.toList
+            // 레퍼런스 Call → 원본 Call의 데이터(ApiCalls, 조건, Preds) 사용
+            let dataSource =
+                match call.ReferenceOf with
+                | Some origId -> Queries.getCall origId store |> Option.defaultValue call
+                | None -> call
+            let apiCallIds = dataSource.ApiCalls |> Seq.map (fun apiCall -> apiCall.Id) |> Seq.toList
             state.CallApiCallGuids <- state.CallApiCallGuids.Add(call.Id, apiCallIds)
-            state.CallStartPreds <- state.CallStartPreds.Add(call.Id, findOrEmpty call.Id callStartPreds)
+            state.CallStartPreds <- state.CallStartPreds.Add(call.Id, findOrEmpty dataSource.Id callStartPreds)
             state.CallWorkGuid <- state.CallWorkGuid.Add(call.Id, work.Id)
-            state.CallAutoAuxConditions <- state.CallAutoAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.AutoAux call)
-            state.CallComAuxConditions <- state.CallComAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.ComAux call)
-            state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, conditionSpecs store CallConditionType.SkipUnmatch call)
-            state.CallTypeMap <- state.CallTypeMap.Add(call.Id, call.Properties.CallType)
+            state.CallAutoAuxConditions <- state.CallAutoAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.AutoAux dataSource)
+            state.CallComAuxConditions <- state.CallComAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.ComAux dataSource)
+            state.CallSkipUnmatchConditions <- state.CallSkipUnmatchConditions.Add(call.Id, conditionSpecs store CallConditionType.SkipUnmatch dataSource)
+            state.CallTypeMap <- state.CallTypeMap.Add(call.Id, dataSource.Properties.CallType)
             state.AllCallGuids <- call.Id :: state.AllCallGuids
 
         let addWorkData
@@ -297,6 +317,22 @@ module SimIndex =
             |> List.map (fun (origId, members) -> origId, (members |> List.map fst |> List.sort))
             |> Map.ofList
 
+        // Call ReferenceOf 기반 OR 그룹 빌드
+        let callCanonicalGuids =
+            state.AllCallGuids
+            |> List.choose (fun cg ->
+                Queries.getCall cg store
+                |> Option.map (fun c -> cg, (c.ReferenceOf |> Option.defaultValue cg)))
+            |> Map.ofList
+
+        let callReferenceGroups =
+            callCanonicalGuids
+            |> Map.toList
+            |> List.groupBy snd
+            |> List.filter (fun (_, members) -> members.Length > 1)
+            |> List.map (fun (origId, members) -> origId, (members |> List.map fst |> List.sort))
+            |> Map.ofList
+
         let expandReferenceMembers canonicalWorkGuid =
             workReferenceGroups
             |> Map.tryFind canonicalWorkGuid
@@ -401,6 +437,8 @@ module SimIndex =
           CallComAuxConditions = state.CallComAuxConditions
           CallSkipUnmatchConditions = state.CallSkipUnmatchConditions
           WorkReferenceGroups = workReferenceGroups
+          CallCanonicalGuids = callCanonicalGuids
+          CallReferenceGroups = callReferenceGroups
           ActiveSystemNames = activeSystemNames
           TickMs = tickMs
           WorkTokenRole = expandedTokenRoleMap
