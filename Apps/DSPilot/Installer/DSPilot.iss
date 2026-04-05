@@ -36,7 +36,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 ; Publish output (self-contained, all dependencies included)
-Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; uploads 폴더의 사용자 데이터(도면 이미지, 레이아웃 JSON)는 별도 처리하므로 제외
+Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "wwwroot\uploads\blueprint.*,wwwroot\uploads\layout-data.json,wwwroot\uploads\layout-data.json.*"
+; 도면 이미지 및 레이아웃 데이터: 기존 파일이 없을 때만 설치 (업그레이드 시 사용자 데이터 보존)
+Source: "..\publish\wwwroot\uploads\blueprint.*"; DestDir: "{app}\wwwroot\uploads"; Flags: onlyifdoesntexist
+Source: "..\publish\wwwroot\uploads\layout-data.json"; DestDir: "{app}\wwwroot\uploads"; Flags: onlyifdoesntexist
+Source: "..\publish\wwwroot\uploads\layout-data.json.*"; DestDir: "{app}\wwwroot\uploads"; Flags: onlyifdoesntexist
 ; Tray application (self-contained)
 Source: "..\publish-tray\*"; DestDir: "{app}\Tray"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Icon file for shortcuts

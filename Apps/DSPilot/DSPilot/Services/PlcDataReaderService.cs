@@ -283,11 +283,13 @@ public class PlcDataReaderService : BackgroundService
 
     private async Task<bool> InitializeWithRetryAsync(CancellationToken stoppingToken)
     {
-        const int maxRetries = 5;
+        const int maxRetries = 30;
         const int delayMs = 2000;
 
         for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
+            if (stoppingToken.IsCancellationRequested) return false;
+
             _logger.LogInformation("Database initialization attempt {Attempt}/{MaxRetries}", attempt, maxRetries);
 
             if (await InitializeAsync())
@@ -298,7 +300,7 @@ public class PlcDataReaderService : BackgroundService
 
             if (attempt < maxRetries)
             {
-                _logger.LogWarning("Database initialization failed on attempt {Attempt}/{MaxRetries}. Waiting {DelayMs}ms before retry...",
+                _logger.LogDebug("Database initialization pending (attempt {Attempt}/{MaxRetries}). Waiting {DelayMs}ms...",
                     attempt, maxRetries, delayMs);
                 await Task.Delay(delayMs, stoppingToken);
             }
@@ -321,6 +323,13 @@ public class PlcDataReaderService : BackgroundService
 
             var plcs = await _plcRepo.GetAllPlcsAsync();
             var tags = await _plcRepo.GetAllTagsAsync();
+
+            // PlcCapture 모드에서 EV2가 아직 태그를 생성하지 않았으면 재시도
+            if (tags.Count == 0)
+            {
+                _logger.LogDebug("No tags found in database yet (PlcCaptureService may not have initialized EV2)");
+                return false;
+            }
 
             // 태그 Address → ID 매핑 캐시 생성 (EV2 이벤트 처리용, 중복 Address는 마지막 값 사용)
             _tagAddressToIdMap = tags
@@ -370,14 +379,21 @@ public class PlcDataReaderService : BackgroundService
 
     private async Task<bool> WaitForMapperInitializationAsync(CancellationToken stoppingToken)
     {
-        // Note: DsProjectService cannot be injected directly as it's not a service
-        // We need to get it from scope, but this happens during initialization before disposal issues
-        // For now, just check if mapper is initialized
+        const int maxWaitSeconds = 60;
+        var elapsed = 0;
+
         while (!stoppingToken.IsCancellationRequested)
         {
             if (_mapper.IsInitialized)
             {
                 _logger.LogInformation("DSP mapper initialized.");
+                return true;
+            }
+
+            elapsed++;
+            if (elapsed * 500 > maxWaitSeconds * 1000)
+            {
+                _logger.LogWarning("PlcToCallMapper initialization timeout ({MaxWait}s). Proceeding without call mapping.", maxWaitSeconds);
                 return true;
             }
 
@@ -389,12 +405,22 @@ public class PlcDataReaderService : BackgroundService
 
     private async Task<bool> WaitForFlowMetricsInitializationAsync(CancellationToken stoppingToken)
     {
+        const int maxWaitSeconds = 60;
+        var elapsed = 0;
+
         while (!stoppingToken.IsCancellationRequested)
         {
             if (_flowMetricsService.IsInitialized)
             {
                 _logger.LogInformation("FlowMetricsService initialized.");
                 return true;
+            }
+
+            elapsed++;
+            if (elapsed * 500 > maxWaitSeconds * 1000)
+            {
+                _logger.LogWarning("FlowMetricsService initialization timeout ({MaxWait}s). Proceeding without flow metrics.", maxWaitSeconds);
+                return true; // 타임아웃이어도 진행 (데이터 수집은 가능하도록)
             }
 
             await Task.Delay(500, stoppingToken);
