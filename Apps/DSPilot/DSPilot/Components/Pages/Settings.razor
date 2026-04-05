@@ -479,10 +479,12 @@ else
     private string _dbDir = "";
     private int _dbBusyTimeout = 20000;
     private const string DbFileName = "plc.db";
+    private string _originalPlcType = "";
 
     protected override void OnInitialized()
     {
         _settings = SettingsService.LoadSettings();
+        _originalPlcType = _settings.PlcCapture.PlcType;
         ParseConnectionString(_settings.Database.ConnectionString);
     }
 
@@ -558,8 +560,26 @@ else
         try
         {
             _settings.Database.ConnectionString = BuildConnectionString();
+
+            // PLC 타입이 변경되면 기존 DB 삭제 (태그 주소 체계가 다르므로 재생성 필요)
+            var plcTypeChanged = !string.Equals(_originalPlcType, _settings.PlcCapture.PlcType, StringComparison.OrdinalIgnoreCase);
+            if (plcTypeChanged)
+            {
+                try
+                {
+                    var dbPath = DatabasePathResolver.GetPlcDbPath();
+                    SettingsService.DeleteDatabase(dbPath);
+                }
+                catch { /* DB가 없으면 무시 */ }
+            }
+
             SettingsService.SaveSettings(_settings);
-            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "설정이 저장되었습니다. 서버 PC에서 서비스를 재시작해주세요.", "success");
+            _originalPlcType = _settings.PlcCapture.PlcType;
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar",
+                plcTypeChanged
+                    ? "설정이 저장되었습니다. PLC 타입이 변경되어 기존 데이터베이스를 초기화했습니다. 서비스를 재시작해주세요."
+                    : "설정이 저장되었습니다. 서버 PC에서 DSPilot 서비스를 재시작해야 적용됩니다.",
+                "success");
         }
         catch (Exception ex)
         {
