@@ -33,8 +33,6 @@ type DsSystem [<JsonConstructor>] internal (name) =
 type Flow [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
     member val Properties = ResizeArray<FlowSubmodelProperty>() with get, set
-
-
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, parentId: Guid) =
@@ -50,7 +48,6 @@ type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, p
     member val Status4     : Status4 = Status4.Ready with get, set
     member val Position    : Xywh option = None  with get, set
     member val TokenRole   : TokenRole = TokenRole.None with get, set
-
 
     override this.Name
         with get() =

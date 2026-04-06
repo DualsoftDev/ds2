@@ -218,13 +218,8 @@ public partial class IoBatchSettingsDialog
         }
     }
 
-    private static string EscapeCsvField(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return "";
-        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
-            return $"\"{value.Replace("\"", "\"\"")}\"";
-        return value;
-    }
+    private static string EscapeCsvField(string value) =>
+        BatchDialogHelper.EscapeCsvField(value);
 
     private static int ApplyImportedRows(
         IEnumerable<IoBatchRow> targetRows,
@@ -314,18 +309,18 @@ public partial class IoBatchSettingsDialog
         var openResult = DialogHelpers.ShowThemedMessageBox(
             $"CSV 내보내기 완료: {_rows.Count}건\n\n" +
             $"파일: {Path.GetFileName(picker.FileName)}\n\n" +
-            $"파일이 저장된 폴더를 여시겠습니까?",
+            $"파일을 여시겠습니까?",
             "CSV 내보내기",
             MessageBoxButton.YesNo,
             "✓");
 
         if (openResult == MessageBoxResult.Yes)
         {
-            try { Process.Start("explorer.exe", Path.GetDirectoryName(picker.FileName)!); }
+            try { Process.Start(new ProcessStartInfo(picker.FileName) { UseShellExecute = true }); }
             catch (Exception ex)
             {
                 DialogHelpers.ShowThemedMessageBox(
-                    $"폴더를 열 수 없습니다:\n{ex.Message}", "오류", MessageBoxButton.OK, "⚠");
+                    $"파일을 열 수 없습니다:\n{ex.Message}", "오류", MessageBoxButton.OK, "⚠");
             }
         }
     }

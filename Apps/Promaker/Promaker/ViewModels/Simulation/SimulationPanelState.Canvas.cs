@@ -223,6 +223,11 @@ public partial class SimulationPanelState
         var activeSystemNames = index.ActiveSystemNames;
         foreach (var workGuid in index.AllWorkGuids)
         {
+            // Reference Work는 간트에서 제외 (원본에서 동일 정보 표시)
+            var canonical = index.WorkCanonicalGuids.TryFind(workGuid);
+            if (canonical != null && canonical.Value != workGuid)
+                continue;
+
             var workName = index.WorkName.TryFind(workGuid);
             var systemName = index.WorkSystemName.TryFind(workGuid);
             if (workName == null || systemName == null) continue;
@@ -236,6 +241,11 @@ public partial class SimulationPanelState
 
             foreach (var callGuid in callGuids.Value)
             {
+                // Reference Call은 간트에서 제외 (원본에서 동일 정보 표시)
+                var callCanonical = index.CallCanonicalGuids.TryFind(callGuid);
+                if (callCanonical != null && callCanonical.Value != callGuid)
+                    continue;
+
                 var call = Queries.getCall(callGuid, Store);
                 if (call == null) continue;
 

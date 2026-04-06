@@ -150,6 +150,45 @@ public sealed class PropertyPanelMultiSelectionTests
         });
     }
 
+    [Fact]
+    public void Multi_selected_calls_with_mixed_call_types_do_not_overwrite_on_selection_refresh()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flow = Queries.flowsOf(systemId, store).Head;
+            var work1Id = store.AddWork("Work1", flow.Id);
+            var work2Id = store.AddWork("Work2", flow.Id);
+
+            store.AddCallsWithDevice(projectId, work1Id, ["Dev.Api1"], true, null);
+            store.AddCallsWithDevice(projectId, work2Id, ["Dev.Api2"], true, null);
+
+            var call1 = Queries.callsOf(work1Id, store).Head;
+            var call2 = Queries.callsOf(work2Id, store).Head;
+            store.UpdateCallType(call1.Id, CallType.WaitForCompletion);
+            store.UpdateCallType(call2.Id, CallType.SkipIfCompleted);
+
+            var call1Node = new EntityNode(call1.Id, EntityKind.Call, call1.Name);
+            var call2Node = new EntityNode(call2.Id, EntityKind.Call, call2.Name);
+            vm.Canvas.CanvasNodes.Add(call1Node);
+            vm.Canvas.CanvasNodes.Add(call2Node);
+
+            vm.Selection.SelectNodeFromCanvas(call1Node, ctrlPressed: false, shiftPressed: false);
+            vm.Selection.SelectNodeFromCanvas(call2Node, ctrlPressed: true, shiftPressed: false);
+
+            Assert.True(vm.PropertyPanel.IsMultiSelection);
+            Assert.True(vm.PropertyPanel.IsCallSelected);
+            Assert.Equal(CallType.WaitForCompletion, vm.PropertyPanel.SelectedCallType);
+            Assert.Equal(CallType.WaitForCompletion, store.Calls[call1.Id].GetSimulationProperties()!.Value.CallType);
+            Assert.Equal(CallType.SkipIfCompleted, store.Calls[call2.Id].GetSimulationProperties()!.Value.CallType);
+        });
+    }
+
     private static DsStore GetStore(MainViewModel vm)
     {
         var field = typeof(MainViewModel).GetField("_store", BindingFlags.Instance | BindingFlags.NonPublic)!;

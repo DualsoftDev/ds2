@@ -17,9 +17,11 @@ public partial class DurationBatchDialog : Window
 {
     private readonly ObservableCollection<DurationRow> _workRows;
     private readonly ICollectionView _view;
+    private readonly string? _currentFilePath;
 
-    public DurationBatchDialog(IReadOnlyList<DurationRow> rows)
+    public DurationBatchDialog(IReadOnlyList<DurationRow> rows, string? currentFilePath = null)
     {
+        _currentFilePath = currentFilePath;
         InitializeComponent();
 
         _workRows = new ObservableCollection<DurationRow>(rows);
