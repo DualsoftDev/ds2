@@ -571,7 +571,7 @@ else
         _cw = layout.CanvasWidth; _ch = layout.CanvasHeight;
         _cellW = layout.CellWidth; _cellH = layout.CellHeight;
         _ox = layout.OffsetX; _oy = layout.OffsetY;
-        UpdateChartCache();
+        LoadFlowProcessOrder();
     }
 
     protected override void OnParametersSet()
@@ -619,10 +619,6 @@ else
             StateHasChanged();
         }
         catch { }
-
-        // 공정 순서 로딩: 저장된 순서 사용, 없으면 배치 리스트 순서 그대로
-        if (ProjectService.IsLoaded)
-            LoadFlowProcessOrder();
     }
 
     private void LoadFlowProcessOrder()

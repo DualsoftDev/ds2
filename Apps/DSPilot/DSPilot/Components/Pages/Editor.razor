@@ -12,6 +12,10 @@
     @* ── 헤더 ── *@
     <div class="ed-header">
         <div class="spacer"></div>
+        <button class="btn @(_isDirty ? "btn-filled" : "btn-outlined") mr-2" @onclick="ApplyChanges">
+            <span class="material-icons" style="font-size:18px;">save</span>
+            적용@(_isDirty ? " *" : "")
+        </button>
         <label class="btn btn-outlined mr-2" style="cursor:pointer;">
             <span class="material-icons" style="font-size:18px;">image</span>
             Upload Image
@@ -23,10 +27,6 @@
             }
             <InputFile OnChange="@(e => OnBlueprintFileSelected(e.File))" accept=".png,.jpg,.jpeg" style="display:none;" />
         </label>
-        <button class="btn @(_isDirty ? "btn-filled" : "btn-outlined") mr-2" @onclick="ApplyChanges">
-            <span class="material-icons" style="font-size:18px;">save</span>
-            적용@(_isDirty ? " *" : "")
-        </button>
         <label class="btn btn-outlined color-warning mr-2" style="cursor:pointer;">
             <span class="material-icons" style="font-size:18px;">file_upload</span>
             Import JSON
@@ -115,7 +115,10 @@
 
                 @* Flows — 남은 높이 채움 (공정 순서 드래그 정렬 지원) *@
                 <div class="ed-card ed-flows-card">
-                    <div class="ed-card-header">Flows</div>
+                    <div class="ed-card-header">
+                        Flows
+                        <span class="flow-hint">드래그하여 공정 순서 변경</span>
+                    </div>
                     <div class="ed-flows-body" id="flow-reorder-list">
                         @for (int i = 0; i < _orderedFlows.Count; i++)
                         {
