@@ -114,7 +114,10 @@
         <Border Grid.Row="0" Background="{DynamicResource SecondaryBackgroundBrush}"
                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
-                          Height="30">
+                          Height="30"
+                          AllowDrop="True"
+                          DragOver="TabBar_DragOver"
+                          Drop="TabBar_Drop">
                 <ItemsControl ItemsSource="{Binding Pane.OpenTabs, ElementName=Self}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -124,7 +127,9 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:CanvasTab}">
                             <Border Style="{StaticResource CanvasTabHeaderStyle}"
-                                    MouseLeftButtonDown="TabHeader_MouseDown">
+                                    MouseLeftButtonDown="TabHeader_MouseDown"
+                                    MouseMove="TabHeader_MouseMove"
+                                    MouseLeftButtonUp="TabHeader_MouseUp">
                                 <Border.ContextMenu>
                                     <ContextMenu Opened="TabContextMenu_Opened">
                                         <MenuItem Header="닫기" Click="CloseTab_Click" Tag="{Binding}"/>

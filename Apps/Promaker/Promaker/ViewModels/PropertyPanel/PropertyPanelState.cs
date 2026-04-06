@@ -88,7 +88,7 @@ public partial class PropertyPanelState : ObservableObject
         var currentFull = NamePrefix + value.Trim();
         IsNameDirty = !string.Equals(currentFull, SelectedNode?.Name ?? string.Empty, StringComparison.Ordinal);
     }
-    private bool _suppressTokenRoleSync;
+    private bool _suppressPropertySync;
 
     partial void OnIsWorkFinishedChanged(bool? value) => SyncIsFinishedFlag(value);
     partial void OnIsTokenSourceChanged(bool? value) => SyncTokenRoleFlag(TokenRole.Source, value);
@@ -148,6 +148,8 @@ public partial class PropertyPanelState : ObservableObject
         SelectionNameText = selectedKeys.Count switch
         {
             0 => "",
+            1 when IsSingleWorkSelected && selected is not null
+                => $"Name: {Queries.tryGetWorkFullName(selected.Id, Store)?.Value ?? selected.Name}",
             1 => $"Name: {selected?.Name}",
             _ => $"{selectedKeys.Count} items selected"
         };
@@ -155,6 +157,11 @@ public partial class PropertyPanelState : ObservableObject
         var fullName = selected?.Name ?? string.Empty;
         if (IsSingleWorkSelected)
         {
+            if (selected is not null)
+            {
+                var workName = Queries.tryGetWorkFullName(selected.Id, Store);
+                if (workName != null) fullName = workName.Value;
+            }
             var (prefix, localName) = TokenRoleOps.parseWorkNameParts(fullName);
             NamePrefix = prefix;
             NameEditorText = localName;
@@ -201,12 +208,12 @@ public partial class PropertyPanelState : ObservableObject
             var workRoles = selectedWorkIds
                 .Select(workId => Queries.getWork(workId, Store)?.Value.TokenRole ?? TokenRole.None)
                 .ToList();
-            _suppressTokenRoleSync = true;
+            _suppressPropertySync = true;
             IsWorkFinished = isFinishedValues.Count == 1 ? isFinishedValues[0] : null;
             IsTokenSource = TokenRoleOps.resolveTokenRoleFlagState(workRoles, TokenRole.Source);
             IsTokenIgnore = TokenRoleOps.resolveTokenRoleFlagState(workRoles, TokenRole.Ignore);
             IsTokenSink = TokenRoleOps.resolveTokenRoleFlagState(workRoles, TokenRole.Sink);
-            _suppressTokenRoleSync = false;
+            _suppressPropertySync = false;
         }
         else
         {
@@ -214,12 +221,12 @@ public partial class PropertyPanelState : ObservableObject
             WorkPeriodMs = null;
             _deviceDurationMs = null;
             DeviceDurationHint = "";
-            _suppressTokenRoleSync = true;
+            _suppressPropertySync = true;
             IsWorkFinished = false;
             IsTokenSource = false;
             IsTokenIgnore = false;
             IsTokenSink = false;
-            _suppressTokenRoleSync = false;
+            _suppressPropertySync = false;
             HasLinkedTokenSpec = false;
             LinkedTokenSpecLabel = "";
         }
@@ -234,7 +241,9 @@ public partial class PropertyPanelState : ObservableObject
             var callTypeValues = selectedCallIds
                 .Select(callId => Queries.getCall(callId, Store)?.Value.GetSimulationProperties()?.Value.CallType ?? CallType.WaitForCompletion)
                 .Distinct().ToList();
+            _suppressPropertySync = true;
             SelectedCallType = callTypeValues.Count == 1 ? callTypeValues[0] : CallType.WaitForCompletion;
+            _suppressPropertySync = false;
             if (IsSingleCallSelected && selected is not null)
                 RefreshCallPanel(selected.Id);
             else
@@ -319,10 +328,20 @@ public partial class PropertyPanelState : ObservableObject
         }
 
         var fullName = SelectedNode.Name ?? string.Empty;
-        if (SelectedNode.EntityType == EntityKind.Work && fullName.IndexOf('.') is var dotIdx && dotIdx >= 0)
+        if (SelectedNode.EntityType == EntityKind.Work)
         {
-            NamePrefix = fullName[..(dotIdx + 1)];
-            NameEditorText = fullName[(dotIdx + 1)..];
+            var workName = Queries.tryGetWorkFullName(SelectedNode.Id, Store);
+            if (workName != null) fullName = workName.Value;
+            if (fullName.IndexOf('.') is var dotIdx && dotIdx >= 0)
+            {
+                NamePrefix = fullName[..(dotIdx + 1)];
+                NameEditorText = fullName[(dotIdx + 1)..];
+            }
+            else
+            {
+                NamePrefix = string.Empty;
+                NameEditorText = fullName;
+            }
         }
         else
         {
@@ -452,7 +471,7 @@ public partial class PropertyPanelState : ObservableObject
 
     private void SyncIsFinishedFlag(bool? value)
     {
-        if (_suppressTokenRoleSync)
+        if (_suppressPropertySync)
             return;
         if (value is null)
             value = false;
@@ -484,7 +503,7 @@ public partial class PropertyPanelState : ObservableObject
 
     private void SyncTokenRoleFlag(TokenRole flag, bool? value)
     {
-        if (_suppressTokenRoleSync)
+        if (_suppressPropertySync)
             return;
         // IsThreeState 체크박스: true→null→false 순환에서 null은 "해제" 의도
         if (value is null)
@@ -523,7 +542,7 @@ public partial class PropertyPanelState : ObservableObject
 
     private void SyncCallType(CallType value)
     {
-        if (_suppressTokenRoleSync)
+        if (_suppressPropertySync)
             return;
 
         var selectedCallIds = GetSelectedCallIds();

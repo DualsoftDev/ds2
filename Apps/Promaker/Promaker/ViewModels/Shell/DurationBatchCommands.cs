@@ -27,7 +27,7 @@ public partial class MainViewModel
             return;
         }
 
-        var dialog = new DurationBatchDialog(rows);
+        var dialog = new DurationBatchDialog(rows, _currentFilePath);
         if (_dialogService.ShowDialog(dialog) != true)
             return;
 

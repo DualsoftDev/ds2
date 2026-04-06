@@ -103,20 +103,20 @@
         <ContextMenu x:Key="EntityTreeContextMenu"
                      x:Shared="False"
                      DataContext="{Binding Data, Source={StaticResource Proxy}}">
-            <MenuItem Tag="AddSystem" Header="Add System" Command="{Binding AddSystemCommand}"/>
-            <MenuItem Tag="AddFlow" Header="Add Flow" Command="{Binding AddFlowCommand}"/>
-            <MenuItem Tag="AddWork" Header="Add Work" Command="{Binding AddWorkCommand}"/>
-            <MenuItem Tag="AddCall" Header="Add Call" Command="{Binding AddCallCommand}"/>
+            <MenuItem Tag="AddSystem" Header="System 추가" Command="{Binding AddSystemCommand}"/>
+            <MenuItem Tag="AddFlow" Header="Flow 추가" Command="{Binding AddFlowCommand}"/>
+            <MenuItem Tag="AddWork" Header="Work 추가" Command="{Binding AddWorkCommand}"/>
+            <MenuItem Tag="AddCall" Header="Call 추가" Command="{Binding AddCallCommand}"/>
             <Separator Tag="SepAdd"/>
             <MenuItem Tag="ImportMermaid" Header="Mermaid 불러오기..." Command="{Binding ImportMermaidCommand}"/>
             <MenuItem Tag="ExportCsv" Header="CSV 내보내기..." Command="{Binding ExportCsvCommand}"/>
             <Separator Tag="SepImport"/>
-            <MenuItem Tag="Copy" Header="Copy" Command="{Binding CopySelectedCommand}"/>
-            <MenuItem Tag="Paste" Header="Paste" Command="{Binding PasteCopiedCommand}"/>
+            <MenuItem Tag="Copy" Header="복사" Command="{Binding CopySelectedCommand}"/>
+            <MenuItem Tag="Paste" Header="붙여넣기" Command="{Binding PasteCopiedCommand}"/>
             <Separator Tag="SepEdit"/>
-            <MenuItem Tag="FocusCanvas" Header="Focus in Canvas" Command="{Binding Canvas.FocusSelectedInCanvasCommand}"/>
-            <MenuItem Tag="Rename" Header="Rename..." Command="{Binding FocusNameEditorCommand}"/>
-            <MenuItem Tag="Delete" Header="Delete" Command="{Binding DeleteSelectedCommand}" Foreground="{DynamicResource RedAccentBrush}"/>
+            <MenuItem Tag="FocusCanvas" Header="캔버스에서 보기" Command="{Binding Canvas.FocusSelectedInCanvasCommand}"/>
+            <MenuItem Tag="Rename" Header="이름 바꾸기..." Command="{Binding FocusNameEditorCommand}"/>
+            <MenuItem Tag="Delete" Header="삭제" Command="{Binding DeleteSelectedCommand}" Foreground="{DynamicResource RedAccentBrush}"/>
             <Separator Tag="SepExpandCollapse"/>
             <MenuItem Tag="ExpandAll" Header="전체 펼치기" Click="ExpandAll_Click"/>
             <MenuItem Tag="CollapseAll" Header="전체 접기" Click="CollapseAll_Click"/>
