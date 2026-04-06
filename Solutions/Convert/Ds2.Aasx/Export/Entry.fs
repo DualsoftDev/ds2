@@ -133,6 +133,30 @@ module AasxExporter =
             ])) :> IReference
         refElem :> ISubmodelElement
 
+    /// SequenceModel의 Flow 참조 생성
+    /// AASd-128: SubmodelElementList 이후 Key는 정수 인덱스를 사용
+    let private mkFlowReference (store: DsStore) (project: Project) (flow: Flow) : ISubmodelElement =
+        let modelSubmodelId = mkSubmodelId project.Id SubmodelOffsets.Model
+        let allSystems = Queries.activeSystemsOf project.Id store |> List.sortBy (fun s -> s.Id)
+        let systemIndex = allSystems |> List.findIndex (fun s -> s.Id = flow.ParentId)
+
+        let allFlows = Queries.flowsOf flow.ParentId store |> List.sortBy (fun f -> f.Id)
+        let flowIndex = allFlows |> List.findIndex (fun f -> f.Id = flow.Id)
+
+        let refElem = ReferenceElement()
+        refElem.IdShort <- sanitizeIdShort "ModelRef"
+        refElem.Value <- Reference(
+            ReferenceTypes.ModelReference,
+            ResizeArray<IKey>([
+                Key(KeyTypes.Submodel, modelSubmodelId) :> IKey
+                Key(KeyTypes.SubmodelElementCollection, "Project") :> IKey
+                Key(KeyTypes.SubmodelElementList, "ActiveSystems") :> IKey
+                Key(KeyTypes.SubmodelElementCollection, string systemIndex) :> IKey
+                Key(KeyTypes.SubmodelElementList, "Flows") :> IKey
+                Key(KeyTypes.SubmodelElementCollection, string flowIndex) :> IKey
+            ])) :> IReference
+        refElem :> ISubmodelElement
+
     /// SequenceModel의 Work 참조 생성
     /// AASd-128: SubmodelElementList 이후 Key는 정수 인덱스를 사용
     let private mkWorkReference (store: DsStore) (project: Project) (work: Work) : ISubmodelElement =
@@ -233,48 +257,60 @@ module AasxExporter =
         let allWorks = allFlows |> List.collect (fun flow -> Queries.worksOf flow.Id store)
         let allCalls = allWorks |> List.collect (fun work -> Queries.callsOf work.Id store)
 
-        // System Properties (without References - AASd-128 constraint for cross-submodel refs)
+        // System Properties (with ModelRef to SequenceModel)
         // Use GUID-based idShorts since entity names may contain invalid characters
         let sysPropsWithRefs =
             activeSystems |> List.choose (fun sys ->
                 match getSysProp sys with
                 | Some props ->
                     let propElements = sysConverter props
+                    let modelRef = mkSystemReference store project sys
+                    // ModelRef를 Properties 앞에 추가
+                    let elementsWithRef = modelRef :: propElements
                     // Use GUID-based idShort: "System_" + GUID (N format, no hyphens)
-                    Some (mkSmc (sanitizeIdShort ("System_" + sys.Id.ToString("N"))) propElements)
+                    Some (mkSmc (sanitizeIdShort ("System_" + sys.Id.ToString("N"))) elementsWithRef)
                 | None -> None)
 
-        // Flow Properties (without References - AASd-128 constraint for cross-submodel refs)
+        // Flow Properties (with ModelRef to SequenceModel)
         // Use GUID-based idShorts since entity names may contain invalid characters
         let flowPropsWithRefs =
             allFlows |> List.choose (fun f ->
                 match getFlowProp f with
                 | Some props ->
                     let propElements = flowConverter props
+                    let modelRef = mkFlowReference store project f
+                    // ModelRef를 Properties 앞에 추가
+                    let elementsWithRef = modelRef :: propElements
                     // Use GUID-based idShort: "Flow_" + GUID (N format, no hyphens)
-                    Some (mkSmc (sanitizeIdShort ("Flow_" + f.Id.ToString("N"))) propElements)
+                    Some (mkSmc (sanitizeIdShort ("Flow_" + f.Id.ToString("N"))) elementsWithRef)
                 | None -> None)
 
-        // Work Properties (without References - AASd-128 constraint for cross-submodel refs)
+        // Work Properties (with ModelRef to SequenceModel)
         // Use GUID-based idShorts since entity names may contain invalid characters (e.g., FlowPrefix.LocalName)
         let workPropsWithRefs =
             allWorks |> List.choose (fun w ->
                 match getWorkProp w with
                 | Some props ->
                     let propElements = workConverter props
+                    let modelRef = mkWorkReference store project w
+                    // ModelRef를 Properties 앞에 추가
+                    let elementsWithRef = modelRef :: propElements
                     // Use GUID-based idShort: "Work_" + GUID (N format, no hyphens)
-                    Some (mkSmc (sanitizeIdShort ("Work_" + w.Id.ToString("N"))) propElements)
+                    Some (mkSmc (sanitizeIdShort ("Work_" + w.Id.ToString("N"))) elementsWithRef)
                 | None -> None)
 
-        // Call Properties (without References - AASd-128 constraint for cross-submodel refs)
+        // Call Properties (with ModelRef to SequenceModel)
         // Use GUID-based idShorts since entity names may contain invalid characters
         let callPropsWithRefs =
             allCalls |> List.choose (fun c ->
                 match getCallProp c with
                 | Some props ->
                     let propElements = callConverter props
+                    let modelRef = mkCallReference store project c
+                    // ModelRef를 Properties 앞에 추가
+                    let elementsWithRef = modelRef :: propElements
                     // Use GUID-based idShort: "Call_" + GUID (N format, no hyphens)
-                    Some (mkSmc (sanitizeIdShort ("Call_" + c.Id.ToString("N"))) propElements)
+                    Some (mkSmc (sanitizeIdShort ("Call_" + c.Id.ToString("N"))) elementsWithRef)
                 | None -> None)
 
         let elements =
@@ -330,6 +366,18 @@ module AasxExporter =
         tryCreateSubmodel store project SubmodelOffsets.CostAnalysis SubmodelCostAnalysisIdShort "CostAnalysis"
             (fun sys -> sys.GetCostAnalysisProperties()) (fun f -> f.GetCostAnalysisProperties()) (fun w -> w.GetCostAnalysisProperties()) (fun c -> c.GetCostAnalysisProperties())
             costAnalysisSystemPropsToElements costAnalysisFlowPropsToElements costAnalysisWorkPropsToElements costAnalysisCallPropsToElements
+
+    /// SequenceQuality Submodel 생성
+    let internal tryExportToQualitySubmodel (store: DsStore) (project: Project) : Submodel option =
+        tryCreateSubmodel store project SubmodelOffsets.Quality SubmodelQualityIdShort "Quality"
+            (fun sys -> sys.GetQualityProperties()) (fun f -> f.GetQualityProperties()) (fun w -> w.GetQualityProperties()) (fun c -> c.GetQualityProperties())
+            qualitySystemPropsToElements qualityFlowPropsToElements qualityWorkPropsToElements qualityCallPropsToElements
+
+    /// SequenceHmi Submodel 생성
+    let internal tryExportToHmiSubmodel (store: DsStore) (project: Project) : Submodel option =
+        tryCreateSubmodel store project SubmodelOffsets.Hmi SubmodelHmiIdShort "Hmi"
+            (fun sys -> sys.GetHMIProperties()) (fun f -> f.GetHMIProperties()) (fun w -> w.GetHMIProperties()) (fun c -> c.GetHMIProperties())
+            hmiSystemPropsToElements hmiFlowPropsToElements hmiWorkPropsToElements hmiCallPropsToElements
 
     // ────────────────────────────────────────────────────────────────────────────
     // 레거시 호환 함수들
@@ -399,6 +447,59 @@ module AasxExporter =
         let prefix = if String.IsNullOrWhiteSpace(iriPrefix) then DefaultIriPrefix else iriPrefix
         let thumbnail = tryGetDefaultThumbnail ()
 
+        // Debug 모드 체크 및 기본 서브모델 생성
+        #if DEBUG
+        log.Info("Debug 모드: 모든 엔티티에 기본 서브모델 Properties를 추가합니다.")
+
+        // Debug 모드일 때 모든 ActiveSystem에 기본 Properties 추가
+        let activeSystems = Queries.activeSystemsOf project.Id store
+        for sys in activeSystems do
+            if sys.GetSimulationProperties().IsNone then sys.SetSimulationProperties(SimulationSystemProperties())
+            if sys.GetControlProperties().IsNone then sys.SetControlProperties(ControlSystemProperties())
+            if sys.GetMonitoringProperties().IsNone then sys.SetMonitoringProperties(MonitoringSystemProperties())
+            if sys.GetLoggingProperties().IsNone then sys.SetLoggingProperties(LoggingSystemProperties())
+            if sys.GetMaintenanceProperties().IsNone then sys.SetMaintenanceProperties(MaintenanceSystemProperties())
+            if sys.GetCostAnalysisProperties().IsNone then sys.SetCostAnalysisProperties(CostAnalysisSystemProperties())
+            if sys.GetQualityProperties().IsNone then sys.SetQualityProperties(QualitySystemProperties())
+            if sys.GetHMIProperties().IsNone then sys.SetHMIProperties(HMISystemProperties())
+
+            // Flow에도 기본 Properties 추가
+            let flows = Queries.flowsOf sys.Id store
+            for flow in flows do
+                if flow.GetSimulationProperties().IsNone then flow.SetSimulationProperties(SimulationFlowProperties())
+                if flow.GetControlProperties().IsNone then flow.SetControlProperties(ControlFlowProperties())
+                if flow.GetMonitoringProperties().IsNone then flow.SetMonitoringProperties(MonitoringFlowProperties())
+                if flow.GetLoggingProperties().IsNone then flow.SetLoggingProperties(LoggingFlowProperties())
+                if flow.GetMaintenanceProperties().IsNone then flow.SetMaintenanceProperties(MaintenanceFlowProperties())
+                if flow.GetCostAnalysisProperties().IsNone then flow.SetCostAnalysisProperties(CostAnalysisFlowProperties())
+                if flow.GetQualityProperties().IsNone then flow.SetQualityProperties(QualityFlowProperties())
+                if flow.GetHMIProperties().IsNone then flow.SetHMIProperties(HMIFlowProperties())
+
+                // Work에도 기본 Properties 추가
+                let works = Queries.worksOf flow.Id store
+                for work in works do
+                    if work.GetSimulationProperties().IsNone then work.SetSimulationProperties(SimulationWorkProperties())
+                    if work.GetControlProperties().IsNone then work.SetControlProperties(ControlWorkProperties())
+                    if work.GetMonitoringProperties().IsNone then work.SetMonitoringProperties(MonitoringWorkProperties())
+                    if work.GetLoggingProperties().IsNone then work.SetLoggingProperties(LoggingWorkProperties())
+                    if work.GetMaintenanceProperties().IsNone then work.SetMaintenanceProperties(MaintenanceWorkProperties())
+                    if work.GetCostAnalysisProperties().IsNone then work.SetCostAnalysisProperties(CostAnalysisWorkProperties())
+                    if work.GetQualityProperties().IsNone then work.SetQualityProperties(QualityWorkProperties())
+                    if work.GetHMIProperties().IsNone then work.SetHMIProperties(HMIWorkProperties())
+
+                    // Call에도 기본 Properties 추가
+                    let calls = Queries.callsOf work.Id store
+                    for call in calls do
+                        if call.GetSimulationProperties().IsNone then call.SetSimulationProperties(SimulationCallProperties())
+                        if call.GetControlProperties().IsNone then call.SetControlProperties(ControlCallProperties())
+                        if call.GetMonitoringProperties().IsNone then call.SetMonitoringProperties(MonitoringCallProperties())
+                        if call.GetLoggingProperties().IsNone then call.SetLoggingProperties(LoggingCallProperties())
+                        if call.GetMaintenanceProperties().IsNone then call.SetMaintenanceProperties(MaintenanceCallProperties())
+                        if call.GetCostAnalysisProperties().IsNone then call.SetCostAnalysisProperties(CostAnalysisCallProperties())
+                        if call.GetQualityProperties().IsNone then call.SetQualityProperties(QualityCallProperties())
+                        if call.GetHMIProperties().IsNone then call.SetHMIProperties(HMICallProperties())
+        #endif
+
         // 서브모델 생성 (데이터가 있는 것만)
         let modelSm = exportToModelSubmodel store project prefix
         let optionalSubmodels =
@@ -407,7 +508,9 @@ module AasxExporter =
               tryExportToMonitoringSubmodel store project
               tryExportToLoggingSubmodel store project
               tryExportToMaintenanceSubmodel store project
-              tryExportToCostAnalysisSubmodel store project ]
+              tryExportToCostAnalysisSubmodel store project
+              tryExportToQualitySubmodel store project
+              tryExportToHmiSubmodel store project ]
             |> List.choose id
 
         let allSubmodels = modelSm :: optionalSubmodels

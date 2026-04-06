@@ -139,6 +139,19 @@ type AuditRecord() =
     member val Reason: string option = None with get, set           // Why
     member val ElectronicSignature: string option = None with get, set
 
+/// 에러 로그 태그 스펙 (appsettings.json에서 로드)
+type ErrorLogTagSpec() =
+    member val Name: string = "" with get, set                      // 태그 이름
+    member val Address: string = "" with get, set                   // PLC 주소 (예: "M900")
+    member val ErrorCode: string = "" with get, set                 // 에러 코드 (예: "E001")
+    member val Severity: string = "Error" with get, set             // "Info" | "Warning" | "Error" | "Critical"
+    member val DataType: string = "Bool" with get, set              // "Bool" | "Int16" | "Int32"
+    member val AutoLogToFile: bool = true with get, set             // 자동 파일 기록
+    member val AutoLogToDatabase: bool = false with get, set        // 자동 DB 기록
+    member val LinkedLotTracking: bool = false with get, set        // LOT 추적 연동
+    member val EnableHashChain: bool = false with get, set          // 해시 체인 연동
+    member val Description: string = "" with get, set               // 설명
+
 
 // =============================================================================
 // PROPERTIES CLASSES
@@ -176,6 +189,13 @@ type LoggingSystemProperties() =
     member val EnableAuditTrail = false with get, set
     member val RequireElectronicSignature = false with get, set
     member val EnableUserTracking = true with get, set
+
+    // ========== 에러 로깅 설정 ==========
+    member val EnableErrorLogging = true with get, set              // 에러 로깅 활성화
+    member val ErrorLogTagSpecs = ResizeArray<ErrorLogTagSpec>() with get, set // 에러 태그 스펙 (appsettings.json)
+    member val ErrorLogRetentionDays = 365 with get, set            // 에러 로그 보존 기간 (1년)
+    member val ErrorAutoArchive = true with get, set                // 자동 아카이브
+    member val ErrorLogPath = "./logs/errors" with get, set         // 에러 로그 경로
 
     // ========== 데이터 보존 정책 ==========
     member val RetentionPeriodDays = 2555 with get, set             // 7년 (2555일)

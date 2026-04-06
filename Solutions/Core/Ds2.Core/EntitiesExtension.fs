@@ -38,6 +38,10 @@ type EntityCSharpExtensions =
         [<Extension>] static member SetMaintenanceProperties(x: DsSystem, v)    = s x.Properties (function MaintenanceSystem  p -> Some p | _ -> None) MaintenanceSystem v
         [<Extension>] static member GetCostAnalysisProperties(x: DsSystem)      = g x.Properties (function CostAnalysisSystem p -> Some p | _ -> None)
         [<Extension>] static member SetCostAnalysisProperties(x: DsSystem, v)   = s x.Properties (function CostAnalysisSystem p -> Some p | _ -> None) CostAnalysisSystem v
+        [<Extension>] static member GetQualityProperties(x: DsSystem)           = g x.Properties (function QualitySystem      p -> Some p | _ -> None)
+        [<Extension>] static member SetQualityProperties(x: DsSystem, v)        = s x.Properties (function QualitySystem      p -> Some p | _ -> None) QualitySystem v
+        [<Extension>] static member GetHMIProperties(x: DsSystem)               = g x.Properties (function HmiSystem          p -> Some p | _ -> None)
+        [<Extension>] static member SetHMIProperties(x: DsSystem, v)            = s x.Properties (function HmiSystem          p -> Some p | _ -> None) HmiSystem v
 
         // Flow
         [<Extension>] static member GetSimulationProperties(x: Flow)            = g x.Properties (function SimulationFlow   p -> Some p | _ -> None)
@@ -52,6 +56,10 @@ type EntityCSharpExtensions =
         [<Extension>] static member SetMaintenanceProperties(x: Flow, v)        = s x.Properties (function MaintenanceFlow  p -> Some p | _ -> None) MaintenanceFlow v
         [<Extension>] static member GetCostAnalysisProperties(x: Flow)          = g x.Properties (function CostAnalysisFlow p -> Some p | _ -> None)
         [<Extension>] static member SetCostAnalysisProperties(x: Flow, v)       = s x.Properties (function CostAnalysisFlow p -> Some p | _ -> None) CostAnalysisFlow v
+        [<Extension>] static member GetQualityProperties(x: Flow)               = g x.Properties (function QualityFlow      p -> Some p | _ -> None)
+        [<Extension>] static member SetQualityProperties(x: Flow, v)            = s x.Properties (function QualityFlow      p -> Some p | _ -> None) QualityFlow v
+        [<Extension>] static member GetHMIProperties(x: Flow)                   = g x.Properties (function HmiFlow          p -> Some p | _ -> None)
+        [<Extension>] static member SetHMIProperties(x: Flow, v)                = s x.Properties (function HmiFlow          p -> Some p | _ -> None) HmiFlow v
 
         // Work
         [<Extension>] static member GetSimulationProperties(x: Work)            = g x.Properties (function SimulationWork   p -> Some p | _ -> None)
@@ -66,6 +74,10 @@ type EntityCSharpExtensions =
         [<Extension>] static member SetMaintenanceProperties(x: Work, v)        = s x.Properties (function MaintenanceWork  p -> Some p | _ -> None) MaintenanceWork v
         [<Extension>] static member GetCostAnalysisProperties(x: Work)          = g x.Properties (function CostAnalysisWork p -> Some p | _ -> None)
         [<Extension>] static member SetCostAnalysisProperties(x: Work, v)       = s x.Properties (function CostAnalysisWork p -> Some p | _ -> None) CostAnalysisWork v
+        [<Extension>] static member GetQualityProperties(x: Work)               = g x.Properties (function QualityWork      p -> Some p | _ -> None)
+        [<Extension>] static member SetQualityProperties(x: Work, v)            = s x.Properties (function QualityWork      p -> Some p | _ -> None) QualityWork v
+        [<Extension>] static member GetHMIProperties(x: Work)                   = g x.Properties (function HmiWork          p -> Some p | _ -> None)
+        [<Extension>] static member SetHMIProperties(x: Work, v)                = s x.Properties (function HmiWork          p -> Some p | _ -> None) HmiWork v
 
         // Call
         [<Extension>] static member GetSimulationProperties(x: Call)            = g x.Properties (function SimulationCall   p -> Some p | _ -> None)
@@ -80,3 +92,7 @@ type EntityCSharpExtensions =
         [<Extension>] static member SetMaintenanceProperties(x: Call, v)        = s x.Properties (function MaintenanceCall  p -> Some p | _ -> None) MaintenanceCall v
         [<Extension>] static member GetCostAnalysisProperties(x: Call)          = g x.Properties (function CostAnalysisCall p -> Some p | _ -> None)
         [<Extension>] static member SetCostAnalysisProperties(x: Call, v)       = s x.Properties (function CostAnalysisCall p -> Some p | _ -> None) CostAnalysisCall v
+        [<Extension>] static member GetQualityProperties(x: Call)               = g x.Properties (function QualityCall      p -> Some p | _ -> None)
+        [<Extension>] static member SetQualityProperties(x: Call, v)            = s x.Properties (function QualityCall      p -> Some p | _ -> None) QualityCall v
+        [<Extension>] static member GetHMIProperties(x: Call)                   = g x.Properties (function HmiCall          p -> Some p | _ -> None)
+        [<Extension>] static member SetHMIProperties(x: Call, v)                = s x.Properties (function HmiCall          p -> Some p | _ -> None) HmiCall v

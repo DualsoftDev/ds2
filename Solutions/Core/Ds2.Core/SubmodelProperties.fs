@@ -22,6 +22,10 @@ module SubmodelOffsets =
     let Maintenance  = 5uy  // SequenceMaintenance
     [<Literal>]
     let CostAnalysis = 6uy  // SequenceCostAnalysis
+    [<Literal>]
+    let Quality      = 7uy  // SequenceQuality
+    [<Literal>]
+    let Hmi          = 8uy  // SequenceHmi
 
 // =============================================================================
 // Discriminated Unions for Submodel Properties
@@ -35,6 +39,8 @@ type SystemSubmodelProperty =
     | LoggingSystem of LoggingSystemProperties
     | MaintenanceSystem of MaintenanceSystemProperties
     | CostAnalysisSystem of CostAnalysisSystemProperties
+    | QualitySystem of QualitySystemProperties
+    | HmiSystem of HMISystemProperties
 
 /// Flow-level 서브모델 속성 DU
 type FlowSubmodelProperty =
@@ -44,6 +50,8 @@ type FlowSubmodelProperty =
     | LoggingFlow of LoggingFlowProperties
     | MaintenanceFlow of MaintenanceFlowProperties
     | CostAnalysisFlow of CostAnalysisFlowProperties
+    | QualityFlow of QualityFlowProperties
+    | HmiFlow of HMIFlowProperties
 
 /// Work-level 서브모델 속성 DU
 type WorkSubmodelProperty =
@@ -53,6 +61,8 @@ type WorkSubmodelProperty =
     | LoggingWork of LoggingWorkProperties
     | MaintenanceWork of MaintenanceWorkProperties
     | CostAnalysisWork of CostAnalysisWorkProperties
+    | QualityWork of QualityWorkProperties
+    | HmiWork of HMIWorkProperties
 
 /// Call-level 서브모델 속성 DU
 type CallSubmodelProperty =
@@ -62,3 +72,5 @@ type CallSubmodelProperty =
     | LoggingCall of LoggingCallProperties
     | MaintenanceCall of MaintenanceCallProperties
     | CostAnalysisCall of CostAnalysisCallProperties
+    | QualityCall of QualityCallProperties
+    | HmiCall of HMICallProperties
