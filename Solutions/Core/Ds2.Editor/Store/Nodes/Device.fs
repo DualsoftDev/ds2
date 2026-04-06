@@ -95,7 +95,7 @@ module internal DirectDeviceOps =
                         |> List.append existingWorks
                     let existingPendingWorks =
                         existingWorks
-                        |> List.fold (fun acc w -> Map.add (w.Name, existing.Id) w acc)
+                        |> List.fold (fun acc w -> Map.add (w.LocalName, existing.Id) w acc)
                             state.PendingWorks
                     existing, {
                         state with
@@ -143,7 +143,7 @@ module internal DirectDeviceOps =
             // 기존 시스템에 이미 같은 이름의 Work가 있으면 재사용, 없으면 생성
             let work =
                 Queries.worksOf flow.Id store
-                |> List.tryFind (fun w -> w.Name = apiName)
+                |> List.tryFind (fun w -> w.LocalName = apiName)
                 |> Option.defaultWith (fun () ->
                     let w = Work(flow.Name, apiName, flow.Id)
                     w.Duration <- Some (TimeSpan.FromMilliseconds 500.)

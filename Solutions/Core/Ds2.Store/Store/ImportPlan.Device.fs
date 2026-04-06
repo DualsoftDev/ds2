@@ -99,7 +99,7 @@ module internal ImportPlanDeviceOps =
             let flow = Map.find devAlias state.PendingFlows
             let work =
                 Queries.worksOf flow.Id store
-                |> List.tryFind (fun existing -> existing.Name = apiName)
+                |> List.tryFind (fun existing -> existing.LocalName = apiName)
                 |> Option.defaultWith (fun () ->
                     let created = Work(flow.Name, apiName, flow.Id)
                     created.Duration <- Some (TimeSpan.FromMilliseconds 500.)

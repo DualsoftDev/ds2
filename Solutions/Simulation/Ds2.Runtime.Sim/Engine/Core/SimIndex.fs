@@ -515,10 +515,155 @@ module SimIndex =
             ) index.WorkDuration
         index.WorkDuration <- newDurations
 
+    // ── 자동 원위치 (Auto-Homing Origin) ─────────────────────────────
+
+    /// DAG에서 두 노드의 ancestor-descendant 관계를 O(1)로 판별하는 함수 반환.
+    /// Start 화살표 기반. Some true = v1이 v2의 조상, Some false = v2가 v1의 조상, None = 관계 없음.
+    let private buildAncestorDescendant (workGuids: Guid list) (startSuccessors: Map<Guid, Guid list>) : (Guid -> Guid -> bool option) =
+        let idxMap = workGuids |> List.mapi (fun i g -> g, i) |> Map.ofList
+        let n = workGuids.Length
+        if n = 0 then (fun _ _ -> None)
+        else
+            let table = Array2D.create<bool> n n false
+            let visited = System.Collections.Generic.HashSet<Guid>()
+
+            let rec traverse (v: Guid) (ancestors: Guid list) =
+                let vi = idxMap.[v]
+                for a in ancestors do
+                    table.[idxMap.[a], vi] <- true
+                if visited.Contains(v) then
+                    for a in ancestors do
+                        let ai = idxMap.[a]
+                        for d = 0 to n - 1 do
+                            if table.[vi, d] then
+                                table.[ai, d] <- true
+                else
+                    visited.Add(v) |> ignore
+                    let succs = startSuccessors |> Map.tryFind v |> Option.defaultValue []
+                    for s in succs do
+                        traverse s (v :: ancestors)
+
+            let hasIncoming =
+                startSuccessors |> Map.toList |> List.collect snd |> Set.ofList
+            let inits = workGuids |> List.filter (fun g -> not (hasIncoming.Contains g))
+            for init in inits do
+                traverse init []
+
+            fun v1 v2 ->
+                match Map.tryFind v1 idxMap, Map.tryFind v2 idxMap with
+                | Some i1, Some i2 ->
+                    if table.[i1, i2] then Some true
+                    elif table.[i2, i1] then Some false
+                    else None
+                | _ -> None
+
+    /// Call 간 ancestor-descendant 관계에서 InitialType 결정 (ds의 getInitialType 포팅).
+    /// Some true = On (RxWork가 Finish로 시작), Some false = Off (Ready), None = 판별 불가
+    let private computeCallInitialType (ancestorOf: Guid -> Guid -> bool option) (callGuid: Guid) (mutualPartnerCallGuids: Guid list) : bool option =
+        if mutualPartnerCallGuids.IsEmpty then None
+        else
+            let relations = mutualPartnerCallGuids |> List.choose (fun partner -> ancestorOf callGuid partner)
+            if relations.IsEmpty then None
+            elif relations |> List.forall id then Some false       // ancestor (앞) → Off
+            elif relations |> List.forall (fun r -> not r) then Some true  // descendant (뒤) → On
+            else None  // 방향 혼재 → NotCare
+
+    /// Active System의 Call 그래프 기반으로 Device Work 자동 원위치 초기상태를 계산.
+    /// ds의 getOriginInfo 알고리즘 포팅:
+    ///   1. 각 Active Work의 Call 간 Start 화살표로 순서 그래프 구성
+    ///   2. 같은 DevicesAlias의 Call끼리 mutual partner로 묶음
+    ///   3. ancestor/descendant 판별 → descendant Call의 RxWork = Finish 대상
+    ///   4. 여러 Work에서 같은 Device Work에 대해 결론 충돌 시 → 제외 (수동 IsFinished 필요)
+    let computeAutoHomingTargets (index: SimIndex) : Set<Guid> =
+        let store = index.Store
+
+        // Device Work Guid → 투표 결과 수집 (true=On/Finish, false=Off/Ready)
+        let votes = System.Collections.Generic.Dictionary<Guid, ResizeArray<bool>>()
+        let addVote (deviceWorkGuid: Guid) (isOn: bool) =
+            match votes.TryGetValue(deviceWorkGuid) with
+            | true, list -> list.Add(isOn)
+            | false, _ -> votes.[deviceWorkGuid] <- ResizeArray([isOn])
+
+        // Active System의 모든 Work 순회
+        let activeWorks =
+            Queries.allProjects store
+            |> List.collect (fun p -> Queries.activeSystemsOf p.Id store)
+            |> List.collect (fun sys -> Queries.flowsOf sys.Id store)
+            |> List.collect (fun flow -> Queries.worksOf flow.Id store)
+
+        for activeWork in activeWorks do
+            let calls = Queries.callsOf activeWork.Id store
+            if calls.Length < 2 then () // Call 1개 이하면 순서 판별 불필요
+            else
+                let callGuids = calls |> List.map (fun c -> c.Id)
+
+                // Call 간 Start 화살표로 successor 맵 구성
+                let callStartSuccessors =
+                    callGuids
+                    |> List.fold (fun (acc: Map<Guid, Guid list>) cg ->
+                        let preds = index.CallStartPreds |> Map.tryFind cg |> Option.defaultValue []
+                        let localPreds = preds |> List.filter (fun p -> callGuids |> List.contains p)
+                        localPreds |> List.fold (fun a p ->
+                            let existing = a |> Map.tryFind p |> Option.defaultValue []
+                            a |> Map.add p (cg :: existing)
+                        ) acc
+                    ) Map.empty
+
+                let ancestorOf = buildAncestorDescendant callGuids callStartSuccessors
+
+                // 같은 Device System(ApiDef.ParentId)끼리 mutual partner 그룹
+                let resolveDeviceSystemId (call: Call) =
+                    call.ApiCalls
+                    |> Seq.tryHead
+                    |> Option.bind (fun ac -> ac.ApiDefId)
+                    |> Option.bind (fun defId -> Queries.getApiDef defId store)
+                    |> Option.map (fun def -> def.ParentId)
+                let callsByDevice =
+                    calls
+                    |> List.choose (fun c -> resolveDeviceSystemId c |> Option.map (fun sysId -> sysId, c))
+                    |> List.groupBy fst
+                    |> List.map (fun (_, pairs) -> pairs |> List.map snd)
+                    |> List.filter (fun group -> group.Length > 1)
+
+                for deviceCalls in callsByDevice do
+                    // SkipIfCompleted Call은 사용자가 현재 상태를 인정한 것 → 원위치 계산 제외
+                    let eligibleCalls =
+                        deviceCalls
+                        |> List.filter (fun c ->
+                            index.CallTypeMap |> Map.tryFind c.Id
+                            |> Option.defaultValue CallType.WaitForCompletion
+                            |> (<>) CallType.SkipIfCompleted)
+                    if eligibleCalls.Length < 2 then () else
+                    for call in eligibleCalls do
+                        let partnerGuids =
+                            eligibleCalls
+                            |> List.filter (fun c -> c.Id <> call.Id)
+                            |> List.map (fun c -> c.Id)
+
+                        match computeCallInitialType ancestorOf call.Id partnerGuids with
+                        | Some isOn ->
+                            // Call의 RxWork 찾기: ApiCall → ApiDef → RxGuid → Device Work
+                            for apiCall in call.ApiCalls do
+                                match apiCall.ApiDefId |> Option.bind (fun defId -> Queries.getApiDef defId store) with
+                                | Some apiDef ->
+                                    apiDef.RxGuid |> Option.iter (fun rxWorkGuid ->
+                                        if index.AllWorkGuids |> List.contains rxWorkGuid then
+                                            addVote rxWorkGuid isOn)
+                                | None -> ()
+                        | None -> () // 병렬/판별불가 → 투표 안 함
+
+        // 투표 합의: 모든 투표가 On(true)인 Device Work만 Finish 대상
+        votes
+        |> Seq.choose (fun kv ->
+            let allVotes = kv.Value
+            if allVotes.Count > 0 && allVotes |> Seq.forall id then Some kv.Key
+            else None)
+        |> Set.ofSeq
+
     // ── InitialFlag 헬퍼 ─────────────────────────────────────────────
 
     /// WorkProperties.IsFinished가 true인 Work들을 찾아 초기 Finish 상태로 설정할 대상 반환.
-    /// IsFinished가 하나도 설정되지 않은 기존 프로젝트는 RET 이름 기반 폴백 사용 (하위 호환).
+    /// IsFinished가 하나도 설정되지 않은 기존 프로젝트는 자동 원위치 계산 → RET 이름 기반 폴백 순서.
     let findInitialFlagRxWorkGuids (index: SimIndex) : Set<Guid> =
         let isFinishedWorks =
             index.AllWorkGuids
@@ -530,20 +675,26 @@ module SimIndex =
         if not isFinishedWorks.IsEmpty then
             isFinishedWorks |> Set.ofList
         else
-            // Backward compatibility: IsFinished 미설정 프로젝트 → RET 이름 기반 폴백
-            let isRetDirection callGuid =
-                rxWorkGuids index callGuid
-                |> List.exists (fun rxGuid ->
-                    Queries.getWork rxGuid index.Store
-                    |> Option.map (fun work -> work.Name.ToUpperInvariant().Contains("RET"))
-                    |> Option.defaultValue false)
-            index.AllCallGuids
-            |> List.filter isRetDirection
-            |> Seq.collect (fun callGuid -> rxWorkGuids index callGuid)
-            |> Set.ofSeq
+            // 자동 원위치: Start 화살표 DAG 기반 초기상태 계산
+            let autoTargets = computeAutoHomingTargets index
+            if not autoTargets.IsEmpty then
+                autoTargets
+            else
+                // Backward compatibility: 위 두 방법 모두 결과 없으면 RET 이름 기반 폴백
+                let isRetDirection callGuid =
+                    rxWorkGuids index callGuid
+                    |> List.exists (fun rxGuid ->
+                        Queries.getWork rxGuid index.Store
+                        |> Option.map (fun work -> work.Name.ToUpperInvariant().Contains("RET"))
+                        |> Option.defaultValue false)
+                index.AllCallGuids
+                |> List.filter isRetDirection
+                |> Seq.collect (fun callGuid -> rxWorkGuids index callGuid)
+                |> Set.ofSeq
 
     /// 토큰 역할(Source/Ignore)이 하나라도 설정되어 있는지 확인
     let hasAnyTokenRole (index: SimIndex) : bool =
         index.WorkTokenRole
         |> Map.exists (fun _ role -> role.HasFlag(TokenRole.Source) || role.HasFlag(TokenRole.Ignore))
+
 

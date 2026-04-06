@@ -32,7 +32,7 @@ public partial class SimulationPanelState
         AddSimLog($"토큰 수동 투입: {SelectedTokenSource.Name} ← {FormatTokenDisplay(token)}");
     }
 
-    private bool CanSeedToken() => IsSimulating && !IsSimPaused && SelectedTokenSource is not null;
+    private bool CanSeedToken() => IsSimulating && !IsSimPaused && !IsHomingPhase && SelectedTokenSource is not null;
 
     private void InitTokenSources()
     {

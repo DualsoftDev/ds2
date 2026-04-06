@@ -613,3 +613,178 @@ module EventDrivenEngineTokenTests =
 
         Assert.True(completed, $"SkipIfCompleted should prevent stuck Going. State={workState}")
 
+module AutoHomingOriginTests =
+
+    /// Device 2개(Func1, Func2) 상호 리셋, Call 순서 Func1→Func2 → Func2=On(Finish), Func1=Off
+    [<Fact>]
+    let ``simple ADV RET pattern: descendant RxWork is On`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSys.Id
+        let work = addWork store "W" flow.Id
+
+        // Device: ADV, RET (상호 리셋)
+        let deviceSys = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DF" deviceSys.Id
+        let advWork = addWork store "ADV" deviceFlow.Id
+        let retWork = addWork store "RET" deviceFlow.Id
+        let advApiDef = addApiDef store "ADV" deviceSys.Id
+        advApiDef.TxGuid <- Some advWork.Id
+        advApiDef.RxGuid <- Some advWork.Id
+        let retApiDef = addApiDef store "RET" deviceSys.Id
+        retApiDef.TxGuid <- Some retWork.Id
+        retApiDef.RxGuid <- Some retWork.Id
+
+        // Active Work의 Call: ADV → RET (Start 화살표)
+        let advCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [advApiDef.Id])
+        let retCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "RET", [retApiDef.Id])
+        store.ConnectSelectionInOrder([advCallId; retCallId], ArrowType.Start) |> ignore
+
+        let index = SimIndex.build store 10
+        let targets = SimIndex.computeAutoHomingTargets index
+
+        // ADV = ancestor(Off), RET = descendant(On/Finish)
+        Assert.Contains(retWork.Id, targets)
+        Assert.DoesNotContain(advWork.Id, targets)
+
+    /// Call 순서 RET→ADV (역순): ADV=descendant(On), RET=ancestor(Off)
+    [<Fact>]
+    let ``reverse order RET then ADV: ADV RxWork is On`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSys.Id
+        let work = addWork store "W" flow.Id
+
+        let deviceSys = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DF" deviceSys.Id
+        let advWork = addWork store "ADV" deviceFlow.Id
+        let retWork = addWork store "RET" deviceFlow.Id
+        let advApiDef = addApiDef store "ADV" deviceSys.Id
+        advApiDef.TxGuid <- Some advWork.Id; advApiDef.RxGuid <- Some advWork.Id
+        let retApiDef = addApiDef store "RET" deviceSys.Id
+        retApiDef.TxGuid <- Some retWork.Id; retApiDef.RxGuid <- Some retWork.Id
+
+        // Call 순서: RET → ADV
+        let retCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "RET", [retApiDef.Id])
+        let advCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [advApiDef.Id])
+        store.ConnectSelectionInOrder([retCallId; advCallId], ArrowType.Start) |> ignore
+
+        let index = SimIndex.build store 10
+        let targets = SimIndex.computeAutoHomingTargets index
+
+        Assert.Contains(advWork.Id, targets)
+        Assert.DoesNotContain(retWork.Id, targets)
+
+    /// SkipIfCompleted Call은 원위치 계산에서 제외
+    [<Fact>]
+    let ``SkipIfCompleted call excluded from auto homing`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSys.Id
+        let work = addWork store "W" flow.Id
+
+        let deviceSys = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DF" deviceSys.Id
+        let advWork = addWork store "ADV" deviceFlow.Id
+        let retWork = addWork store "RET" deviceFlow.Id
+        let advApiDef = addApiDef store "ADV" deviceSys.Id
+        advApiDef.TxGuid <- Some advWork.Id; advApiDef.RxGuid <- Some advWork.Id
+        let retApiDef = addApiDef store "RET" deviceSys.Id
+        retApiDef.TxGuid <- Some retWork.Id; retApiDef.RxGuid <- Some retWork.Id
+
+        // Call 순서: RET(SkipIfCompleted) → ADV
+        let retCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "RET", [retApiDef.Id])
+        let advCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [advApiDef.Id])
+        store.ConnectSelectionInOrder([retCallId; advCallId], ArrowType.Start) |> ignore
+        let retCallProps = SimulationCallProperties()
+        retCallProps.CallType <- CallType.SkipIfCompleted
+        store.Calls.[retCallId].SetSimulationProperties(retCallProps)
+
+        let index = SimIndex.build store 10
+        let targets = SimIndex.computeAutoHomingTargets index
+
+        // RET가 제외되면 eligible 1개 → 판별 불가 → 대상 없음
+        Assert.Empty(targets)
+
+    /// 병렬 브랜치에서 같은 Device Call → NotCare (투표 안 함)
+    [<Fact>]
+    let ``parallel branches same device results in no auto homing target`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSys.Id
+        let work = addWork store "W" flow.Id
+
+        let deviceSys = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DF" deviceSys.Id
+        let advWork = addWork store "ADV" deviceFlow.Id
+        let retWork = addWork store "RET" deviceFlow.Id
+        let advApiDef = addApiDef store "ADV" deviceSys.Id
+        advApiDef.TxGuid <- Some advWork.Id; advApiDef.RxGuid <- Some advWork.Id
+        let retApiDef = addApiDef store "RET" deviceSys.Id
+        retApiDef.TxGuid <- Some retWork.Id; retApiDef.RxGuid <- Some retWork.Id
+
+        // ADV와 RET가 병렬 (Start 화살표 없음)
+        let _advCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [advApiDef.Id])
+        let _retCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "RET", [retApiDef.Id])
+        // 연결 안 함 → 병렬
+
+        let index = SimIndex.build store 10
+        let targets = SimIndex.computeAutoHomingTargets index
+
+        // 병렬이라 ancestorOf = None → 투표 안 함 → 대상 없음
+        Assert.Empty(targets)
+
+    /// 서로 다른 Device System의 Call은 독립적으로 판별
+    [<Fact>]
+    let ``different device systems computed independently`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSys.Id
+        let work1 = addWork store "W1" flow.Id
+        let work2 = addWork store "W2" flow.Id
+
+        // Device 1: ADV→RET 순서
+        let dev1Sys = addSystem store "Dev1" project.Id false
+        let dev1Flow = addFlow store "D1F" dev1Sys.Id
+        let dev1Adv = addWork store "ADV" dev1Flow.Id
+        let dev1Ret = addWork store "RET" dev1Flow.Id
+        let dev1AdvDef = addApiDef store "ADV" dev1Sys.Id
+        dev1AdvDef.TxGuid <- Some dev1Adv.Id; dev1AdvDef.RxGuid <- Some dev1Adv.Id
+        let dev1RetDef = addApiDef store "RET" dev1Sys.Id
+        dev1RetDef.TxGuid <- Some dev1Ret.Id; dev1RetDef.RxGuid <- Some dev1Ret.Id
+
+        // Device 2: RET→ADV 순서 (역순)
+        let dev2Sys = addSystem store "Dev2" project.Id false
+        let dev2Flow = addFlow store "D2F" dev2Sys.Id
+        let dev2Adv = addWork store "ADV" dev2Flow.Id
+        let dev2Ret = addWork store "RET" dev2Flow.Id
+        let dev2AdvDef = addApiDef store "ADV" dev2Sys.Id
+        dev2AdvDef.TxGuid <- Some dev2Adv.Id; dev2AdvDef.RxGuid <- Some dev2Adv.Id
+        let dev2RetDef = addApiDef store "RET" dev2Sys.Id
+        dev2RetDef.TxGuid <- Some dev2Ret.Id; dev2RetDef.RxGuid <- Some dev2Ret.Id
+
+        // Work1: Dev1.ADV → Dev1.RET
+        let w1AdvCall = store.AddCallWithLinkedApiDefs(work1.Id, "Dev1", "ADV", [dev1AdvDef.Id])
+        let w1RetCall = store.AddCallWithLinkedApiDefs(work1.Id, "Dev1", "RET", [dev1RetDef.Id])
+        store.ConnectSelectionInOrder([w1AdvCall; w1RetCall], ArrowType.Start) |> ignore
+
+        // Work2: Dev2.RET → Dev2.ADV
+        let w2RetCall = store.AddCallWithLinkedApiDefs(work2.Id, "Dev2", "RET", [dev2RetDef.Id])
+        let w2AdvCall = store.AddCallWithLinkedApiDefs(work2.Id, "Dev2", "ADV", [dev2AdvDef.Id])
+        store.ConnectSelectionInOrder([w2RetCall; w2AdvCall], ArrowType.Start) |> ignore
+
+        let index = SimIndex.build store 10
+        let targets = SimIndex.computeAutoHomingTargets index
+
+        // Dev1: ADV→RET → RET=On
+        Assert.Contains(dev1Ret.Id, targets)
+        Assert.DoesNotContain(dev1Adv.Id, targets)
+        // Dev2: RET→ADV → ADV=On
+        Assert.Contains(dev2Adv.Id, targets)
+        Assert.DoesNotContain(dev2Ret.Id, targets)
+
