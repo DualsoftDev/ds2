@@ -11,10 +11,11 @@
     <Compile Include="Concepts\Builder.fs" />
     <Compile Include="AasxFileIO.fs" />
     <Compile Include="Import\Core.fs" />
+    <Compile Include="Export\Core.fs" />
+    <Compile Include="Common\PropertyConversion.fs" />
     <Compile Include="Import\Graph.fs" />
     <Compile Include="Import\Metadata.fs" />
     <Compile Include="Import\Entry.fs" />
-    <Compile Include="Export\Core.fs" />
     <Compile Include="Export\Graph.fs" />
     <Compile Include="Export\Metadata.fs" />
     <Compile Include="Export\Entry.fs" />

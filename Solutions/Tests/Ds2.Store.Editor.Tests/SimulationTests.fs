@@ -553,21 +553,17 @@ module EventDrivenEngineTokenTests =
         let activeSys = addSystem store "Active" project.Id true
         let flow = addFlow store "F" activeSys.Id
         let work = addWork store "W" flow.Id
-        let workProps = SimulationWorkProperties()
-        workProps.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
-        work.SetSimulationProperties(workProps)
+        work.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
         store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
 
         // Device System: ADV, RET (RET에 IsFinished=true)
         let deviceSys = addSystem store "Device" project.Id false
         let deviceFlow = addFlow store "DF" deviceSys.Id
         let advWork = addWork store "ADV" deviceFlow.Id
-        let advProps = SimulationWorkProperties()
-        advProps.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
-        advWork.SetSimulationProperties(advProps)
+        advWork.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
         let retWork = addWork store "RET" deviceFlow.Id
+        retWork.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
         let retProps = SimulationWorkProperties()
-        retProps.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
         retProps.IsFinished <- true
         retWork.SetSimulationProperties(retProps)
 

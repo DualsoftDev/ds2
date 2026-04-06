@@ -38,14 +38,14 @@ module PasteTests =
         let store = createStore ()
         let _, _, flow, work = setupBasicHierarchy store
         work.TokenRole <- TokenRole.Source
+        work.Duration <- Some (TimeSpan.FromSeconds 5.0)
         let props = SimulationWorkProperties()
-        props.Duration <- Some (TimeSpan.FromSeconds 5.0)
         props.NumRepeat <- 3
         work.SetSimulationProperties(props)
         let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id, 0) |> unwrapOk
         let pastedWork = Queries.getWork pastedIds.Head store |> Option.get
         Assert.Equal(TokenRole.Source, pastedWork.TokenRole)
-        Assert.Equal(Some (TimeSpan.FromSeconds 5.0), pastedWork.GetSimulationProperties().Value.Duration)
+        Assert.Equal(Some (TimeSpan.FromSeconds 5.0), pastedWork.Duration)
         Assert.Equal(3, pastedWork.GetSimulationProperties().Value.NumRepeat)
 
     [<Fact>]
@@ -82,9 +82,7 @@ module PasteTests =
         let srcApiCall = originalCall.ApiCalls.[0]
         let srcApiDef = Queries.getApiDef (srcApiCall.ApiDefId.Value) store |> Option.get
         let srcWork = Queries.getWork (srcApiDef.TxGuid.Value) store |> Option.get
-        let srcProps = SimulationWorkProperties()
-        srcProps.Duration <- Some (TimeSpan.FromSeconds 3.5)
-        srcWork.SetSimulationProperties(srcProps)
+        srcWork.Duration <- Some (TimeSpan.FromSeconds 3.5)
         let flow2Id = store.AddFlow("Flow2", system.Id)
         let work2Id = store.AddWork("Work2", flow2Id)
         let pastedIds = store.PasteEntities(EntityKind.Call, [ callId ], EntityKind.Work, work2Id, 0) |> unwrapOk
@@ -93,7 +91,7 @@ module PasteTests =
         Assert.True(pastedApiDef.TxGuid.IsSome)
         Assert.True(pastedApiDef.RxGuid.IsSome)
         let pastedWork = Queries.getWork (pastedApiDef.RxGuid.Value) store |> Option.get
-        Assert.Equal(Some (TimeSpan.FromSeconds 3.5), pastedWork.GetSimulationProperties().Value.Duration)
+        Assert.Equal(Some (TimeSpan.FromSeconds 3.5), pastedWork.Duration)
         let deviceDuration = Queries.tryGetDeviceDurationMs work2Id store
         Assert.Equal(Some 3500, deviceDuration)
 

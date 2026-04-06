@@ -127,8 +127,36 @@ module internal AasxExportMetadata =
         mkSmc "Document" elems
 
     let documentationToSubmodel (hd: HandoverDocumentation) (projectId: Guid) : Submodel =
+        // Documents가 비어있으면 기본 샘플 Document 추가 (AAS 규칙: Submodel은 최소 1개의 element 필요)
+        let documents =
+            if hd.Documents.Count = 0 then
+                let defaultDoc = Document()
+                // 기본 DocumentId 추가
+                let docId = DocumentId()
+                docId.DocumentDomainId <- "ManufacturerDocumentId"
+                docId.ValueId <- "DS2-DOC-001"
+                docId.IsPrimary <- true
+                defaultDoc.DocumentIds.Add(docId)
+                // 기본 DocumentClassification 추가 (VDI 2770 필수)
+                let docClass = DocumentClassification()
+                docClass.ClassId <- "03-02"
+                docClass.ClassName <- "Operating instructions"
+                docClass.ClassificationSystem <- "VDI2770:2018"
+                defaultDoc.DocumentClassifications.Add(docClass)
+                // 기본 DocumentVersion 추가
+                let ver = DocumentVersion()
+                ver.Languages.Add("en")
+                ver.DocumentVersionId <- "1.0"
+                ver.Title <- "Project Documentation"
+                ver.Summary <- "Default project documentation"
+                ver.SetDate <- DateTime.Now.ToString("yyyy-MM-dd")
+                defaultDoc.DocumentVersions.Add(ver)
+                [documentToSmc defaultDoc]
+            else
+                hd.Documents |> Seq.map documentToSmc |> Seq.toList
+
         let elems : ISubmodelElement list = [
-            yield! mkSml "Documents" (hd.Documents |> Seq.map documentToSmc |> Seq.toList) |> Option.toList
+            yield! mkSml "Documents" documents |> Option.toList
         ]
         mkSubmodel
             $"urn:dualsoft:documentation:{projectId}"

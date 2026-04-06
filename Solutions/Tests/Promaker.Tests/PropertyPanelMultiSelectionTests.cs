@@ -40,8 +40,8 @@ public sealed class PropertyPanelMultiSelectionTests
             vm.PropertyPanel.WorkPeriodMs = 2500;
             vm.PropertyPanel.ApplyWorkPeriodCommand.Execute(null);
 
-            Assert.Equal(2500.0, store.Works[work1Id].GetSimulationProperties()!.Value.Duration!.Value.TotalMilliseconds);
-            Assert.Equal(2500.0, store.Works[work2Id].GetSimulationProperties()!.Value.Duration!.Value.TotalMilliseconds);
+            Assert.Equal(2500.0, store.Works[work1Id].Duration!.Value.TotalMilliseconds);
+            Assert.Equal(2500.0, store.Works[work2Id].Duration!.Value.TotalMilliseconds);
         });
     }
 

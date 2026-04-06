@@ -310,10 +310,9 @@ module AasxRoundTripTests =
         let flowId = store.AddFlow("F", systemId)
         let workId = store.AddWork("W", flowId)
 
-        let wProps = SimulationWorkProperties()
-        wProps.Duration <- Some (TimeSpan.FromMilliseconds(5000.0))
-        store.Works.[workId].SetSimulationProperties(wProps)
-        Assert.Equal(5000.0, store.Works.[workId].GetSimulationProperties().Value.Duration.Value.TotalMilliseconds)
+        // Set Duration directly on Work entity (not in SimulationWorkProperties)
+        store.Works.[workId].Duration <- Some (TimeSpan.FromMilliseconds(5000.0))
+        Assert.Equal(5000.0, store.Works.[workId].Duration.Value.TotalMilliseconds)
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
@@ -324,9 +323,10 @@ module AasxRoundTripTests =
             let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
             Assert.True(imported, "Import should succeed")
 
+            Assert.Equal(1, store2.Works.Count)
             let restoredWork = store2.Works.Values |> Seq.head
-            Assert.True(restoredWork.GetSimulationProperties().Value.Duration.IsSome, "Duration should be preserved")
-            Assert.Equal(5000.0, restoredWork.GetSimulationProperties().Value.Duration.Value.TotalMilliseconds)
+            Assert.True(restoredWork.Duration.IsSome, "Duration should be preserved")
+            Assert.Equal(5000.0, restoredWork.Duration.Value.TotalMilliseconds)
         finally
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 

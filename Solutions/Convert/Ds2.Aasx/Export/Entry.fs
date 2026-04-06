@@ -31,19 +31,16 @@ module AasxExporter =
 
     /// Project 메타데이터 Submodel 추가 (Nameplate + Documentation)
     let private appendProjectMetadataSubmodels (project: Project) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
-        match project.Nameplate with
-        | Some np ->
-            let npSm = nameplateToSubmodel np project.Id
-            submodels.Add(npSm :> ISubmodel)
-            smRefs.Add(mkSmRef npSm)
-        | None -> ()
+        let nameplate = project.Nameplate |> Option.defaultValue (Nameplate())
+        let npSm = nameplateToSubmodel nameplate project.Id
+        submodels.Add(npSm :> ISubmodel)
+        smRefs.Add(mkSmRef npSm)
 
-        match project.HandoverDocumentation with
-        | Some doc ->
-            let docSm = documentationToSubmodel doc project.Id
-            submodels.Add(docSm :> ISubmodel)
-            smRefs.Add(mkSmRef docSm)
-        | None -> ()
+        // HandoverDocumentation은 항상 추가 (기본 샘플 Document 포함)
+        let documentation = project.HandoverDocumentation |> Option.defaultValue (HandoverDocumentation())
+        let docSm = documentationToSubmodel documentation project.Id
+        submodels.Add(docSm :> ISubmodel)
+        smRefs.Add(mkSmRef docSm)
 
     /// 메타데이터 Submodel 추가 (범용 - Device용)
     let private appendMetadataSubmodels (ownerId: Guid) (nameplate: Nameplate) (documentation: HandoverDocumentation) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
@@ -90,8 +87,8 @@ module AasxExporter =
 
     /// SequenceModel 서브모델 생성 (기본 모델 정보)
     let internal exportToModelSubmodel (store: DsStore) (project: Project) (_iriPrefix: string) : Submodel =
-        let activeSystems  = Queries.activeSystemsOf  project.Id store |> List.map (fun s -> systemToSmc store s true)
-        let passiveSystems = Queries.passiveSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s false)
+        let activeSystems  = Queries.activeSystemsOf  project.Id store |> List.map (fun s -> systemToSmc store s true project.Id)
+        let passiveSystems = Queries.passiveSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s false project.Id)
         let projectElems : ISubmodelElement list = [
             mkProp     Name_         project.Name
             mkProp     Guid_         (project.Id.ToString())
@@ -108,139 +105,13 @@ module AasxExporter =
         projectSmc.IdShort <- "Project"
         projectSmc.Value <- ResizeArray<ISubmodelElement>(projectElems)
 
-        let sm = Submodel(id = mkSubmodelId project.Id SubmodelOffsets.Model)
+        let sm = Submodel(id = mkSubmodelId project.Id SequenceModel.Offset)
         sm.IdShort <- SubmodelModelIdShort
         sm.SemanticId <- mkSemanticRef $"{SubmodelSemanticId}/model"
         sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
         sm
 
-    // ────────────────────────────────────────────────────────────────────────────
-    // Reference 생성 함수들 (GUID 기반 정확한 경로)
-    // ────────────────────────────────────────────────────────────────────────────
-
-    /// SequenceModel의 System 참조 생성
-    /// AASd-128: SubmodelElementList 이후 Key는 정수 인덱스를 사용
-    let private mkSystemReference (store: DsStore) (project: Project) (system: DsSystem) : ISubmodelElement =
-        let modelSubmodelId = mkSubmodelId project.Id SubmodelOffsets.Model
-        // AASd-128: SubmodelElementList 자식은 정수 인덱스로 참조
-        let allSystems = Queries.activeSystemsOf project.Id store |> List.sortBy (fun s -> s.Id)
-        let systemIndex = allSystems |> List.findIndex (fun s -> s.Id = system.Id)
-
-        let refElem = ReferenceElement()
-        refElem.IdShort <- sanitizeIdShort "ModelRef"
-        refElem.Value <- Reference(
-            ReferenceTypes.ModelReference,
-            ResizeArray<IKey>([
-                Key(KeyTypes.Submodel, modelSubmodelId) :> IKey
-                Key(KeyTypes.SubmodelElementCollection, "Project") :> IKey
-                Key(KeyTypes.SubmodelElementList, "ActiveSystems") :> IKey
-                Key(KeyTypes.SubmodelElementCollection, string systemIndex) :> IKey  // 정수를 문자열로 변환
-            ])) :> IReference
-        refElem :> ISubmodelElement
-
-    /// SequenceModel의 Flow 참조 생성
-    /// AASd-128: SubmodelElementList 이후 Key는 정수 인덱스를 사용
-    let private mkFlowReference (store: DsStore) (project: Project) (flow: Flow) : ISubmodelElement =
-        let modelSubmodelId = mkSubmodelId project.Id SubmodelOffsets.Model
-        let allSystems = Queries.activeSystemsOf project.Id store |> List.sortBy (fun s -> s.Id)
-        let systemIndex = allSystems |> List.findIndex (fun s -> s.Id = flow.ParentId)
-
-        let allFlows = Queries.flowsOf flow.ParentId store |> List.sortBy (fun f -> f.Id)
-        let flowIndex = allFlows |> List.findIndex (fun f -> f.Id = flow.Id)
-
-        let refElem = ReferenceElement()
-        refElem.IdShort <- sanitizeIdShort "ModelRef"
-        refElem.Value <- Reference(
-            ReferenceTypes.ModelReference,
-            ResizeArray<IKey>([
-                Key(KeyTypes.Submodel, modelSubmodelId) :> IKey
-                Key(KeyTypes.SubmodelElementCollection, "Project") :> IKey
-                Key(KeyTypes.SubmodelElementList, "ActiveSystems") :> IKey
-                Key(KeyTypes.SubmodelElementCollection, string systemIndex) :> IKey
-                Key(KeyTypes.SubmodelElementList, "Flows") :> IKey
-                Key(KeyTypes.SubmodelElementCollection, string flowIndex) :> IKey
-            ])) :> IReference
-        refElem :> ISubmodelElement
-
-    /// SequenceModel의 Work 참조 생성
-    /// AASd-128: SubmodelElementList 이후 Key는 정수 인덱스를 사용
-    let private mkWorkReference (store: DsStore) (project: Project) (work: Work) : ISubmodelElement =
-        let modelSubmodelId = mkSubmodelId project.Id SubmodelOffsets.Model
-        // Flow → System 경로 찾기 및 인덱스 계산
-        let flowOpt = Queries.getFlow work.ParentId store
-        let systemIndexOpt =
-            flowOpt
-            |> Option.map (fun flow ->
-                let allSystems = Queries.activeSystemsOf project.Id store |> List.sortBy (fun s -> s.Id)
-                allSystems |> List.findIndex (fun s -> s.Id = flow.ParentId))
-
-        let workIndex =
-            flowOpt
-            |> Option.map (fun flow ->
-                let allWorks = Queries.worksOf flow.Id store |> List.sortBy (fun w -> w.Id)
-                allWorks |> List.findIndex (fun w -> w.Id = work.Id))
-            |> Option.defaultValue 0
-
-        let refElem = ReferenceElement()
-        refElem.IdShort <- sanitizeIdShort "ModelRef"
-        refElem.Value <- Reference(
-            ReferenceTypes.ModelReference,
-            ResizeArray<IKey>([
-                Key(KeyTypes.Submodel, modelSubmodelId) :> IKey
-                Key(KeyTypes.SubmodelElementCollection, "Project") :> IKey
-                Key(KeyTypes.SubmodelElementList, "ActiveSystems") :> IKey
-                if systemIndexOpt.IsSome then
-                    Key(KeyTypes.SubmodelElementCollection, string systemIndexOpt.Value) :> IKey
-                    Key(KeyTypes.SubmodelElementList, "Works") :> IKey
-                Key(KeyTypes.SubmodelElementCollection, string workIndex) :> IKey
-            ])) :> IReference
-        refElem :> ISubmodelElement
-
-    /// SequenceModel의 Call 참조 생성
-    /// AASd-128: SubmodelElementList 이후 Key는 정수 인덱스를 사용
-    let private mkCallReference (store: DsStore) (project: Project) (call: Call) : ISubmodelElement =
-        let modelSubmodelId = mkSubmodelId project.Id SubmodelOffsets.Model
-        // Work → Flow → System 경로 찾기 및 인덱스 계산
-        let workOpt = Queries.getWork call.ParentId store
-        let flowOpt = workOpt |> Option.bind (fun work -> Queries.getFlow work.ParentId store)
-
-        let systemIndexOpt =
-            flowOpt |> Option.map (fun flow ->
-                let allSystems = Queries.activeSystemsOf project.Id store |> List.sortBy (fun s -> s.Id)
-                allSystems |> List.findIndex (fun s -> s.Id = flow.ParentId))
-
-        let workIndexOpt =
-            workOpt |> Option.bind (fun work ->
-                Queries.getFlow work.ParentId store
-                |> Option.map (fun flow ->
-                    let allWorks = Queries.worksOf flow.Id store |> List.sortBy (fun w -> w.Id)
-                    allWorks |> List.findIndex (fun w -> w.Id = work.Id)))
-
-        let callIndex =
-            workOpt
-            |> Option.map (fun work ->
-                let allCalls = Queries.callsOf work.Id store |> List.sortBy (fun c -> c.Id)
-                allCalls |> List.findIndex (fun c -> c.Id = call.Id))
-            |> Option.defaultValue 0
-
-        let refElem = ReferenceElement()
-        refElem.IdShort <- sanitizeIdShort "ModelRef"
-        refElem.Value <- Reference(
-            ReferenceTypes.ModelReference,
-            ResizeArray<IKey>([
-                Key(KeyTypes.Submodel, modelSubmodelId) :> IKey
-                Key(KeyTypes.SubmodelElementCollection, "Project") :> IKey
-                Key(KeyTypes.SubmodelElementList, "ActiveSystems") :> IKey
-                if systemIndexOpt.IsSome && workIndexOpt.IsSome then
-                    Key(KeyTypes.SubmodelElementCollection, string systemIndexOpt.Value) :> IKey
-                    Key(KeyTypes.SubmodelElementList, "Works") :> IKey
-                    Key(KeyTypes.SubmodelElementCollection, string workIndexOpt.Value) :> IKey
-                    Key(KeyTypes.SubmodelElementList, "Calls") :> IKey
-                Key(KeyTypes.SubmodelElementCollection, string callIndex) :> IKey
-            ])) :> IReference
-        refElem :> ISubmodelElement
-
-    /// 도메인별 서브모델 생성 헬퍼 (Reference 기반, 범용)
+    /// 도메인별 서브모델 생성 헬퍼 (역방향 Reference 기반, 범용)
     /// System/Work/Call Properties가 있는 경우에만 해당 섹션 포함
     let private tryCreateSubmodel
         (store: DsStore)
@@ -262,67 +133,82 @@ module AasxExporter =
         let allWorks = allFlows |> List.collect (fun flow -> Queries.worksOf flow.Id store)
         let allCalls = allWorks |> List.collect (fun work -> Queries.callsOf work.Id store)
 
-        // System Properties (with ModelRef to SequenceModel)
+        // System Properties
         // Use GUID-based idShorts since entity names may contain invalid characters
+        // Create SMC even if properties are None to ensure References from SequenceModel are valid
         let sysPropsWithRefs =
-            activeSystems |> List.choose (fun sys ->
+            activeSystems |> List.map (fun sys ->
                 match getSysProp sys with
                 | Some props ->
                     let propElements = sysConverter props
-                    let modelRef = mkSystemReference store project sys
-                    // ModelRef를 Properties 앞에 추가
-                    let elementsWithRef = modelRef :: propElements
                     // Use GUID-based idShort: "System_" + GUID (N format, no hyphens)
-                    Some (mkSmc (sanitizeIdShort ("System_" + sys.Id.ToString("N"))) elementsWithRef)
-                | None -> None)
+                    mkSmc (sanitizeIdShort ("System_" + sys.Id.ToString("N"))) propElements
+                | None ->
+                    // Create SMC with minimal metadata to ensure Reference target exists
+                    // (Empty SMC causes AAS validation error: "Value must have at least one item")
+                    mkSmc (sanitizeIdShort ("System_" + sys.Id.ToString("N"))) [
+                        mkProp "Guid" (sys.Id.ToString())
+                        mkProp "Name" sys.Name
+                    ])
 
-        // Flow Properties (with ModelRef to SequenceModel)
+        // Flow Properties
         // Use GUID-based idShorts since entity names may contain invalid characters
+        // Create SMC even if properties are None to ensure References from SequenceModel are valid
         let flowPropsWithRefs =
-            allFlows |> List.choose (fun f ->
+            allFlows |> List.map (fun f ->
                 match getFlowProp f with
                 | Some props ->
                     let propElements = flowConverter props
-                    let modelRef = mkFlowReference store project f
-                    // ModelRef를 Properties 앞에 추가
-                    let elementsWithRef = modelRef :: propElements
                     // Use GUID-based idShort: "Flow_" + GUID (N format, no hyphens)
-                    Some (mkSmc (sanitizeIdShort ("Flow_" + f.Id.ToString("N"))) elementsWithRef)
-                | None -> None)
+                    mkSmc (sanitizeIdShort ("Flow_" + f.Id.ToString("N"))) propElements
+                | None ->
+                    // Create SMC with minimal metadata to ensure Reference target exists
+                    mkSmc (sanitizeIdShort ("Flow_" + f.Id.ToString("N"))) [
+                        mkProp "Guid" (f.Id.ToString())
+                        mkProp "Name" f.Name
+                    ])
 
-        // Work Properties (with ModelRef to SequenceModel)
+        // Work Properties
         // Use GUID-based idShorts since entity names may contain invalid characters (e.g., FlowPrefix.LocalName)
+        // Create SMC even if properties are None to ensure References from SequenceModel are valid
         let workPropsWithRefs =
-            allWorks |> List.choose (fun w ->
+            allWorks |> List.map (fun w ->
                 match getWorkProp w with
                 | Some props ->
                     let propElements = workConverter props
-                    let modelRef = mkWorkReference store project w
-                    // ModelRef를 Properties 앞에 추가
-                    let elementsWithRef = modelRef :: propElements
                     // Use GUID-based idShort: "Work_" + GUID (N format, no hyphens)
-                    Some (mkSmc (sanitizeIdShort ("Work_" + w.Id.ToString("N"))) elementsWithRef)
-                | None -> None)
+                    mkSmc (sanitizeIdShort ("Work_" + w.Id.ToString("N"))) propElements
+                | None ->
+                    // Create SMC with minimal metadata to ensure Reference target exists
+                    mkSmc (sanitizeIdShort ("Work_" + w.Id.ToString("N"))) [
+                        mkProp "Guid" (w.Id.ToString())
+                        mkProp "Name" w.Name
+                    ])
 
-        // Call Properties (with ModelRef to SequenceModel)
+        // Call Properties
         // Use GUID-based idShorts since entity names may contain invalid characters
+        // Create SMC even if properties are None to ensure References from SequenceModel are valid
         let callPropsWithRefs =
-            allCalls |> List.choose (fun c ->
+            allCalls |> List.map (fun c ->
                 match getCallProp c with
                 | Some props ->
                     let propElements = callConverter props
-                    let modelRef = mkCallReference store project c
-                    // ModelRef를 Properties 앞에 추가
-                    let elementsWithRef = modelRef :: propElements
                     // Use GUID-based idShort: "Call_" + GUID (N format, no hyphens)
-                    Some (mkSmc (sanitizeIdShort ("Call_" + c.Id.ToString("N"))) elementsWithRef)
-                | None -> None)
+                    mkSmc (sanitizeIdShort ("Call_" + c.Id.ToString("N"))) propElements
+                | None ->
+                    // Create SMC with minimal metadata to ensure Reference target exists
+                    mkSmc (sanitizeIdShort ("Call_" + c.Id.ToString("N"))) [
+                        mkProp "Guid" (c.Id.ToString())
+                        mkProp "Name" c.Name
+                    ])
 
+        // Use SubmodelElementCollection instead of SubmodelElementList
+        // to allow idShort-based references from SequenceModel (avoiding AASd-120/128 constraints)
         let elements =
-            [ yield! mkSml "SystemProperties" sysPropsWithRefs |> Option.toList
-              yield! mkSml "FlowProperties" flowPropsWithRefs |> Option.toList
-              yield! mkSml "WorkProperties" workPropsWithRefs |> Option.toList
-              yield! mkSml "CallProperties" callPropsWithRefs |> Option.toList ]
+            [ if not sysPropsWithRefs.IsEmpty then yield mkSmc "SystemProperties" sysPropsWithRefs
+              if not flowPropsWithRefs.IsEmpty then yield mkSmc "FlowProperties" flowPropsWithRefs
+              if not workPropsWithRefs.IsEmpty then yield mkSmc "WorkProperties" workPropsWithRefs
+              if not callPropsWithRefs.IsEmpty then yield mkSmc "CallProperties" callPropsWithRefs ]
 
         if elements.IsEmpty then None
         else
@@ -333,56 +219,58 @@ module AasxExporter =
             Some sm
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 도메인별 Submodel 생성 함수들
+    // 도메인별 Submodel 생성 함수들 (DU 패턴 기반 통합)
     // ────────────────────────────────────────────────────────────────────────────
 
-    /// SequenceSimulation Submodel 생성
-    let internal tryExportToSimulationSubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsets.Simulation SubmodelSimulationIdShort "Simulation"
-            (fun sys -> sys.GetSimulationProperties()) (fun f -> f.GetSimulationProperties()) (fun w -> w.GetSimulationProperties()) (fun c -> c.GetSimulationProperties())
-            simulationSystemPropsToElements simulationFlowPropsToElements simulationWorkPropsToElements simulationCallPropsToElements
+    /// 도메인 서브모델 생성 (통합 버전 - PropertyConversion 사용)
+    let private tryExportToDomainSubmodel (submodelType: SubmodelType) (store: DsStore) (project: Project) : Submodel option =
+        let activeSystems = Queries.activeSystemsOf project.Id store
+        let allFlows = activeSystems |> List.collect (fun sys -> Queries.flowsOf sys.Id store)
+        let allWorks = allFlows |> List.collect (fun flow -> Queries.worksOf flow.Id store)
+        let allCalls = allWorks |> List.collect (fun work -> Queries.callsOf work.Id store)
 
-    /// SequenceControl Submodel 생성
-    let internal tryExportToControlSubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsets.Control SubmodelControlIdShort "Control"
-            (fun sys -> sys.GetControlProperties()) (fun f -> f.GetControlProperties()) (fun w -> w.GetControlProperties()) (fun c -> c.GetControlProperties())
-            controlSystemPropsToElements controlFlowPropsToElements controlWorkPropsToElements controlCallPropsToElements
+        let sysPropsWithRefs =
+            activeSystems |> List.choose (fun sys ->
+                let propElements = PropertyConversion.getEntityElements submodelType sys
+                if propElements.IsEmpty then None
+                else Some (mkSmc (sanitizeIdShort ("System_" + sys.Id.ToString("N"))) propElements))
 
-    /// SequenceMonitoring Submodel 생성
-    let internal tryExportToMonitoringSubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsets.Monitoring SubmodelMonitoringIdShort "Monitoring"
-            (fun sys -> sys.GetMonitoringProperties()) (fun f -> f.GetMonitoringProperties()) (fun w -> w.GetMonitoringProperties()) (fun c -> c.GetMonitoringProperties())
-            monitoringSystemPropsToElements monitoringFlowPropsToElements monitoringWorkPropsToElements monitoringCallPropsToElements
+        let flowPropsWithRefs =
+            allFlows |> List.choose (fun f ->
+                let propElements = PropertyConversion.getEntityElements submodelType f
+                if propElements.IsEmpty then None
+                else Some (mkSmc (sanitizeIdShort ("Flow_" + f.Id.ToString("N"))) propElements))
 
-    /// SequenceLogging Submodel 생성
-    let internal tryExportToLoggingSubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsets.Logging SubmodelLoggingIdShort "Logging"
-            (fun sys -> sys.GetLoggingProperties()) (fun f -> f.GetLoggingProperties()) (fun w -> w.GetLoggingProperties()) (fun c -> c.GetLoggingProperties())
-            loggingSystemPropsToElements loggingFlowPropsToElements loggingWorkPropsToElements loggingCallPropsToElements
+        let workPropsWithRefs =
+            allWorks |> List.choose (fun w ->
+                // Properties가 있는 Work만 export (간결화)
+                let propElements = PropertyConversion.getEntityElements submodelType w
+                if propElements.IsEmpty then None
+                else
+                    // idShort에 GUID 인코딩 (밑줄 제거하면 파싱 가능)
+                    Some (mkSmc (sanitizeIdShort ("Work_" + w.Id.ToString("N"))) propElements))
 
-    /// SequenceMaintenance Submodel 생성
-    let internal tryExportToMaintenanceSubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsets.Maintenance SubmodelMaintenanceIdShort "Maintenance"
-            (fun sys -> sys.GetMaintenanceProperties()) (fun f -> f.GetMaintenanceProperties()) (fun w -> w.GetMaintenanceProperties()) (fun c -> c.GetMaintenanceProperties())
-            maintenanceSystemPropsToElements maintenanceFlowPropsToElements maintenanceWorkPropsToElements maintenanceCallPropsToElements
-            
-    /// SequenceCostAnalysis Submodel 생성
-    let internal tryExportToCostAnalysisSubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsets.CostAnalysis SubmodelCostAnalysisIdShort "CostAnalysis"
-            (fun sys -> sys.GetCostAnalysisProperties()) (fun f -> f.GetCostAnalysisProperties()) (fun w -> w.GetCostAnalysisProperties()) (fun c -> c.GetCostAnalysisProperties())
-            costAnalysisSystemPropsToElements costAnalysisFlowPropsToElements costAnalysisWorkPropsToElements costAnalysisCallPropsToElements
+        let callPropsWithRefs =
+            allCalls |> List.choose (fun c ->
+                let propElements = PropertyConversion.getEntityElements submodelType c
+                if propElements.IsEmpty then None
+                else Some (mkSmc (sanitizeIdShort ("Call_" + c.Id.ToString("N"))) propElements))
 
-    /// SequenceQuality Submodel 생성
-    let internal tryExportToQualitySubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsets.Quality SubmodelQualityIdShort "Quality"
-            (fun sys -> sys.GetQualityProperties()) (fun f -> f.GetQualityProperties()) (fun w -> w.GetQualityProperties()) (fun c -> c.GetQualityProperties())
-            qualitySystemPropsToElements qualityFlowPropsToElements qualityWorkPropsToElements qualityCallPropsToElements
+        let elements =
+            [ if not sysPropsWithRefs.IsEmpty then yield mkSmc "SystemProperties" sysPropsWithRefs
+              if not flowPropsWithRefs.IsEmpty then yield mkSmc "FlowProperties" flowPropsWithRefs
+              if not workPropsWithRefs.IsEmpty then yield mkSmc "WorkProperties" workPropsWithRefs
+              if not callPropsWithRefs.IsEmpty then yield mkSmc "CallProperties" callPropsWithRefs ]
 
-    /// SequenceHmi Submodel 생성
-    let internal tryExportToHmiSubmodel (store: DsStore) (project: Project) : Submodel option =
-        tryCreateSubmodel store project SubmodelOffsets.Hmi SubmodelHmiIdShort "Hmi"
-            (fun sys -> sys.GetHMIProperties()) (fun f -> f.GetHMIProperties()) (fun w -> w.GetHMIProperties()) (fun c -> c.GetHMIProperties())
-            hmiSystemPropsToElements hmiFlowPropsToElements hmiWorkPropsToElements hmiCallPropsToElements
+        if elements.IsEmpty then None
+        else
+            let sm = Submodel(id = mkSubmodelId project.Id submodelType.Offset)
+            sm.IdShort <- submodelType.IdShort
+            let semanticPath = submodelType.IdShort.ToLower().Replace("sequence", "")
+            sm.SemanticId <- mkSemanticRef $"{SubmodelSemanticId}/{semanticPath}"
+            sm.SubmodelElements <- ResizeArray<ISubmodelElement>(elements)
+            Some sm
+
 
     // ────────────────────────────────────────────────────────────────────────────
     // 레거시 호환 함수들
@@ -407,7 +295,7 @@ module AasxExporter =
 
     /// 분리 모드용 SequenceModel Submodel 생성 (PassiveSystem 대신 DeviceReference 참조만 포함)
     let internal exportToModelSubmodelSplit (store: DsStore) (project: Project) (_iriPrefix: string) (deviceRefs: ISubmodelElement list) : Submodel =
-        let activeSystems = Queries.activeSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s true)
+        let activeSystems = Queries.activeSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s true project.Id)
         let projectElems : ISubmodelElement list = [
             mkProp     Name_         project.Name
             mkProp     Guid_         (project.Id.ToString())
@@ -424,7 +312,7 @@ module AasxExporter =
         projectSmc.IdShort <- "Project"
         projectSmc.Value <- ResizeArray<ISubmodelElement>(projectElems)
 
-        let sm = Submodel(id = mkSubmodelId project.Id SubmodelOffsets.Model)
+        let sm = Submodel(id = mkSubmodelId project.Id SequenceModel.Offset)
         sm.IdShort <- SubmodelModelIdShort
         sm.SemanticId <- mkSemanticRef $"{SubmodelSemanticId}/model"
         sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
@@ -508,15 +396,8 @@ module AasxExporter =
         // 서브모델 생성 (데이터가 있는 것만)
         let modelSm = exportToModelSubmodel store project prefix
         let optionalSubmodels =
-            [ tryExportToSimulationSubmodel store project
-              tryExportToControlSubmodel store project
-              tryExportToMonitoringSubmodel store project
-              tryExportToLoggingSubmodel store project
-              tryExportToMaintenanceSubmodel store project
-              tryExportToCostAnalysisSubmodel store project
-              tryExportToQualitySubmodel store project
-              tryExportToHmiSubmodel store project ]
-            |> List.choose id
+            SubmodelType.AllDomains
+            |> List.choose (fun submodelType -> tryExportToDomainSubmodel submodelType store project)
 
         let allSubmodels = modelSm :: optionalSubmodels
 
@@ -546,7 +427,7 @@ module AasxExporter =
     /// 단일 Device를 독립 AASX로 저장 (ev2처럼 ActiveSystems=[device] 래핑)
     let internal exportDeviceAasx (store: DsStore) (project: Project) (device: DsSystem) (iriPrefix: string) (outputPath: string) : unit =
         let prefix = if String.IsNullOrWhiteSpace(iriPrefix) then DefaultIriPrefix else iriPrefix
-        let deviceSmc = systemToSmc store device false
+        let deviceSmc = systemToSmc store device false project.Id
         let projectElems : ISubmodelElement list = [
             mkProp     Name_         project.Name
             mkProp     Guid_         (project.Id.ToString())
@@ -620,13 +501,8 @@ module AasxExporter =
         // 메인 AASX에 서브모델 생성 (데이터가 있는 것만)
         let modelSm = exportToModelSubmodelSplit store project prefix deviceRefs
         let optionalSubmodels =
-            [ tryExportToSimulationSubmodel store project
-              tryExportToControlSubmodel store project
-              tryExportToMonitoringSubmodel store project
-              tryExportToLoggingSubmodel store project
-              tryExportToMaintenanceSubmodel store project
-              tryExportToCostAnalysisSubmodel store project ]
-            |> List.choose id
+            SubmodelType.AllDomains
+            |> List.choose (fun submodelType -> tryExportToDomainSubmodel submodelType store project)
 
         let allSubmodels = modelSm :: optionalSubmodels
 

@@ -42,12 +42,7 @@ module Builder =
             | true, f -> f
             | _ -> invalidOp $"Flow {flowId} not found"
         let work = Work(flow.Name, localName, flowId)
-        match duration with
-        | Some _ ->
-            let props = SimulationWorkProperties()
-            props.Duration <- duration
-            work.SetSimulationProperties(props)
-        | None -> ()
+        work.Duration <- duration
         work.TokenRole <- tokenRole
         store.Works.Add(work.Id, work)
         work.Id

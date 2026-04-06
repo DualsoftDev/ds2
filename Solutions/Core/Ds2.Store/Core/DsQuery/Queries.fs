@@ -279,7 +279,7 @@ module Queries =
     // Work ↔ Device Duration 쿼리
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// Call 하나의 Device duration(ms): Call → ApiCall → ApiDef → RxGuid → Device Work → Period
+    /// Call 하나의 Device duration(ms): Call → ApiCall → ApiDef → RxGuid → Device Work → Duration
     let private callDeviceDurationMs (call: Call) (store: DsStore) : int =
         call.ApiCalls
         |> Seq.choose (fun apiCall ->
@@ -287,9 +287,7 @@ module Queries =
             |> Option.bind (fun defId -> getApiDef defId store)
             |> Option.bind (fun def -> def.RxGuid)
             |> Option.bind (fun rxWorkId -> getWork rxWorkId store)
-            |> Option.bind (fun rxWork ->
-                rxWork.GetSimulationProperties()
-                |> Option.bind (fun props -> props.Duration))
+            |> Option.bind (fun rxWork -> rxWork.Duration)
             |> Option.map (fun ts -> int ts.TotalMilliseconds))
         |> Seq.tryHead
         |> Option.defaultValue 0

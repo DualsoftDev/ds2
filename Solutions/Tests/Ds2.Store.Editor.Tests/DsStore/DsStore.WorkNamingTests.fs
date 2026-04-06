@@ -95,13 +95,13 @@ let ``Reference Call blocks property mutations`` () =
     let refId = store.AddReferenceCall(originalCall.Id)
     // Timeout 수정 차단
     Assert.Throws<InvalidOperationException>(fun () ->
-        store.UpdateCallTimeoutMs(refId, Some 1000))
+        store.UpdateCallTimeoutMs(refId, Some 1000)) |> ignore
     // 조건 추가 차단
     Assert.Throws<InvalidOperationException>(fun () ->
-        store.AddCallCondition(refId, CallConditionType.AutoAux))
+        store.AddCallCondition(refId, CallConditionType.AutoAux)) |> ignore
     // Rename 차단
     Assert.Throws<InvalidOperationException>(fun () ->
-        store.RenameEntity(refId, EntityKind.Call, "NewName"))
+        store.RenameEntity(refId, EntityKind.Call, "NewName")) |> ignore
     // 원본은 정상 편집 가능
     store.UpdateCallTimeoutMs(originalCall.Id, Some 1000)
 

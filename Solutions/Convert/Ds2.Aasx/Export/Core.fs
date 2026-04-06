@@ -74,11 +74,28 @@ module internal AasxExportCore =
     let mkJsonProp<'T> idShort (obj: 'T) = mkProp idShort (Ds2.Serialization.JsonConverter.serialize obj)
 
     /// SubmodelElementCollection 생성
+    /// AAS 규칙: SMC의 Value는 비어있으면 안됨 (최소 1개 이상의 요소 필요)
+    /// 빈 리스트가 전달되면 기본 속성(idShort를 Name으로 사용)을 추가
     let mkSmc (idShort: string) (elems: ISubmodelElement list) : ISubmodelElement =
+        let finalElems =
+            if elems.IsEmpty then
+                // 빈 경우 최소한의 메타데이터 추가 (AAS 검증 통과를 위해)
+                [ mkProp "IdShort" idShort ]
+            else
+                elems
         let smc = SubmodelElementCollection()
         smc.IdShort <- sanitizeIdShort idShort
-        smc.Value <- ResizeArray<ISubmodelElement>(elems)
+        smc.Value <- ResizeArray<ISubmodelElement>(finalElems)
         smc :> ISubmodelElement
+
+    /// SubmodelElementCollection 생성 (optional) - 빈 리스트면 None 반환
+    let mkSmcOpt (idShort: string) (elems: ISubmodelElement list) : ISubmodelElement option =
+        if elems.IsEmpty then None
+        else
+            let smc = SubmodelElementCollection()
+            smc.IdShort <- sanitizeIdShort idShort
+            smc.Value <- ResizeArray<ISubmodelElement>(elems)
+            Some (smc :> ISubmodelElement)
 
     /// SubmodelElementList 생성 (Collection 타입) - 빈 리스트는 생성하지 않음
     /// AASd-120: SubmodelElementList의 직접 자식은 idShort를 가지면 안됨
@@ -201,46 +218,53 @@ module internal AasxExportCore =
         |> Array.toList
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 도메인별 Properties → SubmodelElements 변환 함수
+    // 도메인별 Properties → SubmodelElements 변환 함수 (통합)
     // ────────────────────────────────────────────────────────────────────────────
+    //
+    // 이전에는 32개 함수가 중복 선언되어 있었으나 (8 도메인 × 4 레벨),
+    // 이제는 Common/PropertyConversion.fs에서 통합 관리됩니다.
+    //
+    // 하위 호환성을 위해 핵심 변환 함수는 internal로 유지:
 
-    let simulationSystemPropsToElements = propsToElements<SimulationSystemProperties>
-    let simulationFlowPropsToElements = propsToElements<SimulationFlowProperties>
-    let simulationWorkPropsToElements = propsToElements<SimulationWorkProperties>
-    let simulationCallPropsToElements = propsToElements<SimulationCallProperties>
+    // 개별 도메인 함수들 (PropertyConversion.fs에서 참조하기 위해 internal로 노출)
+    // F# 값 제한(value restriction)을 피하기 위해 명시적 매개변수 추가
+    let internal simulationSystemPropsToElements props = propsToElements<SimulationSystemProperties> props
+    let internal simulationFlowPropsToElements props = propsToElements<SimulationFlowProperties> props
+    let internal simulationWorkPropsToElements props = propsToElements<SimulationWorkProperties> props
+    let internal simulationCallPropsToElements props = propsToElements<SimulationCallProperties> props
 
-    let controlSystemPropsToElements = propsToElements<ControlSystemProperties>
-    let controlFlowPropsToElements = propsToElements<ControlFlowProperties>
-    let controlWorkPropsToElements = propsToElements<ControlWorkProperties>
-    let controlCallPropsToElements = propsToElements<ControlCallProperties>
+    let internal controlSystemPropsToElements props = propsToElements<ControlSystemProperties> props
+    let internal controlFlowPropsToElements props = propsToElements<ControlFlowProperties> props
+    let internal controlWorkPropsToElements props = propsToElements<ControlWorkProperties> props
+    let internal controlCallPropsToElements props = propsToElements<ControlCallProperties> props
 
-    let monitoringSystemPropsToElements = propsToElements<MonitoringSystemProperties>
-    let monitoringFlowPropsToElements = propsToElements<MonitoringFlowProperties>
-    let monitoringWorkPropsToElements = propsToElements<MonitoringWorkProperties>
-    let monitoringCallPropsToElements = propsToElements<MonitoringCallProperties>
+    let internal monitoringSystemPropsToElements props = propsToElements<MonitoringSystemProperties> props
+    let internal monitoringFlowPropsToElements props = propsToElements<MonitoringFlowProperties> props
+    let internal monitoringWorkPropsToElements props = propsToElements<MonitoringWorkProperties> props
+    let internal monitoringCallPropsToElements props = propsToElements<MonitoringCallProperties> props
 
-    let loggingSystemPropsToElements = propsToElements<LoggingSystemProperties>
-    let loggingFlowPropsToElements = propsToElements<LoggingFlowProperties>
-    let loggingWorkPropsToElements = propsToElements<LoggingWorkProperties>
-    let loggingCallPropsToElements = propsToElements<LoggingCallProperties>
+    let internal loggingSystemPropsToElements props = propsToElements<LoggingSystemProperties> props
+    let internal loggingFlowPropsToElements props = propsToElements<LoggingFlowProperties> props
+    let internal loggingWorkPropsToElements props = propsToElements<LoggingWorkProperties> props
+    let internal loggingCallPropsToElements props = propsToElements<LoggingCallProperties> props
 
-    let maintenanceSystemPropsToElements = propsToElements<MaintenanceSystemProperties>
-    let maintenanceFlowPropsToElements = propsToElements<MaintenanceFlowProperties>
-    let maintenanceWorkPropsToElements = propsToElements<MaintenanceWorkProperties>
-    let maintenanceCallPropsToElements = propsToElements<MaintenanceCallProperties>
+    let internal maintenanceSystemPropsToElements props = propsToElements<MaintenanceSystemProperties> props
+    let internal maintenanceFlowPropsToElements props = propsToElements<MaintenanceFlowProperties> props
+    let internal maintenanceWorkPropsToElements props = propsToElements<MaintenanceWorkProperties> props
+    let internal maintenanceCallPropsToElements props = propsToElements<MaintenanceCallProperties> props
 
-    let costAnalysisSystemPropsToElements = propsToElements<CostAnalysisSystemProperties>
-    let costAnalysisFlowPropsToElements = propsToElements<CostAnalysisFlowProperties>
-    let costAnalysisWorkPropsToElements = propsToElements<CostAnalysisWorkProperties>
-    let costAnalysisCallPropsToElements = propsToElements<CostAnalysisCallProperties>
+    let internal costAnalysisSystemPropsToElements props = propsToElements<CostAnalysisSystemProperties> props
+    let internal costAnalysisFlowPropsToElements props = propsToElements<CostAnalysisFlowProperties> props
+    let internal costAnalysisWorkPropsToElements props = propsToElements<CostAnalysisWorkProperties> props
+    let internal costAnalysisCallPropsToElements props = propsToElements<CostAnalysisCallProperties> props
 
-    let qualitySystemPropsToElements = propsToElements<QualitySystemProperties>
-    let qualityFlowPropsToElements = propsToElements<QualityFlowProperties>
-    let qualityWorkPropsToElements = propsToElements<QualityWorkProperties>
-    let qualityCallPropsToElements = propsToElements<QualityCallProperties>
+    let internal qualitySystemPropsToElements props = propsToElements<QualitySystemProperties> props
+    let internal qualityFlowPropsToElements props = propsToElements<QualityFlowProperties> props
+    let internal qualityWorkPropsToElements props = propsToElements<QualityWorkProperties> props
+    let internal qualityCallPropsToElements props = propsToElements<QualityCallProperties> props
 
-    let hmiSystemPropsToElements = propsToElements<HMISystemProperties>
-    let hmiFlowPropsToElements = propsToElements<HMIFlowProperties>
-    let hmiWorkPropsToElements = propsToElements<HMIWorkProperties>
-    let hmiCallPropsToElements = propsToElements<HMICallProperties>
+    let internal hmiSystemPropsToElements props = propsToElements<HMISystemProperties> props
+    let internal hmiFlowPropsToElements props = propsToElements<HMIFlowProperties> props
+    let internal hmiWorkPropsToElements props = propsToElements<HMIWorkProperties> props
+    let internal hmiCallPropsToElements props = propsToElements<HMICallProperties> props
 

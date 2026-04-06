@@ -1,6 +1,10 @@
 module Ds2.Aasx.AasxSemantics
 
-// 9개 서브모델 정의 (도메인별)
+// AASX Submodel 상수
+// 참고: SubmodelType DU (Ds2.Core/SubmodelProperties.fs)에서 IdShort, Offset, RefName을 제공하므로
+// 여기서는 SubmodelType에 의존하지 않는 공통 상수만 정의합니다.
+
+// Submodel IdShort (하위 호환성을 위해 유지, SubmodelType.IdShort와 동일)
 let [<Literal>] SubmodelModelIdShort        = "SequenceModel"
 let [<Literal>] SubmodelSimulationIdShort   = "SequenceSimulation"
 let [<Literal>] SubmodelControlIdShort      = "SequenceControl"
