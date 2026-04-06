@@ -2,6 +2,7 @@ namespace Ds2.Core
 
 open System
 open System.Text.Json
+open System.Reflection
 
 // =============================================================================
 // 기반 클래스
@@ -28,13 +29,6 @@ type DsArrow(parentId, sourceId: Guid, targetId: Guid, arrowType: ArrowType) =
     member val TargetId  = targetId  with get, set
     member val ArrowType = arrowType with get, set
 
-[<AbstractClass>]
-type HwComponent(name, parentId) =
-    inherit DsChild(name, parentId)
-    member val InTag     : IOTag option = None with get, set
-    member val OutTag    : IOTag option = None with get, set
-    member val FlowGuids = ResizeArray<Guid>() with get, set
-
 // =============================================================================
 // DeepCopy 헬퍼
 // =============================================================================
@@ -60,3 +54,39 @@ module DeepCopyHelper =
         let cloned = cloneViaJson entity (entity.GetType()) :?> 'T
         cloned.Id <- Guid.NewGuid()
         cloned
+
+
+        
+
+// =============================================================================
+// 속성 기반 클래스
+// ⚠️ 하위 클래스는 프리미티브 타입 및 string만 허용 (bool, int, enum, Guid, TimeSpan, DateTimeOffset, string)
+// ⚠️ array, option, collection 타입은 MemberwiseClone의 shallow copy 위험으로 인해 허용되지 않음
+// =============================================================================
+
+/// 기본 속성을 포함하는 추상 클래스 - Description과 DeepCopy만 제공
+[<AbstractClass>]
+type PropertiesBase<'T when 'T :> PropertiesBase<'T>>() =
+    static let invalidPropertyTypes =
+        typeof<'T>.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+        |> Array.choose (fun p ->
+            let t =
+                if p.PropertyType.IsGenericType
+                   && p.PropertyType.GetGenericTypeDefinition() = typedefof<option<_>>
+                then p.PropertyType.GetGenericArguments().[0]
+                else p.PropertyType
+            if t.IsValueType || t = typeof<string> then None
+            else Some(p.Name, t.Name))
+
+    static do
+        if invalidPropertyTypes.Length > 0 then
+            let detail =
+                invalidPropertyTypes
+                |> Array.map (fun (propName, typeName) -> $"{propName}:{typeName}")
+                |> String.concat ", "
+            invalidOp $"PropertiesBase<{typeof<'T>.Name}> has unsupported reference properties: {detail}"
+
+    member val Description : string option = None with get, set
+
+    member this.DeepCopy() =
+        this.MemberwiseClone() :?> 'T

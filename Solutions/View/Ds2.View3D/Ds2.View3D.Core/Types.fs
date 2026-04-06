@@ -121,3 +121,33 @@ module SceneError =
     let projectNotFound id = ProjectNotFound id
     let systemNotFound id = SystemNotFound id
     let layoutStoreError ex = LayoutStoreError ex
+
+// =============================================================================
+// Device Presets (3D Model Mapping)
+// =============================================================================
+
+/// 3D 모델로 매핑 가능한 SystemType 집합
+module DevicePresets =
+    /// 알려진 Device 타입 목록 (대소문자 구분 없음)
+    let KnownNames =
+        Set.ofList [
+            "Robot"
+            "Conveyor"
+            "Unit"
+            "AGV"
+            "Gripper"
+            "Lifter"
+            "Crane"
+            "Stacker"
+            "Sorter"
+            "Transfer"
+            "Barrier"
+            "Door"
+            "Gate"
+            "Elevator"
+            "Hoist"
+            "Pusher"
+            "Rotary"
+            "Turntable"
+            "Tilter"
+        ]

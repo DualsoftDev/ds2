@@ -23,7 +23,9 @@ module Builder =
 
         let project = Project(projectName)
         let system = DsSystem(systemName)
-        system.Properties.SystemType <- Some "Unit"
+        let sysProps = SimulationSystemProperties()
+        sysProps.SystemType <- Some "Unit"
+        system.SetSimulationProperties(sysProps)
         let flow = Flow(flowName, system.Id)
 
         store.Projects.Add(project.Id, project)
@@ -40,7 +42,12 @@ module Builder =
             | true, f -> f
             | _ -> invalidOp $"Flow {flowId} not found"
         let work = Work(flow.Name, localName, flowId)
-        work.Properties.Duration <- duration
+        match duration with
+        | Some _ ->
+            let props = SimulationWorkProperties()
+            props.Duration <- duration
+            work.SetSimulationProperties(props)
+        | None -> ()
         work.TokenRole <- tokenRole
         store.Works.Add(work.Id, work)
         work.Id
@@ -53,7 +60,9 @@ module Builder =
             | _ -> invalidOp $"Project {projectId} not found"
 
         let system = DsSystem(deviceName)
-        system.Properties.SystemType <- Some "Unit"
+        let sysProps2 = SimulationSystemProperties()
+        sysProps2.SystemType <- Some "Unit"
+        system.SetSimulationProperties(sysProps2)
         store.Systems.Add(system.Id, system)
         project.PassiveSystemIds.Add(system.Id)
 
@@ -64,8 +73,8 @@ module Builder =
         store.Works.Add(work.Id, work)
 
         let apiDef = ApiDef(apiName, system.Id)
-        apiDef.Properties.TxGuid <- Some work.Id
-        apiDef.Properties.RxGuid <- Some work.Id
+        apiDef.TxGuid <- Some work.Id
+        apiDef.RxGuid <- Some work.Id
         store.ApiDefs.Add(apiDef.Id, apiDef)
 
         (system.Id, flow.Id, work.Id, apiDef.Id)

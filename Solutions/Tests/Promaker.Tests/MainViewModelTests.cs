@@ -118,7 +118,12 @@ public sealed class MainViewModelTests
             {
                 var projectDialog = Assert.IsType<ProjectPropertiesDialog>(dialog);
                 SetAutoProperty(projectDialog, "ResultProjectName", "ConfiguredProject");
-                SetAutoProperty(projectDialog, "ResultProperties", new Ds2.Core.ProjectProperties());
+                SetAutoProperty(projectDialog, "ResultAuthor", "TestAuthor");
+                SetAutoProperty(projectDialog, "ResultDateTime", DateTimeOffset.Now);
+                SetAutoProperty(projectDialog, "ResultVersion", "1.0.0");
+                SetAutoProperty(projectDialog, "ResultIriPrefix", "https://dualsoft.com/");
+                SetAutoProperty(projectDialog, "ResultSplitDeviceAasx", false);
+                SetAutoProperty(projectDialog, "ResultPresetSystemTypes", Array.Empty<string>());
 
                 return true;
             }));

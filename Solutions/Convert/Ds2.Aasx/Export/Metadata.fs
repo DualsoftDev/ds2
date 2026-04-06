@@ -76,9 +76,7 @@ module internal AasxExportMetadata =
             mkProp "CompanyLogo"                    np.CompanyLogo
         ]
         let markingsElems =
-            if np.Markings.Count > 0 then
-                [ mkSml "Markings" (np.Markings |> Seq.map markingToSmc |> Seq.toList) ]
-            else []
+            mkSml "Markings" (np.Markings |> Seq.map markingToSmc |> Seq.toList) |> Option.toList
         mkSubmodel
             $"urn:dualsoft:nameplate:{projectId}"
             NameplateSubmodelIdShort
@@ -103,8 +101,7 @@ module internal AasxExportMetadata =
 
     let documentVersionToSmc (dv: DocumentVersion) : ISubmodelElement =
         let baseElems : ISubmodelElement list = [
-            if dv.Languages.Count > 0 then
-                mkSmlProp "Languages" (dv.Languages |> Seq.map (fun lang -> mkProp "Language" lang) |> Seq.toList)
+            yield! mkSmlProp "Languages" (dv.Languages |> Seq.map (fun lang -> mkProp "Language" lang) |> Seq.toList) |> Option.toList
             mkProp "DocumentVersionId"       dv.DocumentVersionId
             mkProp "Title"                   dv.Title
             mkProp "SubTitle"                dv.SubTitle
@@ -116,27 +113,22 @@ module internal AasxExportMetadata =
             mkProp "OrganizationName"        dv.OrganizationName
             mkProp "OrganizationOfficialName" dv.OrganizationOfficialName
             mkProp "Role"                    dv.Role
-            if dv.DigitalFiles.Count > 0 then
-                mkSmlProp "DigitalFiles" (dv.DigitalFiles |> Seq.map (fun f -> mkProp "DigitalFile" f) |> Seq.toList)
+            yield! mkSmlProp "DigitalFiles" (dv.DigitalFiles |> Seq.map (fun f -> mkProp "DigitalFile" f) |> Seq.toList) |> Option.toList
             mkProp "PreviewFile"             dv.PreviewFile
         ]
         mkSmc "DocumentVersion" baseElems
 
     let documentToSmc (doc: Document) : ISubmodelElement =
         let elems : ISubmodelElement list = [
-            if doc.DocumentIds.Count > 0 then
-                mkSml "DocumentIds" (doc.DocumentIds |> Seq.map documentIdToSmc |> Seq.toList)
-            if doc.DocumentClassifications.Count > 0 then
-                mkSml "DocumentClassifications" (doc.DocumentClassifications |> Seq.map documentClassToSmc |> Seq.toList)
-            if doc.DocumentVersions.Count > 0 then
-                mkSml "DocumentVersions" (doc.DocumentVersions |> Seq.map documentVersionToSmc |> Seq.toList)
+            yield! mkSml "DocumentIds" (doc.DocumentIds |> Seq.map documentIdToSmc |> Seq.toList) |> Option.toList
+            yield! mkSml "DocumentClassifications" (doc.DocumentClassifications |> Seq.map documentClassToSmc |> Seq.toList) |> Option.toList
+            yield! mkSml "DocumentVersions" (doc.DocumentVersions |> Seq.map documentVersionToSmc |> Seq.toList) |> Option.toList
         ]
         mkSmc "Document" elems
 
     let documentationToSubmodel (hd: HandoverDocumentation) (projectId: Guid) : Submodel =
         let elems : ISubmodelElement list = [
-            if hd.Documents.Count > 0 then
-                mkSml "Documents" (hd.Documents |> Seq.map documentToSmc |> Seq.toList)
+            yield! mkSml "Documents" (hd.Documents |> Seq.map documentToSmc |> Seq.toList) |> Option.toList
         ]
         mkSubmodel
             $"urn:dualsoft:documentation:{projectId}"

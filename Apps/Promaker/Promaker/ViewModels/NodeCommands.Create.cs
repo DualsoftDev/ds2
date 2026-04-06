@@ -98,9 +98,7 @@ public partial class MainViewModel
             return;
         }
 
-        var projectProperties = HasProject
-            ? Queries.allProjects(_store).Head.Properties
-            : null;
+        var project = HasProject ? Queries.allProjects(_store).Head : null;
 
         var dialog = new CallCreateDialog(
             apiNameFilter =>
@@ -112,7 +110,7 @@ public partial class MainViewModel
 
                 return matches;
             },
-            projectProperties)
+            project)
         {
             Owner = Application.Current.MainWindow
         };

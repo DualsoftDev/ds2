@@ -38,13 +38,15 @@ module PasteTests =
         let store = createStore ()
         let _, _, flow, work = setupBasicHierarchy store
         work.TokenRole <- TokenRole.Source
-        work.Properties.Duration <- Some (TimeSpan.FromSeconds 5.0)
-        work.Properties.NumRepeat <- 3
+        let props = SimulationWorkProperties()
+        props.Duration <- Some (TimeSpan.FromSeconds 5.0)
+        props.NumRepeat <- 3
+        work.SetSimulationProperties(props)
         let pastedIds = store.PasteEntities(EntityKind.Work, [ work.Id ], EntityKind.Flow, flow.Id, 0) |> unwrapOk
         let pastedWork = Queries.getWork pastedIds.Head store |> Option.get
         Assert.Equal(TokenRole.Source, pastedWork.TokenRole)
-        Assert.Equal(Some (TimeSpan.FromSeconds 5.0), pastedWork.Properties.Duration)
-        Assert.Equal(3, pastedWork.Properties.NumRepeat)
+        Assert.Equal(Some (TimeSpan.FromSeconds 5.0), pastedWork.GetSimulationProperties().Value.Duration)
+        Assert.Equal(3, pastedWork.GetSimulationProperties().Value.NumRepeat)
 
     [<Fact>]
     let ``PasteEntities copies call with multiple device ApiCalls across flows`` () =
@@ -79,17 +81,19 @@ module PasteTests =
         let originalCall = store.Calls.[callId]
         let srcApiCall = originalCall.ApiCalls.[0]
         let srcApiDef = Queries.getApiDef (srcApiCall.ApiDefId.Value) store |> Option.get
-        let srcWork = Queries.getWork (srcApiDef.Properties.TxGuid.Value) store |> Option.get
-        srcWork.Properties.Duration <- Some (TimeSpan.FromSeconds 3.5)
+        let srcWork = Queries.getWork (srcApiDef.TxGuid.Value) store |> Option.get
+        let srcProps = SimulationWorkProperties()
+        srcProps.Duration <- Some (TimeSpan.FromSeconds 3.5)
+        srcWork.SetSimulationProperties(srcProps)
         let flow2Id = store.AddFlow("Flow2", system.Id)
         let work2Id = store.AddWork("Work2", flow2Id)
         let pastedIds = store.PasteEntities(EntityKind.Call, [ callId ], EntityKind.Work, work2Id, 0) |> unwrapOk
         let pastedCall = store.Calls.[pastedIds.Head]
         let pastedApiDef = Queries.getApiDef (pastedCall.ApiCalls.[0].ApiDefId.Value) store |> Option.get
-        Assert.True(pastedApiDef.Properties.TxGuid.IsSome)
-        Assert.True(pastedApiDef.Properties.RxGuid.IsSome)
-        let pastedWork = Queries.getWork (pastedApiDef.Properties.RxGuid.Value) store |> Option.get
-        Assert.Equal(Some (TimeSpan.FromSeconds 3.5), pastedWork.Properties.Duration)
+        Assert.True(pastedApiDef.TxGuid.IsSome)
+        Assert.True(pastedApiDef.RxGuid.IsSome)
+        let pastedWork = Queries.getWork (pastedApiDef.RxGuid.Value) store |> Option.get
+        Assert.Equal(Some (TimeSpan.FromSeconds 3.5), pastedWork.GetSimulationProperties().Value.Duration)
         let deviceDuration = Queries.tryGetDeviceDurationMs work2Id store
         Assert.Equal(Some 3500, deviceDuration)
 
@@ -294,26 +298,24 @@ module PanelTests =
         let store = createStore ()
         let project = addProject store "P"
         let system = addSystem store "S" project.Id false
-        let props = ApiDefProperties(IsPush = true, Description = Some "test desc")
-        let id = store.AddApiDefWithProperties("Api1", system.Id, props)
+        let id = store.AddApiDefWithProperties("Api1", system.Id)
         let apiDef = store.ApiDefs.[id]
+        apiDef.IsPush <- true
         Assert.Equal("Api1", apiDef.Name)
         Assert.Equal(system.Id, apiDef.ParentId)
-        Assert.True(apiDef.Properties.IsPush)
-        Assert.Equal(Some "test desc", apiDef.Properties.Description)
+        Assert.True(apiDef.IsPush)
 
     [<Fact>]
-    let ``UpdateApiDef changes name and properties atomically`` () =
+    let ``UpdateApiDef changes name atomically`` () =
         let store = createStore ()
         let project = addProject store "P"
         let system = addSystem store "S" project.Id false
         let apiDef = addApiDef store "Api1" system.Id
-        let props = ApiDefProperties(IsPush = true, Description = Some "new desc")
-        store.UpdateApiDef(apiDef.Id, "ApiRenamed", props)
+        apiDef.IsPush <- true
+        store.UpdateApiDef(apiDef.Id, "ApiRenamed")
         let updated = store.ApiDefs.[apiDef.Id]
         Assert.Equal("ApiRenamed", updated.Name)
-        Assert.True(updated.Properties.IsPush)
-        Assert.Equal(Some "new desc", updated.Properties.Description)
+        Assert.True(updated.IsPush)
 
     [<Fact>]
     let ``UpdateApiDef is single undo step`` () =
@@ -321,11 +323,13 @@ module PanelTests =
         let project = addProject store "P"
         let system = addSystem store "S" project.Id false
         let apiDef = addApiDef store "OldName" system.Id
-        store.UpdateApiDef(apiDef.Id, "NewName", ApiDefProperties(IsPush = true))
+        let originalIsPush = apiDef.IsPush
+        store.UpdateApiDef(apiDef.Id, "NewName")
+        Assert.Equal("NewName", store.ApiDefs.[apiDef.Id].Name)
         store.Undo()
         let reverted = store.ApiDefs.[apiDef.Id]
         Assert.Equal("OldName", reverted.Name)
-        Assert.False(reverted.Properties.IsPush)
+        Assert.Equal(originalIsPush, reverted.IsPush)
 
     [<Fact>]
     let ``UpdateConditionApiCallOutputSpec updates selected condition api call`` () =

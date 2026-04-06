@@ -31,10 +31,6 @@ file static class ConverterHelpers
             [EntityKind.Work] = "W",
             [EntityKind.Call] = "C",
             [EntityKind.ApiDef] = "A",
-            [EntityKind.Button] = "B",
-            [EntityKind.Lamp] = "L",
-            [EntityKind.Condition] = "?",
-            [EntityKind.Action] = "!",
             [EntityKind.DeviceRoot] = "⚙",
             [EntityKind.ApiDefCategory] = "⇆"
         };

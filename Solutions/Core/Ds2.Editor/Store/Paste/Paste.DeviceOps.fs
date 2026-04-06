@@ -59,7 +59,15 @@ module internal PasteDeviceOps =
                     // 원본 System의 SystemType 복사
                     match Queries.getSystem sourceSystemId store with
                     | Some sourceSystem ->
-                        newSystem.Properties.SystemType <- sourceSystem.Properties.SystemType
+                        sourceSystem.GetSimulationProperties()
+                        |> Option.bind (fun p -> p.SystemType)
+                        |> Option.iter (fun sysType ->
+                            match newSystem.GetSimulationProperties() with
+                            | Some props -> props.SystemType <- Some sysType
+                            | None ->
+                                let props = SimulationSystemProperties()
+                                props.SystemType <- Some sysType
+                                newSystem.SetSimulationProperties(props))
                     | None -> ()
 
                     store.TrackAdd(store.Systems, newSystem)
@@ -75,16 +83,16 @@ module internal PasteDeviceOps =
                         sourceApiDefs
                         |> List.map (fun src ->
                             let cloned = ApiDef(src.Name, newSystem.Id)
-                            cloned.Properties.IsPush <- src.Properties.IsPush
+                            cloned.IsPush <- src.IsPush
                             let work = Work(newFlow.Name, src.Name, newFlow.Id)
-                            // 원본 ApiDef의 TxGuid Work에서 Properties(Period 등) 복사
-                            src.Properties.TxGuid
+                            // 원본 ApiDef의 TxGuid Work에서 SimulationProperties(Duration 등) 복사
+                            src.TxGuid
                             |> Option.bind (fun srcWorkId -> Queries.getWork srcWorkId store)
-                            |> Option.iter (fun srcWork -> work.Properties <- srcWork.Properties.DeepCopy())
+                            |> Option.iter (fun srcWork -> srcWork.GetSimulationProperties() |> Option.iter (fun p -> work.SetSimulationProperties(p.DeepCopy())))
                             store.TrackAdd(store.Works, work)
                             createdWorks.Add(work)
-                            cloned.Properties.TxGuid <- Some work.Id
-                            cloned.Properties.RxGuid <- Some work.Id
+                            cloned.TxGuid <- Some work.Id
+                            cloned.RxGuid <- Some work.Id
                             store.TrackAdd(store.ApiDefs, cloned)
                             src.Id, cloned.Id)
                         |> Map.ofList

@@ -8,7 +8,6 @@
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Core\EditorTypes.fs" />
-    <Compile Include="Core\ProjectPropertiesHelper.fs" />
     <Compile Include="Commands\UndoRedoManager.fs" />
     <Compile Include="Projection\ViewTypes.fs" />
     <Compile Include="Projection\ConditionFormulaProjection.fs" />

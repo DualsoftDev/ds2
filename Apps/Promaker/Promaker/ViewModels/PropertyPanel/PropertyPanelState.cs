@@ -232,7 +232,7 @@ public partial class PropertyPanelState : ObservableObject
             CallTimeoutMs = _originalCallTimeoutMs;
 
             var callTypeValues = selectedCallIds
-                .Select(callId => Queries.getCall(callId, Store)?.Value.Properties.CallType ?? CallType.WaitForCompletion)
+                .Select(callId => Queries.getCall(callId, Store)?.Value.GetSimulationProperties()?.Value.CallType ?? CallType.WaitForCompletion)
                 .Distinct().ToList();
             SelectedCallType = callTypeValues.Count == 1 ? callTypeValues[0] : CallType.WaitForCompletion;
             if (IsSingleCallSelected && selected is not null)
@@ -263,7 +263,10 @@ public partial class PropertyPanelState : ObservableObject
             var systemOpt = Queries.getSystem(selected.Id, Store);
             if (systemOpt != null && Microsoft.FSharp.Core.FSharpOption<DsSystem>.get_IsSome(systemOpt))
             {
-                var systemTypeOpt = systemOpt.Value.Properties.SystemType;
+                var simPropsOpt = systemOpt.Value.GetSimulationProperties();
+                var systemTypeOpt = simPropsOpt != null && Microsoft.FSharp.Core.FSharpOption<SimulationSystemProperties>.get_IsSome(simPropsOpt)
+                    ? simPropsOpt.Value.SystemType
+                    : null;
                 _originalSystemType = systemTypeOpt != null && Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(systemTypeOpt)
                     ? systemTypeOpt.Value
                     : string.Empty;
@@ -538,7 +541,7 @@ public partial class PropertyPanelState : ObservableObject
             foreach (var callId in selectedCallIds)
             {
                 var call = Queries.getCall(callId, Store)?.Value;
-                if (call != null && call.Properties.CallType != value)
+                if (call != null && (call.GetSimulationProperties()?.Value.CallType ?? CallType.WaitForCompletion) != value)
                     Store.UpdateCallType(callId, value);
             }
         }))

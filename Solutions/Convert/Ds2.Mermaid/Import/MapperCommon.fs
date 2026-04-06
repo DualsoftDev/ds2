@@ -10,16 +10,16 @@ module internal MermaidMapperCommon =
     /// ArrowLabel → ds2 ArrowType 변환
     let mapArrowType (label: ArrowLabel) : ArrowType =
         match label with
-        | NoLabel     -> ArrowType.Start
-        | Interlock   -> ArrowType.Reset
-        | SelfReset   -> ArrowType.Reset
-        | StartReset  -> ArrowType.StartReset
-        | StartEdge   -> ArrowType.Start
-        | ResetEdge   -> ArrowType.Reset
-        | AutoPre     -> ArrowType.Start
-        | ResetReset  -> ArrowType.ResetReset
-        | Group       -> ArrowType.Group
-        | Custom _    -> ArrowType.Start
+        | ArrowLabel.NoLabel     -> ArrowType.Start
+        | ArrowLabel.Interlock   -> ArrowType.Reset
+        | ArrowLabel.SelfReset   -> ArrowType.Reset
+        | ArrowLabel.StartReset  -> ArrowType.StartReset
+        | ArrowLabel.StartEdge   -> ArrowType.Start
+        | ArrowLabel.ResetEdge   -> ArrowType.Reset
+        | ArrowLabel.AutoPre     -> ArrowType.Start
+        | ArrowLabel.ResetReset  -> ArrowType.ResetReset
+        | ArrowLabel.Group       -> ArrowType.Group
+        | ArrowLabel.Custom _    -> ArrowType.Start
 
     /// Mermaid 노드 라벨에서 Call 이름 분리
     let splitCallName (label: string) : string * string =

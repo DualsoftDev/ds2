@@ -138,44 +138,6 @@ module DsQueryTests =
         Assert.Equal(None, Queries.tryGetName store EntityKind.Work (Guid.NewGuid()))
 
     [<Fact>]
-    let ``buttonsOf returns HwButtons under system`` () =
-        let store = createStore ()
-        let _, system, _, _ = setupBasicHierarchy store
-        let btn = HwButton("Btn1", system.Id)
-        store.HwButtons.[btn.Id] <- btn
-        let buttons = Queries.buttonsOf system.Id store
-        Assert.Equal(1, buttons.Length)
-        Assert.Equal("Btn1", buttons.[0].Name)
-
-    [<Fact>]
-    let ``lampsOf returns HwLamps under system`` () =
-        let store = createStore ()
-        let _, system, _, _ = setupBasicHierarchy store
-        let lamp = HwLamp("Lamp1", system.Id)
-        store.HwLamps.[lamp.Id] <- lamp
-        let lamps = Queries.lampsOf system.Id store
-        Assert.Equal(1, lamps.Length)
-        Assert.Equal("Lamp1", lamps.[0].Name)
-
-    [<Fact>]
-    let ``conditionsOf returns HwConditions under system`` () =
-        let store = createStore ()
-        let _, system, _, _ = setupBasicHierarchy store
-        let cond = HwCondition("Cond1", system.Id)
-        store.HwConditions.[cond.Id] <- cond
-        let conditions = Queries.conditionsOf system.Id store
-        Assert.Equal(1, conditions.Length)
-
-    [<Fact>]
-    let ``actionsOf returns HwActions under system`` () =
-        let store = createStore ()
-        let _, system, _, _ = setupBasicHierarchy store
-        let action = HwAction("Act1", system.Id)
-        store.HwActions.[action.Id] <- action
-        let actions = Queries.actionsOf system.Id store
-        Assert.Equal(1, actions.Length)
-
-    [<Fact>]
     let ``arrowWorksOf returns arrows under system`` () =
         let store = createStore ()
         let _, system, flow, work = setupBasicHierarchy store
@@ -250,16 +212,19 @@ module BatchTests =
 
         store.UpdateWorkDurationsBatch([ struct(work1.Id, 3000); struct(work2.Id, 7000) ])
 
-        let p1 = work1.Properties.Duration
+        let p1 = store.Works.[work1.Id].GetSimulationProperties().Value.Duration
         Assert.True(p1.IsSome)
         Assert.Equal(3000.0, p1.Value.TotalMilliseconds)
-        let p2 = work2.Properties.Duration
+        let p2 = store.Works.[work2.Id].GetSimulationProperties().Value.Duration
         Assert.True(p2.IsSome)
         Assert.Equal(7000.0, p2.Value.TotalMilliseconds)
 
         store.Undo()
-        Assert.True(store.Works.[work1.Id].Properties.Duration.IsNone)
-        Assert.True(store.Works.[work2.Id].Properties.Duration.IsNone)
+        // Undo 후 SimulationProperties가 None이거나 Duration이 None이어야 함
+        let w1AfterUndo = store.Works.[work1.Id]
+        let w2AfterUndo = store.Works.[work2.Id]
+        Assert.True(w1AfterUndo.GetSimulationProperties().IsNone || w1AfterUndo.GetSimulationProperties().Value.Duration.IsNone)
+        Assert.True(w2AfterUndo.GetSimulationProperties().IsNone || w2AfterUndo.GetSimulationProperties().Value.Duration.IsNone)
 
     [<Fact>]
     let ``GetAllApiCallIORows returns apiCalls with IO tags`` () =
@@ -362,16 +327,28 @@ module BatchTests =
 
         store.UpdateWorkDurationsBatch([ struct(work.Id, 2000) ])
 
-        let tmpPath = System.IO.Path.GetTempFileName()
-        try
-            store.SaveToFile(tmpPath)
-            let loaded = DsStore()
-            loaded.LoadFromFile(tmpPath)
-            let loadedWork = loaded.Works.Values |> Seq.head
-            Assert.True(loadedWork.Properties.Duration.IsSome)
-            Assert.Equal(2000.0, loadedWork.Properties.Duration.Value.TotalMilliseconds)
-        finally
-            System.IO.File.Delete(tmpPath)
+        // Verify properties are set before saving
+        Assert.True(work.GetSimulationProperties().IsSome, "Work should have SimulationProperties before save")
+        Assert.True(work.GetSimulationProperties().Value.Duration.IsSome, "Work should have Duration before save")
+
+        let tmpPath = "C:\\Temp\\test_work_duration.json"
+        System.IO.Directory.CreateDirectory("C:\\Temp") |> ignore
+        store.SaveToFile(tmpPath)
+
+        let loaded = DsStore()
+        loaded.LoadFromFile(tmpPath)
+        let loadedWork = loaded.Works.Values |> Seq.head
+
+        // Detailed assertions
+        let propsOption = loadedWork.GetSimulationProperties()
+        if propsOption.IsNone then
+            failwith $"Loaded work has no SimulationProperties. Work.Properties.Count = {loadedWork.Properties.Count}. File saved to: {tmpPath}"
+
+        let props = propsOption.Value
+        if props.Duration.IsNone then
+            failwith $"Loaded work has no Duration. File saved to: {tmpPath}"
+
+        Assert.Equal(2000.0, props.Duration.Value.TotalMilliseconds)
 
     [<Fact>]
     let ``UpdateWorkPeriodsBatch updates multiple works and supports undo`` () =
@@ -387,12 +364,15 @@ module BatchTests =
             struct(work2.Id, Nullable<int>(3400))
         ])
 
-        Assert.Equal(1200.0, store.Works.[work1.Id].Properties.Duration.Value.TotalMilliseconds)
-        Assert.Equal(3400.0, store.Works.[work2.Id].Properties.Duration.Value.TotalMilliseconds)
+        Assert.Equal(1200.0, store.Works.[work1.Id].GetSimulationProperties().Value.Duration.Value.TotalMilliseconds)
+        Assert.Equal(3400.0, store.Works.[work2.Id].GetSimulationProperties().Value.Duration.Value.TotalMilliseconds)
 
         store.Undo()
-        Assert.True(store.Works.[work1.Id].Properties.Duration.IsNone)
-        Assert.True(store.Works.[work2.Id].Properties.Duration.IsNone)
+        // Undo 후 SimulationProperties가 None이거나 Duration이 None이어야 함
+        let w1AfterUndo = store.Works.[work1.Id]
+        let w2AfterUndo = store.Works.[work2.Id]
+        Assert.True(w1AfterUndo.GetSimulationProperties().IsNone || w1AfterUndo.GetSimulationProperties().Value.Duration.IsNone)
+        Assert.True(w2AfterUndo.GetSimulationProperties().IsNone || w2AfterUndo.GetSimulationProperties().Value.Duration.IsNone)
 
     [<Fact>]
     let ``UpdateWorkTokenRolesBatch updates multiple works and supports undo`` () =
@@ -436,9 +416,12 @@ module BatchTests =
             struct(call2.Id, Nullable<int>(2600))
         ])
 
-        Assert.Equal(1500.0, store.Calls.[call1.Id].Properties.Timeout.Value.TotalMilliseconds)
-        Assert.Equal(2600.0, store.Calls.[call2.Id].Properties.Timeout.Value.TotalMilliseconds)
+        Assert.Equal(1500.0, store.Calls.[call1.Id].GetSimulationProperties().Value.Timeout.Value.TotalMilliseconds)
+        Assert.Equal(2600.0, store.Calls.[call2.Id].GetSimulationProperties().Value.Timeout.Value.TotalMilliseconds)
 
         store.Undo()
-        Assert.True(store.Calls.[call1.Id].Properties.Timeout.IsNone)
-        Assert.True(store.Calls.[call2.Id].Properties.Timeout.IsNone)
+        // Undo 후 SimulationProperties가 None이거나 Timeout이 None이어야 함
+        let c1AfterUndo = store.Calls.[call1.Id]
+        let c2AfterUndo = store.Calls.[call2.Id]
+        Assert.True(c1AfterUndo.GetSimulationProperties().IsNone || c1AfterUndo.GetSimulationProperties().Value.Timeout.IsNone)
+        Assert.True(c2AfterUndo.GetSimulationProperties().IsNone || c2AfterUndo.GetSimulationProperties().Value.Timeout.IsNone)

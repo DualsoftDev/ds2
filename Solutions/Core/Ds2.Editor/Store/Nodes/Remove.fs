@@ -35,10 +35,6 @@ module internal CascadeRemove =
     let removeHwComponents (store: DsStore) (systemIds: Guid list) =
         for sid in systemIds do
             Queries.apiDefsOf    sid store |> List.iter (fun d -> store.TrackRemove(store.ApiDefs,      d.Id))
-            Queries.buttonsOf    sid store |> List.iter (fun b -> store.TrackRemove(store.HwButtons,    b.Id))
-            Queries.lampsOf      sid store |> List.iter (fun l -> store.TrackRemove(store.HwLamps,      l.Id))
-            Queries.conditionsOf sid store |> List.iter (fun c -> store.TrackRemove(store.HwConditions, c.Id))
-            Queries.actionsOf    sid store |> List.iter (fun a -> store.TrackRemove(store.HwActions,    a.Id))
 
     let removeSystem (store: DsStore) (systemId: Guid) =
         for p in store.Projects.Values do
@@ -104,10 +100,6 @@ module internal CascadeRemove =
             | EntityKind.System    -> cascadeRemoveSystem store id
             | EntityKind.Project   -> cascadeRemoveProject store id
             | EntityKind.ApiDef    -> store.TrackRemove(store.ApiDefs, id)
-            | EntityKind.Button    -> store.TrackRemove(store.HwButtons, id)
-            | EntityKind.Lamp      -> store.TrackRemove(store.HwLamps, id)
-            | EntityKind.Condition -> store.TrackRemove(store.HwConditions, id)
-            | EntityKind.Action    -> store.TrackRemove(store.HwActions, id)
             | _ -> ()
 
         removeOrphanApiCalls store

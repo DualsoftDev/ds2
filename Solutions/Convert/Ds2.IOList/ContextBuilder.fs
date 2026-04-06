@@ -40,7 +40,7 @@ module ContextBuilder =
                     }
                 | Some system ->
                     // 3. Get SystemType
-                    match system.Properties.SystemType with
+                    match system.GetSimulationProperties() |> Option.bind (fun p -> p.SystemType) with
                     | None ->
                         Error (GenerationError.missingSystemType system.Id)
                     | Some systemType ->
