@@ -48,7 +48,7 @@ public partial class SimulationPanelState
 
     private void OnWorkStateChanged(WorkStateChangedArgs args)
     {
-        ApplyWorkStateChangeToReferenceGroup(args);
+        ApplyWorkStateChangeToVisibleNode(args);
         // 디버그: Homing/Ready 전이 로그 (리셋 동작 확인용)
         if (args.NewState == Status4.Homing || (args.PreviousState == Status4.Homing && args.NewState == Status4.Ready))
             AddSimLog($"[Reset] {args.WorkName}: {args.PreviousState} → {args.NewState}");
@@ -59,27 +59,22 @@ public partial class SimulationPanelState
 
     private void OnCallStateChanged(CallStateChangedArgs args)
     {
-        ApplyCallStateChangeToReferenceGroup(args);
+        ApplyCallStateChangeToVisibleNode(args);
         SetSimSkipped(args.CallGuid, args.IsSkipped);
 
         _sceneEventHandler?.OnCallStateChanged(args.CallGuid, args.NewState);
         RefreshSimulationProgressUi();
     }
 
-    private void ApplyCallStateChangeToReferenceGroup(CallStateChangedArgs args)
+    private void ApplyCallStateChangeToVisibleNode(CallStateChangedArgs args)
     {
         var suffix = args.IsSkipped ? " (Skip)" : "";
         var systemName = GetSystemName(EntityKind.Call, args.CallGuid);
-        var groupGuids = Queries.callReferenceGroupOf(args.CallGuid, Store).ToList();
-        if (groupGuids.Count == 0)
-            groupGuids.Add(args.CallGuid);
+        var canonicalId = Queries.resolveOriginalCallId(args.CallGuid, Store);
 
-        foreach (var groupGuid in groupGuids)
-        {
-            _stateCache.Set(groupGuid, args.NewState);
-            UpdateSimNodeState(groupGuid, args.NewState);
-            GanttChart.UpdateNodeState(groupGuid, args.NewState, GanttChart.AdjustedNow);
-        }
+        _stateCache.Set(canonicalId, args.NewState);
+        UpdateSimNodeState(canonicalId, args.NewState);
+        GanttChart.UpdateNodeState(canonicalId, args.NewState, GanttChart.AdjustedNow);
 
         RecordStateChange(args.CallGuid.ToString(), args.CallName + suffix, EntityKind.Call.ToString(), systemName, args.NewState);
         UpdateSimClock();
@@ -129,19 +124,14 @@ public partial class SimulationPanelState
         UpdateSimClock();
     }
 
-    private void ApplyWorkStateChangeToReferenceGroup(WorkStateChangedArgs args)
+    private void ApplyWorkStateChangeToVisibleNode(WorkStateChangedArgs args)
     {
         var systemName = GetSystemName(EntityKind.Work, args.WorkGuid);
-        var groupGuids = Queries.referenceGroupOf(args.WorkGuid, Store).ToList();
-        if (groupGuids.Count == 0)
-            groupGuids.Add(args.WorkGuid);
+        var canonicalId = Queries.resolveOriginalWorkId(args.WorkGuid, Store);
 
-        foreach (var groupGuid in groupGuids)
-        {
-            _stateCache.Set(groupGuid, args.NewState);
-            UpdateSimNodeState(groupGuid, args.NewState);
-            GanttChart.UpdateNodeState(groupGuid, args.NewState, GanttChart.AdjustedNow);
-        }
+        _stateCache.Set(canonicalId, args.NewState);
+        UpdateSimNodeState(canonicalId, args.NewState);
+        GanttChart.UpdateNodeState(canonicalId, args.NewState, GanttChart.AdjustedNow);
 
         RecordStateChange(args.WorkGuid.ToString(), args.WorkName, EntityKind.Work.ToString(), systemName, args.NewState);
         UpdateSimClock();

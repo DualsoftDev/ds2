@@ -80,6 +80,21 @@ public partial class SplitCanvasManager : ObservableObject
         ActivePane = targetPane;
     }
 
+    /// <summary>탭을 반대쪽 pane으로 이동합니다.</summary>
+    public bool MoveTabToOtherPane(CanvasTab tab)
+    {
+        if (SecondaryPane is null) return false;
+
+        var sourcePane = FindPaneContaining(tab);
+        if (sourcePane is null) return false;
+
+        var targetPane = sourcePane == PrimaryPane ? SecondaryPane : PrimaryPane;
+        sourcePane.RemoveTab(tab);
+        targetPane.AddTab(tab);
+        ActivePane = targetPane;
+        return true;
+    }
+
     /// <summary>모든 pane에서 탭 중복 여부를 확인합니다.</summary>
     public CanvasWorkspaceState? FindPaneWithTab(Ds2.Editor.TabKind kind, Guid rootId)
     {

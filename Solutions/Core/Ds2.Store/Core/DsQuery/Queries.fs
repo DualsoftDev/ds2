@@ -112,6 +112,10 @@ module Queries =
     // Work 이름/참조 헬퍼
     // ─────────────────────────────────────────────────────────────────────────
 
+    /// Work ID로 전체 표시명("Flow.Work" 형식) 조회
+    let tryGetWorkFullName (workId: Guid) (store: DsStore) : string option =
+        getWork workId store |> Option.map (fun w -> w.Name)
+
     /// Flow 내 원본 Work만 (ReferenceOf = None)
     let originalWorksOf (flowId: Guid) (store: DsStore) : Work list =
         worksOf flowId store |> List.filter (fun w -> w.ReferenceOf.IsNone)

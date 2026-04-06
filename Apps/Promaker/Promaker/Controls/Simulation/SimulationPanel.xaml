@@ -45,12 +45,12 @@
                             <conv:Status4ToStringConverter x:Key="Status4ToStr"/>
                         </DataGrid.Resources>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="System" Binding="{Binding SystemName}" Width="120"/>
-                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
-                            <DataGridTextColumn Header="Type" Binding="{Binding NodeType}" Width="60"/>
-                            <DataGridTextColumn Header="Token" Binding="{Binding TokenDisplay}" Width="60"
+                            <DataGridTextColumn Header="시스템" Binding="{Binding SystemName}" Width="120"/>
+                            <DataGridTextColumn Header="이름" Binding="{Binding Name}" Width="*"/>
+                            <DataGridTextColumn Header="유형" Binding="{Binding NodeType}" Width="60"/>
+                            <DataGridTextColumn Header="토큰" Binding="{Binding TokenDisplay}" Width="60"
                                                 Foreground="#ffb74d" FontFamily="Consolas"/>
-                            <DataGridTemplateColumn Header="State" Width="60">
+                            <DataGridTemplateColumn Header="상태" Width="60">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding State, Converter={StaticResource Status4ToStr}}"

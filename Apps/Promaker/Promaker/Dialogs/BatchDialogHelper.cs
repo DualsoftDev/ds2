@@ -78,6 +78,14 @@ internal static class BatchDialogHelper
         foreach (var row in selectedRows)
             row.IsSelected = isChecked;
     }
+
+    internal static string EscapeCsvField(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        return value;
+    }
 }
 
 internal interface IBatchRow : INotifyPropertyChanged

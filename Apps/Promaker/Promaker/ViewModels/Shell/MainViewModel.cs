@@ -404,10 +404,10 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanUndo))]
-    private void Undo() => TryEditorAction(() => _store.Undo());
+    private void Undo() { _pasteCount = 0; TryEditorAction(() => _store.Undo()); }
 
     [RelayCommand(CanExecute = nameof(CanRedo))]
-    private void Redo() => TryEditorAction(() => _store.Redo());
+    private void Redo() { _pasteCount = 0; TryEditorAction(() => _store.Redo()); }
 
     public void EditApiDefNode(Guid apiDefId) => PropertyPanel.EditApiDefNode(apiDefId);
 
@@ -495,9 +495,9 @@ public partial class MainViewModel : ObservableObject
         if (clickedIdx < 0) return;
         int delta = clickedIdx - CurrentHistoryIndex;
         if (delta < 0)
-            TryEditorAction(() => _store.UndoTo(-delta));
+            { _pasteCount = 0; TryEditorAction(() => _store.UndoTo(-delta)); }
         else if (delta > 0)
-            TryEditorAction(() => _store.RedoTo(delta));
+            { _pasteCount = 0; TryEditorAction(() => _store.RedoTo(delta)); }
     }
 
     private void RebuildHistoryItems(
