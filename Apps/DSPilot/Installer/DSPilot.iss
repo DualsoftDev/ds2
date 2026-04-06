@@ -207,6 +207,9 @@ begin
       SaveStringToFile(ProdJsonPath,
         '{' + #13#10 +
         '  "Urls": "' + UrlsValue + '",' + #13#10 +
+        '  "DsPilot": {' + #13#10 +
+        '    "AasxFilePath": "../DsCSV_0318_C.aasx"' + #13#10 +
+        '  },' + #13#10 +
         '  "Database": {' + #13#10 +
         '    "ConnectionString": "Data Source=%ProgramData%/DualSoft/DSPilot/plc.db;Version=3;BusyTimeout=20000"' + #13#10 +
         '  }' + #13#10 +
