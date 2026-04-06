@@ -116,36 +116,40 @@
                 <span class="label">Lane 수:</span>
                 <span class="value">@_ganttData.TotalLanes</span>
             </div>
-            @if (_topGaps.Any())
-            {
-                <div class="gantt-info-controls">
-                    <label class="gantt-info-label">
-                        <input type="checkbox" @bind="_showGapOverlay" /> GAP
-                    </label>
-                    <select class="form-field gap-picker-select" value="@_selectedGapIndex" @onchange="OnGapSelectedChanged"
-                            disabled="@(!_showGapOverlay)" style="opacity:@(_showGapOverlay ? "1" : "0.4");">
+            <div class="gantt-info-controls">
+                <label class="gantt-info-label">
+                    <input type="checkbox" @bind="_showGapOverlay" disabled="@(!_topGaps.Any())" /> GAP
+                </label>
+                <select class="form-field gap-picker-select" value="@_selectedGapIndex" @onchange="OnGapSelectedChanged"
+                        disabled="@(!_showGapOverlay || !_topGaps.Any())" style="opacity:@(_showGapOverlay && _topGaps.Any() ? "1" : "0.4");">
+                    @if (!_topGaps.Any())
+                    {
+                        <option value="-1">GAP 없음</option>
+                    }
+                    else
+                    {
                         @for (int i = 0; i < _topGaps.Count; i++)
                         {
                             var gap = _topGaps[i];
                             var label = $"#{i + 1}: {(gap.Duration / 1000.0):F2}s | {gap.Start:HH:mm:ss} ~ {gap.End:HH:mm:ss}";
                             <option value="@i">@label</option>
                         }
-                    </select>
-                    <span class="gantt-info-separator">|</span>
-                    <label class="gantt-info-label">
-                        <input type="checkbox" @bind="_showCycleTimeOverlay" /> Cycle Time
-                    </label>
-                    <span class="gantt-info-hint">신호 클릭 시 동일 신호의 다음 발생까지 표시</span>
-                    @if (_idleRegions.Any())
-                    {
-                        <span class="gantt-info-separator">|</span>
-                        <span class="gantt-idle-legend">
-                            <span class="gantt-idle-swatch"></span>
-                            비가동 구간
-                        </span>
                     }
-                </div>
-            }
+                </select>
+                <span class="gantt-info-separator">|</span>
+                <label class="gantt-info-label">
+                    <input type="checkbox" @bind="_showCycleTimeOverlay" /> Cycle Time
+                </label>
+                <span class="gantt-info-hint">신호 클릭 시 동일 신호의 다음 발생까지 표시</span>
+                @if (_idleRegions.Any())
+                {
+                    <span class="gantt-info-separator">|</span>
+                    <span class="gantt-idle-legend">
+                        <span class="gantt-idle-swatch"></span>
+                        비가동 구간
+                    </span>
+                }
+            </div>
             <button class="btn btn-sm gantt-info-export" @onclick="ExportCsv">
                 CSV 내보내기
             </button>
