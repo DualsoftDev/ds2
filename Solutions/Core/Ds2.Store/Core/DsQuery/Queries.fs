@@ -253,50 +253,6 @@ module Queries =
         childrenOf store.ArrowCallsReadOnly.Values workId (fun a -> a.ParentId)
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HwButton 쿼리
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// <summary>HwButton ID로 Button 조회</summary>
-    let getButton (id: Guid) (store: DsStore) = byId store.HwButtons id
-
-    /// <summary>특정 DsSystem에 속한 HwButton들 조회</summary>
-    let buttonsOf (systemId: Guid) (store: DsStore) : HwButton list =
-        childrenOf store.HwButtonsReadOnly.Values systemId (fun b -> b.ParentId)
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // HwLamp 쿼리
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// <summary>HwLamp ID로 Lamp 조회</summary>
-    let getLamp (id: Guid) (store: DsStore) = byId store.HwLamps id
-
-    /// <summary>특정 DsSystem에 속한 HwLamp들 조회</summary>
-    let lampsOf (systemId: Guid) (store: DsStore) : HwLamp list =
-        childrenOf store.HwLampsReadOnly.Values systemId (fun l -> l.ParentId)
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // HwCondition 쿼리
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// <summary>HwCondition ID로 Condition 조회</summary>
-    let getCondition (id: Guid) (store: DsStore) = byId store.HwConditions id
-
-    /// <summary>특정 DsSystem에 속한 HwCondition들 조회</summary>
-    let conditionsOf (systemId: Guid) (store: DsStore) : HwCondition list =
-        childrenOf store.HwConditionsReadOnly.Values systemId (fun c -> c.ParentId)
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // HwAction 쿼리
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// <summary>HwAction ID로 Action 조회</summary>
-    let getAction (id: Guid) (store: DsStore) = byId store.HwActions id
-
-    /// <summary>특정 DsSystem에 속한 HwAction들 조회</summary>
-    let actionsOf (systemId: Guid) (store: DsStore) : HwAction list =
-        childrenOf store.HwActionsReadOnly.Values systemId (fun a -> a.ParentId)
-
-    // ─────────────────────────────────────────────────────────────────────────
     // 엔티티 이름 접근 (EntityKind 기반)
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -310,10 +266,6 @@ module Queries =
             | EntityKind.Work      -> getWork      id store |> Option.map (fun e -> e :> DsEntity)
             | EntityKind.Call      -> getCall      id store |> Option.map (fun e -> e :> DsEntity)
             | EntityKind.ApiDef    -> getApiDef    id store |> Option.map (fun e -> e :> DsEntity)
-            | EntityKind.Button    -> getButton    id store |> Option.map (fun e -> e :> DsEntity)
-            | EntityKind.Lamp      -> getLamp      id store |> Option.map (fun e -> e :> DsEntity)
-            | EntityKind.Condition -> getCondition id store |> Option.map (fun e -> e :> DsEntity)
-            | EntityKind.Action    -> getAction    id store |> Option.map (fun e -> e :> DsEntity)
             | _                    -> None
         entity |> Option.map (fun e -> e.Name)
 
@@ -333,9 +285,11 @@ module Queries =
         |> Seq.choose (fun apiCall ->
             apiCall.ApiDefId
             |> Option.bind (fun defId -> getApiDef defId store)
-            |> Option.bind (fun def -> def.Properties.RxGuid)
+            |> Option.bind (fun def -> def.RxGuid)
             |> Option.bind (fun rxWorkId -> getWork rxWorkId store)
-            |> Option.bind (fun rxWork -> rxWork.Properties.Duration)
+            |> Option.bind (fun rxWork ->
+                rxWork.GetSimulationProperties()
+                |> Option.bind (fun props -> props.Duration))
             |> Option.map (fun ts -> int ts.TotalMilliseconds))
         |> Seq.tryHead
         |> Option.defaultValue 0

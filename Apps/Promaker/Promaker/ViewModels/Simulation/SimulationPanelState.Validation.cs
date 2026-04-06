@@ -135,8 +135,13 @@ public partial class SimulationPanelState
             var workOpt = Queries.getWork(workGuid, index.Store);
             if (workOpt is null) continue;
 
-            var periodOpt = workOpt.Value.Properties.Duration;
-            var userMs = periodOpt != null ? (int)periodOpt.Value.TotalMilliseconds : 0;
+            var simPropsOpt = workOpt.Value.GetSimulationProperties();
+            var periodOpt = simPropsOpt != null && Microsoft.FSharp.Core.FSharpOption<SimulationWorkProperties>.get_IsSome(simPropsOpt)
+                ? simPropsOpt.Value.Duration
+                : null;
+            var userMs = periodOpt != null && Microsoft.FSharp.Core.FSharpOption<System.TimeSpan>.get_IsSome(periodOpt)
+                ? (int)periodOpt.Value.TotalMilliseconds
+                : 0;
 
             var deviceOpt = Queries.tryGetDeviceDurationMs(workGuid, index.Store);
             if (deviceOpt is null) continue;

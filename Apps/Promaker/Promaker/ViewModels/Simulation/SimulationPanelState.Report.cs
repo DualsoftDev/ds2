@@ -11,17 +11,17 @@ namespace Promaker.ViewModels;
 public partial class SimulationPanelState
 {
     [RelayCommand(CanExecute = nameof(CanExportReport))]
-    private void ExportReportCsv() => ExportReportAs(ExportFormat.Csv);
+    private void ExportReportCsv() => ExportReportAs(Ds2.Runtime.Sim.Report.Model.ExportFormat.Csv);
 
     [RelayCommand(CanExecute = nameof(CanExportReport))]
-    private void ExportReportXlsx() => ExportReportAs(ExportFormat.Excel);
+    private void ExportReportXlsx() => ExportReportAs(Ds2.Runtime.Sim.Report.Model.ExportFormat.Excel);
 
     [RelayCommand(CanExecute = nameof(CanExportReport))]
-    private void ExportReportHtml() => ExportReportAs(ExportFormat.Html);
+    private void ExportReportHtml() => ExportReportAs(Ds2.Runtime.Sim.Report.Model.ExportFormat.Html);
 
     private bool CanExportReport() => HasReportData;
 
-    private void ExportReportAs(ExportFormat format)
+    private void ExportReportAs(Ds2.Runtime.Sim.Report.Model.ExportFormat format)
     {
         var report = BuildReport();
         if (report.Entries.IsEmpty)

@@ -102,7 +102,9 @@ module internal ImportPlanDeviceOps =
                 |> List.tryFind (fun existing -> existing.Name = apiName)
                 |> Option.defaultWith (fun () ->
                     let created = Work(flow.Name, apiName, flow.Id)
-                    created.Properties.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+                    let props = SimulationWorkProperties()
+                    props.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+                    created.SetSimulationProperties(props)
                     queueOperation (AddWork created) operations
                     created)
             let current = Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []
@@ -127,9 +129,9 @@ module internal ImportPlanDeviceOps =
                 let apiDef = ApiDef(apiName, system.Id)
                 match Map.tryFind key state.PendingWorks with
                 | Some work ->
-                    apiDef.Properties.IsPush <- false
-                    apiDef.Properties.TxGuid <- Some work.Id
-                    apiDef.Properties.RxGuid <- Some work.Id
+                    apiDef.IsPush <- false
+                    apiDef.TxGuid <- Some work.Id
+                    apiDef.RxGuid <- Some work.Id
                 | None -> ()
                 queueOperation (AddApiDef apiDef) operations
                 apiDef, { state with PendingApiDefs = Map.add key apiDef state.PendingApiDefs }

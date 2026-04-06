@@ -20,22 +20,30 @@ let createTestStore() =
 
     // System 생성
     let robot1 = DsSystem("Robot_RB01")
-    robot1.Properties.SystemType <- Some "ROBOT"
+    let robot1Props = SimulationSystemProperties()
+    robot1Props.SystemType <- Some "Robot"
+    robot1.SetSimulationProperties(robot1Props)
     store.Systems.Add(robot1.Id, robot1)
     project.ActiveSystemIds.Add(robot1.Id)
 
     let conveyor1 = DsSystem("Conveyor_CV01")
-    conveyor1.Properties.SystemType <- Some "CONVEYOR"
+    let conveyor1Props = SimulationSystemProperties()
+    conveyor1Props.SystemType <- Some "Conveyor"
+    conveyor1.SetSimulationProperties(conveyor1Props)
     store.Systems.Add(conveyor1.Id, conveyor1)
     project.ActiveSystemIds.Add(conveyor1.Id)
 
     let cylinder1 = DsSystem("Cylinder_CY01")
-    cylinder1.Properties.SystemType <- Some "CYLINDER"
+    let cylinder1Props = SimulationSystemProperties()
+    cylinder1Props.SystemType <- Some "Unit"
+    cylinder1.SetSimulationProperties(cylinder1Props)
     store.Systems.Add(cylinder1.Id, cylinder1)
     project.PassiveSystemIds.Add(cylinder1.Id)
 
     let unknown1 = DsSystem("Unknown_UK01")
-    unknown1.Properties.SystemType <- Some "UNKNOWN_DEVICE"
+    let unknown1Props = SimulationSystemProperties()
+    unknown1Props.SystemType <- Some "UNKNOWN_DEVICE"
+    unknown1.SetSimulationProperties(unknown1Props)
     store.Systems.Add(unknown1.Id, unknown1)
     project.PassiveSystemIds.Add(unknown1.Id)
 

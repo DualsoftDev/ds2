@@ -10,13 +10,15 @@ open Ds2.Store.DsQuery
 type DsStorePanelPropertiesExtensions =
     /// 프로젝트 속성 일괄 변경 (Undo 지원)
     [<Extension>]
-    static member UpdateProjectProperties(store: DsStore, props: ProjectProperties, presetSystemTypes: string[]) =
+    static member UpdateProjectProperties(store: DsStore, author: string, dateTime: DateTimeOffset,
+                                          version: string) =
         StoreLog.debug($"UpdateProjectProperties")
         let project = Queries.allProjects store |> List.head
         store.WithTransaction("프로젝트 속성 변경", fun () ->
             store.TrackMutate(store.Projects, project.Id, fun p ->
-                p.Properties <- props.DeepCopy()
-                ProjectPropertiesHelper.setPresetSystemTypes p.Properties presetSystemTypes))
+                p.Author <- author
+                p.DateTime <- dateTime
+                p.Version <- version))
 
     /// 시스템 타입 변경 (Undo 지원)
     [<Extension>]
@@ -24,7 +26,12 @@ type DsStorePanelPropertiesExtensions =
         StoreLog.debug($"UpdateSystemType systemId={systemId}, systemType={systemType}")
         store.WithTransaction("시스템 타입 변경", fun () ->
             store.TrackMutate(store.Systems, systemId, fun sys ->
-                sys.Properties.SystemType <- DirectPanelOps.toOpt systemType))
+                match sys.GetSimulationProperties() with
+                | Some props -> props.SystemType <- DirectPanelOps.toOpt systemType
+                | None ->
+                    let props = SimulationSystemProperties()
+                    props.SystemType <- DirectPanelOps.toOpt systemType
+                    sys.SetSimulationProperties(props)))
 
     /// ApiCall의 IO 태그 정보 업데이트 (TAG Wizard에서 사용)
     /// C#에서는 IOTag 또는 null을 넘기면 됩니다.

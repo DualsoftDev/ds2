@@ -1,13 +1,15 @@
 namespace Ds2.Core
 
+open System.Reflection
+
 /// Arrow relation semantics between nodes.
 type ArrowType =
-    | Unspecified = 0
-    | Start       = 1
-    | Reset       = 2
-    | StartReset  = 3
-    | ResetReset  = 4
-    | Group       = 5
+    | Unspecified = 0   // 연결 없음
+    | Start       = 1   // 시작 트리거 (source 완료 시 target 시작)
+    | Reset       = 2   // 리셋 트리거 (source 시작 시 target 리셋)
+    | StartReset  = 3   // 시작+리셋 (source 완료 시 target 시작 + target 시작 시 source 리셋)
+    | ResetReset  = 4   // 리셋+리셋 (source 시작 시 target 리셋 + target 시작 시 source 리셋)
+    | Group       = 5   // 그룹 연결
 
 /// Condition type for CallCondition entries.
 type CallConditionType =

@@ -60,6 +60,8 @@ public partial class MainViewModel : ObservableObject
         RefreshThemeState();
         RefreshLanguageState();
         LoadRecentFiles();
+        LoadSplitDeviceAasxSetting();
+        LoadIriPrefixSetting();
 
         // 템플릿 폴더 초기화
         Services.TemplateManager.EnsureTemplatesExist();
@@ -586,6 +588,48 @@ public partial class MainViewModel : ObservableObject
             yield return node;
             foreach (var child in FlattenTree(node.Children))
                 yield return child;
+        }
+    }
+
+    // ========== SplitDeviceAasx 설정 ==========
+    private static readonly string SplitDeviceAasxSettingsPath = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Dualsoft", "Promaker", "splitDeviceAasx.txt");
+
+    public bool SplitDeviceAasx { get; private set; }
+
+    private void LoadSplitDeviceAasxSetting()
+    {
+        SplitDeviceAasx = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxSettingsPath, false);
+    }
+
+    public void SetSplitDeviceAasx(bool value)
+    {
+        if (SplitDeviceAasx != value)
+        {
+            SplitDeviceAasx = value;
+            AppSettingStore.SaveBool(SplitDeviceAasxSettingsPath, value);
+        }
+    }
+
+    // ========== IriPrefix 설정 ==========
+    private static readonly string IriPrefixSettingsPath = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Dualsoft", "Promaker", "iriPrefix.txt");
+
+    public string IriPrefix { get; private set; } = "https://dualsoft.com/";
+
+    private void LoadIriPrefixSetting()
+    {
+        IriPrefix = AppSettingStore.LoadStringOrDefault(IriPrefixSettingsPath, "https://dualsoft.com/");
+    }
+
+    public void SetIriPrefix(string value)
+    {
+        if (IriPrefix != value)
+        {
+            IriPrefix = value;
+            AppSettingStore.SaveString(IriPrefixSettingsPath, value);
         }
     }
 }

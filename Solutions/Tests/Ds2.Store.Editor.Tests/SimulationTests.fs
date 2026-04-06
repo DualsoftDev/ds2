@@ -98,7 +98,7 @@ module SimIndexTests =
 
         let apiDefId = sourceApiCall.ApiDefId |> Option.defaultValue Guid.Empty
         let apiDef = store.ApiDefs[apiDefId]
-        apiDef.Properties.RxGuid <- Some rxWork.Id
+        apiDef.RxGuid <- Some rxWork.Id
 
         store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
         let conditionId =
@@ -553,24 +553,30 @@ module EventDrivenEngineTokenTests =
         let activeSys = addSystem store "Active" project.Id true
         let flow = addFlow store "F" activeSys.Id
         let work = addWork store "W" flow.Id
-        work.Properties.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
+        let workProps = SimulationWorkProperties()
+        workProps.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
+        work.SetSimulationProperties(workProps)
         store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
 
         // Device System: ADV, RET (RET에 IsFinished=true)
         let deviceSys = addSystem store "Device" project.Id false
         let deviceFlow = addFlow store "DF" deviceSys.Id
         let advWork = addWork store "ADV" deviceFlow.Id
-        advWork.Properties.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
+        let advProps = SimulationWorkProperties()
+        advProps.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
+        advWork.SetSimulationProperties(advProps)
         let retWork = addWork store "RET" deviceFlow.Id
-        retWork.Properties.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
-        retWork.Properties.IsFinished <- true
+        let retProps = SimulationWorkProperties()
+        retProps.Duration <- Some (System.TimeSpan.FromMilliseconds 100.)
+        retProps.IsFinished <- true
+        retWork.SetSimulationProperties(retProps)
 
         let advApiDef = addApiDef store "ADV" deviceSys.Id
-        advApiDef.Properties.TxGuid <- Some advWork.Id
-        advApiDef.Properties.RxGuid <- Some advWork.Id
+        advApiDef.TxGuid <- Some advWork.Id
+        advApiDef.RxGuid <- Some advWork.Id
         let retApiDef = addApiDef store "RET" deviceSys.Id
-        retApiDef.Properties.TxGuid <- Some retWork.Id
-        retApiDef.Properties.RxGuid <- Some retWork.Id
+        retApiDef.TxGuid <- Some retWork.Id
+        retApiDef.RxGuid <- Some retWork.Id
 
         // Call 2개: Device.RET, Device.ADV (역순 화살표)
         let retCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "RET", [retApiDef.Id])
@@ -578,8 +584,12 @@ module EventDrivenEngineTokenTests =
         store.ConnectSelectionInOrder([retCallId; advCallId], ArrowType.Start) |> ignore
 
         // SkipIfCompleted로 설정 → IsFinished인 RET도 바로 Complete
-        store.Calls.[retCallId].Properties.CallType <- CallType.SkipIfCompleted
-        store.Calls.[advCallId].Properties.CallType <- CallType.SkipIfCompleted
+        let retCallProps = SimulationCallProperties()
+        retCallProps.CallType <- CallType.SkipIfCompleted
+        store.Calls.[retCallId].SetSimulationProperties(retCallProps)
+        let advCallProps = SimulationCallProperties()
+        advCallProps.CallType <- CallType.SkipIfCompleted
+        store.Calls.[advCallId].SetSimulationProperties(advCallProps)
 
         let index = SimIndex.build store 10
         use engine = new EventDrivenEngine(index)

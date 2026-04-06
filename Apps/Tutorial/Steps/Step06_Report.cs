@@ -35,9 +35,9 @@ static class Step06_Report
         var store = ctx.Store;
 
         // Duration + TokenRole 설정 (독립 실행 대비)
-        store.Works[ctx.W1Id].Properties.Duration = TimeSpan.FromMilliseconds(300);
-        store.Works[ctx.W2Id].Properties.Duration = TimeSpan.FromMilliseconds(500);
-        store.Works[ctx.W3Id].Properties.Duration = TimeSpan.FromMilliseconds(300);
+        store.Works[ctx.W1Id].SetSimulationProperties(new SimulationWorkProperties { Duration = TimeSpan.FromMilliseconds(300) });
+        store.Works[ctx.W2Id].SetSimulationProperties(new SimulationWorkProperties { Duration = TimeSpan.FromMilliseconds(500) });
+        store.Works[ctx.W3Id].SetSimulationProperties(new SimulationWorkProperties { Duration = TimeSpan.FromMilliseconds(300) });
         store.Works[ctx.W1Id].TokenRole = TokenRole.Source;
 
         var index = SimIndexModule.build(store, 50);

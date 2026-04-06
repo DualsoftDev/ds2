@@ -1,6 +1,7 @@
 module Ds2.View3D.ContextBuilder
 
 open System
+open Ds2.Core
 open Ds2.Store
 open Ds2.Store.DsQuery
 open Ds2.View3D
@@ -125,7 +126,8 @@ let extractDevices (store: DsStore) (projectId: Guid) : Result<DeviceInfo list, 
             | Some system ->
                 let participatingFlows = extractParticipatingFlows systemToFlowsMap systemId
                 let primaryFlow = determinePrimaryFlow participatingFlows
-                let modelType = inferModelType system.Properties.SystemType
+                let systemType = system.GetSimulationProperties() |> Option.bind (fun p -> p.SystemType)
+                let modelType = inferModelType systemType
                 let apiDefs = extractApiDefs store callerCountMap systemId
 
                 Log.debug "Device: %s, ModelType: %s, Flows: %A" system.Name modelType participatingFlows
@@ -133,7 +135,7 @@ let extractDevices (store: DsStore) (projectId: Guid) : Result<DeviceInfo list, 
                 Ok {
                     Id = systemId
                     Name = system.Name
-                    SystemType = system.Properties.SystemType
+                    SystemType = systemType
                     ModelType  = modelType
                     FlowName = primaryFlow |> Option.defaultValue "Unassigned"
                     ParticipatingFlows = participatingFlows

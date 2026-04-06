@@ -13,8 +13,6 @@
     <Compile Include="Import\Core.fs" />
     <Compile Include="Import\Graph.fs" />
     <Compile Include="Import\Metadata.fs" />
-    <Compile Include="Compat\LegacyAasxDetector.fs" />
-    <Compile Include="Compat\LegacyImportGraph.fs" />
     <Compile Include="Import\Entry.fs" />
     <Compile Include="Export\Core.fs" />
     <Compile Include="Export\Graph.fs" />

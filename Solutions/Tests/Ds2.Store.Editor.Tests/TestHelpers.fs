@@ -25,7 +25,7 @@ let addWork (store: DsStore) localName flowId =
     store.Works.[id]
 
 let addApiDef (store: DsStore) name systemId =
-    let id = store.AddApiDefWithProperties(name, systemId, ApiDefProperties())
+    let id = store.AddApiDefWithProperties(name, systemId)
     store.ApiDefs.[id]
 
 /// 기본 프로젝트 + 시스템 + 플로우 + 워크 구성

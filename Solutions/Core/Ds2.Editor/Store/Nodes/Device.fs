@@ -24,8 +24,16 @@ module internal DirectDeviceOps =
 
             // 마지막 Work에 IsFinished 자동 설정
             match List.tryLast works with
-            | Some lastWork when not lastWork.Properties.IsFinished ->
-                store.TrackMutate(store.Works, lastWork.Id, fun w -> w.Properties.IsFinished <- true)
+            | Some lastWork ->
+                let isFinished = lastWork.GetSimulationProperties() |> Option.map (fun p -> p.IsFinished) |> Option.defaultValue false
+                if not isFinished then
+                    store.TrackMutate(store.Works, lastWork.Id, fun w ->
+                        match w.GetSimulationProperties() with
+                        | Some props -> props.IsFinished <- true
+                        | None ->
+                            let props = SimulationWorkProperties()
+                            props.IsFinished <- true
+                            w.SetSimulationProperties(props))
             | _ -> ()
 
             // Work 쌍마다 상호 리셋 Arrow 생성
@@ -67,9 +75,16 @@ module internal DirectDeviceOps =
             | Some existing ->
                 // 기존 System에 SystemType 설정 (없으면)
                 match systemType with
-                | Some sysType when Option.isNone existing.Properties.SystemType ->
-                    store.TrackMutate(store.Systems, existing.Id, fun s ->
-                        s.Properties.SystemType <- Some sysType)
+                | Some sysType ->
+                    let existingType = existing.GetSimulationProperties() |> Option.bind (fun p -> p.SystemType)
+                    if Option.isNone existingType then
+                        store.TrackMutate(store.Systems, existing.Id, fun s ->
+                            match s.GetSimulationProperties() with
+                            | Some props -> props.SystemType <- Some sysType
+                            | None ->
+                                let props = SimulationSystemProperties()
+                                props.SystemType <- Some sysType
+                                s.SetSimulationProperties(props))
                 | _ -> ()
 
                 match Queries.flowsOf existing.Id store with
@@ -103,7 +118,10 @@ module internal DirectDeviceOps =
             | None ->
                 let system = DsSystem(systemName)
                 // 새 System에 SystemType 설정
-                systemType |> Option.iter (fun sysType -> system.Properties.SystemType <- Some sysType)
+                systemType |> Option.iter (fun sysType ->
+                    let props = SimulationSystemProperties()
+                    props.SystemType <- Some sysType
+                    system.SetSimulationProperties(props))
                 let flow = Flow($"{devAlias}_Flow", system.Id)
                 store.TrackAdd(store.Systems, system)
                 store.TrackMutate(store.Projects, projectId, fun p ->
@@ -128,7 +146,9 @@ module internal DirectDeviceOps =
                 |> List.tryFind (fun w -> w.Name = apiName)
                 |> Option.defaultWith (fun () ->
                     let w = Work(flow.Name, apiName, flow.Id)
-                    w.Properties.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+                    let props = match w.GetSimulationProperties() with Some p -> p | None -> SimulationWorkProperties()
+                    props.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+                    w.SetSimulationProperties(props)
                     store.TrackAdd(store.Works, w)
                     w)
             let current = Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []
@@ -148,9 +168,9 @@ module internal DirectDeviceOps =
                 let apiDef = ApiDef(apiName, system.Id)
                 match Map.tryFind key state.PendingWorks with
                 | Some work ->
-                    apiDef.Properties.IsPush <- false
-                    apiDef.Properties.TxGuid <- Some work.Id
-                    apiDef.Properties.RxGuid <- Some work.Id
+                    apiDef.IsPush <- false
+                    apiDef.TxGuid <- Some work.Id
+                    apiDef.RxGuid <- Some work.Id
                 | None -> ()
                 store.TrackAdd(store.ApiDefs, apiDef)
                 apiDef, { state with PendingApiDefs = Map.add key apiDef state.PendingApiDefs }

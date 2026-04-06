@@ -165,7 +165,7 @@ module AasxRoundTripTests =
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
             Assert.True(exported, "Export should succeed")
 
             let store2 = DsStore()
@@ -199,7 +199,7 @@ module AasxRoundTripTests =
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
             Assert.True(exported, "Export should succeed")
 
             let store2 = DsStore()
@@ -231,7 +231,7 @@ module AasxRoundTripTests =
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
             Assert.True(exported, "Export should succeed")
 
             let store2 = DsStore()
@@ -262,7 +262,7 @@ module AasxRoundTripTests =
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
             Assert.True(exported, "Export should succeed")
 
             let store2 = DsStore()
@@ -289,7 +289,7 @@ module AasxRoundTripTests =
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
             Assert.True(exported, "Export should succeed")
 
             let store2 = DsStore()
@@ -310,12 +310,14 @@ module AasxRoundTripTests =
         let flowId = store.AddFlow("F", systemId)
         let workId = store.AddWork("W", flowId)
 
-        store.Works.[workId].Properties.Duration <- Some (TimeSpan.FromMilliseconds(5000.0))
-        Assert.Equal(5000.0, store.Works.[workId].Properties.Duration.Value.TotalMilliseconds)
+        let wProps = SimulationWorkProperties()
+        wProps.Duration <- Some (TimeSpan.FromMilliseconds(5000.0))
+        store.Works.[workId].SetSimulationProperties(wProps)
+        Assert.Equal(5000.0, store.Works.[workId].GetSimulationProperties().Value.Duration.Value.TotalMilliseconds)
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
             Assert.True(exported, "Export should succeed")
 
             let store2 = DsStore()
@@ -323,8 +325,8 @@ module AasxRoundTripTests =
             Assert.True(imported, "Import should succeed")
 
             let restoredWork = store2.Works.Values |> Seq.head
-            Assert.True(restoredWork.Properties.Duration.IsSome, "Duration should be preserved")
-            Assert.Equal(5000.0, restoredWork.Properties.Duration.Value.TotalMilliseconds)
+            Assert.True(restoredWork.GetSimulationProperties().Value.Duration.IsSome, "Duration should be preserved")
+            Assert.Equal(5000.0, restoredWork.GetSimulationProperties().Value.Duration.Value.TotalMilliseconds)
         finally
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 
@@ -369,12 +371,12 @@ module SplitDeviceAasxTests =
     [<Fact>]
     let ``SplitDeviceAasx round-trip preserves all entities`` () =
         let store, projectId = createStoreWithDevices()
-        let project = store.Projects.[projectId]
-        project.Properties.SplitDeviceAasx <- true
+        let _ = store.Projects.[projectId]
+        // SplitDeviceAasx는 export 함수의 파라미터로 전달
 
         let path = getTempAasxPath()
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" true
             Assert.True(exported, "Export should succeed")
 
             // _devices 폴더와 Device AASX 파일 존재 확인
@@ -417,15 +419,15 @@ module SplitDeviceAasxTests =
 
         let path = getTempAasxPath()
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
             Assert.True(exported)
 
             let store2 = DsStore()
             let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
             Assert.True(imported)
 
-            let project2 = store2.Projects.Values |> Seq.head
-            Assert.False(project2.Properties.SplitDeviceAasx, "기본값은 false여야 함")
+            let _ = store2.Projects.Values |> Seq.head
+            // SplitDeviceAasx는 더 이상 Project 속성이 아니므로 검사 제거
 
             // _devices 폴더가 생성되지 않아야 함
             let baseName = Path.GetFileNameWithoutExtension(path)
@@ -437,12 +439,12 @@ module SplitDeviceAasxTests =
     [<Fact>]
     let ``SplitDeviceAasx graceful degradation — missing device file skips`` () =
         let store, projectId = createStoreWithDevices()
-        let project = store.Projects.[projectId]
-        project.Properties.SplitDeviceAasx <- true
+        let _ = store.Projects.[projectId]
+        // SplitDeviceAasx는 export 함수의 파라미터로 전달
 
         let path = getTempAasxPath()
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" true
             Assert.True(exported)
 
             // Device AASX 파일 하나 삭제
@@ -467,7 +469,7 @@ module SplitDeviceAasxTests =
     let ``SplitDeviceAasx device files include default metadata submodels and png thumbnail`` () =
         let store, projectId = createStoreWithDevices()
         let project = store.Projects.[projectId]
-        project.Properties.SplitDeviceAasx <- true
+        // SplitDeviceAasx는 export 함수의 파라미터로 전달
         let np = Nameplate()
         np.ManufacturerName <- "Project Manufacturer"
         project.Nameplate <- Some np
@@ -479,7 +481,7 @@ module SplitDeviceAasxTests =
 
         let path = getTempAasxPath()
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" true
             Assert.True(exported)
 
             let baseName = Path.GetFileNameWithoutExtension(path)
@@ -496,9 +498,11 @@ module SplitDeviceAasxTests =
                 |> Seq.map (fun sm -> sm.IdShort)
                 |> Seq.toList
 
-            Assert.Contains(SubmodelIdShort, submodelIdShorts)
+            Assert.Contains(SubmodelModelIdShort, submodelIdShorts)
             Assert.Contains(NameplateSubmodelIdShort, submodelIdShorts)
-            Assert.Contains(DocumentationSubmodelIdShort, submodelIdShorts)
+            // Documentation은 Documents가 있을 때만 생성됨 (AAS 빈 submodel 규칙)
+            // Device AASX는 빈 HandoverDocumentation을 사용하므로 포함되지 않음
+            Assert.DoesNotContain(DocumentationSubmodelIdShort, submodelIdShorts)
             Assert.NotNull(env.Value.ConceptDescriptions)
             Assert.NotEmpty(env.Value.ConceptDescriptions)
 
@@ -515,19 +519,11 @@ module SplitDeviceAasxTests =
                     | _ -> None)
                 |> Option.defaultValue "<missing>"
 
-            Assert.Equal("", manufacturerName)
+            // 빈 값은 AAS 검증 규칙에 따라 "N/A"로 대체됨
+            Assert.Equal("N/A", manufacturerName)
 
-            let documentation =
-                env.Value.Submodels
-                |> Seq.find (fun sm -> sm.IdShort = DocumentationSubmodelIdShort)
-
-            let hasDocuments =
-                documentation.SubmodelElements
-                |> Seq.exists (function
-                    | :? SubmodelElementList as sml when sml.IdShort = "Documents" && not (isNull sml.Value) && sml.Value.Count > 0 -> true
-                    | _ -> false)
-
-            Assert.False(hasDocuments)
+            // Device AASX는 빈 HandoverDocumentation이므로 submodel이 생성되지 않음 (이미 위에서 검증)
+            // 따라서 Documentation submodel 접근 불필요
 
             AasxPackageAssertions.assertPngThumbnailInAasxPackage devicePath
         finally
@@ -538,7 +534,7 @@ module SplitDeviceAasxTests =
         let store, _projectId = createStoreWithDevices()
         let path = getTempAasxPath()
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
             Assert.True(exported)
             AasxPackageAssertions.assertPngThumbnailInAasxPackage path
         finally
@@ -551,7 +547,7 @@ module SplitDeviceAasxTests =
 
         let path = getTempAasxPath()
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
             Assert.True(exported)
 
             // _devices 폴더가 생성되지 않아야 함
@@ -575,4 +571,286 @@ module SplitDeviceAasxTests =
         Assert.Equal("PLC_Test", Ds2.Aasx.AasxExporter.sanitizeDeviceName "PLC_Test")
         Assert.Equal("My_Device", Ds2.Aasx.AasxExporter.sanitizeDeviceName "My/Device")
         Assert.Equal("A_B_C", Ds2.Aasx.AasxExporter.sanitizeDeviceName "A\\B:C")
+
+/// Nameplate & HandoverDocumentation 라운드트립 테스트
+module NameplateRoundTripTests =
+
+    [<Fact>]
+    let ``Nameplate roundtrip SDF → AASX → SDF preserves all fields`` () =
+        // 1. 초기 DsStore 생성 및 Nameplate 설정
+        let store = Ds2.Store.DsStore()
+        let project = Project("RoundTripProject")
+
+        // Nameplate 설정
+        let npData = Nameplate()
+        npData.ManufacturerName <- "Test Manufacturer"
+        npData.ManufacturerProductDesignation <- "Test Product"
+        npData.SerialNumber <- "SN-12345"
+        npData.YearOfConstruction <- "2024"
+        npData.CountryOfOrigin <- "KR"
+        npData.AddressInformation.Street <- "123 Test St"
+        npData.AddressInformation.CityTown <- "Seoul"
+        npData.AddressInformation.Phone.TelephoneNumber <- "+82-10-1234-5678"
+        npData.AddressInformation.Email.EmailAddress <- "test@example.com"
+        project.Nameplate <- Some npData
+
+        store.Projects.Add(project.Id, project)
+
+        // 2. SDF 저장
+        let sdfPath = Path.Combine(Path.GetTempPath(), $"test_{Guid.NewGuid()}.sdf")
+        try
+            ProjectSerializer.saveProject sdfPath project
+
+            // 3. SDF → AASX Export
+            let aasxPath = Path.ChangeExtension(sdfPath, ".aasx")
+            try
+                let exported = Ds2.Aasx.AasxExporter.exportFromStore store aasxPath "https://dualsoft.com/" false
+                Assert.True(exported, "AASX export should succeed")
+
+                // 4. AASX → DsStore Import
+                let store2 = Ds2.Store.DsStore()
+                let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 aasxPath
+                Assert.True(imported, "AASX import should succeed")
+
+                // 5. Nameplate 검증
+                let project2 = store2.Projects.Values |> Seq.head
+                let np2 = project2.Nameplate.Value
+                Assert.Equal("Test Manufacturer", np2.ManufacturerName)
+                Assert.Equal("Test Product", np2.ManufacturerProductDesignation)
+                Assert.Equal("SN-12345", np2.SerialNumber)
+                Assert.Equal("2024", np2.YearOfConstruction)
+                Assert.Equal("KR", np2.CountryOfOrigin)
+                Assert.Equal("123 Test St", np2.AddressInformation.Street)
+                Assert.Equal("Seoul", np2.AddressInformation.CityTown)
+                Assert.Equal("+82-10-1234-5678", np2.AddressInformation.Phone.TelephoneNumber)
+                Assert.Equal("test@example.com", np2.AddressInformation.Email.EmailAddress)
+
+                // 6. DsStore → SDF 저장 및 재로드
+                let sdfPath2 = Path.ChangeExtension(aasxPath, ".sdf")
+                try
+                    ProjectSerializer.saveProject sdfPath2 project2
+                    let project3 = ProjectSerializer.loadProject sdfPath2
+
+                    // 7. 최종 검증
+                    let np3 = project3.Nameplate.Value
+                    Assert.Equal("Test Manufacturer", np3.ManufacturerName)
+                    Assert.Equal("Test Product", np3.ManufacturerProductDesignation)
+                    Assert.Equal("SN-12345", np3.SerialNumber)
+                finally
+                    if File.Exists(sdfPath2) then File.Delete(sdfPath2)
+            finally
+                if File.Exists(aasxPath) then File.Delete(aasxPath)
+        finally
+            if File.Exists(sdfPath) then File.Delete(sdfPath)
+
+    [<Fact>]
+    let ``HandoverDocumentation roundtrip SDF → AASX → SDF preserves documents`` () =
+        // 1. 초기 DsStore 생성 및 HandoverDocumentation 설정
+        let store = Ds2.Store.DsStore()
+        let project = Project("DocRoundTripProject")
+
+        // Document 추가
+        let hdoc = HandoverDocumentation()
+        let doc1 = Document()
+        doc1.DocumentIds.Add(DocumentId(DocumentDomainId = "Manufacturer", ValueId = "DOC-001", IsPrimary = true))
+
+        let classification1 = DocumentClassification()
+        classification1.ClassId <- "01-01"
+        classification1.ClassName <- "Technical Documentation"
+        classification1.ClassificationSystem <- "VDI2770:2018"
+        doc1.DocumentClassifications.Add(classification1)
+
+        let version = DocumentVersion()
+        version.Languages.Add("en")
+        version.Languages.Add("ko")
+        version.Title <- "User Manual"
+        version.SubTitle <- "Installation Guide"
+        doc1.DocumentVersions.Add(version)
+
+        hdoc.Documents.Add(doc1)
+        project.HandoverDocumentation <- Some hdoc
+
+        store.Projects.Add(project.Id, project)
+
+        // 2. SDF 저장
+        let sdfPath = Path.Combine(Path.GetTempPath(), $"test_doc_{Guid.NewGuid()}.sdf")
+        try
+            ProjectSerializer.saveProject sdfPath project
+
+            // 3. SDF → AASX Export
+            let aasxPath = Path.ChangeExtension(sdfPath, ".aasx")
+            try
+                let exported = Ds2.Aasx.AasxExporter.exportFromStore store aasxPath "https://dualsoft.com/" false
+                Assert.True(exported, "AASX export should succeed")
+
+                // 4. AASX → DsStore Import
+                let store2 = Ds2.Store.DsStore()
+                let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 aasxPath
+                Assert.True(imported, "AASX import should succeed")
+
+                // 5. HandoverDocumentation 검증
+                let project2 = store2.Projects.Values |> Seq.head
+                Assert.Equal(1, project2.HandoverDocumentation.Value.Documents.Count)
+
+                let doc2 = project2.HandoverDocumentation.Value.Documents.[0]
+                Assert.Equal(1, doc2.DocumentIds.Count)
+                Assert.Equal("Manufacturer", doc2.DocumentIds.[0].DocumentDomainId)
+                Assert.Equal("DOC-001", doc2.DocumentIds.[0].ValueId)
+                Assert.True(doc2.DocumentIds.[0].IsPrimary)
+                Assert.Equal(1, doc2.DocumentClassifications.Count)
+                Assert.Equal("01-01", doc2.DocumentClassifications.[0].ClassId)
+                Assert.Equal("Technical Documentation", doc2.DocumentClassifications.[0].ClassName)
+
+                Assert.Equal(1, doc2.DocumentVersions.Count)
+                let ver2 = doc2.DocumentVersions.[0]
+                Assert.Equal(2, ver2.Languages.Count)
+                Assert.Contains("en", ver2.Languages)
+                Assert.Contains("ko", ver2.Languages)
+                Assert.Equal("User Manual", ver2.Title)
+                Assert.Equal("Installation Guide", ver2.SubTitle)
+
+                // 6. DsStore → SDF 저장 및 재로드
+                let sdfPath2 = Path.ChangeExtension(aasxPath, ".sdf")
+                try
+                    ProjectSerializer.saveProject sdfPath2 project2
+                    let project3 = ProjectSerializer.loadProject sdfPath2
+
+                    // 7. 최종 검증
+                    Assert.Equal(1, project3.HandoverDocumentation.Value.Documents.Count)
+                    Assert.Equal("User Manual", project3.HandoverDocumentation.Value.Documents.[0].DocumentVersions.[0].Title)
+                finally
+                    if File.Exists(sdfPath2) then File.Delete(sdfPath2)
+            finally
+                if File.Exists(aasxPath) then File.Delete(aasxPath)
+        finally
+            if File.Exists(sdfPath) then File.Delete(sdfPath)
+
+    [<Fact>]
+    let ``Complete roundtrip AASX → SDF → AASX preserves Nameplate and Documentation`` () =
+        // 1. 초기 AASX 생성
+        let store = Ds2.Store.DsStore()
+        let project = Project("CompleteRoundTrip")
+
+        // Nameplate 설정
+        let np = Nameplate()
+        np.ManufacturerName <- "Original Manufacturer"
+        np.SerialNumber <- "SN-99999"
+        project.Nameplate <- Some np
+
+        // HandoverDocumentation 설정
+        let hdDoc = HandoverDocumentation()
+        let doc = Document()
+        doc.DocumentIds.Add(DocumentId(DocumentDomainId = "Original", ValueId = "ORIG-001", IsPrimary = true))
+        hdDoc.Documents.Add(doc)
+        project.HandoverDocumentation <- Some hdDoc
+
+        store.Projects.Add(project.Id, project)
+
+        // 2. AASX Export
+        let aasxPath1 = Path.Combine(Path.GetTempPath(), $"test_complete_{Guid.NewGuid()}.aasx")
+        try
+            let exported1 = Ds2.Aasx.AasxExporter.exportFromStore store aasxPath1 "https://dualsoft.com/" false
+            Assert.True(exported1)
+
+            // 3. AASX → SDF
+            let store2 = Ds2.Store.DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 aasxPath1
+            Assert.True(imported)
+
+            let project2 = store2.Projects.Values |> Seq.head
+            let sdfPath = Path.ChangeExtension(aasxPath1, ".sdf")
+            try
+                ProjectSerializer.saveProject sdfPath project2
+
+                // 4. SDF → AASX
+                let project3 = ProjectSerializer.loadProject sdfPath
+                let store3 = Ds2.Store.DsStore()
+                store3.Projects.Add(project3.Id, project3)
+
+                let aasxPath2 = Path.Combine(Path.GetTempPath(), $"test_complete2_{Guid.NewGuid()}.aasx")
+                try
+                    let exported2 = Ds2.Aasx.AasxExporter.exportFromStore store3 aasxPath2 "https://dualsoft.com/" false
+                    Assert.True(exported2)
+
+                    // 5. 최종 AASX Import 및 검증
+                    let store4 = Ds2.Store.DsStore()
+                    let imported2 = Ds2.Aasx.AasxImporter.importIntoStore store4 aasxPath2
+                    Assert.True(imported2)
+
+                    let project4 = store4.Projects.Values |> Seq.head
+                    Assert.Equal("Original Manufacturer", project4.Nameplate.Value.ManufacturerName)
+                    Assert.Equal("SN-99999", project4.Nameplate.Value.SerialNumber)
+                    Assert.Equal(1, project4.HandoverDocumentation.Value.Documents.Count)
+                    Assert.Equal("ORIG-001", project4.HandoverDocumentation.Value.Documents.[0].DocumentIds.[0].ValueId)
+                finally
+                    if File.Exists(aasxPath2) then File.Delete(aasxPath2)
+            finally
+                if File.Exists(sdfPath) then File.Delete(sdfPath)
+        finally
+            if File.Exists(aasxPath1) then File.Delete(aasxPath1)
+
+/// AAS 검증 API 테스트
+module AasValidationTests =
+
+    open AasCore.Aas3_0
+    open Ds2.Store
+    open Ds2.Editor
+
+    [<Fact>]
+    let ``Exported AASX should pass AasCore validation`` () =
+        // Arrange
+        let store = DsStore()
+        let projectId = store.AddProject("TestProject")
+        let systemId = store.AddSystem("TestSystem", projectId, true)
+        let flowId = store.AddFlow("TestFlow", systemId)
+        let workId = store.AddWork("TestWork", flowId)
+        store.AddCallsWithDevice(projectId, workId, ["TestDevice.TestApi"], true, None)
+
+        let path = Path.Combine(Path.GetTempPath(), $"validation_test_{Guid.NewGuid()}.aasx")
+
+        try
+            // Act - Export
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
+            Assert.True(exported)
+
+            // Act - Load and validate Environment
+            let envOpt = Ds2.Aasx.AasxFileIO.readEnvironment path
+            Assert.True(envOpt.IsSome, "Failed to read AASX environment")
+
+            let env = envOpt.Value
+
+            // Assert - Run AasCore validation
+            let errorList = ResizeArray<Reporting.Error>()
+            for item in Verification.Verify(env) do
+                errorList.Add(item)
+
+            // Report any validation errors with detailed path information
+            if errorList.Count > 0 then
+                let errorMessages =
+                    errorList
+                    |> Seq.mapi (fun i e ->
+                        let pathStr =
+                            e.PathSegments
+                            |> Seq.map (fun seg ->
+                                match seg with
+                                | :? Reporting.NameSegment as ns -> sprintf "[%s]" ns.Name
+                                | :? Reporting.IndexSegment as is -> sprintf "[%d]" is.Index
+                                | _ -> sprintf "[%O]" seg)
+                            |> String.concat ""
+                        sprintf "%d. %s\n   %O" (i+1) pathStr e.Cause)
+                    |> String.concat "\n\n"
+
+                // 에러 타입별 집계
+                let errorGroups =
+                    errorList
+                    |> Seq.groupBy (fun e -> e.Cause.ToString().Substring(0, min 80 (e.Cause.ToString().Length)))
+                    |> Seq.map (fun (cause, errors) -> sprintf "  - %s: %d개" cause (Seq.length errors))
+                    |> String.concat "\n"
+
+                Assert.True(false, sprintf "AAS validation failed with %d errors:\n\n에러 타입별:\n%s\n\n상세:\n%s" errorList.Count errorGroups errorMessages)
+
+            Assert.Equal(0, errorList.Count)
+
+        finally
+            if File.Exists(path) then File.Delete(path)
 
