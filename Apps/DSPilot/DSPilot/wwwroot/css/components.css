@@ -73,6 +73,19 @@
 
 .spacer { flex: 1; }
 
+/* Header page title (centered in app-bar) */
+.header-page-title {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-appbar-text);
+    white-space: nowrap;
+    pointer-events: none;
+    letter-spacing: 0.02em;
+}
+
 /* Header navigation links */
 .header-nav {
     display: flex;

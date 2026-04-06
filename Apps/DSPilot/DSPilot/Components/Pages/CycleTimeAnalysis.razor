@@ -14,16 +14,18 @@
 <PageTitle>Cycle Time Analysis - DSPilot</PageTitle>
 
 <div class="cycle-time-analysis">
-    <div class="page-header">
-        <h3>사이클 분석</h3>
-        <div class="header-actions">
-            <select class="form-field" @bind="_selectedFlowName" @bind:after="OnFlowChanged">
-                <option value="">-- Flow 선택 --</option>
-                @foreach (var flow in _flows)
-                {
-                    <option value="@flow">@flow</option>
-                }
-            </select>
+    <div class="chart-filter-panel">
+        <div class="filter-row">
+            <div class="filter-group">
+                <label>Flow 선택</label>
+                <select class="form-field" @bind="_selectedFlowName" @bind:after="OnFlowChanged">
+                    <option value="">-- Flow 선택 --</option>
+                    @foreach (var flow in _flows)
+                    {
+                        <option value="@flow">@flow</option>
+                    }
+                </select>
+            </div>
         </div>
     </div>
 

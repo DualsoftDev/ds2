@@ -11,8 +11,9 @@
             <span class="material-icons">menu</span>
         </button>
         <div style="display: flex; align-items: center; cursor: pointer;" @onclick="@(() => Nav.NavigateTo("/"))">
-            <img src="images/logo.png" alt="DSPilot Logo" height="28" style="margin-right: 12px;" />
+            <img src="images/logo.png" alt="DSPilot Logo" height="28" />
         </div>
+        <span class="header-page-title">@GetPageTitle()</span>
         <div class="spacer"></div>
         <nav class="header-nav">
             <a href="" class="header-nav-link @(IsActive("/"))">대시보드</a>
@@ -80,6 +81,20 @@
 
     private string IsActive(string path) =>
         _currentPath.Equals(path, StringComparison.OrdinalIgnoreCase) ? "active" : "";
+
+    private string GetPageTitle()
+    {
+        var path = _currentPath.TrimEnd('/');
+        return path switch
+        {
+            "" or "/" => "대시보드",
+            "/heatmap" => "동작편차",
+            "/cycle-time-analysis" => "사이클 분석",
+            "/settings" => "설정",
+            "/editor" => "에디터",
+            _ => ""
+        };
+    }
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
 

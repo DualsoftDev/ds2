@@ -12,13 +12,6 @@
 @implements IDisposable
 
 <PageTitle>Dashboard - DSPilot</PageTitle>
-<div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
-    <h5 class="typo-h5" style="font-weight: 600; color: var(--color-text-primary); margin:0;">대시보드</h5>
-    <div style="flex:1;"></div>
-    <button class="btn btn-sm btn-outlined" @onclick="EnterFullscreen" title="전체화면">
-        <span class="material-icons" style="font-size:18px;">fullscreen</span> 전체화면
-    </button>
-</div>
 <div @ref="_fullscreenRef" class="@(_isFullscreen ? "dashboard-fullscreen" : "")" style="display:flex; flex-direction:column; flex:1; min-height:0;">
 
 @if (!ProjectService.IsLoaded)
@@ -144,6 +137,9 @@ else
                                     {
                                         <button class="btn btn-sm btn-outlined" @onclick="@(() => Nav.NavigateTo("/editor"))">
                                             <span class="material-icons" style="font-size:calc(var(--u) * 1.3);">edit</span> 편집
+                                        </button>
+                                        <button class="btn btn-sm btn-outlined" @onclick="EnterFullscreen" title="전체화면">
+                                            <span class="material-icons" style="font-size:calc(var(--u) * 1.3);">fullscreen</span> 전체화면
                                         </button>
                                     }
                                 </div>
