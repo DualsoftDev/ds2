@@ -120,6 +120,27 @@ type FailureRecord() =
     member val RepairActions: string array = [||] with get, set
     member val DowntimeHours: float = 0.0 with get, set
 
+/// 에러 추적 설정 (Logging.ErrorLogTagSpec 연동)
+/// ErrorLogTagSpec의 Name을 기반으로 추적하며, 예지 보전 추가 설정 정의
+type ErrorTrackingConfig() =
+    member val ErrorLogTagName: string = "" with get, set           // 추적할 Logging.ErrorLogTagSpec.Name
+    member val ThresholdCount = 5 with get, set                     // 경고 임계값 (횟수)
+    member val AnalysisPeriodDays = 30 with get, set                // 분석 기간 (일)
+    member val EnablePrediction = true with get, set                // 예측 활성화
+    member val PredictionModel: string = "Linear" with get, set     // "Linear" | "Exponential"
+
+/// 에러 기반 예지 보전 런타임 분석 결과
+type ErrorBasedPrediction() =
+    member val ErrorLogTagName: string = "" with get, set           // Logging.ErrorLogTagSpec.Name
+    member val ErrorCode: string = "" with get, set                 // 에러 코드
+    member val ErrorFrequency = 0 with get, set                     // 발생 빈도
+    member val LastErrorTime: DateTime option = None with get, set  // 마지막 에러 시각
+    member val ErrorTrend: string = "Stable" with get, set          // "Increasing" | "Stable" | "Decreasing"
+    member val PredictedFailureDate: DateTime option = None with get, set // 예상 고장 날짜
+    member val RecommendedAction: string option = None with get, set // 권장 조치
+    member val ConfidenceLevel = 0.0 with get, set                  // 예측 신뢰도 (0-1)
+    member val ErrorHistory: DateTime array = [||] with get, set    // 에러 발생 이력
+
 /// 신뢰성 메트릭
 [<Struct>]
 type ReliabilityMetrics = {
@@ -190,6 +211,15 @@ type MaintenanceSystemProperties() =
     member val ReplacementLeadTimeDays = 30 with get, set           // 교체 리드타임 (일)
     member val AutoCreateWorkOrder = false with get, set
 
+    // ========== 에러 기반 예지 보전 (Logging.ErrorLogTagSpec 연동) ==========
+    // Logging.ErrorLogTagSpec.Name을 참조하여 추적
+    member val EnableErrorBasedPrediction = false with get, set
+    member val ErrorTrackingConfigs = ResizeArray<ErrorTrackingConfig>() with get, set // 에러 추적 설정 (appsettings.json)
+    member val ErrorThresholdForWarning = 5 with get, set           // 5회 이상 시 경고
+    member val ErrorThresholdForCritical = 10 with get, set         // 10회 이상 시 위험
+    member val ErrorAnalysisPeriodDays = 30 with get, set           // 분석 기간 (30일)
+    member val ErrorTrendWindowSize = 7 with get, set               // 추세 분석 윈도우 (7일)
+
 /// Flow-level 보전 속성
 type MaintenanceFlowProperties() =
     inherit PropertiesBase<MaintenanceFlowProperties>()
@@ -237,6 +267,16 @@ type MaintenanceWorkProperties() =
     member val MTBF = 0.0 with get, set                             // 평균 고장 간격 (시간)
     member val MTTR = 0.0 with get, set                             // 평균 복구 시간 (시간)
     member val Availability = 100.0 with get, set                   // 가용률 (%)
+
+    // ========== 에러 기반 예지 보전 (Logging.ErrorLogTagSpec 연동) ==========
+    // Logging.ErrorLogTagSpec.Name 기반 추적
+    member val EnableErrorTracking = false with get, set            // 에러 추적 활성화
+    member val TrackedErrorLogTagNames: string array = [||] with get, set // 추적할 Logging.ErrorLogTagSpec.Name 배열
+    member val ErrorFrequency = 0 with get, set                     // 에러 발생 빈도
+    member val LastErrorTime: DateTime option = None with get, set  // 마지막 에러 시각
+    member val ErrorTrend = "Stable" with get, set                  // "Increasing" | "Stable" | "Decreasing"
+    member val PredictedFailureDate: DateTime option = None with get, set // 예상 고장 날짜
+    member val ErrorPredictionConfidence = 0.0 with get, set        // 예측 신뢰도 (0-1)
 
 /// Call-level 보전 속성
 type MaintenanceCallProperties() =
@@ -381,3 +421,67 @@ module MaintenanceHelpers =
         elif vibrationRMS < 7.1 then "Zone B (Acceptable)"
         elif vibrationRMS < 18.0 then "Zone C (Unsatisfactory)"
         else "Zone D (Unacceptable)"
+
+
+    // ========== 에러 기반 예지 보전 ==========
+
+    /// 에러 발생 추세 분석 (시간순 빈도 배열 기반)
+    let analyzeErrorTrend (errorCounts: int array) =
+        if errorCounts.Length < 3 then "Stable"
+        else
+            let recent = errorCounts.[errorCounts.Length - 1]
+            let previous = errorCounts.[errorCounts.Length - 2]
+            let older = errorCounts.[errorCounts.Length - 3]
+
+            if recent > previous && previous > older then "Increasing"
+            elif recent < previous && previous < older then "Decreasing"
+            else "Stable"
+
+    /// 고장 예측 날짜 계산 (선형 회귀 기반)
+    let predictFailureByErrorRate (errorFrequency: int) (threshold: int) (daysAnalyzed: int) =
+        if errorFrequency = 0 || daysAnalyzed = 0 then None
+        else
+            let dailyRate = float errorFrequency / float daysAnalyzed
+            if dailyRate > 0.0 then
+                let daysToFailure = float threshold / dailyRate
+                Some (DateTime.UtcNow.AddDays(daysToFailure))
+            else
+                None
+
+    /// 에러 빈도로 MTBF 추정
+    let estimateMTBFFromErrors (errorCount: int) (operatingHours: float) =
+        if errorCount > 0 then
+            operatingHours / float errorCount
+        else
+            operatingHours
+
+    /// 에러 패턴 신뢰도 계산 (0-1)
+    let calculateErrorPredictionConfidence (errorHistory: DateTime array) (windowDays: int) =
+        if errorHistory.Length < 3 then 0.0
+        else
+            // 최근 windowDays 내 에러만 필터링
+            let cutoffDate = DateTime.UtcNow.AddDays(float -windowDays)
+            let recentErrors = errorHistory |> Array.filter (fun dt -> dt >= cutoffDate)
+
+            // 에러 간격의 일관성 측정 (표준편차 역수)
+            if recentErrors.Length < 2 then 0.5
+            else
+                let intervals =
+                    recentErrors
+                    |> Array.sortDescending
+                    |> Array.pairwise
+                    |> Array.map (fun (later, earlier) -> (later - earlier).TotalHours)
+
+                let avgInterval = intervals |> Array.average
+                let variance =
+                    intervals
+                    |> Array.map (fun x -> (x - avgInterval) ** 2.0)
+                    |> Array.average
+
+                let stdDev = sqrt variance
+
+                // 표준편차가 작을수록 패턴이 일관적 → 신뢰도 높음
+                if stdDev < avgInterval * 0.2 then 0.9
+                elif stdDev < avgInterval * 0.5 then 0.7
+                elif stdDev < avgInterval * 1.0 then 0.5
+                else 0.3

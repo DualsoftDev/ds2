@@ -1,6 +1,6 @@
 module Ds2.Aasx.AasxSemantics
 
-// 7개 서브모델 정의 (도메인별)
+// 9개 서브모델 정의 (도메인별)
 let [<Literal>] SubmodelModelIdShort        = "SequenceModel"
 let [<Literal>] SubmodelSimulationIdShort   = "SequenceSimulation"
 let [<Literal>] SubmodelControlIdShort      = "SequenceControl"
@@ -8,6 +8,8 @@ let [<Literal>] SubmodelMonitoringIdShort   = "SequenceMonitoring"
 let [<Literal>] SubmodelLoggingIdShort      = "SequenceLogging"
 let [<Literal>] SubmodelMaintenanceIdShort  = "SequenceMaintenance"
 let [<Literal>] SubmodelCostAnalysisIdShort = "SequenceCostAnalysis"
+let [<Literal>] SubmodelQualityIdShort      = "SequenceQuality"
+let [<Literal>] SubmodelHmiIdShort          = "SequenceHmi"
 
 let [<Literal>] SubmodelSemanticId   = "https://dualsoft.com/aas/submodel"
 

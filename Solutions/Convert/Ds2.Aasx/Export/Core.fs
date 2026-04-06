@@ -234,3 +234,13 @@ module internal AasxExportCore =
     let costAnalysisWorkPropsToElements = propsToElements<CostAnalysisWorkProperties>
     let costAnalysisCallPropsToElements = propsToElements<CostAnalysisCallProperties>
 
+    let qualitySystemPropsToElements = propsToElements<QualitySystemProperties>
+    let qualityFlowPropsToElements = propsToElements<QualityFlowProperties>
+    let qualityWorkPropsToElements = propsToElements<QualityWorkProperties>
+    let qualityCallPropsToElements = propsToElements<QualityCallProperties>
+
+    let hmiSystemPropsToElements = propsToElements<HMISystemProperties>
+    let hmiFlowPropsToElements = propsToElements<HMIFlowProperties>
+    let hmiWorkPropsToElements = propsToElements<HMIWorkProperties>
+    let hmiCallPropsToElements = propsToElements<HMICallProperties>
+
