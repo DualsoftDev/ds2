@@ -35,9 +35,9 @@ static class Step06_Report
         var store = ctx.Store;
 
         // Duration + TokenRole 설정 (독립 실행 대비)
-        store.Works[ctx.W1Id].SetSimulationProperties(new SimulationWorkProperties { Duration = TimeSpan.FromMilliseconds(300) });
-        store.Works[ctx.W2Id].SetSimulationProperties(new SimulationWorkProperties { Duration = TimeSpan.FromMilliseconds(500) });
-        store.Works[ctx.W3Id].SetSimulationProperties(new SimulationWorkProperties { Duration = TimeSpan.FromMilliseconds(300) });
+        store.Works[ctx.W1Id].Duration = TimeSpan.FromMilliseconds(300);
+        store.Works[ctx.W2Id].Duration = TimeSpan.FromMilliseconds(500);
+        store.Works[ctx.W3Id].Duration = TimeSpan.FromMilliseconds(300);
         store.Works[ctx.W1Id].TokenRole = TokenRole.Source;
 
         var index = SimIndexModule.build(store, 50);
@@ -96,7 +96,7 @@ static class Step06_Report
         var csvPath  = Path.Combine(".", "ds2_report.csv");
 
         var htmlResult = ReportService.exportAuto(report, htmlPath);
-        var csvOptions = ExportOptionsModule.defaults(ExportFormat.Csv, csvPath);
+        var csvOptions = ExportOptionsModule.defaults(Ds2.Runtime.Sim.Report.Model.ExportFormat.Csv, csvPath);
         var csvResult  = ReportService.export(report, csvOptions);
 
         Console.WriteLine("  [내보내기]");

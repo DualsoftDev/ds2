@@ -39,12 +39,9 @@ static class Step05_Simulation
         var store = ctx.Store;
 
         // ── 1. Duration + Token 설정 ─────────────────────────
-        var p1 = new SimulationWorkProperties { Duration = TimeSpan.FromMilliseconds(300) };
-        store.Works[ctx.W1Id].SetSimulationProperties(p1);
-        var p2 = new SimulationWorkProperties { Duration = TimeSpan.FromMilliseconds(500) };
-        store.Works[ctx.W2Id].SetSimulationProperties(p2);
-        var p3 = new SimulationWorkProperties { Duration = TimeSpan.FromMilliseconds(300) };
-        store.Works[ctx.W3Id].SetSimulationProperties(p3);
+        store.Works[ctx.W1Id].Duration = TimeSpan.FromMilliseconds(300);
+        store.Works[ctx.W2Id].Duration = TimeSpan.FromMilliseconds(500);
+        store.Works[ctx.W3Id].Duration = TimeSpan.FromMilliseconds(300);
         store.Works[ctx.W1Id].TokenRole = TokenRole.Source;
 
         Console.WriteLine("  [설정]");
