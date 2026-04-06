@@ -252,7 +252,9 @@ public partial class MainViewModel
     private bool TrySaveFileAs()
     {
         var projects = Queries.allProjects(_store);
-        var suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
+        var suggestedName = _currentFilePath is not null
+            ? Path.GetFileNameWithoutExtension(_currentFilePath)
+            : (!projects.IsEmpty ? projects.Head.Name : "project");
         var dlg = new SaveFileDialog
         {
             Filter = FileFilter,

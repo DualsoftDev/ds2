@@ -33,8 +33,6 @@ type DsSystem [<JsonConstructor>] internal (name) =
 type Flow [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
     member val Properties = ResizeArray<FlowSubmodelProperty>() with get, set
-
-
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, parentId: Guid) =
@@ -52,7 +50,6 @@ type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, p
     member val TokenRole   : TokenRole = TokenRole.None with get, set
     /// Work 실행 시간 (모든 도메인에서 공통 사용)
     member val Duration    : TimeSpan option = None with get, set
-
 
     override this.Name
         with get() =

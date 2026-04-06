@@ -357,7 +357,7 @@ public sealed class SimulationPanelStateTests
     }
 
     [Fact]
-    public void Reference_work_event_updates_shared_state_and_token_for_group()
+    public void Reference_work_excluded_from_sim_nodes()
     {
         StaTestRunner.Run(() =>
         {
@@ -384,40 +384,23 @@ public sealed class SimulationPanelStateTests
                 BindingFlags.Instance | BindingFlags.NonPublic)!;
             initSimNodes.Invoke(state, null);
 
+            // 원본 Work만 SimNodes에 포함, Reference Work는 제외
+            Assert.Single(state.SimNodes, node => node.NodeGuid == workId);
+            Assert.DoesNotContain(state.SimNodes, node => node.NodeGuid == referenceWorkId);
+
+            // ref Work 이벤트가 canonical(원본)에 반영되는지 검증
             var onWorkStateChanged = typeof(SimulationPanelState).GetMethod(
                 "OnWorkStateChanged",
                 BindingFlags.Instance | BindingFlags.NonPublic)!;
             onWorkStateChanged.Invoke(state, [new WorkStateChangedArgs(
-                workId,
+                referenceWorkId,
                 "W1",
                 Status4.Ready,
                 Status4.Going,
                 TimeSpan.Zero)]);
 
-            Assert.Equal(Status4.Going, state.SimNodes.Single(node => node.NodeGuid == workId).State);
-            Assert.Equal(Status4.Going, state.SimNodes.Single(node => node.NodeGuid == referenceWorkId).State);
-
-            var token = engine.NextToken();
-            engine.SeedToken(workId, token);
-
-            var onTokenEvent = typeof(SimulationPanelState).GetMethod(
-                "OnTokenEvent",
-                BindingFlags.Instance | BindingFlags.NonPublic)!;
-            onTokenEvent.Invoke(state, [new TokenEventArgs(
-                TokenEventKind.Seed,
-                token,
-                workId,
-                "W1",
-                null,
-                null,
-                TimeSpan.Zero)]);
-
-            var originalDisplay = state.SimNodes.Single(node => node.NodeGuid == workId).TokenDisplay;
-            var referenceDisplay = state.SimNodes.Single(node => node.NodeGuid == referenceWorkId).TokenDisplay;
-
-            Assert.False(string.IsNullOrWhiteSpace(originalDisplay));
-            Assert.EndsWith("#1", originalDisplay, StringComparison.Ordinal);
-            Assert.Equal(originalDisplay, referenceDisplay);
+            // canonical(원본) Work의 상태가 Going으로 갱신됨
+            Assert.Equal(Status4.Going, state.SimNodes.Single(n => n.NodeGuid == workId).State);
         });
     }
 

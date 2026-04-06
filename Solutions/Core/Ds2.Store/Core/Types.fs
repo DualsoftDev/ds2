@@ -11,7 +11,7 @@ open Ds2.Core
 /// Store에서 한 번 정의 -> C# XAML 자동 전파.
 module Labels =
     [<Literal>]
-    let WorkPeriod   = "Work Duration"
+    let WorkPeriod   = "Work Duration (ms)"
     [<Literal>]
     let PeriodFormat = "밀리초(ms) 단위 정수"
     [<Literal>]
