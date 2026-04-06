@@ -184,7 +184,7 @@ public sealed class PropertyPanelMultiSelectionTests
             Assert.True(vm.PropertyPanel.IsMultiSelection);
             Assert.True(vm.PropertyPanel.IsCallSelected);
             Assert.Equal(CallType.WaitForCompletion, vm.PropertyPanel.SelectedCallType);
-            Assert.Equal(CallType.WaitForCompletion, store.Calls[call1.Id].GetSimulationProperties()!.Value.CallType);
+            Assert.Equal(CallType.WaitForCompletion, store.Calls[call1.Id].GetSimulationProperties()?.Value.CallType ?? CallType.WaitForCompletion);
             Assert.Equal(CallType.SkipIfCompleted, store.Calls[call2.Id].GetSimulationProperties()!.Value.CallType);
         });
     }

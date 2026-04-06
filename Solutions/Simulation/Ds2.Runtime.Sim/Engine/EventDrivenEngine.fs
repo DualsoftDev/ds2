@@ -13,6 +13,8 @@ open Ds2.Runtime.Sim.Engine.Scheduler
 /// H 상태 구현: F->H (내부 Call R 정리) -> H->R (최소 1ms)
 type EventDrivenEngine(index: SimIndex) =
     let mutable status = Stopped
+    let mutable isHomingPhase = false
+    let homingPhaseCompletedEvent = Event<EventArgs>()
     let scheduler = EventScheduler()
     let mutable speedMultiplier = 1.0
     let mutable timeIgnore = false
@@ -231,6 +233,48 @@ type EventDrivenEngine(index: SimIndex) =
                 NewState = Status4.Finish
                 Clock = TimeSpan.Zero
             })
+    member _.IsHomingPhase = isHomingPhase
+    [<CLIEvent>] member _.HomingPhaseCompleted = homingPhaseCompletedEvent.Publish
+
+    /// 자동 원위치 페이즈:
+    /// 1. IsFinished 설정된 Work → ApplyInitialStates로 즉시 Finish (Going 불필요)
+    /// 2. IsFinished 미설정 → computeAutoHomingTargets로 대상 계산 → Going시켜서 Finish 도달
+    /// PLC 연동 시 실제 디바이스가 물리적으로 원위치 동작을 수행하는 것과 동일.
+    member this.StartWithHomingPhase() : bool =
+        // Phase 1: IsFinished 플래그가 있으면 즉시 적용
+        let isFinishedGuids = SimIndex.findInitialFlagRxWorkGuids index
+        this.ApplyInitialStates()
+
+        // Phase 2: IsFinished 없는 Device Work → 자동 계산으로 Going 시작
+        let autoHomingGuids = SimIndex.computeAutoHomingTargets index
+        // IsFinished로 이미 Finish된 것은 제외
+        let needsGoing = autoHomingGuids |> Set.filter (fun g -> not (isFinishedGuids.Contains g))
+
+        if needsGoing.IsEmpty then
+            // Going 시킬 대상 없음 → 바로 시작
+            this.Start()
+            false
+        else
+            isHomingPhase <- true
+            let homingTargets = System.Collections.Generic.HashSet<Guid>(needsGoing)
+
+            // WorkStateChanged 구독: 대상 Work가 Finish에 도달하면 원위치 완료
+            let mutable handler : IDisposable = null
+            handler <- workStateChangedEvent.Publish.Subscribe(fun args ->
+                if isHomingPhase && args.NewState = Status4.Finish && homingTargets.Contains(args.WorkGuid) then
+                    homingTargets.Remove(args.WorkGuid) |> ignore
+                    if homingTargets.Count = 0 then
+                        isHomingPhase <- false
+                        handler.Dispose()
+                        homingPhaseCompletedEvent.Trigger(EventArgs.Empty))
+
+            // 엔진 시작
+            this.Start()
+            // 대상 Work를 강제 Going → Duration 소모 → Finish (실제 원위치 동작)
+            for workGuid in needsGoing do
+                this.ForceWorkState(workGuid, Status4.Going)
+            true
+
     member _.ForceWorkState(workGuid, newState) =
         if index.AllWorkGuids |> List.contains workGuid then
             scheduler.ScheduleNow(
@@ -364,8 +408,11 @@ type EventDrivenEngine(index: SimIndex) =
         member this.DiscardToken(workGuid) = this.DiscardToken(workGuid)
         member this.GetWorkToken(workGuid) = this.GetWorkToken(workGuid)
         member this.GetTokenOrigin(token) = this.GetTokenOrigin(token)
+        member this.StartWithHomingPhase() = this.StartWithHomingPhase()
+        member this.IsHomingPhase = this.IsHomingPhase
         [<CLIEvent>] member this.WorkStateChanged = this.WorkStateChanged
         [<CLIEvent>] member this.CallStateChanged = this.CallStateChanged
         [<CLIEvent>] member this.SimulationStatusChanged = this.SimulationStatusChanged
         [<CLIEvent>] member this.TokenEvent = this.TokenEvent
+        [<CLIEvent>] member this.HomingPhaseCompleted = this.HomingPhaseCompleted
         member this.Dispose() = this.Stop()

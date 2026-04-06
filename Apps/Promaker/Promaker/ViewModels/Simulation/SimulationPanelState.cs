@@ -102,6 +102,16 @@ public partial class SimulationPanelState : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
     private bool _isSimPaused;
 
+    /// 자동 원위치 페이즈 진행 중 — PLAY/PAUSE/ForceWork/ForceReset/SeedToken/Step 비활성화
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
+    [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    private bool _isHomingPhase;
+
     [ObservableProperty]
     private bool _hasWorkGoing;
 

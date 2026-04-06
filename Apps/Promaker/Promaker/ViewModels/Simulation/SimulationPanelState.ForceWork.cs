@@ -56,7 +56,7 @@ public partial class SimulationPanelState
         AddSimLog(SimText.ManualWorkReset(selectedWork.Name));
     }
 
-    private bool CanForceWork() => IsSimulating && !IsSimPaused && SelectedSimWork is not null;
+    private bool CanForceWork() => IsSimulating && !IsSimPaused && !IsHomingPhase && SelectedSimWork is not null;
 
     private (Guid SelectedSourceGuid, bool AutoStartSources) GetStepAdvanceSelection()
     {

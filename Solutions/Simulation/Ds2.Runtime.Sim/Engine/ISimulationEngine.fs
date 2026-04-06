@@ -75,6 +75,13 @@ type ISimulationEngine =
     abstract GetWorkToken: workGuid: Guid -> TokenValue option
     abstract GetTokenOrigin: token: TokenValue -> (string * int) option
 
+    /// 자동 원위치 페이즈: ApplyInitialStates → Start → Homing 완료 대기 → 정상 시뮬레이션
+    /// true면 Homing 대상이 있어서 페이즈 시작됨, false면 대상 없어서 즉시 정상 시작
+    abstract StartWithHomingPhase: unit -> bool
+
+    /// 현재 Homing 페이즈 진행 중인지
+    abstract IsHomingPhase: bool
+
     // 이벤트
     [<CLIEvent>]
     abstract WorkStateChanged: IEvent<WorkStateChangedArgs>
@@ -84,3 +91,6 @@ type ISimulationEngine =
     abstract SimulationStatusChanged: IEvent<SimulationStatusChangedArgs>
     [<CLIEvent>]
     abstract TokenEvent: IEvent<TokenEventArgs>
+    /// 자동 원위치 페이즈 완료 이벤트
+    [<CLIEvent>]
+    abstract HomingPhaseCompleted: IEvent<EventArgs>

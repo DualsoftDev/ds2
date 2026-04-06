@@ -109,19 +109,27 @@ public partial class SimulationPanelState
             if (!hasPreStartWarnings)
                 _warningGuids.Clear();
 
-            _simEngine.ApplyInitialStates();
-            _simEngine.Start();
+            // 자동 원위치 페이즈: Homing 대상이 있으면 페이즈 진행 후 정상 시뮬레이션
+            var hasHoming = _simEngine.StartWithHomingPhase();
+            if (hasHoming)
+            {
+                IsHomingPhase = true;
+                _setStatusText("시뮬레이션 초기화 중...");
+                SimStatusText = "시뮬레이션 초기화 중...";
+                _simEngine.HomingPhaseCompleted += OnHomingPhaseCompleted;
+            }
 
             ApplySimStateToCanvas();
             ApplyWarningsToCanvas();
 
-            SimStatusText = SimText.Running;
             ApplySimulationUiState(
                 ganttRunning: true,
                 isSimulating: true,
                 isSimPaused: false,
-                statusText: SimText.Started,
-                logText: SimText.Started);
+                statusText: hasHoming ? "시뮬레이션 초기화 중..." : SimText.Started,
+                logText: hasHoming ? "시뮬레이션 자동 원위치 진행 중" : SimText.Started);
+            if (!hasHoming)
+                SimStatusText = SimText.Running;
         }
         catch (Exception ex)
         {
@@ -130,7 +138,7 @@ public partial class SimulationPanelState
         }
     }
 
-    private bool CanStartSimulation() => !IsSimulating || IsSimPaused;
+    private bool CanStartSimulation() => (!IsSimulating || IsSimPaused) && !IsHomingPhase;
 
     [RelayCommand(CanExecute = nameof(CanPauseSimulation))]
     private void PauseSimulation()
@@ -145,7 +153,7 @@ public partial class SimulationPanelState
         RefreshSimulationProgressUi();
     }
 
-    private bool CanPauseSimulation() => IsSimulating && !IsSimPaused;
+    private bool CanPauseSimulation() => IsSimulating && !IsSimPaused && !IsHomingPhase;
 
     [RelayCommand(CanExecute = nameof(CanStopSimulation))]
     private void StopSimulation()
@@ -154,6 +162,9 @@ public partial class SimulationPanelState
         if (_simEngine is not null
             && !TryWithSimEngine("Simulation stop", engine => engine.Stop()))
             return;
+        if (_simEngine is not null)
+            _simEngine.HomingPhaseCompleted -= OnHomingPhaseCompleted;
+        IsHomingPhase = false;
         ClearSimStateFromCanvas();
         ClearAllWarnings();
         HasWorkGoing = false;
@@ -173,6 +184,19 @@ public partial class SimulationPanelState
     private void InitSceneEventHandler()
     {
         _sceneEventHandler = new DeviceSceneEventHandler(ThreeD);
+    }
+
+    private void OnHomingPhaseCompleted(object? sender, EventArgs e)
+    {
+        if (_simEngine is not null)
+            _simEngine.HomingPhaseCompleted -= OnHomingPhaseCompleted;
+        _dispatcher.BeginInvoke(() =>
+        {
+            IsHomingPhase = false;
+            SimStatusText = SimText.Running;
+            _setStatusText(SimText.Started);
+            AddSimLog("시뮬레이션 자동 원위치 완료");
+        });
     }
 
     private bool CanStopSimulation() => IsSimulating;
@@ -216,6 +240,7 @@ public partial class SimulationPanelState
 
     private bool CanStepSimulation() => IsSimulating
         && IsSimPaused
+        && !IsHomingPhase
         && _simEngine is { } engine
         && engine.CanAdvanceStep(GetStepAdvanceSelection().SelectedSourceGuid, GetStepAdvanceSelection().AutoStartSources);
 
