@@ -146,9 +146,7 @@ module internal DirectDeviceOps =
                 |> List.tryFind (fun w -> w.Name = apiName)
                 |> Option.defaultWith (fun () ->
                     let w = Work(flow.Name, apiName, flow.Id)
-                    let props = match w.GetSimulationProperties() with Some p -> p | None -> SimulationWorkProperties()
-                    props.Duration <- Some (TimeSpan.FromMilliseconds 500.)
-                    w.SetSimulationProperties(props)
+                    w.Duration <- Some (TimeSpan.FromMilliseconds 500.)
                     store.TrackAdd(store.Works, w)
                     w)
             let current = Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []

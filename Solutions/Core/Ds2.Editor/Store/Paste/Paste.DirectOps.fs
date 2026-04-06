@@ -75,6 +75,7 @@ module internal DirectPasteOps =
         let pastedWork = Work(targetFlow.Name, newLocalName, targetFlowId)
         sourceWork.GetSimulationProperties() |> Option.iter (fun p -> pastedWork.SetSimulationProperties(p.DeepCopy()))
         pastedWork.TokenRole <- sourceWork.TokenRole
+        pastedWork.Duration <- sourceWork.Duration
         pastedWork.Position <- offsetPosition baseIndex sourceWork.Position
         store.TrackAdd(store.Works, pastedWork)
         let isDifferentFlow = sourceWork.ParentId <> targetFlowId

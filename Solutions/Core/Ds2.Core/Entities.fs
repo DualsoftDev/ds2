@@ -40,7 +40,7 @@ type Flow [<JsonConstructor>] internal (name, parentId) =
 type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, parentId: Guid) =
     inherit DsChild("", parentId)
     member val Properties = ResizeArray<WorkSubmodelProperty>() with get, set
-   
+
     /// 부모 Flow의 이름 (자동 설정, Flow rename 시 cascade)
     member val FlowPrefix  = (if isNull flowPrefix then "" else flowPrefix) with get, set
     /// Work 고유 이름 (사용자가 입력하는 부분)
@@ -50,6 +50,8 @@ type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, p
     member val Status4     : Status4 = Status4.Ready with get, set
     member val Position    : Xywh option = None  with get, set
     member val TokenRole   : TokenRole = TokenRole.None with get, set
+    /// Work 실행 시간 (모든 도메인에서 공통 사용)
+    member val Duration    : TimeSpan option = None with get, set
 
 
     override this.Name

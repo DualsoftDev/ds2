@@ -4,28 +4,70 @@ open System
 open System.Text.Json.Serialization
 
 // =============================================================================
-// Submodel Offsets (AASX Submodel ID 생성용)
+// Submodel Type (AASX Submodel ID 생성용)
 // =============================================================================
 
-module SubmodelOffsets =
-    [<Literal>]
-    let Model        = 0uy  // SequenceModel
-    [<Literal>]
-    let Simulation   = 1uy  // SequenceSimulation
-    [<Literal>]
-    let Control      = 2uy  // SequenceControl
-    [<Literal>]
-    let Monitoring   = 3uy  // SequenceMonitoring
-    [<Literal>]
-    let Logging      = 4uy  // SequenceLogging
-    [<Literal>]
-    let Maintenance  = 5uy  // SequenceMaintenance
-    [<Literal>]
-    let CostAnalysis = 6uy  // SequenceCostAnalysis
-    [<Literal>]
-    let Quality      = 7uy  // SequenceQuality
-    [<Literal>]
-    let Hmi          = 8uy  // SequenceHmi
+/// AASX 서브모델 타입 (타입 안전성 보장)
+type SubmodelType =
+    | SequenceModel
+    | SequenceSimulation
+    | SequenceControl
+    | SequenceMonitoring
+    | SequenceLogging
+    | SequenceMaintenance
+    | SequenceCostAnalysis
+    | SequenceQuality
+    | SequenceHmi
+
+    /// Submodel offset (byte) 반환
+    member this.Offset =
+        match this with
+        | SequenceModel        -> 0uy
+        | SequenceSimulation   -> 1uy
+        | SequenceControl      -> 2uy
+        | SequenceMonitoring   -> 3uy
+        | SequenceLogging      -> 4uy
+        | SequenceMaintenance  -> 5uy
+        | SequenceCostAnalysis -> 6uy
+        | SequenceQuality      -> 7uy
+        | SequenceHmi          -> 8uy
+
+    /// Submodel IdShort 반환
+    member this.IdShort =
+        match this with
+        | SequenceModel        -> "SequenceModel"
+        | SequenceSimulation   -> "SequenceSimulation"
+        | SequenceControl      -> "SequenceControl"
+        | SequenceMonitoring   -> "SequenceMonitoring"
+        | SequenceLogging      -> "SequenceLogging"
+        | SequenceMaintenance  -> "SequenceMaintenance"
+        | SequenceCostAnalysis -> "SequenceCostAnalysis"
+        | SequenceQuality      -> "SequenceQuality"
+        | SequenceHmi          -> "SequenceHmi"
+
+    /// Reference name 반환 (Entity에서 사용)
+    member this.RefName =
+        match this with
+        | SequenceModel        -> "ModelRef"
+        | SequenceSimulation   -> "SimulationRef"
+        | SequenceControl      -> "ControlRef"
+        | SequenceMonitoring   -> "MonitoringRef"
+        | SequenceLogging      -> "LoggingRef"
+        | SequenceMaintenance  -> "MaintenanceRef"
+        | SequenceCostAnalysis -> "CostAnalysisRef"
+        | SequenceQuality      -> "QualityRef"
+        | SequenceHmi          -> "HmiRef"
+
+    /// 모든 도메인 서브모델 반환 (Model 제외)
+    static member AllDomains =
+        [ SequenceSimulation
+          SequenceControl
+          SequenceMonitoring
+          SequenceLogging
+          SequenceMaintenance
+          SequenceCostAnalysis
+          SequenceQuality
+          SequenceHmi ]
 
 // =============================================================================
 // Discriminated Unions for Submodel Properties

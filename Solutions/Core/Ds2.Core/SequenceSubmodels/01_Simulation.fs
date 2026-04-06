@@ -403,7 +403,6 @@ type SimulationWorkProperties() =
     member val ExternalStart = false with get, set
     member val IsFinished = false with get, set
     member val NumRepeat = 0 with get, set
-    member val Duration: TimeSpan option = None with get, set
     member val SequenceOrder = 0 with get, set
     member val OperationCode: string option = None with get, set
 

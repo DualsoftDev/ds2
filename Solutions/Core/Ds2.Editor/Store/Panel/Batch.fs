@@ -48,8 +48,7 @@ type DsStorePanelBatchExtensions =
                     Queries.worksOf flow.Id store
                     |> List.map (fun work ->
                         let ms =
-                            work.GetSimulationProperties()
-                            |> Option.bind (fun p -> p.Duration)
+                            work.Duration
                             |> Option.map (fun t -> int t.TotalMilliseconds)
                             |> Option.defaultValue 0
                         WorkDurationBatchRow(work.Id, sys.Name, flow.Name, work.LocalName, ms, isDeviceWork))))
@@ -137,13 +136,7 @@ type DsStorePanelBatchExtensions =
             store.WithTransaction("Work Duration 일괄 변경", fun () ->
                 for struct(workId, newMs) in changeList do
                     let period = if newMs <= 0 then None else Some (TimeSpan.FromMilliseconds(float newMs))
-                    store.TrackMutate(store.Works, workId, fun w ->
-                        match w.GetSimulationProperties() with
-                        | Some props -> props.Duration <- period
-                        | None ->
-                            let props = SimulationWorkProperties()
-                            props.Duration <- period
-                            w.SetSimulationProperties(props)))
+                    store.TrackMutate(store.Works, workId, fun w -> w.Duration <- period))
             store.EmitRefreshAndHistory()
 
     /// Work Duration 일괄 변경 (Nullable 허용)
@@ -158,22 +151,14 @@ type DsStorePanelBatchExtensions =
             |> Seq.distinctBy (fun struct(workId, _) -> workId)
             |> Seq.filter (fun struct(workId, period) ->
                 match Queries.getWork workId store with
-                | Some work ->
-                    let currentDuration = work.GetSimulationProperties() |> Option.bind (fun p -> p.Duration)
-                    currentDuration <> period
+                | Some work -> work.Duration <> period
                 | None -> false)
             |> Seq.toList
         if not changeList.IsEmpty then
             StoreLog.debug($"UpdateWorkPeriodsBatch: {changeList.Length} items")
             store.WithTransaction("Work Duration 일괄 변경", fun () ->
                 for struct(workId, period) in changeList do
-                    store.TrackMutate(store.Works, workId, fun work ->
-                        match work.GetSimulationProperties() with
-                        | Some props -> props.Duration <- period
-                        | None ->
-                            let props = SimulationWorkProperties()
-                            props.Duration <- period
-                            work.SetSimulationProperties(props)))
+                    store.TrackMutate(store.Works, workId, fun work -> work.Duration <- period))
             store.EmitRefreshAndHistory()
 
     /// Work TokenRole 일괄 변경 (단일 Undo 트랜잭션)

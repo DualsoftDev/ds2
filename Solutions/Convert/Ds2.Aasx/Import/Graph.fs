@@ -12,9 +12,6 @@ module internal AasxImportGraph =
 
     open AasxImportCore
 
-    let inline addProperty add ctor propOpt =
-        propOpt |> Option.iter (ctor >> add)
-
     let smcToApiCall (smc: SubmodelElementCollection) : ApiCall option =
         try
             let name = getProp smc Name_ |> Option.defaultValue ""
@@ -37,13 +34,9 @@ module internal AasxImportGraph =
             let apiName  = getProp smc ApiName_       |> Option.defaultValue ""
             let call = Call(devAlias, apiName, workId)
             getProp smc Guid_ |> Option.iter (fun g -> call.Id <- Guid.Parse g)
-            // 모든 도메인 속성 Import
-            fromJsonProp<SimulationCallProperties> smc SimulationProperties_   |> addProperty call.Properties.Add SimulationCall
-            fromJsonProp<ControlCallProperties> smc ControlProperties_         |> addProperty call.Properties.Add ControlCall
-            fromJsonProp<MonitoringCallProperties> smc MonitoringProperties_   |> addProperty call.Properties.Add MonitoringCall
-            fromJsonProp<LoggingCallProperties> smc LoggingProperties_         |> addProperty call.Properties.Add LoggingCall
-            fromJsonProp<MaintenanceCallProperties> smc MaintenanceProperties_ |> addProperty call.Properties.Add MaintenanceCall
-            fromJsonProp<CostAnalysisCallProperties> smc CostAnalysisProperties_ |> addProperty call.Properties.Add CostAnalysisCall
+            // 모든 도메인 속성 Import (통합 버전)
+            SubmodelType.AllDomains
+            |> List.iter (fun submodelType -> PropertyConversion.importCallProperty submodelType smc call.Properties)
             fromJsonProp<Xywh option>    smc Position_       |> Option.flatten |> Option.iter (fun pos -> call.Position <- Some pos)
             getProp smc Status_          |> Option.iter (fun s -> call.Status4 <- parseStatus4 s)
             // ApiCalls를 SubmodelElementList에서 읽기 (새 형식)
@@ -77,19 +70,16 @@ module internal AasxImportGraph =
                 | Some fp, Some ln -> work.FlowPrefix <- fp; work.LocalName <- ln
                 | _ -> getProp smc Name_ |> Option.iter (fun n -> work.Name <- n)
                 getProp smc ReferenceOf_ |> Option.bind tryParseGuid |> Option.iter (fun g -> work.ReferenceOf <- Some g)
-                // 모든 도메인 속성 Import
-                fromJsonProp<SimulationWorkProperties> smc SimulationProperties_   |> addProperty work.Properties.Add SimulationWork
-                fromJsonProp<ControlWorkProperties> smc ControlProperties_         |> addProperty work.Properties.Add ControlWork
-                fromJsonProp<MonitoringWorkProperties> smc MonitoringProperties_   |> addProperty work.Properties.Add MonitoringWork
-                fromJsonProp<LoggingWorkProperties> smc LoggingProperties_         |> addProperty work.Properties.Add LoggingWork
-                fromJsonProp<MaintenanceWorkProperties> smc MaintenanceProperties_ |> addProperty work.Properties.Add MaintenanceWork
-                fromJsonProp<CostAnalysisWorkProperties> smc CostAnalysisProperties_ |> addProperty work.Properties.Add CostAnalysisWork
+                // 모든 도메인 속성 Import (통합 버전)
+                SubmodelType.AllDomains
+                |> List.iter (fun submodelType -> PropertyConversion.importWorkProperty submodelType smc work.Properties)
                 fromJsonProp<Xywh option>    smc Position_    |> Option.flatten |> Option.iter (fun pos -> work.Position <- Some pos)
                 getProp smc Status_ |> Option.iter (fun s -> work.Status4 <- parseStatus4 s)
                 getProp smc TokenRole_ |> Option.iter (fun s ->
                     match System.Int32.TryParse(s) with
                     | true, v -> work.TokenRole <- enum<TokenRole> v
                     | _ -> ())
+                getProp smc "Duration" |> Option.bind tryParseIsoDuration |> Option.iter (fun d -> work.Duration <- Some d)
 
                 let calls      = getChildSmlSmcs smc Calls_  |> List.choose (fun c -> smcToCall c work.Id)
                 let arrowCalls = getChildSmlSmcs smc Arrows_ |> List.choose (fun a -> smcToArrowCall a work.Id)
@@ -104,13 +94,9 @@ module internal AasxImportGraph =
             let flow = Flow("", systemId)
             getProp smc Guid_ |> Option.iter (fun g -> flow.Id <- Guid.Parse g)
             getProp smc Name_ |> Option.iter (fun n -> flow.Name <- n)
-            // 모든 도메인 속성 Import
-            fromJsonProp<SimulationFlowProperties> smc SimulationProperties_   |> addProperty flow.Properties.Add SimulationFlow
-            fromJsonProp<ControlFlowProperties> smc ControlProperties_         |> addProperty flow.Properties.Add ControlFlow
-            fromJsonProp<MonitoringFlowProperties> smc MonitoringProperties_   |> addProperty flow.Properties.Add MonitoringFlow
-            fromJsonProp<LoggingFlowProperties> smc LoggingProperties_         |> addProperty flow.Properties.Add LoggingFlow
-            fromJsonProp<MaintenanceFlowProperties> smc MaintenanceProperties_ |> addProperty flow.Properties.Add MaintenanceFlow
-            fromJsonProp<CostAnalysisFlowProperties> smc CostAnalysisProperties_ |> addProperty flow.Properties.Add CostAnalysisFlow
+            // 모든 도메인 속성 Import (통합 버전)
+            SubmodelType.AllDomains
+            |> List.iter (fun submodelType -> PropertyConversion.importFlowProperty submodelType smc flow.Properties)
             Some flow
         with ex -> log.Warn($"smcToFlow 실패: {ex.Message}", ex); None
 
@@ -142,13 +128,9 @@ module internal AasxImportGraph =
                 let system = DsSystem("")
                 guid |> Option.iter (fun g -> system.Id <- Guid.Parse g)
                 name |> Option.iter (fun n -> system.Name <- n)
-                // 모든 도메인 속성 Import
-                fromJsonProp<SimulationSystemProperties> smc SimulationProperties_   |> addProperty system.Properties.Add SimulationSystem
-                fromJsonProp<ControlSystemProperties> smc ControlProperties_         |> addProperty system.Properties.Add ControlSystem
-                fromJsonProp<MonitoringSystemProperties> smc MonitoringProperties_   |> addProperty system.Properties.Add MonitoringSystem
-                fromJsonProp<LoggingSystemProperties> smc LoggingProperties_         |> addProperty system.Properties.Add LoggingSystem
-                fromJsonProp<MaintenanceSystemProperties> smc MaintenanceProperties_ |> addProperty system.Properties.Add MaintenanceSystem
-                fromJsonProp<CostAnalysisSystemProperties> smc CostAnalysisProperties_ |> addProperty system.Properties.Add CostAnalysisSystem
+                // 모든 도메인 속성 Import (통합 버전)
+                SubmodelType.AllDomains
+                |> List.iter (fun submodelType -> PropertyConversion.importSystemProperty submodelType smc system.Properties)
                 let iri = getProp smc IRI_ |> Option.bind (fun s -> if String.IsNullOrEmpty s then None else Some s)
                 system.IRI <- iri
 

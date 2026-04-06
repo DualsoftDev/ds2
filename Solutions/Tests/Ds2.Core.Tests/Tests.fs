@@ -187,9 +187,7 @@ module DeepCopyTests =
     let ``Work DeepCopy should copy FlowPrefix LocalName and ReferenceOf`` () =
         let flowId = Guid.NewGuid()
         let original = Work("MyFlow", "MyWork", flowId)
-        let props = SimulationWorkProperties()
-        props.Duration <- Some(TimeSpan.FromSeconds(3.0))
-        original.SetSimulationProperties(props)
+        original.Duration <- Some(TimeSpan.FromSeconds(3.0))
         original.Position <- Some(Xywh(10, 20, 100, 50))
         original.ReferenceOf <- Some(Guid.NewGuid())
         original.TokenRole <- TokenRole.Source
@@ -203,12 +201,12 @@ module DeepCopyTests =
         Assert.Equal("MyFlow.MyWork", copied.Name)
         Assert.Equal(original.ReferenceOf, copied.ReferenceOf)
         Assert.Equal(original.TokenRole, copied.TokenRole)
-        Assert.Equal(original.GetSimulationProperties().Value.Duration, copied.GetSimulationProperties().Value.Duration)
+        Assert.Equal(original.Duration, copied.Duration)
         Assert.True(copied.Position.IsSome)
 
         // 독립성 확인
-        copied.GetSimulationProperties().Value.Duration <- Some(TimeSpan.FromSeconds(9.0))
-        Assert.Equal<TimeSpan option>(Some(TimeSpan.FromSeconds(3.0)), original.GetSimulationProperties().Value.Duration)
+        copied.Duration <- Some(TimeSpan.FromSeconds(9.0))
+        Assert.Equal<TimeSpan option>(Some(TimeSpan.FromSeconds(3.0)), original.Duration)
 
     [<Fact>]
     let ``Work Name property combines FlowPrefix and LocalName`` () =

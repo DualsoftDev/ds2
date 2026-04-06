@@ -85,10 +85,12 @@ module internal PasteDeviceOps =
                             let cloned = ApiDef(src.Name, newSystem.Id)
                             cloned.IsPush <- src.IsPush
                             let work = Work(newFlow.Name, src.Name, newFlow.Id)
-                            // 원본 ApiDef의 TxGuid Work에서 SimulationProperties(Duration 등) 복사
+                            // 원본 ApiDef의 TxGuid Work에서 SimulationProperties와 Duration 복사
                             src.TxGuid
                             |> Option.bind (fun srcWorkId -> Queries.getWork srcWorkId store)
-                            |> Option.iter (fun srcWork -> srcWork.GetSimulationProperties() |> Option.iter (fun p -> work.SetSimulationProperties(p.DeepCopy())))
+                            |> Option.iter (fun srcWork ->
+                                srcWork.GetSimulationProperties() |> Option.iter (fun p -> work.SetSimulationProperties(p.DeepCopy()))
+                                work.Duration <- srcWork.Duration)
                             store.TrackAdd(store.Works, work)
                             createdWorks.Add(work)
                             cloned.TxGuid <- Some work.Id

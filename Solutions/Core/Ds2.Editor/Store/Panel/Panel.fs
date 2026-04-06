@@ -164,7 +164,7 @@ type DsStorePanelTimeExtensions =
     [<Extension>]
     static member GetWorkPeriodMs(store: DsStore, workId: Guid) : int option =
         let resolvedId = Queries.resolveOriginalWorkId workId store
-        PanelTimeOps.readMs Queries.getWork (fun w -> w.GetSimulationProperties() |> Option.bind (fun p -> p.Duration)) EntityKind.Work store resolvedId
+        PanelTimeOps.readMs Queries.getWork (fun w -> w.Duration) EntityKind.Work store resolvedId
 
     [<Extension>]
     static member GetWorkPeriodMsOrNull(store: DsStore, workId: Guid) : Nullable<int> =
@@ -191,15 +191,9 @@ type DsStorePanelTimeExtensions =
             resolvedId
             "Work 속성 변경"
             WorkPropsChanged
-            (fun work -> work.GetSimulationProperties() |> Option.bind (fun p -> p.Duration))
+            (fun work -> work.Duration)
             period
-            (fun work value ->
-                match work.GetSimulationProperties() with
-                | Some props -> props.Duration <- value
-                | None ->
-                    let props = SimulationWorkProperties()
-                    props.Duration <- value
-                    work.SetSimulationProperties(props))
+            (fun work value -> work.Duration <- value)
 
     [<Extension>]
     static member UpdateWorkPeriodMs(store: DsStore, workId: Guid, periodMs: Nullable<int>) =

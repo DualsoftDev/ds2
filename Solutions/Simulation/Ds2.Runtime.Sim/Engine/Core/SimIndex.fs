@@ -216,8 +216,8 @@ module SimIndex =
             (workResetPreds: Map<Guid, Guid list>) =
             let periodSource =
                 match work.ReferenceOf with
-                | Some origId -> Queries.getWork origId store |> Option.bind (fun w -> w.GetSimulationProperties()) |> Option.bind (fun p -> p.Duration)
-                | None -> work.GetSimulationProperties() |> Option.bind (fun p -> p.Duration)
+                | Some origId -> Queries.getWork origId store |> Option.bind (fun w -> w.Duration)
+                | None -> work.Duration
             let userDurationMs =
                 periodSource
                 |> Option.map (fun ts -> ts.TotalMilliseconds)
@@ -487,8 +487,8 @@ module SimIndex =
         | Some work ->
             let periodSource =
                 match work.ReferenceOf with
-                | Some origId -> Queries.getWork origId store |> Option.bind (fun w -> w.GetSimulationProperties()) |> Option.bind (fun p -> p.Duration)
-                | None -> work.GetSimulationProperties() |> Option.bind (fun p -> p.Duration)
+                | Some origId -> Queries.getWork origId store |> Option.bind (fun w -> w.Duration)
+                | None -> work.Duration
             let userDurationMs =
                 periodSource
                 |> Option.map (fun ts -> ts.TotalMilliseconds)
