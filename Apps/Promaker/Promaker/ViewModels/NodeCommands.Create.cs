@@ -58,8 +58,7 @@ public partial class MainViewModel
         if (!GuardSimulationSemanticEdit("Work 추가"))
             return;
 
-        var flowId = ResolveTargetId(EntityKind.Flow, TabKind.Flow)
-                     ?? ResolveFirstFlowInSystemTab();
+        var flowId = ResolveTargetFlowId();
         if (flowId is not { } id)
         {
             StatusText = "Select a Flow or open a System tab that contains a Flow.";
@@ -81,7 +80,10 @@ public partial class MainViewModel
         var basePos = ConsumeAddPosition();
         var siblings = GetSiblingSnapshot(TabKind.Flow, id);
         if (TryCreateSingleWithCascade(() => _store.AddWork(name, id), basePos, siblings.Positions, "Work 추가"))
+        {
+            _lastAddWorkTargetFlowId = id;
             StatusText = $"Work '{name}' added.";
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanAddCall))]

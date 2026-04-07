@@ -209,7 +209,7 @@ public partial class IoBatchSettingsDialog : Window
         foreach (var r in storeRows)
         {
             var row = new IoBatchRow(
-                r.CallId, r.ApiCallId, r.FlowName, r.DeviceName, r.ApiName,
+                r.CallId, r.ApiCallId, r.FlowName, r.WorkName, r.DeviceName, r.ApiName,
                 r.InAddress, r.InSymbol, r.OutAddress, r.OutSymbol,
                 r.OutDataType, r.InDataType);
 

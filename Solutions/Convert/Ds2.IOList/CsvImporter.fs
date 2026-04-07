@@ -13,6 +13,7 @@ module CsvImporter =
         DataType  : string
         Address   : string
         FlowName  : string
+        WorkName  : string   // 9열 구버전 CSV에서는 빈 문자열
         DeviceName: string
         ApiName   : string
         Direction : string   // "Input" | "Output"
@@ -58,8 +59,8 @@ module CsvImporter =
         | -1 -> callName
         | idx -> callName.Substring(idx + 1)
 
-    /// CSV 파일 텍스트를 줄 배열로 변환 (다른 프로세스가 파일을 열고 있어도 읽기 가능)
-    let private readLines (filePath: string) =
+    /// CSV 파일 텍스트를 trim된 줄 배열로 변환 (빈 줄 제거)
+    let private readLines (filePath: string) : string array =
         let text =
             use fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete)
             use sr = new StreamReader(fs, Encoding.UTF8)
@@ -81,6 +82,7 @@ module CsvImporter =
                         DataType   = fields.[1]
                         Address    = fields.[2]
                         FlowName   = fields.[5]
+                        WorkName   = fields.[6]
                         DeviceName = fields.[8]
                         ApiName    = extractApiName fields.[7]
                         Direction  = direction
@@ -90,8 +92,8 @@ module CsvImporter =
         |> Array.toList
 
     /// 9열/10열 양식 파싱
-    /// 9열: Flow,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress
-    /// 10열: Flow,Work,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress
+    /// 9열: Flow,Device,Api,OutTag,OutDataType,OutAddress,InTag,InDataType,InAddress
+    /// 10열: Flow,Work,Device,Api,OutTag,OutDataType,OutAddress,InTag,InDataType,InAddress
     let private parseTemplate (hasWork: bool) (lines: string array) : IoImportRow list =
         let offset = if hasWork then 1 else 0
         lines
@@ -99,6 +101,7 @@ module CsvImporter =
             let fields = parseFields line
             if fields.Length >= 3 + offset then
                 let flow = fields.[0]
+                let work = if hasWork then fields.[1] else ""
                 let device = fields.[1 + offset]
                 let api = fields.[2 + offset]
                 let outSymbol   = if fields.Length >= 4 + offset then fields.[3 + offset] else ""
@@ -110,10 +113,10 @@ module CsvImporter =
 
                 [|  if inAddress <> "" && inAddress <> "-" then
                         yield { VarName = inSymbol; DataType = inDataType; Address = inAddress
-                                FlowName = flow; DeviceName = device; ApiName = api; Direction = "Input" }
+                                FlowName = flow; WorkName = work; DeviceName = device; ApiName = api; Direction = "Input" }
                     if outAddress <> "" && outAddress <> "-" then
                         yield { VarName = outSymbol; DataType = outDataType; Address = outAddress
-                                FlowName = flow; DeviceName = device; ApiName = api; Direction = "Output" }
+                                FlowName = flow; WorkName = work; DeviceName = device; ApiName = api; Direction = "Output" }
                 |]
             else [||])
         |> Array.toList
@@ -134,6 +137,6 @@ module CsvImporter =
                     let hasWork = header.Contains("work")
                     Ok (parseTemplate hasWork dataLines)
                 else
-                    Error "CSV 헤더를 인식할 수 없습니다.\n\n지원 형식:\n- 양식: Flow,Work,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress\n- 양식(구버전): Flow,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress\n- Extended: var_name,...,direction,comment (11열)"
+                    Error "CSV 헤더를 인식할 수 없습니다.\n\n지원 형식:\n- 양식: Flow,Work,Device,Api,OutTag,OutDataType,OutAddress,InTag,InDataType,InAddress\n- 양식(구버전): Flow,Device,Api,OutTag,OutDataType,OutAddress,InTag,InDataType,InAddress\n- Extended: var_name,...,direction,comment (11열)"
         with ex ->
             Error $"CSV 파일 읽기 실패: {ex.Message}"

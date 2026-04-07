@@ -80,10 +80,13 @@ public partial class SimulationPanelState
 
         foreach (var canvasNode in _allCanvasNodes())
         {
-            if (canvasNode.Id == nodeGuid)
+            if (GetSimulationStateTargetId(canvasNode) == nodeGuid)
                 canvasNode.SimState = newState;
         }
     }
+
+    private static Guid GetSimulationStateTargetId(EntityNode node) =>
+        node.ReferenceOfId ?? node.Id;
 
     private void ApplySimStateToCanvas()
     {
@@ -124,7 +127,7 @@ public partial class SimulationPanelState
     {
         foreach (var canvasNode in _allCanvasNodes())
         {
-            if (canvasNode.Id == nodeGuid)
+            if (GetSimulationStateTargetId(canvasNode) == nodeGuid)
                 canvasNode.IsSimSkipped = isSkipped;
         }
     }
@@ -161,13 +164,14 @@ public partial class SimulationPanelState
         var skippedCalls = _simEngine.State.SkippedCalls;
         foreach (var node in _allCanvasNodes())
         {
-            var cached = _stateCache.TryGet(node.Id);
+            var targetId = GetSimulationStateTargetId(node);
+            var cached = _stateCache.TryGet(targetId);
             if (cached is not null)
                 node.SimState = cached.Value;
 
-            node.IsSimSkipped = skippedCalls.Contains(node.Id);
+            node.IsSimSkipped = skippedCalls.Contains(targetId);
 
-            var tokenOpt = _simEngine.GetWorkToken(node.Id);
+            var tokenOpt = _simEngine.GetWorkToken(targetId);
             if (tokenOpt is not null)
                 node.SimTokenDisplay = FormatTokenDisplay(tokenOpt.Value);
         }
