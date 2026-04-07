@@ -596,6 +596,18 @@
     fill: var(--gantt-gap-text);
 }
 
+::deep .gantt-gap-label-bg {
+    fill: rgba(255, 255, 255, 0.92);
+    stroke: var(--gantt-gap-text);
+    stroke-width: 1.5;
+}
+
+::deep .gantt-ct-label-bg {
+    fill: rgba(255, 255, 255, 0.92);
+    stroke: var(--gantt-ct-text, #2E7D32);
+    stroke-width: 1.5;
+}
+
 ::deep .gantt-cycletime-overlay {
     fill: var(--gantt-ct-fill);
     stroke: var(--gantt-ct-stroke);

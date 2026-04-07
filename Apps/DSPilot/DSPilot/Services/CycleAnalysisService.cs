@@ -1016,7 +1016,10 @@ public class CycleAnalysisService
                         State = CallState.Completed
                     });
 
-                    previousEndTime = endTime;
+                    // 병렬 실행 시 previousEndTime이 역전되지 않도록 Max 사용
+                    previousEndTime = previousEndTime.HasValue && previousEndTime.Value > endTime
+                        ? previousEndTime
+                        : endTime;
                     callStarts.Remove(evt.CallId);
                 }
             }

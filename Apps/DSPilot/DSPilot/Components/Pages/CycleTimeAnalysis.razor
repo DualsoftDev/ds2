@@ -131,7 +131,7 @@
                         @for (int i = 0; i < _topGaps.Count; i++)
                         {
                             var gap = _topGaps[i];
-                            var label = $"#{i + 1}: {(gap.Duration / 1000.0):F2}s | {gap.Start:HH:mm:ss} ~ {gap.End:HH:mm:ss}";
+                            var label = $"#{i + 1}: {(gap.Duration / 1000.0):F2}s | {gap.LaneName} | {gap.Start:HH:mm:ss} ~ {gap.End:HH:mm:ss}";
                             <option value="@i">@label</option>
                         }
                     }
@@ -257,8 +257,8 @@
     private GanttChartItem? _comparisonItem;
     private GanttChartItem? _previousItem;
     private GanttChartItem? _nextItem;
-    private (DateTime Start, DateTime End, double Duration)? _longestGap;
-    private List<(DateTime Start, DateTime End, double Duration)> _topGaps = new();
+    private (DateTime Start, DateTime End, double Duration, int Lane, string LaneName)? _longestGap;
+    private List<(DateTime Start, DateTime End, double Duration, int Lane, string LaneName)> _topGaps = new();
     private int _selectedGapIndex = 0;
     private double? _comparisonGap;
     private double? _previousGap;
@@ -521,21 +521,33 @@
             return;
 
         var sortedItems = GetSortedItemsForGapAnalysis();
-        var allGaps = new List<(DateTime Start, DateTime End, double Duration)>();
+        var allGaps = new List<(DateTime Start, DateTime End, double Duration, int Lane, string LaneName)>();
 
-        for (int i = 0; i < sortedItems.Count - 1; i++)
+        // Lane별로 그룹화하여 같은 Lane 내에서만 gap 계산 (병렬 실행 Lane 간 overlap 제외)
+        var laneGroups = sortedItems.GroupBy(i => i.Lane);
+
+        foreach (var group in laneGroups)
         {
-            var current = sortedItems[i];
-            var next = sortedItems[i + 1];
+            var lane = group.Key;
+            var laneName = lane >= 0 && lane < _ganttData.LaneLabels.Count
+                ? _ganttData.LaneLabels[lane]
+                : $"Lane {lane}";
+            var laneItems = group.OrderBy(i => i.GoingStartTime).ToList();
 
-            var currentEnd = current.FinishTime ?? current.GoingStartTime;
-            var nextStart = next.GoingStartTime;
-
-            var gapDuration = (nextStart - currentEnd).TotalMilliseconds;
-
-            if (gapDuration > 0)
+            for (int i = 0; i < laneItems.Count - 1; i++)
             {
-                allGaps.Add((currentEnd, nextStart, gapDuration));
+                var current = laneItems[i];
+                var next = laneItems[i + 1];
+
+                var currentEnd = current.FinishTime ?? current.GoingStartTime;
+                var nextStart = next.GoingStartTime;
+
+                var gapDuration = (nextStart - currentEnd).TotalMilliseconds;
+
+                if (gapDuration > 0 && !OverlapsIdleRegion(currentEnd, nextStart))
+                {
+                    allGaps.Add((currentEnd, nextStart, gapDuration, lane, laneName));
+                }
             }
         }
 
@@ -549,6 +561,16 @@
         {
             _longestGap = _topGaps[0];
         }
+    }
+
+    private bool OverlapsIdleRegion(DateTime gapStart, DateTime gapEnd)
+    {
+        foreach (var (idleStart, idleEnd) in _idleRegions)
+        {
+            if (gapStart < idleEnd && gapEnd > idleStart)
+                return true;
+        }
+        return false;
     }
 
     private Task OnGapSelected()
@@ -763,34 +785,32 @@
     {
         _previousGap = null;
         _nextGap = null;
+        _previousItem = null;
+        _nextItem = null;
 
         if (_ganttData == null) return;
 
-        var sortedItems = GetSortedItemsForGapAnalysis();
-        var index = sortedItems.FindIndex(i => i == item);
+        // 같은 Lane 내에서만 이전/다음 아이템을 찾아 gap 계산 (병렬 Lane 간 무의미한 gap 제외)
+        var sameLaneItems = _ganttData.Items
+            .Where(i => i.Lane == item.Lane)
+            .OrderBy(i => i.GoingStartTime)
+            .ToList();
 
+        var index = sameLaneItems.FindIndex(i => i == item);
         if (index == -1) return;
 
         if (index > 0)
         {
-            _previousItem = sortedItems[index - 1];
+            _previousItem = sameLaneItems[index - 1];
             var prevEnd = _previousItem.FinishTime ?? _previousItem.GoingStartTime;
             _previousGap = (item.GoingStartTime - prevEnd).TotalMilliseconds;
         }
-        else
-        {
-            _previousItem = null;
-        }
 
-        if (index < sortedItems.Count - 1)
+        if (index < sameLaneItems.Count - 1)
         {
-            _nextItem = sortedItems[index + 1];
+            _nextItem = sameLaneItems[index + 1];
             var currentEnd = item.FinishTime ?? item.GoingStartTime;
             _nextGap = (_nextItem.GoingStartTime - currentEnd).TotalMilliseconds;
-        }
-        else
-        {
-            _nextItem = null;
         }
     }
 
@@ -1004,41 +1024,31 @@
             builder.CloseElement();
         }
 
-        // Longest GAP visualization
+        // Longest GAP 배경 오버레이 (해당 Lane 영역만)
         if (_showGapOverlay && _longestGap.HasValue)
         {
             var gapStart = _longestGap.Value.Start;
             var gapEnd = _longestGap.Value.End;
+            var gapLane = _longestGap.Value.Lane;
             var gapX = leftMargin + ((gapStart - chartStartTime).TotalMilliseconds * xScale);
             var gapWidth = (gapEnd - gapStart).TotalMilliseconds * xScale;
+            var gapY = topMargin + (gapLane * laneHeight);
 
             builder.OpenElement(40, "rect");
             builder.AddAttribute(41, "class", "gantt-gap-overlay");
             builder.AddAttribute(42, "x", gapX);
-            builder.AddAttribute(43, "y", topMargin);
+            builder.AddAttribute(43, "y", gapY);
             builder.AddAttribute(44, "width", gapWidth);
-            builder.AddAttribute(45, "height", data.TotalLanes * laneHeight);
+            builder.AddAttribute(45, "height", laneHeight);
             builder.AddAttribute(49, "stroke-dasharray", "5,5");
-            builder.CloseElement();
-
-            // GAP label
-            builder.OpenElement(50, "text");
-            builder.AddAttribute(51, "class", "gantt-gap-text");
-            builder.AddAttribute(52, "x", gapX + (gapWidth / 2));
-            builder.AddAttribute(53, "y", topMargin - 10);
-            builder.AddAttribute(54, "text-anchor", "middle");
-            builder.AddAttribute(55, "font-size", "11");
-            builder.AddAttribute(56, "font-weight", "bold");
-            builder.AddContent(58, $"최대 GAP: {(_longestGap.Value.Duration / 1000.0):F2}s");
             builder.CloseElement();
         }
 
-        // Cycle Time 구간 오버레이 (A→B 비교 선택 시 자동 표시)
+        // Cycle Time 배경 오버레이 (A→B 비교 선택 시 자동 표시)
         if (_showCycleTimeOverlay && _selectedItem != null && _comparisonItem != null)
         {
             var itemA = _selectedItem;
             var itemB = _comparisonItem;
-            // 시간순 정렬 (왼쪽 기준)
             if (itemA.GoingStartTime > itemB.GoingStartTime)
             {
                 (itemA, itemB) = (itemB, itemA);
@@ -1046,9 +1056,7 @@
 
             var ctX = leftMargin + ((itemA.GoingStartTime - chartStartTime).TotalMilliseconds * xScale);
             var ctWidth = Math.Max(2, (itemB.GoingStartTime - itemA.GoingStartTime).TotalMilliseconds * xScale);
-            var ctDuration = (itemB.GoingStartTime - itemA.GoingStartTime).TotalMilliseconds;
 
-            // 반투명 녹색 오버레이
             builder.OpenElement(100, "rect");
             builder.AddAttribute(101, "class", "gantt-cycletime-overlay");
             builder.AddAttribute(102, "x", ctX);
@@ -1058,7 +1066,6 @@
             builder.AddAttribute(109, "stroke-dasharray", "6,3");
             builder.CloseElement();
 
-            // 시작 경계선
             builder.OpenElement(110, "line");
             builder.AddAttribute(111, "class", "gantt-cycletime-start");
             builder.AddAttribute(112, "x1", ctX);
@@ -1067,7 +1074,6 @@
             builder.AddAttribute(115, "y2", topMargin + (data.TotalLanes * laneHeight));
             builder.CloseElement();
 
-            // 종료 경계선
             var ctEndX = ctX + ctWidth;
             builder.OpenElement(120, "line");
             builder.AddAttribute(121, "class", "gantt-cycletime-end");
@@ -1075,17 +1081,6 @@
             builder.AddAttribute(123, "y1", topMargin);
             builder.AddAttribute(124, "x2", ctEndX);
             builder.AddAttribute(125, "y2", topMargin + (data.TotalLanes * laneHeight));
-            builder.CloseElement();
-
-            // Cycle Time 라벨
-            builder.OpenElement(130, "text");
-            builder.AddAttribute(131, "class", "gantt-cycletime-text");
-            builder.AddAttribute(132, "x", ctX + (ctWidth / 2));
-            builder.AddAttribute(133, "y", topMargin - 25);
-            builder.AddAttribute(134, "text-anchor", "middle");
-            builder.AddAttribute(135, "font-size", "12");
-            builder.AddAttribute(136, "font-weight", "bold");
-            builder.AddContent(138, $"Cycle Time: {(ctDuration / 1000.0):F2}s");
             builder.CloseElement();
         }
 
@@ -1234,6 +1229,91 @@
                 builder.AddContent(6, "비가동");
                 builder.CloseElement();
             }
+        }
+
+        // GAP/Cycle Time 텍스트 라벨 (gantt bars 위에 렌더링하여 잘림 방지)
+        if (_showGapOverlay && _longestGap.HasValue)
+        {
+            var gapStart = _longestGap.Value.Start;
+            var gapEnd = _longestGap.Value.End;
+            var gapLane = _longestGap.Value.Lane;
+            var gapX = leftMargin + ((gapStart - chartStartTime).TotalMilliseconds * xScale);
+            var gapWidth = (gapEnd - gapStart).TotalMilliseconds * xScale;
+            var gapY = topMargin + (gapLane * laneHeight);
+            var gapLabel = $"{_longestGap.Value.LaneName} GAP: {(_longestGap.Value.Duration / 1000.0):F2}s";
+
+            var gapFontSize = 13;
+            var gapTextWidth = gapLabel.Length * (gapFontSize * 0.62);
+            var gapPadX = 6.0;
+            var gapPadY = 4.0;
+            var gapBgW = gapTextWidth + (gapPadX * 2);
+            var gapBgH = gapFontSize + (gapPadY * 2);
+            var gapCenterX = gapX + (gapWidth / 2);
+            var gapCenterY = gapY + (laneHeight / 2);
+
+            builder.OpenElement(0, "rect");
+            builder.AddAttribute(1, "class", "gantt-gap-label-bg");
+            builder.AddAttribute(2, "x", gapCenterX - (gapBgW / 2));
+            builder.AddAttribute(3, "y", gapCenterY - (gapBgH / 2));
+            builder.AddAttribute(4, "width", gapBgW);
+            builder.AddAttribute(5, "height", gapBgH);
+            builder.AddAttribute(6, "rx", 4);
+            builder.CloseElement();
+
+            builder.OpenElement(50, "text");
+            builder.AddAttribute(51, "class", "gantt-gap-text");
+            builder.AddAttribute(52, "x", gapCenterX);
+            builder.AddAttribute(53, "y", gapCenterY);
+            builder.AddAttribute(54, "text-anchor", "middle");
+            builder.AddAttribute(55, "dominant-baseline", "central");
+            builder.AddAttribute(56, "font-size", gapFontSize);
+            builder.AddAttribute(57, "font-weight", "bold");
+            builder.AddContent(58, gapLabel);
+            builder.CloseElement();
+        }
+
+        if (_showCycleTimeOverlay && _selectedItem != null && _comparisonItem != null)
+        {
+            var itemA = _selectedItem;
+            var itemB = _comparisonItem;
+            if (itemA.GoingStartTime > itemB.GoingStartTime)
+            {
+                (itemA, itemB) = (itemB, itemA);
+            }
+
+            var ctX = leftMargin + ((itemA.GoingStartTime - chartStartTime).TotalMilliseconds * xScale);
+            var ctWidth = Math.Max(2, (itemB.GoingStartTime - itemA.GoingStartTime).TotalMilliseconds * xScale);
+            var ctDuration = (itemB.GoingStartTime - itemA.GoingStartTime).TotalMilliseconds;
+            var ctLabel = $"Δ {(ctDuration / 1000.0):F2}s";
+
+            var ctFontSize = 13;
+            var ctTextWidth = ctLabel.Length * (ctFontSize * 0.65);
+            var ctPadX = 6.0;
+            var ctPadY = 4.0;
+            var ctBgW = ctTextWidth + (ctPadX * 2);
+            var ctBgH = ctFontSize + (ctPadY * 2);
+            var ctCenterX = ctX + (ctWidth / 2);
+            var ctCenterY = topMargin - 20.0;
+
+            builder.OpenElement(0, "rect");
+            builder.AddAttribute(1, "class", "gantt-ct-label-bg");
+            builder.AddAttribute(2, "x", ctCenterX - (ctBgW / 2));
+            builder.AddAttribute(3, "y", ctCenterY - (ctBgH / 2));
+            builder.AddAttribute(4, "width", ctBgW);
+            builder.AddAttribute(5, "height", ctBgH);
+            builder.AddAttribute(6, "rx", 4);
+            builder.CloseElement();
+
+            builder.OpenElement(130, "text");
+            builder.AddAttribute(131, "class", "gantt-cycletime-text");
+            builder.AddAttribute(132, "x", ctCenterX);
+            builder.AddAttribute(133, "y", ctCenterY);
+            builder.AddAttribute(134, "text-anchor", "middle");
+            builder.AddAttribute(135, "dominant-baseline", "central");
+            builder.AddAttribute(136, "font-size", ctFontSize);
+            builder.AddAttribute(137, "font-weight", "bold");
+            builder.AddContent(138, ctLabel);
+            builder.CloseElement();
         }
 
         builder.CloseElement(); // svg

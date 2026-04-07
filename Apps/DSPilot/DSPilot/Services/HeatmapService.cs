@@ -328,37 +328,42 @@ public class HeatmapService
         var inTagEdges = await _plcRepository.FindRisingEdgesAsync(inTag, startTime, endTime);
         var outTagEdges = await _plcRepository.FindRisingEdgesAsync(outTag, startTime, endTime);
 
-        // InTag↔OutTag 순서 매칭 → GoingTime 계산
-        int outIndex = 0;
+        // OutTag Rising(동작 시작) → InTag Rising(동작 종료) 순서로 매칭하여 GoingTime 계산
+        int inIndex = 0;
         int executionNumber = 0;
         var maxGoingTime = _settingsService.LoadSettings().HistoryView.MaxCallGoingTimeMs;
 
-        foreach (var inTime in inTagEdges)
+        foreach (var outTime in outTagEdges)
         {
-            while (outIndex < outTagEdges.Count && outTagEdges[outIndex] <= inTime)
+            while (inIndex < inTagEdges.Count && inTagEdges[inIndex] <= outTime)
             {
-                outIndex++;
+                inIndex++;
             }
 
-            if (outIndex >= outTagEdges.Count)
+            if (inIndex >= inTagEdges.Count)
                 break;
 
-            var outTime = outTagEdges[outIndex];
-            var goingTimeMs = (int)(outTime - inTime).TotalMilliseconds;
+            var inTime = inTagEdges[inIndex];
+            var goingTimeMs = (int)(inTime - outTime).TotalMilliseconds;
 
-            // 비정상적으로 긴 시간 필터링 (설정값 초과 시 제외)
-            if (goingTimeMs > 0 && goingTimeMs < maxGoingTime)
+            // MaxCallGoingTimeMs 초과 시 InTag 누락으로 판단 → OutTag를 스킵하고 InTag는 유지하여 재매칭
+            if (goingTimeMs > maxGoingTime)
+            {
+                continue;
+            }
+
+            if (goingTimeMs > 0)
             {
                 executionNumber++;
                 records.Add(new CallExecutionRecord
                 {
                     ExecutionNumber = executionNumber,
-                    Timestamp = inTime,
+                    Timestamp = outTime,
                     GoingTimeMs = goingTimeMs
                 });
             }
 
-            outIndex++;
+            inIndex++;
         }
 
         // Cycles 모드: 최근 N개만 유지
