@@ -221,49 +221,114 @@ public partial class IoBatchSettingsDialog
     private static string EscapeCsvField(string value) =>
         BatchDialogHelper.EscapeCsvField(value);
 
-    private static int ApplyImportedRows(
-        IEnumerable<IoBatchRow> targetRows,
+    /// <summary>
+    /// CSV import 적용 결과. 프로젝트 관점으로 미적용 행을 추적한다.
+    /// UnmatchedTargetRows는 import 후에도 CSV로 한 번도 touched 되지 않은 IoBatchRow.
+    /// </summary>
+    private sealed record ImportApplyResult(
+        int TotalTargetRows,
+        int AppliedTargetRows,
+        int TargetCellsUpdated,
+        IReadOnlyList<IoBatchRow> UnmatchedTargetRows);
+
+    private static ImportApplyResult ApplyImportedRows(
+        IReadOnlyCollection<IoBatchRow> targetRows,
         IEnumerable<CsvImporter.IoImportRow> importRows)
     {
-        var rowMap = targetRows.ToDictionary(
-            row => BuildImportKey(row.Flow, row.Device, row.Api),
+        // 같은 (Flow, Device, Api)를 호출하는 Work가 둘 이상이면 키가 중복되므로
+        // ToDictionary 대신 ToLookup으로 fan-out을 허용한다.
+        // 정확 매칭용: (Flow, Work, Device, Api) — Work까지 일치하는 행만
+        // Fallback 매칭용: (Flow, "", Device, Api) — import에 Work 정보가 없을 때
+        //   같은 (Flow, Device, Api)를 가진 모든 Work에 fan-out 적용
+        var exactMap = targetRows.ToLookup(
+            row => BuildImportKey(row.Flow, row.Work, row.Device, row.Api),
+            StringComparer.OrdinalIgnoreCase);
+        var fanoutMap = targetRows.ToLookup(
+            row => BuildImportKey(row.Flow, string.Empty, row.Device, row.Api),
             StringComparer.OrdinalIgnoreCase);
 
-        var matched = 0;
+        // 프로젝트 관점 미적용 추적: 한 번이라도 In/Out 셀이 CSV로 업데이트된 IoBatchRow를 기록
+        var matchedTargetRows = new HashSet<IoBatchRow>();
+        var targetCellsUpdated = 0;
+
         foreach (var importRow in importRows)
         {
-            if (!rowMap.TryGetValue(BuildImportKey(importRow.FlowName, importRow.DeviceName, importRow.ApiName), out var target))
-                continue;
-
-            if (string.Equals(importRow.Direction, "Output", StringComparison.OrdinalIgnoreCase))
+            IEnumerable<IoBatchRow> targets;
+            if (!string.IsNullOrEmpty(importRow.WorkName))
             {
-                if (!string.IsNullOrEmpty(importRow.Address))
-                    target.OutAddress = importRow.Address;
-                if (!string.IsNullOrEmpty(importRow.VarName))
-                    target.OutSymbol = importRow.VarName;
-                if (!string.IsNullOrEmpty(importRow.DataType))
-                    target.OutDataType = importRow.DataType;
-                matched++;
-                continue;
+                var exactKey = BuildImportKey(importRow.FlowName, importRow.WorkName, importRow.DeviceName, importRow.ApiName);
+                targets = exactMap.Contains(exactKey) ? exactMap[exactKey] : Array.Empty<IoBatchRow>();
+            }
+            else
+            {
+                var fanoutKey = BuildImportKey(importRow.FlowName, string.Empty, importRow.DeviceName, importRow.ApiName);
+                targets = fanoutMap.Contains(fanoutKey) ? fanoutMap[fanoutKey] : Array.Empty<IoBatchRow>();
             }
 
-            if (!string.Equals(importRow.Direction, "Input", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (!string.IsNullOrEmpty(importRow.Address))
-                target.InAddress = importRow.Address;
-            if (!string.IsNullOrEmpty(importRow.VarName))
-                target.InSymbol = importRow.VarName;
-            if (!string.IsNullOrEmpty(importRow.DataType))
-                target.InDataType = importRow.DataType;
-            matched++;
+            foreach (var target in targets)
+            {
+                if (string.Equals(importRow.Direction, "Output", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!string.IsNullOrEmpty(importRow.Address))
+                        target.OutAddress = importRow.Address;
+                    if (!string.IsNullOrEmpty(importRow.VarName))
+                        target.OutSymbol = importRow.VarName;
+                    if (!string.IsNullOrEmpty(importRow.DataType))
+                        target.OutDataType = importRow.DataType;
+                    targetCellsUpdated++;
+                    matchedTargetRows.Add(target);
+                }
+                else if (string.Equals(importRow.Direction, "Input", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!string.IsNullOrEmpty(importRow.Address))
+                        target.InAddress = importRow.Address;
+                    if (!string.IsNullOrEmpty(importRow.VarName))
+                        target.InSymbol = importRow.VarName;
+                    if (!string.IsNullOrEmpty(importRow.DataType))
+                        target.InDataType = importRow.DataType;
+                    targetCellsUpdated++;
+                    matchedTargetRows.Add(target);
+                }
+            }
         }
 
-        return matched;
+        var unmatchedTargets = targetRows
+            .Where(row => !matchedTargetRows.Contains(row))
+            .ToList();
+
+        return new ImportApplyResult(
+            targetRows.Count,
+            matchedTargetRows.Count,
+            targetCellsUpdated,
+            unmatchedTargets);
     }
 
-    private static string BuildImportKey(string flow, string device, string api) =>
-        string.Join("\u001F", flow, device, api);
+    private static string BuildImportKey(string flow, string work, string device, string api) =>
+        string.Join("\u001F", flow, work, device, api);
+
+    /// <summary>
+    /// 프로젝트 관점에서 CSV에 매칭되지 않은 IoBatchRow 목록을 메시지박스 본문으로 포맷.
+    /// 처음 N건만 (Flow/Work/Device.Api) 키로 나열하고 나머지는 "외 K건"으로 요약.
+    /// </summary>
+    private static string FormatUnmatchedTargetRows(IReadOnlyList<IoBatchRow> unmatched, int previewLimit = 10)
+    {
+        if (unmatched.Count == 0)
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine("프로젝트에서 CSV에 매칭되지 않은 행:");
+        var preview = Math.Min(unmatched.Count, previewLimit);
+        for (var i = 0; i < preview; i++)
+        {
+            var r = unmatched[i];
+            var workPart = string.IsNullOrEmpty(r.Work) ? "" : $"/{r.Work}";
+            sb.AppendLine($"  · {r.Flow}{workPart}/{r.Device}.{r.Api}");
+        }
+        if (unmatched.Count > preview)
+            sb.AppendLine($"  … 외 {unmatched.Count - preview}건");
+        return sb.ToString();
+    }
 
     private void ExportCsv_Click(object sender, RoutedEventArgs e)
     {
@@ -288,7 +353,7 @@ public partial class IoBatchSettingsDialog
             return;
 
         var sb = new StringBuilder();
-        sb.AppendLine("Flow,Work,Device,Api,OutSymbol,OutDataType,OutAddress,InSymbol,InDataType,InAddress");
+        sb.AppendLine("Flow,Work,Device,Api,OutTag,OutDataType,OutAddress,InTag,InDataType,InAddress");
         foreach (var row in _rows)
         {
             sb.AppendLine(string.Join(",",
@@ -337,23 +402,39 @@ public partial class IoBatchSettingsDialog
         if (picker.ShowDialog(this) != true)
             return;
 
-        var result = Ds2.IOList.CsvImporter.parseIoCsv(picker.FileName);
-        if (result.IsError)
+        try
         {
-            DialogHelpers.ShowThemedMessageBox(result.ErrorValue, "CSV Import 오류", MessageBoxButton.OK, "⚠");
-            return;
+            var result = Ds2.IOList.CsvImporter.parseIoCsv(picker.FileName);
+            if (result.IsError)
+            {
+                DialogHelpers.ShowThemedMessageBox(result.ErrorValue, "CSV Import 오류", MessageBoxButton.OK, "⚠");
+                return;
+            }
+
+            var importRows = Microsoft.FSharp.Collections.ListModule.ToArray(result.ResultValue);
+            if (importRows.Length == 0)
+            {
+                DialogHelpers.ShowThemedMessageBox("가져올 데이터가 없습니다.", "CSV Import", MessageBoxButton.OK, "⚠");
+                return;
+            }
+
+            var applyResult = ApplyImportedRows(_rows, importRows);
+
+            RefreshApplyButtonState();
+            var unmatchedDetails = FormatUnmatchedTargetRows(applyResult.UnmatchedTargetRows);
+            var icon = applyResult.UnmatchedTargetRows.Count > 0 ? "⚠" : "✓";
+            DialogHelpers.ShowThemedMessageBox(
+                $"CSV 가져오기 완료:\n\n" +
+                $"- 프로젝트 전체 행: {applyResult.TotalTargetRows}건\n" +
+                $"- 적용된 행: {applyResult.AppliedTargetRows}건\n" +
+                $"- 미적용 행: {applyResult.UnmatchedTargetRows.Count}건" +
+                unmatchedDetails,
+                "CSV Import", MessageBoxButton.OK, icon);
         }
-
-        var importRows = Microsoft.FSharp.Collections.ListModule.ToArray(result.ResultValue);
-        if (importRows.Length == 0)
-            return;
-
-        var matched = ApplyImportedRows(_rows, importRows);
-
-        RefreshApplyButtonState();
-        var total = importRows.Length;
-        DialogHelpers.ShowThemedMessageBox(
-            $"CSV 가져오기 완료:\n\n- 전체: {total}건\n- 매칭: {matched}건\n- 미매칭: {total - matched}건",
-            "CSV Import", MessageBoxButton.OK, "✓");
+        catch (Exception ex)
+        {
+            DialogHelpers.ShowThemedMessageBox(
+                $"CSV 가져오기 중 오류:\n{ex.Message}", "CSV Import 오류", MessageBoxButton.OK, "⚠");
+        }
     }
 }

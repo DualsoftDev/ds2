@@ -404,6 +404,46 @@ public sealed class SimulationPanelStateTests
         });
     }
 
+    [Fact]
+    public void Work_state_change_updates_reference_nodes_on_canvas()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var workId = Guid.NewGuid();
+            var referenceWorkId = Guid.NewGuid();
+            var canvasNodes = new ObservableCollection<EntityNode>
+            {
+                new(workId, EntityKind.Work, "Origin"),
+                new(referenceWorkId, EntityKind.Work, "Ref")
+                {
+                    IsReference = true,
+                    ReferenceOfId = workId
+                }
+            };
+
+            var state = new SimulationPanelState(
+                () => new DsStore(),
+                Dispatcher.CurrentDispatcher,
+                () => canvasNodes,
+                Enumerable.Empty<EntityNode>,
+                _ => { });
+
+            var onWorkStateChanged = typeof(SimulationPanelState).GetMethod(
+                "OnWorkStateChanged",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+            onWorkStateChanged.Invoke(state, [new WorkStateChangedArgs(
+                workId,
+                "Origin",
+                Status4.Ready,
+                Status4.Going,
+                TimeSpan.Zero)]);
+
+            Assert.Equal(Status4.Going, canvasNodes.Single(node => node.Id == workId).SimState);
+            Assert.Equal(Status4.Going, canvasNodes.Single(node => node.Id == referenceWorkId).SimState);
+        });
+    }
+
 
     private static SimulationPanelState CreateState(Func<DsStore>? storeProvider = null) =>
         new(

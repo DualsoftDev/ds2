@@ -431,6 +431,7 @@ public partial class MainViewModel : ObservableObject
         CanvasManager.Reset();
         _rebuildQueued = false;
         _pendingRebuildActions.Clear();
+        _lastAddWorkTargetFlowId = null;
         SelectedNode = null;
         SelectedArrow = null;
 

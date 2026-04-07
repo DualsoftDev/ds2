@@ -16,6 +16,10 @@ public partial class MainViewModel
         public static SiblingSnapshot Empty { get; } = new([], []);
     }
 
+    /// AddWork가 마지막으로 사용한 target Flow ID — System 탭 캔버스에서 selection이 빈 상태로
+    /// 연속 추가될 때 같은 Flow에 머무르도록 하는 fallback. Reset()에서 초기화.
+    private Guid? _lastAddWorkTargetFlowId;
+
     private bool CanAddSystem()
     {
         if (!HasProject) return false;
@@ -300,6 +304,40 @@ public partial class MainViewModel
         if (Canvas.ActiveTab is not { Kind: TabKind.System } tab) return null;
         var flows = Queries.flowsOf(tab.RootId, _store);
         return flows.IsEmpty ? null : (Guid?)flows.Head.Id;
+    }
+
+    /// AddWork 전용: 현재 컨텍스트에 어울리는 Flow ID 결정.
+    /// CanAddWork가 Work/Call/ApiCall 선택을 차단하므로 여기에 도달하는 selection은
+    /// Flow / System / null뿐 — Flow는 직접 채택, System은 ActiveTab fallback에 위임.
+    private Guid? ResolveTargetFlowId()
+    {
+        if (SelectedNode is { EntityType: EntityKind.Flow, Id: var flowId }
+            && IsFlowInActiveTab(flowId))
+            return flowId;
+
+        // 마지막 사용 Flow가 여전히 유효하고 ActiveTab 컨텍스트 안이면 그것에 머무름
+        if (_lastAddWorkTargetFlowId is { } lastId
+            && Queries.getFlow(lastId, _store) is not null
+            && IsFlowInActiveTab(lastId))
+            return lastId;
+
+        if (Canvas.ActiveTab is { Kind: TabKind.Flow } flowTab)
+            return flowTab.RootId;
+
+        return ResolveFirstFlowInSystemTab();
+    }
+
+    /// 주어진 Flow가 현재 ActiveTab의 컨텍스트(Flow 탭이면 자기 자신, System 탭이면 그 System 내부)에 속하는지 확인.
+    /// ActiveTab이 없거나 다른 종류면 통과(가드 비활성).
+    private bool IsFlowInActiveTab(Guid flowId)
+    {
+        if (Canvas.ActiveTab is not { } tab) return true;
+        return tab.Kind switch
+        {
+            TabKind.Flow   => tab.RootId == flowId,
+            TabKind.System => Queries.flowsOf(tab.RootId, _store).Any(f => f.Id == flowId),
+            _              => true
+        };
     }
 
     private (EntityKind EntityType, Guid EntityId)? ResolvePasteTarget()
