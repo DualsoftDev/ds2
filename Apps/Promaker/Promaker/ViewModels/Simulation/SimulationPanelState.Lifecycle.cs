@@ -4,8 +4,8 @@ using System.Linq;
 using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.Runtime.Sim.Engine;
-using Ds2.Runtime.Sim.Engine.Core;
+using Ds2.Runtime.Engine;
+using Ds2.Runtime.Engine.Core;
 using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
@@ -88,7 +88,7 @@ public partial class SimulationPanelState
 
             if (!TryDisposeCurrentEngine("Simulation restart"))
                 return;
-            _simEngine = new EventDrivenEngine(index);
+            _simEngine = new EventDrivenEngine(index, RuntimeMode.Simulation);
             AdvanceSimUiGeneration();
 
             WireSimEvents();

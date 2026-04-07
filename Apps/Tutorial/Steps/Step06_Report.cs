@@ -17,11 +17,11 @@
 // ============================================================================
 
 using Ds2.Core;
-using Ds2.Runtime.Sim.Engine;
-using Ds2.Runtime.Sim.Engine.Core;
-using Ds2.Runtime.Sim.Report;
-using Ds2.Runtime.Sim.Report.Exporters;
-using Ds2.Runtime.Sim.Report.Model;
+using Ds2.Runtime.Engine;
+using Ds2.Runtime.Engine.Core;
+using Ds2.Runtime.Report;
+using Ds2.Runtime.Report.Exporters;
+using Ds2.Runtime.Report.Model;
 
 namespace Ds2.Tutorial.Steps;
 
@@ -41,7 +41,7 @@ static class Step06_Report
         store.Works[ctx.W1Id].TokenRole = TokenRole.Source;
 
         var index = SimIndexModule.build(store, 50);
-        using var engine = new EventDrivenEngine(index);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.Simulation);
         var sim = (ISimulationEngine)engine;
 
         // ── 1. 상태 변경 수집 ────────────────────────────────
@@ -96,7 +96,7 @@ static class Step06_Report
         var csvPath  = Path.Combine(".", "ds2_report.csv");
 
         var htmlResult = ReportService.exportAuto(report, htmlPath);
-        var csvOptions = ExportOptionsModule.defaults(Ds2.Runtime.Sim.Report.Model.ExportFormat.Csv, csvPath);
+        var csvOptions = ExportOptionsModule.defaults(Ds2.Runtime.Report.Model.ExportFormat.Csv, csvPath);
         var csvResult  = ReportService.export(report, csvOptions);
 
         Console.WriteLine("  [내보내기]");

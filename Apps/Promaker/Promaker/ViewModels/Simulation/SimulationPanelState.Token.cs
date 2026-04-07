@@ -5,8 +5,8 @@ using System.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.Runtime.Sim.Engine;
-using Ds2.Runtime.Sim.Model;
+using Ds2.Runtime.Engine;
+using Ds2.Runtime.Model;
 using Ds2.Core.Store;
 
 namespace Promaker.ViewModels;

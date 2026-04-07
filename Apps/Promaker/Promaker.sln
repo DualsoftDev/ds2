@@ -14,9 +14,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Convert", "Convert", "{32D7
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Aasx", "..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj", "{C6CAEC50-CAF0-404E-87C1-5AB1EF398DF0}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Runtime.Sim", "..\..\Solutions\Simulation\Ds2.Runtime.Sim\Ds2.Runtime.Sim.fsproj", "{4A6CDC1D-3972-F3A5-D5F7-4ACC5ECE9803}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Runtime", "..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj", "{4A6CDC1D-3972-F3A5-D5F7-4ACC5ECE9803}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Runtime.Sim.Report", "..\..\Solutions\Simulation\Ds2.Runtime.Sim.Report\Ds2.Runtime.Sim.Report.fsproj", "{80976CB2-9D58-87AA-3C9E-EC28CD9E20B1}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Runtime.Report", "..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj", "{80976CB2-9D58-87AA-3C9E-EC28CD9E20B1}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Runtime", "Runtime", "{C8D5274F-AC00-46C7-1F8D-E88E81087A52}"
 EndProject

@@ -16,8 +16,8 @@
 // ============================================================================
 
 using Ds2.Core;
-using Ds2.Runtime.Sim.Engine;
-using Ds2.Runtime.Sim.Engine.Core;
+using Ds2.Runtime.Engine;
+using Ds2.Runtime.Engine.Core;
 
 namespace Ds2.Tutorial.Steps;
 
@@ -38,7 +38,7 @@ static class Step07_SimCli
         store.Works[ctx.W3Id].Duration = TimeSpan.FromMilliseconds(500);
 
         var index = SimIndexModule.build(store, 50);
-        using var engine = new EventDrivenEngine(index);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.Simulation);
         var sim = (ISimulationEngine)engine;
 
         var works = new WorkInfo[]

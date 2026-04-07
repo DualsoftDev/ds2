@@ -6,10 +6,10 @@ open Ds2.Core
 open Ds2.Core.Store
 open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
-open Ds2.Runtime.Sim.Engine
-open Ds2.Runtime.Sim.Engine.Core
-open Ds2.Runtime.Sim.Model
-open Ds2.Runtime.Sim.Report
+open Ds2.Runtime.Engine
+open Ds2.Runtime.Engine.Core
+open Ds2.Runtime.Model
+open Ds2.Runtime.Report
 
 module ReportServiceTests =
 
@@ -250,7 +250,7 @@ module StepModeTests =
         store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
 
         let dumpState () =
             let w1 = engine.GetWorkState(work1.Id)
@@ -297,7 +297,7 @@ module StepModeTests =
         store.UpdateWorkPeriodMs(work.Id, Some 1)
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
 
         try
             engine.Start()
@@ -326,7 +326,7 @@ module StepModeTests =
         store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
 
         try
             engine.Start()
@@ -358,7 +358,7 @@ module EventDrivenEngineTokenTests =
         store.UpdateWorkPeriodMs(work.Id, Some 2000)
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
 
         try
             let token = engine.NextToken()
@@ -402,7 +402,7 @@ module EventDrivenEngineTokenTests =
         store.ConnectSelectionInOrder([ guard.Id; w3.Id ], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
 
         try
             engine.Start()
@@ -435,7 +435,7 @@ module EventDrivenEngineTokenTests =
         store.ConnectSelectionInOrder([ w2.Id; w3.Id ], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
 
         try
             engine.Start()
@@ -587,7 +587,7 @@ module EventDrivenEngineTokenTests =
         store.Calls.[advCallId].SetSimulationProperties(advCallProps)
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
         let sim = engine :> ISimulationEngine
 
         sim.SpeedMultiplier <- 100.0
@@ -676,9 +676,9 @@ module AutoHomingOriginTests =
         Assert.Contains(advWork.Id, targets)
         Assert.DoesNotContain(retWork.Id, targets)
 
-    /// SkipIfCompleted Call은 원위치 계산에서 제외
+    /// SkipIfCompleted Call도 원위치 계산에는 참여 (실행 시만 스킵)
     [<Fact>]
-    let ``SkipIfCompleted call excluded from auto homing`` () =
+    let ``SkipIfCompleted call still participates in auto homing calculation`` () =
         let store = createStore ()
         let project = addProject store "P"
         let activeSys = addSystem store "Active" project.Id true
@@ -705,8 +705,8 @@ module AutoHomingOriginTests =
         let index = SimIndex.build store 10
         let targets = SimIndex.computeAutoHomingTargets index
 
-        // RET가 제외되면 eligible 1개 → 판별 불가 → 대상 없음
-        Assert.Empty(targets)
+        // SkipIfCompleted여도 투표에 참여 → ADV(descendant)=On 대상
+        Assert.Contains(advWork.Id, targets)
 
     /// 병렬 브랜치에서 같은 Device Call → NotCare (투표 안 함)
     [<Fact>]
@@ -737,7 +737,104 @@ module AutoHomingOriginTests =
         // 병렬이라 ancestorOf = None → 투표 안 함 → 대상 없음
         Assert.Empty(targets)
 
-    /// 서로 다른 Device System의 Call은 독립적으로 판별
+module CallTimeoutTests =
+
+    [<Fact>]
+    let ``call with timeout transitions to Finish after timeout expires`` () =
+        let store = createStore ()
+        let _, _, flow, work = setupBasicHierarchy store
+        work.Duration <- Some (TimeSpan.FromMilliseconds 5000.)
+        store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
+
+        // Device System
+        let project = store.Projects.Values |> Seq.head
+        let deviceSys = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DF" deviceSys.Id
+        let devWork = addWork store "ADV" deviceFlow.Id
+        devWork.Duration <- Some (TimeSpan.FromMilliseconds 99999.) // 아주 긴 duration → timeout이 먼저 발동해야
+        let apiDef = addApiDef store "ADV" deviceSys.Id
+        apiDef.TxGuid <- Some devWork.Id
+        apiDef.RxGuid <- Some devWork.Id
+
+        let callId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [apiDef.Id])
+
+        // Timeout 200ms 설정
+        let callProps = SimulationCallProperties()
+        callProps.Timeout <- Some (TimeSpan.FromMilliseconds 200.)
+        store.Calls.[callId].SetSimulationProperties(callProps)
+
+        let index = SimIndex.build store 10
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let sim = engine :> ISimulationEngine
+
+        sim.SpeedMultiplier <- 100.0
+        sim.Start()
+
+        let token = sim.NextToken()
+        sim.SeedToken(work.Id, token)
+        sim.ForceWorkState(work.Id, Status4.Going)
+
+        // Call이 Finish되기를 대기 (timeout으로)
+        let timedOut = waitUntil 5000 (fun () ->
+            sim.GetCallState(callId) = Some Status4.Finish)
+
+        sim.Stop()
+
+        Assert.True(timedOut, $"Call should finish via timeout. State={sim.GetCallState(callId)}")
+
+module ResetTriggerClearTests =
+
+    [<Fact>]
+    let ``reset triggers cleared when work returns to Ready allowing second cycle`` () =
+        // W1 → W2(Reset): W1 Going → W2 Homing→Ready
+        // ForceWorkState로 강제 전이하며 reset trigger 클리어 확인
+        let store = createStore ()
+        let _, _, flow, w1 = setupBasicHierarchy store
+        let w2 = addWork store "W2" flow.Id
+        w1.Duration <- Some (TimeSpan.FromMilliseconds 5000.) // 충분히 길게
+        w2.Duration <- Some (TimeSpan.FromMilliseconds 5000.)
+
+        // W1→W2 Reset: W1 Going 시 Finish인 W2를 Homing
+        store.ConnectSelectionInOrder([ w1.Id; w2.Id ], ArrowType.Reset) |> ignore
+
+        let index = SimIndex.build store 10
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let sim = engine :> ISimulationEngine
+
+        sim.SpeedMultiplier <- 1.0
+        sim.Start()
+
+        // 1사이클: W2를 Finish로 → W1을 Going → W2가 Homing→Ready
+        sim.ForceWorkState(w2.Id, Status4.Going)
+        Assert.True(waitUntil 1000 (fun () -> sim.GetWorkState(w2.Id) = Some Status4.Going))
+        sim.ForceWorkState(w2.Id, Status4.Finish)
+        Assert.True(waitUntil 1000 (fun () -> sim.GetWorkState(w2.Id) = Some Status4.Finish))
+
+        sim.ForceWorkState(w1.Id, Status4.Going)
+        // W1 Going → W2(Finish) → Homing → Ready
+        Assert.True(waitUntil 2000 (fun () -> sim.GetWorkState(w2.Id) = Some Status4.Ready),
+            $"1st cycle: W2 should reset to Ready. State={sim.GetWorkState(w2.Id)}")
+
+        // W1을 Finish→Ready로 돌린 후 2사이클
+        sim.ForceWorkState(w1.Id, Status4.Finish)
+        System.Threading.Thread.Sleep(100)
+
+        // W2를 다시 Finish로
+        sim.ForceWorkState(w2.Id, Status4.Going)
+        Assert.True(waitUntil 1000 (fun () -> sim.GetWorkState(w2.Id) = Some Status4.Going))
+        sim.ForceWorkState(w2.Id, Status4.Finish)
+        Assert.True(waitUntil 1000 (fun () -> sim.GetWorkState(w2.Id) = Some Status4.Finish))
+
+        // 2사이클: W1을 다시 Going
+        sim.ForceWorkState(w1.Id, Status4.Going)
+        // Reset trigger가 클리어됐다면 W2가 다시 Homing→Ready
+        let secondReset = waitUntil 2000 (fun () -> sim.GetWorkState(w2.Id) = Some Status4.Ready)
+
+        sim.Stop()
+
+        Assert.True(secondReset, $"2nd cycle: W2 should reset to Ready again. State={sim.GetWorkState(w2.Id)}. Reset triggers must be cleared.")
+
+    /// Device 2개(Func1, Func2) 상호 리셋, Call 순서 Func1→Func2 → Func2=On(Finish), Func1=Off
     [<Fact>]
     let ``different device systems computed independently`` () =
         let store = createStore ()
@@ -786,4 +883,154 @@ module AutoHomingOriginTests =
         // Dev2: RET→ADV → ADV=On
         Assert.Contains(dev2Adv.Id, targets)
         Assert.DoesNotContain(dev2Ret.Id, targets)
+
+module HomingPhaseExecutionTests =
+
+    [<Fact>]
+    let ``Tester json: two devices with bidirectional StartReset homing completes`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+
+        // Active: 2 Flows, each with 1 Work
+        let flow1 = addFlow store "NewFlow" activeSys.Id
+        let w1 = addWork store "NewWork" flow1.Id
+        let flow2 = addFlow store "NewFlow1" activeSys.Id
+        let w2 = addWork store "NewWork" flow2.Id
+
+        // Device 1: ADV + RET (ResetReset)
+        let dev1 = addSystem store "Tester1" project.Id false
+        let dev1Flow = addFlow store "TF" dev1.Id
+        let dev1Adv = addWork store "ADV" dev1Flow.Id
+        dev1Adv.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+        let dev1Ret = addWork store "RET" dev1Flow.Id
+        dev1Ret.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+        let dev1RetProps = SimulationWorkProperties()
+        dev1RetProps.IsFinished <- true
+        dev1Ret.SetSimulationProperties(dev1RetProps)
+        let dev1AdvDef = addApiDef store "ADV" dev1.Id
+        dev1AdvDef.TxGuid <- Some dev1Adv.Id; dev1AdvDef.RxGuid <- Some dev1Adv.Id
+        let dev1RetDef = addApiDef store "RET" dev1.Id
+        dev1RetDef.TxGuid <- Some dev1Ret.Id; dev1RetDef.RxGuid <- Some dev1Ret.Id
+        // ADV ↔ RET ResetReset
+        store.ConnectSelectionInOrder([dev1Adv.Id; dev1Ret.Id], ArrowType.ResetReset) |> ignore
+
+        // Device 2: ADV + RET (ResetReset)
+        let dev2 = addSystem store "Tester2" project.Id false
+        let dev2Flow = addFlow store "TF" dev2.Id
+        let dev2Adv = addWork store "ADV" dev2Flow.Id
+        dev2Adv.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+        let dev2Ret = addWork store "RET" dev2Flow.Id
+        dev2Ret.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+        let dev2RetProps = SimulationWorkProperties()
+        dev2RetProps.IsFinished <- true
+        dev2Ret.SetSimulationProperties(dev2RetProps)
+        let dev2AdvDef = addApiDef store "ADV" dev2.Id
+        dev2AdvDef.TxGuid <- Some dev2Adv.Id; dev2AdvDef.RxGuid <- Some dev2Adv.Id
+        let dev2RetDef = addApiDef store "RET" dev2.Id
+        dev2RetDef.TxGuid <- Some dev2Ret.Id; dev2RetDef.RxGuid <- Some dev2Ret.Id
+        store.ConnectSelectionInOrder([dev2Adv.Id; dev2Ret.Id], ArrowType.ResetReset) |> ignore
+
+        // W1 Calls: Tester1.RET → Tester1.ADV (Start) — ADV는 SkipIfCompleted
+        let w1RetCall = store.AddCallWithLinkedApiDefs(w1.Id, "Tester1", "RET", [dev1RetDef.Id])
+        let w1AdvCall = store.AddCallWithLinkedApiDefs(w1.Id, "Tester1", "ADV", [dev1AdvDef.Id])
+        store.ConnectSelectionInOrder([w1RetCall; w1AdvCall], ArrowType.Start) |> ignore
+        let advCallProps = SimulationCallProperties()
+        advCallProps.CallType <- CallType.SkipIfCompleted
+        store.Calls.[w1AdvCall].SetSimulationProperties(advCallProps)
+
+        // W2 Calls: Tester2.ADV → Tester2.RET (Start)
+        let w2AdvCall = store.AddCallWithLinkedApiDefs(w2.Id, "Tester2", "ADV", [dev2AdvDef.Id])
+        let w2RetCall = store.AddCallWithLinkedApiDefs(w2.Id, "Tester2", "RET", [dev2RetDef.Id])
+        store.ConnectSelectionInOrder([w2AdvCall; w2RetCall], ArrowType.Start) |> ignore
+
+        // Active arrows: W1 ↔ W2 (StartReset 양방향)
+        store.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.StartReset) |> ignore
+        store.ConnectSelectionInOrder([w2.Id; w1.Id], ArrowType.StartReset) |> ignore
+
+        let index = SimIndex.build store 10
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let sim = engine :> ISimulationEngine
+
+        let log = System.Collections.Generic.List<string>()
+        sim.WorkStateChanged.AddHandler(fun _ e ->
+            log.Add($"Work {e.WorkName}: {e.PreviousState}->{e.NewState}"))
+        sim.CallStateChanged.AddHandler(fun _ e ->
+            log.Add($"Call {e.CallName}: {e.PreviousState}->{e.NewState}"))
+
+        let mutable homingCompleted = false
+        sim.HomingPhaseCompleted.AddHandler(fun _ _ -> homingCompleted <- true)
+
+        sim.SpeedMultiplier <- 100.0
+        let hasTargets = sim.StartWithHomingPhase()
+
+        let completed = waitUntil 10000 (fun () -> homingCompleted || not sim.IsHomingPhase)
+
+        sim.Stop()
+
+        let logStr = String.Join("\n  ", log)
+
+        if hasTargets then
+            Assert.True(completed, $"Homing should complete within timeout.\nLog:\n  {logStr}")
+
+        // Device1: ADV1 Going→Finish (homing), RET1 Finish→Homing→Ready (ResetReset에 의해)
+        // Device2: RET2 Finish 유지 (IsFinished, homing 불필요), ADV2 Ready 유지
+        Assert.Equal(Some Status4.Finish, sim.GetWorkState(dev2Ret.Id))
+
+        printfn $"hasTargets={hasTargets}, homingCompleted={homingCompleted}\nLog:\n  {logStr}"
+
+    [<Fact>]
+    let ``StartWithHomingPhase triggers Device Work via Call and completes`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSys.Id
+        let work = addWork store "W" flow.Id
+
+        let deviceSys = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DF" deviceSys.Id
+        let advWork = addWork store "ADV" deviceFlow.Id
+        advWork.Duration <- Some (TimeSpan.FromMilliseconds 50.)
+        let retWork = addWork store "RET" deviceFlow.Id
+        retWork.Duration <- Some (TimeSpan.FromMilliseconds 50.)
+        // RET에 IsFinished → ApplyInitialStates로 즉시 Finish
+        let retSimProps = SimulationWorkProperties()
+        retSimProps.IsFinished <- true
+        retWork.SetSimulationProperties(retSimProps)
+
+        let advApiDef = addApiDef store "ADV" deviceSys.Id
+        advApiDef.TxGuid <- Some advWork.Id; advApiDef.RxGuid <- Some advWork.Id
+        let retApiDef = addApiDef store "RET" deviceSys.Id
+        retApiDef.TxGuid <- Some retWork.Id; retApiDef.RxGuid <- Some retWork.Id
+        // Device 내부: ADV ↔ RET ResetReset
+        store.ConnectSelectionInOrder([advWork.Id; retWork.Id], ArrowType.ResetReset) |> ignore
+
+        // Call: RET → ADV → computeAutoHomingTargets → ADV=descendant=On(needsHoming)
+        let retCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "RET", [retApiDef.Id])
+        let advCallId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [advApiDef.Id])
+        store.ConnectSelectionInOrder([retCallId; advCallId], ArrowType.Start) |> ignore
+
+        let index = SimIndex.build store 10
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let sim = engine :> ISimulationEngine
+
+        let log = System.Collections.Generic.List<string>()
+        sim.WorkStateChanged.AddHandler(fun _ e ->
+            log.Add($"{e.WorkName}: {e.PreviousState}->{e.NewState}"))
+
+        let mutable homingCompleted = false
+        sim.HomingPhaseCompleted.AddHandler(fun _ _ -> homingCompleted <- true)
+
+        sim.SpeedMultiplier <- 100.0
+        let hasTargets = sim.StartWithHomingPhase()
+
+        Assert.True(hasTargets, "Should have homing targets (ADV needs Going)")
+
+        // advWork(ADV)가 Finish에 도달해야 homing 완료
+        let completed = waitUntil 5000 (fun () -> homingCompleted)
+
+        sim.Stop()
+
+        let logStr = String.Join("\n  ", log)
+        Assert.True(completed, $"Homing should complete. Log:\n  {logStr}")
 

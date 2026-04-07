@@ -23,8 +23,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
     <ProjectReference Include="..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
-    <ProjectReference Include="..\..\Solutions\Simulation\Ds2.Runtime.Sim\Ds2.Runtime.Sim.fsproj" />
-    <ProjectReference Include="..\..\Solutions\Simulation\Ds2.Runtime.Sim.Report\Ds2.Runtime.Sim.Report.fsproj" />
+    <ProjectReference Include="..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
+    <ProjectReference Include="..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
     <ProjectReference Include="..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
   </ItemGroup>
 </Project>

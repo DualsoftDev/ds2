@@ -5,9 +5,9 @@ using System.Reflection;
 using System.Windows.Threading;
 using Microsoft.FSharp.Core;
 using Ds2.Core;
-using Ds2.Runtime.Sim.Engine;
-using Ds2.Runtime.Sim.Engine.Core;
-using Ds2.Runtime.Sim.Model;
+using Ds2.Runtime.Engine;
+using Ds2.Runtime.Engine.Core;
+using Ds2.Runtime.Model;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using Promaker.ViewModels;
@@ -29,7 +29,7 @@ public sealed class SimulationConnectionReloadTests
             store.AddWork("Work1", flowId);
 
             var index = SimIndexModule.build(store, 10);
-            using var engine = new EventDrivenEngine(index);
+            using var engine = new EventDrivenEngine(index, RuntimeMode.Simulation);
             var state = CreateState(() => store);
 
             SetPrivateField(state, "_simEngine", engine);
@@ -67,7 +67,7 @@ public sealed class SimulationConnectionReloadTests
             var flowId = store.AddFlow("F", systemId);
             store.AddWork("Work1", flowId);
             var index = SimIndexModule.build(store, 10);
-            using var engine = new EventDrivenEngine(index);
+            using var engine = new EventDrivenEngine(index, RuntimeMode.Simulation);
             var state = CreateState(() => store, text => statusText = text);
 
             SetPrivateField(state, "_simEngine", engine);

@@ -16,9 +16,9 @@
     <!-- Phase 3a: AASX -->
     <ProjectReference Include="..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
     <!-- Phase 3b: Runtime.Sim -->
-    <ProjectReference Include="..\..\Solutions\Simulation\Ds2.Runtime.Sim\Ds2.Runtime.Sim.fsproj" />
+    <ProjectReference Include="..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
     <!-- Phase 4: Runtime.Sim.Report -->
-    <ProjectReference Include="..\..\Solutions\Simulation\Ds2.Runtime.Sim.Report\Ds2.Runtime.Sim.Report.fsproj" />
+    <ProjectReference Include="..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
