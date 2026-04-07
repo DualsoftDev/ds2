@@ -239,10 +239,12 @@ module SimIndex =
                         |> Option.defaultValue 0
                         |> float
                     max userDurationMs deviceMs
+            // 레퍼런스 Work는 원본 Work의 화살표를 상속
+            let arrowKey = work.ReferenceOf |> Option.defaultValue work.Id
             state.WorkCallGuids <- state.WorkCallGuids.Add(work.Id, callGuids)
-            state.WorkStartPreds <- state.WorkStartPreds.Add(work.Id, findOrEmpty work.Id workStartPreds)
-            state.WorkPureStartPreds <- state.WorkPureStartPreds.Add(work.Id, findOrEmpty work.Id workPureStartPreds)
-            state.WorkResetPreds <- state.WorkResetPreds.Add(work.Id, findOrEmpty work.Id workResetPreds)
+            state.WorkStartPreds <- state.WorkStartPreds.Add(work.Id, findOrEmpty arrowKey workStartPreds)
+            state.WorkPureStartPreds <- state.WorkPureStartPreds.Add(work.Id, findOrEmpty arrowKey workPureStartPreds)
+            state.WorkResetPreds <- state.WorkResetPreds.Add(work.Id, findOrEmpty arrowKey workResetPreds)
             state.WorkDuration <- state.WorkDuration.Add(work.Id, duration)
             state.WorkSystemName <- state.WorkSystemName.Add(work.Id, system.Name)
             state.WorkName <- state.WorkName.Add(work.Id, work.Name)

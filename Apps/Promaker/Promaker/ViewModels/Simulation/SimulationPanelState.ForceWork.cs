@@ -53,7 +53,7 @@ public partial class SimulationPanelState
         }
 
         engine.ForceWorkState(selectedWork.Guid, Status4.Ready);
-        AddSimLog(SimText.ManualWorkReset(selectedWork.Name));
+        AddSimLog(SimText.ManualWorkReset(selectedWork.Name), LogSeverity.Ready);
     }
 
     private bool CanForceWork() => IsSimulating && !IsSimPaused && !IsHomingPhase && SelectedSimWork is not null;
@@ -97,7 +97,7 @@ public partial class SimulationPanelState
 
             StartSourceWork(engine, sourceGuid);
         }
-        AddSimLog("Source Work 일괄 시작");
+        AddSimLog("Source Work 일괄 시작", LogSeverity.Going);
     }
 
     // ── 단일 시작 ──────────────────────────────────────────────────
@@ -107,7 +107,7 @@ public partial class SimulationPanelState
         var guid = selectedWork.Guid;
         if (!TryPrepareWorkStart(engine, selectedWork)) return;
         engine.ForceWorkState(guid, Status4.Going);
-        AddSimLog(SimText.ManualWorkStarted(selectedWork.Name));
+        AddSimLog(SimText.ManualWorkStarted(selectedWork.Name), LogSeverity.Going);
     }
 
     // ── 공용 헬퍼 ──────────────────────────────────────────────────

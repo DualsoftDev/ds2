@@ -42,16 +42,40 @@ public partial class SimulationPanelState
                 OnSimStatusChanged(args);
             });
 
+        engine.CallTimeout += (_, args) =>
+            _dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_simEngine, engine) || Interlocked.Read(ref _simUiGeneration) != generation)
+                    return;
+                OnCallTimeout(args);
+            });
+
         WireTokenEvent(engine, generation);
     }
+
+    private void OnCallTimeout(CallTimeoutArgs args)
+    {
+        _warningGuids.Add(args.CallGuid);
+        ApplyWarningsToCanvas();
+        AddWarningLog("TIMEOUT", $"{args.CallName} Timeout ({args.TimeoutMs}ms)");
+        SimLog.Warn($"[Timeout] {args.CallName} ({args.TimeoutMs}ms) @{args.Clock}");
+    }
+
+    private static LogSeverity SeverityFromState(Status4 state) => state switch
+    {
+        Status4.Ready => LogSeverity.Ready,
+        Status4.Going => LogSeverity.Going,
+        Status4.Finish => LogSeverity.Finish,
+        Status4.Homing => LogSeverity.Homing,
+        _ => LogSeverity.Info
+    };
 
     private void OnWorkStateChanged(WorkStateChangedArgs args)
     {
         ApplyWorkStateChangeToVisibleNode(args);
-        // 디버그: Homing/Ready 전이 로그 (리셋 동작 확인용)
-        if (args.NewState == Status4.Homing || (args.PreviousState == Status4.Homing && args.NewState == Status4.Ready))
-            AddSimLog($"[Reset] {args.WorkName}: {args.PreviousState} → {args.NewState}");
-
+#if DEBUG
+        AddSimLog($"W {args.WorkName}: {args.PreviousState}→{args.NewState}", SeverityFromState(args.NewState));
+#endif
         _sceneEventHandler?.OnWorkStateChanged(args.WorkGuid, args.NewState);
         RefreshSimulationProgressUi();
     }
@@ -59,6 +83,10 @@ public partial class SimulationPanelState
     private void OnCallStateChanged(CallStateChangedArgs args)
     {
         ApplyCallStateChangeToVisibleNode(args);
+#if DEBUG
+        var skip = args.IsSkipped ? " (Skip)" : "";
+        AddSimLog($"C {args.CallName}: {args.PreviousState}→{args.NewState}{skip}", SeverityFromState(args.NewState));
+#endif
         SetSimSkipped(args.CallGuid, args.IsSkipped);
 
         _sceneEventHandler?.OnCallStateChanged(args.CallGuid, args.NewState);

@@ -54,6 +54,14 @@ public partial class MainViewModel : ObservableObject
             () => FlattenTree(ControlTreeRoots).Concat(FlattenTree(DeviceTreeRoots)),
             value => StatusText = value);
         PropertyPanel = new PropertyPanelState(new PropertyPanelHost(this));
+        Simulation.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SimulationPanelState.IsSimulating))
+            {
+                UndoCommand.NotifyCanExecuteChanged();
+                RedoCommand.NotifyCanExecuteChanged();
+            }
+        };
         WireEvents();
         LanguageManager.ApplySavedLanguage();
         RefreshThemeState();
@@ -402,11 +410,13 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    [RelayCommand(CanExecute = nameof(CanUndo))]
+    [RelayCommand(CanExecute = nameof(CanUndoNow))]
     private void Undo() { _pasteCount = 0; TryEditorAction(() => _store.Undo()); }
+    private bool CanUndoNow => CanUndo && !Simulation.IsSimulating;
 
-    [RelayCommand(CanExecute = nameof(CanRedo))]
+    [RelayCommand(CanExecute = nameof(CanRedoNow))]
     private void Redo() { _pasteCount = 0; TryEditorAction(() => _store.Redo()); }
+    private bool CanRedoNow => CanRedo && !Simulation.IsSimulating;
 
     public void EditApiDefNode(Guid apiDefId) => PropertyPanel.EditApiDefNode(apiDefId);
 
@@ -490,7 +500,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void JumpToHistory(HistoryPanelItem? item)
     {
-        if (item is null) return;
+        if (item is null || Simulation.IsSimulating) return;
         int clickedIdx = HistoryItems.IndexOf(item);
         if (clickedIdx < 0) return;
         int delta = clickedIdx - CurrentHistoryIndex;

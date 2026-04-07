@@ -16,6 +16,15 @@ using log4net;
 
 namespace Promaker.ViewModels;
 
+public enum LogSeverity { Info, Warn, Error, Timeout, Ready, Going, Finish, Homing, System }
+
+public sealed class SimLogEntry(string message, LogSeverity severity = LogSeverity.Info)
+{
+    public string Message { get; } = message;
+    public LogSeverity Severity { get; } = severity;
+    public override string ToString() => Message;
+}
+
 /// <summary>시뮬레이션 패널과 툴바의 시뮬레이션 상태/명령을 담당합니다.</summary>
 public partial class SimulationPanelState : ObservableObject
 {
@@ -145,7 +154,7 @@ public partial class SimulationPanelState : ObservableObject
     }
 
     public ObservableCollection<SimNodeRow> SimNodes { get; } = [];
-    public ObservableCollection<string> SimEventLog { get; } = [];
+    public ObservableCollection<SimLogEntry> SimEventLog { get; } = [];
     public ObservableCollection<SimWorkItem> SimWorkItems { get; } = [];
     public GanttChartState GanttChart { get; } = new();
     public ThreeDViewState ThreeD { get; } = new();

@@ -33,8 +33,9 @@ module internal TransitionGuards =
                     ctx.StateManager.IsMinDurationMet(workGuid)
                     && (callGuids |> List.forall (fun callGuid -> ctx.StateManager.GetCallState(callGuid) = Status4.Finish))
             | Status4.Homing ->
+                // 리셋 조건은 evaluateWorkResets에서 이미 검증됨 (scheduledGoingGuids 포함)
+                // 여기서 canResetWork를 재검증하면 pred가 아직 Going이 아닌 경우 거부됨
                 ctx.StateManager.GetWorkState(workGuid) = Status4.Finish
-                && WorkConditionChecker.canResetWork ctx.Index (ctx.StateManager.GetState()) workGuid
             | Status4.Ready ->
                 ctx.StateManager.GetWorkState(workGuid) = Status4.Homing
             | _ -> true

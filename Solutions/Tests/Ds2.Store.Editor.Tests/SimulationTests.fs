@@ -740,25 +740,25 @@ module AutoHomingOriginTests =
 module CallTimeoutTests =
 
     [<Fact>]
-    let ``call with timeout transitions to Finish after timeout expires`` () =
+    let ``call timeout emits event and keeps call Going`` () =
         let store = createStore ()
         let _, _, flow, work = setupBasicHierarchy store
         work.Duration <- Some (TimeSpan.FromMilliseconds 5000.)
         store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
 
-        // Device System
+        // Device: 아주 긴 duration → timeout이 먼저 발동
         let project = store.Projects.Values |> Seq.head
         let deviceSys = addSystem store "Device" project.Id false
         let deviceFlow = addFlow store "DF" deviceSys.Id
         let devWork = addWork store "ADV" deviceFlow.Id
-        devWork.Duration <- Some (TimeSpan.FromMilliseconds 99999.) // 아주 긴 duration → timeout이 먼저 발동해야
+        devWork.Duration <- Some (TimeSpan.FromMilliseconds 99999.)
         let apiDef = addApiDef store "ADV" deviceSys.Id
         apiDef.TxGuid <- Some devWork.Id
         apiDef.RxGuid <- Some devWork.Id
 
         let callId = store.AddCallWithLinkedApiDefs(work.Id, "Device", "ADV", [apiDef.Id])
 
-        // Timeout 200ms 설정
+        // Timeout 200ms
         let callProps = SimulationCallProperties()
         callProps.Timeout <- Some (TimeSpan.FromMilliseconds 200.)
         store.Calls.[callId].SetSimulationProperties(callProps)
@@ -767,6 +767,12 @@ module CallTimeoutTests =
         use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
         let sim = engine :> ISimulationEngine
 
+        let mutable timeoutFired = false
+        let mutable timeoutCallGuid = Guid.Empty
+        sim.CallTimeout.AddHandler(fun _ args ->
+            timeoutFired <- true
+            timeoutCallGuid <- args.CallGuid)
+
         sim.SpeedMultiplier <- 100.0
         sim.Start()
 
@@ -774,13 +780,16 @@ module CallTimeoutTests =
         sim.SeedToken(work.Id, token)
         sim.ForceWorkState(work.Id, Status4.Going)
 
-        // Call이 Finish되기를 대기 (timeout으로)
-        let timedOut = waitUntil 5000 (fun () ->
-            sim.GetCallState(callId) = Some Status4.Finish)
+        // Timeout 이벤트 발생 대기
+        let fired = waitUntil 5000 (fun () -> timeoutFired)
 
+        // Call은 Going 유지 (강제 Finish 아님)
+        let callState = sim.GetCallState(callId)
         sim.Stop()
 
-        Assert.True(timedOut, $"Call should finish via timeout. State={sim.GetCallState(callId)}")
+        Assert.True(fired, "CallTimeout event should fire")
+        Assert.Equal(callId, timeoutCallGuid)
+        Assert.Equal(Some Status4.Going, callState)
 
 module ResetTriggerClearTests =
 
@@ -1033,4 +1042,5 @@ module HomingPhaseExecutionTests =
 
         let logStr = String.Join("\n  ", log)
         Assert.True(completed, $"Homing should complete. Log:\n  {logStr}")
+
 

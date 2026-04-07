@@ -195,7 +195,7 @@ public partial class SimulationPanelState
             IsHomingPhase = false;
             SimStatusText = SimText.Running;
             _setStatusText(SimText.Started);
-            AddSimLog("시뮬레이션 자동 원위치 완료");
+            AddSimLog("시뮬레이션 자동 원위치 완료", LogSeverity.System);
         });
     }
 
@@ -231,9 +231,9 @@ public partial class SimulationPanelState
 
         var (selectedSourceGuid, autoStartSources) = GetStepAdvanceSelection();
         if (_simEngine.StepWithSourcePriming(selectedSourceGuid, autoStartSources))
-            AddSimLog("STEP 실행");
+            AddSimLog("STEP 실행", LogSeverity.System);
         else
-            AddSimLog("진행할 STEP 없음");
+            AddSimLog("진행할 STEP 없음", LogSeverity.Warn);
 
         RefreshSimulationProgressUi();
     }
@@ -296,7 +296,7 @@ public partial class SimulationPanelState
         {
             _simEngine.ReloadConnections();
             SyncSimulationStateFromEngine();
-            AddSimLog(IsSimPaused ? "연결 변경 반영" : "실행 중 연결 변경 반영");
+            AddSimLog(IsSimPaused ? "연결 변경 반영" : "실행 중 연결 변경 반영", LogSeverity.System);
             RefreshSimulationProgressUi();
         }
         catch (Exception ex)
@@ -366,20 +366,24 @@ public partial class SimulationPanelState
         && !HasGoingCall
         && (engine.HasStartableWork || engine.HasActiveDuration);
 
-    private void AddSimLog(string message)
+    private void AddSimLog(string message, LogSeverity severity = LogSeverity.Info)
     {
         var ts = _simEngine?.State.Clock.ToString(SimText.ClockFormat) ?? SimText.ClockZero;
-        SimEventLog.Insert(0, $"[{ts}] {message}");
+        var prefix = severity == LogSeverity.Info ? "" : $" [{severity.ToString().ToUpper()}]";
+        SimEventLog.Insert(0, new SimLogEntry($"[{ts}]{prefix} {message}", severity));
         if (SimEventLog.Count > 500)
             SimEventLog.RemoveAt(SimEventLog.Count - 1);
     }
 
     private void AddWarningLog(string severity, string message)
     {
-        var ts = _simEngine?.State.Clock.ToString(SimText.ClockFormat) ?? SimText.ClockZero;
-        SimEventLog.Insert(0, $"[{ts}] [{severity}] {message}");
-        if (SimEventLog.Count > 500)
-            SimEventLog.RemoveAt(SimEventLog.Count - 1);
+        var sev = severity switch
+        {
+            "ERROR" => LogSeverity.Error,
+            "TIMEOUT" => LogSeverity.Timeout,
+            _ => LogSeverity.Warn
+        };
+        AddSimLog($"[{severity}] {message}", sev);
     }
 
     private void AddGraphWarningLogs(List<GraphWarningSection> sections)
@@ -396,11 +400,11 @@ public partial class SimulationPanelState
         }
     }
 
-    private void SetSimStatus(string statusText, string? logText = null)
+    private void SetSimStatus(string statusText, string? logText = null, LogSeverity severity = LogSeverity.System)
     {
         _setStatusText(statusText);
         if (!string.IsNullOrWhiteSpace(logText))
-            AddSimLog(logText);
+            AddSimLog(logText, severity);
     }
 
     private MessageBoxResult ShowPausedMessageBox(
@@ -413,6 +417,7 @@ public partial class SimulationPanelState
         if (suppressKey is not null && _suppressedWarnings.Contains(suppressKey))
             return buttons == MessageBoxButton.OK ? MessageBoxResult.OK : MessageBoxResult.Yes;
 
+        AddSimLog($"[{caption}] {message.Replace("\n", " ")}", LogSeverity.Warn);
         _simEngine?.Pause();
         GanttChart.IsRunning = false;
         var result = Dialogs.DialogHelpers.ShowThemedMessageBox(
