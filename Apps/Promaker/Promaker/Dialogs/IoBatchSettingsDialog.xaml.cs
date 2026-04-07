@@ -7,7 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
-using Ds2.Store;
+using Ds2.Core.Store;
 using Ds2.Editor;
 using Microsoft.FSharp.Core;
 

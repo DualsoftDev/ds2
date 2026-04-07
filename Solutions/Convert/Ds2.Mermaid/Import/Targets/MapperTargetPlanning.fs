@@ -3,7 +3,7 @@ namespace Ds2.Mermaid
 open System
 open System.Collections.Generic
 open Ds2.Core
-open Ds2.Store
+open Ds2.Core.Store
 
 module internal MermaidTargetPlanning =
 

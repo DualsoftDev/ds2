@@ -5,7 +5,7 @@ open System.IO
 open System.Text.Json
 open System.Text.Json.Serialization
 open Ds2.Core
-open Ds2.Store
+open Ds2.Core.Store
 
 /// Ev2/외부 시스템에서 Ds2 JSON 파일을 생성하기 위한 헬퍼 모듈
 ///
@@ -148,43 +148,3 @@ module Exporter =
         configure store projectId systemId flowId
         store.SaveToFile(path)
         store
-
-
-/// dsev2 (Ev2) JSON → Ds2 JSON 변환
-[<RequireQualifiedAccess>]
-module Ev2Converter =
-
-    /// dsev2 JSON 문자열이 레거시 형식인지 판별
-    /// ("RuntimeType":"Project" 가 최상위에 있으면 dsev2)
-    let isEv2Format (json: string) : bool =
-        Ds2.Store.Compat.LegacyJsonImport.isLegacyJsonFormat json
-
-    /// dsev2 JSON 파일을 읽어서 DsStore로 변환
-    let loadEv2File (path: string) : DsStore option =
-        let json = IO.File.ReadAllText(path, Text.Encoding.UTF8)
-        if not (isEv2Format json) then
-            None
-        else
-            let store = DsStore.empty()
-            if Ds2.Store.Compat.LegacyJsonImport.importLegacyJson store json then
-                store.RebuildApiCallsDictionary()
-                Some store
-            else None
-
-    /// dsev2 JSON 파일 → Ds2 JSON 파일 변환 (원스텝)
-    let convertFile (ev2Path: string) (ds2Path: string) : bool =
-        match loadEv2File ev2Path with
-        | Some store ->
-            store.SaveToFile(ds2Path)
-            true
-        | None -> false
-
-    /// dsev2 JSON 문자열 → DsStore 변환
-    let fromJson (json: string) : DsStore option =
-        if not (isEv2Format json) then None
-        else
-            let store = DsStore.empty()
-            if Ds2.Store.Compat.LegacyJsonImport.importLegacyJson store json then
-                store.RebuildApiCallsDictionary()
-                Some store
-            else None

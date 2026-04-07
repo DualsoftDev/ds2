@@ -28,11 +28,23 @@
     <Compile Include="Entities.fs" />
     <Compile Include="EntitiesExtension.fs" />
     <Compile Include="JsonConverter.fs" />
+    <Compile Include="Store\Types.fs" />
+    <Compile Include="Store\DsStore.fs" />
+    <Compile Include="Store\DsQuery\Format.fs" />
+    <Compile Include="Store\DsQuery\TokenRole.fs" />
+    <Compile Include="Store\DsQuery\Validation.fs" />
+    <Compile Include="Store\DsQuery\Queries.fs" />
+    <Compile Include="Store\DsQuery\Device.fs" />
+    <Compile Include="Store\StoreHierarchyQueries.fs" />
+    <Compile Include="Store\Queries\CallConditionQueries.fs" />
+    <Compile Include="Store\ImportPlan.fs" />
+    <Compile Include="Store\ImportPlan.Device.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
     <PackageReference Include="FSharp.SystemTextJson" />
+    <PackageReference Include="log4net" />
   </ItemGroup>
 
 </Project>

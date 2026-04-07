@@ -3,8 +3,8 @@ module Ds2.Editor.EditorNavigation
 open System
 open System.Runtime.CompilerServices
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 
 [<CompiledName("EntityKindForTabKind")>]
 let entityKindForTabKind (tabKind: TabKind) : EntityKind =

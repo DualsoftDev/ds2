@@ -4,8 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using Microsoft.FSharp.Collections;
 using Ds2.Core;
-using Ds2.Store;
-using Ds2.Store.DsQuery;
+using Ds2.Core.Store;
 using Ds2.Editor;
 
 namespace Promaker.Dialogs;
@@ -90,7 +89,7 @@ public partial class CallCreateDialog : Window
         // 프리셋이 없으면 기본값 추가 (DevicePresets.Entries 단일 정의 참조)
         if (PresetComboBox.Items.Count == 0)
         {
-            foreach (var (modelType, sysType) in Ds2.Store.DevicePresets.Entries)
+            foreach (var (modelType, sysType) in Ds2.Core.Store.DevicePresets.Entries)
             {
                 if (string.IsNullOrEmpty(sysType)) continue;
                 PresetComboBox.Items.Add(new ComboBoxItem

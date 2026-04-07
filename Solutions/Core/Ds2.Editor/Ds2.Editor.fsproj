@@ -44,7 +44,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Ds2.Core\Ds2.Core.fsproj" />
-    <ProjectReference Include="..\Ds2.Store\Ds2.Store.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

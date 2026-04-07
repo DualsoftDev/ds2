@@ -5,8 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using Ds2.Core;
-using Ds2.Store;
-using Ds2.Store.DsQuery;
+using Ds2.Core.Store;
 using Microsoft.Win32;
 using Promaker.Presentation;
 

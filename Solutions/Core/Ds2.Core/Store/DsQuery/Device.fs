@@ -1,8 +1,8 @@
-namespace Ds2.Store.DsQuery
+namespace Ds2.Core.Store
 
 open System
 open Ds2.Core
-open Ds2.Store
+open Ds2.Core.Store
 
 /// 이름 기반 Call 검색 + Device 이름 생성
 module Device =

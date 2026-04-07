@@ -6,8 +6,8 @@ open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxConceptDescriptions
 open Ds2.Aasx.AasxFileIO
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 
 module internal AasxExportGraph =
 

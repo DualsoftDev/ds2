@@ -3,7 +3,7 @@ namespace Ds2.Editor
 open System
 open System.Globalization
 open Ds2.Core
-open Ds2.Store
+open Ds2.Core.Store
 
 /// ValueSpec 타입 콤보박스 인덱스 — C#/F# 공유 상수.
 [<RequireQualifiedAccess>]

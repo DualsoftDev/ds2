@@ -2,8 +2,7 @@ module Ds2.View3D.ContextBuilder
 
 open System
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
 open Ds2.View3D
 open Ds2.View3D.ResultExtensions
 

@@ -4,7 +4,7 @@ open System
 open System.IO
 open Xunit
 open Ds2.Core
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
 open Ds2.Serialization
 
 module private AasxPackageAssertions =
@@ -62,13 +62,13 @@ module JsonSerializationTests =
         project.ActiveSystemIds.Add(system1.Id)
         project.ActiveSystemIds.Add(system2.Id)
 
-        let store = Ds2.Store.DsStore.empty()
+        let store = DsStore.empty()
         store.Projects.[project.Id] <- project
         store.Systems.[system1.Id] <- system1
         store.Systems.[system2.Id] <- system2
 
         let json = JsonConverter.serialize store
-        let deserialized = JsonConverter.deserialize<Ds2.Store.DsStore> json
+        let deserialized = JsonConverter.deserialize<DsStore> json
 
         Assert.Equal(1, deserialized.ProjectsReadOnly.Count)
         Assert.Equal(2, deserialized.SystemsReadOnly.Count)
@@ -86,14 +86,14 @@ module FileSerializationTests =
         try
             // Arrange
             let project = Project("FileTestProject")
-            let store = Ds2.Store.DsStore.empty()
+            let store = DsStore.empty()
             store.Projects.[project.Id] <- project
 
             // Act
             let json = JsonConverter.serialize store
             File.WriteAllText(filePath, json)
             let loadedJson = File.ReadAllText(filePath)
-            let loadedStore = JsonConverter.deserialize<Ds2.Store.DsStore> loadedJson
+            let loadedStore = JsonConverter.deserialize<DsStore> loadedJson
 
             // Assert
             Assert.Single(loadedStore.ProjectsReadOnly) |> ignore
@@ -108,7 +108,7 @@ module FileSerializationTests =
 module AasxRoundTripTests =
 
     open AasCore.Aas3_0
-    open Ds2.Store
+    open Ds2.Core.Store
     open Ds2.Editor
     open Ds2.Aasx.AasxSemantics
 
@@ -335,7 +335,7 @@ module AasxRoundTripTests =
 module SplitDeviceAasxTests =
 
     open AasCore.Aas3_0
-    open Ds2.Store
+    open Ds2.Core.Store
     open Ds2.Editor
     open Ds2.Aasx.AasxFileIO
     open Ds2.Aasx.AasxSemantics
@@ -578,7 +578,7 @@ module NameplateRoundTripTests =
     [<Fact>]
     let ``Nameplate roundtrip SDF → AASX → SDF preserves all fields`` () =
         // 1. 초기 DsStore 생성 및 Nameplate 설정
-        let store = Ds2.Store.DsStore()
+        let store = DsStore()
         let project = Project("RoundTripProject")
 
         // Nameplate 설정
@@ -608,7 +608,7 @@ module NameplateRoundTripTests =
                 Assert.True(exported, "AASX export should succeed")
 
                 // 4. AASX → DsStore Import
-                let store2 = Ds2.Store.DsStore()
+                let store2 = DsStore()
                 let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 aasxPath
                 Assert.True(imported, "AASX import should succeed")
 
@@ -646,7 +646,7 @@ module NameplateRoundTripTests =
     [<Fact>]
     let ``HandoverDocumentation roundtrip SDF → AASX → SDF preserves documents`` () =
         // 1. 초기 DsStore 생성 및 HandoverDocumentation 설정
-        let store = Ds2.Store.DsStore()
+        let store = DsStore()
         let project = Project("DocRoundTripProject")
 
         // Document 추가
@@ -684,7 +684,7 @@ module NameplateRoundTripTests =
                 Assert.True(exported, "AASX export should succeed")
 
                 // 4. AASX → DsStore Import
-                let store2 = Ds2.Store.DsStore()
+                let store2 = DsStore()
                 let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 aasxPath
                 Assert.True(imported, "AASX import should succeed")
 
@@ -728,7 +728,7 @@ module NameplateRoundTripTests =
     [<Fact>]
     let ``Complete roundtrip AASX → SDF → AASX preserves Nameplate and Documentation`` () =
         // 1. 초기 AASX 생성
-        let store = Ds2.Store.DsStore()
+        let store = DsStore()
         let project = Project("CompleteRoundTrip")
 
         // Nameplate 설정
@@ -753,7 +753,7 @@ module NameplateRoundTripTests =
             Assert.True(exported1)
 
             // 3. AASX → SDF
-            let store2 = Ds2.Store.DsStore()
+            let store2 = DsStore()
             let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 aasxPath1
             Assert.True(imported)
 
@@ -764,7 +764,7 @@ module NameplateRoundTripTests =
 
                 // 4. SDF → AASX
                 let project3 = ProjectSerializer.loadProject sdfPath
-                let store3 = Ds2.Store.DsStore()
+                let store3 = DsStore()
                 store3.Projects.Add(project3.Id, project3)
 
                 let aasxPath2 = Path.Combine(Path.GetTempPath(), $"test_complete2_{Guid.NewGuid()}.aasx")
@@ -773,7 +773,7 @@ module NameplateRoundTripTests =
                     Assert.True(exported2)
 
                     // 5. 최종 AASX Import 및 검증
-                    let store4 = Ds2.Store.DsStore()
+                    let store4 = DsStore()
                     let imported2 = Ds2.Aasx.AasxImporter.importIntoStore store4 aasxPath2
                     Assert.True(imported2)
 
@@ -793,7 +793,7 @@ module NameplateRoundTripTests =
 module AasValidationTests =
 
     open AasCore.Aas3_0
-    open Ds2.Store
+    open Ds2.Core.Store
     open Ds2.Editor
 
     [<Fact>]

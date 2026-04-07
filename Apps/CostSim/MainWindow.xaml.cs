@@ -22,7 +22,7 @@ using Ds2.Runtime.Sim.Engine.Core;
 using Ds2.Runtime.Sim.Report;
 using Ds2.Runtime.Sim.Report.Exporters;
 using Ds2.Runtime.Sim.Report.Model;
-using Ds2.Store;
+using Ds2.Core.Store;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
 

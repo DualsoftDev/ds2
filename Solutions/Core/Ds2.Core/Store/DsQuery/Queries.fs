@@ -1,8 +1,8 @@
-namespace Ds2.Store.DsQuery
+namespace Ds2.Core.Store
 
 open System
 open Ds2.Core
-open Ds2.Store
+open Ds2.Core.Store
 
 // =============================================================================
 // Query 모듈 - 읽기 전용 쿼리 API

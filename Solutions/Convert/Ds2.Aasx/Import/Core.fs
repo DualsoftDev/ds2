@@ -7,7 +7,7 @@ open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxFileIO
-open Ds2.Store
+open Ds2.Core.Store
 
 module internal AasxImportCore =
 

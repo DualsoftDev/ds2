@@ -3,8 +3,8 @@ namespace Ds2.Editor
 open System
 open System.Runtime.CompilerServices
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 
 /// DsStore 확장 메서드 공유 로깅 + 엔티티 검증 헬퍼.
 /// 쓰기 연산에서 엔티티가 없으면 Warn 로깅 + InvalidOperationException.

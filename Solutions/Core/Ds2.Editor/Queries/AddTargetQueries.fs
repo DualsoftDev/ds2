@@ -2,8 +2,8 @@ module Ds2.Editor.AddTargetQueries
 
 open System
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 
 let private resolveFromEntity
     (resolve: DsStore -> EntityKind -> Guid -> Guid option)

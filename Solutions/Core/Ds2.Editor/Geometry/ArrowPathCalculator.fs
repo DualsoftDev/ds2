@@ -4,8 +4,8 @@ open System
 open System.Collections.Generic
 open System.Runtime.CompilerServices
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 
 /// Arrow path calculation result.
 /// When Points has 4 items, C# renders it as cubic Bezier: [start; cp1; cp2; end].

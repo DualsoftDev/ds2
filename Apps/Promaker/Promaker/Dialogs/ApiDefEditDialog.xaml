@@ -1,7 +1,7 @@
 <Window x:Class="Promaker.Dialogs.ApiDefEditDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:core="clr-namespace:Ds2.Store;assembly=Ds2.Store"
+        xmlns:core="clr-namespace:Ds2.Core.Store;assembly=Ds2.Core"
         Title="ApiDef 편집"
         Width="380" Height="330"
         ResizeMode="NoResize"

@@ -19,7 +19,7 @@
 // ============================================================================
 
 using Ds2.Core;
-using Ds2.Store;
+using Ds2.Core.Store;
 
 namespace Ds2.Tutorial.Steps;
 

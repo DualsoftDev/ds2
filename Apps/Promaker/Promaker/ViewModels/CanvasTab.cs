@@ -1,6 +1,6 @@
 using System;
 using CommunityToolkit.Mvvm.ComponentModel;
-using Ds2.Store;
+using Ds2.Core.Store;
 using Ds2.Editor;
 
 namespace Promaker.ViewModels;

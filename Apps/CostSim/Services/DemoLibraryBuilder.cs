@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using Ds2.Core;
 using Ds2.Editor;
-using Ds2.Store;
+using Ds2.Core.Store;
 using Microsoft.FSharp.Core;
 
 namespace CostSim;

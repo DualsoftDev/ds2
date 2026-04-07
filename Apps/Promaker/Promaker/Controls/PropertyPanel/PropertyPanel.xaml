@@ -4,7 +4,7 @@
              xmlns:vm="clr-namespace:Promaker.ViewModels"
              xmlns:ctrl="clr-namespace:Promaker.Controls"
              xmlns:conv="clr-namespace:Promaker.Presentation"
-             xmlns:core="clr-namespace:Ds2.Store;assembly=Ds2.Store"
+             xmlns:core="clr-namespace:Ds2.Core.Store;assembly=Ds2.Core"
              xmlns:coreEnum="clr-namespace:Ds2.Core;assembly=Ds2.Core"
              xmlns:help="clr-namespace:Promaker.Help"
              x:Name="PanelRoot">

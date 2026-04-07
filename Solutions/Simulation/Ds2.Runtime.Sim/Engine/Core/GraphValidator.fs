@@ -2,7 +2,7 @@ namespace Ds2.Runtime.Sim.Engine.Core
 
 open System
 open Ds2.Core
-open Ds2.Store
+open Ds2.Core.Store
 
 /// 시뮬레이션 그래프 사전 검증 (순수 함수)
 module GraphValidator =

@@ -3,8 +3,8 @@ namespace Ds2.Editor
 open System
 open System.Runtime.CompilerServices
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 
 
 module internal DirectDeviceOps =

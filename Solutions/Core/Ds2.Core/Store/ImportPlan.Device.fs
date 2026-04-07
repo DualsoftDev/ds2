@@ -1,9 +1,8 @@
-namespace Ds2.Store
+namespace Ds2.Core.Store
 
 open System
 open System.Collections.Generic
 open Ds2.Core
-open Ds2.Store.DsQuery
 
 module internal ImportPlanDeviceOps =
 

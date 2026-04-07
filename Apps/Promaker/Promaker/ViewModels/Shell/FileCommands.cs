@@ -3,8 +3,7 @@ using System.IO;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
-using Ds2.Store;
-using Ds2.Store.DsQuery;
+using Ds2.Core.Store;
 using Ds2.Editor;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
@@ -143,21 +142,7 @@ public partial class MainViewModel
                 $"Open file '{fileName}'",
                 () =>
                 {
-                    var json = File.ReadAllText(fileName);
-                    if (Ds2.Store.Compat.LegacyJsonImport.isLegacyJsonFormat(json))
-                    {
-                        var newStore = new DsStore();
-                        if (!Ds2.Store.Compat.LegacyJsonImport.importLegacyJson(newStore, json))
-                        {
-                            _dialogService.ShowWarning("레거시 JSON 불러오기에 실패했습니다.");
-                            return;
-                        }
-                        _store.ReplaceStore(newStore);
-                    }
-                    else
-                    {
-                        _store.LoadFromFile(fileName);
-                    }
+                    _store.LoadFromFile(fileName);
                     PrepareForLoadedStore();
                     CompleteOpen(fileName, "File");
                 },

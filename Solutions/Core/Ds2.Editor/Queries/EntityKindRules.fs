@@ -2,7 +2,7 @@ namespace Ds2.Editor
 
 open System
 open Ds2.Core
-open Ds2.Store
+open Ds2.Core.Store
 
 /// EntityKind 기반 비즈니스 규칙 — UI 프레임워크 중립
 module EntityKindRules =

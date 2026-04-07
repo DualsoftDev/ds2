@@ -1,7 +1,7 @@
 namespace Ds2.View3D
 
 open System
-open Ds2.Store
+open Ds2.Core.Store
 open Ds2.View3D
 
 /// C#에서 호출 가능한 Scene 빌더

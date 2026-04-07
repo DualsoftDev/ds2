@@ -5,7 +5,7 @@ using System.Reflection;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
-using Ds2.Store;
+using Ds2.Core.Store;
 using Microsoft.FSharp.Collections;
 using Promaker.Dialogs;
 using Xunit;

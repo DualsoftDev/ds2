@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Ds2.Core;
-using Ds2.Store;
+using Ds2.Core.Store;
 using Ds2.Editor;
 using Ds2.View3D;
 

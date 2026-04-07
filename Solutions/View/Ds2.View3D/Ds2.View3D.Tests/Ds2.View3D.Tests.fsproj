@@ -25,7 +25,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Ds2.View3D.Core\Ds2.View3D.Core.fsproj" />
     <ProjectReference Include="..\..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
-    <ProjectReference Include="..\..\..\Core\Ds2.Store\Ds2.Store.fsproj" />
   </ItemGroup>
 
 </Project>

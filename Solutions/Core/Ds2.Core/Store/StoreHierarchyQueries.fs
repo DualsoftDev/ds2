@@ -1,9 +1,9 @@
-module Ds2.Store.StoreHierarchyQueries
+module Ds2.Core.StoreHierarchyQueries
 
 open System
 open System.Runtime.CompilerServices
 open Ds2.Core
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
 
 let flowsForSystem (store: DsStore) (systemId: Guid) : (Guid * string) list =
     Queries.flowsOf systemId store

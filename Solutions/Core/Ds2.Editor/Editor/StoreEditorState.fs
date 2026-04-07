@@ -2,7 +2,7 @@ namespace Ds2.Editor
 
 open System.Collections.Generic
 open System.Runtime.CompilerServices
-open Ds2.Store
+open Ds2.Core.Store
 
 type internal StoreEditorState = {
     UndoManager: UndoRedoManager

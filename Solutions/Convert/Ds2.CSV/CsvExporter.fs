@@ -4,8 +4,7 @@ open System
 open System.IO
 open System.Text
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
 
 module CsvExporter =
 

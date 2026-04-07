@@ -4,8 +4,7 @@ using System.Linq;
 using Microsoft.FSharp.Core;
 using Ds2.Core;
 using Ds2.Runtime.Sim.Engine.Core;
-using Ds2.Store;
-using Ds2.Store.DsQuery;
+using Ds2.Core.Store;
 using Ds2.Editor;
 
 namespace Promaker.ViewModels;

@@ -2,8 +2,7 @@ namespace Ds2.Runtime.Sim.Engine
 
 open System
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
 open Ds2.Runtime.Sim.Model
 open Ds2.Runtime.Sim.Engine.Core
 open Ds2.Runtime.Sim.Engine.Scheduler
