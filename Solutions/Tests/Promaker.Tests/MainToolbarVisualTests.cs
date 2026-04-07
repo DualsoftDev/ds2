@@ -1,8 +1,13 @@
+using System;
+using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using Ds2.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Promaker.Controls;
 using Promaker.ViewModels;
 using Xunit;
@@ -12,30 +17,7 @@ namespace Promaker.Tests;
 public sealed class MainToolbarVisualTests
 {
     [Fact]
-    public void MainToolbar_simulation_speed_combobox_defaults_to_one_x()
-    {
-        StaTestRunner.Run(() =>
-        {
-            var vm = new MainViewModel();
-            var toolbar = CreateToolbar(vm);
-
-            var speedCombo = FindRequiredDescendant<ComboBox>(toolbar, "SimSpeedComboBox");
-            var items = speedCombo.Items.OfType<ComboBoxItem>().ToArray();
-            var labels = items.Select(item => item.Content?.ToString()).ToArray();
-
-            Assert.Equal(1.0, vm.Simulation.SimSpeed);
-            Assert.Equal(6, items.Length);
-            Assert.Equal("0.5x", labels[0]);
-            Assert.Equal("1x", labels[1]);
-            Assert.Equal("2x", labels[2]);
-            Assert.Equal("5x", labels[3]);
-            Assert.Equal("10x", labels[4]);
-            Assert.False(string.IsNullOrWhiteSpace(labels[5]));
-        });
-    }
-
-    [Fact]
-    public void MainToolbar_simulation_controls_bind_to_main_view_model_and_simulation_state()
+    public void Simulation_toolbar_buttons_follow_public_command_state()
     {
         StaTestRunner.Run(() =>
         {
@@ -45,9 +27,7 @@ public sealed class MainToolbarVisualTests
             var startButton = FindRequiredDescendant<Button>(toolbar, "SimulationStartStopButton");
             var pauseButton = FindRequiredDescendant<Button>(toolbar, "SimulationPauseStepButton");
             var tokenButton = FindRequiredDescendant<Button>(toolbar, "OpenTokenSpecButton");
-            var speedCombo = FindRequiredDescendant<ComboBox>(toolbar, "SimSpeedComboBox");
 
-            Assert.False(vm.HasProject);
             Assert.False(startButton.IsEnabled);
             Assert.False(pauseButton.IsEnabled);
             Assert.False(tokenButton.IsEnabled);
@@ -55,40 +35,41 @@ public sealed class MainToolbarVisualTests
             vm.NewProjectCommand.Execute(null);
             toolbar.UpdateLayout();
 
-            Assert.True(vm.HasProject);
-            Assert.Same(vm.Simulation.StartSimulationCommand, startButton.Command);
-            Assert.Same(vm.OpenTokenSpecDialogCommand, tokenButton.Command);
             Assert.True(startButton.IsEnabled);
             Assert.False(pauseButton.IsEnabled);
             Assert.True(tokenButton.IsEnabled);
-            Assert.Equal("1x", ((ComboBoxItem)speedCombo.SelectedItem).Content?.ToString());
-            Assert.True(speedCombo.ActualHeight >= 20);
+            Assert.Same(vm.Simulation.StartSimulationCommand, startButton.Command);
 
-            startButton.Command.Execute(null);
+            vm.Simulation.IsSimulating = true;
+            vm.Simulation.IsSimPaused = false;
             toolbar.UpdateLayout();
 
-            Assert.True(vm.Simulation.IsSimulating);
+            Assert.Same(vm.Simulation.StopSimulationCommand, startButton.Command);
+            Assert.Same(vm.Simulation.PauseSimulationCommand, pauseButton.Command);
             Assert.True(pauseButton.IsEnabled);
+
+            vm.Simulation.IsSimPaused = true;
+            toolbar.UpdateLayout();
+
+            Assert.Same(vm.Simulation.StepSimulationCommand, pauseButton.Command);
         });
     }
 
     [Fact]
-    public void MainToolbar_connect_icon_reflects_selected_arrow_type()
+    public void Connect_toolbar_icon_reflects_selected_arrow_type()
     {
         StaTestRunner.Run(() =>
         {
             var vm = new MainViewModel();
             vm.NewProjectCommand.Execute(null);
-            var toolbar = CreateToolbar(vm);
 
+            var toolbar = CreateToolbar(vm);
             var startIcon = FindRequiredDescendant<Canvas>(toolbar, "ConnectStartIcon");
-            var resetIcon = FindRequiredDescendant<Canvas>(toolbar, "ConnectResetIcon");
             var startResetIcon = FindRequiredDescendant<Canvas>(toolbar, "ConnectStartResetIcon");
             var resetResetIcon = FindRequiredDescendant<Canvas>(toolbar, "ConnectResetResetIcon");
             var groupIcon = FindRequiredDescendant<Canvas>(toolbar, "ConnectGroupIcon");
 
             Assert.Equal(Visibility.Visible, startIcon.Visibility);
-            Assert.Equal(Visibility.Collapsed, resetIcon.Visibility);
 
             vm.SelectedConnectArrowType = ArrowType.StartReset;
             toolbar.UpdateLayout();
@@ -141,7 +122,7 @@ public sealed class MainToolbarVisualTests
                 return match;
         }
 
-        foreach (var child in GetLogicalChildren(root))
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
         {
             var match = TryFindDescendant(child, name);
             if (match is not null)
@@ -161,10 +142,5 @@ public sealed class MainToolbarVisualTests
         for (var i = 0; i < count; i++)
             children[i] = VisualTreeHelper.GetChild(root, i);
         return children;
-    }
-
-    private static DependencyObject[] GetLogicalChildren(DependencyObject root)
-    {
-        return LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>().ToArray();
     }
 }

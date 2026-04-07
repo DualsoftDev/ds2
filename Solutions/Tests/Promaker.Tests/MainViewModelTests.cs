@@ -43,7 +43,7 @@ public sealed class MainViewModelTests
                 SystemName = "SystemA",
                 State = Status4.Going
             });
-            vm.Simulation.SimEventLog.Add("log");
+            vm.Simulation.SimEventLog.Add(new SimLogEntry("log"));
             vm.Simulation.SimWorkItems.Add(new SimWorkItem(nodeId, "Work1"));
             vm.Simulation.SelectedSimWork = vm.Simulation.SimWorkItems[0];
             vm.Simulation.GanttChart.AddEntry(nodeId, "Work1", EntityKind.Work);
