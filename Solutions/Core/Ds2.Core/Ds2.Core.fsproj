@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Enum.fs" />
+    <Compile Include="FSharpJsonConverters.fs" />
     <Compile Include="JsonOptions.fs" />
     <Compile Include="AbstractClass.fs" />
     <Compile Include="ModelClass.fs" />
@@ -43,7 +44,7 @@
 
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
-    <PackageReference Include="FSharp.SystemTextJson" />
+
     <PackageReference Include="log4net" />
   </ItemGroup>
 
