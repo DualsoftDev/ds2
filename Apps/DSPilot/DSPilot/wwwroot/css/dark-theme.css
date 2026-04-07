@@ -732,6 +732,14 @@
 .dark-theme .gantt-gap-text {
     fill: #EF9A9A;
 }
+.dark-theme .gantt-gap-label-bg {
+    fill: rgba(30, 30, 30, 0.92);
+    stroke: #EF9A9A;
+}
+.dark-theme .gantt-ct-label-bg {
+    fill: rgba(30, 30, 30, 0.92);
+    stroke: #A5D6A7;
+}
 .dark-theme .gantt-connector-bg {
     fill: rgba(30, 30, 30, 0.92);
 }

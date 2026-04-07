@@ -8,6 +8,10 @@ namespace DSPilot.Services;
 
 /// <summary>
 /// PLC 태그와 Call 매핑 서비스
+///
+/// [InTag / OutTag 방향 기준: PLC 제어기 관점]
+///   - OutTag: PLC가 장비로 출력(DO)하는 신호 (명령)  → Rising 시 Going (실행 시작)
+///   - InTag:  장비에서 PLC로 입력(DI)되는 신호 (응답) → Rising 시 Finish (실행 완료)
 /// </summary>
 public class PlcToCallMapperService
 {
@@ -287,9 +291,10 @@ public class PlcToCallMapperService
         var direction = _callDirections.GetValueOrDefault(mapping.Call.Id, CallDirection.None);
         var edgeType = edgeState.EdgeType;
 
-        // InOut: Out ON → Ready → Going, In ON → Going → Finish, In OFF → Finish → Ready
-        // InOnly: In ON → Ready → Going → Finish (instant), In OFF → Finish → Ready
-        // OutOnly: Out ON → Ready → Going, Out OFF → Going → Finish → Ready (auto)
+        // [PLC 제어기 관점] OutTag = PLC 출력(명령), InTag = PLC 입력(응답)
+        // InOut: OutTag ON → Ready → Going, InTag ON → Going → Finish, InTag OFF → Finish → Ready
+        // InOnly: InTag ON → Ready → Going → Finish (instant), InTag OFF → Finish → Ready
+        // OutOnly: OutTag ON → Ready → Going, OutTag OFF → Going → Finish → Ready (auto)
 
         return (direction, mapping.IsInTag, edgeType) switch
         {

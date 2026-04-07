@@ -17,10 +17,15 @@ type CallInfo =
 [<CLIMutable>]
 type CallDirectionInfo =
     { CallName: string
+      /// PLC 제어기 관점: 장비에서 PLC로 입력(DI)되는 신호 (응답) 존재 여부
       HasInTag: bool
+      /// PLC 제어기 관점: PLC가 장비로 출력(DO)하는 신호 (명령) 존재 여부
       HasOutTag: bool }
 
 /// Direction enum matching the C# implementation
+/// [InTag / OutTag 방향 기준: PLC 제어기 관점]
+///   - OutTag: PLC가 장비로 출력(DO)하는 신호 (명령)  → Rising 시 Going (실행 시작)
+///   - InTag:  장비에서 PLC로 입력(DI)되는 신호 (응답) → Rising 시 Finish (실행 완료)
 type CallDirection =
     | InOut = 0
     | InOnly = 1
@@ -57,9 +62,9 @@ module StateTransition =
         | "OutOnly" -> CallDirection.OutOnly
         | _ -> CallDirection.None
 
-    /// Handle InTag Rising Edge
-    /// - InOut: Ready -> Going (Out signal starts work)
-    /// - InOnly: Ready -> Going -> Finish (instant)
+    /// Handle InTag Rising Edge (PLC 제어기 관점: 장비 → PLC 입력 신호 ON)
+    /// - InOut: Going -> Finish (응답 수신 → 실행 완료)
+    /// - InOnly: Ready -> Finish (instant, 응답만으로 완료 처리)
     let handleInTagRisingEdge (dbPath: string) (callName: string) (timestamp: DateTime) : Async<unit> =
         async {
             use conn = new SqliteConnection($"Data Source={dbPath}")
@@ -166,9 +171,9 @@ module StateTransition =
                     printfn "[StateTransition] Warning: InTag Rising for Call with invalid Direction: %s (%A)" callName direction
         }
 
-    /// Handle InTag Falling Edge
-    /// - InOut: Finish -> Ready (In OFF resets)
-    /// - InOnly: Finish -> Ready (In OFF resets)
+    /// Handle InTag Falling Edge (PLC 제어기 관점: 장비 → PLC 입력 신호 OFF)
+    /// - InOut: Finish -> Ready (응답 해제 → 대기 복귀)
+    /// - InOnly: Finish -> Ready (응답 해제 → 대기 복귀)
     let handleInTagFallingEdge (dbPath: string) (callName: string) (timestamp: DateTime) : Async<unit> =
         async {
             use conn = new SqliteConnection($"Data Source={dbPath}")
@@ -243,9 +248,9 @@ module StateTransition =
                     ()
         }
 
-    /// Handle OutTag Rising Edge
-    /// - InOut: Ready -> Going (Out signal starts work)
-    /// - OutOnly: Ready -> Going (Out ON starts)
+    /// Handle OutTag Rising Edge (PLC 제어기 관점: PLC → 장비 출력 신호 ON)
+    /// - InOut: Ready -> Going (명령 송신 → 실행 시작)
+    /// - OutOnly: Ready -> Going (명령 송신 → 실행 시작)
     let handleOutTagRisingEdge (dbPath: string) (callName: string) (timestamp: DateTime) : Async<unit> =
         async {
             use conn = new SqliteConnection($"Data Source={dbPath}")
@@ -305,8 +310,8 @@ module StateTransition =
                     printfn "[StateTransition] Warning: OutTag Rising for Call with invalid Direction: %s (%A)" callName direction
         }
 
-    /// Handle OutTag Falling Edge
-    /// - OutOnly: Going -> Finish -> Ready (auto)
+    /// Handle OutTag Falling Edge (PLC 제어기 관점: PLC → 장비 출력 신호 OFF)
+    /// - OutOnly: Going -> Finish -> Ready (명령 해제 → 자동 완료)
     let handleOutTagFallingEdge (dbPath: string) (callName: string) (timestamp: DateTime) : Async<unit> =
         async {
             use conn = new SqliteConnection($"Data Source={dbPath}")
@@ -403,6 +408,7 @@ module StateTransition =
         }
 
     /// Process Edge Event (main entry point)
+    /// isInTag: PLC 제어기 관점 — true = PLC 입력(DI, 장비 응답), false = PLC 출력(DO, 장비 명령)
     let processEdgeEvent (dbPath: string) (tagAddress: string) (isInTag: bool) (edgeType: EdgeType) (timestamp: DateTime) (callName: string) : Async<unit> =
         async {
             match (isInTag, edgeType) with
