@@ -302,35 +302,6 @@ module AasxRoundTripTests =
             if System.IO.File.Exists(path) then System.IO.File.Delete(path)
 
 
-    [<Fact(Skip = "도메인별 Submodel Import 미구현 — Duration이 SequenceSimulation Submodel에 별도 저장됨")>]
-    let ``AASX round-trip preserves Work Duration`` () =
-        let store = DsStore()
-        let projectId = store.AddProject("P")
-        let systemId = store.AddSystem("S", projectId, true)
-        let flowId = store.AddFlow("F", systemId)
-        let workId = store.AddWork("W", flowId)
-
-        // Set Duration directly on Work entity (not in SimulationWorkProperties)
-        store.Works.[workId].Duration <- Some (TimeSpan.FromMilliseconds(5000.0))
-        Assert.Equal(5000.0, store.Works.[workId].Duration.Value.TotalMilliseconds)
-
-        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
-        try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
-            Assert.True(exported, "Export should succeed")
-
-            let store2 = DsStore()
-            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
-            Assert.True(imported, "Import should succeed")
-
-            Assert.Equal(1, store2.Works.Count)
-            let restoredWork = store2.Works.Values |> Seq.head
-            Assert.True(restoredWork.Duration.IsSome, "Duration should be preserved")
-            Assert.Equal(5000.0, restoredWork.Duration.Value.TotalMilliseconds)
-        finally
-            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
-
-
 /// SplitDeviceAasx 분리 저장 통합 테스트
 module SplitDeviceAasxTests =
 

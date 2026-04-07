@@ -44,8 +44,6 @@
 
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
-
-    <PackageReference Include="log4net" />
   </ItemGroup>
 
 </Project>
