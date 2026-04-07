@@ -17,11 +17,11 @@ using CostSim.Presentation;
 using Ds2.Aasx;
 using Ds2.Core;
 using Ds2.Editor;
-using Ds2.Runtime.Sim.Engine;
-using Ds2.Runtime.Sim.Engine.Core;
-using Ds2.Runtime.Sim.Report;
-using Ds2.Runtime.Sim.Report.Exporters;
-using Ds2.Runtime.Sim.Report.Model;
+using Ds2.Runtime.Engine;
+using Ds2.Runtime.Engine.Core;
+using Ds2.Runtime.Report;
+using Ds2.Runtime.Report.Exporters;
+using Ds2.Runtime.Report.Model;
 using Ds2.Core.Store;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
@@ -2275,7 +2275,7 @@ public partial class MainWindow : Window
         var index = SimIndexModule.build(_store, 50);
         var validationText = BuildValidationSummary(index);
 
-        using var engine = new EventDrivenEngine(index);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.Simulation);
         var records = new List<StateChangeRecord>();
         var startTime = DateTime.UtcNow;
 

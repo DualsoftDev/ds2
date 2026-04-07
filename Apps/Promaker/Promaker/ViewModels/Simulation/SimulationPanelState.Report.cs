@@ -1,9 +1,9 @@
 using System;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.Runtime.Sim.Report;
-using Ds2.Runtime.Sim.Report.Exporters;
-using Ds2.Runtime.Sim.Report.Model;
+using Ds2.Runtime.Report;
+using Ds2.Runtime.Report.Exporters;
+using Ds2.Runtime.Report.Model;
 using Microsoft.Win32;
 
 namespace Promaker.ViewModels;
@@ -11,17 +11,17 @@ namespace Promaker.ViewModels;
 public partial class SimulationPanelState
 {
     [RelayCommand(CanExecute = nameof(CanExportReport))]
-    private void ExportReportCsv() => ExportReportAs(Ds2.Runtime.Sim.Report.Model.ExportFormat.Csv);
+    private void ExportReportCsv() => ExportReportAs(Ds2.Runtime.Report.Model.ExportFormat.Csv);
 
     [RelayCommand(CanExecute = nameof(CanExportReport))]
-    private void ExportReportXlsx() => ExportReportAs(Ds2.Runtime.Sim.Report.Model.ExportFormat.Excel);
+    private void ExportReportXlsx() => ExportReportAs(Ds2.Runtime.Report.Model.ExportFormat.Excel);
 
     [RelayCommand(CanExecute = nameof(CanExportReport))]
-    private void ExportReportHtml() => ExportReportAs(Ds2.Runtime.Sim.Report.Model.ExportFormat.Html);
+    private void ExportReportHtml() => ExportReportAs(Ds2.Runtime.Report.Model.ExportFormat.Html);
 
     private bool CanExportReport() => HasReportData;
 
-    private void ExportReportAs(Ds2.Runtime.Sim.Report.Model.ExportFormat format)
+    private void ExportReportAs(Ds2.Runtime.Report.Model.ExportFormat format)
     {
         var report = BuildReport();
         if (report.Entries.IsEmpty)

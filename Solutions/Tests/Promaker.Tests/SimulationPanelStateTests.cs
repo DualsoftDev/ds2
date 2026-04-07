@@ -5,11 +5,11 @@ using System.Linq;
 using System.Reflection;
 using System.Windows.Threading;
 using Ds2.Core;
-using Ds2.Runtime.Sim.Engine;
-using Ds2.Runtime.Sim.Engine.Core;
-using Ds2.Runtime.Sim.Model;
-using Ds2.Runtime.Sim.Report;
-using Ds2.Runtime.Sim.Report.Model;
+using Ds2.Runtime.Engine;
+using Ds2.Runtime.Engine.Core;
+using Ds2.Runtime.Model;
+using Ds2.Runtime.Report;
+using Ds2.Runtime.Report.Model;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using Microsoft.FSharp.Core;
@@ -206,7 +206,7 @@ public sealed class SimulationPanelStateTests
             store.UpdateWorkPeriodMs(workId, 1);
 
             var index = SimIndexModule.build(store, 10);
-            using var engine = new EventDrivenEngine(index);
+            using var engine = new EventDrivenEngine(index, RuntimeMode.Simulation);
             engine.Start();
             engine.SetAllFlowStates(FlowTag.Pause);
 
@@ -251,7 +251,7 @@ public sealed class SimulationPanelStateTests
             store.ConnectSelectionInOrder([ work1Id, work2Id ], ArrowType.StartReset);
 
             var index = SimIndexModule.build(store, 10);
-            using var engine = new EventDrivenEngine(index);
+            using var engine = new EventDrivenEngine(index, RuntimeMode.Simulation);
             engine.Start();
             engine.SetAllFlowStates(FlowTag.Pause);
 
@@ -312,7 +312,7 @@ public sealed class SimulationPanelStateTests
             store.ConnectSelectionInOrder([ work1Id, work2Id ], ArrowType.StartReset);
 
             var index = SimIndexModule.build(store, 10);
-            using var engine = new EventDrivenEngine(index);
+            using var engine = new EventDrivenEngine(index, RuntimeMode.Simulation);
             engine.Start();
             engine.SetAllFlowStates(FlowTag.Pause);
 
@@ -371,7 +371,7 @@ public sealed class SimulationPanelStateTests
             store.UpdateWorkTokenRole(workId, TokenRole.Source);
 
             var index = SimIndexModule.build(store, 10);
-            using var engine = new EventDrivenEngine(index);
+            using var engine = new EventDrivenEngine(index, RuntimeMode.Simulation);
             var state = CreateState(() => store);
 
             SetPrivateField(state, "_simEngine", engine);

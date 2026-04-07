@@ -19,13 +19,13 @@
 //     · findTokenUnreachableWorks: 토큰 도달 불가
 //
 // 핵심 네임스페이스:
-//   Ds2.Runtime.Sim.Engine       — EventDrivenEngine, ISimulationEngine
-//   Ds2.Runtime.Sim.Engine.Core  — SimIndexModule, GraphValidator
+//   Ds2.Runtime.Engine       — EventDrivenEngine, ISimulationEngine
+//   Ds2.Runtime.Engine.Core  — SimIndexModule, GraphValidator
 // ============================================================================
 
 using Ds2.Core;
-using Ds2.Runtime.Sim.Engine;
-using Ds2.Runtime.Sim.Engine.Core;
+using Ds2.Runtime.Engine;
+using Ds2.Runtime.Engine.Core;
 
 namespace Ds2.Tutorial.Steps;
 
@@ -75,7 +75,7 @@ static class Step05_Simulation
         Console.WriteLine();
 
         // ── 3. 엔진 실행 + 이벤트 수집 ──────────────────────
-        using var engine = new EventDrivenEngine(index);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.Simulation);
         var sim = (ISimulationEngine)engine;
 
         var stateLog = new List<string>();
