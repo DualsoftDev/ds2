@@ -26,6 +26,11 @@ module internal EventDrivenEngineRuntime =
         EmitTokenEvent: TokenEventKind -> TokenValue -> Guid -> Guid option -> unit
         ScheduleConditionEvaluation: unit -> unit
         EvaluateConditions: unit -> unit
+        TriggerCallTimeout: CallTimeoutArgs -> unit
+        GetCallState: Guid -> Status4
+        GetCallName: Guid -> string
+        GetCallTimeoutMs: Guid -> int option
+        CurrentTimeMs: unit -> int64
     }
 
     let processEvent (ctx: RuntimeContext) (event: ScheduledEvent) =
@@ -41,8 +46,14 @@ module internal EventDrivenEngineRuntime =
         | ScheduledEventType.DurationComplete workGuid ->
             ctx.HandleDurationComplete workGuid
         | ScheduledEventType.CallTimeout callGuid ->
-            // Timeout 발동: Call이 아직 Going이면 강제 Finish
-            ctx.ClearAndApplyCallTransition callGuid Status4.Finish
+            if ctx.GetCallState callGuid = Status4.Going then
+                let clock = TimeSpan.FromMilliseconds(float (ctx.CurrentTimeMs()))
+                let timeoutMs = ctx.GetCallTimeoutMs callGuid |> Option.defaultValue 0
+                ctx.TriggerCallTimeout({
+                    CallGuid = callGuid
+                    CallName = ctx.GetCallName callGuid
+                    TimeoutMs = timeoutMs
+                    Clock = clock })
         | ScheduledEventType.HomingComplete workGuid ->
             if ctx.GetWorkState workGuid = Status4.Homing then
                 match ctx.GetWorkToken workGuid with

@@ -28,6 +28,14 @@ type CallStateChangedArgs = {
     Clock: TimeSpan
 }
 
+/// Call Timeout 발동 이벤트 인자
+type CallTimeoutArgs = {
+    CallGuid: Guid
+    CallName: string
+    TimeoutMs: int
+    Clock: TimeSpan
+}
+
 /// 시뮬레이션 상태 변경 이벤트 인자
 type SimulationStatusChangedArgs = {
     PreviousStatus: SimulationStatus

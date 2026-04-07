@@ -91,6 +91,8 @@ type ISimulationEngine =
     abstract SimulationStatusChanged: IEvent<SimulationStatusChangedArgs>
     [<CLIEvent>]
     abstract TokenEvent: IEvent<TokenEventArgs>
+    [<CLIEvent>]
+    abstract CallTimeout: IEvent<CallTimeoutArgs>
     /// 자동 원위치 페이즈 완료 이벤트
     [<CLIEvent>]
     abstract HomingPhaseCompleted: IEvent<EventArgs>

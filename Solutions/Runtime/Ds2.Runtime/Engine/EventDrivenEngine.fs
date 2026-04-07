@@ -28,6 +28,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
     let durationTracker = DurationTracker(scheduler)
     let workStateChangedEvent = Event<WorkStateChangedArgs>()
     let callStateChangedEvent = Event<CallStateChangedArgs>()
+    let callTimeoutEvent = Event<CallTimeoutArgs>()
     let simulationStatusChangedEvent = Event<SimulationStatusChangedArgs>()
     let tokenEventEvent = Event<TokenEventArgs>()
     let scheduleConditionEvaluation () =
@@ -184,6 +185,14 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
         EmitTokenEvent = emitTokenEvent
         ScheduleConditionEvaluation = scheduleConditionEvaluation
         EvaluateConditions = evaluateConditions
+        TriggerCallTimeout = callTimeoutEvent.Trigger
+        GetCallState = stateManager.GetCallState
+        GetCallName = fun callGuid ->
+            Queries.getCall callGuid index.Store
+            |> Option.map (fun c -> c.Name) |> Option.defaultValue (string callGuid)
+        GetCallTimeoutMs = fun callGuid ->
+            index.CallTimeoutMap |> Map.tryFind callGuid |> Option.map (fun ts -> int ts.TotalMilliseconds)
+        CurrentTimeMs = fun () -> scheduler.CurrentTimeMs
     }
     let advanceStepRuntime targetTimeMs =
         EventDrivenEngineRuntime.advanceAndDrain runtimeContext targetTimeMs
@@ -254,6 +263,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
     [<CLIEvent>] member _.CallStateChanged = callStateChangedEvent.Publish
     [<CLIEvent>] member _.SimulationStatusChanged = simulationStatusChangedEvent.Publish
     [<CLIEvent>] member _.TokenEvent = tokenEventEvent.Publish
+    [<CLIEvent>] member _.CallTimeout = callTimeoutEvent.Publish
     member _.Start() = EngineLifecycle.start lifecycleContext
     member _.Pause() = EngineLifecycle.pause lifecycleContext
     member _.Resume() = EngineLifecycle.resume lifecycleContext
@@ -465,5 +475,6 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
         [<CLIEvent>] member this.CallStateChanged = this.CallStateChanged
         [<CLIEvent>] member this.SimulationStatusChanged = this.SimulationStatusChanged
         [<CLIEvent>] member this.TokenEvent = this.TokenEvent
+        [<CLIEvent>] member this.CallTimeout = this.CallTimeout
         [<CLIEvent>] member this.HomingPhaseCompleted = this.HomingPhaseCompleted
         member this.Dispose() = this.Stop()

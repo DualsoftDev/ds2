@@ -68,7 +68,48 @@
                          Background="{DynamicResource SecondaryBackgroundBrush}"
                          Foreground="{DynamicResource PrimaryTextBrush}"
                          FontFamily="Consolas" FontSize="11"
-                         BorderThickness="0"/>
+                         BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Message}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Severity}" Value="Warn">
+                                                <Setter Property="Foreground" Value="#FFA500"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Severity}" Value="Error">
+                                                <Setter Property="Foreground" Value="#FF4444"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Severity}" Value="Timeout">
+                                                <Setter Property="Foreground" Value="#FF6666"/>
+                                                <Setter Property="FontWeight" Value="Bold"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Severity}" Value="System">
+                                                <Setter Property="Foreground" Value="#00CED1"/>
+                                                <Setter Property="FontWeight" Value="Bold"/>
+                                            </DataTrigger>
+                                            <!-- RGFH: 시뮬레이션 상태 색상과 일치 -->
+                                            <DataTrigger Binding="{Binding Severity}" Value="Ready">
+                                                <Setter Property="Foreground" Value="#32CD32"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Severity}" Value="Going">
+                                                <Setter Property="Foreground" Value="#FFA500"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Severity}" Value="Finish">
+                                                <Setter Property="Foreground" Value="#1E90FF"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Severity}" Value="Homing">
+                                                <Setter Property="Foreground" Value="#888890"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </TabItem>
         </TabControl>
     </Border>
