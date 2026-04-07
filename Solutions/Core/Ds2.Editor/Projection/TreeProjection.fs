@@ -3,8 +3,8 @@ module Ds2.Editor.EditorTreeProjection
 open System
 open System.Runtime.CompilerServices
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 
 let inline private namedLeafNodes entityType parentId items =
     items

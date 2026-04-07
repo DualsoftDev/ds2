@@ -1,8 +1,7 @@
 using System;
 using System.Linq;
 using System.Windows;
-using Ds2.Store;
-using Ds2.Store.DsQuery;
+using Ds2.Core.Store;
 
 namespace Promaker.Dialogs;
 

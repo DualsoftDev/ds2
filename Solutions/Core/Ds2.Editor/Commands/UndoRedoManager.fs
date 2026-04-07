@@ -1,6 +1,6 @@
 namespace Ds2.Editor
 
-open Ds2.Store
+open Ds2.Core.Store
 open System.Collections.Generic
 
 // =============================================================================

@@ -4,8 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Windows;
 using Promaker.Services;
-using Ds2.Store;
-using Ds2.Store.DsQuery;
+using Ds2.Core.Store;
 
 namespace Promaker.Dialogs;
 

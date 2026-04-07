@@ -3,8 +3,8 @@ namespace Ds2.Mermaid
 open System
 open System.IO
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 
 /// Mermaid 임포트 공개 진입점
 module MermaidImporter =

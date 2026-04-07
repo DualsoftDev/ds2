@@ -3,7 +3,7 @@ module Ds2.Store.Editor.Tests.DsStoreConditionTests
 open System
 open Xunit
 open Ds2.Core
-open Ds2.Store
+open Ds2.Core.Store
 open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 

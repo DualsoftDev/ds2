@@ -2,8 +2,7 @@ namespace Ds2.Runtime.Sim.Engine.Core
 
 open System
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
 
 /// 조건 평가 엔트리 (ValueSpec 원본 보존)
 type ConditionEntry = {

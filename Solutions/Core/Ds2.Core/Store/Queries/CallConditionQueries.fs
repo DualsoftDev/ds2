@@ -1,9 +1,9 @@
-module Ds2.Store.CallConditionQueries
+module Ds2.Core.CallConditionQueries
 
 open System
 open System.Runtime.CompilerServices
 open Ds2.Core
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
 
 let rec private allConditions (conditions: seq<CallCondition>) : seq<CallCondition> =
     seq {

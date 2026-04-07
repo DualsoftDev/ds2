@@ -8,8 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
-using Ds2.Store;
-using Ds2.Store.DsQuery;
+using Ds2.Core.Store;
 
 namespace Promaker.Dialogs;
 

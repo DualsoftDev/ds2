@@ -1,7 +1,7 @@
 module Ds2.View3D.SceneBuilder
 
 open System
-open Ds2.Store
+open Ds2.Core.Store
 open Ds2.View3D
 open Ds2.View3D.ResultExtensions
 

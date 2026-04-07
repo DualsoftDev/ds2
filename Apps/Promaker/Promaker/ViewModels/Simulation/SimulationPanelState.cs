@@ -10,7 +10,7 @@ using Ds2.Runtime.Sim.Engine;
 using Ds2.Runtime.Sim.Model;
 using Ds2.Runtime.Sim.Report;
 using Ds2.Runtime.Sim.Report.Model;
-using Ds2.Store;
+using Ds2.Core.Store;
 using Ds2.Editor;
 using log4net;
 

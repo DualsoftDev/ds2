@@ -1,8 +1,7 @@
 using System;
 using System.Reflection;
 using Ds2.Core;
-using Ds2.Store;
-using Ds2.Store.DsQuery;
+using Ds2.Core.Store;
 using Ds2.Editor;
 using Promaker.ViewModels;
 using Xunit;

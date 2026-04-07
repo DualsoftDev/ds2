@@ -3,8 +3,8 @@ namespace Ds2.Editor
 open System
 open System.Runtime.CompilerServices
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 
 // =============================================================================
 // 내부 헬퍼 — 화살표 재연결 해석

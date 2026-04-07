@@ -1,10 +1,11 @@
-namespace rec Ds2.Store
+namespace rec Ds2.Core.Store
 
 open System
 open System.Collections.Generic
 open System.Collections.ObjectModel
 open System.Text.Json.Serialization
 open Ds2.Core
+open Ds2.Serialization
 open log4net
 
 type DsStore() =

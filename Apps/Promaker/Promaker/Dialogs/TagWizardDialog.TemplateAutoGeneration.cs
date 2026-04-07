@@ -4,8 +4,7 @@ using System.Linq;
 using System.Text;
 using Microsoft.FSharp.Core;
 using Ds2.Core;
-using Ds2.Store;
-using Ds2.Store.DsQuery;
+using Ds2.Core.Store;
 using Ds2.Editor;
 using Promaker.Services;
 

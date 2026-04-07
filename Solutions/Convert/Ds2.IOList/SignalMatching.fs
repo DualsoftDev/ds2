@@ -2,8 +2,8 @@ namespace Ds2.IOList
 
 open System
 open System.Linq
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 open Ds2.Core
 open Microsoft.FSharp.Core
 

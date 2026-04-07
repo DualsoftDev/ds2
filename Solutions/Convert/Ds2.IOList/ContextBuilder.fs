@@ -2,8 +2,8 @@ namespace Ds2.IOList
 
 open System
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 
 // =============================================================================
 // DS2 Context Builder

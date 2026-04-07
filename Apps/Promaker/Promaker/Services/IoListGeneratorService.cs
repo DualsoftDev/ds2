@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
 using Ds2.IOList;
-using Ds2.Store;
+using Ds2.Core.Store;
 
 namespace Promaker.Services;
 

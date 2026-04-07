@@ -3,8 +3,8 @@ module Ds2.Editor.EditorCanvasProjection
 open System
 open System.Runtime.CompilerServices
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 
 let private nodeFromPosition (id: Guid) (entityKind: EntityKind) (name: string) (parentId: Guid) (pos: Xywh option) (conditionTypes: CallConditionType list) (isGhost: bool) (isReference: bool) (referenceOfId: Guid option) =
     let defaultPos = Xywh(UiDefaults.DefaultNodeX, UiDefaults.DefaultNodeY, UiDefaults.DefaultNodeWidth, UiDefaults.DefaultNodeHeight)

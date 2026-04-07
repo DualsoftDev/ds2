@@ -1,7 +1,6 @@
 using System;
 using Ds2.Core;
-using Ds2.Store;
-using Ds2.Store.DsQuery;
+using Ds2.Core.Store;
 using Ds2.Editor;
 using Promaker.Controls;
 using Promaker.ViewModels;

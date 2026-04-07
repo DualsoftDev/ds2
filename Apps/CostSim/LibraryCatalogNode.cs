@@ -2,7 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Media;
-using Ds2.Store;
+using Ds2.Core.Store;
 
 namespace CostSim;
 

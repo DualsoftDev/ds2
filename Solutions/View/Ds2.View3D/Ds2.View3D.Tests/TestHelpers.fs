@@ -2,7 +2,7 @@ module Ds2.View3D.Tests.TestHelpers
 
 open System
 open Ds2.Core
-open Ds2.Store
+open Ds2.Core.Store
 
 /// 테스트용 간단한 DsStore 생성
 let createTestStore() =

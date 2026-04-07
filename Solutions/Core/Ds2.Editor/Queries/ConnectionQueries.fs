@@ -2,8 +2,8 @@ module Ds2.Editor.ConnectionQueries
 
 open System
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
+
 
 let arrowKey (sourceId: Guid) (targetId: Guid) (arrowType: ArrowType) =
     struct (sourceId, targetId, arrowType)

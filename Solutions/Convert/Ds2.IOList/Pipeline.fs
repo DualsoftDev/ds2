@@ -2,7 +2,7 @@ namespace Ds2.IOList
 
 open System
 open System.IO
-open Ds2.Store
+open Ds2.Core.Store
 
 // =============================================================================
 // Public API - IoList Generation Pipeline

@@ -54,7 +54,6 @@
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Mermaid\Ds2.Mermaid.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.IOList\Ds2.IOList.fsproj" />
-    <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Store\Ds2.Store.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Simulation\Ds2.Runtime.Sim\Ds2.Runtime.Sim.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Simulation\Ds2.Runtime.Sim.Report\Ds2.Runtime.Sim.Report.fsproj" />

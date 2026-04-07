@@ -15,7 +15,7 @@
 // ============================================================================
 
 using Ds2.Aasx;
-using Ds2.Store;
+using Ds2.Core.Store;
 
 namespace Ds2.Tutorial.Steps;
 

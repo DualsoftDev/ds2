@@ -3,8 +3,7 @@ namespace Ds2.CSV
 open System
 open System.IO
 open Ds2.Core
-open Ds2.Store
-open Ds2.Store.DsQuery
+open Ds2.Core.Store
 
 module CsvImporter =
 

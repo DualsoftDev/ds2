@@ -33,7 +33,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
-    <ProjectReference Include="..\..\Core\Ds2.Store\Ds2.Store.fsproj" />
     <ProjectReference Include="..\..\Core\Ds2.Editor\Ds2.Editor.fsproj" />
     <ProjectReference Include="..\..\Convert\Ds2.CSV\Ds2.CSV.fsproj" />
     <ProjectReference Include="..\..\Simulation\Ds2.Runtime.Sim\Ds2.Runtime.Sim.fsproj" />

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
-using Ds2.Store;
+using Ds2.Core.Store;
 using Ds2.Editor;
 using Promaker.Dialogs;
 

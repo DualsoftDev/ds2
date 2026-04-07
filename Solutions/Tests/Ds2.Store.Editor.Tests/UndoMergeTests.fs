@@ -1,7 +1,7 @@
 module Ds2.Store.Editor.Tests.UndoMergeTests
 
 open Xunit
-open Ds2.Store
+open Ds2.Core.Store
 open Ds2.Editor
 open Ds2.Store.Editor.Tests.TestHelpers
 

@@ -7,7 +7,7 @@ using Ds2.Core;
 using Ds2.Runtime.Sim.Engine;
 using Ds2.Runtime.Sim.Engine.Core;
 using Ds2.Runtime.Sim.Model;
-using Ds2.Store;
+using Ds2.Core.Store;
 using Ds2.Editor;
 using Promaker.Dialogs;
 

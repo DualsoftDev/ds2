@@ -1,6 +1,6 @@
 module Ds2.Editor.EditorSelectionQueries
 
-open Ds2.Store
+open Ds2.Core.Store
 open System
 open System.Collections.Generic
 

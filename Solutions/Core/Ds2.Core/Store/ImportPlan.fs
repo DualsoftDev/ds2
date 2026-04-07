@@ -1,4 +1,4 @@
-namespace Ds2.Store
+namespace Ds2.Core.Store
 
 open System
 open Ds2.Core

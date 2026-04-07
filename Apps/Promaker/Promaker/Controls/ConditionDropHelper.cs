@@ -5,7 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Ds2.Core;
-using Ds2.Store;
+using Ds2.Core.Store;
 using Ds2.Editor;
 using Promaker.Dialogs;
 using Promaker.ViewModels;
