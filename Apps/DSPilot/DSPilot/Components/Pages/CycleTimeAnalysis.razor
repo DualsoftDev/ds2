@@ -150,9 +150,14 @@
                     </span>
                 }
             </div>
-            <button class="btn btn-sm gantt-info-export" @onclick="ExportCsv">
-                CSV 내보내기
-            </button>
+            <div style="display:flex; gap:4px;">
+                <button class="btn btn-sm gantt-info-export" @onclick="ExportCsv">
+                    CSV 내보내기
+                </button>
+                <button class="btn btn-sm gantt-info-export" @onclick="ExportGanttExcel">
+                    차트 내보내기
+                </button>
+            </div>
         </div>
 
         @if (_selectedItem != null)
@@ -924,6 +929,390 @@
                 var bytes = new Uint8Array(byteChars.length);
                 for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
                 var blob = new Blob([bytes], {{ type: 'text/csv;charset=utf-8' }});
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = '{fileName}';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            }})();
+        ");
+    }
+
+    private async Task ExportGanttExcel()
+    {
+        if (_ganttData == null || !_ganttData.Items.Any()) return;
+
+        using var workbook = new ClosedXML.Excel.XLWorkbook();
+        var ws = workbook.Worksheets.Add("Gantt Chart");
+
+        var chartStartTime = _ganttData.ActualEventStartTime ?? _ganttData.StartTime;
+        var chartEndTime = _ganttData.ActualEventEndTime ?? (_ganttData.EndTime ?? _ganttData.StartTime.AddSeconds(1));
+        var totalMs = (int)(chartEndTime - chartStartTime).TotalMilliseconds;
+
+        // Time resolution: each column = N ms
+        int msPerCol;
+        if (totalMs <= 5_000) msPerCol = 10;
+        else if (totalMs <= 30_000) msPerCol = 100;
+        else if (totalMs <= 300_000) msPerCol = 1000;
+        else msPerCol = 5000;
+
+        var totalCols = Math.Min((totalMs / msPerCol) + 1, 2000);
+        var dataStartCol = 4; // A=Call, B=Tag, C=Type, then time columns
+
+        // ── Colors ──
+        var inColor = ClosedXML.Excel.XLColor.FromHtml("#64B5F6");
+        var inColorLight = ClosedXML.Excel.XLColor.FromHtml("#BBDEFB");
+        var outColor = ClosedXML.Excel.XLColor.FromHtml("#F48FB1");
+        var outColorLight = ClosedXML.Excel.XLColor.FromHtml("#F8BBD0");
+        var headerBg = ClosedXML.Excel.XLColor.FromHtml("#263238");
+        var headerBg2 = ClosedXML.Excel.XLColor.FromHtml("#37474F");
+        var laneHeaderBg = ClosedXML.Excel.XLColor.FromHtml("#455A64");
+        var separatorBg = ClosedXML.Excel.XLColor.FromHtml("#ECEFF1");
+        var idleBg = ClosedXML.Excel.XLColor.FromHtml("#FFEBEE");
+        var stripeBg = ClosedXML.Excel.XLColor.FromHtml("#FAFAFA");
+
+        // ── Row 1: Title bar with date/time range ──
+        var titleText = $"{chartStartTime:yyyy-MM-dd (ddd)}  {chartStartTime:HH:mm:ss} ~ {chartEndTime:HH:mm:ss}  ({_ganttData.FlowName} Cycle #{_ganttData.CycleNumber})";
+        ws.Cell(1, 1).Value = titleText;
+        var titleEndCol = Math.Min(dataStartCol + totalCols - 1, dataStartCol + 40);
+        ws.Range(1, 1, 1, titleEndCol).Merge();
+        ws.Cell(1, 1).Style.Font.Bold = true;
+        ws.Cell(1, 1).Style.Font.FontSize = 12;
+        ws.Cell(1, 1).Style.Font.FontColor = ClosedXML.Excel.XLColor.Black;
+        ws.Cell(1, 1).Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Left;
+        ws.Cell(1, 1).Style.Alignment.Vertical = ClosedXML.Excel.XLAlignmentVerticalValues.Center;
+        ws.Row(1).Height = 28;
+
+        // ── Row 2-3: 2-tier time axis ──
+        ws.Cell(2, 1).Value = "Call";
+        ws.Cell(2, 2).Value = "Tag";
+        ws.Cell(2, 3).Value = "Type";
+        ws.Range(2, 1, 3, 1).Merge().Style.Alignment.Vertical = ClosedXML.Excel.XLAlignmentVerticalValues.Center;
+        ws.Range(2, 2, 3, 2).Merge().Style.Alignment.Vertical = ClosedXML.Excel.XLAlignmentVerticalValues.Center;
+        ws.Range(2, 3, 3, 3).Merge().Style.Alignment.Vertical = ClosedXML.Excel.XLAlignmentVerticalValues.Center;
+
+        // Row 2: major time labels (per-second groups, merged)
+        int mergeStart = 0;
+        string lastSecLabel = "";
+        for (int col = 0; col <= totalCols; col++)
+        {
+            var t = chartStartTime.AddMilliseconds(col * msPerCol);
+            var secLabel = msPerCol < 1000 ? t.ToString("HH:mm:ss") : t.ToString("HH:mm");
+            if (col == totalCols || secLabel != lastSecLabel)
+            {
+                if (col > mergeStart && !string.IsNullOrEmpty(lastSecLabel))
+                {
+                    var c1 = dataStartCol + mergeStart;
+                    var c2 = dataStartCol + col - 1;
+                    if (c2 > c1)
+                        ws.Range(2, c1, 2, c2).Merge();
+                    ws.Cell(2, c1).Value = lastSecLabel;
+                }
+                mergeStart = col;
+                lastSecLabel = secLabel;
+            }
+        }
+
+        // Row 3: fine time labels (ms)
+        for (int col = 0; col < totalCols; col++)
+        {
+            var t = chartStartTime.AddMilliseconds(col * msPerCol);
+            var cell = ws.Cell(3, dataStartCol + col);
+            if (msPerCol < 1000)
+                cell.Value = t.ToString(".fff");
+            else
+                cell.Value = t.ToString(":ss");
+        }
+
+        // Style header rows 2-3
+        for (int row = 2; row <= 3; row++)
+        {
+            var bg = row == 2 ? headerBg : headerBg2;
+            var range = ws.Range(row, 1, row, dataStartCol + totalCols - 1);
+            range.Style.Font.Bold = true;
+            range.Style.Fill.BackgroundColor = bg;
+            range.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
+            range.Style.Alignment.Horizontal = ClosedXML.Excel.XLAlignmentHorizontalValues.Center;
+            range.Style.Font.FontSize = 8;
+        }
+        ws.Row(2).Height = 18;
+        ws.Row(3).Height = 14;
+
+        // Column widths
+        for (int col = 0; col < totalCols; col++)
+            ws.Column(dataStartCol + col).Width = 1.5;
+        ws.Column(1).Width = 22;
+        ws.Column(2).Width = 18;
+        ws.Column(3).Width = 5;
+
+        // Alternating column stripes (even seconds get subtle background)
+        for (int col = 0; col < totalCols; col++)
+        {
+            var t = chartStartTime.AddMilliseconds(col * msPerCol);
+            var sec = msPerCol < 1000 ? t.Second : t.Minute;
+            if (sec % 2 == 0)
+            {
+                // Will be applied per-row below where cells are empty
+            }
+        }
+
+        // ── Lane-grouped data rows ──
+        var displayLaneOrder = GetDisplayLaneOrder();
+        var laneToRow = new Dictionary<int, int>();
+        for (int i = 0; i < displayLaneOrder.Count; i++)
+            laneToRow[displayLaneOrder[i]] = i;
+
+        // Group items by lane
+        var itemsByLane = _ganttData.Items
+            .GroupBy(i => i.Lane)
+            .ToDictionary(g => g.Key, g => g.OrderBy(i => i.GoingStartTime).ToList());
+
+        // Pre-compute idle region column ranges
+        var idleColRanges = _idleRegions.Select(r =>
+        {
+            var s = Math.Max(0, (int)((r.Start - chartStartTime).TotalMilliseconds / msPerCol));
+            var e = Math.Min(totalCols - 1, (int)((r.End - chartStartTime).TotalMilliseconds / msPerCol));
+            return (Start: s, End: e);
+        }).Where(r => r.End >= r.Start).ToList();
+
+        int currentRow = 4; // After title row + 2 header rows
+        foreach (var laneIdx in displayLaneOrder)
+        {
+            var laneLabel = laneIdx >= 0 && laneIdx < _ganttData.LaneLabels.Count
+                ? _ganttData.LaneLabels[laneIdx]
+                : $"Lane {laneIdx}";
+
+            // ── Lane header row ──
+            ws.Range(currentRow, 1, currentRow, 3).Merge();
+            ws.Cell(currentRow, 1).Value = laneLabel;
+            ws.Cell(currentRow, 1).Style.Font.Bold = true;
+            ws.Cell(currentRow, 1).Style.Font.FontSize = 10;
+            ws.Cell(currentRow, 1).Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
+            var laneHeaderRange = ws.Range(currentRow, 1, currentRow, dataStartCol + totalCols - 1);
+            laneHeaderRange.Style.Fill.BackgroundColor = laneHeaderBg;
+            ws.Row(currentRow).Height = 20;
+            currentRow++;
+
+            if (!itemsByLane.TryGetValue(laneIdx, out var laneItems))
+            {
+                currentRow++; // Empty separator
+                continue;
+            }
+
+            // IN events row(s) for this lane
+            var inItems = laneItems.Where(i => i.EventType == IOEventType.InTag).OrderBy(i => i.GoingStartTime).ToList();
+            var outItems = laneItems.Where(i => i.EventType == IOEventType.OutTag).OrderBy(i => i.GoingStartTime).ToList();
+
+            foreach (var eventGroup in new[] { (Label: "IN", Items: inItems, Color: inColor, ColorLight: inColorLight),
+                                                (Label: "OUT", Items: outItems, Color: outColor, ColorLight: outColorLight) })
+            {
+                if (!eventGroup.Items.Any()) continue;
+
+                // Group by CallName: one row per Call+EventType
+                var callGroups = eventGroup.Items
+                    .GroupBy(i => i.CallName)
+                    .OrderBy(g => g.Min(i => i.GoingStartTime));
+
+                foreach (var callGroup in callGroups)
+                {
+                    var firstItem = callGroup.First();
+                    ws.Cell(currentRow, 1).Value = callGroup.Key;
+                    ws.Cell(currentRow, 1).Style.Font.FontSize = 9;
+                    ws.Cell(currentRow, 2).Value = firstItem.TagName;
+                    ws.Cell(currentRow, 2).Style.Font.FontSize = 8;
+                    ws.Cell(currentRow, 2).Style.Font.FontColor = ClosedXML.Excel.XLColor.FromHtml("#78909C");
+                    ws.Cell(currentRow, 3).Value = eventGroup.Label;
+                    ws.Cell(currentRow, 3).Style.Font.FontSize = 8;
+                    ws.Cell(currentRow, 3).Style.Font.FontColor = eventGroup.Label == "IN"
+                        ? ClosedXML.Excel.XLColor.FromHtml("#1565C0")
+                        : ClosedXML.Excel.XLColor.FromHtml("#AD1457");
+
+                    // Draw all bars for this Call+EventType on the same row
+                    foreach (var item in callGroup.OrderBy(i => i.GoingStartTime))
+                    {
+                        var itemStartMs = (item.GoingStartTime - chartStartTime).TotalMilliseconds;
+                        var itemEndMs = item.FinishTime.HasValue
+                            ? (item.FinishTime.Value - chartStartTime).TotalMilliseconds
+                            : itemStartMs + (item.Duration ?? msPerCol);
+
+                        var startCol = (int)(itemStartMs / msPerCol);
+                        var endCol = (int)(itemEndMs / msPerCol);
+                        startCol = Math.Max(0, Math.Min(startCol, totalCols - 1));
+                        endCol = Math.Max(startCol, Math.Min(endCol, totalCols - 1));
+
+                        // Minimum bar width: 3 columns for visibility
+                        if (endCol - startCol < 2)
+                            endCol = Math.Min(startCol + 2, totalCols - 1);
+
+                        // Fill bar cells
+                        for (int col = startCol; col <= endCol; col++)
+                        {
+                            var cell = ws.Cell(currentRow, dataStartCol + col);
+                            cell.Style.Fill.BackgroundColor = eventGroup.Color;
+                        }
+
+                        // Bar start cell: show start time
+                        var startCell = ws.Cell(currentRow, dataStartCol + startCol);
+                        startCell.Value = item.GoingStartTime.ToString("mm:ss.fff");
+                        startCell.Style.Font.FontSize = 7;
+                        startCell.Style.Font.FontColor = ClosedXML.Excel.XLColor.FromHtml("#1A237E");
+                        startCell.Style.Font.Bold = true;
+
+                        // Bar end cell: show duration
+                        if (endCol > startCol + 1 && item.Duration.HasValue)
+                        {
+                            var endCell = ws.Cell(currentRow, dataStartCol + endCol);
+                            var durText = item.Duration.Value >= 1000
+                                ? $"({item.Duration.Value / 1000.0:F1}s)"
+                                : $"({item.Duration.Value}ms)";
+                            endCell.Value = durText;
+                            endCell.Style.Font.FontSize = 6;
+                            endCell.Style.Font.FontColor = ClosedXML.Excel.XLColor.FromHtml("#1A237E");
+                        }
+
+                        // Bar borders
+                        if (endCol >= startCol)
+                        {
+                            var barRange = ws.Range(currentRow, dataStartCol + startCol, currentRow, dataStartCol + endCol);
+                            barRange.Style.Border.TopBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+                            barRange.Style.Border.TopBorderColor = eventGroup.Color;
+                            barRange.Style.Border.BottomBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+                            barRange.Style.Border.BottomBorderColor = eventGroup.Color;
+                            ws.Cell(currentRow, dataStartCol + startCol).Style.Border.LeftBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+                            ws.Cell(currentRow, dataStartCol + startCol).Style.Border.LeftBorderColor = eventGroup.Color;
+                            ws.Cell(currentRow, dataStartCol + endCol).Style.Border.RightBorder = ClosedXML.Excel.XLBorderStyleValues.Thin;
+                            ws.Cell(currentRow, dataStartCol + endCol).Style.Border.RightBorderColor = eventGroup.Color;
+                        }
+                    }
+
+                    // Idle region background on empty cells
+                    foreach (var idle in idleColRanges)
+                    {
+                        for (int col = idle.Start; col <= idle.End; col++)
+                        {
+                            var cell = ws.Cell(currentRow, dataStartCol + col);
+                            if (cell.Style.Fill.BackgroundColor == ClosedXML.Excel.XLColor.NoColor
+                                || cell.Style.Fill.BackgroundColor.Equals(ClosedXML.Excel.XLColor.FromTheme(ClosedXML.Excel.XLThemeColor.Background1)))
+                            {
+                                cell.Style.Fill.BackgroundColor = idleBg;
+                            }
+                        }
+                    }
+
+                    // Alternating column stripe on empty cells
+                    for (int col = 0; col < totalCols; col++)
+                    {
+                        var t = chartStartTime.AddMilliseconds(col * msPerCol);
+                        var sec = msPerCol < 1000 ? t.Second : t.Minute;
+                        if (sec % 2 == 0)
+                        {
+                            var cell = ws.Cell(currentRow, dataStartCol + col);
+                            if (cell.Style.Fill.BackgroundColor == ClosedXML.Excel.XLColor.NoColor
+                                || cell.Style.Fill.BackgroundColor.Equals(ClosedXML.Excel.XLColor.FromTheme(ClosedXML.Excel.XLThemeColor.Background1)))
+                            {
+                                cell.Style.Fill.BackgroundColor = stripeBg;
+                            }
+                        }
+                    }
+
+                    ws.Row(currentRow).Height = 16;
+                    currentRow++;
+                }
+            }
+
+            // Separator row between lanes
+            var sepRange = ws.Range(currentRow, 1, currentRow, dataStartCol + totalCols - 1);
+            sepRange.Style.Fill.BackgroundColor = separatorBg;
+            ws.Row(currentRow).Height = 4;
+            currentRow++;
+        }
+
+        // ── Summary sheet ──
+        var summaryWs = workbook.Worksheets.Add("Summary");
+        summaryWs.Cell(1, 1).Value = "Flow";
+        summaryWs.Cell(1, 2).Value = _ganttData.FlowName;
+        summaryWs.Cell(2, 1).Value = "Cycle";
+        summaryWs.Cell(2, 2).Value = _ganttData.CycleNumber;
+        summaryWs.Cell(3, 1).Value = "CT (ms)";
+        summaryWs.Cell(3, 2).Value = _ganttData.CT ?? 0;
+        summaryWs.Cell(4, 1).Value = "MT (ms)";
+        summaryWs.Cell(4, 2).Value = _ganttData.MT ?? 0;
+        summaryWs.Cell(5, 1).Value = "WT (ms)";
+        summaryWs.Cell(5, 2).Value = _ganttData.WT ?? 0;
+        summaryWs.Cell(6, 1).Value = "Start";
+        summaryWs.Cell(6, 2).Value = chartStartTime.ToString("yyyy-MM-dd HH:mm:ss.fff");
+        summaryWs.Cell(7, 1).Value = "End";
+        summaryWs.Cell(7, 2).Value = chartEndTime.ToString("yyyy-MM-dd HH:mm:ss.fff");
+        summaryWs.Cell(8, 1).Value = "Resolution";
+        summaryWs.Cell(8, 2).Value = $"{msPerCol}ms/col";
+        summaryWs.Column(1).Width = 15;
+        summaryWs.Column(2).Width = 30;
+        summaryWs.Range(1, 1, 8, 1).Style.Font.Bold = true;
+
+        // Legend
+        summaryWs.Cell(10, 1).Value = "Legend";
+        summaryWs.Cell(10, 1).Style.Font.Bold = true;
+        summaryWs.Cell(11, 1).Value = "IN (InTag)";
+        summaryWs.Cell(11, 1).Style.Fill.BackgroundColor = inColor;
+        summaryWs.Cell(11, 2).Value = "Call 시작 신호";
+        summaryWs.Cell(12, 1).Value = "OUT (OutTag)";
+        summaryWs.Cell(12, 1).Style.Fill.BackgroundColor = outColor;
+        summaryWs.Cell(12, 2).Value = "Call 종료 신호";
+        summaryWs.Cell(13, 1).Value = "비가동 구간";
+        summaryWs.Cell(13, 1).Style.Fill.BackgroundColor = idleBg;
+        summaryWs.Cell(13, 2).Value = "Cycle Time 초과 유휴 구간";
+
+        // ── Data sheet (same as CSV) ──
+        var dataWs = workbook.Worksheets.Add("Data");
+        var headers = new[] { "CallName", "WorkName", "FlowName", "TagName", "TagAddress", "EventType", "GoingStartTime", "FinishTime", "Duration(ms)", "Lane" };
+        for (int i = 0; i < headers.Length; i++)
+        {
+            dataWs.Cell(1, i + 1).Value = headers[i];
+            dataWs.Cell(1, i + 1).Style.Font.Bold = true;
+            dataWs.Cell(1, i + 1).Style.Fill.BackgroundColor = headerBg2;
+            dataWs.Cell(1, i + 1).Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
+        }
+        int dataRow = 2;
+        foreach (var item in _ganttData.Items.OrderBy(i => i.GoingStartTime))
+        {
+            dataWs.Cell(dataRow, 1).Value = item.CallName;
+            dataWs.Cell(dataRow, 2).Value = item.WorkName;
+            dataWs.Cell(dataRow, 3).Value = item.FlowName;
+            dataWs.Cell(dataRow, 4).Value = item.TagName;
+            dataWs.Cell(dataRow, 5).Value = item.TagAddress;
+            dataWs.Cell(dataRow, 6).Value = item.EventType == IOEventType.InTag ? "IN" : "OUT";
+            dataWs.Cell(dataRow, 7).Value = item.GoingStartTime.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            dataWs.Cell(dataRow, 8).Value = item.FinishTime?.ToString("yyyy-MM-dd HH:mm:ss.fff") ?? "";
+            dataWs.Cell(dataRow, 9).Value = item.Duration ?? 0;
+            dataWs.Cell(dataRow, 10).Value = item.Lane;
+            dataRow++;
+        }
+        dataWs.Columns().AdjustToContents();
+        dataWs.SheetView.FreezeRows(1);
+
+        // Freeze panes: title + 2 header rows + 3 label columns
+        ws.SheetView.FreezeRows(3);
+        ws.SheetView.FreezeColumns(3);
+
+        // Print setup
+        ws.PageSetup.PageOrientation = ClosedXML.Excel.XLPageOrientation.Landscape;
+        ws.PageSetup.PagesWide = 1;
+        ws.PageSetup.Header.Center.AddText($"{_ganttData.FlowName} - Cycle #{_ganttData.CycleNumber}");
+        ws.PageSetup.Footer.Center.AddText($"Exported: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+
+        // Export to browser
+        using var ms = new System.IO.MemoryStream();
+        workbook.SaveAs(ms);
+        var bytes = ms.ToArray();
+        var base64 = Convert.ToBase64String(bytes);
+        var fileName = $"GanttChart_{_ganttData.FlowName}_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var byteChars = atob('{base64}');
+                var bytes = new Uint8Array(byteChars.length);
+                for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+                var blob = new Blob([bytes], {{ type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }});
                 var a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
                 a.download = '{fileName}';
