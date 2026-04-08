@@ -6,13 +6,17 @@ using System.Diagnostics.CodeAnalysis;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
 public partial class PropertyPanelState : ObservableObject
 {
     private readonly MainViewModel.PropertyPanelHost _host;
+    private List<SelectionKey> _selectedNodeKeys = [];
+
+    internal MainViewModel.PropertyPanelHost Host => _host;
 
     public PropertyPanelState(MainViewModel.PropertyPanelHost host)
     {
@@ -32,26 +36,63 @@ public partial class PropertyPanelState : ObservableObject
     public string CallApiCallsHeader => $"ApiCalls [{CallApiCalls.Count}]";
     public string SystemApiDefsHeader => $"ApiDefs [{SystemApiDefs.Count}]";
     public bool IsDebugBuild => MainViewModel.IsDebugBuild;
+    public bool ShowDebugSelectionDetails => IsDebugBuild && IsSingleSelection;
 
-    [ObservableProperty] private EntityNode? _selectedNode;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplyNameCommand))]
+    private EntityNode? _selectedNode;
+    [ObservableProperty] private bool _isSingleSelection;
+    [ObservableProperty] private bool _isMultiSelection;
+    [ObservableProperty] private int _selectedNodeCount;
+    [ObservableProperty] private bool _isSingleWorkSelected;
+    [ObservableProperty] private bool _isSingleCallSelected;
     [ObservableProperty] private bool _isWorkSelected;
     [ObservableProperty] private bool _isCallSelected;
     [ObservableProperty] private bool _isSystemSelected;
+    [ObservableProperty] private string _systemType = string.Empty;
+    [ObservableProperty] private bool _isSystemTypeDirty;
+    [ObservableProperty] private string _selectionTypeText = "선택 없음";
+    [ObservableProperty] private string _selectionNameText = "";
+    [ObservableProperty] private bool _showNameEditor;
     [ObservableProperty] private int? _workPeriodMs;
+    [ObservableProperty] private bool? _isWorkFinished;
+    [ObservableProperty] private bool? _isTokenSource;
+    [ObservableProperty] private bool? _isTokenIgnore;
+    [ObservableProperty] private bool? _isTokenSink;
+    [ObservableProperty] private bool _hasLinkedTokenSpec;
+    [ObservableProperty] private string _linkedTokenSpecLabel = "";
     [ObservableProperty] private int? _callTimeoutMs;
+    [ObservableProperty] private CallType _selectedCallType = CallType.WaitForCompletion;
     [ObservableProperty] private CallApiCallItem? _selectedCallApiCall;
-    [ObservableProperty] private string _nameEditorText = string.Empty;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ApplyNameCommand))]
+    private string _nameEditorText = string.Empty;
+    [ObservableProperty] private string _namePrefix = string.Empty;
     [ObservableProperty] private bool _isNameDirty;
+    [ObservableProperty] private bool _isNameEditHighlighted;
     [ObservableProperty] private bool _isWorkPeriodDirty;
     [ObservableProperty] private bool _isCallTimeoutDirty;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDeviceDuration))]
+    private string _deviceDurationHint = "";
+    public bool HasDeviceDuration => !string.IsNullOrEmpty(DeviceDurationHint);
 
     private int? _originalWorkPeriodMs;
+    private int? _deviceDurationMs;
     private int? _originalCallTimeoutMs;
+    private string _originalSystemType = string.Empty;
 
-    partial void OnSelectedNodeChanged(EntityNode? value) => Refresh();
+    partial void OnNameEditorTextChanged(string value)
+    {
+        var currentFull = NamePrefix + value.Trim();
+        IsNameDirty = !string.Equals(currentFull, SelectedNode?.Name ?? string.Empty, StringComparison.Ordinal);
+    }
+    private bool _suppressPropertySync;
 
-    partial void OnNameEditorTextChanged(string value) =>
-        IsNameDirty = !string.Equals(value.Trim(), SelectedNode?.Name ?? string.Empty, StringComparison.Ordinal);
+    partial void OnIsWorkFinishedChanged(bool? value) => SyncIsFinishedFlag(value);
+    partial void OnIsTokenSourceChanged(bool? value) => SyncTokenRoleFlag(TokenRole.Source, value);
+    partial void OnIsTokenIgnoreChanged(bool? value) => SyncTokenRoleFlag(TokenRole.Ignore, value);
+    partial void OnIsTokenSinkChanged(bool? value) => SyncTokenRoleFlag(TokenRole.Sink, value);
 
     partial void OnWorkPeriodMsChanged(int? value) =>
         IsWorkPeriodDirty = value != _originalWorkPeriodMs;
@@ -59,35 +100,158 @@ public partial class PropertyPanelState : ObservableObject
     partial void OnCallTimeoutMsChanged(int? value) =>
         IsCallTimeoutDirty = value != _originalCallTimeoutMs;
 
-    public void SyncSelectedNode(EntityNode? value)
+    partial void OnSelectedCallTypeChanged(CallType value) => SyncCallType(value);
+
+    partial void OnSystemTypeChanged(string value) =>
+        IsSystemTypeDirty = !string.Equals(value, _originalSystemType, StringComparison.Ordinal);
+
+    public void SyncSelection(EntityNode? value, IReadOnlyList<SelectionKey> orderedSelection)
     {
+        IsNameEditHighlighted = false;
+        _selectedNodeKeys = orderedSelection.Count > 0
+            ? orderedSelection.ToList()
+            : value is null
+                ? []
+                : [new SelectionKey(value.Id, value.EntityType)];
         SelectedNode = value;
+        Refresh();
     }
 
     public void Refresh()
     {
         var selected = SelectedNode;
-        NameEditorText = selected?.Name ?? string.Empty;
-        IsWorkSelected = selected?.EntityType == EntityKind.Work;
-        IsCallSelected = selected?.EntityType == EntityKind.Call;
-        IsSystemSelected = selected?.EntityType == EntityKind.System;
+        var selectedKeys = _selectedNodeKeys;
+        var uniformKind = selectedKeys.Count > 0 && selectedKeys.All(key => key.EntityKind == selectedKeys[0].EntityKind)
+            ? selectedKeys[0].EntityKind
+            : (EntityKind?)null;
 
-        if (IsWorkSelected && selected is not null)
+        SelectedNodeCount = selectedKeys.Count;
+        IsSingleSelection = selectedKeys.Count == 1;
+        IsMultiSelection = selectedKeys.Count > 1;
+        IsSingleWorkSelected = IsSingleSelection && uniformKind == EntityKind.Work;
+        IsSingleCallSelected = IsSingleSelection && uniformKind == EntityKind.Call;
+        IsWorkSelected = uniformKind == EntityKind.Work;
+        IsCallSelected = uniformKind == EntityKind.Call;
+        IsSystemSelected = IsSingleSelection && uniformKind == EntityKind.System;
+        ShowNameEditor = IsSingleSelection && selected is not null && selected.IsReference == false;
+        OnPropertyChanged(nameof(ShowDebugSelectionDetails));
+
+        SelectionTypeText = selectedKeys.Count switch
         {
-            _originalWorkPeriodMs = LoadOptionalMsFromStore(selected.Id, Store.GetWorkPeriodMsOrNull);
+            0 => "선택 없음",
+            1 when selected?.IsReference == true => $"Type: {selected.EntityType} (Reference)",
+            1 => $"Type: {selected?.EntityType}",
+            _ when uniformKind is { } kind => $"Type: {kind} ({selectedKeys.Count} selected)",
+            _ => $"Type: Mixed ({selectedKeys.Count} selected)"
+        };
+        SelectionNameText = selectedKeys.Count switch
+        {
+            0 => "",
+            1 when IsSingleWorkSelected && selected is not null
+                => $"Name: {Queries.tryGetWorkFullName(selected.Id, Store)?.Value ?? selected.Name}",
+            1 => $"Name: {selected?.Name}",
+            _ => $"{selectedKeys.Count} items selected"
+        };
+
+        var fullName = selected?.Name ?? string.Empty;
+        if (IsSingleWorkSelected)
+        {
+            if (selected is not null)
+            {
+                var workName = Queries.tryGetWorkFullName(selected.Id, Store);
+                if (workName != null) fullName = workName.Value;
+            }
+            var (prefix, localName) = TokenRoleOps.parseWorkNameParts(fullName);
+            NamePrefix = prefix;
+            NameEditorText = localName;
+        }
+        else
+        {
+            NamePrefix = string.Empty;
+            NameEditorText = fullName;
+        }
+        if (IsWorkSelected)
+        {
+            var selectedWorkIds = GetSelectedCanonicalWorkIds();
+            var periodValues = selectedWorkIds.Select(workId => Store.GetWorkPeriodMsOrNull(workId)).Distinct().ToList();
+            _originalWorkPeriodMs = periodValues.Count == 1 ? periodValues[0] : null;
             WorkPeriodMs = _originalWorkPeriodMs;
+
+            if (IsSingleWorkSelected && selected is not null)
+            {
+                var resolvedWorkId = selected.ReferenceOfId ?? selected.Id;
+                var devOpt = Queries.tryGetDeviceDurationMs(resolvedWorkId, Store);
+                _deviceDurationMs = devOpt != null ? (int?)devOpt.Value : null;
+                DeviceDurationHint = _deviceDurationMs is { } ms ? $"예상 소요 시간: {ms}ms" : "";
+
+                var canonicalSelectedWorkId = Queries.resolveOriginalWorkId(selected.Id, Store);
+                var linkedSpec = Queries.getTokenSpecs(Store)
+                    .FirstOrDefault(s =>
+                        s.WorkId is { } wid
+                        && Queries.resolveOriginalWorkId(wid.Value, Store) == canonicalSelectedWorkId);
+                HasLinkedTokenSpec = linkedSpec is not null;
+                LinkedTokenSpecLabel = linkedSpec is not null ? $"#{linkedSpec.Id} {linkedSpec.Label}" : "";
+            }
+            else
+            {
+                _deviceDurationMs = null;
+                DeviceDurationHint = "";
+                HasLinkedTokenSpec = false;
+                LinkedTokenSpecLabel = "";
+            }
+
+            var isFinishedValues = selectedWorkIds
+                .Select(workId => Store.GetWorkIsFinished(workId))
+                .Distinct().ToList();
+
+            var workRoles = selectedWorkIds
+                .Select(workId => Queries.getWork(workId, Store)?.Value.TokenRole ?? TokenRole.None)
+                .ToList();
+            _suppressPropertySync = true;
+            IsWorkFinished = isFinishedValues.Count == 1 ? isFinishedValues[0] : null;
+            IsTokenSource = TokenRoleOps.resolveTokenRoleFlagState(workRoles, TokenRole.Source);
+            IsTokenIgnore = TokenRoleOps.resolveTokenRoleFlagState(workRoles, TokenRole.Ignore);
+            IsTokenSink = TokenRoleOps.resolveTokenRoleFlagState(workRoles, TokenRole.Sink);
+            _suppressPropertySync = false;
         }
         else
         {
             _originalWorkPeriodMs = null;
             WorkPeriodMs = null;
+            _deviceDurationMs = null;
+            DeviceDurationHint = "";
+            _suppressPropertySync = true;
+            IsWorkFinished = false;
+            IsTokenSource = false;
+            IsTokenIgnore = false;
+            IsTokenSink = false;
+            _suppressPropertySync = false;
+            HasLinkedTokenSpec = false;
+            LinkedTokenSpecLabel = "";
         }
 
-        if (IsCallSelected && selected is not null)
+        if (IsCallSelected)
         {
-            _originalCallTimeoutMs = LoadOptionalMsFromStore(selected.Id, Store.GetCallTimeoutMsOrNull);
+            var selectedCallIds = GetSelectedCallIds();
+            var timeoutValues = selectedCallIds.Select(callId => Store.GetCallTimeoutMsOrNull(callId)).Distinct().ToList();
+            _originalCallTimeoutMs = timeoutValues.Count == 1 ? timeoutValues[0] : null;
             CallTimeoutMs = _originalCallTimeoutMs;
-            RefreshCallPanel(selected.Id);
+
+            var callTypeValues = selectedCallIds
+                .Select(callId => Queries.getCall(callId, Store)?.Value.GetSimulationProperties()?.Value.CallType ?? CallType.WaitForCompletion)
+                .Distinct().ToList();
+            _suppressPropertySync = true;
+            SelectedCallType = callTypeValues.Count == 1 ? callTypeValues[0] : CallType.WaitForCompletion;
+            _suppressPropertySync = false;
+            if (IsSingleCallSelected && selected is not null)
+                RefreshCallPanel(selected.Id);
+            else
+            {
+                CallApiCalls.Clear();
+                DeviceApiDefOptions.Clear();
+                SelectedCallApiCall = null;
+                ClearConditionSections();
+            }
         }
         else
         {
@@ -100,41 +264,169 @@ public partial class PropertyPanelState : ObservableObject
         }
 
         if (IsSystemSelected && selected is not null)
+        {
             RefreshSystemPanel(selected.Id);
+
+            // Load SystemType
+            var systemOpt = Queries.getSystem(selected.Id, Store);
+            if (systemOpt != null && Microsoft.FSharp.Core.FSharpOption<DsSystem>.get_IsSome(systemOpt))
+            {
+                var simPropsOpt = systemOpt.Value.GetSimulationProperties();
+                var systemTypeOpt = simPropsOpt != null && Microsoft.FSharp.Core.FSharpOption<SimulationSystemProperties>.get_IsSome(simPropsOpt)
+                    ? simPropsOpt.Value.SystemType
+                    : null;
+                _originalSystemType = systemTypeOpt != null && Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(systemTypeOpt)
+                    ? systemTypeOpt.Value
+                    : string.Empty;
+            }
+            else
+            {
+                _originalSystemType = string.Empty;
+            }
+            SystemType = _originalSystemType;
+            IsSystemTypeDirty = false;
+        }
         else
+        {
             SystemApiDefs.Clear();
+            _originalSystemType = string.Empty;
+            SystemType = string.Empty;
+            IsSystemTypeDirty = false;
+        }
     }
 
     public void ApplyEntityRename(Guid entityId, string newName)
     {
         if (SelectedNode is { Id: var selectedId } && selectedId == entityId)
         {
-            NameEditorText = newName;
+            if (SelectedNode.EntityType == EntityKind.Work && newName.IndexOf('.') is var dotIdx && dotIdx >= 0)
+            {
+                NamePrefix = newName[..(dotIdx + 1)];
+                NameEditorText = newName[(dotIdx + 1)..];
+            }
+            else
+            {
+                NamePrefix = string.Empty;
+                NameEditorText = newName;
+            }
             IsNameDirty = false;
+            IsNameEditHighlighted = false;
         }
     }
 
-    [RelayCommand]
+    public void BeginNameEditGuidance() => IsNameEditHighlighted = true;
+
+    public void ClearNameEditGuidance() => IsNameEditHighlighted = false;
+
+    public void CancelNameEdit()
+    {
+        if (SelectedNode is null)
+        {
+            IsNameEditHighlighted = false;
+            return;
+        }
+
+        var fullName = SelectedNode.Name ?? string.Empty;
+        if (SelectedNode.EntityType == EntityKind.Work)
+        {
+            var workName = Queries.tryGetWorkFullName(SelectedNode.Id, Store);
+            if (workName != null) fullName = workName.Value;
+            if (fullName.IndexOf('.') is var dotIdx && dotIdx >= 0)
+            {
+                NamePrefix = fullName[..(dotIdx + 1)];
+                NameEditorText = fullName[(dotIdx + 1)..];
+            }
+            else
+            {
+                NamePrefix = string.Empty;
+                NameEditorText = fullName;
+            }
+        }
+        else
+        {
+            NamePrefix = string.Empty;
+            NameEditorText = fullName;
+        }
+
+        IsNameDirty = false;
+        IsNameEditHighlighted = false;
+    }
+
+    private bool CanApplyName() =>
+        IsSingleSelection && SelectedNode is not null && !string.IsNullOrWhiteSpace(NameEditorText);
+
+    [RelayCommand(CanExecute = nameof(CanApplyName))]
     private void ApplyName()
     {
         if (SelectedNode is null) return;
 
-        var newName = NameEditorText.Trim();
-        if (!string.IsNullOrEmpty(newName))
-            _host.RenameSelected(newName);
+        var localName = NameEditorText.Trim();
+        if (string.IsNullOrEmpty(localName))
+        {
+            _host.SetStatusText("Name cannot be empty.");
+            return;
+        }
+
+        // prefix가 있으면 전체 이름으로 전달 (RenameEntity가 다시 분리함)
+        var newName = string.IsNullOrEmpty(NamePrefix)
+            ? localName
+            : NamePrefix + localName;
+        _host.RenameSelected(newName);
+        IsNameEditHighlighted = false;
     }
 
     [RelayCommand]
     private void ApplyWorkPeriod()
     {
-        if (RequireSelectedAs(EntityKind.Work) is not { } selectedWork) return;
+        var selectedWorkIds = GetSelectedCanonicalWorkIds();
+        if (selectedWorkIds.Count == 0) return;
 
-        if (!_host.TryAction(() => Store.UpdateWorkPeriodMs(selectedWork.Id, WorkPeriodMs)))
+        // 시뮬레이션 중 Going Work가 포함되어 있으면 경고 후 거부
+        if (_host.IsSimulating)
+        {
+            var goingIds = selectedWorkIds
+                .Where(id => _host.GetSimWorkState(id) == Ds2.Core.Status4.Going)
+                .ToList();
+            if (goingIds.Count > 0)
+            {
+                Dialogs.DialogHelpers.ShowThemedMessageBox(
+                    "Going 상태인 Work의 Duration은 변경할 수 없습니다.\n실행이 완료된 후 변경하세요.",
+                    "Duration 변경 불가",
+                    System.Windows.MessageBoxButton.OK, "⚠");
+                return;
+            }
+        }
+
+        if (IsSingleWorkSelected && _deviceDurationMs is { } devMs)
+        {
+            var userMs = WorkPeriodMs ?? 0;
+            var ruleText = userMs > devMs
+                ? $"설정값({userMs}ms)이 예상 시간({devMs}ms)보다 크므로 설정값이 적용됩니다."
+                : $"설정값({userMs}ms)이 예상 시간({devMs}ms)보다 작으므로 예상 시간이 우선됩니다.";
+            var result = Dialogs.DialogHelpers.ShowThemedMessageBox(
+                $"이 Work의 예상 소요 시간이 {devMs}ms로 산출되어 있습니다.\n" +
+                $"{ruleText}\n\n계속하시겠습니까?",
+                "Duration 안내",
+                System.Windows.MessageBoxButton.YesNo, "ℹ");
+            if (result != System.Windows.MessageBoxResult.Yes) return;
+        }
+
+        var changeValue = WorkPeriodMs;
+        var changes = selectedWorkIds.Select(workId => new ValueTuple<Guid, int?>(workId, changeValue)).ToList();
+
+        if (!_host.TryAction(() => Store.UpdateWorkPeriodsBatch(changes)))
             return;
+
+        // 시뮬레이션 중이면 엔진에 Duration 변경 반영
+        if (_host.IsSimulating)
+            _host.ReloadSimDurations();
 
         _originalWorkPeriodMs = WorkPeriodMs;
         IsWorkPeriodDirty = false;
-        _host.SetStatusText("Work period updated.");
+        _host.SetStatusText(selectedWorkIds.Count > 1
+            ? $"Work period updated for {selectedWorkIds.Count} items."
+            : "Work period updated.");
+        Refresh();
     }
 
     private int? LoadOptionalMsFromStore(Guid entityId, Func<Guid, int?> getter)
@@ -145,7 +437,7 @@ public partial class PropertyPanelState : ObservableObject
     }
 
     private EntityNode? RequireSelectedAs(EntityKind entityType) =>
-        SelectedNode is { } n && n.EntityType == entityType ? n : null;
+        IsSingleSelection && SelectedNode is { } n && n.EntityType == entityType ? n : null;
 
     private bool TryGetSelectedNode(EntityKind entityType, [NotNullWhen(true)] out EntityNode? selectedNode)
     {
@@ -160,5 +452,124 @@ public partial class PropertyPanelState : ObservableObject
         target.Clear();
         foreach (var item in items)
             target.Add(item);
+    }
+
+    private IReadOnlyList<Guid> GetSelectedCanonicalWorkIds() =>
+        _selectedNodeKeys
+            .Where(key => key.EntityKind == EntityKind.Work)
+            .Select(key => Queries.resolveOriginalWorkId(key.Id, Store))
+            .Distinct()
+            .ToList();
+
+    private IReadOnlyList<Guid> GetSelectedCallIds() =>
+        _selectedNodeKeys
+            .Where(key => key.EntityKind == EntityKind.Call)
+            .Select(key => Queries.resolveOriginalCallId(key.Id, Store))
+            .Distinct()
+            .ToList();
+
+    private void SyncIsFinishedFlag(bool? value)
+    {
+        if (_suppressPropertySync)
+            return;
+        if (value is null)
+            value = false;
+
+        var selectedWorkIds = GetSelectedCanonicalWorkIds();
+        if (selectedWorkIds.Count == 0)
+            return;
+
+        if (!GuardSimulationSemanticEdit("Work IsFinished 변경"))
+        {
+            Refresh();
+            return;
+        }
+
+        var changes = selectedWorkIds
+            .Select(workId => new ValueTuple<Guid, bool>(workId, value.Value))
+            .ToList();
+
+        if (!_host.TryAction(() => Store.UpdateWorkIsFinishedBatch(changes)))
+        {
+            Refresh();
+            return;
+        }
+
+        _host.SetStatusText(selectedWorkIds.Count > 1
+            ? $"IsFinished updated for {selectedWorkIds.Count} items."
+            : "Work IsFinished updated.");
+    }
+
+    private void SyncTokenRoleFlag(TokenRole flag, bool? value)
+    {
+        if (_suppressPropertySync)
+            return;
+        // IsThreeState 체크박스: true→null→false 순환에서 null은 "해제" 의도
+        if (value is null)
+            value = false;
+
+        var selectedWorkIds = GetSelectedCanonicalWorkIds();
+        if (selectedWorkIds.Count == 0)
+            return;
+
+        if (!GuardSimulationSemanticEdit("Work token role 변경"))
+        {
+            Refresh();
+            return;
+        }
+
+        var changes = selectedWorkIds
+            .Select(workId =>
+            {
+                var currentRole = Queries.getWork(workId, Store)?.Value.TokenRole ?? TokenRole.None;
+                var nextRole = TokenRoleOps.computeNextTokenRole(currentRole, flag, value.Value);
+                return new ValueTuple<Guid, TokenRole>(workId, nextRole);
+            })
+            .ToList();
+
+        if (!_host.TryAction(() => Store.UpdateWorkTokenRolesBatch(changes)))
+        {
+            Refresh();
+            return;
+        }
+
+        _host.SetStatusText(selectedWorkIds.Count > 1
+            ? $"Token role updated for {selectedWorkIds.Count} items."
+            : "Work token role updated.");
+        Refresh();
+    }
+
+    private void SyncCallType(CallType value)
+    {
+        if (_suppressPropertySync)
+            return;
+
+        var selectedCallIds = GetSelectedCallIds();
+        if (selectedCallIds.Count == 0)
+            return;
+
+        if (!GuardSimulationSemanticEdit("Call type 변경"))
+        {
+            Refresh();
+            return;
+        }
+
+        if (!_host.TryAction(() =>
+        {
+            foreach (var callId in selectedCallIds)
+            {
+                var call = Queries.getCall(callId, Store)?.Value;
+                if (call != null && (call.GetSimulationProperties()?.Value.CallType ?? CallType.WaitForCompletion) != value)
+                    Store.UpdateCallType(callId, value);
+            }
+        }))
+        {
+            Refresh();
+            return;
+        }
+
+        _host.SetStatusText(selectedCallIds.Count > 1
+            ? $"CallType updated for {selectedCallIds.Count} items."
+            : "Call type updated.");
     }
 }

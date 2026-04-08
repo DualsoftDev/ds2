@@ -4,7 +4,7 @@ open System
 open System.IO
 open System.Text
 open Ds2.Core
-open Ds2.UI.Core
+open Ds2.Core.Store
 
 module CsvExporter =
 
@@ -36,9 +36,9 @@ module CsvExporter =
                 appendRow (tagName apiCall.InTag) (tagAddress apiCall.InTag) (tagName apiCall.OutTag) (tagAddress apiCall.OutTag)
 
     let private appendSystemRows (store: DsStore) (systemId: Guid) (builder: StringBuilder) =
-        for flow in DsQuery.flowsOf systemId store do
-            for work in DsQuery.worksOf flow.Id store do
-                for call in DsQuery.callsOf work.Id store do
+        for flow in Queries.flowsOf systemId store do
+            for work in Queries.worksOf flow.Id store do
+                for call in Queries.callsOf work.Id store do
                     appendCallRows builder flow.Name work.Name call
 
     let systemToCsv (store: DsStore) (systemId: Guid) : string =
@@ -50,12 +50,12 @@ module CsvExporter =
     let projectToCsv (store: DsStore) (projectId: Guid) : string =
         let builder = StringBuilder()
         builder.AppendLine("Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress") |> ignore
-        for system in DsQuery.activeSystemsOf projectId store do
+        for system in Queries.activeSystemsOf projectId store do
             appendSystemRows store system.Id builder
         builder.ToString()
 
     let saveProjectToFile (store: DsStore) (outputPath: string) : Result<unit, string> =
-        let projects = DsQuery.allProjects store
+        let projects = Queries.allProjects store
         if projects.IsEmpty then
             Error "프로젝트가 없습니다."
         else

@@ -3,7 +3,8 @@ using System.Linq;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
 using Ds2.Mermaid;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Microsoft.Win32;
 using Promaker.Dialogs;
 
@@ -14,14 +15,27 @@ public partial class MainViewModel
     private const string MermaidFileFilter =
         "Mermaid Files (*.md;*.mmd)|*.md;*.mmd|All Files (*.*)|*.*";
 
-    [RelayCommand]
+    private bool CanImportMermaid() =>
+        SelectedNode is { EntityType: var kind } && EntityKindRules.canImportMermaid(kind);
+
+    [RelayCommand(CanExecute = nameof(CanImportMermaid))]
     private void ImportMermaid()
     {
         var node = SelectedNode;
-        if (node is null) return;
+        if (node is null)
+        {
+            StatusText = "Select a System, Flow, or Work to import Mermaid.";
+            return;
+        }
 
         var kind = node.EntityType;
         if (!EntityKindRules.canImportMermaid(kind))
+        {
+            StatusText = "Select a System, Flow, or Work to import Mermaid.";
+            return;
+        }
+
+        if (!GuardSimulationSemanticEdit("Mermaid 임포트"))
             return;
 
         // 1. 파일 선택
@@ -67,13 +81,14 @@ public partial class MainViewModel
             $"Mermaid import into '{node.Name}'",
             () =>
             {
-                var result = MermaidImporter.importIntoStore(_store, graph, selectedLevel, node.Id);
+                var result = MermaidImporter.buildImportPlan(_store, graph, selectedLevel, node.Id);
                 if (result.IsError)
                 {
                     _dialogService.ShowWarning($"임포트 실패:\n{string.Join("\n", result.ErrorValue)}");
                     return;
                 }
 
+                _store.ApplyImportPlan("Mermaid 임포트", result.ResultValue);
                 StatusText = $"Mermaid 임포트 완료 ({node.Name})";
                 RequestRebuildAll();
             },

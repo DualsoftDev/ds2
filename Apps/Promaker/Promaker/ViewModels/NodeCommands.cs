@@ -1,11 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Windows;
-using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.UI.Core;
-using Promaker.Dialogs;
+using Ds2.Core.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
@@ -18,335 +16,197 @@ public partial class MainViewModel
         public static SiblingSnapshot Empty { get; } = new([], []);
     }
 
+    /// AddWork가 마지막으로 사용한 target Flow ID — System 탭 캔버스에서 selection이 빈 상태로
+    /// 연속 추가될 때 같은 Flow에 머무르도록 하는 fallback. Reset()에서 초기화.
+    private Guid? _lastAddWorkTargetFlowId;
+
     private bool CanAddSystem()
     {
         if (!HasProject) return false;
-        var projects = DsQuery.allProjects(_store);
+        var projects = Queries.allProjects(_store);
         if (projects.IsEmpty) return true;
-        var activeSystems = DsQuery.activeSystemsOf(projects.Head.Id, _store);
+        var activeSystems = Queries.activeSystemsOf(projects.Head.Id, _store);
         return activeSystems.IsEmpty;
     }
 
-    [RelayCommand(CanExecute = nameof(CanAddSystem))]
-    private void AddSystem()
+    private bool CanAddWork()
     {
-        var name = _dialogService.PromptName(Resources.Strings.NewSystem, "NewSystem");
-        if (name is null) return;
-        var (selType, selId, tabKind, tabRoot) = SnapshotContext();
-        TryEditorAction(() => _store.AddSystemResolved(
-            name, Selection.ActiveTreePane == TreePaneKind.Control,
-            selType, selId, tabKind, tabRoot));
+        if (!HasProject)
+            return false;
+
+        if (SelectedNode is { } selected)
+        {
+            return selected.EntityType switch
+            {
+                EntityKind.Flow => true,
+                EntityKind.System => !Queries.flowsOf(selected.Id, _store).IsEmpty,
+                _ => false
+            };
+        }
+
+        if (Canvas.ActiveTab is { Kind: TabKind.Flow })
+            return true;
+
+        return ResolveFirstFlowInSystemTab().HasValue;
     }
 
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private void AddFlow()
+    private bool CanAddCall()
     {
-        var name = _dialogService.PromptName(Resources.Strings.NewFlow, "NewFlow");
-        if (name is null) return;
-        var (selType, selId, tabKind, tabRoot) = SnapshotContext();
-        TryEditorAction(() => _store.AddFlowResolved(
-            name, selType, selId, tabKind, tabRoot));
+        if (!HasProject)
+            return false;
+
+        if (SelectedNode is { } selected)
+            return selected.EntityType == EntityKind.Work;
+
+        return Canvas.ActiveTab is { Kind: TabKind.Work };
+    }
+
+    private bool CanDeleteSelected()
+    {
+        if (!HasProject)
+            return false;
+
+        if (Selection.OrderedArrowSelection.Count > 0 || SelectedArrow is not null)
+            return true;
+
+        if (Selection.OrderedNodeSelection.Any(key => key.EntityKind != EntityKind.Project))
+            return true;
+
+        return SelectedNode is { EntityType: not EntityKind.Project };
+    }
+
+    private bool CanCopySelected() =>
+        Selection.OrderedNodeSelection.Count > 0 || SelectedNode is not null;
+
+    private bool CanPasteCopied() =>
+        _clipboardSelection.Count > 0 && ResolvePasteTarget().HasValue;
+
+    private bool CanConnectSelectedNodes() =>
+        HasProject && Selection.CanConnectSelectedNodesInOrder();
+
+    private bool CanAutoLayout() =>
+        HasProject && Canvas.ActiveTab is not null;
+
+    private static string GetUniqueName(string baseName, IEnumerable<string> existingNames, string separator = "")
+    {
+        var names = new HashSet<string>(existingNames);
+        if (!names.Contains(baseName))
+            return baseName;
+
+        var counter = 1;
+        string candidateName;
+        do
+        {
+            candidateName = $"{baseName}{separator}{counter}";
+            counter++;
+        } while (names.Contains(candidateName));
+
+        return candidateName;
     }
 
     private (EntityKind? SelectedEntityKind, Guid? SelectedEntityId, TabKind? ActiveTabKind, Guid? ActiveTabRootId) SnapshotContext() =>
         (SelectedNode?.EntityType, SelectedNode?.Id, Canvas.ActiveTab?.Kind, Canvas.ActiveTab?.RootId);
 
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private void AddWork()
+    private void CascadeMoveCreatedEntities(
+        IReadOnlyCollection<Guid> createdIds,
+        Xywh basePos,
+        IReadOnlyList<(int X, int Y)> existingPositions,
+        int mergeCount = 0,
+        string? mergeLabel = null)
     {
-        var flowId = ResolveTargetId(EntityKind.Flow, TabKind.Flow);
-        if (flowId is not { } id) return;
-
-        var name = _dialogService.PromptName(Resources.Strings.NewWork, "NewWork");
-        if (name is null) return;
-
-        if (!TryEditorFunc(() => _store.AddWork(name, id), out Guid workId, fallback: Guid.Empty))
-            return;
-        if (workId == Guid.Empty) return;
-
-        var basePos = ConsumeAddPosition();
-        var siblings = GetSiblingSnapshot(TabKind.Flow, id);
-        var pos = CascadePosition(basePos, 0, siblings.Positions);
-        TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(workId, pos)]));
-    }
-
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private void AddCall()
-    {
-        var workId = ResolveTargetId(EntityKind.Work, TabKind.Work);
-        if (workId is not { } targetWorkId)
+        var ids = createdIds
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToList();
+        if (ids.Count == 0)
             return;
 
-        var dialog = new CallCreateDialog(
-            apiNameFilter =>
-            {
-                if (!TryEditorRef(
-                        () => _store.FindApiDefsByName(apiNameFilter),
-                        out var matches))
-                    return [];
-
-                return matches;
-            })
+        var assigned = new List<(int X, int Y)>(existingPositions);
+        var requests = new List<MoveEntityRequest>(ids.Count);
+        for (var i = 0; i < ids.Count; i++)
         {
-            Owner = Application.Current.MainWindow
-        };
-        if (dialog.ShowDialog() != true)
-            return;
+            var pos = CascadePosition(basePos, i, assigned);
+            requests.Add(new MoveEntityRequest(ids[i], pos));
+            assigned.Add((pos.X, pos.Y));
+        }
 
-        var rawPos = ConsumeAddPosition();
-        var siblings = GetSiblingSnapshot(TabKind.Work, targetWorkId);
+        TryEditorFunc(() => _store.MoveEntities(requests), out int movedCount, fallback: 0);
 
-        switch (dialog.Mode)
+        if (mergeLabel is not null)
         {
-            case CallCreateMode.CallReplication:
-            {
-                TryEditorAction(
-                    () => _store.AddCallsWithDeviceResolved(EntityKind.Work, targetWorkId, targetWorkId, dialog.CallNames, true));
-                var newCallIds = GetSiblingSnapshot(TabKind.Work, targetWorkId).Ids
-                    .Where(id => !siblings.Ids.Contains(id))
-                    .ToList();
-                if (newCallIds.Count > 0)
-                {
-                    var assigned = new List<(int X, int Y)>(siblings.Positions);
-                    var requests = new List<MoveEntityRequest>();
-                    for (var i = 0; i < newCallIds.Count; i++)
-                    {
-                        var pos = CascadePosition(rawPos, i, assigned);
-                        requests.Add(new MoveEntityRequest(newCallIds[i], pos));
-                        assigned.Add((pos.X, pos.Y));
-                    }
-                    TryEditorAction(() => _store.MoveEntities(requests));
-                }
-                break;
-            }
-            case CallCreateMode.ApiCallReplication:
-            {
-                if (dialog.CallNames.Count > 1)
-                {
-                    // multi-apiName: apiName별로 각각 AddCallWithMultipleDevicesResolved 호출
-                    var newCallIds = new List<Guid>();
-                    foreach (var fullName in dialog.CallNames)
-                    {
-                        var apiName = fullName.Contains('.') ? fullName[(fullName.IndexOf('.') + 1)..] : fullName;
-                        if (TryEditorFunc(
-                                () => _store.AddCallWithMultipleDevicesResolved(
-                                    EntityKind.Work, targetWorkId, targetWorkId,
-                                    dialog.CallDevicesAlias, apiName, dialog.DeviceAliases),
-                                out Guid cid, fallback: Guid.Empty) && cid != Guid.Empty)
-                            newCallIds.Add(cid);
-                    }
-                    if (newCallIds.Count > 0)
-                    {
-                        var assigned = new List<(int X, int Y)>(siblings.Positions);
-                        var requests = new List<MoveEntityRequest>();
-                        for (var i = 0; i < newCallIds.Count; i++)
-                        {
-                            var pos = CascadePosition(rawPos, i, assigned);
-                            requests.Add(new MoveEntityRequest(newCallIds[i], pos));
-                            assigned.Add((pos.X, pos.Y));
-                        }
-                        TryEditorAction(() => _store.MoveEntities(requests));
-                    }
-                }
-                else
-                {
-                    // single apiName
-                    if (TryEditorFunc(
-                            () => _store.AddCallWithMultipleDevicesResolved(
-                                EntityKind.Work, targetWorkId, targetWorkId,
-                                dialog.CallDevicesAlias, dialog.CallApiName, dialog.DeviceAliases),
-                            out Guid callId, fallback: Guid.Empty) && callId != Guid.Empty)
-                    {
-                        var pos = CascadePosition(rawPos, 0, siblings.Positions);
-                        TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(callId, pos)]));
-                    }
-                }
-                break;
-            }
-            case CallCreateMode.ApiDefPicker:
-            {
-                if (TryEditorFunc(
-                        () => _store.AddCallWithLinkedApiDefs(
-                            targetWorkId,
-                            dialog.DevicesAlias,
-                            dialog.ApiName,
-                            dialog.SelectedApiDefs.Select(m => m.ApiDefId)),
-                        out Guid callId,
-                        fallback: Guid.Empty)
-                    && callId != Guid.Empty)
-                {
-                    var pos = CascadePosition(rawPos, 0, siblings.Positions);
-                    TryEditorAction(() => _store.MoveEntities([new MoveEntityRequest(callId, pos)]));
-                }
-                break;
-            }
+            var actualMerge = movedCount > 0 ? mergeCount : mergeCount - 1;
+            if (actualMerge >= 2)
+                _store.MergeLastTransactions(actualMerge, mergeLabel);
         }
     }
 
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private void DeleteSelected()
+    private void CascadeMoveNewSiblingDiff(
+        TabKind tabKind,
+        Guid rootId,
+        Xywh basePos,
+        SiblingSnapshot before,
+        string? mergeLabel = null)
     {
-        if (Selection.OrderedArrowSelection.Count > 0)
-        {
-            if (TryEditorAction(() => _store.RemoveArrows(Selection.OrderedArrowSelection)))
-                Selection.ClearArrowSelection();
-            return;
-        }
-
-        if (Selection.OrderedNodeSelection.Count > 0)
-        {
-            var selections = Selection.OrderedNodeSelection
-                .Where(k => k.EntityKind != EntityKind.Project)
-                .Select(k => Tuple.Create(k.EntityKind, k.Id));
-            TryEditorAction(() => _store.RemoveEntities(selections));
-            return;
-        }
-
-        if (SelectedNode is { EntityType: not EntityKind.Project } node)
-            TryEditorAction(
-                () => _store.RemoveEntities(new[] { Tuple.Create(node.EntityType, node.Id) }));
+        var createdIds = GetSiblingSnapshot(tabKind, rootId).Ids
+            .Where(id => !before.Ids.Contains(id))
+            .ToList();
+        // SiblingDiff: 1 create transaction + 1 move transaction
+        CascadeMoveCreatedEntities(createdIds, basePos, before.Positions, mergeCount: 2, mergeLabel: mergeLabel);
     }
 
-    [RelayCommand]
-    private void RenameSelected(string newName)
+    private bool TryCreateSingleWithCascade(
+        Func<Guid> create,
+        Xywh basePos,
+        IReadOnlyList<(int X, int Y)> existingPositions,
+        string? mergeLabel = null)
     {
-        if (SelectedNode is null || string.IsNullOrWhiteSpace(newName))
-            return;
+        if (!TryEditorFunc(create, out Guid createdId, fallback: Guid.Empty) || createdId == Guid.Empty)
+            return false;
 
-        TryEditorAction(
-            () => _store.RenameEntity(SelectedNode.Id, SelectedNode.EntityType, newName));
+        // Single: 1 create transaction + 1 move transaction
+        CascadeMoveCreatedEntities([createdId], basePos, existingPositions, mergeCount: 2, mergeLabel: mergeLabel);
+        return true;
     }
 
-    [RelayCommand]
-    private void CopySelected()
+    private bool TryCreateMultipleWithCascade(
+        IEnumerable<Func<Guid>> creators,
+        Xywh basePos,
+        IReadOnlyList<(int X, int Y)> existingPositions,
+        string? mergeLabel = null)
     {
-        var candidates = Selection.OrderedNodeSelection.Count > 0
-            ? Selection.OrderedNodeSelection
-            : SelectedNode is { } single
-                ? [new SelectionKey(single.Id, single.EntityType)]
-                : (IReadOnlyList<SelectionKey>)[];
-
-        if (!TryEditorFunc(
-                () => _store.ValidateCopySelection(candidates),
-                out CopyValidationResult result,
-                fallback: CopyValidationResult.NothingToCopy))
-            return;
-
-        if (result.IsMixedTypes)
+        var createdIds = new List<Guid>();
+        foreach (var create in creators)
         {
-            _dialogService.ShowWarning("같은 종류의 항목만 복사할 수 있습니다.");
-            return;
-        }
-        if (result.IsMixedParents)
-        {
-            _dialogService.ShowWarning("서로 다른 위치에 있는 항목은 함께 복사할 수 없습니다.");
-            return;
-        }
-        if (result is not CopyValidationResult.Ok ok)
-            return;
-
-        var validated = ok.Item;
-        _clipboardSelection.Clear();
-        foreach (var key in validated)
-            _clipboardSelection.Add(key);
-
-        StatusText = $"Copied {_clipboardSelection.Count} {validated[0].EntityKind}(s).";
-    }
-
-    [RelayCommand]
-    private void PasteCopied()
-    {
-        if (_clipboardSelection.Count == 0)
-            return;
-
-        var target = ResolvePasteTarget();
-        if (!target.HasValue)
-            return;
-
-        var batchType = _clipboardSelection[0].EntityKind;
-
-        // Work/Call 붙여넣기 시 System이 선택된 경우 → Flow를 선택하도록 안내
-        if (target.Value.EntityType == EntityKind.System
-            && (batchType == EntityKind.Work || batchType == EntityKind.Call))
-        {
-            _dialogService.ShowWarning("붙여넣기 대상으로 Flow를 선택하세요.");
-            return;
+            if (!TryEditorFunc(create, out Guid createdId, fallback: Guid.Empty))
+                return false;
+            if (createdId != Guid.Empty)
+                createdIds.Add(createdId);
         }
 
-        // Flow 붙여넣기: 새 이름 입력 다이얼로그
-        if (batchType == EntityKind.Flow)
-        {
-            PasteFlowsWithRename(target.Value);
-            return;
-        }
-
-        if (!TryEditorRef(
-                () => _store.PasteEntities(
-                    batchType,
-                    _clipboardSelection.Select(k => k.Id),
-                    target.Value.EntityType,
-                    target.Value.EntityId),
-                out var pastedIds))
-            return;
-
-        ApplyPasteSelection(pastedIds, $"Pasted {pastedIds.Length} {batchType}(s).");
+        // Multiple: N create transactions + 1 move transaction
+        CascadeMoveCreatedEntities(createdIds, basePos, existingPositions,
+            mergeCount: createdIds.Count + 1, mergeLabel: mergeLabel);
+        return createdIds.Count > 0;
     }
 
-    private void PasteFlowsWithRename((EntityKind EntityType, Guid EntityId) target)
+    private bool TryCreateSiblingDiffWithCascade(
+        Action create,
+        TabKind tabKind,
+        Guid rootId,
+        Xywh basePos,
+        SiblingSnapshot before,
+        string? mergeLabel = null)
     {
-        var pastedIds = new List<Guid>();
-        var targetSystemIdOpt = EntityHierarchyQueries.resolveTarget(
-            _store, EntityKind.System, target.EntityType, target.EntityId);
+        if (!TryEditorAction(create))
+            return false;
 
-        foreach (var key in _clipboardSelection)
-        {
-            if (!_store.FlowsReadOnly.TryGetValue(key.Id, out var srcFlow))
-                continue;
-
-            var newName = _dialogService.PromptName("Flow 복사 — 새 이름", srcFlow.Name);
-            if (newName is null) return; // 취소 시 전체 중단
-
-            var sysId = targetSystemIdOpt != null ? targetSystemIdOpt.Value : srcFlow.ParentId;
-
-            if (!TryEditorRef(
-                    () => _store.PasteFlowWithRename(key.Id, sysId, newName),
-                    out var resultOpt))
-                return;
-
-            if (resultOpt != null)
-                pastedIds.Add(resultOpt.Value);
-        }
-
-        ApplyPasteSelection(pastedIds, $"Pasted {pastedIds.Count} Flow(s).");
+        CascadeMoveNewSiblingDiff(tabKind, rootId, basePos, before, mergeLabel);
+        return true;
     }
 
-    private (EntityKind EntityType, Guid EntityId)? ResolvePasteTarget()
-    {
-        if (SelectedNode is { } selected)
-            return (selected.EntityType, selected.Id);
+    private static string NormalizeApiName(string fullName) =>
+        fullName.Contains('.') ? fullName[(fullName.IndexOf('.') + 1)..] : fullName;
 
-        if (Canvas.ActiveTab is not { } tab)
-            return null;
-
-        return (EntityHierarchyQueries.entityKindForTabKind(tab.Kind), tab.RootId);
-    }
-
-    private void ApplyPasteSelection(IReadOnlyCollection<Guid> pastedIds, string statusText)
-    {
-        if (pastedIds.Count == 0)
-            return;
-
-        StatusText = statusText;
-        var idSet = pastedIds.ToHashSet();
-        RequestRebuildAll(() =>
-        {
-            Selection.ClearNodeSelection();
-            foreach (var node in Canvas.CanvasNodes.Where(n => idSet.Contains(n.Id)))
-                Selection.SelectNodeFromCanvas(node, ctrlPressed: true, shiftPressed: false);
-        });
-    }
-
-    private const int CascadeOffset = 30;
     private const int DefaultViewportCenterX = 1300;
     private const int DefaultViewportCenterY = 1000;
 
@@ -373,7 +233,7 @@ public partial class MainViewModel
     private SiblingSnapshot GetSiblingSnapshot(TabKind tabKind, Guid rootId)
     {
         if (!TryEditorRef(
-                () => _store.CanvasContentForTab(tabKind, rootId),
+                () => EditorCanvasProjection.CanvasContentForTab(_store, tabKind, rootId),
                 out var content))
             return SiblingSnapshot.Empty;
 
@@ -384,39 +244,48 @@ public partial class MainViewModel
 
     private Xywh CascadePosition(Xywh basePos, int index, IReadOnlyList<(int X, int Y)>? storePositions = null)
     {
-        var x = basePos.X + CascadeOffset * index;
-        var y = basePos.Y + CascadeOffset * index;
+        var gridX = UiDefaults.DefaultNodeWidth;
+        var gridY = UiDefaults.DefaultNodeHeight;
+        var maxX = 3000 - gridX;
+
+        var startX = (int)(Math.Round((double)basePos.X / gridX) * gridX);
+        var startY = (int)(Math.Round((double)basePos.Y / gridY) * gridY);
+        startX = Math.Clamp(startX, 0, maxX);
+        startY = Math.Max(startY, 0);
+
+        var cols = (maxX - startX) / gridX + 1;
+        int x, y;
+        if (cols > 0 && index >= cols)
+        {
+            x = startX + gridX * (index % cols);
+            y = startY + gridY * (index / cols);
+        }
+        else
+        {
+            x = startX + gridX * index;
+            y = startY;
+        }
 
         bool HasOverlap(int cx, int cy)
         {
-            if (Canvas.CanvasNodes.Any(n => Math.Abs(n.X - cx) < 10 && Math.Abs(n.Y - cy) < 10))
+            if (Canvas.CanvasNodes.Any(n => Math.Abs(n.X - cx) < gridX && Math.Abs(n.Y - cy) < gridY))
                 return true;
-            return storePositions?.Any(p => Math.Abs(p.X - cx) < 10 && Math.Abs(p.Y - cy) < 10) == true;
+            return storePositions?.Any(p => Math.Abs(p.X - cx) < gridX && Math.Abs(p.Y - cy) < gridY) == true;
         }
 
-        while (HasOverlap(x, y))
+        var maxAttempts = (3000 / gridX) * (2000 / gridY);
+        var attempts = 0;
+        while (HasOverlap(x, y) && attempts++ < maxAttempts)
         {
-            x += CascadeOffset;
-            y += CascadeOffset;
+            x += gridX;
+            if (x > maxX)
+            {
+                x = startX;
+                y += gridY;
+            }
         }
 
         return new Xywh(x, y, basePos.W, basePos.H);
-    }
-
-    [RelayCommand(CanExecute = nameof(HasProject))]
-    private void AutoLayout()
-    {
-        if (Canvas.ActiveTab is not { } tab) return;
-
-        if (!TryEditorRef(
-                () => _store.ComputeAutoLayout(tab.Kind, tab.RootId),
-                out var requests))
-            return;
-
-        if (requests.IsEmpty) return;
-
-        TryEditorAction(() => _store.MoveEntities(requests));
-        RequestRebuildAll(() => Canvas.FitToViewZoomOutRequested?.Invoke());
     }
 
     private Guid? ResolveTargetId(EntityKind selectedEntityType, TabKind activeTabKind)
@@ -429,4 +298,75 @@ public partial class MainViewModel
 
         return null;
     }
+
+    private Guid? ResolveFirstFlowInSystemTab()
+    {
+        if (Canvas.ActiveTab is not { Kind: TabKind.System } tab) return null;
+        var flows = Queries.flowsOf(tab.RootId, _store);
+        return flows.IsEmpty ? null : (Guid?)flows.Head.Id;
+    }
+
+    /// AddWork 전용: 현재 컨텍스트에 어울리는 Flow ID 결정.
+    /// CanAddWork가 Work/Call/ApiCall 선택을 차단하므로 여기에 도달하는 selection은
+    /// Flow / System / null뿐 — Flow는 직접 채택, System은 ActiveTab fallback에 위임.
+    private Guid? ResolveTargetFlowId()
+    {
+        if (SelectedNode is { EntityType: EntityKind.Flow, Id: var flowId }
+            && IsFlowInActiveTab(flowId))
+            return flowId;
+
+        // 마지막 사용 Flow가 여전히 유효하고 ActiveTab 컨텍스트 안이면 그것에 머무름
+        if (_lastAddWorkTargetFlowId is { } lastId
+            && Queries.getFlow(lastId, _store) is not null
+            && IsFlowInActiveTab(lastId))
+            return lastId;
+
+        if (Canvas.ActiveTab is { Kind: TabKind.Flow } flowTab)
+            return flowTab.RootId;
+
+        return ResolveFirstFlowInSystemTab();
+    }
+
+    /// 주어진 Flow가 현재 ActiveTab의 컨텍스트(Flow 탭이면 자기 자신, System 탭이면 그 System 내부)에 속하는지 확인.
+    /// ActiveTab이 없거나 다른 종류면 통과(가드 비활성).
+    private bool IsFlowInActiveTab(Guid flowId)
+    {
+        if (Canvas.ActiveTab is not { } tab) return true;
+        return tab.Kind switch
+        {
+            TabKind.Flow   => tab.RootId == flowId,
+            TabKind.System => Queries.flowsOf(tab.RootId, _store).Any(f => f.Id == flowId),
+            _              => true
+        };
+    }
+
+    private (EntityKind EntityType, Guid EntityId)? ResolvePasteTarget()
+    {
+        if (SelectedNode is { } selected)
+            return (selected.EntityType, selected.Id);
+
+        if (Canvas.ActiveTab is not { } tab)
+            return null;
+
+        return (EditorNavigation.EntityKindForTabKind(tab.Kind), tab.RootId);
+    }
+
+    private void ApplyPasteSelection(IReadOnlyCollection<Guid> pastedIds, string statusText)
+    {
+        if (pastedIds.Count == 0)
+        {
+            StatusText = statusText;
+            return;
+        }
+
+        StatusText = statusText;
+        var idSet = pastedIds.ToHashSet();
+        RequestRebuildAll(() =>
+        {
+            Selection.ClearNodeSelection();
+            foreach (var node in Canvas.CanvasNodes.Where(n => idSet.Contains(n.Id)))
+                Selection.SelectNodeFromCanvas(node, ctrlPressed: true, shiftPressed: false);
+        });
+    }
+
 }

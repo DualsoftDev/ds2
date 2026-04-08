@@ -4,7 +4,8 @@
              xmlns:vm="clr-namespace:Promaker.ViewModels"
              xmlns:ctrl="clr-namespace:Promaker.Controls"
              xmlns:conv="clr-namespace:Promaker.Presentation"
-             xmlns:core="clr-namespace:Ds2.UI.Core;assembly=Ds2.UI.Core"
+             xmlns:core="clr-namespace:Ds2.Core.Store;assembly=Ds2.Core"
+             xmlns:coreEnum="clr-namespace:Ds2.Core;assembly=Ds2.Core"
              xmlns:help="clr-namespace:Promaker.Help"
              x:Name="PanelRoot">
     <UserControl.Resources>
@@ -14,6 +15,15 @@
             <Setter Property="Padding" Value="6,2"/>
             <Setter Property="MinWidth" Value="24"/>
             <Setter Property="Height" Value="22"/>
+        </Style>
+
+        <Style x:Key="NameEditorHighlightStyle" TargetType="Border">
+            <Setter Property="Opacity" Value="0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsNameEditHighlighted}" Value="True">
+                    <Setter Property="Opacity" Value="1"/>
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
     </UserControl.Resources>
 
@@ -33,39 +43,72 @@
             </Border>
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="8">
-                    <TextBlock Text="{Binding SelectedNode.EntityType, StringFormat='Type: {0}', FallbackValue='선택 없음'}"
+                    <TextBlock Text="{Binding SelectionTypeText}"
                                FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,4"/>
-                    <TextBlock Text="{Binding SelectedNode.Name, StringFormat='Name: {0}'}"
+                    <TextBlock Text="{Binding SelectionNameText}"
                                FontSize="13" FontWeight="SemiBold" Margin="0,0,0,12"/>
 
-                    <TextBlock Text="Name" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="NameEditor" Text="{Binding NameEditorText, UpdateSourceTrigger=PropertyChanged}"
-                                 Padding="6,4" FontSize="12"
-                                 KeyDown="NameEditor_KeyDown"/>
-                        <Button Grid.Column="1" Content="✓" Style="{StaticResource DarkButton}"
-                                Margin="4,0,0,0" Padding="8,4"
-                                Command="{Binding ApplyNameCommand}"
-                                IsEnabled="{Binding IsNameDirty}"/>
-                    </Grid>
-
-                    <Separator Margin="0,12"/>
-
-                    <TextBlock Text="Position" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,2"/>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="X:" Margin="0,0,4,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding SelectedNode.X, StringFormat='{}{0:0}'}" Margin="0,0,12,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="Y:" Margin="0,0,4,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding SelectedNode.Y, StringFormat='{}{0:0}'}" VerticalAlignment="Center"/>
+                    <StackPanel Visibility="{Binding ShowNameEditor, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="Name" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,2"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding NamePrefix}"
+                                       FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,2,0"/>
+                            <Grid Grid.Column="1">
+                                <TextBox x:Name="NameEditor"
+                                         Text="{Binding NameEditorText, UpdateSourceTrigger=PropertyChanged}"
+                                         Padding="6,4" FontSize="12"
+                                         KeyDown="NameEditor_KeyDown"/>
+                                <Border x:Name="NameEditorHighlight"
+                                        Margin="-3"
+                                        BorderThickness="2"
+                                        BorderBrush="{DynamicResource AccentBrush}"
+                                        Background="Transparent"
+                                        CornerRadius="3"
+                                        Style="{StaticResource NameEditorHighlightStyle}"
+                                        IsHitTestVisible="False"/>
+                            </Grid>
+                            <Button Grid.Column="2" Content="✓" Style="{StaticResource DarkButton}"
+                                    Margin="4,0,0,0" Padding="8,4"
+                                    Command="{Binding ApplyNameCommand}"
+                                    IsEnabled="{Binding IsNameDirty}"/>
+                        </Grid>
                     </StackPanel>
 
                     <Separator Margin="0,12"/>
 
                     <StackPanel Visibility="{Binding IsSystemSelected, Converter={StaticResource BoolToVis}}">
+                        <!-- SystemType -->
+                        <TextBlock Text="SystemType"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,0,0,2"/>
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0"
+                                     Text="{Binding SystemType, UpdateSourceTrigger=PropertyChanged}"
+                                     Padding="4,2"
+                                     FontSize="11"/>
+                            <Button Grid.Column="1"
+                                    Content="✓"
+                                    ToolTip="Apply"
+                                    Margin="4,0,0,0"
+                                    Style="{StaticResource InlineListButton}"
+                                    Command="{Binding ApplySystemTypeCommand}"
+                                    IsEnabled="{Binding IsSystemTypeDirty}"/>
+                        </Grid>
+
                         <Border BorderBrush="{DynamicResource BorderBrush}"
                                 BorderThickness="1"
                                 Margin="0,2,0,8"
@@ -162,6 +205,46 @@
                                     IsEnabled="{Binding IsWorkPeriodDirty}"
                                     Command="{Binding ApplyWorkPeriodCommand}"/>
                         </Grid>
+                        <TextBlock Text="{Binding DeviceDurationHint}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource AccentTextBrush}"
+                                   Visibility="{Binding HasDeviceDuration, Converter={StaticResource BoolToVis}}"
+                                   Margin="0,2,0,0"/>
+
+                        <Separator Margin="0,12"/>
+                        <CheckBox Content="IsFinished (초기 Finish 상태)"
+                                  IsThreeState="True"
+                                  IsChecked="{Binding IsWorkFinished}"
+                                  FontSize="12" Margin="0,2,0,4"/>
+                        <Separator Margin="0,12"/>
+                        <TextBlock Text="TokenRole"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,2,0,2"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                            <CheckBox Content="Source"
+                                      IsThreeState="True"
+                                      IsChecked="{Binding IsTokenSource}"
+                                      FontSize="12" Margin="0,0,16,0"/>
+                            <CheckBox Content="Ignore"
+                                      IsThreeState="True"
+                                      IsChecked="{Binding IsTokenIgnore}"
+                                      FontSize="12" Margin="0,0,16,0"/>
+                            <CheckBox Content="Sink"
+                                      IsThreeState="True"
+                                      IsChecked="{Binding IsTokenSink}"
+                                      FontSize="12"/>
+                        </StackPanel>
+                        <TextBlock Text="연결된 TokenSpec"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,8,0,2"
+                                   Visibility="{Binding HasLinkedTokenSpec, Converter={StaticResource BoolToVis}}"/>
+                        <TextBlock Text="{Binding LinkedTokenSpecLabel}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TokenOrangeBrush}"
+                                   Margin="0,2,0,0"
+                                   Visibility="{Binding HasLinkedTokenSpec, Converter={StaticResource BoolToVis}}"/>
                         <Separator Margin="0,12"/>
                     </StackPanel>
 
@@ -189,205 +272,22 @@
                                     IsEnabled="{Binding IsCallTimeoutDirty}"
                                     Command="{Binding ApplyCallTimeoutCommand}"/>
                         </Grid>
-                        <Border BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1"
-                                Margin="0,2,0,8"
-                                Background="{DynamicResource TertiaryBackgroundBrush}">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
+                        <TextBlock Text="CallType"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,4,0,2"/>
+                        <ComboBox SelectedItem="{Binding SelectedCallType}"
+                                  Margin="0,0,0,8"
+                                  Padding="6,4">
+                            <coreEnum:CallType>WaitForCompletion</coreEnum:CallType>
+                            <coreEnum:CallType>SkipIfCompleted</coreEnum:CallType>
+                        </ComboBox>
+                        <Separator Margin="0,8"/>
+                        <ctrl:ApiCallsGridControl DataContext="{Binding}"
+                                                  Visibility="{Binding IsSingleCallSelected, Converter={StaticResource BoolToVis}}"/>
 
-                                <Border Grid.Row="0"
-                                        Background="{DynamicResource SecondaryBackgroundBrush}"
-                                        Padding="4,3">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding CallApiCallsHeader}"
-                                                       FontSize="11"
-                                                       VerticalAlignment="Center"
-                                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
-                                            <Button Style="{StaticResource HelpButton}"
-                                                    Command="{x:Static help:HelpNavigator.NavigateCommand}"
-                                                    CommandParameter="apicalls"/>
-                                        </StackPanel>
-                                        <Button Grid.Column="1"
-                                                Content="+"
-                                                ToolTip="Add ApiCall"
-                                                Style="{StaticResource InlineListButton}"
-                                                Command="{Binding AddCallApiCallCommand}"/>
-                                    </Grid>
-                                </Border>
-
-                                <DataGrid Grid.Row="1"
-                                          ItemsSource="{Binding CallApiCalls}"
-                                          SelectedItem="{Binding SelectedCallApiCall}"
-                                          AutoGenerateColumns="False"
-                                          CanUserAddRows="False"
-                                          CanUserDeleteRows="False"
-                                          HeadersVisibility="Column"
-                                          GridLinesVisibility="Horizontal"
-                                          HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
-                                          VerticalGridLinesBrush="{DynamicResource BorderBrush}"
-                                          BorderThickness="0"
-                                          RowHeaderWidth="0"
-                                          MinHeight="160"
-                                          MaxHeight="240"
-                                          Background="{DynamicResource TertiaryBackgroundBrush}"
-                                          Foreground="{DynamicResource PrimaryTextBrush}">
-                                    <DataGrid.ColumnHeaderStyle>
-                                        <Style TargetType="DataGridColumnHeader">
-                                            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
-                                            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
-                                            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-                                            <Setter Property="BorderThickness" Value="0,0,0,1"/>
-                                            <Setter Property="Padding" Value="4,3"/>
-                                            <Setter Property="FontSize" Value="11"/>
-                                        </Style>
-                                    </DataGrid.ColumnHeaderStyle>
-                                    <DataGrid.RowStyle>
-                                        <Style TargetType="DataGridRow">
-                                            <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
-                                            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
-                                            <Setter Property="BorderThickness" Value="0"/>
-                                            <Style.Triggers>
-                                                <Trigger Property="IsSelected" Value="True">
-                                                    <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
-                                                </Trigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </DataGrid.RowStyle>
-                                    <DataGrid.CellStyle>
-                                        <Style TargetType="DataGridCell">
-                                            <Setter Property="Background" Value="{DynamicResource TertiaryBackgroundBrush}"/>
-                                            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
-                                            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-                                            <Setter Property="BorderThickness" Value="0"/>
-                                            <Setter Property="Padding" Value="2"/>
-                                        </Style>
-                                    </DataGrid.CellStyle>
-                                    <DataGrid.Columns>
-                                        <DataGridTemplateColumn Width="32">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <Button Content="x"
-                                                            Style="{StaticResource InlineListButton}"
-                                                            Margin="0,1,0,1"
-                                                            Command="{Binding DataContext.RemoveCallApiCallCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                            CommandParameter="{Binding}"/>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-
-                                        <DataGridTextColumn Header="{x:Static core:Labels.ApiDef}" Width="1.5*"
-                                                            Binding="{Binding ApiDefDisplayName, Mode=OneWay}"
-                                                            IsReadOnly="True">
-                                            <DataGridTextColumn.ElementStyle>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Padding" Value="4,2"/>
-                                                    <Setter Property="VerticalAlignment" Value="Center"/>
-                                                    <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
-                                                </Style>
-                                            </DataGridTextColumn.ElementStyle>
-                                        </DataGridTextColumn>
-
-                                        <DataGridTemplateColumn Header="{x:Static core:Labels.OutTag}" Width="*">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <TextBox Text="{Binding OutputTagName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                             Padding="4,2"
-                                                             Margin="0,1,0,1"/>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-
-                                        <DataGridTemplateColumn Header="{x:Static core:Labels.OutAddress}" Width="*">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <TextBox Text="{Binding OutputAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                             Padding="4,2"
-                                                             Margin="0,1,0,1"/>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-
-                                        <DataGridTemplateColumn Header="{x:Static core:Labels.InTag}" Width="*">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <TextBox Text="{Binding InputTagName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                             Padding="4,2"
-                                                             Margin="0,1,0,1"/>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-
-                                        <DataGridTemplateColumn Header="{x:Static core:Labels.InAddress}" Width="*">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <TextBox Text="{Binding InputAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                             Padding="4,2"
-                                                             Margin="0,1,0,1"/>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-
-                                        <DataGridTemplateColumn Header="{x:Static core:Labels.OutSpec}" Width="1.2*">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <TextBox Text="{Binding ValueSpecText, Mode=OneWay}"
-                                                             IsReadOnly="True"
-                                                             Padding="4,2"
-                                                             Margin="0,1,0,1"/>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-
-                                        <DataGridTemplateColumn Header="{x:Static core:Labels.InSpec}" Width="1.2*">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <Grid Margin="0,1,0,1">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*"/>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <TextBox Grid.Column="0"
-                                                                 Text="{Binding InputValueSpecText, Mode=OneWay}"
-                                                                 IsReadOnly="True"
-                                                                 Padding="4,2"/>
-                                                        <Button Grid.Column="1"
-                                                                Content="✎"
-                                                                Style="{StaticResource InlineListButton}"
-                                                                Margin="4,0,0,0"
-                                                                Command="{Binding DataContext.EditCallApiCallSpecCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                                CommandParameter="{Binding}"/>
-                                                    </Grid>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-
-                                        <DataGridTemplateColumn Width="32">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <Button Content="✓"
-                                                            Style="{StaticResource InlineListButton}"
-                                                            Margin="0,1,0,1"
-                                                            IsEnabled="{Binding IsDirty}"
-                                                            Command="{Binding DataContext.UpdateCallApiCallCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                                            CommandParameter="{Binding}"/>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-                                    </DataGrid.Columns>
-                                </DataGrid>
-                            </Grid>
-                        </Border>
-
-                        <ItemsControl ItemsSource="{Binding ConditionSections}">
+                        <ItemsControl ItemsSource="{Binding ConditionSections}"
+                                      Visibility="{Binding IsSingleCallSelected, Converter={StaticResource BoolToVis}}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:ConditionSectionItem}">
                                     <ctrl:ConditionSectionControl
@@ -397,13 +297,10 @@
                                         ItemsSource="{Binding Conditions}"
                                         AddCommand="{Binding DataContext.AddConditionCommand, ElementName=PanelRoot}"
                                         RemoveConditionCommand="{Binding DataContext.RemoveCallConditionCommand, ElementName=PanelRoot}"
-                                        ToggleConditionIsOrCommand="{Binding DataContext.ToggleConditionIsORCommand, ElementName=PanelRoot}"
-                                        ToggleConditionIsRisingCommand="{Binding DataContext.ToggleConditionIsRisingCommand, ElementName=PanelRoot}"
-                                        AddConditionApiCallCommand="{Binding DataContext.AddConditionApiCallCommand, ElementName=PanelRoot}"
-                                        RemoveConditionApiCallCommand="{Binding DataContext.RemoveConditionApiCallCommand, ElementName=PanelRoot}"
-                                        EditConditionApiCallSpecCommand="{Binding DataContext.EditConditionApiCallSpecCommand, ElementName=PanelRoot}"
-                                        NavigateConditionApiCallCommand="{Binding DataContext.NavigateConditionApiCallCommand, ElementName=PanelRoot}"
-                                        AddChildConditionCommand="{Binding DataContext.AddChildConditionCommand, ElementName=PanelRoot}"
+                                        EditConditionsCommand="{Binding DataContext.EditConditionsCommand, ElementName=PanelRoot}"
+                                        EditConditionsParameter="{Binding}"
+                                        DropCallCommand="{Binding DataContext.DropCallToConditionSectionCommand, ElementName=PanelRoot}"
+                                        DropCallToConditionItemCommand="{Binding DataContext.DropCallToConditionItemCommand, ElementName=PanelRoot}"
                                         AddCommandParameter="{Binding ConditionType}"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -411,7 +308,15 @@
                         <Separator Margin="0,12"/>
                     </StackPanel>
 
-                    <StackPanel Visibility="{Binding IsDebugBuild, Converter={StaticResource BoolToVis}}">
+                    <StackPanel Visibility="{Binding ShowDebugSelectionDetails, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="Position" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,2"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="X:" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding SelectedNode.X, StringFormat='{}{0:0}'}" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Y:" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding SelectedNode.Y, StringFormat='{}{0:0}'}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Separator Margin="0,12"/>
                         <TextBlock Text="ID" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,2"/>
                         <TextBox Text="{Binding SelectedNode.Id, Mode=OneWay}" IsReadOnly="True"
                                  Padding="6,4" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"/>

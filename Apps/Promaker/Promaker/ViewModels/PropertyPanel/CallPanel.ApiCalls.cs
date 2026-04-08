@@ -1,7 +1,8 @@
 using System;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
@@ -11,20 +12,33 @@ public partial class PropertyPanelState
     [RelayCommand]
     private void ApplyCallTimeout()
     {
-        if (!TryRunCallMutation(
-                callId => Store.UpdateCallTimeoutMs(callId, CallTimeoutMs),
-                "Call timeout updated.",
-                _ =>
-                {
-                    _originalCallTimeoutMs = CallTimeoutMs;
-                    IsCallTimeoutDirty = false;
-                }))
+        if (!GuardSimulationSemanticEdit("Call timeout 변경"))
             return;
+
+        var selectedCallIds = GetSelectedCallIds();
+        if (selectedCallIds.Count == 0)
+            return;
+
+        var changeValue = CallTimeoutMs;
+        var changes = selectedCallIds.Select(callId => new ValueTuple<Guid, int?>(callId, changeValue)).ToList();
+
+        if (!_host.TryAction(() => Store.UpdateCallTimeoutsBatch(changes)))
+            return;
+
+        _originalCallTimeoutMs = CallTimeoutMs;
+        IsCallTimeoutDirty = false;
+        _host.SetStatusText(selectedCallIds.Count > 1
+            ? $"Call timeout updated for {selectedCallIds.Count} items."
+            : "Call timeout updated.");
+        Refresh();
     }
 
     [RelayCommand]
     private void AddCallApiCall()
     {
+        if (!GuardSimulationSemanticEdit("ApiCall 추가"))
+            return;
+
         var apiDefChoices = DeviceApiDefOptions
             .Select(x => new ApiCallCreateDialog.ApiDefChoice(x.Id, x.DisplayName))
             .ToList();
@@ -102,6 +116,8 @@ public partial class PropertyPanelState
     private void EditCallApiCallSpec(CallApiCallItem? item)
     {
         if (item is null) return;
+        if (!GuardSimulationSemanticEdit("ApiCall spec 편집"))
+            return;
 
         var dialog = new ApiCallSpecDialog(
             item.Name,
@@ -136,6 +152,9 @@ public partial class PropertyPanelState
     [RelayCommand]
     private void UpdateCallApiCall(CallApiCallItem? _)
     {
+        if (!GuardSimulationSemanticEdit("ApiCall 편집"))
+            return;
+
         Guid ignoredCallId;
 
         if (!TryRunCallQuery(
@@ -178,6 +197,7 @@ public partial class PropertyPanelState
         if (!TryRunCallMutation(
                 callId => Store.RemoveApiCallFromCall(callId, item.ApiCallId),
                 "ApiCall removed.",
+                "ApiCall 삭제",
                 RefreshCallPanel))
             return;
     }

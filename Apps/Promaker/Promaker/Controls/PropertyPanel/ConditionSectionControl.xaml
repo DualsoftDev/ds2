@@ -3,101 +3,22 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:help="clr-namespace:Promaker.Help"
              x:Name="Root">
-    <UserControl.Resources>
-        <!-- ApiCall 행 템플릿 -->
-        <DataTemplate x:Key="ApiCallRowTemplate">
-            <Grid Margin="0,1"
-                  Background="Transparent"
-                  Cursor="Hand"
-                  MouseLeftButtonDown="ApiCallRow_MouseLeftButtonDown">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <Button Grid.Column="0"
-                        Content="x"
-                        Style="{DynamicResource InlineListButton}"
-                        Command="{Binding RemoveConditionApiCallCommand, ElementName=Root}"
-                        CommandParameter="{Binding}"/>
-                <TextBlock Grid.Column="1"
-                           Text="{Binding ApiDefDisplayName}"
-                           FontSize="10"
-                           VerticalAlignment="Center"
-                           Margin="4,0"/>
-                <TextBlock Grid.Column="2"
-                           Text="{Binding OutputSpecText}"
-                           FontSize="10"
-                           VerticalAlignment="Center"
-                           Foreground="{DynamicResource AccentBrush}"
-                           Margin="4,0"/>
-                <Button Grid.Column="3"
-                        Content="✎"
-                        ToolTip="Edit OutputSpec"
-                        Style="{DynamicResource InlineListButton}"
-                        Command="{Binding EditConditionApiCallSpecCommand, ElementName=Root}"
-                        CommandParameter="{Binding}"/>
-            </Grid>
-        </DataTemplate>
-
-        <!-- 재귀 조건 항목 템플릿 -->
-        <DataTemplate x:Key="ConditionItemTemplate">
-            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="4,4">
-                <StackPanel>
-                    <!-- 조건 헤더: x, OR, Rising, + -->
-                    <StackPanel Orientation="Horizontal">
-                        <Button Content="x"
-                                Style="{DynamicResource InlineListButton}"
-                                Command="{Binding RemoveConditionCommand, ElementName=Root}"
-                                CommandParameter="{Binding}"/>
-                        <CheckBox Content="OR"
-                                  IsChecked="{Binding IsOR, Mode=OneWay}"
-                                  Margin="4,0"
-                                  VerticalAlignment="Center"
-                                  Command="{Binding ToggleConditionIsOrCommand, ElementName=Root}"
-                                  CommandParameter="{Binding}"/>
-                        <CheckBox Content="Rising"
-                                  IsChecked="{Binding IsRising, Mode=OneWay}"
-                                  Margin="4,0"
-                                  VerticalAlignment="Center"
-                                  Command="{Binding ToggleConditionIsRisingCommand, ElementName=Root}"
-                                  CommandParameter="{Binding}"/>
-                        <Button Content="+"
-                                ToolTip="하위 그룹 추가"
-                                Style="{DynamicResource InlineListButton}"
-                                Margin="4,0"
-                                Command="{Binding AddChildConditionCommand, ElementName=Root}"
-                                CommandParameter="{Binding}"/>
-                    </StackPanel>
-                    <!-- ApiCall 목록 -->
-                    <ItemsControl ItemsSource="{Binding Items}" Margin="8,2,0,0"
-                                  ItemTemplate="{StaticResource ApiCallRowTemplate}"/>
-                    <!-- 재귀 하위 조건 -->
-                    <ItemsControl ItemsSource="{Binding Children}" Margin="16,2,0,0"
-                                  ItemTemplate="{DynamicResource ConditionItemTemplate}"/>
-                    <!-- 클릭하여 조건 추가 힌트 -->
-                    <TextBlock Text="조건을 추가하려면 여기를 클릭 하세요"
-                               FontSize="10"
-                               FontStyle="Italic"
-                               Foreground="{DynamicResource SecondaryTextBrush}"
-                               Margin="8,4,0,2"
-                               Cursor="Hand"
-                               MouseLeftButtonDown="AddConditionHint_Click"/>
-                </StackPanel>
-            </Border>
-        </DataTemplate>
-    </UserControl.Resources>
-
     <Border BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1"
             Margin="0,2,0,4"
-            Background="{DynamicResource TertiaryBackgroundBrush}">
+            Background="{DynamicResource TertiaryBackgroundBrush}"
+            AllowDrop="True"
+            DragEnter="Border_DragEnter"
+            DragLeave="Border_DragLeave"
+            DragOver="Border_DragOver"
+            Drop="Border_Drop">
         <StackPanel>
+            <!-- Header -->
             <Border Background="{DynamicResource SecondaryBackgroundBrush}" Padding="4,3">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
@@ -110,6 +31,12 @@
                                 Command="{x:Static help:HelpNavigator.NavigateCommand}"
                                 CommandParameter="{Binding HelpTopic, ElementName=Root}"/>
                     </StackPanel>
+                    <Button Grid.Column="1"
+                            Content="&#x270E;"
+                            ToolTip="일괄 편집"
+                            Style="{DynamicResource InlineListButton}"
+                            Command="{Binding EditConditionsCommand, ElementName=Root}"
+                            CommandParameter="{Binding EditConditionsParameter, ElementName=Root}"/>
                     <Button Grid.Column="2"
                             Content="+"
                             ToolTip="{Binding AddToolTip, ElementName=Root}"
@@ -118,8 +45,51 @@
                             CommandParameter="{Binding AddCommandParameter, ElementName=Root}"/>
                 </Grid>
             </Border>
-            <ItemsControl ItemsSource="{Binding ItemsSource, ElementName=Root}"
-                          ItemTemplate="{StaticResource ConditionItemTemplate}"/>
+
+            <!-- Condition formula list -->
+            <ItemsControl ItemsSource="{Binding ItemsSource, ElementName=Root}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border AllowDrop="True"
+                                Background="Transparent"
+                                DragEnter="ConditionItem_DragEnter"
+                                DragLeave="ConditionItem_DragLeave"
+                                DragOver="ConditionItem_DragOver"
+                                Drop="ConditionItem_Drop"
+                                Tag="{Binding}">
+                            <Grid Margin="4,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0"
+                                        Content="x"
+                                        Style="{DynamicResource InlineListButton}"
+                                        Command="{Binding RemoveConditionCommand, ElementName=Root}"
+                                        CommandParameter="{Binding}"/>
+                                <TextBlock Grid.Column="1"
+                                           FontSize="10"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding FormulaText}"
+                                           Margin="4,0"
+                                           Loaded="FormulaBlock_Loaded"
+                                           DataContextChanged="FormulaBlock_DataContextChanged"/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Drop hint (shown when empty) -->
+            <TextBlock x:Name="DropHint"
+                       Text="Call을 여기로 드래그하세요"
+                       FontSize="10"
+                       FontStyle="Italic"
+                       Foreground="{DynamicResource SecondaryTextBrush}"
+                       HorizontalAlignment="Center"
+                       Margin="0,6,0,6"
+                       Visibility="Collapsed"/>
         </StackPanel>
     </Border>
 </UserControl>

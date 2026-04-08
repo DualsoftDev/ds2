@@ -147,10 +147,10 @@
     <value>편집</value>
   </data>
   <data name="Undo" xml:space="preserve">
-    <value>취소</value>
+    <value>되돌리기</value>
   </data>
   <data name="Redo" xml:space="preserve">
-    <value>복원</value>
+    <value>다시실행</value>
   </data>
   <data name="Add" xml:space="preserve">
     <value>추가</value>
@@ -202,6 +202,9 @@
   </data>
   <data name="ExportCsv" xml:space="preserve">
     <value>CSV 내보내기...</value>
+  </data>
+  <data name="Data" xml:space="preserve">
+    <value>데이터</value>
   </data>
   <data name="Settings" xml:space="preserve">
     <value>설정</value>

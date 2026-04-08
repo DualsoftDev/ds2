@@ -3,24 +3,27 @@ using System.IO;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Microsoft.FSharp.Core;
 using Microsoft.Win32;
 using Promaker.Dialogs;
+using Promaker.Presentation;
+using Promaker.Services;
 
 namespace Promaker.ViewModels;
 
 public partial class MainViewModel
 {
     private const string FileFilter =
-        "All Supported (*.json;*.aasx;*.md)|*.json;*.aasx;*.md|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx|Mermaid Files (*.md)|*.md";
+        "All Supported (*.sdf;*.json;*.aasx;*.md)|*.sdf;*.json;*.aasx;*.md|SDF Files (*.sdf)|*.sdf|JSON Files (*.json)|*.json|AASX Files (*.aasx)|*.aasx|Mermaid Files (*.md)|*.md";
 
     private static bool HasExtension(string path, string extension) =>
         Path.GetExtension(path).Equals(extension, StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsAasx(string path) => HasExtension(path, ".aasx");
+    private static bool IsAasx(string path) => HasExtension(path, FileExtensions.Aasx);
 
-    private static bool IsMermaid(string path) => HasExtension(path, ".md");
+    private static bool IsMermaid(string path) => HasExtension(path, FileExtensions.Mermaid);
 
     private bool TryRunFileOperation(string operation, Action action, Func<Exception, string> warnMessage)
     {
@@ -54,12 +57,18 @@ public partial class MainViewModel
 
     private void CompleteOpen(string filePath, string kind)
     {
+        _store.ClearHistory();
         _currentFilePath = filePath;
         IsDirty = false;
         HasProject = true;
         UpdateTitle();
         Log.Info($"{kind} opened: {filePath}");
         StatusText = $"Opened: {Path.GetFileName(filePath)}";
+
+        // 최근 파일 목록에 추가
+        RecentFilesManager.AddRecentFile(filePath);
+        _dispatcher.InvokeAsync(LoadRecentFiles);
+
         RequestRebuildAll(AfterFileLoad);
     }
 
@@ -86,8 +95,12 @@ public partial class MainViewModel
         var dlg = new OpenFileDialog { Filter = FileFilter };
         if (dlg.ShowDialog() != true) return;
 
-        var fileName = dlg.FileName;
+        OpenFilePath(dlg.FileName);
+    }
 
+    /// <summary>지정된 경로의 파일을 연다. 드래그 &amp; 드롭에서도 재사용.</summary>
+    internal void OpenFilePath(string fileName)
+    {
         if (IsMermaid(fileName))
         {
             TryRunFileOperation(
@@ -129,21 +142,7 @@ public partial class MainViewModel
                 $"Open file '{fileName}'",
                 () =>
                 {
-                    var json = File.ReadAllText(fileName);
-                    if (Ds2.UI.Core.Compat.LegacyJsonImport.isLegacyJsonFormat(json))
-                    {
-                        var newStore = new DsStore();
-                        if (!Ds2.UI.Core.Compat.LegacyJsonImport.importLegacyJson(newStore, json))
-                        {
-                            _dialogService.ShowWarning("레거시 JSON 불러오기에 실패했습니다.");
-                            return;
-                        }
-                        _store.ReplaceStore(newStore);
-                    }
-                    else
-                    {
-                        _store.LoadFromFile(fileName);
-                    }
+                    _store.LoadFromFile(fileName);
                     PrepareForLoadedStore();
                     CompleteOpen(fileName, "File");
                 },
@@ -156,12 +155,20 @@ public partial class MainViewModel
         // Control Tree 전체 확장
         ExpandAllNodes(ControlTreeRoots);
 
+        // 첫 번째 System 캔버스를 띄움 (Flow 하이라이트 없이)
         var firstSystem = TreeNodeSearch
             .EnumerateNodes(ControlTreeRoots)
             .FirstOrDefault(node => node.EntityType == EntityKind.System);
 
         if (firstSystem is not null)
-            Canvas.OpenCanvasTab(firstSystem.Id, firstSystem.EntityType);
+            Canvas.OpenCanvasTab(firstSystem.Id, EntityKind.System);
+
+        // 3D 창이 열려있으면 씬 자동 재빌드
+        if (_view3DWindow is { IsVisible: true })
+        {
+            var projectId = Queries.allProjects(_store).Head.Id;
+            _ = Simulation.ThreeD.BuildScene(_store, projectId);
+        }
     }
 
     private static void ExpandAllNodes(IEnumerable<EntityNode> nodes)
@@ -176,17 +183,32 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void ShowProjectSettings()
     {
-        var project = DsQuery.allProjects(_store).Head;
-        var dlg = new ProjectPropertiesDialog(project.Properties);
-        if (_dialogService.ShowDialog(dlg) != true) return;
+        var project = HasProject
+            ? Queries.allProjects(_store).Head
+            : null;
+
+        if (project is null) return;
+
+        var dlg = new ProjectPropertiesDialog(project.Name, project);
+        var accepted = _dialogService.ShowDialog(dlg) == true;
+        if (!accepted) return;
 
         TryEditorAction(() =>
+        {
+            var nextProjectName = dlg.ResultProjectName ?? project.Name;
+            if (!string.Equals(project.Name, nextProjectName, StringComparison.Ordinal))
+                _store.RenameEntity(project.Id, EntityKind.Project, nextProjectName);
+
             _store.UpdateProjectProperties(
-                dlg.ResultIriPrefix ?? "",
-                dlg.ResultGlobalAssetId ?? "",
-                dlg.ResultAuthor ?? "",
-                dlg.ResultVersion ?? "",
-                dlg.ResultDescription ?? ""));
+                dlg.ResultAuthor,
+                dlg.ResultDateTime,
+                dlg.ResultVersion);
+
+            // 앱 설정으로 저장
+            SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
+            SetIriPrefix(dlg.ResultIriPrefix);
+            // PresetSystemTypes는 Dialog 내부에서 이미 파일에 저장됨
+        });
         StatusText = "프로젝트 속성이 변경되었습니다.";
     }
 
@@ -214,12 +236,14 @@ public partial class MainViewModel
 
     private bool TrySaveFileAs()
     {
-        var projects = DsQuery.allProjects(_store);
-        var suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
+        var projects = Queries.allProjects(_store);
+        var suggestedName = _currentFilePath is not null
+            ? Path.GetFileNameWithoutExtension(_currentFilePath)
+            : (!projects.IsEmpty ? projects.Head.Name : "project");
         var dlg = new SaveFileDialog
         {
             Filter = FileFilter,
-            DefaultExt = ".json",
+            DefaultExt = FileExtensions.Sdf,
             FileName = suggestedName
         };
 
@@ -252,7 +276,7 @@ public partial class MainViewModel
         {
             try
             {
-                var exported = AasxExporter.exportFromStore(_store, filePath);
+                var exported = AasxExporter.exportFromStore(_store, filePath, IriPrefix, SplitDeviceAasx);
                 if (!exported)
                     Log.Warn($"AASX save failed: no project ({filePath})");
 
@@ -282,5 +306,24 @@ public partial class MainViewModel
             _dialogService.ShowWarning($"Failed to save file: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// 최근 파일 열기
+    /// </summary>
+    [RelayCommand]
+    private void OpenRecentFile(string filePath)
+    {
+        if (!ConfirmDiscardChanges()) return;
+
+        if (!File.Exists(filePath))
+        {
+            _dialogService.ShowWarning($"파일을 찾을 수 없습니다:\n{filePath}");
+            // 목록에서 제거
+            RecentFiles.Remove(filePath);
+            return;
+        }
+
+        OpenFilePath(filePath);
     }
 }

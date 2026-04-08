@@ -1,6 +1,11 @@
+using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
-using Ds2.UI.Core;
+using Microsoft.FSharp.Collections;
+using Ds2.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 
 namespace Promaker.Dialogs;
 
@@ -8,7 +13,12 @@ public enum CallCreateMode { CallReplication, ApiCallReplication, ApiDefPicker }
 
 public partial class CallCreateDialog : Window
 {
+    private static readonly string PresetFilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Dualsoft", "Promaker", "systemTypePreset", "systemTypePreset.json");
+
     private readonly Func<string, IReadOnlyList<ApiDefMatch>> _findApiDefsByName;
+    private readonly Project? _project;
 
     // ─── 공통 출력 ───
     public CallCreateMode Mode { get; private set; }
@@ -26,10 +36,15 @@ public partial class CallCreateDialog : Window
     public string DevicesAlias { get; private set; } = string.Empty;
     public string ApiName { get; private set; } = string.Empty;
 
-    public CallCreateDialog(Func<string, IReadOnlyList<ApiDefMatch>> findApiDefsByName)
+    // ─── SystemType 출력 ───
+    public string? SelectedSystemType { get; private set; } = null;
+
+    public CallCreateDialog(Func<string, IReadOnlyList<ApiDefMatch>> findApiDefsByName, Project? project = null)
     {
         _findApiDefsByName = findApiDefsByName;
+        _project = project;
         InitializeComponent();
+        LoadPresets();
         Loaded += (_, _) =>
         {
             BasicAliasTextBox.Focus();
@@ -37,25 +52,85 @@ public partial class CallCreateDialog : Window
         };
     }
 
-    // ─── 프리셋 ───
+    private static string[] LoadPresetsFromFile()
+    {
+        try
+        {
+            if (!File.Exists(PresetFilePath)) return [];
+            var json = File.ReadAllText(PresetFilePath);
+            return JsonSerializer.Deserialize<string[]>(json) ?? [];
+        }
+        catch { return []; }
+    }
+
+    private void LoadPresets()
+    {
+        PresetComboBox.Items.Clear();
+
+        if (_project != null)
+        {
+            var presets = LoadPresetsFromFile();
+            foreach (var preset in presets)
+            {
+                var parts = preset.Split(':');
+                if (parts.Length == 2)
+                {
+                    var sysType  = parts[0];  // "ADV;RET" — ApiName 템플릿
+                    var modelType = parts[1]; // "Unit"    — SystemType으로 저장될 값
+                    PresetComboBox.Items.Add(new ComboBoxItem
+                    {
+                        Content = modelType,
+                        Tag = $"{sysType}|{modelType}"
+                    });
+                }
+            }
+        }
+
+        // 프리셋이 없으면 기본값 추가 (DevicePresets.Entries 단일 정의 참조)
+        if (PresetComboBox.Items.Count == 0)
+        {
+            foreach (var (modelType, sysType) in Ds2.Core.Store.DevicePresets.Entries)
+            {
+                if (string.IsNullOrEmpty(sysType)) continue;
+                PresetComboBox.Items.Add(new ComboBoxItem
+                {
+                    Content = modelType,
+                    Tag = $"{sysType}|{modelType}"
+                });
+            }
+        }
+
+        // 직접 입력 항목 추가 (Tag = null → Dummy SystemType)
+        PresetComboBox.Items.Add(new ComboBoxItem
+        {
+            Content = "직접 입력",
+            Tag = null
+        });
+
+        // 첫 번째 항목 선택
+        if (PresetComboBox.Items.Count > 0)
+            PresetComboBox.SelectedIndex = 0;
+    }
+
+    private bool IsCustomInputSelected() =>
+        PresetComboBox.SelectedItem is ComboBoxItem { Tag: null };
+
+    // ─── SystemType 선택 ───
     private void OnPresetChanged(object sender, SelectionChangedEventArgs e)
     {
         if (BasicApiNameTextBox is null) return;
 
-        if (PresetComboBox.SelectedItem is ComboBoxItem item)
+        if (IsCustomInputSelected())
         {
-            var tag = item.Tag?.ToString();
-            if (tag == "USER")
-            {
-                BasicApiNameTextBox.IsEnabled = true;
-                BasicApiNameTextBox.Text = "";
-                BasicApiNameTextBox.Focus();
-            }
-            else
-            {
-                BasicApiNameTextBox.IsEnabled = false;
-                BasicApiNameTextBox.Text = tag ?? "";
-            }
+            BasicApiNameTextBox.IsEnabled = true;
+            BasicApiNameTextBox.Text = "";
+            BasicApiNameTextBox.Focus();
+        }
+        else if (PresetComboBox.SelectedItem is ComboBoxItem item)
+        {
+            var sysType = ParseSysType(item.Tag?.ToString());
+            BasicApiNameTextBox.IsEnabled = false;
+            BasicApiNameTextBox.Text = sysType ?? "";
         }
     }
 
@@ -93,42 +168,63 @@ public partial class CallCreateDialog : Window
             CommitAdvancedTab();
     }
 
+    private (string alias, List<string> apiNames)? ValidateAliasAndApiNames(TextBox aliasBox, TextBox apiNameBox)
+    {
+        var alias = aliasBox.Text.Trim();
+        var aliasResult = InputValidation.validateDevicesAlias(alias);
+        if (aliasResult.IsEmptyAlias) { DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return null; }
+        if (aliasResult.IsAliasDotForbidden) { DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return null; }
+
+        var apiResult = InputValidation.validateApiNames(apiNameBox.Text);
+        if (apiResult.IsEmptyInput || apiResult.IsEmptyAfterParse) { DialogHelpers.Warn("ApiName을 입력해주세요."); return null; }
+        if (apiResult.IsApiNameDotForbidden) { DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return null; }
+
+        var apiNames = ((InputValidation.ApiNameValidationResult.Valid)apiResult).Item.ToList();
+        return (alias, apiNames);
+    }
+
     private void CommitBasicTab()
     {
-        var alias = BasicAliasTextBox.Text.Trim();
-        var apiDefText = BasicApiNameTextBox.Text.Trim();
+        var result = ValidateAliasAndApiNames(BasicAliasTextBox, BasicApiNameTextBox);
+        if (result is null) return;
 
-        if (string.IsNullOrEmpty(alias))
-        {
-            DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return;
-        }
-        if (alias.Contains('.'))
-        {
-            DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return;
-        }
-        if (string.IsNullOrEmpty(apiDefText))
-        {
-            DialogHelpers.Warn("ApiName을 입력해주세요."); return;
-        }
+        var (alias, apiNames) = result.Value;
 
-        var apiNames = apiDefText.Split(';', StringSplitOptions.RemoveEmptyEntries)
-            .Select(s => s.Trim())
-            .Where(s => !string.IsNullOrEmpty(s))
-            .ToList();
+        // SystemType 가져오기 - 프리셋에 따라 고급 탭에서 설정한 값 사용
+        SelectedSystemType = GetSystemTypeForCurrentPreset();
 
-        if (apiNames.Count == 0)
+        // 추가 기능이 펼쳐진 경우 복수 생성
+        if (AdvancedExpander.IsExpanded)
         {
-            DialogHelpers.Warn("ApiName을 입력해주세요."); return;
-        }
-        if (apiNames.Any(n => n.Contains('.')))
-        {
-            DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return;
+            if (RadioCallReplication.IsChecked == true)
+                CommitCallReplication(alias, apiNames);
+            else
+                CommitApiCallReplication(alias, apiNames);
+            return;
         }
 
-        if (RadioCallReplication.IsChecked == true)
-            CommitCallReplication(alias, apiNames);
-        else
-            CommitApiCallReplication(alias, apiNames);
+        // 단일 생성
+        var names = apiNames.Select(n => $"{alias}.{n}").ToList();
+        Mode = CallCreateMode.CallReplication;
+        CallNames = names;
+        DialogResult = true;
+    }
+
+    // Tag 형식: "ADV;RET|Unit"  (sysType|modelType)
+    private static string? ParseSysType(string? tag) =>
+        tag?.Split('|') is [var s, ..] ? s : tag;
+
+    private static string? ParseModelType(string? tag) =>
+        tag?.Split('|') is [_, var m] ? m : null;
+
+    private string? GetSystemTypeForCurrentPreset()
+    {
+        if (PresetComboBox.SelectedItem is not ComboBoxItem item)
+            return null;
+        // 직접 입력 선택 시 → Dummy (Tag=null)
+        if (IsCustomInputSelected()) return "Dummy";
+        // ModelType("Unit")을 SystemType으로 저장 — inferModelType이 직접 인식
+        return ParseModelType(item.Tag?.ToString());
     }
 
     private void CommitCallReplication(string alias, List<string> apiNames)
@@ -138,17 +234,13 @@ public partial class CallCreateDialog : Window
             DialogHelpers.Warn("개수는 1~100 사이의 숫자를 입력해주세요."); return;
         }
 
-        var deviceAliases = count == 1
-            ? [alias]
-            : Enumerable.Range(1, count).Select(i => $"{alias}_{i}").ToList();
-
-        var names = new List<string>();
-        foreach (var dev in deviceAliases)
-            foreach (var apiName in apiNames)
-                names.Add($"{dev}.{apiName}");
+        var deviceAliases = Device.generateDeviceAliases(alias, count);
+        var names = Device.generateCallNames(
+            ListModule.OfSeq(deviceAliases),
+            ListModule.OfSeq(apiNames));
 
         Mode = CallCreateMode.CallReplication;
-        CallNames = names;
+        CallNames = names.ToList();
         DialogResult = true;
     }
 
@@ -159,11 +251,7 @@ public partial class CallCreateDialog : Window
             DialogHelpers.Warn("개수는 1~100 사이의 숫자를 입력해주세요."); return;
         }
 
-        // ApiCall 복제: apiNames 각각에 대해 1개 Call 생성
-        // 여러 ApiName이면 여러 Call이 생기되, 각 Call 안에 count개 ApiCall
-        var deviceAliases = count == 1
-            ? [alias]
-            : Enumerable.Range(1, count).Select(i => $"{alias}_{i}").ToList();
+        var deviceAliases = Device.generateDeviceAliases(alias, count);
 
         // 편의상 첫 번째 apiName 기준. 여러 apiName → 여러 Call.
         // 각 Call별로 DeviceAliases를 동일하게 사용.
@@ -194,24 +282,14 @@ public partial class CallCreateDialog : Window
     private void CommitAdvancedTab()
     {
         var alias = AdvAliasFilterBox.Text.Trim();
-        if (string.IsNullOrEmpty(alias))
-        {
-            DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return;
-        }
-        if (alias.Contains('.'))
-        {
-            DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return;
-        }
+        var aliasResult = InputValidation.validateDevicesAlias(alias);
+        if (aliasResult.IsEmptyAlias) { DialogHelpers.Warn("DevicesAlias를 입력해주세요."); return; }
+        if (aliasResult.IsAliasDotForbidden) { DialogHelpers.Warn("DevicesAlias에는 '.'을 사용할 수 없습니다."); return; }
 
         var apiName = AdvApiNameFilterBox.Text.Trim();
-        if (string.IsNullOrEmpty(apiName))
-        {
-            DialogHelpers.Warn("ApiName을 입력해주세요."); return;
-        }
-        if (apiName.Contains('.'))
-        {
-            DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return;
-        }
+        var apiResult = InputValidation.validateApiNames(apiName);
+        if (apiResult.IsEmptyInput || apiResult.IsEmptyAfterParse) { DialogHelpers.Warn("ApiName을 입력해주세요."); return; }
+        if (apiResult.IsApiNameDotForbidden) { DialogHelpers.Warn("ApiName에는 '.'을 사용할 수 없습니다."); return; }
 
         var selected = ApiDefListBox.SelectedItems.OfType<ApiDefMatch>().ToList();
         if (selected.Count == 0)

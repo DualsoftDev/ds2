@@ -1,0 +1,1525 @@
+<Window x:Class="CostSim.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
+        xmlns:local="clr-namespace:CostSim"
+        Title="CostSim"
+        Width="1660"
+        Height="920"
+        MinWidth="1280"
+        MinHeight="760"
+        Background="{DynamicResource PrimaryBackgroundBrush}">
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Setter Property="Padding" Value="10" />
+        </Style>
+
+        <Style x:Key="PanelContainerStyle"
+               TargetType="Border"
+               BasedOn="{StaticResource PanelContainer}">
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+
+        <Style x:Key="PanelHeaderStyle"
+               TargetType="Border"
+               BasedOn="{StaticResource PanelHeader}" />
+
+        <Style x:Key="ToolbarButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource DarkButton}">
+            <Setter Property="Margin" Value="0,0,8,6" />
+            <Setter Property="Padding" Value="12,7" />
+            <Setter Property="MinWidth" Value="92" />
+        </Style>
+
+        <Style x:Key="PrimaryToolbarButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <Style x:Key="DangerToolbarButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource ToolbarButtonStyle}">
+            <Setter Property="Foreground" Value="{DynamicResource RedAccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource RedAccentBrush}" />
+        </Style>
+
+        <Style x:Key="ToolbarSectionCaptionStyle" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,2,0,0" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
+        </Style>
+
+        <Style x:Key="RibbonQuickButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource RibbonFlatButton}">
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="MinWidth" Value="42" />
+            <Setter Property="MinHeight" Value="38" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+        </Style>
+
+        <Style x:Key="RibbonTabControlStyle" TargetType="TabControl">
+            <Setter Property="Background" Value="{DynamicResource ToolbarShellBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid KeyboardNavigation.TabNavigation="Local">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <Border Grid.Row="0"
+                                    Background="{DynamicResource ToolbarShellBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="0,1,0,0"
+                                    Padding="14,0,14,0">
+                                <TabPanel IsItemsHost="True"
+                                          Margin="0,0,0,-1"
+                                          Background="Transparent"
+                                          KeyboardNavigation.TabIndex="1" />
+                            </Border>
+
+                            <Border Grid.Row="1"
+                                    Background="{DynamicResource SecondaryBackgroundBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="0,1,0,0"
+                                    Padding="10,0,10,10">
+                                <ContentPresenter x:Name="PART_SelectedContentHost"
+                                                  ContentSource="SelectedContent" />
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="RibbonTabItemStyle" TargetType="TabItem">
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
+            <Setter Property="Padding" Value="16,9" />
+            <Setter Property="Margin" Value="0,6,6,0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="TabBorder"
+                                Background="Transparent"
+                                BorderBrush="Transparent"
+                                BorderThickness="0,0,0,2"
+                                CornerRadius="6,6,0,0"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              ContentSource="Header" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="TabBorder"
+                                        Property="Background"
+                                        Value="{DynamicResource SecondaryBackgroundBrush}" />
+                                <Setter TargetName="TabBorder"
+                                        Property="BorderBrush"
+                                        Value="{DynamicResource AccentBrush}" />
+                                <Setter Property="Foreground"
+                                        Value="{DynamicResource PrimaryTextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TabBorder"
+                                        Property="Background"
+                                        Value="{DynamicResource HoverBackgroundBrush}" />
+                                <Setter Property="Foreground"
+                                        Value="{DynamicResource PrimaryTextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground"
+                                        Value="{DynamicResource DisabledTextBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="RibbonGroupSeparatorStyle" TargetType="Border">
+            <Setter Property="Width" Value="1" />
+            <Setter Property="Margin" Value="12,8,12,20" />
+            <Setter Property="Background" Value="{DynamicResource BorderBrush}" />
+        </Style>
+
+        <Style x:Key="RibbonLargeActionButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource SlimToolbarButton}">
+            <Setter Property="MinWidth" Value="116" />
+            <Setter Property="MinHeight" Value="98" />
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="Margin" Value="0,0,10,0" />
+        </Style>
+
+        <Style x:Key="RibbonSmallActionButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource RibbonFlatButton}">
+            <Setter Property="MinWidth" Value="132" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
+
+        <Style x:Key="RibbonGroupDockPanelStyle" TargetType="DockPanel">
+            <Setter Property="Height" Value="104" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+        </Style>
+
+        <Style x:Key="RibbonGroupStackPanelStyle" TargetType="StackPanel">
+            <Setter Property="Height" Value="104" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+        </Style>
+
+        <Style x:Key="RibbonGroupBorderStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Margin" Value="0,0,10,0" />
+        </Style>
+
+        <Style x:Key="RibbonGroupHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+
+        <Style x:Key="SectionLabelStyle" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,0,0,4" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
+        </Style>
+
+        <Style x:Key="ExplorerTreeItemStyle" TargetType="TreeViewItem">
+            <EventSetter Event="PreviewMouseRightButtonDown"
+                         Handler="ExplorerTreeViewItem_PreviewMouseRightButtonDown" />
+        </Style>
+
+        <Style x:Key="LibraryTreeItemStyle" TargetType="TreeViewItem">
+            <EventSetter Event="PreviewMouseRightButtonDown"
+                         Handler="LibraryTreeViewItem_PreviewMouseRightButtonDown" />
+        </Style>
+
+        <Style x:Key="WorkGridRowStyle" TargetType="DataGridRow">
+            <EventSetter Event="PreviewMouseRightButtonDown"
+                         Handler="WorkDataGridRow_PreviewMouseRightButtonDown" />
+        </Style>
+
+        <HierarchicalDataTemplate DataType="{x:Type local:TreeNodeItem}"
+                                  ItemsSource="{Binding Children}">
+            <Border Padding="4,3"
+                    Margin="0,1"
+                    CornerRadius="4">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0"
+                            Width="18"
+                            Height="18"
+                            Margin="0,0,6,0"
+                            CornerRadius="3"
+                            Background="{Binding AccentBrush}">
+                        <TextBlock Text="{Binding Glyph}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Foreground="White"
+                                   FontWeight="Bold"
+                                   FontSize="10" />
+                    </Border>
+
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="{Binding DisplayName}"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PrimaryTextBrush}" />
+                        <TextBlock Text="{Binding SecondaryText}"
+                                   Visibility="{Binding SecondaryVisibility}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </HierarchicalDataTemplate>
+
+        <HierarchicalDataTemplate DataType="{x:Type local:LibraryCatalogNode}"
+                                  ItemsSource="{Binding Children}">
+            <Border Padding="4,3"
+                    Margin="0,1"
+                    CornerRadius="4">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0"
+                            Width="18"
+                            Height="18"
+                            Margin="0,0,6,0"
+                            CornerRadius="3"
+                            Background="{Binding AccentBrush}">
+                        <TextBlock Text="{Binding Glyph}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Foreground="White"
+                                   FontWeight="Bold"
+                                   FontSize="10" />
+                    </Border>
+
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="{Binding DisplayName}"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PrimaryTextBrush}" />
+                        <TextBlock Text="{Binding SecondaryText}"
+                                   Visibility="{Binding SecondaryVisibility}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextBrush}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </HierarchicalDataTemplate>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="{DynamicResource ToolbarShellBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TabControl Grid.Row="0"
+                            Style="{StaticResource RibbonTabControlStyle}">
+                    <TabItem Header="Home"
+                             Style="{StaticResource RibbonTabItemStyle}">
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Disabled">
+                            <StackPanel Orientation="Horizontal"
+                                        Margin="2,8,2,0">
+                                <Grid MinWidth="330">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <DockPanel Grid.Row="0"
+                                               Style="{StaticResource RibbonGroupDockPanelStyle}">
+                                        <Button Style="{StaticResource RibbonLargeActionButtonStyle}"
+                                                Click="NewSample_Click">
+                                            <StackPanel>
+                                                <iconPacks:PackIconMaterial Kind="FileDocumentPlus"
+                                                                             Width="28"
+                                                                             Height="28"
+                                                                             HorizontalAlignment="Center" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           FontWeight="SemiBold"
+                                                           Text="New Sample"
+                                                           TextAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <StackPanel>
+                                            <Button Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="OpenDocument_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <iconPacks:PackIconMaterial Kind="FolderOpen"
+                                                                                 Width="16"
+                                                                                 Height="16"
+                                                                                 Margin="0,0,8,0" />
+                                                    <TextBlock Text="Open Project" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="SaveDocument_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <iconPacks:PackIconMaterial Kind="ContentSave"
+                                                                                 Width="16"
+                                                                                 Height="16"
+                                                                                 Margin="0,0,8,0" />
+                                                    <TextBlock Text="Save Project" />
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,8,0,0"
+                                               Text="File"
+                                               Style="{StaticResource RibbonSectionLabel}" />
+                                </Grid>
+
+                                <Border Style="{StaticResource RibbonGroupSeparatorStyle}" />
+
+                                <Grid MinWidth="330">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <DockPanel Grid.Row="0"
+                                               Style="{StaticResource RibbonGroupDockPanelStyle}">
+                                        <Button Style="{StaticResource RibbonLargeActionButtonStyle}"
+                                                Click="RunSimulation_Click">
+                                            <StackPanel>
+                                                <iconPacks:PackIconMaterial Kind="PlayCircle"
+                                                                             Width="28"
+                                                                             Height="28"
+                                                                             HorizontalAlignment="Center" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           FontWeight="SemiBold"
+                                                           Text="Run Simulation"
+                                                           TextAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Grid Margin="0,0,0,2">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <Button Grid.Row="0"
+                                                    Grid.Column="0"
+                                                    Grid.ColumnSpan="2"
+                                                    Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="RecalculateAll_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <iconPacks:PackIconMaterial Kind="CalculatorVariant"
+                                                                                 Width="16"
+                                                                                 Height="16"
+                                                                                 Margin="0,0,8,0" />
+                                                    <TextBlock Text="Recalculate" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Grid.Row="1"
+                                                    Grid.Column="0"
+                                                    Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="ApplyTreeOrder_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <iconPacks:PackIconMaterial Kind="ArrowDecision"
+                                                                                 Width="16"
+                                                                                 Height="16"
+                                                                                 Margin="0,0,8,0" />
+                                                    <TextBlock Text="Apply Tree Order" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Grid.Row="1"
+                                                    Grid.Column="1"
+                                                    Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="NormalizeFlowOrder_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <iconPacks:PackIconMaterial Kind="SortNumericAscending"
+                                                                                 Width="16"
+                                                                                 Height="16"
+                                                                                 Margin="0,0,8,0" />
+                                                    <TextBlock Text="Normalize Order" />
+                                                </StackPanel>
+                                            </Button>
+                                        </Grid>
+                                    </DockPanel>
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,8,0,0"
+                                               Text="Simulation"
+                                               Style="{StaticResource RibbonSectionLabel}" />
+                                </Grid>
+
+                                <Border Style="{StaticResource RibbonGroupSeparatorStyle}" />
+
+                                <Grid MinWidth="286">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <DockPanel Grid.Row="0"
+                                               Style="{StaticResource RibbonGroupDockPanelStyle}">
+                                        <Button Style="{StaticResource RibbonLargeActionButtonStyle}"
+                                                Click="ApplyProperties_Click">
+                                            <StackPanel>
+                                                <iconPacks:PackIconMaterial Kind="CheckCircle"
+                                                                             Width="28"
+                                                                             Height="28"
+                                                                             HorizontalAlignment="Center" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           FontWeight="SemiBold"
+                                                           Text="Apply"
+                                                           TextAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <StackPanel>
+                                            <Button Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="ExplorerExpandAll_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Margin="0,0,8,0"
+                                                               FontSize="15"
+                                                               Text="⊞" />
+                                                    <TextBlock Text="Expand Explorer" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="ExplorerCollapseAll_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Margin="0,0,8,0"
+                                                               FontSize="15"
+                                                               Text="⊟" />
+                                                    <TextBlock Text="Collapse Explorer" />
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,8,0,0"
+                                               Text="Selection"
+                                               Style="{StaticResource RibbonSectionLabel}" />
+                                </Grid>
+
+                                <Border Style="{StaticResource RibbonGroupSeparatorStyle}" />
+
+                                <Grid MinWidth="280">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid Grid.Row="0"
+                                          Height="104"
+                                          VerticalAlignment="Top">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button x:Name="ThemeToggleButton"
+                                                Grid.Row="0"
+                                                Grid.Column="0"
+                                                Margin="0,0,6,6"
+                                                Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                Click="ToggleTheme_Click">
+                                            <StackPanel Orientation="Horizontal">
+                                                <iconPacks:PackIconMaterial Kind="ThemeLightDark"
+                                                                             Width="16"
+                                                                             Height="16"
+                                                                             Margin="0,0,8,0" />
+                                                <TextBlock Text="Theme" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button x:Name="DemoLibraryButton"
+                                                Grid.Row="0"
+                                                Grid.Column="1"
+                                                Margin="0,0,0,6"
+                                                Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                Click="CreateDemoLibrary_Click">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Margin="0,0,8,0"
+                                                           FontSize="15"
+                                                           Text="◆" />
+                                                <TextBlock Text="Demo Library" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button x:Name="AboutButton"
+                                                Grid.Row="1"
+                                                Grid.Column="0"
+                                                Grid.ColumnSpan="2"
+                                                Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                Click="AboutButton_Click">
+                                            <StackPanel Orientation="Horizontal">
+                                                <iconPacks:PackIconMaterial Kind="InformationOutline"
+                                                                             Width="16"
+                                                                             Height="16"
+                                                                             Margin="0,0,8,0" />
+                                                <TextBlock Text="About" />
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,8,0,0"
+                                               Text="App"
+                                               Style="{StaticResource RibbonSectionLabel}" />
+                                </Grid>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <TabItem Header="Model"
+                             Style="{StaticResource RibbonTabItemStyle}">
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Disabled">
+                            <StackPanel Orientation="Horizontal"
+                                        Margin="2,8,2,0">
+                                <Grid MinWidth="324">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <DockPanel Grid.Row="0"
+                                               Style="{StaticResource RibbonGroupDockPanelStyle}">
+                                        <Button Style="{StaticResource RibbonLargeActionButtonStyle}"
+                                                Click="AddWork_Click">
+                                            <StackPanel>
+                                                <TextBlock FontSize="24"
+                                                           FontWeight="Bold"
+                                                           HorizontalAlignment="Center"
+                                                           Text="W" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           FontWeight="SemiBold"
+                                                           Text="Add Work"
+                                                           TextAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Grid Margin="0,0,0,2">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <Button Grid.Row="0"
+                                                    Grid.Column="0"
+                                                    Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="AddProject_Click">
+                                                <TextBlock Text="Add Project" />
+                                            </Button>
+                                            <Button Grid.Row="0"
+                                                    Grid.Column="1"
+                                                    Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="AddSystem_Click">
+                                                <TextBlock Text="Add System" />
+                                            </Button>
+                                            <Button Grid.Row="1"
+                                                    Grid.Column="0"
+                                                    Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="AddFlow_Click">
+                                                <TextBlock Text="Add Flow" />
+                                            </Button>
+                                            <Button Grid.Row="1"
+                                                    Grid.Column="1"
+                                                    Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="AddWork_Click">
+                                                <TextBlock Text="Add Work" />
+                                            </Button>
+                                        </Grid>
+                                    </DockPanel>
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,8,0,0"
+                                               Text="Create"
+                                               Style="{StaticResource RibbonSectionLabel}" />
+                                </Grid>
+
+                                <Border Style="{StaticResource RibbonGroupSeparatorStyle}" />
+
+                                <Grid MinWidth="286">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <DockPanel Grid.Row="0"
+                                               Style="{StaticResource RibbonGroupDockPanelStyle}">
+                                        <Button Style="{StaticResource RibbonLargeActionButtonStyle}"
+                                                Click="ExplorerExpandAll_Click">
+                                            <StackPanel>
+                                                <TextBlock FontSize="26"
+                                                           HorizontalAlignment="Center"
+                                                           Text="⊞" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           FontWeight="SemiBold"
+                                                           Text="Expand All"
+                                                           TextAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <StackPanel>
+                                            <Button Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="ExplorerCollapseAll_Click">
+                                                <TextBlock Text="Collapse All" />
+                                            </Button>
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,8,0,0"
+                                               Text="Explorer"
+                                               Style="{StaticResource RibbonSectionLabel}" />
+                                </Grid>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <TabItem Header="Order"
+                             Style="{StaticResource RibbonTabItemStyle}">
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Disabled">
+                            <StackPanel Orientation="Horizontal"
+                                        Margin="2,8,2,0">
+                                <Grid MinWidth="324">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <DockPanel Grid.Row="0"
+                                               Style="{StaticResource RibbonGroupDockPanelStyle}">
+                                        <Button Style="{StaticResource RibbonLargeActionButtonStyle}"
+                                                Click="ApplyTreeOrder_Click">
+                                            <StackPanel>
+                                                <TextBlock FontSize="26"
+                                                           HorizontalAlignment="Center"
+                                                           Text="→" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           FontWeight="SemiBold"
+                                                           Text="Apply Tree Order"
+                                                           TextAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Grid Margin="0,0,0,2">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <Button Grid.Row="0"
+                                                    Grid.Column="0"
+                                                    Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="MoveSelectedWorkUp_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <iconPacks:PackIconMaterial Kind="ArrowUpBold"
+                                                                                 Width="16"
+                                                                                 Height="16"
+                                                                                 Margin="0,0,8,0" />
+                                                    <TextBlock Text="Move Up" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Grid.Row="0"
+                                                    Grid.Column="1"
+                                                    Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="MoveSelectedWorkDown_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <iconPacks:PackIconMaterial Kind="ArrowDownBold"
+                                                                                 Width="16"
+                                                                                 Height="16"
+                                                                                 Margin="0,0,8,0" />
+                                                    <TextBlock Text="Move Down" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Grid.Row="1"
+                                                    Grid.Column="0"
+                                                    Grid.ColumnSpan="2"
+                                                    Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="NormalizeFlowOrder_Click">
+                                                <TextBlock Text="Normalize Flow Order" />
+                                            </Button>
+                                        </Grid>
+                                    </DockPanel>
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,8,0,0"
+                                               Text="Sequence"
+                                               Style="{StaticResource RibbonSectionLabel}" />
+                                </Grid>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <TabItem Header="Simulation"
+                             Style="{StaticResource RibbonTabItemStyle}">
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Disabled">
+                            <StackPanel Orientation="Horizontal"
+                                        Margin="2,8,2,0">
+                                <Grid MinWidth="306">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <DockPanel Grid.Row="0"
+                                               Style="{StaticResource RibbonGroupDockPanelStyle}">
+                                        <Button Style="{StaticResource RibbonLargeActionButtonStyle}"
+                                                Click="RunSimulation_Click">
+                                            <StackPanel>
+                                                <iconPacks:PackIconMaterial Kind="PlayCircle"
+                                                                             Width="30"
+                                                                             Height="30"
+                                                                             HorizontalAlignment="Center" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           FontWeight="SemiBold"
+                                                           Text="Run Simulation"
+                                                           TextAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <StackPanel>
+                                            <Button Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="RecalculateAll_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <iconPacks:PackIconMaterial Kind="CalculatorVariant"
+                                                                                 Width="16"
+                                                                                 Height="16"
+                                                                                 Margin="0,0,8,0" />
+                                                    <TextBlock Text="Recalculate All" />
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,8,0,0"
+                                               Text="Run"
+                                               Style="{StaticResource RibbonSectionLabel}" />
+                                </Grid>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <TabItem Header="Report"
+                             Style="{StaticResource RibbonTabItemStyle}">
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Disabled">
+                            <StackPanel Orientation="Horizontal"
+                                        Margin="2,8,2,0">
+                                <Grid MinWidth="250">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <DockPanel Grid.Row="0"
+                                               Style="{StaticResource RibbonGroupDockPanelStyle}">
+                                        <Button Style="{StaticResource RibbonLargeActionButtonStyle}"
+                                                Click="SetSelectedSource_Click">
+                                            <StackPanel>
+                                                <iconPacks:PackIconMaterial Kind="SourceBranch"
+                                                                             Width="28"
+                                                                             Height="28"
+                                                                             HorizontalAlignment="Center" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           FontWeight="SemiBold"
+                                                           Text="Set Source"
+                                                           TextAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                    </DockPanel>
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,8,0,0"
+                                               Text="Source"
+                                               Style="{StaticResource RibbonSectionLabel}" />
+                                </Grid>
+
+                                <Border Style="{StaticResource RibbonGroupSeparatorStyle}" />
+
+                                <Grid MinWidth="340">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <DockPanel Grid.Row="0"
+                                               Style="{StaticResource RibbonGroupDockPanelStyle}">
+                                        <Button Style="{StaticResource RibbonLargeActionButtonStyle}"
+                                                Click="ExportExcel_Click">
+                                            <StackPanel>
+                                                <iconPacks:PackIconMaterial Kind="FileExcel"
+                                                                             Width="28"
+                                                                             Height="28"
+                                                                             HorizontalAlignment="Center" />
+                                                <TextBlock Margin="0,8,0,0"
+                                                           FontWeight="SemiBold"
+                                                           Text="Export Excel"
+                                                           TextAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <StackPanel>
+                                            <Button Style="{StaticResource RibbonSmallActionButtonStyle}"
+                                                    Click="ExportReport_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <iconPacks:PackIconMaterial Kind="FileChartOutline"
+                                                                                 Width="16"
+                                                                                 Height="16"
+                                                                                 Margin="0,0,8,0" />
+                                                    <TextBlock Text="Export Report" />
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <TextBlock Grid.Row="1"
+                                               Margin="0,8,0,0"
+                                               Text="Export"
+                                               Style="{StaticResource RibbonSectionLabel}" />
+                                </Grid>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                </TabControl>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1"
+              Margin="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320" />
+                <ColumnDefinition Width="4" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="4" />
+                <ColumnDefinition Width="400" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    Style="{StaticResource PanelContainerStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0"
+                            Style="{StaticResource PanelHeaderStyle}">
+                        <TextBlock Text="Explorer"
+                                   FontWeight="SemiBold"
+                                   FontSize="12" />
+                    </Border>
+
+                    <Border Grid.Row="1"
+                            Padding="8,8,8,6"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="0,0,0,1">
+                        <StackPanel>
+                            <TextBlock x:Name="ExplorerSummaryTextBlock"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap" />
+                            <TextBox x:Name="TreeSearchTextBox"
+                                     Margin="0,8,0,0"
+                                     Padding="6,4"
+                                     VerticalContentAlignment="Center"
+                                     TextChanged="TreeSearchTextBox_TextChanged" />
+                        </StackPanel>
+                    </Border>
+
+                    <TreeView x:Name="ExplorerTreeView"
+                              Grid.Row="2"
+                              Margin="8,6,8,6"
+                              SelectedItemChanged="ExplorerTreeView_SelectedItemChanged"
+                              ContextMenuOpening="ExplorerTreeView_ContextMenuOpening"
+                              ItemContainerStyle="{StaticResource ExplorerTreeItemStyle}">
+                        <TreeView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem x:Name="ExplorerMenuAddProject"
+                                          Header="Add Project"
+                                          Click="AddProject_Click" />
+                                <MenuItem x:Name="ExplorerMenuAddSystem"
+                                          Header="Add System"
+                                          Click="AddSystem_Click" />
+                                <MenuItem x:Name="ExplorerMenuAddFlow"
+                                          Header="Add Flow"
+                                          Click="AddFlow_Click" />
+                                <MenuItem x:Name="ExplorerMenuAddWork"
+                                          Header="Add Work"
+                                          Click="AddWork_Click" />
+                                <Separator x:Name="ExplorerMenuSepAdd" />
+                                <MenuItem x:Name="ExplorerMenuRename"
+                                          Header="Rename..."
+                                          Click="RenameSelected_Click" />
+                                <MenuItem x:Name="ExplorerMenuApply"
+                                          Header="Apply Properties"
+                                          Click="ApplyProperties_Click" />
+                                <MenuItem x:Name="ExplorerMenuSetSource"
+                                          Header="Set Selected Source"
+                                          Click="SetSelectedSource_Click" />
+                                <Separator x:Name="ExplorerMenuSepEdit" />
+                                <MenuItem x:Name="ExplorerMenuMoveUp"
+                                          Header="Move Up"
+                                          Click="MoveSelectedWorkUp_Click" />
+                                <MenuItem x:Name="ExplorerMenuMoveDown"
+                                          Header="Move Down"
+                                          Click="MoveSelectedWorkDown_Click" />
+                                <MenuItem x:Name="ExplorerMenuNormalize"
+                                          Header="Normalize Order"
+                                          Click="NormalizeFlowOrder_Click" />
+                                <MenuItem x:Name="ExplorerMenuApplyTree"
+                                          Header="Apply Tree Order"
+                                          Click="ApplyTreeOrder_Click" />
+                                <Separator x:Name="ExplorerMenuSepOrder" />
+                                <MenuItem x:Name="ExplorerMenuExpandAll"
+                                          Header="Expand All"
+                                          Click="ExplorerExpandAll_Click" />
+                                <MenuItem x:Name="ExplorerMenuCollapseAll"
+                                          Header="Collapse All"
+                                          Click="ExplorerCollapseAll_Click" />
+                                <Separator x:Name="ExplorerMenuSepDelete" />
+                                <MenuItem x:Name="ExplorerMenuDelete"
+                                          Header="Delete"
+                                          Foreground="{DynamicResource RedAccentBrush}"
+                                          Click="DeleteSelected_Click" />
+                            </ContextMenu>
+                        </TreeView.ContextMenu>
+                    </TreeView>
+
+                    <Border Grid.Row="3"
+                            Style="{StaticResource PanelHeaderStyle}"
+                            BorderThickness="0,1,0,0">
+                        <TextBlock x:Name="ExplorerHintTextBlock"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   TextWrapping="Wrap" />
+                    </Border>
+                </Grid>
+            </Border>
+
+            <GridSplitter Grid.Column="1"
+                          Width="4"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          Background="{DynamicResource BorderBrush}" />
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="4" />
+                    <RowDefinition Height="220" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0"
+                        Style="{StaticResource PanelContainerStyle}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Border Grid.Row="0"
+                                Style="{StaticResource PanelHeaderStyle}">
+                            <TextBlock Text="Workspace"
+                                       FontWeight="SemiBold"
+                                       FontSize="12" />
+                        </Border>
+
+                        <TabControl Grid.Row="1"
+                                    Margin="8,6,8,8">
+                            <TabItem Header="Ordered Process">
+                                <Grid Margin="4">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock x:Name="GridScopeTextBlock"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                               TextWrapping="Wrap" />
+                                    <DataGrid x:Name="WorkDataGrid"
+                                              Grid.Row="1"
+                                              Margin="0,8,0,0"
+                                              AutoGenerateColumns="False"
+                                              CanUserAddRows="False"
+                                              IsReadOnly="True"
+                                              SelectionMode="Single"
+                                              RowStyle="{StaticResource WorkGridRowStyle}"
+                                              RowHeaderWidth="0"
+                                              HeadersVisibility="Column"
+                                              SelectionChanged="WorkDataGrid_SelectionChanged"
+                                              ContextMenuOpening="WorkDataGrid_ContextMenuOpening">
+                                        <DataGrid.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem x:Name="GridMenuSelectInExplorer"
+                                                          Header="Select in Explorer"
+                                                          Click="GridSelectInExplorer_Click" />
+                                                <MenuItem x:Name="GridMenuApply"
+                                                          Header="Apply Properties"
+                                                          Click="ApplyProperties_Click" />
+                                                <Separator x:Name="GridMenuSepEdit" />
+                                                <MenuItem x:Name="GridMenuSetSource"
+                                                          Header="Set Selected Source"
+                                                          Click="SetSelectedSource_Click" />
+                                                <MenuItem x:Name="GridMenuMoveUp"
+                                                          Header="Move Up"
+                                                          Click="MoveSelectedWorkUp_Click" />
+                                                <MenuItem x:Name="GridMenuMoveDown"
+                                                          Header="Move Down"
+                                                          Click="MoveSelectedWorkDown_Click" />
+                                                <MenuItem x:Name="GridMenuNormalize"
+                                                          Header="Normalize Order"
+                                                          Click="NormalizeFlowOrder_Click" />
+                                                <MenuItem x:Name="GridMenuApplyTree"
+                                                          Header="Apply Tree Order"
+                                                          Click="ApplyTreeOrder_Click" />
+                                                <Separator x:Name="GridMenuSepRun" />
+                                                <MenuItem x:Name="GridMenuRecalculate"
+                                                          Header="Recalculate"
+                                                          Click="RecalculateAll_Click" />
+                                                <MenuItem x:Name="GridMenuRun"
+                                                          Header="Run Simulation"
+                                                          Click="RunSimulation_Click" />
+                                                <Separator x:Name="GridMenuSepDelete" />
+                                                <MenuItem x:Name="GridMenuDelete"
+                                                          Header="Delete Work"
+                                                          Foreground="{DynamicResource RedAccentBrush}"
+                                                          Click="DeleteSelected_Click" />
+                                            </ContextMenu>
+                                        </DataGrid.ContextMenu>
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="Seq" Binding="{Binding SequenceOrder}" Width="60" />
+                                            <DataGridTextColumn Header="System" Binding="{Binding SystemName}" Width="120" />
+                                            <DataGridTextColumn Header="Flow" Binding="{Binding FlowName}" Width="120" />
+                                            <DataGridTextColumn Header="Work" Binding="{Binding WorkName}" Width="170" />
+                                            <DataGridTextColumn Header="OpCode" Binding="{Binding OperationCode}" Width="90" />
+                                            <DataGridCheckBoxColumn Header="Source" Binding="{Binding IsSource}" Width="64" />
+                                            <DataGridTextColumn Header="Dur(s)" Binding="{Binding DurationSeconds, StringFormat=F1}" Width="74" />
+                                            <DataGridTextColumn Header="Workers" Binding="{Binding WorkerCount}" Width="70" />
+                                            <DataGridTextColumn Header="Labor/hr" Binding="{Binding LaborCostPerHour, StringFormat=N0}" Width="90" />
+                                            <DataGridTextColumn Header="Equip/hr" Binding="{Binding EquipmentCostPerHour, StringFormat=N0}" Width="90" />
+                                            <DataGridTextColumn Header="Total" Binding="{Binding TotalCost, StringFormat=N0}" Width="96" />
+                                            <DataGridTextColumn Header="Unit" Binding="{Binding UnitCost, StringFormat=N0}" Width="96" />
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </Grid>
+                            </TabItem>
+
+                            <TabItem Header="Summary">
+                                <TextBox x:Name="ProjectSummaryTextBox"
+                                         Margin="4"
+                                         IsReadOnly="True"
+                                         AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Auto"
+                                         FontFamily="Consolas"
+                                         TextWrapping="Wrap" />
+                            </TabItem>
+                        </TabControl>
+                    </Grid>
+                </Border>
+
+                <GridSplitter Grid.Row="1"
+                              Height="4"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch"
+                              Background="{DynamicResource BorderBrush}" />
+
+                <Border Grid.Row="2"
+                        Style="{StaticResource PanelContainerStyle}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Border Grid.Row="0"
+                                Style="{StaticResource PanelHeaderStyle}">
+                            <TextBlock Text="Simulation"
+                                       FontWeight="SemiBold"
+                                       FontSize="12" />
+                        </Border>
+
+                        <TabControl Grid.Row="1"
+                                    Margin="8,6,8,8">
+                            <TabItem Header="Simulation Report">
+                                <TextBox x:Name="ReportTextBox"
+                                         Margin="4"
+                                         IsReadOnly="True"
+                                         AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Auto"
+                                         HorizontalScrollBarVisibility="Auto"
+                                         FontFamily="Consolas"
+                                         TextWrapping="Wrap" />
+                            </TabItem>
+                        </TabControl>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <GridSplitter Grid.Column="3"
+                          Width="4"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          Background="{DynamicResource BorderBrush}" />
+
+            <Grid Grid.Column="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="12" />
+                    <RowDefinition Height="170" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0"
+                        Style="{StaticResource PanelContainerStyle}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Border Grid.Row="0"
+                                Style="{StaticResource PanelHeaderStyle}">
+                            <TextBlock Text="Library"
+                                       FontWeight="SemiBold"
+                                       FontSize="12" />
+                        </Border>
+
+                        <TabControl Grid.Row="1"
+                                    Margin="8,6,8,8">
+                            <TabItem Header="Library">
+                                <Grid Margin="4">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="110" />
+                                    </Grid.RowDefinitions>
+
+                                    <Grid Grid.Row="0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="LibraryPathTextBox"
+                                                 Margin="0,0,8,0"
+                                                 VerticalContentAlignment="Center"
+                                                 ToolTip="공법 라이브러리 폴더 경로" />
+                                        <Button Grid.Column="1"
+                                                Margin="0,0,8,0"
+                                                Style="{StaticResource ToolbarButtonStyle}"
+                                                Click="SetLibraryPath_Click"
+                                                Content="Set Path..." />
+                                        <Button Grid.Column="2"
+                                                Style="{StaticResource PrimaryToolbarButtonStyle}"
+                                                Click="RefreshLibrary_Click"
+                                                Content="Refresh" />
+                                    </Grid>
+
+                                    <StackPanel Grid.Row="1"
+                                                Margin="0,10,0,10">
+                                        <TextBlock x:Name="LibraryStatusTextBlock"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}" />
+                                        <TextBlock x:Name="LibrarySelectionTextBlock"
+                                                   Margin="0,4,0,0"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}" />
+                                    </StackPanel>
+
+                                    <TreeView x:Name="LibraryTreeView"
+                                              Grid.Row="2"
+                                              SelectedItemChanged="LibraryTreeView_SelectedItemChanged"
+                                              ContextMenuOpening="LibraryTreeView_ContextMenuOpening"
+                                              ItemContainerStyle="{StaticResource LibraryTreeItemStyle}">
+                                        <TreeView.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem x:Name="LibraryMenuSetPath"
+                                                          Header="Set Library Path..."
+                                                          Click="SetLibraryPath_Click" />
+                                                <MenuItem x:Name="LibraryMenuRefresh"
+                                                          Header="Refresh Library"
+                                                          Click="RefreshLibrary_Click" />
+                                                <Separator />
+                                                <MenuItem x:Name="LibraryMenuAppend"
+                                                          Header="Append To Model"
+                                                          Click="AppendLibrarySelection_Click" />
+                                                <MenuItem x:Name="LibraryMenuRebuild"
+                                                          Header="Rebuild Target"
+                                                          Click="RebuildFromLibrary_Click" />
+                                            </ContextMenu>
+                                        </TreeView.ContextMenu>
+                                    </TreeView>
+
+                                    <WrapPanel Grid.Row="3"
+                                               Margin="0,10,0,8">
+                                        <Button x:Name="LibraryAppendButton"
+                                                Style="{StaticResource PrimaryToolbarButtonStyle}"
+                                                Click="AppendLibrarySelection_Click"
+                                                Content="Append To Model" />
+                                        <Button x:Name="LibraryRebuildButton"
+                                                Style="{StaticResource ToolbarButtonStyle}"
+                                                Click="RebuildFromLibrary_Click"
+                                                Content="Rebuild Target" />
+                                    </WrapPanel>
+
+                                    <TextBox x:Name="LibraryPreviewTextBox"
+                                             Grid.Row="4"
+                                             IsReadOnly="True"
+                                             AcceptsReturn="True"
+                                             VerticalScrollBarVisibility="Auto"
+                                             FontFamily="Consolas"
+                                             TextWrapping="Wrap" />
+                                </Grid>
+                            </TabItem>
+
+                            <TabItem Header="Details">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Margin="8">
+                                        <TextBlock x:Name="SelectionTypeTextBlock"
+                                                   FontSize="11"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}" />
+                                        <TextBlock x:Name="SelectionNameTextBlock"
+                                                   Margin="0,2,0,10"
+                                                   FontSize="14"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource PrimaryTextBrush}" />
+
+                                        <GroupBox Header="General">
+                                            <StackPanel>
+                                                <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                           Text="Name" />
+                                                <TextBox x:Name="EntityNameTextBox" />
+                                                <WrapPanel Margin="0,10,0,0">
+                                                    <Button Style="{StaticResource ToolbarButtonStyle}"
+                                                            Click="ApplyProperties_Click"
+                                                            Content="Apply" />
+                                                    <Button Style="{StaticResource ToolbarButtonStyle}"
+                                                            Click="RenameSelected_Click"
+                                                            Content="Rename" />
+                                                    <Button Style="{StaticResource ToolbarButtonStyle}"
+                                                            Click="SetSelectedSource_Click"
+                                                            Content="Set Source" />
+                                                </WrapPanel>
+                                            </StackPanel>
+                                        </GroupBox>
+
+                                        <GroupBox x:Name="ProjectPanel"
+                                                  Header="Project"
+                                                  Visibility="Collapsed">
+                                            <StackPanel>
+                                                <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                           Text="Author" />
+                                                <TextBox x:Name="ProjectAuthorTextBox" />
+                                                <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                           Margin="0,10,0,4"
+                                                           Text="Version" />
+                                                <TextBox x:Name="ProjectVersionTextBox" />
+                                                <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                           Margin="0,10,0,4"
+                                                           Text="Last Updated" />
+                                                <TextBlock x:Name="ProjectDateTextBlock"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}" />
+                                            </StackPanel>
+                                        </GroupBox>
+
+                                        <GroupBox x:Name="SystemPanel"
+                                                  Header="System"
+                                                  Visibility="Collapsed">
+                                            <StackPanel>
+                                                <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                           Text="System Type" />
+                                                <TextBox x:Name="SystemTypeTextBox" />
+                                                <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                           Margin="0,10,0,4"
+                                                           Text="Currency" />
+                                                <TextBox x:Name="SystemCurrencyTextBox" />
+                                                <CheckBox x:Name="SystemEnableCostCheckBox"
+                                                          Margin="0,10,0,0"
+                                                          Content="Enable Cost Simulation" />
+                                            </StackPanel>
+                                        </GroupBox>
+
+                                        <GroupBox x:Name="FlowPanel"
+                                                  Header="Flow"
+                                                  Visibility="Collapsed">
+                                            <StackPanel>
+                                                <CheckBox x:Name="FlowEnabledCheckBox"
+                                                          Content="Enable Flow Simulation" />
+                                                <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                           Margin="0,10,0,4"
+                                                           Text="Flow Simulation Mode" />
+                                                <TextBox x:Name="FlowModeTextBox" />
+                                                <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                           Margin="0,12,0,4"
+                                                           Text="Tree Order Preview" />
+                                                <TextBox x:Name="FlowSequencePreviewTextBox"
+                                                         Height="120"
+                                                         IsReadOnly="True"
+                                                         AcceptsReturn="True"
+                                                         VerticalScrollBarVisibility="Auto"
+                                                         FontFamily="Consolas"
+                                                         TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </GroupBox>
+
+                                        <GroupBox x:Name="WorkPanel"
+                                                  Header="Work"
+                                                  Visibility="Collapsed">
+                                            <StackPanel>
+                                                <Grid Margin="0,0,0,10">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0"
+                                                                Margin="0,0,8,0">
+                                                        <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                                   Text="Sequence Order" />
+                                                        <TextBox x:Name="WorkSequenceOrderTextBox"
+                                                                 IsReadOnly="True" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1"
+                                                                Margin="8,0,0,0">
+                                                        <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                                   Text="Operation Code" />
+                                                        <TextBox x:Name="OperationCodeTextBox" />
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <Grid Margin="0,0,0,10">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0"
+                                                                Margin="0,0,8,0">
+                                                        <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                                   Text="Duration (sec)" />
+                                                        <TextBox x:Name="DurationSecondsTextBox" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1"
+                                                                Margin="8,0,0,0">
+                                                        <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                                   Text="Worker Count" />
+                                                        <TextBox x:Name="WorkerCountTextBox" />
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <Grid Margin="0,0,0,10">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0"
+                                                                Margin="0,0,8,0">
+                                                        <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                                   Text="Labor Cost / hr" />
+                                                        <TextBox x:Name="LaborCostTextBox" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1"
+                                                                Margin="8,0,0,0">
+                                                        <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                                   Text="Equipment Cost / hr" />
+                                                        <TextBox x:Name="EquipmentCostTextBox" />
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <Grid Margin="0,0,0,10">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0"
+                                                                Margin="0,0,8,0">
+                                                        <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                                   Text="Overhead Cost / hr" />
+                                                        <TextBox x:Name="OverheadCostTextBox" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1"
+                                                                Margin="8,0,0,0">
+                                                        <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                                   Text="Utility Cost / hr" />
+                                                        <TextBox x:Name="UtilityCostTextBox" />
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <Grid Margin="0,0,0,10">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0"
+                                                                Margin="0,0,8,0">
+                                                        <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                                   Text="Yield Rate (0-1)" />
+                                                        <TextBox x:Name="YieldRateTextBox" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1"
+                                                                Margin="8,0,0,0">
+                                                        <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                                   Text="Defect Rate (0-1)" />
+                                                        <TextBox x:Name="DefectRateTextBox" />
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <CheckBox x:Name="WorkSourceCheckBox"
+                                                          Content="Source Work" />
+
+                                                <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                                           Margin="0,12,0,4"
+                                                           Text="Work Summary" />
+                                                <TextBox x:Name="SelectedWorkSummaryTextBox"
+                                                         Height="120"
+                                                         IsReadOnly="True"
+                                                         AcceptsReturn="True"
+                                                         VerticalScrollBarVisibility="Auto"
+                                                         FontFamily="Consolas"
+                                                         TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </GroupBox>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </TabItem>
+                        </TabControl>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1"
+                        Background="Transparent" />
+
+                <Border Grid.Row="2"
+                        Style="{StaticResource PanelContainerStyle}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Border Grid.Row="0"
+                                Style="{StaticResource PanelHeaderStyle}">
+                            <TextBlock Text="Output"
+                                       FontWeight="SemiBold"
+                                       FontSize="12" />
+                        </Border>
+
+                        <TextBox x:Name="OutputTextBox"
+                                 Grid.Row="1"
+                                 Margin="8,6,8,8"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Auto"
+                                 FontFamily="Consolas"
+                                 TextWrapping="Wrap" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <StatusBar Grid.Row="2">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusTextBlock"
+                           Text="Ready." />
+            </StatusBarItem>
+            <Separator />
+            <StatusBarItem>
+                <TextBlock x:Name="FooterFileTextBlock"
+                           Width="520"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           TextTrimming="CharacterEllipsis" />
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</Window>

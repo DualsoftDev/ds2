@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
@@ -27,6 +28,16 @@ public partial class MainWindow : Window
 
         SourceInitialized += MainWindow_SourceInitialized;
         Closed += MainWindow_Closed;
+        Loaded += MainWindow_Loaded;
+    }
+
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (App.StartupFilePath is { } path)
+        {
+            App.StartupFilePath = null;
+            _vm.OpenFilePath(path);
+        }
     }
 
     private void Window_Closing(object sender, CancelEventArgs e)
@@ -35,7 +46,110 @@ public partial class MainWindow : Window
             e.Cancel = true;
     }
 
-    private void Exit_Click(object sender, RoutedEventArgs e) => Close();
+    private static readonly string[] SupportedExtensions =
+        [FileExtensions.Sdf, FileExtensions.Json, FileExtensions.Aasx, FileExtensions.Mermaid, FileExtensions.MermaidAlt];
+
+    private bool IsSupportedFileDrop(DragEventArgs e) =>
+        e.Data.GetDataPresent(DataFormats.FileDrop)
+        && e.Data.GetData(DataFormats.FileDrop) is string[] { Length: 1 } files
+        && SupportedExtensions.Contains(
+            System.IO.Path.GetExtension(files[0]).ToLowerInvariant());
+
+    private string? GetDragFileType(DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+            return null;
+
+        var files = e.Data.GetData(DataFormats.FileDrop) as string[];
+        if (files == null || files.Length == 0)
+            return null;
+
+        var filePath = files[0];
+        var ext = System.IO.Path.GetExtension(filePath).ToLowerInvariant();
+
+        if (ext == FileExtensions.Sdf) return "sdf";
+        if (ext == FileExtensions.Json) return "json";
+        if (ext == FileExtensions.Aasx) return "aasx";
+        if (ext == FileExtensions.Mermaid || ext == FileExtensions.MermaidAlt) return "mermaid";
+        return null;
+    }
+
+    private void Window_DragEnter(object sender, DragEventArgs e)
+    {
+        var fileType = GetDragFileType(e);
+        if (fileType != null)
+        {
+            UpdateDragDropOverlay(fileType);
+            FileDragOverlay.Visibility = Visibility.Visible;
+            e.Effects = DragDropEffects.Copy;
+        }
+    }
+
+    private void UpdateDragDropOverlay(string fileType)
+    {
+        // Hide all icons first
+        DragDropSdfIcon.Visibility = Visibility.Collapsed;
+        DragDropJsonIcon.Visibility = Visibility.Collapsed;
+        DragDropAasxIcon.Visibility = Visibility.Collapsed;
+        DragDropMermaidIcon.Visibility = Visibility.Collapsed;
+
+        // Show appropriate icon and message based on file type
+        switch (fileType)
+        {
+            case "sdf":
+                DragDropSdfIcon.Visibility = Visibility.Visible;
+                DragDropMessage.Text = "SDF 파일을 여기에 놓으세요";
+                DragDropSubMessage.Text = "Software Defined Factory 프로젝트 파일";
+                break;
+            case "json":
+                DragDropJsonIcon.Visibility = Visibility.Visible;
+                DragDropMessage.Text = "JSON 파일을 여기에 놓으세요";
+                DragDropSubMessage.Text = "레거시 프로젝트 파일 형식";
+                break;
+            case "aasx":
+                DragDropAasxIcon.Visibility = Visibility.Visible;
+                DragDropMessage.Text = "AASX 파일을 여기에 놓으세요";
+                DragDropSubMessage.Text = "Asset Administration Shell 패키지";
+                break;
+            case "mermaid":
+                DragDropMermaidIcon.Visibility = Visibility.Visible;
+                DragDropMessage.Text = "Mermaid 파일을 여기에 놓으세요";
+                DragDropSubMessage.Text = "Mermaid 다이어그램 형식";
+                break;
+        }
+    }
+
+    private void Window_DragOver(object sender, DragEventArgs e)
+    {
+        var fileType = GetDragFileType(e);
+        if (fileType != null)
+        {
+            e.Effects = DragDropEffects.Copy;
+        }
+        else
+        {
+            e.Effects = DragDropEffects.None;
+        }
+        e.Handled = true;
+    }
+
+    private void Window_DragLeave(object sender, DragEventArgs e)
+    {
+        FileDragOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void Window_Drop(object sender, DragEventArgs e)
+    {
+        FileDragOverlay.Visibility = Visibility.Collapsed;
+
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] { Length: 1 } files)
+            return;
+
+        if (!_vm.ConfirmDiscardChangesPublic())
+            return;
+
+        _vm.OpenFilePath(files[0]);
+    }
 
     private void MainWindow_SourceInitialized(object? sender, EventArgs e)
     {

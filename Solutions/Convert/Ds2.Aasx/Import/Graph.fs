@@ -6,11 +6,27 @@ open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxFileIO
-open Ds2.UI.Core
+open Ds2.Core.Store
 
 module internal AasxImportGraph =
 
     open AasxImportCore
+
+    let smcToApiCall (smc: SubmodelElementCollection) : ApiCall option =
+        try
+            let name = getProp smc Name_ |> Option.defaultValue ""
+            let apiCall = ApiCall(name)
+            getProp smc Guid_ |> Option.iter (fun g -> apiCall.Id <- Guid.Parse g)
+            getProp smc ApiDefId_ |> Option.bind (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None)
+                                  |> Option.iter (fun g -> apiCall.ApiDefId <- Some g)
+            fromJsonProp<IOTag option> smc InTag_     |> Option.iter (fun t -> apiCall.InTag <- t)
+            fromJsonProp<IOTag option> smc OutTag_    |> Option.iter (fun t -> apiCall.OutTag <- t)
+            fromJsonProp<ValueSpec>    smc InputSpec_ |> Option.iter (fun s -> apiCall.InputSpec <- s)
+            fromJsonProp<ValueSpec>    smc OutputSpec_|> Option.iter (fun s -> apiCall.OutputSpec <- s)
+            getProp smc OriginFlowId_ |> Option.bind (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None)
+                                      |> Option.iter (fun g -> apiCall.OriginFlowId <- Some g)
+            Some apiCall
+        with ex -> log.Warn($"smcToApiCall 실패: {ex.Message}", ex); None
 
     let smcToCall (smc: SubmodelElementCollection) (workId: Guid) : Call option =
         try
@@ -18,10 +34,18 @@ module internal AasxImportGraph =
             let apiName  = getProp smc ApiName_       |> Option.defaultValue ""
             let call = Call(devAlias, apiName, workId)
             getProp smc Guid_ |> Option.iter (fun g -> call.Id <- Guid.Parse g)
-            fromJsonProp<CallProperties> smc Properties_     |> Option.iter (fun p -> call.Properties <- p)
+            // 모든 도메인 속성 Import (통합 버전)
+            SubmodelType.AllDomains
+            |> List.iter (fun submodelType -> PropertyConversion.importCallProperty submodelType smc call.Properties)
             fromJsonProp<Xywh option>    smc Position_       |> Option.flatten |> Option.iter (fun pos -> call.Position <- Some pos)
             getProp smc Status_          |> Option.iter (fun s -> call.Status4 <- parseStatus4 s)
-            fromJsonProp<ResizeArray<ApiCall>>       smc ApiCalls_       |> Option.iter (fun acs -> call.ApiCalls <- acs)
+            // ApiCalls를 SubmodelElementList에서 읽기 (새 형식)
+            let apiCalls = getChildSmlSmcs smc ApiCalls_ |> List.choose smcToApiCall
+            if not apiCalls.IsEmpty then
+                call.ApiCalls <- ResizeArray(apiCalls)
+            else
+                // 하위 호환성: JSON blob에서 읽기 (구 형식)
+                fromJsonProp<ResizeArray<ApiCall>> smc ApiCalls_ |> Option.iter (fun acs -> call.ApiCalls <- acs)
             fromJsonProp<ResizeArray<CallCondition>> smc CallConditions_ |> Option.iter (fun ccs -> call.CallConditions <- ccs)
             Some call
         with ex -> log.Warn($"smcToCall 실패: {ex.Message}", ex); None
@@ -39,12 +63,23 @@ module internal AasxImportGraph =
                 log.Error($"AASX import failed: Work FlowGuid missing or invalid (WorkGuid={workGuid}, WorkName={workName}).")
                 None
             | Some flowId ->
-                let work = Work("", flowId)
+                let work = Work("", "", flowId)
                 getProp smc Guid_   |> Option.iter (fun g -> work.Id <- Guid.Parse g)
-                getProp smc Name_   |> Option.iter (fun n -> work.Name <- n)
-                fromJsonProp<WorkProperties> smc Properties_  |> Option.iter (fun p -> work.Properties <- p)
+                // 새 형식: FlowPrefix + LocalName 우선, 없으면 Name 폴백 (마이그레이션)
+                match getProp smc FlowPrefix_, getProp smc LocalName_ with
+                | Some fp, Some ln -> work.FlowPrefix <- fp; work.LocalName <- ln
+                | _ -> getProp smc Name_ |> Option.iter (fun n -> work.Name <- n)
+                getProp smc ReferenceOf_ |> Option.bind tryParseGuid |> Option.iter (fun g -> work.ReferenceOf <- Some g)
+                // 모든 도메인 속성 Import (통합 버전)
+                SubmodelType.AllDomains
+                |> List.iter (fun submodelType -> PropertyConversion.importWorkProperty submodelType smc work.Properties)
                 fromJsonProp<Xywh option>    smc Position_    |> Option.flatten |> Option.iter (fun pos -> work.Position <- Some pos)
                 getProp smc Status_ |> Option.iter (fun s -> work.Status4 <- parseStatus4 s)
+                getProp smc TokenRole_ |> Option.iter (fun s ->
+                    match System.Int32.TryParse(s) with
+                    | true, v -> work.TokenRole <- enum<TokenRole> v
+                    | _ -> ())
+                getProp smc "Duration" |> Option.bind tryParseIsoDuration |> Option.iter (fun d -> work.Duration <- Some d)
 
                 let calls      = getChildSmlSmcs smc Calls_  |> List.choose (fun c -> smcToCall c work.Id)
                 let arrowCalls = getChildSmlSmcs smc Arrows_ |> List.choose (fun a -> smcToArrowCall a work.Id)
@@ -59,7 +94,9 @@ module internal AasxImportGraph =
             let flow = Flow("", systemId)
             getProp smc Guid_ |> Option.iter (fun g -> flow.Id <- Guid.Parse g)
             getProp smc Name_ |> Option.iter (fun n -> flow.Name <- n)
-            fromJsonProp<FlowProperties> smc Properties_ |> Option.iter (fun p -> flow.Properties <- p)
+            // 모든 도메인 속성 Import (통합 버전)
+            SubmodelType.AllDomains
+            |> List.iter (fun submodelType -> PropertyConversion.importFlowProperty submodelType smc flow.Properties)
             Some flow
         with ex -> log.Warn($"smcToFlow 실패: {ex.Message}", ex); None
 
@@ -68,7 +105,14 @@ module internal AasxImportGraph =
             let apiDef = ApiDef("", systemId)
             getProp smc Guid_ |> Option.iter (fun g -> apiDef.Id <- Guid.Parse g)
             getProp smc Name_ |> Option.iter (fun n -> apiDef.Name <- n)
-            fromJsonProp<ApiDefProperties> smc Properties_ |> Option.iter (fun p -> apiDef.Properties <- p)
+            getProp smc IsPush_ |> Option.iter (fun s ->
+                match System.Boolean.TryParse(s) with
+                | true, b -> apiDef.IsPush <- b
+                | _ -> ())
+            getProp smc TxGuid_ |> Option.bind (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None)
+                                |> Option.iter (fun g -> apiDef.TxGuid <- Some g)
+            getProp smc RxGuid_ |> Option.bind (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None)
+                                |> Option.iter (fun g -> apiDef.RxGuid <- Some g)
             Some apiDef
         with ex -> log.Warn($"smcToApiDef 실패: {ex.Message}", ex); None
 
@@ -84,7 +128,9 @@ module internal AasxImportGraph =
                 let system = DsSystem("")
                 guid |> Option.iter (fun g -> system.Id <- Guid.Parse g)
                 name |> Option.iter (fun n -> system.Name <- n)
-                fromJsonProp<SystemProperties> smc Properties_ |> Option.iter (fun p -> system.Properties <- p)
+                // 모든 도메인 속성 Import (통합 버전)
+                SubmodelType.AllDomains
+                |> List.iter (fun submodelType -> PropertyConversion.importSystemProperty submodelType smc system.Properties)
                 let iri = getProp smc IRI_ |> Option.bind (fun s -> if String.IsNullOrEmpty s then None else Some s)
                 system.IRI <- iri
 
@@ -136,13 +182,14 @@ module internal AasxImportGraph =
         systemResults
         |> List.iter (fun (system, flows, works, calls, arrowCalls, arrowWorks, apiDefs) ->
             store.DirectWrite(store.Systems, system)
-            if isActive then 
+            if isActive then
                 project.ActiveSystemIds.Add(system.Id) |> ignore
             else
                 project.PassiveSystemIds.Add(system.Id) |> ignore
 
             flows |> List.iter (fun f -> store.DirectWrite(store.Flows, f))
             works |> List.iter (fun w -> store.DirectWrite(store.Works, w))
+
             let rec registerConditionApiCalls (cond: CallCondition) =
                 cond.Conditions
                 |> Seq.filter (fun apiCall -> not (store.ApiCalls.ContainsKey(apiCall.Id)))
@@ -151,6 +198,7 @@ module internal AasxImportGraph =
 
             calls |> List.iter (fun call ->
                 store.DirectWrite(store.Calls, call)
+                // Call 내부 ApiCalls 등록
                 call.ApiCalls |> Seq.iter (fun apiCall -> store.DirectWrite(store.ApiCalls, apiCall))
                 call.CallConditions |> Seq.iter registerConditionApiCalls)
             arrowCalls |> List.iter (fun a -> store.DirectWrite(store.ArrowCalls, a))
@@ -163,7 +211,52 @@ module internal AasxImportGraph =
         : (DsSystem * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) list option =
         parseStrictList ownerLabel "System" systemSmcs smcToSystem
 
-    let submodelToProjectStore (sm: ISubmodel) : (Project * DsStore) option =
+    /// DeviceReference SMC에서 DeviceRelativePath 확인 → 외부 참조 여부 판별
+    let private hasDeviceRelativePath (smc: SubmodelElementCollection) : bool =
+        getProp smc DeviceRelativePath_ |> Option.isSome
+
+    /// 상대경로 검증 (.. 금지, 절대경로 금지)
+    let private isValidRelativePath (path: string) : bool =
+        not (System.String.IsNullOrWhiteSpace path)
+        && not (System.IO.Path.IsPathRooted path)
+        && not (path.Contains "..")
+
+    /// 외부 Device AASX 파일에서 System 데이터를 로드
+    let private loadExternalDevice (mainDir: string) (smc: SubmodelElementCollection)
+        : (DsSystem * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) option =
+        let relPath = getProp smc DeviceRelativePath_ |> Option.defaultValue ""
+        let deviceName = getProp smc DeviceName_ |> Option.defaultValue "<unknown>"
+        if not (isValidRelativePath relPath) then
+            log.Warn($"Device '{deviceName}': 잘못된 상대경로 '{relPath}' — 스킵")
+            None
+        else
+            let fullPath = System.IO.Path.Combine(mainDir, relPath)
+            if not (System.IO.File.Exists fullPath) then
+                log.Warn($"Device '{deviceName}': 파일 없음 '{fullPath}' — 스킵")
+                None
+            else
+                match readEnvironment fullPath with
+                | None ->
+                    log.Warn($"Device '{deviceName}': AASX 읽기 실패 '{fullPath}' — 스킵")
+                    None
+                | Some env ->
+                    if env.Submodels = null then None
+                    else
+                        env.Submodels
+                        |> Seq.tryPick (fun sm ->
+                            if sm.IdShort = SubmodelModelIdShort then
+                                sm.SubmodelElements
+                                |> Seq.tryPick (function
+                                    | :? SubmodelElementCollection as pSmc ->
+                                        // Device AASX에서 ActiveSystems에 저장된 System 추출
+                                        let systemSmcs = getChildSmlSmcs pSmc ActiveSystems_
+                                        match parseSystemsStrict $"Device '{deviceName}'" systemSmcs with
+                                        | Some (head :: _) -> Some head
+                                        | _ -> None
+                                    | _ -> None)
+                            else None)
+
+    let submodelToProjectStore (sm: ISubmodel) (mainDir: string option) : (Project * DsStore) option =
         try
             if sm = null || sm.SubmodelElements = null || sm.SubmodelElements.Count = 0 then
                 None
@@ -174,30 +267,52 @@ module internal AasxImportGraph =
                         let project = Project("")
                         getProp pSmc Guid_ |> Option.iter (fun g -> project.Id <- Guid.Parse g)
                         getProp pSmc Name_ |> Option.iter (fun n -> project.Name <- n)
-                        fromJsonProp<ProjectProperties> pSmc Properties_ |> Option.iter (fun p -> project.Properties <- p)
+                        fromJsonProp<ResizeArray<TokenSpec>> pSmc TokenSpecs_ |> Option.iter (fun ts ->
+                            project.TokenSpecs.Clear()
+                            for spec in ts do project.TokenSpecs.Add(spec))
+
+                        // Project 메타데이터 로드
+                        getProp pSmc Author_ |> Option.iter (fun v -> project.Author <- v)
+                        getProp pSmc Version_ |> Option.iter (fun v -> project.Version <- v)
+                        // IriPrefix는 앱 설정에서 관리되므로 import하지 않음
+                        getProp pSmc DateTime_ |> Option.iter (fun dtStr ->
+                            match DateTimeOffset.TryParse(dtStr) with
+                            | true, dt -> project.DateTime <- dt
+                            | _ -> ())
 
                         match parseSystemsStrict $"Project '{project.Name}' ActiveSystems" (getChildSmlSmcs pSmc ActiveSystems_) with
                         | None -> None
                         | Some activeSystems ->
-                            let passiveSmcsFromDeviceRefs = getChildSmlSmcs pSmc DeviceReferences_
-                            let passiveOwnerLabel =
-                                if passiveSmcsFromDeviceRefs.IsEmpty then
-                                    $"Project '{project.Name}' PassiveSystems"
-                                else
-                                    $"Project '{project.Name}' DeviceReferences"
-                            let passiveSmcs =
-                                if passiveSmcsFromDeviceRefs.IsEmpty then
-                                    getChildSmlSmcs pSmc PassiveSystems_
-                                else
-                                    passiveSmcsFromDeviceRefs
+                            let deviceRefSmcs = getChildSmlSmcs pSmc DeviceReferences_
 
-                            match parseSystemsStrict passiveOwnerLabel passiveSmcs with
+                            // 외부 참조 모드: DeviceRelativePath가 있고 mainDir가 있으면 외부 로드
+                            let hasExternalRefs =
+                                mainDir.IsSome
+                                && not deviceRefSmcs.IsEmpty
+                                && deviceRefSmcs |> List.exists hasDeviceRelativePath
+
+                            let passiveSystems =
+                                if hasExternalRefs then
+                                    let dir = mainDir.Value
+                                    deviceRefSmcs
+                                    |> List.choose (fun smc ->
+                                        if hasDeviceRelativePath smc then
+                                            loadExternalDevice dir smc
+                                        else
+                                            // DeviceRelativePath 없는 인라인 참조
+                                            smcToSystem smc |> Option.map id)
+                                    |> Some
+                                else
+                                    // 인라인 모드
+                                    parseSystemsStrict $"Project '{project.Name}' DeviceReferences" deviceRefSmcs
+
+                            match passiveSystems with
                             | None -> None
-                            | Some passiveSystems ->
+                            | Some ps ->
                                 let store = DsStore()
                                 store.DirectWrite(store.Projects, project)
                                 populateStore store project true activeSystems
-                                populateStore store project false passiveSystems
+                                populateStore store project false ps
                                 Some (project, store)
                     | _ -> None)
         with ex -> log.Warn($"submodelToProjectStore failed: {ex.Message}", ex); None

@@ -13,6 +13,7 @@ public enum SplitSide { Right, Down, Left, Up }
 public partial class SplitCanvasManager : ObservableObject
 {
     private readonly Func<CanvasWorkspaceState> _paneFactory;
+    public Action? ActivePaneChanged { get; set; }
 
     public SplitCanvasManager(Func<CanvasWorkspaceState> paneFactory)
     {
@@ -34,6 +35,8 @@ public partial class SplitCanvasManager : ObservableObject
 
     /// <summary>Primary가 시각적으로 먼저(좌측/상단) 배치되는지 여부.</summary>
     [ObservableProperty] private bool _isPrimaryFirst = true;
+
+    partial void OnActivePaneChanged(CanvasWorkspaceState value) => ActivePaneChanged?.Invoke();
 
     public bool IsSplit => SecondaryPane is not null;
 
@@ -77,8 +80,23 @@ public partial class SplitCanvasManager : ObservableObject
         ActivePane = targetPane;
     }
 
+    /// <summary>탭을 반대쪽 pane으로 이동합니다.</summary>
+    public bool MoveTabToOtherPane(CanvasTab tab)
+    {
+        if (SecondaryPane is null) return false;
+
+        var sourcePane = FindPaneContaining(tab);
+        if (sourcePane is null) return false;
+
+        var targetPane = sourcePane == PrimaryPane ? SecondaryPane : PrimaryPane;
+        sourcePane.RemoveTab(tab);
+        targetPane.AddTab(tab);
+        ActivePane = targetPane;
+        return true;
+    }
+
     /// <summary>모든 pane에서 탭 중복 여부를 확인합니다.</summary>
-    public CanvasWorkspaceState? FindPaneWithTab(Ds2.UI.Core.TabKind kind, Guid rootId)
+    public CanvasWorkspaceState? FindPaneWithTab(Ds2.Editor.TabKind kind, Guid rootId)
     {
         foreach (var pane in AllPanes)
         {
@@ -102,12 +120,6 @@ public partial class SplitCanvasManager : ObservableObject
         IsPrimaryFirst = true;
         PrimaryPane.Reset();
         ActivePane = PrimaryPane;
-    }
-
-    public void NotifyQuickCreateStateChanged()
-    {
-        foreach (var pane in AllPanes)
-            pane.NotifyQuickCreateStateChanged();
     }
 
     /// <summary>모든 pane에서 탭 타이틀 검증 및 캔버스 갱신.</summary>

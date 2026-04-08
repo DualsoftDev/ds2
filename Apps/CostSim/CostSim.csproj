@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>CostSim</RootNamespace>
+    <AssemblyName>CostSim</AssemblyName>
+    <Version>0.0.0.11</Version>
+    <AssemblyVersion>0.0.0.11</AssemblyVersion>
+    <FileVersion>0.0.0.11</FileVersion>
+    <ApplicationIcon>Assets\CostSim.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="MahApps.Metro.IconPacks.Material" Version="6.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\CostSim.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
+    <ProjectReference Include="..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
+    <ProjectReference Include="..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
+    <ProjectReference Include="..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
+  </ItemGroup>
+</Project>

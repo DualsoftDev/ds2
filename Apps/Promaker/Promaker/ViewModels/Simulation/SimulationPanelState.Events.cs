@@ -1,8 +1,11 @@
 using System;
+using System.Linq;
+using System.Threading;
 using Ds2.Core;
-using Ds2.Runtime.Sim.Engine;
-using Ds2.Runtime.Sim.Model;
-using Ds2.UI.Core;
+using Ds2.Runtime.Engine;
+using Ds2.Runtime.Model;
+using Ds2.Core.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
@@ -12,25 +15,96 @@ public partial class SimulationPanelState
     {
         if (_simEngine is null) return;
 
-        _simEngine.WorkStateChanged += (_, args) =>
-            _dispatcher.BeginInvoke(() => OnWorkStateChanged(args));
+        var engine = _simEngine;
+        var generation = Interlocked.Read(ref _simUiGeneration);
 
-        _simEngine.CallStateChanged += (_, args) =>
-            _dispatcher.BeginInvoke(() => OnCallStateChanged(args));
+        engine.WorkStateChanged += (_, args) =>
+            _dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_simEngine, engine) || Interlocked.Read(ref _simUiGeneration) != generation)
+                    return;
+                OnWorkStateChanged(args);
+            });
 
-        _simEngine.SimulationStatusChanged += (_, args) =>
-            _dispatcher.BeginInvoke(() => OnSimStatusChanged(args));
+        engine.CallStateChanged += (_, args) =>
+            _dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_simEngine, engine) || Interlocked.Read(ref _simUiGeneration) != generation)
+                    return;
+                OnCallStateChanged(args);
+            });
+
+        engine.SimulationStatusChanged += (_, args) =>
+            _dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_simEngine, engine) || Interlocked.Read(ref _simUiGeneration) != generation)
+                    return;
+                OnSimStatusChanged(args);
+            });
+
+        engine.CallTimeout += (_, args) =>
+            _dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_simEngine, engine) || Interlocked.Read(ref _simUiGeneration) != generation)
+                    return;
+                OnCallTimeout(args);
+            });
+
+        WireTokenEvent(engine, generation);
     }
+
+    private void OnCallTimeout(CallTimeoutArgs args)
+    {
+        _warningGuids.Add(args.CallGuid);
+        ApplyWarningsToCanvas();
+        AddWarningLog("TIMEOUT", $"{args.CallName} Timeout ({args.TimeoutMs}ms)");
+        SimLog.Warn($"[Timeout] {args.CallName} ({args.TimeoutMs}ms) @{args.Clock}");
+    }
+
+    private static LogSeverity SeverityFromState(Status4 state) => state switch
+    {
+        Status4.Ready => LogSeverity.Ready,
+        Status4.Going => LogSeverity.Going,
+        Status4.Finish => LogSeverity.Finish,
+        Status4.Homing => LogSeverity.Homing,
+        _ => LogSeverity.Info
+    };
 
     private void OnWorkStateChanged(WorkStateChangedArgs args)
     {
-        ApplyNodeStateChange(args.WorkGuid, args.NewState, args.WorkName, EntityKind.Work, GetSystemName(EntityKind.Work, args.WorkGuid));
+        ApplyWorkStateChangeToVisibleNode(args);
+#if DEBUG
+        AddSimLog($"W {args.WorkName}: {args.PreviousState}→{args.NewState}", SeverityFromState(args.NewState));
+#endif
+        _sceneEventHandler?.OnWorkStateChanged(args.WorkGuid, args.NewState);
+        RefreshSimulationProgressUi();
     }
 
     private void OnCallStateChanged(CallStateChangedArgs args)
     {
+        ApplyCallStateChangeToVisibleNode(args);
+#if DEBUG
+        var skip = args.IsSkipped ? " (Skip)" : "";
+        AddSimLog($"C {args.CallName}: {args.PreviousState}→{args.NewState}{skip}", SeverityFromState(args.NewState));
+#endif
+        SetSimSkipped(args.CallGuid, args.IsSkipped);
+
+        _sceneEventHandler?.OnCallStateChanged(args.CallGuid, args.NewState);
+        RefreshSimulationProgressUi();
+    }
+
+    private void ApplyCallStateChangeToVisibleNode(CallStateChangedArgs args)
+    {
         var suffix = args.IsSkipped ? " (Skip)" : "";
-        ApplyNodeStateChange(args.CallGuid, args.NewState, args.CallName + suffix, EntityKind.Call, GetSystemName(EntityKind.Call, args.CallGuid));
+        var systemName = GetSystemName(EntityKind.Call, args.CallGuid);
+        var canonicalId = Queries.resolveOriginalCallId(args.CallGuid, Store);
+
+        _stateCache.Set(canonicalId, args.NewState);
+        UpdateSimNodeState(canonicalId, args.NewState);
+        GanttChart.UpdateNodeState(canonicalId, args.NewState, GanttChart.AdjustedNow);
+
+        RecordStateChange(args.CallGuid.ToString(), args.CallName + suffix, EntityKind.Call.ToString(), systemName, args.NewState);
+        UpdateSimClock();
     }
 
     private void OnSimStatusChanged(SimulationStatusChangedArgs args)
@@ -48,7 +122,7 @@ public partial class SimulationPanelState
     private void UpdateSimClock()
     {
         if (_simEngine is not null)
-            SimClock = _simEngine.State.Clock.ToString(@"hh\:mm\:ss\.fff");
+            SimClock = _simEngine.State.Clock.ToString(SimText.ClockFormat);
     }
 
     private string GetSystemName(EntityKind kind, Guid entityGuid)
@@ -74,6 +148,19 @@ public partial class SimulationPanelState
         UpdateSimNodeState(nodeGuid, newState);
         GanttChart.UpdateNodeState(nodeGuid, newState, GanttChart.AdjustedNow);
         RecordStateChange(nodeGuid.ToString(), nodeName, nodeKind.ToString(), systemName, newState);
+        UpdateSimClock();
+    }
+
+    private void ApplyWorkStateChangeToVisibleNode(WorkStateChangedArgs args)
+    {
+        var systemName = GetSystemName(EntityKind.Work, args.WorkGuid);
+        var canonicalId = Queries.resolveOriginalWorkId(args.WorkGuid, Store);
+
+        _stateCache.Set(canonicalId, args.NewState);
+        UpdateSimNodeState(canonicalId, args.NewState);
+        GanttChart.UpdateNodeState(canonicalId, args.NewState, GanttChart.AdjustedNow);
+
+        RecordStateChange(args.WorkGuid.ToString(), args.WorkName, EntityKind.Work.ToString(), systemName, args.NewState);
         UpdateSimClock();
     }
 }

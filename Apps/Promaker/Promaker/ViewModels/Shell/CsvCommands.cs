@@ -1,9 +1,10 @@
-using System.IO;
-using System.Text;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.CSV;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
+using Microsoft.Win32;
 using Promaker.Dialogs;
+using Promaker.Presentation;
 
 namespace Promaker.ViewModels;
 
@@ -13,6 +14,7 @@ public partial class MainViewModel
     {
         PrepareForLoadedStore();
         _store.ReplaceStore(store);
+        _store.ClearHistory();
         _currentFilePath = null;
         IsDirty = false;
         HasProject = true;
@@ -38,31 +40,6 @@ public partial class MainViewModel
             out store);
     }
 
-    private static string BuildCsvExportPreview(DsStore store)
-    {
-        var projects = DsQuery.allProjects(store);
-        if (projects.IsEmpty)
-            return "내보낼 프로젝트가 없습니다.";
-
-        var project = projects.Head;
-        var activeSystems = DsQuery.activeSystemsOf(project.Id, store);
-        var flowCount = activeSystems.Sum(system => DsQuery.flowsOf(system.Id, store).Length);
-        var workCount = activeSystems.Sum(system =>
-            DsQuery.flowsOf(system.Id, store).Sum(flow => DsQuery.worksOf(flow.Id, store).Length));
-        var callCount = activeSystems.Sum(system =>
-            DsQuery.flowsOf(system.Id, store).Sum(flow =>
-                DsQuery.worksOf(flow.Id, store).Sum(work => DsQuery.callsOf(work.Id, store).Length)));
-
-        var sb = new StringBuilder();
-        sb.AppendLine($"✓ Active System: {activeSystems.Length}개");
-        sb.AppendLine($"✓ Flow: {flowCount}개");
-        sb.AppendLine($"✓ Work: {workCount}개");
-        sb.AppendLine($"✓ Call: {callCount}개");
-        sb.AppendLine();
-        sb.Append($"총 {callCount}개의 항목이 CSV로 내보내집니다.");
-        return sb.ToString();
-    }
-
     [RelayCommand]
     private void ImportCsv()
     {
@@ -84,28 +61,43 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void ExportCsv()
     {
-        var project = DsQuery.allProjects(_store).Head;
-        var dialog = new CsvExportDialog(
-            project.Name,
-            BuildCsvExportPreview(_store),
-            $"{project.Name}.csv");
+        var projects = Queries.allProjects(_store);
+        var suggestedName = !projects.IsEmpty ? projects.Head.Name : "project";
+        var dialog = new SaveFileDialog
+        {
+            Title = "CSV 내보내기",
+            Filter = "CSV Files (*.csv)|*.csv|All Files (*.*)|*.*",
+            DefaultExt = FileExtensions.Csv,
+            FileName = $"{suggestedName}.csv"
+        };
 
-        if (_dialogService.ShowDialog(dialog) != true)
+        if (dialog.ShowDialog() != true)
             return;
 
-        TryRunFileOperation(
-            $"Export CSV '{dialog.OutputPath}'",
-            () =>
-            {
-                if (!TryGetResult(
-                        CsvExporter.saveProjectToFile(_store, dialog.OutputPath),
-                        error => error,
-                        out _))
-                    return;
-
-                StatusText = $"CSV 내보내기 완료 ({Path.GetFileName(dialog.OutputPath)})";
-                Log.Info($"CSV exported: {dialog.OutputPath}");
-            },
-            ex => $"CSV 내보내기 실패: {ex.Message}");
+        ExportCsvToPath(dialog.FileName);
     }
+
+    private bool ExportCsvToPath(string filePath)
+    {
+        try
+        {
+            var result = CsvExporter.saveProjectToFile(_store, filePath);
+            if (result.IsOk)
+            {
+                Log.Info($"CSV exported: {filePath}");
+                StatusText = $"CSV 내보내기 완료 ({filePath})";
+                return true;
+            }
+
+            _dialogService.ShowWarning(result.ErrorValue);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"CSV export failed: {filePath}", ex);
+            _dialogService.ShowWarning($"CSV 내보내기 실패: {ex.Message}");
+            return false;
+        }
+    }
+
 }

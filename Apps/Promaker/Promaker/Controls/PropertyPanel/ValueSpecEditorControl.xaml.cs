@@ -1,11 +1,13 @@
 using System.Windows;
 using System.Windows.Controls;
-using Idx = Ds2.UI.Core.ValueSpecTypeIndex;
+using Idx = Ds2.Editor.ValueSpecTypeIndex;
 
 namespace Promaker.Controls;
 
 public partial class ValueSpecEditorControl : UserControl
 {
+
+    internal const string UndefinedText = "Undefined";
 
     // ConditionTypeCombo 인덱스
     private const int CtxSingle   = 0;
@@ -110,7 +112,7 @@ public partial class ValueSpecEditorControl : UserControl
     public string GetText()
     {
         var idx = DataTypeCombo?.SelectedIndex ?? Idx.Undefined;
-        if (idx == Idx.Undefined) return "Undefined";
+        if (idx == Idx.Undefined) return UndefinedText;
         if (idx == Idx.Bool) return TrueRadio?.IsChecked == true ? "true" : "false";
 
         var condIdx = ConditionTypeCombo?.SelectedIndex ?? CtxSingle;
@@ -119,7 +121,7 @@ public partial class ValueSpecEditorControl : UserControl
         if (condIdx == CtxRanges) return string.IsNullOrEmpty(_rangesText) ? "Undefined" : _rangesText;
 
         var raw = ValueTextBox?.Text?.Trim() ?? string.Empty;
-        if (string.IsNullOrEmpty(raw)) return "Undefined";
+        if (string.IsNullOrEmpty(raw)) return UndefinedText;
 
         return raw;
     }
