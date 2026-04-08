@@ -37,12 +37,11 @@ public enum AppLanguage
 public static class LanguageManager
 {
     /// <summary>
-    /// 언어 설정 저장 경로: %AppData%/Promaker/language.txt
+    /// 언어 설정 저장 경로: %AppData%/Dualsoft/Promaker/Settings/language.txt
     /// </summary>
     private static readonly string SettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Promaker",
-        "language.txt");
+        "Dualsoft", "Promaker", "Settings", "language.txt");
 
     /// <summary>
     /// 현재 언어 (기본값: Korean)
@@ -102,24 +101,7 @@ public static class LanguageManager
     /// </summary>
     /// <returns>저장된 언어 또는 기본값(Korean)</returns>
     private static AppLanguage LoadSavedLanguage()
-    {
-        try
-        {
-            if (!File.Exists(SettingsPath))
-            {
-                return AppLanguage.Korean;
-            }
-
-            var raw = File.ReadAllText(SettingsPath).Trim();
-            return Enum.TryParse<AppLanguage>(raw, ignoreCase: true, out var language)
-                ? language
-                : AppLanguage.Korean;
-        }
-        catch
-        {
-            return AppLanguage.Korean;
-        }
-    }
+        => AppSettingStore.LoadEnumOrDefault(SettingsPath, AppLanguage.Korean);
 
     /// <summary>
     /// 언어 설정을 파일에 저장
@@ -127,20 +109,5 @@ public static class LanguageManager
     /// </summary>
     /// <param name="language">저장할 언어</param>
     private static void SaveLanguage(AppLanguage language)
-    {
-        try
-        {
-            var directory = Path.GetDirectoryName(SettingsPath);
-            if (!string.IsNullOrEmpty(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            File.WriteAllText(SettingsPath, language.ToString());
-        }
-        catch
-        {
-            // Ignore language persistence failures.
-        }
-    }
+        => AppSettingStore.SaveEnum(SettingsPath, language);
 }

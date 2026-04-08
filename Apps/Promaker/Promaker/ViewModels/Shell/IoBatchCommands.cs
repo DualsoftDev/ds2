@@ -2,7 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
@@ -15,8 +16,9 @@ public partial class MainViewModel
         var storeRows = _store.GetAllApiCallIORows();
         var rows = storeRows
             .Select(r => new IoBatchRow(
-                r.CallId, r.ApiCallId, r.FlowName, r.WorkName, r.CallName,
-                r.InAddress, r.InSymbol, r.OutAddress, r.OutSymbol, ""))
+                r.CallId, r.ApiCallId, r.FlowName, r.WorkName, r.DeviceName, r.ApiName,
+                r.InAddress, r.InSymbol, r.OutAddress, r.OutSymbol,
+                r.OutDataType, r.InDataType))
             .ToList();
 
         if (rows.Count == 0)
@@ -25,20 +27,26 @@ public partial class MainViewModel
             return;
         }
 
-        var dialog = new IoBatchSettingsDialog(rows);
-        if (_dialogService.ShowDialog(dialog) != true)
-            return;
+        var dialog = new IoBatchSettingsDialog(_store, rows, _currentFilePath, ApplyIoBatchChanges);
+        _dialogService.ShowDialog(dialog);
+    }
 
-        var changed = dialog.ChangedRows;
+    private bool ApplyIoBatchChanges(IReadOnlyList<IoBatchRow> changed)
+    {
         if (changed.Count == 0)
-            return;
+            return false;
 
         var changes = changed
-            .Select(r => new ValueTuple<Guid, string, string, string, string>(
-                r.ApiCallId, r.InAddress, r.InSymbol, r.OutAddress, r.OutSymbol))
+            .Select(r => new ValueTuple<Guid, Ds2.Core.IOTag?, Ds2.Core.IOTag?>(
+                r.ApiCallId,
+                string.IsNullOrWhiteSpace(r.InAddress) && string.IsNullOrWhiteSpace(r.InSymbol) ? null : new Ds2.Core.IOTag(r.InSymbol ?? "", r.InAddress ?? "", ""),
+                string.IsNullOrWhiteSpace(r.OutAddress) && string.IsNullOrWhiteSpace(r.OutSymbol) ? null : new Ds2.Core.IOTag(r.OutSymbol ?? "", r.OutAddress ?? "", "")))
             .ToList();
 
-        if (TryEditorAction(() => _store.UpdateApiCallIOTagsBatch(changes)))
-            StatusText = $"I/O 태그 일괄 변경: {changes.Count}건 적용됨";
+        if (!TryEditorAction(() => _store.UpdateApiCallIOTagsBatch(changes)))
+            return false;
+
+        StatusText = $"I/O 태그 일괄 변경: {changes.Count}건 적용됨";
+        return true;
     }
 }

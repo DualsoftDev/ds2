@@ -15,7 +15,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
-    <ProjectReference Include="..\..\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

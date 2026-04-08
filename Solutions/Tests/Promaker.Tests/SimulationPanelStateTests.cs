@@ -1,13 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Reflection;
+using System.Linq;
 using System.Windows.Threading;
 using Ds2.Core;
-using Ds2.Runtime.Sim.Model;
-using Ds2.Runtime.Sim.Report;
-using Ds2.Runtime.Sim.Report.Model;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Promaker.ViewModels;
 using Xunit;
 
@@ -16,45 +13,24 @@ namespace Promaker.Tests;
 public sealed class SimulationPanelStateTests
 {
     [Fact]
-    public void ResetSimulation_clears_runtime_state_and_resets_rows()
+    public void Pause_command_is_available_immediately_when_simulating()
     {
         StaTestRunner.Run(() =>
         {
             var state = CreateState();
-            var workId = Guid.NewGuid();
 
-            state.HasReportData = true;
             state.IsSimulating = true;
-            state.IsSimPaused = true;
-            state.SimNodes.Add(new SimNodeRow
-            {
-                NodeGuid = workId,
-                Name = "Work1",
-                NodeType = "Work",
-                SystemName = "SystemA",
-                State = Status4.Going
-            });
-            state.SimEventLog.Add("log");
-            state.SimWorkItems.Add(new SimWorkItem(workId, "Work1"));
-            state.SelectedSimWork = state.SimWorkItems[0];
-            state.GanttChart.AddEntry(workId, "Work1", EntityKind.Work);
-
-            state.ResetSimulationCommand.Execute(null);
-
-            Assert.False(state.HasReportData);
-            Assert.False(state.IsSimulating);
             Assert.False(state.IsSimPaused);
-            Assert.Null(state.SelectedSimWork);
-            Assert.Single(state.SimEventLog);
-            Assert.Contains("F5", state.SimEventLog[0], StringComparison.Ordinal);
-            Assert.Single(state.SimNodes);
-            Assert.Equal(Status4.Ready, state.SimNodes[0].State);
-            Assert.Empty(state.GanttChart.Entries);
+            Assert.True(state.PauseSimulationCommand.CanExecute(null));
+
+            state.IsSimPaused = true;
+            Assert.True(state.IsSimPaused);
+            Assert.False(state.PauseSimulationCommand.CanExecute(null));
         });
     }
 
     [Fact]
-    public void ResetForNewStore_clears_simulation_collections()
+    public void ResetForNewStore_clears_public_runtime_collections_and_defaults()
     {
         StaTestRunner.Run(() =>
         {
@@ -64,6 +40,7 @@ public sealed class SimulationPanelStateTests
             state.HasReportData = true;
             state.IsSimulating = true;
             state.IsSimPaused = true;
+            state.SimSpeed = 5.0;
             state.SimNodes.Add(new SimNodeRow
             {
                 NodeGuid = workId,
@@ -72,7 +49,7 @@ public sealed class SimulationPanelStateTests
                 SystemName = "SystemA",
                 State = Status4.Going
             });
-            state.SimEventLog.Add("log");
+            state.SimEventLog.Add(new SimLogEntry("log"));
             state.SimWorkItems.Add(new SimWorkItem(workId, "Work1"));
             state.SelectedSimWork = state.SimWorkItems[0];
             state.GanttChart.AddEntry(workId, "Work1", EntityKind.Work);
@@ -82,6 +59,7 @@ public sealed class SimulationPanelStateTests
             Assert.False(state.HasReportData);
             Assert.False(state.IsSimulating);
             Assert.False(state.IsSimPaused);
+            Assert.Equal(1.0, state.SimSpeed);
             Assert.Null(state.SelectedSimWork);
             Assert.Empty(state.SimNodes);
             Assert.Empty(state.SimEventLog);
@@ -91,69 +69,51 @@ public sealed class SimulationPanelStateTests
     }
 
     [Fact]
-    public void BuildReport_uses_simulation_clock_instead_of_wall_clock()
+    public void SyncCanvasSelection_selects_matching_work_only_while_simulating()
     {
         StaTestRunner.Run(() =>
         {
             var state = CreateState();
-            var start = new DateTime(2026, 3, 16, 1, 2, 3, DateTimeKind.Utc);
+            var work1Id = Guid.NewGuid();
+            var work2Id = Guid.NewGuid();
 
-            SetPrivateField(state, "_simStartTime", start);
+            state.SimWorkItems.Add(new SimWorkItem(work1Id, "Work1"));
+            state.SimWorkItems.Add(new SimWorkItem(work2Id, "Work2"));
 
-            var records = (List<StateChangeRecord>)GetPrivateField(state, "_stateChangeRecords");
-            records.Add(new StateChangeRecord("node-1", "Work1", "Work", "SystemA", "G", start.AddSeconds(5)));
+            state.SyncCanvasSelection([new SelectionKey(work2Id, EntityKind.Work)]);
+            Assert.Null(state.SelectedSimWork);
 
-            var buildReport = typeof(SimulationPanelState).GetMethod(
-                "BuildReport",
-                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            state.IsSimulating = true;
+            state.SyncCanvasSelection([new SelectionKey(work2Id, EntityKind.Work)]);
 
-            var report = (SimulationReport)buildReport.Invoke(state, null)!;
-
-            Assert.Equal(start, report.Metadata.StartTime);
-            Assert.Equal(start.AddSeconds(5), report.Metadata.EndTime);
-            Assert.Equal(TimeSpan.FromSeconds(5), report.Metadata.TotalDuration);
+            Assert.NotNull(state.SelectedSimWork);
+            Assert.Equal(work2Id, state.SelectedSimWork!.Guid);
         });
     }
 
     [Fact]
-    public void SimulationStopped_event_stops_gantt_timer_and_flags()
+    public void CanChangeSpeed_depends_on_running_and_paused_state()
     {
         StaTestRunner.Run(() =>
         {
             var state = CreateState();
-            state.GanttChart.IsRunning = true;
+
+            Assert.True(state.CanChangeSpeed);
+
             state.IsSimulating = true;
+            state.IsSimPaused = false;
+            Assert.False(state.CanChangeSpeed);
+
             state.IsSimPaused = true;
-
-            var method = typeof(SimulationPanelState).GetMethod(
-                "OnSimStatusChanged",
-                BindingFlags.Instance | BindingFlags.NonPublic)!;
-            var args = new SimulationStatusChangedArgs(SimulationStatus.Running, SimulationStatus.Stopped);
-            method.Invoke(state, [args]);
-
-            Assert.False(state.GanttChart.IsRunning);
-            Assert.False(state.IsSimulating);
-            Assert.False(state.IsSimPaused);
-            Assert.Single(state.SimEventLog);
+            Assert.True(state.CanChangeSpeed);
         });
     }
 
-    private static SimulationPanelState CreateState() =>
+    private static SimulationPanelState CreateState(Func<DsStore>? storeProvider = null) =>
         new(
-            () => new DsStore(),
+            storeProvider ?? (() => new DsStore()),
             Dispatcher.CurrentDispatcher,
-            new ObservableCollection<EntityNode>(),
+            () => new ObservableCollection<EntityNode>(),
+            () => Array.Empty<EntityNode>(),
             _ => { });
-
-    private static object GetPrivateField(object instance, string fieldName)
-    {
-        var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!;
-        return field.GetValue(instance)!;
-    }
-
-    private static void SetPrivateField(object instance, string fieldName, object value)
-    {
-        var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!;
-        field.SetValue(instance, value);
-    }
 }

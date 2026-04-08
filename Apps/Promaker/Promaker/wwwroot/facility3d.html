@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Ds2 3D View</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { overflow: hidden; background: #0f172a; }
+        #scene3d { width: 100vw; height: 100vh; display: block; }
+        #overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            background: #0f172a; color: #64748b; font-family: sans-serif;
+            font-size: 14px; pointer-events: none;
+        }
+        #overlay.hidden { display: none; }
+
+        /* Sound toggle button */
+        #sound-btn {
+            position: fixed; bottom: 12px; right: 12px; z-index: 100;
+            background: rgba(30,41,59,0.85); border: 1px solid #334155;
+            border-radius: 8px; padding: 5px 10px;
+            color: #94a3b8; font-family: sans-serif; font-size: 13px;
+            cursor: pointer; user-select: none; display: none;
+            transition: background 0.15s, color 0.15s;
+        }
+        #sound-btn:hover { background: #334155; color: #e2e8f0; }
+        #sound-btn.active { color: #e2e8f0; }
+
+        /* Context menu */
+        #ctx-menu {
+            display: none; position: fixed; z-index: 9999;
+            background: #1e293b; border: 1px solid #334155;
+            border-radius: 6px; padding: 4px 0; min-width: 190px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+            font-family: sans-serif;
+        }
+        .ctx-item {
+            padding: 8px 14px; color: #e2e8f0; cursor: pointer;
+            font-size: 13px; display: flex; align-items: center; gap: 8px;
+            user-select: none;
+        }
+        .ctx-item:hover { background: #334155; }
+        .ctx-item.disabled { color: #64748b; cursor: default; }
+        .ctx-item.disabled:hover { background: transparent; }
+        .ctx-sep { height: 1px; background: #334155; margin: 4px 0; }
+    </style>
+</head>
+<body>
+    <div id="scene3d"></div>
+    <div id="overlay">
+        <span>시뮬레이션을 시작하면 3D 장비 배치도가 표시됩니다.</span>
+    </div>
+
+    <!-- Sound toggle button -->
+    <button id="sound-btn" class="active" title="사운드 켜기/끄기 (M)" onclick="toggleSound()">🔊</button>
+
+    <!-- Context menu -->
+    <div id="ctx-menu">
+        <div class="ctx-item" id="ctx-fit"     onclick="ctxFitCamera()">📷 카메라 맞춤 (F)</div>
+        <div class="ctx-item" id="ctx-layout"  onclick="ctxAutoLayout()">📐 전체 재배치</div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-item" id="ctx-reset"   onclick="ctxResetLayout()">🗑️ 저장 위치 초기화</div>
+    </div>
+
+    <!-- Three.js r128 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- Ds2 3D 모델 라이브러리 (SystemType 기반 Lib3D 로딩) -->
+    <script src="models/index.js"></script>
+
+    <!-- Ds2 3D 렌더러 -->
+    <script src="js/ds-3d-commons.js"></script>
+    <script src="js/three-interop.js"></script>
+
+    <!-- Ds2 사운드 엔진 -->
+    <script src="js/ds2-sound.js"></script>
+
+    <!-- WPF WebView2 폴리필 -->
+    <script src="js/wpf-dotnet-polyfill.js"></script>
+
+    <script>
+        var SCENE_ID = 'scene3d';
+        var initialized = false;
+        // 모델 사전 로드 Promise (init 시 시작, addDevice 시 완료 대기)
+        var _modelsReady = Promise.resolve();
+
+        // ─── C# (WPF) → JS ────────────────────────────────────────────────────
+        function handleFromCSharp(msg) {
+            try {
+                if (msg.type === 'init') {
+                    document.getElementById('overlay').classList.add('hidden');
+                    Ev23DViewer.init(SCENE_ID, msg.config || {});
+                    Ev23DViewer.setCallSelectionCallback(SCENE_ID, window._wpfCallbackRef);
+                    setupContextMenu();
+                    initialized = true;
+                    document.getElementById('sound-btn').style.display = 'block';
+                    // Lib3D 모델 사전 로드 시작 (addDevice 전에 완료 보장)
+                    if (window.Ds2View3DLibrary) {
+                        _modelsReady = Ds2View3DLibrary.preloadAll();
+                    }
+                } else if (!initialized) {
+                    return;
+                } else if (msg.type === 'addDevice') {
+                    var _msg = msg;
+                    _modelsReady.then(function() {
+                        Ev23DViewer.addDeviceAtPosition(SCENE_ID, _msg.device, _msg.x, _msg.z);
+                    });
+                } else if (msg.type === 'updateWorkStates') {
+                    Ev23DViewer.updateWorkStates(SCENE_ID, msg.states);
+                } else if (msg.type === 'updateDeviceStates') {
+                    Ev23DViewer.updateDeviceStates(SCENE_ID, msg.states);
+                } else if (msg.type === 'updateApiDefStates') {
+                    Ev23DViewer.updateApiDefStates(SCENE_ID, msg.states);
+                } else if (msg.type === 'resetDeviceStates') {
+                    // Reset all devices to Ready state
+                    if (Ev23DViewer.resetDeviceStates) {
+                        Ev23DViewer.resetDeviceStates(SCENE_ID);
+                    }
+                } else if (msg.type === 'showApiDefConnections') {
+                    // Show ApiDef connection arrows
+                    console.log(`[handleFromCSharp] showApiDefConnections: device=${msg.deviceId}, apiDef=${msg.apiDefName}, out=${(msg.outgoing||[]).length}, in=${(msg.incoming||[]).length}`);
+                    if (Ev23DViewer.showApiDefConnections) {
+                        Ev23DViewer.showApiDefConnections(SCENE_ID, msg.deviceId, msg.apiDefName,
+                            msg.outgoing || [], msg.incoming || []);
+                    } else {
+                        console.warn('[handleFromCSharp] Ev23DViewer.showApiDefConnections not found!');
+                    }
+                } else if (msg.type === 'fitAll') {
+                    Ev23DViewer.fitCameraToDevices(SCENE_ID);
+                }
+            } catch (e) {
+                console.error('handleFromCSharp error:', e, msg);
+            }
+        }
+
+        // ─── Context menu ──────────────────────────────────────────────────────
+        function setupContextMenu() {
+            var canvas = document.querySelector('#scene3d canvas');
+            if (!canvas) return;
+
+            canvas.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                showCtxMenu(e.clientX, e.clientY);
+            });
+
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('#ctx-menu')) hideCtxMenu();
+            });
+
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') hideCtxMenu();
+                if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.altKey) {
+                    Ev23DViewer.fitCameraToDevices(SCENE_ID);
+                }
+                if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.altKey) {
+                    toggleSound();
+                }
+            });
+        }
+
+        function showCtxMenu(x, y) {
+            var menu = document.getElementById('ctx-menu');
+            menu.style.display = 'block';
+            var mw = 200, mh = 130;
+            var vw = window.innerWidth, vh = window.innerHeight;
+            menu.style.left = (x + mw > vw ? x - mw : x) + 'px';
+            menu.style.top  = (y + mh > vh ? y - mh : y) + 'px';
+        }
+
+        function hideCtxMenu() {
+            document.getElementById('ctx-menu').style.display = 'none';
+        }
+
+        function ctxFitCamera() {
+            Ev23DViewer.fitCameraToDevices(SCENE_ID);
+            hideCtxMenu();
+        }
+
+        function ctxAutoLayout() {
+            Ev23DViewer.autoLayoutDevices(SCENE_ID);
+            hideCtxMenu();
+        }
+
+        function ctxResetLayout() {
+            Ev23DViewer.resetDeviceLayout(SCENE_ID);
+            hideCtxMenu();
+        }
+
+        function toggleSound() {
+            if (!window.Ds2Sound) return;
+            Ds2Sound.setMuted(!Ds2Sound.muted);
+            var btn = document.getElementById('sound-btn');
+            if (Ds2Sound.muted) {
+                btn.textContent = '🔇';
+                btn.classList.remove('active');
+            } else {
+                btn.textContent = '🔊';
+                btn.classList.add('active');
+            }
+        }
+</script>
+</body>
+</html>

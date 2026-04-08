@@ -11,20 +11,24 @@
     <Compile Include="Concepts\Builder.fs" />
     <Compile Include="AasxFileIO.fs" />
     <Compile Include="Import\Core.fs" />
+    <Compile Include="Export\Core.fs" />
+    <Compile Include="Common\PropertyConversion.fs" />
     <Compile Include="Import\Graph.fs" />
     <Compile Include="Import\Metadata.fs" />
-    <Compile Include="Compat\LegacyAasxDetector.fs" />
-    <Compile Include="Compat\LegacyImportGraph.fs" />
     <Compile Include="Import\Entry.fs" />
-    <Compile Include="Export\Core.fs" />
     <Compile Include="Export\Graph.fs" />
     <Compile Include="Export\Metadata.fs" />
     <Compile Include="Export\Entry.fs" />
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Thumbnail\ds_aasx_thumbnail_icon.png">
+      <LogicalName>Ds2.Aasx.Thumbnail.ds_aasx_thumbnail_icon.png</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\Core\Ds2.Core\Ds2.Core.fsproj" />
-    <ProjectReference Include="..\..\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -3,7 +3,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Promaker;
 using Promaker.ViewModels;
 
@@ -47,7 +48,8 @@ public partial class EditorCanvas
 
             if (e.ClickCount == 2 && EntityKindRules.canOpenAsTab(node.EntityType))
             {
-                ActiveCanvasState!.OpenCanvasTab(nodeId, EntityKind.Work, expandTree: true);
+                var tabTargetId = node.ReferenceOfId ?? nodeId;
+                ActiveCanvasState!.OpenCanvasTab(tabTargetId, EntityKind.Work, expandTree: true);
                 e.Handled = true;
                 return;
             }
@@ -253,8 +255,11 @@ public partial class EditorCanvas
 
         if (e.Key == Key.Delete)
         {
-            VM?.DeleteSelectedCommand.Execute(null);
-            e.Handled = true;
+            if (VM?.DeleteSelectedCommand.CanExecute(null) == true)
+            {
+                VM.DeleteSelectedCommand.Execute(null);
+                e.Handled = true;
+            }
             return;
         }
 
@@ -268,7 +273,10 @@ public partial class EditorCanvas
 
         if (e.Key == Key.L && Keyboard.Modifiers == ModifierKeys.Control)
         {
-            VM?.AutoLayoutCommand.Execute(null);
+            if (VM?.AutoLayoutCommand.CanExecute(null) == true)
+                VM.AutoLayoutCommand.Execute(null);
+            else if (VM is not null)
+                VM.StatusText = "Open a canvas tab to run auto layout.";
             e.Handled = true;
         }
     }

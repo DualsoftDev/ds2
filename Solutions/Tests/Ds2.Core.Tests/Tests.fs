@@ -4,53 +4,6 @@ open System
 open Xunit
 open Ds2.Core
 
-/// Project 생성 테스트
-module ProjectTests =
-
-    [<Fact>]
-    let ``Project constructor should create project with valid GUID`` () =
-        let project = Project("TestProject")
-
-        // ID가 유효한 GUID인지 확인 (Guid 타입이므로 항상 유효)
-        Assert.NotEqual(Guid.Empty, project.Id)
-
-        // 이름이 올바르게 설정되었는지 확인
-        Assert.Equal("TestProject", project.Name)
-
-/// System 생성 테스트
-module SystemTests =
-
-    [<Fact>]
-    let ``DsSystem constructor should create system with valid GUID`` () =
-        let system = DsSystem("TestSystem")
-
-        Assert.NotEqual(Guid.Empty, system.Id)
-        Assert.Equal("TestSystem", system.Name)
-
-/// Flow 생성 테스트
-module FlowTests =
-
-    [<Fact>]
-    let ``Flow constructor should create flow with valid GUID`` () =
-        let systemId = Guid.NewGuid()
-        let flow = Flow("TestFlow", systemId)
-
-        Assert.NotEqual(Guid.Empty, flow.Id)
-        Assert.Equal("TestFlow", flow.Name)
-        Assert.Equal(systemId, flow.ParentId)
-
-/// Work 생성 테스트
-module WorkTests =
-
-    [<Fact>]
-    let ``Work constructor should create work with valid GUID`` () =
-        let flowId = Guid.NewGuid()
-        let work = Work("TestWork", flowId)
-
-        Assert.NotEqual(Guid.Empty, work.Id)
-        Assert.Equal("TestWork", work.Name)
-        Assert.Equal(flowId, work.ParentId)
-
 module CallTests =
 
     [<Fact>]
@@ -68,31 +21,6 @@ module CallTests =
         Assert.Contains("ApiName 변경을 허용하지 않습니다", ex.Message)
         Assert.Equal("Dev", call.DevicesAlias)
         Assert.Equal("Api", call.ApiName)
-
-/// 엔티티 좌표 테스트
-module EntityPositionTests =
-
-    [<Fact>]
-    let ``Work should store Xywh position in entity`` () =
-        let work = Work("WorkWithPosition", Guid.NewGuid())
-        work.Position <- Some (Xywh(1, 2, 3, 4))
-
-        Assert.True(work.Position.IsSome)
-        Assert.Equal(1, work.Position.Value.X)
-        Assert.Equal(2, work.Position.Value.Y)
-        Assert.Equal(3, work.Position.Value.W)
-        Assert.Equal(4, work.Position.Value.H)
-
-    [<Fact>]
-    let ``Call should store Xywh position in entity`` () =
-        let call = Call("Dev", "CallWithPosition", Guid.NewGuid())
-        call.Position <- Some (Xywh(10, 20, 30, 40))
-
-        Assert.True(call.Position.IsSome)
-        Assert.Equal(10, call.Position.Value.X)
-        Assert.Equal(20, call.Position.Value.Y)
-        Assert.Equal(30, call.Position.Value.W)
-        Assert.Equal(40, call.Position.Value.H)
 
 /// ValueSpec 입력 편의 헬퍼 테스트
 module ValueSpecConvenienceTests =
@@ -114,7 +42,9 @@ module DeepCopyTests =
     [<Fact>]
     let ``DsSystem DeepCopy should create new instance with new GUID`` () =
         let original = DsSystem("TestSystem")
-        original.Properties.Author <- Some "Author1"
+        let props = SimulationSystemProperties()
+        props.Author <- Some "Author1"
+        original.SetSimulationProperties(props)
         original.IRI <- Some "http://test.com"
 
         let copied = original.DeepCopy()
@@ -125,44 +55,30 @@ module DeepCopyTests =
 
         // 속성이 복사되는지 확인
         Assert.Equal(original.Name, copied.Name)
-        Assert.Equal(original.Properties.Author, copied.Properties.Author)
+        Assert.True(original.GetSimulationProperties().IsSome, "Original should have SimulationProperties")
+        Assert.True(copied.GetSimulationProperties().IsSome, "Copied should have SimulationProperties")
+        Assert.Equal(original.GetSimulationProperties().Value.Author, copied.GetSimulationProperties().Value.Author)
         Assert.Equal(original.IRI, copied.IRI)
 
         // Properties가 독립적으로 복사되는지 확인
-        copied.Properties.Author <- Some "Author2"
-        Assert.Equal(Some "Author1", original.Properties.Author)
-        Assert.Equal(Some "Author2", copied.Properties.Author)
+        copied.GetSimulationProperties().Value.Author <- Some "Author2"
+        Assert.Equal(Some "Author1", original.GetSimulationProperties().Value.Author)
+        Assert.Equal(Some "Author2", copied.GetSimulationProperties().Value.Author)
 
     [<Fact>]
     let ``Flow DeepCopy should create new instance with new GUID`` () =
         let systemId = Guid.NewGuid()
         let original = Flow("TestFlow", systemId)
-        original.Properties.Description <- Some "Flow Description"
+        let props = SimulationFlowProperties()
+        props.Description <- Some "Flow Description"
+        original.SetSimulationProperties(props)
 
         let copied = original.DeepCopy()
 
         Assert.NotEqual(original.Id, copied.Id)
         Assert.Equal(original.ParentId, copied.ParentId)
         Assert.Equal(original.Name, copied.Name)
-        Assert.Equal(original.Properties.Description, copied.Properties.Description)
-
-    [<Fact>]
-    let ``Work DeepCopy should create new instance with Position and Status`` () =
-        let flowId = Guid.NewGuid()
-        let original = Work("TestWork", flowId)
-        original.Position <- Some (Xywh(10, 20, 30, 40))
-        original.Status4 <- Status4.Going
-        original.Properties.Motion <- Some "Motion1"
-
-        let copied = original.DeepCopy()
-
-        Assert.NotEqual(original.Id, copied.Id)
-        Assert.Equal(original.ParentId, copied.ParentId)
-        Assert.Equal(original.Name, copied.Name)
-        Assert.Equal(Status4.Going, copied.Status4)
-        Assert.True(copied.Position.IsSome)
-        Assert.Equal(10, copied.Position.Value.X)
-        Assert.Equal(Some "Motion1", copied.Properties.Motion)
+        Assert.Equal(original.GetSimulationProperties().Value.Description, copied.GetSimulationProperties().Value.Description)
 
     [<Fact>]
     let ``ApiCall DeepCopy should copy IOTag independently`` () =
@@ -187,58 +103,38 @@ module DeepCopyTests =
     let ``ApiDef DeepCopy should copy Properties correctly`` () =
         let systemId = Guid.NewGuid()
         let original = ApiDef("TestApiDef", systemId)
-        original.Properties.IsPush <- true
-        original.Properties.TxGuid <- Some (Guid.NewGuid())
+        original.IsPush <- true
+        original.TxGuid <- Some (Guid.NewGuid())
 
         let copied = original.DeepCopy()
 
         Assert.NotEqual(original.Id, copied.Id)
         Assert.Equal(original.ParentId, copied.ParentId)
-        Assert.True(copied.Properties.IsPush)
-        Assert.Equal(original.Properties.TxGuid, copied.Properties.TxGuid)
+        Assert.True(copied.IsPush)
+        Assert.Equal(original.TxGuid, copied.TxGuid)
 
         // Properties가 독립적인지 확인
-        copied.Properties.IsPush <- false
-        Assert.True(original.Properties.IsPush)
-        Assert.False(copied.Properties.IsPush)
-
-    [<Fact>]
-    let ``HwButton DeepCopy should copy FlowGuids independently`` () =
-        let systemId = Guid.NewGuid()
-        let guid1 = Guid.NewGuid()
-        let guid2 = Guid.NewGuid()
-        let original = HwButton("TestButton", systemId)
-        original.FlowGuids.Add(guid1)
-        original.FlowGuids.Add(guid2)
-        original.InTag <- Some (IOTag("ButtonIn", "BtnAddr", "Button input"))
-
-        let copied = original.DeepCopy()
-
-        Assert.NotEqual(original.Id, copied.Id)
-        Assert.Equal(2, copied.FlowGuids.Count)
-        Assert.Contains(guid1, copied.FlowGuids)
-        Assert.Contains(guid2, copied.FlowGuids)
-
-        // FlowGuids가 독립적으로 복사되는지 확인
-        copied.FlowGuids.Clear()
-        Assert.Equal(2, original.FlowGuids.Count)
-        Assert.Equal(0, copied.FlowGuids.Count)
+        copied.IsPush <- false
+        Assert.True(original.IsPush)
+        Assert.False(copied.IsPush)
 
     [<Fact>]
     let ``Multiple nested DeepCopy should maintain independence`` () =
         let original = DsSystem("OriginalSystem")
-        original.Properties.Author <- Some "OriginalAuthor"
+        let origProps = SimulationSystemProperties()
+        origProps.Author <- Some "OriginalAuthor"
+        original.SetSimulationProperties(origProps)
 
         let copy1 = original.DeepCopy()
-        copy1.Properties.Author <- Some "Copy1Author"
+        copy1.GetSimulationProperties().Value.Author <- Some "Copy1Author"
 
         let copy2 = copy1.DeepCopy()
-        copy2.Properties.Author <- Some "Copy2Author"
+        copy2.GetSimulationProperties().Value.Author <- Some "Copy2Author"
 
         // 모든 인스턴스가 독립적인지 확인
-        Assert.Equal(Some "OriginalAuthor", original.Properties.Author)
-        Assert.Equal(Some "Copy1Author", copy1.Properties.Author)
-        Assert.Equal(Some "Copy2Author", copy2.Properties.Author)
+        Assert.Equal(Some "OriginalAuthor", original.GetSimulationProperties().Value.Author)
+        Assert.Equal(Some "Copy1Author", copy1.GetSimulationProperties().Value.Author)
+        Assert.Equal(Some "Copy2Author", copy2.GetSimulationProperties().Value.Author)
 
         // 모든 GUID가 다른지 확인
         Assert.NotEqual(original.Id, copy1.Id)
@@ -288,10 +184,59 @@ module DeepCopyTests =
         Assert.Equal(0, copied.Children.Count)
 
     [<Fact>]
+    let ``Work DeepCopy should copy FlowPrefix LocalName and ReferenceOf`` () =
+        let flowId = Guid.NewGuid()
+        let original = Work("MyFlow", "MyWork", flowId)
+        original.Duration <- Some(TimeSpan.FromSeconds(3.0))
+        original.Position <- Some(Xywh(10, 20, 100, 50))
+        original.ReferenceOf <- Some(Guid.NewGuid())
+        original.TokenRole <- TokenRole.Source
+
+        let copied = original.DeepCopy()
+
+        Assert.NotEqual(original.Id, copied.Id)
+        Assert.Equal(flowId, copied.ParentId)
+        Assert.Equal("MyFlow", copied.FlowPrefix)
+        Assert.Equal("MyWork", copied.LocalName)
+        Assert.Equal("MyFlow.MyWork", copied.Name)
+        Assert.Equal(original.ReferenceOf, copied.ReferenceOf)
+        Assert.Equal(original.TokenRole, copied.TokenRole)
+        Assert.Equal(original.Duration, copied.Duration)
+        Assert.True(copied.Position.IsSome)
+
+        // 독립성 확인
+        copied.Duration <- Some(TimeSpan.FromSeconds(9.0))
+        Assert.Equal<TimeSpan option>(Some(TimeSpan.FromSeconds(3.0)), original.Duration)
+
+    [<Fact>]
+    let ``Work Name property combines FlowPrefix and LocalName`` () =
+        let work = Work("Flow1", "WorkA", Guid.NewGuid())
+        Assert.Equal("Flow1.WorkA", work.Name)
+
+        // FlowPrefix가 비어있으면 LocalName만 반환
+        let work2 = Work("", "OnlyLocal", Guid.NewGuid())
+        Assert.Equal("OnlyLocal", work2.Name)
+
+    [<Fact>]
+    let ``Work Name setter splits on dot for migration`` () =
+        let work = Work("", "", Guid.NewGuid())
+
+        // dot이 있으면 분리
+        work.Name <- "NewFlow.NewWork"
+        Assert.Equal("NewFlow", work.FlowPrefix)
+        Assert.Equal("NewWork", work.LocalName)
+
+        // dot이 없으면 LocalName만 설정
+        work.Name <- "PlainName"
+        Assert.Equal("PlainName", work.LocalName)
+
+    [<Fact>]
     let ``Call DeepCopy should copy ApiCalls and CallConditions independently`` () =
         let workId = Guid.NewGuid()
         let original = Call("DevAlias", "ApiName", workId)
-        original.Properties.Timeout <- Some (TimeSpan.FromSeconds(5.0))
+        let props = SimulationCallProperties()
+        props.Timeout <- Some (TimeSpan.FromSeconds(5.0))
+        original.SetSimulationProperties(props)
         original.Position <- Some (Xywh(10, 20, 100, 50))
 
         let apiCall = ApiCall("TestApiCall")
@@ -312,7 +257,7 @@ module DeepCopyTests =
         Assert.Equal(workId, copied.ParentId)
         Assert.Equal("DevAlias", copied.DevicesAlias)
         Assert.Equal("ApiName", copied.ApiName)
-        Assert.Equal(original.Properties.Timeout, copied.Properties.Timeout)
+        Assert.Equal(original.GetSimulationProperties().Value.Timeout, copied.GetSimulationProperties().Value.Timeout)
         Assert.True(copied.Position.IsSome)
 
         // ApiCalls 복사 (jsonClone은 내부 ApiCall ID 보존)

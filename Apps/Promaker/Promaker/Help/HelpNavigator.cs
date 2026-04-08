@@ -12,19 +12,19 @@ public static class HelpNavigator
     private static readonly Dictionary<string, string> TopicUrls = new()
     {
         ["general"]                = $"{BaseUrl}/index.html",
-        ["file"]                   = $"{BaseUrl}/res/01_basic_modeling.html",
-        ["edit"]                   = $"{BaseUrl}/res/08_edit_menu.html",
-        ["simulation"]             = $"{BaseUrl}/res/03_simulation_and_tools.html",
-        ["process-control"]        = $"{BaseUrl}/res/03_simulation_and_tools.html",
-        ["explorer"]               = $"{BaseUrl}/res/04_explorer_panel.html",
-        ["history"]                = $"{BaseUrl}/res/04_explorer_panel.html",
-        ["properties"]             = $"{BaseUrl}/res/06_properties.html",
-        ["condition-auto-aux"]     = $"{BaseUrl}/res/02_conditions.html",
-        ["condition-com-aux"]      = $"{BaseUrl}/res/02_conditions.html",
-        ["condition-skip-unmatch"] = $"{BaseUrl}/res/02_conditions.html",
-        ["condition"]              = $"{BaseUrl}/res/02_conditions.html",
-        ["apicalls"]               = $"{BaseUrl}/res/07_apicalls.html",
-        ["tools"]                  = $"{BaseUrl}/res/05_csv_import.html",
+        ["file"]                   = $"{BaseUrl}/res/01_BasicModeling.html",
+        ["edit"]                   = $"{BaseUrl}/res/01_BasicModeling.html",
+        ["simulation"]             = $"{BaseUrl}/res/04_Simulation.html",
+        ["process-control"]        = $"{BaseUrl}/res/04_Simulation.html",
+        ["explorer"]               = $"{BaseUrl}/res/06_Explorer.html",
+        ["history"]                = $"{BaseUrl}/res/06_Explorer.html",
+        ["properties"]             = $"{BaseUrl}/res/01_BasicModeling.html",
+        ["condition-auto-aux"]     = $"{BaseUrl}/res/02_AuxSettings.html",
+        ["condition-com-aux"]      = $"{BaseUrl}/res/02_AuxSettings.html",
+        ["condition-skip-unmatch"] = $"{BaseUrl}/res/02_AuxSettings.html",
+        ["condition"]              = $"{BaseUrl}/res/02_AuxSettings.html",
+        ["apicalls"]               = $"{BaseUrl}/res/03_IOBatchSettings.html",
+        ["tools"]                  = $"{BaseUrl}/res/05_CsvImport.html",
     };
 
     public static ICommand NavigateCommand { get; } = new RelayCommand<string?>(Navigate);

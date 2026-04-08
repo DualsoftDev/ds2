@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="Core\EditorTypes.fs" />
+    <Compile Include="Commands\UndoRedoManager.fs" />
+    <Compile Include="Projection\ViewTypes.fs" />
+    <Compile Include="Projection\ConditionFormulaProjection.fs" />
+    <Compile Include="Editor\StoreEditorState.fs" />
+    <Compile Include="Editor\Authoring.fs" />
+    <Compile Include="Geometry\ArrowPathCalculator.fs" />
+    <Compile Include="Projection\PropertyPanelValueSpec.fs" />
+    <Compile Include="Projection\TreeProjection.fs" />
+    <Compile Include="Projection\CanvasLayout\LayeringAndOrdering.fs" />
+    <Compile Include="Projection\CanvasLayout\Placement.SpecialCases.fs" />
+    <Compile Include="Projection\CanvasLayout\Placement.fs" />
+    <Compile Include="Projection\CanvasProjection.fs" />
+    <Compile Include="Projection\CanvasLayout\Entry.fs" />
+    <Compile Include="Editor\EntityTabQueries.fs" />
+    <Compile Include="Queries\AddTargetQueries.fs" />
+    <Compile Include="Queries\EntityKindRules.fs" />
+    <Compile Include="Queries\SelectionQueries.fs" />
+    <Compile Include="Queries\ConnectionQueries.fs" />
+    <Compile Include="Store\Log.fs" />
+    <Compile Include="Store\Nodes\Remove.fs" />
+    <Compile Include="Store\Nodes\Device.fs" />
+    <Compile Include="Store\Nodes\Nodes.fs" />
+    <Compile Include="Store\Paste\Paste.DeviceOps.fs" />
+    <Compile Include="Store\Paste\Paste.DirectOps.fs" />
+    <Compile Include="Store\Paste\Paste.fs" />
+    <Compile Include="Store\Arrows.fs" />
+    <Compile Include="Store\Panel\Panel.fs" />
+    <Compile Include="Store\Panel\Panel.Condition.fs" />
+    <Compile Include="Store\Panel\Panel.Properties.fs" />
+    <Compile Include="Store\Panel\Api.fs" />
+    <Compile Include="Store\Panel\Batch.fs" />
+    <Compile Include="Editor\ImportPlanApply.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ds2.Core\Ds2.Core.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="log4net" />
+  </ItemGroup>
+
+</Project>

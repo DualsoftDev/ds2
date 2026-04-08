@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
@@ -11,12 +13,14 @@ public partial class PropertyPanelState
 {
     [RelayCommand]
     private void AddCondition(CallConditionType type) =>
-        CallPanelAction(id => Store.AddCallCondition(id, type));
+        CallPanelAction(id => Store.AddCallCondition(id, type), "Call 조건 추가");
 
     [RelayCommand]
     private void RemoveCallCondition(CallConditionItem? item)
     {
         if (item is null) return;
+        if (!GuardSimulationSemanticEdit("Call 조건 삭제"))
+            return;
         if (!_host.TryAction(
                 () => Store.RemoveCallCondition(item.CallId, item.ConditionId)))
             return;
@@ -24,91 +28,54 @@ public partial class PropertyPanelState
     }
 
     [RelayCommand]
-    private void AddConditionApiCall(CallConditionItem? item)
+    private void DropCallToConditionSection(ConditionDropInfo? info)
     {
-        if (item is null) return;
+        if (info is null || SelectedNode is null) return;
+        if (!GuardSimulationSemanticEdit("Call 조건 변경"))
+            return;
+        var callId = SelectedNode.Id;
 
-        var conditionId = item.ConditionId;
-        var callId = item.CallId;
-
-        var dialog = new ConditionDropDialog();
-        dialog.ShowNonModal(
-            droppedCallId =>
-            {
-                if (!_host.TryRef(
-                        () => Store.GetCallApiCallsForPanel(droppedCallId),
-                        out var rows))
-                    return Array.Empty<ConditionApiCallChoice>();
-
-                return rows
-                    .Select(r => new ConditionApiCallChoice(
-                        r.ApiCallId, $"{r.ApiDefDisplayName} / {r.Name}"))
-                    .ToArray();
-            },
-            selectedApiCallIds =>
-            {
-                if (!_host.TryFunc(
-                        () => Store.AddApiCallsToConditionBatch(
-                            callId, conditionId, selectedApiCallIds),
-                        out var added,
-                        fallback: 0))
-                    return;
-
-                if (added > 0)
-                    RefreshCallPanel(callId);
-
-                _host.SetStatusText(added > 0
-                    ? $"{added} ApiCall(s) added to condition."
-                    : "No ApiCalls were added.");
-            });
+        if (Controls.ConditionDropHelper.ExecuteConditionDrop(
+                Store, _host, callId, info.ConditionType, info.DroppedCallId))
+            RefreshCallPanel(callId);
     }
 
     [RelayCommand]
-    private void RemoveConditionApiCall(ConditionApiCallRow? row)
+    private void DropCallToConditionItem(ConditionItemDropInfo? info)
     {
-        if (row is null) return;
-        if (!_host.TryAction(
-                () => Store.RemoveApiCallFromCondition(row.CallId, row.ConditionId, row.ApiCallId)))
+        if (info is null || SelectedNode is null) return;
+        if (!GuardSimulationSemanticEdit("Call 조건 변경"))
             return;
-        RefreshCallPanel(row.CallId);
+        var callId = SelectedNode.Id;
+
+        if (Controls.ConditionDropHelper.ExecuteAddApiCallsToCondition(
+                Store, _host, callId, info.ConditionId, info.DroppedCallId))
+            RefreshCallPanel(callId);
     }
 
     [RelayCommand]
-    private void EditConditionApiCallSpec(ConditionApiCallRow? row)
+    private void AddChildGroup(CallConditionItem? item)
     {
-        if (row is null) return;
-
-        var dialog = new ValueSpecDialog(row.OutputSpecText, row.OutputSpecTypeIndex, "Edit Output ValueSpec");
-        if (!ShowOwnedDialog(dialog))
+        if (item is null || SelectedNode is null) return;
+        if (!GuardSimulationSemanticEdit("하위 그룹 추가"))
             return;
-
-        if (!_host.TryFunc(
-                () => Store.UpdateConditionApiCallOutputSpec(
-                    row.CallId, row.ConditionId, row.ApiCallId,
-                    dialog.TypeIndex, dialog.ValueSpecText),
-                out var updated,
-                fallback: false))
+        var callId = SelectedNode.Id;
+        if (!_host.TryAction(() => Store.AddChildCondition(callId, item.ConditionId, false)))
             return;
-
-        if (!updated) return;
-        RefreshCallPanel(row.CallId);
+        RefreshCallPanel(callId);
     }
 
-    private void ToggleConditionSetting(CallConditionItem? item, bool toggleIsOR)
+    [RelayCommand]
+    private void EditConditions(ConditionSectionItem? section)
     {
-        if (item is null) return;
-
-        var newIsOR = toggleIsOR ? !item.IsOR : item.IsOR;
-        var newIsRising = toggleIsOR ? item.IsRising : !item.IsRising;
-
-        if (!_host.TryFunc(
-                () => Store.UpdateCallConditionSettings(item.CallId, item.ConditionId, newIsOR, newIsRising),
-                out var updated,
-                fallback: false))
+        if (section is null || SelectedNode is null) return;
+        if (!GuardSimulationSemanticEdit("Call 조건 편집"))
             return;
+        var callId = SelectedNode.Id;
 
-        if (!updated) return;
-        RefreshCallPanel(item.CallId);
+        var dialog = new ConditionEditDialog(Store, _host, callId, section.ConditionType);
+        ShowOwnedDialog(dialog);
+        RefreshCallPanel(callId);
     }
 
     [RelayCommand]
@@ -117,7 +84,7 @@ public partial class PropertyPanelState
         if (row is null) return;
 
         if (!_host.TryRef(
-                () => Store.FindCallsByApiCallId(row.ApiCallId),
+                () => CallConditionQueries.FindCallsByApiCallId(Store, row.ApiCallId),
                 out var callTuples))
             return;
 
@@ -142,22 +109,6 @@ public partial class PropertyPanelState
             calls,
             callId => _host.OpenParentCanvasAndFocusNode(callId, EntityKind.Call));
     }
-
-    [RelayCommand]
-    private void AddChildCondition(CallConditionItem? item)
-    {
-        if (item is null) return;
-        if (!_host.TryAction(
-                () => Store.AddChildCondition(item.CallId, item.ConditionId, isOR: false)))
-            return;
-        RefreshCallPanel(item.CallId);
-    }
-
-    [RelayCommand]
-    private void ToggleConditionIsOR(CallConditionItem? item) => ToggleConditionSetting(item, toggleIsOR: true);
-
-    [RelayCommand]
-    private void ToggleConditionIsRising(CallConditionItem? item) => ToggleConditionSetting(item, toggleIsOR: false);
 
     private void ReloadConditions(Guid callId)
     {

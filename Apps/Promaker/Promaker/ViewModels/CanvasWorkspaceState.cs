@@ -6,13 +6,15 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
 public partial class CanvasWorkspaceState : ObservableObject
 {
     private readonly MainViewModel.CanvasHost _host;
+    private bool _suppressFitToView;
 
     public CanvasWorkspaceState(MainViewModel.CanvasHost host)
     {
@@ -26,24 +28,14 @@ public partial class CanvasWorkspaceState : ObservableObject
     public ObservableCollection<ArrowNode> CanvasArrows { get; } = [];
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ContextualQuickCreateLabel))]
-    [NotifyCanExecuteChangedFor(nameof(QuickAddFlowCommand))]
-    [NotifyCanExecuteChangedFor(nameof(QuickAddContextualNodeCommand))]
     private CanvasTab? _activeTab;
-
-    public string ContextualQuickCreateLabel =>
-        ActiveTab?.Kind switch
-        {
-            TabKind.Flow => "Work",
-            TabKind.Work => "Call",
-            _ => "Work / Call"
-        };
 
     /// <summary>모든 탭이 닫혔을 때 발생합니다.</summary>
     public event Action<CanvasWorkspaceState>? AllTabsClosed;
 
     public Action<Guid>? CenterOnNodeRequested { get; set; }
     public Action? FitToViewZoomOutRequested { get; set; }
+    public Action<double>? ApplyZoomCenteredRequested { get; set; }
     public Func<Point?>? GetViewportCenterRequested { get; set; }
 
     partial void OnActiveTabChanged(CanvasTab? value)
@@ -51,18 +43,14 @@ public partial class CanvasWorkspaceState : ObservableObject
         foreach (var t in OpenTabs)
             t.IsActive = t == value;
 
-        OnPropertyChanged(nameof(ContextualQuickCreateLabel));
         _host.Selection.ClearNodeSelection();
         _host.Selection.ClearArrowSelection();
         RefreshCanvasForActiveTab();
-        FitToViewZoomOutRequested?.Invoke();
-    }
-
-    public void NotifyQuickCreateStateChanged()
-    {
-        OnPropertyChanged(nameof(ContextualQuickCreateLabel));
-        QuickAddFlowCommand.NotifyCanExecuteChanged();
-        QuickAddContextualNodeCommand.NotifyCanExecuteChanged();
+        if (_suppressFitToView)
+            _suppressFitToView = false;
+        else
+            FitToViewZoomOutRequested?.Invoke();
+        _host.NotifyCommandStatesChanged();
     }
 
     public void Reset()
@@ -70,44 +58,85 @@ public partial class CanvasWorkspaceState : ObservableObject
         OpenTabs.Clear();
         CanvasNodes.Clear();
         CanvasArrows.Clear();
+        HighlightedFlowId = null;
         ActiveTab = null;
     }
 
+    /// <summary>Flow 더블클릭 시 특정 Flow를 하이라이트하기 위한 필터 ID.</summary>
+    public Guid? HighlightedFlowId { get; private set; }
+
     public void OpenCanvasTab(Guid entityId, EntityKind entityType, bool expandTree = false)
     {
+        // Flow 더블클릭 → 부모 System 탭에서 해당 Flow의 Work만 하이라이트 (토글)
+        if (entityType == EntityKind.Flow)
+        {
+            var flow = Queries.getFlow(entityId, Store);
+            if (flow == null) return;
+
+            // 같은 Flow 다시 더블클릭 → 하이라이트 해제 (토글)
+            var toggle = HighlightedFlowId == entityId;
+
+            // System 탭을 먼저 열고 (HighlightedFlowId=null 초기화 포함)
+            OpenCanvasTab(flow.Value.ParentId, EntityKind.System, expandTree);
+
+            if (!toggle)
+            {
+                HighlightedFlowId = entityId;
+                RefreshCanvasForActiveTab();
+            }
+            return;
+        }
+
         if (!_host.TryRef(
-                () => Store.TryOpenTabForEntityOrNull(entityType, entityId),
+                () => EditorNavigation.TryOpenTabForEntityOrNull(Store, entityType, entityId),
                 out var info))
             return;
+
+        // System 탭을 열 때 Flow 하이라이트 초기화
+        if (entityType == EntityKind.System)
+            HighlightedFlowId = null;
 
         OpenTab(info.Kind, info.RootId, info.Title);
         if (expandTree)
             _host.ExpandNodeAndAncestors(entityId);
     }
 
-    public void OpenParentCanvasAndFocusNode(Guid entityId, EntityKind entityType)
+    public void OpenParentCanvasAndFocusNode(Guid entityId, EntityKind entityType, double? zoomOverride = null)
     {
         if (!_host.TryRef(
-                () => Store.TryOpenParentTabOrNull(entityType, entityId),
+                () => EditorNavigation.TryOpenParentTabOrNull(Store, entityType, entityId),
                 out var info))
             return;
 
+        if (zoomOverride.HasValue)
+            _suppressFitToView = true;
         OpenTab(info.Kind, info.RootId, info.Title);
+
+        // 줌/센터는 캔버스 로드 직후 즉시 적용 (2단계 전환 방지)
+        if (zoomOverride.HasValue)
+            ApplyZoomCenteredRequested?.Invoke(zoomOverride.Value);
+        CenterOnNodeRequested?.Invoke(entityId);
+
         _host.RequestRebuildAll(() =>
         {
             _host.ExpandNodeAndAncestors(entityId);
-            CenterOnNodeRequested?.Invoke(entityId);
             var node = CanvasNodes.FirstOrDefault(n => n.Id == entityId);
             if (node is not null)
                 _host.SelectNodeFromCanvas(node, ctrlPressed: false, shiftPressed: false);
         });
     }
 
-    [RelayCommand]
+    private bool CanFocusSelectedInCanvas() =>
+        _host.SelectedNode is { EntityType: EntityKind.Work or EntityKind.Call };
+
+    [RelayCommand(CanExecute = nameof(CanFocusSelectedInCanvas))]
     private void FocusSelectedInCanvas()
     {
         if (_host.SelectedNode is not { EntityType: EntityKind.Work or EntityKind.Call } node)
+        {
+            _host.SetStatusText("Select a Work or Call to focus in canvas.");
             return;
+        }
 
         OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
     }
@@ -115,16 +144,15 @@ public partial class CanvasWorkspaceState : ObservableObject
     [RelayCommand]
     private void CloseTab(CanvasTab? tab)
     {
-        if (tab is null)
-            return;
+        if (tab is not null)
+            RemoveTab(tab);
+    }
 
-        var idx = OpenTabs.IndexOf(tab);
-        OpenTabs.Remove(tab);
-        if (ActiveTab == tab)
-            ActiveTab = OpenTabs.Count > 0 ? OpenTabs[Math.Min(idx, OpenTabs.Count - 1)] : null;
-
-        if (OpenTabs.Count == 0)
-            AllTabsClosed?.Invoke(this);
+    [RelayCommand]
+    private void CloseActiveTab()
+    {
+        if (ActiveTab is not null)
+            RemoveTab(ActiveTab);
     }
 
     /// <summary>외부에서 탭을 추가합니다 (분할 이동 시 사용).</summary>
@@ -151,6 +179,8 @@ public partial class CanvasWorkspaceState : ObservableObject
     /// <summary>탭 타이틀 검증 및 캔버스 갱신 (RebuildAll에서 호출).</summary>
     public void ValidateAndRefresh()
     {
+        // 편집 동작(붙여넣기, 삭제, 추가 등) 후 Flow 하이라이트 해제
+        HighlightedFlowId = null;
         var deadTabs = new List<CanvasTab>();
         foreach (var t in OpenTabs)
         {
@@ -170,28 +200,6 @@ public partial class CanvasWorkspaceState : ObservableObject
         RefreshCanvasForActiveTab();
     }
 
-    private bool CanQuickAddFlow() => _host.HasProject;
-
-    [RelayCommand(CanExecute = nameof(CanQuickAddFlow))]
-    private void QuickAddFlow() => _host.ExecuteAddFlow();
-
-    private bool CanQuickAddContextualNode() =>
-        _host.HasProject && ActiveTab?.Kind is TabKind.Flow or TabKind.Work;
-
-    [RelayCommand(CanExecute = nameof(CanQuickAddContextualNode))]
-    private void QuickAddContextualNode()
-    {
-        switch (ActiveTab?.Kind)
-        {
-            case TabKind.Flow:
-                _host.ExecuteAddWork();
-                break;
-            case TabKind.Work:
-                _host.ExecuteAddCall();
-                break;
-        }
-    }
-
     public void RefreshCanvasForActiveTab()
     {
         CanvasNodes.Clear();
@@ -204,20 +212,34 @@ public partial class CanvasWorkspaceState : ObservableObject
         }
 
         if (!_host.TryRef(
-                () => Store.CanvasContentForTab(ActiveTab.Kind, ActiveTab.RootId),
+                () => EditorCanvasProjection.CanvasContentForTab(Store, ActiveTab.Kind, ActiveTab.RootId),
                 out var content,
                 statusOverride: "[ERROR] Failed to refresh canvas content."))
             return;
 
+        // Flow 하이라이트: System 탭에서 특정 Flow의 Work만 활성화
+        HashSet<Guid>? highlightWorkIds = null;
+        if (HighlightedFlowId.HasValue && ActiveTab.Kind == TabKind.System)
+        {
+            var works = Queries.worksOf(HighlightedFlowId.Value, Store);
+            highlightWorkIds = works.Select(w => w.Id).ToHashSet();
+        }
+
         foreach (var n in content.Nodes)
         {
+            var isGhost = n.IsGhost;
+            if (highlightWorkIds is not null && !highlightWorkIds.Contains(n.Id))
+                isGhost = true;
+
             var node = new EntityNode(n.Id, n.EntityKind, n.Name, n.ParentId)
             {
                 X = n.X,
                 Y = n.Y,
                 Width = n.Width,
                 Height = n.Height,
-                IsGhost = n.IsGhost
+                IsGhost = isGhost,
+                IsReference = n.IsReference,
+                ReferenceOfId = n.ReferenceOfId is { } refId ? refId.Value : null,
             };
             node.UpdateConditionTypes(n.ConditionTypes);
             CanvasNodes.Add(node);
@@ -228,12 +250,13 @@ public partial class CanvasWorkspaceState : ObservableObject
 
         RefreshArrowPaths();
         _host.Selection.ApplyNodeSelectionVisuals();
+        _host.RestoreSimStateToCanvas();
     }
 
     public string? ResolveTabTitle(CanvasTab tab)
     {
         if (!_host.TryFunc(
-                () => Store.TabTitleOrNull(tab.Kind, tab.RootId),
+                () => EditorNavigation.TabTitleOrNull(Store, tab.Kind, tab.RootId),
                 out string? title,
                 fallback: null))
             return null;
@@ -246,7 +269,10 @@ public partial class CanvasWorkspaceState : ObservableObject
         var existing = OpenTabs.FirstOrDefault(t => t.Kind == kind && t.RootId == rootId);
         if (existing is not null)
         {
-            ActiveTab = existing;
+            if (ActiveTab == existing)
+                RefreshCanvasForActiveTab(); // Flow 하이라이트 변경 시 강제 리프레시
+            else
+                ActiveTab = existing;
             return;
         }
 
@@ -265,7 +291,7 @@ public partial class CanvasWorkspaceState : ObservableObject
             return;
 
         if (!_host.TryRef(
-                () => Store.FlowIdsForTab(ActiveTab.Kind, ActiveTab.RootId),
+                () => EditorNavigation.FlowIdsForTab(Store, ActiveTab.Kind, ActiveTab.RootId),
                 out var flowIds,
                 statusOverride: "[ERROR] Failed to resolve flow ids for canvas."))
             return;
@@ -276,7 +302,7 @@ public partial class CanvasWorkspaceState : ObservableObject
 
     private void ApplyArrowPathsFromFlow(Guid flowId)
     {
-        if (!_host.TryRef(() => Store.GetFlowArrowPaths(flowId), out var paths))
+        if (!_host.TryRef(() => ArrowPathCalculator.ComputeFlowArrowPaths(Store, flowId), out var paths))
             return;
 
         foreach (var arrow in CanvasArrows)

@@ -3,9 +3,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:conv="clr-namespace:Promaker.Presentation"
              xmlns:ctrl="clr-namespace:Promaker.Controls">
+    <UserControl.Resources>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+    </UserControl.Resources>
     <Border Background="{DynamicResource SecondaryBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
-        <TabControl>
+        <TabControl x:Name="MainTabControl">
             <TabItem Header="Gantt Chart">
                 <ctrl:GanttChartControl x:Name="GanttChart"
                                         DataContext="{Binding GanttChart}"/>
@@ -18,7 +21,16 @@
                     </Grid.RowDefinitions>
                     <StackPanel Orientation="Horizontal" Margin="8,4">
                         <TextBlock Text="Clock: " Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding SimClock}" Foreground="{DynamicResource IconBlueBrush}" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding SimClock}" Foreground="{DynamicResource IconBlueBrush}" FontFamily="Consolas" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0"/>
+
+                        <!-- 토큰 수동 투입 -->
+                        <TextBlock Text="Source:" Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center" Margin="8,0,4,0"/>
+                        <ComboBox ItemsSource="{Binding TokenSourceWorks}"
+                                  SelectedItem="{Binding SelectedTokenSource}"
+                                  DisplayMemberPath="Name"
+                                  MinWidth="120" Height="24" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <Button Content="토큰 투입" Command="{Binding SeedTokenCommand}"
+                                Style="{StaticResource DarkButton}" Padding="8,3" MinWidth="80" VerticalAlignment="Center"/>
                     </StackPanel>
                     <DataGrid Grid.Row="1" ItemsSource="{Binding SimNodes}" AutoGenerateColumns="False"
                               IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
@@ -33,10 +45,12 @@
                             <conv:Status4ToStringConverter x:Key="Status4ToStr"/>
                         </DataGrid.Resources>
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="System" Binding="{Binding SystemName}" Width="120"/>
-                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
-                            <DataGridTextColumn Header="Type" Binding="{Binding NodeType}" Width="60"/>
-                            <DataGridTemplateColumn Header="State" Width="60">
+                            <DataGridTextColumn Header="시스템" Binding="{Binding SystemName}" Width="120"/>
+                            <DataGridTextColumn Header="이름" Binding="{Binding Name}" Width="*"/>
+                            <DataGridTextColumn Header="유형" Binding="{Binding NodeType}" Width="60"/>
+                            <DataGridTextColumn Header="토큰" Binding="{Binding TokenDisplay}" Width="60"
+                                                Foreground="#ffb74d" FontFamily="Consolas"/>
+                            <DataGridTemplateColumn Header="상태" Width="60">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <TextBlock Text="{Binding State, Converter={StaticResource Status4ToStr}}"
@@ -54,7 +68,48 @@
                          Background="{DynamicResource SecondaryBackgroundBrush}"
                          Foreground="{DynamicResource PrimaryTextBrush}"
                          FontFamily="Consolas" FontSize="11"
-                         BorderThickness="0"/>
+                         BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Message}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Severity}" Value="Warn">
+                                                <Setter Property="Foreground" Value="#FFA500"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Severity}" Value="Error">
+                                                <Setter Property="Foreground" Value="#FF4444"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Severity}" Value="Timeout">
+                                                <Setter Property="Foreground" Value="#FF6666"/>
+                                                <Setter Property="FontWeight" Value="Bold"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Severity}" Value="System">
+                                                <Setter Property="Foreground" Value="#00CED1"/>
+                                                <Setter Property="FontWeight" Value="Bold"/>
+                                            </DataTrigger>
+                                            <!-- RGFH: 시뮬레이션 상태 색상과 일치 -->
+                                            <DataTrigger Binding="{Binding Severity}" Value="Ready">
+                                                <Setter Property="Foreground" Value="#32CD32"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Severity}" Value="Going">
+                                                <Setter Property="Foreground" Value="#FFA500"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Severity}" Value="Finish">
+                                                <Setter Property="Foreground" Value="#1E90FF"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Severity}" Value="Homing">
+                                                <Setter Property="Foreground" Value="#888890"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </TabItem>
         </TabControl>
     </Border>

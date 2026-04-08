@@ -21,6 +21,13 @@ public partial class PropertyPanel : UserControl
 
     private void NameEditor_KeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Escape)
+        {
+            ViewModel?.CancelNameEdit();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != Key.Enter) return;
         ApplyName();
         e.Handled = true;

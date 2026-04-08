@@ -1,13 +1,15 @@
 namespace Ds2.Core
 
+open System.Reflection
+
 /// Arrow relation semantics between nodes.
 type ArrowType =
-    | Unspecified = 0
-    | Start       = 1
-    | Reset       = 2
-    | StartReset  = 3
-    | ResetReset  = 4
-    | Group       = 5
+    | Unspecified = 0   // 연결 없음
+    | Start       = 1   // 시작 트리거 (source 완료 시 target 시작)
+    | Reset       = 2   // 리셋 트리거 (source 시작 시 target 리셋)
+    | StartReset  = 3   // 시작+리셋 (source 완료 시 target 시작 + target 시작 시 source 리셋)
+    | ResetReset  = 4   // 리셋+리셋 (source 시작 시 target 리셋 + target 시작 시 source 리셋)
+    | Group       = 5   // 그룹 연결
 
 /// Condition type for CallCondition entries.
 type CallConditionType =
@@ -26,3 +28,24 @@ type Status4 =
 type CallType =
     | WaitForCompletion = 0
     | SkipIfCompleted   = 1
+
+/// Token role for Work in DataToken simulation.
+[<System.Flags>]
+type TokenRole =
+    | None   = 0
+    | Source = 1
+    | Ignore = 2
+    | Sink   = 4
+
+/// Flow runtime state tag for step-by-step simulation.
+type FlowTag =
+    | Ready = 0
+    | Drive = 1
+    | Pause = 2
+
+/// Runtime execution mode.
+type RuntimeMode =
+    | Simulation   = 0  // RGFH 상태 전이만 처리 (가상 시뮬레이션)
+    | Control      = 1  // IO 실제 읽기/쓰기 (PLC 제어)
+    | Monitoring   = 2  // IO 읽어서 RGFH 상태 추적 (모니터링)
+    | VirtualPlant = 3  // 외부 출력 받아서 외부로 입력값 써주기 (가상 플랜트)

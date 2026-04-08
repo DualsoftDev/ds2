@@ -2,7 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.Input;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
@@ -20,20 +21,20 @@ public partial class PropertyPanelState
 
     private bool TryUpdateApiDef(Guid apiDefId, ApiDefEditDialog dialog) =>
         _host.TryAction(
-            () => Store.UpdateApiDef(
-                apiDefId, dialog.ApiDefName, dialog.IsPush,
-                dialog.TxWorkId, dialog.RxWorkId, dialog.Period, dialog.Description));
+            () => Store.UpdateApiDef(apiDefId, dialog.ApiDefName));
 
     [RelayCommand]
     private void AddSystemApiDef()
     {
+        if (!GuardSimulationSemanticEdit("ApiDef 추가"))
+            return;
+
         if (!TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
         if (!TryShowApiDefDialog(systemNode.Id, null, out var dialog)) return;
 
         if (!_host.TryAction(
                 () => Store.AddApiDefWithProperties(
-                    dialog.ApiDefName, systemNode.Id, dialog.IsPush,
-                    dialog.TxWorkId, dialog.RxWorkId, dialog.Period, dialog.Description)))
+                    dialog.ApiDefName, systemNode.Id)))
             return;
 
         RefreshSystemPanel(systemNode.Id);
@@ -43,6 +44,9 @@ public partial class PropertyPanelState
     [RelayCommand]
     private void EditSystemApiDef(ApiDefPanelItem? item)
     {
+        if (!GuardSimulationSemanticEdit("ApiDef 편집"))
+            return;
+
         if (item is null || !TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
         if (!TryShowApiDefDialog(systemNode.Id, item, out var dialog)) return;
         if (!TryUpdateApiDef(item.Id, dialog)) return;
@@ -54,6 +58,9 @@ public partial class PropertyPanelState
     [RelayCommand]
     private void DeleteSystemApiDef(ApiDefPanelItem? item)
     {
+        if (!GuardSimulationSemanticEdit("ApiDef 삭제"))
+            return;
+
         if (item is null || !TryGetSelectedNode(EntityKind.System, out var systemNode)) return;
 
         if (!_host.TryAction(
@@ -62,6 +69,19 @@ public partial class PropertyPanelState
 
         RefreshSystemPanel(systemNode.Id);
         _host.SetStatusText($"ApiDef '{item.Name}' deleted.");
+    }
+
+    [RelayCommand]
+    private void ApplySystemType()
+    {
+        if (RequireSelectedAs(EntityKind.System) is not { } selectedSystem) return;
+
+        if (!_host.TryAction(() => Store.UpdateSystemType(selectedSystem.Id, SystemType)))
+            return;
+
+        _originalSystemType = SystemType;
+        IsSystemTypeDirty = false;
+        _host.SetStatusText("System type updated.");
     }
 
     private void RefreshSystemPanel(Guid systemId)

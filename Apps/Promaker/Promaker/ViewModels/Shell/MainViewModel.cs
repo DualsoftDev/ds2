@@ -1,19 +1,22 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.FSharp.Core;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
+using Ds2.View3D;
 using log4net;
 using Promaker.Dialogs;
 using Promaker.Presentation;
 using Promaker.Services;
 using Promaker.Resources;
+using Promaker.Windows;
 
 namespace Promaker.ViewModels;
 
@@ -26,13 +29,14 @@ public partial class MainViewModel : ObservableObject
     private IDisposable? _eventSubscription;
     private string? _currentFilePath;
     private readonly List<SelectionKey> _clipboardSelection = [];
+    private int _pasteCount;
+    public bool HasClipboardData => _clipboardSelection.Count > 0;
     private bool _rebuildQueued;
     private readonly List<Action> _pendingRebuildActions = [];
+    private View3DWindow? _view3DWindow;
 
     // Services
     private readonly IDialogService _dialogService;
-    private readonly IFileService _fileService;
-    private readonly IProjectService _projectService;
 
     public MainViewModel()
     {
@@ -41,22 +45,52 @@ public partial class MainViewModel : ObservableObject
 
         // Initialize services
         _dialogService = new DialogService();
-        _fileService = new FileService();
-        _projectService = new ProjectService();
 
         Selection = new SelectionState(new SelectionHost(this));
         CanvasManager = new SplitCanvasManager(() => new CanvasWorkspaceState(new CanvasHost(this)));
-        Simulation = new SimulationPanelState(() => _store, _dispatcher, CanvasManager.PrimaryPane.CanvasNodes, value => StatusText = value);
+        CanvasManager.ActivePaneChanged = RefreshEditorCommandStates;
+        Simulation = new SimulationPanelState(() => _store, _dispatcher,
+            () => CanvasManager.AllPanes.SelectMany(p => p.CanvasNodes),
+            () => FlattenTree(ControlTreeRoots).Concat(FlattenTree(DeviceTreeRoots)),
+            value => StatusText = value);
         PropertyPanel = new PropertyPanelState(new PropertyPanelHost(this));
+        Simulation.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SimulationPanelState.IsSimulating))
+            {
+                UndoCommand.NotifyCanExecuteChanged();
+                RedoCommand.NotifyCanExecuteChanged();
+            }
+        };
         WireEvents();
         LanguageManager.ApplySavedLanguage();
         RefreshThemeState();
         RefreshLanguageState();
+        LoadRecentFiles();
+        LoadSplitDeviceAasxSetting();
+        LoadIriPrefixSetting();
+
+        // 템플릿 폴더 초기화
+        Services.TemplateManager.EnsureTemplatesExist();
+    }
+
+    /// <summary>
+    /// 저장된 최근 파일 목록 로드
+    /// </summary>
+    private void LoadRecentFiles()
+    {
+        RecentFiles.Clear();
+        var files = Services.RecentFilesManager.LoadRecentFiles();
+        foreach (var file in files)
+        {
+            RecentFiles.Add(file);
+        }
     }
 
     public ObservableCollection<EntityNode> ControlTreeRoots { get; } = [];
     public ObservableCollection<EntityNode> DeviceTreeRoots { get; } = [];
     public ObservableCollection<HistoryPanelItem> HistoryItems { get; } = [];
+    public ObservableCollection<string> RecentFiles { get; } = [];
     public SplitCanvasManager CanvasManager { get; }
     public CanvasWorkspaceState Canvas => CanvasManager.Canvas;
     public SimulationPanelState Simulation { get; }
@@ -83,9 +117,12 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(AddCallCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(AutoLayoutCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ExportCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenIoBatchDialogCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenDurationBatchDialogCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenTokenSpecDialogCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportCsvCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectSelectedNodesCommand))]
+    [NotifyCanExecuteChangedFor(nameof(Open3DViewCommand))]
     private bool _hasProject;
     [ObservableProperty] private bool _isDarkTheme = ThemeManager.CurrentTheme == AppTheme.Dark;
     [ObservableProperty] private string _themeButtonText = ThemeManager.CurrentTheme == AppTheme.Dark ? Strings.LightTheme : Strings.DarkTheme;
@@ -106,13 +143,22 @@ public partial class MainViewModel : ObservableObject
 
     public Xywh? PendingAddPosition { get; set; }
 
-    public Action? FocusNameEditorRequested { get; set; }
+    [ObservableProperty] private ArrowType _selectedConnectArrowType = ArrowType.Start;
 
-    [RelayCommand]
+    public Action? FocusNameEditorRequested { get; set; }
+    public Action? SearchResetRequested { get; set; }
+
+    private bool CanFocusNameEditor() =>
+        SelectedNode is not null && Selection.OrderedNodeSelection.Count <= 1;
+
+    [RelayCommand(CanExecute = nameof(CanFocusNameEditor))]
     private void FocusNameEditor()
     {
         if (SelectedNode is not null)
+        {
+            PropertyPanel.BeginNameEditGuidance();
             FocusNameEditorRequested?.Invoke();
+        }
     }
 
     [RelayCommand]
@@ -140,15 +186,16 @@ public partial class MainViewModel : ObservableObject
             : "한국어 적용";
     }
 
-    partial void OnSelectedNodeChanged(EntityNode? value)
+    internal void HandleSelectionStateChanged()
     {
-        PropertyPanel.SyncSelectedNode(value);
+        PropertyPanel.SyncSelection(SelectedNode, Selection.OrderedNodeSelection);
+        Simulation.SyncCanvasSelection(Selection.OrderedNodeSelection);
+        RefreshEditorCommandStates();
     }
 
-    partial void OnHasProjectChanged(bool value)
-    {
-        CanvasManager.NotifyQuickCreateStateChanged();
-    }
+    partial void OnSelectedNodeChanged(EntityNode? value) => HandleSelectionStateChanged();
+
+    partial void OnSelectedArrowChanged(ArrowNode? value) => RefreshEditorCommandStates();
 
     private void RefreshThemeState()
     {
@@ -175,17 +222,201 @@ public partial class MainViewModel : ObservableObject
 
         Reset();
         TryEditorAction(() => _store.AddProject("NewProject"));
+
+        // 기본 System + Flow 자동 추가
+        var projectId = Queries.allProjects(_store).Head.Id;
+        var systemId = _store.AddSystem("NewSystem", projectId, isActive: true);
+        _store.AddFlow("NewFlow", systemId);
+
         _store.ClearHistory();
         IsDirty = false;
         HasProject = true;
         UpdateTitle();
+        StatusText = "New project created.";
+
+        RequestRebuildAll(() =>
+        {
+            ExpandAllNodes(ControlTreeRoots);
+            var firstSystem = TreeNodeSearch
+                .EnumerateNodes(ControlTreeRoots)
+                .FirstOrDefault(node => node.EntityType == EntityKind.System);
+            if (firstSystem is not null)
+                Canvas.OpenCanvasTab(firstSystem.Id, EntityKind.System);
+            RefreshEditorCommandStates();
+        });
     }
 
-    [RelayCommand(CanExecute = nameof(CanUndo))]
-    private void Undo() => TryEditorAction(() => _store.Undo());
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(Open3DViewCommand))]
+    private bool _is3DViewEnabled = false;
 
-    [RelayCommand(CanExecute = nameof(CanRedo))]
-    private void Redo() => TryEditorAction(() => _store.Redo());
+    private bool CanOpen3DView() => HasProject && Is3DViewEnabled;
+
+    [RelayCommand(CanExecute = nameof(CanOpen3DView))]
+    private void Open3DView()
+    {
+        if (_view3DWindow is { IsVisible: true })
+        {
+            _view3DWindow.Activate();
+            return;
+        }
+
+        var store = _store;
+        var projectId = Queries.allProjects(_store).Head.Id;
+        _view3DWindow = new View3DWindow(Simulation.ThreeD,
+            onReady: () => Simulation.ThreeD.BuildScene(store, projectId));
+        _view3DWindow.SetSceneData(store, projectId);
+
+        // 3D 뷰 선택 이벤트 콜백 주입 (View3DWindow 생성 후)
+        Simulation.ThreeD.SetSelectionCallbacks(
+            onDeviceSelected: (systemId, kind) => Handle3DDeviceSelection(systemId, kind),
+            onApiDefSelected: (deviceId, apiName) => Handle3DApiDefSelection(deviceId, apiName),
+            onEmptySpaceSelected: () => Handle3DEmptySpaceSelection(),
+            onDeviceInfoRequested: (deviceName, deviceData) => _view3DWindow.ShowDeviceInfo(deviceName, deviceData)
+        );
+
+        _view3DWindow.Owner = Application.Current.MainWindow;
+        _view3DWindow.Show();
+    }
+
+    private void Handle3DDeviceSelection(Guid systemId, EntityKind kind)
+    {
+        // System 노드를 찾아서 선택
+        var systemNode = FindNodeById(systemId, kind);
+        if (systemNode != null)
+        {
+            SelectedNode = systemNode;
+            PropertyPanel.SyncSelection(systemNode, [new SelectionKey(systemId, kind)]);
+        }
+    }
+
+    private void Handle3DApiDefSelection(Guid deviceId, string apiName)
+    {
+        try
+        {
+            if (!_store.Systems.TryGetValue(deviceId, out var system)) return;
+            var systemName = system.Name;
+
+            // Find the specific ApiDef on this system (deviceId == System.Id)
+            var targetApiDef = _store.ApiDefs.Values
+                .FirstOrDefault(ad => ad.ParentId == deviceId
+                    && ad.Name.Equals(apiName, StringComparison.OrdinalIgnoreCase));
+            if (targetApiDef == null) return;
+
+            // Find Calls that reference this ApiDef via ApiCall.ApiDefId
+            // ApiDefId is unique per System, so this automatically filters by device
+            var matchingCalls = _store.Calls.Values
+                .Where(c => c.ApiCalls.Any(ac =>
+                    FSharpOption<Guid>.get_IsSome(ac.ApiDefId)
+                    && ac.ApiDefId.Value == targetApiDef.Id))
+                .ToList();
+
+            var outgoing3D = new List<object>();
+            var incoming3D = new List<object>();
+            var outgoingItems = new List<ConnectionItem>();
+            var incomingItems = new List<ConnectionItem>();
+
+            foreach (var call in matchingCalls)
+            {
+                var workId = call.ParentId;
+                var arrows = Queries.arrowCallsOf(workId, _store);
+
+                // Incoming: arrows pointing TO this call
+                foreach (var arrow in arrows.Where(a => a.TargetId == call.Id))
+                {
+                    if (TryResolveCallToSystemViaApiDef(arrow.SourceId, out var srcSystemId, out var srcApiName))
+                    {
+                        incoming3D.Add(new { deviceId = srcSystemId.ToString(), apiDefName = srcApiName });
+                        var srcSys = _store.Systems.GetValueOrDefault(srcSystemId);
+                        incomingItems.Add(new ConnectionItem(
+                            srcSys?.Name ?? "?", srcApiName ?? "", "←"));
+                    }
+                }
+
+                // Outgoing: arrows FROM this call
+                foreach (var arrow in arrows.Where(a => a.SourceId == call.Id))
+                {
+                    if (TryResolveCallToSystemViaApiDef(arrow.TargetId, out var tgtSystemId, out var tgtApiName))
+                    {
+                        outgoing3D.Add(new { deviceId = tgtSystemId.ToString(), apiDefName = tgtApiName });
+                        var tgtSys = _store.Systems.GetValueOrDefault(tgtSystemId);
+                        outgoingItems.Add(new ConnectionItem(
+                            tgtSys?.Name ?? "?", tgtApiName ?? "", "→"));
+                    }
+                }
+            }
+
+            _ = Simulation.ThreeD.ShowApiDefConnections(deviceId, apiName, outgoing3D, incoming3D);
+            _view3DWindow?.ShowConnectionInfo($"{systemName}.{apiName}", outgoingItems, incomingItems);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[3D] ApiDef selection error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Call → ApiCall → ApiDef → System (ParentId) 체인으로 정확한 System.Id 추출.
+    /// ApiCall.OriginFlowId / ApiDefId 기반이므로 이름 매칭 불필요.
+    /// </summary>
+    private bool TryResolveCallToSystemViaApiDef(Guid callId, out Guid systemId, out string? apiName)
+    {
+        systemId = Guid.Empty;
+        apiName = null;
+        if (!_store.Calls.TryGetValue(callId, out var call)) return false;
+
+        foreach (var ac in call.ApiCalls)
+        {
+            if (!FSharpOption<Guid>.get_IsSome(ac.ApiDefId)) continue;
+            if (!_store.ApiDefs.TryGetValue(ac.ApiDefId.Value, out var apiDef)) continue;
+            if (!_store.Systems.ContainsKey(apiDef.ParentId)) continue;
+
+            systemId = apiDef.ParentId;
+            apiName = apiDef.Name;
+            return true;
+        }
+
+        return false;
+    }
+
+    private void Handle3DEmptySpaceSelection()
+    {
+        // 선택 해제
+        Selection.Reset();
+        PropertyPanel.SyncSelection(null, []);
+    }
+
+    private EntityNode? FindNodeById(Guid id, EntityKind kind)
+    {
+        return kind switch
+        {
+            EntityKind.System => DeviceTreeRoots.FirstOrDefault(n => n.Id == id),
+            EntityKind.Work or EntityKind.Call => ControlTreeRoots
+                .SelectMany(flow => EnumerateAllDescendants(flow))
+                .FirstOrDefault(n => n.Id == id && n.EntityType == kind),
+            _ => null
+        };
+    }
+
+    private static IEnumerable<EntityNode> EnumerateAllDescendants(EntityNode node)
+    {
+        yield return node;
+        foreach (var child in node.Children)
+        {
+            foreach (var descendant in EnumerateAllDescendants(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanUndoNow))]
+    private void Undo() { _pasteCount = 0; TryEditorAction(() => _store.Undo()); }
+    private bool CanUndoNow => CanUndo && !Simulation.IsSimulating;
+
+    [RelayCommand(CanExecute = nameof(CanRedoNow))]
+    private void Redo() { _pasteCount = 0; TryEditorAction(() => _store.Redo()); }
+    private bool CanRedoNow => CanRedo && !Simulation.IsSimulating;
 
     public void EditApiDefNode(Guid apiDefId) => PropertyPanel.EditApiDefNode(apiDefId);
 
@@ -210,12 +441,15 @@ public partial class MainViewModel : ObservableObject
         CanvasManager.Reset();
         _rebuildQueued = false;
         _pendingRebuildActions.Clear();
+        _lastAddWorkTargetFlowId = null;
         SelectedNode = null;
         SelectedArrow = null;
 
         RebuildAll();
         UpdateTitle();
         StatusText = "Ready";
+        RefreshEditorCommandStates();
+        SearchResetRequested?.Invoke();
     }
 
     private bool ConfirmDiscardChanges()
@@ -245,6 +479,8 @@ public partial class MainViewModel : ObservableObject
         CanvasManager.Reset();
         SelectedNode = null;
         SelectedArrow = null;
+        RefreshEditorCommandStates();
+        SearchResetRequested?.Invoke();
     }
 
     private bool TrySaveFileDuringDiscardCheck()
@@ -261,116 +497,17 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    public abstract class HostBase
-    {
-        protected readonly MainViewModel Owner;
-
-        protected HostBase(MainViewModel owner)
-        {
-            Owner = owner;
-        }
-
-        public DsStore Store => Owner._store;
-
-        public bool TryAction(Action action, string? statusOverride = null) =>
-            Owner.TryEditorAction(action, statusOverride: statusOverride);
-
-        public bool TryFunc<T>(Func<T> func, out T value, T fallback, string? statusOverride = null) =>
-            Owner.TryEditorFunc(func, out value, fallback, statusOverride: statusOverride);
-
-        public bool TryRef<T>(Func<T> func, [NotNullWhen(true)] out T? value, string? statusOverride = null)
-            where T : class =>
-            Owner.TryEditorRef(func, out value, statusOverride: statusOverride);
-
-        public void RequestRebuildAll(Action? afterRebuild = null) => Owner.RequestRebuildAll(afterRebuild);
-
-        public void SetStatusText(string text) => Owner.StatusText = text;
-    }
-
-    public sealed class CanvasHost : HostBase
-    {
-        public CanvasHost(MainViewModel owner)
-            : base(owner)
-        {
-        }
-
-        public SelectionState Selection => Owner.Selection;
-        public EntityNode? SelectedNode => Owner.SelectedNode;
-        public ObservableCollection<EntityNode> ControlTreeRoots => Owner.ControlTreeRoots;
-        public ObservableCollection<EntityNode> DeviceTreeRoots => Owner.DeviceTreeRoots;
-        public bool HasProject => Owner.HasProject;
-
-        public void ExpandNodeAndAncestors(Guid nodeId) => Owner.Selection.ExpandNodeAndAncestors(nodeId);
-
-        public void SelectNodeFromCanvas(EntityNode node, bool ctrlPressed, bool shiftPressed) =>
-            Owner.Selection.SelectNodeFromCanvas(node, ctrlPressed, shiftPressed);
-
-        public void ExecuteAddFlow() => Owner.AddFlowCommand.Execute(null);
-
-        public void ExecuteAddWork() => Owner.AddWorkCommand.Execute(null);
-
-        public void ExecuteAddCall() => Owner.AddCallCommand.Execute(null);
-    }
-
-    public sealed class PropertyPanelHost : HostBase
-    {
-        public PropertyPanelHost(MainViewModel owner)
-            : base(owner)
-        {
-        }
-
-        public EntityNode? SelectedNode => Owner.SelectedNode;
-
-        public void RenameSelected(string newName) => Owner.RenameSelectedCommand.Execute(newName);
-
-        public void OpenParentCanvasAndFocusNode(Guid entityId, EntityKind entityKind) =>
-            Owner.Canvas.OpenParentCanvasAndFocusNode(entityId, entityKind);
-
-        public bool ShowOwnedDialog(Window dialog)
-        {
-            if (Application.Current.MainWindow is { } owner)
-                dialog.Owner = owner;
-
-            return dialog.ShowDialog() == true;
-        }
-    }
-
-    public sealed class SelectionHost : HostBase
-    {
-        public SelectionHost(MainViewModel owner)
-            : base(owner)
-        {
-        }
-
-        public ObservableCollection<EntityNode> ControlTreeRoots => Owner.ControlTreeRoots;
-        public ObservableCollection<EntityNode> DeviceTreeRoots => Owner.DeviceTreeRoots;
-        public ObservableCollection<EntityNode> CanvasNodes => Owner.CanvasManager.ActivePane.CanvasNodes;
-        public ObservableCollection<ArrowNode> CanvasArrows => Owner.CanvasManager.ActivePane.CanvasArrows;
-
-        public EntityNode? SelectedNode
-        {
-            get => Owner.SelectedNode;
-            set => Owner.SelectedNode = value;
-        }
-
-        public ArrowNode? SelectedArrow
-        {
-            get => Owner.SelectedArrow;
-            set => Owner.SelectedArrow = value;
-        }
-    }
-
     [RelayCommand]
     private void JumpToHistory(HistoryPanelItem? item)
     {
-        if (item is null) return;
+        if (item is null || Simulation.IsSimulating) return;
         int clickedIdx = HistoryItems.IndexOf(item);
         if (clickedIdx < 0) return;
         int delta = clickedIdx - CurrentHistoryIndex;
         if (delta < 0)
-            TryEditorAction(() => _store.UndoTo(-delta));
+            { _pasteCount = 0; TryEditorAction(() => _store.UndoTo(-delta)); }
         else if (delta > 0)
-            TryEditorAction(() => _store.RedoTo(delta));
+            { _pasteCount = 0; TryEditorAction(() => _store.RedoTo(delta)); }
     }
 
     private void RebuildHistoryItems(
@@ -390,7 +527,7 @@ public partial class MainViewModel : ObservableObject
         foreach (var label in redoList)
             HistoryItems.Add(new HistoryPanelItem(label, isRedo: true));
         CurrentHistoryIndex = undoList.Count;
-        AddSystemCommand.NotifyCanExecuteChanged();
+        RefreshEditorCommandStates();
     }
 
     private void RebuildAll()
@@ -403,7 +540,7 @@ public partial class MainViewModel : ObservableObject
         DeviceTreeRoots.Clear();
 
         if (!TryEditorRef(
-                () => _store.BuildTrees(),
+                () => EditorTreeProjection.BuildTrees(_store),
                 out var trees,
                 statusOverride: "[ERROR] Failed to rebuild tree views."))
             return;
@@ -417,6 +554,7 @@ public partial class MainViewModel : ObservableObject
         Selection.ApplyExpansionStateTo(DeviceTreeRoots, expandedNodes);
 
         CanvasManager.RebuildAllPanes();
+        Simulation.RestoreSimStateToCanvas();
         Selection.RestoreSelection(prevSelection, prevSelectedArrowIds);
     }
 
@@ -451,6 +589,58 @@ public partial class MainViewModel : ObservableObject
         foreach (var child in info.Children)
             node.Children.Add(MapToEntityNode(child));
         return node;
+    }
+
+    private static IEnumerable<EntityNode> FlattenTree(IEnumerable<EntityNode> roots)
+    {
+        foreach (var node in roots)
+        {
+            yield return node;
+            foreach (var child in FlattenTree(node.Children))
+                yield return child;
+        }
+    }
+
+    // ========== SplitDeviceAasx 설정 ==========
+    private static readonly string SplitDeviceAasxSettingsPath = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Dualsoft", "Promaker", "splitDeviceAasx.txt");
+
+    public bool SplitDeviceAasx { get; private set; }
+
+    private void LoadSplitDeviceAasxSetting()
+    {
+        SplitDeviceAasx = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxSettingsPath, false);
+    }
+
+    public void SetSplitDeviceAasx(bool value)
+    {
+        if (SplitDeviceAasx != value)
+        {
+            SplitDeviceAasx = value;
+            AppSettingStore.SaveBool(SplitDeviceAasxSettingsPath, value);
+        }
+    }
+
+    // ========== IriPrefix 설정 ==========
+    private static readonly string IriPrefixSettingsPath = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Dualsoft", "Promaker", "iriPrefix.txt");
+
+    public string IriPrefix { get; private set; } = "https://dualsoft.com/";
+
+    private void LoadIriPrefixSetting()
+    {
+        IriPrefix = AppSettingStore.LoadStringOrDefault(IriPrefixSettingsPath, "https://dualsoft.com/");
+    }
+
+    public void SetIriPrefix(string value)
+    {
+        if (IriPrefix != value)
+        {
+            IriPrefix = value;
+            AppSettingStore.SaveString(IriPrefixSettingsPath, value);
+        }
     }
 }
 

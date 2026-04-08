@@ -4,7 +4,8 @@ using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 
 namespace Promaker.ViewModels;
 
@@ -141,6 +142,7 @@ public sealed class CallConditionItem
         ConditionType = panel.ConditionType;
         IsOR          = panel.IsOR;
         IsRising      = panel.IsRising;
+        FormulaText   = panel.FormulaText();
         Items = panel.Items
             .Select(x => new ConditionApiCallRow(callId, panel.ConditionId, x))
             .ToList();
@@ -154,6 +156,7 @@ public sealed class CallConditionItem
     public CallConditionType ConditionType  { get; }
     public bool               IsOR          { get; }
     public bool               IsRising      { get; }
+    public string             FormulaText   { get; }
     public IReadOnlyList<ConditionApiCallRow> Items { get; }
     public IReadOnlyList<CallConditionItem> Children { get; }
 }
@@ -169,6 +172,8 @@ public sealed class ConditionApiCallRow
         ApiDefDisplayName    = item.ApiDefDisplayName;
         OutputSpecText       = item.OutputSpecText;
         OutputSpecTypeIndex  = item.OutputSpecTypeIndex;
+        InputSpecText        = item.InputSpecText;
+        InputSpecTypeIndex   = item.InputSpecTypeIndex;
     }
 
     public Guid   CallId               { get; }
@@ -178,6 +183,8 @@ public sealed class ConditionApiCallRow
     public string ApiDefDisplayName    { get; }
     public string OutputSpecText       { get; }
     public int    OutputSpecTypeIndex  { get; }
+    public string InputSpecText        { get; }
+    public int    InputSpecTypeIndex   { get; }
 }
 
 public sealed class ConditionSectionItem : ObservableObject
@@ -202,4 +209,16 @@ public sealed class ConditionSectionItem : ObservableObject
         CallConditionType.SkipUnmatch => "condition-skip-unmatch",
         _                             => "condition"
     };
+}
+
+public sealed class ConditionDropInfo(CallConditionType conditionType, Guid droppedCallId)
+{
+    public CallConditionType ConditionType { get; } = conditionType;
+    public Guid DroppedCallId { get; } = droppedCallId;
+}
+
+public sealed class ConditionItemDropInfo(Guid conditionId, Guid droppedCallId)
+{
+    public Guid ConditionId { get; } = conditionId;
+    public Guid DroppedCallId { get; } = droppedCallId;
 }

@@ -1,407 +1,252 @@
 module Ds2.Mermaid.Tests.MapperTests
 
+open System
 open Xunit
 open Ds2.Core
-open Ds2.UI.Core
+open Ds2.Core.Store
+open Ds2.Editor
 open Ds2.Mermaid
-
-// ─── 헬퍼 ───
 
 let private createStore () = DsStore()
 
-let private setupProject (store: DsStore) =
-    let projectId = store.AddProject("TestProject")
-    let systemId = store.AddSystem("TestSystem", projectId, true)
-    (projectId, systemId)
+let private createProjectOnly (store: DsStore) =
+    store.AddProject("TestProject")
 
-let private setupProjectWithFlow (store: DsStore) =
-    let projectId, systemId = setupProject store
+let private createProjectWithFlow (store: DsStore) =
+    let projectId = createProjectOnly store
+    let systemId = store.AddSystem("ActiveSystem", projectId, true)
     let flowId = store.AddFlow("TestFlow", systemId)
-    (projectId, systemId, flowId)
+    projectId, systemId, flowId
 
-let private setupProjectWithWork (store: DsStore) =
-    let projectId, systemId, flowId = setupProjectWithFlow store
-    let workId = store.AddWork("TestWork", flowId)
-    (projectId, systemId, flowId, workId)
+let private createProjectWithWork (store: DsStore) =
+    let projectId, systemId, flowId = createProjectWithFlow store
+    let workId = store.AddWork("TargetWork", flowId)
+    projectId, systemId, flowId, workId
 
-/// 2-depth: subgraph 있음
-let private mermaid2Depth =
-    """
+let private parseOk content =
+    match MermaidParser.parse content with
+    | Ok graph -> graph
+    | Error errors -> failwithf "Parse failed: %A" errors
+
+let private buildPlan store graph level parentId =
+    match MermaidImporter.buildImportPlan store graph level parentId with
+    | Ok plan -> plan
+    | Error errors -> failwithf "Import plan failed: %A" errors
+
+let private applyPlan store graph level parentId =
+    let plan = buildPlan store graph level parentId
+    store.ApplyImportPlan("Mermaid import", plan)
+
+[<Fact>]
+let ``buildImportPlan does not mutate store before apply`` () =
+    let store = createStore()
+    let _, _, flowId = createProjectWithFlow store
+    let beforeWorks = store.Works.Count
+    let beforeCalls = store.Calls.Count
+    let beforeArrows = store.ArrowWorks.Count + store.ArrowCalls.Count
+
+    let graph =
+        parseOk """
 graph TD
-    subgraph W1 ["작업1"]
-        A["SV.ON"]
-        B["SV.OFF"]
+    subgraph W1["Work1"]
+        A["DEV.ON"]
+        B["DEV.OFF"]
         A --> B
     end
-    subgraph W2 ["작업2"]
-        C["MT.RUN"]
+    subgraph W2["Work2"]
+        C["MOTOR.RUN"]
     end
     A --> C
 """
 
-/// 1-depth: subgraph 없이 노드만
-let private mermaid1Depth =
-    """
+    let plan = buildPlan store graph FlowLevel flowId
+
+    Assert.NotEmpty(plan.Operations)
+    Assert.Equal(beforeWorks, store.Works.Count)
+    Assert.Equal(beforeCalls, store.Calls.Count)
+    Assert.Equal(beforeArrows, store.ArrowWorks.Count + store.ArrowCalls.Count)
+
+[<Fact>]
+let ``flow level import creates exact work and arrow topology`` () =
+    let store = createStore()
+    let _, systemId, flowId = createProjectWithFlow store
+
+    let graph =
+        parseOk """
 graph TD
-    X["WorkX"]
-    Y["WorkY"]
-    X --> Y
+    subgraph W1["Work1"]
+        A["DEV.ON"]
+        B["DEV.OFF"]
+        A --> B
+    end
+    subgraph W2["Work2"]
+        C["MOTOR.RUN"]
+    end
+    A --> C
 """
 
-// ─── Flow 2-depth ───
+    applyPlan store graph FlowLevel flowId
+
+    let works =
+        Queries.worksOf flowId store
+        |> List.sortBy (fun work -> work.LocalName)
+    Assert.Equal<string list>(["Work1"; "Work2"], works |> List.map (fun work -> work.LocalName))
+
+    let work1 = works |> List.find (fun work -> work.LocalName = "Work1")
+    let work2 = works |> List.find (fun work -> work.LocalName = "Work2")
+
+    let work1Calls =
+        Queries.callsOf work1.Id store
+        |> List.sortBy (fun call -> call.Name)
+    Assert.Equal<string list>(["DEV.OFF"; "DEV.ON"], work1Calls |> List.map (fun call -> call.Name))
+
+    let work2Calls = Queries.callsOf work2.Id store
+    Assert.Single work2Calls |> ignore
+    let work2Call = List.exactlyOne work2Calls
+    Assert.Equal("MOTOR.RUN", work2Call.Name)
+
+    let workArrows =
+        store.ArrowWorks.Values
+        |> Seq.filter (fun arrow -> arrow.ParentId = systemId)
+        |> Seq.toList
+    Assert.Single workArrows |> ignore
+    let workArrow = List.exactlyOne workArrows
+    Assert.Equal(systemId, workArrow.ParentId)
+    Assert.Equal(work1.Id, workArrow.SourceId)
+    Assert.Equal(work2.Id, workArrow.TargetId)
+    Assert.Equal(ArrowType.Start, workArrow.ArrowType)
+
+    Assert.Single store.ArrowCalls.Values |> ignore
+    let callArrow = store.ArrowCalls.Values |> Seq.toList |> List.exactlyOne
+    Assert.Equal(work1.Id, callArrow.ParentId)
+    Assert.Equal(ArrowType.Start, callArrow.ArrowType)
+
+    let sourceCall = store.Calls.[callArrow.SourceId]
+    let targetCall = store.Calls.[callArrow.TargetId]
+    Assert.Equal("DEV.ON", sourceCall.Name)
+    Assert.Equal("DEV.OFF", targetCall.Name)
 
 [<Fact>]
-let ``Flow 2-depth — Work + Call + Arrow 생성`` () =
+let ``work level import splits call alias and api name exactly`` () =
     let store = createStore()
-    let _, systemId, flowId = setupProjectWithFlow store
+    let _, _, _, workId = createProjectWithWork store
 
-    match MermaidParser.parse mermaid2Depth with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
-
-    let result = MermaidImporter.importIntoStore store graph FlowLevel flowId
-    Assert.True(Result.isOk result)
-
-    // Work 2개 (W1, W2)
-    let works = store.Works.Values |> Seq.filter (fun w -> w.ParentId = flowId) |> Seq.toList
-    Assert.Equal(2, works.Length)
-
-    // Call 3개 (A, B, C)
-    let calls = store.Calls.Values |> Seq.toList
-    Assert.True(calls.Length >= 3)
-
-    // ArrowBetweenCalls (A→B, 같은 Work 내부)
-    Assert.True(store.ArrowCalls.Count >= 1)
-
-    // ArrowBetweenWorks (W1→W2, GlobalEdge)
-    let workArrows = store.ArrowWorks.Values |> Seq.filter (fun a -> a.ParentId = systemId) |> Seq.toList
-    Assert.True(workArrows.Length >= 1)
-
-// ─── Flow 1-depth ───
-
-[<Fact>]
-let ``Flow 1-depth — GlobalNode → Work + ArrowBetweenWorks`` () =
-    let store = createStore()
-    let _, systemId, flowId = setupProjectWithFlow store
-
-    match MermaidParser.parse mermaid1Depth with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
-
-    let result = MermaidImporter.importIntoStore store graph FlowLevel flowId
-    Assert.True(Result.isOk result)
-
-    // Work 2개 (X, Y)
-    let works = store.Works.Values |> Seq.filter (fun w -> w.ParentId = flowId) |> Seq.toList
-    Assert.Equal(2, works.Length)
-
-    // ArrowBetweenWorks 1개 (X→Y)
-    let arrows = store.ArrowWorks.Values |> Seq.filter (fun a -> a.ParentId = systemId) |> Seq.toList
-    Assert.Equal(1, arrows.Length)
-
-// ─── Work 1-depth ───
-
-[<Fact>]
-let ``Work 1-depth — GlobalNode → Call + ArrowBetweenCalls`` () =
-    let store = createStore()
-    let _, _, _, workId = setupProjectWithWork store
-
-    match MermaidParser.parse mermaid1Depth with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
-
-    let result = MermaidImporter.importIntoStore store graph WorkLevel workId
-    Assert.True(Result.isOk result)
-
-    // Call 2개 (X, Y)
-    let calls = store.Calls.Values |> Seq.filter (fun c -> c.ParentId = workId) |> Seq.toList
-    Assert.Equal(2, calls.Length)
-
-    // ArrowBetweenCalls 1개 (X→Y)
-    let arrows = store.ArrowCalls.Values |> Seq.filter (fun a -> a.ParentId = workId) |> Seq.toList
-    Assert.Equal(1, arrows.Length)
-
-// ─── Call 이름 분리 ───
-
-[<Fact>]
-let ``Call 이름 — 점이 있으면 DevicesAlias.ApiName 분리`` () =
-    let store = createStore()
-    let _, _, _, workId = setupProjectWithWork store
-
-    let mermaid = """
+    let graph =
+        parseOk """
 graph TD
     A["CAR_SV.ON"]
-"""
-    match MermaidParser.parse mermaid with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
-
-    MermaidImporter.importIntoStore store graph WorkLevel workId |> ignore
-
-    let call = store.Calls.Values |> Seq.find (fun c -> c.ParentId = workId)
-    Assert.Equal("CAR_SV", call.DevicesAlias)
-    Assert.Equal("ON", call.ApiName)
-
-[<Fact>]
-let ``Call 이름 — 점이 없으면 imported.Label`` () =
-    let store = createStore()
-    let _, _, _, workId = setupProjectWithWork store
-
-    let mermaid = """
-graph TD
-    A["SimpleCall"]
-"""
-    match MermaidParser.parse mermaid with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
-
-    MermaidImporter.importIntoStore store graph WorkLevel workId |> ignore
-
-    let call = store.Calls.Values |> Seq.find (fun c -> c.ParentId = workId)
-    Assert.Equal("imported", call.DevicesAlias)
-    Assert.Equal("SimpleCall", call.ApiName)
-
-// ─── Undo ───
-
-[<Fact>]
-let ``Undo 1회로 Mermaid 임포트 전체 롤백`` () =
-    let store = createStore()
-    let _, _systemId, flowId = setupProjectWithFlow store
-
-    let beforeWorkCount = store.Works.Count
-    let beforeCallCount = store.Calls.Count
-    let beforeArrowCallCount = store.ArrowCalls.Count
-
-    match MermaidParser.parse mermaid2Depth with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
-
-    MermaidImporter.importIntoStore store graph FlowLevel flowId |> ignore
-
-    // 임포트 후 엔티티가 증가했는지 확인
-    Assert.True(store.Works.Count > beforeWorkCount)
-    Assert.True(store.Calls.Count > beforeCallCount)
-
-    // Undo 1회
-    store.Undo()
-
-    // 원래 상태로 복원
-    Assert.Equal(beforeWorkCount, store.Works.Count)
-    Assert.Equal(beforeCallCount, store.Calls.Count)
-    Assert.Equal(beforeArrowCallCount, store.ArrowCalls.Count)
-
-// ─── 검증 ───
-
-[<Fact>]
-let ``WorkLevel에 subgraph가 있으면 Invalid`` () =
-    match MermaidParser.parse mermaid2Depth with
-    | Error _ -> ()
-    | Ok graph ->
-        match MermaidAnalyzer.validate graph WorkLevel with
-        | Valid -> Assert.Fail("subgraph가 있는데 WorkLevel이 Valid")
-        | Invalid errors -> Assert.True(errors.Length > 0)
-
-// ─── ArrowType 매핑 ───
-
-[<Fact>]
-let ``ArrowLabel → ArrowType 변환`` () =
-    Assert.Equal(ArrowType.Start, MermaidMapper.mapArrowType NoLabel)
-    Assert.Equal(ArrowType.Reset, MermaidMapper.mapArrowType Interlock)
-    Assert.Equal(ArrowType.Reset, MermaidMapper.mapArrowType SelfReset)
-    Assert.Equal(ArrowType.StartReset, MermaidMapper.mapArrowType StartReset)
-    Assert.Equal(ArrowType.Start, MermaidMapper.mapArrowType StartEdge)
-    Assert.Equal(ArrowType.Reset, MermaidMapper.mapArrowType ResetEdge)
-    Assert.Equal(ArrowType.ResetReset, MermaidMapper.mapArrowType ResetReset)
-    Assert.Equal(ArrowType.Group, MermaidMapper.mapArrowType Group)
-    Assert.Equal(ArrowType.Start, MermaidMapper.mapArrowType AutoPre)
-    Assert.Equal(ArrowType.Start, MermaidMapper.mapArrowType (Custom "anything"))
-
-// ─── System 레벨 Import ───
-
-[<Fact>]
-let ``SystemLevel Import — subgraph가 System으로 매핑`` () =
-    let store = createStore()
-    let projectId, _ = setupProject store
-
-    // 3-depth: System > Flow > Work > Call(node)
-    let mermaid = """
-graph TD
-    subgraph STN1["Station1"]
-        subgraph F1["Flow1"]
-            subgraph W1["Work1"]
-                A["Dev.ON"]
-                B["Dev.OFF"]
-                A --> B
-            end
-        end
-    end
-    subgraph STN2["Station2"]
-        subgraph F2["Flow2"]
-            subgraph W2["Work2"]
-                C["Dev.Run"]
-            end
-        end
-    end
-"""
-    match MermaidParser.parse mermaid with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
-
-    MermaidImporter.importIntoStore store graph SystemLevel projectId |> ignore
-
-    let project = store.Projects.[projectId]
-    // 기존 TestSystem + STN1 + STN2 = 3 active systems
-    Assert.True(project.ActiveSystemIds.Count >= 3)
-
-    // System 2개, Flow 2개, Work 2개, Call 3개
-    Assert.True(store.Systems.Count >= 3)
-    Assert.True(store.Flows.Count >= 3)  // 기존 TestFlow + F1 + F2
-    Assert.True(store.Works.Count >= 3)  // 기존 TestWork + W1 + W2
-    Assert.True(store.Calls.Count >= 3)
-
-// ─── Device auto-creation (Work 레벨) ───
-
-[<Fact>]
-let ``Work 레벨 — Device.ApiName 형식 Call이면 Device System 자동 생성`` () =
-    let store = createStore()
-    let _projectId, _systemId, _flowId, workId = setupProjectWithWork store
-
-    let mermaid = """
-graph TD
-    A["SV.ON"]
-    B["SV.OFF"]
+    B["CAR_SV.OFF"]
     A --> B
 """
-    match MermaidParser.parse mermaid with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
 
-    MermaidImporter.importIntoStore store graph WorkLevel workId |> ignore
+    applyPlan store graph WorkLevel workId
 
-    // Call 2개
-    let calls = store.Calls.Values |> Seq.filter (fun c -> c.ParentId = workId) |> Seq.toList
+    let calls =
+        Queries.callsOf workId store
+        |> List.sortBy (fun call -> call.ApiName)
+
     Assert.Equal(2, calls.Length)
+    Assert.Equal("CAR_SV", calls.[0].DevicesAlias)
+    Assert.Equal("OFF", calls.[0].ApiName)
+    Assert.Equal("CAR_SV", calls.[1].DevicesAlias)
+    Assert.Equal("ON", calls.[1].ApiName)
 
-    // Device System 생성 확인 (TestFlow_SV)
-    let project = store.Projects.Values |> Seq.head
-    let passiveSystems = project.PassiveSystemIds |> Seq.choose (fun id -> store.Systems.TryGetValue(id) |> function true, s -> Some s | _ -> None) |> Seq.toList
-    Assert.True(passiveSystems.Length >= 1)
-
-    // ApiDef 생성 확인
-    let apiDefs = store.ApiDefs.Values |> Seq.toList
-    Assert.True(apiDefs.Length >= 2)  // ON, OFF
-
-    // ApiCall 연결 확인
-    let apiCalls = store.ApiCalls.Values |> Seq.toList
-    Assert.True(apiCalls.Length >= 2)
-
-// ─── 인라인 노드 정의 (naming bug fix) ───
+    let callArrow = Assert.Single store.ArrowCalls.Values
+    let sourceCall = store.Calls.[callArrow.SourceId]
+    let targetCall = store.Calls.[callArrow.TargetId]
+    Assert.Equal("CAR_SV.ON", sourceCall.Name)
+    Assert.Equal("CAR_SV.OFF", targetCall.Name)
 
 [<Fact>]
-let ``인라인 노드 정의 — Arrow에서 A["Label"] 형식도 노드로 등록`` () =
-    let mermaid = """
+let ``system level import creates exact active and passive structure`` () =
+    let store = createStore()
+    let projectId = createProjectOnly store
+
+    let graph =
+        parseOk """
 graph TD
-    A["SV.ON"] --> B["SV.OFF"]
+    subgraph ACTIVE["ActiveSystem"]
+        subgraph AF["ActiveFlow"]
+            subgraph AW["ActiveWork"]
+                A["DEV.ON"]
+            end
+        end
+    end
+    %% [Passive]
+    subgraph DEVICE["DeviceSystem"]
+        subgraph DF["DeviceFlow"]
+            subgraph DW["DeviceWork"]
+                B["DEV.RUN"]
+            end
+        end
+    end
 """
-    match MermaidParser.parse mermaid with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
 
-    // 노드 2개가 등록되어야 함
-    Assert.Equal(2, graph.GlobalNodes.Length)
-    Assert.Contains(graph.GlobalNodes, fun n -> n.Id = "A" && n.Label = "SV.ON")
-    Assert.Contains(graph.GlobalNodes, fun n -> n.Id = "B" && n.Label = "SV.OFF")
+    applyPlan store graph SystemLevel projectId
 
-    // Edge는 ID 기준
-    Assert.Equal(1, graph.GlobalEdges.Length)
-    Assert.Equal("A", graph.GlobalEdges.[0].SourceId)
-    Assert.Equal("B", graph.GlobalEdges.[0].TargetId)
+    let project = store.Projects.[projectId]
+    let activeSystem =
+        store.Systems.Values
+        |> Seq.find (fun system -> system.Name = "ActiveSystem")
+    let passiveSystem =
+        store.Systems.Values
+        |> Seq.find (fun system -> system.Name = "DeviceSystem")
 
-// ─── Export ───
+    Assert.Contains(activeSystem.Id, project.ActiveSystemIds)
+    Assert.Contains(passiveSystem.Id, project.PassiveSystemIds)
+
+    let systems =
+        store.Systems.Values
+        |> Seq.sortBy (fun system -> system.Name)
+        |> Seq.toList
+    Assert.Contains("ActiveSystem", systems |> List.map (fun system -> system.Name))
+    Assert.Contains("DeviceSystem", systems |> List.map (fun system -> system.Name))
+
+    let flows =
+        store.Flows.Values
+        |> Seq.sortBy (fun flow -> flow.Name)
+        |> Seq.toList
+    let flowNames = flows |> List.map (fun flow -> flow.Name)
+    Assert.Contains("ActiveFlow", flowNames)
+    Assert.Contains("DeviceFlow", flowNames)
+
+    let works =
+        store.Works.Values
+        |> Seq.sortBy (fun work -> work.LocalName)
+        |> Seq.toList
+    let workNames = works |> List.map (fun work -> work.LocalName)
+    Assert.Contains("ActiveWork", workNames)
+    Assert.Contains("DeviceWork", workNames)
+
+    let calls =
+        store.Calls.Values
+        |> Seq.sortBy (fun call -> call.Name)
+        |> Seq.toList
+    let callNames = calls |> List.map (fun call -> call.Name)
+    Assert.Contains("DEV.ON", callNames)
+    Assert.Contains("DEV.RUN", callNames)
 
 [<Fact>]
-let ``Export — flowToMermaid 2-depth 구조`` () =
+let ``undo rolls back one mermaid import unit`` () =
     let store = createStore()
-    let _, _, flowId = setupProjectWithFlow store
+    let _, _, flowId = createProjectWithFlow store
 
-    // Work 2개 + Call + Arrow 생성
-    match MermaidParser.parse mermaid2Depth with
-    | Error _ -> ()
-    | Ok graph ->
-    MermaidImporter.importIntoStore store graph FlowLevel flowId |> ignore
+    let graph =
+        parseOk """
+graph TD
+    subgraph W1["Work1"]
+        A["DEV.ON"]
+    end
+"""
 
-    let mermaid = MermaidExporter.flowToMermaid store flowId
-    Assert.False(System.String.IsNullOrWhiteSpace(mermaid), "flowToMermaid 비어있음")
-    Assert.Contains("subgraph", mermaid)
+    let beforeWorks = store.Works.Count
+    let beforeCalls = store.Calls.Count
 
-[<Fact>]
-let ``Export — systemToMermaid Active + Passive 구분`` () =
-    let store = createStore()
-    let projectId, _, flowId = setupProjectWithFlow store
+    applyPlan store graph FlowLevel flowId
+    Assert.True(store.Works.Count > beforeWorks)
+    Assert.True(store.Calls.Count > beforeCalls)
 
-    // Work + Call 생성 (Device auto-creation 트리거)
-    match MermaidParser.parse mermaid2Depth with
-    | Error _ -> ()
-    | Ok graph ->
-    MermaidImporter.importIntoStore store graph FlowLevel flowId |> ignore
+    store.Undo()
 
-    let mermaid = MermaidExporter.systemToMermaid store projectId
-    Assert.False(System.String.IsNullOrWhiteSpace(mermaid), "systemToMermaid 비어있음")
-    Assert.Contains("subgraph", mermaid)
-
-[<Fact>]
-let ``Export and import — duplicate call names keep condition source by node id`` () =
-    let store = createStore()
-    let projectId, _, flowId = setupProjectWithFlow store
-
-    let sourceAId = store.AddWork("SourceA", flowId)
-    let sourceBId = store.AddWork("SourceB", flowId)
-    let targetId = store.AddWork("TargetWork", flowId)
-
-    store.AddCallsWithDevice(projectId, sourceAId, [ "Dev.Api" ], true)
-    store.AddCallsWithDevice(projectId, sourceBId, [ "Dev.Api" ], true)
-    store.AddCallsWithDevice(projectId, targetId, [ "Target.Do" ], true)
-
-    let sourceACall = DsQuery.callsOf sourceAId store |> List.head
-    let targetCall = DsQuery.callsOf targetId store |> List.head
-    let sourceAApiCall = sourceACall.ApiCalls |> Seq.head
-
-    store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
-    let conditionId =
-        store.Calls[targetCall.Id].CallConditions
-        |> Seq.head
-        |> fun condition -> condition.Id
-
-    store.AddApiCallsToConditionBatch(targetCall.Id, conditionId, [ sourceAApiCall.Id ]) |> ignore
-
-    let mermaid = MermaidExporter.flowToMermaid store flowId
-
-    let importedStore = createStore()
-    let _, _, importedFlowId = setupProjectWithFlow importedStore
-
-    match MermaidParser.parse mermaid with
-    | Error e -> Assert.Fail($"파싱 실패: {e}")
-    | Ok graph ->
-        let result = MermaidImporter.importIntoStore importedStore graph FlowLevel importedFlowId
-        Assert.True(Result.isOk result)
-
-    let importedTargetWork =
-        importedStore.Works.Values
-        |> Seq.find (fun work -> work.ParentId = importedFlowId && work.Name = "TargetWork")
-
-    let importedTargetCall =
-        importedStore.Calls.Values
-        |> Seq.find (fun call -> call.ParentId = importedTargetWork.Id && call.Name = "Target.Do")
-
-    let importedCondition =
-        importedStore.Calls.[importedTargetCall.Id].CallConditions
-        |> Seq.head
-
-    let importedSourceApiCall = importedCondition.Conditions |> Seq.head
-
-    let importedSourceCall =
-        importedStore.Calls.Values
-        |> Seq.find (fun call -> call.ApiCalls |> Seq.exists (fun apiCall -> apiCall.Id = importedSourceApiCall.Id))
-
-    let importedSourceWork = importedStore.Works.[importedSourceCall.ParentId]
-    Assert.Equal("SourceA", importedSourceWork.Name)
+    Assert.Equal(beforeWorks, store.Works.Count)
+    Assert.Equal(beforeCalls, store.Calls.Count)

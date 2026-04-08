@@ -1,23 +1,29 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
-using Ds2.Runtime.Sim.Engine;
-using Ds2.Runtime.Sim.Engine.Core;
-using Ds2.Runtime.Sim.Model;
-using Ds2.Runtime.Sim.Report;
-using Ds2.Runtime.Sim.Report.Exporters;
-using Ds2.Runtime.Sim.Report.Model;
-using Ds2.UI.Core;
+using Ds2.Runtime.Engine;
+using Ds2.Runtime.Model;
+using Ds2.Runtime.Report;
+using Ds2.Runtime.Report.Model;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using log4net;
-using Microsoft.Win32;
-using Promaker.Presentation;
 
 namespace Promaker.ViewModels;
+
+public enum LogSeverity { Info, Warn, Error, Timeout, Ready, Going, Finish, Homing, System }
+
+public sealed class SimLogEntry(string message, LogSeverity severity = LogSeverity.Info)
+{
+    public string Message { get; } = message;
+    public LogSeverity Severity { get; } = severity;
+    public override string ToString() => Message;
+}
 
 /// <summary>시뮬레이션 패널과 툴바의 시뮬레이션 상태/명령을 담당합니다.</summary>
 public partial class SimulationPanelState : ObservableObject
@@ -26,19 +32,28 @@ public partial class SimulationPanelState : ObservableObject
 
     private readonly Func<DsStore> _storeProvider;
     private readonly Dispatcher _dispatcher;
-    private readonly ObservableCollection<EntityNode> _canvasNodes;
+    private readonly Func<IEnumerable<EntityNode>> _allCanvasNodes;
+    private readonly Func<IEnumerable<EntityNode>> _allTreeNodes;
     private readonly Action<string> _setStatusText;
     private ISimulationEngine? _simEngine;
+    internal ISimulationEngine? SimEngine => _simEngine;
     private DateTime _simStartTime = DateTime.Now;
     private readonly List<StateChangeRecord> _stateChangeRecords = [];
     private readonly StateCache _stateCache = new();
+    private readonly HashSet<string> _suppressedWarnings = [];
+    private readonly HashSet<Guid> _warningGuids = [];
+    private bool _isStepMode;
+    private long _simUiGeneration;
+    private ISceneEventHandler? _sceneEventHandler;
 
     private static class SimText
     {
+        public const string Running = "시뮬레이션 동작 중";
+        public const string StepMode = "시뮬레이션 단계 제어 중";
         public const string Resumed = "시뮬레이션 재개";
         public const string Started = "시뮬레이션 시작";
         public const string Paused = "시뮬레이션 일시정지";
-        public const string Stopped = "시뮬레이션 중지";
+        public const string Stopped = "시뮬레이션 정지 됨";
         public const string Completed = "시뮬레이션 완료";
         public const string Reset = "시뮬레이션 리셋";
         public const string ResetLog = "시뮬레이션 리셋 (F5/정지)";
@@ -51,42 +66,75 @@ public partial class SimulationPanelState : ObservableObject
         public static string ReportSaved(string path) => $"리포트 저장 완료: {path}";
         public static string ReportSaveFailed(string message) => $"리포트 저장 실패: {message}";
         public static string ReportError(string message) => $"리포트 오류: {message}";
-        public static string StateCode(Status4 state) => Status4Visuals.ShortCode(state);
+        public static string StateCode(Status4 state) => Presentation.Status4Visuals.ShortCode(state);
+
+        public const string ClockFormat = @"hh\:mm\:ss\.fff";
+        public const string ClockZero   = "00:00:00.000";
     }
 
     public SimulationPanelState(
         Func<DsStore> storeProvider,
         Dispatcher dispatcher,
-        ObservableCollection<EntityNode> canvasNodes,
+        Func<IEnumerable<EntityNode>> allCanvasNodes,
+        Func<IEnumerable<EntityNode>> allTreeNodes,
         Action<string> setStatusText)
     {
         _storeProvider = storeProvider;
         _dispatcher = dispatcher;
-        _canvasNodes = canvasNodes;
+        _allCanvasNodes = allCanvasNodes;
+        _allTreeNodes = allTreeNodes;
         _setStatusText = setStatusText;
     }
 
     private DsStore Store => _storeProvider();
+    private long AdvanceSimUiGeneration() => Interlocked.Increment(ref _simUiGeneration);
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanChangeSpeed))]
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(StopSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(ResetSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
     private bool _isSimulating;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanChangeSpeed))]
+    [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
+    [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    private bool _isSimPaused;
+
+    /// 자동 원위치 페이즈 진행 중 — PLAY/PAUSE/ForceWork/ForceReset/SeedToken/Step 비활성화
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
-    private bool _isSimPaused;
+    [NotifyCanExecuteChangedFor(nameof(SeedTokenCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    private bool _isHomingPhase;
+
+    [ObservableProperty]
+    private bool _hasWorkGoing;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
+    private bool _hasGoingCall;
+
+    [ObservableProperty] private string _simStatusText = SimText.Stopped;
+
+    public bool CanChangeSpeed => !IsSimulating || IsSimPaused;
 
     [ObservableProperty] private double _simSpeed = 1.0;
     [ObservableProperty] private bool _simTimeIgnore;
-    [ObservableProperty] private string _simClock = "00:00:00.000";
+    [ObservableProperty] private string _simClock = SimText.ClockZero;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ExportReportCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExportReportXlsxCommand))]
@@ -96,6 +144,7 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkResetCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StepSimulationCommand))]
     private SimWorkItem? _selectedSimWork;
 
     partial void OnSelectedSimWorkChanged(SimWorkItem? value)
@@ -105,281 +154,34 @@ public partial class SimulationPanelState : ObservableObject
     }
 
     public ObservableCollection<SimNodeRow> SimNodes { get; } = [];
-    public ObservableCollection<string> SimEventLog { get; } = [];
+    public ObservableCollection<SimLogEntry> SimEventLog { get; } = [];
     public ObservableCollection<SimWorkItem> SimWorkItems { get; } = [];
     public GanttChartState GanttChart { get; } = new();
+    public ThreeDViewState ThreeD { get; } = new();
 
-    [RelayCommand(CanExecute = nameof(CanStartSimulation))]
-    private void StartSimulation()
+    public void SyncCanvasSelection(IReadOnlyList<SelectionKey> orderedSelection)
     {
-        if (IsSimulating && IsSimPaused)
+        if (!IsSimulating) return;
+        foreach (var key in orderedSelection)
         {
-            _simEngine?.Resume();
-            GanttChart.IsRunning = true;
-            IsSimPaused = false;
-            _setStatusText(SimText.Resumed);
-            return;
-        }
-
-        try
-        {
-            var index = SimIndexModule.build(Store, 10);
-            _simEngine?.Dispose();
-            _simEngine = new EventDrivenEngine(index);
-
-            WireSimEvents();
-            InitSimNodes();
-
-            _simStartTime = DateTime.Now;
-            _stateChangeRecords.Clear();
-            HasReportData = false;
-            SimEventLog.Clear();
-
-            GanttChart.Reset(_simStartTime);
-            InitGanttEntries();
-            GanttChart.IsRunning = true;
-
-            _simEngine.ApplyInitialStates();
-            _simEngine.Start();
-
-            ApplySimStateToCanvas();
-            IsSimulating = true;
-            IsSimPaused = false;
-            SetSimStatus(SimText.Started, SimText.Started);
-        }
-        catch (Exception ex)
-        {
-            SimLog.Error("Simulation start failed", ex);
-            _setStatusText(SimText.SimulationError(ex.Message));
-        }
-    }
-
-    private bool CanStartSimulation() => !IsSimulating || IsSimPaused;
-
-    [RelayCommand(CanExecute = nameof(CanPauseSimulation))]
-    private void PauseSimulation()
-    {
-        _simEngine?.Pause();
-        GanttChart.IsRunning = false;
-        IsSimPaused = true;
-        SetSimStatus(SimText.Paused, SimText.Paused);
-    }
-
-    private bool CanPauseSimulation() => IsSimulating && !IsSimPaused;
-
-    [RelayCommand(CanExecute = nameof(CanStopSimulation))]
-    private void StopSimulation()
-    {
-        _simEngine?.Stop();
-        GanttChart.IsRunning = false;
-        ClearSimStateFromCanvas();
-        IsSimulating = false;
-        IsSimPaused = false;
-        SetSimStatus(SimText.Stopped, SimText.Stopped);
-    }
-
-    private bool CanStopSimulation() => IsSimulating;
-
-    [RelayCommand(CanExecute = nameof(CanResetSimulation))]
-    private void ResetSimulation()
-    {
-        _simEngine?.Reset();
-        _simStartTime = DateTime.Now;
-        ApplySimulationResetUiState(clearCollections: false);
-        GanttChart.Reset(_simStartTime);
-        InitGanttEntries();
-        SetSimStatus(SimText.Reset, SimText.ResetLog);
-    }
-
-    private bool CanResetSimulation() => IsSimulating;
-
-    [RelayCommand(CanExecute = nameof(CanForceWork))]
-    private void ForceWorkStart()
-    {
-        if (!TryGetSelectedSimWork(out var engine, out var selectedWork)) return;
-
-        var guid = selectedWork.Guid;
-        var currentState = _stateCache.GetOrDefault(guid, Status4.Ready);
-        if (currentState == Status4.Going) return;
-
-        engine.ForceWorkState(guid, Status4.Going);
-        AddSimLog(SimText.ManualWorkStarted(selectedWork.Name));
-    }
-
-    [RelayCommand(CanExecute = nameof(CanForceWork))]
-    private void ForceWorkReset()
-    {
-        if (!TryGetSelectedSimWork(out var engine, out var selectedWork)) return;
-
-        engine.ForceWorkState(selectedWork.Guid, Status4.Ready);
-        AddSimLog(SimText.ManualWorkReset(selectedWork.Name));
-    }
-
-    private bool CanForceWork() => IsSimulating && !IsSimPaused && SelectedSimWork is not null;
-
-    partial void OnSimSpeedChanged(double value)
-    {
-        if (_simEngine is { } engine) engine.SpeedMultiplier = value;
-    }
-
-    partial void OnSimTimeIgnoreChanged(bool value)
-    {
-        if (_simEngine is { } engine) engine.TimeIgnore = value;
-    }
-
-    [RelayCommand(CanExecute = nameof(CanExportReport))]
-    private void ExportReportCsv() => ExportReportAs(ExportFormat.Csv);
-
-    [RelayCommand(CanExecute = nameof(CanExportReport))]
-    private void ExportReportXlsx() => ExportReportAs(ExportFormat.Excel);
-
-    [RelayCommand(CanExecute = nameof(CanExportReport))]
-    private void ExportReportHtml() => ExportReportAs(ExportFormat.Html);
-
-    private bool CanExportReport() => HasReportData;
-
-    public void ResetForNewStore()
-    {
-        DisposeSimEngine();
-        _simStartTime = DateTime.Now;
-        ApplySimulationResetUiState(clearCollections: true);
-        GanttChart.Reset(_simStartTime);
-    }
-
-    private void AddSimLog(string message)
-    {
-        var ts = _simEngine?.State.Clock.ToString(@"hh\:mm\:ss\.fff") ?? "00:00:00.000";
-        SimEventLog.Insert(0, $"[{ts}] {message}");
-        if (SimEventLog.Count > 500) SimEventLog.RemoveAt(SimEventLog.Count - 1);
-    }
-
-    private void SetSimStatus(string statusText, string? logText = null)
-    {
-        _setStatusText(statusText);
-        if (!string.IsNullOrWhiteSpace(logText))
-            AddSimLog(logText);
-    }
-
-    private bool TryGetSelectedSimWork(
-        [NotNullWhen(true)] out ISimulationEngine? engine,
-        [NotNullWhen(true)] out SimWorkItem? selectedWork)
-    {
-        engine = _simEngine;
-        selectedWork = SelectedSimWork;
-        return engine is not null && selectedWork is not null;
-    }
-
-    private void DisposeSimEngine()
-    {
-        _simEngine?.Dispose();
-        _simEngine = null;
-        ClearSimStateFromCanvas();
-        IsSimulating = false;
-        IsSimPaused = false;
-        _stateCache.Clear();
-    }
-
-    private void ApplySimulationResetUiState(bool clearCollections)
-    {
-        GanttChart.IsRunning = false;
-        _stateChangeRecords.Clear();
-        HasReportData = false;
-        SimClock = "00:00:00.000";
-        SelectedSimWork = null;
-        IsSimulating = false;
-        IsSimPaused = false;
-        _stateCache.Clear();
-        ClearSimStateFromCanvas();
-
-        if (clearCollections)
-        {
-            SimNodes.Clear();
-            SimEventLog.Clear();
-            SimWorkItems.Clear();
-            return;
-        }
-
-        SimEventLog.Clear();
-        foreach (var row in SimNodes)
-            row.State = Status4.Ready;
-    }
-
-    private DateTime CurrentSimulationTimestamp()
-    {
-        var clock = _simEngine?.State.Clock ?? TimeSpan.Zero;
-        return _simStartTime + clock;
-    }
-
-    private void ExportReportAs(ExportFormat format)
-    {
-        var report = BuildReport();
-        if (report.Entries.IsEmpty)
-        {
-            _setStatusText(SimText.ReportEmpty);
-            return;
-        }
-
-        var filter = ExportHelper.getFilter(format);
-        var ext = ExportHelper.getExtension(format);
-
-        var dlg = new SaveFileDialog
-        {
-            Title = SimText.ReportDialogTitle,
-            Filter = filter,
-            DefaultExt = ext,
-            FileName = $"SimReport_{DateTime.Now:yyyyMMdd_HHmmss}{ext}"
-        };
-
-        if (dlg.ShowDialog() != true) return;
-
-        try
-        {
-            var options = new ExportOptions
+            if (key.EntityKind != EntityKind.Work) continue;
+            var match = SimWorkItems.FirstOrDefault(item => item.Guid == key.Id);
+            if (match is not null)
             {
-                Format = format,
-                FilePath = dlg.FileName,
-                IncludeGanttChart = true,
-                IncludeSummary = true,
-                IncludeDetails = true,
-                PixelsPerSecond = 10.0
-            };
-            var result = ReportService.export(report, options);
-
-            if (result.IsSuccess)
-                _setStatusText(SimText.ReportSaved(dlg.FileName));
-            else if (result.IsError)
-                _setStatusText(SimText.ReportSaveFailed(((ExportResult.Error)result).message));
+                SelectedSimWork = match;
+                return;
+            }
         }
-        catch (Exception ex)
-        {
-            SimLog.Error("Report export failed", ex);
-            _setStatusText(SimText.ReportError(ex.Message));
-        }
-    }
-
-    private void RecordStateChange(string nodeId, string nodeName, string nodeType, string systemId, Status4 state)
-    {
-        var stateString = SimText.StateCode(state);
-        var timestamp = CurrentSimulationTimestamp();
-        _stateChangeRecords.Add(
-            new StateChangeRecord(nodeId, nodeName, nodeType, systemId, stateString, timestamp));
-        HasReportData = _stateChangeRecords.Count > 0;
-    }
-
-    private SimulationReport BuildReport()
-    {
-        if (_stateChangeRecords.Count == 0) return ReportService.empty();
-
-        var currentTime = CurrentSimulationTimestamp();
-        var lastRecordTime = _stateChangeRecords[^1].Timestamp;
-        var endTime = currentTime >= lastRecordTime ? currentTime : lastRecordTime;
-        return ReportService.fromStateChanges(_simStartTime, endTime, _stateChangeRecords);
     }
 }
 
 /// <summary>Work 선택 ComboBox 항목입니다.</summary>
 public record SimWorkItem(Guid Guid, string Name)
 {
+    public static readonly SimWorkItem AutoStart = new(Guid.Empty, "자동선택");
+    public static readonly SimWorkItem SourceHeader = new(Guid.Empty, "── 시작노드 ──");
+    public static readonly SimWorkItem NormalHeader = new(Guid.Empty, "── 일반노드 ──");
+    public bool IsAutoStart => this == AutoStart;
     public override string ToString() => Name;
 }
 
@@ -392,4 +194,5 @@ public partial class SimNodeRow : ObservableObject
     public string SystemName { get; init; } = "";
 
     [ObservableProperty] private Status4 _state;
+    [ObservableProperty] private string _tokenDisplay = "";
 }

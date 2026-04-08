@@ -64,6 +64,28 @@ internal static class BatchDialogHelper
     {
         target.Text = rows.Count(r => r.IsSelected).ToString();
     }
+
+    internal static void ApplyCheckStateToSelectedRows<TRow>(DataGrid grid, TRow anchorRow, bool isChecked)
+        where TRow : class, IBatchRow
+    {
+        var selectedRows = grid.SelectedItems.OfType<TRow>().ToList();
+        if (selectedRows.Count <= 1 || !selectedRows.Contains(anchorRow))
+        {
+            anchorRow.IsSelected = isChecked;
+            return;
+        }
+
+        foreach (var row in selectedRows)
+            row.IsSelected = isChecked;
+    }
+
+    internal static string EscapeCsvField(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        return value;
+    }
 }
 
 internal interface IBatchRow : INotifyPropertyChanged

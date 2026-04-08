@@ -81,4 +81,33 @@ public partial class EditorCanvas
         ZoomTransform.ScaleY = _zoom;
         ZoomText.Text = $"{(int)(_zoom * 100)}%";
     }
+
+    public void ApplyZoomCentered(double zoom)
+    {
+        if (ActiveCanvasState?.CanvasNodes is not { Count: > 0 } nodes) return;
+
+        double minX = double.MaxValue, minY = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue;
+        foreach (var n in nodes)
+        {
+            minX = Math.Min(minX, n.X);
+            minY = Math.Min(minY, n.Y);
+            maxX = Math.Max(maxX, n.X + n.Width);
+            maxY = Math.Max(maxY, n.Y + n.Height);
+        }
+
+        var viewW = RootGrid.ActualWidth;
+        var viewH = RootGrid.ActualHeight;
+        if (viewW <= 0 || viewH <= 0) return;
+
+        _zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+        ZoomTransform.ScaleX = _zoom;
+        ZoomTransform.ScaleY = _zoom;
+
+        var centerX = (minX + maxX) / 2;
+        var centerY = (minY + maxY) / 2;
+        PanTransform.X = viewW / 2 - centerX * _zoom;
+        PanTransform.Y = viewH / 2 - centerY * _zoom;
+        ZoomText.Text = $"{(int)(_zoom * 100)}%";
+    }
 }
