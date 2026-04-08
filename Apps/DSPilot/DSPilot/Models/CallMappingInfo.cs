@@ -1,5 +1,5 @@
 using Ds2.Core;
-using DSPilot.Engine.Tracking;
+using CallDirection = DSPilot.Engine.Tracking.CallDirection;
 
 namespace DSPilot.Models;
 

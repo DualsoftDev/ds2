@@ -9,7 +9,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Core", "Core", "{641EFE74-7
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Core", "..\..\solutions\Core\Ds2.Core\Ds2.Core.fsproj", "{36FDB475-EAF2-429B-82CA-83705031445A}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.UI.Core", "..\..\solutions\Core\Ds2.UI.Core\Ds2.UI.Core.fsproj", "{BAB07900-3088-4EF2-9FE8-F6816AB73DB9}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.Editor", "..\..\solutions\Core\Ds2.Editor\Ds2.Editor.fsproj", "{BAB07900-3088-4EF2-9FE8-F6816AB73DB9}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Convert", "Convert", "{F2C503E0-6751-49F1-981B-885B86F7190A}"
 EndProject

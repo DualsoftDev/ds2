@@ -1,8 +1,9 @@
 using DSPilot.Engine;
-using DSPilot.Engine.Tracking;
 using DSPilot.Models;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
+using CallDirection = DSPilot.Engine.Tracking.CallDirection;
 
 namespace DSPilot.Services;
 
@@ -53,7 +54,7 @@ public class PlcToCallMapperService
             return;
         }
 
-        var allFlows = DsQuery.allFlows(store).ToList();
+        var allFlows = Queries.allFlows(store).ToList();
         _logger.LogInformation("Building tag mappings from {FlowCount} flows", allFlows.Count);
 
         int mappingCount = 0;
@@ -61,11 +62,11 @@ public class PlcToCallMapperService
 
         foreach (var flow in allFlows)
         {
-            var works = DsQuery.worksOf(flow.Id, store).ToList();
+            var works = Queries.worksOf(flow.Id, store).ToList();
 
             foreach (var work in works)
             {
-                var calls = DsQuery.callsOf(work.Id, store).ToList();
+                var calls = Queries.callsOf(work.Id, store).ToList();
 
                 foreach (var call in calls)
                 {

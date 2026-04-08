@@ -1,5 +1,6 @@
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Ev2.Backend.Common;
 using Ev2.Backend.PLC;
 using Microsoft.FSharp.Core;
@@ -97,7 +98,7 @@ public static class FlowSimulationTest
 
         // 2. 모든 Flow와 Call 수집
         Console.WriteLine("2️⃣  Collecting Flows and Calls...");
-        var allFlows = new List<Flow>(DsQuery.allFlows(store));
+        var allFlows = new List<Flow>(Queries.allFlows(store));
 
         if (allFlows.Count == 0)
         {
@@ -110,12 +111,12 @@ public static class FlowSimulationTest
 
         foreach (var flow in allFlows)
         {
-            var works = new List<Work>(DsQuery.worksOf(flow.Id, store));
+            var works = new List<Work>(Queries.worksOf(flow.Id, store));
 
             foreach (var work in works)
             {
-                var workCalls = new List<Call>(DsQuery.callsOf(work.Id, store));
-                var arrows = new List<ArrowBetweenCalls>(DsQuery.arrowCallsOf(work.Id, store));
+                var workCalls = new List<Call>(Queries.callsOf(work.Id, store));
+                var arrows = new List<ArrowBetweenCalls>(Queries.arrowCallsOf(work.Id, store));
                 arrowsByWork[work.Id] = arrows;
 
                 foreach (var call in workCalls)

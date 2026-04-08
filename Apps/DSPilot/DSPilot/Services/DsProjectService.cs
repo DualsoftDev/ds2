@@ -1,5 +1,6 @@
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Microsoft.FSharp.Collections;
 
 namespace DSPilot.Services;
@@ -19,7 +20,10 @@ public class DsProjectService
         _logger = logger;
         _store = new DsStore();
         var configPath = configuration["DsPilot:AasxFilePath"];
+        _logger.LogInformation("[DsProject] Raw config AasxFilePath = '{ConfigPath}'", configPath ?? "(null)");
         _aasxFilePath = string.IsNullOrEmpty(configPath) ? null : Path.GetFullPath(configPath);
+        _logger.LogInformation("[DsProject] Resolved AasxFilePath = '{Path}', Exists = {Exists}",
+            _aasxFilePath ?? "(null)", _aasxFilePath != null && File.Exists(_aasxFilePath));
 
         if (!string.IsNullOrEmpty(_aasxFilePath) && File.Exists(_aasxFilePath))
         {
@@ -40,7 +44,7 @@ public class DsProjectService
             if (result)
                 _logger.LogInformation("Project loaded from: {Path}", path);
             else
-                _logger.LogWarning("Failed to import AASX: {Path}", path);
+                _logger.LogWarning("Failed to import AASX (구 포맷일 수 있음 — ds2 에디터에서 다시 Export 필요): {Path}", path);
         }
         catch (Exception ex)
         {
@@ -51,7 +55,7 @@ public class DsProjectService
 
     public Project? GetProject()
     {
-        var projects = DsQuery.allProjects(_store);
+        var projects = Queries.allProjects(_store);
         return ListModule.IsEmpty(projects) ? null : ListModule.Head(projects);
     }
 
@@ -59,29 +63,29 @@ public class DsProjectService
     {
         var project = GetProject();
         if (project == null) return [];
-        return [.. DsQuery.activeSystemsOf(project.Id, _store)];
+        return [.. Queries.activeSystemsOf(project.Id, _store)];
     }
 
     public List<DsSystem> GetPassiveSystems()
     {
         var project = GetProject();
         if (project == null) return [];
-        return [.. DsQuery.passiveSystemsOf(project.Id, _store)];
+        return [.. Queries.passiveSystemsOf(project.Id, _store)];
     }
 
     public List<Flow> GetFlows(Guid systemId)
     {
-        return [.. DsQuery.flowsOf(systemId, _store)];
+        return [.. Queries.flowsOf(systemId, _store)];
     }
 
     public List<Flow> GetAllFlows()
     {
-        return [.. DsQuery.allFlows(_store)];
+        return [.. Queries.allFlows(_store)];
     }
 
     public List<Work> GetWorks(Guid flowId)
     {
-        return [.. DsQuery.worksOf(flowId, _store)];
+        return [.. Queries.worksOf(flowId, _store)];
     }
 
     public int GetTotalWorkCount()
@@ -91,7 +95,7 @@ public class DsProjectService
 
     public List<Call> GetCalls(Guid workId)
     {
-        return [.. DsQuery.callsOf(workId, _store)];
+        return [.. Queries.callsOf(workId, _store)];
     }
 
     public List<Call> GetAllCalls()
@@ -134,21 +138,21 @@ public class DsProjectService
     /// </summary>
     public Flow? GetFlowByCallId(Guid callId)
     {
-        var call = DsQuery.getCall(callId, _store);
+        var call = Queries.getCall(callId, _store);
         if (!Microsoft.FSharp.Core.FSharpOption<Call>.get_IsSome(call))
             return null;
 
-        var work = DsQuery.getWork(call.Value.ParentId, _store);
+        var work = Queries.getWork(call.Value.ParentId, _store);
         if (!Microsoft.FSharp.Core.FSharpOption<Work>.get_IsSome(work))
             return null;
 
-        var flow = DsQuery.getFlow(work.Value.ParentId, _store);
+        var flow = Queries.getFlow(work.Value.ParentId, _store);
         return Microsoft.FSharp.Core.FSharpOption<Flow>.get_IsSome(flow) ? flow.Value : null;
     }
 
     public List<(double X, double Y)> ComputeArrowPath(Xywh source, Xywh target)
     {
-        var visual = Ds2.UI.Core.ArrowPathCalculator.computePath(source, target);
+        var visual = Ds2.Editor.ArrowPathCalculator.computePath(source, target);
         return [.. visual.Points.Select(p => (p.Item1, p.Item2))];
     }
 }
