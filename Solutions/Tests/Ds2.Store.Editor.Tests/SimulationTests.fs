@@ -737,6 +737,89 @@ module AutoHomingOriginTests =
         // 병렬이라 ancestorOf = None → 투표 안 함 → 대상 없음
         Assert.Empty(targets)
 
+    [<Fact>]
+    let ``conflicting on off votes exclude device work from auto homing plan`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSys.Id
+        let work = addWork store "W" flow.Id
+
+        let deviceSys = addSystem store "Device" project.Id false
+        let deviceFlow = addFlow store "DF" deviceSys.Id
+        let setWork = addWork store "SET" deviceFlow.Id
+
+        let setApiDef1 = addApiDef store "SET_1" deviceSys.Id
+        setApiDef1.TxGuid <- Some setWork.Id
+        setApiDef1.RxGuid <- Some setWork.Id
+
+        let setApiDef2 = addApiDef store "SET_2" deviceSys.Id
+        setApiDef2.TxGuid <- Some setWork.Id
+        setApiDef2.RxGuid <- Some setWork.Id
+
+        let setCall1 = store.AddCallWithLinkedApiDefs(work.Id, "Device", "SET_1", [ setApiDef1.Id ])
+        let setCall2 = store.AddCallWithLinkedApiDefs(work.Id, "Device", "SET_2", [ setApiDef2.Id ])
+        store.ConnectSelectionInOrder([ setCall1; setCall2 ], ArrowType.Start) |> ignore
+
+        let index = SimIndex.build store 10
+        let finishTargets, readyTargets = SimIndex.computeAutoHomingPlan index
+
+        Assert.DoesNotContain(setWork.Id, finishTargets)
+        Assert.DoesNotContain(setWork.Id, readyTargets)
+
+    [<Fact>]
+    let ``StartWithHomingPhase skips homing when only pending target has conflicting votes`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSys.Id
+        let work = addWork store "W" flow.Id
+
+        let finishedDeviceSys = addSystem store "FinishedDevice" project.Id false
+        let finishedDeviceFlow = addFlow store "FDF" finishedDeviceSys.Id
+        let retWork = addWork store "RET" finishedDeviceFlow.Id
+
+        let retSimProps = SimulationWorkProperties()
+        retSimProps.IsFinished <- true
+        retWork.SetSimulationProperties(retSimProps)
+
+        let retApiDef = addApiDef store "RET" finishedDeviceSys.Id
+        retApiDef.TxGuid <- Some retWork.Id
+        retApiDef.RxGuid <- Some retWork.Id
+
+        let conflictDeviceSys = addSystem store "ConflictDevice" project.Id false
+        let conflictDeviceFlow = addFlow store "CDF" conflictDeviceSys.Id
+        let setWork = addWork store "SET" conflictDeviceFlow.Id
+
+        let setApiDef1 = addApiDef store "SET_1" conflictDeviceSys.Id
+        setApiDef1.TxGuid <- Some setWork.Id
+        setApiDef1.RxGuid <- Some setWork.Id
+
+        let setApiDef2 = addApiDef store "SET_2" conflictDeviceSys.Id
+        setApiDef2.TxGuid <- Some setWork.Id
+        setApiDef2.RxGuid <- Some setWork.Id
+
+        let retCall = store.AddCallWithLinkedApiDefs(work.Id, "FinishedDevice", "RET", [ retApiDef.Id ])
+        let setCall1 = store.AddCallWithLinkedApiDefs(work.Id, "ConflictDevice", "SET_1", [ setApiDef1.Id ])
+        let setCall2 = store.AddCallWithLinkedApiDefs(work.Id, "ConflictDevice", "SET_2", [ setApiDef2.Id ])
+        store.ConnectSelectionInOrder([ setCall1; setCall2 ], ArrowType.Start) |> ignore
+
+        let index = SimIndex.build store 10
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let sim = engine :> ISimulationEngine
+
+        let hasHoming = sim.StartWithHomingPhase()
+
+        Assert.False(hasHoming)
+        Assert.False(sim.IsHomingPhase)
+        Assert.Equal(Some Status4.Finish, sim.GetWorkState(retWork.Id))
+        Assert.Equal(Some Status4.Ready, sim.GetWorkState(setWork.Id))
+        Assert.Equal(Some Status4.Ready, sim.GetCallState(retCall))
+        Assert.Equal(Some Status4.Ready, sim.GetCallState(setCall1))
+        Assert.Equal(Some Status4.Ready, sim.GetCallState(setCall2))
+
+        sim.Stop()
+
 module CallTimeoutTests =
 
     [<Fact>]

@@ -39,7 +39,7 @@ module CsvExporter =
         for flow in Queries.flowsOf systemId store do
             for work in Queries.worksOf flow.Id store do
                 for call in Queries.callsOf work.Id store do
-                    appendCallRows builder flow.Name work.Name call
+                    appendCallRows builder flow.Name work.LocalName call
 
     let systemToCsv (store: DsStore) (systemId: Guid) : string =
         let builder = StringBuilder()

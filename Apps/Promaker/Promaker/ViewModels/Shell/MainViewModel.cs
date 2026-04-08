@@ -504,10 +504,54 @@ public partial class MainViewModel : ObservableObject
         int clickedIdx = HistoryItems.IndexOf(item);
         if (clickedIdx < 0) return;
         int delta = clickedIdx - CurrentHistoryIndex;
+
         if (delta < 0)
-            { _pasteCount = 0; TryEditorAction(() => _store.UndoTo(-delta)); }
+        {
+            _pasteCount = 0; TryEditorAction(() => _store.UndoTo(-delta));
+        }
         else if (delta > 0)
-            { _pasteCount = 0; TryEditorAction(() => _store.RedoTo(delta)); }
+        {
+            _pasteCount = 0; TryEditorAction(() => _store.RedoTo(delta));
+        }
+        else return;
+
+        // 점프 후 undo stack top = 클릭한 항목의 트랜잭션 (undo/redo 양쪽 모두)
+        var targetIds = _store.TryGetUndoAffectedIds(0);
+        // RequestRebuildAll이 BeginInvoke로 비동기 실행되므로,
+        // rebuild 완료 후에 캔버스 활성화해야 탭이 덮어쓰이지 않음
+        RequestRebuildAll(() => ActivateCanvasForAffectedEntities(targetIds));
+    }
+
+    private void ActivateCanvasForAffectedEntities(IEnumerable<Guid>? affectedIds)
+    {
+        if (affectedIds is null) return;
+
+        foreach (var entityId in affectedIds)
+        {
+            var kind = entityId switch
+            {
+                _ when _store.Works.ContainsKey(entityId) => EntityKind.Work,
+                _ when _store.Flows.ContainsKey(entityId) => EntityKind.Flow,
+                _ when _store.Systems.ContainsKey(entityId) => EntityKind.System,
+                _ when _store.Calls.ContainsKey(entityId) => EntityKind.Call,
+                _ => (EntityKind?)null
+            };
+            if (kind is null) continue;
+
+            var parentInfo = EditorNavigation.TryOpenParentTabOrNull(_store, kind.Value, entityId);
+            var directInfo = EditorNavigation.TryOpenTabForEntityOrNull(_store, kind.Value, entityId);
+            var tabInfo = parentInfo ?? directInfo;
+            if (tabInfo is null) continue;
+
+            Canvas.OpenCanvasTab(tabInfo.RootId, tabInfo.Kind switch
+            {
+                TabKind.System => EntityKind.System,
+                TabKind.Flow => EntityKind.Flow,
+                TabKind.Work => EntityKind.Work,
+                _ => EntityKind.System
+            }, expandTree: false);
+            return;
+        }
     }
 
     private void RebuildHistoryItems(
