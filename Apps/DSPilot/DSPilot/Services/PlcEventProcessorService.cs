@@ -6,6 +6,7 @@ using DSPilot.Engine.Core;
 using DSPilot.Repositories;
 using DSPilot.Adapters;
 using Microsoft.FSharp.Control;
+using CoreEdgeType = Ds2.Core.EdgeType;
 
 namespace DSPilot.Services;
 
@@ -160,11 +161,18 @@ public class PlcEventProcessorService : BackgroundService
                 var dbPath = (_pathResolver as DatabasePathResolverAdapter)?.GetDatabasePaths().SharedDbPath
                     ?? _pathResolver.GetDspDbPath();
 
+                var coreEdgeType = edgeState.EdgeType switch
+                {
+                    DSPilot.Engine.Core.EdgeType.RisingEdge => CoreEdgeType.RisingEdge,
+                    DSPilot.Engine.Core.EdgeType.FallingEdge => CoreEdgeType.FallingEdge,
+                    _ => CoreEdgeType.NoChange
+                };
+
                 var asyncOp = StateTransition.processEdgeEvent(
                     dbPath,
                     tagData.Address,
                     mapping.IsInTag,
-                    edgeState.EdgeType,
+                    coreEdgeType,
                     DateTime.Now,
                     mapping.Call.Name
                 );

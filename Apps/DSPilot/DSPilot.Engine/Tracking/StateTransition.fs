@@ -4,7 +4,8 @@ open System
 open System.Collections.Generic
 open Microsoft.Data.Sqlite
 open Dapper
-open DSPilot.Engine.Core
+open Ds2.Core
+open Ds2.Core.LoggingHelpers
 
 [<CLIMutable>]
 type CallInfo =
@@ -22,24 +23,225 @@ type CallDirectionInfo =
       /// PLC 제어기 관점: PLC가 장비로 출력(DO)하는 신호 (명령) 존재 여부
       HasOutTag: bool }
 
-/// Direction enum matching the C# implementation
-/// [InTag / OutTag 방향 기준: PLC 제어기 관점]
-///   - OutTag: PLC가 장비로 출력(DO)하는 신호 (명령)  → Rising 시 Going (실행 시작)
-///   - InTag:  장비에서 PLC로 입력(DI)되는 신호 (응답) → Rising 시 Finish (실행 완료)
-type CallDirection =
-    | InOut = 0
-    | InOnly = 1
-    | OutOnly = 2
-    | None = 3
+// CallDirection은 Ds2.Core.CallDirection을 사용 (InOut=0, InOnly=1, OutOnly=2, None=3)
+
+
+
+    // -------------------------------------------------------------------------
+    // Session Statistics Tracker (Moving Average, BaseCount aware)
+    // -------------------------------------------------------------------------
+
+    module SessionStatsTracker =
+
+        /// 빈 실행 상태 생성
+        let empty (baseCount: int) : CallExecutionState =
+            { StartTime = None; History = []; SessionCount = 0; BaseCount = baseCount }
+
+        /// Going 시작 기록
+        let recordStart (startTime: DateTime) (state: CallExecutionState) : CallExecutionState =
+            { state with StartTime = Some startTime }
+
+        /// Going 종료 및 통계 계산
+        let recordFinish (finishTime: DateTime) (state: CallExecutionState) : CallExecutionState * RuntimeStatistics option =
+            match state.StartTime with
+            | None -> (state, None)
+            | Some start ->
+                let goingTime = int (finishTime - start).TotalMilliseconds
+                let (average, stdDev, _, updatedSamples) = calculateWindowStatistics state.History goingTime
+                let newSessionCount = state.SessionCount + 1
+                let newState = { StartTime = None; History = updatedSamples
+                                 SessionCount = newSessionCount; BaseCount = state.BaseCount }
+                let stats = { GoingTime = goingTime; Average = average; StdDev = stdDev
+                              SessionCount = newSessionCount; BaseCount = state.BaseCount
+                              TotalCount = state.BaseCount + newSessionCount }
+                (newState, Some stats)
+
+        /// 세션 데이터만 클리어 (BaseCount 유지)
+        let resetSession (state: CallExecutionState) : CallExecutionState =
+            { StartTime = None; History = []; SessionCount = 0; BaseCount = state.BaseCount }
+
+        let getBaseCount (state: CallExecutionState) = state.BaseCount
+        let getSessionCount (state: CallExecutionState) = state.SessionCount
+        let getTotalCount (state: CallExecutionState) = state.BaseCount + state.SessionCount
+
+
+    // -------------------------------------------------------------------------
+    // Cycle Analysis (Bucket-based time series)
+    // -------------------------------------------------------------------------
+
+    module CycleAnalysisHelpers =
+
+        /// 버킷 크기를 TimeSpan으로 변환
+        let bucketSizeToTimeSpan (size: BucketSize) : TimeSpan =
+            match size with
+            | Min5  -> TimeSpan.FromMinutes(5.0)
+            | Min10 -> TimeSpan.FromMinutes(10.0)
+            | Hour1 -> TimeSpan.FromHours(1.0)
+
+        /// 시간을 버킷 시작 시간으로 정규화
+        let getBucketKey (time: DateTime) (bucketSize: BucketSize) : DateTime =
+            let span = bucketSizeToTimeSpan bucketSize
+            let ticks = time.Ticks / span.Ticks
+            DateTime(ticks * span.Ticks)
+
+        /// 실행 시간 목록에서 버킷 통계 계산 (평균, StdDev, 개수)
+        let calculateBucketStats (executionTimes: int list) : float * float * int =
+            if executionTimes.IsEmpty then (0.0, 0.0, 0)
+            else
+                let count = executionTimes.Length
+                let avg = executionTimes |> List.averageBy float
+                let variance =
+                    if count > 1 then
+                        executionTimes |> List.map (fun x -> let d = float x - avg in d*d) |> List.average
+                    else 0.0
+                (avg, sqrt variance, count)
+
+        /// Trend 포인트 생성
+        let createTrendPoint (bucketTime: DateTime) (executionTimes: int list) : TrendPoint =
+            let (avg, stdDev, count) = calculateBucketStats executionTimes
+            { Time = bucketTime; Average = avg; StdDev = stdDev; SampleCount = count }
+
+        /// 백분위수 계산 (p50, p95, p99)
+        let calculatePercentiles (values: int list) : float * float * float =
+            if values.IsEmpty then (0.0, 0.0, 0.0)
+            else
+                let sorted = values |> List.sort |> List.toArray
+                let count = sorted.Length
+                let getPercentile p =
+                    let index = int (float count * p / 100.0)
+                    float sorted.[max 0 (min (count - 1) index)]
+                (getPercentile 50.0, getPercentile 95.0, getPercentile 99.0)
+
+        /// 실행 시간 분포 계산 (히스토그램)
+        let calculateDistribution (values: int list) (binCount: int) : (float * float * int) list =
+            if values.IsEmpty || binCount <= 0 then []
+            else
+                let minVal = values |> List.min |> float
+                let maxVal = values |> List.max |> float
+                let binWidth = (maxVal - minVal) / float binCount
+                if binWidth = 0.0 then [(minVal, maxVal, values.Length)]
+                else
+                    [0 .. binCount - 1]
+                    |> List.map (fun i ->
+                        let binStart = minVal + float i * binWidth
+                        let binEnd   = binStart + binWidth
+                        let cnt =
+                            values
+                            |> List.filter (fun v ->
+                                let fv = float v
+                                fv >= binStart && (i = binCount - 1 || fv < binEnd))
+                            |> List.length
+                        (binStart, binEnd, cnt))
+
+
+    // -------------------------------------------------------------------------
+    // Gantt Lane Assignment
+    // -------------------------------------------------------------------------
+
+    module GanttLayoutHelpers =
+
+        // private 헬퍼 함수로 TimelineItem 필드 접근 (GanttItem과의 CallName 충돌 해소)
+        let private tlRelEnd   (t: TimelineItem) = t.RelativeEnd
+        let private tlRelStart (t: TimelineItem) = t.RelativeStart
+        let private tlLane     (t: TimelineItem) = t.Lane
+
+        /// 두 타임라인 항목의 시간적 겹침 여부
+        let isOverlapping (item1: TimelineItem) (item2: TimelineItem) : bool =
+            match tlRelEnd item1, tlRelEnd item2 with
+            | Some end1, Some end2 -> not (end1 <= tlRelStart item2 || end2 <= tlRelStart item1)
+            | Some end1, None      -> end1 > tlRelStart item2
+            | None, Some end2      -> end2 > tlRelStart item1
+            | None, None           -> true  // 둘 다 진행 중 = 겹침
+
+        /// 레인 할당 (시작 시간 순으로 처리, 겹침 없는 가장 작은 레인 번호 배정)
+        let assignLanes (timelines: TimelineItem list) : TimelineItem list =
+            let sorted = timelines |> List.sortBy tlRelStart
+            sorted
+            |> List.fold (fun (assigned: TimelineItem list) (item: TimelineItem) ->
+                let usedLanes =
+                    assigned
+                    |> List.filter (fun prev -> isOverlapping prev item)
+                    |> List.map tlLane
+                    |> Set.ofList
+                let availableLane = Seq.initInfinite id |> Seq.find (fun lane -> not (Set.contains lane usedLanes))
+                assigned @ [{ item with Lane = availableLane }]
+            ) []
+
+
+/// C# 호환 mutable Welford 통계 tracker (multi-call)
+type RuntimeStatsCollectorMutable() =
+    let mutable stateMap : Map<string, CallStatsState> = Map.empty
+
+    member _.RecordStart(callName: string, timestamp: DateTime) : unit =
+        let current = stateMap |> Map.tryFind callName |> Option.defaultValue LoggingHelpers.CallStatsCollector.empty
+        stateMap <- Map.add callName (LoggingHelpers.CallStatsCollector.recordStart timestamp current) stateMap
+
+    member _.RecordFinish(callName: string, timestamp: DateTime) : float option =
+        match Map.tryFind callName stateMap with
+        | None -> None
+        | Some state ->
+            let (newState, duration) = LoggingHelpers.CallStatsCollector.recordFinish timestamp state
+            stateMap <- Map.add callName newState stateMap
+            duration
+
+    member _.GetStats(callName: string) : IncrementalStatsResult option =
+        stateMap |> Map.tryFind callName |> Option.map LoggingHelpers.CallStatsCollector.getStats
+
+    member _.GetTrackedCalls() : string list =
+        Map.toList stateMap |> List.map fst
+
+    member _.Clear(callName: string) : unit = stateMap <- Map.remove callName stateMap
+    member _.ClearAll() : unit = stateMap <- Map.empty
+    member _.Count : int = Map.count stateMap
+
+
+/// C# 호환 mutable 세션 통계 tracker (Moving Average 기반)
+type RuntimeStatisticsTrackerMutable() =
+    let mutable stateMap : Map<string, CallExecutionState> = Map.empty
+
+    member _.RecordStart(callName: string, baseCount: int) : unit =
+        let current =
+            stateMap |> Map.tryFind callName
+            |> Option.defaultValue (SessionStatsTracker.empty baseCount)
+        stateMap <- Map.add callName (SessionStatsTracker.recordStart DateTime.Now current) stateMap
+
+    member _.RecordFinish(callName: string) : RuntimeStatistics option =
+        match Map.tryFind callName stateMap with
+        | None -> None
+        | Some state ->
+            let (newState, stats) = SessionStatsTracker.recordFinish DateTime.Now state
+            stateMap <- Map.add callName newState stateMap
+            stats
+
+    member _.ResetSession(callName: string) : unit =
+        match Map.tryFind callName stateMap with
+        | Some state -> stateMap <- Map.add callName (SessionStatsTracker.resetSession state) stateMap
+        | None -> ()
+
+    member _.ResetAllSessions() : unit =
+        stateMap <- stateMap |> Map.map (fun _ state -> SessionStatsTracker.resetSession state)
+
+    member _.TrackedCallCount : int = Map.count stateMap
+
+    member _.GetTotalCount(callName: string) : int =
+        stateMap |> Map.tryFind callName
+        |> Option.map SessionStatsTracker.getTotalCount
+        |> Option.defaultValue 0
+
+    member _.GetSessionCount(callName: string) : int =
+        stateMap |> Map.tryFind callName
+        |> Option.map SessionStatsTracker.getSessionCount
+        |> Option.defaultValue 0
+
 
 /// State Transition Handler
 module StateTransition =
 
-    // Global statistics collector (shared across all calls)
-    let private statsCollector = DSPilot.Engine.Stats.RuntimeStatsCollectorMutable()
+    // Global statistics collector (shared across all calls) - Ds2.Core.RuntimeStatsCollectorMutable
+    let private statsCollector = RuntimeStatsCollectorMutable()
 
     /// Get statistics for a specific Call
-    let getCallStats (callName: string) : DSPilot.Engine.Stats.IncrementalStatsResult option =
+    let getCallStats (callName: string) : IncrementalStatsResult option =
         statsCollector.GetStats(callName)
 
     /// Get all tracked Call names

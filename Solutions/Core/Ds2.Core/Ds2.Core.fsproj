@@ -20,9 +20,9 @@
     <Compile Include="SequenceSubmodels\03_Monitoring.fs" />
     <Compile Include="SequenceSubmodels\04_Logging.fs" />
     <Compile Include="SequenceSubmodels\05_Maintenance.fs" />
-    <Compile Include="SequenceSubmodels\06_CostAnalysis.fs" />
+    <Compile Include="SequenceSubmodels\06_Hmi.fs" />
     <Compile Include="SequenceSubmodels\07_Quality.fs" />
-    <Compile Include="SequenceSubmodels\08_Hmi.fs" />
+    <Compile Include="SequenceSubmodels\08_CostAnalysis.fs" />
     <Compile Include="SubmodelProperties.fs" />
     <Compile Include="ValueSpec.fs" />
     <Compile Include="TokenTypes.fs" />

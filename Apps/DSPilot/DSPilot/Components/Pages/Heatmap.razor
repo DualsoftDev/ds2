@@ -182,13 +182,13 @@
                                     <div class="flow-dashboard-call-grid" style="@GetWorkMatrixStyle(workGroup.Calls.Count)">
                                         @foreach (var call in workGroup.Calls)
                                         {
-                                            <div class="flow-dashboard-call-cell @call.GetColorClass(SelectedMetric)"
+                                            <div class="flow-dashboard-call-cell @call.GetColorClass(ToCoreMetric(SelectedMetric))"
                                                  title="@BuildCallTooltip(call)"
                                                  style="cursor:pointer;"
                                                  @onclick="@(() => SelectCall(call))">
                                                 <div class="flow-dashboard-call-name">@call.CallName</div>
                                                 <div class="flow-dashboard-call-value">
-                                                    @HeatmapService.FormatMetricValue(SelectedMetric, call.GetMetricValue(SelectedMetric))
+                                                    @HeatmapService.FormatMetricValue(SelectedMetric, call.GetMetricValue(ToCoreMetric(SelectedMetric)))
                                                 </div>
                                                 <div class="flow-dashboard-call-meta">@call.WorkName</div>
                                             </div>
@@ -441,7 +441,7 @@
     private int TotalCalls => FilteredGroups.Sum(g => g.CallCount);
     private int IssueCalls => FilteredGroups.Sum(GetIssueCount);
     private double SelectedMetricAverage => FilteredGroups.Count > 0
-        ? FilteredGroups.SelectMany(g => g.Calls).Average(c => c.GetMetricValue(SelectedMetric))
+        ? FilteredGroups.SelectMany(g => g.Calls).Average(c => c.GetMetricValue(ToCoreMetric(SelectedMetric)))
         : 0;
 
     protected override async Task OnInitializedAsync()
@@ -466,6 +466,15 @@
     private void OnMatrixColumnsChanged(int value)
     {
         MatrixColumns = Math.Clamp(value, 1, 12);
+    }
+
+    private static Ds2.Core.HeatmapMetric ToCoreMetric(HeatmapMetric metric)
+    {
+        if (metric.IsAverageTime)
+            return Ds2.Core.HeatmapMetric.AverageTime;
+        if (metric.IsStdDeviation)
+            return Ds2.Core.HeatmapMetric.StdDeviation;
+        return Ds2.Core.HeatmapMetric.CoefficientOfVariation;
     }
 
     private string GetWorkMatrixStyle(int count)
@@ -659,14 +668,14 @@
 
     private bool IsIssueCall(CallHeatmapItem call)
     {
-        var colorClass = call.GetColorClass(SelectedMetric);
+        var colorClass = call.GetColorClass(ToCoreMetric(SelectedMetric));
         return colorClass is "heatmap-poor" or "heatmap-critical";
     }
 
     private string BuildCallTooltip(CallHeatmapItem call)
     {
         var selectedMetricName = HeatmapService.GetMetricDisplayName(SelectedMetric);
-        var selectedMetricValue = HeatmapService.FormatMetricValue(SelectedMetric, call.GetMetricValue(SelectedMetric));
+        var selectedMetricValue = HeatmapService.FormatMetricValue(SelectedMetric, call.GetMetricValue(ToCoreMetric(SelectedMetric)));
 
         return $"[{call.CallName}]\n" +
                $"Flow: {call.FlowName}\n" +
@@ -955,8 +964,8 @@
                     int col = 1;
                     foreach (var call in workGroup.Calls)
                     {
-                        var colorClass = call.GetColorClass(SelectedMetric);
-                        var value = HeatmapService.FormatMetricValueShort(SelectedMetric, call.GetMetricValue(SelectedMetric));
+                        var colorClass = call.GetColorClass(ToCoreMetric(SelectedMetric));
+                        var value = HeatmapService.FormatMetricValueShort(SelectedMetric, call.GetMetricValue(ToCoreMetric(SelectedMetric)));
                         ws.Cell(row, col).Value = $"{call.CallName}\n{value}";
                         ws.Cell(row, col).Style.Fill.BackgroundColor = GetHeatmapExcelColor(colorClass);
                         ws.Cell(row, col).Style.Font.FontColor = GetHeatmapExcelFontColor(colorClass);
@@ -1034,7 +1043,7 @@
                 ws.Cell(row, 8).Value = GetCVStatusText(call.CoefficientOfVariation);
                 // Column 9 (메모) left blank for manual notes
 
-                var colorClass = call.GetColorClass(SelectedMetric);
+                var colorClass = call.GetColorClass(ToCoreMetric(SelectedMetric));
                 ws.Cell(row, 7).Style.Fill.BackgroundColor = GetHeatmapExcelColor(colorClass);
                 ws.Cell(row, 7).Style.Font.FontColor = GetHeatmapExcelFontColor(colorClass);
 

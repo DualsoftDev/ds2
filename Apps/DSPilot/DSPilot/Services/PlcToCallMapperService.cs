@@ -3,7 +3,8 @@ using DSPilot.Models;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
-using CallDirection = DSPilot.Engine.Tracking.CallDirection;
+using CallDirection = Ds2.Core.CallDirection;
+using EngineTagEdgeState = DSPilot.Engine.TagEdgeState;
 
 namespace DSPilot.Services;
 
@@ -282,7 +283,7 @@ public class PlcToCallMapperService
     public (string NewState, bool StateChanged) DetermineCallState(
         string tagName,
         string tagAddress,
-        TagEdgeState edgeState,
+        EngineTagEdgeState edgeState,
         string currentState)
     {
         var mapping = FindCallByTag(tagName, tagAddress);

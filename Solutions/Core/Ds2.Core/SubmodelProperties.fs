@@ -15,9 +15,9 @@ type SubmodelType =
     | SequenceMonitoring
     | SequenceLogging
     | SequenceMaintenance
+    | SequenceHmi
     | SequenceCostAnalysis
     | SequenceQuality
-    | SequenceHmi
 
     /// Submodel offset (byte) 반환
     member this.Offset =
@@ -28,9 +28,9 @@ type SubmodelType =
         | SequenceMonitoring   -> 3uy
         | SequenceLogging      -> 4uy
         | SequenceMaintenance  -> 5uy
-        | SequenceCostAnalysis -> 6uy
+        | SequenceHmi          -> 6uy
         | SequenceQuality      -> 7uy
-        | SequenceHmi          -> 8uy
+        | SequenceCostAnalysis -> 8uy
 
     /// Submodel IdShort 반환
     member this.IdShort =
@@ -41,9 +41,9 @@ type SubmodelType =
         | SequenceMonitoring   -> "SequenceMonitoring"
         | SequenceLogging      -> "SequenceLogging"
         | SequenceMaintenance  -> "SequenceMaintenance"
-        | SequenceCostAnalysis -> "SequenceCostAnalysis"
-        | SequenceQuality      -> "SequenceQuality"
         | SequenceHmi          -> "SequenceHmi"
+        | SequenceQuality      -> "SequenceQuality"
+        | SequenceCostAnalysis -> "SequenceCostAnalysis"
 
     /// Reference name 반환 (Entity에서 사용)
     member this.RefName =
@@ -54,9 +54,9 @@ type SubmodelType =
         | SequenceMonitoring   -> "MonitoringRef"
         | SequenceLogging      -> "LoggingRef"
         | SequenceMaintenance  -> "MaintenanceRef"
-        | SequenceCostAnalysis -> "CostAnalysisRef"
-        | SequenceQuality      -> "QualityRef"
         | SequenceHmi          -> "HmiRef"
+        | SequenceQuality      -> "QualityRef"
+        | SequenceCostAnalysis -> "CostAnalysisRef"
 
     /// 모든 도메인 서브모델 반환 (Model 제외)
     static member AllDomains =
@@ -65,9 +65,10 @@ type SubmodelType =
           SequenceMonitoring
           SequenceLogging
           SequenceMaintenance
-          SequenceCostAnalysis
+          SequenceHmi
           SequenceQuality
-          SequenceHmi ]
+          SequenceCostAnalysis
+           ]
 
 // =============================================================================
 // Discriminated Unions for Submodel Properties
@@ -80,9 +81,9 @@ type SystemSubmodelProperty =
     | MonitoringSystem of MonitoringSystemProperties
     | LoggingSystem of LoggingSystemProperties
     | MaintenanceSystem of MaintenanceSystemProperties
-    | CostAnalysisSystem of CostAnalysisSystemProperties
-    | QualitySystem of QualitySystemProperties
     | HmiSystem of HMISystemProperties
+    | QualitySystem of QualitySystemProperties
+    | CostAnalysisSystem of CostAnalysisSystemProperties
 
 /// Flow-level 서브모델 속성 DU
 type FlowSubmodelProperty =
@@ -91,9 +92,9 @@ type FlowSubmodelProperty =
     | MonitoringFlow of MonitoringFlowProperties
     | LoggingFlow of LoggingFlowProperties
     | MaintenanceFlow of MaintenanceFlowProperties
-    | CostAnalysisFlow of CostAnalysisFlowProperties
-    | QualityFlow of QualityFlowProperties
     | HmiFlow of HMIFlowProperties
+    | QualityFlow of QualityFlowProperties
+    | CostAnalysisFlow of CostAnalysisFlowProperties
 
 /// Work-level 서브모델 속성 DU
 type WorkSubmodelProperty =
@@ -102,9 +103,9 @@ type WorkSubmodelProperty =
     | MonitoringWork of MonitoringWorkProperties
     | LoggingWork of LoggingWorkProperties
     | MaintenanceWork of MaintenanceWorkProperties
-    | CostAnalysisWork of CostAnalysisWorkProperties
-    | QualityWork of QualityWorkProperties
     | HmiWork of HMIWorkProperties
+    | QualityWork of QualityWorkProperties
+    | CostAnalysisWork of CostAnalysisWorkProperties
 
 /// Call-level 서브모델 속성 DU
 type CallSubmodelProperty =
@@ -113,6 +114,6 @@ type CallSubmodelProperty =
     | MonitoringCall of MonitoringCallProperties
     | LoggingCall of LoggingCallProperties
     | MaintenanceCall of MaintenanceCallProperties
-    | CostAnalysisCall of CostAnalysisCallProperties
-    | QualityCall of QualityCallProperties
     | HmiCall of HMICallProperties
+    | QualityCall of QualityCallProperties
+    | CostAnalysisCall of CostAnalysisCallProperties

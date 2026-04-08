@@ -5,6 +5,7 @@ using DSPilot.Engine;
 using DSPilot.Repositories;
 using Microsoft.FSharp.Collections;
 using System.Collections.Concurrent;
+using EngineFlowAnalysis = DSPilot.Engine.FlowAnalysis;
 
 namespace DSPilot.Services;
 
@@ -21,7 +22,7 @@ public class FlowMetricsService : IFlowMetricsService
     private readonly ILogger<FlowMetricsService> _logger;
 
     // Flow별 분석 결과 캐시
-    private readonly ConcurrentDictionary<string, FlowAnalysis.FlowAnalysisResult> _flowAnalysisCache = new();
+    private readonly ConcurrentDictionary<string, EngineFlowAnalysis.FlowAnalysisResult> _flowAnalysisCache = new();
 
     // Flow별 사이클 상태 추적 (Phase 2)
     private readonly ConcurrentDictionary<string, FlowCycleState> _flowCycleStates = new();
@@ -75,7 +76,7 @@ public class FlowMetricsService : IFlowMetricsService
                 {
                     // F# FlowAnalysis 모듈 사용
                     var store = GetDsStore();
-                    var analysisResult = FlowAnalysis.analyzeFlow(flow, store);
+                    var analysisResult = EngineFlowAnalysis.analyzeFlow(flow, store);
 
                     // 캐시 저장
                     _flowAnalysisCache[flow.Name] = analysisResult;
@@ -170,7 +171,7 @@ public class FlowMetricsService : IFlowMetricsService
         var analysisResult = _flowAnalysisCache.GetOrAdd(flow.Name, _ =>
         {
             var store = GetDsStore();
-            return FlowAnalysis.analyzeFlow(flow, store);
+            return EngineFlowAnalysis.analyzeFlow(flow, store);
         });
 
         return (
