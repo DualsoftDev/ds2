@@ -114,12 +114,36 @@ public partial class MainViewModel
             fallback: false,
             statusOverride: "[ERROR] Failed to change arrow type.");
 
+    public int TryUpdateArrowTypesBatch(IReadOnlyList<Guid> arrowIds, ArrowType newArrowType)
+    {
+        if (arrowIds.Count == 0) return 0;
+        if (!TryEditorFunc(
+                () => _store.UpdateArrowTypesBatch(arrowIds, newArrowType),
+                out int changed,
+                fallback: 0,
+                statusOverride: "[ERROR] Failed to change arrow types."))
+            return 0;
+        return changed;
+    }
+
     public bool TryReverseArrow(Guid arrowId) =>
         TryEditorFunc(
             () => _store.ReverseArrow(arrowId),
             out bool _,
             fallback: false,
             statusOverride: "[ERROR] Failed to reverse arrow direction.");
+
+    public int TryReverseArrowsBatch(IReadOnlyList<Guid> arrowIds)
+    {
+        if (arrowIds.Count == 0) return 0;
+        if (!TryEditorFunc(
+                () => _store.ReverseArrowsBatch(arrowIds),
+                out int changed,
+                fallback: 0,
+                statusOverride: "[ERROR] Failed to reverse arrows."))
+            return 0;
+        return changed;
+    }
 
     public bool TryConnectNodesFromCanvas(Guid sourceId, Guid targetId, ArrowType arrowType)
     {

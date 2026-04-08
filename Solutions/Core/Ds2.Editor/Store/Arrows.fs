@@ -160,6 +160,33 @@ type DsStoreArrowsExtensions =
             | _ -> false
 
     [<Extension>]
+    static member UpdateArrowTypesBatch(store: DsStore, arrowIds: seq<Guid>, newArrowType: ArrowType) : int =
+        let workChanges = ResizeArray<Guid>()
+        let callChanges = ResizeArray<Guid>()
+        for arrowId in arrowIds do
+            match Queries.getArrowWork arrowId store with
+            | Some arrow when arrow.ArrowType <> newArrowType
+                              && EntityKindRules.isArrowTypeAllowedForKind EntityKind.Work newArrowType ->
+                workChanges.Add(arrowId)
+            | Some _ -> ()
+            | None ->
+                match Queries.getArrowCall arrowId store with
+                | Some arrow when arrow.ArrowType <> newArrowType
+                                  && EntityKindRules.isArrowTypeAllowedForKind EntityKind.Call newArrowType ->
+                    callChanges.Add(arrowId)
+                | _ -> ()
+        let total = workChanges.Count + callChanges.Count
+        if total > 0 then
+            StoreLog.debug($"UpdateArrowTypesBatch: {total} items -> {newArrowType}")
+            store.WithTransaction("화살표 타입 일괄 변경", fun () ->
+                for id in workChanges do
+                    store.TrackMutate(store.ArrowWorks, id, fun a -> a.ArrowType <- newArrowType)
+                for id in callChanges do
+                    store.TrackMutate(store.ArrowCalls, id, fun a -> a.ArrowType <- newArrowType))
+            store.EmitConnectionsChangedAndHistory()
+        total
+
+    [<Extension>]
     static member ReverseArrow(store: DsStore, arrowId: Guid) : bool =
         StoreLog.debug($"arrowId={arrowId}")
         match Queries.getArrowWork arrowId store with
@@ -194,6 +221,53 @@ type DsStoreArrowsExtensions =
                     store.EmitConnectionsChangedAndHistory()
                     true
             | None -> false
+
+    [<Extension>]
+    static member ReverseArrowsBatch(store: DsStore, arrowIds: seq<Guid>) : int =
+        let distinctIds = arrowIds |> Seq.distinct |> Seq.toList
+        let batchSet = System.Collections.Generic.HashSet<Guid>(distinctIds)
+
+        let workAccepted = ResizeArray<Guid>()
+        let callAccepted = ResizeArray<Guid>()
+
+        for arrowId in distinctIds do
+            match Queries.getArrowWork arrowId store with
+            | Some arrow ->
+                let newKey = ConnectionQueries.arrowKey arrow.TargetId arrow.SourceId arrow.ArrowType
+                let conflict =
+                    Queries.arrowWorksOf arrow.ParentId store
+                    |> Seq.exists (fun a ->
+                        not (batchSet.Contains a.Id)
+                        && ConnectionQueries.arrowKeyOf a = newKey)
+                if not conflict then workAccepted.Add(arrowId)
+            | None ->
+                match Queries.getArrowCall arrowId store with
+                | Some arrow ->
+                    let newKey = ConnectionQueries.arrowKey arrow.TargetId arrow.SourceId arrow.ArrowType
+                    let conflict =
+                        Queries.arrowCallsOf arrow.ParentId store
+                        |> Seq.exists (fun a ->
+                            not (batchSet.Contains a.Id)
+                            && ConnectionQueries.arrowKeyOf a = newKey)
+                    if not conflict then callAccepted.Add(arrowId)
+                | None -> ()
+
+        let total = workAccepted.Count + callAccepted.Count
+        if total > 0 then
+            StoreLog.debug($"ReverseArrowsBatch: {total} items")
+            store.WithTransaction("화살표 방향 일괄 전환", fun () ->
+                for id in workAccepted do
+                    store.TrackMutate(store.ArrowWorks, id, fun a ->
+                        let src = a.SourceId
+                        a.SourceId <- a.TargetId
+                        a.TargetId <- src)
+                for id in callAccepted do
+                    store.TrackMutate(store.ArrowCalls, id, fun a ->
+                        let src = a.SourceId
+                        a.SourceId <- a.TargetId
+                        a.TargetId <- src))
+            store.EmitConnectionsChangedAndHistory()
+        total
 
     [<Extension>]
     static member ConnectSelectionInOrder(store: DsStore, orderedNodeIds: seq<Guid>, arrowType: ArrowType) : int =
