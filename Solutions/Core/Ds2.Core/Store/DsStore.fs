@@ -21,6 +21,9 @@ type DsStore() =
     member val ArrowWorks   = Dictionary<Guid, ArrowBetweenWorks>() with get, set
     member val ArrowCalls   = Dictionary<Guid, ArrowBetweenCalls>() with get, set
 
+    /// Undo/Redo 시 마지막 트랜잭션에서 변경된 엔티티 ID 목록
+    [<JsonIgnore>] member val LastTransactionAffectedIds : Guid list = [] with get, set
+
     [<JsonIgnore>] member this.ProjectsReadOnly : IReadOnlyDictionary<Guid, Project> = ReadOnlyDictionary(this.Projects)
     [<JsonIgnore>] member this.SystemsReadOnly : IReadOnlyDictionary<Guid, DsSystem> = ReadOnlyDictionary(this.Systems)
     [<JsonIgnore>] member this.FlowsReadOnly : IReadOnlyDictionary<Guid, Flow> = ReadOnlyDictionary(this.Flows)

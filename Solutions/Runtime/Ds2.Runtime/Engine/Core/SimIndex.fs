@@ -720,12 +720,22 @@ module SimIndex =
                                     | None -> ()
                             | None -> ()
 
-        let finishTargets =
-            onVotes |> Seq.choose (fun kv ->
-                if kv.Value.Count > 0 then Some kv.Key else None) |> Set.ofSeq
-        let readyTargets =
-            offVotes |> Seq.choose (fun kv ->
-                if kv.Value.Count > 0 then Some kv.Key else None) |> Set.ofSeq
+        let onKeys =
+            onVotes
+            |> Seq.choose (fun kv ->
+                if kv.Value.Count > 0 then Some kv.Key else None)
+            |> Set.ofSeq
+        let offKeys =
+            offVotes
+            |> Seq.choose (fun kv ->
+                if kv.Value.Count > 0 then Some kv.Key else None)
+            |> Set.ofSeq
+
+        // 같은 Device Work가 On/Off 양쪽 투표를 모두 받으면 자동 원위치 계획이 모순된다.
+        // 이런 경우는 수동 초기상태/배선 정리가 필요하므로 자동 계획에서 제외한다.
+        let conflictingKeys = Set.intersect onKeys offKeys
+        let finishTargets = Set.difference onKeys conflictingKeys
+        let readyTargets = Set.difference offKeys conflictingKeys
         finishTargets, readyTargets
 
     /// Ready 대상 Device Work를 Reset시키는 진입점 Work를 찾고,

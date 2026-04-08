@@ -45,7 +45,13 @@ module internal ImportPlanDeviceOps =
         match Map.tryFind systemName state.PendingSystems with
         | Some system -> system, state
         | None ->
-            match Queries.passiveSystemsOf projectId store |> List.tryFind (fun s -> s.Name = systemName) with
+            // DeviceAlias 자체가 기존 passive system 이름과 일치하면 재사용
+            match Map.tryFind devAlias state.PendingSystems with
+            | Some system -> system, state
+            | None ->
+            let passiveSystems = Queries.passiveSystemsOf projectId store
+            match passiveSystems |> List.tryFind (fun s -> s.Name = devAlias)
+                  |> Option.orElseWith (fun () -> passiveSystems |> List.tryFind (fun s -> s.Name = systemName)) with
             | Some existing ->
                 match Queries.flowsOf existing.Id store with
                 | flow :: _ ->
@@ -60,6 +66,7 @@ module internal ImportPlanDeviceOps =
                     existing,
                     { state with
                         PendingSystems = Map.add systemName existing state.PendingSystems
+                                        |> Map.add devAlias existing
                         PendingFlows = Map.add devAlias flow state.PendingFlows
                         NewSystemIds = Set.add existing.Id state.NewSystemIds
                         PendingWorkOrderRev = Map.add devAlias existingWorkOrder state.PendingWorkOrderRev
@@ -70,6 +77,7 @@ module internal ImportPlanDeviceOps =
                     existing,
                     { state with
                         PendingSystems = Map.add systemName existing state.PendingSystems
+                                        |> Map.add devAlias existing
                         PendingFlows = Map.add devAlias flow state.PendingFlows
                         NewSystemIds = Set.add existing.Id state.NewSystemIds }
             | None ->
@@ -81,6 +89,7 @@ module internal ImportPlanDeviceOps =
                 system,
                 { state with
                     PendingSystems = Map.add systemName system state.PendingSystems
+                                    |> Map.add devAlias system
                     PendingFlows = Map.add devAlias flow state.PendingFlows
                     NewSystemIds = Set.add system.Id state.NewSystemIds }
 

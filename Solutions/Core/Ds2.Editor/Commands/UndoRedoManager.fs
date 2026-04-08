@@ -45,8 +45,18 @@ type UndoRedoManager(maxSize: int) =
                 match popFirst undoStack with
                 | Some tx -> records.InsertRange(0, tx.Records)
                 | None -> ()
-            undoStack.AddFirst({ Label = label; Records = Seq.toList records }) |> ignore
+            undoStack.AddFirst({ Label = label; Records = Seq.toList records; AffectedEntityIds = [] }) |> ignore
             redoStack.Clear()
+
+    /// Undo 스택에서 index번째 트랜잭션의 AffectedEntityIds 조회 (0 = 가장 최근)
+    member _.TryGetUndoAffectedIds(index: int) =
+        if index < 0 || index >= undoStack.Count then []
+        else (undoStack |> Seq.item index).AffectedEntityIds
+
+    /// Redo 스택에서 index번째 트랜잭션의 AffectedEntityIds 조회 (0 = 가장 최근)
+    member _.TryGetRedoAffectedIds(index: int) =
+        if index < 0 || index >= redoStack.Count then []
+        else (redoStack |> Seq.item index).AffectedEntityIds
 
     member _.Clear() =
         undoStack.Clear()
