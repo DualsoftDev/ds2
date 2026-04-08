@@ -6,6 +6,8 @@ module Ds2.Aasx.AasxSemantics
 
 // Submodel IdShort (하위 호환성을 위해 유지, SubmodelType.IdShort와 동일)
 let [<Literal>] SubmodelModelIdShort        = "SequenceModel"
+/// 구 버전 AASX 하위 호환용 (v1 포맷)
+let [<Literal>] LegacySubmodelIdShort      = "SequenceControlSubmodel"
 let [<Literal>] SubmodelSimulationIdShort   = "SequenceSimulation"
 let [<Literal>] SubmodelControlIdShort      = "SequenceControl"
 let [<Literal>] SubmodelMonitoringIdShort   = "SequenceMonitoring"

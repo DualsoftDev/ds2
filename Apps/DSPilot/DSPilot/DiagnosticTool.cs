@@ -1,5 +1,6 @@
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using DSPilot.Engine;
 using DSPilot.Services;
 using Microsoft.Data.Sqlite;
@@ -40,13 +41,13 @@ public static class DiagnosticTool
             Console.WriteLine($"Flow: {flow.Name}");
             Console.WriteLine("".PadLeft(80, '='));
 
-            var works = DsQuery.worksOf(flow.Id, store);
+            var works = Queries.worksOf(flow.Id, store);
             Console.WriteLine($"  Total Works: {works.Length}");
 
             foreach (var work in works)
             {
-                var calls = DsQuery.callsOf(work.Id, store);
-                var arrows = DsQuery.arrowCallsOf(work.Id, store);
+                var calls = Queries.callsOf(work.Id, store);
+                var arrows = Queries.arrowCallsOf(work.Id, store);
 
                 Console.WriteLine($"\n  Work: {work.Name}");
                 Console.WriteLine($"    Calls: {calls.Length}");
@@ -67,8 +68,8 @@ public static class DiagnosticTool
             }
 
             // 전체 Call/Arrow 수집
-            var allCalls = works.SelectMany(w => DsQuery.callsOf(w.Id, store)).ToList();
-            var allArrows = works.SelectMany(w => DsQuery.arrowCallsOf(w.Id, store)).ToList();
+            var allCalls = works.SelectMany(w => Queries.callsOf(w.Id, store)).ToList();
+            var allArrows = works.SelectMany(w => Queries.arrowCallsOf(w.Id, store)).ToList();
 
             Console.WriteLine($"\n  Total Calls (all Works): {allCalls.Count}");
             Console.WriteLine($"  Total Arrows (all Works): {allArrows.Count}");

@@ -3,7 +3,7 @@ namespace DSPilot.Engine
 open System
 open System.Collections.Generic
 open Ds2.Core
-open Ds2.UI.Core
+open Ds2.Core.Store
 
 /// <summary>
 /// Flow 분석 모듈 - 대표 Work 선택, DAG 분석, MT/WT/CT 계산
@@ -25,7 +25,7 @@ module FlowAnalysis =
             let worksWithCallCount =
                 works
                 |> List.map (fun work ->
-                    let calls = DsQuery.callsOf work.Id store
+                    let calls = Queries.callsOf work.Id store
                     (work, calls.Length))
                 |> List.sortByDescending (fun (_, count) -> count)
                 |> List.groupBy (fun (_, count) -> count)
@@ -250,16 +250,16 @@ module FlowAnalysis =
     /// - MovingStartName/MovingEndName 결정
     /// </summary>
     let analyzeFlow (flow: Flow) (store: DsStore) : FlowAnalysisResult =
-        let works = DsQuery.worksOf flow.Id store
+        let works = Queries.worksOf flow.Id store
 
         // 모든 Work의 모든 Call을 수집 (대표 Work뿐만 아니라 전체)
         let allCalls =
             works
-            |> List.collect (fun work -> DsQuery.callsOf work.Id store)
+            |> List.collect (fun work -> Queries.callsOf work.Id store)
 
         let allArrows =
             works
-            |> List.collect (fun work -> DsQuery.arrowCallsOf work.Id store)
+            |> List.collect (fun work -> Queries.arrowCallsOf work.Id store)
 
         match selectRepresentativeWork works store with
         | None ->
