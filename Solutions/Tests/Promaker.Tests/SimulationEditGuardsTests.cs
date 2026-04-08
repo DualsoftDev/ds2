@@ -120,6 +120,83 @@ public sealed class SimulationEditGuardsTests
         });
     }
 
+    [Fact]
+    public void NewProject_and_OpenFile_are_blocked_while_simulating()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            Assert.True(vm.NewProjectCommand.CanExecute(null));
+            Assert.True(vm.OpenFileCommand.CanExecute(null));
+
+            vm.Simulation.IsSimulating = true;
+
+            Assert.False(vm.NewProjectCommand.CanExecute(null));
+            Assert.False(vm.OpenFileCommand.CanExecute(null));
+
+            vm.Simulation.IsSimulating = false;
+
+            Assert.True(vm.NewProjectCommand.CanExecute(null));
+            Assert.True(vm.OpenFileCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
+    public void NewProject_and_OpenFile_are_blocked_during_homing_phase()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            vm.Simulation.IsHomingPhase = true;
+
+            Assert.False(vm.NewProjectCommand.CanExecute(null));
+            Assert.False(vm.OpenFileCommand.CanExecute(null));
+
+            vm.Simulation.IsHomingPhase = false;
+
+            Assert.True(vm.NewProjectCommand.CanExecute(null));
+            Assert.True(vm.OpenFileCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
+    public void SimStatusText_resets_to_initial_on_new_project()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var initial = vm.Simulation.SimStatusText;
+
+            vm.Simulation.SimStatusText = "어떤 잔존 상태 메시지";
+            Assert.NotEqual(initial, vm.Simulation.SimStatusText);
+
+            vm.NewProjectCommand.Execute(null);
+
+            Assert.Equal(initial, vm.Simulation.SimStatusText);
+        });
+    }
+
+    [Fact]
+    public void SimStatusText_resets_to_initial_on_reset_for_new_store()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var initial = vm.Simulation.SimStatusText;
+
+            vm.Simulation.SimStatusText = "이전 프로젝트 잔존 메시지";
+            Assert.NotEqual(initial, vm.Simulation.SimStatusText);
+
+            vm.Simulation.ResetForNewStore();
+
+            Assert.Equal(initial, vm.Simulation.SimStatusText);
+        });
+    }
+
     private static void SetDialogService(MainViewModel vm, IDialogService dialogService)
     {
         typeof(MainViewModel)
