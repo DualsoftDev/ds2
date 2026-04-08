@@ -5,7 +5,8 @@ using Microsoft.Extensions.Logging;
 using DSPilot.Engine;
 using DSPilot.Engine.Core;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Ds2.Aasx;
 
 namespace DSPilot.TestConsole;
@@ -200,7 +201,7 @@ public static class EngineIntegrationTest
             }
 
             // Count flows
-            var allFlows = DsQuery.allFlows(store).ToList();
+            var allFlows = Queries.allFlows(store).ToList();
             Console.WriteLine($"  Total Flows: {allFlows.Count}");
 
             // Count calls with tags
@@ -211,10 +212,10 @@ public static class EngineIntegrationTest
 
             foreach (var flow in allFlows)
             {
-                var works = DsQuery.worksOf(flow.Id, store).ToList();
+                var works = Queries.worksOf(flow.Id, store).ToList();
                 foreach (var work in works)
                 {
-                    var calls = DsQuery.callsOf(work.Id, store).ToList();
+                    var calls = Queries.callsOf(work.Id, store).ToList();
                     foreach (var call in calls)
                     {
                         totalCalls++;

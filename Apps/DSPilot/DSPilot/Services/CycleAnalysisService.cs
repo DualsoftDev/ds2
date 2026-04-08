@@ -2,7 +2,8 @@ using DSPilot.Models.Analysis;
 using DSPilot.Models.Plc;
 using DSPilot.Repositories;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 
 namespace DSPilot.Services;
 
@@ -1040,7 +1041,7 @@ public class CycleAnalysisService
 
         // Call의 부모 Work 이름을 Device 이름으로 사용
         var store = _projectService.GetStore();
-        var workOpt = DsQuery.getWork(call.ParentId, store);
+        var workOpt = Queries.getWork(call.ParentId, store);
 
         if (Microsoft.FSharp.Core.FSharpOption<Work>.get_IsSome(workOpt))
         {

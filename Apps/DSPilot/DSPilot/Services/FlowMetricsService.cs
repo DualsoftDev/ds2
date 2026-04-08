@@ -1,4 +1,6 @@
-using Ds2.UI.Core;
+using Ds2.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using DSPilot.Engine;
 using DSPilot.Repositories;
 using Microsoft.FSharp.Collections;

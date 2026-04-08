@@ -2,7 +2,8 @@
 using Dapper;
 using Microsoft.Data.Sqlite;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Microsoft.FSharp.Collections;
 
 namespace PlcDataGenerator;
@@ -273,7 +274,7 @@ VALUES (@PlcId, @Name, @Address, @DataType);";
     {
         var tags = new Dictionary<string, SeedTagInfo>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var flow in DsQuery.allFlows(_store!).OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var flow in Queries.allFlows(_store!).OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase))
         {
             foreach (var work in GetOrderedWorksForFlow(flow))
             {
@@ -362,7 +363,7 @@ VALUES (@PlcId, @Name, @Address, @DataType);";
             throw new InvalidOperationException($"Failed to load AASX file: {aasxPath}");
         }
 
-        var projects = DsQuery.allProjects(_store);
+        var projects = Queries.allProjects(_store);
         var project = ListModule.IsEmpty(projects) ? null : ListModule.Head(projects);
 
         if (project == null)
@@ -372,13 +373,13 @@ VALUES (@PlcId, @Name, @Address, @DataType);";
 
         Console.WriteLine($"   Project loaded: {project.Name}");
 
-        var flows = DsQuery.allFlows(_store).ToList();
+        var flows = Queries.allFlows(_store).ToList();
         Console.WriteLine($"   Flows found: {flows.Count}");
 
         foreach (var flow in flows)
         {
-            var works = DsQuery.worksOf(flow.Id, _store).ToList();
-            var callCount = works.Sum(w => DsQuery.callsOf(w.Id, _store).Count());
+            var works = Queries.worksOf(flow.Id, _store).ToList();
+            var callCount = works.Sum(w => Queries.callsOf(w.Id, _store).Count());
             Console.WriteLine($"      - {flow.Name}: {callCount} calls");
         }
         Console.WriteLine();
@@ -435,7 +436,7 @@ VALUES (@PlcId, @Name, @Address, @DataType);";
 
         _callMappings.Clear();
 
-        var allFlows = DsQuery.allFlows(_store!)
+        var allFlows = Queries.allFlows(_store!)
             .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
         var mappingCount = 0;
@@ -653,14 +654,14 @@ VALUES (@PlcId, @Name, @Address, @DataType);";
 
     static List<Work> GetOrderedWorksForFlow(Flow flow)
     {
-        var works = DsQuery.worksOf(flow.Id, _store!).ToList();
+        var works = Queries.worksOf(flow.Id, _store!).ToList();
         if (works.Count <= 1)
         {
             return works;
         }
 
         var workIds = works.Select(w => w.Id).ToHashSet();
-        var arrows = DsQuery.arrowWorksOf(flow.ParentId, _store!)
+        var arrows = Queries.arrowWorksOf(flow.ParentId, _store!)
             .Where(a => workIds.Contains(a.SourceId) && workIds.Contains(a.TargetId) && IsStartLike(a.ArrowType))
             .Select(a => (a.SourceId, a.TargetId))
             .ToList();
@@ -670,14 +671,14 @@ VALUES (@PlcId, @Name, @Address, @DataType);";
 
     static List<Call> GetOrderedCallsForWork(Work work)
     {
-        var calls = DsQuery.callsOf(work.Id, _store!).ToList();
+        var calls = Queries.callsOf(work.Id, _store!).ToList();
         if (calls.Count <= 1)
         {
             return calls;
         }
 
         var callIds = calls.Select(c => c.Id).ToHashSet();
-        var arrows = DsQuery.arrowCallsOf(work.Id, _store!)
+        var arrows = Queries.arrowCallsOf(work.Id, _store!)
             .Where(a => callIds.Contains(a.SourceId) && callIds.Contains(a.TargetId) && IsStartLike(a.ArrowType))
             .Select(a => (a.SourceId, a.TargetId))
             .ToList();

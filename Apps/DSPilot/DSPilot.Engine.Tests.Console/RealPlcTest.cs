@@ -1,6 +1,7 @@
 using Dapper;
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Ev2.Backend.Common;
 using Ev2.Backend.PLC;
 using Ev2.PLC.Protocol.MX;
@@ -286,7 +287,7 @@ CREATE TABLE IF NOT EXISTS dspCall (
         }
 
         // Insert Flows and Calls from AASX
-        var allFlows = DsQuery.allFlows(_store).ToList();
+        var allFlows = Queries.allFlows(_store).ToList();
 
         foreach (var flow in allFlows)
         {
@@ -294,10 +295,10 @@ CREATE TABLE IF NOT EXISTS dspCall (
                 "INSERT OR REPLACE INTO dspFlow (Id, FlowName, State, ActiveCallCount) VALUES (@Id, @FlowName, 'Ready', 0)",
                 new { Id = flow.Id.ToString(), FlowName = flow.Name });
 
-            var works = DsQuery.worksOf(flow.Id, _store).ToList();
+            var works = Queries.worksOf(flow.Id, _store).ToList();
             foreach (var work in works)
             {
-                var calls = DsQuery.callsOf(work.Id, _store).ToList();
+                var calls = Queries.callsOf(work.Id, _store).ToList();
                 foreach (var call in calls)
                 {
                     await Dapper.SqlMapper.ExecuteAsync(conn,
@@ -329,15 +330,15 @@ CREATE TABLE IF NOT EXISTS dspCall (
 
     private void BuildTagMappings()
     {
-        var allFlows = DsQuery.allFlows(_store).ToList();
+        var allFlows = Queries.allFlows(_store).ToList();
 
         foreach (var flow in allFlows)
         {
-            var works = DsQuery.worksOf(flow.Id, _store).ToList();
+            var works = Queries.worksOf(flow.Id, _store).ToList();
 
             foreach (var work in works)
             {
-                var calls = DsQuery.callsOf(work.Id, _store).ToList();
+                var calls = Queries.callsOf(work.Id, _store).ToList();
 
                 foreach (var call in calls)
                 {
