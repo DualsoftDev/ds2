@@ -89,8 +89,8 @@ module AasxImporter =
                 let result =
                     env.Submodels
                     |> Seq.tryPick (fun sm ->
-                        // SequenceModel 서브모델 찾기
-                        if sm.IdShort = SubmodelModelIdShort then
+                        // SequenceModel 서브모델 찾기 (구 버전 "SequenceControlSubmodel"도 호환)
+                        if sm.IdShort = SubmodelModelIdShort || sm.IdShort = LegacySubmodelIdShort then
                             submodelToProjectStore sm (Some mainDir)
                         else None)
                 match result with
