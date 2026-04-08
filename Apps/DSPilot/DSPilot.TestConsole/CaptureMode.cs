@@ -1,5 +1,6 @@
 using Ds2.Core;
-using Ds2.UI.Core;
+using Ds2.Core.Store;
+using Ds2.Editor;
 using Dual.Common.Db.FS;
 using Ev2.Backend.Common;
 using Ev2.Backend.PLC;
@@ -65,7 +66,7 @@ public static class CaptureMode
             Console.WriteLine("   ✅ AASX loaded");
 
             // 3. 프로젝트 정보 추출
-            var projects = DsQuery.allProjects(store);
+            var projects = Queries.allProjects(store);
             var project = Microsoft.FSharp.Collections.ListModule.IsEmpty(projects)
                 ? null
                 : Microsoft.FSharp.Collections.ListModule.Head(projects);
@@ -377,8 +378,8 @@ public static class CaptureMode
         var callIOTags = store.GetCallIOTags();
         var hwIOTags = store.GetHwComponentIOTags();
 
-        var allPlcTags = Microsoft.FSharp.Collections.ListModule.ToArray(callIOTags)
-            .Concat(Microsoft.FSharp.Collections.ListModule.ToArray(hwIOTags))
+        var allPlcTags = callIOTags
+            .Concat(hwIOTags)
             .Where(ioTag => !string.IsNullOrEmpty(ioTag.Address))
             .Select(ioTag => new PlcTagInfo
             {
