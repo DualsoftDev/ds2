@@ -2,6 +2,7 @@ using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using DSPilot.Engine;
+using EngineFlowAnalysis = DSPilot.Engine.FlowAnalysis;
 using DSPilot.Services;
 using Microsoft.Data.Sqlite;
 
@@ -77,7 +78,7 @@ public static class DiagnosticTool
             // FlowAnalysis 실행
             try
             {
-                var result = FlowAnalysis.analyzeFlow(flow, store);
+                var result = EngineFlowAnalysis.analyzeFlow(flow, store);
 
                 Console.WriteLine($"\n  DAG Analysis Result:");
                 Console.WriteLine($"    Representative Work: {result.RepresentativeWorkName ?? "None"}");

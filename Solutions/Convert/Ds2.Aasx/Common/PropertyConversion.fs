@@ -82,12 +82,12 @@ module PropertyConversion =
                 ((fun w -> w.GetMaintenanceProperties()), maintenanceWorkPropsToElements,   elementsToProps<MaintenanceWorkProperties>,   MaintenanceWork)
                 ((fun c -> c.GetMaintenanceProperties()), maintenanceCallPropsToElements,   elementsToProps<MaintenanceCallProperties>,   MaintenanceCall)
 
-        | SequenceCostAnalysis ->
+        | SequenceHmi ->
             mkOps
-                ((fun s -> s.GetCostAnalysisProperties()), costAnalysisSystemPropsToElements, elementsToProps<CostAnalysisSystemProperties>, CostAnalysisSystem)
-                ((fun f -> f.GetCostAnalysisProperties()), costAnalysisFlowPropsToElements,   elementsToProps<CostAnalysisFlowProperties>,   CostAnalysisFlow)
-                ((fun w -> w.GetCostAnalysisProperties()), costAnalysisWorkPropsToElements,   elementsToProps<CostAnalysisWorkProperties>,   CostAnalysisWork)
-                ((fun c -> c.GetCostAnalysisProperties()), costAnalysisCallPropsToElements,   elementsToProps<CostAnalysisCallProperties>,   CostAnalysisCall)
+                ((fun s -> s.GetHMIProperties()), hmiSystemPropsToElements, elementsToProps<HMISystemProperties>, HmiSystem)
+                ((fun f -> f.GetHMIProperties()), hmiFlowPropsToElements,   elementsToProps<HMIFlowProperties>,   HmiFlow)
+                ((fun w -> w.GetHMIProperties()), hmiWorkPropsToElements,   elementsToProps<HMIWorkProperties>,   HmiWork)
+                ((fun c -> c.GetHMIProperties()), hmiCallPropsToElements,   elementsToProps<HMICallProperties>,   HmiCall)
 
         | SequenceQuality ->
             mkOps
@@ -96,13 +96,12 @@ module PropertyConversion =
                 ((fun w -> w.GetQualityProperties()), qualityWorkPropsToElements,   elementsToProps<QualityWorkProperties>,   QualityWork)
                 ((fun c -> c.GetQualityProperties()), qualityCallPropsToElements,   elementsToProps<QualityCallProperties>,   QualityCall)
 
-        | SequenceHmi ->
+        | SequenceCostAnalysis ->
             mkOps
-                ((fun s -> s.GetHMIProperties()), hmiSystemPropsToElements, elementsToProps<HMISystemProperties>, HmiSystem)
-                ((fun f -> f.GetHMIProperties()), hmiFlowPropsToElements,   elementsToProps<HMIFlowProperties>,   HmiFlow)
-                ((fun w -> w.GetHMIProperties()), hmiWorkPropsToElements,   elementsToProps<HMIWorkProperties>,   HmiWork)
-                ((fun c -> c.GetHMIProperties()), hmiCallPropsToElements,   elementsToProps<HMICallProperties>,   HmiCall)
-
+                ((fun s -> s.GetCostAnalysisProperties()), costAnalysisSystemPropsToElements, elementsToProps<CostAnalysisSystemProperties>, CostAnalysisSystem)
+                ((fun f -> f.GetCostAnalysisProperties()), costAnalysisFlowPropsToElements,   elementsToProps<CostAnalysisFlowProperties>,   CostAnalysisFlow)
+                ((fun w -> w.GetCostAnalysisProperties()), costAnalysisWorkPropsToElements,   elementsToProps<CostAnalysisWorkProperties>,   CostAnalysisWork)
+                ((fun c -> c.GetCostAnalysisProperties()), costAnalysisCallPropsToElements,   elementsToProps<CostAnalysisCallProperties>,   CostAnalysisCall)
 
 
     // ── Export ──────────────────────────────────────────────────────────────

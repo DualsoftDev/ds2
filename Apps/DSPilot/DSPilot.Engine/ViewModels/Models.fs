@@ -1,6 +1,7 @@
 namespace DSPilot.Engine
 
 open System
+open Ds2.Core
 
 /// View Models 및 DTO
 module Models =

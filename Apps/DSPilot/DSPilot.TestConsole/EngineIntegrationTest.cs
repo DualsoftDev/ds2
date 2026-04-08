@@ -8,6 +8,7 @@ using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using Ds2.Aasx;
+using EngineTagStateTrackerMutable = DSPilot.Engine.TagStateTrackerMutable;
 
 namespace DSPilot.TestConsole;
 
@@ -68,7 +69,7 @@ public static class EngineIntegrationTest
 
     private static void TestTagStateTracker()
     {
-        var tracker = new TagStateTrackerMutable();
+        var tracker = new EngineTagStateTrackerMutable();
 
         // Test Rising Edge
         var state1 = tracker.UpdateTagValue("Tag1", "0");

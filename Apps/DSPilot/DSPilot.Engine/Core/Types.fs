@@ -1,11 +1,5 @@
 namespace DSPilot.Engine
 
-/// Call 상태 타입
-type CallState =
-    | Ready
-    | Going
-    | Finish
-
 /// 시간 버킷 크기
 type BucketSize =
     | Min5

@@ -6,10 +6,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Core Domain Types -->
+    <!-- Core Domain Types (DB-specific only; pure types moved to Ds2.Core) -->
     <Compile Include="Core/Types.fs" />
-    <Compile Include="Core/CallKey.fs" />
     <Compile Include="Core/EdgeDetection.fs" />
+    <Compile Include="Core/CallKey.fs" />
+
+    <!-- Statistics -->
+    <Compile Include="Statistics/IncrementalStats.fs" />
+    <Compile Include="Statistics/RuntimeStatsCollector.fs" />
+    <Compile Include="Statistics/Statistics.fs" />
+    <Compile Include="Statistics/RuntimeStatistics.fs" />
 
     <!-- Database Layer -->
     <Compile Include="Database/Configuration.fs" />
@@ -19,33 +25,16 @@
     <Compile Include="Database/Repository.fs" />
     <Compile Include="Database/Initialization.fs" />
 
-    <!-- Statistics (before Tracking, as StateTransition uses it) -->
-    <Compile Include="Statistics/IncrementalStats.fs" />
-    <Compile Include="Statistics/RuntimeStatsCollector.fs" />
-    <Compile Include="Statistics/Statistics.fs" />
-    <Compile Include="Statistics/RuntimeStatistics.fs" />
-
-    <!-- Tracking & State Management (순서 중요! StateTransition이 먼저) -->
+    <!-- Tracking & State Management (DB-coupled; uses Ds2.Core types) -->
     <Compile Include="Tracking/TagStateTracker.fs" />
     <Compile Include="Tracking/StateTransition.fs" />
-    <!-- PlcToCallMapper: C# implementation in DSPilot/Services/PlcToCallMapperService.cs -->
-    <!-- <Compile Include="Tracking/PlcToCallMapper.fs" /> -->
 
     <!-- Analysis -->
     <Compile Include="Analysis/Performance.fs" />
-    <Compile Include="Analysis/CycleAnalysis.fs" />
-    <Compile Include="Analysis/GanttLayout.fs" />
-    <Compile Include="Analysis/BottleneckDetection.fs" />
     <Compile Include="Analysis/FlowAnalysis.fs" />
 
     <!-- View Models -->
     <Compile Include="ViewModels/Models.fs" />
-
-    <!-- Temporary: Old files commented out -->
-    <!-- <Compile Include="Performance.fs" /> -->
-    <!-- <Compile Include="CycleAnalysis.fs" /> -->
-    <!-- <Compile Include="FlowAnalysis.fs" /> -->
-    <!-- <Compile Include="Models.fs" /> -->
   </ItemGroup>
 
   <ItemGroup>

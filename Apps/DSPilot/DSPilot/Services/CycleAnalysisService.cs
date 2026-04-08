@@ -4,6 +4,9 @@ using DSPilot.Repositories;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
+using AnalysisCallState = DSPilot.Models.Analysis.CallState;
+using AnalysisBottleneckInfo = DSPilot.Models.Analysis.BottleneckInfo;
+using AnalysisPerformanceMetrics = DSPilot.Models.Analysis.PerformanceMetrics;
 
 namespace DSPilot.Services;
 
@@ -248,9 +251,9 @@ public class CycleAnalysisService
     /// <summary>
     /// 성능 지표 계산
     /// </summary>
-    private PerformanceMetrics CalculatePerformanceMetrics(CycleAnalysisData data)
+    private AnalysisPerformanceMetrics CalculatePerformanceMetrics(CycleAnalysisData data)
     {
-        var metrics = new PerformanceMetrics();
+        var metrics = new AnalysisPerformanceMetrics();
 
         if (data.CallCount == 0)
             return metrics;
@@ -1014,7 +1017,7 @@ public class CycleAnalysisService
                         Duration = duration,
                         RelativeStartTime = relativeStartTime,
                         GapFromPrevious = gap,
-                        State = CallState.Completed
+                        State = AnalysisCallState.Completed
                     });
 
                     // 병렬 실행 시 previousEndTime이 역전되지 않도록 Max 사용
@@ -1135,9 +1138,9 @@ public class CycleAnalysisService
     /// <summary>
     /// 병목 탐지
     /// </summary>
-    public List<BottleneckInfo> DetectBottlenecks(List<CallExecutionInfo> sequence)
+    public List<AnalysisBottleneckInfo> DetectBottlenecks(List<CallExecutionInfo> sequence)
     {
-        var bottlenecks = new List<BottleneckInfo>();
+        var bottlenecks = new List<AnalysisBottleneckInfo>();
 
         if (sequence.Count == 0)
             return bottlenecks;
@@ -1151,7 +1154,7 @@ public class CycleAnalysisService
         {
             if (call.Duration.TotalSeconds > threshold)
             {
-                bottlenecks.Add(new BottleneckInfo
+                bottlenecks.Add(new AnalysisBottleneckInfo
                 {
                     CallName = call.CallName,
                     Reason = "평균보다 2배 이상 긴 동작",

@@ -351,9 +351,9 @@ module AasxExporter =
             if sys.GetMonitoringProperties().IsNone then sys.SetMonitoringProperties(MonitoringSystemProperties())
             if sys.GetLoggingProperties().IsNone then sys.SetLoggingProperties(LoggingSystemProperties())
             if sys.GetMaintenanceProperties().IsNone then sys.SetMaintenanceProperties(MaintenanceSystemProperties())
-            if sys.GetCostAnalysisProperties().IsNone then sys.SetCostAnalysisProperties(CostAnalysisSystemProperties())
-            if sys.GetQualityProperties().IsNone then sys.SetQualityProperties(QualitySystemProperties())
             if sys.GetHMIProperties().IsNone then sys.SetHMIProperties(HMISystemProperties())
+            if sys.GetQualityProperties().IsNone then sys.SetQualityProperties(QualitySystemProperties())
+            if sys.GetCostAnalysisProperties().IsNone then sys.SetCostAnalysisProperties(CostAnalysisSystemProperties())
 
             // Flow에도 기본 Properties 추가
             let flows = Queries.flowsOf sys.Id store
@@ -363,9 +363,9 @@ module AasxExporter =
                 if flow.GetMonitoringProperties().IsNone then flow.SetMonitoringProperties(MonitoringFlowProperties())
                 if flow.GetLoggingProperties().IsNone then flow.SetLoggingProperties(LoggingFlowProperties())
                 if flow.GetMaintenanceProperties().IsNone then flow.SetMaintenanceProperties(MaintenanceFlowProperties())
-                if flow.GetCostAnalysisProperties().IsNone then flow.SetCostAnalysisProperties(CostAnalysisFlowProperties())
-                if flow.GetQualityProperties().IsNone then flow.SetQualityProperties(QualityFlowProperties())
                 if flow.GetHMIProperties().IsNone then flow.SetHMIProperties(HMIFlowProperties())
+                if flow.GetQualityProperties().IsNone then flow.SetQualityProperties(QualityFlowProperties())
+                if flow.GetCostAnalysisProperties().IsNone then flow.SetCostAnalysisProperties(CostAnalysisFlowProperties())
 
                 // Work에도 기본 Properties 추가
                 let works = Queries.worksOf flow.Id store
@@ -375,9 +375,9 @@ module AasxExporter =
                     if work.GetMonitoringProperties().IsNone then work.SetMonitoringProperties(MonitoringWorkProperties())
                     if work.GetLoggingProperties().IsNone then work.SetLoggingProperties(LoggingWorkProperties())
                     if work.GetMaintenanceProperties().IsNone then work.SetMaintenanceProperties(MaintenanceWorkProperties())
-                    if work.GetCostAnalysisProperties().IsNone then work.SetCostAnalysisProperties(CostAnalysisWorkProperties())
-                    if work.GetQualityProperties().IsNone then work.SetQualityProperties(QualityWorkProperties())
                     if work.GetHMIProperties().IsNone then work.SetHMIProperties(HMIWorkProperties())
+                    if work.GetQualityProperties().IsNone then work.SetQualityProperties(QualityWorkProperties())
+                    if work.GetCostAnalysisProperties().IsNone then work.SetCostAnalysisProperties(CostAnalysisWorkProperties())
 
                     // Call에도 기본 Properties 추가
                     let calls = Queries.callsOf work.Id store
@@ -387,9 +387,9 @@ module AasxExporter =
                         if call.GetMonitoringProperties().IsNone then call.SetMonitoringProperties(MonitoringCallProperties())
                         if call.GetLoggingProperties().IsNone then call.SetLoggingProperties(LoggingCallProperties())
                         if call.GetMaintenanceProperties().IsNone then call.SetMaintenanceProperties(MaintenanceCallProperties())
-                        if call.GetCostAnalysisProperties().IsNone then call.SetCostAnalysisProperties(CostAnalysisCallProperties())
-                        if call.GetQualityProperties().IsNone then call.SetQualityProperties(QualityCallProperties())
                         if call.GetHMIProperties().IsNone then call.SetHMIProperties(HMICallProperties())
+                        if call.GetQualityProperties().IsNone then call.SetQualityProperties(QualityCallProperties())
+                        if call.GetCostAnalysisProperties().IsNone then call.SetCostAnalysisProperties(CostAnalysisCallProperties())
         #endif
 
         // 서브모델 생성 (데이터가 있는 것만)
