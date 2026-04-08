@@ -87,7 +87,9 @@ public partial class MainViewModel
         Log.Info($"{kind} saved: {filePath}");
     }
 
-    [RelayCommand]
+    private bool CanOpenFile() => !Simulation.IsSimulating && !Simulation.IsHomingPhase;
+
+    [RelayCommand(CanExecute = nameof(CanOpenFile))]
     private void OpenFile()
     {
         if (!ConfirmDiscardChanges()) return;

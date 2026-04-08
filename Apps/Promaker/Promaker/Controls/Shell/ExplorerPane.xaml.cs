@@ -494,10 +494,7 @@ public partial class ExplorerPane : UserControl
         ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
 
         if (HasActiveSearch)
-        {
-            NavigateToSearchSelection(node);
             RefreshFilteredSelectionState();
-        }
     }
 
     private void HandleTreeItemMouseDown(TreePaneKind pane, object sender, MouseButtonEventArgs e, bool requireModifiers)
@@ -565,27 +562,6 @@ public partial class ExplorerPane : UserControl
         }
 
         return null;
-    }
-
-    private void NavigateToSearchSelection(EntityNode node)
-    {
-        if (ViewModel is null)
-            return;
-
-        switch (node.EntityType)
-        {
-            case EntityKind.System:
-            case EntityKind.Flow:
-                ViewModel.Canvas.OpenCanvasTab(node.Id, node.EntityType);
-                break;
-            case EntityKind.Work:
-            case EntityKind.Call:
-                ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
-                break;
-            case EntityKind.ApiDef:
-                ViewModel.EditApiDefNode(node.Id);
-                break;
-        }
     }
 
     private void ClearPendingTreeDragSelection()

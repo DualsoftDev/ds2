@@ -1,45 +1,28 @@
 namespace Ds2.Core.Store
-
 open System
 open Ds2.Core
 
 // =============================================================================
 // UI 라벨 · 기본값 · 공유 타입
 // =============================================================================
-
 /// XAML에서 x:Static으로 참조하는 도메인 개념 디스플레이 라벨.
 /// Store에서 한 번 정의 -> C# XAML 자동 전파.
 module Labels =
-    [<Literal>]
-    let WorkPeriod   = "Work Duration (ms)"
-    [<Literal>]
-    let PeriodFormat = "밀리초(ms) 단위 정수"
-    [<Literal>]
-    let TimeoutMs    = "Timeout (ms)"
-    [<Literal>]
-    let PeriodMs     = "Period (ms)"
-    [<Literal>]
-    let TxWork       = "TX Work"
-    [<Literal>]
-    let RxWork       = "RX Work"
-    [<Literal>]
-    let Push         = "Push"
-    [<Literal>]
-    let Normal       = "Normal"
-    [<Literal>]
-    let ApiDef       = "ApiDef"
-    [<Literal>]
-    let OutTag       = "Out tag"
-    [<Literal>]
-    let OutAddress   = "Out address"
-    [<Literal>]
-    let InTag        = "In tag"
-    [<Literal>]
-    let InAddress    = "In address"
-    [<Literal>]
-    let OutSpec      = "Out spec"
-    [<Literal>]
-    let InSpec       = "In spec"
+    let [<Literal>] WorkPeriod  = "Work Duration (ms)"
+    let [<Literal>] PeriodFormat = "밀리초(ms) 단위 정수"
+    let [<Literal>] TimeoutMs   = "Timeout (ms)"
+    let [<Literal>] PeriodMs    = "Period (ms)"
+    let [<Literal>] TxWork      = "TX Work"
+    let [<Literal>] RxWork      = "RX Work"
+    let [<Literal>] Push        = "Push"
+    let [<Literal>] Normal      = "Normal"
+    let [<Literal>] ApiDef      = "ApiDef"
+    let [<Literal>] OutTag      = "Out tag"
+    let [<Literal>] OutAddress  = "Out address"
+    let [<Literal>] InTag       = "In tag"
+    let [<Literal>] InAddress   = "In address"
+    let [<Literal>] OutSpec     = "Out spec"
+    let [<Literal>] InSpec      = "In spec"
 
 module UiDefaults =
     /// Fixed logical root ID for the device tree. Keep stable across sessions/files.

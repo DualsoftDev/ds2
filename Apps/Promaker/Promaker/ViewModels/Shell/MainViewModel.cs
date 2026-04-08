@@ -61,6 +61,12 @@ public partial class MainViewModel : ObservableObject
                 UndoCommand.NotifyCanExecuteChanged();
                 RedoCommand.NotifyCanExecuteChanged();
             }
+            if (e.PropertyName is nameof(SimulationPanelState.IsSimulating)
+                                or nameof(SimulationPanelState.IsHomingPhase))
+            {
+                NewProjectCommand.NotifyCanExecuteChanged();
+                OpenFileCommand.NotifyCanExecuteChanged();
+            }
         };
         WireEvents();
         LanguageManager.ApplySavedLanguage();
@@ -214,7 +220,9 @@ public partial class MainViewModel : ObservableObject
             : "한국어로 전환";
     }
 
-    [RelayCommand]
+    private bool CanCreateNewProject() => !Simulation.IsSimulating && !Simulation.IsHomingPhase;
+
+    [RelayCommand(CanExecute = nameof(CanCreateNewProject))]
     private void NewProject()
     {
         if (!ConfirmDiscardChanges())
