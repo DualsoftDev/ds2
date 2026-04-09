@@ -1181,4 +1181,78 @@ module HomingPhaseExecutionTests =
         Assert.False(sim.IsHomingPhase)
         Assert.Equal(Some Status4.Finish, sim.GetWorkState(setWork.Id))
 
+module WaitForCompletionIsFinishedTests =
 
+    [<Fact>]
+    let ``IsFinished WaitForCompletion without Reset should not cycle GF indefinitely`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSys.Id
+        let w1 = addWork store "W1" flow.Id
+
+        // Device 1: dev (ADV+RET, ResetReset) — Homing 발생시킴
+        let devSys = addSystem store "dev" project.Id false
+        let devFlow = addFlow store "DF" devSys.Id
+        let advWork = addWork store "ADV" devFlow.Id
+        advWork.Duration <- Some (TimeSpan.FromMilliseconds 100.)
+        let retWork = addWork store "RET" devFlow.Id
+        retWork.Duration <- Some (TimeSpan.FromMilliseconds 100.)
+        let retProps = SimulationWorkProperties()
+        retProps.IsFinished <- true
+        retWork.SetSimulationProperties(retProps)
+        let advDef = addApiDef store "ADV" devSys.Id
+        advDef.TxGuid <- Some advWork.Id; advDef.RxGuid <- Some advWork.Id
+        let retDef = addApiDef store "RET" devSys.Id
+        retDef.TxGuid <- Some retWork.Id; retDef.RxGuid <- Some retWork.Id
+        store.ConnectSelectionInOrder([advWork.Id; retWork.Id], ArrowType.ResetReset) |> ignore
+
+        // Device 2: POS (SET만, IsFinished=true, Reset 없음)
+        let posSys = addSystem store "POS" project.Id false
+        let posFlow = addFlow store "PF" posSys.Id
+        let setWork = addWork store "SET" posFlow.Id
+        setWork.Duration <- Some (TimeSpan.FromMilliseconds 100.)
+        let setProps = SimulationWorkProperties()
+        setProps.IsFinished <- true
+        setWork.SetSimulationProperties(setProps)
+        let setDef = addApiDef store "SET" posSys.Id
+        setDef.TxGuid <- Some setWork.Id; setDef.RxGuid <- Some setWork.Id
+
+        // W1을 Source로 설정 → Homing 후 자동 시작
+        store.UpdateWorkTokenRole(w1.Id, TokenRole.Source)
+
+        // W1 Calls: dev.RET → dev.ADV → POS.SET (순서 연결)
+        let retCallId = store.AddCallWithLinkedApiDefs(w1.Id, "dev", "RET", [retDef.Id])
+        let advCallId = store.AddCallWithLinkedApiDefs(w1.Id, "dev", "ADV", [advDef.Id])
+        let setCallId = store.AddCallWithLinkedApiDefs(w1.Id, "POS", "SET", [setDef.Id])
+        store.ConnectSelectionInOrder([retCallId; advCallId; setCallId], ArrowType.Start) |> ignore
+
+        let index = SimIndex.build store 10
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let sim = engine :> ISimulationEngine
+
+        let log = System.Collections.Generic.List<string>()
+        sim.WorkStateChanged.AddHandler(fun _ e ->
+            log.Add($"{e.WorkName}: {e.PreviousState}->{e.NewState}"))
+
+        let mutable homingDone = false
+        sim.HomingPhaseCompleted.AddHandler(fun _ _ -> homingDone <- true)
+
+        sim.SpeedMultiplier <- 100.0
+        sim.StartWithHomingPhase() |> ignore
+
+        // Homing 완료 대기
+        let _ = waitUntil 5000 (fun () -> homingDone)
+        // Source Work에 토큰 주입 → 시뮬레이션 시작
+        sim.SeedToken(w1.Id, Ds2.Core.TokenValue.IntToken 1)
+        // 이후 2초 관찰
+        System.Threading.Thread.Sleep(2000)
+        sim.Stop()
+
+        let setGoingCount = log |> Seq.filter (fun l -> l.Contains("SET") && l.Contains("->Going")) |> Seq.length
+        let logStr = String.Join("\n  ", log)
+        printfn $"SET Going count: {setGoingCount}\nLog:\n  {logStr}"
+
+        // IsFinished + Reset 없음 + WaitForCompletion → SET은 Finish 상태 유지
+        // H→R 없이 반복 G→F는 버그
+        Assert.True(setGoingCount <= 1, $"SET should not cycle G→F repeatedly. Going count={setGoingCount}\nLog:\n  {logStr}")
