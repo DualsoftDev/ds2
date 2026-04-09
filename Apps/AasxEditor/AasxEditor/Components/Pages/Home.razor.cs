@@ -27,7 +27,6 @@ public partial class Home : IAsyncDisposable
     private List<AasTreeNode> _treeNodes = [];
     private AasTreeNode? _selectedNode;
     private string _centerTab = "explorer";
-    private bool _propsDirty;
     private List<AasTreeNode> _explorerPath = [];
     private readonly Stack<List<AasTreeNode>> _navBack = new();
     private readonly Stack<List<AasTreeNode>> _navForward = new();
@@ -59,7 +58,6 @@ public partial class Home : IAsyncDisposable
     private void SelectNode(AasTreeNode node)
     {
         _selectedNode = node;
-        _propsDirty = false;
     }
 
     private void SetStatus(string message, string cssClass)
@@ -143,7 +141,6 @@ public partial class Home : IAsyncDisposable
             _editorInitialized = true;
 
             await JS.InvokeVoidAsync("ResizeHandle.init", "resize-left", "panel-tree", "left");
-            await JS.InvokeVoidAsync("ResizeHandle.init", "resize-right", "panel-props", "right");
             await JS.InvokeVoidAsync("DropZone.init", _dotnetRef);
 
             if (_sessionStarted)
