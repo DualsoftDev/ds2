@@ -23,7 +23,17 @@ window.MonacoInterop = {
                 wordWrap: 'on'
             });
 
-            // editor ready
+            // Ctrl+Z / Ctrl+Y: 코드 에디터 포커스가 아닐 때만 앱 undo/redo 호출
+            document.addEventListener('keydown', function (e) {
+                if (editor && editor.hasTextFocus()) return; // Monaco가 자체 undo 처리
+                if (e.ctrlKey && !e.shiftKey && e.key === 'z') {
+                    e.preventDefault();
+                    dotnetRef.invokeMethodAsync('OnUndoKeyboard');
+                } else if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) {
+                    e.preventDefault();
+                    dotnetRef.invokeMethodAsync('OnRedoKeyboard');
+                }
+            });
         });
     },
 

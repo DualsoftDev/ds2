@@ -14,6 +14,8 @@ public partial class Home
 
         try
         {
+            PushUndo($"일괄 편집: '{_batchNewValue}'");
+
             var targetIds = _searchResults.Select(r => r.IdShort).ToHashSet();
             var changed = UpdateEnvironmentValues(_currentEnv, targetIds, _batchNewValue);
 

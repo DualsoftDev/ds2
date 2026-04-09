@@ -121,6 +121,7 @@ public partial class Home
 
     private async Task OnCardValueChanged(AasTreeNode node, string? newValue)
     {
+        PushUndo($"'{node.Label}' 값 변경");
         node.Properties["value"] = newValue;
         try
         {
