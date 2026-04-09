@@ -29,6 +29,8 @@ public partial class Home : IAsyncDisposable
     private string _centerTab = "explorer";
     private bool _propsDirty;
     private List<AasTreeNode> _explorerPath = [];
+    private readonly Stack<List<AasTreeNode>> _navBack = new();
+    private readonly Stack<List<AasTreeNode>> _navForward = new();
 
     private List<AasxFileRecord> _loadedFiles = [];
     private long _selectedFileId;
@@ -85,6 +87,8 @@ public partial class Home : IAsyncDisposable
             _treeNodes = TreeBuilder.BuildTree(_currentEnv);
         _selectedNode = null;
         _explorerPath.Clear();
+        _navBack.Clear();
+        _navForward.Clear();
     }
 
     private async Task ApplyEnvironmentAsync(AasCore.Aas3_0.Environment env, string json, string fileName)

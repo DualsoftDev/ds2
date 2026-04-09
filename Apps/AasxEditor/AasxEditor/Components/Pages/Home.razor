@@ -137,6 +137,11 @@
                     {
                         @* Breadcrumb *@
                         <div class="explorer-breadcrumb">
+                            <div class="nav-buttons">
+                                <button class="nav-btn @(_navBack.Count == 0 ? "disabled" : "")" @onclick="ExplorerGoBack" title="뒤로" disabled="@(_navBack.Count == 0)">←</button>
+                                <button class="nav-btn @(_navForward.Count == 0 ? "disabled" : "")" @onclick="ExplorerGoForward" title="앞으로" disabled="@(_navForward.Count == 0)">→</button>
+                                <button class="nav-btn @(_explorerPath.Count == 0 ? "disabled" : "")" @onclick="ExplorerGoUp" title="위로" disabled="@(_explorerPath.Count == 0)">↑</button>
+                            </div>
                             <span class="breadcrumb-item @(_explorerPath.Count == 0 ? "active" : "clickable")" @onclick="ExplorerGoRoot">Root</span>
                             @for (var i = 0; i < _explorerPath.Count; i++)
                             {

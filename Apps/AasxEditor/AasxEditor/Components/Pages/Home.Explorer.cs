@@ -41,17 +41,59 @@ public partial class Home
     }
 
     // ===== Explorer navigation =====
+    private void PushNavHistory()
+    {
+        _navBack.Push(new List<AasTreeNode>(_explorerPath));
+        _navForward.Clear();
+    }
+
     private void ExplorerDrillDown(AasTreeNode node)
     {
         SelectNode(node);
-        if (node.Children.Count > 0) _explorerPath.Add(node);
+        if (node.Children.Count > 0)
+        {
+            PushNavHistory();
+            _explorerPath.Add(node);
+        }
     }
 
-    private void ExplorerGoRoot() => _explorerPath.Clear();
-    private void ExplorerGoTo(int index) => _explorerPath = _explorerPath.Take(index + 1).ToList();
+    private void ExplorerGoRoot()
+    {
+        if (_explorerPath.Count == 0) return;
+        PushNavHistory();
+        _explorerPath.Clear();
+    }
+
+    private void ExplorerGoTo(int index)
+    {
+        PushNavHistory();
+        _explorerPath = _explorerPath.Take(index + 1).ToList();
+    }
+
+    private void ExplorerGoBack()
+    {
+        if (_navBack.Count == 0) return;
+        _navForward.Push(new List<AasTreeNode>(_explorerPath));
+        _explorerPath = _navBack.Pop();
+    }
+
+    private void ExplorerGoForward()
+    {
+        if (_navForward.Count == 0) return;
+        _navBack.Push(new List<AasTreeNode>(_explorerPath));
+        _explorerPath = _navForward.Pop();
+    }
+
+    private void ExplorerGoUp()
+    {
+        if (_explorerPath.Count == 0) return;
+        PushNavHistory();
+        _explorerPath.RemoveAt(_explorerPath.Count - 1);
+    }
 
     private void NavigateExplorerToNode(AasTreeNode target)
     {
+        PushNavHistory();
         _explorerPath.Clear();
         var path = new List<AasTreeNode>();
         if (FindPathToNode(_treeNodes, target, path))
