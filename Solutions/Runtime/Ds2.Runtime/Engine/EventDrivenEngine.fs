@@ -69,6 +69,36 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
         WorkTransitions.scheduleWorkIfReady workTransitionContext workGuid targetState
     let applyWorkTransition workGuid newState =
         WorkTransitions.applyWorkTransition workTransitionContext workGuid newState
+    let setWorkStateDirect workGuid newState =
+        if index.AllWorkGuids |> List.contains workGuid then
+            let oldState = stateManager.GetWorkState(workGuid)
+            if oldState <> newState then
+                stateManager.ForceWorkState(workGuid, newState)
+                let workName = index.WorkName |> Map.tryFind workGuid |> Option.defaultValue (string workGuid)
+                workStateChangedEvent.Trigger({
+                    WorkGuid = workGuid
+                    WorkName = workName
+                    PreviousState = oldState
+                    NewState = newState
+                    Clock = TimeSpan.FromMilliseconds(float scheduler.CurrentTimeMs)
+                })
+    let setCallStateDirect callGuid newState =
+        if index.AllCallGuids |> List.contains callGuid then
+            let oldState = stateManager.GetCallState(callGuid)
+            if oldState <> newState then
+                stateManager.ForceCallState(callGuid, newState)
+                let callName =
+                    Queries.getCall callGuid index.Store
+                    |> Option.map (fun c -> c.Name)
+                    |> Option.defaultValue (string callGuid)
+                callStateChangedEvent.Trigger({
+                    CallGuid = callGuid
+                    CallName = callName
+                    PreviousState = oldState
+                    NewState = newState
+                    IsSkipped = false
+                    Clock = TimeSpan.FromMilliseconds(float scheduler.CurrentTimeMs)
+                })
     // ── 내부 함수: Force/Execute (let binding에서 참조 가능) ──
     let forceWorkState workGuid newState =
         if index.AllWorkGuids |> List.contains workGuid then
@@ -286,9 +316,10 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
 
     /// 자동 원위치 페이즈:
     /// 1. IsFinished → ApplyInitialStates 즉시 Finish
-    /// 2. Active System 모든 Call → Homing
+    /// 2. Active System Work/Call → Homing
     /// 3. ExecuteCallHoming per call (goingTargets로 Device 구분)
-    /// 4. 모든 Active Call Ready → Active Work Ready 복원 → homing 완료
+    /// 4. target Device Work Finish 완료 후 Active Call Ready
+    /// 5. Active Call 전부 Ready 확인 후 Active Work Ready 복원 → homing 완료
     member this.StartWithHomingPhase() : bool =
         let isFinishedGuids = SimIndex.findInitialFlagRxWorkGuids index
         this.ApplyInitialStates()
@@ -312,29 +343,35 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
         else
             isHomingPhase <- true
 
-            for callGuid in activeCallGuids do
-                forceCallState callGuid Status4.Homing
-
             let activeWorkGuids =
                 activeCallGuids
                 |> List.choose (fun cg -> index.CallWorkGuid |> Map.tryFind cg)
                 |> List.distinct
 
-            // 완료 판정: allGoingTargets Work가 전부 Finish에 도달 (Work 기반 — Call Ready와 독립)
+            for workGuid in activeWorkGuids do
+                setWorkStateDirect workGuid Status4.Homing
+
+            for callGuid in activeCallGuids do
+                setCallStateDirect callGuid Status4.Homing
+
+            let finishHomingPhase () =
+                for callGuid in activeCallGuids do
+                    setCallStateDirect callGuid Status4.Ready
+                for workGuid in activeWorkGuids do
+                    setWorkStateDirect workGuid Status4.Ready
+                isHomingPhase <- false
+                homingPhaseCompletedEvent.Trigger(EventArgs.Empty)
+
+            // 완료 판정: allGoingTargets Work가 전부 Finish에 도달하면
+            // active call/work를 Ready로 동기 복원한다.
             let homingTargets = System.Collections.Generic.HashSet<Guid>(allGoingTargets)
             let mutable handler : IDisposable = null
             handler <- workStateChangedEvent.Publish.Subscribe(fun args ->
                 if isHomingPhase && args.NewState = Status4.Finish && homingTargets.Contains(args.WorkGuid) then
                     homingTargets.Remove(args.WorkGuid) |> ignore
                     if homingTargets.Count = 0 then
-                        isHomingPhase <- false
                         handler.Dispose()
-                        // Active Call/Work Ready 복원
-                        for callGuid in activeCallGuids do
-                            forceCallState callGuid Status4.Ready
-                        for workGuid in activeWorkGuids do
-                            forceWorkState workGuid Status4.Ready
-                        homingPhaseCompletedEvent.Trigger(EventArgs.Empty))
+                        finishHomingPhase ())
 
             // Start 후 ExecuteCallHoming (스케줄된 이벤트가 처리되려면 엔진이 돌아야 함)
             this.Start()
