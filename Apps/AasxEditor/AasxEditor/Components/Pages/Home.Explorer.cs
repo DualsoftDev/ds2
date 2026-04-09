@@ -29,7 +29,16 @@ public partial class Home
         }
     }
 
-    private void SwitchTab(string tab) => _centerTab = tab;
+    private async Task SwitchTab(string tab)
+    {
+        _centerTab = tab;
+        if (tab == "code" && _selectedNode?.JsonPath is { } path)
+        {
+            StateHasChanged();
+            await Task.Yield();
+            await JS.InvokeVoidAsync("MonacoInterop.revealJsonPath", path);
+        }
+    }
 
     // ===== Explorer navigation =====
     private void ExplorerDrillDown(AasTreeNode node)
@@ -65,6 +74,24 @@ public partial class Home
     }
 
     // ===== Properties editing =====
+    private Task OnCardBoolChanged(AasTreeNode node, bool value)
+        => OnCardValueChanged(node, value ? "true" : "false");
+
+    private async Task OnCardValueChanged(AasTreeNode node, string? newValue)
+    {
+        node.Properties["value"] = newValue;
+        try
+        {
+            // value만 변경 — valueType 등 메타 속성은 건드리지 않음
+            var valueOnly = new Dictionary<string, string?> { ["value"] = newValue };
+            var updatedJson = ApplyPropertyChanges(_currentJson, node.JsonPath, valueOnly);
+            _currentEnv = Converter.JsonToEnvironment(updatedJson);
+            await SyncJsonToEditorAsync(updatedJson);
+            SetStatus($"{node.Label} 값 변경됨", "success");
+        }
+        catch (Exception ex) { SetStatus($"반영 실패: {ex.Message}", "error"); }
+    }
+
     private void OnPropFieldChanged(string key, string? newValue)
     {
         if (_selectedNode is not null)
@@ -86,6 +113,17 @@ public partial class Home
             SetStatus("속성 변경이 JSON에 반영되었습니다", "success");
         }
         catch (Exception ex) { SetStatus($"반영 실패: {ex.Message}", "error"); }
+    }
+
+    private string ApplyPropertyChanges(string json, string jsonPath, Dictionary<string, string?> changes)
+    {
+        var doc = System.Text.Json.JsonDocument.Parse(json);
+        using var ms = new MemoryStream();
+        using (var writer = new System.Text.Json.Utf8JsonWriter(ms, new System.Text.Json.JsonWriterOptions { Indented = true }))
+        {
+            WriteWithChanges(writer, doc.RootElement, jsonPath, changes);
+        }
+        return System.Text.Encoding.UTF8.GetString(ms.ToArray());
     }
 
     private string ApplyPropertyChanges(string json, AasTreeNode node)
