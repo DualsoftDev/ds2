@@ -1072,7 +1072,7 @@ module HomingPhaseExecutionTests =
         printfn $"hasTargets={hasTargets}, homingCompleted={homingCompleted}\nLog:\n  {logStr}"
 
     [<Fact>]
-    let ``StartWithHomingPhase triggers Device Work via Call and completes`` () =
+    let ``StartWithHomingPhase keeps active Work Homing until active Calls return Ready`` () =
         let store = createStore ()
         let project = addProject store "P"
         let activeSys = addSystem store "Active" project.Id true
@@ -1082,9 +1082,9 @@ module HomingPhaseExecutionTests =
         let deviceSys = addSystem store "Device" project.Id false
         let deviceFlow = addFlow store "DF" deviceSys.Id
         let advWork = addWork store "ADV" deviceFlow.Id
-        advWork.Duration <- Some (TimeSpan.FromMilliseconds 50.)
+        advWork.Duration <- Some (TimeSpan.FromMilliseconds 500.)
         let retWork = addWork store "RET" deviceFlow.Id
-        retWork.Duration <- Some (TimeSpan.FromMilliseconds 50.)
+        retWork.Duration <- Some (TimeSpan.FromMilliseconds 500.)
         // RET에 IsFinished → ApplyInitialStates로 즉시 Finish
         let retSimProps = SimulationWorkProperties()
         retSimProps.IsFinished <- true
@@ -1113,17 +1113,38 @@ module HomingPhaseExecutionTests =
         let mutable homingCompleted = false
         sim.HomingPhaseCompleted.AddHandler(fun _ _ -> homingCompleted <- true)
 
-        sim.SpeedMultiplier <- 100.0
+        sim.SpeedMultiplier <- 1.0
         let hasTargets = sim.StartWithHomingPhase()
 
         Assert.True(hasTargets, "Should have homing targets (ADV needs Going)")
 
+        let enteredHoming = waitUntil 1000 (fun () ->
+            sim.GetWorkState(work.Id) = Some Status4.Homing
+            && sim.GetCallState(retCallId) = Some Status4.Homing
+            && sim.GetCallState(advCallId) = Some Status4.Homing)
+
+        Assert.True(
+            enteredHoming,
+            $"Active Work/Calls should enter Homing together. Work={sim.GetWorkState(work.Id)} RET={sim.GetCallState(retCallId)} ADV={sim.GetCallState(advCallId)}")
+
+        let becameReadyTooEarly = waitUntil 300 (fun () ->
+            sim.GetWorkState(work.Id) = Some Status4.Ready
+            && (sim.GetCallState(retCallId) = Some Status4.Homing
+                || sim.GetCallState(advCallId) = Some Status4.Homing))
+
+        Assert.False(
+            becameReadyTooEarly,
+            $"Active Work must not become Ready while child Calls are still Homing. Work={sim.GetWorkState(work.Id)} RET={sim.GetCallState(retCallId)} ADV={sim.GetCallState(advCallId)}")
+
         // advWork(ADV)가 Finish에 도달해야 homing 완료
         let completed = waitUntil 5000 (fun () -> homingCompleted)
 
-        sim.Stop()
-
         let logStr = String.Join("\n  ", log)
         Assert.True(completed, $"Homing should complete. Log:\n  {logStr}")
+        Assert.Equal(Some Status4.Ready, sim.GetWorkState(work.Id))
+        Assert.Equal(Some Status4.Ready, sim.GetCallState(retCallId))
+        Assert.Equal(Some Status4.Ready, sim.GetCallState(advCallId))
+
+        sim.Stop()
 
 
