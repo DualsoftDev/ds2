@@ -738,6 +738,53 @@ module SimIndex =
         let readyTargets = Set.difference offKeys conflictingKeys
         finishTargets, readyTargets
 
+    /// 자동 원위치 계획에서 Active Call의 On/Off 판정을 반환.
+    /// fst = Homing 표시 대상 Call (On), snd = Ready 유지 대상 Call (Off)
+    let computeAutoHomingCallPlan (index: SimIndex) : Set<Guid> * Set<Guid> =
+        let store = index.Store
+        let mutable onCalls = Set.empty<Guid>
+        let mutable offCalls = Set.empty<Guid>
+
+        let activeWorks =
+            Queries.allProjects store
+            |> List.collect (fun p -> Queries.activeSystemsOf p.Id store)
+            |> List.collect (fun sys -> Queries.flowsOf sys.Id store)
+            |> List.collect (fun flow -> Queries.worksOf flow.Id store)
+
+        for activeWork in activeWorks do
+            let calls = Queries.callsOf activeWork.Id store
+            if calls.Length >= 2 then
+                let callGuids = calls |> List.map (fun c -> c.Id)
+                let callStartSuccessors =
+                    callGuids
+                    |> List.fold (fun (acc: Map<Guid, Guid list>) cg ->
+                        let preds = index.CallStartPreds |> Map.tryFind cg |> Option.defaultValue []
+                        let localPreds = preds |> List.filter (fun p -> callGuids |> List.contains p)
+                        localPreds |> List.fold (fun a p ->
+                            let existing = a |> Map.tryFind p |> Option.defaultValue []
+                            a |> Map.add p (cg :: existing)) acc) Map.empty
+                let ancestorOf = buildAncestorDescendant callGuids callStartSuccessors
+                let resolveDeviceSystemId (call: Call) =
+                    call.ApiCalls |> Seq.tryHead
+                    |> Option.bind (fun ac -> ac.ApiDefId)
+                    |> Option.bind (fun defId -> Queries.getApiDef defId store)
+                    |> Option.map (fun def -> def.ParentId)
+                let callsByDevice =
+                    calls
+                    |> List.choose (fun c -> resolveDeviceSystemId c |> Option.map (fun sysId -> sysId, c))
+                    |> List.groupBy fst |> List.map (fun (_, pairs) -> pairs |> List.map snd)
+                    |> List.filter (fun group -> group.Length > 1)
+                for deviceCalls in callsByDevice do
+                    if deviceCalls.Length >= 2 then
+                        for call in deviceCalls do
+                            let partnerGuids = deviceCalls |> List.filter (fun c -> c.Id <> call.Id) |> List.map (fun c -> c.Id)
+                            match computeCallInitialType ancestorOf call.Id partnerGuids with
+                            | Some true -> onCalls <- onCalls.Add(call.Id)
+                            | Some false -> offCalls <- offCalls.Add(call.Id)
+                            | None -> ()
+
+        onCalls, offCalls
+
     /// Ready 대상 Device Work를 Reset시키는 진입점 Work를 찾고,
     /// 그 진입점에서 역방향 탐색하여 ApiDef에 연결된 Device Work를 반환.
     /// ApiDef 연결 Work를 Going시키면 Reset 연쇄로 Ready 대상이 원위치됨.

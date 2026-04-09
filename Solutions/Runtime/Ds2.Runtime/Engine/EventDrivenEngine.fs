@@ -125,16 +125,13 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
         | _ -> ()
     let executeCallGoing callGuid =
         SimIndex.txWorkGuids index callGuid |> List.iter executeApiCall
-    /// Call Homing 처리: Device Work를 Going시켜 원위치 유도.
+    /// Call Homing 처리: allGoingTargets에 해당하는 TxWork를 직접 Going시켜 원위치 유도.
     /// 개별 Call의 Ready 전이는 하지 않음 — StartWithHomingPhase completion handler가 일괄 처리.
     let executeCallHoming (callGuid: Guid) (goingTargets: Set<Guid>) =
-        let rxGuids = SimIndex.rxWorkGuids index callGuid
-        for rxGuid in rxGuids do
-            if stateManager.GetWorkState(rxGuid) = Status4.Finish then
-                let resetPreds = SimIndex.findOrEmpty rxGuid index.WorkResetPreds
-                for predGuid in resetPreds do
-                    if goingTargets.Contains predGuid then
-                        executeApiCall predGuid
+        let txGuids = SimIndex.txWorkGuids index callGuid
+        for txGuid in txGuids do
+            if goingTargets.Contains txGuid then
+                executeApiCall txGuid
     let callTransitionContext : CallTransitions.Context = {
         Index = index
         StateManager = stateManager
@@ -335,6 +332,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
         // computeAutoHomingPlan: descendant Call의 RxWork = Finish 대상 (On)
         // isFinishedGuids로 이미 Finish인 것 제외 → Going으로 보내야 할 Work만 추출
         let finishTargets, _ = SimIndex.computeAutoHomingPlan index
+        let displayHomingCalls, _ = SimIndex.computeAutoHomingCallPlan index
         let allGoingTargets = finishTargets |> Set.filter (fun g -> not (isFinishedGuids.Contains g))
 
         if allGoingTargets.IsEmpty then
@@ -343,19 +341,34 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
         else
             isHomingPhase <- true
 
-            let activeWorkGuids =
+            let callTriggersHoming callGuid =
+                SimIndex.txWorkGuids index callGuid
+                |> List.exists allGoingTargets.Contains
+
+            let homingExecutionCallGuids =
                 activeCallGuids
+                |> List.filter callTriggersHoming
+
+            let homingDisplayCallGuids =
+                activeCallGuids
+                |> List.filter (fun callGuid ->
+                    displayHomingCalls.Contains(callGuid)
+                    && (SimIndex.rxWorkGuids index callGuid
+                        |> List.exists allGoingTargets.Contains))
+
+            let activeWorkGuids =
+                homingDisplayCallGuids
                 |> List.choose (fun cg -> index.CallWorkGuid |> Map.tryFind cg)
                 |> List.distinct
 
             for workGuid in activeWorkGuids do
                 setWorkStateDirect workGuid Status4.Homing
 
-            for callGuid in activeCallGuids do
+            for callGuid in homingDisplayCallGuids do
                 setCallStateDirect callGuid Status4.Homing
 
             let finishHomingPhase () =
-                for callGuid in activeCallGuids do
+                for callGuid in homingDisplayCallGuids do
                     setCallStateDirect callGuid Status4.Ready
                 for workGuid in activeWorkGuids do
                     setWorkStateDirect workGuid Status4.Ready
@@ -375,7 +388,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
 
             // Start 후 ExecuteCallHoming (스케줄된 이벤트가 처리되려면 엔진이 돌아야 함)
             this.Start()
-            for callGuid in activeCallGuids do
+            for callGuid in homingExecutionCallGuids do
                 executeCallHoming callGuid allGoingTargets
             true
 
