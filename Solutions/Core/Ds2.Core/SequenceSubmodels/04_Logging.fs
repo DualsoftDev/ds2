@@ -172,7 +172,7 @@ type HeatmapCell = {
 // TYPE DEFINITIONS: Error Definitions
 // =============================================================================
 
-/// Flow 단위 에러 정의 (파싱된 구조체)
+/// System 단위 에러 정의 (파싱된 구조체)
 type ErrorDefinition = {
     Name: string                // 에러 이름 (예: "Motor_Overload")
     TagAddress: string          // PLC 태그 주소 (예: "M901")
@@ -203,6 +203,10 @@ type LoggingSystemProperties() =
     member val LogFilePath = "./logs/history" with get, set
     member val RetentionDays = 90 with get, set
 
+    // 에러 정의 (System 당 N개, 형식: "에러이름|태그주소|값타입")
+    // 예: "Motor_Overload|M901|Bit", "Vacuum_Low|D100|Word"
+    member val ErrorDefinitions = ResizeArray<string>() with get, set
+
 /// Flow-level 로깅 속성 (AAS SubmodelElementCollection)
 type LoggingFlowProperties() =
     inherit PropertiesBase<LoggingFlowProperties>()
@@ -210,10 +214,6 @@ type LoggingFlowProperties() =
     // 병목 분석 설정
     member val BottleneckThresholdMultiplier = 2.0 with get, set
     member val MinSampleSize = 30 with get, set
-
-    // 에러 정의 (Flow 당 N개, 형식: "에러이름|태그주소|값타입")
-    // 예: "Motor_Overload|M901|Bit", "Vacuum_Low|D100|Word"
-    member val ErrorDefinitions = ResizeArray<string>() with get, set
 
 /// Work-level 로깅 속성 (AAS SubmodelElementCollection)
 type LoggingWorkProperties() =

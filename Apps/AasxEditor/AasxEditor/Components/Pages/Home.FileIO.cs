@@ -1,3 +1,4 @@
+using AasCore.Aas3_0;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.JSInterop;
 
@@ -30,6 +31,7 @@ public partial class Home
                 var env = Converter.ReadEnvironmentFromBytes(ms.ToArray());
                 if (env is null) { SetStatus($"{file.Name}: 읽기 실패", "error"); continue; }
 
+                EnsureErrorDefinitions(env);
                 var json = Converter.EnvironmentToJson(env);
                 await ApplyEnvironmentAsync(env, json, file.Name);
                 await RegisterInDbAsync(file.Name, env, json);
@@ -55,6 +57,8 @@ public partial class Home
             var env = Converter.JsonToEnvironment(json);
             if (env is null) return;
 
+            EnsureErrorDefinitions(env);
+            json = Converter.EnvironmentToJson(env);
             await ApplyEnvironmentAsync(env, json, lastFile.FileName);
             _currentFileId = lastFile.Id;
             SetStatus($"DB에서 복원됨: {lastFile.FileName}", "success");
