@@ -192,7 +192,7 @@ html, body {
 .panel:last-child { border-right: none; }
 .panel-tree { width: 260px; min-width: 200px; flex-shrink: 0; }
 .panel-editor { flex: 1; min-width: 300px; }
-.panel-props { width: 300px; min-width: 220px; flex-shrink: 0; }
+
 
 .panel-header {
     padding: 6px 12px;
@@ -322,39 +322,6 @@ html, body {
     overflow: hidden;
     text-overflow: ellipsis;
 }
-
-/* ===== Properties Panel ===== */
-.props-section { padding: 10px 12px; border-bottom: 1px solid #333; }
-
-.props-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: #e0e0e0;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.props-type { font-size: 11px; color: #888; margin-top: 2px; }
-.props-desc { font-size: 11px; color: #8ab4f8; margin-top: 2px; }
-
-.props-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.props-table tr:hover { background: #2a2d2e; }
-.props-key { padding: 3px 8px 3px 0; color: #9cdcfe; vertical-align: top; white-space: nowrap; width: 1%; }
-.props-val { padding: 3px 0; color: #ce9178; word-break: break-all; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
-
-.props-children-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: #888;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 6px;
-}
-
-.props-child-item { display: flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 0; color: #ccc; }
-.props-child-item.clickable { cursor: pointer; }
-.props-child-item.clickable:hover { color: #fff; background: #2a2d2e; }
 
 /* ===== Form Fields ===== */
 .form-field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }

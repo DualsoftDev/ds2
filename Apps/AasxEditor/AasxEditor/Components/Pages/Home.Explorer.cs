@@ -134,29 +134,6 @@ public partial class Home
         catch (Exception ex) { SetStatus($"반영 실패: {ex.Message}", "error"); }
     }
 
-    private void OnPropFieldChanged(string key, string? newValue)
-    {
-        if (_selectedNode is not null)
-        {
-            _selectedNode.Properties[key] = newValue;
-            _propsDirty = true;
-        }
-    }
-
-    private async Task OnApplyPropChanges()
-    {
-        if (_selectedNode is null || string.IsNullOrWhiteSpace(_currentJson)) return;
-        try
-        {
-            var updatedJson = ApplyPropertyChanges(_currentJson, _selectedNode);
-            _currentEnv = Converter.JsonToEnvironment(updatedJson);
-            await SyncJsonToEditorAsync(updatedJson);
-            _propsDirty = false;
-            SetStatus("속성 변경이 JSON에 반영되었습니다", "success");
-        }
-        catch (Exception ex) { SetStatus($"반영 실패: {ex.Message}", "error"); }
-    }
-
     private string ApplyPropertyChanges(string json, string jsonPath, Dictionary<string, string?> changes)
     {
         var doc = System.Text.Json.JsonDocument.Parse(json);
