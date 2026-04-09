@@ -96,6 +96,7 @@ public partial class Home : IAsyncDisposable
         _currentEnv = env;
         await SyncJsonToEditorAsync(json);
         RebuildTree();
+        ClearUndoHistory(); // 새 파일 열기 시 undo 이력 초기화
     }
 
     private async Task RegisterInDbAsync(string fileName, AasCore.Aas3_0.Environment env, string json)

@@ -28,6 +28,13 @@
             검증
         </button>
         <span class="toolbar-sep"></span>
+        <button class="btn btn-outline-secondary" @onclick="Undo" disabled="@(!CanUndo)" title="실행 취소 (Ctrl+Z)">
+            ↶ 실행취소
+        </button>
+        <button class="btn btn-outline-secondary" @onclick="Redo" disabled="@(!CanRedo)" title="다시 실행 (Ctrl+Y)">
+            ↷ 다시실행
+        </button>
+        <span class="toolbar-sep"></span>
         <input class="search-input" type="text" placeholder="검색 (idShort, value, semanticId...)"
                @bind="_searchText" @bind:event="oninput" @onkeydown="OnSearchKeyDown" />
         <button class="btn btn-outline-info" @onclick="OnSearch">검색</button>

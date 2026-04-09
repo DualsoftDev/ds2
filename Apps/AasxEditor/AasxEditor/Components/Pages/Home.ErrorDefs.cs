@@ -88,6 +88,8 @@ public partial class Home
         var children = _selectedNode.Children;
         if (index < 0 || index >= children.Count) return;
 
+        PushUndo("에러 정의 삭제");
+
         // JSON에서 해당 항목 제거
         var smlPath = _selectedNode.JsonPath; // e.g., "submodels[3].submodelElements[0].value[2]"
         var updatedJson = RemoveSmlItem(_currentJson, smlPath, index);
@@ -113,6 +115,8 @@ public partial class Home
         }
 
         if (_selectedNode is null || string.IsNullOrWhiteSpace(_currentJson)) return;
+
+        PushUndo(_editingErrorDefIndex >= 0 ? "에러 정의 수정" : "에러 정의 추가");
 
         var encoded = FormatErrorDef(_errorDefName.Trim(), _errorDefTag.Trim(), _errorDefValueType);
         var smlPath = _selectedNode.JsonPath;
@@ -209,6 +213,10 @@ public partial class Home
             }
 
             if (_selectedNode is null || string.IsNullOrWhiteSpace(_currentJson)) return;
+
+            var csvAction = _csvImportReplace ? "교체" : "추가";
+            PushUndo($"CSV {csvAction} ({entries.Count}건)");
+
             var smlPath = _selectedNode.JsonPath;
 
             string? updatedJson;
@@ -230,8 +238,7 @@ public partial class Home
             var restoredNode = FindNodeByJsonPath(_treeNodes, smlPath);
             if (restoredNode is not null) SelectNode(restoredNode);
 
-            var action = _csvImportReplace ? "교체" : "추가";
-            SetStatus($"CSV {action} 완료: {entries.Count}건", "success");
+            SetStatus($"CSV {csvAction} 완료: {entries.Count}건", "success");
         }
         catch (Exception ex) { SetStatus($"CSV 가져오기 오류: {ex.Message}", "error"); }
     }
