@@ -4,6 +4,7 @@ type CsvRow = {
     FlowName   : string
     WorkName   : string
     DeviceName : string
+    SystemName : string
     ApiName    : string
     InName     : string
     InAddress  : string
@@ -17,6 +18,7 @@ type CsvEntry = {
     WorkName    : string
     DeviceName  : string
     DeviceAlias : string
+    SystemName  : string
     ApiName     : string
     IsSyntheticApi: bool
     InName      : string option

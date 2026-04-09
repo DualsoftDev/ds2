@@ -39,9 +39,10 @@ module internal ImportPlanDeviceOps =
         (projectId: Guid)
         (flowName: string)
         (devAlias: string)
+        (systemNameHint: string option)
         (operations: ResizeArray<ImportPlanOperation>)
         (state: DeviceBatchState) =
-        let systemName = $"{flowName}_{devAlias}"
+        let systemName = systemNameHint |> Option.defaultWith (fun () -> $"{flowName}_{devAlias}")
         match Map.tryFind systemName state.PendingSystems with
         | Some system -> system, state
         | None ->
@@ -185,6 +186,29 @@ module internal ImportPlanDeviceOps =
                 { currentState with PlannedArrowPairs = nextPairs }) state
         |> ignore
 
+    let private linkCallsToDevicesWithState
+        (store: DsStore)
+        (projectId: Guid)
+        (flowName: string)
+        (calls: (Call * string * string option) list)
+        (operations: ResizeArray<ImportPlanOperation>)
+        (state: DeviceBatchState) =
+        if calls.IsEmpty then state
+        else
+            calls
+            |> List.fold (fun st (call, callName, sysHint) ->
+                let apiName = call.ApiName
+                if String.IsNullOrEmpty apiName then
+                    st
+                else
+                    let devAlias = call.DevicesAlias
+                    let system, withSystem = ensureSystem store projectId flowName devAlias sysHint operations st
+                    let withWork = ensurePendingWork devAlias apiName system.Id store operations withSystem
+                    let apiDef, withApiDef = ensureApiDef store system apiName operations withWork
+                    createAndRegisterApiCall call callName apiDef.Id operations
+                    withApiDef
+            ) state
+
     let linkCallsToDevices
         (store: DsStore)
         (projectId: Guid)
@@ -192,19 +216,19 @@ module internal ImportPlanDeviceOps =
         (calls: (Call * string) list)
         (operations: ResizeArray<ImportPlanOperation>) =
         if not calls.IsEmpty then
-            let finalState =
-                calls
-                |> List.fold (fun state (call, callName) ->
-                    let apiName = call.ApiName
-                    if String.IsNullOrEmpty apiName then
-                        state
-                    else
-                        let devAlias = call.DevicesAlias
-                        let system, withSystem = ensureSystem store projectId flowName devAlias operations state
-                        let withWork = ensurePendingWork devAlias apiName system.Id store operations withSystem
-                        let apiDef, withApiDef = ensureApiDef store system apiName operations withWork
-                        createAndRegisterApiCall call callName apiDef.Id operations
-                        withApiDef
-                ) initialState
-
+            let withHint = calls |> List.map (fun (c, n) -> c, n, None)
+            let finalState = linkCallsToDevicesWithState store projectId flowName withHint operations initialState
             buildWorkArrows store operations finalState
+
+    /// 여러 Flow의 Call을 state 공유하며 처리. systemNameHint가 있으면 System 이름으로 사용.
+    let linkCallsToDevicesMultiFlow
+        (store: DsStore)
+        (projectId: Guid)
+        (callsByFlow: (string * (Call * string * string option) list) list)
+        (operations: ResizeArray<ImportPlanOperation>) =
+        let finalState =
+            callsByFlow
+            |> List.fold (fun st (flowName, calls) ->
+                linkCallsToDevicesWithState store projectId flowName calls operations st
+            ) initialState
+        buildWorkArrows store operations finalState

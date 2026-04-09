@@ -15,7 +15,7 @@ module CsvParser =
         SourceLines : ResizeArray<int>
     }
 
-    let private expectedHeader = [ "flow"; "work"; "device"; "api"; "inname"; "inaddress"; "outname"; "outaddress" ]
+    let private expectedHeader = [ "flow"; "work"; "device"; "system"; "api"; "inname"; "inaddress"; "outname"; "outaddress" ]
 
     let private trim (value: string) =
         if isNull value then "" else value.Trim()
@@ -145,15 +145,16 @@ module CsvParser =
                         match splitCsvLine lineNumber line with
                         | Error error ->
                             parseErrors.Add(error)
-                        | Ok values when values.Length <> 8 ->
+                        | Ok values when values.Length <> 9 ->
                             parseErrors.Add({
                                 LineNumber = lineNumber
-                                Message = $"expected 8 columns but found {values.Length}"
+                                Message = $"expected 9 columns but found {values.Length}"
                             })
                         | Ok values ->
                             let flowName = trim values.[0]
                             let workName = trim values.[1]
                             let deviceName = trim values.[2]
+                            let systemName = trim values.[3]
                             if String.IsNullOrWhiteSpace(flowName) then
                                 parseErrors.Add({
                                     LineNumber = lineNumber
@@ -174,22 +175,23 @@ module CsvParser =
                                     FlowName = flowName
                                     WorkName = workName
                                     DeviceName = deviceName
-                                    ApiName = trim values.[3]
-                                    InName = trim values.[4]
-                                    InAddress = trim values.[5]
-                                    OutName = trim values.[6]
-                                    OutAddress = trim values.[7]
+                                    SystemName = systemName
+                                    ApiName = trim values.[4]
+                                    InName = trim values.[5]
+                                    InAddress = trim values.[6]
+                                    OutName = trim values.[7]
+                                    OutAddress = trim values.[8]
                                     LineNumber = lineNumber
                                 })
 
                     if parseErrors.Count > 0 then
                         Error (parseErrors |> Seq.toList)
                     else
-                        let groups = Dictionary<string * string * string * string, EntryAccumulator>()
+                        let groups = Dictionary<string * string * string * string * string, EntryAccumulator>()
                         let ordered = ResizeArray<EntryAccumulator>()
 
                         for row in rows do
-                            let key = (row.FlowName, row.WorkName, row.DeviceName, row.ApiName)
+                            let key = (row.FlowName, row.WorkName, row.DeviceName, row.SystemName, row.ApiName)
                             let incomingInName = toOption row.InName
                             let incomingInAddress = toOption row.InAddress
                             let incomingOutName = toOption row.OutName
@@ -227,19 +229,25 @@ module CsvParser =
                         else
                             let entries =
                                 ordered
-                                |> Seq.map (fun acc -> {
-                                    FlowName = acc.Row.FlowName
-                                    WorkName = acc.Row.WorkName
-                                    DeviceName = acc.Row.DeviceName
-                                    DeviceAlias = resolveDeviceAlias acc.Row.DeviceName
-                                    ApiName = resolveApiName acc.Row.ApiName acc.InTag acc.OutTag
-                                    IsSyntheticApi = String.IsNullOrWhiteSpace(acc.Row.ApiName)
-                                    InName = acc.InName
-                                    InAddress = acc.InTag
-                                    OutName = acc.OutName
-                                    OutAddress = acc.OutTag
-                                    SourceLines = acc.SourceLines |> Seq.toList
-                                })
+                                |> Seq.map (fun acc ->
+                                    let alias = resolveDeviceAlias acc.Row.DeviceName
+                                    let sysName =
+                                        let s = acc.Row.SystemName
+                                        if String.IsNullOrWhiteSpace(s) then alias else s
+                                    {
+                                        FlowName = acc.Row.FlowName
+                                        WorkName = acc.Row.WorkName
+                                        DeviceName = acc.Row.DeviceName
+                                        DeviceAlias = alias
+                                        SystemName = sysName
+                                        ApiName = resolveApiName acc.Row.ApiName acc.InTag acc.OutTag
+                                        IsSyntheticApi = String.IsNullOrWhiteSpace(acc.Row.ApiName)
+                                        InName = acc.InName
+                                        InAddress = acc.InTag
+                                        OutName = acc.OutName
+                                        OutAddress = acc.OutTag
+                                        SourceLines = acc.SourceLines |> Seq.toList
+                                    })
                                 |> Seq.toList
 
                             Ok { Entries = entries }

@@ -38,6 +38,7 @@ module internal CsvMapper =
         let flows = Dictionary<string, Flow>()
         let works = Dictionary<Guid * string, Work>()
         let callsByFlow = Dictionary<string, ResizeArray<Call * string * string option * string option * string option * string option>>()
+        let mutable entryByCall = Map.empty<Guid, CsvEntry>
 
         for entry in document.Entries do
             let flow =
@@ -61,18 +62,21 @@ module internal CsvMapper =
 
             let call = Call(entry.DeviceAlias, entry.ApiName, work.Id)
             operations.Add(AddCall call)
+            entryByCall <- Map.add call.Id entry entryByCall
 
             let callLabel = $"{call.DevicesAlias}.{call.ApiName}"
             addBucketItem callsByFlow entry.FlowName call callLabel entry.InName entry.InAddress entry.OutName entry.OutAddress
 
-        for KeyValue(flowName, calls) in callsByFlow do
-            let linkedCalls =
-                calls
-                |> Seq.map (fun (call, label, _, _, _, _) -> call, label)
-                |> Seq.toList
+        let allFlowCalls =
+            [ for KeyValue(flowName, calls) in callsByFlow do
+                let linkedCalls =
+                    calls |> Seq.map (fun (call, label, _, _, _, _) ->
+                        let sysHint = entryByCall |> Map.tryFind call.Id |> Option.map (fun e -> e.SystemName)
+                        call, label, sysHint) |> Seq.toList
+                yield flowName, linkedCalls ]
+        ImportPlanDeviceOps.linkCallsToDevicesMultiFlow store projectId allFlowCalls operations
 
-            ImportPlanDeviceOps.linkCallsToDevices store projectId flowName linkedCalls operations
-
+        for KeyValue(_, calls) in callsByFlow do
             for call, _, inName, inAddress, outName, outAddress in calls do
                 if call.ApiCalls.Count > 0 && (inName.IsSome || inAddress.IsSome || outName.IsSome || outAddress.IsSome) then
                     let apiCall = call.ApiCalls.[0]
