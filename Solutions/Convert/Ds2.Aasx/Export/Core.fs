@@ -165,7 +165,7 @@ module internal AasxExportCore =
     // ────────────────────────────────────────────────────────────────────────────
 
     /// 리플렉션을 사용하여 Properties 객체를 AAS SubmodelElement 리스트로 자동 변환
-    /// 지원 타입: string, bool, int, float, TimeSpan, Guid, DateTime, Array, Enum, Option
+    /// 지원 타입: string, bool, int, float, TimeSpan, Guid, DateTime, Array, ResizeArray, Enum, Option
     let private propsToElements<'T> (props: 'T) : ISubmodelElement list =
         let t = typeof<'T>
         let properties = t.GetProperties(System.Reflection.BindingFlags.Public ||| System.Reflection.BindingFlags.Instance)
@@ -213,6 +213,19 @@ module internal AasxExportCore =
                         mkSmlProp name (arr |> Seq.cast<string> |> Seq.map (fun s -> mkProp "Tag" s) |> Seq.toList)
                     else
                         Some (mkJsonProp name value)
+            elif propType.IsGenericType
+                 && propType.GetGenericTypeDefinition() = typedefof<ResizeArray<_>> then
+                let elemType = propType.GetGenericArguments().[0]
+                if elemType = typeof<string> then
+                    let list = value :?> ResizeArray<string>
+                    if list.Count = 0 then None
+                    else mkSmlProp name (list |> Seq.map (fun s -> mkProp "Item" s) |> Seq.toList)
+                elif elemType = typeof<Guid> then
+                    let list = value :?> ResizeArray<Guid>
+                    if list.Count = 0 then None
+                    else mkSmlProp name (list |> Seq.map (fun id -> mkGuidProp "Id" id) |> Seq.toList)
+                else
+                    Some (mkJsonProp name value)
             elif propType.IsEnum then Some (mkProp name (value.ToString()))
             else None)
         |> Array.toList
