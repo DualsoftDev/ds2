@@ -28,19 +28,17 @@ type CallDirectionInfo =
 
 // -------------------------------------------------------------------------
 // Session Statistics Tracker (Moving Average, BaseCount aware)
+// Ds2.Core.CallExecutionState + LoggingHelpers.calculateWindowStatistics 사용
 // -------------------------------------------------------------------------
 
 module SessionStatsTracker =
 
-    /// 빈 실행 상태 생성
     let empty (baseCount: int) : CallExecutionState =
         { StartTime = None; History = []; SessionCount = 0; BaseCount = baseCount }
 
-    /// Going 시작 기록
     let recordStart (startTime: DateTime) (state: CallExecutionState) : CallExecutionState =
         { state with StartTime = Some startTime }
 
-    /// Going 종료 및 통계 계산
     let recordFinish (finishTime: DateTime) (state: CallExecutionState) : CallExecutionState * RuntimeStatistics option =
         match state.StartTime with
         | None -> (state, None)
@@ -55,7 +53,6 @@ module SessionStatsTracker =
                           TotalCount = state.BaseCount + newSessionCount }
             (newState, Some stats)
 
-    /// 세션 데이터만 클리어 (BaseCount 유지)
     let resetSession (state: CallExecutionState) : CallExecutionState =
         { StartTime = None; History = []; SessionCount = 0; BaseCount = state.BaseCount }
 
@@ -66,24 +63,22 @@ module SessionStatsTracker =
 
 // -------------------------------------------------------------------------
 // Cycle Analysis (Bucket-based time series)
+// Ds2.Core.BucketSize, TrendPoint 사용
 // -------------------------------------------------------------------------
 
 module CycleAnalysisHelpers =
 
-    /// 버킷 크기를 TimeSpan으로 변환
     let bucketSizeToTimeSpan (size: BucketSize) : TimeSpan =
         match size with
         | Min5  -> TimeSpan.FromMinutes(5.0)
         | Min10 -> TimeSpan.FromMinutes(10.0)
         | Hour1 -> TimeSpan.FromHours(1.0)
 
-    /// 시간을 버킷 시작 시간으로 정규화
     let getBucketKey (time: DateTime) (bucketSize: BucketSize) : DateTime =
         let span = bucketSizeToTimeSpan bucketSize
         let ticks = time.Ticks / span.Ticks
         DateTime(ticks * span.Ticks)
 
-    /// 실행 시간 목록에서 버킷 통계 계산 (평균, StdDev, 개수)
     let calculateBucketStats (executionTimes: int list) : float * float * int =
         if executionTimes.IsEmpty then (0.0, 0.0, 0)
         else
@@ -95,12 +90,10 @@ module CycleAnalysisHelpers =
                 else 0.0
             (avg, sqrt variance, count)
 
-    /// Trend 포인트 생성
     let createTrendPoint (bucketTime: DateTime) (executionTimes: int list) : TrendPoint =
         let (avg, stdDev, count) = calculateBucketStats executionTimes
         { Time = bucketTime; Average = avg; StdDev = stdDev; SampleCount = count }
 
-    /// 백분위수 계산 (p50, p95, p99)
     let calculatePercentiles (values: int list) : float * float * float =
         if values.IsEmpty then (0.0, 0.0, 0.0)
         else
@@ -111,7 +104,6 @@ module CycleAnalysisHelpers =
                 float sorted.[max 0 (min (count - 1) index)]
             (getPercentile 50.0, getPercentile 95.0, getPercentile 99.0)
 
-    /// 실행 시간 분포 계산 (히스토그램)
     let calculateDistribution (values: int list) (binCount: int) : (float * float * int) list =
         if values.IsEmpty || binCount <= 0 then []
         else
@@ -134,25 +126,22 @@ module CycleAnalysisHelpers =
 
 
 // -------------------------------------------------------------------------
-// Gantt Lane Assignment
+// Gantt Lane Assignment — Ds2.Core.TimelineItem 사용
 // -------------------------------------------------------------------------
 
 module GanttLayoutHelpers =
 
-    // private 헬퍼 함수로 TimelineItem 필드 접근 (GanttItem과의 CallName 충돌 해소)
     let private tlRelEnd   (t: TimelineItem) = t.RelativeEnd
     let private tlRelStart (t: TimelineItem) = t.RelativeStart
     let private tlLane     (t: TimelineItem) = t.Lane
 
-    /// 두 타임라인 항목의 시간적 겹침 여부
     let isOverlapping (item1: TimelineItem) (item2: TimelineItem) : bool =
         match tlRelEnd item1, tlRelEnd item2 with
         | Some end1, Some end2 -> not (end1 <= tlRelStart item2 || end2 <= tlRelStart item1)
         | Some end1, None      -> end1 > tlRelStart item2
         | None, Some end2      -> end2 > tlRelStart item1
-        | None, None           -> true  // 둘 다 진행 중 = 겹침
+        | None, None           -> true
 
-    /// 레인 할당 (시작 시간 순으로 처리, 겹침 없는 가장 작은 레인 번호 배정)
     let assignLanes (timelines: TimelineItem list) : TimelineItem list =
         let sorted = timelines |> List.sortBy tlRelStart
         sorted
@@ -172,19 +161,19 @@ type RuntimeStatsCollectorMutable() =
     let mutable stateMap : Map<string, CallStatsState> = Map.empty
 
     member _.RecordStart(callName: string, timestamp: DateTime) : unit =
-        let current = stateMap |> Map.tryFind callName |> Option.defaultValue LoggingHelpers.CallStatsCollector.empty
-        stateMap <- Map.add callName (LoggingHelpers.CallStatsCollector.recordStart timestamp current) stateMap
+        let current = stateMap |> Map.tryFind callName |> Option.defaultValue CallStatsCollector.empty
+        stateMap <- Map.add callName (CallStatsCollector.recordStart timestamp current) stateMap
 
     member _.RecordFinish(callName: string, timestamp: DateTime) : float option =
         match Map.tryFind callName stateMap with
         | None -> None
         | Some state ->
-            let (newState, duration) = LoggingHelpers.CallStatsCollector.recordFinish timestamp state
+            let (newState, duration) = CallStatsCollector.recordFinish timestamp state
             stateMap <- Map.add callName newState stateMap
             duration
 
     member _.GetStats(callName: string) : IncrementalStatsResult option =
-        stateMap |> Map.tryFind callName |> Option.map LoggingHelpers.CallStatsCollector.getStats
+        stateMap |> Map.tryFind callName |> Option.map CallStatsCollector.getStats
 
     member _.GetTrackedCalls() : string list =
         Map.toList stateMap |> List.map fst
@@ -236,18 +225,14 @@ type RuntimeStatisticsTrackerMutable() =
 /// State Transition Handler
 module StateTransition =
 
-    // Global statistics collector (shared across all calls) - Ds2.Core.RuntimeStatsCollectorMutable
     let private statsCollector = RuntimeStatsCollectorMutable()
 
-    /// Get statistics for a specific Call
     let getCallStats (callName: string) : IncrementalStatsResult option =
         statsCollector.GetStats(callName)
 
-    /// Get all tracked Call names
     let getTrackedCalls () : string list =
         statsCollector.GetTrackedCalls()
 
-    /// Determine Call Direction based on tag configuration
     let determineDirection (hasInTag: bool) (hasOutTag: bool) : CallDirection =
         match (hasInTag, hasOutTag) with
         | (true, true) -> CallDirection.InOut
@@ -255,7 +240,6 @@ module StateTransition =
         | (false, true) -> CallDirection.OutOnly
         | (false, false) -> CallDirection.None
 
-    /// Parse Direction string to enum
     let parseDirection (directionStr: string) : CallDirection =
         match directionStr with
         | "InOut" -> CallDirection.InOut
@@ -263,15 +247,11 @@ module StateTransition =
         | "OutOnly" -> CallDirection.OutOnly
         | _ -> CallDirection.None
 
-    /// Handle InTag Rising Edge (PLC 제어기 관점: 장비 → PLC 입력 신호 ON)
-    /// - InOut: Going -> Finish (응답 수신 → 실행 완료)
-    /// - InOnly: Ready -> Finish (instant, 응답만으로 완료 처리)
     let handleInTagRisingEdge (dbPath: string) (callName: string) (timestamp: DateTime) : Async<unit> =
         async {
             use conn = new SqliteConnection($"Data Source={dbPath}")
             do! conn.OpenAsync() |> Async.AwaitTask
 
-            // Get Call info
             let sql = "SELECT FlowName, CallName, State, LastStartAt, Direction FROM dspCall WHERE CallName = @CallName"
             let! call = conn.QueryFirstOrDefaultAsync<CallInfo>(sql, dict ["CallName", box callName]) |> Async.AwaitTask
 
@@ -280,12 +260,9 @@ module StateTransition =
 
                 match direction with
                 | CallDirection.InOut ->
-                    // InOut: In ON means Going -> Finish
                     if call.State = "Going" then
-                        // Record finish time in statistics
                         let statsDuration = statsCollector.RecordFinish(callName, timestamp)
 
-                        // Calculate duration
                         let durationMs =
                             match statsDuration with
                             | Some duration -> Some duration
@@ -299,7 +276,6 @@ module StateTransition =
                                     with
                                     | _ -> None
 
-                        // Update Call: State = Finish, increment CycleCount
                         let updateCallSql = """
                             UPDATE dspCall
                             SET State = @State,
@@ -322,13 +298,10 @@ module StateTransition =
                         ()
 
                 | CallDirection.InOnly ->
-                    // InOnly: In ON means Ready -> Going -> Finish (instant)
                     if call.State = "Ready" then
-                        // Record start and finish
                         statsCollector.RecordStart(callName, timestamp)
                         let statsDuration = statsCollector.RecordFinish(callName, timestamp)
 
-                        // Update Call: State = Finish (skip Going visually, but honor state sequence)
                         let updateCallSql = """
                             UPDATE dspCall
                             SET State = @State,
@@ -344,14 +317,13 @@ module StateTransition =
                             "State", box "Finish"
                             "LastStartAt", box (timestamp.ToString("o"))
                             "LastFinishAt", box (timestamp.ToString("o"))
-                            "LastDurationMs", box 0.0  // InOnly has no duration
+                            "LastDurationMs", box 0.0
                             "UpdatedAt", box (DateTime.UtcNow.ToString("o"))
                             "CallName", box callName
                         ]
 
                         let! _ = conn.ExecuteAsync(updateCallSql, callParams) |> Async.AwaitTask
 
-                        // Update Flow: increment ActiveCallCount temporarily (will decrement on In OFF)
                         let updateFlowSql = """
                             UPDATE dspFlow
                             SET ActiveCallCount = ActiveCallCount + 1,
@@ -372,15 +344,11 @@ module StateTransition =
                     printfn "[StateTransition] Warning: InTag Rising for Call with invalid Direction: %s (%A)" callName direction
         }
 
-    /// Handle InTag Falling Edge (PLC 제어기 관점: 장비 → PLC 입력 신호 OFF)
-    /// - InOut: Finish -> Ready (응답 해제 → 대기 복귀)
-    /// - InOnly: Finish -> Ready (응답 해제 → 대기 복귀)
     let handleInTagFallingEdge (dbPath: string) (callName: string) (timestamp: DateTime) : Async<unit> =
         async {
             use conn = new SqliteConnection($"Data Source={dbPath}")
             do! conn.OpenAsync() |> Async.AwaitTask
 
-            // Get Call info
             let sql = "SELECT FlowName, State, Direction FROM dspCall WHERE CallName = @CallName"
             let! call = conn.QueryFirstOrDefaultAsync<CallInfo>(sql, dict ["CallName", box callName]) |> Async.AwaitTask
 
@@ -390,9 +358,7 @@ module StateTransition =
                 match direction with
                 | CallDirection.InOut
                 | CallDirection.InOnly ->
-                    // In OFF: Finish -> Ready
                     if call.State = "Finish" then
-                        // Update Call: State = Ready
                         let updateCallSql = """
                             UPDATE dspCall
                             SET State = @State,
@@ -408,7 +374,6 @@ module StateTransition =
 
                         let! _ = conn.ExecuteAsync(updateCallSql, callParams) |> Async.AwaitTask
 
-                        // Update Flow: decrement ActiveCallCount
                         let updateFlowSql = """
                             UPDATE dspFlow
                             SET ActiveCallCount = MAX(0, ActiveCallCount - 1),
@@ -423,7 +388,6 @@ module StateTransition =
 
                         let! _ = conn.ExecuteAsync(updateFlowSql, flowParams) |> Async.AwaitTask
 
-                        // Recalculate Flow State
                         let countSql = "SELECT ActiveCallCount FROM dspFlow WHERE FlowName = @FlowName"
                         let! activeCount = conn.ExecuteScalarAsync<int>(countSql, dict ["FlowName", box call.FlowName]) |> Async.AwaitTask
 
@@ -449,15 +413,11 @@ module StateTransition =
                     ()
         }
 
-    /// Handle OutTag Rising Edge (PLC 제어기 관점: PLC → 장비 출력 신호 ON)
-    /// - InOut: Ready -> Going (명령 송신 → 실행 시작)
-    /// - OutOnly: Ready -> Going (명령 송신 → 실행 시작)
     let handleOutTagRisingEdge (dbPath: string) (callName: string) (timestamp: DateTime) : Async<unit> =
         async {
             use conn = new SqliteConnection($"Data Source={dbPath}")
             do! conn.OpenAsync() |> Async.AwaitTask
 
-            // Get Call info
             let sql = "SELECT FlowName, State, Direction FROM dspCall WHERE CallName = @CallName"
             let! call = conn.QueryFirstOrDefaultAsync<CallInfo>(sql, dict ["CallName", box callName]) |> Async.AwaitTask
 
@@ -467,12 +427,9 @@ module StateTransition =
                 match direction with
                 | CallDirection.InOut
                 | CallDirection.OutOnly ->
-                    // Out ON: Ready -> Going
                     if call.State = "Ready" then
-                        // Record start time
                         statsCollector.RecordStart(callName, timestamp)
 
-                        // Update Call: State = Going
                         let updateCallSql = """
                             UPDATE dspCall
                             SET State = @State,
@@ -490,7 +447,6 @@ module StateTransition =
 
                         let! _ = conn.ExecuteAsync(updateCallSql, callParams) |> Async.AwaitTask
 
-                        // Update Flow: increment ActiveCallCount
                         let updateFlowSql = """
                             UPDATE dspFlow
                             SET ActiveCallCount = ActiveCallCount + 1,
@@ -511,14 +467,11 @@ module StateTransition =
                     printfn "[StateTransition] Warning: OutTag Rising for Call with invalid Direction: %s (%A)" callName direction
         }
 
-    /// Handle OutTag Falling Edge (PLC 제어기 관점: PLC → 장비 출력 신호 OFF)
-    /// - OutOnly: Going -> Finish -> Ready (명령 해제 → 자동 완료)
     let handleOutTagFallingEdge (dbPath: string) (callName: string) (timestamp: DateTime) : Async<unit> =
         async {
             use conn = new SqliteConnection($"Data Source={dbPath}")
             do! conn.OpenAsync() |> Async.AwaitTask
 
-            // Get Call info
             let sql = "SELECT FlowName, CallName, State, LastStartAt, Direction FROM dspCall WHERE CallName = @CallName"
             let! call = conn.QueryFirstOrDefaultAsync<CallInfo>(sql, dict ["CallName", box callName]) |> Async.AwaitTask
 
@@ -527,12 +480,9 @@ module StateTransition =
 
                 match direction with
                 | CallDirection.OutOnly ->
-                    // Out OFF: Going -> Finish -> Ready (auto)
                     if call.State = "Going" then
-                        // Record finish time
                         let statsDuration = statsCollector.RecordFinish(callName, timestamp)
 
-                        // Calculate duration
                         let durationMs =
                             match statsDuration with
                             | Some duration -> Some duration
@@ -546,7 +496,6 @@ module StateTransition =
                                     with
                                     | _ -> None
 
-                        // Update Call: State = Ready (skip Finish, auto return)
                         let updateCallSql = """
                             UPDATE dspCall
                             SET State = @State,
@@ -567,7 +516,6 @@ module StateTransition =
 
                         let! _ = conn.ExecuteAsync(updateCallSql, callParams) |> Async.AwaitTask
 
-                        // Update Flow: decrement ActiveCallCount
                         let updateFlowSql = """
                             UPDATE dspFlow
                             SET ActiveCallCount = MAX(0, ActiveCallCount - 1),
@@ -582,7 +530,6 @@ module StateTransition =
 
                         let! _ = conn.ExecuteAsync(updateFlowSql, flowParams) |> Async.AwaitTask
 
-                        // Recalculate Flow State
                         let countSql = "SELECT ActiveCallCount FROM dspFlow WHERE FlowName = @FlowName"
                         let! activeCount = conn.ExecuteScalarAsync<int>(countSql, dict ["FlowName", box call.FlowName]) |> Async.AwaitTask
 
@@ -608,8 +555,6 @@ module StateTransition =
                     ()
         }
 
-    /// Process Edge Event (main entry point)
-    /// isInTag: PLC 제어기 관점 — true = PLC 입력(DI, 장비 응답), false = PLC 출력(DO, 장비 명령)
     let processEdgeEvent (dbPath: string) (tagAddress: string) (isInTag: bool) (edgeType: EdgeType) (timestamp: DateTime) (callName: string) : Async<unit> =
         async {
             match (isInTag, edgeType) with
@@ -622,6 +567,5 @@ module StateTransition =
             | (false, EdgeType.FallingEdge) ->
                 do! handleOutTagFallingEdge dbPath callName timestamp
             | _ ->
-                // Ignore unknown edge types
                 ()
         }

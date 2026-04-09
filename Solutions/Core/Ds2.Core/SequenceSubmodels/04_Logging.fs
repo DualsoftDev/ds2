@@ -6,18 +6,19 @@ open System
 // SEQUENCE LOGGING SUBMODEL
 // =============================================================================
 //
-// 역할: 실행 이력 기록 및 통계 분석 (Historical data logging and analysis)
+// 역할: 실행 이력 기록, 통계 분석, 에러 정의 (Historical data logging, analysis, error definitions)
 //
 // 핵심 기능:
 //   - Call/Work 실행 이력 기록
 //   - Welford's Algorithm 기반 O(1) 증분 통계
 //   - 병목 구간 탐지 (CriticalPath, LongDuration, FrequentExecution)
 //   - 성능 메트릭 계산 (평균, 표준편차, CV)
+//   - Flow 단위 에러 정의 (이름, 태그, 값타입)
 //   - Gantt/Heatmap 데이터 생성
 //
 // 다른 모듈과의 관계:
 //   - 03_Monitoring.fs: Logging은 과거(PAST), Monitoring은 현재(NOW)
-//   - 05_Maintenance.fs: Logging은 정상 실행 통계, Maintenance는 에러 이력
+//   - 05_Maintenance.fs: Logging은 정상 실행 통계 + 에러 정의, Maintenance는 에러 추적/처리
 //
 // =============================================================================
 
@@ -31,12 +32,6 @@ type BottleneckType =
     | CriticalPath          // 임계 경로 (순차 실행 체인이 긴 경우)
     | LongDuration          // 긴 실행 시간
     | FrequentExecution     // 빈번한 실행 (높은 빈도)
-
-/// 사이클 감지 방법
-type CycleDetectionMethod =
-    | HeadCallInTag         // Flow 시작점 Call의 InTag 신호
-    | TailCallOutTag        // Flow 종료점 Call의 OutTag 신호
-    | CustomTag of string   // 사용자 지정 태그
 
 /// Heatmap 메트릭
 type HeatmapMetric =
@@ -57,6 +52,17 @@ type BucketSize =
     | Min5      // 5분 버킷
     | Min10     // 10분 버킷
     | Hour1     // 1시간 버킷
+
+/// 에러 태그 값 타입 (PLC 데이터 타입)
+type ErrorValueType =
+    | Bit           // 1-bit (on/off)
+    | Byte          // 8-bit unsigned
+    | Word          // 16-bit unsigned
+    | DWord         // 32-bit unsigned
+    | Int16         // signed 16-bit
+    | Int32         // signed 32-bit
+    | Real          // 32-bit float
+    | StringType    // 문자열
 
 
 // =============================================================================
@@ -109,32 +115,8 @@ type RuntimeStatistics = {
 
 
 // =============================================================================
-// TYPE DEFINITIONS: Historical Records
+// TYPE DEFINITIONS: Historical Records & Analysis
 // =============================================================================
-
-/// 실행 이력 레코드
-type ExecutionHistoryRecord = {
-    Id: Guid
-    CallName: string option
-    WorkName: string option
-    FlowName: string option
-    StartedAt: DateTime
-    FinishedAt: DateTime option
-    DurationMs: float option
-    State: string
-    CycleNo: int option
-}
-
-/// 사이클 타임 분석 결과
-type CycleTimeAnalysis = {
-    FlowName: string
-    TotalCycles: int
-    AverageCycleTime: float
-    MinCycleTime: float
-    MaxCycleTime: float
-    StdDevCycleTime: float
-    CoefficientOfVariation: float
-}
 
 /// Trend 데이터 포인트 (시계열 통계)
 type TrendPoint = {
@@ -143,11 +125,6 @@ type TrendPoint = {
     StdDev: float
     SampleCount: int
 }
-
-
-// =============================================================================
-// TYPE DEFINITIONS: Bottleneck Analysis
-// =============================================================================
 
 /// 병목 정보
 type BottleneckInfo = {
@@ -170,7 +147,7 @@ type TimelineItem = {
 // TYPE DEFINITIONS: UI Data Models
 // =============================================================================
 
-/// 간트 차트 아이템 (DSPilot.Winform Gantt)
+/// 간트 차트 아이템 (DSPilot Gantt)
 type GanttItem = {
     CallName: string
     FlowName: string
@@ -181,13 +158,25 @@ type GanttItem = {
     ColorClass: ColorClass
 }
 
-/// 히트맵 셀 데이터 (DSPilot.Winform Heatmap)
+/// 히트맵 셀 데이터 (DSPilot Heatmap)
 type HeatmapCell = {
     RowLabel: string            // Call 이름
     ColumnLabel: string         // 시간 버킷
     Value: float                // CV 값
     ColorClass: ColorClass
     Tooltip: string
+}
+
+
+// =============================================================================
+// TYPE DEFINITIONS: Error Definitions
+// =============================================================================
+
+/// Flow 단위 에러 정의 (파싱된 구조체)
+type ErrorDefinition = {
+    Name: string                // 에러 이름 (예: "Motor_Overload")
+    TagAddress: string          // PLC 태그 주소 (예: "M901")
+    ValueType: ErrorValueType   // 값 타입 (예: Bit)
 }
 
 
@@ -218,10 +207,13 @@ type LoggingSystemProperties() =
 type LoggingFlowProperties() =
     inherit PropertiesBase<LoggingFlowProperties>()
 
-    member val CycleDetectionMethod = HeadCallInTag with get, set
+    // 병목 분석 설정
     member val BottleneckThresholdMultiplier = 2.0 with get, set
-    member val LongGapThresholdMs = 1000.0 with get, set
     member val MinSampleSize = 30 with get, set
+
+    // 에러 정의 (Flow 당 N개, 형식: "에러이름|태그주소|값타입")
+    // 예: "Motor_Overload|M901|Bit", "Vacuum_Low|D100|Word"
+    member val ErrorDefinitions = ResizeArray<string>() with get, set
 
 /// Work-level 로깅 속성 (AAS SubmodelElementCollection)
 type LoggingWorkProperties() =
@@ -328,10 +320,6 @@ module LoggingHelpers =
     let isBottleneck (duration: float) (average: float) (multiplier: float) =
         duration >= average * multiplier
 
-    /// 긴 대기 시간 여부 판단
-    let isLongGap (gapMs: float) (thresholdMs: float) =
-        gapMs >= thresholdMs
-
 
     // -------------------------------------------------------------------------
     // ColorClass Helpers
@@ -352,84 +340,6 @@ module LoggingHelpers =
         elif cv <= 20.0 then Fair
         elif cv <= 30.0 then Poor
         else Critical
-
-
-    // -------------------------------------------------------------------------
-    // Historical Record Creation
-    // -------------------------------------------------------------------------
-
-    /// 실행 이력 레코드 생성
-    let createExecutionHistory
-        (callName: string option)
-        (workName: string option)
-        (flowName: string option)
-        (startedAt: DateTime)
-        (finishedAt: DateTime option)
-        (state: string) : ExecutionHistoryRecord =
-
-        let durationMs =
-            match finishedAt with
-            | Some ft -> Some ((ft - startedAt).TotalMilliseconds)
-            | None -> None
-
-        {
-            Id = Guid.NewGuid()
-            CallName = callName
-            WorkName = workName
-            FlowName = flowName
-            StartedAt = startedAt
-            FinishedAt = finishedAt
-            DurationMs = durationMs
-            State = state
-            CycleNo = None
-        }
-
-
-    // -------------------------------------------------------------------------
-    // Cycle Time Analysis
-    // -------------------------------------------------------------------------
-
-    /// 사이클 타임 분석 계산
-    let analyzeCycleTime (flowName: string) (cycleTimes: float list) : CycleTimeAnalysis =
-        let count = cycleTimes.Length
-
-        if count = 0 then
-            {
-                FlowName = flowName
-                TotalCycles = 0
-                AverageCycleTime = 0.0
-                MinCycleTime = 0.0
-                MaxCycleTime = 0.0
-                StdDevCycleTime = 0.0
-                CoefficientOfVariation = 0.0
-            }
-        else
-            let avg = List.average cycleTimes
-            let minTime = List.min cycleTimes
-            let maxTime = List.max cycleTimes
-
-            let variance =
-                if count > 1 then
-                    cycleTimes
-                    |> List.map (fun x -> (x - avg) ** 2.0)
-                    |> List.average
-                else
-                    0.0
-
-            let stdDev = sqrt variance
-            let cv = calculateCoefficientOfVariation avg stdDev
-
-            {
-                FlowName = flowName
-                TotalCycles = count
-                AverageCycleTime = avg
-                MinCycleTime = minTime
-                MaxCycleTime = maxTime
-                StdDevCycleTime = stdDev
-                CoefficientOfVariation = cv
-            }
-
-
 
 
     // -------------------------------------------------------------------------
@@ -522,3 +432,73 @@ module LoggingHelpers =
 
         /// 통계 조회
         let getStats (state: CallStatsState) : IncrementalStatsResult = state.Stats
+
+
+    // -------------------------------------------------------------------------
+    // Error Definition Helpers
+    // -------------------------------------------------------------------------
+
+    module ErrorDefinitionHelpers =
+
+        let private separator = '|'
+
+        /// ErrorValueType → 문자열 변환
+        let valueTypeToString = function
+            | Bit -> "Bit"
+            | Byte -> "Byte"
+            | Word -> "Word"
+            | DWord -> "DWord"
+            | Int16 -> "Int16"
+            | Int32 -> "Int32"
+            | Real -> "Real"
+            | StringType -> "String"
+
+        /// 문자열 → ErrorValueType 파싱
+        let parseValueType (s: string) : ErrorValueType =
+            match s.Trim().ToUpperInvariant() with
+            | "BIT" | "BOOL" -> Bit
+            | "BYTE" -> Byte
+            | "WORD" | "UINT16" -> Word
+            | "DWORD" | "UINT32" -> DWord
+            | "INT16" | "INT" | "SHORT" -> Int16
+            | "INT32" | "DINT" | "LONG" -> Int32
+            | "REAL" | "FLOAT" -> Real
+            | "STRING" | "STR" -> StringType
+            | _ -> Bit  // 기본값
+
+        /// 구조화 문자열 → ErrorDefinition 파싱
+        /// 형식: "에러이름|태그주소|값타입"
+        let parse (encoded: string) : ErrorDefinition option =
+            if String.IsNullOrWhiteSpace(encoded) then None
+            else
+                let parts = encoded.Split(separator)
+                if parts.Length >= 3 then
+                    Some {
+                        Name = parts.[0].Trim()
+                        TagAddress = parts.[1].Trim()
+                        ValueType = parseValueType parts.[2]
+                    }
+                elif parts.Length = 2 then
+                    Some {
+                        Name = parts.[0].Trim()
+                        TagAddress = parts.[1].Trim()
+                        ValueType = Bit
+                    }
+                else
+                    None
+
+        /// ErrorDefinition → 구조화 문자열 직렬화
+        let format (def: ErrorDefinition) : string =
+            sprintf "%s%c%s%c%s" def.Name separator def.TagAddress separator (valueTypeToString def.ValueType)
+
+        /// Flow의 ErrorDefinitions 전체 파싱
+        let parseAll (encodedList: ResizeArray<string>) : ErrorDefinition list =
+            encodedList
+            |> Seq.choose parse
+            |> Seq.toList
+
+        /// ErrorDefinition 리스트 → ResizeArray<string> 직렬화
+        let formatAll (definitions: ErrorDefinition list) : ResizeArray<string> =
+            definitions
+            |> List.map format
+            |> ResizeArray
