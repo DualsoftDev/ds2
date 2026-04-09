@@ -41,9 +41,13 @@ module DeepCopyHelper =
         let json = JsonSerializer.Serialize(entity, t, jsonOptions)
         JsonSerializer.Deserialize(json, t, jsonOptions)
 
-    /// Record, DU 등 DsEntity가 아닌 타입의 깊은 복사
+    /// Record, DU 등 DsEntity가 아닌 타입의 깊은 복사 (컴파일 타임 타입 사용)
     let jsonClone<'T> (value: 'T) : 'T =
         cloneViaJson value typeof<'T> :?> 'T
+
+    /// PropertiesBase용 깊은 복사 (런타임 타입 사용)
+    let jsonCloneProperties<'T> (value: 'T) : 'T =
+        cloneViaJson value (value.GetType()) :?> 'T
 
     /// Undo 백업용 — 원본 GUID 유지 (ID 재할당 안 함)
     let backupEntityAs<'T when 'T :> DsEntity> (entity: 'T) : 'T =
@@ -60,33 +64,13 @@ module DeepCopyHelper =
 
 // =============================================================================
 // 속성 기반 클래스
-// ⚠️ 하위 클래스는 프리미티브 타입 및 string만 허용 (bool, int, enum, Guid, TimeSpan, DateTimeOffset, string)
-// ⚠️ array, option, collection 타입은 MemberwiseClone의 shallow copy 위험으로 인해 허용되지 않음
+// ✅ JSON 직렬화 기반 DeepCopy로 array, ResizeArray, option 등 모든 타입 지원
 // =============================================================================
 
-/// 기본 속성을 포함하는 추상 클래스 - Description과 DeepCopy만 제공
+/// 기본 속성을 포함하는 추상 클래스 - Description과 DeepCopy 제공
 [<AbstractClass>]
 type PropertiesBase<'T when 'T :> PropertiesBase<'T>>() =
-    static let invalidPropertyTypes =
-        typeof<'T>.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-        |> Array.choose (fun p ->
-            let t =
-                if p.PropertyType.IsGenericType
-                   && p.PropertyType.GetGenericTypeDefinition() = typedefof<option<_>>
-                then p.PropertyType.GetGenericArguments().[0]
-                else p.PropertyType
-            if t.IsValueType || t = typeof<string> then None
-            else Some(p.Name, t.Name))
-
-    static do
-        if invalidPropertyTypes.Length > 0 then
-            let detail =
-                invalidPropertyTypes
-                |> Array.map (fun (propName, typeName) -> $"{propName}:{typeName}")
-                |> String.concat ", "
-            invalidOp $"PropertiesBase<{typeof<'T>.Name}> has unsupported reference properties: {detail}"
-
     member val Description : string option = None with get, set
 
-    member this.DeepCopy() =
-        this.MemberwiseClone() :?> 'T
+    member this.DeepCopy() : 'T =
+        DeepCopyHelper.jsonCloneProperties (this :> obj) :?> 'T
