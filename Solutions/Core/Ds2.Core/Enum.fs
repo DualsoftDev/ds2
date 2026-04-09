@@ -43,6 +43,20 @@ type FlowTag =
     | Drive = 1
     | Pause = 2
 
+type IOTagDataType =
+    | BOOL
+    | SINT    // Int8
+    | INT     // Int16
+    | DINT    // Int32
+    | LINT    // Int64
+    | USINT   // UInt8
+    | UINT    // UInt16
+    | UDINT   // UInt32
+    | ULINT   // UInt64
+    | REAL    // Float32
+    | LREAL   // Float64
+    | STRING
+
 /// Runtime execution mode.
 type RuntimeMode =
     | Simulation   = 0  // RGFH 상태 전이만 처리 (가상 시뮬레이션)
