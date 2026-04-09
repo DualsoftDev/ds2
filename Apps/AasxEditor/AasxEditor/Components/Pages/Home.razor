@@ -252,7 +252,47 @@
                         <span class="form-hint">변경사항을 JSON에 반영합니다</span>
                     </div>
                 }
-                @if (_selectedNode.Children.Count > 0)
+                @if (IsErrorDefinitionsSml)
+                {
+                    <div class="props-section">
+                        <div class="props-children-label" style="display:flex;align-items:center;justify-content:space-between">
+                            <span>에러 정의 (@_selectedNode.Children.Count)</span>
+                            <button class="btn btn-sm btn-outline-primary" @onclick="OnAddErrorDef">+ 추가</button>
+                        </div>
+                        <table class="props-table" style="margin:4px 0;font-size:12px">
+                            <thead>
+                                <tr style="color:#888">
+                                    <td style="width:30%">이름</td>
+                                    <td style="width:30%">태그</td>
+                                    <td style="width:20%">타입</td>
+                                    <td style="width:20%;text-align:right"></td>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{ var errorDefs = GetErrorDefinitions(); }
+                                @for (var ei = 0; ei < errorDefs.Count; ei++)
+                                {
+                                    var idx = ei;
+                                    var (eName, eTag, eVt) = errorDefs[ei];
+                                    <tr>
+                                        <td>@eName</td>
+                                        <td style="color:#4fc3f7">@eTag</td>
+                                        <td style="color:#aaa">@eVt</td>
+                                        <td style="text-align:right">
+                                            <button class="btn-icon" title="편집" @onclick="() => OnEditErrorDef(idx)">&#9998;</button>
+                                            <button class="btn-icon" title="삭제" @onclick="() => OnDeleteErrorDef(idx)" style="color:#e57373">&#10005;</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        @if (errorDefs.Count == 0)
+                        {
+                            <div style="color:#666;font-size:12px;padding:4px 8px">에러 정의가 없습니다. + 추가 버튼을 눌러 추가하세요.</div>
+                        }
+                    </div>
+                }
+                else if (_selectedNode.Children.Count > 0)
                 {
                     <div class="props-section">
                         <div class="props-children-label">Children (@_selectedNode.Children.Count)</div>
@@ -339,6 +379,38 @@
             <div class="modal-actions">
                 <button class="btn btn-primary btn-sm" @onclick="OnBatchApply">적용</button>
                 <button class="btn btn-outline-secondary btn-sm" @onclick="CloseBatchEdit">취소</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showErrorDefEditor)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="width:420px">
+            <div class="modal-title">@(_editingErrorDefIndex >= 0 ? "에러 정의 수정" : "에러 정의 추가")</div>
+            <div class="modal-body">
+                <div class="form-field">
+                    <label class="form-label">에러 이름</label>
+                    <input class="form-input" type="text" @bind="_errorDefName" placeholder="Motor_Overload" />
+                </div>
+                <div class="form-field">
+                    <label class="form-label">태그 주소</label>
+                    <input class="form-input" type="text" @bind="_errorDefTag" placeholder="M901" />
+                </div>
+                <div class="form-field">
+                    <label class="form-label">값 타입</label>
+                    <select class="form-input" @bind="_errorDefValueType">
+                        @foreach (var vt in ErrorValueTypes)
+                        {
+                            <option value="@vt">@vt</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary btn-sm" @onclick="OnSaveErrorDef">저장</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showErrorDefEditor = false">취소</button>
             </div>
         </div>
     </div>

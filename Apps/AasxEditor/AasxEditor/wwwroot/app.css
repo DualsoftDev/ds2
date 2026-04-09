@@ -84,6 +84,8 @@ html, body {
 }
 
 .btn-sm { font-size: 11px; padding: 2px 8px; }
+.btn-icon { background: none; border: none; cursor: pointer; padding: 0 4px; font-size: 13px; color: #ccc; }
+.btn-icon:hover { color: #fff; }
 
 .btn-primary { background: #0e639c; color: white; border-color: #0e639c; }
 .btn-primary:hover { background: #1177bb; }
