@@ -87,11 +87,12 @@ public partial class MainViewModel
         Log.Info($"{kind} saved: {filePath}");
     }
 
-    private bool CanOpenFile() => !Simulation.IsSimulating && !Simulation.IsHomingPhase;
-
-    [RelayCommand(CanExecute = nameof(CanOpenFile))]
+    [RelayCommand]
     private void OpenFile()
     {
+        if (!GuardSimulationSemanticEdit("파일 열기"))
+            return;
+
         if (!ConfirmDiscardChanges()) return;
 
         var dlg = new OpenFileDialog { Filter = FileFilter };
@@ -158,12 +159,7 @@ public partial class MainViewModel
         ExpandAllNodes(ControlTreeRoots);
 
         // 첫 번째 System 캔버스를 띄움 (Flow 하이라이트 없이)
-        var firstSystem = TreeNodeSearch
-            .EnumerateNodes(ControlTreeRoots)
-            .FirstOrDefault(node => node.EntityType == EntityKind.System);
-
-        if (firstSystem is not null)
-            Canvas.OpenCanvasTab(firstSystem.Id, EntityKind.System);
+        ActivateInitialSystemTab();
 
         // 3D 창이 열려있으면 씬 자동 재빌드
         if (_view3DWindow is { IsVisible: true })

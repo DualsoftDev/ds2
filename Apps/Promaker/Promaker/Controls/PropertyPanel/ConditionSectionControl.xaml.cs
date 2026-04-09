@@ -59,6 +59,10 @@ public partial class ConditionSectionControl : UserControl
         DependencyProperty.Register(nameof(DropCallToConditionItemCommand), typeof(ICommand), typeof(ConditionSectionControl),
             new PropertyMetadata(null));
 
+    public static readonly DependencyProperty NavigateConditionApiCallCommandProperty =
+        DependencyProperty.Register(nameof(NavigateConditionApiCallCommand), typeof(ICommand), typeof(ConditionSectionControl),
+            new PropertyMetadata(null, OnNavigateCommandChanged));
+
     public ConditionSectionControl()
     {
         InitializeComponent();
@@ -76,6 +80,7 @@ public partial class ConditionSectionControl : UserControl
     public ICommand? AddChildGroupCommand { get => (ICommand?)GetValue(AddChildGroupCommandProperty); set => SetValue(AddChildGroupCommandProperty, value); }
     public ICommand? DropCallCommand { get => (ICommand?)GetValue(DropCallCommandProperty); set => SetValue(DropCallCommandProperty, value); }
     public ICommand? DropCallToConditionItemCommand { get => (ICommand?)GetValue(DropCallToConditionItemCommandProperty); set => SetValue(DropCallToConditionItemCommandProperty, value); }
+    public ICommand? NavigateConditionApiCallCommand { get => (ICommand?)GetValue(NavigateConditionApiCallCommandProperty); set => SetValue(NavigateConditionApiCallCommandProperty, value); }
 
     // ── Drop hint visibility ──
 
@@ -158,18 +163,44 @@ public partial class ConditionSectionControl : UserControl
 
     // ── Formula syntax highlighting (VSCode dark theme style) ──
 
+    private static void OnNavigateCommandChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is ConditionSectionControl ctrl)
+            ctrl.RebuildAllFormulaInlines();
+    }
+
+    private void RebuildAllFormulaInlines()
+    {
+        // 명령이 늦게 바인딩되는 경우 기존 TextBlock 들의 hyperlink command를 갱신.
+        foreach (var tb in FindAllFormulaTextBlocks(this))
+            ColorizeFormula(tb);
+    }
+
+    private static IEnumerable<TextBlock> FindAllFormulaTextBlocks(DependencyObject root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is TextBlock { DataContext: CallConditionItem } tb)
+                yield return tb;
+            foreach (var nested in FindAllFormulaTextBlocks(child))
+                yield return nested;
+        }
+    }
+
     private void FormulaBlock_Loaded(object sender, RoutedEventArgs e) =>
         ColorizeFormula(sender as TextBlock);
 
     private void FormulaBlock_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e) =>
         ColorizeFormula(sender as TextBlock);
 
-    private static void ColorizeFormula(TextBlock? tb)
+    private void ColorizeFormula(TextBlock? tb)
     {
         if (tb is null) return;
         tb.Inlines.Clear();
         if (tb.DataContext is not CallConditionItem item) return;
-        FormulaColorizer.BuildInlines(item, tb.Inlines);
+        FormulaColorizer.BuildInlines(item, tb.Inlines, NavigateConditionApiCallCommand);
     }
 }
 
@@ -189,7 +220,7 @@ internal static class FormulaColorizer
         ValueBrush.Freeze(); RisingBrush.Freeze(); EmptyBrush.Freeze();
     }
 
-    public static void BuildInlines(CallConditionItem cond, InlineCollection inlines)
+    public static void BuildInlines(CallConditionItem cond, InlineCollection inlines, ICommand? navigateCommand)
     {
         if (cond.Items.Count == 0 && cond.Children.Count == 0)
         {
@@ -201,10 +232,10 @@ internal static class FormulaColorizer
         var parts = new List<System.Action>();
 
         foreach (var item in cond.Items)
-            parts.Add(() => AddApiCallRuns(item, inlines));
+            parts.Add(() => AddApiCallInlines(item, inlines, navigateCommand));
 
         foreach (var child in cond.Children)
-            parts.Add(() => AddChildRuns(child, inlines));
+            parts.Add(() => AddChildRuns(child, inlines, navigateCommand));
 
         for (int i = 0; i < parts.Count; i++)
         {
@@ -217,9 +248,21 @@ internal static class FormulaColorizer
             inlines.Add(new Run(" ↑") { Foreground = RisingBrush, FontWeight = FontWeights.Bold });
     }
 
-    private static void AddApiCallRuns(ConditionApiCallRow item, InlineCollection inlines)
+    private static void AddApiCallInlines(ConditionApiCallRow item, InlineCollection inlines, ICommand? navigateCommand)
     {
-        inlines.Add(new Run(item.ApiDefDisplayName) { Foreground = NameBrush });
+        // ApiCall identifier 토큰을 Hyperlink로 만들어 클릭 시 소유 Call로 이동
+        var nameRun = new Run(item.ApiDefDisplayName) { Foreground = NameBrush };
+        var hyperlink = new Hyperlink(nameRun)
+        {
+            Foreground = NameBrush,
+            TextDecorations = null, // 기본 underline 끄고 hover 시에만 표시
+            ToolTip = $"클릭: '{item.ApiDefDisplayName}'의 원래 위치로 이동",
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Command = navigateCommand,
+            CommandParameter = item
+        };
+        inlines.Add(hyperlink);
+
         var spec = item.OutputSpecText;
         if (!string.IsNullOrEmpty(spec) && spec != ValueSpecEditorControl.UndefinedText)
         {
@@ -228,10 +271,10 @@ internal static class FormulaColorizer
         }
     }
 
-    private static void AddChildRuns(CallConditionItem child, InlineCollection inlines)
+    private static void AddChildRuns(CallConditionItem child, InlineCollection inlines, ICommand? navigateCommand)
     {
         inlines.Add(new Run("(") { Foreground = ParenBrush, FontWeight = FontWeights.Bold });
-        BuildInlines(child, inlines);
+        BuildInlines(child, inlines, navigateCommand);
         inlines.Add(new Run(")") { Foreground = ParenBrush, FontWeight = FontWeights.Bold });
     }
 }

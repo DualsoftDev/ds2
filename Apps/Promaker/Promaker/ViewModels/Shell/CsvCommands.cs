@@ -1,3 +1,4 @@
+using System;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.CSV;
 using Ds2.Core.Store;
@@ -86,6 +87,7 @@ public partial class MainViewModel
             {
                 Log.Info($"CSV exported: {filePath}");
                 StatusText = $"CSV 내보내기 완료 ({filePath})";
+                CsvFileHelper.PromptOpenAfterExport(filePath, title: "프로젝트 CSV 내보내기");
                 return true;
             }
 

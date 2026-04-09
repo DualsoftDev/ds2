@@ -2,6 +2,7 @@ namespace Ds2.CSV
 
 open System
 open System.IO
+open System.Text
 open Ds2.Core
 open Ds2.Core.Store
 
@@ -45,7 +46,13 @@ module CsvImporter =
 
     let parseFile (filePath: string) : Result<CsvDocument, string list> =
         try
-            File.ReadAllText(filePath)
+            // 다른 프로세스(Excel 등)가 점유 중이어도 읽을 수 있도록 FileShare.ReadWrite + Delete.
+            let content =
+                use fs = new FileStream(filePath, FileMode.Open, FileAccess.Read,
+                                        FileShare.ReadWrite ||| FileShare.Delete)
+                use sr = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks = true)
+                sr.ReadToEnd()
+            content
             |> CsvParser.parse
             |> parseResultToStrings
         with ex ->

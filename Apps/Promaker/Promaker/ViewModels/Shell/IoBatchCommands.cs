@@ -13,6 +13,9 @@ public partial class MainViewModel
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void OpenIoBatchDialog()
     {
+        if (!GuardSimulationSemanticEdit("I/O 일괄 편집 다이얼로그 열기"))
+            return;
+
         var storeRows = _store.GetAllApiCallIORows();
         var rows = storeRows
             .Select(r => new IoBatchRow(

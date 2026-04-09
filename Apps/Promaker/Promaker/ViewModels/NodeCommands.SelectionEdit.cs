@@ -81,6 +81,9 @@ public partial class MainViewModel
             return;
         }
 
+        if (!GuardSimulationSemanticEdit("이름 변경"))
+            return;
+
         if (TryEditorAction(
                 () => _store.RenameEntity(SelectedNode.Id, SelectedNode.EntityType, newName)))
             StatusText = $"Renamed to '{newName}'.";
