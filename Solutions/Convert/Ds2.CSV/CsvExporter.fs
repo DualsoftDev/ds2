@@ -23,10 +23,19 @@ module CsvExporter =
     let private tagName (tag: IOTag option) =
         tag |> Option.map (fun current -> current.Name) |> Option.defaultValue ""
 
-    let private appendCallRows (builder: StringBuilder) (flowName: string) (workName: string) (call: Call) =
+    let private resolveSystemName (store: DsStore) (call: Call) =
+        call.ApiCalls
+        |> Seq.tryHead
+        |> Option.bind (fun ac -> ac.ApiDefId)
+        |> Option.bind (fun defId -> match store.ApiDefs.TryGetValue(defId) with true, d -> Some d | _ -> None)
+        |> Option.bind (fun def -> match store.Systems.TryGetValue(def.ParentId) with true, s -> Some s.Name | _ -> None)
+        |> Option.defaultValue call.DevicesAlias
+
+    let private appendCallRows (store: DsStore) (builder: StringBuilder) (flowName: string) (workName: string) (call: Call) =
+        let systemName = resolveSystemName store call
         let appendRow (inName: string) (inAddress: string) (outName: string) (outAddress: string) =
             builder.AppendLine(
-                $"{escape flowName},{escape workName},{escape call.DevicesAlias},{escape call.ApiName},{escape inName},{escape inAddress},{escape outName},{escape outAddress}")
+                $"{escape flowName},{escape workName},{escape call.DevicesAlias},{escape systemName},{escape call.ApiName},{escape inName},{escape inAddress},{escape outName},{escape outAddress}")
             |> ignore
 
         if call.ApiCalls.Count = 0 then
@@ -35,21 +44,23 @@ module CsvExporter =
             for apiCall in call.ApiCalls do
                 appendRow (tagName apiCall.InTag) (tagAddress apiCall.InTag) (tagName apiCall.OutTag) (tagAddress apiCall.OutTag)
 
+    let private csvHeader = "Flow,Work,Device,System,Api,InName,InAddress,OutName,OutAddress"
+
     let private appendSystemRows (store: DsStore) (systemId: Guid) (builder: StringBuilder) =
         for flow in Queries.flowsOf systemId store do
             for work in Queries.worksOf flow.Id store do
                 for call in Queries.callsOf work.Id store do
-                    appendCallRows builder flow.Name work.LocalName call
+                    appendCallRows store builder flow.Name work.LocalName call
 
     let systemToCsv (store: DsStore) (systemId: Guid) : string =
         let builder = StringBuilder()
-        builder.AppendLine("Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress") |> ignore
+        builder.AppendLine(csvHeader) |> ignore
         appendSystemRows store systemId builder
         builder.ToString()
 
     let projectToCsv (store: DsStore) (projectId: Guid) : string =
         let builder = StringBuilder()
-        builder.AppendLine("Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress") |> ignore
+        builder.AppendLine(csvHeader) |> ignore
         for system in Queries.activeSystemsOf projectId store do
             appendSystemRows store system.Id builder
         builder.ToString()
