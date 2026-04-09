@@ -28,16 +28,6 @@ open System.Text.Json.Serialization
 // ENUMERATIONS - 제어 타입 정의
 // =============================================================================
 
-/// PLC 데이터 타입
-type PlcDataType =
-    | Bool                          // 1 bit
-    | Int16                         // 16 bit signed
-    | UInt16                        // 16 bit unsigned
-    | Int32                         // 32 bit signed
-    | UInt32                        // 32 bit unsigned
-    | Float32                       // 32 bit float
-    | Float64                       // 64 bit double
-    | String of maxLength: int      // 문자열
 
 /// Call 방향 (I/O 태그 매핑)
 type CallDirection =
@@ -82,23 +72,6 @@ type SafetyState =
     | Emergency     // 비상정지
 
 
-// =============================================================================
-// VALUE TYPES
-// =============================================================================
-
-/// I/O 태그 (PLC 매핑용)
-type IOTag() =
-    member val Name: string = "" with get, set          // 논리 이름
-    member val Address: string = "" with get, set       // PLC 물리 주소
-    member val Description: string = "" with get, set   // 설명
-    member val DataType: PlcDataType = PlcDataType.Bool with get, set
-    member val DefaultValue: obj option = None with get, set
-
-    new(name: string, addr: string, desc: string) as this =
-        IOTag() then
-            this.Name <- name
-            this.Address <- addr
-            this.Description <- desc
 
 /// 모션 파라미터 (Position Control용)
 [<Struct>]

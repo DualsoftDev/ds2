@@ -825,7 +825,7 @@ module CallTimeoutTests =
     [<Fact>]
     let ``call timeout emits event and keeps call Going`` () =
         let store = createStore ()
-        let _, _, flow, work = setupBasicHierarchy store
+        let _, _, _, work = setupBasicHierarchy store
         work.Duration <- Some (TimeSpan.FromMilliseconds 5000.)
         store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
 
