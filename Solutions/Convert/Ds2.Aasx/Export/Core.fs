@@ -218,7 +218,14 @@ module internal AasxExportCore =
                 let elemType = propType.GetGenericArguments().[0]
                 if elemType = typeof<string> then
                     let list = value :?> ResizeArray<string>
-                    if list.Count = 0 then None
+                    if list.Count = 0 then
+                        // 빈 리스트도 빈 SML로 내보냄 (에디터에서 항목 추가 가능하도록)
+                        let sml = SubmodelElementList(
+                            typeValueListElement = AasSubmodelElements.Property,
+                            valueTypeListElement = DataTypeDefXsd.String)
+                        sml.IdShort <- sanitizeIdShort name
+                        sml.Value <- ResizeArray<ISubmodelElement>()
+                        Some (sml :> ISubmodelElement)
                     else mkSmlProp name (list |> Seq.map (fun s -> mkProp "Item" s) |> Seq.toList)
                 elif elemType = typeof<Guid> then
                     let list = value :?> ResizeArray<Guid>
