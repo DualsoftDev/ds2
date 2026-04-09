@@ -96,6 +96,9 @@ public partial class MainViewModel
 
             return dialog.ShowDialog() == true;
         }
+
+        public bool TryStopSimulationViaWarning(string message)
+            => Owner.TryStopSimulationViaWarning(message);
     }
 
     public sealed class SelectionHost : HostBase

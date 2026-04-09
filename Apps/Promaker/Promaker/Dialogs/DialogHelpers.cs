@@ -357,4 +357,95 @@ internal static class DialogHelpers
 
         return result;
     }
+
+    /// <summary>
+    /// 시뮬레이션 중 편집 차단 경고 + "시뮬레이션 종료" 옵션 다이얼로그.
+    /// "확인" 은 default 이며 거부(false), "시뮬레이션 종료" 는 명시적 클릭 시 true.
+    /// </summary>
+    /// <returns>사용자가 시뮬 종료를 선택했으면 true, 그 외 false</returns>
+    // TODO: 향후 동일한 커스텀 버튼 라벨 다이얼로그가 한 번 더 필요해지면
+    //       ShowThemedMessageBox에 (string label, MessageBoxResult value)[] 오버로드를 추가하여 통합할 것.
+    internal static bool ShowSimulationStopOptionDialog(string message)
+    {
+        var owner = Application.Current.MainWindow;
+        var dialog = new Window
+        {
+            Title = "시뮬레이션 중 편집 차단",
+            Width = 440,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = owner,
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false
+        };
+
+        var darkButtonStyle = Application.Current.TryFindResource("DarkButton") as Style;
+
+        var iconBlock = new TextBlock
+        {
+            Text = IconWarn,
+            FontSize = 28,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 0, 12, 0)
+        };
+
+        var messageBlock = new TextBlock
+        {
+            Text = message,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13
+        };
+
+        var contentPanel = new Grid { Margin = new Thickness(16, 16, 16, 12) };
+        contentPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        contentPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(iconBlock, 0);
+        Grid.SetColumn(messageBlock, 1);
+        contentPanel.Children.Add(iconBlock);
+        contentPanel.Children.Add(messageBlock);
+
+        var buttonPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(16, 0, 16, 16)
+        };
+
+        var stopChosen = false;
+
+        Button MakeButton(string content, bool isDefault, bool isCancel, Action onClick)
+        {
+            var btn = new Button
+            {
+                Content = content,
+                MinWidth = 110,
+                Padding = new Thickness(12, 4, 12, 4),
+                Margin = new Thickness(4, 0, 0, 0),
+                IsDefault = isDefault,
+                IsCancel = isCancel
+            };
+            if (darkButtonStyle is not null) btn.Style = darkButtonStyle;
+            btn.Click += (_, _) => { onClick(); dialog.DialogResult = true; };
+            return btn;
+        }
+
+        // 의도치 않은 mutation 방지를 위해 default(Enter)는 "확인"
+        buttonPanel.Children.Add(MakeButton("확인", isDefault: true, isCancel: true, () => stopChosen = false));
+        buttonPanel.Children.Add(MakeButton("시뮬레이션 종료", isDefault: false, isCancel: false, () => stopChosen = true));
+
+        var root = new Border
+        {
+            Background = (Brush?)Application.Current.TryFindResource("SecondaryBackgroundBrush")
+                         ?? SystemColors.WindowBrush
+        };
+        var mainPanel = new StackPanel();
+        mainPanel.Children.Add(contentPanel);
+        mainPanel.Children.Add(buttonPanel);
+        root.Child = mainPanel;
+        dialog.Content = root;
+
+        dialog.ShowDialog();
+        return stopChosen;
+    }
 }

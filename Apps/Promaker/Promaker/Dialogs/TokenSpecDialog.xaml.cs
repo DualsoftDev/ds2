@@ -72,7 +72,12 @@ public partial class TokenSpecDialog : Window
 
         try
         {
-            var lines = File.ReadAllLines(dlg.FileName);
+            var lines = CsvFileHelper.ReadAllLinesShared(dlg.FileName);
+            if (lines.Length < 2)
+            {
+                CsvFileHelper.ShowImportError("CSV 파일이 비어있거나 헤더만 있습니다.");
+                return;
+            }
             var startId = _rows.Count > 0 ? _rows.Max(r => r.Id) + 1 : 1;
 
             foreach (var row in CreateImportedRows(lines, startId))
@@ -80,7 +85,7 @@ public partial class TokenSpecDialog : Window
         }
         catch (Exception ex)
         {
-            DialogHelpers.Error(this, $"CSV 불러오기 실패: {ex.Message}");
+            CsvFileHelper.ShowImportError(ex.Message);
         }
     }
 

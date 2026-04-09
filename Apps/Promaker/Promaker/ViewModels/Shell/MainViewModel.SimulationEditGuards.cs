@@ -3,15 +3,38 @@ namespace Promaker.ViewModels;
 public partial class MainViewModel
 {
     private const string SimulationEditBlockedMessage =
-        "시뮬레이션 중에는 화살표 연결 수정만 가능합니다.\n현재 변경은 적용되지 않습니다.";
+        "시뮬레이션 중에는 화살표 연결 수정만 가능합니다.\n\n계속하려면 시뮬레이션을 종료해야 합니다.";
 
     private bool GuardSimulationSemanticEdit(string editName)
     {
         if (!Simulation.IsSimulating)
             return true;
 
-        _dialogService.ShowWarning($"{SimulationEditBlockedMessage}\n\n대상: {editName}");
-        StatusText = $"시뮬레이션 중 '{editName}' 변경이 차단되었습니다.";
-        return false;
+        var fullMessage = $"{SimulationEditBlockedMessage}\n\n대상: {editName}";
+        var proceedAfterStop = TryStopSimulationViaWarning(fullMessage);
+
+        StatusText = proceedAfterStop
+            ? $"시뮬레이션 종료 → '{editName}' 변경 진행"
+            : $"시뮬레이션 중 '{editName}' 변경이 차단되었습니다.";
+
+        return proceedAfterStop;
+    }
+
+    /// <summary>
+    /// 시뮬레이션 중 편집 차단 경고를 표시하고, 사용자가 "시뮬레이션 종료"를 선택하면
+    /// 시뮬레이션을 정지한 뒤 true를 반환합니다. 그 외에는 false.
+    /// </summary>
+    internal bool TryStopSimulationViaWarning(string message)
+    {
+        if (!Simulation.IsSimulating)
+            return true;
+
+        var stopChosen = _dialogService.WarnSimulationEditBlocked(message);
+        if (!stopChosen)
+            return false;
+
+        Simulation.StopSimulationCommand.Execute(null);
+        // Stop이 실패해 IsSimulating이 여전히 true인 경우 방어
+        return !Simulation.IsSimulating;
     }
 }

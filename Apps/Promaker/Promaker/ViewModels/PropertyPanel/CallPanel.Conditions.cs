@@ -83,31 +83,25 @@ public partial class PropertyPanelState
     {
         if (row is null) return;
 
+        // ApiCall을 직접 소유한 Call(소유자)을 찾아 그 캔버스로 이동.
+        // condition formula에서 참조된 ApiCall을 클릭하면 그 ApiCall의 원래 위치(소유 Call)로 점프.
         if (!_host.TryRef(
-                () => CallConditionQueries.FindCallsByApiCallId(Store, row.ApiCallId),
-                out var callTuples))
+                () => CallConditionQueries.FindOwnerCallByApiCallId(Store, row.ApiCallId),
+                out var ownerTuples))
             return;
 
-        var calls = callTuples
+        var owners = ownerTuples
             .Select(t => (Id: t.Item1, Name: t.Item2))
             .ToList();
 
-        if (calls.Count == 0)
+        if (owners.Count == 0)
         {
-            _host.SetStatusText("No Call references this ApiCall.");
+            _host.SetStatusText("이 ApiCall의 소유 Call을 찾을 수 없습니다.");
             return;
         }
 
-        if (calls.Count == 1)
-        {
-            _host.OpenParentCanvasAndFocusNode(calls[0].Id, EntityKind.Call);
-            return;
-        }
-
-        DialogHelpers.PickCallFromList(
-            $"ApiCall을 참조하는 Call ({calls.Count}개)",
-            calls,
-            callId => _host.OpenParentCanvasAndFocusNode(callId, EntityKind.Call));
+        // ApiCall은 정확히 1개의 Call에 소속됨 — 첫 번째 결과로 직접 이동
+        _host.OpenParentCanvasAndFocusNode(owners[0].Id, EntityKind.Call);
     }
 
     private void ReloadConditions(Guid callId)

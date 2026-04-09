@@ -301,6 +301,7 @@
                                         EditConditionsParameter="{Binding}"
                                         DropCallCommand="{Binding DataContext.DropCallToConditionSectionCommand, ElementName=PanelRoot}"
                                         DropCallToConditionItemCommand="{Binding DataContext.DropCallToConditionItemCommand, ElementName=PanelRoot}"
+                                        NavigateConditionApiCallCommand="{Binding DataContext.NavigateConditionApiCallCommand, ElementName=PanelRoot}"
                                         AddCommandParameter="{Binding ConditionType}"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
