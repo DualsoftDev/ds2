@@ -155,6 +155,36 @@ public partial class ProjectPropertiesDialog : Window
         }
     }
 
+    private void MoveUp_Click(object sender, RoutedEventArgs e)
+    {
+        var selectedIndex = PresetMappingListBox.SelectedIndex;
+        if (selectedIndex <= 0)
+        {
+            // 선택 안 됨 또는 이미 맨 위
+            return;
+        }
+
+        var item = PresetMappingListBox.Items[selectedIndex];
+        PresetMappingListBox.Items.RemoveAt(selectedIndex);
+        PresetMappingListBox.Items.Insert(selectedIndex - 1, item);
+        PresetMappingListBox.SelectedIndex = selectedIndex - 1;
+    }
+
+    private void MoveDown_Click(object sender, RoutedEventArgs e)
+    {
+        var selectedIndex = PresetMappingListBox.SelectedIndex;
+        if (selectedIndex < 0 || selectedIndex >= PresetMappingListBox.Items.Count - 1)
+        {
+            // 선택 안 됨 또는 이미 맨 아래
+            return;
+        }
+
+        var item = PresetMappingListBox.Items[selectedIndex];
+        PresetMappingListBox.Items.RemoveAt(selectedIndex);
+        PresetMappingListBox.Items.Insert(selectedIndex + 1, item);
+        PresetMappingListBox.SelectedIndex = selectedIndex + 1;
+    }
+
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
         ResultProjectName = string.IsNullOrWhiteSpace(ProjectNameBox.Text) ? _initialProjectName : ProjectNameBox.Text.Trim();
