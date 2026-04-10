@@ -132,7 +132,7 @@ type MonitoringSystemProperties() =
     member val BatchSize = 50 with get, set                         // 배치 크기 (태그 개수)
 
     // ========== 엣지 검출 설정 ==========
-    member val EdgeDetectionMode = RisingEdgeOnly with get, set
+    member val EdgeDetectionMode = EdgeDetectionMode.RisingEdgeOnly with get, set
     member val DebounceTimeMs = 100 with get, set                   // 디바운스 시간 (ms)
 
     // ========== 데이터 저장 설정 ==========
