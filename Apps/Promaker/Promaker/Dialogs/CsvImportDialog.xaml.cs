@@ -274,7 +274,7 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
         try
         {
             _loadingFileContent = true;
-            ContentBox.Text = File.ReadAllText(picker.FileName);
+            ContentBox.Text = CsvFileHelper.ReadAllTextShared(picker.FileName);
             SetSourceDisplay(Path.GetFileName(picker.FileName), $"원본: {Path.GetFileName(picker.FileName)}");
             ApplyAutoNames(Path.GetFileNameWithoutExtension(picker.FileName));
         }

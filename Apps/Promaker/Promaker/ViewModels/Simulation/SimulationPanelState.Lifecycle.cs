@@ -450,6 +450,7 @@ public partial class SimulationPanelState
         IsSimPaused = false;
         _isStepMode = false;
         SimSpeed = 1.0;
+        SimStatusText = SimText.Stopped;
         _stateCache.Clear();
         _suppressedWarnings.Clear();
         ClearSimStateFromCanvas();

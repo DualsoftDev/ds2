@@ -32,7 +32,6 @@ type CostAnalysisSystemProperties() =
     inherit PropertiesBase<CostAnalysisSystemProperties>()
 
     // ========== 기본 원가 분석 설정 ==========
-    member val SystemType: string option = None with get, set
     member val EnableCostAnalysis = false with get, set
     member val EnableCostSimulation = false with get, set
     member val DefaultCurrency = "KRW" with get, set

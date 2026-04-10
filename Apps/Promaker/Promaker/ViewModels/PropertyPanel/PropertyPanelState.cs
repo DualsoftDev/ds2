@@ -271,10 +271,7 @@ public partial class PropertyPanelState : ObservableObject
             var systemOpt = Queries.getSystem(selected.Id, Store);
             if (systemOpt != null && Microsoft.FSharp.Core.FSharpOption<DsSystem>.get_IsSome(systemOpt))
             {
-                var simPropsOpt = systemOpt.Value.GetSimulationProperties();
-                var systemTypeOpt = simPropsOpt != null && Microsoft.FSharp.Core.FSharpOption<SimulationSystemProperties>.get_IsSome(simPropsOpt)
-                    ? simPropsOpt.Value.SystemType
-                    : null;
+                var systemTypeOpt = systemOpt.Value.SystemType;
                 _originalSystemType = systemTypeOpt != null && Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(systemTypeOpt)
                     ? systemTypeOpt.Value
                     : string.Empty;
@@ -382,6 +379,7 @@ public partial class PropertyPanelState : ObservableObject
         if (selectedWorkIds.Count == 0) return;
 
         // 시뮬레이션 중 Going Work가 포함되어 있으면 경고 후 거부
+        // (사용자가 "시뮬레이션 종료"를 선택하면 시뮬을 정지하고 변경을 진행)
         if (_host.IsSimulating)
         {
             var goingIds = selectedWorkIds
@@ -389,11 +387,10 @@ public partial class PropertyPanelState : ObservableObject
                 .ToList();
             if (goingIds.Count > 0)
             {
-                Dialogs.DialogHelpers.ShowThemedMessageBox(
-                    "Going 상태인 Work의 Duration은 변경할 수 없습니다.\n실행이 완료된 후 변경하세요.",
-                    "Duration 변경 불가",
-                    System.Windows.MessageBoxButton.OK, "⚠");
-                return;
+                var msg = "Going 상태인 Work의 Duration은 변경할 수 없습니다.\n\n계속하려면 시뮬레이션을 종료해야 합니다.";
+                if (!_host.TryStopSimulationViaWarning(msg))
+                    return;
+                // 시뮬 종료 성공 → 정상 경로로 fall-through
             }
         }
 

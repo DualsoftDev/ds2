@@ -111,8 +111,10 @@ module internal MermaidTargetPlanning =
         (createdCalls: seq<Call * string * string>)
         (operations: ResizeArray<ImportPlanOperation>)
         =
-        createdCalls
-        |> Seq.groupBy (fun (_, _, flowName) -> flowName)
-        |> Seq.iter (fun (flowName, group) ->
-            let calls = group |> Seq.map (fun (call, label, _) -> call, label) |> Seq.toList
-            ImportPlanDeviceOps.linkCallsToDevices store projectId flowName calls operations)
+        let callsByFlow =
+            createdCalls
+            |> Seq.groupBy (fun (_, _, flowName) -> flowName)
+            |> Seq.map (fun (flowName, group) ->
+                flowName, group |> Seq.map (fun (call, label, _) -> call, label, None) |> Seq.toList)
+            |> Seq.toList
+        ImportPlanDeviceOps.linkCallsToDevicesMultiFlow store projectId callsByFlow operations

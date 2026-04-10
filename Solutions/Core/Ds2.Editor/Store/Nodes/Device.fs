@@ -76,15 +76,9 @@ module internal DirectDeviceOps =
                 // 기존 System에 SystemType 설정 (없으면)
                 match systemType with
                 | Some sysType ->
-                    let existingType = existing.GetSimulationProperties() |> Option.bind (fun p -> p.SystemType)
-                    if Option.isNone existingType then
+                    if Option.isNone existing.SystemType then
                         store.TrackMutate(store.Systems, existing.Id, fun s ->
-                            match s.GetSimulationProperties() with
-                            | Some props -> props.SystemType <- Some sysType
-                            | None ->
-                                let props = SimulationSystemProperties()
-                                props.SystemType <- Some sysType
-                                s.SetSimulationProperties(props))
+                            s.SystemType <- Some sysType)
                 | _ -> ()
 
                 match Queries.flowsOf existing.Id store with
@@ -119,9 +113,7 @@ module internal DirectDeviceOps =
                 let system = DsSystem(systemName)
                 // 새 System에 SystemType 설정
                 systemType |> Option.iter (fun sysType ->
-                    let props = SimulationSystemProperties()
-                    props.SystemType <- Some sysType
-                    system.SetSimulationProperties(props))
+                    system.SystemType <- Some sysType)
                 let flow = Flow($"{devAlias}_Flow", system.Id)
                 store.TrackAdd(store.Systems, system)
                 store.TrackMutate(store.Projects, projectId, fun p ->

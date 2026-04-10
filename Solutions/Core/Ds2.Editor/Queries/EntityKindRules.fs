@@ -60,6 +60,12 @@ module EntityKindRules =
         | EntityKind.Call -> arrowType = ArrowType.Start || arrowType = ArrowType.Group
         | _ -> false
 
+    /// Call 엣지의 타입을 토글한다 (Start ↔ Group). Call에서 허용되지 않는 입력은 Group으로 정규화.
+    let toggleCallArrowType (current: ArrowType) : ArrowType =
+        match current with
+        | ArrowType.Group -> ArrowType.Start
+        | _ -> ArrowType.Group
+
     /// Canvas 좌표를 격자에 정렬
     let snapToGrid (x: float) (y: float) (ctrlHeld: bool) : float * float =
         let gridX = 120.0

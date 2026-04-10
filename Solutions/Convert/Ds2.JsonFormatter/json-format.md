@@ -1,6 +1,6 @@
 # Ds2 JSON 파일 규격
 
-Last Sync: 2026-04-03
+Last Sync: 2026-04-10
 
 ## 개요
 
@@ -64,18 +64,10 @@ Ds2 프로젝트 파일(`.json`)은 `DsStore`를 `System.Text.Json`으로 직렬
 
 ### Project
 
+Project는 `properties` 필드가 없습니다. 주요 설정은 엔티티 직접 멤버입니다.
+
 ```json
 {
-  "properties": {
-    "iriPrefix": "http://...",         // string?, IRI 접두사
-    "splitDeviceAasx": true,           // bool, AASX Device 분리 저장
-    "author": "...",                   // string?
-    "version": "...",                  // string?
-    "globalAssetId": "...",            // string?
-    "description": "...",              // string? (모든 Properties 공통)
-    "dateTime": "2026-01-01T00:00:00+09:00",  // DateTimeOffset? (option)
-    "presetSystemTypesStorage": "..."  // string? (사전 설정 SystemType 저장소)
-  },
   "activeSystemIds": ["<guid>", ...],  // Active System GUID 배열
   "passiveSystemIds": ["<guid>", ...], // Passive System (Device) GUID 배열
   "nameplate": { ... },               // option: IDTA Nameplate (없으면 키 자체 생략)
@@ -83,6 +75,9 @@ Ds2 프로젝트 파일(`.json`)은 `DsStore`를 `System.Text.Json`으로 직렬
   "tokenSpecs": [                      // 토큰 사양 배열
     { "id": 1, "label": "Tester", "fields": {}, "workId": "<guid>?" }
   ],
+  "author": "...",                     // string
+  "dateTime": "2026-01-01T00:00:00+09:00",  // DateTimeOffset
+  "version": "1.0.0",                 // string
   "id": "<guid>",
   "name": "ProjectName"
 }
@@ -90,53 +85,120 @@ Ds2 프로젝트 파일(`.json`)은 `DsStore`를 `System.Text.Json`으로 직렬
 
 ### DsSystem
 
+`properties`는 `SystemSubmodelProperty` DU 배열 (`ResizeArray<SystemSubmodelProperty>`)입니다.
+각 항목은 `{"Case":"<DU-case>","Fields":[{...}]}` 형태로 직렬화됩니다.
+
 ```json
 {
-  "properties": {
-    "systemType": "Unit",              // string?: Unit, Robot, Conveyor 등
-    "engineVersion": "...",            // string?
-    "author": "...",                   // string?
-    "description": "...",              // string? (모든 Properties 공통)
-    "langVersion": "...",              // string? (언어 버전)
-    "dateTime": "2026-01-01T00:00:00+09:00",  // DateTimeOffset? (option)
-    "iri": "..."                       // string? (IRI)
-  },
+  "properties": [
+    {
+      "Case": "SimulationSystem",
+      "Fields": [{
+        "description": "...",              // string? (PropertiesBase 공통)
+        "engineVersion": "...",            // string?
+        "langVersion": "...",              // string?
+        "author": "...",                   // string?
+        "dateTime": "2026-01-01T00:00:00+09:00",  // DateTimeOffset?
+        "iri": "...",                      // string?
+        "systemType": "Unit",             // string?: Unit, Robot, Conveyor 등
+        "simulationMode": "EventDriven",  // string
+        "enablePhysicsSimulation": false,  // bool
+        "timeStepMs": 100,                // int
+        "simulationRepetitions": 100,     // int
+        "confidenceLevel": 0.99,          // float
+        "designCapacityPerHour": 60.0,    // float
+        "targetThroughputPerHour": 50.0,  // float
+        "taktTime": 72.0,                // float
+        "targetOEE": 85.0                 // float
+        // ... 기타 시뮬레이션 분석 필드 (50+ 필드)
+      }]
+    }
+  ],
+  "iri": "https://example.local/system1",  // string? (엔티티 레벨 IRI, properties 내부 IRI와 별도)
   "id": "<guid>",
   "name": "SystemName"
 }
 ```
 
+#### SystemSubmodelProperty 케이스 (8종)
+
+| Case | Properties 클래스 | 주요 용도 |
+|------|-------------------|-----------|
+| `SimulationSystem` | `SimulationSystemProperties` | 시뮬레이션 설정 (모드, 물리, 용량분석, OEE, TOC 등) |
+| `ControlSystem` | `ControlSystemProperties` | PLC 제어 설정 (태그 생성, 통신, 안전 인터록) |
+| `MonitoringSystem` | `MonitoringSystemProperties` | PLC 모니터링 (폴링, 알람, 성능 추적) |
+| `LoggingSystem` | `LoggingSystemProperties` | 로깅/감사 (LOT 추적, 해시체인, 외부 동기화) |
+| `MaintenanceSystem` | `MaintenanceSystemProperties` | 유지보수 (예측정비, 수명관리, MTBF/MTTR) |
+| `CostAnalysisSystem` | `CostAnalysisSystemProperties` | 원가 분석 (OEE, 용량, BOM, 품질) |
+| `QualitySystem` | `QualitySystemProperties` | 품질 관리 (SPC, 공정능력, Western Electric) |
+| `HmiSystem` | `HMISystemProperties` | HMI 설정 (웹서버, 레이아웃, 권한, SignalR) |
+
+- 모든 Properties 클래스는 `PropertiesBase<T>`를 상속하여 `description: string?` 공통 필드 보유
+- 배열에 필요한 케이스만 추가 (e.g. 시뮬레이션만 필요하면 `SimulationSystem` 1개만)
+- null/기본값 필드는 직렬화 시 생략 가능
+
 **Active System** = 사용자 제어 로직, **Passive System** = Device (자동 생성)
 
 ### Flow
 
+`properties`는 `FlowSubmodelProperty` DU 배열입니다 (구조는 DsSystem과 동일 패턴).
+
 ```json
 {
-  "properties": {
-    "description": "..."               // string? (모든 Properties 공통)
-  },
+  "properties": [
+    {
+      "Case": "SimulationFlow",
+      "Fields": [{
+        "description": "...",              // string? (PropertiesBase 공통)
+        "flowSimulationEnabled": true,     // bool
+        "flowSimulationMode": "Normal"     // string
+        // ... 기타 도메인별 필드
+      }]
+    }
+  ],
   "parentId": "<system-guid>",         // 부모 System ID
   "id": "<guid>",
   "name": "FlowName"
 }
 ```
 
+#### FlowSubmodelProperty 케이스 (8종)
+
+| Case | Properties 클래스 | 주요 용도 |
+|------|-------------------|-----------|
+| `SimulationFlow` | `SimulationFlowProperties` | 시뮬레이션 모드 |
+| `ControlFlow` | `ControlFlowProperties` | 제어 우선순위 |
+| `MonitoringFlow` | `MonitoringFlowProperties` | 모니터링 |
+| `LoggingFlow` | `LoggingFlowProperties` | 로깅 |
+| `MaintenanceFlow` | `MaintenanceFlowProperties` | 유지보수 |
+| `CostAnalysisFlow` | `CostAnalysisFlowProperties` | 원가 분석 |
+| `QualityFlow` | `QualityFlowProperties` | 품질 관리 |
+| `HmiFlow` | `HMIFlowProperties` | HMI |
+
 ### Work
+
+`duration`은 엔티티 직접 멤버이고, 기존 `motion`, `script` 등은 `WorkSubmodelProperty` 배열 내 각 도메인별 Properties로 이동했습니다.
 
 ```json
 {
   "flowPrefix": "FlowName",           // 부모 Flow 이름 (Name 자동 생성용)
   "localName": "WorkName",            // Work 고유 이름
   "referenceOf": "<guid>",            // option: 참조 대상 원본 Work ID
-  "properties": {
-    "description": "...",              // string? (모든 Properties 공통)
-    "duration": "00:00:00.3000000",    // TimeSpan?: ISO 8601 duration
-    "motion": "...",                   // string?
-    "script": "...",                   // string?
-    "externalStart": false,            // bool
-    "isFinished": false,               // bool
-    "numRepeat": 0                     // int
-  },
+  "properties": [
+    {
+      "Case": "SimulationWork",
+      "Fields": [{
+        "description": "...",            // string? (PropertiesBase 공통)
+        "motion": "...",                 // string?
+        "script": "...",                 // string?
+        "externalStart": false,          // bool
+        "isFinished": false,             // bool
+        "numRepeat": 0                   // int
+        // ... 기타 사이클 타임, OEE 추적 필드
+      }]
+    }
+  ],
+  "duration": "00:00:00.3000000",      // TimeSpan? (엔티티 직접 멤버)
   "status4": 0,                        // int: Ready=0, Going=1, Finish=2, Homing=3
   "position": { "x": 0, "y": 0, "w": 120, "h": 40 },  // option: 캔버스 위치
   "tokenRole": 0,                      // int flags: None=0, Source=1, Ignore=2, Sink=4
@@ -148,16 +210,36 @@ Ds2 프로젝트 파일(`.json`)은 `DsStore`를 `System.Text.Json`으로 직렬
 
 **주의**: `name`은 `flowPrefix.localName`으로 자동 계산됩니다. 직접 설정하지 않아도 됩니다.
 
+#### WorkSubmodelProperty 케이스 (8종)
+
+| Case | Properties 클래스 | 주요 용도 |
+|------|-------------------|-----------|
+| `SimulationWork` | `SimulationWorkProperties` | motion, script, externalStart, isFinished, numRepeat, 사이클 타임 |
+| `ControlWork` | `ControlWorkProperties` | 제어 |
+| `MonitoringWork` | `MonitoringWorkProperties` | 모니터링 |
+| `LoggingWork` | `LoggingWorkProperties` | 로깅 |
+| `MaintenanceWork` | `MaintenanceWorkProperties` | 유지보수 |
+| `CostAnalysisWork` | `CostAnalysisWorkProperties` | 원가 분석 |
+| `QualityWork` | `QualityWorkProperties` | 품질 관리 |
+| `HmiWork` | `HMIWorkProperties` | HMI |
+
 ### Call
+
+기존 `callType`, `timeout`, `sensorDelay`는 `CallSubmodelProperty` 배열 내 도메인별 Properties로 이동했습니다.
 
 ```json
 {
-  "properties": {
-    "description": "...",              // string? (모든 Properties 공통)
-    "callType": 0,                     // int: WaitForCompletion=0, SkipIfCompleted=1
-    "timeout": "00:00:05",             // TimeSpan?
-    "sensorDelay": 100                 // int?
-  },
+  "properties": [
+    {
+      "Case": "SimulationCall",
+      "Fields": [{
+        "description": "...",            // string? (PropertiesBase 공통)
+        "callType": 0,                   // CallType: WaitForCompletion=0, SkipIfCompleted=1
+        "timeout": "00:00:05",           // TimeSpan?
+        "sensorDelay": 100               // int?
+      }]
+    }
+  ],
   "status4": 0,
   "position": { "x": 0, "y": 0, "w": 120, "h": 40 },
   "apiCalls": [                        // ApiCall 내장 배열 (★ 이것이 유일한 소스)
@@ -185,16 +267,28 @@ Ds2 프로젝트 파일(`.json`)은 `DsStore`를 `System.Text.Json`으로 직렬
 }
 ```
 
+#### CallSubmodelProperty 케이스 (8종)
+
+| Case | Properties 클래스 | 주요 용도 |
+|------|-------------------|-----------|
+| `SimulationCall` | `SimulationCallProperties` | callType, timeout, sensorDelay |
+| `ControlCall` | `ControlCallProperties` | 제어 |
+| `MonitoringCall` | `MonitoringCallProperties` | 모니터링 |
+| `LoggingCall` | `LoggingCallProperties` | 로깅 (objectName, actionName, callDirection 등) |
+| `MaintenanceCall` | `MaintenanceCallProperties` | 유지보수 |
+| `CostAnalysisCall` | `CostAnalysisCallProperties` | 원가 분석 |
+| `QualityCall` | `QualityCallProperties` | 품질 관리 |
+| `HmiCall` | `HMICallProperties` | HMI |
+
 ### ApiDef
+
+ApiDef는 `properties` 필드가 없습니다. 모든 설정은 엔티티 직접 멤버입니다.
 
 ```json
 {
-  "properties": {
-    "description": "...",              // string? (모든 Properties 공통)
-    "isPush": false,                   // bool
-    "txGuid": "<work-guid>",           // option: TX Work
-    "rxGuid": "<work-guid>"            // option: RX Work (Device Work)
-  },
+  "isPush": false,                     // bool
+  "txGuid": "<work-guid>",            // Guid option: TX Work
+  "rxGuid": "<work-guid>",            // Guid option: RX Work (Device Work)
   "parentId": "<system-guid>",         // 부모 Passive System
   "id": "<guid>",
   "name": "ApiName"
@@ -394,24 +488,30 @@ Project
 {
   "projects": {
     "00000000-0000-0000-0000-000000000001": {
-      "properties": {},
       "activeSystemIds": ["00000000-0000-0000-0000-000000000002"],
       "passiveSystemIds": [],
       "tokenSpecs": [],
+      "author": "",
+      "version": "1.0.0",
       "id": "00000000-0000-0000-0000-000000000001",
       "name": "MyProject"
     }
   },
   "systems": {
     "00000000-0000-0000-0000-000000000002": {
-      "properties": { "systemType": "Unit" },
+      "properties": [
+        {
+          "Case": "SimulationSystem",
+          "Fields": [{ "systemType": "Unit" }]
+        }
+      ],
       "id": "00000000-0000-0000-0000-000000000002",
       "name": "MySystem"
     }
   },
   "flows": {
     "00000000-0000-0000-0000-000000000003": {
-      "properties": {},
+      "properties": [],
       "parentId": "00000000-0000-0000-0000-000000000002",
       "id": "00000000-0000-0000-0000-000000000003",
       "name": "MyFlow"
@@ -421,9 +521,8 @@ Project
     "00000000-0000-0000-0000-000000000004": {
       "flowPrefix": "MyFlow",
       "localName": "Work1",
-      "properties": {
-        "duration": "00:00:00.3000000"
-      },
+      "properties": [],
+      "duration": "00:00:00.3000000",
       "status4": 0,
       "tokenRole": 1,
       "name": "MyFlow.Work1",

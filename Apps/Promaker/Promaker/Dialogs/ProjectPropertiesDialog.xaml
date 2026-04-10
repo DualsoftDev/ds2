@@ -143,18 +143,40 @@
                         Click="RemovePreset_Click"/>
             </Grid>
 
-            <!-- 매핑 리스트 -->
-            <ListBox Grid.Row="11" x:Name="PresetMappingListBox"
-                     Height="120" Margin="0,0,0,8"
-                     BorderBrush="{DynamicResource BorderBrush}"
-                     Background="{DynamicResource SecondaryBackgroundBrush}"
-                     SelectionChanged="PresetMappingListBox_SelectionChanged">
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11"/>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
+            <!-- 매핑 리스트 + 순서 조절 버튼 -->
+            <Grid Grid.Row="11" Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <ListBox Grid.Column="0" x:Name="PresetMappingListBox"
+                         Height="120"
+                         BorderBrush="{DynamicResource BorderBrush}"
+                         Background="{DynamicResource SecondaryBackgroundBrush}"
+                         SelectionChanged="PresetMappingListBox_SelectionChanged">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <!-- 순서 조절 버튼 -->
+                <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                    <Button Content="▲"
+                            Style="{StaticResource DarkButton}"
+                            Padding="8,2" Margin="0,0,0,4"
+                            ToolTip="위로 이동"
+                            Click="MoveUp_Click"/>
+                    <Button Content="▼"
+                            Style="{StaticResource DarkButton}"
+                            Padding="8,2"
+                            ToolTip="아래로 이동"
+                            Click="MoveDown_Click"/>
+                </StackPanel>
+            </Grid>
 
             <!-- 구분선 -->
             <Border Grid.Row="12" Height="1" Margin="0,4,0,12"

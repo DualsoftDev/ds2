@@ -125,7 +125,7 @@ let extractDevices (store: DsStore) (projectId: Guid) : Result<DeviceInfo list, 
             | Some system ->
                 let participatingFlows = extractParticipatingFlows systemToFlowsMap systemId
                 let primaryFlow = determinePrimaryFlow participatingFlows
-                let systemType = system.GetSimulationProperties() |> Option.bind (fun p -> p.SystemType)
+                let systemType = system.SystemType
                 let modelType = inferModelType systemType
                 let apiDefs = extractApiDefs store callerCountMap systemId
 

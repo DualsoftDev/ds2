@@ -76,6 +76,9 @@ public partial class PropertyPanelState
     {
         if (RequireSelectedAs(EntityKind.System) is not { } selectedSystem) return;
 
+        if (!GuardSimulationSemanticEdit("System type 변경"))
+            return;
+
         if (!_host.TryAction(() => Store.UpdateSystemType(selectedSystem.Id, SystemType)))
             return;
 
