@@ -161,14 +161,6 @@ type ErrorLogTagSpec() =
 type LoggingSystemProperties() =
     inherit PropertiesBase<LoggingSystemProperties>()
 
-    // ========== 기본 System 속성 ==========
-    member val EngineVersion: string option = None with get, set
-    member val LangVersion: string option = None with get, set
-    member val Author: string option = None with get, set
-    member val DateTime: DateTimeOffset option = None with get, set
-    member val IRI: string option = None with get, set
-    member val SystemType: string option = None with get, set
-
     // ========== 자동 로깅 설정 ==========
     member val EnableAutoLogging = true with get, set
     member val LogLevel = "Info" with get, set                      // "Debug", "Info", "Warning", "Error"
