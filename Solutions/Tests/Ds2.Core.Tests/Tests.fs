@@ -43,7 +43,6 @@ module DeepCopyTests =
     let ``DsSystem DeepCopy should create new instance with new GUID`` () =
         let original = DsSystem("TestSystem")
         let props = SimulationSystemProperties()
-        props.Author <- Some "Author1"
         original.SetSimulationProperties(props)
         original.IRI <- Some "http://test.com"
 
@@ -57,13 +56,8 @@ module DeepCopyTests =
         Assert.Equal(original.Name, copied.Name)
         Assert.True(original.GetSimulationProperties().IsSome, "Original should have SimulationProperties")
         Assert.True(copied.GetSimulationProperties().IsSome, "Copied should have SimulationProperties")
-        Assert.Equal(original.GetSimulationProperties().Value.Author, copied.GetSimulationProperties().Value.Author)
         Assert.Equal(original.IRI, copied.IRI)
 
-        // Properties가 독립적으로 복사되는지 확인
-        copied.GetSimulationProperties().Value.Author <- Some "Author2"
-        Assert.Equal(Some "Author1", original.GetSimulationProperties().Value.Author)
-        Assert.Equal(Some "Author2", copied.GetSimulationProperties().Value.Author)
 
     [<Fact>]
     let ``Flow DeepCopy should create new instance with new GUID`` () =
@@ -122,19 +116,12 @@ module DeepCopyTests =
     let ``Multiple nested DeepCopy should maintain independence`` () =
         let original = DsSystem("OriginalSystem")
         let origProps = SimulationSystemProperties()
-        origProps.Author <- Some "OriginalAuthor"
         original.SetSimulationProperties(origProps)
 
         let copy1 = original.DeepCopy()
-        copy1.GetSimulationProperties().Value.Author <- Some "Copy1Author"
 
         let copy2 = copy1.DeepCopy()
-        copy2.GetSimulationProperties().Value.Author <- Some "Copy2Author"
 
-        // 모든 인스턴스가 독립적인지 확인
-        Assert.Equal(Some "OriginalAuthor", original.GetSimulationProperties().Value.Author)
-        Assert.Equal(Some "Copy1Author", copy1.GetSimulationProperties().Value.Author)
-        Assert.Equal(Some "Copy2Author", copy2.GetSimulationProperties().Value.Author)
 
         // 모든 GUID가 다른지 확인
         Assert.NotEqual(original.Id, copy1.Id)

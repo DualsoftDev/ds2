@@ -118,14 +118,6 @@ type PerformanceSnapshot = {
 type MonitoringSystemProperties() =
     inherit PropertiesBase<MonitoringSystemProperties>()
 
-    // ========== 기본 System 속성 ==========
-    member val EngineVersion: string option = None with get, set
-    member val LangVersion: string option = None with get, set
-    member val Author: string option = None with get, set
-    member val DateTime: DateTimeOffset option = None with get, set
-    member val IRI: string option = None with get, set
-    member val SystemType: string option = None with get, set
-
     // ========== PLC 연결 정보 ==========
     member val EnablePlcMonitoring = false with get, set
     member val PlcIpAddress = "192.168.1.10" with get, set

@@ -173,14 +173,6 @@ type SparePartInfo = {
 type MaintenanceSystemProperties() =
     inherit PropertiesBase<MaintenanceSystemProperties>()
 
-    // ========== 기본 System 속성 ==========
-    member val EngineVersion: string option = None with get, set
-    member val LangVersion: string option = None with get, set
-    member val Author: string option = None with get, set
-    member val DateTime: DateTimeOffset option = None with get, set
-    member val IRI: string option = None with get, set
-    member val SystemType: string option = None with get, set
-
     // ========== 예지 보전 설정 ==========
     member val EnablePredictiveMaintenance = false with get, set
     member val AnomalyDetectionMethod = ThresholdBased with get, set

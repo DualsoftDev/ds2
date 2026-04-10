@@ -97,11 +97,9 @@ type DsStore() =
 
     member private this.MigrateSystemType() =
         for system in this.Systems.Values do
-            match system.GetSimulationProperties() with
-            | Some props when props.SystemType.IsNone ->
-                props.SystemType <- Some "Unit"
+            if system.SystemType.IsNone then
+                system.SystemType <- Some "Unit"
                 printfn $"[INFO] MigrateSystemType: Set SystemType='Unit' for '{system.Name}' (Id={system.Id})"
-            | _ -> ()
 
     member private this.ApplyNewStore(newStore: DsStore, contextLabel: string) =
         try
