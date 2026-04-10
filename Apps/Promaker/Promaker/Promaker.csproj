@@ -20,6 +20,7 @@
     <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="log4net" />
     <PackageReference Include="MahApps.Metro.IconPacks.Material" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
     <PackageReference Include="Microsoft.Web.WebView2" />
   </ItemGroup>
   <ItemGroup>
@@ -57,5 +58,7 @@
     <ProjectReference Include="..\..\..\Solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime\Ds2.Runtime.fsproj" />
     <ProjectReference Include="..\..\..\Solutions\Runtime\Ds2.Runtime.Report\Ds2.Runtime.Report.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend\Ds2.Backend.fsproj" />
+    <ProjectReference Include="..\..\..\Solutions\Backend\Ds2.Backend.Common\Ds2.Backend.Common.fsproj" />
   </ItemGroup>
 </Project>

@@ -10,8 +10,12 @@ open Ds2.Runtime.Engine.Scheduler
 
 /// 이벤트 기반 시뮬레이션 엔진
 /// H 상태 구현: F->H (내부 Call R 정리) -> H->R (최소 1ms)
-type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
+type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (string -> string -> unit) option) =
     let log = log4net.LogManager.GetLogger(typeof<EventDrivenEngine>)
+    let ioMap = Ds2.Runtime.IO.SignalIOMap.build index.Store
+    let writeTagFn = defaultArg writeTag (fun _ _ -> ())
+
+    // secondary constructor는 아래 interface 구현 뒤에 위치
     let mutable status = Stopped
     let mutable isHomingPhase = false
     let homingPhaseCompletedEvent = Event<EventArgs>()
@@ -58,6 +62,8 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
         Index = index
         StateManager = stateManager
         Scheduler = scheduler
+        RuntimeMode = runtimeMode
+        IsHomingPhase = (fun () -> isHomingPhase)
         TimeIgnore = (fun () -> timeIgnore)
         ScheduleConditionEvaluation = scheduleConditionEvaluation
         OnWorkFinish = onWorkFinish
@@ -117,13 +123,15 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
         | RuntimeMode.Simulation ->
             forceWorkState deviceWorkGuid Status4.Going
         | RuntimeMode.Control ->
+            // OutTag Write + Device Work Going (Finish는 In 신호 수신까지 보류)
+            match ioMap.TxWorkToOutAddresses |> Map.tryFind deviceWorkGuid with
+            | Some addrs -> for addr in addrs do writeTagFn addr "true"
+            | None -> ()
             forceWorkState deviceWorkGuid Status4.Going
-            log.Warn($"[ExecuteApiCall] Control mode I/O not implemented for Work {deviceWorkGuid}")
         | RuntimeMode.Monitoring ->
-            log.Warn($"[ExecuteApiCall] Monitoring mode not implemented for Work {deviceWorkGuid}")
+            ()  // Monitoring: 엔진이 Device Work를 제어하지 않음 (IO 역추적만)
         | RuntimeMode.VirtualPlant ->
-            forceWorkState deviceWorkGuid Status4.Going
-            log.Warn($"[ExecuteApiCall] VirtualPlant mode I/O not implemented for Work {deviceWorkGuid}")
+            ()  // VirtualPlant: Hub에서 Out 신호 수신 시에만 Going (OnHubTagChanged에서 처리)
         | _ -> ()
     let executeCallGoing callGuid =
         SimIndex.txWorkGuids index callGuid |> List.iter executeApiCall
@@ -146,8 +154,21 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
         TimeIgnore = fun () -> timeIgnore
         ExecuteCallGoing = executeCallGoing
     }
+    let resetOutTagsForCall callGuid =
+        if runtimeMode = RuntimeMode.Control then
+            match ioMap.CallToMappings |> Map.tryFind callGuid with
+            | Some mappings ->
+                for m in mappings do
+                    if not (System.String.IsNullOrEmpty m.OutAddress) then
+                        writeTagFn m.OutAddress "false"
+            | None -> ()
     let applyCallTransition callGuid newState =
+        let prevState = stateManager.GetCallState(callGuid)
         CallTransitions.applyCallTransition callTransitionContext callGuid newState
+        let curState = stateManager.GetCallState(callGuid)
+        // Call Finish → Out OFF (타임테이블 규칙: In 후 Out OFF)
+        if prevState <> Status4.Finish && curState = Status4.Finish then
+            resetOutTagsForCall callGuid
     let conditionEvaluationContext : ConditionEvaluation.Context = {
         Index = index
         StateManager = stateManager
@@ -436,6 +457,14 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
     member _.InjectIOValue(apiCallGuid, value) =
         stateManager.SetIOValue(apiCallGuid, value)
         scheduleConditionEvaluation ()
+    member _.InjectIOValueByAddress(address: string, value: string) : bool =
+        match ioMap.InAddressToMapping |> Map.tryFind address with
+        | Some mapping ->
+            stateManager.SetIOValue(mapping.ApiCallGuid, value)
+            scheduleConditionEvaluation ()
+            true
+        | None -> false
+    member _.IOMap = ioMap
     member private _.ApplyToken(workGuid: Guid, newValue: TokenValue option, kind: TokenEventKind, token: TokenValue) =
         stateManager.SetWorkToken(workGuid, newValue)
         emitTokenEvent kind token workGuid None
@@ -516,6 +545,8 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
             with get() = this.TimeIgnore
             and set(value) = this.TimeIgnore <- value
         member this.InjectIOValue(apiCallGuid, value) = this.InjectIOValue(apiCallGuid, value)
+        member this.InjectIOValueByAddress(address, value) = this.InjectIOValueByAddress(address, value)
+        member _.IOMap = ioMap
         member this.NextToken() = this.NextToken()
         member this.SeedToken(sourceWorkGuid, value) = this.SeedToken(sourceWorkGuid, value)
         member this.DiscardToken(workGuid) = this.DiscardToken(workGuid)
@@ -530,3 +561,5 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
         [<CLIEvent>] member this.CallTimeout = this.CallTimeout
         [<CLIEvent>] member this.HomingPhaseCompleted = this.HomingPhaseCompleted
         member this.Dispose() = this.Stop()
+
+    new(index: SimIndex, runtimeMode: RuntimeMode) = EventDrivenEngine(index, runtimeMode, None)

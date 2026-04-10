@@ -130,6 +130,20 @@ public partial class SimulationPanelState : ObservableObject
 
     [ObservableProperty] private string _simStatusText = SimText.Stopped;
 
+    // ── Runtime Mode + Hub ───────────────────────────────────────────
+    [ObservableProperty] private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
+    [ObservableProperty] private string _hubAddress = "localhost:5050";
+    [ObservableProperty] private bool _isHubHosting;
+    public bool NeedsHubConnection => SelectedRuntimeMode != RuntimeMode.Simulation;
+    public bool IsHubHost => SelectedRuntimeMode == RuntimeMode.Control;
+    public bool CanChangeMode => !IsSimulating && !IsHomingPhase;
+
+    partial void OnSelectedRuntimeModeChanged(RuntimeMode value)
+    {
+        OnPropertyChanged(nameof(NeedsHubConnection));
+        OnPropertyChanged(nameof(IsHubHost));
+    }
+
     public bool CanChangeSpeed => !IsSimulating || IsSimPaused;
 
     [ObservableProperty] private double _simSpeed = 1.0;

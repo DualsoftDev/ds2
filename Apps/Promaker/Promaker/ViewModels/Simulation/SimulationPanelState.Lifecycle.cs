@@ -1,17 +1,26 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Core;
+using Ds2.Backend;
+using Ds2.Backend.Common;
 using Ds2.Runtime.Engine;
+using Ds2.Runtime.IO;
+using Microsoft.FSharp.Core;
 using Ds2.Runtime.Engine.Core;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.SignalR.Client;
 using Promaker.Dialogs;
 
 namespace Promaker.ViewModels;
 
 public partial class SimulationPanelState
 {
+    private WebApplication? _hubHost;
+    private HubConnection? _hubConnection;
     private bool TryWithSimEngine(string operationName, Action<ISimulationEngine> action)
     {
         if (_simEngine is null)
@@ -88,7 +97,43 @@ public partial class SimulationPanelState
 
             if (!TryDisposeCurrentEngine("Simulation restart"))
                 return;
-            _simEngine = new EventDrivenEngine(index, RuntimeMode.Simulation);
+
+            // Hub 시작/연결 (Simulation 모드 이외)
+            if (!TryStartHub())
+                return;
+
+            Action<string, string>? writeTagAction = null;
+            if (_hubConnection is not null && SelectedRuntimeMode == RuntimeMode.Control)
+            {
+                var hub = _hubConnection;
+                writeTagAction = (address, value) =>
+                {
+                    var state = hub.State;
+                    _dispatcher.BeginInvoke(() =>
+                        AddSimLog($"[Ctrl→] Out {address}={value} (hub={state})", LogSeverity.Going));
+                    if (state != HubConnectionState.Connected)
+                        return;
+                    Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await hub.InvokeAsync(HubMethod.WriteTag, address, value, HubSource.Control);
+                            _dispatcher.BeginInvoke(() =>
+                                AddSimLog($"[Ctrl→] Hub 전송 완료: {address}={value}", LogSeverity.System));
+                        }
+                        catch (Exception ex)
+                        {
+                            _dispatcher.BeginInvoke(() =>
+                                AddSimLog($"[Ctrl→] WriteTag 실패: {ex.Message}", LogSeverity.Error));
+                        }
+                    });
+                };
+            }
+            _simEngine = writeTagAction is not null
+                ? new EventDrivenEngine(index, SelectedRuntimeMode,
+                    FSharpOption<FSharpFunc<string, FSharpFunc<string, Unit>>>.Some(
+                        FuncConvert.FromAction<string, string>(writeTagAction)))
+                : new EventDrivenEngine(index, SelectedRuntimeMode);
             AdvanceSimUiGeneration();
 
             WireSimEvents();
@@ -109,14 +154,23 @@ public partial class SimulationPanelState
             if (!hasPreStartWarnings)
                 _warningGuids.Clear();
 
-            // 자동 원위치 페이즈: Homing 대상이 있으면 페이즈 진행 후 정상 시뮬레이션
-            var hasHoming = _simEngine.StartWithHomingPhase();
-            if (hasHoming)
+            // Passive 모드(VirtualPlant/Monitoring): Homing 없이 Start만, H 상태로 대기
+            var isPassive = SelectedRuntimeMode is RuntimeMode.VirtualPlant or RuntimeMode.Monitoring;
+            var hasHoming = false;
+            if (isPassive)
             {
-                IsHomingPhase = true;
-                _setStatusText("시뮬레이션 초기화 중...");
-                SimStatusText = "시뮬레이션 초기화 중...";
-                _simEngine.HomingPhaseCompleted += OnHomingPhaseCompleted;
+                _simEngine.Start();
+            }
+            else
+            {
+                hasHoming = _simEngine.StartWithHomingPhase();
+                if (hasHoming)
+                {
+                    IsHomingPhase = true;
+                    _setStatusText("시뮬레이션 초기화 중...");
+                    SimStatusText = "시뮬레이션 초기화 중...";
+                    _simEngine.HomingPhaseCompleted += OnHomingPhaseCompleted;
+                }
             }
 
             ApplySimStateToCanvas();
@@ -126,10 +180,12 @@ public partial class SimulationPanelState
                 ganttRunning: true,
                 isSimulating: true,
                 isSimPaused: false,
-                statusText: hasHoming ? "시뮬레이션 초기화 중..." : SimText.Started,
-                logText: hasHoming ? "시뮬레이션 자동 원위치 진행 중" : SimText.Started);
+                statusText: hasHoming ? "시뮬레이션 초기화 중..."
+                    : isPassive ? "Hub 신호 대기 중..." : SimText.Started,
+                logText: hasHoming ? "시뮬레이션 자동 원위치 진행 중"
+                    : isPassive ? $"{SelectedRuntimeMode} 모드 — Hub 신호 대기" : SimText.Started);
             if (!hasHoming)
-                SimStatusText = SimText.Running;
+                SimStatusText = isPassive ? "Hub 신호 대기 중..." : SimText.Running;
         }
         catch (Exception ex)
         {
@@ -165,6 +221,7 @@ public partial class SimulationPanelState
         if (_simEngine is not null)
             _simEngine.HomingPhaseCompleted -= OnHomingPhaseCompleted;
         IsHomingPhase = false;
+        StopHub();
         ClearSimStateFromCanvas();
         ClearAllWarnings();
         HasWorkGoing = false;
@@ -241,6 +298,7 @@ public partial class SimulationPanelState
     private bool CanStepSimulation() => IsSimulating
         && IsSimPaused
         && !IsHomingPhase
+        && SelectedRuntimeMode is not (RuntimeMode.VirtualPlant or RuntimeMode.Monitoring)
         && _simEngine is { } engine
         && engine.CanAdvanceStep(GetStepAdvanceSelection().SelectedSourceGuid, GetStepAdvanceSelection().AutoStartSources);
 
@@ -428,6 +486,354 @@ public partial class SimulationPanelState
         _simEngine?.Resume();
         GanttChart.IsRunning = true;
         return result;
+    }
+
+    private int ParseHubPort() =>
+        HubAddress.Split(':') is { Length: >= 2 } parts && int.TryParse(parts[^1], out var p) ? p : 5050;
+
+    private string BuildHubUrl() => IsHubHost
+        ? BackendHost.getHubUrl(ParseHubPort())
+        : $"http://{HubAddress}/hub/signal";
+
+    private bool TryStartHub()
+    {
+        if (SelectedRuntimeMode == RuntimeMode.Simulation)
+            return true;
+
+        try
+        {
+            if (IsHubHost)
+            {
+                _hubHost = BackendHost.start(ParseHubPort());
+                IsHubHosting = true;
+                AddSimLog($"SignalR Hub 호스팅 시작 (port={ParseHubPort()})", LogSeverity.System);
+            }
+
+            var hubUrl = BuildHubUrl();
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(hubUrl)
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hubConnection.On<string, string, string>(HubMethod.OnTagChanged, OnHubTagChanged);
+            _hubConnection.Closed += OnHubDisconnected;
+            _hubConnection.Reconnecting += _ => { _dispatcher.BeginInvoke(() => SimStatusText = "Hub 재연결 중..."); return Task.CompletedTask; };
+            _hubConnection.Reconnected += _ => { _dispatcher.BeginInvoke(() => { SimStatusText = IsSimulating ? "Hub 재연결 완료" : SimText.Stopped; AddSimLog("Hub 재연결 완료", LogSeverity.System); }); return Task.CompletedTask; };
+
+            // 비동기 연결 시도 (UI 안 막음)
+            _ = ConnectHubAsync(hubUrl);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SimLog.Error("Hub start failed", ex);
+            _setStatusText($"Hub 시작 실패: {ex.Message}");
+            StopHub();
+            return false;
+        }
+    }
+
+    private async Task ConnectHubAsync(string hubUrl)
+    {
+        var retryDelayMs = 1000;
+        const int maxDelayMs = 10000;
+
+        while (_hubConnection is { State: HubConnectionState.Disconnected } conn)
+        {
+            try
+            {
+                _dispatcher.BeginInvoke(() =>
+                {
+                    SimStatusText = "Hub 연결 시도 중...";
+                    _setStatusText($"Hub 연결 시도 중... ({hubUrl})");
+                });
+
+                await conn.StartAsync();
+
+                _dispatcher.BeginInvoke(() =>
+                {
+                    AddSimLog($"SignalR Hub 연결 완료 ({hubUrl})", LogSeverity.System);
+                    var isPassive = SelectedRuntimeMode is RuntimeMode.VirtualPlant or RuntimeMode.Monitoring;
+                    var statusMsg = isPassive ? "Hub 신호 대기 중..." : $"{SelectedRuntimeMode} 동작 중";
+                    SimStatusText = statusMsg;
+                    _setStatusText(statusMsg);
+                });
+                return;
+            }
+            catch
+            {
+                _dispatcher.BeginInvoke(() =>
+                    AddSimLog($"Hub 연결 실패 — {retryDelayMs / 1000.0:F1}초 후 재시도", LogSeverity.Warn));
+
+                await Task.Delay(retryDelayMs);
+                retryDelayMs = Math.Min(retryDelayMs * 2, maxDelayMs);
+            }
+        }
+    }
+
+    private Task OnHubDisconnected(Exception? ex)
+    {
+        if (!IsSimulating) return Task.CompletedTask;
+        _dispatcher.BeginInvoke(() =>
+        {
+            AddSimLog($"Hub 연결 끊김{(ex is not null ? $": {ex.Message}" : "")}", LogSeverity.Warn);
+            SimStatusText = "Hub 연결 끊김";
+        });
+        return Task.CompletedTask;
+    }
+
+    private void StopHub()
+    {
+        if (_hubConnection is not null)
+        {
+            var conn = _hubConnection;
+            _hubConnection = null;
+            conn.Closed -= OnHubDisconnected;
+            // 비동기 정리 — UI 안 막음
+            _ = Task.Run(async () =>
+            {
+                try { await conn.StopAsync(); } catch { /* ignore */ }
+                try { await conn.DisposeAsync(); } catch { /* ignore */ }
+            });
+        }
+
+        if (_hubHost is not null)
+        {
+            var host = _hubHost;
+            _hubHost = null;
+            IsHubHosting = false;
+            _ = Task.Run(() =>
+            {
+                try { BackendHost.stop(host); } catch { /* ignore */ }
+            });
+        }
+    }
+
+    private void OnHubTagChanged(string address, string value, string source)
+    {
+        _dispatcher.BeginInvoke(() =>
+            AddSimLog($"[Hub수신] {address}={value} from={source}", LogSeverity.Info));
+
+        if (_simEngine is null)
+            return;
+        // 자기 모드의 source는 무시 (순환 방지)
+        var mySource = SelectedRuntimeMode switch
+        {
+            RuntimeMode.Control => HubSource.Control,
+            RuntimeMode.VirtualPlant => HubSource.VirtualPlant,
+            RuntimeMode.Monitoring => HubSource.Monitoring,
+            _ => ""
+        };
+        if (!string.IsNullOrEmpty(mySource) && source == mySource)
+            return;
+
+        switch (SelectedRuntimeMode)
+        {
+            case RuntimeMode.Control:
+            {
+                // InTag 수신 → IO 값 주입 + RxWork Finish
+                var ioMap = _simEngine.IOMap;
+                var inMappingOpt = ioMap.TryGetByInAddress(address);
+                if (inMappingOpt != null && FSharpOption<SignalMapping>.get_IsSome(inMappingOpt))
+                {
+                    var mapping = inMappingOpt.Value;
+                    _simEngine.InjectIOValueByAddress(address, value);
+
+                    // RxWork를 Finish/Ready로 전이
+                    var rxOpt = mapping.RxWorkGuid;
+                    if (rxOpt != null && FSharpOption<Guid>.get_IsSome(rxOpt))
+                    {
+                        var rxWorkGuid = rxOpt.Value;
+                        if (value == "true")
+                            _simEngine.ForceWorkState(rxWorkGuid, Status4.Finish);
+                        // value="false"는 리셋 — H→R은 엔진이 알아서
+                    }
+
+                    _dispatcher.BeginInvoke(() =>
+                        AddSimLog($"[Ctrl←] In {address}={value} (from {source})", LogSeverity.Finish));
+                }
+                else
+                {
+                    _dispatcher.BeginInvoke(() =>
+                        AddSimLog($"[Ctrl←] {address}={value} [unmapped]", LogSeverity.Warn));
+                }
+                break;
+            }
+
+            case RuntimeMode.VirtualPlant:
+            {
+                // OutTag 수신 → Device Work Going → Duration 후 InTag 응답
+                var ioMap = _simEngine.IOMap;
+                var mappingOpt = ioMap.TryGetByOutAddress(address);
+                if (mappingOpt != null && FSharpOption<SignalMapping>.get_IsSome(mappingOpt))
+                {
+                    var mapping = mappingOpt.Value;
+                    var txWorkGuidOpt = mapping.TxWorkGuid;
+                    if (txWorkGuidOpt != null && FSharpOption<Guid>.get_IsSome(txWorkGuidOpt))
+                    {
+                        var txWorkGuid = txWorkGuidOpt.Value;
+                        var callGuid = mapping.CallGuid;
+                        if (value == "true")
+                        {
+                            // Out ON → Device Work Going + Duration 후 Finish + In Write
+                            _simEngine.ForceWorkState(txWorkGuid, Status4.Going);
+                            _dispatcher.BeginInvoke(() =>
+                                AddSimLog($"[VP] Out ON: {address} → Device Going", LogSeverity.Going));
+
+                            var inAddress = mapping.InAddress;
+                            var durationMap = _simEngine.Index.WorkDuration;
+                            var duration = durationMap.ContainsKey(txWorkGuid) ? (int)durationMap[txWorkGuid] : 500;
+                            var hub = _hubConnection;
+                            if (hub is not null && !string.IsNullOrEmpty(inAddress))
+                            {
+                                Task.Run(async () =>
+                                {
+                                    await Task.Delay(duration);
+                                    if (_simEngine is not null)
+                                    {
+                                        _simEngine.ForceWorkState(txWorkGuid, Status4.Finish);
+                                        await hub.InvokeAsync(HubMethod.WriteTag, inAddress, "true", HubSource.VirtualPlant);
+                                        _dispatcher.BeginInvoke(() =>
+                                            AddSimLog($"[VP→] In ON: {inAddress} (after {duration}ms)", LogSeverity.Finish));
+                                    }
+                                });
+                            }
+                        }
+                        else
+                        {
+                            // Out OFF → In OFF + Device Work H→R
+                            var inAddress = mapping.InAddress;
+                            var hub = _hubConnection;
+                            if (hub is not null && !string.IsNullOrEmpty(inAddress))
+                            {
+                                Task.Run(async () =>
+                                {
+                                    await hub.InvokeAsync(HubMethod.WriteTag, inAddress, "false", HubSource.VirtualPlant);
+                                    _dispatcher.BeginInvoke(() =>
+                                        AddSimLog($"[VP→] In OFF: {inAddress}", LogSeverity.Ready));
+                                });
+                            }
+                        }
+
+                        // IO 에지 기반 Call/Work 상태 유추
+                        PassiveStateInfer(callGuid, address, value);
+                    }
+                }
+                break;
+            }
+
+            case RuntimeMode.Monitoring:
+            {
+                // IO 에지 기반 Call/Work 상태 유추
+                var ioMap = _simEngine.IOMap;
+                var outOpt = ioMap.TryGetByOutAddress(address);
+                var inOpt = ioMap.TryGetByInAddress(address);
+                Guid? inferCallGuid = null;
+                if (outOpt != null && FSharpOption<SignalMapping>.get_IsSome(outOpt))
+                    inferCallGuid = outOpt.Value.CallGuid;
+                else if (inOpt != null && FSharpOption<SignalMapping>.get_IsSome(inOpt))
+                    inferCallGuid = inOpt.Value.CallGuid;
+
+                if (inferCallGuid is { } cg)
+                    PassiveStateInfer(cg, address, value);
+
+                _dispatcher.BeginInvoke(() =>
+                    AddSimLog($"[Mon] {address}={value} (from {source})", LogSeverity.Info));
+                break;
+            }
+        }
+    }
+
+    // ── Passive 상태 유추 (VirtualPlant / Monitoring) ──────────────────
+
+    /// Call별 Out 선행 여부 추적
+    private readonly Dictionary<Guid, bool> _callOutSeen = [];
+
+    /// IO 에지 기반 Call 상태 판정 + Work 합산
+    private void PassiveStateInfer(Guid callGuid, string address, string value)
+    {
+        if (_simEngine is null) return;
+        var ioMap = _simEngine.IOMap;
+
+        var outOpt = ioMap.TryGetByOutAddress(address);
+        var isOut = outOpt != null && FSharpOption<SignalMapping>.get_IsSome(outOpt);
+
+        Status4? newCallState = null;
+        if (isOut && value == "true")
+        {
+            _callOutSeen[callGuid] = true;
+            newCallState = Status4.Going;
+        }
+        else if (!isOut && value == "true" && _callOutSeen.GetValueOrDefault(callGuid))
+        {
+            newCallState = Status4.Finish;
+        }
+        else if (isOut && value == "false")
+        {
+            var cs = GetCallStateValue(callGuid);
+            if (cs == Status4.Finish)
+            {
+                newCallState = Status4.Homing;
+                _callOutSeen[callGuid] = false;
+            }
+        }
+        else if (!isOut && value == "false")
+        {
+            var cs = GetCallStateValue(callGuid);
+            if (cs == Status4.Homing || cs == Status4.Finish)
+            {
+                newCallState = Status4.Ready;
+                _callOutSeen[callGuid] = false;
+            }
+        }
+
+        if (newCallState is { } ncs)
+        {
+            _simEngine.ForceCallState(callGuid, ncs);
+            var callWorkMap = _simEngine.Index.CallWorkGuid;
+            if (callWorkMap.ContainsKey(callGuid))
+                InferWorkState(callWorkMap[callGuid]);
+        }
+    }
+
+    private Status4 GetCallStateValue(Guid callGuid)
+    {
+        var opt = _simEngine?.GetCallState(callGuid);
+        return opt != null && FSharpOption<Status4>.get_IsSome(opt) ? opt.Value : Status4.Ready;
+    }
+
+    private Status4 GetWorkStateValue(Guid workGuid)
+    {
+        var opt = _simEngine?.GetWorkState(workGuid);
+        return opt != null && FSharpOption<Status4>.get_IsSome(opt) ? opt.Value : Status4.Ready;
+    }
+
+    /// Call 상태 합산 → Work 상태 판정
+    private void InferWorkState(Guid workGuid)
+    {
+        if (_simEngine is null) return;
+        var workCallGuids = _simEngine.Index.WorkCallGuids;
+        if (!workCallGuids.ContainsKey(workGuid)) return;
+        var callGuids = workCallGuids[workGuid];
+
+        var states = new List<Status4>();
+        foreach (var cg in callGuids)
+            states.Add(GetCallStateValue(cg));
+
+        if (states.Count == 0) return;
+
+        Status4 newWorkState;
+        if (states.All(s => s == Status4.Ready))
+            newWorkState = Status4.Ready;
+        else if (states.Any(s => s == Status4.Going))
+            newWorkState = Status4.Going;
+        else if (states.All(s => s == Status4.Finish))
+            newWorkState = Status4.Finish;
+        else
+            newWorkState = Status4.Homing;
+
+        if (GetWorkStateValue(workGuid) != newWorkState)
+            _simEngine.ForceWorkState(workGuid, newWorkState);
     }
 
     private void DisposeSimEngine()

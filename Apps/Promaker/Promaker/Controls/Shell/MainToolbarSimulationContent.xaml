@@ -3,12 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
              xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
+             xmlns:core="clr-namespace:Ds2.Core;assembly=Ds2.Core"
              xmlns:res="clr-namespace:Promaker.Resources">
     <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="MainToolbarResources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -267,6 +269,31 @@
                     <ComboBoxItem Content="10x"><ComboBoxItem.Tag><sys:Double>10.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                     <ComboBoxItem Content="{x:Static res:Strings.IgnoreTime}"><ComboBoxItem.Tag><sys:Double>0.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                 </ComboBox>
+            </StackPanel>
+            <StackPanel Orientation="Vertical"
+                        Margin="8,0,0,0"
+                        VerticalAlignment="Center"
+                        IsEnabled="{Binding HasProject}">
+                <TextBlock Text="Mode" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,1"/>
+                <ComboBox SelectedValue="{Binding Simulation.SelectedRuntimeMode}"
+                          SelectedValuePath="Tag"
+                          IsEnabled="{Binding Simulation.CanChangeMode}"
+                          Width="100"
+                          MinHeight="24"
+                          FontSize="11">
+                    <ComboBoxItem Content="Simulation"><ComboBoxItem.Tag><core:RuntimeMode>Simulation</core:RuntimeMode></ComboBoxItem.Tag></ComboBoxItem>
+                    <ComboBoxItem Content="Control"><ComboBoxItem.Tag><core:RuntimeMode>Control</core:RuntimeMode></ComboBoxItem.Tag></ComboBoxItem>
+                    <ComboBoxItem Content="Monitoring"><ComboBoxItem.Tag><core:RuntimeMode>Monitoring</core:RuntimeMode></ComboBoxItem.Tag></ComboBoxItem>
+                    <ComboBoxItem Content="VirtualPlant"><ComboBoxItem.Tag><core:RuntimeMode>VirtualPlant</core:RuntimeMode></ComboBoxItem.Tag></ComboBoxItem>
+                </ComboBox>
+                <TextBox Text="{Binding Simulation.HubAddress, UpdateSourceTrigger=PropertyChanged}"
+                         Width="100"
+                         MinHeight="20"
+                         FontSize="10"
+                         Margin="0,1,0,0"
+                         IsEnabled="{Binding Simulation.CanChangeMode}"
+                         ToolTip="Hub 주소 (host:port)"
+                         Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"/>
             </StackPanel>
             <Button x:Name="OpenTokenSpecButton"
                     Style="{StaticResource RibbonFlatButton}"

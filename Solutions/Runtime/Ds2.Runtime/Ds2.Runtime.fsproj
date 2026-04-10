@@ -18,6 +18,7 @@
     <Compile Include="Engine\Core\DurationTracker.fs" />
     <Compile Include="Engine\Core\StateManager.fs" />
     <Compile Include="Engine\Core\GraphValidator.fs" />
+    <Compile Include="IO\SignalIOMap.fs" />
     <Compile Include="Engine\ISimulationEngine.fs" />
     <Compile Include="Engine\EventDriven\TokenFlow.fs" />
     <Compile Include="Engine\EventDriven\WorkTransitions.fs" />
