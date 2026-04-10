@@ -181,6 +181,215 @@ module ArrowTests =
         Assert.Equal(ArrowType.Start, store.ArrowCalls.[arrowId].ArrowType)
 
     [<Fact>]
+    let ``UpdateArrowTypesBatch updates all selected work arrows in single transaction`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        let work3 = addWork store "W3" flow.Id
+        let work4 = addWork store "W4" flow.Id
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work2.Id; work3.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work3.Id; work4.Id ], ArrowType.Start) |> ignore
+        let arrowIds = store.ArrowWorks.Values |> Seq.map (fun a -> a.Id) |> Seq.toList
+        Assert.Equal(3, arrowIds.Length)
+
+        let changed = store.UpdateArrowTypesBatch(arrowIds, ArrowType.StartReset)
+
+        Assert.Equal(3, changed)
+        for id in arrowIds do
+            Assert.Equal(ArrowType.StartReset, store.ArrowWorks.[id].ArrowType)
+
+        // 단일 트랜잭션 검증: Undo 1회로 3개 화살표 모두 원래 타입으로 복구
+        store.Undo()
+        for id in arrowIds do
+            Assert.Equal(ArrowType.Start, store.ArrowWorks.[id].ArrowType)
+
+    [<Fact>]
+    let ``UpdateArrowTypesBatch skips arrows already at target type`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        let work3 = addWork store "W3" flow.Id
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work2.Id; work3.Id ], ArrowType.StartReset) |> ignore
+        let arrowIds = store.ArrowWorks.Values |> Seq.map (fun a -> a.Id) |> Seq.toList
+
+        let changed = store.UpdateArrowTypesBatch(arrowIds, ArrowType.StartReset)
+
+        // 1개는 이미 StartReset이므로 1개만 변경
+        Assert.Equal(1, changed)
+
+    [<Fact>]
+    let ``toggleCallArrowType toggles between Start and Group`` () =
+        Assert.Equal(ArrowType.Group, EntityKindRules.toggleCallArrowType ArrowType.Start)
+        Assert.Equal(ArrowType.Start, EntityKindRules.toggleCallArrowType ArrowType.Group)
+
+    [<Fact>]
+    let ``toggleCallArrowType normalizes disallowed inputs to Group`` () =
+        Assert.Equal(ArrowType.Group, EntityKindRules.toggleCallArrowType ArrowType.Reset)
+        Assert.Equal(ArrowType.Group, EntityKindRules.toggleCallArrowType ArrowType.StartReset)
+        Assert.Equal(ArrowType.Group, EntityKindRules.toggleCallArrowType ArrowType.ResetReset)
+        Assert.Equal(ArrowType.Group, EntityKindRules.toggleCallArrowType ArrowType.Unspecified)
+
+    [<Fact>]
+    let ``UpdateArrowTypesBatch skips disallowed call arrow types`` () =
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api1"; "Dev.Api2"; "Dev.Api3" ], true, None)
+        let callIds = Queries.callsOf work.Id store |> List.map (fun c -> c.Id)
+        store.ConnectSelectionInOrder(callIds, ArrowType.Start) |> ignore
+        let arrowIds = store.ArrowCalls.Values |> Seq.map (fun a -> a.Id) |> Seq.toList
+        Assert.True(arrowIds.Length >= 2)
+
+        let changed = store.UpdateArrowTypesBatch(arrowIds, ArrowType.StartReset)
+
+        Assert.Equal(0, changed)
+        for id in arrowIds do
+            Assert.Equal(ArrowType.Start, store.ArrowCalls.[id].ArrowType)
+
+    [<Fact>]
+    let ``ReverseArrowsBatch reverses all selected work arrows in single transaction`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        let work3 = addWork store "W3" flow.Id
+        let work4 = addWork store "W4" flow.Id
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work2.Id; work3.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work3.Id; work4.Id ], ArrowType.Start) |> ignore
+        let arrows = store.ArrowWorks.Values |> Seq.toList
+        let original = arrows |> List.map (fun a -> a.Id, a.SourceId, a.TargetId)
+        let arrowIds = arrows |> List.map (fun a -> a.Id)
+
+        let changed = store.ReverseArrowsBatch(arrowIds)
+
+        Assert.Equal(3, changed)
+        for (id, oldSrc, oldTgt) in original do
+            let a = store.ArrowWorks.[id]
+            Assert.Equal(oldTgt, a.SourceId)
+            Assert.Equal(oldSrc, a.TargetId)
+
+        // 단일 트랜잭션 검증: Undo 1회로 3개 모두 원위치
+        store.Undo()
+        for (id, oldSrc, oldTgt) in original do
+            let a = store.ArrowWorks.[id]
+            Assert.Equal(oldSrc, a.SourceId)
+            Assert.Equal(oldTgt, a.TargetId)
+
+    [<Fact>]
+    let ``ReverseArrowsBatch skips arrow when reversed key conflicts with non-batch arrow`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work2.Id; work1.Id ], ArrowType.Start) |> ignore
+        // batch에는 W1→W2 1개만 포함; W2→W1는 store에 별도 존재
+        let forward =
+            store.ArrowWorks.Values
+            |> Seq.find (fun a -> a.SourceId = work1.Id && a.TargetId = work2.Id)
+
+        let changed = store.ReverseArrowsBatch([ forward.Id ])
+
+        Assert.Equal(0, changed)
+        // W1→W2 그대로 유지
+        let after = store.ArrowWorks.[forward.Id]
+        Assert.Equal(work1.Id, after.SourceId)
+        Assert.Equal(work2.Id, after.TargetId)
+
+    [<Fact>]
+    let ``ReverseArrowsBatch accepts symmetric pair both in batch`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work2.Id; work1.Id ], ArrowType.Start) |> ignore
+        let forward =
+            store.ArrowWorks.Values
+            |> Seq.find (fun a -> a.SourceId = work1.Id && a.TargetId = work2.Id)
+        let backward =
+            store.ArrowWorks.Values
+            |> Seq.find (fun a -> a.SourceId = work2.Id && a.TargetId = work1.Id)
+
+        let changed = store.ReverseArrowsBatch([ forward.Id; backward.Id ])
+
+        Assert.Equal(2, changed)
+        // forward는 W2→W1, backward는 W1→W2 (서로 swap)
+        Assert.Equal(work2.Id, store.ArrowWorks.[forward.Id].SourceId)
+        Assert.Equal(work1.Id, store.ArrowWorks.[forward.Id].TargetId)
+        Assert.Equal(work1.Id, store.ArrowWorks.[backward.Id].SourceId)
+        Assert.Equal(work2.Id, store.ArrowWorks.[backward.Id].TargetId)
+
+    [<Fact>]
+    let ``ReverseArrowsBatch handles mixed work and call arrows`` () =
+        let store = createStore ()
+        let project, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+        let workArrowId = (store.ArrowWorks.Values |> Seq.head).Id
+
+        store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
+        let callIds = Queries.callsOf work1.Id store |> List.map (fun c -> c.Id)
+        store.ConnectSelectionInOrder(callIds, ArrowType.Start) |> ignore
+        let callArrowId = (store.ArrowCalls.Values |> Seq.head).Id
+
+        let workSrcBefore = store.ArrowWorks.[workArrowId].SourceId
+        let workTgtBefore = store.ArrowWorks.[workArrowId].TargetId
+        let callSrcBefore = store.ArrowCalls.[callArrowId].SourceId
+        let callTgtBefore = store.ArrowCalls.[callArrowId].TargetId
+
+        let changed = store.ReverseArrowsBatch([ workArrowId; callArrowId ])
+
+        Assert.Equal(2, changed)
+        Assert.Equal(workTgtBefore, store.ArrowWorks.[workArrowId].SourceId)
+        Assert.Equal(workSrcBefore, store.ArrowWorks.[workArrowId].TargetId)
+        Assert.Equal(callTgtBefore, store.ArrowCalls.[callArrowId].SourceId)
+        Assert.Equal(callSrcBefore, store.ArrowCalls.[callArrowId].TargetId)
+
+    [<Fact>]
+    let ``ReverseArrowsBatch dedupes duplicate ids`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+        let arrowId = (store.ArrowWorks.Values |> Seq.head).Id
+
+        let changed = store.ReverseArrowsBatch([ arrowId; arrowId; arrowId ])
+
+        Assert.Equal(1, changed)
+        // 1번만 반전 — 3번 반전되어 원위치하면 안됨
+        Assert.Equal(work2.Id, store.ArrowWorks.[arrowId].SourceId)
+        Assert.Equal(work1.Id, store.ArrowWorks.[arrowId].TargetId)
+
+    [<Fact>]
+    let ``ReverseArrowsBatch reverses non-conflicting arrows when some conflict`` () =
+        let store = createStore ()
+        let _, _, flow, work1 = setupBasicHierarchy store
+        let work2 = addWork store "W2" flow.Id
+        let work3 = addWork store "W3" flow.Id
+        let work4 = addWork store "W4" flow.Id
+        // 충돌 쌍: W1→W2 + W2→W1 (둘 다 존재, batch에는 W1→W2만 포함)
+        store.ConnectSelectionInOrder([ work1.Id; work2.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ work2.Id; work1.Id ], ArrowType.Start) |> ignore
+        // 정상 화살표: W3→W4 (반전 충돌 없음)
+        store.ConnectSelectionInOrder([ work3.Id; work4.Id ], ArrowType.Start) |> ignore
+
+        let forward12 =
+            store.ArrowWorks.Values
+            |> Seq.find (fun a -> a.SourceId = work1.Id && a.TargetId = work2.Id)
+        let arrow34 =
+            store.ArrowWorks.Values
+            |> Seq.find (fun a -> a.SourceId = work3.Id && a.TargetId = work4.Id)
+
+        let changed = store.ReverseArrowsBatch([ forward12.Id; arrow34.Id ])
+
+        // W3→W4만 반전, W1→W2는 W2→W1와 충돌해서 skip
+        Assert.Equal(1, changed)
+        Assert.Equal(work1.Id, store.ArrowWorks.[forward12.Id].SourceId)
+        Assert.Equal(work2.Id, store.ArrowWorks.[forward12.Id].TargetId)
+        Assert.Equal(work4.Id, store.ArrowWorks.[arrow34.Id].SourceId)
+        Assert.Equal(work3.Id, store.ArrowWorks.[arrow34.Id].TargetId)
+
+    [<Fact>]
     let ``ConnectSelectionInOrder creates cross-flow ArrowBetweenWorks in same system`` () =
         let store = createStore ()
         let _, system, _, work1 = setupBasicHierarchy store

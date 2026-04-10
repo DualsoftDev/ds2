@@ -286,11 +286,12 @@ public partial class EditorCanvas
         if (sender is not FrameworkElement { Tag: Guid arrowId } || VM is null) return;
 
         var ctrlPressed = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+        var shiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
         VM.Selection.ClearNodeSelection();
 
         var arrow = ActiveCanvasState!.CanvasArrows.FirstOrDefault(a => a.Id == arrowId);
         if (arrow is not null)
-            VM.Selection.SelectArrowFromCanvas(arrow, ctrlPressed);
+            VM.Selection.SelectArrowFromCanvas(arrow, ctrlPressed: ctrlPressed || shiftPressed);
 
         e.Handled = true;
     }
@@ -302,23 +303,95 @@ public partial class EditorCanvas
         var arrow = ActiveCanvasState!.CanvasArrows.FirstOrDefault(a => a.Id == arrowId);
         if (arrow is null) return;
 
-        VM.Selection.ClearNodeSelection();
-        VM.Selection.SelectArrowFromCanvas(arrow, ctrlPressed: false);
+        // 다중 선택 보존: 우클릭한 화살표가 이미 다중 선택의 일부면 그대로 유지
+        var current = VM.Selection.OrderedArrowSelection;
+        var keepMultiSelection = current.Count >= 2 && current.Contains(arrowId);
+
+        if (!keepMultiSelection)
+        {
+            VM.Selection.ClearNodeSelection();
+            VM.Selection.SelectArrowFromCanvas(arrow, ctrlPressed: false);
+        }
 
         var isWorkMode = ActiveCanvasState!.ActiveTab is { } tab && EntityKindRules.isWorkArrowModeForTab(tab.Kind);
         var menu = new System.Windows.Controls.ContextMenu();
 
-        var changeType = new System.Windows.Controls.MenuItem { Header = "타입 변경" };
+        var selectedIds = VM.Selection.OrderedArrowSelection.ToList();
+        var isMulti = selectedIds.Count >= 2;
+
+        // Call 모드에서 선택된 화살표가 모두 동일한 타입이면 다이얼로그 우회 후 토글
+        ArrowType? uniformCallType = null;
+        if (!isWorkMode)
+        {
+            var selectedArrows = ActiveCanvasState!.CanvasArrows
+                .Where(a => selectedIds.Contains(a.Id))
+                .ToList();
+            if (selectedArrows.Count > 0)
+            {
+                var first = selectedArrows[0].ArrowType;
+                if (selectedArrows.All(a => a.ArrowType == first))
+                    uniformCallType = first;
+            }
+        }
+
+        string changeTypeHeader;
+        if (uniformCallType is { } uct)
+        {
+            var nextType = EntityKindRules.toggleCallArrowType(uct);
+            var label = nextType == ArrowType.Start ? "Start" : "Group";
+            changeTypeHeader = isMulti
+                ? $"{label}(으)로 변경 ({selectedIds.Count}개)"
+                : $"{label}(으)로 변경";
+        }
+        else
+        {
+            changeTypeHeader = isMulti ? $"타입 변경 ({selectedIds.Count}개)" : "타입 변경";
+        }
+
+        var changeType = new System.Windows.Controls.MenuItem { Header = changeTypeHeader };
         changeType.Click += (_, _) =>
         {
-            if (!TryPromptArrowType(isWorkMode ? EntityKind.Work : EntityKind.Call, out var newType))
-                return;
-            VM.TryUpdateArrowType(arrowId, newType);
+            ArrowType newType;
+            if (uniformCallType is { } current)
+            {
+                newType = EntityKindRules.toggleCallArrowType(current);
+            }
+            else
+            {
+                if (!TryPromptArrowType(isWorkMode ? EntityKind.Work : EntityKind.Call, out newType))
+                    return;
+            }
+
+            if (isMulti)
+            {
+                var changed = VM.TryUpdateArrowTypesBatch(selectedIds, newType);
+                if (changed > 0)
+                    VM.StatusText = $"화살표 타입 변경: {changed}/{selectedIds.Count}개";
+            }
+            else
+            {
+                VM.TryUpdateArrowType(arrowId, newType);
+            }
         };
         menu.Items.Add(changeType);
 
-        var reverse = new System.Windows.Controls.MenuItem { Header = "방향 전환" };
-        reverse.Click += (_, _) => VM.TryReverseArrow(arrowId);
+        var reverse = new System.Windows.Controls.MenuItem
+        {
+            Header = isMulti ? $"방향 전환 ({selectedIds.Count}개)" : "방향 전환"
+        };
+        reverse.Click += (_, _) =>
+        {
+            if (isMulti)
+            {
+                var changed = VM.TryReverseArrowsBatch(selectedIds);
+                if (changed > 0)
+                    VM.StatusText = $"화살표 방향 전환: {changed}/{selectedIds.Count}개";
+            }
+            else
+            {
+                VM.TryReverseArrow(arrowId);
+            }
+        };
         menu.Items.Add(reverse);
 
         var remove = new System.Windows.Controls.MenuItem { Header = "삭제" };

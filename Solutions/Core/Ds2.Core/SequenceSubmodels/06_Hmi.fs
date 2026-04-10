@@ -184,14 +184,6 @@ type HMIStateSnapshot() =
 type HMISystemProperties() =
     inherit PropertiesBase<HMISystemProperties>()
 
-    // ========== 기본 System 속성 ==========
-    member val EngineVersion: string option = None with get, set
-    member val LangVersion: string option = None with get, set
-    member val Author: string option = None with get, set
-    member val DateTime: DateTimeOffset option = None with get, set
-    member val IRI: string option = None with get, set
-    member val SystemType: string option = None with get, set
-
     // ========== HMI 활성화 ==========
     member val EnableHMI = true with get, set
     member val DefaultLayout = HMILayoutGrid with get, set

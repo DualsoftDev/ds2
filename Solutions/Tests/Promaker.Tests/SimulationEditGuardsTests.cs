@@ -120,6 +120,175 @@ public sealed class SimulationEditGuardsTests
         });
     }
 
+    [Fact]
+    public void NewProject_during_simulation_shows_dialog_and_blocks_when_user_cancels()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var dialog = new RecordingDialogService();
+            SetDialogService(vm, dialog);
+
+            vm.NewProjectCommand.Execute(null);
+            var firstStore = GetStore(vm);
+
+            vm.Simulation.IsSimulating = true;
+
+            vm.NewProjectCommand.Execute(null);
+
+            // 사용자가 거부 → 시뮬 유지 + 새 프로젝트 안 만들어짐 (store 동일)
+            Assert.True(vm.Simulation.IsSimulating);
+            Assert.Same(firstStore, GetStore(vm));
+            Assert.Single(dialog.WarningMessages);
+        });
+    }
+
+    [Fact]
+    public void NewProject_during_simulation_proceeds_when_user_chooses_stop()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var dialog = new StopChoosingDialogService();
+            SetDialogService(vm, dialog);
+
+            vm.NewProjectCommand.Execute(null);
+            var firstStore = GetStore(vm);
+
+            vm.Simulation.IsSimulating = true;
+
+            vm.NewProjectCommand.Execute(null);
+
+            // 사용자가 시뮬 종료 → 시뮬 정지 + 새 프로젝트 생성 (새 store)
+            Assert.False(vm.Simulation.IsSimulating);
+            Assert.NotSame(firstStore, GetStore(vm));
+            Assert.Single(dialog.WarningMessages);
+        });
+    }
+
+    [Fact]
+    public void OpenFile_during_simulation_shows_dialog_and_blocks_when_user_cancels()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var dialog = new RecordingDialogService();
+            SetDialogService(vm, dialog);
+
+            vm.NewProjectCommand.Execute(null);
+            vm.Simulation.IsSimulating = true;
+
+            vm.OpenFileCommand.Execute(null);
+
+            // 거부 → 시뮬 유지 + dialog 1회 표시 (file dialog는 안 열림)
+            Assert.True(vm.Simulation.IsSimulating);
+            Assert.Single(dialog.WarningMessages);
+        });
+    }
+
+    [Fact]
+    public void Undo_during_simulation_shows_dialog_and_blocks_when_user_cancels()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var dialog = new RecordingDialogService();
+            SetDialogService(vm, dialog);
+
+            vm.NewProjectCommand.Execute(null);
+            vm.Simulation.IsSimulating = true;
+
+            vm.UndoCommand.Execute(null);
+
+            Assert.True(vm.Simulation.IsSimulating);
+            Assert.Single(dialog.WarningMessages);
+        });
+    }
+
+    [Fact]
+    public void OpenIoBatchDialog_during_simulation_shows_dialog_and_blocks_when_user_cancels()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var dialog = new RecordingDialogService();
+            SetDialogService(vm, dialog);
+
+            vm.NewProjectCommand.Execute(null);
+            vm.Simulation.IsSimulating = true;
+
+            vm.OpenIoBatchDialogCommand.Execute(null);
+
+            Assert.True(vm.Simulation.IsSimulating);
+            Assert.Single(dialog.WarningMessages);
+        });
+    }
+
+    [Fact]
+    public void SimStatusText_resets_to_initial_on_new_project()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var initial = vm.Simulation.SimStatusText;
+
+            vm.Simulation.SimStatusText = "어떤 잔존 상태 메시지";
+            Assert.NotEqual(initial, vm.Simulation.SimStatusText);
+
+            vm.NewProjectCommand.Execute(null);
+
+            Assert.Equal(initial, vm.Simulation.SimStatusText);
+        });
+    }
+
+    [Fact]
+    public void SimStatusText_resets_to_initial_on_reset_for_new_store()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var initial = vm.Simulation.SimStatusText;
+
+            vm.Simulation.SimStatusText = "이전 프로젝트 잔존 메시지";
+            Assert.NotEqual(initial, vm.Simulation.SimStatusText);
+
+            vm.Simulation.ResetForNewStore();
+
+            Assert.Equal(initial, vm.Simulation.SimStatusText);
+        });
+    }
+
+    [Fact]
+    public void AddWork_proceeds_after_user_chooses_stop_simulation_in_warning_dialog()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            var dialog = new StopChoosingDialogService();
+            SetDialogService(vm, dialog);
+
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
+
+            vm.Canvas.OpenTabs.Add(new CanvasTab(systemId, TabKind.System, "System"));
+            vm.Canvas.ActiveTab = vm.Canvas.OpenTabs[0];
+            vm.Simulation.IsSimulating = true;
+
+            var beforeCount = Queries.worksOf(flowId, store).Count();
+
+            vm.AddWorkCommand.Execute(null);
+
+            // 시뮬이 정지되고 Work가 추가되어야 함
+            Assert.False(vm.Simulation.IsSimulating);
+            Assert.Equal(beforeCount + 1, Queries.worksOf(flowId, store).Count());
+            Assert.Single(dialog.WarningMessages);
+        });
+    }
+
     private static void SetDialogService(MainViewModel vm, IDialogService dialogService)
     {
         typeof(MainViewModel)
@@ -133,7 +302,7 @@ public sealed class SimulationEditGuardsTests
         return (DsStore)field.GetValue(vm)!;
     }
 
-    private sealed class RecordingDialogService : IDialogService
+    private class RecordingDialogService : IDialogService
     {
         public int PromptNameCount { get; private set; }
         public List<string> WarningMessages { get; } = [];
@@ -146,6 +315,11 @@ public sealed class SimulationEditGuardsTests
 
         public bool Confirm(string message, string title) => true;
         public void ShowWarning(string message) => WarningMessages.Add(message);
+        public virtual bool WarnSimulationEditBlocked(string message)
+        {
+            WarningMessages.Add(message);
+            return false; // 기본은 stop 안 함 → 기존 테스트 동작 유지
+        }
         public void ShowError(string message) { }
         public void ShowInfo(string message) { }
         public MessageBoxResult AskSaveChanges() => MessageBoxResult.No;
@@ -153,5 +327,14 @@ public sealed class SimulationEditGuardsTests
         public string? ShowSaveFileDialog(string filter, string? defaultFileName = null) => null;
         public T? ShowDialog<T>(Window dialog) where T : class => null;
         public bool? ShowDialog(Window dialog) => false;
+    }
+
+    private sealed class StopChoosingDialogService : RecordingDialogService
+    {
+        public override bool WarnSimulationEditBlocked(string message)
+        {
+            WarningMessages.Add(message);
+            return true; // 항상 stop 선택
+        }
     }
 }

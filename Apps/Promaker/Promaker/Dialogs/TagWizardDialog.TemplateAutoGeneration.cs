@@ -83,17 +83,13 @@ public partial class TagWizardDialog
             {
                 if (_store.Systems.TryGetValue(apiDef.ParentId, out var system))
                 {
-                    var simPropsOpt = system.GetSimulationProperties();
-                    if (simPropsOpt != null && FSharpOption<SimulationSystemProperties>.get_IsSome(simPropsOpt))
+                    var systemTypeOpt = system.SystemType;
+                    if (systemTypeOpt != null && FSharpOption<string>.get_IsSome(systemTypeOpt))
                     {
-                        var systemTypeOpt = simPropsOpt.Value.SystemType;
-                        if (systemTypeOpt != null && FSharpOption<string>.get_IsSome(systemTypeOpt))
+                        var systemType = systemTypeOpt.Value;
+                        if (!string.IsNullOrWhiteSpace(systemType))
                         {
-                            var systemType = systemTypeOpt.Value;
-                            if (!string.IsNullOrWhiteSpace(systemType))
-                            {
-                                usedSystemTypes.Add(systemType);
-                            }
+                            usedSystemTypes.Add(systemType);
                         }
                     }
                 }
@@ -198,25 +194,21 @@ public partial class TagWizardDialog
             // 해당 SystemType을 가진 모든 System 찾기
             foreach (var system in _store.Systems.Values)
             {
-                var simPropsOpt = system.GetSimulationProperties();
-                if (simPropsOpt != null && FSharpOption<SimulationSystemProperties>.get_IsSome(simPropsOpt))
+                var systemTypeOpt = system.SystemType;
+                if (systemTypeOpt != null && FSharpOption<string>.get_IsSome(systemTypeOpt))
                 {
-                    var systemTypeOpt = simPropsOpt.Value.SystemType;
-                    if (systemTypeOpt != null && FSharpOption<string>.get_IsSome(systemTypeOpt))
+                    var sysType = systemTypeOpt.Value;
+                    if (string.Equals(sysType, systemType, StringComparison.OrdinalIgnoreCase))
                     {
-                        var sysType = systemTypeOpt.Value;
-                        if (string.Equals(sysType, systemType, StringComparison.OrdinalIgnoreCase))
-                        {
-                            // 해당 System의 모든 ApiDef 수집
-                            var systemApiDefs = _store.ApiDefs.Values
-                                .Where(api => api.ParentId == system.Id)
-                                .Select(api => api.Name)
-                                .Where(name => !string.IsNullOrWhiteSpace(name));
+                        // 해당 System의 모든 ApiDef 수집
+                        var systemApiDefs = _store.ApiDefs.Values
+                            .Where(api => api.ParentId == system.Id)
+                            .Select(api => api.Name)
+                            .Where(name => !string.IsNullOrWhiteSpace(name));
 
-                            foreach (var apiName in systemApiDefs)
-                            {
-                                apiNames.Add(apiName);
-                            }
+                        foreach (var apiName in systemApiDefs)
+                        {
+                            apiNames.Add(apiName);
                         }
                     }
                 }
@@ -243,29 +235,25 @@ public partial class TagWizardDialog
             // 해당 SystemType을 가진 System 찾기
             foreach (var system in _store.Systems.Values)
             {
-                var simPropsOpt = system.GetSimulationProperties();
-                if (simPropsOpt != null && FSharpOption<SimulationSystemProperties>.get_IsSome(simPropsOpt))
+                var systemTypeOpt = system.SystemType;
+                if (systemTypeOpt != null && FSharpOption<string>.get_IsSome(systemTypeOpt))
                 {
-                    var systemTypeOpt = simPropsOpt.Value.SystemType;
-                    if (systemTypeOpt != null && FSharpOption<string>.get_IsSome(systemTypeOpt))
+                    var sysType = systemTypeOpt.Value;
+                    if (string.Equals(sysType, systemType, StringComparison.OrdinalIgnoreCase))
                     {
-                        var sysType = systemTypeOpt.Value;
-                        if (string.Equals(sysType, systemType, StringComparison.OrdinalIgnoreCase))
-                        {
-                            // 기존 ApiDef 이름 수집
-                            var existingApiNames = _store.ApiDefs.Values
-                                .Where(api => api.ParentId == system.Id)
-                                .Select(api => api.Name)
-                                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        // 기존 ApiDef 이름 수집
+                        var existingApiNames = _store.ApiDefs.Values
+                            .Where(api => api.ParentId == system.Id)
+                            .Select(api => api.Name)
+                            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-                            // 없는 ApiDef만 생성
-                            foreach (var apiName in apiNames)
+                        // 없는 ApiDef만 생성
+                        foreach (var apiName in apiNames)
+                        {
+                            if (!existingApiNames.Contains(apiName))
                             {
-                                if (!existingApiNames.Contains(apiName))
-                                {
-                                    _store.AddApiDefWithProperties(apiName, system.Id);
-                                    GenerationStatusText.Text += $"\n  → {system.Name}.{apiName} ApiDef 생성됨";
-                                }
+                                _store.AddApiDefWithProperties(apiName, system.Id);
+                                GenerationStatusText.Text += $"\n  → {system.Name}.{apiName} ApiDef 생성됨";
                             }
                         }
                     }

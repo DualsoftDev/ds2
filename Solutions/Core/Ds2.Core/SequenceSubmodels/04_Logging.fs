@@ -196,8 +196,9 @@ type LoggingSystemProperties() =
     member val IRI: string option = None with get, set
     member val SystemType: string option = None with get, set
 
-    // 로깅 설정
-    member val EnableLogging = true with get, set
+    // ========== 자동 로깅 설정 ==========
+    member val EnableAutoLogging = true with get, set
+    member val LogLevel = "Info" with get, set                      // "Debug", "Info", "Warning", "Error"
     member val LogToFile = true with get, set
     member val LogToDatabase = false with get, set
     member val LogFilePath = "./logs/history" with get, set

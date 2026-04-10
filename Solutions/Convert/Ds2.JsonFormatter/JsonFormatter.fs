@@ -23,9 +23,7 @@ module Builder =
 
         let project = Project(projectName)
         let system = DsSystem(systemName)
-        let sysProps = SimulationSystemProperties()
-        sysProps.SystemType <- Some "Unit"
-        system.SetSimulationProperties(sysProps)
+        system.SystemType <- Some "Unit"
         let flow = Flow(flowName, system.Id)
 
         store.Projects.Add(project.Id, project)
@@ -55,9 +53,7 @@ module Builder =
             | _ -> invalidOp $"Project {projectId} not found"
 
         let system = DsSystem(deviceName)
-        let sysProps2 = SimulationSystemProperties()
-        sysProps2.SystemType <- Some "Unit"
-        system.SetSimulationProperties(sysProps2)
+        system.SystemType <- Some "Unit"
         store.Systems.Add(system.Id, system)
         project.PassiveSystemIds.Add(system.Id)
 

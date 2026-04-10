@@ -71,15 +71,10 @@ internal static class DemoLibraryBuilder
 
     private static void ConfigureDemoSystem(DsSystem system, DemoDocumentSeed document, DemoSystemSeed seed)
     {
+        system.SystemType = CostSimStoreHelper.ToOption(seed.SystemType);
         system.SetSimulationProperties(new SimulationSystemProperties
         {
             Description = CostSimStoreHelper.ToOption(seed.Description),
-            EngineVersion = CostSimStoreHelper.ToOption("CostSim EventDriven 2026"),
-            LangVersion = CostSimStoreHelper.ToOption("DS2 Runtime 9.0"),
-            Author = CostSimStoreHelper.ToOption(document.Author),
-            DateTime = FSharpOption<DateTimeOffset>.Some(DateTimeOffset.Now),
-            IRI = CostSimStoreHelper.ToOption($"https://demo.costsim.local/{SanitizeName(document.ProjectName)}/{SanitizeName(seed.Name)}"),
-            SystemType = CostSimStoreHelper.ToOption(seed.SystemType),
             SimulationMode = "EventDriven",
             EnablePhysicsSimulation = false,
             EnableBreakpoints = true,

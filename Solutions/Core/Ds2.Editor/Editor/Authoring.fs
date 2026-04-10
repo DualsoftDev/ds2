@@ -18,33 +18,43 @@ module internal StoreAuthoring =
         | Some records -> records.Add(record)
         | None -> invalidOp "RecordUndo called outside transaction"
 
+    let private recordAffectedId (store: DsStore) (id: Guid) =
+        match (state store).CurrentAffectedIds with
+        | Some ids -> if not (ids.Contains id) then ids.Add(id)
+        | None -> ()
+
     let withTransaction (store: DsStore) (label: string) (action: unit -> 'T) : 'T =
         let editorState = state store
         if editorState.CurrentRecords.IsSome then
             invalidOp "Nested transactions are not supported"
 
         let records = ResizeArray<UndoRecord>()
+        let affectedIds = ResizeArray<Guid>()
         editorState.CurrentRecords <- Some records
+        editorState.CurrentAffectedIds <- Some affectedIds
 
         try
             try
                 let result = action()
                 if records.Count > 0 then
-                    editorState.UndoManager.Push({ Label = label; Records = Seq.toList records })
+                    editorState.UndoManager.Push({ Label = label; Records = Seq.toList records; AffectedEntityIds = Seq.toList affectedIds })
                 log.Debug($"Executed: {label}")
                 result
             with ex ->
                 editorState.CurrentRecords <- None
+                editorState.CurrentAffectedIds <- None
                 for i in records.Count - 1 .. -1 .. 0 do
                     records.[i].Undo()
                 log.Error($"Transaction failed: {label} - {ex.Message}", ex)
                 reraise()
         finally
             editorState.CurrentRecords <- None
+            editorState.CurrentAffectedIds <- None
 
     let trackAdd<'T when 'T :> DsEntity> (store: DsStore) (dict: Dictionary<Guid, 'T>) (entity: 'T) =
         let backup = DeepCopyHelper.backupEntityAs entity
         dict.[entity.Id] <- entity
+        recordAffectedId store entity.Id
         recordUndo store {
             Undo = fun () -> dict.Remove(entity.Id) |> ignore
             Redo = fun () -> dict.[entity.Id] <- backup
@@ -56,6 +66,7 @@ module internal StoreAuthoring =
         | true, entity ->
             let backup = DeepCopyHelper.backupEntityAs entity
             dict.Remove(id) |> ignore
+            recordAffectedId store id
             recordUndo store {
                 Undo = fun () -> dict.[id] <- backup
                 Redo = fun () -> dict.Remove(id) |> ignore
@@ -69,6 +80,7 @@ module internal StoreAuthoring =
             let oldSnapshot = DeepCopyHelper.backupEntityAs entity
             mutate entity
             let newSnapshot = DeepCopyHelper.backupEntityAs entity
+            recordAffectedId store id
             recordUndo store {
                 Undo = fun () -> dict.[id] <- oldSnapshot
                 Redo = fun () -> dict.[id] <- newSnapshot
@@ -130,6 +142,17 @@ module internal StoreAuthoring =
         | HwComponentRemoved _ -> true
         | _ -> false
 
+    let private extractGuidsFromDescriptions (records: UndoRecord list) =
+        records
+        |> List.choose (fun r ->
+            let parts = r.Description.Split(' ')
+            if parts.Length >= 3 then
+                match Guid.TryParse(parts.[parts.Length - 1]) with
+                | true, guid -> Some guid
+                | _ -> None
+            else None)
+        |> List.distinct
+
     let private applyTransaction (store: DsStore) pop push apply label =
         match pop() with
         | None -> ()
@@ -138,6 +161,10 @@ module internal StoreAuthoring =
                 apply tx.Records
                 store.RewireApiCallReferences()
                 push tx
+                let ids =
+                    if tx.AffectedEntityIds.IsEmpty then extractGuidsFromDescriptions tx.Records
+                    else tx.AffectedEntityIds
+                store.LastTransactionAffectedIds <- ids
                 log.Debug($"{label}: {tx.Label}")
             finally
                 emitRefreshAndHistory store
@@ -243,6 +270,14 @@ type DsStoreAuthoringExtensions =
     [<Extension>]
     static member RedoTo(store: DsStore, steps: int) =
         StoreAuthoring.redoTo store steps
+
+    [<Extension>]
+    static member TryGetUndoAffectedIds(store: DsStore, index: int) =
+        (StoreEditorState.get store).UndoManager.TryGetUndoAffectedIds(index)
+
+    [<Extension>]
+    static member TryGetRedoAffectedIds(store: DsStore, index: int) =
+        (StoreEditorState.get store).UndoManager.TryGetRedoAffectedIds(index)
 
     [<Extension>]
     static member MergeLastTransactions(store: DsStore, count: int, label: string) =

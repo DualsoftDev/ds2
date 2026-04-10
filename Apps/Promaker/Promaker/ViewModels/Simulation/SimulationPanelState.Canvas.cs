@@ -68,8 +68,9 @@ public partial class SimulationPanelState
             ? SimWorkItems.FirstOrDefault(w => w.Guid == lastId)
             : null;
 
-        SelectedSimWork = preferred
-            ?? (sourceItems.Count > 0 ? SimWorkItem.AutoStart : null)
+        SelectedSimWork =
+            (sourceItems.Count > 0 ? SimWorkItem.AutoStart : null)
+            ?? preferred
             ?? SimWorkItems.FirstOrDefault(w => w.Guid != Guid.Empty);
     }
 

@@ -935,7 +935,7 @@ public partial class MainWindow : Window
     private LibraryCatalogNode BuildLibrarySystemNode(string filePath, DsStore sourceStore, DsSystem system)
     {
         var props = system.GetCostAnalysisProperties() is { } simProps ? simProps.Value : null;
-        var systemType = ReadOption(props?.SystemType);
+        var systemType = ReadOption(system.SystemType);
         var flows = GetFlowsInSystem(sourceStore, system.Id).ToList();
         var works = flows.Sum(flow => GetOrderedWorksInFlow(sourceStore, flow.Id).Count());
         var displayType = string.IsNullOrWhiteSpace(systemType) ? "System" : systemType;
@@ -1070,7 +1070,7 @@ public partial class MainWindow : Window
     private TreeNodeItem BuildSystemNode(DsSystem system, Guid projectId)
     {
         var props = system.GetCostAnalysisProperties() is { } simProps ? simProps.Value : null;
-        var systemType = ReadOption(props?.SystemType);
+        var systemType = ReadOption(system.SystemType);
         var currency = props?.DefaultCurrency ?? "KRW";
         var displayType = string.IsNullOrWhiteSpace(systemType) ? "System" : systemType;
 
@@ -1382,7 +1382,7 @@ public partial class MainWindow : Window
 
         SystemPanel.Visibility = Visibility.Visible;
         var props = system.GetCostAnalysisProperties() is { } simProps ? simProps.Value : null;
-        SystemTypeTextBox.Text = ReadOption(props?.SystemType);
+        SystemTypeTextBox.Text = ReadOption(system.SystemType);
         SystemCurrencyTextBox.Text = props?.DefaultCurrency ?? "KRW";
         SystemEnableCostCheckBox.IsChecked = props?.EnableCostSimulation ?? true;
     }
@@ -1486,7 +1486,7 @@ public partial class MainWindow : Window
             {
                 var systemFlows = GetFlowsInSystem(node.SourceStore, systemId).ToList();
                 var systemProps = system.GetCostAnalysisProperties() is { } simProps ? simProps.Value : null;
-                builder.AppendLine($"SystemType     : {ReadOption(systemProps?.SystemType)}");
+                builder.AppendLine($"SystemType     : {ReadOption(system.SystemType)}");
                 builder.AppendLine($"Currency       : {systemProps?.DefaultCurrency ?? "KRW"}");
                 builder.AppendLine($"Flows          : {systemFlows.Count}");
                 builder.AppendLine($"Works          : {systemFlows.Sum(flow => GetOrderedWorksInFlow(node.SourceStore, flow.Id).Count())}");
@@ -1986,7 +1986,7 @@ public partial class MainWindow : Window
                     ? simProps.Value
                     : new CostAnalysisSystemProperties();
 
-                props.SystemType = ToOption(SystemTypeTextBox.Text);
+                system.SystemType = ToOption(SystemTypeTextBox.Text);
                 props.DefaultCurrency = string.IsNullOrWhiteSpace(SystemCurrencyTextBox.Text) ? "KRW" : SystemCurrencyTextBox.Text.Trim();
                 props.EnableCostSimulation = SystemEnableCostCheckBox.IsChecked != false;
 
@@ -2739,7 +2739,7 @@ public partial class MainWindow : Window
 
                 props.EnableCostSimulation = true;
                 props.DefaultCurrency = "KRW";
-                props.SystemType = props.SystemType ?? FSharpOption<string>.Some("Line");
+                system.SystemType = system.SystemType ?? FSharpOption<string>.Some("Line");
 
                 system.SetCostAnalysisProperties(props);
             });

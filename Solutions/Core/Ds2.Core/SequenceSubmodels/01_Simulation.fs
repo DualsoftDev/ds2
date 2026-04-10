@@ -280,14 +280,6 @@ type SimOeeTracking = {
 type SimulationSystemProperties() =
     inherit PropertiesBase<SimulationSystemProperties>()
 
-    // ========== 기본 System 속성 ==========
-    member val EngineVersion: string option = None with get, set
-    member val LangVersion: string option = None with get, set
-    member val Author: string option = None with get, set
-    member val DateTime: DateTimeOffset option = None with get, set
-    member val IRI: string option = None with get, set
-    member val SystemType: string option = None with get, set
-
     // ========== 시뮬레이션 모드 설정 ==========
     member val SimulationMode = "EventDriven" with get, set
     member val EnablePhysicsSimulation = false with get, set

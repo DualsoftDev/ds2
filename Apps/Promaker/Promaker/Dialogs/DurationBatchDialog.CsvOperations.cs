@@ -47,23 +47,7 @@ public partial class DurationBatchDialog
 
         File.WriteAllText(picker.FileName, sb.ToString(), Encoding.UTF8);
 
-        var openResult = DialogHelpers.ShowThemedMessageBox(
-            $"CSV 내보내기 완료: {_workRows.Count}건\n\n" +
-            $"파일: {Path.GetFileName(picker.FileName)}\n\n" +
-            $"파일을 여시겠습니까?",
-            "CSV 내보내기",
-            MessageBoxButton.YesNo,
-            "✓");
-
-        if (openResult == MessageBoxResult.Yes)
-        {
-            try { Process.Start(new ProcessStartInfo(picker.FileName) { UseShellExecute = true }); }
-            catch (Exception ex)
-            {
-                DialogHelpers.ShowThemedMessageBox(
-                    $"파일을 열 수 없습니다:\n{ex.Message}", "오류", MessageBoxButton.OK, "⚠");
-            }
-        }
+        CsvFileHelper.PromptOpenAfterExport(picker.FileName, _workRows.Count, "Duration CSV 내보내기");
     }
 
     private void ImportCsv_Click(object sender, RoutedEventArgs e)
@@ -106,8 +90,8 @@ public partial class DurationBatchDialog
     private static List<DurationImportRow> ParseDurationCsv(string filePath)
     {
         string[] lines;
-        using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-        using (var reader = new StreamReader(fs, Encoding.UTF8))
+        using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        using (var reader = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true))
         {
             lines = reader.ReadToEnd().Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
         }

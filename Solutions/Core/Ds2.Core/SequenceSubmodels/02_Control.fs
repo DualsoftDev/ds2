@@ -32,6 +32,34 @@ type IOTag() =
     member val DefaultValue: obj option = None with get, set
     new(name, addr, desc) as t = IOTag() then t.Name <- name; t.Address <- addr; t.Description <- desc
 
+/// 모션 파라미터 (Position Control용)
+[<Struct>]
+type MotionParameters = {
+    TargetPosition: float           // 목표 위치 (mm, degree)
+    TargetVelocity: float           // 목표 속도 (mm/min, rpm)
+    Acceleration: float             // 가속도 (mm/s², rad/s²)
+    Deceleration: float             // 감속도
+    Jerk: float option              // 저크 (가속도 변화율)
+}
+
+/// 펄스 파라미터 (Pulse Control용)
+[<Struct>]
+type PulseParameters = {
+    PulseWidth: TimeSpan            // 펄스 폭 (HIGH 시간)
+    PulseInterval: TimeSpan         // 펄스 간격 (LOW 시간)
+    PulseCount: int option          // 펄스 횟수 (None = 무한)
+}
+
+/// 안전 인터록 설정
+[<Struct>]
+type SafetyInterlock = {
+    EmergencyStopEnabled: bool      // 비상정지 활성화
+    SafetyDoorCheck: bool           // 안전 도어 확인
+    LightCurtainCheck: bool         // 광 커튼 확인
+    TwoHandControl: bool            // 양손 조작
+    TimeoutSeconds: float           // 타임아웃 (초)
+}
+
 
 // ─── HW Components ───────────────────────────────────────────────────────────
 

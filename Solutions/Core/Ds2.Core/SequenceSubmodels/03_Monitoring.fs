@@ -22,6 +22,9 @@ type CallDirection = InOut=0 | InOnly=1 | OutOnly=2 | None=3
 /// PLC 신호 Edge 타입
 type EdgeType = RisingEdge=0 | FallingEdge=1 | NoChange=2
 
+/// Edge 검출 모드
+type EdgeDetectionMode = RisingEdgeOnly=0 | FallingEdgeOnly=1 | BothEdges=2
+
 /// PLC 태그 데이터 타입
 type TagDataType = Bool | Int16 | Int32 | Real | String
 
@@ -99,16 +102,57 @@ type DashboardTile = {
 /// System-level 모니터링 속성
 type MonitoringSystemProperties() =
     inherit PropertiesBase<MonitoringSystemProperties>()
+    // 메타데이터
     member val EngineVersion: string option = None        with get, set
     member val LangVersion:   string option = None        with get, set
     member val Author:        string option = None        with get, set
     member val DateTime: DateTimeOffset option = None     with get, set
     member val IRI:           string option = None        with get, set
     member val SystemType:    string option = None        with get, set
+
+    // 실시간 모니터링 기본 설정
     member val EnableRealTimeMonitoring = true            with get, set
     member val MonitoringIntervalMs     = 100             with get, set
     member val EnableTagMonitoring      = true            with get, set
     member val TagRefreshIntervalMs     = 500             with get, set
+
+    // ========== PLC 연결 정보 ==========
+    member val EnablePlcMonitoring = false with get, set
+    member val PlcIpAddress = "192.168.1.10" with get, set
+    member val PlcPort = 5000 with get, set
+    member val PlcType = Mitsubishi with get, set
+    member val PlcProtocol = "MC Protocol" with get, set
+
+    // ========== 폴링 (Polling) 설정 ==========
+    member val EnablePolling = true with get, set
+    member val PollingInterval = 1000 with get, set                 // 폴링 주기 (ms)
+
+    // ========== 배치 읽기 최적화 ==========
+    member val UseBatchRead = true with get, set
+    member val BatchSize = 50 with get, set                         // 배치 크기 (태그 개수)
+
+    // ========== 엣지 검출 설정 ==========
+    member val EdgeDetectionMode = RisingEdgeOnly with get, set
+    member val DebounceTimeMs = 100 with get, set                   // 디바운스 시간 (ms)
+
+    // ========== 데이터 저장 설정 ==========
+    member val EnableAutoSave = true with get, set
+    member val SaveInterval = 60 with get, set                      // 저장 주기 (초)
+    member val DbConnectionString: string option = None with get, set
+
+    // ========== 무결성 검증 설정 ==========
+    member val EnableIntegrityCheck = false with get, set
+    member val IntegrityCheckInterval = 3600 with get, set          // 검증 주기 (초, 1시간)
+    member val ProgramChecksum: string option = None with get, set
+
+    // ========== 알람 관리 설정 ==========
+    member val EnableAlarmManagement = true with get, set
+    member val AlarmRetentionDays = 30 with get, set                // 알람 보존 기간 (일)
+    member val AutoAcknowledgeMinor = false with get, set           // 경미 알람 자동 확인
+
+    // ========== 성능 추적 설정 ==========
+    member val EnablePerformanceTracking = true with get, set
+    member val PerformanceSnapshotInterval = 300 with get, set      // 스냅샷 주기 (초, 5분)
 
 /// Flow-level 모니터링 속성
 type MonitoringFlowProperties() =

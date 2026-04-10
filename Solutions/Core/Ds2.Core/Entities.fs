@@ -26,7 +26,7 @@ type DsSystem [<JsonConstructor>] internal (name) =
     member val Properties = ResizeArray<SystemSubmodelProperty>() with get, set
 
     member val IRI : string option = None with get, set
-
+    member val SystemType : string option = None with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 

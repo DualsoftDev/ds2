@@ -135,24 +135,11 @@ public partial class IoBatchSettingsDialog
         var ioCount = Microsoft.FSharp.Collections.ListModule.Length(generationResult.IoSignals);
         var dummyCount = Microsoft.FSharp.Collections.ListModule.Length(generationResult.DummySignals);
 
-        var openResult = DialogHelpers.ShowThemedMessageBox(
+        var summary =
             $"내보내기 완료:\n\n" +
             $"- IO: {Path.GetFileName(ioPath)} ({ioCount}개)\n" +
-            $"- Dummy: {Path.GetFileName(dummyPath)} ({dummyCount}개)\n\n" +
-            $"파일이 저장된 폴더를 여시겠습니까?",
-            "Export IO List",
-            MessageBoxButton.YesNo,
-            "✓");
-
-        if (openResult == MessageBoxResult.Yes)
-        {
-            try { Process.Start("explorer.exe", directory); }
-            catch (Exception ex)
-            {
-                DialogHelpers.ShowThemedMessageBox(
-                    $"폴더를 열 수 없습니다:\n{ex.Message}", "오류", MessageBoxButton.OK, "⚠");
-            }
-        }
+            $"- Dummy: {Path.GetFileName(dummyPath)} ({dummyCount}개)";
+        CsvFileHelper.PromptOpenFolderAfterExport(directory, summary, "Export IO List");
     }
 
     private static void ExportAsExcel(
@@ -194,28 +181,13 @@ public partial class IoBatchSettingsDialog
             ? $"\n- 템플릿: {Path.GetFileName(templatePath)}"
             : "";
 
-        var openResult = DialogHelpers.ShowThemedMessageBox(
+        var summary =
             $"내보내기 완료:\n\n" +
             $"- 파일: {Path.GetFileName(selectedPath)}\n" +
             $"- IO 신호: {ioCount}개\n" +
-            $"- Dummy 신호: {dummyCount}개{templateInfo}\n\n" +
-            $"파일을 여시겠습니까?",
-            "Export IO List",
-            MessageBoxButton.YesNo,
-            "✓");
-
-        if (openResult == MessageBoxResult.Yes)
-        {
-            try
-            {
-                Process.Start(new ProcessStartInfo(selectedPath) { UseShellExecute = true });
-            }
-            catch (Exception ex)
-            {
-                DialogHelpers.ShowThemedMessageBox(
-                    $"파일을 열 수 없습니다:\n{ex.Message}", "오류", MessageBoxButton.OK, "⚠");
-            }
-        }
+            $"- Dummy 신호: {dummyCount}개{templateInfo}";
+        // Excel도 같은 헬퍼로 자동 열기 통일 (UseShellExecute=true)
+        CsvFileHelper.PromptOpenAfterExportWithSummary(selectedPath, summary, "Export IO List");
     }
 
     private static string EscapeCsvField(string value) =>
@@ -371,23 +343,7 @@ public partial class IoBatchSettingsDialog
 
         File.WriteAllText(picker.FileName, sb.ToString(), Encoding.UTF8);
 
-        var openResult = DialogHelpers.ShowThemedMessageBox(
-            $"CSV 내보내기 완료: {_rows.Count}건\n\n" +
-            $"파일: {Path.GetFileName(picker.FileName)}\n\n" +
-            $"파일을 여시겠습니까?",
-            "CSV 내보내기",
-            MessageBoxButton.YesNo,
-            "✓");
-
-        if (openResult == MessageBoxResult.Yes)
-        {
-            try { Process.Start(new ProcessStartInfo(picker.FileName) { UseShellExecute = true }); }
-            catch (Exception ex)
-            {
-                DialogHelpers.ShowThemedMessageBox(
-                    $"파일을 열 수 없습니다:\n{ex.Message}", "오류", MessageBoxButton.OK, "⚠");
-            }
-        }
+        CsvFileHelper.PromptOpenAfterExport(picker.FileName, _rows.Count, "I/O CSV 내보내기");
     }
 
     private void ImportCsv_Click(object sender, RoutedEventArgs e)

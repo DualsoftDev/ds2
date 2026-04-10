@@ -59,15 +59,9 @@ module internal PasteDeviceOps =
                     // 원본 System의 SystemType 복사
                     match Queries.getSystem sourceSystemId store with
                     | Some sourceSystem ->
-                        sourceSystem.GetSimulationProperties()
-                        |> Option.bind (fun p -> p.SystemType)
+                        sourceSystem.SystemType
                         |> Option.iter (fun sysType ->
-                            match newSystem.GetSimulationProperties() with
-                            | Some props -> props.SystemType <- Some sysType
-                            | None ->
-                                let props = SimulationSystemProperties()
-                                props.SystemType <- Some sysType
-                                newSystem.SetSimulationProperties(props))
+                            newSystem.SystemType <- Some sysType)
                     | None -> ()
 
                     store.TrackAdd(store.Systems, newSystem)

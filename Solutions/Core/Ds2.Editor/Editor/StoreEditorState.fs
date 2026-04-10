@@ -9,6 +9,7 @@ type internal StoreEditorState = {
     EventBus: Event<EditorEvent>
     mutable SuppressEvents: bool
     mutable CurrentRecords: ResizeArray<UndoRecord> option
+    mutable CurrentAffectedIds: ResizeArray<System.Guid> option
 }
 
 [<RequireQualifiedAccess>]
@@ -24,4 +25,5 @@ module internal StoreEditorState =
                     EventBus = Event<EditorEvent>()
                     SuppressEvents = false
                     CurrentRecords = None
+                    CurrentAffectedIds = None
                 }))

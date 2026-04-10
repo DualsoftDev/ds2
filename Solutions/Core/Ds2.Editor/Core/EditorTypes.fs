@@ -13,6 +13,7 @@ type UndoRecord = {
 type UndoTransaction = {
     Label: string
     Records: UndoRecord list
+    AffectedEntityIds: Guid list
 }
 
 type EditorEvent =

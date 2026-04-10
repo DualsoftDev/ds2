@@ -38,6 +38,12 @@
                         <Button Style="{StaticResource HelpButton}"
                                 Command="{x:Static help:HelpNavigator.NavigateCommand}"
                                 CommandParameter="apicalls"/>
+                        <CheckBox Content="전체 필드 보기"
+                                  IsChecked="{Binding ElementName=GridRoot, Path=ShowAllFields}"
+                                  FontSize="11"
+                                  Margin="12,0,0,0"
+                                  VerticalAlignment="Center"
+                                  Foreground="{DynamicResource SecondaryTextBrush}"/>
                     </StackPanel>
                     <Button Grid.Column="1"
                             Content="+"
@@ -47,7 +53,8 @@
                 </Grid>
             </Border>
 
-            <DataGrid Grid.Row="1"
+            <DataGrid x:Name="ApiCallsDataGrid"
+                      Grid.Row="1"
                       ItemsSource="{Binding CallApiCalls}"
                       SelectedItem="{Binding SelectedCallApiCall}"
                       AutoGenerateColumns="False"

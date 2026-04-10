@@ -48,6 +48,12 @@ type DeviceState =
     | DeviceMaintenance   // 정비 중
     | DeviceStopped       // 정지
 
+/// 이상 탐지 방법
+type AnomalyDetectionMethod =
+    | ThresholdBased      // 임계값 기반
+    | ZScoreBased         // Z-Score 기반
+    | MovingAverage       // 이동평균 기반
+
 
 // =============================================================================
 // TYPE DEFINITIONS: Error Events
@@ -159,6 +165,12 @@ type MaintenanceSystemProperties() =
     member val ErrorLogPath = "./logs/errors" with get, set
     member val ErrorRetentionDays = 90 with get, set
     member val AutoAcknowledgeErrors = false with get, set
+
+    // ========== 예지 보전 설정 ==========
+    member val EnablePredictiveMaintenance = false with get, set
+    member val AnomalyDetectionMethod = ThresholdBased with get, set
+    member val AnomalyThreshold = 0.7 with get, set                 // 이상 점수 임계값 (0-1)
+    member val ZScoreThreshold = 2.0 with get, set                  // Z-Score 임계값 (표준편차 배수)
 
     // 에러 알람 설정
     member val EnableErrorAlarm = true with get, set

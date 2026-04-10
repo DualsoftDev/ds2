@@ -320,22 +320,12 @@ module FileRoundTripTests =
         let active = DsSystem("System-Active")
         let activeProps = SimulationSystemProperties()
         activeProps.Description <- Some "active-desc"
-        activeProps.EngineVersion <- Some "E-1"
-        activeProps.LangVersion <- Some "L-1"
-        activeProps.Author <- Some "author-A"
-        activeProps.DateTime <- Some(DateTimeOffset(2026, 2, 20, 13, 0, 0, TimeSpan.Zero))
-        activeProps.IRI <- Some "urn:active"
         active.SetSimulationProperties(activeProps)
         active.IRI <- Some "https://example.local/active"
 
         let passive = DsSystem("System-Passive")
         let passiveProps = SimulationSystemProperties()
         passiveProps.Description <- Some "passive-desc"
-        passiveProps.EngineVersion <- Some "E-2"
-        passiveProps.LangVersion <- Some "L-2"
-        passiveProps.Author <- Some "author-P"
-        passiveProps.DateTime <- Some(DateTimeOffset(2026, 2, 20, 14, 0, 0, TimeSpan.Zero))
-        passiveProps.IRI <- Some "urn:passive"
         passive.SetSimulationProperties(passiveProps)
         passive.IRI <- Some "https://example.local/passive"
 

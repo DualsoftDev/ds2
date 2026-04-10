@@ -131,14 +131,6 @@ type QualityAlarm() =
 type QualitySystemProperties() =
     inherit PropertiesBase<QualitySystemProperties>()
 
-    // ========== 기본 System 속성 ==========
-    member val EngineVersion: string option = None with get, set
-    member val LangVersion: string option = None with get, set
-    member val Author: string option = None with get, set
-    member val DateTime: DateTimeOffset option = None with get, set
-    member val IRI: string option = None with get, set
-    member val SystemType: string option = None with get, set
-
     // ========== SPC 활성화 ==========
     member val EnableSPC = false with get, set
     member val DefaultChartType = XbarR with get, set

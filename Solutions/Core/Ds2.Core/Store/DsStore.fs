@@ -20,6 +20,9 @@ type DsStore() =
     member val ArrowWorks = Dictionary<Guid, ArrowBetweenWorks>()  with get, set
     member val ArrowCalls = Dictionary<Guid, ArrowBetweenCalls>()  with get, set
 
+    /// Undo/Redo 시 마지막 트랜잭션에서 변경된 엔티티 ID 목록
+    [<JsonIgnore>] member val LastTransactionAffectedIds : Guid list = [] with get, set
+
     [<JsonIgnore>] member this.ProjectsReadOnly  : IReadOnlyDictionary<Guid, Project>           = ReadOnlyDictionary(this.Projects)
     [<JsonIgnore>] member this.SystemsReadOnly   : IReadOnlyDictionary<Guid, DsSystem>          = ReadOnlyDictionary(this.Systems)
     [<JsonIgnore>] member this.FlowsReadOnly     : IReadOnlyDictionary<Guid, Flow>              = ReadOnlyDictionary(this.Flows)
@@ -94,11 +97,9 @@ type DsStore() =
 
     member private this.MigrateSystemType() =
         for system in this.Systems.Values do
-            match system.GetSimulationProperties() with
-            | Some props when props.SystemType.IsNone ->
-                props.SystemType <- Some "Unit"
+            if system.SystemType.IsNone then
+                system.SystemType <- Some "Unit"
                 printfn $"[INFO] MigrateSystemType: Set SystemType='Unit' for '{system.Name}' (Id={system.Id})"
-            | _ -> ()
 
     member private this.ApplyNewStore(newStore: DsStore, contextLabel: string) =
         try
