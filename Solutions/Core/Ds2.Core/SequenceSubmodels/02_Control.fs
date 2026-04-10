@@ -24,14 +24,6 @@ type HwActionMode    = SetOn=0 | SetOff=1 | Pulse=2
 
 // ─── Value Types ──────────────────────────────────────────────────────────────
 
-type IOTag() =
-    member val Name        = "" with get, set
-    member val Address     = "" with get, set
-    member val Description = "" with get, set
-    member val DataType    = PlcDataType.Bool with get, set
-    member val DefaultValue: obj option = None with get, set
-    new(name, addr, desc) as t = IOTag() then t.Name <- name; t.Address <- addr; t.Description <- desc
-
 /// 모션 파라미터 (Position Control용)
 [<Struct>]
 type MotionParameters = {
