@@ -309,7 +309,7 @@ module PanelTests =
         let system = addSystem store "S" project.Id false
         let apiDef = addApiDef store "Api1" system.Id
         apiDef.IsPush <- true
-        store.UpdateApiDef(apiDef.Id, "ApiRenamed")
+        store.UpdateApiDef(apiDef.Id, "ApiRenamed", ApiDefActionType.Push, None, None)
         let updated = store.ApiDefs.[apiDef.Id]
         Assert.Equal("ApiRenamed", updated.Name)
         Assert.True(updated.IsPush)
@@ -321,7 +321,7 @@ module PanelTests =
         let system = addSystem store "S" project.Id false
         let apiDef = addApiDef store "OldName" system.Id
         let originalIsPush = apiDef.IsPush
-        store.UpdateApiDef(apiDef.Id, "NewName")
+        store.UpdateApiDef(apiDef.Id, "NewName", apiDef.ApiDefActionType, apiDef.TxGuid, apiDef.RxGuid)
         Assert.Equal("NewName", store.ApiDefs.[apiDef.Id].Name)
         store.Undo()
         let reverted = store.ApiDefs.[apiDef.Id]
