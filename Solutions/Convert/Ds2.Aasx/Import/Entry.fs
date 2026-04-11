@@ -12,6 +12,7 @@ module AasxImporter =
     open AasxImportCore
     open AasxImportGraph
     open AasxImportMetadata
+    open FieldValidation
 
     /// 도메인 서브모델 Import (SequenceSimulation, SequenceControl, etc.)
     let private importDomainSubmodel (sm: Submodel) (store: DsStore) (submodelType: SubmodelType) : unit =
@@ -125,9 +126,62 @@ module AasxImporter =
 
                     Some store)
 
+    /// AASX 파일을 Store에 Import (상세한 에러 메시지 포함)
+    let importIntoStoreWithError (store: DsStore) (path: string) : Result<unit, string> =
+        // 필드 자동 생성 검증 (개발 시 정보 출력)
+        validateAll () |> ignore
+
+        match readEnvironmentWithError path with
+        | Error msg -> Error msg
+        | Ok env ->
+            if env.Submodels = null then
+                Error "AASX 파일 구조 오류:\n\nSubmodels가 없습니다."
+            else
+                let mainDir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path))
+                let result =
+                    env.Submodels
+                    |> Seq.tryPick (fun sm ->
+                        if sm.IdShort = SubmodelModelIdShort then
+                            submodelToProjectStore sm (Some mainDir)
+                        else None)
+
+                match result with
+                | None ->
+                    Error $"AASX 파일 구조 오류:\n\n'{SubmodelModelIdShort}' Submodel을 찾을 수 없습니다.\n\n이 파일은 Promaker에서 생성된 AASX 파일이 아닐 수 있습니다."
+                | Some (project, imported) ->
+                    // Nameplate Submodel 파싱
+                    env.Submodels
+                    |> Seq.tryFind (fun sm -> sm.IdShort = NameplateSubmodelIdShort)
+                    |> Option.iter (fun sm ->
+                        let np = submodelToNameplate sm
+                        let isEmpty =
+                            String.IsNullOrEmpty(np.ManufacturerName)
+                            && String.IsNullOrEmpty(np.URIOfTheProduct)
+                            && String.IsNullOrEmpty(np.SerialNumber)
+                            && np.Markings.Count = 0
+                        if not isEmpty then project.Nameplate <- Some np)
+
+                    // Documentation Submodel 파싱
+                    env.Submodels
+                    |> Seq.tryFind (fun sm -> sm.IdShort = DocumentationSubmodelIdShort)
+                    |> Option.iter (fun sm ->
+                        let doc = submodelToDocumentation sm
+                        if doc.Documents.Count > 0 then project.HandoverDocumentation <- Some doc)
+
+                    // 도메인별 Submodel import
+                    SubmodelType.AllDomains
+                    |> List.iter (fun submodelType ->
+                        env.Submodels
+                        |> Seq.tryPick (fun sm -> if sm.IdShort = submodelType.IdShort then Some (sm :?> Submodel) else None)
+                        |> Option.iter (fun sm -> importDomainSubmodel sm imported submodelType))
+
+                    store.ReplaceStore(imported)
+                    Ok ()
+
+    /// AASX 파일을 Store에 Import (레거시 호환)
     let importIntoStore (store: DsStore) (path: string) : bool =
-        match importFromAasxFile path with
-        | Some imported ->
-            store.ReplaceStore(imported)
-            true
-        | None -> false
+        match importIntoStoreWithError store path with
+        | Ok () -> true
+        | Error msg ->
+            log.Warn($"AASX import failed: {msg}")
+            false

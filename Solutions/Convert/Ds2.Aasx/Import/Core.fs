@@ -71,8 +71,8 @@ module internal AasxImportCore =
     // ── 유틸리티 ─────────────────────────────────────────────────────────────
 
     let describeSmc (smc: SubmodelElementCollection) =
-        let guid = getProp smc Guid_ |> Option.defaultValue "<missing>"
-        let name = getProp smc Name_ |> Option.defaultValue "<missing>"
+        let guid = getProp smc "Guid" |> Option.defaultValue "<missing>"
+        let name = getProp smc "Name" |> Option.defaultValue "<missing>"
         $"Guid={guid}, Name={name}"
 
     let parseStrictList ownerLabel itemLabel (items: SubmodelElementCollection list) (parser: SubmodelElementCollection -> 'T option) =
@@ -143,12 +143,12 @@ module internal AasxImportCore =
     let smcToArrow<'T when 'T :> DsArrow> label (smc: SubmodelElementCollection) parentId
                                           (ctor: Guid -> Guid -> Guid -> ArrowType -> 'T) : 'T option =
         try
-            match getProp smc Source_ |> Option.map Guid.Parse,
-                  getProp smc Target_ |> Option.map Guid.Parse with
+            match getProp smc "Source" |> Option.map Guid.Parse,
+                  getProp smc "Target" |> Option.map Guid.Parse with
             | Some sourceId, Some targetId ->
                 let arrow = ctor parentId sourceId targetId
-                                (getProp smc Type_ |> Option.map parseArrowType |> Option.defaultValue ArrowType.Unspecified)
-                arrow.Id <- getProp smc Guid_ |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
+                                (getProp smc "Type" |> Option.map parseArrowType |> Option.defaultValue ArrowType.Unspecified)
+                arrow.Id <- getProp smc "Guid" |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
                 Some arrow
             | _ -> log.Warn($"{label}: Source 또는 Target 누락"); None
         with ex -> log.Warn($"{label} 실패: {ex.Message}", ex); None

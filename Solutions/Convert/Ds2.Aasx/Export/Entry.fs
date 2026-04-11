@@ -18,6 +18,7 @@ module AasxExporter =
     open AasxExportCore
     open AasxExportGraph
     open AasxExportMetadata
+    open FieldValidation
 
     // ────────────────────────────────────────────────────────────────────────────
     // 내부 헬퍼 함수들
@@ -89,13 +90,7 @@ module AasxExporter =
         let activeSystems  = Queries.activeSystemsOf  project.Id store |> List.map (fun s -> systemToSmc store s true project.Id)
         let passiveSystems = Queries.passiveSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s false project.Id)
         let projectElems : ISubmodelElement list = [
-            mkProp     Name_         project.Name
-            mkProp     Guid_         (project.Id.ToString())
-            mkJsonProp<ResizeArray<TokenSpec>> TokenSpecs_ project.TokenSpecs
-            // Project 메타데이터
-            mkProp     Author_                   project.Author
-            mkProp     Version_                  project.Version
-            mkProp     DateTime_                 (project.DateTime.ToString("o"))
+            yield! mkPropsFromAasxFields project
             // 시스템 계층 구조
             yield! mkSml ActiveSystems_    activeSystems |> Option.toList
             yield! mkSml DeviceReferences_ passiveSystems |> Option.toList
@@ -296,13 +291,7 @@ module AasxExporter =
     let internal exportToModelSubmodelSplit (store: DsStore) (project: Project) (_iriPrefix: string) (deviceRefs: ISubmodelElement list) : Submodel =
         let activeSystems = Queries.activeSystemsOf project.Id store |> List.map (fun s -> systemToSmc store s true project.Id)
         let projectElems : ISubmodelElement list = [
-            mkProp     Name_         project.Name
-            mkProp     Guid_         (project.Id.ToString())
-            mkJsonProp<ResizeArray<TokenSpec>> TokenSpecs_ project.TokenSpecs
-            // Project 메타데이터
-            mkProp     Author_                   project.Author
-            mkProp     Version_                  project.Version
-            mkProp     DateTime_                 (project.DateTime.ToString("o"))
+            yield! mkPropsFromAasxFields project
             // 시스템 계층 구조
             yield! mkSml ActiveSystems_    activeSystems |> Option.toList
             yield! mkSml DeviceReferences_ deviceRefs |> Option.toList
@@ -428,12 +417,7 @@ module AasxExporter =
         let prefix = if String.IsNullOrWhiteSpace(iriPrefix) then DefaultIriPrefix else iriPrefix
         let deviceSmc = systemToSmc store device false project.Id
         let projectElems : ISubmodelElement list = [
-            mkProp     Name_         project.Name
-            mkProp     Guid_         (project.Id.ToString())
-            // Project 메타데이터
-            mkProp     Author_                   project.Author
-            mkProp     Version_                  project.Version
-            mkProp     DateTime_                 (project.DateTime.ToString("o"))
+            yield! mkPropsFromAasxFields project
             // 시스템 계층 구조
             yield! mkSml ActiveSystems_    [deviceSmc] |> Option.toList
             yield! mkSml DeviceReferences_ [] |> Option.toList
@@ -536,6 +520,9 @@ module AasxExporter =
             true
 
     let exportFromStore (store: DsStore) (path: string) (iriPrefix: string) (splitDeviceAasx: bool) : bool =
+        // 필드 자동 생성 검증 (개발 시 정보 출력)
+        validateAll () |> ignore
+
         match Queries.allProjects store |> List.tryHead with
         | None -> false
         | Some project ->
