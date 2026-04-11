@@ -30,15 +30,30 @@
             </StackPanel>
 
             <!-- 타입 -->
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+            <StackPanel Grid.Row="1" Margin="0,0,0,8">
                 <TextBlock Text="타입"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                           VerticalAlignment="Center" Margin="0,0,12,0"/>
-                <RadioButton x:Name="NormalRadio" Content="{x:Static core:Labels.Normal}"
-                             Foreground="{DynamicResource PrimaryTextBrush}"
-                             IsChecked="True" Margin="0,0,12,0"/>
-                <RadioButton x:Name="PushRadio" Content="{x:Static core:Labels.Push}"
-                             Foreground="{DynamicResource PrimaryTextBrush}"/>
+                           Margin="0,0,0,4"/>
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="NormalRadio" Content="{x:Static core:Labels.Normal}"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 GroupName="ActionType" IsChecked="True" Margin="0,0,12,0"/>
+                    <RadioButton x:Name="PushRadio" Content="{x:Static core:Labels.Push}"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 GroupName="ActionType" Margin="0,0,12,0"/>
+                    <RadioButton x:Name="PulseRadio" Content="Pulse"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 GroupName="ActionType" Margin="0,0,12,0"/>
+                    <RadioButton x:Name="TimeRadio" Content="Time"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 GroupName="ActionType" Margin="0,0,8,0"
+                                 Checked="TimeRadio_Checked" Unchecked="TimeRadio_Unchecked"/>
+                    <TextBox x:Name="TimeValueBox" Width="50" Padding="4,2"
+                             VerticalAlignment="Center" IsEnabled="False"
+                             Text="1000" PreviewTextInput="TimeValueBox_PreviewTextInput"/>
+                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="4,0,0,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                </StackPanel>
             </StackPanel>
 
             <!-- TX Work / RX Work -->

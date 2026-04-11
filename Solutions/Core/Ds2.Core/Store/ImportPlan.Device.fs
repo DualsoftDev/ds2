@@ -134,12 +134,16 @@ module internal ImportPlanDeviceOps =
                 existing, { state with PendingApiDefs = Map.add key existing state.PendingApiDefs }
             | None ->
                 let apiDef = ApiDef(apiName, system.Id)
+                // PendingWorks에서 매칭되는 Work가 있으면 연결 설정
                 match Map.tryFind key state.PendingWorks with
                 | Some work ->
-                    apiDef.IsPush <- false
+                    // Work가 있으면 Normal 타입으로 설정 (Push 아님)
+                    apiDef.ApiDefActionType <- ApiDefActionType.Normal
                     apiDef.TxGuid <- Some work.Id
                     apiDef.RxGuid <- Some work.Id
-                | None -> ()
+                | None ->
+                    // Work가 없으면 기본값 유지 (Normal)
+                    ()
                 queueOperation (AddApiDef apiDef) operations
                 apiDef, { state with PendingApiDefs = Map.add key apiDef state.PendingApiDefs }
 

@@ -117,6 +117,8 @@ module internal AasxExportGraph =
                     elif prop.PropertyType = typeof<ArrowType> then
                         let at = value :?> ArrowType
                         Some (mkProp attr.FieldName (string at))
+                    elif prop.PropertyType = typeof<ApiDefActionType> then
+                        Some (mkJsonProp<ApiDefActionType> attr.FieldName (value :?> ApiDefActionType))
                     elif prop.PropertyType = typeof<bool> then
                         Some (mkProp attr.FieldName (string (value :?> bool)))
                     else

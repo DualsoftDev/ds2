@@ -73,6 +73,9 @@ module internal AasxImportGraph =
                     elif prop.PropertyType = typeof<ArrowType> then
                         getProp smc attr.FieldName
                         |> Option.iter (fun s -> prop.SetValue(entity, parseArrowType s))
+                    elif prop.PropertyType = typeof<ApiDefActionType> then
+                        fromJsonProp<ApiDefActionType> smc attr.FieldName
+                        |> Option.iter (fun at -> prop.SetValue(entity, at))
                     elif prop.PropertyType = typeof<bool> then
                         getProp smc attr.FieldName
                         |> Option.iter (fun s ->
