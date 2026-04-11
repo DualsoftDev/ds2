@@ -1,6 +1,7 @@
 namespace Ds2.Aasx
 
 open System
+open System.Reflection
 open AasCore.Aas3_0
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
@@ -59,49 +60,99 @@ module internal AasxExportGraph =
         mkDomainRefs projectId "Call" entityId call
 
     /// Arrow SMC 생성 (Call/Work 공통)
-    let private mkArrowSmc (id: Guid) (sourceId: Guid) (targetId: Guid) (arrowType: ArrowType) =
+    let private mkArrowSmc (arrow: DsArrow) =
         mkSmc "Arrow" [
-            yield mkProp Guid_    (id.ToString())
-            yield mkProp Source_  (sourceId.ToString())
-            yield mkProp Target_  (targetId.ToString())
-            yield mkProp Type_    (string arrowType)
+            yield mkProp "Guid"   (arrow.Id.ToString())
+            yield mkProp "Source" (arrow.SourceId.ToString())
+            yield mkProp "Target" (arrow.TargetId.ToString())
+            yield mkProp "Type"   (string arrow.ArrowType)
         ]
+
+    /// AasxField Attribute가 있는 속성들을 자동으로 Property로 변환
+    let internal mkPropsFromAasxFields<'T> (entity: 'T) =
+        let entityType = entity.GetType()  // 런타임 타입 사용 (상속 고려)
+
+        // 현재 타입과 모든 베이스 타입의 속성을 가져오기
+        let rec getAllProperties (t: Type) =
+            seq {
+                yield! t.GetProperties(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+                if t.BaseType <> null && t.BaseType <> typeof<obj> then
+                    yield! getAllProperties t.BaseType
+            }
+
+        let props = getAllProperties entityType |> Seq.toArray
+
+        props
+        |> Seq.distinctBy (fun p -> p.Name)  // 중복 속성 제거 (abstract + default 패턴 대응)
+        |> Seq.toArray
+        |> Array.choose (fun prop ->
+            match prop.GetCustomAttribute<AasxFieldAttribute>(true) |> box with  // inherit=true, 상속된 어트리뷰트 포함
+                | null -> None
+                | :? AasxFieldAttribute as attr when not attr.Skip ->
+                    let value = prop.GetValue(entity)
+                    // 특수 타입 처리
+                    if prop.PropertyType = typeof<Xywh option> then
+                        Some (mkJsonProp<Xywh option> attr.FieldName (value :?> Xywh option))
+                    elif prop.PropertyType = typeof<TimeSpan option> then
+                        match value :?> TimeSpan option with
+                        | Some ts -> Some (mkTimeSpanProp attr.FieldName ts)
+                        | None -> None
+                    elif prop.PropertyType = typeof<ResizeArray<CallCondition>> then
+                        Some (mkJsonProp<ResizeArray<CallCondition>> attr.FieldName (value :?> ResizeArray<CallCondition>))
+                    elif prop.PropertyType = typeof<ResizeArray<TokenSpec>> then
+                        Some (mkJsonProp<ResizeArray<TokenSpec>> attr.FieldName (value :?> ResizeArray<TokenSpec>))
+                    elif prop.PropertyType = typeof<IOTag option> then
+                        Some (mkJsonProp<IOTag option> attr.FieldName (value :?> IOTag option))
+                    elif prop.PropertyType = typeof<ValueSpec> then
+                        Some (mkJsonProp<ValueSpec> attr.FieldName (value :?> ValueSpec))
+                    elif prop.PropertyType = typeof<DateTimeOffset> then
+                        let dt = value :?> DateTimeOffset
+                        Some (mkProp attr.FieldName (dt.ToString("o")))
+                    elif prop.PropertyType = typeof<TokenRole> then
+                        let tr = value :?> TokenRole
+                        Some (mkProp attr.FieldName (string (int tr)))
+                    elif prop.PropertyType = typeof<Status4> then
+                        let st = value :?> Status4
+                        Some (mkProp attr.FieldName (string st))
+                    elif prop.PropertyType = typeof<ArrowType> then
+                        let at = value :?> ArrowType
+                        Some (mkProp attr.FieldName (string at))
+                    elif prop.PropertyType = typeof<bool> then
+                        Some (mkProp attr.FieldName (string (value :?> bool)))
+                    else
+                        // 기본 문자열 변환
+                        let strValue =
+                            match value with
+                            | null -> ""
+                            | :? Guid as g -> g.ToString()
+                            | :? string as s -> s
+                            | :? (string option) as opt -> opt |> Option.defaultValue ""
+                            | :? (Guid option) as opt -> opt |> Option.map (fun g -> g.ToString()) |> Option.defaultValue ""
+                            | v -> v.ToString()
+                        Some (mkProp attr.FieldName strValue)
+                | _ -> None)
+        |> Array.toList
 
     // ────────────────────────────────────────────────────────────────────────────
     // Entity → SMC 변환 함수들
     // ────────────────────────────────────────────────────────────────────────────
 
     let private apiCallToSmc (apiCall: ApiCall) =
-        mkSmc "ApiCall" [
-            yield mkProp Name_ apiCall.Name
-            yield mkProp Guid_ (apiCall.Id.ToString())
-            yield! apiCall.ApiDefId |> Option.map (fun id -> mkProp ApiDefId_ (id.ToString())) |> Option.toList
-            yield mkJsonProp<IOTag option> InTag_ apiCall.InTag
-            yield mkJsonProp<IOTag option> OutTag_ apiCall.OutTag
-            yield mkJsonProp<ValueSpec> InputSpec_ apiCall.InputSpec
-            yield mkJsonProp<ValueSpec> OutputSpec_ apiCall.OutputSpec
-            yield! apiCall.OriginFlowId |> Option.map (fun id -> mkProp OriginFlowId_ (id.ToString())) |> Option.toList
-        ]
+        mkSmc "ApiCall" (mkPropsFromAasxFields apiCall)
 
     let private callToSmc (call: Call) (projectId: Guid) =
         let domainRefs = mkDomainRefsForCall projectId call.Id call
         let smc = SubmodelElementCollection()
         smc.IdShort <- mkEntityIdShort "Call" call.Id
         smc.Value <- ResizeArray<ISubmodelElement>([
-            yield mkProp Name_ call.Name
-            yield mkProp Guid_ (call.Id.ToString())
-            yield mkProp DevicesAlias_ call.DevicesAlias
-            yield mkProp ApiName_ call.ApiName
+            yield! mkPropsFromAasxFields call
             yield! mkSmcOpt "DomainReferences" domainRefs |> Option.toList
-            yield mkJsonProp<Xywh option> Position_ call.Position
-            yield mkProp Status_ (string call.Status4)
             yield! call.ApiCalls |> Seq.map apiCallToSmc |> List.ofSeq |> mkSml ApiCalls_ |> Option.toList
-            yield mkJsonProp<ResizeArray<CallCondition>> CallConditions_ call.CallConditions
         ])
         smc :> ISubmodelElement
 
     let private arrowCallToSmc (arrow: ArrowBetweenCalls) =
-        mkArrowSmc arrow.Id arrow.SourceId arrow.TargetId arrow.ArrowType
+        mkArrowSmc arrow
 
     let private workToSmc (store: DsStore) (work: Work) (projectId: Guid) =
         let rawCalls = Queries.callsOf work.Id store
@@ -116,41 +167,26 @@ module internal AasxExportGraph =
         let smc = SubmodelElementCollection()
         smc.IdShort <- mkEntityIdShort "Work" work.Id
         smc.Value <- ResizeArray<ISubmodelElement>([
-            yield mkProp Name_ work.Name
-            yield mkProp Guid_ (work.Id.ToString())
             yield mkProp FlowGuid_ (work.ParentId.ToString())
-            yield mkProp FlowPrefix_ work.FlowPrefix
-            yield mkProp LocalName_ work.LocalName
-            yield! work.ReferenceOf |> Option.map (fun id -> mkProp ReferenceOf_ (id.ToString())) |> Option.toList
+            yield! mkPropsFromAasxFields work
             yield! mkSmcOpt "DomainReferences" domainRefs |> Option.toList
-            yield mkJsonProp<Xywh option> Position_ work.Position
-            yield mkProp Status_ (string work.Status4)
-            yield mkProp TokenRole_ (string (int work.TokenRole))
-            yield! work.Duration |> Option.map (mkTimeSpanProp "Duration") |> Option.toList
             yield! mkSml Calls_ calls |> Option.toList
             yield! mkSml Arrows_ arrows |> Option.toList
         ])
         smc :> ISubmodelElement
 
     let private arrowWorkToSmc (arrow: ArrowBetweenWorks) =
-        mkArrowSmc arrow.Id arrow.SourceId arrow.TargetId arrow.ArrowType
+        mkArrowSmc arrow
 
     let private flowToSmc (flow: Flow) (projectId: Guid) =
         let domainRefs = mkDomainRefsForFlow projectId flow.Id flow
         mkSmc "Flow" [
-            yield mkProp Name_ flow.Name
-            yield mkProp Guid_ (flow.Id.ToString())
+            yield! mkPropsFromAasxFields flow
             yield! mkSmcOpt "DomainReferences" domainRefs |> Option.toList
         ]
 
     let private apiDefToSmc (apiDef: ApiDef) =
-        mkSmc "ApiDef" [
-            yield mkProp Name_ apiDef.Name
-            yield mkProp Guid_ (apiDef.Id.ToString())
-            yield mkProp IsPush_ (string apiDef.IsPush)
-            yield! apiDef.TxGuid |> Option.map (fun id -> mkProp TxGuid_ (id.ToString())) |> Option.toList
-            yield! apiDef.RxGuid |> Option.map (fun id -> mkProp RxGuid_ (id.ToString())) |> Option.toList
-        ]
+        mkSmc "ApiDef" (mkPropsFromAasxFields apiDef)
 
     let systemToSmc (store: DsStore) (system: DsSystem) (isActive: bool) (projectId: Guid) =
         let allFlows = Queries.flowsOf system.Id store
@@ -172,9 +208,7 @@ module internal AasxExportGraph =
         let smc = SubmodelElementCollection()
         smc.IdShort <- mkEntityIdShort "System" system.Id
         smc.Value <- ResizeArray<ISubmodelElement>([
-            yield mkProp Name_ system.Name
-            yield mkProp Guid_ (system.Id.ToString())
-            yield mkProp IRI_ (system.IRI |> Option.defaultValue "")
+            yield! mkPropsFromAasxFields system
             yield! mkSmcOpt "DomainReferences" domainRefs |> Option.toList
             yield! mkSml ApiDefs_ apiDefs |> Option.toList
             yield! mkSml ReferencedApiDefs_ referencedApiDefs |> Option.toList

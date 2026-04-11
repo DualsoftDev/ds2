@@ -127,17 +127,18 @@ public partial class MainViewModel
                 $"Open AASX '{fileName}'",
                 () =>
                 {
-                    if (!AasxImporter.importIntoStore(_store, fileName))
+                    var result = AasxImporter.importIntoStoreWithError(_store, fileName);
+                    if (result.IsError)
                     {
-                        Log.Warn($"AASX open failed: empty result ({fileName})");
-                        _dialogService.ShowWarning("Failed to open AASX file.");
+                        Log.Warn($"AASX open failed: {result.ErrorValue}");
+                        _dialogService.ShowWarning($"AASX 파일 열기 실패:\n\n{result.ErrorValue}");
                         return;
                     }
 
                     PrepareForLoadedStore();
                     CompleteOpen(fileName, "AASX");
                 },
-                ex => $"Failed to open AASX: {ex.Message}");
+                ex => $"AASX 파일 열기 실패:\n\n{ex.Message}");
         }
         else
         {

@@ -27,57 +27,39 @@ let [<Literal>] DocumentationSemanticId      = "0173-1#01-AHF578#001"
 
 // IRI 기본값
 let [<Literal>] DefaultIriPrefix = "http://your-company.com/"
-let [<Literal>] Name_                = "Name"
-let [<Literal>] Guid_                = "Guid"
+
+// =============================================================================
+// SubmodelProperty 컬렉션명 (도메인별)
+// =============================================================================
 let [<Literal>] SimulationProperties_   = "SimulationProperties"
 let [<Literal>] CostAnalysisProperties_ = "CostAnalysisProperties"
 let [<Literal>] ControlProperties_      = "ControlProperties"
 let [<Literal>] MonitoringProperties_   = "MonitoringProperties"
 let [<Literal>] LoggingProperties_      = "LoggingProperties"
 let [<Literal>] MaintenanceProperties_  = "MaintenanceProperties"
+
+// =============================================================================
+// 계층 구조 및 컬렉션명
+// =============================================================================
 let [<Literal>] ActiveSystems_       = "ActiveSystems"
-let [<Literal>] IRI_                 = "IRI"
 let [<Literal>] Flows_               = "Flows"
 let [<Literal>] Works_               = "Works"
 let [<Literal>] Arrows_              = "Arrows"
 let [<Literal>] Calls_               = "Calls"
 let [<Literal>] ApiDefs_             = "ApiDefs"
 let [<Literal>] ApiCalls_            = "ApiCalls"
-let [<Literal>] ApiDefId_            = "ApiDefId"
-let [<Literal>] IsPush_              = "IsPush"
-let [<Literal>] TxGuid_              = "TxGuid"
-let [<Literal>] RxGuid_              = "RxGuid"
-let [<Literal>] InTag_               = "InTag"
-let [<Literal>] OutTag_              = "OutTag"
-let [<Literal>] InputSpec_           = "InputSpec"
-let [<Literal>] OutputSpec_          = "OutputSpec"
-let [<Literal>] OriginFlowId_        = "OriginFlowId"
 let [<Literal>] ReferencedApiDefs_   = "ReferencedApiDefs"
 let [<Literal>] DeviceReferences_    = "DeviceReferences"
-let [<Literal>] CallConditions_      = "CallConditions"
-let [<Literal>] DevicesAlias_        = "DevicesAlias"
-let [<Literal>] ApiName_             = "ApiName"
-let [<Literal>] Position_            = "Position"
-let [<Literal>] Status_              = "Status"
-let [<Literal>] FlowGuid_            = "FlowGuid"
-let [<Literal>] Source_              = "Source"
-let [<Literal>] Target_              = "Target"
-let [<Literal>] Type_                = "Type"
-let [<Literal>] TokenRole_           = "TokenRole"
-let [<Literal>] TokenSpecs_          = "TokenSpecs"
 
-// Work 네이밍 확장
-let [<Literal>] FlowPrefix_           = "FlowPrefix"
-let [<Literal>] LocalName_            = "LocalName"
-let [<Literal>] ReferenceOf_          = "ReferenceOf"
+// =============================================================================
+// Work 특수 필드 (생성자 파라미터)
+// =============================================================================
+let [<Literal>] FlowGuid_            = "FlowGuid"      // Work 생성자 parentId
 
+// =============================================================================
 // Device 분리 저장용
+// =============================================================================
 let [<Literal>] DeviceGuid_          = "DeviceGuid"
 let [<Literal>] DeviceName_          = "DeviceName"
 let [<Literal>] DeviceIRI_           = "DeviceIRI"
 let [<Literal>] DeviceRelativePath_  = "DeviceRelativePath"
-
-// Project 메타데이터 (SequenceModel 서브모델에 저장)
-let [<Literal>] Author_                     = "Author"
-let [<Literal>] DateTime_                   = "DateTime"
-let [<Literal>] Version_                    = "Version"
