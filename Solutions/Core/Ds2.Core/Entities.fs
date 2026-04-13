@@ -4,52 +4,67 @@ open System
 open System.Text.Json.Serialization
 
 // =============================================================================
-// 엔티티
+// 엔티티 (Entity)
 // =============================================================================
 
-// Project와 DsSystem의 상호참조(and) 제거
-// 이유: 두 타입은 실제 서로를 참조하지 않음
+/// 프로젝트 루트 엔티티.
+/// DsSystem과 상호참조 없음 — ID 목록으로만 연결.
 type Project [<JsonConstructor>] internal (name) =
     inherit DsEntity(name)
-    member val ActiveSystemIds        = ResizeArray<Guid>()          with get, set
-    member val PassiveSystemIds       = ResizeArray<Guid>()          with get, set
-    member val Nameplate              : Nameplate option = None      with get, set
-    member val HandoverDocumentation  : HandoverDocumentation option = None with get, set
-    member val TokenSpecs             = ResizeArray<TokenSpec>()     with get, set
 
-    member val Author           : string          = "" with get, set
-    member val DateTime         : DateTimeOffset  = DateTimeOffset.Now with get, set
-    member val Version          : string          = "1.0.0" with get, set
+    // ── 연결된 시스템 (ID 참조) ──────────────────────────────────────────────
+    [<AasxField("ActiveSystemIds",       Skip = true)>] member val ActiveSystemIds       = ResizeArray<Guid>() with get, set
+    [<AasxField("PassiveSystemIds",      Skip = true)>] member val PassiveSystemIds      = ResizeArray<Guid>() with get, set
 
+    // ── 별도 Submodel로 직렬화되는 필드 ─────────────────────────────────────
+    [<AasxField("Nameplate",             Skip = true)>] member val Nameplate             : Nameplate option             = None    with get, set
+    [<AasxField("HandoverDocumentation", Skip = true)>] member val HandoverDocumentation : HandoverDocumentation option = None    with get, set
+
+    // ── 프로젝트 메타데이터 ──────────────────────────────────────────────────
+    [<AasxField("TokenSpecs")>]                         member val TokenSpecs            = ResizeArray<TokenSpec>()              with get, set
+    [<AasxField("Author")>]                             member val Author                : string         = ""                  with get, set
+    [<AasxField("DateTime")>]                           member val DateTime              : DateTimeOffset = DateTimeOffset.Now  with get, set
+    [<AasxField("Version")>]                            member val Version               : string         = "1.0.0"             with get, set
+
+
+/// 장치·설비 등 독립 시스템 단위.
 type DsSystem [<JsonConstructor>] internal (name) =
     inherit DsEntity(name)
+
     member val Properties = ResizeArray<SystemSubmodelProperty>() with get, set
 
-    member val IRI : string option = None with get, set
-    member val SystemType : string option = None with get, set
+    [<AasxField("IRI")>]        member val IRI        : string option = None with get, set
+    [<AasxField("SystemType")>] member val SystemType : string option = None with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
+
+/// 공정 흐름 단위.
 type Flow [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
+
     member val Properties = ResizeArray<FlowSubmodelProperty>() with get, set
+
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
+
+/// Flow 내 작업 단위.
+/// Name = "{FlowPrefix}.{LocalName}" 형태로 구성됨.
 type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, parentId: Guid) =
     inherit DsChild("", parentId)
+
     member val Properties = ResizeArray<WorkSubmodelProperty>() with get, set
 
-    /// 부모 Flow의 이름 (자동 설정, Flow rename 시 cascade)
-    member val FlowPrefix  = (if isNull flowPrefix then "" else flowPrefix) with get, set
-    /// Work 고유 이름 (사용자가 입력하는 부분)
-    member val LocalName   = (if isNull localName then "" else localName)   with get, set
-    /// None=원본 Work, Some guid=참조 대상 원본 Work의 ID
-    member val ReferenceOf : Guid option = None with get, set
-    member val Status4     : Status4 = Status4.Ready with get, set
-    member val Position    : Xywh option = None  with get, set
-    member val TokenRole   : TokenRole = TokenRole.None with get, set
-    /// Work 실행 시간 (모든 도메인에서 공통 사용)
-    member val Duration    : TimeSpan option = None with get, set
+    // ── Name 구성요소 (Name에서 파생 가능 → AASX 저장 불필요) ────────────────
+    [<AasxField("FlowPrefix", Skip = true)>] member val FlowPrefix : string = (if isNull flowPrefix then "" else flowPrefix) with get, set
+    [<AasxField("LocalName",  Skip = true)>] member val LocalName  : string = (if isNull localName  then "" else localName)  with get, set
+
+    // ── 작업 속성 ────────────────────────────────────────────────────────────
+    [<AasxField("ReferenceOf")>] member val ReferenceOf : Guid option  = None         with get, set
+    [<AasxField("Status")>]      member val Status4     : Status4      = Status4.Ready with get, set
+    [<AasxField("Position")>]    member val Position    : Xywh option  = None         with get, set
+    [<AasxField("TokenRole")>]   member val TokenRole   : TokenRole    = TokenRole.None with get, set
+    [<AasxField("Duration")>]    member val Duration    : TimeSpan option = None      with get, set
 
     override this.Name
         with get() =
@@ -64,23 +79,27 @@ type Work [<JsonConstructor>] internal (flowPrefix: string, localName: string, p
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
-// Call, ApiCall, CallCondition, ApiDef 은 실제 상호참조가 있어 and 유지
-//   Call         → ApiCall, CallCondition
-//   CallCondition → ApiCall
+
+// =============================================================================
+// Call / ApiCall / CallCondition / ApiDef  (상호참조로 and 사용)
+// =============================================================================
+
+/// 장치 API 호출 단위.
+/// Name = "{DevicesAlias}.{ApiName}" 형태로 구성됨.
 type Call [<JsonConstructor>] internal (devicesAlias: string, apiName: string, parentId: Guid) =
     inherit DsChild("", parentId)
+
     member val Properties = ResizeArray<CallSubmodelProperty>() with get, set
-    
-    member val Status4        : Status4 = Status4.Ready      with get, set
-    member val Position       : Xywh option = None           with get, set
-    member val ApiCalls       = ResizeArray<ApiCall>()       with get, set
-    member val CallConditions = ResizeArray<CallCondition>() with get, set
-    /// None=원본 Call, Some guid=참조 대상 원본 Call의 ID
-    member val ReferenceOf : Guid option = None with get, set
-    /// 저장된 Device 별칭 — '.'을 포함할 수 없음
-    member val DevicesAlias   = devicesAlias with get, set
-    /// 저장된 ApiDef 이름 — Rename 대상이 아님, ApiDef에 연동
-    member val ApiName        = apiName      with get, set
+
+    [<AasxField("Status")>]                 member val Status4        : Status4                = Status4.Ready  with get, set
+    [<AasxField("Position")>]               member val Position       : Xywh option            = None           with get, set
+    [<AasxField("ApiCalls",  Skip = true)>] member val ApiCalls = ResizeArray<ApiCall>()               with get, set
+    [<AasxField("CallConditions")>]         member val CallConditions = ResizeArray<CallCondition>()            with get, set
+    [<AasxField("ReferenceOf")>]            member val ReferenceOf    : Guid option            = None           with get, set
+
+    // ── Name 구성요소 (Name에서 파생 가능 → AASX 저장 불필요) ────────────────
+    [<AasxField("DevicesAlias", Skip = true)>] member val DevicesAlias = devicesAlias with get, set
+    [<AasxField("ApiName",      Skip = true)>] member val ApiName      = apiName      with get, set
 
     override this.Name
         with get() = $"{this.DevicesAlias}.{this.ApiName}"
@@ -90,43 +109,55 @@ type Call [<JsonConstructor>] internal (devicesAlias: string, apiName: string, p
                 invalidArg (nameof value)
                     $"Call 이름 형식 오류: '{value}'. 올바른 형식: 'DevicesAlias.ApiName'"
             | idx ->
-                let alias = value[..idx - 1]
+                let alias   = value[..idx - 1]
                 let apiName = value[idx + 1..]
-                if this.ApiName <> apiName then
+                if not (String.IsNullOrEmpty(this.ApiName)) && this.ApiName <> apiName then
                     invalidArg (nameof value)
                         $"Call Name setter는 ApiName 변경을 허용하지 않습니다. 기존='{this.ApiName}', 입력='{apiName}'"
                 this.DevicesAlias <- alias
+                this.ApiName      <- apiName
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 and ApiCall [<JsonConstructor>] internal (name) =
     inherit DsEntity(name)
-    member val InTag      : IOTag option  = None           with get, set
-    member val OutTag     : IOTag option  = None           with get, set
-    member val ApiDefId   : Guid option   = None           with get, set
-    member val InputSpec  : ValueSpec     = UndefinedValue with get, set
-    member val OutputSpec : ValueSpec     = UndefinedValue with get, set
-    member val OriginFlowId : Guid option = None           with get, set
+
+    [<AasxField("InTag")>]        member val InTag        : IOTag option = None           with get, set
+    [<AasxField("OutTag")>]       member val OutTag       : IOTag option = None           with get, set
+    [<AasxField("ApiDefId")>]     member val ApiDefId     : Guid option  = None           with get, set
+    [<AasxField("InputSpec")>]    member val InputSpec    : ValueSpec    = UndefinedValue  with get, set
+    [<AasxField("OutputSpec")>]   member val OutputSpec   : ValueSpec    = UndefinedValue  with get, set
+    [<AasxField("OriginFlowId")>] member val OriginFlowId : Guid option  = None           with get, set
+
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 and CallCondition [<JsonConstructor>] internal () =
-    member val Id         : Guid                      = Guid.NewGuid() with get, set
-    member val Type       : CallConditionType option  = None           with get, set
-    member val Conditions = ResizeArray<ApiCall>()                     with get, set
-    member val Children   = ResizeArray<CallCondition>()               with get, set
-    member val IsOR       = false with get, set
-    member val IsRising   = false with get, set
-    // CallCondition은 DsEntity 비상속 → jsonClone (ID 보존)
+    member val Id         : Guid                     = Guid.NewGuid() with get, set
+    member val Type       : CallConditionType option = None           with get, set
+    member val Conditions = ResizeArray<ApiCall>()                    with get, set
+    member val Children   = ResizeArray<CallCondition>()              with get, set
+    member val IsOR       = false                                     with get, set
+    member val IsRising   = false                                     with get, set
+
+    // DsEntity 비상속 → jsonClone (ID 보존)
     member this.DeepCopy() = DeepCopyHelper.jsonClone<CallCondition> this
 
 and ApiDef [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
 
-    member val IsPush : bool = false with get, set
-    member val TxGuid : Guid option = None with get, set
-    member val RxGuid : Guid option = None with get, set
+    [<AasxField("ApiDefActionType")>] member val ApiDefActionType : ApiDefActionType = ApiDefActionType.Normal with get, set
+    [<AasxField("TxGuid")>]           member val TxGuid : Guid option = None  with get, set
+    [<AasxField("RxGuid")>]           member val RxGuid : Guid option = None  with get, set
+
+    /// IsPush 호환성 속성 (ApiDefActionType.Push로 통합됨)
+    [<System.Obsolete("IsPush is deprecated. Use ApiDefActionType instead.")>]
+    [<JsonIgnore>]
+    member this.IsPush
+        with get() = this.ApiDefActionType = ApiDefActionType.Push
+        and set(value) = if value then this.ApiDefActionType <- ApiDefActionType.Push else this.ApiDefActionType <- ApiDefActionType.Normal
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
+
 
 // =============================================================================
 // Arrow
