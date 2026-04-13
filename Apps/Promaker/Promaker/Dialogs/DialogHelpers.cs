@@ -249,7 +249,7 @@ internal static class DialogHelpers
             Width = 420,
             SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Owner = owner ?? Application.Current.MainWindow,
+            Owner = (owner is { IsLoaded: true } ? owner : null),
             ResizeMode = ResizeMode.NoResize,
             ShowInTaskbar = false
         };

@@ -18,6 +18,7 @@ public class CsvRowViewModel
     public string FlowName { get; set; } = "";
     public string WorkName { get; set; } = "";
     public string DeviceName { get; set; } = "";
+    public string SystemName { get; set; } = "";
     public string ApiName { get; set; } = "";
     public string InName { get; set; } = "";
     public string InAddress { get; set; } = "";
@@ -31,19 +32,19 @@ public partial class CsvImportDialog : Window
     private const string DefaultSourceText = "또는 아래에 CSV를 직접 붙여넣으세요.";
     private const string EmptyPreviewText = "CSV 내용을 붙여넣거나 CSV 파일 불러오기를 누르세요.";
     private const string PreviewFailureText = "미리보기를 생성하지 못했습니다.";
-    private const string SampleCsv = @"Flow,Work,Device,Api,InName,InAddress,OutName,OutAddress
-Cutting,Load,Cylinder,Up,입력신호,X10A0,출력신호,Y10B0
-Cutting,Load,Sensor,Detect,,X10A2,,
-Cutting,Load,Motor,Run,,X10A3,,Y10B3
-Cutting,Unload,Cylinder,Down,하강신호,X10B0,하강출력,Y10C0
-Cutting,Unload,Conveyor,Forward,,,,Y10C1
-Assembly,PartIn,Gripper,Grip,그립신호,X20A0,그립출력,Y20B0
-Assembly,PartIn,Gripper,Release,릴리즈신호,X20A1,릴리즈출력,Y20B1
-Assembly,PartIn,Sensor,Detect,,X20A2,,
-Assembly,Process,Press,Down,프레스하강,X20C0,프레스출력,Y20D0
-Assembly,Process,Press,Up,프레스상승,X20C1,프레스상승출력,Y20D1
-Assembly,PartOut,Ejector,Push,,X20E0,,Y20F0
-Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
+    private const string SampleCsv = @"Flow,Work,Device,System,Api,InName,InAddress,OutName,OutAddress
+Cutting,Load,Cylinder,Cutting_Cylinder,Up,입력신호,X10A0,출력신호,Y10B0
+Cutting,Load,Sensor,Cutting_Sensor,Detect,,X10A2,,
+Cutting,Load,Motor,Cutting_Motor,Run,,X10A3,,Y10B3
+Cutting,Unload,Cylinder,Cutting_Cylinder,Down,하강신호,X10B0,하강출력,Y10C0
+Cutting,Unload,Conveyor,Cutting_Conveyor,Forward,,,,Y10C1
+Assembly,PartIn,Gripper,Assembly_Gripper,Grip,그립신호,X20A0,그립출력,Y20B0
+Assembly,PartIn,Gripper,Assembly_Gripper,Release,릴리즈신호,X20A1,릴리즈출력,Y20B1
+Assembly,PartIn,Sensor,Assembly_Sensor,Detect,,X20A2,,
+Assembly,Process,Press,Assembly_Press,Down,프레스하강,X20C0,프레스출력,Y20D0
+Assembly,Process,Press,Assembly_Press,Up,프레스상승,X20C1,프레스상승출력,Y20D1
+Assembly,PartOut,Ejector,Assembly_Ejector,Push,,X20E0,,Y20F0
+Assembly,PartOut,Ejector,Assembly_Ejector,Return,,X20E1,,Y20F1";
 
     private CsvDocument? _document;
     private string _autoProjectName = DefaultImportedName;
@@ -125,6 +126,7 @@ Assembly,PartOut,Ejector,Return,,X20E1,,Y20F1";
             FlowName = entry.FlowName,
             WorkName = entry.WorkName,
             DeviceName = entry.DeviceName,
+            SystemName = entry.SystemName,
             ApiName = entry.ApiName,
             InName = OptionText(entry.InName),
             InAddress = OptionText(entry.InAddress),

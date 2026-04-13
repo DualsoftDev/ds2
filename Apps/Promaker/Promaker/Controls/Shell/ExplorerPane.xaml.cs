@@ -494,7 +494,11 @@ public partial class ExplorerPane : UserControl
         ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
 
         if (HasActiveSearch)
+        {
             RefreshFilteredSelectionState();
+            if (node.EntityType is EntityKind.System or EntityKind.Flow or EntityKind.Work)
+                ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
+        }
     }
 
     private void HandleTreeItemMouseDown(TreePaneKind pane, object sender, MouseButtonEventArgs e, bool requireModifiers)
