@@ -63,3 +63,10 @@ type RuntimeMode =
     | Control      = 1  // IO 실제 읽기/쓰기 (PLC 제어)
     | Monitoring   = 2  // IO 읽어서 RGFH 상태 추적 (모니터링)
     | VirtualPlant = 3  // 외부 출력 받아서 외부로 입력값 써주기 (가상 플랜트)
+
+
+type ApiDefActionType =
+    | Normal 
+    | Push   
+    | Pulse  
+    | Time of int  // Time-based action with specified duration in milliseconds
