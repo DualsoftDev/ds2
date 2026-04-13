@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>DS2 Device JSON Preview</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{display:flex;height:100vh;font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;overflow:hidden}
+#sidebar{width:440px;display:flex;flex-direction:column;background:#1e293b;border-right:1px solid #334155}
+#presets{padding:8px;display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid #334155}
+#presets button{padding:4px 10px;background:#334155;color:#94a3b8;border:1px solid #475569;border-radius:4px;cursor:pointer;font-size:12px;transition:all .15s}
+#presets button:hover{background:#475569;color:#e2e8f0}
+#json-input{flex:1;padding:12px;background:#0f172a;color:#e2e8f0;border:none;resize:none;font-family:'Cascadia Code','Consolas',monospace;font-size:12.5px;line-height:1.5;tab-size:2;outline:none}
+#controls{padding:8px;display:flex;gap:8px;align-items:center;border-top:1px solid #334155;flex-shrink:0}
+#controls button{padding:6px 14px;border-radius:4px;border:none;cursor:pointer;font-weight:600;font-size:13px}
+#render-btn{background:#3b82f6;color:white}
+#render-btn:hover{background:#2563eb}
+.state-btn{width:34px;height:34px;border-radius:50%!important;font-size:13px;color:#fff!important;padding:0!important;opacity:.7;transition:all .15s}
+.state-btn:hover,.state-btn.active{opacity:1;transform:scale(1.15)}
+#viewport{flex:1;position:relative}
+#error-msg{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#dc2626;color:white;padding:8px 16px;border-radius:6px;display:none;z-index:10;font-size:13px;max-width:80%}
+#info{position:absolute;bottom:8px;left:10px;color:#475569;font-size:11px}
+#hint{position:absolute;top:8px;right:12px;color:#475569;font-size:11px}
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <div id="presets">
+    <button onclick="loadPreset('lifter')">Lifter</button>
+    <button onclick="loadPreset('conveyor')">Conveyor</button>
+    <button onclick="loadPreset('door')">Door</button>
+    <button onclick="loadPreset('robot')">Pick&Place</button>
+    <button onclick="loadPreset('crane')">Crane</button>
+    <button onclick="loadPreset('rotary')">Rotary</button>
+    <button onclick="loadPreset('agv')">AGV</button>
+    <button onclick="loadPreset('custom_robot')">CNC로봇</button>
+    <button onclick="loadPreset('scara')">SCARA</button>
+    <button onclick="loadPreset('welder')">Welder</button>
+    <button onclick="loadPreset('spray')">Spray Booth</button>
+  </div>
+  <textarea id="json-input" spellcheck="false"></textarea>
+  <div id="controls">
+    <button id="render-btn" onclick="renderFromEditor()">▶ Render</button>
+    <button class="state-btn active" style="background:#10b981" onclick="setState('R')" data-state="R">R</button>
+    <button class="state-btn" style="background:#eab308" onclick="setState('G')" data-state="G">G</button>
+    <button class="state-btn" style="background:#3b82f6" onclick="setState('F')" data-state="F">F</button>
+    <button class="state-btn" style="background:#6b7280" onclick="setState('H')" data-state="H">H</button>
+    <span style="margin-left:auto;color:#64748b;font-size:11px">Ctrl+Enter</span>
+  </div>
+</div>
+<div id="viewport">
+  <div id="error-msg"></div>
+  <div id="info">Drag: rotate · Scroll: zoom · Right-drag: pan</div>
+  <div id="hint"></div>
+</div>
+
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+/* ============================================================
+   DS2 Device JSON Preview — v1.0
+   ============================================================ */
+
+// ── Presets ──────────────────────────────────────────────────
+const PRESETS = {
+lifter: {
+  name: "Lifter", height: 2.5,
+  parts: [
+    {id:"base", shape:"box", size:[1.2,0.3,1.2], color:"#64748b"},
+    {id:"cols", shape:"cylinder", radius:0.05, height:2.2, on:"base",
+     repeat:{count:4, pattern:"corners", size:[0.9,0.9]}},
+    {id:"platform", shape:"box", size:[1.0,0.15,1.0], color:"#fbbf24", glow:0.3, on:"base"},
+    {id:"motor", shape:"cylinder", radius:0.15, height:0.25, color:"#334155", on:"cols"}
+  ],
+  animation:{active:{target:"platform", type:"move", axis:"y", min:0.38, max:2.2}}
+},
+conveyor: {
+  name: "Belt Conveyor", height: 1.5,
+  parts: [
+    {id:"legs", shape:"box", size:[0.1,0.45,0.1], color:"#475569",
+     pos:[0,0.225,0], repeat:{count:4, pattern:"corners", size:[3.6,0.6]}},
+    {id:"frame", shape:"box", size:[4.0,0.15,0.8], color:"#64748b", pos:[0,0.52,0]},
+    {id:"rollers", shape:"cylinder", radius:0.06, height:0.7, color:"#94a3b8",
+     pos:[0,0.66,0], repeat:{count:10, pattern:"line", axis:"x", length:3.6}},
+    {id:"belt", shape:"box", size:[4.0,0.04,0.65], color:"#78716c", pos:[0,0.74,0]},
+    {id:"motor", shape:"box", size:[0.3,0.2,0.3], color:"#fbbf24", glow:0.3, pos:[1.85,0.4,0.55]}
+  ],
+  animation:{active:[
+    {target:"belt", type:"flow", axis:"x", speed:0.015},
+    {target:"rollers", type:"roll", speed:0.06}
+  ]}
+},
+door: {
+  name: "Sliding Door", height: 2.5,
+  parts: [
+    {id:"frame_l", shape:"box", size:[0.12,2.2,0.08], pos:[-1.1,1.1,0], color:"#64748b"},
+    {id:"frame_r", shape:"box", size:[0.12,2.2,0.08], pos:[1.1,1.1,0], color:"#64748b"},
+    {id:"frame_t", shape:"box", size:[2.35,0.12,0.08], pos:[0,2.26,0], color:"#64748b"},
+    {id:"panel_l", shape:"box", size:[1.0,2.05,0.06], pos:[-0.5,1.025,0], color:"#0891b2", glow:0.2},
+    {id:"panel_r", shape:"box", size:[1.0,2.05,0.06], pos:[0.5,1.025,0], color:"#0891b2", glow:0.2},
+    {id:"handle_l", shape:"box", size:[0.06,0.25,0.1], pos:[-0.15,1.0,0.06], color:"#fbbf24", glow:0.4},
+    {id:"handle_r", shape:"box", size:[0.06,0.25,0.1], pos:[0.15,1.0,0.06], color:"#fbbf24", glow:0.4}
+  ],
+  animation:{active:[
+    {target:"panel_l", type:"move", axis:"x", min:-1.05, max:-0.5},
+    {target:"panel_r", type:"move", axis:"x", min:0.5, max:1.05},
+    {target:"handle_l", type:"move", axis:"x", min:-0.7, max:-0.15},
+    {target:"handle_r", type:"move", axis:"x", min:0.15, max:0.7}
+  ]}
+},
+robot: {
+  name: "Pick & Place Robot", height: 3.0,
+  chain: [
+    {name:"base", axis:"y", length:0.6, width:0.9},
+    {name:"shoulder", axis:"z", length:1.2, width:0.35},
+    {name:"elbow", axis:"z", length:1.0, width:0.3},
+    {name:"wrist", axis:"z", length:0.4, width:0.2}
+  ],
+  tool:"gripper",
+  animation:{active:"pick_place"}
+},
+crane: {
+  name: "Overhead Crane", height: 4.0,
+  parts: [
+    {id:"pillars", shape:"box", size:[0.25,3.2,0.25], color:"#64748b",
+     pos:[0,1.6,0], repeat:{count:4, pattern:"corners", size:[5.5,3.5]}},
+    {id:"bridge", shape:"box", size:[6.0,0.35,0.4], color:"#eab308", glow:0.3, pos:[0,3.35,0]},
+    {id:"trolley", shape:"box", size:[0.7,0.4,0.5], color:"#f97316", glow:0.4, pos:[0,2.95,0],
+     children:[
+       {id:"hoist_arm", shape:"cylinder", radius:0.03, height:1.5, color:"#94a3b8", pos:[0,-1.0,0],
+        children:[
+          {id:"hook", shape:"cone", radius:0.15, height:0.35, color:"#fbbf24", glow:0.5, pos:[0,-0.9,0]}
+        ]}
+    ]}
+  ],
+  animation:{active:[
+    {target:"trolley", type:"move", axis:"x", min:-2.2, max:2.2, speed:0.4},
+    {target:"hoist_arm", type:"move", axis:"y", min:-1.4, max:-0.6, speed:0.7}
+  ]}
+},
+rotary: {
+  name: "Rotary Table", height: 1.5,
+  parts: [
+    {id:"base", shape:"cylinder", radius:0.95, height:0.25, color:"#64748b"},
+    {id:"platform", shape:"cylinder", radius:1.15, height:0.15, color:"#14b8a6", glow:0.3, on:"base",
+     children:[
+       {id:"markers", shape:"box", size:[0.12,0.18,0.06], color:"#fbbf24", glow:0.4,
+        pos:[0,0.1,0], repeat:{count:10, pattern:"circle", radius:0.95}},
+       {id:"fixture", shape:"cylinder", radius:0.25, height:0.3, color:"#22d3ee", glow:0.4, pos:[0,0.2,0]}
+     ]},
+    {id:"motor", shape:"box", size:[0.35,0.25,0.35], color:"#60a5fa", glow:0.3, pos:[0,0.13,1.15]}
+  ],
+  animation:{active:{target:"platform", type:"spin", axis:"y", speed:0.02}}
+},
+agv: {
+  name: "AGV", height: 1.5,
+  parts: [
+    {id:"wheels", shape:"cylinder", radius:0.1, height:0.12, color:"#1e293b",
+     pos:[0,0.1,0], repeat:{count:4, pattern:"corners", size:[0.9,0.6]}},
+    {id:"body", shape:"box", size:[1.1,0.15,0.75], color:"#fbbf24", glow:0.2, pos:[0,0.28,0]},
+    {id:"cargo", shape:"box", size:[0.8,0.35,0.55], color:"#94a3b8", opacity:0.7, pos:[0,0.53,0]},
+    {id:"sensor", shape:"cylinder", radius:0.04, height:0.25, color:"#22d3ee", glow:0.5, pos:[0,0.88,0]},
+    {id:"sensor_top", shape:"sphere", radius:0.07, color:"#22d3ee", glow:0.6, pos:[0,1.05,0]}
+  ],
+  animation:{active:{target:"wheels", type:"roll", speed:0.08}}
+},
+custom_robot: {
+  name: "CNC Loading Robot", height: 3.0,
+  chain: [
+    {name:"base", axis:"y", length:0.6, width:0.85},
+    {name:"shoulder", axis:"z", length:1.2, width:0.32},
+    {name:"elbow", axis:"z", length:1.0, width:0.28},
+    {name:"wrist", axis:"z", length:0.35, width:0.18}
+  ],
+  tool:"gripper",
+  poses: {
+    "cnc_door":     [0, -25, 40, 0],
+    "cnc_inside":   [0, -55, 80, 20],
+    "cnc_grab":     [0, -60, 90, 35],
+    "carry_high":   [0, -10, 20, -10],
+    "conv_above":   [90, -10, 20, -15],
+    "conv_place":   [90, -45, 65, 25],
+    "conv_release": [90, -35, 50, -10]
+  },
+  animation:{active:{
+    sequence:["home:open", "cnc_door", "cnc_inside", "cnc_grab:grab", "carry_high",
+              "conv_above", "conv_place", "conv_release:release", "conv_above", "home"],
+    speed: 0.45
+  }}
+},
+scara: {
+  name: "SCARA Robot", height: 2.5,
+  chain: [
+    {name:"base", axis:"y", length:0.8, width:0.7},
+    {name:"arm1", axis:"y", length:1.0, width:0.28},
+    {name:"arm2", axis:"y", length:0.7, width:0.22}
+  ],
+  tool:"vacuum",
+  animation:{active:{
+    base: {motion:"swing", amplitude:0.4, speed:0.8},
+    arm1: {motion:"swing", amplitude:0.6, speed:1.2},
+    arm2: {motion:"swing", amplitude:0.9, speed:1.6, phase:1.5}
+  }}
+},
+welder: {
+  name: "Welding Robot", height: 3.2,
+  chain: [
+    {name:"base", axis:"y", length:0.7, width:0.85},
+    {name:"shoulder", axis:"z", length:1.3, width:0.32},
+    {name:"elbow", axis:"z", length:1.1, width:0.26},
+    {name:"wrist", axis:"z", length:0.3, width:0.18}
+  ],
+  tool:"welder",
+  animation:{active:"welding"}
+},
+spray: {
+  name: "Paint Spray Booth", height: 3.0,
+  parts: [
+    {id:"booth", shape:"box", size:[2.8,2.3,1.8], color:"#cbd5e1", opacity:0.25, pos:[0,1.15,0]},
+    {id:"floor", shape:"box", size:[2.8,0.08,1.8], color:"#475569", pos:[0,0.04,0]},
+    {id:"rail", shape:"box", size:[2.2,0.08,0.08], color:"#64748b", pos:[0,2.0,0]},
+    {id:"arm", shape:"box", size:[0.12,0.7,0.12], color:"#f97316", glow:0.4, pos:[0,1.55,0],
+     children:[
+       {id:"nozzle", shape:"cone", radius:0.08, height:0.18, color:"#22d3ee", glow:0.6, pos:[0,-0.45,0]}
+     ]}
+  ],
+  animation:{active:{target:"arm", type:"move", axis:"x", min:-0.9, max:0.9}}
+}
+};
+
+// ── Three.js Globals ─────────────────────────────────────────
+let scene, camera, renderer, controls, gradientMap;
+let deviceGroup = null, stateIndicator = null;
+let animEntries = [], partMap = {};
+let time = 0, currentState = 'R';
+
+const STATE_COLORS = {R:0x10b981, G:0xeab308, F:0x3b82f6, H:0x6b7280};
+
+// ── Init ─────────────────────────────────────────────────────
+function init() {
+  const ct = document.getElementById('viewport');
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0f172a);
+
+  camera = new THREE.PerspectiveCamera(50, ct.clientWidth/ct.clientHeight, 0.05, 200);
+  camera.position.set(3, 3, 5);
+
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(ct.clientWidth, ct.clientHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  ct.appendChild(renderer.domElement);
+
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.7);
+  dir.position.set(5, 10, 7);
+  dir.castShadow = true;
+  scene.add(dir);
+  scene.add(new THREE.DirectionalLight(0xffffff, 0.2).position.set(-3, 5, -5));
+
+  const grid = new THREE.GridHelper(12, 12, 0x334155, 0x1e293b);
+  grid.position.y = -0.01;
+  scene.add(grid);
+
+  // Gradient map for toon shading
+  const c = new Uint8Array([50, 180, 255]);
+  gradientMap = new THREE.DataTexture(c, 3, 1, THREE.LuminanceFormat);
+  gradientMap.needsUpdate = true;
+
+  (function loop(){ requestAnimationFrame(loop); time+=0.016; updateAnimations(); controls.update(); renderer.render(scene,camera); })();
+
+  window.addEventListener('resize', () => {
+    camera.aspect = ct.clientWidth/ct.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(ct.clientWidth, ct.clientHeight);
+  });
+
+  document.getElementById('json-input').addEventListener('keydown', e => {
+    if(e.ctrlKey && e.key==='Enter'){ e.preventDefault(); renderFromEditor(); }
+    // Tab support
+    if(e.key==='Tab'){ e.preventDefault(); const t=e.target; const s=t.selectionStart; t.value=t.value.substring(0,s)+'  '+t.value.substring(t.selectionEnd); t.selectionStart=t.selectionEnd=s+2; }
+  });
+
+  loadPreset('lifter');
+}
+
+// ── Render from Editor ───────────────────────────────────────
+function renderFromEditor() {
+  const errEl = document.getElementById('error-msg');
+  try {
+    const txt = document.getElementById('json-input').value.trim();
+    const spec = JSON.parse(txt);
+    buildDevice(spec);
+    errEl.style.display = 'none';
+  } catch(e) {
+    errEl.textContent = '⚠ ' + e.message;
+    errEl.style.display = 'block';
+    setTimeout(()=>errEl.style.display='none', 4000);
+  }
+}
+
+// ── Build Device ─────────────────────────────────────────────
+function buildDevice(spec) {
+  if (deviceGroup) { scene.remove(deviceGroup); disposeGroup(deviceGroup); }
+  animEntries = []; partMap = {};
+
+  // Load user-defined poses
+  userPoses = {};
+  if (spec.poses) {
+    for (const [name, val] of Object.entries(spec.poses)) {
+      if (Array.isArray(val)) {
+        userPoses[name] = { angles: val, t: 1.0 };
+      } else {
+        userPoses[name] = val;
+      }
+    }
+  }
+
+  deviceGroup = new THREE.Group();
+  deviceGroup.name = spec.name || 'Device';
+
+  if (spec.chain) {
+    buildChain(spec.chain, spec.tool);
+  } else if (spec.parts) {
+    processParts(spec.parts, deviceGroup, false);
+  }
+
+  // State indicator
+  const box = new THREE.Box3().setFromObject(deviceGroup);
+  const sz = new THREE.Vector3(); box.getSize(sz);
+  const cn = new THREE.Vector3(); box.getCenter(cn);
+  const indGeo = new THREE.BoxGeometry(sz.x*1.15, sz.y*1.05, sz.z*1.15);
+  stateIndicator = new THREE.Mesh(indGeo, new THREE.MeshToonMaterial({
+    color: STATE_COLORS[currentState], transparent:true, opacity:0.18,
+    emissive: STATE_COLORS[currentState], emissiveIntensity:0.4, gradientMap
+  }));
+  stateIndicator.position.copy(cn);
+  deviceGroup.add(stateIndicator);
+
+  // Name label
+  addLabel(spec.name || '', cn, sz);
+
+  // Scale to target height
+  const targetH = spec.height || 2.0;
+  const curH = sz.y || 1;
+  const s = targetH / curH;
+  deviceGroup.scale.set(s, s, s);
+
+  scene.add(deviceGroup);
+
+  // Setup animations
+  if (spec.animation) setupAnimations(spec.animation);
+
+  fitCamera();
+}
+
+// ── Process Parts ────────────────────────────────────────────
+function processParts(parts, parent, isChild) {
+  for (const part of parts) {
+    processPart(part, parent, isChild);
+  }
+}
+
+function processPart(part, parent, isChild) {
+  const geo = createGeometry(part);
+  if (!geo) return;
+  const mat = createMaterial(part);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+
+  // Determine if this part has children → wrap in group
+  const hasChildren = part.children && part.children.length > 0;
+  const container = hasChildren ? new THREE.Group() : null;
+
+  // Position
+  positionMesh(mesh, part, parent, isChild);
+
+  // Repeat
+  if (part.repeat) {
+    const clones = applyRepeat(mesh, part);
+    const regList = [];
+    for (const cl of clones) {
+      if (hasChildren) {
+        const g = new THREE.Group();
+        g.position.copy(cl.position);
+        cl.position.set(0,0,0);
+        g.add(cl); addOutline(cl, g);
+        processParts(part.children, g, true);
+        parent.add(g);
+        regList.push(g);
+      } else {
+        parent.add(cl); addOutline(cl, parent);
+        regList.push(cl);
+      }
+    }
+    if (part.id) partMap[part.id] = regList;
+    return;
+  }
+
+  if (hasChildren) {
+    container.position.copy(mesh.position);
+    mesh.position.set(0,0,0);
+    container.add(mesh);
+    addOutline(mesh, container);
+    processParts(part.children, container, true);
+    parent.add(container);
+    if (part.id) {
+      partMap[part.id] = [container];
+      // Also register the part info for "on" references
+      partMap['__info_'+part.id] = {
+        topY: container.position.y + getHalfH(part),
+        cy: container.position.y, cx: container.position.x, cz: container.position.z
+      };
+    }
+  } else {
+    parent.add(mesh);
+    addOutline(mesh, parent);
+    if (part.id) {
+      partMap[part.id] = [mesh];
+      partMap['__info_'+part.id] = {
+        topY: mesh.position.y + getHalfH(part),
+        cy: mesh.position.y, cx: mesh.position.x, cz: mesh.position.z
+      };
+    }
+  }
+}
+
+// ── Create Geometry ──────────────────────────────────────────
+function createGeometry(part) {
+  const s = part.shape;
+  if (s==='box') {
+    const sz = part.size || [1,1,1];
+    return new THREE.BoxGeometry(sz[0], sz[1], sz[2]);
+  }
+  if (s==='cylinder') {
+    let rT, rB;
+    if (Array.isArray(part.radius)) { rT=part.radius[0]; rB=part.radius[1]; }
+    else { rT = rB = part.radius || 0.5; }
+    return new THREE.CylinderGeometry(rT, rB, part.height||1, 24);
+  }
+  if (s==='sphere') {
+    return new THREE.SphereGeometry(part.radius||0.5, 20, 20);
+  }
+  if (s==='cone') {
+    return new THREE.ConeGeometry(part.radius||0.5, part.height||1, 20);
+  }
+  return new THREE.BoxGeometry(1,1,1);
+}
+
+// ── Create Material ──────────────────────────────────────────
+function createMaterial(part) {
+  const color = new THREE.Color(part.color || '#94a3b8');
+  const glow = part.glow || 0;
+  const opts = {color, gradientMap};
+  if (glow > 0) { opts.emissive = color.clone(); opts.emissiveIntensity = glow; }
+  if (part.opacity !== undefined && part.opacity < 1) { opts.transparent = true; opts.opacity = part.opacity; }
+  return new THREE.MeshToonMaterial(opts);
+}
+
+// ── Outline ──────────────────────────────────────────────────
+function addOutline(mesh, parent) {
+  const outline = new THREE.Mesh(
+    mesh.geometry.clone(),
+    new THREE.MeshBasicMaterial({color:0x000000, side:THREE.BackSide})
+  );
+  outline.position.copy(mesh.position);
+  outline.rotation.copy(mesh.rotation);
+  outline.scale.copy(mesh.scale).multiplyScalar(1.08);
+  outline.renderOrder = -1;
+  parent.add(outline);
+}
+
+// ── Positioning ──────────────────────────────────────────────
+function getHalfH(part) {
+  if (part.shape==='box') return (part.size?part.size[1]:1)/2;
+  if (part.shape==='cylinder') return (part.height||1)/2;
+  if (part.shape==='sphere') return part.radius||0.5;
+  if (part.shape==='cone') return (part.height||1)/2;
+  return 0.5;
+}
+
+function positionMesh(mesh, part, parent, isChild) {
+  const hh = getHalfH(part);
+
+  if (part.pos) {
+    mesh.position.set(part.pos[0], part.pos[1], part.pos[2]);
+    return;
+  }
+
+  if (part.on) {
+    const info = partMap['__info_'+part.on];
+    if (info) {
+      mesh.position.set(info.cx, info.topY + hh, info.cz);
+    } else {
+      mesh.position.y = hh;
+    }
+  } else if (part.under) {
+    const info = partMap['__info_'+part.under];
+    if (info) {
+      mesh.position.set(info.cx, info.cy - info.topY + info.cy - hh, info.cz);
+    }
+  } else if (part.beside) {
+    const info = partMap['__info_'+part.beside];
+    if (info) {
+      mesh.position.set(info.cx + 1.5, info.cy, info.cz);
+    }
+  } else if (!isChild) {
+    mesh.position.y = hh; // Default: sit on ground
+  }
+
+  if (part.offset) {
+    mesh.position.x += part.offset[0];
+    mesh.position.y += part.offset[1];
+    mesh.position.z += part.offset[2];
+  }
+}
+
+// ── Repeat ───────────────────────────────────────────────────
+function applyRepeat(mesh, part) {
+  const rep = part.repeat;
+  const results = [];
+  const offsets = [];
+
+  if (rep.pattern === 'corners') {
+    const w = (rep.size?rep.size[0]:1)/2, d = (rep.size?rep.size[1]:1)/2;
+    offsets.push([-w,0,-d], [-w,0,d], [w,0,-d], [w,0,d]);
+  } else if (rep.pattern === 'line') {
+    const n = rep.count || 4;
+    const len = rep.length || 2;
+    const ax = rep.axis || 'x';
+    for (let i = 0; i < n; i++) {
+      const t = n > 1 ? (i/(n-1) - 0.5) * len : 0;
+      const o = [0,0,0];
+      if (ax==='x') o[0]=t; else if(ax==='y') o[1]=t; else o[2]=t;
+      offsets.push(o);
+    }
+  } else if (rep.pattern === 'circle') {
+    const n = rep.count || 8;
+    const r = rep.radius || 1;
+    for (let i = 0; i < n; i++) {
+      const a = (i/n) * Math.PI * 2;
+      offsets.push([Math.cos(a)*r, 0, Math.sin(a)*r]);
+    }
+  }
+
+  // If no pattern matched, just duplicate count times in a line
+  if (offsets.length === 0) {
+    const n = rep.count || 1;
+    for (let i = 0; i < n; i++) offsets.push([i*0.5, 0, 0]);
+  }
+
+  for (const off of offsets) {
+    const cl = mesh.clone();
+    cl.material = mesh.material.clone();
+    cl.position.set(
+      mesh.position.x + off[0],
+      mesh.position.y + off[1],
+      mesh.position.z + off[2]
+    );
+    // For circle pattern, rotate to face outward
+    if (rep.pattern === 'circle') {
+      cl.rotation.y = -Math.atan2(off[2], off[0]) + Math.PI/2;
+    }
+    // For cylinders used as rollers, rotate 90 degrees
+    if (part.shape === 'cylinder' && rep.pattern === 'line') {
+      cl.rotation.z = Math.PI/2;
+    }
+    results.push(cl);
+  }
+  return results;
+}
+
+// ── Chain (Robot Arm) ────────────────────────────────────────
+function buildChain(chain, tool) {
+  let currentGroup = deviceGroup;
+  const joints = [];
+  const colors = [0xfbbf24, 0xfde047, 0xfbbf24, 0xfde047, 0xfbbf24];
+
+  // ── Base platform ──
+  const baseW = chain[0] ? chain[0].width : 0.9;
+  const platH = 0.2;
+  const platGeo = new THREE.CylinderGeometry(baseW*0.65, baseW*0.7, platH, 28);
+  const platMesh = new THREE.Mesh(platGeo, new THREE.MeshToonMaterial({color:0x64748b, gradientMap}));
+  platMesh.position.y = platH/2;
+  platMesh.castShadow = true;
+  deviceGroup.add(platMesh);
+  addOutline(platMesh, deviceGroup);
+
+  // ── Build each joint+link ──
+  for (let i = 0; i < chain.length; i++) {
+    const seg = chain[i];
+    const isBase = (i === 0);
+    const w = seg.width || 0.3;
+    const len = seg.length || 0.5;
+
+    // Joint group — placed at the END of previous segment
+    const jointGroup = new THREE.Group();
+    if (isBase) {
+      jointGroup.position.y = platH; // on top of platform
+    } else {
+      jointGroup.position.y = chain[i-1].length || 0.5; // end of PREVIOUS link
+    }
+    jointGroup.name = seg.name;
+    currentGroup.add(jointGroup);
+    joints.push({group: jointGroup, axis: seg.axis || 'y', name: seg.name});
+
+    // ── Joint visual ──
+    if (isBase) {
+      // Base: tapered housing cylinder
+      const housingGeo = new THREE.CylinderGeometry(w*0.4, w*0.5, len, 22);
+      const housingMat = new THREE.MeshToonMaterial({
+        color: colors[0], gradientMap,
+        emissive: new THREE.Color(colors[0]), emissiveIntensity: 0.2
+      });
+      const housing = new THREE.Mesh(housingGeo, housingMat);
+      housing.position.y = len/2;
+      housing.castShadow = true;
+      jointGroup.add(housing);
+      addOutline(housing, jointGroup);
+
+      // Decorative ring at top
+      const ringGeo = new THREE.CylinderGeometry(w*0.42, w*0.42, 0.06, 22);
+      const ring = new THREE.Mesh(ringGeo, new THREE.MeshToonMaterial({color:0x475569, gradientMap}));
+      ring.position.y = len - 0.03;
+      ring.castShadow = true;
+      jointGroup.add(ring);
+    } else {
+      // Non-base: sphere joint + arm link
+      const jointR = Math.min(w * 0.55, 0.18);
+      const jointGeo = new THREE.SphereGeometry(jointR, 14, 14);
+      const jointMat = new THREE.MeshToonMaterial({
+        color: 0xf59e0b, gradientMap,
+        emissive: new THREE.Color(0xf59e0b), emissiveIntensity: 0.3
+      });
+      const jointMesh = new THREE.Mesh(jointGeo, jointMat);
+      jointMesh.castShadow = true;
+      jointGroup.add(jointMesh);
+      addOutline(jointMesh, jointGroup);
+
+      // Arm link
+      const armGeo = new THREE.BoxGeometry(w, len - jointR*0.5, w*0.75);
+      const col = colors[i % colors.length];
+      const armMat = new THREE.MeshToonMaterial({
+        color: col, gradientMap,
+        emissive: new THREE.Color(col), emissiveIntensity: 0.15
+      });
+      const armMesh = new THREE.Mesh(armGeo, armMat);
+      armMesh.position.y = (len - jointR*0.5)/2 + jointR*0.25;
+      armMesh.castShadow = true;
+      jointGroup.add(armMesh);
+      addOutline(armMesh, jointGroup);
+    }
+
+    currentGroup = jointGroup;
+  }
+
+  // ── End effector ──
+  const lastLen = chain[chain.length-1].length || 0.5;
+  const lastW = chain[chain.length-1].width || 0.2;
+
+  // Wrist flange
+  const flangeGeo = new THREE.CylinderGeometry(lastW*0.45, lastW*0.45, 0.08, 16);
+  const flange = new THREE.Mesh(flangeGeo, new THREE.MeshToonMaterial({color:0x475569, gradientMap}));
+  flange.position.y = lastLen + 0.04;
+  flange.castShadow = true;
+  currentGroup.add(flange);
+
+  const toolY = lastLen + 0.12;
+  const fingerOpenX = lastW * 0.5;
+  const fingerCloseX = lastW * 0.12;
+
+  if (tool === 'gripper') {
+    // Gripper base
+    const gripBase = new THREE.Mesh(
+      new THREE.BoxGeometry(lastW*1.2, 0.06, lastW*0.8),
+      new THREE.MeshToonMaterial({color:0x475569, gradientMap})
+    );
+    gripBase.position.y = toolY;
+    gripBase.castShadow = true;
+    currentGroup.add(gripBase);
+    // Fingers (registered for grip animation)
+    const fingerGeo = new THREE.BoxGeometry(0.04, 0.16, lastW*0.6);
+    const fingerMat = new THREE.MeshToonMaterial({
+      color:0x60a5fa, gradientMap,
+      emissive:new THREE.Color(0x3b82f6), emissiveIntensity:0.4
+    });
+    const fingers = [];
+    [-fingerOpenX, fingerOpenX].forEach(x => {
+      const f = new THREE.Mesh(fingerGeo, fingerMat);
+      f.position.set(x, toolY + 0.11, 0);
+      f.castShadow = true;
+      currentGroup.add(f);
+      addOutline(f, currentGroup);
+      fingers.push(f);
+    });
+    partMap['__fingers'] = fingers;
+    partMap['__finger_open'] = fingerOpenX;
+    partMap['__finger_close'] = fingerCloseX;
+  } else if (tool === 'vacuum') {
+    const vacGeo = new THREE.ConeGeometry(0.1, 0.2, 16);
+    const vacMesh = new THREE.Mesh(vacGeo, new THREE.MeshToonMaterial({
+      color:0x22d3ee, gradientMap,
+      emissive:new THREE.Color(0x06b6d4), emissiveIntensity:0.5
+    }));
+    vacMesh.position.y = toolY + 0.1;
+    vacMesh.rotation.x = Math.PI;
+    vacMesh.castShadow = true;
+    currentGroup.add(vacMesh);
+    addOutline(vacMesh, currentGroup);
+  } else if (tool === 'welder') {
+    const welGeo = new THREE.CylinderGeometry(0.04, 0.02, 0.22, 12);
+    const welMesh = new THREE.Mesh(welGeo, new THREE.MeshToonMaterial({
+      color:0xef4444, gradientMap,
+      emissive:new THREE.Color(0xef4444), emissiveIntensity:0.6
+    }));
+    welMesh.position.y = toolY + 0.11;
+    welMesh.castShadow = true;
+    currentGroup.add(welMesh);
+    addOutline(welMesh, currentGroup);
+  }
+
+  // Register joints for animation
+  partMap['__chain_joints'] = joints;
+}
+
+// ── Name Label ───────────────────────────────────────────────
+function addLabel(name, center, size) {
+  if (!name) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.font = 'bold 28px Arial';
+  ctx.textAlign = 'center';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 4;
+  ctx.strokeText(name, 128, 40);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fillText(name, 128, 40);
+  const tex = new THREE.CanvasTexture(canvas);
+  const lbl = new THREE.Mesh(
+    new THREE.PlaneGeometry(size.x * 0.8, size.x * 0.2),
+    new THREE.MeshBasicMaterial({map:tex, transparent:true, depthTest:false})
+  );
+  lbl.position.set(center.x, center.y + size.y * 0.65, center.z);
+  lbl.renderOrder = 100;
+  deviceGroup.add(lbl);
+}
+
+// ── Named Poses (pre-calculated joint angles in degrees) ─────
+// 4-joint standard: [base(Y), shoulder(Z), elbow(Z), wrist(Y)]
+const NAMED_POSES = {
+  // 기본 자세
+  home:         { angles: [0, 0, 0, 0],         t: 0.8 },
+  ready:        { angles: [0, -20, 30, 0],      t: 0.6 },
+  tuck:         { angles: [0, -15, 95, 30],     t: 0.8 },
+  extend_front: { angles: [0, -50, 15, -15],    t: 1.0 },
+
+  // 오른쪽 작업 영역
+  reach_right:  { angles: [45, -30, 50, -10],   t: 1.0 },
+  down_right:   { angles: [45, -55, 80, 30],    t: 0.8 },
+  up_right:     { angles: [40, -10, 20, -15],   t: 0.8 },
+
+  // 왼쪽 작업 영역
+  reach_left:   { angles: [-45, -30, 50, -10],  t: 1.0 },
+  down_left:    { angles: [-45, -55, 80, 30],   t: 0.8 },
+  up_left:      { angles: [-40, -10, 20, -15],  t: 0.8 },
+
+  // 정면 작업 영역
+  reach_front:  { angles: [0, -35, 55, -10],    t: 1.0 },
+  down_front:   { angles: [0, -60, 85, 25],     t: 0.8 },
+  up_front:     { angles: [0, -10, 20, -10],    t: 0.8 },
+
+  // 뒤쪽 (180도 회전)
+  reach_back:   { angles: [180, -30, 50, 0],    t: 1.2 },
+
+  // 중간 높이 (검사/이송 등)
+  mid_right:    { angles: [40, -35, 45, -10],   t: 0.8 },
+  mid_left:     { angles: [-40, -35, 45, -10],  t: 0.8 },
+  mid_front:    { angles: [0, -40, 50, -5],     t: 0.8 },
+};
+
+// User-defined poses from current device spec (merged at build time)
+let userPoses = {};
+
+function resolvePose(pose, joints) {
+  const DEG = Math.PI / 180;
+
+  // String → look up pose, handle :grab / :release suffix
+  if (typeof pose === 'string') {
+    let name = pose;
+    let grip; // undefined = no change
+
+    if (name.endsWith(':grab') || name.endsWith(':close')) {
+      name = name.split(':')[0]; grip = 1;
+    } else if (name.endsWith(':release') || name.endsWith(':open')) {
+      name = name.split(':')[0]; grip = 0;
+    }
+
+    const np = userPoses[name] || NAMED_POSES[name];
+    if (!np) return { angles: joints.map(()=>0), duration: 1.0, grip };
+    const src = np.angles || np;
+    const a = (Array.isArray(src) ? src : []).slice(0, joints.length);
+    while (a.length < joints.length) a.push(0);
+    const t = np.t || np.duration || 1.0;
+    return { angles: a.map(d => d * DEG), duration: t, grip };
+  }
+
+  // Array → raw degrees; if extra element beyond joints.length, it's grip (0~1)
+  if (Array.isArray(pose)) {
+    const a = pose.slice(0, joints.length);
+    while (a.length < joints.length) a.push(0);
+    const grip = pose.length > joints.length ? pose[joints.length] : undefined;
+    return { angles: a.map(d => d * DEG), duration: 1.0, grip };
+  }
+
+  // Object → named joint keys + optional "t" and "grip"
+  const angles = joints.map(j => (pose[j.name] || 0) * DEG);
+  return { angles, duration: pose.t || 1.0, grip: pose.grip };
+}
+
+// ── Animation Setup ──────────────────────────────────────────
+function setupAnimations(animSpec) {
+  animEntries = [];
+  if (!animSpec || !animSpec.active) return;
+
+  const joints = partMap['__chain_joints'];
+
+  // Handle sequence — keyframed poses (string names, arrays, or objects)
+  if (joints && typeof animSpec.active === 'object' && animSpec.active.sequence) {
+    const seq = animSpec.active.sequence;
+    const spd = animSpec.active.speed || 0.5;
+
+    const keyframes = seq.map(pose => resolvePose(pose, joints));
+
+    animEntries.push({
+      type: 'chain_sequence', joints, keyframes, speed: spd,
+      currentFrame: 0, progress: 0,
+      restRotations: joints.map(j => j.group.rotation.clone())
+    });
+    return;
+  }
+
+  // Handle named patterns for chain (resolve to pose sequences)
+  if (joints && typeof animSpec.active === 'string') {
+    const PATTERNS = {
+      pick_place: {
+        poses: ["home", "reach_right:open", "down_right:grab", "up_right", "up_left", "down_left:release", "up_left", "home"],
+        speed: 0.5
+      },
+      welding: {
+        poses: ["ready", "mid_right", "reach_right", "mid_front", "reach_left", "mid_left", "ready"],
+        speed: 0.35
+      },
+      palletize: {
+        poses: ["home", "down_front", "up_front", "reach_right", "down_right", "up_right", "home",
+                "down_front", "up_front", "reach_left", "down_left", "up_left", "home"],
+        speed: 0.5
+      },
+      inspect: {
+        poses: ["home", "reach_front", "reach_right", "reach_front", "reach_left", "reach_front", "home"],
+        speed: 0.4
+      }
+    };
+
+    const pattern = PATTERNS[animSpec.active];
+    if (pattern) {
+      const keyframes = pattern.poses.map(p => resolvePose(p, joints));
+      animEntries.push({
+        type: 'chain_sequence', joints, keyframes, speed: pattern.speed,
+        currentFrame: 0, progress: 0,
+        restRotations: joints.map(j => j.group.rotation.clone())
+      });
+      return;
+    }
+  }
+
+  // Handle "work" shorthand for chain — automatic natural motion
+  if (animSpec.active === 'work' && joints) {
+    joints.forEach((j, i) => {
+      const amp = j.axis === 'y'
+        ? 0.4 + Math.random()*0.2   // Y-axis: moderate rotation
+        : 0.35 + i*0.12;             // Z-axis: increasing reach
+      animEntries.push({
+        type: 'swing', meshes: [j.group], axis: j.axis,
+        angle: amp,
+        speed: 0.6 + i*0.35,
+        phase: i * 1.1 + (j.axis==='z' ? Math.PI*0.3 : 0),
+        restRotations: [j.group.rotation.clone()]
+      });
+    });
+    return;
+  }
+
+  // Handle per-joint chain animation (object with joint names as keys)
+  if (joints && typeof animSpec.active === 'object' && !Array.isArray(animSpec.active) && !animSpec.active.target) {
+    const cfg = animSpec.active;
+    joints.forEach((j, i) => {
+      const c = cfg[j.name];
+      if (c) {
+        animEntries.push({
+          type: 'swing', meshes: [j.group], axis: j.axis,
+          angle: c.amplitude || 0.5,
+          speed: c.speed || 1.0,
+          phase: c.phase || i * 1.0,
+          restRotations: [j.group.rotation.clone()]
+        });
+      } else {
+        // Default gentle motion for unspecified joints
+        animEntries.push({
+          type: 'swing', meshes: [j.group], axis: j.axis,
+          angle: 0.15, speed: 0.5, phase: i * 0.8,
+          restRotations: [j.group.rotation.clone()]
+        });
+      }
+    });
+    return;
+  }
+
+  const entries = Array.isArray(animSpec.active) ? animSpec.active : [animSpec.active];
+
+  for (const anim of entries) {
+    if (typeof anim === 'string') continue;
+    const targets = partMap[anim.target];
+    if (!targets || targets.length === 0) continue;
+
+    const meshes = targets;
+    const entry = {
+      type: anim.type,
+      meshes,
+      axis: anim.axis || 'y',
+      speed: anim.speed || 1,
+      min: anim.min,
+      max: anim.max,
+      angle: anim.angle || 0.5,
+      phase: anim.phase || 0,
+      restPositions: meshes.map(m => m.position.clone()),
+      restRotations: meshes.map(m => m.rotation.clone())
+    };
+
+    // Flow: add striped texture
+    if (anim.type === 'flow') {
+      for (const m of meshes) {
+        const cv = document.createElement('canvas');
+        cv.width = 256; cv.height = 32;
+        const cx = cv.getContext('2d');
+        for (let i = 0; i < 16; i++) {
+          cx.fillStyle = i%2===0 ? '#596577' : '#3d4758';
+          cx.fillRect(i*16, 0, 16, 32);
+        }
+        const tex = new THREE.CanvasTexture(cv);
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(3, 1);
+        m.material.map = tex;
+        m.material.needsUpdate = true;
+        entry._textures = entry._textures || [];
+        entry._textures.push(tex);
+      }
+    }
+
+    animEntries.push(entry);
+  }
+}
+
+// ── Animation Update ─────────────────────────────────────────
+function updateAnimations() {
+  const isActive = currentState === 'G';
+
+  // Pulse state indicator
+  if (stateIndicator) {
+    const baseOpacity = isActive ? 0.22 : 0.15;
+    const pulse = isActive ? Math.sin(time * 3) * 0.08 : 0;
+    stateIndicator.material.opacity = baseOpacity + pulse;
+  }
+
+  for (const entry of animEntries) {
+    const {type} = entry;
+
+    // ── Chain Sequence (keyframed joint animation + grip) ──
+    if (type === 'chain_sequence') {
+      const {joints, keyframes, speed, restRotations} = entry;
+      const fingers = partMap['__fingers'];
+      const openX = partMap['__finger_open'] || 0.07;
+      const closeX = partMap['__finger_close'] || 0.02;
+
+      if (!isActive) {
+        // Smoothly return to rest pose
+        joints.forEach((j, i) => {
+          const r = restRotations[i];
+          j.group.rotation.x += (r.x - j.group.rotation.x) * 0.04;
+          j.group.rotation.y += (r.y - j.group.rotation.y) * 0.04;
+          j.group.rotation.z += (r.z - j.group.rotation.z) * 0.04;
+        });
+        // Open gripper on idle
+        if (fingers) {
+          const cur = entry.currentGrip || 0;
+          entry.currentGrip = cur + (0 - cur) * 0.05;
+          const d = openX - (openX - closeX) * entry.currentGrip;
+          fingers[0].position.x = -d;
+          fingers[1].position.x = d;
+        }
+        entry.currentFrame = 0;
+        entry.progress = 0;
+        continue;
+      }
+
+      // Advance progress
+      const dur = keyframes[entry.currentFrame].duration || 1.0;
+      entry.progress += 0.016 * speed / dur;
+
+      if (entry.progress >= 1.0) {
+        entry.progress = 0;
+        entry.currentFrame = (entry.currentFrame + 1) % keyframes.length;
+      }
+
+      // Smoothstep interpolation
+      const t = entry.progress;
+      const st = t * t * (3 - 2 * t);
+
+      const from = keyframes[entry.currentFrame];
+      const to = keyframes[(entry.currentFrame + 1) % keyframes.length];
+
+      // Joint angles
+      joints.forEach((j, i) => {
+        const a0 = from.angles[i] || 0;
+        const a1 = to.angles[i] || 0;
+        j.group.rotation[j.axis] = a0 + (a1 - a0) * st;
+      });
+
+      // Grip interpolation
+      if (fingers && fingers.length >= 2) {
+        const g0 = from.grip !== undefined ? from.grip : (entry.currentGrip || 0);
+        const g1 = to.grip !== undefined ? to.grip : g0;
+        entry.currentGrip = g0 + (g1 - g0) * st;
+        const d = openX - (openX - closeX) * entry.currentGrip;
+        fingers[0].position.x = -d;
+        fingers[1].position.x = d;
+      }
+
+      continue;
+    }
+
+    // ── Standard animations (move, spin, swing, roll, flow) ──
+    const {meshes, axis, speed, min, max, angle, phase, restPositions, restRotations} = entry;
+    const axIdx = axis==='x'?'x': axis==='y'?'y':'z';
+
+    for (let i = 0; i < meshes.length; i++) {
+      const m = meshes[i];
+      const restP = restPositions ? restPositions[i] : null;
+      const restR = restRotations ? restRotations[i] : null;
+
+      if (!isActive) {
+        if (restP) {
+          m.position.x += (restP.x - m.position.x) * 0.05;
+          m.position.y += (restP.y - m.position.y) * 0.05;
+          m.position.z += (restP.z - m.position.z) * 0.05;
+        }
+        if (restR && type !== 'spin') {
+          m.rotation.x += (restR.x - m.rotation.x) * 0.05;
+          m.rotation.y += (restR.y - m.rotation.y) * 0.05;
+          m.rotation.z += (restR.z - m.rotation.z) * 0.05;
+        }
+        continue;
+      }
+
+      if (type === 'move') {
+        if (min !== undefined && max !== undefined) {
+          const t = (Math.sin(time * speed * 2) + 1) / 2;
+          m.position[axIdx] = min + t * (max - min);
+        }
+      } else if (type === 'spin') {
+        m.rotation[axIdx] += speed;
+      } else if (type === 'swing') {
+        const p = phase || 0;
+        m.rotation[axIdx] = Math.sin(time * speed + p) * (angle || 0.5);
+      } else if (type === 'roll') {
+        m.rotation.x += speed;
+      } else if (type === 'flow') {
+        if (entry._textures) {
+          for (const tex of entry._textures) {
+            tex.offset.x -= speed;
+          }
+        }
+      }
+    }
+  }
+}
+
+// ── State Management ─────────────────────────────────────────
+function setState(s) {
+  currentState = s;
+  document.querySelectorAll('.state-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.state === s);
+  });
+  if (stateIndicator) {
+    stateIndicator.material.color.setHex(STATE_COLORS[s]);
+    stateIndicator.material.emissive.setHex(STATE_COLORS[s]);
+  }
+}
+
+// ── Camera Fit ───────────────────────────────────────────────
+function fitCamera() {
+  if (!deviceGroup) return;
+  const box = new THREE.Box3().setFromObject(deviceGroup);
+  const sz = new THREE.Vector3(); box.getSize(sz);
+  const cn = new THREE.Vector3(); box.getCenter(cn);
+  const maxDim = Math.max(sz.x, sz.y, sz.z);
+  const dist = maxDim * 2.2;
+  camera.position.set(cn.x + dist*0.5, cn.y + dist*0.4, cn.z + dist*0.7);
+  controls.target.copy(cn);
+  controls.update();
+}
+
+// ── Load Preset ──────────────────────────────────────────────
+function loadPreset(name) {
+  const spec = PRESETS[name];
+  if (!spec) return;
+  document.getElementById('json-input').value = JSON.stringify(spec, null, 2);
+  buildDevice(spec);
+  setState('R');
+}
+
+// ── Dispose ──────────────────────────────────────────────────
+function disposeGroup(group) {
+  group.traverse(child => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      if (child.material.map) child.material.map.dispose();
+      child.material.dispose();
+    }
+  });
+}
+
+// ── Start ────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
