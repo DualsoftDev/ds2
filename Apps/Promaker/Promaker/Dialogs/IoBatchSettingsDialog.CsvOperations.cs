@@ -325,7 +325,7 @@ public partial class IoBatchSettingsDialog
             return;
 
         var sb = new StringBuilder();
-        sb.AppendLine("Flow,Work,Device,Api,OutTag,OutDataType,OutAddress,InTag,InDataType,InAddress");
+        sb.AppendLine("Flow,Work,Device,Api,OutName,OutDataType,OutAddress,InName,InDataType,InAddress");
         foreach (var row in _rows)
         {
             sb.AppendLine(string.Join(",",
