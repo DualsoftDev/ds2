@@ -44,42 +44,45 @@ module internal ImportPlanDeviceOps =
         (state: DeviceBatchState) =
         let systemName = systemNameHint |> Option.defaultWith (fun () -> $"{flowName}_{devAlias}")
         match Map.tryFind systemName state.PendingSystems with
-        | Some system -> system, state
+        | Some system -> system, systemName, state
         | None ->
-            // DeviceAlias 자체가 기존 passive system 이름과 일치하면 재사용
-            match Map.tryFind devAlias state.PendingSystems with
-            | Some system -> system, state
+            // DeviceAlias fallback: systemNameHint가 없을 때만 (hint가 있으면 systemName이 고유 키)
+            match (if systemNameHint.IsNone then Map.tryFind devAlias state.PendingSystems else None) with
+            | Some system -> system, systemName, state
             | None ->
             let passiveSystems = Queries.passiveSystemsOf projectId store
-            match passiveSystems |> List.tryFind (fun s -> s.Name = devAlias)
-                  |> Option.orElseWith (fun () -> passiveSystems |> List.tryFind (fun s -> s.Name = systemName)) with
+            let passiveMatch =
+                if systemNameHint.IsNone then
+                    passiveSystems |> List.tryFind (fun s -> s.Name = devAlias)
+                    |> Option.orElseWith (fun () -> passiveSystems |> List.tryFind (fun s -> s.Name = systemName))
+                else
+                    passiveSystems |> List.tryFind (fun s -> s.Name = systemName)
+            match passiveMatch with
             | Some existing ->
                 match Queries.flowsOf existing.Id store with
                 | flow :: _ ->
                     let existingWorks = Queries.worksOf flow.Id store
                     let existingWorkOrder =
-                        Map.tryFind devAlias state.PendingWorkOrderRev
+                        Map.tryFind systemName state.PendingWorkOrderRev
                         |> Option.defaultValue []
                         |> List.append existingWorks
                     let existingPendingWorks =
                         existingWorks
                         |> List.fold (fun acc work -> Map.add (work.Name, existing.Id) work acc) state.PendingWorks
-                    existing,
+                    existing, systemName,
                     { state with
                         PendingSystems = Map.add systemName existing state.PendingSystems
-                                        |> Map.add devAlias existing
-                        PendingFlows = Map.add devAlias flow state.PendingFlows
+                        PendingFlows = Map.add systemName flow state.PendingFlows
                         NewSystemIds = Set.add existing.Id state.NewSystemIds
-                        PendingWorkOrderRev = Map.add devAlias existingWorkOrder state.PendingWorkOrderRev
+                        PendingWorkOrderRev = Map.add systemName existingWorkOrder state.PendingWorkOrderRev
                         PendingWorks = existingPendingWorks }
                 | [] ->
                     let flow = Flow($"{devAlias}_Flow", existing.Id)
                     queueOperation (AddFlow flow) operations
-                    existing,
+                    existing, systemName,
                     { state with
                         PendingSystems = Map.add systemName existing state.PendingSystems
-                                        |> Map.add devAlias existing
-                        PendingFlows = Map.add devAlias flow state.PendingFlows
+                        PendingFlows = Map.add systemName flow state.PendingFlows
                         NewSystemIds = Set.add existing.Id state.NewSystemIds }
             | None ->
                 let system = DsSystem(systemName)
@@ -87,15 +90,14 @@ module internal ImportPlanDeviceOps =
                 queueOperation (AddSystem system) operations
                 queueOperation (LinkSystemToProject(projectId, system.Id, false)) operations
                 queueOperation (AddFlow flow) operations
-                system,
+                system, systemName,
                 { state with
                     PendingSystems = Map.add systemName system state.PendingSystems
-                                    |> Map.add devAlias system
-                    PendingFlows = Map.add devAlias flow state.PendingFlows
+                    PendingFlows = Map.add systemName flow state.PendingFlows
                     NewSystemIds = Set.add system.Id state.NewSystemIds }
 
     let private ensurePendingWork
-        (devAlias: string)
+        (deviceKey: string)
         (apiName: string)
         (systemId: Guid)
         (store: DsStore)
@@ -105,7 +107,7 @@ module internal ImportPlanDeviceOps =
         if not (Set.contains systemId state.NewSystemIds) || Map.containsKey key state.PendingWorks then
             state
         else
-            let flow = Map.find devAlias state.PendingFlows
+            let flow = Map.find deviceKey state.PendingFlows
             let work =
                 Queries.worksOf flow.Id store
                 |> List.tryFind (fun existing -> existing.LocalName = apiName)
@@ -114,10 +116,10 @@ module internal ImportPlanDeviceOps =
                     created.Duration <- Some (TimeSpan.FromMilliseconds 500.)
                     queueOperation (AddWork created) operations
                     created)
-            let current = Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []
+            let current = Map.tryFind deviceKey state.PendingWorkOrderRev |> Option.defaultValue []
             { state with
                 PendingWorks = Map.add key work state.PendingWorks
-                PendingWorkOrderRev = Map.add devAlias (work :: current) state.PendingWorkOrderRev }
+                PendingWorkOrderRev = Map.add deviceKey (work :: current) state.PendingWorkOrderRev }
 
     let private ensureApiDef
         (store: DsStore)
@@ -162,8 +164,8 @@ module internal ImportPlanDeviceOps =
         (operations: ResizeArray<ImportPlanOperation>)
         (state: DeviceBatchState) =
         state.PendingWorkOrderRev
-        |> Map.fold (fun currentState devAlias workOrderRev ->
-            match Map.tryFind devAlias currentState.PendingFlows with
+        |> Map.fold (fun currentState deviceKey workOrderRev ->
+            match Map.tryFind deviceKey currentState.PendingFlows with
             | None -> currentState
             | Some flow ->
                 let systemId = flow.ParentId
@@ -206,8 +208,8 @@ module internal ImportPlanDeviceOps =
                     st
                 else
                     let devAlias = call.DevicesAlias
-                    let system, withSystem = ensureSystem store projectId flowName devAlias sysHint operations st
-                    let withWork = ensurePendingWork devAlias apiName system.Id store operations withSystem
+                    let system, deviceKey, withSystem = ensureSystem store projectId flowName devAlias sysHint operations st
+                    let withWork = ensurePendingWork deviceKey apiName system.Id store operations withSystem
                     let apiDef, withApiDef = ensureApiDef store system apiName operations withWork
                     createAndRegisterApiCall call callName apiDef.Id operations
                     withApiDef

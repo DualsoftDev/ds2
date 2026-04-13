@@ -31,6 +31,8 @@ type SimIndex = {
     mutable CallStartPreds: Map<Guid, Guid list>
     CallWorkGuid: Map<Guid, Guid>
     CallApiCallGuids: Map<Guid, Guid list>
+    /// ApiCall Guid → ApiCall 객체 (복제 ApiCall 포함, store 비의존 조회용)
+    CallApiCallObjects: Map<Guid, ApiCall>
     CallAutoAuxConditions: Map<Guid, ConditionEntry list>
     CallComAuxConditions: Map<Guid, ConditionEntry list>
     CallSkipUnmatchConditions: Map<Guid, ConditionEntry list>
@@ -75,6 +77,7 @@ module SimIndex =
         mutable CallStartPreds: Map<Guid, Guid list>
         mutable CallWorkGuid: Map<Guid, Guid>
         mutable CallApiCallGuids: Map<Guid, Guid list>
+        mutable CallApiCallObjects: Map<Guid, ApiCall>
         mutable CallAutoAuxConditions: Map<Guid, ConditionEntry list>
         mutable CallComAuxConditions: Map<Guid, ConditionEntry list>
         mutable CallSkipUnmatchConditions: Map<Guid, ConditionEntry list>
@@ -114,20 +117,21 @@ module SimIndex =
     // ── 타입별 조회 헬퍼 ─────────────────────────────────────────────
 
     /// ApiCall → ApiDef → property Guid 체인 (TxGuid/RxGuid 공용)
-    let private resolveApiDefGuids (store: DsStore) (apiCallGuids: Guid list) (propGetter: ApiDef -> Guid option) =
+    /// CallApiCallObjects 맵으로 복제 ApiCall도 해석 가능
+    let private resolveApiDefGuids (store: DsStore) (apiCallObjects: Map<Guid, ApiCall>) (apiCallGuids: Guid list) (propGetter: ApiDef -> Guid option) =
         apiCallGuids |> List.choose (fun apiCallId ->
-            Queries.getApiCall apiCallId store
+            apiCallObjects |> Map.tryFind apiCallId
             |> Option.bind (fun ac -> ac.ApiDefId)
             |> Option.bind (fun defId -> Queries.getApiDef defId store)
             |> Option.bind propGetter)
 
     /// Call의 ApiCall들에서 TxWork Guid 목록 추출
     let txWorkGuids (index: SimIndex) (callGuid: Guid) =
-        resolveApiDefGuids index.Store (findOrEmpty callGuid index.CallApiCallGuids) (fun d -> d.TxGuid)
+        resolveApiDefGuids index.Store index.CallApiCallObjects (findOrEmpty callGuid index.CallApiCallGuids) (fun d -> d.TxGuid)
 
     /// Call의 ApiCall들에서 RxWork Guid 목록 추출
     let rxWorkGuids (index: SimIndex) (callGuid: Guid) =
-        resolveApiDefGuids index.Store (findOrEmpty callGuid index.CallApiCallGuids) (fun p -> p.RxGuid)
+        resolveApiDefGuids index.Store index.CallApiCallObjects (findOrEmpty callGuid index.CallApiCallGuids) (fun p -> p.RxGuid)
 
 
     let private convertConditions (store: DsStore) (conditions: CallCondition seq) : ConditionEntry list =
@@ -173,7 +177,7 @@ module SimIndex =
             AllWorkGuids = []; AllCallGuids = []; AllFlowGuids = []
             WorkCallGuids = Map.empty; WorkStartPreds = Map.empty; WorkPureStartPreds = Map.empty; WorkResetPreds = Map.empty
             WorkDuration = Map.empty; WorkSystemName = Map.empty; WorkName = Map.empty; WorkFlowGuid = Map.empty
-            CallStartPreds = Map.empty; CallWorkGuid = Map.empty; CallApiCallGuids = Map.empty
+            CallStartPreds = Map.empty; CallWorkGuid = Map.empty; CallApiCallGuids = Map.empty; CallApiCallObjects = Map.empty
             CallAutoAuxConditions = Map.empty; CallComAuxConditions = Map.empty; CallSkipUnmatchConditions = Map.empty
             CallTypeMap = Map.empty
             CallTimeoutMap = Map.empty
@@ -192,6 +196,18 @@ module SimIndex =
             |> List.map (fun (key, groupedValues) -> key, groupedValues |> List.collect snd)
             |> Map.ofList
 
+        /// REF Work용 Call/ApiCall 복제 (새 GUID로 독립 실행 가능)
+        let cloneCallForAlias (original: Call) : Call =
+            let dataSource =
+                match original.ReferenceOf with
+                | Some origId -> Queries.getCall origId store |> Option.defaultValue original
+                | None -> original
+            let clone = dataSource.DeepCopy()
+            clone.Id <- Guid.NewGuid()
+            for acClone in clone.ApiCalls do
+                acClone.Id <- Guid.NewGuid()
+            clone
+
         let addCallData (work: Work) (callStartPreds: Map<Guid, Guid list>) (call: Call) =
             // 레퍼런스 Call → 원본 Call의 데이터(ApiCalls, 조건, Preds) 사용
             let dataSource =
@@ -200,6 +216,8 @@ module SimIndex =
                 | None -> call
             let apiCallIds = dataSource.ApiCalls |> Seq.map (fun apiCall -> apiCall.Id) |> Seq.toList
             state.CallApiCallGuids <- state.CallApiCallGuids.Add(call.Id, apiCallIds)
+            for apiCall in dataSource.ApiCalls do
+                state.CallApiCallObjects <- state.CallApiCallObjects.Add(apiCall.Id, apiCall)
             state.CallStartPreds <- state.CallStartPreds.Add(call.Id, findOrEmpty dataSource.Id callStartPreds)
             state.CallWorkGuid <- state.CallWorkGuid.Add(call.Id, work.Id)
             state.CallAutoAuxConditions <- state.CallAutoAuxConditions.Add(call.Id, conditionSpecs store CallConditionType.AutoAux dataSource)
@@ -239,12 +257,10 @@ module SimIndex =
                         |> Option.defaultValue 0
                         |> float
                     max userDurationMs deviceMs
-            // 레퍼런스 Work는 원본 Work의 화살표를 상속
-            let arrowKey = work.ReferenceOf |> Option.defaultValue work.Id
             state.WorkCallGuids <- state.WorkCallGuids.Add(work.Id, callGuids)
-            state.WorkStartPreds <- state.WorkStartPreds.Add(work.Id, findOrEmpty arrowKey workStartPreds)
-            state.WorkPureStartPreds <- state.WorkPureStartPreds.Add(work.Id, findOrEmpty arrowKey workPureStartPreds)
-            state.WorkResetPreds <- state.WorkResetPreds.Add(work.Id, findOrEmpty arrowKey workResetPreds)
+            state.WorkStartPreds <- state.WorkStartPreds.Add(work.Id, findOrEmpty work.Id workStartPreds)
+            state.WorkPureStartPreds <- state.WorkPureStartPreds.Add(work.Id, findOrEmpty work.Id workPureStartPreds)
+            state.WorkResetPreds <- state.WorkResetPreds.Add(work.Id, findOrEmpty work.Id workResetPreds)
             state.WorkDuration <- state.WorkDuration.Add(work.Id, duration)
             state.WorkSystemName <- state.WorkSystemName.Add(work.Id, system.Name)
             state.WorkName <- state.WorkName.Add(work.Id, work.Name)
@@ -293,13 +309,17 @@ module SimIndex =
                 state.AllFlowGuids <- flow.Id :: state.AllFlowGuids
                 let works = Queries.worksOf flow.Id store
                 for work in works do
-                    // 레퍼런스 Work → 원본의 Call을 공유
                     let resolvedWorkId = work.ReferenceOf |> Option.defaultValue work.Id
-                    let calls = Queries.callsOf resolvedWorkId store
-                    let callGuids = calls |> List.map (fun c -> c.Id)
-                    if work.ReferenceOf.IsNone then
-                        for call in calls do
-                            addCallData work cStartPreds call
+                    let originalCalls = Queries.callsOf resolvedWorkId store
+                    let calls, callGuids =
+                        if work.ReferenceOf.IsNone then
+                            originalCalls, originalCalls |> List.map (fun c -> c.Id)
+                        else
+                            // REF Work: Call/ApiCall을 새 GUID로 복제하여 독립 실행
+                            let cloned = originalCalls |> List.map cloneCallForAlias
+                            cloned, cloned |> List.map (fun c -> c.Id)
+                    for call in calls do
+                        addCallData work cStartPreds call
 
                     addWorkData system flow.Id work callGuids wStartPreds wPureStartPreds wResetPreds
 
@@ -363,33 +383,22 @@ module SimIndex =
                 if role = TokenRole.None then None else Some (workGuid, role))
             |> Map.ofSeq
 
-        let canonicalTokenSuccMap =
-            tokenSuccMap
-            |> Map.toSeq
-            |> Seq.collect (fun (sourceGuid, targetGuids) ->
-                let canonicalSource = workCanonicalGuids |> Map.tryFind sourceGuid |> Option.defaultValue sourceGuid
-                targetGuids
-                |> Seq.map (fun targetGuid ->
-                    canonicalSource,
-                    (workCanonicalGuids |> Map.tryFind targetGuid |> Option.defaultValue targetGuid)))
-            |> Seq.filter (fun (sourceGuid, targetGuid) -> sourceGuid <> targetGuid)
-            |> Seq.groupBy fst
-            |> Seq.map (fun (sourceGuid, pairs) ->
-                sourceGuid,
-                (pairs |> Seq.map snd |> Seq.distinct |> Seq.toList))
-            |> Map.ofSeq
-
+        // REF Work: 자체 outgoing arrow가 없으면 원본의 successor를 상속
         let expandedTokenSuccMap =
             workCanonicalGuids
-            |> Map.toSeq
-            |> Seq.choose (fun (workGuid, canonical) ->
-                canonicalTokenSuccMap
-                |> Map.tryFind canonical
-                |> Option.map (fun targetGuids -> workGuid, targetGuids))
-            |> Map.ofSeq
+            |> Map.fold (fun acc workGuid canonical ->
+                if workGuid <> canonical then
+                    match acc |> Map.tryFind workGuid with
+                    | Some _ -> acc
+                    | None ->
+                        match acc |> Map.tryFind canonical with
+                        | Some succs -> acc.Add(workGuid, succs)
+                        | None -> acc
+                else acc
+            ) tokenSuccMap
 
-        let tokenSourceCanonicals =
-            mergeTokenRoleByCanonical
+        let tokenSources =
+            expandedTokenRoleMap
             |> Map.toSeq
             |> Seq.choose (fun (workGuid, role) ->
                 if role.HasFlag(TokenRole.Source) then Some workGuid else None)
@@ -397,17 +406,15 @@ module SimIndex =
 
         // ── Sink: TokenRole.Sink로 수동 지정된 Work ──
         let tokenSinkGuids =
-            mergeTokenRoleByCanonical
+            expandedTokenRoleMap
             |> Map.toSeq
             |> Seq.choose (fun (workGuid, role) ->
                 if role.HasFlag(TokenRole.Sink) then Some workGuid else None)
-            |> Seq.collect expandReferenceMembers
             |> Set.ofSeq
 
-        // 토큰 경로: Source에서 successor를 BFS로 따라간 canonical Work
+        // 토큰 경로: Source에서 successor를 BFS로 따라감
         let tokenPathGuids =
-            SimIndexTokenGraph.buildTokenPathGuids tokenSourceCanonicals canonicalTokenSuccMap
-            |> Seq.collect expandReferenceMembers
+            SimIndexTokenGraph.buildTokenPathGuids tokenSources expandedTokenSuccMap
             |> Set.ofSeq
 
         let allWorkGuidsRev = state.AllWorkGuids |> List.rev
@@ -443,6 +450,7 @@ module SimIndex =
           CallStartPreds = state.CallStartPreds
           CallWorkGuid = state.CallWorkGuid
           CallApiCallGuids = state.CallApiCallGuids
+          CallApiCallObjects = state.CallApiCallObjects
           CallAutoAuxConditions = state.CallAutoAuxConditions
           CallComAuxConditions = state.CallComAuxConditions
           CallSkipUnmatchConditions = state.CallSkipUnmatchConditions
@@ -453,7 +461,7 @@ module SimIndex =
           TickMs = tickMs
           WorkTokenRole = expandedTokenRoleMap
           WorkTokenSuccessors = expandedTokenSuccMap
-          TokenSourceGuids = tokenSourceCanonicals |> List.distinct |> List.sort
+          TokenSourceGuids = tokenSources |> List.distinct |> List.sort
           TokenSinkGuids = tokenSinkGuids
           TokenPathGuids = tokenPathGuids
           CallTypeMap = state.CallTypeMap
