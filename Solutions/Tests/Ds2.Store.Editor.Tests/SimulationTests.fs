@@ -153,7 +153,7 @@ module SimIndexTests =
         Assert.True(index.TokenSinkGuids.IsEmpty)
 
     [<Fact>]
-    let ``build canonicalizes token source guid for reference works`` () =
+    let ``build keeps independent token source guids for reference works`` () =
         let store = createStore ()
         let _, _, _, work = setupBasicHierarchy store
         let refId = store.AddReferenceWork(work.Id)
@@ -162,8 +162,8 @@ module SimIndexTests =
 
         let index = SimIndex.build store 10
 
-        Assert.Equal<Guid list>([ work.Id ], index.TokenSourceGuids)
-        Assert.Equal(TokenRole.Source, index.WorkTokenRole[work.Id])
+        // REF에 Source 설정 → REF 자신이 TokenSource로 등록 (독립 실행)
+        Assert.Contains(refId, index.TokenSourceGuids)
         Assert.Equal(TokenRole.Source, index.WorkTokenRole[refId])
 
     [<Fact>]
@@ -349,43 +349,27 @@ module StepModeTests =
 module EventDrivenEngineTokenTests =
 
     [<Fact>]
-    let ``reference work shares token and runtime state with original work`` () =
+    let ``reference work executes independently from original work`` () =
         let store = createStore ()
         let _, _, _, work = setupBasicHierarchy store
         let refId = store.AddReferenceWork(work.Id)
 
         store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
-        store.UpdateWorkPeriodMs(work.Id, Some 2000)
+        store.UpdateWorkPeriodMs(work.Id, Some 100)
 
         let index = SimIndex.build store 10
         let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
 
         try
-            let token = engine.NextToken()
-            engine.SeedToken(work.Id, token)
-
-            Assert.Equal(Some token, engine.GetWorkToken(work.Id))
-            Assert.Equal(Some token, engine.GetWorkToken(refId))
-
             engine.Start()
             engine.ForceWorkState(work.Id, Status4.Going)
             Assert.True(
                 waitUntil 1000 (fun () ->
                     engine.GetWorkState(work.Id) = Some Status4.Going
-                    && engine.GetWorkState(refId) = Some Status4.Going),
-                "reference group should share Going state")
-
-            engine.ForceWorkState(work.Id, Status4.Finish)
-            Assert.True(
-                waitUntil 1000 (fun () ->
-                    engine.GetWorkState(work.Id) = Some Status4.Finish
-                    && engine.GetWorkState(refId) = Some Status4.Finish),
-                "reference group should share Finish state")
-
-            Assert.Equal(engine.GetWorkToken(work.Id), engine.GetWorkToken(refId))
+                    && engine.GetWorkState(refId) = Some Status4.Ready),
+                "reference work should stay Ready when original goes Going")
         finally
             engine.Stop()
-
 
     [<Fact>]
     let ``blocked token waits for successor ready before shifting`` () =

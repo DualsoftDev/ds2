@@ -75,7 +75,8 @@ public partial class MainViewModel
         if (dialog.ShowDialog() != true)
             return;
 
-        ExportCsvToPath(dialog.FileName);
+        if (ExportCsvToPath(dialog.FileName))
+            CsvFileHelper.PromptOpenAfterExport(dialog.FileName, title: "프로젝트 CSV 내보내기");
     }
 
     private bool ExportCsvToPath(string filePath)
@@ -87,7 +88,6 @@ public partial class MainViewModel
             {
                 Log.Info($"CSV exported: {filePath}");
                 StatusText = $"CSV 내보내기 완료 ({filePath})";
-                CsvFileHelper.PromptOpenAfterExport(filePath, title: "프로젝트 CSV 내보내기");
                 return true;
             }
 
