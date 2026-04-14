@@ -19,6 +19,7 @@ public partial class Home
     private bool _csvImportReplace; // true = 교체, false = 추가
     private bool _showCsvReplaceConfirm;
     private AasTreeNode? _csvReplaceTargetNode;
+    private AasTreeNode? _csvTargetNode; // CSV 작업 대상 노드 (추가/교체 공용)
 
     private static readonly string[] ErrorValueTypes =
         ["Bit", "Byte", "Word", "DWord", "Int16", "Int32", "Real", "String"];
@@ -98,10 +99,7 @@ public partial class Home
         _currentEnv = Converter.JsonToEnvironment(updatedJson);
         await SyncJsonToEditorAsync(updatedJson);
         RebuildTree();
-
-        // 삭제 후 동일 SML 노드 재선택
-        var restoredNode = FindNodeByJsonPath(_treeNodes, smlPath);
-        if (restoredNode is not null) SelectNode(restoredNode);
+        RestoreErrorDefNode(smlPath);
 
         SetStatus("에러 정의가 삭제되었습니다", "success");
     }
@@ -136,12 +134,24 @@ public partial class Home
         _currentEnv = Converter.JsonToEnvironment(updatedJson);
         await SyncJsonToEditorAsync(updatedJson);
         RebuildTree();
-
-        var restoredNode = FindNodeByJsonPath(_treeNodes, smlPath);
-        if (restoredNode is not null) SelectNode(restoredNode);
+        RestoreErrorDefNode(smlPath);
 
         _showErrorDefEditor = false;
         SetStatus(_editingErrorDefIndex >= 0 ? "에러 정의가 수정되었습니다" : "에러 정의가 추가되었습니다", "success");
+    }
+
+    /// <summary>
+    /// RebuildTree 후 ErrorDefinitions SML 노드를 다시 선택하고 Explorer 경로를 복원
+    /// </summary>
+    private void RestoreErrorDefNode(string smlJsonPath)
+    {
+        var restoredNode = FindNodeByJsonPath(_treeNodes, smlJsonPath);
+        if (restoredNode is null) return;
+        SelectNode(restoredNode);
+        // Explorer 경로 복원: 해당 노드의 부모 경로를 재구성
+        var path = new List<AasTreeNode>();
+        if (FindPathToNode(_treeNodes, restoredNode, path))
+            _explorerPath = path;
     }
 
     // ===== CSV Export / Import =====
@@ -172,7 +182,7 @@ public partial class Home
 
     private void OnImportErrorDefCsv(bool replace, AasTreeNode errNode)
     {
-        SelectNode(errNode);
+        _csvTargetNode = errNode;
         _csvImportReplace = replace;
     }
 
@@ -182,6 +192,14 @@ public partial class Home
         {
             var file = e.File;
             if (file is null) return;
+
+            // CSV 교체 확인 모달 닫기 (파일 선택 후 안전하게 닫음)
+            _showCsvReplaceConfirm = false;
+
+            // 대상 노드 결정: _csvTargetNode 우선, 없으면 _selectedNode
+            var targetNode = _csvTargetNode ?? _selectedNode;
+            if (targetNode is null || string.IsNullOrWhiteSpace(_currentJson)) return;
+            SelectNode(targetNode);
 
             using var reader = new StreamReader(file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024));
             var content = await reader.ReadToEndAsync();
@@ -212,12 +230,10 @@ public partial class Home
                 return;
             }
 
-            if (_selectedNode is null || string.IsNullOrWhiteSpace(_currentJson)) return;
-
             var csvAction = _csvImportReplace ? "교체" : "추가";
             PushUndo($"CSV {csvAction} ({entries.Count}건)");
 
-            var smlPath = _selectedNode.JsonPath;
+            var smlPath = targetNode.JsonPath;
 
             string? updatedJson;
             if (_csvImportReplace)
@@ -234,10 +250,9 @@ public partial class Home
             _currentEnv = Converter.JsonToEnvironment(updatedJson);
             await SyncJsonToEditorAsync(updatedJson);
             RebuildTree();
+            RestoreErrorDefNode(smlPath);
 
-            var restoredNode = FindNodeByJsonPath(_treeNodes, smlPath);
-            if (restoredNode is not null) SelectNode(restoredNode);
-
+            _csvTargetNode = null;
             SetStatus($"CSV {csvAction} 완료: {entries.Count}건", "success");
         }
         catch (Exception ex) { SetStatus($"CSV 가져오기 오류: {ex.Message}", "error"); }
