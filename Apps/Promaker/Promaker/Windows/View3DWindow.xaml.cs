@@ -430,12 +430,32 @@ public partial class View3DWindow : Window
             .OrderBy(x => x);
     }
 
+    private Dictionary<string, List<string>> GetSystemTypeApiDefMap()
+    {
+        var map = new Dictionary<string, List<string>>();
+        if (_store == null) return map;
+        foreach (var system in _store.Systems.Values)
+        {
+            if (!Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(system.SystemType)) continue;
+            var st = system.SystemType.Value;
+            if (string.IsNullOrEmpty(st) || map.ContainsKey(st)) continue;
+            var apiDefNames = _store.ApiDefs.Values
+                .Where(a => a.ParentId == system.Id)
+                .Select(a => a.Name)
+                .Where(n => !string.IsNullOrEmpty(n))
+                .ToList();
+            if (apiDefNames.Count > 0) map[st] = apiDefNames;
+        }
+        return map;
+    }
+
     private void AddCustomModel_Click(object sender, RoutedEventArgs e)
     {
         if (_customModelRegistry == null) return;
 
         var wwwroot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
-        var dlg = new CustomModelDialog(_customModelRegistry, wwwroot, this, GetProjectSystemTypes());
+        var apiDefMap = GetSystemTypeApiDefMap();
+        var dlg = new CustomModelDialog(_customModelRegistry, wwwroot, this, GetProjectSystemTypes(), apiDefMap);
 
         if (dlg.ShowDialog() == true && dlg.RegisteredSystemType != null)
         {
@@ -472,7 +492,8 @@ public partial class View3DWindow : Window
         if (string.IsNullOrEmpty(selected)) return;
 
         var wwwroot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
-        var dlg = new CustomModelDialog(_customModelRegistry, wwwroot, this, GetProjectSystemTypes())
+        var apiDefMap = GetSystemTypeApiDefMap();
+        var dlg = new CustomModelDialog(_customModelRegistry, wwwroot, this, GetProjectSystemTypes(), apiDefMap)
         {
             EditingSystemType = selected
         };
