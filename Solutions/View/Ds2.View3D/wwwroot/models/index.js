@@ -246,6 +246,12 @@ const Ds2View3DLibrary = {
       }
     }
 
+    // 내장 모델과 이름이 같으면 등록 건너뜀 (C# 다이얼로그에서 이미 차단)
+    const existing = this.deviceTypes[name];
+    if (existing && existing.file && !existing._spec) {
+      console.warn(`⚠️ Skipped custom model '${name}': conflicts with built-in model`);
+      return;
+    }
     this.deviceTypes[name] = {
       file: null,
       class: 'GenericDevice',
