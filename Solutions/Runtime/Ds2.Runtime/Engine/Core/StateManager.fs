@@ -26,12 +26,6 @@ type StateManager(index: SimIndex, initialTickMs: int) =
     let mutable workMinDurationMet = Set.empty<Guid>
     let mutable frozenWorks = Set.empty<Guid>
 
-    let canonicalWorkGuid (guid: Guid) =
-        SimIndex.canonicalWorkGuid index guid
-
-    let referenceGroupOf (guid: Guid) =
-        SimIndex.referenceGroupOf index guid
-
     let canonicalCallGuid (guid: Guid) =
         SimIndex.canonicalCallGuid index guid
 

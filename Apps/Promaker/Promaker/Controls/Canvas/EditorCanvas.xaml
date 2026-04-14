@@ -13,6 +13,7 @@
         <conv:PositiveIntToVisibilityConverter x:Key="PositiveIntToVis"/>
         <conv:ArrowTypeToColorConverter x:Key="ArrowTypeToColor"/>
         <conv:ArrowTypeToDashConverter x:Key="ArrowTypeToDash"/>
+        <conv:DotToNewlineConverter x:Key="DotToNewline"/>
     </UserControl.Resources>
 
     <Grid x:Name="RootGrid" ClipToBounds="True"
@@ -157,11 +158,14 @@
                                                               Color="{DynamicResource ShadowColor}"/>
                                         </Border.Effect>
                                         <Viewbox Stretch="Uniform" StretchDirection="DownOnly" Margin="8">
-                                            <TextBlock Text="{Binding Name}"
-                                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                            <TextBlock Foreground="{DynamicResource PrimaryTextBrush}"
                                                        FontSize="14" FontWeight="Bold"
                                                        TextWrapping="Wrap" TextAlignment="Center"
-                                            MaxWidth="150"/>
+                                                       MaxWidth="150">
+                                                <TextBlock.Text>
+                                                    <Binding Path="Name" Converter="{StaticResource DotToNewline}"/>
+                                                </TextBlock.Text>
+                                            </TextBlock>
                                         </Viewbox>
                                     </Border>
                                     <!-- Selection order badge (top-right) -->

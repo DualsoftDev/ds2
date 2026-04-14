@@ -293,8 +293,7 @@ module Queries =
             |> Option.bind (fun rxWorkId -> getWork rxWorkId store)
             |> Option.bind (fun rxWork -> rxWork.Duration)
             |> Option.map (fun ts -> int ts.TotalMilliseconds))
-        |> Seq.tryHead
-        |> Option.defaultValue 0
+        |> Seq.fold max 0
 
     /// <summary>Work 내 Call들의 Critical Path Duration(ms)을 반환합니다.
     /// Call arrow topology(ArrowBetweenCalls Start)를 분석하여 병렬/직렬 실행을 고려한

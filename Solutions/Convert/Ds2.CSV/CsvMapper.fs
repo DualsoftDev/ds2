@@ -96,6 +96,14 @@ module internal CsvMapper =
 
         for KeyValue(callId, ioEntries) in ioEntriesByCall do
             let call = calls.Values |> Seq.find (fun c -> c.Id = callId)
+            // ApiCall이 부족하면 첫 번째 ApiCall을 기반으로 추가 생성
+            if ioEntries.Count > call.ApiCalls.Count && call.ApiCalls.Count > 0 then
+                let template = call.ApiCalls.[0]
+                for _ in call.ApiCalls.Count .. ioEntries.Count - 1 do
+                    let extra = ApiCall(template.Name)
+                    extra.ApiDefId <- template.ApiDefId
+                    call.ApiCalls.Add(extra)
+                    operations.Add(AddApiCall extra)
             for i in 0 .. ioEntries.Count - 1 do
                 if i < call.ApiCalls.Count then
                     let inName, inAddress, outName, outAddress = ioEntries.[i]
@@ -104,13 +112,13 @@ module internal CsvMapper =
                         match inName, inAddress with
                         | Some name, Some address -> apiCall.InTag <- Some(IOTag(name, address, ""))
                         | None, Some address -> apiCall.InTag <- Some(IOTag("In", address, ""))
-                        | Some _, None -> ()
+                        | Some name, None -> apiCall.InTag <- Some(IOTag(name, "", ""))
                         | None, None -> ()
 
                         match outName, outAddress with
                         | Some name, Some address -> apiCall.OutTag <- Some(IOTag(name, address, ""))
                         | None, Some address -> apiCall.OutTag <- Some(IOTag("Out", address, ""))
-                        | Some _, None -> ()
+                        | Some name, None -> apiCall.OutTag <- Some(IOTag(name, "", ""))
                         | None, None -> ()
 
         ImportPlan.ofSeq operations
