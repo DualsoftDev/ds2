@@ -1,72 +1,150 @@
 using AasxEditor.Models;
+using Microsoft.AspNetCore.Components;
 
 namespace AasxEditor.Components.Pages;
 
 public partial class Home
 {
-    /// <summary>일괄 편집 대상 필드 목록 (IdShort 등 고유 식별자는 제외)</summary>
-    private static readonly (string Field, string Label)[] BatchEditableFields =
+    /// <summary>편집 모드</summary>
+    private static readonly (string Mode, string Label)[] BatchEditModes =
     [
-        ("Value", "값 (Value)"),
-        ("SemanticId", "시맨틱 ID"),
-        ("ValueType", "값 타입 (ValueType)"),
-        ("Category", "카테고리 (Category)"),
+        ("overwrite", "값 덮어쓰기"),
+        ("findReplace", "찾아 바꾸기"),
+        ("prepend", "앞에 추가"),
+        ("append", "뒤에 추가"),
     ];
 
-    /// <summary>일괄 편집에서 Value 변경을 지원하는 엔티티 타입</summary>
+    /// <summary>Value 변경을 지원하는 엔티티 타입</summary>
     private static readonly HashSet<string> ValueEditableTypes = ["Property", "MLP", "Range"];
 
     private void OpenBatchEdit()
     {
         _batchNewValue = "";
-        _batchTargetField = "Value";
+        _batchFindText = "";
+        _batchEditMode = "overwrite";
+        _batchTypeFilter = "";
+        _batchValueTypeFilter = "";
+        _batchIdFilter = "";
+        _batchSelectedIds = _searchResults
+            .Where(r => ValueEditableTypes.Contains(r.EntityType))
+            .Select(r => r.Id)
+            .ToHashSet();
         _showBatchEdit = true;
     }
 
     private void CloseBatchEdit() => _showBatchEdit = false;
 
-    /// <summary>선택된 필드 기준으로 변경 가능한 검색 결과만 필터링</summary>
-    private List<AasEntityRecord> GetBatchTargetRecords()
+    /// <summary>검색 결과에 등장하는 고유 엔티티 타입 목록</summary>
+    private List<string> GetBatchEntityTypes()
+        => _searchResults.Select(r => r.EntityType).Distinct().OrderBy(t => t).ToList();
+
+    /// <summary>검색 결과에 등장하는 고유 ValueType 목록</summary>
+    private List<string> GetBatchValueTypes()
+        => _searchResults
+            .Where(r => r.ValueType is not null)
+            .Select(r => r.ValueType!)
+            .Distinct()
+            .OrderBy(t => t)
+            .ToList();
+
+    /// <summary>편집 가능한 엔티티 타입인지</summary>
+    private static bool IsEditableType(string entityType)
+        => ValueEditableTypes.Contains(entityType);
+
+    /// <summary>필터 조건에 맞는 검색 결과 (보이는 목록)</summary>
+    private List<AasEntityRecord> GetFilteredBatchRecords()
     {
-        if (_batchTargetField == "Value")
-            return _searchResults.Where(r => ValueEditableTypes.Contains(r.EntityType)).ToList();
-        // SemanticId, ValueType, Category 등은 모든 엔티티 타입에 적용 가능
-        return _searchResults.ToList();
+        IEnumerable<AasEntityRecord> results = _searchResults;
+
+        if (!string.IsNullOrEmpty(_batchTypeFilter))
+            results = results.Where(r => r.EntityType == _batchTypeFilter);
+
+        if (!string.IsNullOrEmpty(_batchValueTypeFilter))
+            results = results.Where(r => r.ValueType == _batchValueTypeFilter);
+
+        if (!string.IsNullOrEmpty(_batchIdFilter))
+            results = results.Where(r => r.IdShort.Contains(_batchIdFilter, StringComparison.OrdinalIgnoreCase));
+
+        return results.ToList();
     }
 
-    /// <summary>변경 불가한 (건너뛸) 검색 결과</summary>
-    private List<AasEntityRecord> GetBatchSkippedRecords()
+    /// <summary>선택되고 편집 가능한 레코드 (실제 적용 대상)</summary>
+    private List<AasEntityRecord> GetBatchApplyTargets()
+        => _searchResults
+            .Where(r => _batchSelectedIds.Contains(r.Id) && IsEditableType(r.EntityType))
+            .ToList();
+
+    // ===== 선택 조작 =====
+
+    private void OnBatchToggleItem(long id, bool isChecked)
     {
-        if (_batchTargetField == "Value")
-            return _searchResults.Where(r => !ValueEditableTypes.Contains(r.EntityType)).ToList();
-        return [];
+        if (isChecked) _batchSelectedIds.Add(id);
+        else _batchSelectedIds.Remove(id);
     }
+
+    private void OnBatchSelectAllVisible()
+    {
+        foreach (var r in GetFilteredBatchRecords().Where(r => IsEditableType(r.EntityType)))
+            _batchSelectedIds.Add(r.Id);
+    }
+
+    private void OnBatchDeselectAllVisible()
+    {
+        foreach (var r in GetFilteredBatchRecords())
+            _batchSelectedIds.Remove(r.Id);
+    }
+
+    // ===== 값 계산 =====
+
+    private string ComputeNewValue(string? currentValue)
+    {
+        var cur = currentValue ?? "";
+        return _batchEditMode switch
+        {
+            "overwrite" => _batchNewValue,
+            "findReplace" => cur.Replace(_batchFindText, _batchNewValue),
+            "prepend" => _batchNewValue + cur,
+            "append" => cur + _batchNewValue,
+            _ => _batchNewValue
+        };
+    }
+
+    private string PreviewNewValue(AasEntityRecord r) => ComputeNewValue(r.Value);
+
+    private bool CanApply()
+    {
+        if (_batchEditMode == "findReplace")
+            return !string.IsNullOrEmpty(_batchFindText);
+        return !string.IsNullOrEmpty(_batchNewValue);
+    }
+
+    // ===== 적용 =====
 
     private async Task OnBatchApply()
     {
-        if (string.IsNullOrEmpty(_batchNewValue)) { SetStatus("값을 입력하세요", "error"); return; }
+        if (!CanApply()) { SetStatus("값을 입력하세요", "error"); return; }
         if (_currentEnv is null) { SetStatus("로드된 파일이 없습니다", "error"); return; }
 
-        var targets = GetBatchTargetRecords();
-        if (targets.Count == 0) { SetStatus("변경 가능한 대상이 없습니다", "error"); return; }
+        var targets = GetBatchApplyTargets();
+        if (targets.Count == 0) { SetStatus("선택된 대상이 없습니다", "error"); return; }
 
         try
         {
-            // 1. Undo용 JSON 스냅샷 캡처 (변경 전)
             var snapshotJson = _currentJson;
             var snapshotPaths = _explorerPath.Select(n => n.JsonPath).ToList();
 
-            // 2. 인메모리 Environment 변경 (JsonPath 기반 정확 매칭)
             var targetJsonPaths = targets.Select(r => r.JsonPath).ToHashSet();
-            int changed;
+            var currentValues = targets.ToDictionary(r => r.JsonPath, r => r.Value);
+            var changed = UpdateEnvironmentValues(_currentEnv, targetJsonPaths, currentValues);
 
-            if (_batchTargetField == "Value")
-                changed = UpdateEnvironmentValues(_currentEnv, targetJsonPaths, _batchNewValue);
-            else
-                changed = UpdateEnvironmentField(_currentEnv, targetJsonPaths, _batchTargetField, _batchNewValue);
-
-            // 3. 변경 성공 시에만 Undo 스택에 푸시
-            _undoStack.Push(new UndoEntry(snapshotJson, $"일괄 편집 ({_batchTargetField}): '{_batchNewValue}'", snapshotPaths));
+            var desc = _batchEditMode switch
+            {
+                "findReplace" => $"일괄 찾아바꾸기: '{_batchFindText}' → '{_batchNewValue}'",
+                "prepend" => $"일괄 앞에추가: '{_batchNewValue}'",
+                "append" => $"일괄 뒤에추가: '{_batchNewValue}'",
+                _ => $"일괄 편집: '{_batchNewValue}'"
+            };
+            _undoStack.Push(new UndoEntry(snapshotJson, desc, snapshotPaths));
             _redoStack.Clear();
             if (_undoStack.Count > MaxUndoHistory) TrimStack(_undoStack, MaxUndoHistory);
 
@@ -77,36 +155,34 @@ public partial class Home
 
             await SyncJsonToEditorAsync(updatedJson);
 
-            // 4. DB 업데이트 — 검색 결과의 ID 기반으로 정확한 레코드만 변경
             if (_currentFileId > 0)
             {
                 await MetadataStore.UpdateJsonContentAsync(_currentFileId, updatedJson);
-                var dbField = _batchTargetField switch
+
+                if (_batchEditMode == "overwrite")
                 {
-                    "Value" => "Value",
-                    "SemanticId" => "SemanticId",
-                    "ValueType" => "ValueType",
-                    "Category" => "Category",
-                    _ => "Value"
-                };
-                await MetadataStore.BatchUpdateFieldByIdsAsync(targets.Select(r => r.Id), dbField, _batchNewValue);
+                    await MetadataStore.BatchUpdateFieldByIdsAsync(targets.Select(r => r.Id), "Value", _batchNewValue);
+                }
+                else
+                {
+                    foreach (var t in targets)
+                    {
+                        var newVal = ComputeNewValue(t.Value);
+                        await MetadataStore.BatchUpdateFieldByIdsAsync([t.Id], "Value", newVal);
+                    }
+                }
             }
 
             RebuildTree();
-
-            var skipped = _searchResults.Count - targets.Count;
-            var statusMsg = $"일괄 편집 완료: {changed}건 변경됨";
-            if (skipped > 0)
-                statusMsg += $", {skipped}건 건너뜀 (미지원 타입)";
-            SetStatus(statusMsg, "success");
-
+            SetStatus($"일괄 편집 완료: {changed}건 변경됨", "success");
             await OnSearch();
         }
         catch (Exception ex) { SetStatus($"일괄 편집 오류: {ex.Message}", "error"); }
     }
 
-    /// <summary>Value 필드 변경 — JsonPath 기반 정확 매칭</summary>
-    private int UpdateEnvironmentValues(AasCore.Aas3_0.Environment env, HashSet<string> targetJsonPaths, string newValue)
+    // ========== Environment 업데이트 ==========
+
+    private int UpdateEnvironmentValues(AasCore.Aas3_0.Environment env, HashSet<string> targetJsonPaths, Dictionary<string, string?> currentValues)
     {
         if (env.Submodels is null) return 0;
         var count = 0;
@@ -114,12 +190,12 @@ public partial class Home
         {
             var sm = env.Submodels[si];
             if (sm.SubmodelElements is null) continue;
-            count += UpdateElementValues(sm.SubmodelElements, targetJsonPaths, newValue, $"submodels[{si}].submodelElements");
+            count += UpdateElementValues(sm.SubmodelElements, targetJsonPaths, currentValues, $"submodels[{si}].submodelElements");
         }
         return count;
     }
 
-    private int UpdateElementValues(List<AasCore.Aas3_0.ISubmodelElement> elements, HashSet<string> targetJsonPaths, string newValue, string basePath)
+    private int UpdateElementValues(List<AasCore.Aas3_0.ISubmodelElement> elements, HashSet<string> targetJsonPaths, Dictionary<string, string?> currentValues, string basePath)
     {
         var count = 0;
         for (var i = 0; i < elements.Count; i++)
@@ -129,98 +205,38 @@ public partial class Home
 
             if (targetJsonPaths.Contains(elemPath))
             {
+                var newVal = ComputeNewValue(currentValues.GetValueOrDefault(elemPath));
                 count += elem switch
                 {
-                    AasCore.Aas3_0.Property p => Do(() => p.Value = newValue),
+                    AasCore.Aas3_0.Property p => Do(() => p.Value = newVal),
                     AasCore.Aas3_0.MultiLanguageProperty mlp => Do(() =>
                     {
                         if (mlp.Value is { Count: > 0 })
-                            mlp.Value[0] = new AasCore.Aas3_0.LangStringTextType(mlp.Value[0].Language, newValue);
+                            mlp.Value[0] = new AasCore.Aas3_0.LangStringTextType(mlp.Value[0].Language, newVal);
                         else
-                            mlp.Value = [new AasCore.Aas3_0.LangStringTextType("en", newValue)];
+                            mlp.Value = [new AasCore.Aas3_0.LangStringTextType("en", newVal)];
                     }),
-                    AasCore.Aas3_0.Range r => Do(() => { r.Min = newValue; r.Max = newValue; }),
+                    AasCore.Aas3_0.Range r => Do(() => { r.Min = newVal; r.Max = newVal; }),
                     _ => 0
                 };
             }
 
             var children = GetChildren(elem);
             if (children is not null)
-            {
-                var childBasePath = elem switch
-                {
-                    AasCore.Aas3_0.SubmodelElementCollection => $"{elemPath}.value",
-                    AasCore.Aas3_0.SubmodelElementList => $"{elemPath}.value",
-                    AasCore.Aas3_0.Entity => $"{elemPath}.statements",
-                    _ => $"{elemPath}.value"
-                };
-                count += UpdateElementValues(children, targetJsonPaths, newValue, childBasePath);
-            }
+                count += UpdateElementValues(children, targetJsonPaths, currentValues, GetChildBasePath(elem, elemPath));
         }
         return count;
     }
 
-    /// <summary>Value 외 필드(SemanticId, Category 등) 변경</summary>
-    private int UpdateEnvironmentField(AasCore.Aas3_0.Environment env, HashSet<string> targetJsonPaths, string field, string newValue)
+    // ========== Helpers ==========
+
+    private static string GetChildBasePath(AasCore.Aas3_0.ISubmodelElement elem, string elemPath) => elem switch
     {
-        if (env.Submodels is null) return 0;
-        var count = 0;
-        for (var si = 0; si < env.Submodels.Count; si++)
-        {
-            var sm = env.Submodels[si];
-            if (sm.SubmodelElements is null) continue;
-            count += UpdateElementField(sm.SubmodelElements, targetJsonPaths, field, newValue, $"submodels[{si}].submodelElements");
-        }
-        return count;
-    }
-
-    private int UpdateElementField(List<AasCore.Aas3_0.ISubmodelElement> elements, HashSet<string> targetJsonPaths, string field, string newValue, string basePath)
-    {
-        var count = 0;
-        for (var i = 0; i < elements.Count; i++)
-        {
-            var elem = elements[i];
-            var elemPath = $"{basePath}[{i}]";
-
-            if (targetJsonPaths.Contains(elemPath))
-            {
-                switch (field)
-                {
-                    case "SemanticId":
-                        elem.SemanticId = new AasCore.Aas3_0.Reference(
-                            AasCore.Aas3_0.ReferenceTypes.ExternalReference,
-                            [new AasCore.Aas3_0.Key(AasCore.Aas3_0.KeyTypes.GlobalReference, newValue)]);
-                        count++;
-                        break;
-                    case "ValueType":
-                        if (elem is AasCore.Aas3_0.Property prop)
-                        {
-                            if (Enum.TryParse<AasCore.Aas3_0.DataTypeDefXsd>(newValue, true, out var dt))
-                            { prop.ValueType = dt; count++; }
-                        }
-                        break;
-                    case "Category":
-                        elem.Category = newValue;
-                        count++;
-                        break;
-                }
-            }
-
-            var children = GetChildren(elem);
-            if (children is not null)
-            {
-                var childBasePath = elem switch
-                {
-                    AasCore.Aas3_0.SubmodelElementCollection => $"{elemPath}.value",
-                    AasCore.Aas3_0.SubmodelElementList => $"{elemPath}.value",
-                    AasCore.Aas3_0.Entity => $"{elemPath}.statements",
-                    _ => $"{elemPath}.value"
-                };
-                count += UpdateElementField(children, targetJsonPaths, field, newValue, childBasePath);
-            }
-        }
-        return count;
-    }
+        AasCore.Aas3_0.SubmodelElementCollection => $"{elemPath}.value",
+        AasCore.Aas3_0.SubmodelElementList => $"{elemPath}.value",
+        AasCore.Aas3_0.Entity => $"{elemPath}.statements",
+        _ => $"{elemPath}.value"
+    };
 
     private static List<AasCore.Aas3_0.ISubmodelElement>? GetChildren(AasCore.Aas3_0.ISubmodelElement elem) => elem switch
     {
