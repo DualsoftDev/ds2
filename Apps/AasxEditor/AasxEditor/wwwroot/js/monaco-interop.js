@@ -220,3 +220,23 @@ window.FinderColumns = {
         }
     }
 };
+
+window.ClientCount = {
+    update: function (text) {
+        var el = document.getElementById('client-count-indicator');
+        if (el) el.textContent = text;
+    },
+    initUnload: function (dotnetRef) {
+        window.__clientCountRef = dotnetRef;
+        window.addEventListener('beforeunload', window.ClientCount._onUnload);
+    },
+    _onUnload: function () {
+        if (window.__clientCountRef) {
+            window.__clientCountRef.invokeMethodAsync('OnBeforeUnload');
+        }
+    },
+    dispose: function () {
+        window.removeEventListener('beforeunload', window.ClientCount._onUnload);
+        window.__clientCountRef = null;
+    }
+};
