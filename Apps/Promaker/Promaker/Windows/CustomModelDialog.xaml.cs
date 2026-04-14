@@ -20,6 +20,7 @@ public partial class CustomModelDialog : Window
     private readonly CustomModelRegistry _registry;
     private readonly string _wwwrootPath;
     private readonly List<string> _projectSystemTypes;
+    private readonly Dictionary<string, List<string>> _systemTypeApiDefs;
 
     private DispatcherTimer? _debounceTimer;
     private bool _previewReady;
@@ -31,13 +32,16 @@ public partial class CustomModelDialog : Window
     /// <summary>편집 모드용 (기존 모델 수정)</summary>
     public string? EditingSystemType { get; set; }
 
-    /// <param name="projectSystemTypes">프로젝트에 존재하는 SystemType 이름 목록 (드롭다운 표시용)</param>
+    /// <param name="projectSystemTypes">프로젝트에 존재하는 SystemType 이름 목록</param>
+    /// <param name="systemTypeApiDefs">SystemType → ApiDef 이름 목록 매핑 (dirs 템플릿 자동 생성용)</param>
     public CustomModelDialog(CustomModelRegistry registry, string wwwrootPath, Window owner,
-                             IEnumerable<string>? projectSystemTypes = null)
+                             IEnumerable<string>? projectSystemTypes = null,
+                             Dictionary<string, List<string>>? systemTypeApiDefs = null)
     {
         _registry = registry;
         _wwwrootPath = wwwrootPath;
         _projectSystemTypes = projectSystemTypes?.OrderBy(s => s).ToList() ?? new List<string>();
+        _systemTypeApiDefs = systemTypeApiDefs ?? new Dictionary<string, List<string>>();
         Owner = owner;
         InitializeComponent();
         Loaded += OnLoaded;
@@ -155,10 +159,19 @@ public partial class CustomModelDialog : Window
     private void SystemTypeInput_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         // ComboBox 선택 시 "✓" 접미사 제거
-        if (SystemTypeInput.SelectedItem is string selected && selected.EndsWith(" ✓"))
+        var selectedText = SystemTypeInput.SelectedItem as string;
+        if (selectedText != null && selectedText.EndsWith(" ✓"))
         {
-            SystemTypeInput.Text = selected.Replace(" ✓", "");
+            SystemTypeInput.Text = selectedText.Replace(" ✓", "");
         }
+
+        // 선택된 SystemType의 ApiDef 정보로 JSON 템플릿 자동 생성
+        var typeName = SystemTypeInput.Text?.Trim() ?? "";
+        if (!string.IsNullOrEmpty(typeName) && string.IsNullOrWhiteSpace(JsonEditor.Text))
+        {
+            GenerateJsonTemplate(typeName);
+        }
+
         UpdatePlaceholder();
         ValidateForm();
     }
@@ -174,6 +187,74 @@ public partial class CustomModelDialog : Window
         if (SystemTypePlaceholder != null)
             SystemTypePlaceholder.Visibility = string.IsNullOrEmpty(SystemTypeInput.Text)
                 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// 선택된 SystemType의 ApiDef 이름을 기반으로 JSON 템플릿 자동 생성
+    /// </summary>
+    private void GenerateJsonTemplate(string systemType)
+    {
+        if (!_systemTypeApiDefs.TryGetValue(systemType, out var apiDefNames) || apiDefNames.Count == 0)
+        {
+            // ApiDef 정보 없음 → 기본 단일 애니메이션 템플릿
+            JsonEditor.Text = $$"""
+            {
+              "name": "{{systemType}}",
+              "height": 2.0,
+              "parts": [
+                {"id": "base", "shape": "box", "size": [1.2, 0.3, 1.2], "color": "#64748b"},
+                {"id": "body", "shape": "box", "size": [0.8, 1.0, 0.8], "color": "#fbbf24", "glow": 0.3, "on": "base"}
+              ],
+              "animation": {
+                "active": {"target": "body", "type": "move", "axis": "y", "min": 0.65, "max": 1.5}
+              }
+            }
+            """;
+            return;
+        }
+
+        if (apiDefNames.Count == 1)
+        {
+            // ApiDef 1개 → 단일 애니메이션
+            JsonEditor.Text = $$"""
+            {
+              "name": "{{systemType}}",
+              "height": 2.0,
+              "parts": [
+                {"id": "base", "shape": "box", "size": [1.2, 0.3, 1.2], "color": "#64748b"},
+                {"id": "body", "shape": "box", "size": [0.8, 1.0, 0.8], "color": "#fbbf24", "glow": 0.3, "on": "base"}
+              ],
+              "animation": {
+                "active": {"target": "body", "type": "move", "axis": "y", "min": 0.65, "max": 1.5}
+              }
+            }
+            """;
+        }
+        else
+        {
+            // ApiDef 2개 이상 → dirs 템플릿 자동 생성
+            var dirsEntries = string.Join(",\n    ",
+                apiDefNames.Select(name =>
+                    $"\"{name}\": {{\"target\": \"body\", \"type\": \"move\", \"axis\": \"x\", \"min\": 0, \"max\": 0.5}}"));
+
+            var apiDefComment = string.Join(", ", apiDefNames.Select((n, i) => $"{n}(#{i})"));
+
+            JsonEditor.Text = $$"""
+            {
+              "name": "{{systemType}}",
+              "height": 2.0,
+              "parts": [
+                {"id": "base", "shape": "box", "size": [1.5, 0.3, 1.0], "color": "#64748b"},
+                {"id": "body", "shape": "box", "size": [0.6, 0.4, 0.9], "color": "#fbbf24", "glow": 0.3, "on": "base"}
+              ],
+              "dirs": {
+                {{dirsEntries}}
+              }
+            }
+            """;
+
+            ShowMessage($"ApiDef 감지: {apiDefComment} — dirs가 자동 생성되었습니다. 파트와 애니메이션을 수정하세요.", false);
+        }
     }
 
     private void JsonEditor_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
