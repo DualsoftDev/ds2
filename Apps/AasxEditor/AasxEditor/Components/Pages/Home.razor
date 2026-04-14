@@ -74,7 +74,7 @@
             <button class="btn btn-sm btn-outline-warning" @onclick="OpenBatchEdit">일괄 편집</button>
         </div>
         <div class="search-results-list">
-            @foreach (var r in _searchResults.Take(100))
+            @foreach (var r in _searchResults)
             {
                 <div class="search-result-item" @onclick="() => OnSearchResultClick(r)">
                     <span class="search-result-type">@r.EntityType</span>
@@ -85,10 +85,6 @@
                     }
                     <span class="search-result-file">@GetFileName(r.FileId)</span>
                 </div>
-            }
-            @if (_searchResults.Count > 100)
-            {
-                <div class="search-result-item" style="color:#666">... +@(_searchResults.Count - 100)건 더</div>
             }
         </div>
     </div>
@@ -553,27 +549,31 @@
     var filteredRecords = GetFilteredBatchRecords();
     var applyTargets = GetBatchApplyTargets();
     var entityTypes = GetBatchEntityTypes();
-    var valueTypes = GetBatchValueTypes();
+    var vtCategories = GetBatchValueTypeCategories();
+    var highlightCount = _batchHighlightedIds.Count;
 
     <div class="modal-overlay">
-        <div class="modal-dialog" style="width:700px;max-height:85vh;display:flex;flex-direction:column">
+        <div class="modal-dialog" style="width:720px;max-height:85vh;display:flex;flex-direction:column">
             <div class="modal-title">일괄 편집 — 검색 결과 @(_searchResults.Count)건 중 @(applyTargets.Count)건 선택됨</div>
             <div class="modal-body" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
 
-                @* Row 1: 편집 방식 *@
-                <div style="margin-bottom:8px;flex-shrink:0">
-                    <label class="modal-input-label">편집 방식</label>
-                    <select class="modal-input" @bind="_batchEditMode">
-                        @foreach (var (mode, label) in BatchEditModes)
-                        {
-                            <option value="@mode">@label</option>
-                        }
-                    </select>
-                </div>
+                @* Row 1: 편집 방식 (Bit은 덮어쓰기만 가능) *@
+                @if (_batchValueTypeFilter != "bit")
+                {
+                    <div style="margin-bottom:8px;flex-shrink:0">
+                        <label class="modal-input-label">편집 방식</label>
+                        <select class="modal-input" @bind="_batchEditMode">
+                            @foreach (var (mode, label) in BatchEditModes)
+                            {
+                                <option value="@mode">@label</option>
+                            }
+                        </select>
+                    </div>
+                }
 
-                @* Row 2: 필터 (엔티티 타입 + ValueType + IdShort + 선택 버튼) *@
+                @* Row 2: 필터 *@
                 <div style="display:flex;gap:6px;margin-bottom:6px;flex-shrink:0;align-items:center">
-                    <select class="modal-input" style="font-size:12px;padding:4px 6px;flex:0 0 130px"
+                    <select class="modal-input" style="font-size:12px;padding:4px 6px;flex:0 0 120px"
                             @bind="_batchTypeFilter">
                         <option value="">전체 타입</option>
                         @foreach (var t in entityTypes)
@@ -582,15 +582,15 @@
                             <option value="@t">@t (@cnt)</option>
                         }
                     </select>
-                    @if (valueTypes.Count > 0)
+                    @if (vtCategories.Count > 0)
                     {
                         <select class="modal-input" style="font-size:12px;padding:4px 6px;flex:0 0 120px"
-                                @bind="_batchValueTypeFilter">
-                            <option value="">전체 ValueType</option>
-                            @foreach (var vt in valueTypes)
+                                value="@_batchValueTypeFilter"
+                                @onchange="(e) => OnBatchValueTypeFilterChanged(e.Value?.ToString() ?? string.Empty)">
+                            <option value="">전체 값타입</option>
+                            @foreach (var (cat, catLabel, cnt) in vtCategories)
                             {
-                                var vtCnt = _searchResults.Count(r => r.ValueType == vt);
-                                <option value="@vt">@vt (@vtCnt)</option>
+                                <option value="@cat">@catLabel (@cnt)</option>
                             }
                         </select>
                     }
@@ -601,20 +601,46 @@
                         전체선택
                     </button>
                     <button class="btn btn-outline-secondary" style="font-size:11px;padding:3px 8px;white-space:nowrap" @onclick="OnBatchDeselectAllVisible">
-                        해제
+                        전체해제
                     </button>
                 </div>
 
+                @* Row 2.5: 하이라이트 액션 바 (행 클릭 선택 시 표시) *@
+                @if (highlightCount > 0)
+                {
+                    <div style="display:flex;gap:6px;margin-bottom:6px;flex-shrink:0;align-items:center;padding:4px 8px;background:#1a2a3a;border-radius:6px;font-size:12px">
+                        <span style="color:#4fc3f7">@highlightCount 건 선택됨</span>
+                        <button class="btn btn-outline-info" style="font-size:11px;padding:2px 8px" @onclick="OnBatchCheckHighlighted">
+                            체크
+                        </button>
+                        <button class="btn btn-outline-secondary" style="font-size:11px;padding:2px 8px" @onclick="OnBatchUncheckHighlighted">
+                            체크해제
+                        </button>
+                        <button class="btn btn-outline-secondary" style="font-size:11px;padding:2px 6px" @onclick="() => _batchHighlightedIds.Clear()">
+                            취소
+                        </button>
+                        <span style="color:#666;margin-left:auto;font-size:11px">Ctrl+클릭: 추가, Shift+클릭: 범위</span>
+                    </div>
+                }
+
                 @* Row 3: 스크롤 가능한 항목 목록 *@
                 <div style="flex:1;min-height:0;overflow-y:auto;border:1px solid #333;border-radius:6px;margin-bottom:8px">
-                    <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <table style="width:100%;border-collapse:collapse;font-size:12px;user-select:none">
                         <thead style="position:sticky;top:0;background:#1e1e1e;z-index:1">
                             <tr style="border-bottom:1px solid #333">
                                 <td style="width:28px;padding:4px;text-align:center"></td>
-                                <td style="width:65px;padding:4px">타입</td>
-                                <td style="padding:4px">IdShort</td>
-                                <td style="width:60px;padding:4px">ValueType</td>
-                                <td style="padding:4px;min-width:80px">현재 값</td>
+                                <td style="width:65px;padding:4px;cursor:pointer" @onclick='() => OnBatchSortToggle("EntityType")'>
+                                    타입@(_batchSortColumn == "EntityType" ? (_batchSortAsc ? " \u25B2" : " \u25BC") : "")
+                                </td>
+                                <td style="padding:4px;cursor:pointer" @onclick='() => OnBatchSortToggle("IdShort")'>
+                                    IdShort@(_batchSortColumn == "IdShort" ? (_batchSortAsc ? " \u25B2" : " \u25BC") : "")
+                                </td>
+                                <td style="width:70px;padding:4px;cursor:pointer" @onclick='() => OnBatchSortToggle("ValueType")'>
+                                    값타입@(_batchSortColumn == "ValueType" ? (_batchSortAsc ? " \u25B2" : " \u25BC") : "")
+                                </td>
+                                <td style="padding:4px;min-width:80px;cursor:pointer" @onclick='() => OnBatchSortToggle("Value")'>
+                                    현재 값@(_batchSortColumn == "Value" ? (_batchSortAsc ? " \u25B2" : " \u25BC") : "")
+                                </td>
                                 @if (CanApply() && _batchEditMode != "overwrite")
                                 {
                                     <td style="padding:4px;min-width:80px">변경 후</td>
@@ -626,14 +652,19 @@
                             {
                                 var rec = r;
                                 var isEditable = IsEditableType(rec.EntityType);
-                                var isSelected = _batchSelectedIds.Contains(rec.Id);
+                                var isChecked = _batchSelectedIds.Contains(rec.Id);
+                                var isHighlighted = _batchHighlightedIds.Contains(rec.Id);
                                 var curVal = rec.Value ?? "";
-                                var rowStyle = !isEditable ? "opacity:0.4" : isSelected ? "" : "opacity:0.6";
-                                var showPreview = CanApply() && _batchEditMode != "overwrite" && isSelected;
+                                var showPreview = CanApply() && _batchEditMode != "overwrite" && isChecked;
 
-                                <tr style="border-bottom:1px solid #2a2a2a;@rowStyle">
-                                    <td style="padding:3px 4px;text-align:center">
-                                        <input type="checkbox" checked="@isSelected" disabled="@(!isEditable)"
+                                var bgColor = isHighlighted ? "#1a3a5a" : "transparent";
+                                var opacity = !isEditable ? "0.35" : isChecked ? "1" : "0.55";
+
+                                <tr style="border-bottom:1px solid #2a2a2a;background:@bgColor;opacity:@opacity;cursor:@(isEditable ? "pointer" : "default")"
+                                    @onclick="(e) => OnBatchRowClick(rec.Id, e)"
+                                    @onclick:stopPropagation="true">
+                                    <td style="padding:3px 4px;text-align:center" @onclick:stopPropagation="true">
+                                        <input type="checkbox" checked="@isChecked" disabled="@(!isEditable)"
                                                @onchange="(e) => OnBatchToggleItem(rec.Id, (bool)e.Value!)" />
                                     </td>
                                     <td style="padding:3px 4px">
@@ -641,18 +672,18 @@
                                     </td>
                                     <td style="padding:3px 4px;color:#4fc3f7">@rec.IdShort</td>
                                     <td style="padding:3px 4px;color:#98989d;font-size:11px">@(rec.ValueType ?? "")</td>
-                                    <td style="padding:3px 4px;color:#aaa;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                    <td style="padding:3px 4px;color:#aaa;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
                                         @if (!string.IsNullOrEmpty(curVal))
                                         {
-                                            <span style="@(showPreview ? "text-decoration:line-through;opacity:0.5" : "")">@TruncateValue(curVal, 20)</span>
+                                            <span style="@(showPreview ? "text-decoration:line-through;opacity:0.5" : "")">@TruncateValue(curVal, 18)</span>
                                         }
                                     </td>
                                     @if (CanApply() && _batchEditMode != "overwrite")
                                     {
-                                        <td style="padding:3px 4px;color:#81c784;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                        <td style="padding:3px 4px;color:#81c784;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
                                             @if (showPreview)
                                             {
-                                                @TruncateValue(PreviewNewValue(rec), 20)
+                                                @TruncateValue(PreviewNewValue(rec), 18)
                                             }
                                         </td>
                                     }
@@ -662,9 +693,31 @@
                     </table>
                 </div>
 
-                @* Row 4: 입력 필드 *@
+                @* Row 4: 입력 필드 — 값타입 카테고리별 UI *@
                 <div style="flex-shrink:0">
-                    @if (_batchEditMode == "findReplace")
+                    @if (_batchValueTypeFilter == "bit")
+                    {
+                        @* Bit: true/false 토글 버튼 *@
+                        <label class="modal-input-label">새 값</label>
+                        <div style="display:flex;gap:8px">
+                            <button class="btn @(_batchNewValue == "true" ? "btn-info" : "btn-outline-secondary")"
+                                    style="flex:1;padding:6px" @onclick='() => _batchNewValue = "true"'>
+                                true
+                            </button>
+                            <button class="btn @(_batchNewValue == "false" ? "btn-info" : "btn-outline-secondary")"
+                                    style="flex:1;padding:6px" @onclick='() => _batchNewValue = "false"'>
+                                false
+                            </button>
+                        </div>
+                    }
+                    else if (_batchValueTypeFilter == "number" && _batchEditMode == "overwrite")
+                    {
+                        @* Number + 덮어쓰기: 숫자 입력 *@
+                        <label class="modal-input-label">새 값</label>
+                        <input class="modal-input" type="number" step="any" placeholder="숫자 입력..."
+                               @bind="_batchNewValue" @bind:event="oninput" />
+                    }
+                    else if (_batchEditMode == "findReplace")
                     {
                         <div style="display:flex;gap:8px">
                             <div style="flex:1">
