@@ -46,6 +46,7 @@ public partial class Home : IAsyncDisposable
     // 모달
     private bool _showBatchEdit;
     private string _batchNewValue = "";
+    private string _batchTargetField = "Value";
     private bool _showSaveAs;
     private string _saveAsName = "";
 

@@ -550,27 +550,72 @@
 
 @if (_showBatchEdit)
 {
+    var batchTargets = GetBatchTargetRecords();
+    var batchSkipped = GetBatchSkippedRecords();
+    var typeSummary = batchTargets.GroupBy(r => r.EntityType)
+        .Select(g => $"{g.Key} {g.Count()}건")
+        .ToList();
+
     <div class="modal-overlay">
-        <div class="modal-dialog">
-            <div class="modal-title">일괄 편집 (@(_searchResults.Count)건)</div>
+        <div class="modal-dialog" style="width:520px">
+            <div class="modal-title">일괄 편집 — 대상 @(batchTargets.Count)건</div>
             <div class="modal-body">
-                <div class="modal-preview-label">변경 대상 (기존 값)</div>
+                @* 변경 대상 속성 선택 *@
+                <label class="modal-input-label">변경할 속성</label>
+                <select class="modal-input" @bind="_batchTargetField">
+                    @foreach (var (field, label) in BatchEditableFields)
+                    {
+                        <option value="@field">@label</option>
+                    }
+                </select>
+
+                @* 타입별 요약 *@
+                <div class="modal-preview-label" style="margin-top:10px">
+                    변경 대상 요약: @string.Join(", ", typeSummary)
+                </div>
+
+                @* 기존 값 미리보기 *@
                 <div class="modal-preview">
-                    @foreach (var r in _searchResults.Where(r => r.Value is not null).DistinctBy(r => r.Value).Take(10))
+                    @foreach (var r in batchTargets.DistinctBy(r => r.JsonPath).Take(10))
                     {
                         <div class="modal-preview-row">
                             <span class="modal-chip-type">@r.EntityType</span>
                             <span class="modal-chip-id">@r.IdShort</span>
-                            <span class="modal-chip-val">@r.Value</span>
+                            @if (_batchTargetField == "Value" && r.Value is not null)
+                            {
+                                <span class="modal-chip-val">@TruncateValue(r.Value, 30)</span>
+                            }
+                            else if (_batchTargetField == "SemanticId" && r.SemanticId is not null)
+                            {
+                                <span class="modal-chip-val">@TruncateValue(r.SemanticId, 30)</span>
+                            }
                         </div>
                     }
+                    @if (batchTargets.Count > 10)
+                    {
+                        <div class="modal-preview-row" style="color:#666;font-size:12px">... +@(batchTargets.Count - 10)건 더</div>
+                    }
                 </div>
-                <label class="modal-input-label">새 값</label>
+
+                @* 건너뛸 항목 안내 *@
+                @if (batchSkipped.Count > 0)
+                {
+                    <div style="margin-top:8px;padding:6px 10px;background:#3a2a1a;border-radius:6px;font-size:12px;color:#f0ad4e">
+                        ⚠ @(batchSkipped.Count)건은 변경할 수 없는 타입입니다
+                        (@(string.Join(", ", batchSkipped.GroupBy(r => r.EntityType).Select(g => $"{g.Key} {g.Count()}"))))
+                    </div>
+                }
+
+                @* 새 값 입력 *@
+                <label class="modal-input-label" style="margin-top:10px">새 값</label>
                 <input class="modal-input" type="text" placeholder="변경할 값 입력..."
                        @bind="_batchNewValue" @bind:event="oninput" />
             </div>
             <div class="modal-actions">
-                <button class="btn btn-primary btn-sm" @onclick="OnBatchApply">적용</button>
+                <button class="btn btn-primary btn-sm" @onclick="OnBatchApply"
+                        disabled="@(batchTargets.Count == 0)">
+                    적용 (@(batchTargets.Count)건)
+                </button>
                 <button class="btn btn-outline-secondary btn-sm" @onclick="CloseBatchEdit">취소</button>
             </div>
         </div>

@@ -27,4 +27,5 @@ public interface IAasMetadataStore : IAsyncDisposable
 
     // === 일괄 편집 ===
     Task<int> BatchUpdateValueAsync(AasSearchQuery query, string newValue);
+    Task<int> BatchUpdateFieldByIdsAsync(IEnumerable<long> entityIds, string field, string newValue);
 }
