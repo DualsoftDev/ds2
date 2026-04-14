@@ -304,13 +304,13 @@
                                                     @onclick="() => { SelectNode(capturedErrNode); OnAddErrorDef(); }">+ 추가</button>
                                             <button class="btn btn-sm btn-outline-secondary"
                                                     @onclick="() => { SelectNode(capturedErrNode); _ = OnExportErrorDefCsv(capturedErrNode); }">CSV 내보내기</button>
-                                            <label class="btn btn-sm btn-outline-info btn-file" style="margin:0;cursor:pointer">
+                                            <label class="btn btn-sm btn-outline-info btn-file" style="margin:0;cursor:pointer"
+                                                   @onclick="() => OnImportErrorDefCsv(false, capturedErrNode)">
                                                 CSV 추가
-                                                <InputFile OnChange="OnCsvFileSelected" accept=".csv" style="display:none"
-                                                           @onclick="() => OnImportErrorDefCsv(false, capturedErrNode)" />
+                                                <InputFile OnChange="OnCsvFileSelected" accept=".csv" style="display:none" />
                                             </label>
                                             <button class="btn btn-sm btn-outline-warning"
-                                                    @onclick="() => { SelectNode(capturedErrNode); _csvReplaceTargetNode = capturedErrNode; _showCsvReplaceConfirm = true; }">CSV 교체</button>
+                                                    @onclick="() => { _csvReplaceTargetNode = capturedErrNode; _csvTargetNode = capturedErrNode; _showCsvReplaceConfirm = true; }">CSV 교체</button>
                                         </div>
                                     </div>
                                     @if (errNode.Children.Count > 0)
@@ -518,10 +518,10 @@
                 <p style="margin:8px 0 0;color:#aaa;font-size:13px">현재 @(_csvReplaceTargetNode?.Children.Count ?? 0)건의 정의가 삭제됩니다. 계속하시겠습니까?</p>
             </div>
             <div class="modal-actions">
-                <label class="btn btn-warning btn-sm btn-file" style="margin:0;cursor:pointer">
+                <label class="btn btn-warning btn-sm btn-file" style="margin:0;cursor:pointer"
+                       @onclick="() => { _csvImportReplace = true; }">
                     CSV 선택 후 교체
-                    <InputFile OnChange="OnCsvFileSelected" accept=".csv" style="display:none"
-                               @onclick="() => { _csvImportReplace = true; _showCsvReplaceConfirm = false; }" />
+                    <InputFile OnChange="OnCsvFileSelected" accept=".csv" style="display:none" />
                 </label>
                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showCsvReplaceConfirm = false">취소</button>
             </div>
