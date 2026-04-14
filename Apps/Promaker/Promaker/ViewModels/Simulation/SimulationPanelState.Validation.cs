@@ -19,17 +19,17 @@ public partial class SimulationPanelState
         var sections = new List<GraphWarningSection>();
         CollectWarning(sections, "순환 데드락 위험", WarningSeverity.Red,
             GraphValidator.findDeadlockCandidates(index),
-            "(해당 Work의 Start 선행조건에 순환 후속 Work가 포함되어 있습니다)");
+            "(해당 Work의 Start 선행조건에 순환 후속 Work가 포함되어 있습니다)", index);
         CollectWarning(sections, "Source 자동 시작 불가", WarningSeverity.Red,
             GraphValidator.findSourcesWithPredecessors(index),
-            "(predecessor가 있어 자동 시작되지 않습니다. 순환 경로에 있으면 데드락이 발생합니다)");
+            "(predecessor가 있어 자동 시작되지 않습니다. 순환 경로에 있으면 데드락이 발생합니다)", index);
         CollectGroupIgnoreWarning(sections, index);
         CollectTokenUnreachableWarning(sections, index);
         CollectWarning(sections, "Reset 연결 누락", WarningSeverity.Yellow,
-            GraphValidator.findUnresetWorks(index));
+            GraphValidator.findUnresetWorks(index), index: index);
         CollectWarning(sections, "Source 후보", WarningSeverity.Yellow,
             GraphValidator.findSourceCandidates(index),
-            "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)");
+            "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)", index);
         CollectDurationWarning(sections, index);
         CollectTokenSpecWarning(sections, index);
 
@@ -84,19 +84,43 @@ public partial class SimulationPanelState
         string title,
         WarningSeverity severity,
         IEnumerable<Tuple<Guid, string, string>> items,
-        string? detail = null)
+        string? detail = null,
+        SimIndex? index = null)
     {
         var itemList = items.ToList();
         foreach (var item in itemList)
             _warningGuids.Add(item.Item1);
 
-        var lines = itemList
-            .Select(static item => $"  - {item.Item2}.{item.Item3}")
-            .ToList();
-        if (lines.Count == 0)
+        if (itemList.Count == 0)
             return;
 
+        var lines = FormatGroupedByCategory(itemList, index);
         sections.Add(new GraphWarningSection(title, severity, lines, detail));
+    }
+
+    private static List<string> FormatGroupedByCategory(
+        List<Tuple<Guid, string, string>> items, SimIndex? index)
+    {
+        if (index == null)
+            return items.Select(item => $"  - {item.Item2}.{item.Item3}").ToList();
+
+        var controlItems = items.Where(i => index.ActiveSystemNames.Contains(i.Item2)).ToList();
+        var deviceItems = items.Where(i => !index.ActiveSystemNames.Contains(i.Item2)).ToList();
+
+        var lines = new List<string>();
+        if (controlItems.Count > 0 && deviceItems.Count > 0)
+        {
+            lines.Add($"  [Control] {controlItems.Count}건");
+            lines.AddRange(controlItems.Select(i => $"    - {i.Item2}.{i.Item3}"));
+            lines.Add($"  [Device] {deviceItems.Count}건");
+            lines.AddRange(deviceItems.Select(i => $"    - {i.Item2}.{i.Item3}"));
+        }
+        else
+        {
+            lines.AddRange(items.Select(i => $"  - {i.Item2}.{i.Item3}"));
+        }
+
+        return lines;
     }
 
     private static List<string> FormatGroupLines(

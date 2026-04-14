@@ -89,6 +89,8 @@ public partial class SimulationPanelState
             if (!TryDisposeCurrentEngine("Simulation restart"))
                 return;
             _simEngine = new EventDrivenEngine(index, RuntimeMode.Simulation);
+            _simEngine.SpeedMultiplier = SimSpeed;
+            _simEngine.TimeIgnore = SimTimeIgnore;
             AdvanceSimUiGeneration();
 
             WireSimEvents();

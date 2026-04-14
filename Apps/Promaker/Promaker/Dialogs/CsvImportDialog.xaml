@@ -138,7 +138,7 @@
                                 <DataGridTextColumn Header="InName" Binding="{Binding InName}" Width="100"/>
                                 <DataGridTextColumn Header="InAddress" Binding="{Binding InAddress}" Width="80"/>
                                 <DataGridTextColumn Header="OutName" Binding="{Binding OutName}" Width="100"/>
-                                <DataGridTextColumn Header="OutAddress" Binding="{Binding OutAddress}" Width="80"/>
+                                <DataGridTextColumn Header="OutAddress" Binding="{Binding OutAddress}" Width="*" MinWidth="80"/>
                             </DataGrid.Columns>
                         </DataGrid>
                     </Border>

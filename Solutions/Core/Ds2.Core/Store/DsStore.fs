@@ -43,12 +43,7 @@ type DsStore() =
         let register (ac: ApiCall) = this.ApiCalls.[ac.Id] <- ac
         for call in this.Calls.Values do
             for ac in call.ApiCalls do register ac
-            let rec walkConditions (conds: ResizeArray<CallCondition>) =
-                for cond in conds do
-                    for ac in cond.Conditions do
-                        if not (this.ApiCalls.ContainsKey(ac.Id)) then register ac
-                    walkConditions cond.Children
-            walkConditions call.CallConditions
+            // 조건 내 ApiCall은 등록하지 않음 — Call 본체 ApiCall과 동일 ID이지만 독립 인스턴스
 
     member internal this.RewireApiCallReferences() =
         let rewire (source: ResizeArray<ApiCall>) =
@@ -60,8 +55,7 @@ type DsStore() =
             result
         for call in this.Calls.Values do
             call.ApiCalls <- rewire call.ApiCalls
-            for cond in call.CallConditions do
-                cond.Conditions <- rewire cond.Conditions
+            // 조건 내 ApiCall은 rewire 제외 — 독립 인스턴스 유지 (Value 공유 방지)
 
     member this.SaveToFile(path: string) =
         try

@@ -79,9 +79,10 @@ module CsvImporter =
     let private readLines (filePath: string) : string array =
         let text =
             use fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete)
-            use sr = new StreamReader(fs, Encoding.UTF8)
+            use sr = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks = true)
             sr.ReadToEnd()
-        text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n')
+        let cleaned = if text.Length > 0 && text.[0] = '\uFEFF' then text.[1..] else text
+        cleaned.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n')
         |> Array.map (fun s -> s.Trim())
         |> Array.filter (fun s -> s.Length > 0)
 

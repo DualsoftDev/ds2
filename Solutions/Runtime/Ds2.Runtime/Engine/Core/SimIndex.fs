@@ -363,11 +363,6 @@ module SimIndex =
             |> List.map (fun (origId, members) -> origId, (members |> List.map fst |> List.sort))
             |> Map.ofList
 
-        let expandReferenceMembers canonicalWorkGuid =
-            workReferenceGroups
-            |> Map.tryFind canonicalWorkGuid
-            |> Option.defaultValue [ canonicalWorkGuid ]
-
         let mergeTokenRoleByCanonical =
             tokenRoleMap
             |> Map.fold (fun acc workGuid role ->
