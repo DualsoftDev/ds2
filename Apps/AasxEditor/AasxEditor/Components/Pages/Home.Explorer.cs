@@ -254,7 +254,9 @@ public partial class Home
 
         SelectNode(node);
 
-        if (node.Children.Count > 0)
+        // 자식이 있고, 그 중 컨테이너(손자가 있는) 자식이 있을 때만 다음 컬럼 표시
+        // 자식이 모두 리프면 컬럼 생성 없이 프리뷰에서 일괄 편집
+        if (node.Children.Count > 0 && node.Children.Any(c => c.Children.Count > 0))
         {
             _explorerPath.Add(node);
             _scrollColumnsToEnd = true;

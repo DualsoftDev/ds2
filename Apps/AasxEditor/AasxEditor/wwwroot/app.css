@@ -25,6 +25,15 @@ html, body {
     padding: 4px 16px;
     border-bottom: 1px solid #3c3c3c;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+#client-count-indicator {
+    font-size: 12px;
+    color: #e8a828;
+    font-weight: 500;
 }
 
 .aasx-header h1 {
@@ -404,12 +413,12 @@ html, body {
 }
 
 .finder-columns {
-    flex: 1;
     display: flex;
     overflow-x: auto;
     overflow-y: hidden;
     min-width: 0;
     scroll-behavior: smooth;
+    flex-shrink: 1;
 }
 
 .finder-column {
@@ -478,13 +487,12 @@ html, body {
 
 /* === Preview Pane === */
 .finder-preview {
-    width: 280px;
+    flex: 1;
     min-width: 280px;
-    flex-shrink: 0;
     overflow-y: auto;
     background: #1c1c1e;
     border-left: 1px solid #3a3a3c;
-    padding: 24px 16px 16px;
+    padding: 20px 20px 16px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -520,6 +528,7 @@ html, body {
 
 .finder-preview-meta {
     width: 100%;
+    max-width: 600px;
     background: #2c2c2e;
     border-radius: 8px;
     padding: 8px 12px;
@@ -591,6 +600,10 @@ html, body {
 }
 
 .finder-preview-prop {
+    display: grid;
+    grid-template-columns: minmax(140px, 1fr) 1.2fr;
+    gap: 0 12px;
+    align-items: center;
     padding: 6px 0;
     border-bottom: 1px solid rgba(255,255,255,0.04);
 }
@@ -600,29 +613,47 @@ html, body {
     display: flex;
     align-items: center;
     gap: 4px;
-    font-size: 12px;
+    font-size: 13px;
     color: #e5e5e7;
-    margin-bottom: 4px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
-.finder-preview-prop-editor { padding-left: 18px; }
+.finder-preview-prop-editor { min-width: 0; }
 
 .finder-preview-child {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 0;
-    font-size: 12px;
+    padding: 5px 6px;
+    font-size: 13px;
     color: #e5e5e7;
+    border-radius: 6px;
+}
+.finder-preview-child.clickable {
+    cursor: pointer;
+}
+.finder-preview-child.clickable:hover {
+    background: rgba(255,255,255,0.06);
+}
+
+.finder-preview-child-label {
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 .finder-preview-child-badge {
     color: #636366;
     font-size: 10px;
     background: #3a3a3c;
-    padding: 0 5px;
+    padding: 1px 7px;
     border-radius: 8px;
-    margin-left: auto;
+    min-width: 20px;
+    text-align: center;
+    flex-shrink: 0;
 }
 
 /* Error Defs in Preview */

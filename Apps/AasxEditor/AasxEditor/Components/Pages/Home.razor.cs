@@ -12,6 +12,9 @@ public partial class Home : IAsyncDisposable
     [Inject] private AasEntityExtractor EntityExtractor { get; set; } = default!;
     [Inject] private IAasMetadataStore MetadataStore { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
+    [Inject] private CircuitTracker CircuitTracker { get; set; } = default!;
+
+    private readonly string _circuitId = Guid.NewGuid().ToString();
 
     // ===== State =====
     private string? _fileName;
@@ -151,6 +154,11 @@ public partial class Home : IAsyncDisposable
             await JS.InvokeVoidAsync("ResizeHandle.init", "resize-left", "panel-tree", "left");
             await JS.InvokeVoidAsync("DropZone.init", _dotnetRef);
 
+            CircuitTracker.Connect(_circuitId);
+            CircuitTracker.OnChanged += OnCircuitChanged;
+            UpdateClientCountIndicator();
+            await JS.InvokeVoidAsync("ClientCount.initUnload", _dotnetRef);
+
             if (_sessionStarted)
                 await RestoreFromDbAsync();
             else
@@ -161,10 +169,33 @@ public partial class Home : IAsyncDisposable
         }
     }
 
+    private void OnCircuitChanged()
+    {
+        _ = InvokeAsync(() => UpdateClientCountIndicator());
+    }
+
+    private void UpdateClientCountIndicator()
+    {
+        var count = CircuitTracker.Count;
+        var text = count >= 2 ? $"클라이언트 {count}개 접속중.." : "";
+        _ = JS.InvokeVoidAsync("ClientCount.update", text);
+    }
+
+    [JSInvokable]
+    public void OnBeforeUnload()
+    {
+        CircuitTracker.OnChanged -= OnCircuitChanged;
+        CircuitTracker.Disconnect(_circuitId);
+    }
+
     public async ValueTask DisposeAsync()
     {
+        CircuitTracker.OnChanged -= OnCircuitChanged;
+        CircuitTracker.Disconnect(_circuitId);
+
         if (_editorInitialized)
         {
+            try { await JS.InvokeVoidAsync("ClientCount.dispose"); } catch { }
             try { await JS.InvokeVoidAsync("MonacoInterop.dispose"); } catch { }
         }
         _dotnetRef?.Dispose();

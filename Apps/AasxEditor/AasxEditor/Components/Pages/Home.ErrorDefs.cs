@@ -186,6 +186,27 @@ public partial class Home
         _csvImportReplace = replace;
     }
 
+    private Task OnCsvAddFileSelected(InputFileChangeEventArgs e)
+    {
+        _csvTargetNode = _selectedNode;
+        _csvImportReplace = false;
+        return OnCsvFileSelected(e);
+    }
+
+    private Task OnCsvAddForNode(InputFileChangeEventArgs e, AasTreeNode node)
+    {
+        _csvTargetNode = node;
+        _csvImportReplace = false;
+        return OnCsvFileSelected(e);
+    }
+
+    private Task OnCsvReplaceFileSelected(InputFileChangeEventArgs e)
+    {
+        _csvImportReplace = true;
+        _showCsvReplaceConfirm = false;
+        return OnCsvFileSelected(e);
+    }
+
     private async Task OnCsvFileSelected(InputFileChangeEventArgs e)
     {
         try
