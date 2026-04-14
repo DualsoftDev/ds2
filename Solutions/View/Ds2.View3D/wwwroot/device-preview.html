@@ -24,6 +24,15 @@ body{display:flex;height:100vh;font-family:'Segoe UI',sans-serif;background:#0f1
 .dir-btn{padding:4px 12px;background:#1e293b;color:#94a3b8;border:1px solid #475569;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s}
 .dir-btn:hover{background:#334155;color:#e2e8f0}
 .dir-btn.active{background:#f97316;color:#fff;border-color:#f97316}
+/* Embed 모드: 사이드바 숨기고 뷰포트만 표시 */
+body.embed #sidebar{display:none}
+body.embed #viewport{flex:1}
+body.embed #embed-bar{display:flex}
+#embed-bar{display:none;position:absolute;bottom:0;left:0;right:0;padding:6px 10px;background:rgba(15,23,42,0.85);gap:6px;align-items:center;z-index:20;flex-wrap:wrap}
+#embed-bar button{padding:3px 10px;border-radius:4px;border:none;cursor:pointer;font-size:11px;font-weight:600}
+#embed-bar .state-btn{width:28px;height:28px;border-radius:50%!important;font-size:11px;color:#fff!important;padding:0!important;opacity:.7}
+#embed-bar .state-btn:hover,#embed-bar .state-btn.active{opacity:1}
+#embed-bar .dir-btn{padding:3px 8px;font-size:11px}
 </style>
 </head>
 <body>
@@ -59,6 +68,14 @@ body{display:flex;height:100vh;font-family:'Segoe UI',sans-serif;background:#0f1
   <div id="error-msg"></div>
   <div id="info">Drag: rotate · Scroll: zoom · Right-drag: pan</div>
   <div id="hint"></div>
+  <!-- Embed 모드 컨트롤 바 (URL에 ?embed 파라미터 있을 때만 표시) -->
+  <div id="embed-bar">
+    <button class="state-btn active" style="background:#10b981" onclick="setState('R')" data-state="R">R</button>
+    <button class="state-btn" style="background:#eab308" onclick="setState('G')" data-state="G">G</button>
+    <button class="state-btn" style="background:#3b82f6" onclick="setState('F')" data-state="F">F</button>
+    <button class="state-btn" style="background:#6b7280" onclick="setState('H')" data-state="H">H</button>
+    <span id="embed-dir-buttons" style="display:contents"></span>
+  </div>
 </div>
 
 <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
@@ -273,6 +290,10 @@ let currentSpecDirs = null; // 현재 로드된 spec의 dirs 키 목록
 const STATE_COLORS = {R:0x10b981, G:0xeab308, F:0x3b82f6, H:0x6b7280};
 
 // ── Init ─────────────────────────────────────────────────────
+// Embed 모드 감지 (URL에 ?embed 파라미터)
+const isEmbedMode = new URLSearchParams(window.location.search).has('embed');
+if (isEmbedMode) document.body.classList.add('embed');
+
 function init() {
   const ct = document.getElementById('viewport');
 
@@ -317,13 +338,14 @@ function init() {
     renderer.setSize(ct.clientWidth, ct.clientHeight);
   });
 
-  document.getElementById('json-input').addEventListener('keydown', e => {
-    if(e.ctrlKey && e.key==='Enter'){ e.preventDefault(); renderFromEditor(); }
-    // Tab support
-    if(e.key==='Tab'){ e.preventDefault(); const t=e.target; const s=t.selectionStart; t.value=t.value.substring(0,s)+'  '+t.value.substring(t.selectionEnd); t.selectionStart=t.selectionEnd=s+2; }
-  });
-
-  loadPreset('lifter');
+  if (!isEmbedMode) {
+    document.getElementById('json-input').addEventListener('keydown', e => {
+      if(e.ctrlKey && e.key==='Enter'){ e.preventDefault(); renderFromEditor(); }
+      if(e.key==='Tab'){ e.preventDefault(); const t=e.target; const s=t.selectionStart; t.value=t.value.substring(0,s)+'  '+t.value.substring(t.selectionEnd); t.selectionStart=t.selectionEnd=s+2; }
+    });
+    loadPreset('lifter');
+  }
+  // Embed 모드: 빈 씬으로 시작 (C#에서 JSON 전달 시 렌더링)
 }
 
 // ── Render from Editor ───────────────────────────────────────
@@ -1242,16 +1264,32 @@ function setDirection(dir) {
 function updateDirButtons() {
   // 기존 dir 버튼 제거
   document.querySelectorAll('.dir-btn').forEach(b => b.remove());
-  const dirContainer = document.getElementById('dir-buttons');
-  if (dirContainer) dirContainer.innerHTML = '';
+
+  // 일반 모드: #dir-buttons, Embed 모드: #embed-dir-buttons
+  const dirContainer = isEmbedMode
+    ? document.getElementById('embed-dir-buttons')
+    : document.getElementById('dir-buttons');
+
+  if (!isEmbedMode) {
+    const dc = document.getElementById('dir-buttons');
+    if (dc) dc.innerHTML = '';
+  }
 
   if (!currentSpecDirs || currentSpecDirs.length === 0) {
-    if (dirContainer) dirContainer.style.display = 'none';
+    if (!isEmbedMode) {
+      const dc = document.getElementById('dir-buttons');
+      if (dc) dc.style.display = 'none';
+    }
     return;
   }
 
+  if (!isEmbedMode) {
+    const dc = document.getElementById('dir-buttons');
+    if (dc) dc.style.display = 'flex';
+  }
+
   if (dirContainer) {
-    dirContainer.style.display = 'flex';
+    if (!isEmbedMode) dirContainer.innerHTML = '';
     currentSpecDirs.forEach(dir => {
       const btn = document.createElement('button');
       btn.className = 'dir-btn';

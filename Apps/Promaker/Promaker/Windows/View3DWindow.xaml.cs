@@ -32,7 +32,10 @@ public partial class View3DWindow : Window
     private readonly Func<Task>? _onReady;
     private DsStore? _store;
     private Guid _projectId;
+    private string? _projectDir;
     private bool _isDeviceScene = true;
+    private CustomModelRegistry? _customModelRegistry;
+    private bool _suppressTreeSelectionEvent;
 
     public View3DWindow(ThreeDViewState vm, Func<Task>? onReady = null)
     {
@@ -44,12 +47,17 @@ public partial class View3DWindow : Window
         KeyDown += OnKeyDown;
     }
 
-    public void SetSceneData(DsStore store, Guid projectId)
+    public void SetSceneData(DsStore store, Guid projectId, string? projectFilePath = null)
     {
         _store = store;
         _projectId = projectId;
+        _projectDir = projectFilePath != null ? Path.GetDirectoryName(projectFilePath) : null;
         BuildDeviceTree();
+        InitCustomModelRegistry();
     }
+
+    /// <summary>커스텀 모델 레지스트리를 외부에서 접근할 수 있게 제공</summary>
+    public CustomModelRegistry? GetCustomModelRegistry() => _customModelRegistry;
 
     private void BuildDeviceTree()
     {
@@ -235,9 +243,9 @@ public partial class View3DWindow : Window
 
     private void DeviceTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
+        if (_suppressTreeSelectionEvent) return;
         if (e.NewValue is not TreeViewItem item || item.Tag == null) return;
 
-        // Use ValueTuple pattern matching
         if (item.Tag is ValueTuple<string, Guid, string> deviceTag && deviceTag.Item1 == "Device")
         {
             var deviceName = deviceTag.Item3;
@@ -245,6 +253,35 @@ public partial class View3DWindow : Window
             {
                 _ = WebView3D.CoreWebView2?.ExecuteScriptAsync(
                     $"Ev23DViewer.selectDeviceByName('scene3d', '{deviceName}')");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 3D 뷰에서 디바이스 클릭 시 Tree의 해당 노드를 선택/확장한다.
+    /// </summary>
+    public void SelectDeviceInTree(Guid systemId)
+    {
+        foreach (TreeViewItem flowNode in DeviceTree.Items)
+        {
+            foreach (TreeViewItem deviceNode in flowNode.Items)
+            {
+                if (deviceNode.Tag is ValueTuple<string, Guid, string> tag
+                    && tag.Item1 == "Device" && tag.Item2 == systemId)
+                {
+                    _suppressTreeSelectionEvent = true;
+                    try
+                    {
+                        flowNode.IsExpanded = true;
+                        deviceNode.IsSelected = true;
+                        deviceNode.BringIntoView();
+                    }
+                    finally
+                    {
+                        _suppressTreeSelectionEvent = false;
+                    }
+                    return;
+                }
             }
         }
     }
@@ -267,6 +304,15 @@ public partial class View3DWindow : Window
         // Enable device edit mode
         _ = WebView3D.CoreWebView2.ExecuteScriptAsync(
             "Ev23DViewer.setEditMode('scene3d', true)");
+    }
+
+    private void GridSnap_Changed(object sender, RoutedEventArgs e)
+    {
+        if (WebView3D?.CoreWebView2 == null) return;
+
+        var enabled = GridSnapCheck.IsChecked == true;
+        _ = WebView3D.CoreWebView2.ExecuteScriptAsync(
+            $"Ev23DViewer.setGridSnap('scene3d', {(enabled ? "true" : "false")})");
     }
 
     private async void OnWindowLoaded(object sender, RoutedEventArgs e)
@@ -347,6 +393,108 @@ public partial class View3DWindow : Window
             WebView3D.CoreWebView2.WebMessageReceived -= OnWebMessageReceived;
         }
         _vm.SetWebViewSender(null);
+    }
+
+    // ── 커스텀 모델 관리 ────────────────────────────────────────
+
+    private void InitCustomModelRegistry()
+    {
+        if (string.IsNullOrEmpty(_projectDir)) return;
+
+        _customModelRegistry = new CustomModelRegistry(_projectDir);
+        _customModelRegistry.LoadAll();
+
+        // F# DevicePresets에 커스텀 이름 등록
+        Ds2.View3D.DevicePresets.registerCustomNames(_customModelRegistry.GetRegisteredNames());
+
+        // ThreeDViewState에 registry 주입 (WebView2로 전달될 수 있도록)
+        _vm.SetCustomModelRegistry(_customModelRegistry);
+
+        RefreshCustomModelList();
+    }
+
+    private void RefreshCustomModelList()
+    {
+        CustomModelList.ItemsSource = null;
+        CustomModelList.ItemsSource = _customModelRegistry?.ModelNames ?? Array.Empty<string>();
+    }
+
+    private IEnumerable<string> GetProjectSystemTypes()
+    {
+        if (_store == null) return Enumerable.Empty<string>();
+        return _store.Systems.Values
+            .Where(s => Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(s.SystemType))
+            .Select(s => s.SystemType.Value)
+            .Where(st => !string.IsNullOrEmpty(st))
+            .Distinct()
+            .OrderBy(x => x);
+    }
+
+    private void AddCustomModel_Click(object sender, RoutedEventArgs e)
+    {
+        if (_customModelRegistry == null) return;
+
+        var wwwroot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
+        var dlg = new CustomModelDialog(_customModelRegistry, wwwroot, this, GetProjectSystemTypes());
+
+        if (dlg.ShowDialog() == true && dlg.RegisteredSystemType != null)
+        {
+            // F# 프리셋에 이름 등록
+            Ds2.View3D.DevicePresets.registerCustomName(dlg.RegisteredSystemType);
+            RefreshCustomModelList();
+            // 씬 리빌드 (새 모델 반영)
+            RebuildSceneIfReady();
+        }
+    }
+
+    private void DeleteCustomModel_Click(object sender, RoutedEventArgs e)
+    {
+        if (_customModelRegistry == null) return;
+        var selected = CustomModelList.SelectedItem as string;
+        if (string.IsNullOrEmpty(selected)) return;
+
+        var result = MessageBox.Show(
+            $"커스텀 모델 \"{selected}\"을 삭제하시겠습니까?",
+            "모델 삭제", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            _customModelRegistry.Delete(selected);
+            RefreshCustomModelList();
+            RebuildSceneIfReady();
+        }
+    }
+
+    private void CustomModelList_DoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (_customModelRegistry == null) return;
+        var selected = CustomModelList.SelectedItem as string;
+        if (string.IsNullOrEmpty(selected)) return;
+
+        var wwwroot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot");
+        var dlg = new CustomModelDialog(_customModelRegistry, wwwroot, this, GetProjectSystemTypes())
+        {
+            EditingSystemType = selected
+        };
+
+        if (dlg.ShowDialog() == true)
+        {
+            RefreshCustomModelList();
+            RebuildSceneIfReady();
+        }
+    }
+
+    private async void RebuildSceneIfReady()
+    {
+        if (_store == null || !_vm.HasScene) return;
+        try
+        {
+            await _vm.BuildScene(_store, _projectId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[View3DWindow] Scene rebuild failed: {ex.Message}");
+        }
     }
 
     private void OnKeyDown(object sender, System.Windows.Input.KeyEventArgs e)

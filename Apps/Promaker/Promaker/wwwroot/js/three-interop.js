@@ -693,6 +693,18 @@ const Ev23DViewer = {
     },
 
     /**
+     * Toggle grid snapping for device placement
+     * @param {string} elementId - Scene identifier
+     * @param {boolean} enabled - true = snap to grid, false = free placement
+     */
+    setGridSnap: function(elementId, enabled) {
+        const sceneData = this._scenes[elementId];
+        if (!sceneData) return;
+        sceneData.gridSnap = enabled;
+        console.log(`[GridSnap] ${enabled ? 'ON' : 'OFF'} (gridSize=5)`);
+    },
+
+    /**
      * Register Blazor callback for call selection
      * @param {string} elementId - Scene identifier
      * @param {object} dotNetRef - DotNetObjectReference for callback
@@ -2667,7 +2679,10 @@ const Ev23DViewer = {
                     sceneData.selectedObject = null;
                 } else {
                     sceneData.selectedObject = deviceId;
-                    // Highlight device (optional - can add device-specific highlighting)
+                    var deviceMesh = sceneData.deviceMeshes[deviceId];
+                    if (deviceMesh) {
+                        this._highlightDevice(elementId, deviceMesh);
+                    }
                 }
             } else {
                 console.log('No workId or deviceId found for clicked object');
@@ -2730,6 +2745,13 @@ const Ev23DViewer = {
             )) {
                 // Update object position with offset
                 dragState.dragObject.position.copy(sceneData.reusableVector3).add(dragState.dragOffset);
+
+                // Snap to grid if enabled (grid cell size = 5)
+                if (sceneData.gridSnap) {
+                    const gs = 5;
+                    dragState.dragObject.position.x = Math.round(dragState.dragObject.position.x / gs) * gs;
+                    dragState.dragObject.position.z = Math.round(dragState.dragObject.position.z / gs) * gs;
+                }
 
                 // Keep Y position fixed
                 dragState.dragObject.position.y = 0;
@@ -3200,6 +3222,29 @@ const Ev23DViewer = {
         return line;
     },
 
+    /**
+     * Highlight a device group (emissive glow on all meshes in the group)
+     */
+    _highlightDevice: function(elementId, deviceGroup) {
+        const sceneData = this._scenes[elementId];
+        if (!sceneData || !deviceGroup) return;
+
+        let highlightCount = 0;
+        deviceGroup.traverse(function(child) {
+            if (child.isMesh && child.material) {
+                if (child.material.emissive) {
+                    child.userData._origEmissiveHex = child.material.emissive.getHex();
+                    child.userData._origEmissiveIntensity = child.material.emissiveIntensity;
+                    child.material.emissive.setHex(0x3b82f6);
+                    child.material.emissiveIntensity = 0.8;
+                    sceneData.highlightedObjects.push(child);
+                    highlightCount++;
+                }
+            }
+        });
+        console.log(`✓ _highlightDevice: ${highlightCount} meshes highlighted`);
+    },
+
     _clearHighlights: function(elementId) {
         const sceneData = this._scenes[elementId];
         if (!sceneData) return;
@@ -3245,7 +3290,15 @@ const Ev23DViewer = {
         if (sceneData.highlightedObjects) {
             sceneData.highlightedObjects.forEach(obj => {
                 if (obj.material && obj.material.emissive) {
-                    obj.material.emissiveIntensity = 0.3;
+                    // Restore original emissive if saved by _highlightDevice
+                    if (obj.userData._origEmissiveHex !== undefined) {
+                        obj.material.emissive.setHex(obj.userData._origEmissiveHex);
+                        obj.material.emissiveIntensity = obj.userData._origEmissiveIntensity;
+                        delete obj.userData._origEmissiveHex;
+                        delete obj.userData._origEmissiveIntensity;
+                    } else {
+                        obj.material.emissiveIntensity = 0.3;
+                    }
                 }
             });
             sceneData.highlightedObjects = [];
@@ -7124,38 +7177,47 @@ const Ev23DViewer = {
      * @param {string} deviceName - Device name to select
      */
     selectDeviceByName: function(elementId, deviceName) {
-        const sceneData = this._scenes[elementId];
-        if (!sceneData) return;
+        try {
+            const sceneData = this._scenes[elementId];
+            if (!sceneData) {
+                console.warn(`[selectDeviceByName] scene '${elementId}' not found`);
+                return;
+            }
 
-        // Find device by name
-        const device = sceneData.devices?.find(d => d.name === deviceName);
-        if (!device) {
-            console.warn(`Device '${deviceName}' not found in scene`);
-            return;
-        }
+            console.log(`[selectDeviceByName] looking for '${deviceName}' in ${sceneData.devices?.length || 0} devices`);
 
-        // Find device mesh
-        const deviceMesh = sceneData.deviceMeshes[device.id];
-        if (!deviceMesh) return;
+            // Find device by name
+            const device = sceneData.devices?.find(d => d.name === deviceName);
+            if (!device) {
+                console.warn(`[selectDeviceByName] Device '${deviceName}' not found. Available: [${(sceneData.devices || []).map(d => d.name).join(', ')}]`);
+                return;
+            }
 
-        // Clear existing highlights
-        this._clearHighlights(elementId);
+            // Find device mesh
+            const deviceMesh = sceneData.deviceMeshes[device.id];
+            if (!deviceMesh) return;
 
-        // Highlight selected device
-        sceneData.selectedObject = device.id;
-        this._highlightDevice(elementId, deviceMesh);
+            // Clear existing highlights and ApiDef connections
+            this._clearHighlights(elementId);
+            this._clearApiDefConnections(elementId);
+            sceneData.selectedApiDef = null;
 
-        // Move camera to device
-        const pos = deviceMesh.position;
-        const camera = sceneData.camera;
-        const controls = sceneData.controls;
+            // Highlight selected device
+            sceneData.selectedObject = device.id;
+            this._highlightDevice(elementId, deviceMesh);
 
-        if (camera && controls) {
-            // Set camera target to device position
-            controls.target.set(pos.x, 0, pos.z);
-            controls.update();
+            // Move camera to device
+            const pos = deviceMesh.position;
+            const camera = sceneData.camera;
+            const controls = sceneData.controls;
 
-            console.log(`✓ Selected device '${deviceName}' in 3D view`);
+            if (camera && controls) {
+                controls.target.set(pos.x, 0, pos.z);
+                controls.update();
+                console.log(`✓ Selected device '${deviceName}' in 3D view`);
+            }
+        } catch (e) {
+            console.error(`selectDeviceByName error for '${deviceName}':`, e);
         }
     },
 
