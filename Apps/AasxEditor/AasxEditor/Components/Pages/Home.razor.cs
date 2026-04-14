@@ -43,10 +43,15 @@ public partial class Home : IAsyncDisposable
     private bool _showDropChoice;
     private string[] _pendingDropFileNames = [];
 
-    // 모달
+    // 모달 — 일괄 편집
     private bool _showBatchEdit;
     private string _batchNewValue = "";
-    private string _batchTargetField = "Value";
+    private string _batchEditMode = "overwrite"; // overwrite, findReplace, prepend, append
+    private string _batchFindText = "";
+    private string _batchTypeFilter = "";         // 엔티티 타입 필터 ("" = 전체)
+    private string _batchValueTypeFilter = "";    // ValueType 필터 (Bit, Byte, Word... "" = 전체)
+    private string _batchIdFilter = "";           // IdShort 텍스트 필터
+    private HashSet<long> _batchSelectedIds = []; // 개별 선택된 엔티티 ID
     private bool _showSaveAs;
     private string _saveAsName = "";
 

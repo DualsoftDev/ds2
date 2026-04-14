@@ -550,71 +550,159 @@
 
 @if (_showBatchEdit)
 {
-    var batchTargets = GetBatchTargetRecords();
-    var batchSkipped = GetBatchSkippedRecords();
-    var typeSummary = batchTargets.GroupBy(r => r.EntityType)
-        .Select(g => $"{g.Key} {g.Count()}건")
-        .ToList();
+    var filteredRecords = GetFilteredBatchRecords();
+    var applyTargets = GetBatchApplyTargets();
+    var entityTypes = GetBatchEntityTypes();
+    var valueTypes = GetBatchValueTypes();
 
     <div class="modal-overlay">
-        <div class="modal-dialog" style="width:520px">
-            <div class="modal-title">일괄 편집 — 대상 @(batchTargets.Count)건</div>
-            <div class="modal-body">
-                @* 변경 대상 속성 선택 *@
-                <label class="modal-input-label">변경할 속성</label>
-                <select class="modal-input" @bind="_batchTargetField">
-                    @foreach (var (field, label) in BatchEditableFields)
-                    {
-                        <option value="@field">@label</option>
-                    }
-                </select>
+        <div class="modal-dialog" style="width:700px;max-height:85vh;display:flex;flex-direction:column">
+            <div class="modal-title">일괄 편집 — 검색 결과 @(_searchResults.Count)건 중 @(applyTargets.Count)건 선택됨</div>
+            <div class="modal-body" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
 
-                @* 타입별 요약 *@
-                <div class="modal-preview-label" style="margin-top:10px">
-                    변경 대상 요약: @string.Join(", ", typeSummary)
+                @* Row 1: 편집 방식 *@
+                <div style="margin-bottom:8px;flex-shrink:0">
+                    <label class="modal-input-label">편집 방식</label>
+                    <select class="modal-input" @bind="_batchEditMode">
+                        @foreach (var (mode, label) in BatchEditModes)
+                        {
+                            <option value="@mode">@label</option>
+                        }
+                    </select>
                 </div>
 
-                @* 기존 값 미리보기 *@
-                <div class="modal-preview">
-                    @foreach (var r in batchTargets.DistinctBy(r => r.JsonPath).Take(10))
+                @* Row 2: 필터 (엔티티 타입 + ValueType + IdShort + 선택 버튼) *@
+                <div style="display:flex;gap:6px;margin-bottom:6px;flex-shrink:0;align-items:center">
+                    <select class="modal-input" style="font-size:12px;padding:4px 6px;flex:0 0 130px"
+                            @bind="_batchTypeFilter">
+                        <option value="">전체 타입</option>
+                        @foreach (var t in entityTypes)
+                        {
+                            var cnt = _searchResults.Count(r => r.EntityType == t);
+                            <option value="@t">@t (@cnt)</option>
+                        }
+                    </select>
+                    @if (valueTypes.Count > 0)
                     {
-                        <div class="modal-preview-row">
-                            <span class="modal-chip-type">@r.EntityType</span>
-                            <span class="modal-chip-id">@r.IdShort</span>
-                            @if (_batchTargetField == "Value" && r.Value is not null)
+                        <select class="modal-input" style="font-size:12px;padding:4px 6px;flex:0 0 120px"
+                                @bind="_batchValueTypeFilter">
+                            <option value="">전체 ValueType</option>
+                            @foreach (var vt in valueTypes)
                             {
-                                <span class="modal-chip-val">@TruncateValue(r.Value, 30)</span>
+                                var vtCnt = _searchResults.Count(r => r.ValueType == vt);
+                                <option value="@vt">@vt (@vtCnt)</option>
                             }
-                            else if (_batchTargetField == "SemanticId" && r.SemanticId is not null)
+                        </select>
+                    }
+                    <input class="modal-input" type="text" style="font-size:12px;padding:4px 6px;flex:1"
+                           placeholder="IdShort 필터..."
+                           @bind="_batchIdFilter" @bind:event="oninput" />
+                    <button class="btn btn-outline-info" style="font-size:11px;padding:3px 8px;white-space:nowrap" @onclick="OnBatchSelectAllVisible">
+                        전체선택
+                    </button>
+                    <button class="btn btn-outline-secondary" style="font-size:11px;padding:3px 8px;white-space:nowrap" @onclick="OnBatchDeselectAllVisible">
+                        해제
+                    </button>
+                </div>
+
+                @* Row 3: 스크롤 가능한 항목 목록 *@
+                <div style="flex:1;min-height:0;overflow-y:auto;border:1px solid #333;border-radius:6px;margin-bottom:8px">
+                    <table style="width:100%;border-collapse:collapse;font-size:12px">
+                        <thead style="position:sticky;top:0;background:#1e1e1e;z-index:1">
+                            <tr style="border-bottom:1px solid #333">
+                                <td style="width:28px;padding:4px;text-align:center"></td>
+                                <td style="width:65px;padding:4px">타입</td>
+                                <td style="padding:4px">IdShort</td>
+                                <td style="width:60px;padding:4px">ValueType</td>
+                                <td style="padding:4px;min-width:80px">현재 값</td>
+                                @if (CanApply() && _batchEditMode != "overwrite")
+                                {
+                                    <td style="padding:4px;min-width:80px">변경 후</td>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in filteredRecords)
                             {
-                                <span class="modal-chip-val">@TruncateValue(r.SemanticId, 30)</span>
+                                var rec = r;
+                                var isEditable = IsEditableType(rec.EntityType);
+                                var isSelected = _batchSelectedIds.Contains(rec.Id);
+                                var curVal = rec.Value ?? "";
+                                var rowStyle = !isEditable ? "opacity:0.4" : isSelected ? "" : "opacity:0.6";
+                                var showPreview = CanApply() && _batchEditMode != "overwrite" && isSelected;
+
+                                <tr style="border-bottom:1px solid #2a2a2a;@rowStyle">
+                                    <td style="padding:3px 4px;text-align:center">
+                                        <input type="checkbox" checked="@isSelected" disabled="@(!isEditable)"
+                                               @onchange="(e) => OnBatchToggleItem(rec.Id, (bool)e.Value!)" />
+                                    </td>
+                                    <td style="padding:3px 4px">
+                                        <span class="modal-chip-type" style="font-size:10px">@rec.EntityType</span>
+                                    </td>
+                                    <td style="padding:3px 4px;color:#4fc3f7">@rec.IdShort</td>
+                                    <td style="padding:3px 4px;color:#98989d;font-size:11px">@(rec.ValueType ?? "")</td>
+                                    <td style="padding:3px 4px;color:#aaa;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                        @if (!string.IsNullOrEmpty(curVal))
+                                        {
+                                            <span style="@(showPreview ? "text-decoration:line-through;opacity:0.5" : "")">@TruncateValue(curVal, 20)</span>
+                                        }
+                                    </td>
+                                    @if (CanApply() && _batchEditMode != "overwrite")
+                                    {
+                                        <td style="padding:3px 4px;color:#81c784;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                            @if (showPreview)
+                                            {
+                                                @TruncateValue(PreviewNewValue(rec), 20)
+                                            }
+                                        </td>
+                                    }
+                                </tr>
                             }
+                        </tbody>
+                    </table>
+                </div>
+
+                @* Row 4: 입력 필드 *@
+                <div style="flex-shrink:0">
+                    @if (_batchEditMode == "findReplace")
+                    {
+                        <div style="display:flex;gap:8px">
+                            <div style="flex:1">
+                                <label class="modal-input-label">찾을 텍스트</label>
+                                <input class="modal-input" type="text" placeholder="기존 값에서 찾을 텍스트..."
+                                       @bind="_batchFindText" @bind:event="oninput" />
+                            </div>
+                            <div style="flex:1">
+                                <label class="modal-input-label">바꿀 텍스트</label>
+                                <input class="modal-input" type="text" placeholder="바꿀 텍스트..."
+                                       @bind="_batchNewValue" @bind:event="oninput" />
+                            </div>
                         </div>
                     }
-                    @if (batchTargets.Count > 10)
+                    else if (_batchEditMode == "prepend")
                     {
-                        <div class="modal-preview-row" style="color:#666;font-size:12px">... +@(batchTargets.Count - 10)건 더</div>
+                        <label class="modal-input-label">앞에 추가할 텍스트</label>
+                        <input class="modal-input" type="text" placeholder="기존 값 앞에 붙일 텍스트..."
+                               @bind="_batchNewValue" @bind:event="oninput" />
+                    }
+                    else if (_batchEditMode == "append")
+                    {
+                        <label class="modal-input-label">뒤에 추가할 텍스트</label>
+                        <input class="modal-input" type="text" placeholder="기존 값 뒤에 붙일 텍스트..."
+                               @bind="_batchNewValue" @bind:event="oninput" />
+                    }
+                    else
+                    {
+                        <label class="modal-input-label">새 값</label>
+                        <input class="modal-input" type="text" placeholder="변경할 값 입력..."
+                               @bind="_batchNewValue" @bind:event="oninput" />
                     }
                 </div>
-
-                @* 건너뛸 항목 안내 *@
-                @if (batchSkipped.Count > 0)
-                {
-                    <div style="margin-top:8px;padding:6px 10px;background:#3a2a1a;border-radius:6px;font-size:12px;color:#f0ad4e">
-                        ⚠ @(batchSkipped.Count)건은 변경할 수 없는 타입입니다
-                        (@(string.Join(", ", batchSkipped.GroupBy(r => r.EntityType).Select(g => $"{g.Key} {g.Count()}"))))
-                    </div>
-                }
-
-                @* 새 값 입력 *@
-                <label class="modal-input-label" style="margin-top:10px">새 값</label>
-                <input class="modal-input" type="text" placeholder="변경할 값 입력..."
-                       @bind="_batchNewValue" @bind:event="oninput" />
             </div>
             <div class="modal-actions">
                 <button class="btn btn-primary btn-sm" @onclick="OnBatchApply"
-                        disabled="@(batchTargets.Count == 0)">
-                    적용 (@(batchTargets.Count)건)
+                        disabled="@(applyTargets.Count == 0 || !CanApply())">
+                    적용 (@(applyTargets.Count)건)
                 </button>
                 <button class="btn btn-outline-secondary btn-sm" @onclick="CloseBatchEdit">취소</button>
             </div>
