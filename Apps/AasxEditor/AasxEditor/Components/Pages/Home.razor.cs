@@ -14,8 +14,6 @@ public partial class Home : IAsyncDisposable
     [Inject] private IJSRuntime JS { get; set; } = default!;
     [Inject] private CircuitTracker CircuitTracker { get; set; } = default!;
 
-    private readonly string _circuitId = Guid.NewGuid().ToString();
-
     // ===== State =====
     private string? _fileName;
     private string _statusMessage = "";
@@ -93,47 +91,6 @@ public partial class Home : IAsyncDisposable
         _navForward.Clear();
     }
 
-    private async Task ApplyEnvironmentAsync(AasCore.Aas3_0.Environment env, string json, string fileName)
-    {
-        _contentLoaded = true;
-        _fileName = fileName;
-        _currentEnv = env;
-        await SyncJsonToEditorAsync(json);
-        RebuildTree();
-        ClearUndoHistory(); // 새 파일 열기 시 undo 이력 초기화
-    }
-
-    private async Task RegisterInDbAsync(string fileName, AasCore.Aas3_0.Environment env, string json)
-    {
-        var shellCount = env.AssetAdministrationShells?.Count ?? 0;
-        var submodelCount = env.Submodels?.Count ?? 0;
-        var fileRecord = await MetadataStore.AddFileAsync(fileName, fileName, shellCount, submodelCount, json);
-        _currentFileId = fileRecord.Id;
-        var entities = EntityExtractor.Extract(env);
-        await MetadataStore.AddEntitiesAsync(_currentFileId, entities);
-    }
-
-    private async Task ResetForNewOpenAsync()
-    {
-        await ClearDbAsync();
-        _searchResults.Clear();
-        _searchText = "";
-    }
-
-    private async Task ClearDbAsync()
-    {
-        try
-        {
-            var files = await MetadataStore.GetFilesAsync();
-            foreach (var f in files)
-            {
-                await MetadataStore.RemoveEntitiesByFileAsync(f.Id);
-                await MetadataStore.RemoveFileAsync(f.Id);
-            }
-        }
-        catch { }
-    }
-
     private static int Do(Action action) { action(); return 1; }
 
     // ===== Lifecycle =====
@@ -167,25 +124,6 @@ public partial class Home : IAsyncDisposable
                 _sessionStarted = true;
             }
         }
-    }
-
-    private void OnCircuitChanged()
-    {
-        _ = InvokeAsync(() => UpdateClientCountIndicator());
-    }
-
-    private void UpdateClientCountIndicator()
-    {
-        var count = CircuitTracker.Count;
-        var text = count >= 2 ? $"클라이언트 {count}개 접속중.." : "";
-        _ = JS.InvokeVoidAsync("ClientCount.update", text);
-    }
-
-    [JSInvokable]
-    public void OnBeforeUnload()
-    {
-        CircuitTracker.OnChanged -= OnCircuitChanged;
-        CircuitTracker.Disconnect(_circuitId);
     }
 
     public async ValueTask DisposeAsync()
