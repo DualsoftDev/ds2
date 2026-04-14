@@ -380,11 +380,26 @@ public partial class ThreeDViewState : ObservableObject
 
     private async Task SendInitMessage(IEnumerable<FlowZone> flowZones, double floorSize)
     {
+        // 커스텀 JSON 모델 레지스트리 (추후 프로젝트 디렉터리에서 로드 예정)
+        var customModels = LoadCustomModelRegistry();
+
         await SendAsync(new
         {
             type = "init",
-            config = new { flowZones = ToJsFlowZones(flowZones), floorSize }
+            config = new { flowZones = ToJsFlowZones(flowZones), floorSize, customModels }
         });
+    }
+
+    /// <summary>
+    /// 커스텀 JSON 디바이스 모델 레지스트리 로드.
+    /// 현재: 빈 딕셔너리 반환 (향후 프로젝트별 JSON 파일 로드 구현 예정)
+    /// 사용자가 JSON 모델을 추가하면 여기서 반환하여 WebView2에 전달.
+    /// </summary>
+    private static Dictionary<string, object> LoadCustomModelRegistry()
+    {
+        // TODO: 프로젝트 디렉터리의 *.device.json 파일들을 스캔하여 등록
+        // 예:  { "PaintBooth": { name: "Paint Spray Booth", height: 3.0, parts: [...] } }
+        return new Dictionary<string, object>();
     }
 
     private async Task SendDevices(IEnumerable<DeviceInfo> devices)

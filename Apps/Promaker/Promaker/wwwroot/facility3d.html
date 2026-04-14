@@ -99,7 +99,17 @@
                     document.getElementById('sound-btn').style.display = 'block';
                     // Lib3D 모델 사전 로드 시작 (addDevice 전에 완료 보장)
                     if (window.Ds2View3DLibrary) {
-                        _modelsReady = Ds2View3DLibrary.preloadAll();
+                        _modelsReady = (async function() {
+                            // 1. GenericDevice 클래스 사전 로드
+                            await Ds2View3DLibrary.preloadGenericDevice();
+                            // 2. 커스텀 JSON 모델 등록 (C#에서 전달된 레지스트리)
+                            if (msg.config && msg.config.customModels) {
+                                Ds2View3DLibrary.registerAllFromJSON(msg.config.customModels);
+                                console.log('✅ Custom models registered:', Object.keys(msg.config.customModels));
+                            }
+                            // 3. 기존 하드코딩 모델 포함 전체 사전 로드
+                            await Ds2View3DLibrary.preloadAll();
+                        })();
                     }
                 } else if (!initialized) {
                     return;
