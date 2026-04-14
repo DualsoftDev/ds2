@@ -233,16 +233,29 @@ const Ds2View3DLibrary = {
   registerFromJSON(name, jsonSpec) {
     if (!name || !jsonSpec) return;
 
+    // dirs 결정:
+    //   1) spec.dirs가 object이면 → 키 목록 (ApiDef별 독립 애니메이션)
+    //   2) spec.dirs가 array이면 → 그대로 사용
+    //   3) 없으면 → ['ACTIVE'] (단일 애니메이션 모드)
+    let dirs = ['ACTIVE'];
+    if (jsonSpec.dirs) {
+      if (Array.isArray(jsonSpec.dirs)) {
+        dirs = jsonSpec.dirs;
+      } else if (typeof jsonSpec.dirs === 'object') {
+        dirs = Object.keys(jsonSpec.dirs);
+      }
+    }
+
     this.deviceTypes[name] = {
       file: null,
       class: 'GenericDevice',
       height: jsonSpec.height || 2.0,
       description: jsonSpec.name || name,
-      dirs: ['ACTIVE'], // GenericDevice는 direction 무관하게 시퀀스 진행
-      _spec: jsonSpec    // JSON 스펙 원본 보관
+      dirs: dirs,
+      _spec: jsonSpec
     };
 
-    console.log(`✅ Registered custom model: ${name} (height: ${jsonSpec.height || 2.0})`);
+    console.log(`✅ Registered custom model: ${name} (dirs: [${dirs.join(', ')}], height: ${jsonSpec.height || 2.0})`);
   },
 
   /**

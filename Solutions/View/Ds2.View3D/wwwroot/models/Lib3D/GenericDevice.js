@@ -405,60 +405,85 @@ class GenericDevice {
 
   // ════════════════════════════════════════════════════════════
   // Animation Setup
+  //
+  // 두 가지 모드:
+  //   A) "animation.active" — 단일 애니메이션 (direction 무관, Going이면 실행)
+  //   B) "dirs" — ApiDef별 독립 애니메이션 (direction 이름으로 분기)
+  //
+  // st.dirAnimMap: { "ADV": [...entries], "RET": [...entries] }  (모드 B)
+  // st.animEntries: [...entries]  (모드 A, 또는 현재 활성 direction의 entries)
   // ════════════════════════════════════════════════════════════
 
   static _setupAnimations(spec, st) {
     st.animEntries = [];
-    const animSpec = spec.animation;
-    if (!animSpec || !animSpec.active) return;
+    st.dirAnimMap = null; // null이면 단일 모드(A)
 
-    const joints = st.partMap['__chain_joints'];
-
-    // Sequence
-    if (joints && typeof animSpec.active === 'object' && animSpec.active.sequence) {
-      const kf = animSpec.active.sequence.map(p => this._resolvePose(p, joints, st.userPoses));
-      st.animEntries.push({ type: 'seq', joints, keyframes: kf, speed: animSpec.active.speed || 0.5, cf: 0, progress: 0, currentGrip: 0 });
+    // ── 모드 B: dirs 필드가 있으면 direction별 분기 ──
+    if (spec.dirs && typeof spec.dirs === 'object') {
+      st.dirAnimMap = {};
+      for (const [dirName, animDef] of Object.entries(spec.dirs)) {
+        st.dirAnimMap[dirName] = this._buildAnimEntries(animDef, st);
+      }
       return;
     }
 
-    // Named patterns
-    if (joints && typeof animSpec.active === 'string') {
-      const pattern = this.NAMED_PATTERNS[animSpec.active];
+    // ── 모드 A: animation.active (기존 호환) ──
+    const animSpec = spec.animation;
+    if (!animSpec || !animSpec.active) return;
+    st.animEntries = this._buildAnimEntries(animSpec.active, st);
+  }
+
+  /**
+   * 하나의 애니메이션 정의를 엔트리 배열로 변환 (모드 A, B 공용)
+   */
+  static _buildAnimEntries(activeDef, st) {
+    const entries = [];
+    const joints = st.partMap['__chain_joints'];
+
+    // Chain sequence
+    if (joints && typeof activeDef === 'object' && activeDef.sequence) {
+      const kf = activeDef.sequence.map(p => this._resolvePose(p, joints, st.userPoses));
+      entries.push({ type: 'seq', joints, keyframes: kf, speed: activeDef.speed || 0.5, cf: 0, progress: 0, currentGrip: 0 });
+      return entries;
+    }
+
+    // Named patterns / work
+    if (joints && typeof activeDef === 'string') {
+      const pattern = this.NAMED_PATTERNS[activeDef];
       if (pattern) {
         const kf = pattern.poses.map(p => this._resolvePose(p, joints, st.userPoses));
-        st.animEntries.push({ type: 'seq', joints, keyframes: kf, speed: pattern.speed, cf: 0, progress: 0, currentGrip: 0 });
-        return;
+        entries.push({ type: 'seq', joints, keyframes: kf, speed: pattern.speed, cf: 0, progress: 0, currentGrip: 0 });
+        return entries;
       }
-      // "work" fallback
-      if (animSpec.active === 'work') {
+      if (activeDef === 'work') {
         joints.forEach((j, i) => {
           const amp = j.axis === 'y' ? 0.4 : 0.35 + i * 0.12;
-          st.animEntries.push({ type: 'swing', mesh: j.group, axis: j.axis, angle: amp, speed: 0.6 + i * 0.35, phase: i * 1.1 });
+          entries.push({ type: 'swing', mesh: j.group, axis: j.axis, angle: amp, speed: 0.6 + i * 0.35, phase: i * 1.1 });
         });
-        return;
+        return entries;
       }
     }
 
-    // Per-joint object
-    if (joints && typeof animSpec.active === 'object' && !Array.isArray(animSpec.active) && !animSpec.active.target && !animSpec.active.sequence) {
-      const cfg = animSpec.active;
+    // Per-joint object (chain)
+    if (joints && typeof activeDef === 'object' && !Array.isArray(activeDef) && !activeDef.target && !activeDef.sequence) {
+      const cfg = activeDef;
       joints.forEach((j, i) => {
         const c = cfg[j.name];
         const amp = c ? (c.amplitude || 0.5) : 0.15;
         const spd = c ? (c.speed || 1.0) : 0.5;
         const ph = c ? (c.phase || i * 1.0) : i * 0.8;
-        st.animEntries.push({ type: 'swing', mesh: j.group, axis: j.axis, angle: amp, speed: spd, phase: ph });
+        entries.push({ type: 'swing', mesh: j.group, axis: j.axis, angle: amp, speed: spd, phase: ph });
       });
-      return;
+      return entries;
     }
 
     // Standard part animations (move, spin, swing, roll, flow)
-    const entries = Array.isArray(animSpec.active) ? animSpec.active : [animSpec.active];
-    for (const anim of entries) {
+    const list = Array.isArray(activeDef) ? activeDef : [activeDef];
+    for (const anim of list) {
       if (typeof anim === 'string') continue;
       const targets = st.partMap[anim.target];
       if (!targets || targets.length === 0) continue;
-      st.animEntries.push({
+      entries.push({
         type: anim.type,
         meshes: targets,
         axis: anim.axis || 'y',
@@ -470,6 +495,7 @@ class GenericDevice {
         restRotations: targets.map(m => m.rotation.clone())
       });
     }
+    return entries;
   }
 
   // ════════════════════════════════════════════════════════════
@@ -500,7 +526,24 @@ class GenericDevice {
     st.time += 0.016;
     const isActive = !!direction; // direction이 있으면 Going
 
-    for (const entry of st.animEntries) {
+    // ── 모드 B: direction별 분기 ──
+    // dirAnimMap이 있으면 direction에 해당하는 엔트리만 실행하고,
+    // 나머지 direction의 엔트리는 rest로 복귀
+    let activeEntries;
+    if (st.dirAnimMap) {
+      activeEntries = isActive && direction ? (st.dirAnimMap[direction] || []) : [];
+      // 비활성 direction의 엔트리들은 rest 복귀
+      for (const [dir, dirEntries] of Object.entries(st.dirAnimMap)) {
+        if (dir === direction) continue;
+        for (const entry of dirEntries) {
+          this._returnToRest(entry, st);
+        }
+      }
+    } else {
+      activeEntries = st.animEntries;
+    }
+
+    for (const entry of activeEntries) {
 
       // ── Chain Sequence ──
       if (entry.type === 'seq') {
@@ -581,6 +624,44 @@ class GenericDevice {
       }
     }
     return false;
+  }
+
+  /**
+   * 비활성 direction의 애니메이션 엔트리를 rest 위치로 복귀
+   */
+  static _returnToRest(entry, st) {
+    if (entry.type === 'seq') {
+      const { joints } = entry;
+      if (joints) joints.forEach(j => {
+        j.group.rotation.x *= 0.94; j.group.rotation.y *= 0.94; j.group.rotation.z *= 0.94;
+      });
+      const fingers = st.partMap['__fingers'];
+      if (fingers) {
+        entry.currentGrip = (entry.currentGrip || 0) * 0.94;
+        const openX = st.partMap['__finger_open'] || 0.07;
+        const closeX = st.partMap['__finger_close'] || 0.02;
+        const d = openX - (openX - closeX) * entry.currentGrip;
+        fingers[0].position.x = -d; fingers[1].position.x = d;
+      }
+      entry.cf = 0; entry.progress = 0;
+    } else if (entry.type === 'swing' && entry.mesh) {
+      entry.mesh.rotation[entry.axis] *= 0.94;
+    } else if (entry.meshes) {
+      const { meshes, restPositions, restRotations } = entry;
+      for (let i = 0; i < meshes.length; i++) {
+        const m = meshes[i];
+        if (restPositions && restPositions[i]) {
+          m.position.x += (restPositions[i].x - m.position.x) * 0.05;
+          m.position.y += (restPositions[i].y - m.position.y) * 0.05;
+          m.position.z += (restPositions[i].z - m.position.z) * 0.05;
+        }
+        if (restRotations && restRotations[i] && entry.type !== 'spin') {
+          m.rotation.x += (restRotations[i].x - m.rotation.x) * 0.05;
+          m.rotation.y += (restRotations[i].y - m.rotation.y) * 0.05;
+          m.rotation.z += (restRotations[i].z - m.rotation.z) * 0.05;
+        }
+      }
+    }
   }
 }
 
