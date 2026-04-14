@@ -210,3 +210,13 @@ window.ResizeHandle = {
         });
     }
 };
+
+// ===== Finder Column View =====
+window.FinderColumns = {
+    scrollToEnd: function (id) {
+        var el = document.getElementById(id);
+        if (el) {
+            el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' });
+        }
+    }
+};

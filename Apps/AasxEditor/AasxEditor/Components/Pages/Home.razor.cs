@@ -38,6 +38,7 @@ public partial class Home : IAsyncDisposable
 
     // 드래그앤드롭
     private bool _isDragOver;
+    private bool _scrollColumnsToEnd;
     private bool _showDropChoice;
     private string[] _pendingDropFileNames = [];
 
@@ -135,6 +136,12 @@ public partial class Home : IAsyncDisposable
     // ===== Lifecycle =====
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_scrollColumnsToEnd)
+        {
+            _scrollColumnsToEnd = false;
+            try { await JS.InvokeVoidAsync("FinderColumns.scrollToEnd", "finder-columns"); } catch { }
+        }
+
         if (firstRender)
         {
             _dotnetRef = DotNetObjectReference.Create(this);
