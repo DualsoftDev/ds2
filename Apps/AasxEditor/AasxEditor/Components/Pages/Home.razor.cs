@@ -49,9 +49,13 @@ public partial class Home : IAsyncDisposable
     private string _batchEditMode = "overwrite"; // overwrite, findReplace, prepend, append
     private string _batchFindText = "";
     private string _batchTypeFilter = "";         // 엔티티 타입 필터 ("" = 전체)
-    private string _batchValueTypeFilter = "";    // ValueType 필터 (Bit, Byte, Word... "" = 전체)
+    private string _batchValueTypeFilter = "";    // ValueType 카테고리 필터 (bit, number, string)
     private string _batchIdFilter = "";           // IdShort 텍스트 필터
-    private HashSet<long> _batchSelectedIds = []; // 개별 선택된 엔티티 ID
+    private HashSet<long> _batchSelectedIds = []; // 체크된 엔티티 ID (일괄 편집 대상)
+    private HashSet<long> _batchHighlightedIds = []; // 행 클릭으로 하이라이트된 ID
+    private long _batchLastClickedId;              // Shift 클릭 기준점
+    private string _batchSortColumn = "";          // 정렬 컬럼 ("", "EntityType", "IdShort", "ValueType", "Value")
+    private bool _batchSortAsc = true;             // 정렬 방향
     private bool _showSaveAs;
     private string _saveAsName = "";
 

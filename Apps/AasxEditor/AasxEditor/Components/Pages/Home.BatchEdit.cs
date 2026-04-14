@@ -1,5 +1,5 @@
 using AasxEditor.Models;
-using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 
 namespace AasxEditor.Components.Pages;
 
@@ -14,8 +14,33 @@ public partial class Home
         ("append", "뒤에 추가"),
     ];
 
+    /// <summary>ValueType → 카테고리 매핑</summary>
+    private static readonly (string Category, string Label, HashSet<string> Types)[] ValueTypeCategories =
+    [
+        ("bit", "Bit", ["Boolean"]),
+        ("number", "Number", ["Byte", "Short", "Int", "Long", "Integer",
+            "UnsignedByte", "UnsignedShort", "UnsignedInt", "UnsignedLong",
+            "Int16", "Int32", "Int64", "UInt16", "UInt32", "UInt64",
+            "Float", "Double", "Decimal", "Real",
+            "NonNegativeInteger", "PositiveInteger", "NonPositiveInteger", "NegativeInteger"]),
+        ("string", "String", ["String", "LangString", "AnyUri", "Base64Binary",
+            "HexBinary", "Date", "DateTime", "Time", "Duration",
+            "GYearMonth", "GYear", "GMonthDay", "GDay", "GMonth"]),
+    ];
+
     /// <summary>Value 변경을 지원하는 엔티티 타입</summary>
     private static readonly HashSet<string> ValueEditableTypes = ["Property", "MLP", "Range"];
+
+    /// <summary>ValueType을 카테고리(bit/number/string)로 분류</summary>
+    private static string GetValueTypeCategory(string? valueType)
+    {
+        if (string.IsNullOrEmpty(valueType)) return "string";
+        foreach (var (cat, _, types) in ValueTypeCategories)
+        {
+            if (types.Contains(valueType)) return cat;
+        }
+        return "string";
+    }
 
     private void OpenBatchEdit()
     {
@@ -23,35 +48,72 @@ public partial class Home
         _batchFindText = "";
         _batchEditMode = "overwrite";
         _batchTypeFilter = "";
-        _batchValueTypeFilter = "";
+        _batchValueTypeFilter = "bit";
         _batchIdFilter = "";
-        _batchSelectedIds = _searchResults
-            .Where(r => ValueEditableTypes.Contains(r.EntityType))
-            .Select(r => r.Id)
-            .ToHashSet();
+        _batchHighlightedIds = [];
+        _batchLastClickedId = 0;
+        _batchSortColumn = "";
+        _batchSortAsc = true;
+        ReselectForCurrentFilter();
         _showBatchEdit = true;
     }
 
     private void CloseBatchEdit() => _showBatchEdit = false;
 
+    /// <summary>현재 필터에 맞는 편집 가능한 항목만 선택하고 나머지는 해제</summary>
+    private void ReselectForCurrentFilter()
+    {
+        _batchSelectedIds = GetFilteredBatchRecords()
+            .Where(r => IsEditableType(r.EntityType))
+            .Select(r => r.Id)
+            .ToHashSet();
+    }
+
+    /// <summary>ValueType 카테고리 필터 변경 시 — 선택 초기화 + 새 값 초기화</summary>
+    private void OnBatchValueTypeFilterChanged(string newFilter)
+    {
+        _batchValueTypeFilter = newFilter;
+        _batchHighlightedIds.Clear();
+        // 새 값 초기화 — 카테고리에 맞는 기본값
+        _batchNewValue = newFilter == "bit" ? "false" : "";
+        // 편집 모드도 카테고리에 맞게 조정
+        if (newFilter == "bit") _batchEditMode = "overwrite";
+        ReselectForCurrentFilter();
+    }
+
     /// <summary>검색 결과에 등장하는 고유 엔티티 타입 목록</summary>
     private List<string> GetBatchEntityTypes()
         => _searchResults.Select(r => r.EntityType).Distinct().OrderBy(t => t).ToList();
 
-    /// <summary>검색 결과에 등장하는 고유 ValueType 목록</summary>
-    private List<string> GetBatchValueTypes()
-        => _searchResults
-            .Where(r => r.ValueType is not null)
-            .Select(r => r.ValueType!)
-            .Distinct()
-            .OrderBy(t => t)
-            .ToList();
+    /// <summary>카테고리별 건수 계산</summary>
+    private List<(string Category, string Label, int Count)> GetBatchValueTypeCategories()
+    {
+        var result = new List<(string, string, int)>();
+        foreach (var (cat, label, types) in ValueTypeCategories)
+        {
+            var cnt = _searchResults.Count(r => r.ValueType is not null && types.Contains(r.ValueType));
+            if (cnt > 0) result.Add((cat, label, cnt));
+        }
+        return result;
+    }
 
     /// <summary>편집 가능한 엔티티 타입인지</summary>
     private static bool IsEditableType(string entityType)
         => ValueEditableTypes.Contains(entityType);
 
-    /// <summary>필터 조건에 맞는 검색 결과 (보이는 목록)</summary>
+    /// <summary>헤더 클릭 시 정렬 토글</summary>
+    private void OnBatchSortToggle(string column)
+    {
+        if (_batchSortColumn == column)
+            _batchSortAsc = !_batchSortAsc;
+        else
+        {
+            _batchSortColumn = column;
+            _batchSortAsc = true;
+        }
+    }
+
+    /// <summary>필터 + 정렬 조건에 맞는 검색 결과 (보이는 목록)</summary>
     private List<AasEntityRecord> GetFilteredBatchRecords()
     {
         IEnumerable<AasEntityRecord> results = _searchResults;
@@ -60,10 +122,25 @@ public partial class Home
             results = results.Where(r => r.EntityType == _batchTypeFilter);
 
         if (!string.IsNullOrEmpty(_batchValueTypeFilter))
-            results = results.Where(r => r.ValueType == _batchValueTypeFilter);
+            results = results.Where(r => GetValueTypeCategory(r.ValueType) == _batchValueTypeFilter);
 
         if (!string.IsNullOrEmpty(_batchIdFilter))
             results = results.Where(r => r.IdShort.Contains(_batchIdFilter, StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrEmpty(_batchSortColumn))
+        {
+            Func<AasEntityRecord, string> keySelector = _batchSortColumn switch
+            {
+                "EntityType" => r => r.EntityType,
+                "IdShort" => r => r.IdShort,
+                "ValueType" => r => r.ValueType ?? "",
+                "Value" => r => r.Value ?? "",
+                _ => r => r.IdShort
+            };
+            results = _batchSortAsc
+                ? results.OrderBy(keySelector, StringComparer.OrdinalIgnoreCase)
+                : results.OrderByDescending(keySelector, StringComparer.OrdinalIgnoreCase);
+        }
 
         return results.ToList();
     }
@@ -74,7 +151,7 @@ public partial class Home
             .Where(r => _batchSelectedIds.Contains(r.Id) && IsEditableType(r.EntityType))
             .ToList();
 
-    // ===== 선택 조작 =====
+    // ===== 체크박스 조작 =====
 
     private void OnBatchToggleItem(long id, bool isChecked)
     {
@@ -92,6 +169,57 @@ public partial class Home
     {
         foreach (var r in GetFilteredBatchRecords())
             _batchSelectedIds.Remove(r.Id);
+    }
+
+    // ===== 행 클릭 선택 (Ctrl/Shift) =====
+
+    private void OnBatchRowClick(long id, MouseEventArgs e)
+    {
+        var filtered = GetFilteredBatchRecords();
+        var rec = filtered.FirstOrDefault(r => r.Id == id);
+        if (rec is null || !IsEditableType(rec.EntityType)) return;
+
+        if (e.ShiftKey && _batchLastClickedId != 0)
+        {
+            var ids = filtered.Select(r => r.Id).ToList();
+            var fromIdx = ids.IndexOf(_batchLastClickedId);
+            var toIdx = ids.IndexOf(id);
+            if (fromIdx >= 0 && toIdx >= 0)
+            {
+                var start = Math.Min(fromIdx, toIdx);
+                var end = Math.Max(fromIdx, toIdx);
+                for (var i = start; i <= end; i++)
+                {
+                    if (IsEditableType(filtered[i].EntityType))
+                        _batchHighlightedIds.Add(ids[i]);
+                }
+            }
+        }
+        else if (e.CtrlKey || e.MetaKey)
+        {
+            if (!_batchHighlightedIds.Remove(id))
+                _batchHighlightedIds.Add(id);
+            _batchLastClickedId = id;
+        }
+        else
+        {
+            _batchHighlightedIds = [id];
+            _batchLastClickedId = id;
+        }
+    }
+
+    private void OnBatchCheckHighlighted()
+    {
+        foreach (var id in _batchHighlightedIds)
+            _batchSelectedIds.Add(id);
+        _batchHighlightedIds.Clear();
+    }
+
+    private void OnBatchUncheckHighlighted()
+    {
+        foreach (var id in _batchHighlightedIds)
+            _batchSelectedIds.Remove(id);
+        _batchHighlightedIds.Clear();
     }
 
     // ===== 값 계산 =====
