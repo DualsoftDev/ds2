@@ -244,4 +244,29 @@ public partial class Home
         }
         return false;
     }
+
+    // ===== Finder Column View =====
+    private void ColumnSelect(int columnIndex, AasTreeNode node)
+    {
+        PushNavHistory();
+        while (_explorerPath.Count > columnIndex)
+            _explorerPath.RemoveAt(_explorerPath.Count - 1);
+
+        SelectNode(node);
+
+        if (node.Children.Count > 0)
+        {
+            _explorerPath.Add(node);
+            _scrollColumnsToEnd = true;
+        }
+    }
+
+    private bool IsColumnItemSelected(int columnIndex, AasTreeNode node)
+    {
+        if (columnIndex < _explorerPath.Count && _explorerPath[columnIndex] == node)
+            return true;
+        if (_selectedNode == node)
+            return true;
+        return false;
+    }
 }

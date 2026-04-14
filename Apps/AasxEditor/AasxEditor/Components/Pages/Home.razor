@@ -135,274 +135,313 @@
             <div id="monaco-editor" style="@(_centerTab == "code" ? "width:100%;height:100%" : "display:none")"></div>
             @if (_centerTab == "explorer")
             {
-                <div class="explorer-view">
+                <div class="finder">
                     @if (_treeNodes.Count == 0)
                     {
                         <div class="panel-empty">AASX 파일을 열어주세요</div>
                     }
                     else
                     {
-                        @* Breadcrumb *@
-                        <div class="explorer-breadcrumb">
-                            <div class="nav-buttons">
-                                <button class="nav-btn @(_navBack.Count == 0 ? "disabled" : "")" @onclick="ExplorerGoBack" title="뒤로" disabled="@(_navBack.Count == 0)">←</button>
-                                <button class="nav-btn @(_navForward.Count == 0 ? "disabled" : "")" @onclick="ExplorerGoForward" title="앞으로" disabled="@(_navForward.Count == 0)">→</button>
-                                <button class="nav-btn @(_explorerPath.Count == 0 ? "disabled" : "")" @onclick="ExplorerGoUp" title="위로" disabled="@(_explorerPath.Count == 0)">↑</button>
+                        @* ── Finder Toolbar ── *@
+                        <div class="finder-toolbar">
+                            <div class="finder-nav">
+                                <button class="finder-nav-btn" disabled="@(_navBack.Count == 0)" @onclick="ExplorerGoBack" title="뒤로">&#x276E;</button>
+                                <button class="finder-nav-btn" disabled="@(_navForward.Count == 0)" @onclick="ExplorerGoForward" title="앞으로">&#x276F;</button>
                             </div>
-                            <span class="breadcrumb-item @(_explorerPath.Count == 0 ? "active" : "clickable")" @onclick="ExplorerGoRoot">Root</span>
-                            @for (var i = 0; i < _explorerPath.Count; i++)
+                            <div class="finder-title">
+                                @if (_explorerPath.Count > 0)
+                                {
+                                    <span class="node-icon icon-@(IconClass(_explorerPath[^1]))" style="width:16px;height:14px;font-size:8px">@_explorerPath[^1].Icon</span>
+                                    <span>@_explorerPath[^1].Label</span>
+                                }
+                                else
+                                {
+                                    <span>Root</span>
+                                }
+                            </div>
+                        </div>
+
+                        @* ── Column View + Preview ── *@
+                        <div class="finder-body">
+                            <div class="finder-columns" id="finder-columns">
+                                @* Column 0: Root *@
+                                <div class="finder-column">
+                                    @foreach (var node in _treeNodes)
+                                    {
+                                        var n = node;
+                                        <div class="finder-item @(IsColumnItemSelected(0, n) ? "selected" : "")"
+                                             @onclick="() => ColumnSelect(0, n)">
+                                            <span class="node-icon icon-@(IconClass(n))" style="width:18px;height:16px;font-size:9px">@n.Icon</span>
+                                            <span class="finder-item-label">@n.Label</span>
+                                            @if (n.Children.Count > 0)
+                                            {
+                                                <span class="finder-item-chevron">&#x203A;</span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+
+                                @* Columns 1..N *@
+                                @for (var ci = 0; ci < _explorerPath.Count; ci++)
+                                {
+                                    var colIdx = ci + 1;
+                                    var parentNode = _explorerPath[ci];
+                                    <div class="finder-column">
+                                        @foreach (var child in parentNode.Children)
+                                        {
+                                            var c = child;
+                                            var idx = colIdx;
+                                            <div class="finder-item @(IsColumnItemSelected(idx, c) ? "selected" : "")"
+                                                 @onclick="() => ColumnSelect(idx, c)">
+                                                <span class="node-icon icon-@(IconClass(c))" style="width:18px;height:16px;font-size:9px">@c.Icon</span>
+                                                <span class="finder-item-label">@c.Label</span>
+                                                @if (c.Children.Count > 0)
+                                                {
+                                                    <span class="finder-item-chevron">&#x203A;</span>
+                                                }
+                                                else if (c.Properties.GetValueOrDefault("value") is { } cv)
+                                                {
+                                                    <span class="finder-item-value">@TruncateValue(cv, 15)</span>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+
+                            @* ── Preview Pane ── *@
+                            @if (_selectedNode is not null)
                             {
-                                var idx = i;
-                                <span class="breadcrumb-sep">/</span>
-                                <span class="breadcrumb-item @(i < _explorerPath.Count - 1 ? "clickable" : "active")"
-                                      @onclick="() => ExplorerGoTo(idx)">@_explorerPath[idx].Label</span>
+                                var sel = _selectedNode;
+                                var selCss = IconClass(sel);
+                                var isErrorDef = sel.NodeType == "SML" && sel.Label == "ErrorDefinitions";
+
+                                <div class="finder-preview">
+                                    <div class="finder-preview-icon-area">
+                                        <span class="node-icon icon-@selCss" style="width:48px;height:40px;font-size:20px;border-radius:8px">@sel.Icon</span>
+                                    </div>
+                                    <div class="finder-preview-name">@sel.Label</div>
+                                    <div class="finder-preview-type-badge">@sel.NodeType</div>
+
+                                    @if (PropertyDescriptions.Get(sel.Label) is { } selDesc)
+                                    {
+                                        <div class="finder-preview-desc">@selDesc</div>
+                                    }
+
+                                    @* Metadata *@
+                                    @{
+                                        var previewMetaKeys = new[] { "idShort", "id", "semanticId" };
+                                        var previewMeta = sel.Properties
+                                            .Where(p => previewMetaKeys.Contains(p.Key) && p.Value is not null).ToList();
+                                    }
+                                    @if (previewMeta.Count > 0)
+                                    {
+                                        <div class="finder-preview-meta">
+                                            @foreach (var kv in previewMeta)
+                                            {
+                                                <div class="finder-preview-meta-row">
+                                                    <span class="finder-preview-meta-key">@kv.Key</span>
+                                                    <span class="finder-preview-meta-val">@TruncateValue(kv.Value!, 40)</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+
+                                    @* Value editor for leaf *@
+                                    @if (!isErrorDef && sel.Children.Count == 0 && sel.Properties.ContainsKey("value"))
+                                    {
+                                        var vt = sel.Properties.GetValueOrDefault("valueType") ?? "String";
+                                        var val = sel.Properties.GetValueOrDefault("value") ?? "";
+                                        <div class="finder-preview-editor">
+                                            <div class="finder-preview-editor-label">
+                                                <span>값</span>
+                                                <span class="finder-preview-vt">@vt</span>
+                                            </div>
+                                            @if (vt == "Boolean")
+                                            {
+                                                var boolVal = val.Equals("true", StringComparison.OrdinalIgnoreCase);
+                                                <label class="toggle-switch">
+                                                    <input type="checkbox" checked="@boolVal"
+                                                           @onchange="(e) => OnCardBoolChanged(sel, (bool)e.Value!)" />
+                                                    <span class="toggle-slider"></span>
+                                                    <span class="toggle-label">@(boolVal ? "true" : "false")</span>
+                                                </label>
+                                            }
+                                            else if (vt == "Int")
+                                            {
+                                                <input type="number" class="card-input" value="@val" step="1"
+                                                       @onchange="(e) => OnCardValueChanged(sel, e.Value?.ToString())" />
+                                            }
+                                            else if (vt == "Double")
+                                            {
+                                                <input type="number" class="card-input" value="@val" step="any"
+                                                       @onchange="(e) => OnCardValueChanged(sel, e.Value?.ToString())" />
+                                            }
+                                            else if (vt == "Duration")
+                                            {
+                                                <input type="text" class="card-input" value="@val" placeholder="PT1H30M"
+                                                       title="ISO 8601 Duration (예: PT1H, PT30M, PT5S)"
+                                                       @onchange="(e) => OnCardValueChanged(sel, e.Value?.ToString())" />
+                                            }
+                                            else
+                                            {
+                                                <input type="text" class="card-input" value="@val"
+                                                       @onchange="(e) => OnCardValueChanged(sel, e.Value?.ToString())" />
+                                            }
+                                        </div>
+                                    }
+
+                                    @* Container: leaf properties *@
+                                    @if (!isErrorDef && sel.Children.Count > 0)
+                                    {
+                                        var leafKids = sel.Children.Where(c => c.Children.Count == 0
+                                            && !(c.NodeType == "SML" && c.Label == "ErrorDefinitions")).ToList();
+                                        var containerKids = sel.Children.Where(c => c.Children.Count > 0
+                                            && !(c.NodeType == "SML" && c.Label == "ErrorDefinitions")).ToList();
+
+                                        @if (leafKids.Count > 0)
+                                        {
+                                            <div class="finder-preview-section">
+                                                <div class="finder-preview-section-title">속성 (@leafKids.Count)</div>
+                                                @foreach (var leaf in leafKids)
+                                                {
+                                                    var lf = leaf;
+                                                    var lvt = leaf.Properties.GetValueOrDefault("valueType") ?? "String";
+                                                    var lval = leaf.Properties.GetValueOrDefault("value") ?? "";
+                                                    <div class="finder-preview-prop">
+                                                        <div class="finder-preview-prop-label">
+                                                            <span class="node-icon icon-@(IconClass(lf))" style="width:14px;height:12px;font-size:7px">@lf.Icon</span>
+                                                            <span>@lf.Label</span>
+                                                            <span class="finder-preview-vt">@lvt</span>
+                                                        </div>
+                                                        <div class="finder-preview-prop-editor">
+                                                            @if (lvt == "Boolean")
+                                                            {
+                                                                var bv = lval.Equals("true", StringComparison.OrdinalIgnoreCase);
+                                                                <label class="toggle-switch">
+                                                                    <input type="checkbox" checked="@bv"
+                                                                           @onchange="(e) => OnCardBoolChanged(lf, (bool)e.Value!)" />
+                                                                    <span class="toggle-slider"></span>
+                                                                    <span class="toggle-label">@(bv ? "true" : "false")</span>
+                                                                </label>
+                                                            }
+                                                            else if (lvt is "Int" or "Double")
+                                                            {
+                                                                <input type="number" class="card-input" value="@lval"
+                                                                       step="@(lvt == "Int" ? "1" : "any")"
+                                                                       @onchange="(e) => OnCardValueChanged(lf, e.Value?.ToString())" />
+                                                            }
+                                                            else
+                                                            {
+                                                                <input type="text" class="card-input" value="@lval"
+                                                                       @onchange="(e) => OnCardValueChanged(lf, e.Value?.ToString())" />
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+
+                                        @if (containerKids.Count > 0)
+                                        {
+                                            <div class="finder-preview-section">
+                                                <div class="finder-preview-section-title">하위 항목 (@containerKids.Count)</div>
+                                                @foreach (var ck in containerKids)
+                                                {
+                                                    <div class="finder-preview-child">
+                                                        <span class="node-icon icon-@(IconClass(ck))" style="width:16px;height:14px;font-size:8px">@ck.Icon</span>
+                                                        <span>@ck.Label</span>
+                                                        <span class="finder-preview-child-badge">@ck.Children.Count</span>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    }
+
+                                    @* ErrorDefinitions *@
+                                    @if (isErrorDef)
+                                    {
+                                        var capturedErrNode = sel;
+                                        <div class="finder-preview-section">
+                                            <div class="finder-error-header">
+                                                <span class="finder-preview-section-title" style="border:none;margin:0;padding:0">에러 정의 (@(sel.Children.Count)건)</span>
+                                                <div class="finder-error-actions">
+                                                    <button class="btn btn-sm btn-outline-primary"
+                                                            @onclick="() => { SelectNode(capturedErrNode); OnAddErrorDef(); }">+ 추가</button>
+                                                    <button class="btn btn-sm btn-outline-secondary"
+                                                            @onclick="() => { SelectNode(capturedErrNode); _ = OnExportErrorDefCsv(capturedErrNode); }">CSV 내보내기</button>
+                                                    <label class="btn btn-sm btn-outline-info btn-file" style="margin:0;cursor:pointer">
+                                                        CSV 추가
+                                                        <InputFile OnChange="OnCsvFileSelected" accept=".csv" style="display:none"
+                                                                   @onclick="() => OnImportErrorDefCsv(false, capturedErrNode)" />
+                                                    </label>
+                                                    <button class="btn btn-sm btn-outline-warning"
+                                                            @onclick="() => { SelectNode(capturedErrNode); _csvReplaceTargetNode = capturedErrNode; _showCsvReplaceConfirm = true; }">CSV 교체</button>
+                                                </div>
+                                            </div>
+                                            @if (sel.Children.Count > 0)
+                                            {
+                                                <table class="finder-error-table">
+                                                    <thead>
+                                                        <tr>
+                                                            <td style="width:35%">이름</td>
+                                                            <td style="width:30%">태그 주소</td>
+                                                            <td style="width:15%">값 타입</td>
+                                                            <td style="width:20%;text-align:right"></td>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @{
+                                                            var errDefs = sel.Children
+                                                                .Select(c => c.Properties.GetValueOrDefault("value") ?? "")
+                                                                .Where(v => !string.IsNullOrWhiteSpace(v))
+                                                                .Select(v => { var p = v.Split('|'); return p.Length >= 3 ? (p[0].Trim(), p[1].Trim(), p[2].Trim()) : p.Length == 2 ? (p[0].Trim(), p[1].Trim(), "Bit") : ("", "", ""); })
+                                                                .Where(x => x.Item1 != "")
+                                                                .ToList();
+                                                        }
+                                                        @for (var ei = 0; ei < errDefs.Count; ei++)
+                                                        {
+                                                            var idx = ei;
+                                                            var (eName, eTag, eVt) = errDefs[ei];
+                                                            <tr>
+                                                                <td>@eName</td>
+                                                                <td style="color:#4fc3f7">@eTag</td>
+                                                                <td style="color:#98989d">@eVt</td>
+                                                                <td style="text-align:right">
+                                                                    <button class="btn-icon" title="편집"
+                                                                            @onclick="() => { SelectNode(capturedErrNode); OnEditErrorDef(idx); }">&#9998;</button>
+                                                                    <button class="btn-icon" title="삭제" style="color:#e57373"
+                                                                            @onclick="() => { SelectNode(capturedErrNode); _ = OnDeleteErrorDef(idx); }">&#10005;</button>
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            }
+                                            else
+                                            {
+                                                <div style="color:#636366;font-size:12px;padding:8px 0">에러 정의가 없습니다.</div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
                             }
                         </div>
 
-                        @if (_explorerPath.Count > 0)
-                        {
-                            var currentNode = _explorerPath[^1];
-                            var curCss = IconClass(currentNode);
-                            var isErrorDef = (AasTreeNode c) => c.NodeType == "SML" && c.Label == "ErrorDefinitions";
-                            var leafChildren = currentNode.Children.Where(c => c.Children.Count == 0 && !isErrorDef(c)).ToList();
-                            var errorDefNodes = currentNode.Children.Where(isErrorDef).ToList();
-                            var containerChildren = currentNode.Children.Where(c => c.Children.Count > 0 && !isErrorDef(c)).ToList();
-
-                            @* ── 1. 타이틀 헤더 ── *@
-                            <div class="explorer-node-header">
-                                <div class="explorer-node-title">
-                                    <span class="node-icon icon-@curCss" style="width:24px;height:20px;font-size:11px">@currentNode.Icon</span>
-                                    <span>@currentNode.Label</span>
-                                    <span class="explorer-node-type">@currentNode.NodeType</span>
-                                </div>
-                                @if (PropertyDescriptions.Get(currentNode.Label) is { } headerDesc)
-                                {
-                                    <div class="explorer-node-desc">@headerDesc</div>
-                                }
-                                @{
-                                    var metaKeys = new[] { "idShort", "id", "semanticId" };
-                                    var metaProps = currentNode.Properties
-                                        .Where(p => metaKeys.Contains(p.Key) && p.Value is not null).ToList();
-                                }
-                                @if (metaProps.Count > 0)
-                                {
-                                    <div class="explorer-node-meta">
-                                        @foreach (var kv in metaProps)
-                                        {
-                                            <span class="meta-chip"><span class="meta-key">@kv.Key</span> @TruncateValue(kv.Value!, 50)</span>
-                                        }
-                                    </div>
-                                }
-                            </div>
-
-                            @* ── 2. Property 자식: 인라인 편집 폼 ── *@
-                            @if (leafChildren.Count > 0)
+                        @* ── Path Bar ── *@
+                        <div class="finder-pathbar">
+                            <span class="finder-path-item @(_explorerPath.Count == 0 ? "active" : "")"
+                                  @onclick="ExplorerGoRoot">Root</span>
+                            @for (var pi = 0; pi < _explorerPath.Count; pi++)
                             {
-                                <div class="explorer-props-form">
-                                    @foreach (var leaf in leafChildren)
-                                    {
-                                        var leafNode = leaf;
-                                        var vt = leaf.Properties.GetValueOrDefault("valueType") ?? "String";
-                                        var val = leaf.Properties.GetValueOrDefault("value") ?? "";
-                                        <div class="epf-row @(_selectedNode == leaf ? "selected" : "")"
-                                             @onclick="() => SelectNode(leaf)">
-                                            <div class="epf-label">
-                                                <span class="node-icon icon-@(IconClass(leaf))" style="width:16px;height:14px;font-size:8px">@leaf.Icon</span>
-                                                <span class="epf-name">@leaf.Label</span>
-                                                <span class="epf-vt">@vt</span>
-                                            </div>
-                                            <div class="epf-editor">
-                                                @if (vt == "Boolean")
-                                                {
-                                                    var boolVal = val.Equals("true", StringComparison.OrdinalIgnoreCase);
-                                                    <label class="toggle-switch">
-                                                        <input type="checkbox" checked="@boolVal"
-                                                               @onchange="(e) => OnCardBoolChanged(leafNode, (bool)e.Value!)" />
-                                                        <span class="toggle-slider"></span>
-                                                        <span class="toggle-label">@(boolVal ? "true" : "false")</span>
-                                                    </label>
-                                                }
-                                                else if (vt == "Int")
-                                                {
-                                                    <input type="number" class="card-input" value="@val" step="1"
-                                                           @onchange="(e) => OnCardValueChanged(leafNode, e.Value?.ToString())" />
-                                                }
-                                                else if (vt == "Double")
-                                                {
-                                                    <input type="number" class="card-input" value="@val" step="any"
-                                                           @onchange="(e) => OnCardValueChanged(leafNode, e.Value?.ToString())" />
-                                                }
-                                                else if (vt == "Duration")
-                                                {
-                                                    <input type="text" class="card-input" value="@val" placeholder="PT1H30M"
-                                                           title="ISO 8601 Duration (예: PT1H, PT30M, PT5S)"
-                                                           @onchange="(e) => OnCardValueChanged(leafNode, e.Value?.ToString())" />
-                                                }
-                                                else
-                                                {
-                                                    <input type="text" class="card-input" value="@val"
-                                                           @onchange="(e) => OnCardValueChanged(leafNode, e.Value?.ToString())" />
-                                                }
-                                            </div>
-                                            @if (PropertyDescriptions.Get(leaf.Label) is { } rowDesc)
-                                            {
-                                                <div class="epf-desc">@rowDesc</div>
-                                            }
-                                        </div>
-                                    }
-                                </div>
+                                var pidx = pi;
+                                <span class="finder-path-sep">&#x203A;</span>
+                                <span class="finder-path-item @(pi == _explorerPath.Count - 1 ? "active" : "")"
+                                      @onclick="() => ExplorerGoTo(pidx)">
+                                    @_explorerPath[pidx].Label
+                                </span>
                             }
-
-                            @* ── 3. 컨테이너 자식: 타일 ── *@
-                            @if (containerChildren.Count > 0)
-                            {
-                                <div class="explorer-grid">
-                                    @foreach (var child in containerChildren)
-                                    {
-                                        var css = IconClass(child);
-                                        var maxChips = 6;
-                                        <div class="explorer-box box-@css @(_selectedNode == child ? "selected" : "")"
-                                             @onclick="() => ExplorerDrillDown(child)">
-                                            <div class="explorer-box-header">
-                                                <span class="node-icon icon-@css">@child.Icon</span>
-                                                <span class="explorer-box-label">@child.Label</span>
-                                            </div>
-                                            <div class="explorer-box-children">
-                                                @foreach (var gc in child.Children.Take(maxChips))
-                                                {
-                                                    <div class="explorer-child-chip">
-                                                        <span class="node-icon icon-@(IconClass(gc))" style="width:14px;height:12px;font-size:7px">@gc.Icon</span>
-                                                        @TruncateValue(gc.Label, 14)
-                                                    </div>
-                                                }
-                                                @if (child.Children.Count > maxChips)
-                                                {
-                                                    <div class="explorer-child-chip more">+@(child.Children.Count - maxChips)</div>
-                                                }
-                                            </div>
-                                            <div class="explorer-box-type">@child.NodeType (@child.Children.Count)</div>
-                                            @if (PropertyDescriptions.Get(child.Label) is { } boxDesc)
-                                            {
-                                                <div class="explorer-box-desc">@boxDesc</div>
-                                            }
-                                        </div>
-                                    }
-                                </div>
-                            }
-
-                            @* ── 4. ErrorDefinitions 전용 UI ── *@
-                            @foreach (var errNode in errorDefNodes)
-                            {
-                                var capturedErrNode = errNode;
-                                <div class="explorer-error-defs">
-                                    <div class="error-defs-header">
-                                        <span class="node-icon icon-sml" style="width:18px;height:15px;font-size:9px">[]</span>
-                                        <span class="error-defs-title">에러 정의</span>
-                                        <span class="error-defs-count">@(errNode.Children.Count)건</span>
-                                        <div class="error-defs-actions" style="margin-left:auto;display:flex;gap:4px">
-                                            <button class="btn btn-sm btn-outline-primary"
-                                                    @onclick="() => { SelectNode(capturedErrNode); OnAddErrorDef(); }">+ 추가</button>
-                                            <button class="btn btn-sm btn-outline-secondary"
-                                                    @onclick="() => { SelectNode(capturedErrNode); _ = OnExportErrorDefCsv(capturedErrNode); }">CSV 내보내기</button>
-                                            <label class="btn btn-sm btn-outline-info btn-file" style="margin:0;cursor:pointer"
-                                                   @onclick="() => OnImportErrorDefCsv(false, capturedErrNode)">
-                                                CSV 추가
-                                                <InputFile OnChange="OnCsvFileSelected" accept=".csv" style="display:none" />
-                                            </label>
-                                            <button class="btn btn-sm btn-outline-warning"
-                                                    @onclick="() => { _csvReplaceTargetNode = capturedErrNode; _csvTargetNode = capturedErrNode; _showCsvReplaceConfirm = true; }">CSV 교체</button>
-                                        </div>
-                                    </div>
-                                    @if (errNode.Children.Count > 0)
-                                    {
-                                        <table class="error-defs-table">
-                                            <thead>
-                                                <tr>
-                                                    <td style="width:35%">이름</td>
-                                                    <td style="width:30%">태그 주소</td>
-                                                    <td style="width:15%">값 타입</td>
-                                                    <td style="width:20%;text-align:right"></td>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                @{
-                                                    // errNode 선택 상태에서 파싱
-                                                    var errDefs = errNode.Children
-                                                        .Select(c => c.Properties.GetValueOrDefault("value") ?? "")
-                                                        .Where(v => !string.IsNullOrWhiteSpace(v))
-                                                        .Select(v => { var p = v.Split('|'); return p.Length >= 3 ? (p[0].Trim(), p[1].Trim(), p[2].Trim()) : p.Length == 2 ? (p[0].Trim(), p[1].Trim(), "Bit") : ("", "", ""); })
-                                                        .Where(x => x.Item1 != "")
-                                                        .ToList();
-                                                }
-                                                @for (var ei = 0; ei < errDefs.Count; ei++)
-                                                {
-                                                    var idx = ei;
-                                                    var (eName, eTag, eVt) = errDefs[ei];
-                                                    <tr>
-                                                        <td>@eName</td>
-                                                        <td style="color:#4fc3f7">@eTag</td>
-                                                        <td style="color:#aaa">@eVt</td>
-                                                        <td style="text-align:right">
-                                                            <button class="btn-icon" title="편집"
-                                                                    @onclick="() => { SelectNode(capturedErrNode); OnEditErrorDef(idx); }">&#9998;</button>
-                                                            <button class="btn-icon" title="삭제" style="color:#e57373"
-                                                                    @onclick="() => { SelectNode(capturedErrNode); _ = OnDeleteErrorDef(idx); }">&#10005;</button>
-                                                        </td>
-                                                    </tr>
-                                                }
-                                            </tbody>
-                                        </table>
-                                    }
-                                    else
-                                    {
-                                        <div class="error-defs-empty">에러 정의가 없습니다. + 추가 버튼을 눌러 추가하세요.</div>
-                                    }
-                                </div>
-                            }
-                        }
-                        else
-                        {
-                            @* ── Root 레벨: 기존 타일 뷰 ── *@
-                            <div class="explorer-grid">
-                                @foreach (var child in ExplorerNodes)
-                                {
-                                    var isLeaf = child.Children.Count == 0;
-                                    var css = IconClass(child);
-                                    <div class="explorer-box @(isLeaf ? "leaf" : "") box-@css @(_selectedNode == child ? "selected" : "")"
-                                         @onclick="() => ExplorerDrillDown(child)">
-                                        <div class="explorer-box-header">
-                                            <span class="node-icon icon-@css">@child.Icon</span>
-                                            <span class="explorer-box-label">@child.Label</span>
-                                        </div>
-                                        @if (!isLeaf)
-                                        {
-                                            <div class="explorer-box-children">
-                                                @foreach (var gc in child.Children.Take(8))
-                                                {
-                                                    <div class="explorer-child-chip">
-                                                        <span class="node-icon icon-@(IconClass(gc))" style="width:14px;height:12px;font-size:7px">@gc.Icon</span>
-                                                        @TruncateValue(gc.Label, 18)
-                                                    </div>
-                                                }
-                                                @if (child.Children.Count > 8)
-                                                {
-                                                    <div class="explorer-child-chip more">+@(child.Children.Count - 8)</div>
-                                                }
-                                            </div>
-                                        }
-                                        else if (child.Properties.GetValueOrDefault("value") is { } leafVal)
-                                        {
-                                            <div class="explorer-box-value">@TruncateValue(leafVal, 40)</div>
-                                        }
-                                        <div class="explorer-box-type">@child.NodeType</div>
-                                        @if (PropertyDescriptions.Get(child.Label) is { } rootDesc)
-                                        {
-                                            <div class="explorer-box-desc">@rootDesc</div>
-                                        }
-                                    </div>
-                                }
-                            </div>
-                        }
+                        </div>
                     }
                 </div>
             }
@@ -518,10 +557,10 @@
                 <p style="margin:8px 0 0;color:#aaa;font-size:13px">현재 @(_csvReplaceTargetNode?.Children.Count ?? 0)건의 정의가 삭제됩니다. 계속하시겠습니까?</p>
             </div>
             <div class="modal-actions">
-                <label class="btn btn-warning btn-sm btn-file" style="margin:0;cursor:pointer"
-                       @onclick="() => { _csvImportReplace = true; }">
+                <label class="btn btn-warning btn-sm btn-file" style="margin:0;cursor:pointer">
                     CSV 선택 후 교체
-                    <InputFile OnChange="OnCsvFileSelected" accept=".csv" style="display:none" />
+                    <InputFile OnChange="OnCsvFileSelected" accept=".csv" style="display:none"
+                               @onclick="() => { _csvImportReplace = true; _showCsvReplaceConfirm = false; }" />
                 </label>
                 <button class="btn btn-outline-secondary btn-sm" @onclick="() => _showCsvReplaceConfirm = false">취소</button>
             </div>
