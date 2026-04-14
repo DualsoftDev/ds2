@@ -10,6 +10,7 @@ The JSON is rendered in a Three.js cartoon-style 3D viewer for factory simulatio
 - All units are meters.
 - Keep it simple — this is for simulation, not photorealism. 3~10 parts is ideal.
 - The device has two visual states: **active** (Going — parts move) and **idle** (all other states — parts return to rest). RGFH color is handled automatically.
+- When a device has multiple ApiDefs (e.g., ADV/RET for a piston), use the `dirs` field to define independent animations per direction.
 
 ---
 
@@ -20,9 +21,14 @@ The JSON is rendered in a Three.js cartoon-style 3D viewer for factory simulatio
   "name": "장비 이름",
   "height": 2.0,            ← target height in meters (auto-scaled)
   "parts": [ ... ],         ← part list (OR use "chain" for robot arms)
-  "animation": { ... }      ← what moves when active
+  "animation": { ... },     ← 단일 애니메이션 (ApiDef 구분 불필요한 경우)
+  "dirs": { ... }           ← ApiDef별 독립 애니메이션 (선택 — animation 대신 사용)
 }
 ```
+
+`animation`과 `dirs` 중 하나만 사용:
+- `animation`: 장비가 Going이면 하나의 애니메이션 실행 (컨베이어, 턴테이블 등)
+- `dirs`: ApiDef별로 다른 애니메이션 (피스톤 전진/후진, 도어 열기/닫기 등)
 
 ---
 
@@ -306,6 +312,119 @@ Multiple animations:
 - `speed`: animation speed multiplier (default 1). Higher = faster.
 - `angle`: swing amplitude in radians (default 0.5)
 - `phase`: swing phase offset in radians (default 0)
+
+---
+
+## dirs — ApiDef별 독립 애니메이션
+
+하나의 장비에 여러 ApiDef가 있고 각각 다른 동작을 해야 할 때 사용.
+`animation` 대신 `dirs`를 쓴다. 키 = ApiDef 이름, 값 = 해당 방향의 애니메이션 정의.
+
+### 기본 구조
+
+```
+"dirs": {
+  "ApiDef이름1": { 애니메이션 정의 },
+  "ApiDef이름2": { 애니메이션 정의 }
+}
+```
+
+각 애니메이션 정의는 `animation.active`와 동일한 문법을 사용한다.
+
+### 예시: 피스톤 유닛 (전진/후진)
+
+```json
+{
+  "name": "Unit",
+  "height": 2.0,
+  "parts": [
+    {"id": "base", "shape": "box", "size": [1.5, 0.3, 1.0], "color": "#64748b"},
+    {"id": "rail_L", "shape": "box", "size": [1.2, 0.1, 0.08], "pos": [0, 0.4, -0.4], "color": "#60a5fa"},
+    {"id": "rail_R", "shape": "box", "size": [1.2, 0.1, 0.08], "pos": [0, 0.4, 0.4], "color": "#60a5fa"},
+    {"id": "carriage", "shape": "box", "size": [0.6, 0.4, 0.9], "color": "#fbbf24", "glow": 0.3, "pos": [0, 0.65, 0]}
+  ],
+  "dirs": {
+    "ADV": {"target": "carriage", "type": "move", "axis": "x", "min": 0, "max": 0.5},
+    "RET": {"target": "carriage", "type": "move", "axis": "x", "min": 0, "max": -0.5}
+  }
+}
+```
+
+- ApiDef "ADV"가 Going → 캐리지 전진 (X = +0.5)
+- ApiDef "RET"가 Going → 캐리지 후진 (X = -0.5)
+- 둘 다 Idle → 캐리지 원위치 복귀
+
+### 예시: 슬라이딩 도어 (열기/닫기)
+
+```json
+{
+  "name": "Door",
+  "height": 2.5,
+  "parts": [
+    {"id": "frame", "shape": "box", "size": [2.4, 2.2, 0.08], "pos": [0, 1.1, 0], "color": "#64748b"},
+    {"id": "panel_l", "shape": "box", "size": [1.0, 2.0, 0.06], "pos": [-0.5, 1.0, 0], "color": "#0891b2"},
+    {"id": "panel_r", "shape": "box", "size": [1.0, 2.0, 0.06], "pos": [0.5, 1.0, 0], "color": "#0891b2"}
+  ],
+  "dirs": {
+    "OPEN": [
+      {"target": "panel_l", "type": "move", "axis": "x", "min": -1.0, "max": -0.5},
+      {"target": "panel_r", "type": "move", "axis": "x", "min": 0.5, "max": 1.0}
+    ],
+    "CLOSE": [
+      {"target": "panel_l", "type": "move", "axis": "x", "min": -0.5, "max": 0},
+      {"target": "panel_r", "type": "move", "axis": "x", "min": 0.5, "max": 0}
+    ]
+  }
+}
+```
+
+### 예시: 리프터 (상승/하강)
+
+```json
+{
+  "name": "Lifter",
+  "height": 2.5,
+  "parts": [
+    {"id": "base", "shape": "box", "size": [1.2, 0.3, 1.2], "color": "#64748b"},
+    {"id": "cols", "shape": "cylinder", "radius": 0.05, "height": 2.2, "on": "base",
+     "repeat": {"count": 4, "pattern": "corners", "size": [0.9, 0.9]}},
+    {"id": "platform", "shape": "box", "size": [1.0, 0.15, 1.0], "color": "#fbbf24", "glow": 0.3, "on": "base"}
+  ],
+  "dirs": {
+    "UP":   {"target": "platform", "type": "move", "axis": "y", "min": 0.38, "max": 2.2},
+    "DOWN": {"target": "platform", "type": "move", "axis": "y", "min": 2.2, "max": 0.38}
+  }
+}
+```
+
+### 예시: 로봇 (다중 명령)
+
+```json
+{
+  "name": "Robot",
+  "height": 3.0,
+  "chain": [
+    {"name": "base", "axis": "y", "length": 0.6, "width": 0.9},
+    {"name": "shoulder", "axis": "z", "length": 1.2, "width": 0.35},
+    {"name": "elbow", "axis": "z", "length": 1.0, "width": 0.3},
+    {"name": "wrist", "axis": "z", "length": 0.4, "width": 0.2}
+  ],
+  "tool": "gripper",
+  "poses": {
+    "cmd1_target": [30, -45, 70, 25],
+    "cmd2_target": [-30, -50, 75, -20]
+  },
+  "dirs": {
+    "CMD1": {"sequence": ["home:open", "cmd1_target:grab", "up_right", "home"], "speed": 0.5},
+    "CMD2": {"sequence": ["home:open", "cmd2_target:grab", "up_left", "home"], "speed": 0.5},
+    "HOME": {"sequence": ["ready", "home"], "speed": 0.8}
+  }
+}
+```
+
+- ApiDef "CMD1" Going → 오른쪽으로 뻗어서 잡기 시퀀스
+- ApiDef "CMD2" Going → 왼쪽으로 뻗어서 잡기 시퀀스
+- ApiDef "HOME" Going → 원위치 복귀
 
 ---
 

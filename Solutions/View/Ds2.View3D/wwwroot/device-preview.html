@@ -21,6 +21,9 @@ body{display:flex;height:100vh;font-family:'Segoe UI',sans-serif;background:#0f1
 #error-msg{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#dc2626;color:white;padding:8px 16px;border-radius:6px;display:none;z-index:10;font-size:13px;max-width:80%}
 #info{position:absolute;bottom:8px;left:10px;color:#475569;font-size:11px}
 #hint{position:absolute;top:8px;right:12px;color:#475569;font-size:11px}
+.dir-btn{padding:4px 12px;background:#1e293b;color:#94a3b8;border:1px solid #475569;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s}
+.dir-btn:hover{background:#334155;color:#e2e8f0}
+.dir-btn.active{background:#f97316;color:#fff;border-color:#f97316}
 </style>
 </head>
 <body>
@@ -36,6 +39,8 @@ body{display:flex;height:100vh;font-family:'Segoe UI',sans-serif;background:#0f1
     <button onclick="loadPreset('custom_robot')">CNC로봇</button>
     <button onclick="loadPreset('scara')">SCARA</button>
     <button onclick="loadPreset('welder')">Welder</button>
+    <button onclick="loadPreset('piston')">Piston(dirs)</button>
+    <button onclick="loadPreset('lifter_dir')">Lifter(dirs)</button>
     <button onclick="loadPreset('spray')">Spray Booth</button>
   </div>
   <textarea id="json-input" spellcheck="false"></textarea>
@@ -46,6 +51,8 @@ body{display:flex;height:100vh;font-family:'Segoe UI',sans-serif;background:#0f1
     <button class="state-btn" style="background:#3b82f6" onclick="setState('F')" data-state="F">F</button>
     <button class="state-btn" style="background:#6b7280" onclick="setState('H')" data-state="H">H</button>
     <span style="margin-left:auto;color:#64748b;font-size:11px">Ctrl+Enter</span>
+  </div>
+  <div id="dir-buttons" style="padding:6px 8px;display:none;gap:4px;flex-wrap:wrap;border-top:1px solid #334155;flex-shrink:0">
   </div>
 </div>
 <div id="viewport">
@@ -213,6 +220,34 @@ welder: {
   tool:"welder",
   animation:{active:"welding"}
 },
+piston: {
+  name: "Piston Unit (ADV/RET)", height: 2.0,
+  parts: [
+    {id:"base", shape:"box", size:[1.5,0.3,1.0], color:"#64748b"},
+    {id:"rail_L", shape:"box", size:[1.2,0.1,0.08], pos:[0,0.4,-0.4], color:"#60a5fa"},
+    {id:"rail_R", shape:"box", size:[1.2,0.1,0.08], pos:[0,0.4,0.4], color:"#60a5fa"},
+    {id:"carriage", shape:"box", size:[0.5,0.35,0.85], color:"#fbbf24", glow:0.3, pos:[0,0.63,0]},
+    {id:"cylinder", shape:"cylinder", radius:0.08, height:0.7, color:"#475569", pos:[0,0.63,-0.55]}
+  ],
+  dirs: {
+    "ADV": {target:"carriage", type:"move", axis:"x", min:0, max:0.45},
+    "RET": {target:"carriage", type:"move", axis:"x", min:0, max:-0.45}
+  }
+},
+lifter_dir: {
+  name: "Lifter (UP/DOWN)", height: 2.5,
+  parts: [
+    {id:"base", shape:"box", size:[1.2,0.3,1.2], color:"#64748b"},
+    {id:"cols", shape:"cylinder", radius:0.05, height:2.2, on:"base",
+     repeat:{count:4, pattern:"corners", size:[0.9,0.9]}},
+    {id:"platform", shape:"box", size:[1.0,0.15,1.0], color:"#fbbf24", glow:0.3, on:"base"},
+    {id:"motor", shape:"cylinder", radius:0.15, height:0.25, color:"#334155", on:"cols"}
+  ],
+  dirs: {
+    "UP":   {target:"platform", type:"move", axis:"y", min:0.38, max:2.2},
+    "DOWN": {target:"platform", type:"move", axis:"y", min:2.2, max:0.38}
+  }
+},
 spray: {
   name: "Paint Spray Booth", height: 3.0,
   parts: [
@@ -232,7 +267,8 @@ spray: {
 let scene, camera, renderer, controls, gradientMap;
 let deviceGroup = null, stateIndicator = null;
 let animEntries = [], partMap = {};
-let time = 0, currentState = 'R';
+let time = 0, currentState = 'R', activeDirection = null;
+let currentSpecDirs = null; // 현재 로드된 spec의 dirs 키 목록
 
 const STATE_COLORS = {R:0x10b981, G:0xeab308, F:0x3b82f6, H:0x6b7280};
 
@@ -356,6 +392,37 @@ function buildDevice(spec) {
 
   // Setup animations
   if (spec.animation) setupAnimations(spec.animation);
+
+  // Detect dirs mode and build direction buttons
+  currentSpecDirs = null;
+  activeDirection = null;
+  if (spec.dirs && typeof spec.dirs === 'object') {
+    currentSpecDirs = Object.keys(spec.dirs);
+    // dirs 모드에서는 각 direction이 개별 애니메이션을 가짐
+    // dirAnimMap 구축 (GenericDevice와 동일 로직)
+    if (!window._dirAnimMap) window._dirAnimMap = {};
+    window._dirAnimMap = {};
+    for (const [dirName, animDef] of Object.entries(spec.dirs)) {
+      const entries = [];
+      const animList = Array.isArray(animDef) ? animDef : [animDef];
+      for (const anim of animList) {
+        if (typeof anim === 'string') continue;
+        // sequence for chain
+        if (anim.sequence && partMap['__chain_joints']) {
+          const joints = partMap['__chain_joints'];
+          const kf = anim.sequence.map(p => resolvePose(p, joints));
+          entries.push({type:'chain_sequence', joints, keyframes:kf, speed:anim.speed||0.5, currentFrame:0, progress:0, currentGrip:0, restRotations:joints.map(j=>j.group.rotation.clone())});
+        } else if (anim.target) {
+          const targets = partMap[anim.target];
+          if (targets && targets.length > 0) {
+            entries.push({type:anim.type, meshes:targets, axis:anim.axis||'y', speed:anim.speed||1, min:anim.min, max:anim.max, restPositions:targets.map(m=>m.position.clone()), restRotations:targets.map(m=>m.rotation.clone())});
+          }
+        }
+      }
+      window._dirAnimMap[dirName] = entries;
+    }
+  }
+  updateDirButtons();
 
   fitCamera();
 }
@@ -980,6 +1047,18 @@ function updateAnimations() {
     stateIndicator.material.opacity = baseOpacity + pulse;
   }
 
+  // ── dirs 모드: activeDirection에 해당하는 엔트리만 실행 ──
+  if (currentSpecDirs && window._dirAnimMap) {
+    for (const [dir, dirEntries] of Object.entries(window._dirAnimMap)) {
+      const dirActive = isActive && activeDirection === dir;
+      for (const entry of dirEntries) {
+        updateSingleEntry(entry, dirActive);
+      }
+    }
+    return;
+  }
+
+  // ── 기존 단일 모드 ──
   for (const entry of animEntries) {
     const {type} = entry;
 
@@ -1093,15 +1172,94 @@ function updateAnimations() {
   }
 }
 
+// ── Single Entry Updater (dirs 모드용) ───────────────────────
+function updateSingleEntry(entry, isActive) {
+  if (entry.type === 'chain_sequence') {
+    const {joints, keyframes} = entry;
+    const fingers = partMap['__fingers'];
+    const openX = partMap['__finger_open'] || 0.07;
+    const closeX = partMap['__finger_close'] || 0.02;
+    if (!isActive) {
+      if (joints) joints.forEach(j => { j.group.rotation.x*=0.94; j.group.rotation.y*=0.94; j.group.rotation.z*=0.94; });
+      if (fingers) { entry.currentGrip=(entry.currentGrip||0)*0.94; const d=openX-(openX-closeX)*entry.currentGrip; fingers[0].position.x=-d; fingers[1].position.x=d; }
+      entry.currentFrame=0; entry.progress=0; return;
+    }
+    const dur=keyframes[entry.currentFrame].duration||1.0;
+    entry.progress+=0.016*(entry.speed||0.5)/dur;
+    if(entry.progress>=1.0){entry.progress=0;entry.currentFrame=(entry.currentFrame+1)%keyframes.length;}
+    const t=entry.progress,st=t*t*(3-2*t);
+    const from=keyframes[entry.currentFrame],to=keyframes[(entry.currentFrame+1)%keyframes.length];
+    joints.forEach((j,i)=>{const a0=from.angles[i]||0,a1=to.angles[i]||0;j.group.rotation[j.axis]=a0+(a1-a0)*st;});
+    if(fingers&&fingers.length>=2){const g0=from.grip!==undefined?from.grip:(entry.currentGrip||0);const g1=to.grip!==undefined?to.grip:g0;entry.currentGrip=g0+(g1-g0)*st;const d=openX-(openX-closeX)*entry.currentGrip;fingers[0].position.x=-d;fingers[1].position.x=d;}
+    return;
+  }
+  // Standard: move, spin, etc.
+  const {meshes, axis, speed, min, max, restPositions, restRotations} = entry;
+  if (!meshes) return;
+  const axIdx = axis || 'y';
+  for (let i=0; i<meshes.length; i++) {
+    const m=meshes[i];
+    if (!isActive) {
+      if(restPositions&&restPositions[i]){m.position.x+=(restPositions[i].x-m.position.x)*0.05;m.position.y+=(restPositions[i].y-m.position.y)*0.05;m.position.z+=(restPositions[i].z-m.position.z)*0.05;}
+      if(restRotations&&restRotations[i]&&entry.type!=='spin'){m.rotation.x+=(restRotations[i].x-m.rotation.x)*0.05;m.rotation.y+=(restRotations[i].y-m.rotation.y)*0.05;m.rotation.z+=(restRotations[i].z-m.rotation.z)*0.05;}
+      continue;
+    }
+    if(entry.type==='move'&&min!==undefined&&max!==undefined){const t=(Math.sin(time*(speed||1)*2)+1)/2;m.position[axIdx]=min+t*(max-min);}
+    else if(entry.type==='spin'){m.rotation[axIdx]+=(speed||0.02);}
+    else if(entry.type==='roll'){m.rotation.x+=(speed||0.05);}
+  }
+}
+
 // ── State Management ─────────────────────────────────────────
 function setState(s) {
   currentState = s;
+  if (s !== 'G') activeDirection = null; // G 아닌 상태에서는 direction 해제
   document.querySelectorAll('.state-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.state === s);
   });
+  document.querySelectorAll('.dir-btn').forEach(b => b.classList.remove('active'));
   if (stateIndicator) {
     stateIndicator.material.color.setHex(STATE_COLORS[s]);
     stateIndicator.material.emissive.setHex(STATE_COLORS[s]);
+  }
+}
+
+function setDirection(dir) {
+  activeDirection = dir;
+  currentState = 'G'; // direction 활성화 시 자동으로 Going
+  document.querySelectorAll('.state-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.state === 'G');
+  });
+  document.querySelectorAll('.dir-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.dir === dir);
+  });
+  if (stateIndicator) {
+    stateIndicator.material.color.setHex(STATE_COLORS.G);
+    stateIndicator.material.emissive.setHex(STATE_COLORS.G);
+  }
+}
+
+function updateDirButtons() {
+  // 기존 dir 버튼 제거
+  document.querySelectorAll('.dir-btn').forEach(b => b.remove());
+  const dirContainer = document.getElementById('dir-buttons');
+  if (dirContainer) dirContainer.innerHTML = '';
+
+  if (!currentSpecDirs || currentSpecDirs.length === 0) {
+    if (dirContainer) dirContainer.style.display = 'none';
+    return;
+  }
+
+  if (dirContainer) {
+    dirContainer.style.display = 'flex';
+    currentSpecDirs.forEach(dir => {
+      const btn = document.createElement('button');
+      btn.className = 'dir-btn';
+      btn.textContent = dir;
+      btn.dataset.dir = dir;
+      btn.onclick = () => setDirection(dir);
+      dirContainer.appendChild(btn);
+    });
   }
 }
 
