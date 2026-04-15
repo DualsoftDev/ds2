@@ -8,11 +8,13 @@ namespace Promaker.ViewModels;
 
 /// <summary>
 /// 커스텀 JSON 디바이스 모델 레지스트리.
-/// 프로젝트 폴더의 .ds2/custom-models/ 하위에 *.device.json 파일을 관리한다.
+/// %AppData%\Dualsoft\Promaker\custom-models\ 에 *.device.json 파일을 관리한다.
+/// 모든 프로젝트에서 공유되는 공통 저장소.
 /// </summary>
 public class CustomModelRegistry
 {
-    private const string SubFolder = ".ds2";
+    private const string CompanyFolder = "Dualsoft";
+    private const string AppFolder = "Promaker";
     private const string ModelFolder = "custom-models";
     private const string FilePattern = "*.device.json";
 
@@ -24,9 +26,13 @@ public class CustomModelRegistry
     /// <summary>현재 등록된 모델 이름 목록</summary>
     public IReadOnlyList<string> ModelNames => Models.Keys.OrderBy(k => k).ToList();
 
-    public CustomModelRegistry(string projectDir)
+    /// <summary>모델 저장 폴더 경로</summary>
+    public string ModelsDirectory => _modelsDir;
+
+    public CustomModelRegistry()
     {
-        _modelsDir = Path.Combine(projectDir, SubFolder, ModelFolder);
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        _modelsDir = Path.Combine(appData, CompanyFolder, AppFolder, ModelFolder);
     }
 
     /// <summary>
@@ -44,7 +50,7 @@ public class CustomModelRegistry
             try
             {
                 var json = File.ReadAllText(file);
-                var name = ExtractName(json, file);
+                var name = ExtractNameFromFileName(file);
                 if (!string.IsNullOrEmpty(name))
                     Models[name] = json;
             }
@@ -53,6 +59,9 @@ public class CustomModelRegistry
                 System.Diagnostics.Debug.WriteLine($"[CustomModel] Failed to load {file}: {ex.Message}");
             }
         }
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[CustomModel] Loaded {Models.Count} custom models from {_modelsDir}");
     }
 
     /// <summary>
@@ -78,6 +87,7 @@ public class CustomModelRegistry
             Models.Remove(systemType);
             return true;
         }
+        Models.Remove(systemType);
         return false;
     }
 
@@ -148,15 +158,6 @@ public class CustomModelRegistry
     private string GetFilePath(string systemType)
         => Path.Combine(_modelsDir, $"{systemType}.device.json");
 
-    private static string ExtractName(string json, string filePath)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("name", out var nameProp))
-                return nameProp.GetString() ?? Path.GetFileNameWithoutExtension(filePath).Replace(".device", "");
-        }
-        catch { }
-        return Path.GetFileNameWithoutExtension(filePath).Replace(".device", "");
-    }
+    private static string ExtractNameFromFileName(string filePath)
+        => Path.GetFileNameWithoutExtension(filePath).Replace(".device", "");
 }

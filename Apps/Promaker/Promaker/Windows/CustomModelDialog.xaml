@@ -60,10 +60,10 @@
                             <Button Content="📁 파일 불러오기" Click="LoadFile_Click"
                                     Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
                                     Padding="8,3" FontSize="11" Cursor="Hand" Margin="0,0,6,0"/>
-                            <Button Content="📋 스펙 복사" Click="CopySpec_Click"
+                            <Button Content="🤖 AI 프롬프트 복사" Click="CopyAIPrompt_Click"
                                     Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
                                     Padding="8,3" FontSize="11" Cursor="Hand"
-                                    ToolTip="AI에게 전달할 DEVICE_JSON_SPEC.md를 클립보드에 복사"/>
+                                    ToolTip="AI에게 전달할 스펙 + 장비 정보를 클립보드에 복사"/>
                         </StackPanel>
                     </Border>
                     <TextBox x:Name="JsonEditor" Grid.Row="1"
