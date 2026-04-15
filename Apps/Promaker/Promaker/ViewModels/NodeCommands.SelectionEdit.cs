@@ -49,6 +49,34 @@ public partial class MainViewModel
         }
     }
 
+    public void MoveWorkToTarget(Guid flowId, Guid workId, Guid targetWorkId, bool insertBefore)
+    {
+        TryEditorAction(() => _store.MoveWorkToPosition(flowId, workId, targetWorkId, insertBefore));
+    }
+
+    public void MoveFlowToTarget(Guid systemId, Guid flowId, Guid targetFlowId, bool insertBefore)
+    {
+        TryEditorAction(() => _store.MoveFlowToPosition(systemId, flowId, targetFlowId, insertBefore));
+    }
+
+    [RelayCommand(CanExecute = nameof(HasProject))]
+    private void MoveWorkUp()
+    {
+        if (SelectedNode is { EntityType: EntityKind.Work, ParentId: { } flowId } workNode)
+            TryEditorAction(() => _store.MoveWorkInFlow(flowId, workNode.Id, -1));
+        else if (SelectedNode is { EntityType: EntityKind.Flow, ParentId: { } systemId } flowNode)
+            TryEditorAction(() => _store.MoveFlowInSystem(systemId, flowNode.Id, -1));
+    }
+
+    [RelayCommand(CanExecute = nameof(HasProject))]
+    private void MoveWorkDown()
+    {
+        if (SelectedNode is { EntityType: EntityKind.Work, ParentId: { } flowId } workNode)
+            TryEditorAction(() => _store.MoveWorkInFlow(flowId, workNode.Id, +1));
+        else if (SelectedNode is { EntityType: EntityKind.Flow, ParentId: { } systemId } flowNode)
+            TryEditorAction(() => _store.MoveFlowInSystem(systemId, flowNode.Id, +1));
+    }
+
     [RelayCommand(CanExecute = nameof(HasProject))]
     private void AddReferenceWork()
     {

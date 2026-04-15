@@ -124,9 +124,9 @@ module internal PanelTimeOps =
         ms |> Option.map (fun m -> TimeSpan.FromMilliseconds(float m))
 
     let readMs (query: Guid -> DsStore -> 'T option) (getProp: 'T -> TimeSpan option) (entityKind: EntityKind) (store: DsStore) (id: Guid) : int option =
-        query id store
-        |> Option.bind (fun entity -> getProp entity |> getMs)
-        |> Option.orElseWith (fun () -> StoreLog.warn($"{entityKind} not found. id={id}"); None)
+        match query id store with
+        | Some entity -> getProp entity |> getMs
+        | None -> StoreLog.warn($"{entityKind} not found. id={id}"); None
 
 module internal PanelMutationOps =
     let updateWorkIfChanged

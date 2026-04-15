@@ -15,6 +15,7 @@
     <Compile Include="DsStore\DsStore.AdvancedPanelBatchTests.fs" />
 <Compile Include="DsStore\DsStore.ConditionTests.fs" />
     <Compile Include="DsStore\DsStore.WorkNamingTests.fs" />
+    <Compile Include="DsStore\DsStore.ReorderTests.fs" />
     <Compile Include="ImportPlanTests.fs" />
     <Compile Include="EditorProjectionTests.fs" />
     <Compile Include="SimulationTests.fs" />

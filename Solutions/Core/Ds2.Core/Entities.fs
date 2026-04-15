@@ -35,6 +35,7 @@ type DsSystem [<JsonConstructor>] internal (name) =
 
     [<AasxField("IRI")>]        member val IRI        : string option = None with get, set
     [<AasxField("SystemType")>] member val SystemType : string option = None with get, set
+    [<AasxField("FlowIds")>] member val FlowIds = ResizeArray<Guid>() with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
@@ -44,6 +45,7 @@ type Flow [<JsonConstructor>] internal (name, parentId) =
     inherit DsChild(name, parentId)
 
     member val Properties = ResizeArray<FlowSubmodelProperty>() with get, set
+    [<AasxField("WorkIds")>] member val WorkIds = ResizeArray<Guid>() with get, set
 
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
