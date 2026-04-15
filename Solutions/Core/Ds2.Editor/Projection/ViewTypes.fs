@@ -121,9 +121,6 @@ type ApiDefPanelItem(id: Guid, name: string, actionType: ApiDefActionType, txWor
     member _.RxWorkIdOrNull = rxWorkId |> Option.toNullable
     member _.Description    = description
 
-    /// IsPush 호환성 속성 (기존 코드 지원용)
-    member _.IsPush = actionType = ApiDefActionType.Push
-
 [<Sealed>]
 type ApiDefEditInfo(systemId: Guid, item: ApiDefPanelItem) =
     member _.SystemId = systemId

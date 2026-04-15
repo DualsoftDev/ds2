@@ -149,13 +149,6 @@ and ApiDef [<JsonConstructor>] internal (name, parentId) =
     [<AasxField("TxGuid")>]           member val TxGuid : Guid option = None  with get, set
     [<AasxField("RxGuid")>]           member val RxGuid : Guid option = None  with get, set
 
-    /// IsPush 호환성 속성 (ApiDefActionType.Push로 통합됨)
-    [<System.Obsolete("IsPush is deprecated. Use ApiDefActionType instead.")>]
-    [<JsonIgnore>]
-    member this.IsPush
-        with get() = this.ApiDefActionType = ApiDefActionType.Push
-        and set(value) = if value then this.ApiDefActionType <- ApiDefActionType.Push else this.ApiDefActionType <- ApiDefActionType.Normal
-
     member this.DeepCopy() = DeepCopyHelper.jsonCloneEntity this
 
 
