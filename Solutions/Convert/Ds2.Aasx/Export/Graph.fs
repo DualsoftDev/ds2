@@ -101,6 +101,10 @@ module internal AasxExportGraph =
                         Some (mkJsonProp<ResizeArray<CallCondition>> attr.FieldName (value :?> ResizeArray<CallCondition>))
                     elif prop.PropertyType = typeof<ResizeArray<TokenSpec>> then
                         Some (mkJsonProp<ResizeArray<TokenSpec>> attr.FieldName (value :?> ResizeArray<TokenSpec>))
+                    elif prop.PropertyType = typeof<ResizeArray<Guid>> then
+                        let ids = value :?> ResizeArray<Guid>
+                        if ids.Count > 0 then Some (mkJsonProp<ResizeArray<Guid>> attr.FieldName ids)
+                        else None
                     elif prop.PropertyType = typeof<IOTag option> then
                         Some (mkJsonProp<IOTag option> attr.FieldName (value :?> IOTag option))
                     elif prop.PropertyType = typeof<ValueSpec> then

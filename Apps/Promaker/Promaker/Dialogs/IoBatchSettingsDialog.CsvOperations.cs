@@ -376,6 +376,14 @@ public partial class IoBatchSettingsDialog
 
             var applyResult = ApplyImportedRows(_rows, importRows);
 
+            // 미매치 행 하이라이트 설정
+            foreach (var row in _rows) row.IsUnmatched = false;
+            foreach (var row in applyResult.UnmatchedTargetRows) row.IsUnmatched = true;
+            ShowOnlyUnmatchedCheckBox.Visibility = applyResult.UnmatchedTargetRows.Count > 0
+                ? System.Windows.Visibility.Visible
+                : System.Windows.Visibility.Collapsed;
+            _view.Refresh();
+
             RefreshApplyButtonState();
             var unmatchedDetails = FormatUnmatchedTargetRows(applyResult.UnmatchedTargetRows);
             var icon = applyResult.UnmatchedTargetRows.Count > 0 ? "⚠" : "✓";

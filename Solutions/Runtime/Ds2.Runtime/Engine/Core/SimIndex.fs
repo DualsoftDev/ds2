@@ -392,6 +392,37 @@ module SimIndex =
                 else acc
             ) tokenSuccMap
 
+        // REF Work: 자체 predecessor가 없으면 원본의 predecessor를 상속
+        let expandPredsByCanonical (predMap: Map<Guid, Guid list>) =
+            workCanonicalGuids
+            |> Map.fold (fun acc workGuid canonical ->
+                if workGuid <> canonical then
+                    match acc |> Map.tryFind workGuid with
+                    | Some (existing: Guid list) when not existing.IsEmpty -> acc
+                    | _ ->
+                        match acc |> Map.tryFind canonical with
+                        | Some preds -> acc.Add(workGuid, preds)
+                        | None -> acc
+                else acc
+            ) predMap
+
+        let expandedWorkStartPreds = expandPredsByCanonical state.WorkStartPreds
+        let expandedWorkPureStartPreds = expandPredsByCanonical state.WorkPureStartPreds
+        let expandedWorkResetPreds = expandPredsByCanonical state.WorkResetPreds
+
+        // OR 그룹: 각 멤버의 token successor를 그룹 전체에 합산
+        // Original_A→[B], REF_A→[C] → Original_A→[B,C], REF_A→[B,C]
+        let mergedTokenSuccMap =
+            workReferenceGroups
+            |> Map.fold (fun acc _canonical members ->
+                let mergedSuccs =
+                    members
+                    |> List.collect (fun wg ->
+                        acc |> Map.tryFind wg |> Option.defaultValue [])
+                    |> List.distinct
+                members |> List.fold (fun a wg -> Map.add wg mergedSuccs a) acc
+            ) expandedTokenSuccMap
+
         let tokenSources =
             expandedTokenRoleMap
             |> Map.toSeq
@@ -409,7 +440,7 @@ module SimIndex =
 
         // 토큰 경로: Source에서 successor를 BFS로 따라감
         let tokenPathGuids =
-            SimIndexTokenGraph.buildTokenPathGuids tokenSources expandedTokenSuccMap
+            SimIndexTokenGraph.buildTokenPathGuids tokenSources mergedTokenSuccMap
             |> Set.ofSeq
 
         let allWorkGuidsRev = state.AllWorkGuids |> List.rev
@@ -417,8 +448,8 @@ module SimIndex =
         // ── 디버그: Group expansion + 토큰 경로 확인 ──
         let nameOf guid = state.WorkName |> Map.tryFind guid |> Option.defaultValue (string guid)
         for wg in allWorkGuidsRev do
-            let preds = state.WorkStartPreds |> Map.tryFind wg |> Option.defaultValue []
-            let succs = expandedTokenSuccMap |> Map.tryFind wg |> Option.defaultValue []
+            let preds = expandedWorkStartPreds |> Map.tryFind wg |> Option.defaultValue []
+            let succs = mergedTokenSuccMap |> Map.tryFind wg |> Option.defaultValue []
             let inPath = tokenPathGuids.Contains wg
             let canonical = workCanonicalGuids |> Map.tryFind wg |> Option.defaultValue wg
             let isRef = canonical <> wg
@@ -435,9 +466,9 @@ module SimIndex =
           AllFlowGuids = state.AllFlowGuids |> List.rev
           WorkCanonicalGuids = workCanonicalGuids
           WorkCallGuids = state.WorkCallGuids
-          WorkStartPreds = state.WorkStartPreds
-          WorkPureStartPreds = state.WorkPureStartPreds
-          WorkResetPreds = state.WorkResetPreds
+          WorkStartPreds = expandedWorkStartPreds
+          WorkPureStartPreds = expandedWorkPureStartPreds
+          WorkResetPreds = expandedWorkResetPreds
           WorkDuration = state.WorkDuration
           WorkSystemName = state.WorkSystemName
           WorkName = state.WorkName
@@ -455,7 +486,7 @@ module SimIndex =
           ActiveSystemNames = activeSystemNames
           TickMs = tickMs
           WorkTokenRole = expandedTokenRoleMap
-          WorkTokenSuccessors = expandedTokenSuccMap
+          WorkTokenSuccessors = mergedTokenSuccMap
           TokenSourceGuids = tokenSources |> List.distinct |> List.sort
           TokenSinkGuids = tokenSinkGuids
           TokenPathGuids = tokenPathGuids

@@ -100,6 +100,8 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="10"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="10"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <!-- Work Type Toggle -->
@@ -145,7 +147,16 @@
                         <TextBox x:Name="WorkDurationFilterBox" Padding="8,6" ToolTip="duration 값으로 필터링 (예: 1000, &gt;500, &lt;2000)"/>
                     </StackPanel>
 
-                    <Button Grid.Column="8"
+                    <CheckBox x:Name="ShowOnlyUnmatchedCheckBox"
+                             Grid.Column="8"
+                             Content="미매치만 보기"
+                             Visibility="Collapsed"
+                             VerticalAlignment="Bottom"
+                             Margin="0,0,0,6"
+                             Checked="ShowOnlyUnmatched_Changed"
+                             Unchecked="ShowOnlyUnmatched_Changed"/>
+
+                    <Button Grid.Column="10"
                             Height="34"
                             MinWidth="102"
                             VerticalAlignment="Bottom"
@@ -153,7 +164,7 @@
                             Click="ExportCsv_Click"
                             Content="CSV 내보내기"/>
 
-                    <Button Grid.Column="10"
+                    <Button Grid.Column="12"
                             Height="34"
                             MinWidth="102"
                             VerticalAlignment="Bottom"
@@ -179,6 +190,15 @@
                               SelectionUnit="FullRow"
                               RowHeaderWidth="0"
                               PreviewMouseLeftButtonDown="Grid_PreviewMouseLeftButtonDown">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsUnmatched}" Value="True">
+                                        <Setter Property="Background" Value="#30FF6B6B"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
                         <DataGrid.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="선택 항목 체크" Click="CheckSelected_Click"/>

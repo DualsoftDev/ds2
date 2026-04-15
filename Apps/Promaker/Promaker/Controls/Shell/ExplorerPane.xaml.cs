@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Ds2.Core.Store;
@@ -24,6 +25,10 @@ public partial class ExplorerPane : UserControl
     private MainViewModel? _boundViewModel;
     private TreePaneKind _activeTreePane = TreePaneKind.Control;
     private readonly DispatcherTimer _searchRefreshTimer;
+    private Adorner? _dropLineAdorner;
+    private TreeViewItem? _dropLineTarget;
+    private EntityNode? _reorderDragSource;
+    private Point _reorderDragStartPoint;
 
     public ObservableCollection<EntityNode> FilteredControlTreeRoots { get; } = [];
     public ObservableCollection<EntityNode> FilteredDeviceTreeRoots { get; } = [];
@@ -125,20 +130,34 @@ public partial class ExplorerPane : UserControl
         var ctrlPressed = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
         var shiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
 
-        if (sender is TreeViewItem { DataContext: EntityNode node }
-            && node.EntityType == EntityKind.Call
-            && !ctrlPressed
-            && !shiftPressed)
+        if (sender is TreeViewItem { DataContext: EntityNode node } item
+            && !ctrlPressed && !shiftPressed
+            && ReferenceEquals(item, FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject)))
         {
-            _treeDragCandidate = true;
-            _pendingTreeSelectionNode = node;
-            _pendingTreeSelectionPane = pane;
-            try { _treeDragStartPoint = e.GetPosition(null); }
-            catch { _treeDragStartPoint = default; }
+            if (node.EntityType == EntityKind.Call)
+            {
+                _treeDragCandidate = true;
+                _pendingTreeSelectionNode = node;
+                _pendingTreeSelectionPane = pane;
+                try { _treeDragStartPoint = e.GetPosition(null); }
+                catch { _treeDragStartPoint = default; }
+            }
+            else if (node.EntityType is EntityKind.Work or EntityKind.Flow)
+            {
+                _reorderDragSource = node;
+                try { _reorderDragStartPoint = e.GetPosition(null); }
+                catch { _reorderDragStartPoint = default; }
+            }
+            else
+            {
+                ClearPendingTreeDragSelection();
+                _reorderDragSource = null;
+            }
         }
         else
         {
             ClearPendingTreeDragSelection();
+            _reorderDragSource = null;
         }
 
         HandleTreeItemMouseDown(pane, sender, e, requireModifiers: true);
@@ -147,6 +166,7 @@ public partial class ExplorerPane : UserControl
     private void TreeViewItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
         ClearPendingTreeDragSelection();
+        _reorderDragSource = null;
 
         // 이미 선택된 노드를 우클릭한 경우 선택 변경하지 않음 (다중 선택 유지)
         if (sender is TreeViewItem { DataContext: EntityNode node } && node.IsTreeSelected)
@@ -458,21 +478,110 @@ public partial class ExplorerPane : UserControl
 
     private void TreeViewItem_PreviewMouseMove_Drag(object sender, MouseEventArgs e)
     {
-        if (!_treeDragCandidate || e.LeftButton != MouseButtonState.Pressed) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { _reorderDragSource = null; return; }
 
-        var pos = e.GetPosition(null);
-        var diff = pos - _treeDragStartPoint;
-        if (Math.Abs(diff.X) < SystemParameters.MinimumHorizontalDragDistance
-            && Math.Abs(diff.Y) < SystemParameters.MinimumVerticalDragDistance)
+        // Call 드래그 (기존 인프라)
+        if (_treeDragCandidate)
+        {
+            var pos = e.GetPosition(null);
+            var diff = pos - _treeDragStartPoint;
+            if (Math.Abs(diff.X) < SystemParameters.MinimumHorizontalDragDistance
+                && Math.Abs(diff.Y) < SystemParameters.MinimumVerticalDragDistance)
+                return;
+            if (sender is not TreeViewItem { DataContext: EntityNode node }) return;
+            if (node.EntityType == EntityKind.Call)
+            {
+                ClearPendingTreeDragSelection();
+                var data = new DataObject("ConditionCallNode", node);
+                DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy);
+            }
             return;
+        }
 
-        if (sender is not TreeViewItem { DataContext: EntityNode node }) return;
-        if (node.EntityType != EntityKind.Call) return;
+        // Work/Flow 드래그 (별도 추적)
+        if (_reorderDragSource is not null
+            && sender is TreeViewItem { DataContext: EntityNode senderNode }
+            && ReferenceEquals(senderNode, _reorderDragSource))
+        {
+            var pos = e.GetPosition(null);
+            var diff = pos - _reorderDragStartPoint;
+            if (Math.Abs(diff.X) < SystemParameters.MinimumHorizontalDragDistance
+                && Math.Abs(diff.Y) < SystemParameters.MinimumVerticalDragDistance)
+                return;
 
-        ClearPendingTreeDragSelection();
-        var data = new DataObject("ConditionCallNode", node);
-        DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Copy);
+            var source = _reorderDragSource;
+            _reorderDragSource = null;
+            var format = source.EntityType == EntityKind.Work ? "TreeWorkReorder" : "TreeFlowReorder";
+            var data = new DataObject(format, source);
+            DragDrop.DoDragDrop((DependencyObject)sender, data, DragDropEffects.Move);
+            RemoveDropLine();
+        }
     }
+
+    private void ControlTree_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = DragDropEffects.None;
+
+        EntityNode? sourceNode = null;
+        if (e.Data.GetDataPresent("TreeWorkReorder"))
+            sourceNode = (EntityNode)e.Data.GetData("TreeWorkReorder")!;
+        else if (e.Data.GetDataPresent("TreeFlowReorder"))
+            sourceNode = (EntityNode)e.Data.GetData("TreeFlowReorder")!;
+
+        if (sourceNode is null) { RemoveDropLine(); return; }
+
+        var targetItem = FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject);
+        if (targetItem is not { DataContext: EntityNode targetNode }
+            || targetNode.EntityType != sourceNode.EntityType
+            || targetNode.ParentId != sourceNode.ParentId
+            || targetNode.Id == sourceNode.Id)
+        {
+            RemoveDropLine();
+            return;
+        }
+
+        e.Effects = DragDropEffects.Move;
+        e.Handled = true;
+        var mouseY = e.GetPosition(targetItem).Y;
+        var drawAtTop = mouseY < targetItem.ActualHeight / 2;
+        ShowDropLine(targetItem, drawAtTop);
+    }
+
+    private void ControlTree_Drop(object sender, DragEventArgs e)
+    {
+        RemoveDropLine();
+        var vm = ViewModel;
+        if (vm is null) return;
+
+        if (e.Data.GetDataPresent("TreeWorkReorder"))
+        {
+            var src = (EntityNode)e.Data.GetData("TreeWorkReorder")!;
+            var targetItem = FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject);
+            if (targetItem is { DataContext: EntityNode tgt }
+                && tgt.EntityType == EntityKind.Work
+                && tgt.ParentId == src.ParentId && tgt.Id != src.Id
+                && src.ParentId is { } flowId)
+            {
+                var insertBefore = e.GetPosition(targetItem).Y < targetItem.ActualHeight / 2;
+                vm.MoveWorkToTarget(flowId, src.Id, tgt.Id, insertBefore);
+            }
+        }
+        else if (e.Data.GetDataPresent("TreeFlowReorder"))
+        {
+            var src = (EntityNode)e.Data.GetData("TreeFlowReorder")!;
+            var targetItem = FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject);
+            if (targetItem is { DataContext: EntityNode tgt }
+                && tgt.EntityType == EntityKind.Flow
+                && tgt.ParentId == src.ParentId && tgt.Id != src.Id
+                && src.ParentId is { } systemId)
+            {
+                var insertBefore = e.GetPosition(targetItem).Y < targetItem.ActualHeight / 2;
+                vm.MoveFlowToTarget(systemId, src.Id, tgt.Id, insertBefore);
+            }
+        }
+    }
+
+    private void ControlTree_DragLeave(object sender, DragEventArgs e) => RemoveDropLine();
 
     private void HandleTreeSelectionChanged(TreePaneKind pane, object? newValue)
     {
@@ -610,4 +719,49 @@ public partial class ExplorerPane : UserControl
 
     private static string NodeKey(EntityNode node) =>
         $"{(int)node.EntityType}:{node.Id}";
+
+    // ─── Drop line indicator ─────────────────────────────────────────
+    private void ShowDropLine(TreeViewItem targetItem, bool drawAtTop)
+    {
+        if (ReferenceEquals(targetItem, _dropLineTarget)
+            && _dropLineAdorner is DropLineAdorner existing
+            && existing.DrawAtTop == drawAtTop)
+            return;
+        RemoveDropLine();
+        var layer = AdornerLayer.GetAdornerLayer(targetItem);
+        if (layer is null) return;
+        _dropLineAdorner = new DropLineAdorner(targetItem, drawAtTop);
+        _dropLineTarget = targetItem;
+        layer.Add(_dropLineAdorner);
+    }
+
+    private void RemoveDropLine()
+    {
+        if (_dropLineAdorner is not null && _dropLineTarget is not null)
+            AdornerLayer.GetAdornerLayer(_dropLineTarget)?.Remove(_dropLineAdorner);
+        _dropLineAdorner = null;
+        _dropLineTarget = null;
+    }
+
+    private sealed class DropLineAdorner(UIElement adornedElement) : Adorner(adornedElement)
+    {
+        private static readonly Pen LinePen = new(new SolidColorBrush(Color.FromRgb(0x00, 0x78, 0xD4)), 2);
+
+        static DropLineAdorner() => LinePen.Freeze();
+
+        public bool DrawAtTop { get; set; }
+
+        public DropLineAdorner(TreeViewItem item, bool drawAtTop) : this((UIElement)item)
+        {
+            IsHitTestVisible = false;
+            DrawAtTop = drawAtTop;
+        }
+
+        protected override void OnRender(DrawingContext drawingContext)
+        {
+            var w = AdornedElement.RenderSize.Width;
+            var y = DrawAtTop ? 0.0 : AdornedElement.RenderSize.Height;
+            drawingContext.DrawLine(LinePen, new Point(0, y), new Point(w, y));
+        }
+    }
 }
