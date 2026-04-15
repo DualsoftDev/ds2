@@ -36,7 +36,7 @@ public partial class ApiDefEditDialog : Window
             NameBox.Text = existing.Name;
 
             // Set radio button based on ActionType
-            if (existing.ActionType.IsPush)
+            if (ApiDefActionType.Push.Equals(existing.ActionType))
             {
                 PushRadio.IsChecked = true;
             }

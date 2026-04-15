@@ -2,22 +2,18 @@
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
-
   <!-- WPF MVVM -->
   <ItemGroup>
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.0" />
   </ItemGroup>
-
   <!-- 로깅 -->
   <ItemGroup>
-    <PackageVersion Include="log4net" Version="3.2.0" />
+    <PackageVersion Include="log4net" Version="3.3.0" />
   </ItemGroup>
-
   <!-- 아이콘 팩 -->
   <ItemGroup>
     <PackageVersion Include="MahApps.Metro.IconPacks.Material" Version="6.0.0" />
   </ItemGroup>
-
   <!-- WebView2 -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.2277.86" />
