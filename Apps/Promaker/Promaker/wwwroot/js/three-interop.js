@@ -149,138 +149,121 @@ const Ev23DViewer = {
             }
 
             // Medium Priority Fix 3.1: Animation loop with error handling
+            // 캐시된 오브젝트 리스트로 매 프레임 scene.traverse() 제거
             let animationId;
             let time = 0;
+            const self = this;
+            const sceneDataRef = () => self._scenes[elementId];
+
             const animate = () => {
                 try {
                     animationId = requestAnimationFrame(animate);
                     time += 0.016; // ~60fps
 
-                    // Animate AAS icons (floating effect)
-                    scene.traverse((obj) => {
-                        if (obj.userData && obj.userData.isAASIcon) {
+                    const sd = sceneDataRef();
+
+                    // AAS icons (floating effect) — 캐시된 리스트 사용
+                    const aasIcons = sd?._animAASIcons;
+                    if (aasIcons) {
+                        for (let i = 0; i < aasIcons.length; i++) {
+                            const obj = aasIcons[i];
                             const floatOffset = obj.userData.floatOffset || 0;
-                            const baseY = obj.userData.baseY || 5.5; // Base position from userData
-                            const amplitude = 0.3; // How much it moves up and down
-                            const frequency = 1.5; // Speed of floating
-
-                            obj.position.y = baseY + Math.sin(time * frequency + floatOffset) * amplitude;
+                            const baseY = obj.userData.baseY || 5.5;
+                            obj.position.y = baseY + Math.sin(time * 1.5 + floatOffset) * 0.3;
                         }
+                    }
 
-                        // Animate robots when state is Going ('G')
-                        // Check both workData (for Work-based entities) and deviceData (for Device-based entities)
-                        const robotState = obj.userData?.workData?.state || obj.userData?.deviceData?.state;
-                        if (obj.userData && obj.userData.isRobot && robotState === 'G') {
+                    // Robots — 캐시된 리스트 사용
+                    const robots = sd?._animRobots;
+                    if (robots) {
+                        for (let ri = 0; ri < robots.length; ri++) {
+                            const obj = robots[ri];
+                            const robotState = obj.userData?.workData?.state || obj.userData?.deviceData?.state;
 
-                            // Initialize welding particles if not exists
-                            if (!obj.userData.weldParticles) {
-                                obj.userData.weldParticles = this._createWeldingParticles();
-                                obj.add(obj.userData.weldParticles);
-                            }
+                            if (robotState === 'G') {
+                                if (!obj.userData.weldParticles) {
+                                    obj.userData.weldParticles = self._createWeldingParticles();
+                                    obj.add(obj.userData.weldParticles);
+                                }
 
-                            // Animate robot parts
-                            let gripperObj = null;
-                            obj.traverse((child) => {
-                                if (child.name === 'robotJ1') {
-                                    // Base rotation - slow continuous spin
-                                    child.rotation.y = Math.sin(time * 0.5) * 0.3; // ±17° oscillation
-                                }
-                                else if (child.name === 'robotTower') {
-                                    // Body tower rotation - synchronized with base
-                                    child.rotation.y = Math.sin(time * 0.5 + 0.2) * 0.15; // ±8.6° oscillation, slight phase offset
-                                }
-                                else if (child.name === 'robotUpperArm') {
-                                    // Upper arm - up/down motion (more pronounced)
-                                    const baseRot = child.userData.baseRotationZ || 0;
-                                    child.rotation.z = baseRot + Math.sin(time * 1.2) * 0.25; // ±14.3° oscillation (increased)
-                                }
-                                else if (child.name === 'robotForearm') {
-                                    // Forearm - up/down motion (opposite phase, more pronounced)
-                                    const baseRot = child.userData.baseRotationZ || 0;
-                                    child.rotation.z = baseRot + Math.sin(time * 1.2 + Math.PI) * 0.3; // ±17.2° oscillation (increased)
-                                }
-                                else if (child.name === 'robotLeftFinger') {
-                                    // Left gripper - open/close motion
-                                    const basePos = child.userData.basePositionZ || 0;
-                                    child.position.z = basePos + Math.sin(time * 2.5) * 0.08; // Increased motion
-                                }
-                                else if (child.name === 'robotRightFinger') {
-                                    // Right gripper - open/close motion (opposite)
-                                    const basePos = child.userData.basePositionZ || 0;
-                                    child.position.z = basePos - Math.sin(time * 2.5) * 0.08; // Increased motion
-                                }
-                                else if (child.name === 'robotGripper') {
-                                    // Store gripper object reference
-                                    gripperObj = child;
-                                }
-                            });
+                                let gripperObj = null;
+                                obj.traverse((child) => {
+                                    if (child.name === 'robotJ1') {
+                                        child.rotation.y = Math.sin(time * 0.5) * 0.3;
+                                    }
+                                    else if (child.name === 'robotTower') {
+                                        child.rotation.y = Math.sin(time * 0.5 + 0.2) * 0.15;
+                                    }
+                                    else if (child.name === 'robotUpperArm') {
+                                        child.rotation.z = (child.userData.baseRotationZ || 0) + Math.sin(time * 1.2) * 0.25;
+                                    }
+                                    else if (child.name === 'robotForearm') {
+                                        child.rotation.z = (child.userData.baseRotationZ || 0) + Math.sin(time * 1.2 + Math.PI) * 0.3;
+                                    }
+                                    else if (child.name === 'robotLeftFinger') {
+                                        child.position.z = (child.userData.basePositionZ || 0) + Math.sin(time * 2.5) * 0.08;
+                                    }
+                                    else if (child.name === 'robotRightFinger') {
+                                        child.position.z = (child.userData.basePositionZ || 0) - Math.sin(time * 2.5) * 0.08;
+                                    }
+                                    else if (child.name === 'robotGripper') {
+                                        gripperObj = child;
+                                    }
+                                });
 
-                            // Update welding particles
-                            if (obj.userData.weldParticles && gripperObj) {
-                                this._updateWeldingParticles(obj.userData.weldParticles, gripperObj, obj, time);
+                                if (obj.userData.weldParticles && gripperObj) {
+                                    self._updateWeldingParticles(obj.userData.weldParticles, gripperObj, obj, time);
+                                }
+                            } else if (robotState && robotState !== 'G') {
+                                if (obj.userData.weldParticles) {
+                                    obj.remove(obj.userData.weldParticles);
+                                    obj.userData.weldParticles.geometry.dispose();
+                                    obj.userData.weldParticles.material.dispose();
+                                    obj.userData.weldParticles = null;
+                                }
+                                obj.traverse((child) => {
+                                    if (child.name === 'robotJ1') child.rotation.y = 0;
+                                    else if (child.name === 'robotTower') child.rotation.y = 0;
+                                    else if (child.name === 'robotUpperArm') child.rotation.z = child.userData.baseRotationZ || 0;
+                                    else if (child.name === 'robotForearm') child.rotation.z = child.userData.baseRotationZ || 0;
+                                    else if (child.name === 'robotLeftFinger') child.position.z = child.userData.basePositionZ || 0;
+                                    else if (child.name === 'robotRightFinger') child.position.z = child.userData.basePositionZ || 0;
+                                });
                             }
                         }
-                        // Reset robot parts and remove particles when NOT Going
-                        else if (obj.userData && obj.userData.isRobot && robotState && robotState !== 'G') {
+                    }
 
-                            // Remove welding particles
-                            if (obj.userData.weldParticles) {
-                                obj.remove(obj.userData.weldParticles);
-                                obj.userData.weldParticles.geometry.dispose();
-                                obj.userData.weldParticles.material.dispose();
-                                obj.userData.weldParticles = null;
-                            }
-
-                            obj.traverse((child) => {
-                                if (child.name === 'robotJ1') {
-                                    child.rotation.y = 0;
-                                }
-                                else if (child.name === 'robotTower') {
-                                    child.rotation.y = 0;
-                                }
-                                else if (child.name === 'robotUpperArm') {
-                                    child.rotation.z = child.userData.baseRotationZ || 0;
-                                }
-                                else if (child.name === 'robotForearm') {
-                                    child.rotation.z = child.userData.baseRotationZ || 0;
-                                }
-                                else if (child.name === 'robotLeftFinger') {
-                                    child.position.z = child.userData.basePositionZ || 0;
-                                }
-                                else if (child.name === 'robotRightFinger') {
-                                    child.position.z = child.userData.basePositionZ || 0;
-                                }
-                            });
-                        }
-
-                        // Animate ApiDef arrow flow particles
-                        if (obj.userData && obj.userData.isFlowParticle) {
+                    // Flow particles — 캐시된 리스트 사용
+                    const particles = sd?._animFlowParticles;
+                    if (particles) {
+                        for (let pi = 0; pi < particles.length; pi++) {
+                            const obj = particles[pi];
                             const points = obj.userData.curvePoints;
                             if (points && points.length > 0) {
-                                // Update progress
                                 obj.userData.progress += (obj.userData.reversed ? -0.005 : 0.005);
                                 if (obj.userData.progress > 1) obj.userData.progress = 0;
                                 if (obj.userData.progress < 0) obj.userData.progress = 1;
-
-                                // Get position along curve
                                 const index = Math.floor(obj.userData.progress * (points.length - 1));
                                 obj.position.copy(points[index]);
                             }
                         }
+                    }
 
-                        // Lib3D 모션 애니메이션 (activeAnimation이 설정된 Device Indicator)
-                        if (obj.userData && obj.userData.isDeviceIndicator && obj.userData.activeAnimation) {
-                            if (window.Ds2View3DLibrary) {
+                    // Lib3D device indicators — 캐시된 리스트 사용
+                    const indicators = sd?._animDeviceIndicators;
+                    if (indicators && window.Ds2View3DLibrary) {
+                        for (let di = 0; di < indicators.length; di++) {
+                            const obj = indicators[di];
+                            if (obj.userData.activeAnimation) {
                                 window.Ds2View3DLibrary.animate(obj, obj.userData.activeAnimation, 0.08);
                             }
                         }
-                    });
+                    }
 
                     controls.update();
                     renderer.render(scene, camera);
                 } catch (error) {
                     console.error(`Animation error for scene '${elementId}':`, error);
-                    // Continue animation despite error
                     animationId = requestAnimationFrame(animate);
                 }
             };
@@ -4418,6 +4401,62 @@ const Ev23DViewer = {
         console.log(`✓ Updated call cubes cache: ${sceneData.callCubes.size} cubes`);
     },
 
+    /**
+     * Device별 업데이트 대상 메시 캐시 구축.
+     * traverse() 대신 캐시된 배열로 O(1) 룩업.
+     */
+    _rebuildDeviceMeshCache: function(elementId) {
+        const sceneData = this._scenes[elementId];
+        if (!sceneData) return;
+
+        if (!sceneData._deviceMeshCache) sceneData._deviceMeshCache = {};
+        else for (var k in sceneData._deviceMeshCache) delete sceneData._deviceMeshCache[k];
+
+        if (!sceneData._apiDefCubeCache) sceneData._apiDefCubeCache = {};
+        else for (var k in sceneData._apiDefCubeCache) delete sceneData._apiDefCubeCache[k];
+
+        // 애니메이션 루프용 리스트도 구축
+        sceneData._animRobots = [];
+        sceneData._animFlowParticles = [];
+        sceneData._animDeviceIndicators = [];
+        sceneData._animAASIcons = [];
+
+        Object.keys(sceneData.deviceMeshes).forEach(deviceId => {
+            var group = sceneData.deviceMeshes[deviceId];
+            var meshes = [];
+            var libModel = null;
+
+            group.traverse(function(child) {
+                // ApiDef 큐브 캐시
+                if (child.userData && child.userData.isApiDefCube && child.userData.apiDefId) {
+                    var aid = child.userData.apiDefId;
+                    if (!sceneData._apiDefCubeCache[aid]) sceneData._apiDefCubeCache[aid] = [];
+                    sceneData._apiDefCubeCache[aid].push({ mesh: child, deviceGroup: group });
+                }
+                // Device 본체 메시 (ApiDef 큐브 제외)
+                else if (child.isMesh && child.material && child.material.emissive !== undefined) {
+                    meshes.push(child);
+                }
+                // Lib3D 모델 참조
+                if (child.userData && child.userData.isDeviceIndicator) {
+                    libModel = child;
+                }
+            });
+
+            sceneData._deviceMeshCache[deviceId] = { meshes: meshes, libModel: libModel, group: group };
+        });
+
+        // 씬 전체에서 애니메이션 대상 오브젝트 수집 (매 프레임 traverse 대체)
+        sceneData.scene.traverse(function(obj) {
+            if (obj.userData) {
+                if (obj.userData.isRobot) sceneData._animRobots.push(obj);
+                if (obj.userData.isFlowParticle) sceneData._animFlowParticles.push(obj);
+                if (obj.userData.isDeviceIndicator) sceneData._animDeviceIndicators.push(obj);
+                if (obj.userData.isAASIcon) sceneData._animAASIcons.push(obj);
+            }
+        });
+    },
+
     // ============================================
     // Device-based 3D View (Device as primary layout unit)
     // ============================================
@@ -5306,54 +5345,67 @@ const Ev23DViewer = {
         const sceneData = this._scenes[elementId];
         if (!sceneData) return;
 
+        const cache = sceneData._deviceMeshCache;
+
         deviceStates.forEach(({ id, state }) => {
-            const deviceGroup = sceneData.deviceMeshes[id];
-            if (!deviceGroup) return;
             const color = this.stateColors[state] || this.stateColors.R;
+            const emissiveIntensity = state === 'G' ? 0.5 : 0.3;
 
             // Update deviceData.state for robot animation loop
             const device = sceneData.devices.find(d => d.id === id);
             if (device) device.state = state;
-            if (deviceGroup.userData?.deviceData) deviceGroup.userData.deviceData.state = state;
 
-            // Traverse entire model tree (handles robots which are Groups)
-            deviceGroup.traverse(child => {
-                // Skip ApiDef cubes - they have their own state management
-                if (child.userData?.isApiDefCube) return;
+            const deviceGroup = sceneData.deviceMeshes[id];
+            if (deviceGroup && deviceGroup.userData?.deviceData) {
+                deviceGroup.userData.deviceData.state = state;
+            }
 
-                if (child.userData?.deviceData) child.userData.deviceData.state = state;
-                if (child.isMesh && child.material && child.material.emissive !== undefined) {
-                    child.material.color.setHex(color.hex);
-                    child.material.emissive.setHex(color.hex);
-                    child.material.emissiveIntensity = state === 'G' ? 0.5 : 0.3;
+            // 캐시된 메시 배열로 O(1) 룩업 (traverse 대체)
+            var cached = cache && cache[id];
+            if (cached) {
+                var meshes = cached.meshes;
+                for (var i = 0; i < meshes.length; i++) {
+                    var m = meshes[i];
+                    if (m.userData?.deviceData) m.userData.deviceData.state = state;
+                    m.material.color.setHex(color.hex);
+                    m.material.emissive.setHex(color.hex);
+                    m.material.emissiveIntensity = emissiveIntensity;
                 }
-            });
 
-            // ── Lib3D 모션 애니메이션 트리거 ─────────────────────────────
-            // Device state 기반으로 Lib3D 모델 애니메이션 직접 제어
-            const libModel = deviceGroup.children.find(c => c.userData && c.userData.isDeviceIndicator);
-            if (libModel && window.Ds2View3DLibrary) {
-                // Lib3D 상태 표시 업데이트 (상태 인디케이터 색상)
-                window.Ds2View3DLibrary.updateState(libModel, state);
+                // Lib3D 모션 애니메이션 트리거 (캐시된 참조 사용)
+                var libModel = cached.libModel;
+                if (libModel && window.Ds2View3DLibrary) {
+                    window.Ds2View3DLibrary.updateState(libModel, state);
 
-                const modelType = libModel.userData.deviceType;
-                const dirs = window.Ds2View3DLibrary.deviceTypes[modelType]?.dirs;
-                if (dirs && dirs.length > 0) {
-                    if (state === 'G') {
-                        // ApiDef별 방향이 이미 설정되지 않은 경우에만 기본(첫번째) 방향 사용
-                        if (!libModel.userData.activeAnimation) {
-                            libModel.userData.activeAnimation = dirs[0];
+                    var modelType = libModel.userData.deviceType;
+                    var dirs = window.Ds2View3DLibrary.deviceTypes[modelType]?.dirs;
+                    if (dirs && dirs.length > 0) {
+                        if (state === 'G') {
+                            if (!libModel.userData.activeAnimation) {
+                                libModel.userData.activeAnimation = dirs[0];
+                            }
+                        } else {
+                            libModel.userData.activeAnimation = null;
                         }
-                    } else {
-                        libModel.userData.activeAnimation = null;
+                    }
+
+                    // 설비 사운드
+                    if (window.Ds2Sound) {
+                        if (state === 'G') window.Ds2Sound.play(id, libModel.userData.deviceType);
+                        else              window.Ds2Sound.stop(id);
                     }
                 }
-
-                // 설비 사운드 (Going → 재생, 기타 → 정지)
-                if (window.Ds2Sound) {
-                    if (state === 'G') window.Ds2Sound.play(id, libModel.userData.deviceType);
-                    else              window.Ds2Sound.stop(id);
-                }
+            } else if (deviceGroup) {
+                // 캐시 미스 fallback: 기존 traverse 방식
+                deviceGroup.traverse(child => {
+                    if (child.userData?.isApiDefCube) return;
+                    if (child.userData?.deviceData) child.userData.deviceData.state = state;
+                    if (child.isMesh && child.material && child.material.emissive !== undefined) {
+                        child.material.color.setHex(color.hex);
+                        child.material.emissive.setHex(color.hex);
+                        child.material.emissiveIntensity = emissiveIntensity;
+                    }
+                });
             }
         });
 
@@ -5413,66 +5465,89 @@ const Ev23DViewer = {
         const sceneData = this._scenes[elementId];
         if (!sceneData) return;
 
+        const cubeCache = sceneData._apiDefCubeCache;
+        const deviceCache = sceneData._deviceMeshCache;
+
         apiDefStates.forEach(({ id, state }) => {
             const stateColor = this.stateColors[state] || this.stateColors.R;
-            let found = false;
+            const stateR = (stateColor.hex >> 16) & 0xff;
+            const stateG_c = (stateColor.hex >> 8) & 0xff;
+            const stateB = stateColor.hex & 0xff;
+            const emissiveIntensity = state === 'G' ? 0.5 : 0.4;
 
-            // Find all ApiDef cubes with this ID across all device stations
-            Object.values(sceneData.deviceMeshes).forEach(deviceGroup => {
-                deviceGroup.traverse(child => {
-                    if (child.userData?.isApiDefCube && child.userData.apiDefId === id) {
-                        found = true;
-                        // Update ApiDef data
-                        if (child.userData.apiDefData) {
-                            child.userData.apiDefData.state = state;
-                        }
+            // 캐시된 ApiDef 큐브 배열로 O(1) 룩업
+            var entries = cubeCache && cubeCache[id];
+            if (entries) {
+                for (var i = 0; i < entries.length; i++) {
+                    var entry = entries[i];
+                    var child = entry.mesh;
+                    var deviceGroup = entry.deviceGroup;
 
-                        // Blend state color with flow color (60% state + 40% flow)
-                        let finalColor = stateColor.hex;
-                        const flowColor = child.userData.flowColor;
+                    if (child.userData.apiDefData) {
+                        child.userData.apiDefData.state = state;
+                    }
 
-                        if (flowColor !== null && flowColor !== undefined) {
-                            const stateR = (stateColor.hex >> 16) & 0xff;
-                            const stateG = (stateColor.hex >> 8) & 0xff;
-                            const stateB = stateColor.hex & 0xff;
+                    // Blend state color with flow color (60% state + 40% flow)
+                    var finalColor = stateColor.hex;
+                    var flowColor = child.userData.flowColor;
 
-                            const flowR = (flowColor >> 16) & 0xff;
-                            const flowG = (flowColor >> 8) & 0xff;
-                            const flowB = flowColor & 0xff;
+                    if (flowColor !== null && flowColor !== undefined) {
+                        var flowR = (flowColor >> 16) & 0xff;
+                        var flowG = (flowColor >> 8) & 0xff;
+                        var flowB = flowColor & 0xff;
 
-                            const mixR = Math.round(stateR * 0.6 + flowR * 0.4);
-                            const mixG = Math.round(stateG * 0.6 + flowG * 0.4);
-                            const mixB = Math.round(stateB * 0.6 + flowB * 0.4);
+                        finalColor = (Math.round(stateR * 0.6 + flowR * 0.4) << 16)
+                                   | (Math.round(stateG_c * 0.6 + flowG * 0.4) << 8)
+                                   | Math.round(stateB * 0.6 + flowB * 0.4);
+                    }
 
-                            finalColor = (mixR << 16) | (mixG << 8) | mixB;
-                        }
+                    if (child.isMesh && child.material) {
+                        child.material.color.setHex(finalColor);
+                        child.material.emissive.setHex(finalColor);
+                        child.material.emissiveIntensity = emissiveIntensity;
+                    }
 
-                        // Update material colors
-                        if (child.isMesh && child.material) {
-                            child.material.color.setHex(finalColor);
-                            child.material.emissive.setHex(finalColor);
-                            child.material.emissiveIntensity = state === 'G' ? 0.5 : 0.4;
-                        }
-
-                        // Motion animation: use apiDefIdx to resolve animation direction (index-based, name-independent)
-                        const model = deviceGroup.children.find(c => c.userData.isDeviceIndicator);
-                        if (model) {
-                            const apiDefIdx = child.userData.apiDefIdx ?? 0;
-                            const modelType = model.userData.deviceType;
-                            const lib = window.Ds2View3DLibrary;
-                            const dirs = lib?.deviceTypes[modelType]?.dirs;
-                            const animDir = dirs?.[apiDefIdx];
-                            if (animDir) {
-                                if (state === 'G') {
-                                    model.userData.activeAnimation = animDir;
-                                } else if (model.userData.activeAnimation === animDir) {
-                                    model.userData.activeAnimation = null;
-                                }
+                    // Motion animation (캐시된 libModel 참조 사용)
+                    var deviceId = deviceGroup.userData?.deviceData?.id;
+                    var cachedDev = deviceId && deviceCache && deviceCache[deviceId];
+                    var model = cachedDev ? cachedDev.libModel : deviceGroup.children.find(c => c.userData && c.userData.isDeviceIndicator);
+                    if (model) {
+                        var apiDefIdx = child.userData.apiDefIdx ?? 0;
+                        var modelType = model.userData.deviceType;
+                        var lib = window.Ds2View3DLibrary;
+                        var dirs = lib?.deviceTypes[modelType]?.dirs;
+                        var animDir = dirs?.[apiDefIdx];
+                        if (animDir) {
+                            if (state === 'G') {
+                                model.userData.activeAnimation = animDir;
+                            } else if (model.userData.activeAnimation === animDir) {
+                                model.userData.activeAnimation = null;
                             }
                         }
                     }
+                }
+            } else {
+                // 캐시 미스 fallback
+                Object.values(sceneData.deviceMeshes).forEach(deviceGroup => {
+                    deviceGroup.traverse(child => {
+                        if (child.userData?.isApiDefCube && child.userData.apiDefId === id) {
+                            if (child.userData.apiDefData) child.userData.apiDefData.state = state;
+                            var finalColor = stateColor.hex;
+                            var flowColor = child.userData.flowColor;
+                            if (flowColor !== null && flowColor !== undefined) {
+                                finalColor = (Math.round(stateR * 0.6 + ((flowColor >> 16) & 0xff) * 0.4) << 16)
+                                           | (Math.round(stateG_c * 0.6 + ((flowColor >> 8) & 0xff) * 0.4) << 8)
+                                           | Math.round(stateB * 0.6 + (flowColor & 0xff) * 0.4);
+                            }
+                            if (child.isMesh && child.material) {
+                                child.material.color.setHex(finalColor);
+                                child.material.emissive.setHex(finalColor);
+                                child.material.emissiveIntensity = emissiveIntensity;
+                            }
+                        }
+                    });
                 });
-            });
+            }
         });
     },
 
@@ -6017,8 +6092,9 @@ const Ev23DViewer = {
         positions[device.id] = { x, z };
         this._saveDevicePositions(elementId, positions);
 
-        // Update call cubes cache for chain visualization
+        // Update caches for chain visualization and fast state updates
         this._updateCallCubesCache(elementId);
+        this._rebuildDeviceMeshCache(elementId);
 
         // Center camera on all objects
         this._centerCameraOnAllObjects(elementId);
@@ -6197,6 +6273,7 @@ const Ev23DViewer = {
 
         // Update call cubes cache for chain visualization
         this._updateCallCubesCache(elementId);
+        this._rebuildDeviceMeshCache(elementId);
 
         // Reset placing flag
         sceneData._placingAllDevices = false;
@@ -6262,6 +6339,7 @@ const Ev23DViewer = {
 
         // Update call cubes cache
         this._updateCallCubesCache(elementId);
+        this._rebuildDeviceMeshCache(elementId);
 
         console.log(`✓ Cleared ${groupsToRemove.length} devices from scene`);
     },
@@ -6312,6 +6390,7 @@ const Ev23DViewer = {
 
         // Update call cubes cache for chain visualization
         this._updateCallCubesCache(elementId);
+        this._rebuildDeviceMeshCache(elementId);
 
         console.log(`✓ Work '${work.name}' added to scene at (${x.toFixed(2)}, ${z.toFixed(2)})`);
     },
@@ -6409,6 +6488,7 @@ const Ev23DViewer = {
 
         // Update call cubes cache for chain visualization
         this._updateCallCubesCache(elementId);
+        this._rebuildDeviceMeshCache(elementId);
 
         console.log(`✓ All ${works.length} works placed successfully`);
     },

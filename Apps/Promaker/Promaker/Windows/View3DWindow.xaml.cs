@@ -399,9 +399,7 @@ public partial class View3DWindow : Window
 
     private void InitCustomModelRegistry()
     {
-        if (string.IsNullOrEmpty(_projectDir)) return;
-
-        _customModelRegistry = new CustomModelRegistry(_projectDir);
+        _customModelRegistry = new CustomModelRegistry();
         _customModelRegistry.LoadAll();
 
         // F# DevicePresets에 커스텀 이름 등록

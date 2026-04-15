@@ -99,6 +99,9 @@
                     document.getElementById('sound-btn').style.display = 'block';
                     // Lib3D 모델 사전 로드 시작 (addDevice 전에 완료 보장)
                     if (window.Ds2View3DLibrary) {
+                        // 씬 리빌드 시 preload 캐시 리셋 (새 커스텀 모델 반영)
+                        Ds2View3DLibrary._preloadPromise = null;
+
                         _modelsReady = (async function() {
                             // 1. GenericDevice 클래스 사전 로드
                             await Ds2View3DLibrary.preloadGenericDevice();
@@ -118,6 +121,10 @@
                     _modelsReady.then(function() {
                         Ev23DViewer.addDeviceAtPosition(SCENE_ID, _msg.device, _msg.x, _msg.z);
                     });
+                } else if (msg.type === 'batchStateUpdate') {
+                    // C#에서 apiDef + device 상태를 단일 메시지로 전송
+                    if (msg.apiDefStates) Ev23DViewer.updateApiDefStates(SCENE_ID, msg.apiDefStates);
+                    if (msg.deviceStates) Ev23DViewer.updateDeviceStates(SCENE_ID, msg.deviceStates);
                 } else if (msg.type === 'updateWorkStates') {
                     Ev23DViewer.updateWorkStates(SCENE_ID, msg.states);
                 } else if (msg.type === 'updateDeviceStates') {

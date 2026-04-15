@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -156,20 +157,26 @@ public partial class CustomModelDialog : Window
 
     // ── 이벤트 핸들러 ─────────────────────────────────────────
 
+    private string _lastGeneratedTemplate = "";
+
     private void SystemTypeInput_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        // ComboBox 선택 시 "✓" 접미사 제거
-        var selectedText = SystemTypeInput.SelectedItem as string;
-        if (selectedText != null && selectedText.EndsWith(" ✓"))
+        // ComboBox 선택 시 — SelectedItem이 string이면 텍스트 설정
+        if (SystemTypeInput.SelectedItem is string selected)
         {
-            SystemTypeInput.Text = selectedText.Replace(" ✓", "");
+            SystemTypeInput.Text = selected.Replace(" ✓", "").Trim();
         }
 
-        // 선택된 SystemType의 ApiDef 정보로 JSON 템플릿 자동 생성
+        // 선택된 SystemType의 ApiDef 정보로 JSON 템플릿 생성
         var typeName = SystemTypeInput.Text?.Trim() ?? "";
-        if (!string.IsNullOrEmpty(typeName) && string.IsNullOrWhiteSpace(JsonEditor.Text))
+        if (!string.IsNullOrEmpty(typeName))
         {
-            GenerateJsonTemplate(typeName);
+            // JSON이 비어있거나 이전 자동 생성 템플릿이면 교체
+            var currentJson = JsonEditor.Text?.Trim() ?? "";
+            if (string.IsNullOrEmpty(currentJson) || currentJson == _lastGeneratedTemplate.Trim())
+            {
+                GenerateJsonTemplate(typeName);
+            }
         }
 
         UpdatePlaceholder();
@@ -255,6 +262,8 @@ public partial class CustomModelDialog : Window
 
             ShowMessage($"ApiDef 감지: {apiDefComment} — dirs가 자동 생성되었습니다. 파트와 애니메이션을 수정하세요.", false);
         }
+
+        _lastGeneratedTemplate = JsonEditor.Text ?? "";
     }
 
     private void JsonEditor_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
@@ -294,26 +303,90 @@ public partial class CustomModelDialog : Window
         }
     }
 
-    private void CopySpec_Click(object sender, RoutedEventArgs e)
+    private void CopyAIPrompt_Click(object sender, RoutedEventArgs e)
     {
         try
         {
             var specPath = Path.Combine(_wwwrootPath, "DEVICE_JSON_SPEC.md");
-            if (File.Exists(specPath))
-            {
-                var spec = File.ReadAllText(specPath);
-                Clipboard.SetText(spec);
-                ShowMessage("DEVICE_JSON_SPEC.md가 클립보드에 복사되었습니다. AI에게 붙여넣기하세요.", false);
-            }
-            else
+            if (!File.Exists(specPath))
             {
                 ShowMessage("DEVICE_JSON_SPEC.md 파일을 찾을 수 없습니다.", true);
+                return;
             }
+
+            var spec = File.ReadAllText(specPath);
+            var systemType = SystemTypeInput.Text?.Trim() ?? "";
+
+            // 장비 맥락 정보 생성
+            var context = BuildDeviceContext(systemType);
+
+            var prompt = $"""
+            {spec}
+
+            ---
+
+            {context}
+            """;
+
+            Clipboard.SetText(prompt.Trim());
+
+            var msg = string.IsNullOrEmpty(systemType)
+                ? "AI 프롬프트가 복사되었습니다. AI에게 붙여넣기 후 장비를 설명하세요."
+                : $"AI 프롬프트가 복사되었습니다 ({systemType} 맥락 포함). AI에게 붙여넣기 후 원하는 모양을 설명하세요.";
+            ShowMessage(msg, false);
         }
         catch (Exception ex)
         {
             ShowMessage($"클립보드 복사 실패: {ex.Message}", true);
         }
+    }
+
+    private string BuildDeviceContext(string systemType)
+    {
+        if (string.IsNullOrEmpty(systemType))
+        {
+            return "## 요청\n" +
+                   "위 스펙에 따라 산업 장비의 3D 모델 JSON을 생성해주세요.\n" +
+                   "장비 설명: [여기에 원하는 장비를 설명하세요]";
+        }
+
+        _systemTypeApiDefs.TryGetValue(systemType, out var apiDefNames);
+
+        if (apiDefNames == null || apiDefNames.Count <= 1)
+        {
+            var apiNote = apiDefNames?.Count == 1
+                ? $"\n- ApiDef: \"{apiDefNames[0]}\" (1개) → \"animation\" 사용"
+                : "";
+            return "## 요청\n" +
+                   "다음 장비의 3D 모델 JSON을 생성해주세요.\n\n" +
+                   $"- SystemType 이름: \"{systemType}\"\n" +
+                   $"- 출력 JSON의 \"name\"은 반드시 \"{systemType}\"으로 설정" +
+                   apiNote + "\n\n" +
+                   "장비 설명: [여기에 원하는 장비를 설명하세요]";
+        }
+
+        // ApiDef 2개 이상 → dirs 필수
+        var apiDefList = string.Join("\n",
+            apiDefNames.Select((n, i) => $"  #{i}: \"{n}\""));
+
+        var dirsLines = string.Join(",\n      ",
+            apiDefNames.Select(n =>
+                $"\"{n}\": {{\"target\": \"...\", \"type\": \"move\", \"axis\": \"...\", \"min\": 0, \"max\": 0.5}}"));
+
+        return "## 요청\n" +
+               "다음 장비의 3D 모델 JSON을 생성해주세요.\n\n" +
+               $"- SystemType 이름: \"{systemType}\"\n" +
+               $"- 출력 JSON의 \"name\"은 반드시 \"{systemType}\"으로 설정\n" +
+               "- ApiDef 목록 (이 순서와 이름을 반드시 유지):\n" +
+               apiDefList + "\n" +
+               "- ApiDef가 2개 이상이므로 \"animation\" 대신 \"dirs\"를 사용:\n" +
+               "  ```\n" +
+               "  \"dirs\": {\n" +
+               "      " + dirsLines + "\n" +
+               "  }\n" +
+               "  ```\n" +
+               "- 각 dir의 애니메이션은 해당 ApiDef의 물리적 동작에 맞게 설정\n\n" +
+               "장비 설명: [여기에 원하는 장비를 설명하세요]";
     }
 
     private void Register_Click(object sender, RoutedEventArgs e)
@@ -360,6 +433,20 @@ public partial class CustomModelDialog : Window
         {
             _registry.Delete(EditingSystemType);
         }
+
+        // JSON의 "name"과 SystemType 불일치 시 안내
+        var jsonName = ExtractJsonName(json);
+        if (!string.IsNullOrEmpty(jsonName) && jsonName != systemType)
+        {
+            var result = MessageBox.Show(
+                $"JSON의 \"name\"이 \"{jsonName}\"이지만,\nSystemType은 \"{systemType}\"입니다.\n\nSystemType 기준으로 \"name\"을 \"{systemType}\"(으)로 변경하여 저장합니다.",
+                "이름 자동 수정", MessageBoxButton.OKCancel, MessageBoxImage.Information);
+            if (result != MessageBoxResult.OK)
+                return;
+        }
+
+        // JSON의 "name" 필드를 SystemType과 일치시킴
+        json = PatchJsonName(json, systemType);
 
         // 저장
         _registry.Save(systemType, json);
@@ -434,5 +521,54 @@ public partial class CustomModelDialog : Window
     private void HideMessage()
     {
         MessageBar.Visibility = Visibility.Collapsed;
+    }
+
+    private static string? ExtractJsonName(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("name", out var prop) ? prop.GetString() : null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// JSON의 "name" 필드를 지정된 systemType으로 교체.
+    /// AI가 생성한 JSON의 name이 달라도 SystemType에 맞게 강제 통일.
+    /// </summary>
+    private static string PatchJsonName(string json, string systemType)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            // "name" 필드가 이미 일치하면 그대로 반환
+            if (root.TryGetProperty("name", out var nameProp) &&
+                nameProp.GetString() == systemType)
+                return json;
+
+            // JSON을 수정하여 "name"을 systemType으로 교체
+            using var ms = new MemoryStream();
+            using (var writer = new System.Text.Json.Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
+            {
+                writer.WriteStartObject();
+                // "name"을 먼저 쓰고
+                writer.WriteString("name", systemType);
+                // 나머지 프로퍼티를 복사 ("name" 제외)
+                foreach (var prop in root.EnumerateObject())
+                {
+                    if (prop.Name == "name") continue;
+                    prop.WriteTo(writer);
+                }
+                writer.WriteEndObject();
+            }
+            return System.Text.Encoding.UTF8.GetString(ms.ToArray());
+        }
+        catch
+        {
+            return json; // 패치 실패 시 원본 반환
+        }
     }
 }
