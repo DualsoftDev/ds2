@@ -155,7 +155,8 @@
 
                     @if (EffectiveImageHref != null)
                     {
-                        <image href="@EffectiveImageHref"
+                        <image @key="EffectiveImageHref"
+                               href="@EffectiveImageHref"
                                x="0" y="0"
                                width="@EffectiveCanvasWidth"
                                height="@EffectiveCanvasHeight"
@@ -317,7 +318,7 @@
     private string? EffectiveImageHref => HasPendingImage
         ? _pendingImageDataUrl
         : (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath)
-            ? $"{BlueprintService.Layout.BlueprintImagePath}?v={BlueprintService.ImageVersion}"
+            ? $"/{BlueprintService.Layout.BlueprintImagePath.TrimStart('/')}?v={BlueprintService.ImageVersion}"
             : null);
 
     private static readonly string[] SystemColors =
