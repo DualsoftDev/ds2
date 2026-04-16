@@ -151,10 +151,9 @@ public partial class IoBatchSettingsDialog : Window
 
         var changed = ChangedRows;
 
-        // 변경사항이 없으면 사용자에게 알림
         if (changed.Count == 0)
         {
-            DialogHelpers.Info(this, "변경된 항목이 없습니다.", "I/O 일괄 편집");
+            DialogResult = false;
             return;
         }
 

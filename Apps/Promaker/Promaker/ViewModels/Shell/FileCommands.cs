@@ -188,7 +188,7 @@ public partial class MainViewModel
 
         if (project is null) return;
 
-        var dlg = new ProjectPropertiesDialog(project.Name, project);
+        var dlg = new ProjectPropertiesDialog(project.Name, _store);
         var accepted = _dialogService.ShowDialog(dlg) == true;
         if (!accepted) return;
 

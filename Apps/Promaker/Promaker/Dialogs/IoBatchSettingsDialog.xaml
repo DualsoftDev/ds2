@@ -73,8 +73,6 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="10"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="10"/>
-                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0">
@@ -141,6 +139,7 @@
                           Margin="0,0,0,6"
                           Checked="ShowOnlyUnmatched_Changed"
                           Unchecked="ShowOnlyUnmatched_Changed"/>
+
             </Grid>
 
             <Border Grid.Row="3"
@@ -342,7 +341,7 @@
                         x:Name="ApplyButton"
                         MinWidth="82"
                         Style="{StaticResource DarkButton}"
-                        Content="적용"
+                        Content="확인"
                         IsEnabled="False"
                         Click="Apply_Click"/>
 

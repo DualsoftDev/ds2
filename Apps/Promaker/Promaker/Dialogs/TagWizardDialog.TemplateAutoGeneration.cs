@@ -172,7 +172,10 @@ public partial class TagWizardDialog
             sb.AppendLine($"{apiName}: W_$(F)_M_$(D)_$(A)_BUSY");
         }
 
-        TemplateManager.WriteTemplateFile(fileName, sb.ToString());
+        var templateContent = sb.ToString();
+        TemplateManager.WriteTemplateFile(fileName, templateContent);
+        var cpT = GetOrCreateControlProps();
+        if (cpT != null) cpT.IoDeviceTemplates[fileName] = templateContent;
 
         // ApiDef가 없었으면 기본 ApiDef 생성
         var existingApiCount = GetApiNamesForSystemType(systemType).Count;
@@ -310,6 +313,8 @@ public partial class TagWizardDialog
 
             content += newEntry;
             System.IO.File.WriteAllText(systemAddressPath, content);
+            var cpS = GetOrCreateControlProps();
+            if (cpS != null) cpS.IoSystemBase = content;
 
             GenerationStatusText.Text += $"\n  → system_base.txt에 {systemType} 주소 추가 (IW/QW: {newBaseAddress}, MW: {newBaseAddress + 6000})";
         }

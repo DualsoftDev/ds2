@@ -7,10 +7,9 @@
 
   <ItemGroup>
     <Compile Include="AasxSemantics.fs" />
-    <Compile Include="Concepts\Catalog.fs" />
-    <Compile Include="Concepts\Loader.fs" />
-    <Compile Include="Concepts\Builder.fs" />
+    <Compile Include="AasxProjectCache.fs" />
     <Compile Include="AasxFileIO.fs" />
+    <Compile Include="Concepts\Builder.fs" />
     <Compile Include="Import\Core.fs" />
     <Compile Include="Export\Core.fs" />
     <Compile Include="Common\PropertyConversion.fs" />
@@ -26,6 +25,9 @@
   <ItemGroup>
     <EmbeddedResource Include="Thumbnail\ds_aasx_thumbnail_icon.png">
       <LogicalName>Ds2.Aasx.Thumbnail.ds_aasx_thumbnail_icon.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Concepts\Templates\SequenceModel.aasx">
+      <LogicalName>Ds2.Aasx.Templates.SequenceModel.aasx</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
