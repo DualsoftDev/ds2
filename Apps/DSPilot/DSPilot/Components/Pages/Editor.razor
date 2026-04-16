@@ -114,7 +114,7 @@
                             </div>
                         </div>
                         <span class="typo-caption mt-1" style="display:block; color: var(--color-secondary);">
-                            Cell: @(BlueprintService.Layout.CellWidth) x @(BlueprintService.Layout.CellHeight) px
+                            Cell: @(EffectiveCellWidth) x @(EffectiveCellHeight) px
                         </span>
                     </div>
                 </div>
@@ -170,10 +170,12 @@
                     }
 
                     @{
-                        var cellW = BlueprintService.Layout.CellWidth;
-                        var cellH = BlueprintService.Layout.CellHeight;
-                        var ox    = BlueprintService.Layout.OffsetX;
-                        var oy    = BlueprintService.Layout.OffsetY;
+                        var ecw   = EffectiveCanvasWidth;
+                        var ech   = EffectiveCanvasHeight;
+                        var ox    = _offsetX;
+                        var oy    = _offsetY;
+                        var cellW = _gridColumns > 0 ? (ecw - _offsetX - _offsetRight) / _gridColumns : 200;
+                        var cellH = _gridRows > 0 ? (ech - _offsetY - _offsetBottom) / _gridRows : 200;
                     }
 
                     @* Grid lines *@
@@ -369,12 +371,21 @@
         if (firstRender && ProjectService.IsLoaded)
         {
             _dotNetRef = DotNetObjectReference.Create(this);
-            var layout = BlueprintService.Layout;
             await JS.InvokeVoidAsync("canvasInterop.init",
-                _dotNetRef, "editor-svg", layout.CellWidth, layout.CellHeight,
-                layout.GridColumns, layout.GridRows, layout.OffsetX, layout.OffsetY);
+                _dotNetRef, "editor-svg", EffectiveCellWidth, EffectiveCellHeight,
+                _gridColumns, _gridRows, _offsetX, _offsetY);
             await JS.InvokeVoidAsync("flowReorder.init", _dotNetRef, "flow-reorder-list");
         }
+    }
+
+    private int EffectiveCellWidth => _gridColumns > 0 ? (EffectiveCanvasWidth - _offsetX - _offsetRight) / _gridColumns : 200;
+    private int EffectiveCellHeight => _gridRows > 0 ? (EffectiveCanvasHeight - _offsetY - _offsetBottom) / _gridRows : 200;
+
+    private async Task SyncGridToJs()
+    {
+        await JS.InvokeVoidAsync("canvasInterop.updateGrid",
+            EffectiveCellWidth, EffectiveCellHeight, _gridColumns, _gridRows,
+            _offsetX, _offsetY);
     }
 
     private async Task OnGridChanged(Action assign)
@@ -387,10 +398,7 @@
         BlueprintService.Layout.OffsetRight = _offsetRight;
         BlueprintService.Layout.OffsetBottom = _offsetBottom;
         _isDirty = true;
-        var layout = BlueprintService.Layout;
-        await JS.InvokeVoidAsync("canvasInterop.updateGrid",
-            layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
-            layout.OffsetX, layout.OffsetY);
+        await SyncGridToJs();
     }
 
     private async Task OnBlueprintFileSelected(IBrowserFile file)
@@ -608,10 +616,7 @@
             _pendingImageFileName = null;
 
             // 그리드 업데이트 (캔버스 크기 변경 반영)
-            var layout = BlueprintService.Layout;
-            await JS.InvokeVoidAsync("canvasInterop.updateGrid",
-                layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
-                layout.OffsetX, layout.OffsetY);
+            await SyncGridToJs();
         }
 
         // Save flow process order
@@ -663,10 +668,7 @@
         BlueprintService.Layout.OffsetBottom = _offsetBottom;
         _isDirty = true;
 
-        var layout = BlueprintService.Layout;
-        await JS.InvokeVoidAsync("canvasInterop.updateGrid",
-            layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
-            layout.OffsetX, layout.OffsetY);
+        await SyncGridToJs();
         StateHasChanged();
     }
 
@@ -715,10 +717,7 @@
             _offsetRight = BlueprintService.Layout.OffsetRight;
             _offsetBottom = BlueprintService.Layout.OffsetBottom;
 
-            var layout = BlueprintService.Layout;
-            await JS.InvokeVoidAsync("canvasInterop.updateGrid",
-                layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
-                layout.OffsetX, layout.OffsetY);
+            await SyncGridToJs();
 
             _isDirty = false;
             await JS.InvokeVoidAsync("uiUtils.showSnackbar", "JSON imported.", "success");
