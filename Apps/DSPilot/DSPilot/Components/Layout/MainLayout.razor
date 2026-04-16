@@ -4,6 +4,7 @@
 @inject NavigationManager Nav
 @inject ThemeService ThemeService
 @inject DspDbService DbService
+@inject IJSRuntime JS
 
 <div class="layout @ThemeService.GetThemeClass()">
     <header class="app-bar">
@@ -64,11 +65,17 @@
         Nav.LocationChanged += OnLocationChanged;
     }
 
-    protected override void OnAfterRender(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
         ThemeService.OnThemeChanged += OnThemeChanged;
         DbService.OnDataChanged += OnDbDataChanged;
+
+        var saved = await JS.InvokeAsync<string?>("localStorage.getItem", "dspilot-theme");
+        if (saved == "dark")
+        {
+            ThemeService.SetDarkMode(true);
+        }
     }
 
     private void OnDbDataChanged() => InvokeAsync(StateHasChanged);
@@ -98,9 +105,10 @@
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
 
-    private void ToggleTheme()
+    private async Task ToggleTheme()
     {
         ThemeService.ToggleTheme();
+        await JS.InvokeVoidAsync("localStorage.setItem", "dspilot-theme", ThemeService.IsDarkMode ? "dark" : "light");
     }
 
     private void OnThemeChanged() => InvokeAsync(StateHasChanged);
