@@ -41,8 +41,7 @@ type DsStoreNodesExtensions =
             invalidOp $"같은 System 내에 이미 '{name}' Flow가 존재합니다."
         let flow = Flow(name, systemId)
         store.WithTransaction($"Flow 추가 \"{name}\"", fun () ->
-            store.TrackAdd(store.Flows, flow)
-            store.TrackMutate(store.Systems, systemId, fun s -> s.FlowIds.Add(flow.Id)))
+            store.TrackAdd(store.Flows, flow))
         store.EmitAndHistory(FlowAdded flow)
         flow.Id
 
@@ -54,8 +53,7 @@ type DsStoreNodesExtensions =
             invalidOp $"같은 Flow 내에 이미 '{name}' Work가 존재합니다."
         let work = Work(flow.Name, name, flowId)
         store.WithTransaction($"Work 추가 \"{work.Name}\"", fun () ->
-            store.TrackAdd(store.Works, work)
-            store.TrackMutate(store.Flows, flowId, fun f -> f.WorkIds.Add(work.Id)))
+            store.TrackAdd(store.Works, work))
         store.EmitAndHistory(WorkAdded work)
         work.Id
 
@@ -70,8 +68,7 @@ type DsStoreNodesExtensions =
             original.Position
             |> Option.map (fun pos -> Xywh(pos.X + 40, pos.Y + 40, pos.W, pos.H))
         store.WithTransaction("레퍼런스 Work 생성", fun () ->
-            store.TrackAdd(store.Works, refWork)
-            store.TrackMutate(store.Flows, original.ParentId, fun f -> f.WorkIds.Add(refWork.Id)))
+            store.TrackAdd(store.Works, refWork))
         store.EmitAndHistory(WorkAdded refWork)
         refWork.Id
 
@@ -184,108 +181,6 @@ type DsStoreNodesExtensions =
                         store.TrackMutate(store.Calls, id, fun call -> call.Position <- newPos))
             store.EmitRefreshAndHistory()
             moves.Length
-
-    // ─── Move Work Order ─────────────────────────────────────────────
-    [<Extension>]
-    static member MoveWorkInFlow(store: DsStore, flowId: Guid, workId: Guid, delta: int) =
-        match store.Flows.TryGetValue(flowId) with
-        | true, flow ->
-            let needsInit = flow.WorkIds.Count = 0
-            let initWorks = if needsInit then Queries.originalWorksOf flowId store else []
-            let currentIds =
-                if needsInit then initWorks |> List.map (fun w -> w.Id)
-                else flow.WorkIds |> Seq.toList
-            match currentIds |> List.tryFindIndex (fun id -> id = workId) with
-            | Some idx ->
-                let newIdx = max 0 (min (currentIds.Length - 1) (idx + delta))
-                if newIdx <> idx then
-                    store.WithTransaction("Work 순서 변경", fun () ->
-                        store.TrackMutate(store.Flows, flowId, fun f ->
-                            if needsInit then
-                                for w in initWorks do f.WorkIds.Add(w.Id)
-                            f.WorkIds.RemoveAt(idx)
-                            f.WorkIds.Insert(newIdx, workId)))
-                    store.EmitRefreshAndHistory()
-            | None -> ()
-        | _ -> ()
-
-    /// Work를 targetWorkId 위치로 이동 (드래그 앤 드롭용)
-    /// insertBefore=true: target 앞에 삽입, false: target 뒤에 삽입
-    [<Extension>]
-    static member MoveWorkToPosition(store: DsStore, flowId: Guid, workId: Guid, targetWorkId: Guid, insertBefore: bool) =
-        match store.Flows.TryGetValue(flowId) with
-        | true, flow ->
-            let needsInit = flow.WorkIds.Count = 0
-            let initWorks = if needsInit then Queries.originalWorksOf flowId store else []
-            let currentIds =
-                if needsInit then initWorks |> List.map (fun w -> w.Id)
-                else flow.WorkIds |> Seq.toList
-            let srcIdx = currentIds |> List.tryFindIndex (fun id -> id = workId)
-            let tgtIdx = currentIds |> List.tryFindIndex (fun id -> id = targetWorkId)
-            match srcIdx, tgtIdx with
-            | Some si, Some ti when si <> ti ->
-                store.WithTransaction("Work 순서 변경", fun () ->
-                    store.TrackMutate(store.Flows, flowId, fun f ->
-                        if needsInit then
-                            for w in initWorks do f.WorkIds.Add(w.Id)
-                        f.WorkIds.RemoveAt(si)
-                        let insertIdx = f.WorkIds.IndexOf(targetWorkId)
-                        let finalIdx = if insertBefore then insertIdx else insertIdx + 1
-                        f.WorkIds.Insert(finalIdx, workId)))
-                store.EmitRefreshAndHistory()
-            | _ -> ()
-        | _ -> ()
-
-    // ─── Move Flow Order ────────────────────────────────────────────
-    [<Extension>]
-    static member MoveFlowInSystem(store: DsStore, systemId: Guid, flowId: Guid, delta: int) =
-        match store.Systems.TryGetValue(systemId) with
-        | true, sys ->
-            let needsInit = sys.FlowIds.Count = 0
-            let initFlows = if needsInit then Queries.flowsOf systemId store else []
-            let currentIds =
-                if needsInit then initFlows |> List.map (fun f -> f.Id)
-                else sys.FlowIds |> Seq.toList
-            match currentIds |> List.tryFindIndex (fun id -> id = flowId) with
-            | Some idx ->
-                let newIdx = max 0 (min (currentIds.Length - 1) (idx + delta))
-                if newIdx <> idx then
-                    store.WithTransaction("Flow 순서 변경", fun () ->
-                        store.TrackMutate(store.Systems, systemId, fun s ->
-                            if needsInit then
-                                for f in initFlows do s.FlowIds.Add(f.Id)
-                            s.FlowIds.RemoveAt(idx)
-                            s.FlowIds.Insert(newIdx, flowId)))
-                    store.EmitRefreshAndHistory()
-            | None -> ()
-        | _ -> ()
-
-    /// Flow를 targetFlowId 위치로 이동 (드래그 앤 드롭용)
-    /// insertBefore=true: target 앞에 삽입, false: target 뒤에 삽입
-    [<Extension>]
-    static member MoveFlowToPosition(store: DsStore, systemId: Guid, flowId: Guid, targetFlowId: Guid, insertBefore: bool) =
-        match store.Systems.TryGetValue(systemId) with
-        | true, sys ->
-            let needsInit = sys.FlowIds.Count = 0
-            let initFlows = if needsInit then Queries.flowsOf systemId store else []
-            let currentIds =
-                if needsInit then initFlows |> List.map (fun f -> f.Id)
-                else sys.FlowIds |> Seq.toList
-            let srcIdx = currentIds |> List.tryFindIndex (fun id -> id = flowId)
-            let tgtIdx = currentIds |> List.tryFindIndex (fun id -> id = targetFlowId)
-            match srcIdx, tgtIdx with
-            | Some si, Some ti when si <> ti ->
-                store.WithTransaction("Flow 순서 변경", fun () ->
-                    store.TrackMutate(store.Systems, systemId, fun s ->
-                        if needsInit then
-                            for f in initFlows do s.FlowIds.Add(f.Id)
-                        s.FlowIds.RemoveAt(si)
-                        let insertIdx = s.FlowIds.IndexOf(targetFlowId)
-                        let finalIdx = if insertBefore then insertIdx else insertIdx + 1
-                        s.FlowIds.Insert(finalIdx, flowId)))
-                store.EmitRefreshAndHistory()
-            | _ -> ()
-        | _ -> ()
 
     // ─── Remove ──────────────────────────────────────────────────────
     [<Extension>]

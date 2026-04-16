@@ -103,7 +103,6 @@ module internal DirectDeviceOps =
                     // Flow 없는 기존 System — Flow를 새로 생성
                     let flow = Flow($"{devAlias}_Flow", existing.Id)
                     store.TrackAdd(store.Flows, flow)
-                    store.TrackMutate(store.Systems, existing.Id, fun s -> s.FlowIds.Add(flow.Id))
                     existing, {
                         state with
                             PendingSystems = Map.add systemName existing state.PendingSystems
@@ -120,7 +119,6 @@ module internal DirectDeviceOps =
                 store.TrackMutate(store.Projects, projectId, fun p ->
                     p.PassiveSystemIds.Add(system.Id))
                 store.TrackAdd(store.Flows, flow)
-                store.TrackMutate(store.Systems, system.Id, fun s -> s.FlowIds.Add(flow.Id))
                 let next = {
                     state with
                         PendingSystems = Map.add systemName system state.PendingSystems
@@ -142,7 +140,6 @@ module internal DirectDeviceOps =
                     let w = Work(flow.Name, apiName, flow.Id)
                     w.Duration <- Some (TimeSpan.FromMilliseconds 500.)
                     store.TrackAdd(store.Works, w)
-                    store.TrackMutate(store.Flows, flow.Id, fun f -> f.WorkIds.Add(w.Id))
                     w)
             let current = Map.tryFind devAlias state.PendingWorkOrderRev |> Option.defaultValue []
             { state with
