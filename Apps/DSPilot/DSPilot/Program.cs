@@ -45,7 +45,7 @@ builder.Services.AddSingleton<BlueprintService>();
 builder.Services.AddSingleton<HeatmapService>();
 builder.Services.AddSingleton<DspDbService>();
 builder.Services.AddSingleton<PlcDebugService>();
-builder.Services.AddSingleton<ThemeService>();
+builder.Services.AddScoped<ThemeService>();
 builder.Services.AddSingleton<PlcIoDataService>();
 
 // PLC 데이터 읽기 서비스 등록
