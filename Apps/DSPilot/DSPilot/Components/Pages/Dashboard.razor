@@ -148,7 +148,7 @@ else
                                 @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
                                 {
                                     <div style="flex:1; min-height:0; width:100%; display:flex; justify-content:center; align-items:center; overflow:hidden; padding:12px;">
-                                        <FlowLayoutSvg Style="@($"height:100%; max-width:100%; aspect-ratio:{_cw}/{_ch}; object-fit:contain;")"
+                                        <FlowLayoutSvg Style="@($"width:100%; max-height:100%;")"
                                                        CanvasWidth="_cw" CanvasHeight="_ch"
                                                        ImagePath="@BlueprintService.Layout.BlueprintImagePath"
                                                        ImageVersion="BlueprintService.ImageVersion"
