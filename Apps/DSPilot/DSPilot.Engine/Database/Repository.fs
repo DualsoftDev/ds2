@@ -529,6 +529,9 @@ module DspRepository =
                 return []
             else
                 try
+                    // IsIdle 컬럼 자동 마이그레이션 (SELECT 전에도 보장)
+                    do! ensureIsIdleColumnAsync connection logger
+
                     let sql = sprintf """
                         SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle
                         FROM %s
@@ -556,6 +559,9 @@ module DspRepository =
                 return []
             else
                 try
+                    // IsIdle 컬럼 자동 마이그레이션 (SELECT 전에도 보장)
+                    do! ensureIsIdleColumnAsync connection logger
+
                     let sql = sprintf """
                         SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle
                         FROM %s
@@ -584,6 +590,9 @@ module DspRepository =
                 return []
             else
                 try
+                    // IsIdle 컬럼 자동 마이그레이션 (SELECT 전에도 보장)
+                    do! ensureIsIdleColumnAsync connection logger
+
                     let sql = sprintf """
                         SELECT Id, FlowName, MT, WT, CT, CycleNo, RecordedAt, COALESCE(IsIdle, 0) AS IsIdle
                         FROM %s

@@ -22,7 +22,13 @@
         <label class="btn btn-outlined mr-2" style="cursor:pointer;">
             <span class="material-icons" style="font-size:18px;">image</span>
             Upload Image
-            @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+            @if (HasPendingImage)
+            {
+                <span style="font-size:10px; color:var(--color-warning); margin-left:4px; font-weight:600;">
+                    @(_pendingCanvasWidth)x@(_pendingCanvasHeight) (미적용)
+                </span>
+            }
+            else if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
             {
                 <span style="font-size:10px; color:var(--color-text-secondary); margin-left:4px;">
                     @(BlueprintService.Layout.CanvasWidth)x@(BlueprintService.Layout.CanvasHeight)
@@ -111,7 +117,7 @@
                             </div>
                         </div>
                         <span class="typo-caption mt-1" style="display:block; color: var(--color-secondary);">
-                            Cell: @(BlueprintService.Layout.CellWidth) x @(BlueprintService.Layout.CellHeight) px
+                            Cell: @(EffectiveCellWidth) x @(EffectiveCellHeight) px
                         </span>
                     </div>
                 </div>
@@ -144,32 +150,36 @@
 
             @* SVG 캔버스 *@
             <div class="ed-canvas">
+              <div style="width:100%; max-height:100%; aspect-ratio:@EffectiveCanvasWidth/@EffectiveCanvasHeight;">
                 <svg id="editor-svg" xmlns="http://www.w3.org/2000/svg"
                      style="display: block; width: 100%; height: 100%;"
-                     viewBox="0 0 @BlueprintService.Layout.CanvasWidth @BlueprintService.Layout.CanvasHeight"
+                     viewBox="0 0 @EffectiveCanvasWidth @EffectiveCanvasHeight"
                      preserveAspectRatio="none">
 
-                    @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+                    @if (EffectiveImageHref != null)
                     {
-                        <image href="@(BlueprintService.Layout.BlueprintImagePath)?v=@(BlueprintService.ImageVersion)"
+                        <image @key="EffectiveImageHref"
+                               href="@EffectiveImageHref"
                                x="0" y="0"
-                               width="@BlueprintService.Layout.CanvasWidth"
-                               height="@BlueprintService.Layout.CanvasHeight"
+                               width="@EffectiveCanvasWidth"
+                               height="@EffectiveCanvasHeight"
                                opacity="0.3" />
                     }
                     else
                     {
                         <rect x="0" y="0"
-                              width="@BlueprintService.Layout.CanvasWidth"
-                              height="@BlueprintService.Layout.CanvasHeight"
+                              width="@EffectiveCanvasWidth"
+                              height="@EffectiveCanvasHeight"
                               style="fill: var(--color-background)" />
                     }
 
                     @{
-                        var cellW = BlueprintService.Layout.CellWidth;
-                        var cellH = BlueprintService.Layout.CellHeight;
-                        var ox    = BlueprintService.Layout.OffsetX;
-                        var oy    = BlueprintService.Layout.OffsetY;
+                        var ecw   = EffectiveCanvasWidth;
+                        var ech   = EffectiveCanvasHeight;
+                        var ox    = _offsetX;
+                        var oy    = _offsetY;
+                        var cellW = _gridColumns > 0 ? (ecw - _offsetX - _offsetRight) / _gridColumns : 200;
+                        var cellH = _gridRows > 0 ? (ech - _offsetY - _offsetBottom) / _gridRows : 200;
                     }
 
                     @* Grid lines *@
@@ -193,6 +203,27 @@
                               stroke-width="@(isEdge ? 1.5 : 0.8)"
                               stroke-dasharray="@(isEdge ? "0" : "6,4")" />
                     }
+
+                    @* Grid corner resize handles *@
+                    @{
+                        var gridLeft   = ox;
+                        var gridTop    = oy;
+                        var gridRight  = ox + _gridColumns * cellW;
+                        var gridBottom = oy + _gridRows * cellH;
+                        var handleR    = Math.Max(8, Math.Min(cellW, cellH) / 6);
+                    }
+                    <circle data-grid-handle="tl" cx="@gridLeft" cy="@gridTop" r="@handleR"
+                            fill="var(--color-primary)" fill-opacity="0.25" stroke="var(--color-primary)"
+                            stroke-width="2" style="cursor:nw-resize;" />
+                    <circle data-grid-handle="tr" cx="@gridRight" cy="@gridTop" r="@handleR"
+                            fill="var(--color-primary)" fill-opacity="0.25" stroke="var(--color-primary)"
+                            stroke-width="2" style="cursor:ne-resize;" />
+                    <circle data-grid-handle="bl" cx="@gridLeft" cy="@gridBottom" r="@handleR"
+                            fill="var(--color-primary)" fill-opacity="0.25" stroke="var(--color-primary)"
+                            stroke-width="2" style="cursor:sw-resize;" />
+                    <circle data-grid-handle="br" cx="@gridRight" cy="@gridBottom" r="@handleR"
+                            fill="var(--color-primary)" fill-opacity="0.25" stroke="var(--color-primary)"
+                            stroke-width="2" style="cursor:se-resize;" />
 
                     @* Flow nodes *@
                     @foreach (var fp in BlueprintService.Layout.FlowPlacements)
@@ -252,6 +283,7 @@
                         </g>
                     }
                 </svg>
+              </div>
             </div>
         </div>
 
@@ -272,6 +304,25 @@
     private int _offsetY;
     private int _offsetRight;
     private int _offsetBottom;
+
+    // 이미지 업로드 미리보기 (적용 전까지 임시 보관)
+    private byte[]? _pendingImageBytes;
+    private string? _pendingImageDataUrl;
+    private string? _pendingImageFileName;
+    private int _pendingCanvasWidth;
+    private int _pendingCanvasHeight;
+    private bool HasPendingImage => _pendingImageBytes != null;
+
+    // 현재 표시할 캔버스 크기 (pending 우선)
+    private int EffectiveCanvasWidth => HasPendingImage ? _pendingCanvasWidth : BlueprintService.Layout.CanvasWidth;
+    private int EffectiveCanvasHeight => HasPendingImage ? _pendingCanvasHeight : BlueprintService.Layout.CanvasHeight;
+
+    // 현재 표시할 이미지 경로 (pending 우선)
+    private string? EffectiveImageHref => HasPendingImage
+        ? _pendingImageDataUrl
+        : (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath)
+            ? $"/{BlueprintService.Layout.BlueprintImagePath.TrimStart('/')}?v={BlueprintService.ImageVersion}"
+            : null);
 
     private static readonly string[] SystemColors =
         ["#0A1E5A", "#1A3A7A", "#2D5499", "#4070B8", "#5A8CD7"];
@@ -324,12 +375,21 @@
         if (firstRender && ProjectService.IsLoaded)
         {
             _dotNetRef = DotNetObjectReference.Create(this);
-            var layout = BlueprintService.Layout;
             await JS.InvokeVoidAsync("canvasInterop.init",
-                _dotNetRef, "editor-svg", layout.CellWidth, layout.CellHeight,
-                layout.GridColumns, layout.GridRows, layout.OffsetX, layout.OffsetY);
+                _dotNetRef, "editor-svg", EffectiveCellWidth, EffectiveCellHeight,
+                _gridColumns, _gridRows, _offsetX, _offsetY);
             await JS.InvokeVoidAsync("flowReorder.init", _dotNetRef, "flow-reorder-list");
         }
+    }
+
+    private int EffectiveCellWidth => _gridColumns > 0 ? (EffectiveCanvasWidth - _offsetX - _offsetRight) / _gridColumns : 200;
+    private int EffectiveCellHeight => _gridRows > 0 ? (EffectiveCanvasHeight - _offsetY - _offsetBottom) / _gridRows : 200;
+
+    private async Task SyncGridToJs()
+    {
+        await JS.InvokeVoidAsync("canvasInterop.updateGrid",
+            EffectiveCellWidth, EffectiveCellHeight, _gridColumns, _gridRows,
+            _offsetX, _offsetY);
     }
 
     private async Task OnGridChanged(Action assign)
@@ -342,10 +402,7 @@
         BlueprintService.Layout.OffsetRight = _offsetRight;
         BlueprintService.Layout.OffsetBottom = _offsetBottom;
         _isDirty = true;
-        var layout = BlueprintService.Layout;
-        await JS.InvokeVoidAsync("canvasInterop.updateGrid",
-            layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
-            layout.OffsetX, layout.OffsetY);
+        await SyncGridToJs();
     }
 
     private async Task OnBlueprintFileSelected(IBrowserFile file)
@@ -354,25 +411,73 @@
         try
         {
             using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
-            var (w, h) = await BlueprintService.SaveBlueprintImageAsync(stream, file.Name);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            _pendingImageBytes = ms.ToArray();
+            _pendingImageFileName = file.Name;
 
+            // 이미지 크기 감지
+            var (w, h) = DetectImageDimensions(_pendingImageBytes);
             if (w > 0 && h > 0)
             {
-                await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"Blueprint uploaded. Canvas: {w} x {h}", "success");
-                var layout = BlueprintService.Layout;
-                await JS.InvokeVoidAsync("canvasInterop.updateGrid",
-                    layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
-                    layout.OffsetX, layout.OffsetY);
+                _pendingCanvasWidth = w;
+                _pendingCanvasHeight = h;
             }
             else
             {
-                await JS.InvokeVoidAsync("uiUtils.showSnackbar", "Blueprint uploaded.", "success");
+                // 감지 실패 시 기존 캔버스 크기 유지
+                _pendingCanvasWidth = BlueprintService.Layout.CanvasWidth;
+                _pendingCanvasHeight = BlueprintService.Layout.CanvasHeight;
             }
+
+            // data URL 생성 (미리보기용)
+            var ext = Path.GetExtension(file.Name).ToLowerInvariant();
+            var mime = ext == ".png" ? "image/png" : "image/jpeg";
+            _pendingImageDataUrl = $"data:{mime};base64,{Convert.ToBase64String(_pendingImageBytes)}";
+
+            _isDirty = true;
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar",
+                $"이미지 미리보기 ({w}x{h}). '적용' 버튼을 눌러 저장하세요.", "info");
         }
         catch (Exception ex)
         {
             await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"Upload failed: {ex.Message}", "error");
         }
+    }
+
+    private static (int Width, int Height) DetectImageDimensions(byte[] data)
+    {
+        if (data.Length < 24) return (0, 0);
+
+        // PNG
+        if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47)
+        {
+            var width = (data[16] << 24) | (data[17] << 16) | (data[18] << 8) | data[19];
+            var height = (data[20] << 24) | (data[21] << 16) | (data[22] << 8) | data[23];
+            return (width, height);
+        }
+
+        // JPEG
+        if (data[0] == 0xFF && data[1] == 0xD8)
+        {
+            int pos = 2;
+            while (pos < data.Length - 8)
+            {
+                if (data[pos] != 0xFF) { pos++; continue; }
+                var marker = data[pos + 1];
+                if (marker == 0xC0 || marker == 0xC2)
+                {
+                    var height = (data[pos + 5] << 8) | data[pos + 6];
+                    var width = (data[pos + 7] << 8) | data[pos + 8];
+                    return (width, height);
+                }
+                if (marker == 0xD9 || marker == 0xDA) break;
+                var len = (data[pos + 2] << 8) | data[pos + 3];
+                pos += 2 + len;
+            }
+        }
+
+        return (0, 0);
     }
 
     [JSInvokable]
@@ -516,8 +621,21 @@
         }
     }
 
-    private void ApplyChanges()
+    private async Task ApplyChanges()
     {
+        // pending 이미지가 있으면 저장
+        if (HasPendingImage)
+        {
+            using var ms = new MemoryStream(_pendingImageBytes!);
+            await BlueprintService.SaveBlueprintImageAsync(ms, _pendingImageFileName!);
+            _pendingImageBytes = null;
+            _pendingImageDataUrl = null;
+            _pendingImageFileName = null;
+
+            // 그리드 업데이트 (캔버스 크기 변경 반영)
+            await SyncGridToJs();
+        }
+
         // Save flow process order
         BlueprintService.Layout.FlowProcessOrder = _orderedFlows
             .Select(f => new FlowOrderEntry { FlowId = f.FlowId, FlowName = f.FlowName })
@@ -525,7 +643,7 @@
 
         BlueprintService.SaveLayout();
         _isDirty = false;
-        _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "저장되었습니다.", "success");
+        await JS.InvokeVoidAsync("uiUtils.showSnackbar", "저장되었습니다.", "success");
     }
 
     [JSInvokable]
@@ -533,6 +651,42 @@
     {
         if (!Guid.TryParse(flowIdStr, out var flowId)) return;
         RemovePlacement(flowId);
+    }
+
+    [JSInvokable]
+    public async Task OnGridHandleDragged(string handle, int svgX, int svgY)
+    {
+        var cw = EffectiveCanvasWidth;
+        var ch = EffectiveCanvasHeight;
+
+        switch (handle)
+        {
+            case "tl":
+                _offsetX = Math.Clamp(svgX, 0, cw - _offsetRight - _gridColumns * 10);
+                _offsetY = Math.Clamp(svgY, 0, ch - _offsetBottom - _gridRows * 10);
+                break;
+            case "tr":
+                _offsetRight = Math.Clamp(cw - svgX, 0, cw - _offsetX - _gridColumns * 10);
+                _offsetY = Math.Clamp(svgY, 0, ch - _offsetBottom - _gridRows * 10);
+                break;
+            case "bl":
+                _offsetX = Math.Clamp(svgX, 0, cw - _offsetRight - _gridColumns * 10);
+                _offsetBottom = Math.Clamp(ch - svgY, 0, ch - _offsetY - _gridRows * 10);
+                break;
+            case "br":
+                _offsetRight = Math.Clamp(cw - svgX, 0, cw - _offsetX - _gridColumns * 10);
+                _offsetBottom = Math.Clamp(ch - svgY, 0, ch - _offsetY - _gridRows * 10);
+                break;
+        }
+
+        BlueprintService.Layout.OffsetX = _offsetX;
+        BlueprintService.Layout.OffsetY = _offsetY;
+        BlueprintService.Layout.OffsetRight = _offsetRight;
+        BlueprintService.Layout.OffsetBottom = _offsetBottom;
+        _isDirty = true;
+
+        await SyncGridToJs();
+        StateHasChanged();
     }
 
     [JSInvokable]
@@ -580,10 +734,7 @@
             _offsetRight = BlueprintService.Layout.OffsetRight;
             _offsetBottom = BlueprintService.Layout.OffsetBottom;
 
-            var layout = BlueprintService.Layout;
-            await JS.InvokeVoidAsync("canvasInterop.updateGrid",
-                layout.CellWidth, layout.CellHeight, layout.GridColumns, layout.GridRows,
-                layout.OffsetX, layout.OffsetY);
+            await SyncGridToJs();
 
             _isDirty = false;
             await JS.InvokeVoidAsync("uiUtils.showSnackbar", "JSON imported.", "success");

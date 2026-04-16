@@ -2,7 +2,7 @@
 .ed-header  { display: flex; align-items: center; flex-shrink: 0; gap: 6px; }
 .ed-main    { flex: 1; min-height: 0; display: flex; gap: 14px; }
 .ed-sidebar { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
-.ed-canvas  { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.ed-canvas  { flex: 1; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .ed-card    { background: var(--color-surface); border: 1px solid var(--color-lines); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
 .ed-card-header { background: var(--color-background); border-bottom: 1px solid var(--color-lines); padding: 10px 14px;
                   font-weight: 600; color: var(--color-primary); font-size: 0.875rem;
