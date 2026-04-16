@@ -73,6 +73,8 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="10"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0">
@@ -130,6 +132,15 @@
                         Click="ImportCsv_Click"
                         Content="CSV 가져오기"
                         ToolTip="CSV 파일을 불러와 I/O 태그를 매핑합니다"/>
+
+                <CheckBox x:Name="ShowOnlyUnmatchedCheckBox"
+                          Grid.Column="16"
+                          Content="미매치만 보기"
+                          Visibility="Collapsed"
+                          VerticalAlignment="Bottom"
+                          Margin="0,0,0,6"
+                          Checked="ShowOnlyUnmatched_Changed"
+                          Unchecked="ShowOnlyUnmatched_Changed"/>
             </Grid>
 
             <Border Grid.Row="3"
@@ -146,6 +157,15 @@
                           SelectionUnit="FullRow"
                           RowHeaderWidth="0"
                           PreviewMouseLeftButtonDown="Grid_PreviewMouseLeftButtonDown">
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsUnmatched}" Value="True">
+                                    <Setter Property="Background" Value="#30FF6B6B"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
                     <DataGrid.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="선택 항목 체크" Click="CheckSelected_Click"/>

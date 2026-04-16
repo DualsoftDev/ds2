@@ -85,6 +85,15 @@ module Queries =
     let flowsOf (systemId: Guid) (store: DsStore) : Flow list =
         childrenOf store.FlowsReadOnly.Values systemId (fun f -> f.ParentId)
 
+    /// System 내 Flow를 FlowIds 순서로 반환 (FlowIds가 비어있으면 기존 순서)
+    let orderedFlowsOf (systemId: Guid) (store: DsStore) : Flow list =
+        match store.Systems.TryGetValue(systemId) with
+        | true, sys when sys.FlowIds.Count > 0 ->
+            let indexed = sys.FlowIds |> Seq.mapi (fun i id -> id, i) |> Map.ofSeq
+            flowsOf systemId store
+            |> List.sortBy (fun f -> indexed |> Map.tryFind f.Id |> Option.defaultValue Int32.MaxValue)
+        | _ -> flowsOf systemId store
+
     // ─────────────────────────────────────────────────────────────────────────
     // Work 쿼리
     // ─────────────────────────────────────────────────────────────────────────
@@ -116,9 +125,22 @@ module Queries =
     let tryGetWorkFullName (workId: Guid) (store: DsStore) : string option =
         getWork workId store |> Option.map (fun w -> w.Name)
 
+    /// Flow 내 Work를 WorkIds 순서로 반환 (WorkIds가 비어있으면 기존 순서)
+    let orderedWorksOf (flowId: Guid) (store: DsStore) : Work list =
+        match store.Flows.TryGetValue(flowId) with
+        | true, flow when flow.WorkIds.Count > 0 ->
+            let indexed = flow.WorkIds |> Seq.mapi (fun i id -> id, i) |> Map.ofSeq
+            worksOf flowId store
+            |> List.sortBy (fun w -> indexed |> Map.tryFind w.Id |> Option.defaultValue Int32.MaxValue)
+        | _ -> worksOf flowId store
+
     /// Flow 내 원본 Work만 (ReferenceOf = None)
     let originalWorksOf (flowId: Guid) (store: DsStore) : Work list =
         worksOf flowId store |> List.filter (fun w -> w.ReferenceOf.IsNone)
+
+    /// Flow 내 원본 Work를 WorkIds 순서로 반환
+    let orderedOriginalWorksOf (flowId: Guid) (store: DsStore) : Work list =
+        orderedWorksOf flowId store |> List.filter (fun w -> w.ReferenceOf.IsNone)
 
     /// Flow 내 LocalName 중복 검사 (excludeId: 자기 자신 제외)
     let isLocalNameUniqueInFlow (flowId: Guid) (localName: string) (excludeId: Guid option) (store: DsStore) : bool =

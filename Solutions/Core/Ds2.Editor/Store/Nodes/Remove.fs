@@ -66,11 +66,25 @@ module internal CascadeRemove =
         |> List.iter (fun call -> cascadeRemoveCall store call.Id)
         arrowWorksFor store (Set.singleton workId)
         |> List.iter (fun a -> store.TrackRemove(store.ArrowWorks, a.Id))
+        // WorkIds에서 제거
+        match Queries.getWork workId store with
+        | Some w ->
+            match store.Flows.TryGetValue(w.ParentId) with
+            | true, _ -> store.TrackMutate(store.Flows, w.ParentId, fun f -> f.WorkIds.Remove(workId) |> ignore)
+            | _ -> ()
+        | None -> ()
         store.TrackRemove(store.Works, workId)
 
     let cascadeRemoveFlow (store: DsStore) (flowId: Guid) =
-        Queries.worksOf flowId store 
+        Queries.worksOf flowId store
         |> List.iter (fun work -> cascadeRemoveWork store work.Id)
+        // FlowIds에서 제거
+        match store.Flows.TryGetValue(flowId) with
+        | true, flow ->
+            match store.Systems.TryGetValue(flow.ParentId) with
+            | true, _ -> store.TrackMutate(store.Systems, flow.ParentId, fun s -> s.FlowIds.Remove(flowId) |> ignore)
+            | _ -> ()
+        | _ -> ()
         store.TrackRemove(store.Flows, flowId)
 
     let cascadeRemoveSystem (store: DsStore) (systemId: Guid) =

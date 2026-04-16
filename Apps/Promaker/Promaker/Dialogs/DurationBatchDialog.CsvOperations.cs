@@ -81,6 +81,15 @@ public partial class DurationBatchDialog
         }
 
         var result = ApplyImportedRows(_workRows, importRows);
+
+        // 미매치 행 하이라이트 설정
+        foreach (var row in _workRows) row.IsUnmatched = false;
+        foreach (var row in result.UnmatchedTargetRows) row.IsUnmatched = true;
+        ShowOnlyUnmatchedCheckBox.Visibility = result.UnmatchedTargetRows.Count > 0
+            ? System.Windows.Visibility.Visible
+            : System.Windows.Visibility.Collapsed;
+        _view.Refresh();
+
         var unmatchedDetails = FormatUnmatchedTargetRows(result.UnmatchedTargetRows);
         var icon = result.UnmatchedTargetRows.Count > 0 ? "⚠" : "✓";
 
