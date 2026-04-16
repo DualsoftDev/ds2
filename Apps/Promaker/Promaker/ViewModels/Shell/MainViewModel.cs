@@ -60,6 +60,7 @@ public partial class MainViewModel : ObservableObject
         RefreshLanguageState();
         LoadRecentFiles();
         LoadSplitDeviceAasxSetting();
+        LoadCreateDefaultEntitiesSetting();
         LoadIriPrefixSetting();
 
         // 템플릿 폴더 초기화
@@ -682,6 +683,27 @@ public partial class MainViewModel : ObservableObject
         {
             SplitDeviceAasx = value;
             AppSettingStore.SaveBool(SplitDeviceAasxSettingsPath, value);
+        }
+    }
+
+    // ========== CreateDefaultEntitiesOnEmptyAasx 설정 ==========
+    private static readonly string CreateDefaultEntitiesSettingsPath = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Dualsoft", "Promaker", "createDefaultEntitiesOnEmptyAasx.txt");
+
+    public bool CreateDefaultEntitiesOnEmptyAasx { get; private set; }
+
+    private void LoadCreateDefaultEntitiesSetting()
+    {
+        CreateDefaultEntitiesOnEmptyAasx = AppSettingStore.LoadBoolOrDefault(CreateDefaultEntitiesSettingsPath, false);
+    }
+
+    public void SetCreateDefaultEntitiesOnEmptyAasx(bool value)
+    {
+        if (CreateDefaultEntitiesOnEmptyAasx != value)
+        {
+            CreateDefaultEntitiesOnEmptyAasx = value;
+            AppSettingStore.SaveBool(CreateDefaultEntitiesSettingsPath, value);
         }
     }
 

@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="설정"
-        Width="480" SizeToContent="Height"
+        Width="500" Height="600"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False">
@@ -11,197 +11,169 @@
             BorderThickness="1">
         <Grid Margin="16">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- 섹션 헤더: AAS 메타데이터 -->
-            <TextBlock Grid.Row="0" Text="AAS 메타데이터"
-                       FontSize="13" FontWeight="SemiBold"
-                       Foreground="{DynamicResource PrimaryTextBrush}"
-                       Margin="0,0,0,10"/>
+            <!-- 탭 컨트롤 -->
+            <TabControl Grid.Row="0" Margin="0,0,0,10">
+                <!-- 탭 1: 일반 -->
+                <TabItem Header="일반">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                        <StackPanel>
+                            <!-- Project Name -->
+                            <TextBlock Text="프로젝트 이름"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,2"/>
+                            <TextBox x:Name="ProjectNameBox" Padding="6,4" Margin="0,0,0,12"/>
 
-            <!-- IRI Prefix -->
-            <StackPanel Grid.Row="1" Margin="0,0,0,8">
-                <TextBlock Text="IRI Prefix"
-                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                           Margin="0,0,0,2"/>
-                <TextBox x:Name="IriPrefixBox" Padding="6,4"/>
-                <TextBlock Text="Global Asset ID는 IRI Prefix + 프로젝트 이름으로 자동 생성됩니다"
-                           FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                           Margin="0,2,0,0" FontStyle="Italic"/>
-            </StackPanel>
+                            <!-- Author -->
+                            <TextBlock Text="작성자"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,2"/>
+                            <TextBox x:Name="AuthorBox" Padding="6,4" Margin="0,0,0,12"/>
 
-            <!-- 구분선 -->
-            <Border Grid.Row="2" Height="1" Margin="0,4,0,12"
-                    Background="{DynamicResource BorderBrush}"/>
+                            <!-- Version -->
+                            <TextBlock Text="버전"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,2"/>
+                            <TextBox x:Name="VersionBox" Padding="6,4" Margin="0,0,0,12"/>
 
-            <!-- 섹션 헤더: 일반 -->
-            <TextBlock Grid.Row="3" Text="일반"
-                       FontSize="13" FontWeight="SemiBold"
-                       Foreground="{DynamicResource PrimaryTextBrush}"
-                       Margin="0,0,0,10"/>
+                            <!-- Description -->
+                            <TextBlock Text="설명"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,2"/>
+                            <TextBox x:Name="DescriptionBox" Padding="6,4"
+                                     AcceptsReturn="True" TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Disabled"
+                                     Height="200"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
 
-            <!-- Project Name -->
-            <StackPanel Grid.Row="4" Margin="0,0,0,8">
-                <TextBlock Text="프로젝트 이름"
-                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                           Margin="0,0,0,2"/>
-                <TextBox x:Name="ProjectNameBox" Padding="6,4"/>
-            </StackPanel>
+                <!-- 탭 2: AASX -->
+                <TabItem Header="AASX">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                        <StackPanel>
+                            <!-- IRI Prefix -->
+                            <TextBlock Text="IRI Prefix"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,2"/>
+                            <TextBox x:Name="IriPrefixBox" Padding="6,4" Margin="0,0,0,2"/>
+                            <TextBlock Text="Global Asset ID는 IRI Prefix + 프로젝트 이름으로 자동 생성됩니다"
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,16" FontStyle="Italic"/>
 
-            <!-- Author -->
-            <StackPanel Grid.Row="5" Margin="0,0,0,8">
-                <TextBlock Text="작성자"
-                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                           Margin="0,0,0,2"/>
-                <TextBox x:Name="AuthorBox" Padding="6,4"/>
-            </StackPanel>
+                            <!-- SplitDeviceAasx -->
+                            <CheckBox x:Name="SplitDeviceAasxBox"
+                                      Content="Device System을 별도 AASX 파일로 분리 저장"
+                                      Foreground="{DynamicResource PrimaryTextBrush}"
+                                      FontSize="12" Margin="0,0,0,2"/>
+                            <TextBlock Text="저장 시 {파일명}_devices/ 폴더에 Device별 AASX를 생성합니다"
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="20,0,0,16" FontStyle="Italic"/>
 
-            <!-- Version -->
-            <StackPanel Grid.Row="6" Margin="0,0,0,8">
-                <TextBlock Text="버전"
-                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                           Margin="0,0,0,2"/>
-                <TextBox x:Name="VersionBox" Padding="6,4"/>
-            </StackPanel>
+                            <!-- CreateDefaultEntitiesOnEmptyAasx -->
+                            <CheckBox x:Name="CreateDefaultEntitiesBox"
+                                      Content="AASX 저장 시 빈 서브모델 Properties 자동 생성"
+                                      Foreground="{DynamicResource PrimaryTextBrush}"
+                                      FontSize="12" Margin="0,0,0,2"/>
+                            <TextBlock Text="저장할 때 엔티티에 도메인 서브모델 Properties가 없으면 자동으로 생성합니다 (Simulation, Control, Monitoring 등)"
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="20,0,0,0" FontStyle="Italic" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
 
-            <!-- Description -->
-            <StackPanel Grid.Row="7" Margin="0,0,0,8">
-                <TextBlock Text="설명"
-                           FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
-                           Margin="0,0,0,2"/>
-                <TextBox x:Name="DescriptionBox" Padding="6,4"
-                         AcceptsReturn="True" TextWrapping="Wrap"
-                         VerticalScrollBarVisibility="Auto"
-                         HorizontalScrollBarVisibility="Disabled"
-                         Height="96"/>
-            </StackPanel>
+                <!-- 탭 3: 프리셋 -->
+                <TabItem Header="프리셋">
+                    <Grid Margin="10">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
-            <!-- 구분선 -->
-            <Border Grid.Row="8" Height="1" Margin="0,4,0,12"
-                    Background="{DynamicResource BorderBrush}"/>
+                        <!-- 프리셋/SystemType 입력 패널 -->
+                        <Grid Grid.Row="0" Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
 
-            <!-- 섹션 헤더: 프리셋 SystemType 매핑 -->
-            <TextBlock Grid.Row="9" Text="프리셋 SystemType 매핑"
-                       FontSize="13" FontWeight="SemiBold"
-                       Foreground="{DynamicResource PrimaryTextBrush}"
-                       Margin="0,0,0,10"/>
+                            <!-- 프리셋 입력 -->
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="프리셋" FontSize="11"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           Margin="0,0,0,2"/>
+                                <TextBox x:Name="PresetTextBox" Padding="6,4"/>
+                            </StackPanel>
 
-            <!-- 프리셋/SystemType 선택 패널 -->
-            <Grid Grid.Row="10" Margin="0,0,0,8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+                            <!-- SystemType 입력 -->
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="SystemType" FontSize="11"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           Margin="0,0,0,2"/>
+                                <TextBox x:Name="SystemTypeTextBox" Padding="6,4" Text="Multi"/>
+                            </StackPanel>
 
-                <!-- 프리셋 입력 -->
-                <StackPanel Grid.Column="0">
-                    <TextBlock Text="프리셋" FontSize="11"
-                               Foreground="{DynamicResource SecondaryTextBrush}"
-                               Margin="0,0,0,2"/>
-                    <TextBox x:Name="PresetTextBox" Padding="6,4"/>
-                </StackPanel>
+                            <!-- 추가 버튼 -->
+                            <Button Grid.Column="4" Content="추가"
+                                    Style="{StaticResource DarkButton}"
+                                    Padding="12,4" VerticalAlignment="Bottom"
+                                    Click="AddPreset_Click"/>
 
-                <!-- SystemType 입력 -->
-                <StackPanel Grid.Column="2">
-                    <TextBlock Text="SystemType" FontSize="11"
-                               Foreground="{DynamicResource SecondaryTextBrush}"
-                               Margin="0,0,0,2"/>
-                    <TextBox x:Name="SystemTypeTextBox" Padding="6,4" Text="Multi"/>
-                </StackPanel>
+                            <!-- 제거 버튼 -->
+                            <Button Grid.Column="6" Content="제거"
+                                    Style="{StaticResource DarkButton}"
+                                    Padding="12,4" VerticalAlignment="Bottom"
+                                    Click="RemovePreset_Click"/>
+                        </Grid>
 
-                <!-- 추가 버튼 -->
-                <Button Grid.Column="4" Content="추가"
-                        Style="{StaticResource DarkButton}"
-                        Padding="12,4" VerticalAlignment="Bottom"
-                        Click="AddPreset_Click"/>
+                        <!-- 매핑 리스트 + 순서 조절 버튼 -->
+                        <Grid Grid.Row="1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="8"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
 
-                <!-- 제거 버튼 -->
-                <Button Grid.Column="6" Content="제거"
-                        Style="{StaticResource DarkButton}"
-                        Padding="12,4" VerticalAlignment="Bottom"
-                        Click="RemovePreset_Click"/>
-            </Grid>
+                            <ListBox Grid.Column="0" x:Name="PresetMappingListBox"
+                                     BorderBrush="{DynamicResource BorderBrush}"
+                                     Background="{DynamicResource SecondaryBackgroundBrush}"
+                                     SelectionChanged="PresetMappingListBox_SelectionChanged">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11"/>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
 
-            <!-- 매핑 리스트 + 순서 조절 버튼 -->
-            <Grid Grid.Row="11" Margin="0,0,0,8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+                            <!-- 순서 조절 버튼 -->
+                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                <Button Content="▲"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="8,2" Margin="0,0,0,4"
+                                        ToolTip="위로 이동"
+                                        Click="MoveUp_Click"/>
+                                <Button Content="▼"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="8,2"
+                                        ToolTip="아래로 이동"
+                                        Click="MoveDown_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </TabItem>
+            </TabControl>
 
-                <ListBox Grid.Column="0" x:Name="PresetMappingListBox"
-                         Height="120"
-                         BorderBrush="{DynamicResource BorderBrush}"
-                         Background="{DynamicResource SecondaryBackgroundBrush}"
-                         SelectionChanged="PresetMappingListBox_SelectionChanged">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11"/>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-
-                <!-- 순서 조절 버튼 -->
-                <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                    <Button Content="▲"
-                            Style="{StaticResource DarkButton}"
-                            Padding="8,2" Margin="0,0,0,4"
-                            ToolTip="위로 이동"
-                            Click="MoveUp_Click"/>
-                    <Button Content="▼"
-                            Style="{StaticResource DarkButton}"
-                            Padding="8,2"
-                            ToolTip="아래로 이동"
-                            Click="MoveDown_Click"/>
-                </StackPanel>
-            </Grid>
-
-            <!-- 구분선 -->
-            <Border Grid.Row="12" Height="1" Margin="0,4,0,12"
-                    Background="{DynamicResource BorderBrush}"/>
-
-            <!-- 섹션 헤더: AASX 설정 -->
-            <TextBlock Grid.Row="13" Text="AASX 설정"
-                       FontSize="13" FontWeight="SemiBold"
-                       Foreground="{DynamicResource PrimaryTextBrush}"
-                       Margin="0,0,0,10"/>
-
-            <!-- SplitDeviceAasx -->
-            <StackPanel Grid.Row="14" Margin="0,0,0,8">
-                <CheckBox x:Name="SplitDeviceAasxBox"
-                          Content="Device System을 별도 AASX 파일로 분리 저장"
-                          Foreground="{DynamicResource PrimaryTextBrush}"
-                          FontSize="12"/>
-                <TextBlock Text="저장 시 {파일명}_devices/ 폴더에 Device별 AASX를 생성합니다"
-                           FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
-                           Margin="20,2,0,0" FontStyle="Italic"/>
-            </StackPanel>
-
-            <!-- Buttons -->
-            <StackPanel Grid.Row="15" Orientation="Horizontal" HorizontalAlignment="Right"
-                        Margin="0,10,0,0">
+            <!-- Buttons (ScrollViewer 밖에 배치) -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Content="확인" Style="{StaticResource DarkButton}"
                         Padding="12,4" Margin="0,0,4,0"
                         Click="Ok_Click" IsDefault="True"/>

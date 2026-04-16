@@ -26,6 +26,19 @@ type Project [<JsonConstructor>] internal (name) =
     [<AasxField("DateTime")>]                           member val DateTime              : DateTimeOffset = DateTimeOffset.Now  with get, set
     [<AasxField("Version")>]                            member val Version               : string         = "1.0.0"             with get, set
 
+    // ── 원본 AASX Environment 보존 (Export 시 다른 서브모델 유지용) ──────────
+    /// 원본 AASX 파일의 Environment (JSON/직렬화 제외)
+    /// Import 시 설정되며, Export 시 Sequence* 서브모델을 제외한 다른 서브모델들을 유지하는 데 사용됨
+    [<JsonIgnore>]
+    [<AasxField("OriginalAasxEnvironment", Skip = true)>]
+    member val OriginalAasxEnvironment : obj option = None with get, set
+
+    /// 원본 AASX ZIP 엔트리 보존 (Export 시 모든 파일 유지용)
+    /// Key: 엔트리 이름, Value: 바이트 배열
+    [<JsonIgnore>]
+    [<AasxField("OriginalAasxEntries", Skip = true)>]
+    member val OriginalAasxEntries : System.Collections.Generic.Dictionary<string, byte[]> option = None with get, set
+
 
 /// 장치·설비 등 독립 시스템 단위.
 type DsSystem [<JsonConstructor>] internal (name) =

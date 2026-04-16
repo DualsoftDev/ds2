@@ -22,6 +22,10 @@ public partial class ProjectPropertiesDialog : Window
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Dualsoft", "Promaker", "iriPrefix.txt");
 
+    private static readonly string CreateDefaultEntitiesSettingsPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Dualsoft", "Promaker", "createDefaultEntitiesOnEmptyAasx.txt");
+
     private const string DefaultIriPrefix = "https://dualsoft.com/";
     private readonly string _initialProjectName;
 
@@ -31,6 +35,7 @@ public partial class ProjectPropertiesDialog : Window
     public string ResultVersion { get; private set; } = "1.0.0";
     public string ResultIriPrefix { get; private set; } = "https://dualsoft.com/";  // 앱 설정으로 저장됨
     public bool ResultSplitDeviceAasx { get; private set; }
+    public bool ResultCreateDefaultEntities { get; private set; }
 
     // 프리셋 SystemType 매핑 결과 (배열)
     public string[] ResultPresetSystemTypes { get; private set; } = Array.Empty<string>();
@@ -48,6 +53,7 @@ public partial class ProjectPropertiesDialog : Window
         // 앱 설정에서 로드
         IriPrefixBox.Text = AppSettingStore.LoadStringOrDefault(IriPrefixSettingsPath, DefaultIriPrefix);
         SplitDeviceAasxBox.IsChecked = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxSettingsPath, false);
+        CreateDefaultEntitiesBox.IsChecked = AppSettingStore.LoadBoolOrDefault(CreateDefaultEntitiesSettingsPath, false);
 
         // 프리셋 SystemType 매핑 로드
         LoadPresetMappings();
@@ -199,6 +205,9 @@ public partial class ProjectPropertiesDialog : Window
 
         ResultSplitDeviceAasx = SplitDeviceAasxBox.IsChecked == true;
         AppSettingStore.SaveBool(SplitDeviceAasxSettingsPath, ResultSplitDeviceAasx);
+
+        ResultCreateDefaultEntities = CreateDefaultEntitiesBox.IsChecked == true;
+        AppSettingStore.SaveBool(CreateDefaultEntitiesSettingsPath, ResultCreateDefaultEntities);
 
         // 프리셋 SystemType 매핑 저장 (ListBox에서 가져오기)
         ResultPresetSystemTypes = PresetMappingListBox.Items

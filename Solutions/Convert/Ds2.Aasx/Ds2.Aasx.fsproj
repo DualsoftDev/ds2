@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="AasxSemantics.fs" />
     <Compile Include="Concepts\Catalog.fs" />
+    <Compile Include="Concepts\Loader.fs" />
     <Compile Include="Concepts\Builder.fs" />
     <Compile Include="AasxFileIO.fs" />
     <Compile Include="Import\Core.fs" />
@@ -34,7 +35,7 @@
 
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
-    <PackageReference Include="AasCore.Aas3_0" />
+    <PackageReference Include="AasCore.Aas3_1" />
     <PackageReference Include="log4net" />
   </ItemGroup>
 

@@ -1,7 +1,7 @@
 namespace Ds2.Aasx
 
 open System.Collections.Generic
-open AasCore.Aas3_0
+open AasCore.Aas3_1
 
 module internal AasxConceptDescriptionCatalog =
 
@@ -14,8 +14,41 @@ module internal AasxConceptDescriptionCatalog =
         DefinitionEn: string            // 영어 정의
     }
 
-    /// ECLASS IRDI -> ConceptDescription 정보 매핑
-    let conceptDescriptionInfos: ConceptDescriptionInfo list = [
+    /// Sequence 서브모델 전용 ConceptDescription 정보
+    /// (Nameplate/HandoverDocumentation은 IDTA 공식 템플릿 JSON 파일 사용)
+    let sequenceConceptDescriptionInfos: ConceptDescriptionInfo list = [
+        // === DS2 Sequence Submodel (커스텀 - 필요시 추가) ===
+        { Id = "https://ds2.example.com/ids/cd/SequenceWorkflow"
+          PreferredNameDe = "Sequenzablauf"
+          PreferredNameEn = "Sequence workflow"
+          ShortName = "SeqWf"
+          DefinitionDe = "Beschreibung eines Produktionsablaufs als Sequenz von Arbeitsschritten"
+          DefinitionEn = "Description of a production workflow as a sequence of work steps" }
+
+        { Id = "https://ds2.example.com/ids/cd/WorkStep"
+          PreferredNameDe = "Arbeitsschritt"
+          PreferredNameEn = "Work step"
+          ShortName = "WkStp"
+          DefinitionDe = "Einzelner Arbeitsschritt innerhalb eines Sequenzablaufs"
+          DefinitionEn = "Individual work step within a sequence workflow" }
+
+        { Id = "https://ds2.example.com/ids/cd/DeviceCall"
+          PreferredNameDe = "Geräteaufruf"
+          PreferredNameEn = "Device call"
+          ShortName = "DevCall"
+          DefinitionDe = "Aufruf einer Gerätefunktion innerhalb eines Arbeitsschritts"
+          DefinitionEn = "Invocation of a device function within a work step" }
+
+        { Id = "https://ds2.example.com/ids/cd/TokenFlow"
+          PreferredNameDe = "Token-Fluss"
+          PreferredNameEn = "Token flow"
+          ShortName = "TokFlw"
+          DefinitionDe = "Fluss von Tokens zwischen Arbeitsschritten zur Steuerung der Ausführungsreihenfolge"
+          DefinitionEn = "Flow of tokens between work steps to control execution order" }
+    ]
+
+    /// 기존 Nameplate/Documentation IRDI 정보 (IDTA JSON 대체용)
+    let nameplateDocumentationInfos: ConceptDescriptionInfo list = [
         // === Digital Nameplate (IDTA 02006-3-0) ===
         { Id = "0173-1#02-AAY811#001"
           PreferredNameDe = "URI des Produktes"
