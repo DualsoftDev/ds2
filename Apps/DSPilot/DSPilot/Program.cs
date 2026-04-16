@@ -118,12 +118,42 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
+// ── 진단용: uploads 요청 예외 캡처 (원인 파악 후 제거) ──
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+        if (context.Response.StatusCode >= 400 && context.Request.Path.StartsWithSegments("/uploads"))
+        {
+            app.Logger.LogError("▶ uploads {Status} — Path: {Path}, WebRoot: {WR}",
+                context.Response.StatusCode, context.Request.Path, app.Environment.WebRootPath);
+        }
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "▶ uploads EXCEPTION — Path: {Path}, WebRoot: {WR}",
+            context.Request.Path, app.Environment.WebRootPath);
+        throw;
+    }
+});
+
+// 동적 업로드 파일: uploads 디렉토리 보장 후 PhysicalFileProvider로 직접 서빙
+var uploadsPath = Path.Combine(app.Environment.WebRootPath, "uploads");
+Directory.CreateDirectory(uploadsPath); // 서비스 시작 시 디렉토리 없으면 생성
+app.Logger.LogInformation("▶ DSPilot uploads dir: {Path}, exists: {E}", uploadsPath, Directory.Exists(uploadsPath));
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsPath),
+    RequestPath = "/uploads"
+});
+
 app.UseStaticFiles();
 app.UseAntiforgery();
 
-
-
-app.MapStaticAssets();
+// TODO: MapStaticAssets 500 진단 — 원인 파악 후 복원
+// app.MapStaticAssets();
 app.MapRazorComponents<DSPilot.Components.App>()
     .AddInteractiveServerRenderMode();
 

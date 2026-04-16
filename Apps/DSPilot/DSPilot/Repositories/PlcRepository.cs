@@ -770,6 +770,12 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
     {
         using var connection = CreateConnection();
 
+        if (!await RequiredTablesExistAsync(connection))
+        {
+            _logger.LogDebug("Required tables (plcTag/plcTagLog) do not exist yet. Returning empty state.");
+            return (new Dictionary<string, string>(), 0L);
+        }
+
         // 모든 태그의 최신 로그 값을 단일 쿼리로 조회
         const string sql = @"
             SELECT t.address AS Address, l.value AS Value
@@ -796,6 +802,11 @@ SELECT DateTime FROM edges ORDER BY DateTime ASC";
     public async Task<List<PlcTagLogEntity>> GetLogsAfterIdAsync(long afterId)
     {
         using var connection = CreateConnection();
+
+        if (!await RequiredTablesExistAsync(connection))
+        {
+            return new List<PlcTagLogEntity>();
+        }
 
         const string sql = @"
             SELECT

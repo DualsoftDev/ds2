@@ -186,7 +186,7 @@ module DatabaseInitialization =
                     logger.LogInformation("DSP state tables are disabled. Skipping AASX load into dspFlow/dspCall.")
                     return false
                 else
-                    let maxRetries = 5
+                    let maxRetries = 30
                     let delayMs = 2000
 
                     let mutable attempt = 1
