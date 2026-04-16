@@ -104,6 +104,13 @@ public abstract class BatchRowBase : IBatchRow
         set => SetField(ref _isSelected, value);
     }
 
+    private bool _isUnmatched;
+    public bool IsUnmatched
+    {
+        get => _isUnmatched;
+        set => SetField(ref _isUnmatched, value);
+    }
+
     protected void SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))

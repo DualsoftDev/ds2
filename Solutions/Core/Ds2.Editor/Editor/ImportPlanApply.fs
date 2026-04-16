@@ -18,8 +18,14 @@ module ImportPlanApply =
             store.TrackAdd(store.Systems, system)
         | AddFlow flow ->
             store.TrackAdd(store.Flows, flow)
+            match store.Systems.TryGetValue(flow.ParentId) with
+            | true, _ -> store.TrackMutate(store.Systems, flow.ParentId, fun s -> s.FlowIds.Add(flow.Id))
+            | _ -> ()
         | AddWork work ->
             store.TrackAdd(store.Works, work)
+            match store.Flows.TryGetValue(work.ParentId) with
+            | true, _ -> store.TrackMutate(store.Flows, work.ParentId, fun f -> f.WorkIds.Add(work.Id))
+            | _ -> ()
         | AddCall call ->
             store.TrackAdd(store.Calls, call)
         | AddApiDef apiDef ->

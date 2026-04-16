@@ -6,7 +6,7 @@ open Ds2.Core
 open Ds2.Core.Store
 
 let flowsForSystem (store: DsStore) (systemId: Guid) : (Guid * string) list =
-    Queries.flowsOf systemId store
+    Queries.orderedFlowsOf systemId store
     |> List.map (fun flow -> (flow.Id, flow.Name))
 
 let findProjectOfSystem (store: DsStore) (systemId: Guid) : Guid option =

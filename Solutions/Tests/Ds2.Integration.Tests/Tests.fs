@@ -248,6 +248,33 @@ module AasxRoundTripTests =
 
 
     [<Fact>]
+    let ``AASX round-trip preserves Flow WorkIds order`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("P")
+        let systemId = store.AddSystem("S", projectId, true)
+        let flowId = store.AddFlow("F", systemId)
+        let w1 = store.AddWork("W1", flowId)
+        let w2 = store.AddWork("W2", flowId)
+        store.MoveWorkInFlow(flowId, w2, -1)
+        let flow = store.Flows.[flowId]
+        Assert.Equal(w2, flow.WorkIds[0])
+        Assert.Equal(w1, flow.WorkIds[1])
+
+        let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
+        try
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://test/" false
+            Assert.True(exported, "Export should succeed")
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStore store2 path
+            Assert.True(imported, "Import should succeed")
+            let flow2 = store2.Flows.Values |> Seq.head
+            Assert.Equal(2, flow2.WorkIds.Count)
+            Assert.Equal(w2, flow2.WorkIds[0])
+            Assert.Equal(w1, flow2.WorkIds[1])
+        finally
+            if System.IO.File.Exists(path) then System.IO.File.Delete(path)
+
+    [<Fact>]
     let ``AASX round-trip preserves Work FlowPrefix and LocalName`` () =
         let store = DsStore()
         let projectId = store.AddProject("P")
