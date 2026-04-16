@@ -3,8 +3,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Xml;
 using System.IO.Compression;
-using AasCore.Aas3_0;
-using Env = AasCore.Aas3_0.Environment;
+using AasCore.Aas3_1;
+using Env = AasCore.Aas3_1.Environment;
 
 namespace AasxEditor.Services;
 
@@ -34,10 +34,10 @@ public class AasxConverterService
             preReadStream.Position = 0;
 
             var detectedNs = DetectAasNamespace(preReadStream);
-            if (detectedNs is not null && detectedNs != "https://admin-shell.io/aas/3/0")
+            if (detectedNs is not null && detectedNs != "https://admin-shell.io/aas/3/1")
                 throw new NotSupportedException(
-                    $"이 파일은 AAS v3.0이 아닙니다 (감지된 네임스페이스: {detectedNs}). " +
-                    $"AAS v1.0/v2.0 파일은 먼저 v3.0으로 변환해야 합니다.");
+                    $"이 파일은 AAS v3.1이 아닙니다 (감지된 네임스페이스: {detectedNs}). " +
+                    $"AAS v1.0/v2.0/v3.0 파일은 먼저 v3.1로 변환해야 합니다.");
 
             preReadStream.Position = 0;
             using var xmlReader = XmlReader.Create(preReadStream);
@@ -155,7 +155,7 @@ public class AasxConverterService
         {
             return (false, $"JSON 구문 오류: {ex.Message}");
         }
-        catch (AasCore.Aas3_0.Jsonization.Exception ex)
+        catch (Jsonization.Exception ex)
         {
             return (false, $"AAS 구조 오류: {ex.Message}");
         }
