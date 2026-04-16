@@ -49,9 +49,6 @@ module internal AasxImportGraph =
                     elif prop.PropertyType = typeof<ResizeArray<TokenSpec>> then
                         fromJsonProp<ResizeArray<TokenSpec>> smc attr.FieldName
                         |> Option.iter (fun ts -> prop.SetValue(entity, ts))
-                    elif prop.PropertyType = typeof<ResizeArray<Guid>> then
-                        fromJsonProp<ResizeArray<Guid>> smc attr.FieldName
-                        |> Option.iter (fun ids -> prop.SetValue(entity, ids))
                     elif prop.PropertyType = typeof<IOTag option> then
                         fromJsonProp<IOTag option> smc attr.FieldName
                         |> Option.iter (fun t -> prop.SetValue(entity, t))

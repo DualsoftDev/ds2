@@ -27,13 +27,13 @@ let private toArrowInfo (a: DsArrow) : CanvasArrowInfo =
 
 let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasContent =
     let flowIds =
-        Queries.orderedFlowsOf systemId store
+        Queries.flowsOf systemId store
         |> List.map (fun f -> f.Id)
 
     let nodes =
         flowIds
         |> List.collect (fun flowId ->
-            Queries.orderedWorksOf flowId store
+            Queries.worksOf flowId store
             |> List.map (fun w -> nodeFromPosition w.Id EntityKind.Work w.Name w.ParentId w.Position [] false w.ReferenceOf.IsSome w.ReferenceOf))
 
     let arrows =
@@ -43,7 +43,7 @@ let canvasContentForSystemWorks (store: DsStore) (systemId: Guid) : CanvasConten
     { Nodes = nodes; Arrows = arrows }
 
 let canvasContentForFlowWorks (store: DsStore) (flowId: Guid) : CanvasContent =
-    let works = Queries.orderedWorksOf flowId store
+    let works = Queries.worksOf flowId store
     let workIds = works |> List.map (fun w -> w.Id) |> Set.ofList
 
     let localNodes =

@@ -69,7 +69,6 @@ module internal PasteDeviceOps =
                         p.PassiveSystemIds.Add(newSystem.Id))
                     let newFlow = Flow($"{devAlias}_Flow", newSystem.Id)
                     store.TrackAdd(store.Flows, newFlow)
-                    store.TrackMutate(store.Systems, newSystem.Id, fun s -> s.FlowIds.Add(newFlow.Id))
                     let sourceApiDefs = Queries.apiDefsOf sourceSystemId store
 
                     // Work 생성 및 수집
@@ -87,7 +86,6 @@ module internal PasteDeviceOps =
                                 srcWork.GetSimulationProperties() |> Option.iter (fun p -> work.SetSimulationProperties(p.DeepCopy()))
                                 work.Duration <- srcWork.Duration)
                             store.TrackAdd(store.Works, work)
-                            store.TrackMutate(store.Flows, newFlow.Id, fun f -> f.WorkIds.Add(work.Id))
                             createdWorks.Add(work)
                             cloned.TxGuid <- Some work.Id
                             cloned.RxGuid <- Some work.Id

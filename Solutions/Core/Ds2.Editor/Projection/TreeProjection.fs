@@ -18,10 +18,10 @@ let inline private namedLeafNodes entityType parentId items =
 /// PassiveSystem 하위 노드: Flow(+Work) 목록 + ApiDefs 카테고리 폴더
 let private buildDeviceSystemChildren (store: DsStore) (systemId: Guid) : TreeNodeInfo list =
     let flows =
-        Queries.orderedFlowsOf systemId store
+        Queries.flowsOf systemId store
         |> List.map (fun flow ->
             let works =
-                Queries.orderedOriginalWorksOf flow.Id store
+                Queries.originalWorksOf flow.Id store
                 |> List.map (fun work ->
                     { Id = work.Id
                       EntityKind = EntityKind.Work
@@ -55,10 +55,10 @@ let private buildDeviceSystemChildren (store: DsStore) (systemId: Guid) : TreeNo
 
 let private buildSystemChildren (store: DsStore) (systemId: Guid) =
     let flows =
-        Queries.orderedFlowsOf systemId store
+        Queries.flowsOf systemId store
         |> List.map (fun flow ->
             let works =
-                Queries.orderedOriginalWorksOf flow.Id store
+                Queries.originalWorksOf flow.Id store
                 |> List.map (fun work ->
                     let calls =
                         Queries.originalCallsOf work.Id store

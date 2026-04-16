@@ -114,9 +114,6 @@
             <MenuItem Tag="Copy" Header="복사" Command="{Binding CopySelectedCommand}"/>
             <MenuItem Tag="Paste" Header="붙여넣기" Command="{Binding PasteCopiedCommand}"/>
             <Separator Tag="SepEdit"/>
-            <MenuItem Tag="MoveUp" Header="위로 이동" Command="{Binding MoveWorkUpCommand}"/>
-            <MenuItem Tag="MoveDown" Header="아래로 이동" Command="{Binding MoveWorkDownCommand}"/>
-            <Separator Tag="SepMove"/>
             <MenuItem Tag="FocusCanvas" Header="캔버스에서 보기" Command="{Binding Canvas.FocusSelectedInCanvasCommand}"/>
             <MenuItem Tag="Rename" Header="이름 바꾸기..." Command="{Binding FocusNameEditorCommand}"/>
             <MenuItem Tag="Delete" Header="삭제" Command="{Binding DeleteSelectedCommand}" Foreground="{DynamicResource RedAccentBrush}"/>
@@ -155,10 +152,6 @@
 
             <Grid x:Name="UpperPanelsHost" Grid.Row="2">
                 <TreeView x:Name="ControlTree"
-                          AllowDrop="True"
-                          DragOver="ControlTree_DragOver"
-                          DragLeave="ControlTree_DragLeave"
-                          Drop="ControlTree_Drop"
                           ItemsSource="{Binding ControlTreeRoots}"
                           SelectedItemChanged="Tree_SelectedItemChanged"
                           PreviewMouseDown="Tree_PreviewMouseDown"

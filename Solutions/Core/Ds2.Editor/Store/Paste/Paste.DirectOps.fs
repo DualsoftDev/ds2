@@ -78,7 +78,6 @@ module internal DirectPasteOps =
         pastedWork.Duration <- sourceWork.Duration
         pastedWork.Position <- offsetPosition baseIndex sourceWork.Position
         store.TrackAdd(store.Works, pastedWork)
-        store.TrackMutate(store.Flows, targetFlowId, fun f -> f.WorkIds.Add(pastedWork.Id))
         let isDifferentFlow = sourceWork.ParentId <> targetFlowId
         let context = if isDifferentFlow then DifferentFlow else DifferentWork
         let ctxOpt = if isDifferentFlow then deviceFlowCtxOpt else None
@@ -97,7 +96,6 @@ module internal DirectPasteOps =
         let flowName = Queries.nextUniqueName baseName existingFlowNames
         let pastedFlow = Flow(flowName, targetSystemId)
         store.TrackAdd(store.Flows, pastedFlow)
-        store.TrackMutate(store.Systems, targetSystemId, fun s -> s.FlowIds.Add(pastedFlow.Id))
         let deviceFlowCtxOpt =
             StoreHierarchyQueries.findProjectOfSystem store targetSystemId
             |> Option.map (fun projectId ->
