@@ -39,7 +39,6 @@
                             MinWidth="180">
                         <StackPanel>
                             <TextBlock Text="편집" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
-                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="I/O 편집"/></Button>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenDurationBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="Duration 편집"/></Button>
                             <Separator Margin="4,4"/>
                             <TextBlock Text="리포트" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
@@ -49,6 +48,10 @@
                             <Separator Margin="4,4"/>
                             <TextBlock Text="CSV" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="CSV 불러오기"/></Button>
+                            <Separator Margin="4,4"/>
+                            <TextBlock Text="PLC" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="I/O 편집"/></Button>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenPlcXmlGeneratorCommand}" Click="CloseUtilPopup"><TextBlock Text="PLC 생성"/></Button>
                             <StackPanel Visibility="{Binding Is3DViewEnabled, Converter={StaticResource BoolToVis}}">
                                 <Separator Margin="4,4"/>
                                 <TextBlock Text="뷰" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>

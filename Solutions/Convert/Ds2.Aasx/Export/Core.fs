@@ -10,72 +10,37 @@ open Ds2.Core.Store
 
 module internal AasxExportCore =
 
-    // ────────────────────────────────────────────────────────────────────────────
-    // idShort 검증 (AAS 규칙: [a-zA-Z][a-zA-Z0-9_]*)
-    // ────────────────────────────────────────────────────────────────────────────
-
-    /// idShort가 AAS 규칙을 준수하는지 검증
-    /// - 규칙: 첫 글자는 영문자 [a-zA-Z], 나머지는 영문자/숫자/underscore [a-zA-Z0-9_]*
-    /// - 위반 시 ArgumentException 발생
+    // idShort 규칙: 첫 글자 영문자, 나머지 영문자/숫자/밑줄 [a-zA-Z][a-zA-Z0-9_]*
     let private validateIdShort (idShort: string) : unit =
         if String.IsNullOrWhiteSpace idShort then
             invalidArg "idShort" "idShort cannot be null or whitespace"
-
         let chars = idShort.ToCharArray()
-
-        // 첫 글자 검증: 반드시 영문자
         if not (System.Char.IsLetter(chars.[0])) then
-            invalidArg "idShort" (sprintf "idShort must start with a letter (a-zA-Z): '%s' starts with '%c'" idShort chars.[0])
-
-        // 나머지 글자 검증: 영문자/숫자/underscore만 허용
+            invalidArg "idShort" (sprintf "idShort must start with a letter: '%s'" idShort)
         for i in 1 .. chars.Length - 1 do
             let c = chars.[i]
             if not (System.Char.IsLetterOrDigit(c) || c = '_') then
-                invalidArg "idShort" (sprintf "idShort can only contain letters, digits, and underscores: '%s' contains invalid character '%c' at position %d" idShort c i)
+                invalidArg "idShort" (sprintf "idShort invalid char '%c' at %d in '%s'" c i idShort)
 
-    /// idShort를 AAS 규칙에 따라 검증하고 반환
-    /// - 규칙 위반 시 예외 발생
-    /// - 정확한 규격만 허용
     let sanitizeIdShort (idShort: string) : string =
         validateIdShort idShort
         idShort
 
-    // ────────────────────────────────────────────────────────────────────────────
-    // AAS SubmodelElement 생성 헬퍼 함수들
-    // ────────────────────────────────────────────────────────────────────────────
-
-    /// 타입이 지정된 AAS Property 생성 (내부용)
     let private mkTypedProp (idShort: string) (dataType: DataTypeDefXsd) (value: string) : ISubmodelElement =
         let p = Property(valueType = dataType)
         p.IdShort <- sanitizeIdShort idShort
         p.Value <- value
         p :> ISubmodelElement
 
-    /// String Property 생성
     let mkProp idShort value = mkTypedProp idShort DataTypeDefXsd.String (if isNull value then "" else value)
-
-
-    /// Boolean Property 생성
     let mkBoolProp idShort (value: bool) = mkTypedProp idShort DataTypeDefXsd.Boolean (if value then "true" else "false")
-
-    /// Integer Property 생성
     let mkIntProp idShort (value: int) = mkTypedProp idShort DataTypeDefXsd.Int (value.ToString())
-
-    /// Double Property 생성
     let mkDoubleProp idShort (value: float) = mkTypedProp idShort DataTypeDefXsd.Double (value.ToString("G", System.Globalization.CultureInfo.InvariantCulture))
-
-    /// TimeSpan Property 생성 (XSD Duration 형식)
     let mkTimeSpanProp idShort (value: TimeSpan) = mkTypedProp idShort DataTypeDefXsd.Duration (System.Xml.XmlConvert.ToString(value))
-
-    /// GUID Property 생성
     let mkGuidProp idShort (value: Guid) = mkTypedProp idShort DataTypeDefXsd.String (value.ToString())
-
-    /// JSON 직렬화된 Property 생성
     let mkJsonProp<'T> idShort (obj: 'T) = mkProp idShort (Ds2.Serialization.JsonConverter.serialize obj)
 
-    /// SubmodelElementCollection 생성
-    /// AAS 규칙: SMC의 Value는 비어있으면 안됨 (최소 1개 이상의 요소 필요)
-    /// 빈 리스트가 전달되면 기본 속성(idShort를 Name으로 사용)을 추가
+    // AAS 규칙: SMC Value는 비어있으면 안됨 (최소 1개 이상의 요소 필요)
     let mkSmc (idShort: string) (elems: ISubmodelElement list) : ISubmodelElement =
         let finalElems =
             if elems.IsEmpty then
@@ -88,7 +53,6 @@ module internal AasxExportCore =
         smc.Value <- ResizeArray<ISubmodelElement>(finalElems)
         smc :> ISubmodelElement
 
-    /// SubmodelElementCollection 생성 (optional) - 빈 리스트면 None 반환
     let mkSmcOpt (idShort: string) (elems: ISubmodelElement list) : ISubmodelElement option =
         if elems.IsEmpty then None
         else
@@ -97,15 +61,12 @@ module internal AasxExportCore =
             smc.Value <- ResizeArray<ISubmodelElement>(elems)
             Some (smc :> ISubmodelElement)
 
-    /// SubmodelElementList 생성 (Collection 타입) - 빈 리스트는 생성하지 않음
-    /// AASd-120: SubmodelElementList의 직접 자식은 idShort를 가지면 안됨
+    // AASd-120: SubmodelElementList 직접 자식의 idShort는 null이어야 함
     let mkSml (idShort: string) (items: ISubmodelElement list) : ISubmodelElement option =
         if items.IsEmpty then None
         else
             let sml = SubmodelElementList(typeValueListElement = AasSubmodelElements.SubmodelElementCollection)
             sml.IdShort <- sanitizeIdShort idShort
-            // AASd-120: SubmodelElementList 직접 자식의 idShort는 null이어야 함
-            // ISubmodelElement는 IReferable을 상속하므로 직접 캐스팅
             let clearedItems =
                 items
                 |> List.map (fun elem ->
@@ -116,17 +77,13 @@ module internal AasxExportCore =
             sml.Value <- ResizeArray<ISubmodelElement>(clearedItems)
             Some (sml :> ISubmodelElement)
 
-    /// SubmodelElementList 생성 (Property 타입) - 빈 리스트는 생성하지 않음
-    /// AASd-120: SubmodelElementList의 직접 자식은 idShort를 가지면 안됨
     let mkSmlProp (idShort: string) (items: ISubmodelElement list) : ISubmodelElement option =
         if items.IsEmpty then None
         else
             let sml = SubmodelElementList(
                 typeValueListElement = AasSubmodelElements.Property,
-                valueTypeListElement = DataTypeDefXsd.String)  // AASd-109: Property의 valueType 지정
+                valueTypeListElement = DataTypeDefXsd.String)  // AASd-109
             sml.IdShort <- sanitizeIdShort idShort
-            // AASd-120: SubmodelElementList 직접 자식의 idShort는 null이어야 함
-            // ISubmodelElement는 IReferable을 상속하므로 직접 캐스팅
             let clearedItems =
                 items
                 |> List.map (fun elem ->
@@ -137,8 +94,6 @@ module internal AasxExportCore =
             sml.Value <- ResizeArray<ISubmodelElement>(clearedItems)
             Some (sml :> ISubmodelElement)
 
-    /// MultiLanguageProperty 생성 (단일 언어 en 지원)
-    /// 빈 값은 "N/A"로 대체 (AAS 규칙: value must not be empty)
     let mkMlp (idShort: string) (value: string) : ISubmodelElement =
         let mlp = MultiLanguageProperty()
         mlp.IdShort <- sanitizeIdShort idShort
@@ -146,13 +101,20 @@ module internal AasxExportCore =
         mlp.Value <- ResizeArray<ILangStringTextType>([LangStringTextType("en", v) :> ILangStringTextType])
         mlp :> ISubmodelElement
 
-    /// Semantic Reference 생성
     let mkSemanticRef (semanticId: string) : IReference =
         Reference(
             ReferenceTypes.ExternalReference,
             ResizeArray<IKey>([Key(KeyTypes.GlobalReference, semanticId) :> IKey])) :> IReference
 
-    /// Submodel 생성 헬퍼
+    let withSemId (uri: string option) (elem: ISubmodelElement) : ISubmodelElement =
+        match uri with
+        | None -> elem
+        | Some u ->
+            match elem with
+            | :? IHasSemantics as hs -> hs.SemanticId <- mkSemanticRef u
+            | _ -> ()
+            elem
+
     let mkSubmodel (id: string) (idShort: string) (semanticId: string) (elems: ISubmodelElement list) : Submodel =
         let sm = Submodel(id = id)
         sm.IdShort <- sanitizeIdShort idShort
@@ -160,12 +122,47 @@ module internal AasxExportCore =
         sm.SubmodelElements <- ResizeArray<ISubmodelElement>(elems)
         sm
 
-    // ────────────────────────────────────────────────────────────────────────────
-    // 리플렉션 기반 자동 속성 변환
-    // ────────────────────────────────────────────────────────────────────────────
+    let private fbTagMapPortToSmc (port: FBTagMapPort) : ISubmodelElement =
+        let baseElems = [
+            mkProp    "FBPort"     port.FBPort
+            mkProp    "Direction"  port.Direction
+            mkProp    "DataType"   port.DataType
+            mkProp    "TagPattern" port.TagPattern
+            mkBoolProp "IsDummy"   port.IsDummy
+        ]
+        let resultElems =
+            [ if not (String.IsNullOrEmpty port.VarName) then yield mkProp "VarName" port.VarName
+              if not (String.IsNullOrEmpty port.Address)  then yield mkProp "Address"  port.Address ]
+        mkSmc port.FBPort (baseElems @ resultElems)
 
-    /// 리플렉션을 사용하여 Properties 객체를 AAS SubmodelElement 리스트로 자동 변환
-    /// 지원 타입: string, bool, int, float, TimeSpan, Guid, DateTime, Array, Enum, Option
+    let private fbTagMapInstanceToSmc (inst: FBTagMapInstance) : ISubmodelElement =
+        let baseElems = [
+            mkProp "FBTypeName"  inst.FBTypeName
+            mkProp "FlowName"    inst.FlowName
+            mkProp "WorkName"    inst.WorkName
+            mkProp "DeviceAlias" inst.DeviceAlias
+            mkProp "ApiDefName"  inst.ApiDefName
+        ]
+        let portsElem =
+            if inst.Ports.Count > 0 then
+                let portList = inst.Ports |> Seq.map fbTagMapPortToSmc |> Seq.toList
+                [ mkSml "Ports" portList |> Option.defaultValue (mkProp "Ports" "[]") ]
+            else []
+        let idShort =
+            let s = $"{inst.FlowName}_{inst.DeviceAlias}_{inst.ApiDefName}"
+            if String.IsNullOrWhiteSpace s || s = "__" then "FBTagMapInst" else s
+        mkSmc idShort (baseElems @ portsElem)
+
+    let internal controlIoConfigElems (cp: ControlSystemProperties) : ISubmodelElement list =
+        [ if cp.FBTagMapPresets.Count > 0 then
+              yield mkJsonProp "FBTagMapPresets" cp.FBTagMapPresets
+          if not (String.IsNullOrEmpty cp.IoSystemBase) then
+              yield mkProp "IoSystemBase" cp.IoSystemBase
+          if not (String.IsNullOrEmpty cp.IoFlowBase) then
+              yield mkProp "IoFlowBase" cp.IoFlowBase
+          if cp.IoDeviceTemplates.Count > 0 then
+              yield mkJsonProp "IoDeviceTemplates" cp.IoDeviceTemplates ]
+
     let private propsToElements<'T> (props: 'T) : ISubmodelElement list =
         let t = typeof<'T>
         let properties = t.GetProperties(System.Reflection.BindingFlags.Public ||| System.Reflection.BindingFlags.Instance)
@@ -213,21 +210,25 @@ module internal AasxExportCore =
                         mkSmlProp name (arr |> Seq.cast<string> |> Seq.map (fun s -> mkProp "Tag" s) |> Seq.toList)
                     else
                         Some (mkJsonProp name value)
+            elif propType.IsGenericType && propType.GetGenericTypeDefinition() = typedefof<ResizeArray<_>> then
+                let resizeArr = value :?> System.Collections.IEnumerable
+                let elemType = propType.GetGenericArguments().[0]
+                let items = resizeArr |> Seq.cast<obj> |> Seq.toList
+                if items.IsEmpty then None
+                else
+                    if elemType = typeof<FBTagMapPort> then
+                        let portList = items |> List.map (fun obj -> fbTagMapPortToSmc (obj :?> FBTagMapPort))
+                        mkSml name portList
+                    elif elemType = typeof<FBTagMapInstance> then
+                        let instList = items |> List.map (fun obj -> fbTagMapInstanceToSmc (obj :?> FBTagMapInstance))
+                        mkSml name instList
+                    else
+                        Some (mkJsonProp name value)
             elif propType.IsEnum then Some (mkProp name (value.ToString()))
             else None)
         |> Array.toList
 
-    // ────────────────────────────────────────────────────────────────────────────
-    // 도메인별 Properties → SubmodelElements 변환 함수 (통합)
-    // ────────────────────────────────────────────────────────────────────────────
-    //
-    // 이전에는 32개 함수가 중복 선언되어 있었으나 (8 도메인 × 4 레벨),
-    // 이제는 Common/PropertyConversion.fs에서 통합 관리됩니다.
-    //
-    // 하위 호환성을 위해 핵심 변환 함수는 internal로 유지:
-
-    // 개별 도메인 함수들 (PropertyConversion.fs에서 참조하기 위해 internal로 노출)
-    // F# 값 제한(value restriction)을 피하기 위해 명시적 매개변수 추가
+    // F# 값 제한(value restriction) 우회용 typed wrappers (PropertyConversion.fs에서 사용)
     let internal simulationSystemPropsToElements props = propsToElements<SimulationSystemProperties> props
     let internal simulationFlowPropsToElements props = propsToElements<SimulationFlowProperties> props
     let internal simulationWorkPropsToElements props = propsToElements<SimulationWorkProperties> props

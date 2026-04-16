@@ -13,8 +13,6 @@ open System.Text.Json.Serialization
 //   - I/O Tag Mapping: Work/Call → PLC Tag 자동 생성
 //   - Hardware Components: Button/Lamp/Condition/Action HMI 요소
 //   - Multi-Vendor Support: Mitsubishi, Siemens, Rockwell AB 통합
-//   - Motion Control: 위치 제어, 펄스 제어
-//   - Safety Features: 비상정지, 안전 인터록, 타임아웃
 //
 // 핵심 가치:
 //   - 자동 태그 매핑: 설정 시간 95% 단축
@@ -57,49 +55,13 @@ type PlcVendor =
     | Omron         // FINS Protocol
     | Generic       // Generic Protocol
 
-/// 모션 제어 모드
-type MotionControlMode =
-    | Position      // 위치 제어 (절대 좌표)
-    | Velocity      // 속도 제어
-    | Torque        // 토크 제어
-    | Pulse         // 펄스 제어 (스테퍼 모터)
-
-/// 안전 상태
-type SafetyState =
-    | Safe          // 안전 상태
-    | Warning       // 경고 (계속 가능)
-    | Fault         // 오류 (정지 필요)
-    | Emergency     // 비상정지
+/// FB Port mapping status (how the port was resolved)
+type MappingStatus =
+    | AutoMapped   = 0  // 자동 매핑 성공 (SignalLookup)
+    | UserMapped   = 1  // 사용자 지정 매핑
+    | Fallback     = 2  // 기본값 매핑 (Template의 DefaultVar 사용)
 
 
-
-/// 모션 파라미터 (Position Control용)
-[<Struct>]
-type MotionParameters = {
-    TargetPosition: float           // 목표 위치 (mm, degree)
-    TargetVelocity: float           // 목표 속도 (mm/min, rpm)
-    Acceleration: float             // 가속도 (mm/s², rad/s²)
-    Deceleration: float             // 감속도
-    Jerk: float option              // 저크 (가속도 변화율)
-}
-
-/// 펄스 파라미터 (Pulse Control용)
-[<Struct>]
-type PulseParameters = {
-    PulseWidth: TimeSpan            // 펄스 폭 (HIGH 시간)
-    PulseInterval: TimeSpan         // 펄스 간격 (LOW 시간)
-    PulseCount: int option          // 펄스 횟수 (None = 무한)
-}
-
-/// 안전 인터록 설정
-[<Struct>]
-type SafetyInterlock = {
-    EmergencyStopEnabled: bool      // 비상정지 활성화
-    SafetyDoorCheck: bool           // 안전 도어 확인
-    LightCurtainCheck: bool         // 광 커튼 확인
-    TwoHandControl: bool            // 양손 조작
-    TimeoutSeconds: float           // 타임아웃 (초)
-}
 
 
 // =============================================================================
@@ -152,6 +114,52 @@ type HwAction [<JsonConstructor>] internal (name: string) =
     member val RetryCount = 0 with get, set            // 재시도 횟수
 
 
+// =============================================================================
+// FB TAG MAP — FB 포트 ↔ TagPattern 매핑
+// =============================================================================
+//
+// 태그패턴 매크로:
+//   $(F) = 액티브 시스템에서 ApiCall이 있는 Flow 이름
+//   $(D) = 그 Call이 호출하는 Device alias (패시브 시스템 참조)
+//   $(A) = 호출하는 ApiDef 이름
+//
+// Direction (PLC 신호 기준):
+//   "Input"  → IW (디바이스 → PLC, 피드백/센서)
+//   "Output" → QW (PLC → 디바이스, 명령/액추에이터)
+//   IsDummy=true → MW (가상 태그, 실배선 없음)
+
+/// FB 포트 하나의 정의 + 생성 결과
+/// TagPattern/IsDummy: 사용자 설정 (템플릿)
+/// VarName/Address:    코드 생성 결과 ($(F)/$(D)/$(A) 확장 후)
+type FBTagMapPort() =
+    member val FBPort:     string = "" with get, set   // XGI_Template.xml 포트 이름
+    member val Direction:  string = "" with get, set   // "Input"=IW | "Output"=QW
+    member val DataType:   string = "BOOL" with get, set
+    member val TagPattern: string = "" with get, set   // 예: "$(F)_Q_$(D)_$(A)"
+    member val IsDummy:    bool   = false with get, set // true → MW, 실배선 없음
+    member val VarName:    string = "" with get, set   // 생성 결과: 확장된 태그 이름
+    member val Address:    string = "" with get, set   // 생성 결과: PLC 주소
+
+/// ApiCall 1개에 대응하는 FB 인스턴스 (생성 결과)
+/// AASX에 저장 (외부 참조용), import 복원 없음 (항상 재생성)
+type FBTagMapInstance() =
+    member val FBTypeName:  string = "" with get, set  // FB 타입명 (XGI_Template.xml 기준)
+    member val FlowName:    string = "" with get, set  // 액티브 시스템 Flow 이름 → $(F)
+    member val WorkName:    string = "" with get, set
+    member val DeviceAlias: string = "" with get, set  // 호출된 디바이스 alias → $(D)
+    member val ApiDefName:  string = "" with get, set  // 호출된 ApiDef 이름 → $(A)
+    member val Ports: ResizeArray<FBTagMapPort> = ResizeArray() with get, set
+
+
+/// 디바이스 타입(SystemType)별 FBTagMap 프리셋
+/// 시스템 인스턴스별이 아닌 디바이스 타입별 전역 설정
+/// Promaker 사용자 설정 (AppData JSON에 저장)
+type FBTagMapPreset() =
+    /// 이 디바이스 타입에 적용할 FB 이름 (XGI_Template.xml Type="2" 기준)
+    member val FBTagMapName: string = "" with get, set
+    /// FB 포트별 TagPattern 템플릿
+    member val FBTagMapTemplate: ResizeArray<FBTagMapPort> = ResizeArray() with get, set
+
 
 // =============================================================================
 // PROPERTIES - 제어 속성 클래스
@@ -192,6 +200,23 @@ type ControlSystemProperties() =
     member val HealthCheckInterval = TimeSpan.FromSeconds(10.0) with get, set
     member val EnableHeartbeat = true with get, set
     member val HeartbeatInterval = TimeSpan.FromSeconds(1.0) with get, set
+
+    // ========== PLC 코드 생성 (FBTagMap) ==========
+    member val SystemType: string option = None with get, set
+
+    /// 코드 생성 결과: ApiCall 1개 = FBTagMapInstance 1개 (AASX 저장, import 복원 없음)
+    /// FBTagMap 템플릿은 SystemType 기반 전역 프리셋 (Promaker AppData) 사용
+    member val FBTagMapInstances: ResizeArray<FBTagMapInstance> = ResizeArray() with get, set
+
+    // ========== FBTagMap 프리셋 + IO 템플릿 (TAG Wizard / PLC 생성, AASX에 저장) ==========
+    /// SystemType별 FB 포트 매핑 규칙 (TagPattern 프리셋)
+    member val FBTagMapPresets   = System.Collections.Generic.Dictionary<string, FBTagMapPreset>() with get, set
+    /// system_base.txt 내용 (SystemType별 글로벌 IW/QW/MW 기준 주소)
+    member val IoSystemBase      : string = "" with get, set
+    /// flow_base.txt 내용 (Flow별 로컬 IW/QW/MW 기준 주소)
+    member val IoFlowBase        : string = "" with get, set
+    /// 장치 타입별 신호 템플릿 FileName → Content (예: "RBT.txt" → "[IW]\nADV:...")
+    member val IoDeviceTemplates = System.Collections.Generic.Dictionary<string, string>() with get, set
 
 /// Flow-level 제어 속성
 type ControlFlowProperties() =
@@ -267,6 +292,7 @@ type ControlCallProperties() =
     // ========== 조건부 실행 ==========
     member val EnableConditional = false with get, set
     member val ConditionExpression: string option = None with get, set
+
 
 
 // =============================================================================
@@ -349,78 +375,11 @@ module ControlHelpers =
         | RockwellAB -> validateRockwellAddress address
         | _ -> true // Generic은 검증 생략
 
-
-    // ========== 모션 제어 함수 ==========
-
-    /// 모션 파라미터 검증
-    let validateMotionParameters (parameters: MotionParameters) =
-        parameters.TargetVelocity > 0.0 &&
-        parameters.Acceleration > 0.0 &&
-        parameters.Deceleration > 0.0
-
-    /// 이동 시간 계산 (사다리꼴 프로파일)
-    let calculateMotionTime
-        (distance: float)
-        (velocity: float)
-        (acceleration: float)
-        (deceleration: float) =
-
-        // 가속 시간
-        let tAccel = velocity / acceleration
-        // 감속 시간
-        let tDecel = velocity / deceleration
-        // 가속 거리
-        let dAccel = 0.5 * acceleration * tAccel * tAccel
-        // 감속 거리
-        let dDecel = 0.5 * deceleration * tDecel * tDecel
-
-        if dAccel + dDecel > distance then
-            // 삼각형 프로파일 (최고 속도 미도달)
-            let vMax = sqrt (2.0 * distance * acceleration * deceleration / (acceleration + deceleration))
-            let t1 = vMax / acceleration
-            let t2 = vMax / deceleration
-            t1 + t2
-        else
-            // 사다리꼴 프로파일
-            let dConst = distance - dAccel - dDecel
-            let tConst = dConst / velocity
-            tAccel + tConst + tDecel
-
-
     // ========== 안전 기능 함수 ==========
-
-    /// 안전 상태 확인
-    let checkSafetyState (_interlock: SafetyInterlock) =
-        // 실제 구현에서는 PLC로부터 안전 신호를 읽어옴
-        SafetyState.Safe
-
-    /// 비상정지 확인
-    let isEmergencyStop (_interlock: SafetyInterlock) =
-        // 실제 구현에서는 비상정지 버튼 상태 확인
-        false
 
     /// 타임아웃 확인
     let isTimeout (startTime: DateTime) (timeoutSeconds: float) =
         (DateTime.UtcNow - startTime).TotalSeconds > timeoutSeconds
-
-
-    // ========== 펄스 제어 함수 ==========
-
-    /// 펄스 시퀀스 생성 (On/Off 타이밍)
-    let generatePulseSequence (parameters: PulseParameters) =
-        let count = defaultArg parameters.PulseCount 1
-        seq {
-            for _ in 1..count do
-                yield (true, parameters.PulseWidth)   // HIGH
-                yield (false, parameters.PulseInterval) // LOW
-        }
-
-    /// 총 펄스 시간 계산
-    let calculateTotalPulseTime (parameters: PulseParameters) =
-        let count = defaultArg parameters.PulseCount 1
-        let cycleTime = parameters.PulseWidth + parameters.PulseInterval
-        cycleTime * float count
-
 
     // ========== 상태 관리 함수 ==========
 
