@@ -1,4 +1,7 @@
+using AasCore.Aas3_1;
 using AasxEditor.Models;
+using Environment = AasCore.Aas3_1.Environment;
+using Range = AasCore.Aas3_1.Range;
 
 namespace AasxEditor.Components.Pages;
 
@@ -38,7 +41,7 @@ public partial class Home
         catch (Exception ex) { SetStatus($"일괄 편집 오류: {ex.Message}", "error"); }
     }
 
-    private int UpdateEnvironmentValues(AasCore.Aas3_0.Environment env, HashSet<string> targetIdShorts, string newValue)
+    private int UpdateEnvironmentValues(Environment env, HashSet<string> targetIdShorts, string newValue)
     {
         if (env.Submodels is null) return 0;
         return env.Submodels
@@ -46,7 +49,7 @@ public partial class Home
             .Sum(sm => UpdateElementValues(sm.SubmodelElements!, targetIdShorts, newValue));
     }
 
-    private int UpdateElementValues(List<AasCore.Aas3_0.ISubmodelElement> elements, HashSet<string> targetIdShorts, string newValue)
+    private int UpdateElementValues(List<ISubmodelElement> elements, HashSet<string> targetIdShorts, string newValue)
     {
         var count = 0;
         foreach (var elem in elements)
@@ -55,25 +58,25 @@ public partial class Home
             {
                 count += elem switch
                 {
-                    AasCore.Aas3_0.Property p => Do(() => p.Value = newValue),
-                    AasCore.Aas3_0.MultiLanguageProperty mlp => Do(() =>
+                    Property p => Do(() => p.Value = newValue),
+                    MultiLanguageProperty mlp => Do(() =>
                     {
                         if (mlp.Value is { Count: > 0 })
-                            mlp.Value[0] = new AasCore.Aas3_0.LangStringTextType(mlp.Value[0].Language, newValue);
+                            mlp.Value[0] = new LangStringTextType(mlp.Value[0].Language, newValue);
                         else
-                            mlp.Value = [new AasCore.Aas3_0.LangStringTextType("en", newValue)];
+                            mlp.Value = [new LangStringTextType("en", newValue)];
                     }),
-                    AasCore.Aas3_0.Range r => Do(() => { r.Min = newValue; r.Max = newValue; }),
+                    Range r => Do(() => { r.Min = newValue; r.Max = newValue; }),
                     _ => 0
                 };
             }
 
             var children = elem switch
             {
-                AasCore.Aas3_0.SubmodelElementCollection smc when smc.Value is { Count: > 0 } => smc.Value,
-                AasCore.Aas3_0.SubmodelElementList sml when sml.Value is { Count: > 0 } => sml.Value,
-                AasCore.Aas3_0.Entity ent when ent.Statements is { Count: > 0 }
-                    => ent.Statements.Cast<AasCore.Aas3_0.ISubmodelElement>().ToList(),
+                SubmodelElementCollection smc when smc.Value is { Count: > 0 } => smc.Value,
+                SubmodelElementList sml when sml.Value is { Count: > 0 } => sml.Value,
+                Entity ent when ent.Statements is { Count: > 0 }
+                    => ent.Statements.Cast<AasCore.Aas3_1.ISubmodelElement>().ToList(),
                 _ => null
             };
             if (children is not null) count += UpdateElementValues(children, targetIdShorts, newValue);
