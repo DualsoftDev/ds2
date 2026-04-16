@@ -23,9 +23,22 @@ window.canvasInterop = (function () {
     // ── Drag state ──
     var _dragging = null; // { g, flowId, startCol, startRow, offsetX, offsetY }
     var _resizing = null; // { g, flowId, startColSpan, startRowSpan, startX }
+    var _gridHandleDrag = null; // { handle, circle }
 
     function onPointerDown(e) {
         if (!_svg) return;
+
+        // Grid corner handle
+        var gh = e.target.closest('[data-grid-handle]');
+        if (gh) {
+            e.preventDefault();
+            _gridHandleDrag = {
+                handle: gh.getAttribute('data-grid-handle'),
+                circle: gh
+            };
+            _svg.setPointerCapture(e.pointerId);
+            return;
+        }
 
         // Delete button
         var del = e.target.closest('[data-delete-for]');
@@ -74,6 +87,12 @@ window.canvasInterop = (function () {
     }
 
     function onPointerMove(e) {
+        if (_gridHandleDrag) {
+            var sp = svgPoint(e);
+            _gridHandleDrag.circle.setAttribute('cx', sp.x);
+            _gridHandleDrag.circle.setAttribute('cy', sp.y);
+            return;
+        }
         if (_resizing) {
             var dx = e.clientX - _resizing.startX;
             var dy = e.clientY - _resizing.startY;
@@ -111,6 +130,16 @@ window.canvasInterop = (function () {
     }
 
     function onPointerUp(e) {
+        if (_gridHandleDrag) {
+            var sp = svgPoint(e);
+            var x = Math.round(sp.x);
+            var y = Math.round(sp.y);
+            if (_dotNetRef) {
+                _dotNetRef.invokeMethodAsync('OnGridHandleDragged', _gridHandleDrag.handle, x, y);
+            }
+            _gridHandleDrag = null;
+            return;
+        }
         if (_resizing) {
             // Revert visual preview — server re-render will set final size
             if (_resizing.mainRect) {
