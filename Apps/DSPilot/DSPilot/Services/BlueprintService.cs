@@ -41,7 +41,7 @@ public class BlueprintService : IDisposable
             await ms.CopyToAsync(fs);
         }
 
-        _layout.BlueprintImagePath = $"uploads/{safeName}";
+        _layout.BlueprintImagePath = $"/uploads/{safeName}";
         ImageVersion = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         // Detect image dimensions from file header
