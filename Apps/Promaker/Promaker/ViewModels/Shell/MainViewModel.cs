@@ -256,7 +256,7 @@ public partial class MainViewModel : ObservableObject
         var projectId = Queries.allProjects(_store).Head.Id;
         _view3DWindow = new View3DWindow(Simulation.ThreeD,
             onReady: () => Simulation.ThreeD.BuildScene(store, projectId));
-        _view3DWindow.SetSceneData(store, projectId, _currentFilePath);
+        _view3DWindow.SetSceneData(store, projectId);
 
         // 3D 뷰 선택 이벤트 콜백 주입 (View3DWindow 생성 후)
         Simulation.ThreeD.SetSelectionCallbacks(
@@ -279,9 +279,6 @@ public partial class MainViewModel : ObservableObject
             SelectedNode = systemNode;
             PropertyPanel.SyncSelection(systemNode, [new SelectionKey(systemId, kind)]);
         }
-
-        // 3D 뷰 창 내 Devices 트리도 동기화
-        _view3DWindow?.SelectDeviceInTree(systemId);
     }
 
     private void Handle3DApiDefSelection(Guid deviceId, string apiName)

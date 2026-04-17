@@ -89,8 +89,6 @@ const Ds2View3DLibrary = {
     if (!this._preloadPromise) {
       this._preloadPromise = (async () => {
         for (const [typeName, info] of Object.entries(this.deviceTypes)) {
-          // JSON 커스텀 모델(file=null)은 GenericDevice 클래스를 사용하므로 파일 로드 불필요
-          if (!info.file) continue;
           if (!this.loadedClasses[info.class]) {
             try {
               await this.loadModelClass(info.file, info.class);
@@ -121,9 +119,7 @@ const Ds2View3DLibrary = {
     }
 
     const ModelClass = this.loadedClasses[info.class];
-    const opts = { targetHeight: info.height, _registeredName: resolved, ...options };
-    if (info._spec) opts.spec = info._spec;
-    return ModelClass.create(THREE, opts);
+    return ModelClass.create(THREE, { targetHeight: info.height, ...options });
   },
 
   /**
@@ -138,10 +134,7 @@ const Ds2View3DLibrary = {
     const info = this.deviceTypes[resolved] || this.deviceTypes['Dummy'];
     const ModelClass = this.loadedClasses[info.class] || this.loadedClasses['Dummy'];
     if (!ModelClass) return null;
-    // JSON 커스텀 모델이면 spec 전달
-    const opts = { targetHeight: info.height, _registeredName: resolved, ...options };
-    if (info._spec) opts.spec = info._spec;
-    return ModelClass.create(THREE, opts);
+    return ModelClass.create(THREE, { targetHeight: info.height, ...options });
   },
 
   /**
@@ -216,80 +209,7 @@ const Ds2View3DLibrary = {
    */
   getDeviceInfo(deviceType) {
     return this.deviceTypes[deviceType] || this.deviceTypes['Dummy'];
-  },
-
-  // ═══════════════════════════════════════════════════════════
-  // JSON Custom Model Registration
-  // ═══════════════════════════════════════════════════════════
-
-  /**
-   * JSON 스펙으로 커스텀 모델 등록
-   * - 기존 하드코딩 모델과 동일하게 create/updateState/animate 인터페이스 사용
-   * - GenericDevice.js 클래스 사전 로드 필요 (preloadGenericDevice)
-   *
-   * @param {string} name - 모델명 (DevicePresets.KnownNames에 등록할 이름)
-   * @param {Object} jsonSpec - JSON 디바이스 스펙 객체
-   */
-  registerFromJSON(name, jsonSpec) {
-    if (!name || !jsonSpec) return;
-
-    // dirs 결정:
-    //   1) spec.dirs가 object이면 → 키 목록 (ApiDef별 독립 애니메이션)
-    //   2) spec.dirs가 array이면 → 그대로 사용
-    //   3) 없으면 → ['ACTIVE'] (단일 애니메이션 모드)
-    let dirs = ['ACTIVE'];
-    if (jsonSpec.dirs) {
-      if (Array.isArray(jsonSpec.dirs)) {
-        dirs = jsonSpec.dirs;
-      } else if (typeof jsonSpec.dirs === 'object') {
-        dirs = Object.keys(jsonSpec.dirs);
-      }
-    }
-
-    // 내장 모델과 이름이 같으면 등록 건너뜀 (C# 다이얼로그에서 이미 차단)
-    const existing = this.deviceTypes[name];
-    if (existing && existing.file && !existing._spec) {
-      console.warn(`⚠️ Skipped custom model '${name}': conflicts with built-in model`);
-      return;
-    }
-    this.deviceTypes[name] = {
-      file: null,
-      class: 'GenericDevice',
-      height: jsonSpec.height || 2.0,
-      description: jsonSpec.name || name,
-      dirs: dirs,
-      _spec: jsonSpec
-    };
-
-    console.log(`✅ Registered custom model: ${name} (dirs: [${dirs.join(', ')}], height: ${jsonSpec.height || 2.0})`);
-  },
-
-  /**
-   * 여러 JSON 모델 일괄 등록
-   * @param {Object} registry - { modelName: jsonSpec, ... }
-   */
-  registerAllFromJSON(registry) {
-    if (!registry) return;
-    for (const [name, spec] of Object.entries(registry)) {
-      this.registerFromJSON(name, spec);
-    }
-  },
-
-  /**
-   * GenericDevice 클래스 사전 로드 (preloadAll 전에 호출)
-   */
-  async preloadGenericDevice() {
-    if (!this.loadedClasses['GenericDevice']) {
-      await this.loadModelClass('Lib3D/GenericDevice.js', 'GenericDevice');
-    }
-  },
-
-  /**
-   * JSON 모델의 createSync 오버라이드
-   * — deviceTypes[name]._spec이 있으면 GenericDevice.create()에 spec 전달
-   */
-  _originalCreateSync: null,
-  _patchedCreateSync: false
+  }
 };
 
 if (typeof module !== 'undefined' && module.exports) {
