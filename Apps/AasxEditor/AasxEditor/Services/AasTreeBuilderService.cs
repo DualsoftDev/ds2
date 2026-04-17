@@ -1,6 +1,8 @@
-using AasCore.Aas3_0;
+using AasCore.Aas3_1;
 using AasxEditor.Models;
-using Env = AasCore.Aas3_0.Environment;
+using Env = AasCore.Aas3_1.Environment;
+using File = AasCore.Aas3_1.File;
+using Range = AasCore.Aas3_1.Range;
 
 namespace AasxEditor.Services;
 
@@ -176,9 +178,9 @@ public class AasTreeBuilderService
         MultiLanguageProperty => "MLP",
         SubmodelElementCollection => "SMC",
         SubmodelElementList => "SML",
-        AasCore.Aas3_0.File => "File",
+        File => "File",
         Blob => "Blob",
-        AasCore.Aas3_0.Range => "Range",
+        Range => "Range",
         ReferenceElement => "Ref",
         RelationshipElement => "Rel",
         AnnotatedRelationshipElement => "ARel",
@@ -195,7 +197,7 @@ public class AasTreeBuilderService
         MultiLanguageProperty => "L",
         SubmodelElementCollection => "{}",
         SubmodelElementList => "[]",
-        AasCore.Aas3_0.File => "F",
+        File => "F",
         Operation => "Op",
         _ => "E"
     };
@@ -243,7 +245,7 @@ public class AasTreeBuilderService
                 var firstLang = mlp.Value?.FirstOrDefault();
                 props["value"] = firstLang is not null ? $"[{firstLang.Language}] {firstLang.Text}" : null;
                 break;
-            case AasCore.Aas3_0.File f:
+            case File f:
                 props["contentType"] = f.ContentType;
                 props["value"] = f.Value;
                 break;
@@ -251,7 +253,7 @@ public class AasTreeBuilderService
                 props["contentType"] = b.ContentType;
                 props["size"] = b.Value?.Length.ToString();
                 break;
-            case AasCore.Aas3_0.Range r:
+            case Range r:
                 props["valueType"] = r.ValueType.ToString();
                 props["min"] = r.Min;
                 props["max"] = r.Max;

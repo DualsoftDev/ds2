@@ -69,7 +69,7 @@ module internal CascadeRemove =
         store.TrackRemove(store.Works, workId)
 
     let cascadeRemoveFlow (store: DsStore) (flowId: Guid) =
-        Queries.worksOf flowId store 
+        Queries.worksOf flowId store
         |> List.iter (fun work -> cascadeRemoveWork store work.Id)
         store.TrackRemove(store.Flows, flowId)
 

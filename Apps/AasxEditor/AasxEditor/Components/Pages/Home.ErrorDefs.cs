@@ -1,10 +1,10 @@
 using System.Text;
 using System.Text.Json;
-using AasCore.Aas3_0;
+using AasCore.Aas3_1;
 using AasxEditor.Models;
 using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.JSInterop;
-using Env = AasCore.Aas3_0.Environment;
+using Env = AasCore.Aas3_1.Environment;
 
 namespace AasxEditor.Components.Pages;
 

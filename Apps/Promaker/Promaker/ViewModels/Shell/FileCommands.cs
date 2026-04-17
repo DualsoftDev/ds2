@@ -205,6 +205,7 @@ public partial class MainViewModel
 
             // 앱 설정으로 저장
             SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
+            SetCreateDefaultEntitiesOnEmptyAasx(dlg.ResultCreateDefaultEntities);
             SetIriPrefix(dlg.ResultIriPrefix);
             // PresetSystemTypes는 Dialog 내부에서 이미 파일에 저장됨
         });
@@ -275,7 +276,7 @@ public partial class MainViewModel
         {
             try
             {
-                var exported = AasxExporter.exportFromStore(_store, filePath, IriPrefix, SplitDeviceAasx);
+                var exported = AasxExporter.exportFromStore(_store, filePath, IriPrefix, SplitDeviceAasx, CreateDefaultEntitiesOnEmptyAasx);
                 if (!exported)
                     Log.Warn($"AASX save failed: no project ({filePath})");
 

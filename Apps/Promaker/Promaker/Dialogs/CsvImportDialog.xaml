@@ -128,16 +128,17 @@
                                   AlternatingRowBackground="{DynamicResource SecondaryBackgroundBrush}"
                                   BorderThickness="0"
                                   VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Auto">
+                                  HorizontalScrollBarVisibility="Visible">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Flow" Binding="{Binding FlowName}" Width="100"/>
                                 <DataGridTextColumn Header="Work" Binding="{Binding WorkName}" Width="100"/>
                                 <DataGridTextColumn Header="Device" Binding="{Binding DeviceName}" Width="120"/>
+                                <DataGridTextColumn Header="System" Binding="{Binding SystemName}" Width="120"/>
                                 <DataGridTextColumn Header="Api" Binding="{Binding ApiName}" Width="100"/>
                                 <DataGridTextColumn Header="InName" Binding="{Binding InName}" Width="100"/>
                                 <DataGridTextColumn Header="InAddress" Binding="{Binding InAddress}" Width="80"/>
                                 <DataGridTextColumn Header="OutName" Binding="{Binding OutName}" Width="100"/>
-                                <DataGridTextColumn Header="OutAddress" Binding="{Binding OutAddress}" Width="80"/>
+                                <DataGridTextColumn Header="OutAddress" Binding="{Binding OutAddress}" Width="*" MinWidth="80"/>
                             </DataGrid.Columns>
                         </DataGrid>
                     </Border>

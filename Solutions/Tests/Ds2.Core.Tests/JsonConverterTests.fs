@@ -181,7 +181,7 @@ module JsonRoundTripTests =
         let workId = Guid.NewGuid()
 
         let apiDef = ApiDef("ApiDef-Full", systemId)
-        apiDef.IsPush <- true
+        apiDef.ApiDefActionType <- ApiDefActionType.Push
         apiDef.TxGuid <- Some(Guid.NewGuid())
         apiDef.RxGuid <- Some(Guid.NewGuid())
 
@@ -410,7 +410,6 @@ module ApiDefActionTypeTests =
         let actual = roundTrip apiDef
         Assert.Equal(apiDef.ApiDefActionType, actual.ApiDefActionType)
         Assert.Equal(ApiDefActionType.Push, actual.ApiDefActionType)
-        Assert.True(actual.IsPush)
 
     [<Fact>]
     let ``ApiDef should roundtrip with Pulse ActionType`` () =

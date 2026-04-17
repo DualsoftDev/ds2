@@ -2377,7 +2377,7 @@ public partial class MainWindow : Window
         switch (Path.GetExtension(path).ToLowerInvariant())
         {
             case ".aasx":
-                AasxExporter.exportFromStore(_store, path, "https://costsim.local/", false);
+                AasxExporter.exportFromStore(_store, path, "https://costsim.local/", false, false);
                 break;
             default:
                 _store.SaveToFile(path);

@@ -65,7 +65,7 @@ public partial class Home
         catch { }
     }
 
-    private async Task ApplyEnvironmentAsync(AasCore.Aas3_0.Environment env, string json, string fileName)
+    private async Task ApplyEnvironmentAsync(AasCore.Aas3_1.Environment env, string json, string fileName)
     {
         _contentLoaded = true;
         _fileName = fileName;
@@ -75,7 +75,7 @@ public partial class Home
         ClearUndoHistory();
     }
 
-    private async Task RegisterInDbAsync(string fileName, AasCore.Aas3_0.Environment env, string json)
+    private async Task RegisterInDbAsync(string fileName, AasCore.Aas3_1.Environment env, string json)
     {
         var shellCount = env.AssetAdministrationShells?.Count ?? 0;
         var submodelCount = env.Submodels?.Count ?? 0;

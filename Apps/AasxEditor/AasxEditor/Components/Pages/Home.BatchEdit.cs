@@ -1,5 +1,8 @@
+using AasCore.Aas3_1;
 using AasxEditor.Models;
 using Microsoft.AspNetCore.Components.Web;
+using Environment = AasCore.Aas3_1.Environment;
+using Range = AasCore.Aas3_1.Range;
 
 namespace AasxEditor.Components.Pages;
 
@@ -310,7 +313,7 @@ public partial class Home
 
     // ========== Environment 업데이트 ==========
 
-    private int UpdateEnvironmentValues(AasCore.Aas3_0.Environment env, HashSet<string> targetJsonPaths, Dictionary<string, string?> currentValues)
+    private int UpdateEnvironmentValues(AasCore.Aas3_1.Environment env, HashSet<string> targetJsonPaths, Dictionary<string, string?> currentValues)
     {
         if (env.Submodels is null) return 0;
         var count = 0;
@@ -323,7 +326,7 @@ public partial class Home
         return count;
     }
 
-    private int UpdateElementValues(List<AasCore.Aas3_0.ISubmodelElement> elements, HashSet<string> targetJsonPaths, Dictionary<string, string?> currentValues, string basePath)
+    private int UpdateElementValues(List<AasCore.Aas3_1.ISubmodelElement> elements, HashSet<string> targetJsonPaths, Dictionary<string, string?> currentValues, string basePath)
     {
         var count = 0;
         for (var i = 0; i < elements.Count; i++)
@@ -336,15 +339,15 @@ public partial class Home
                 var newVal = ComputeNewValue(currentValues.GetValueOrDefault(elemPath));
                 count += elem switch
                 {
-                    AasCore.Aas3_0.Property p => Do(() => p.Value = newVal),
-                    AasCore.Aas3_0.MultiLanguageProperty mlp => Do(() =>
+                    AasCore.Aas3_1.Property p => Do(() => p.Value = newVal),
+                    AasCore.Aas3_1.MultiLanguageProperty mlp => Do(() =>
                     {
                         if (mlp.Value is { Count: > 0 })
-                            mlp.Value[0] = new AasCore.Aas3_0.LangStringTextType(mlp.Value[0].Language, newVal);
+                            mlp.Value[0] = new AasCore.Aas3_1.LangStringTextType(mlp.Value[0].Language, newVal);
                         else
-                            mlp.Value = [new AasCore.Aas3_0.LangStringTextType("en", newVal)];
+                            mlp.Value = [new AasCore.Aas3_1.LangStringTextType("en", newVal)];
                     }),
-                    AasCore.Aas3_0.Range r => Do(() => { r.Min = newVal; r.Max = newVal; }),
+                    AasCore.Aas3_1.Range r => Do(() => { r.Min = newVal; r.Max = newVal; }),
                     _ => 0
                 };
             }
@@ -358,20 +361,20 @@ public partial class Home
 
     // ========== Helpers ==========
 
-    private static string GetChildBasePath(AasCore.Aas3_0.ISubmodelElement elem, string elemPath) => elem switch
+    private static string GetChildBasePath(AasCore.Aas3_1.ISubmodelElement elem, string elemPath) => elem switch
     {
-        AasCore.Aas3_0.SubmodelElementCollection => $"{elemPath}.value",
-        AasCore.Aas3_0.SubmodelElementList => $"{elemPath}.value",
-        AasCore.Aas3_0.Entity => $"{elemPath}.statements",
+        AasCore.Aas3_1.SubmodelElementCollection => $"{elemPath}.value",
+        AasCore.Aas3_1.SubmodelElementList => $"{elemPath}.value",
+        AasCore.Aas3_1.Entity => $"{elemPath}.statements",
         _ => $"{elemPath}.value"
     };
 
-    private static List<AasCore.Aas3_0.ISubmodelElement>? GetChildren(AasCore.Aas3_0.ISubmodelElement elem) => elem switch
+    private static List<AasCore.Aas3_1.ISubmodelElement>? GetChildren(AasCore.Aas3_1.ISubmodelElement elem) => elem switch
     {
-        AasCore.Aas3_0.SubmodelElementCollection smc when smc.Value is { Count: > 0 } => smc.Value,
-        AasCore.Aas3_0.SubmodelElementList sml when sml.Value is { Count: > 0 } => sml.Value,
-        AasCore.Aas3_0.Entity ent when ent.Statements is { Count: > 0 }
-            => ent.Statements.Cast<AasCore.Aas3_0.ISubmodelElement>().ToList(),
+        AasCore.Aas3_1.SubmodelElementCollection smc when smc.Value is { Count: > 0 } => smc.Value,
+        AasCore.Aas3_1.SubmodelElementList sml when sml.Value is { Count: > 0 } => sml.Value,
+        AasCore.Aas3_1.Entity ent when ent.Statements is { Count: > 0 }
+            => ent.Statements.Cast<AasCore.Aas3_1.ISubmodelElement>().ToList(),
         _ => null
     };
 }

@@ -40,9 +40,9 @@ public class SqliteMetadataStore : IAasMetadataStore
             )
             """);
 
-        // 기존 테이블에 JsonContent 컬럼이 없으면 추가 (마이그레이션)
-        try { await ExecuteNonQueryAsync(conn, "ALTER TABLE AasxFiles ADD COLUMN JsonContent TEXT"); }
-        catch { /* 이미 존재 */ }
+        // 기존 테이블에 JsonContent 컬럼이 없으면 추가 (예외 없는 마이그레이션)
+        if (!await ColumnExistsAsync(conn, "AasxFiles", "JsonContent"))
+            await ExecuteNonQueryAsync(conn, "ALTER TABLE AasxFiles ADD COLUMN JsonContent TEXT");
 
         await ExecuteNonQueryAsync(conn, """
             CREATE TABLE IF NOT EXISTS AasEntities (
@@ -335,6 +335,16 @@ public class SqliteMetadataStore : IAasMetadataStore
             });
         }
         return result;
+    }
+
+    private static async Task<bool> ColumnExistsAsync(SqliteConnection conn, string table, string column)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({table})";
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            if (reader.GetString(1) == column) return true;
+        return false;
     }
 
     private static async Task ExecuteNonQueryAsync(SqliteConnection conn, string sql)
