@@ -20,7 +20,7 @@
         </Grid.RowDefinitions>
         <WrapPanel Orientation="Horizontal">
             <Grid>
-                <ToggleButton x:Name="UtilMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="유틸리티" IsEnabled="{Binding HasProject}" Checked="UtilMenuToggle_Checked">
+                <ToggleButton x:Name="UtilMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="유틸리티" Checked="UtilMenuToggle_Checked">
                     <StackPanel Orientation="Vertical">
                         <iconPacks:PackIconMaterial Kind="Wrench" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                         <TextBlock Text="유틸" Style="{StaticResource RibbonIconLabel}"/>

@@ -297,10 +297,10 @@ module PanelTests =
         let system = addSystem store "S" project.Id false
         let id = store.AddApiDefWithProperties("Api1", system.Id)
         let apiDef = store.ApiDefs.[id]
-        apiDef.IsPush <- true
+        apiDef.ApiDefActionType <- ApiDefActionType.Push
         Assert.Equal("Api1", apiDef.Name)
         Assert.Equal(system.Id, apiDef.ParentId)
-        Assert.True(apiDef.IsPush)
+        Assert.Equal(ApiDefActionType.Push, apiDef.ApiDefActionType)
 
     [<Fact>]
     let ``UpdateApiDef changes name atomically`` () =
@@ -308,25 +308,25 @@ module PanelTests =
         let project = addProject store "P"
         let system = addSystem store "S" project.Id false
         let apiDef = addApiDef store "Api1" system.Id
-        apiDef.IsPush <- true
+        apiDef.ApiDefActionType <- ApiDefActionType.Push
         store.UpdateApiDef(apiDef.Id, "ApiRenamed", ApiDefActionType.Push, None, None)
         let updated = store.ApiDefs.[apiDef.Id]
         Assert.Equal("ApiRenamed", updated.Name)
-        Assert.True(updated.IsPush)
-
+        Assert.Equal(ApiDefActionType.Push, updated.ApiDefActionType)
+        1
     [<Fact>]
     let ``UpdateApiDef is single undo step`` () =
         let store = createStore ()
         let project = addProject store "P"
         let system = addSystem store "S" project.Id false
         let apiDef = addApiDef store "OldName" system.Id
-        let originalIsPush = apiDef.IsPush
+        let originalActionType = apiDef.ApiDefActionType
         store.UpdateApiDef(apiDef.Id, "NewName", apiDef.ApiDefActionType, apiDef.TxGuid, apiDef.RxGuid)
         Assert.Equal("NewName", store.ApiDefs.[apiDef.Id].Name)
         store.Undo()
         let reverted = store.ApiDefs.[apiDef.Id]
         Assert.Equal("OldName", reverted.Name)
-        Assert.Equal(originalIsPush, reverted.IsPush)
+        Assert.Equal(originalActionType, reverted.ApiDefActionType)
 
     [<Fact>]
     let ``UpdateConditionApiCallOutputSpec updates selected condition api call`` () =

@@ -2,7 +2,7 @@ namespace Ds2.Aasx
 
 open System
 open System.IO
-open AasCore.Aas3_0
+open AasCore.Aas3_1
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxConceptDescriptions
@@ -25,7 +25,7 @@ module AasxExporter =
     // ────────────────────────────────────────────────────────────────────────────
 
     /// Submodel에 대한 ModelReference 생성
-    let private mkSmRef (submodel: Submodel) : IReference =
+    let private mkSmRef (submodel: ISubmodel) : IReference =
         let key = Key(KeyTypes.Submodel, submodel.Id) :> IKey
         Reference(ReferenceTypes.ModelReference, ResizeArray<IKey>([key])) :> IReference
 
@@ -54,6 +54,46 @@ module AasxExporter =
             submodels.Add(docSm :> ISubmodel)
             smRefs.Add(mkSmRef docSm)
 
+    /// 원본 AASX에서 썸네일 추출
+    let private tryGetOriginalThumbnail (originalEntries: System.Collections.Generic.Dictionary<string, byte[]> option) : AasxThumbnail option =
+        match originalEntries with
+        | None -> None
+        | Some entries ->
+            // _rels/.rels 파일에서 썸네일 관계 찾기
+            match entries.TryGetValue("_rels/.rels") with
+            | true, relsBytes when relsBytes <> null && relsBytes.Length > 0 ->
+                try
+                    // BOM을 자동으로 처리하기 위해 StreamReader 사용
+                    use memStream = new MemoryStream(relsBytes)
+                    use reader = new StreamReader(memStream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks = true)
+                    let xml = reader.ReadToEnd()
+
+                    if String.IsNullOrWhiteSpace(xml) then
+                        None
+                    else
+                        let doc = System.Xml.XmlDocument()
+                        doc.LoadXml(xml.Trim())
+                        let nsm = System.Xml.XmlNamespaceManager(doc.NameTable)
+                        nsm.AddNamespace("r", "http://schemas.openxmlformats.org/package/2006/relationships")
+
+                        let node = doc.SelectSingleNode("//r:Relationship[@Type='http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail']", nsm)
+                        if node <> null && node.Attributes.["Target"] <> null then
+                            let target = node.Attributes.["Target"].Value.TrimStart('/')
+                            match entries.TryGetValue(target) with
+                            | true, thumbBytes when thumbBytes <> null && thumbBytes.Length > 0 ->
+                                let contentType =
+                                    if target.EndsWith(".png", StringComparison.OrdinalIgnoreCase) then "image/png"
+                                    elif target.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || target.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) then "image/jpeg"
+                                    else "application/octet-stream"
+                                Some { EntryName = target; ContentType = contentType; Bytes = thumbBytes }
+                            | _ -> None
+                        else
+                            None
+                with ex ->
+                    log.Warn($"원본 썸네일 추출 실패 (무시됨): {ex.Message}")
+                    None
+            | _ -> None
+
     /// 기본 썸네일 이미지 로드 (embedded resource)
     let private tryGetDefaultThumbnail () =
         let resourceName = "Ds2.Aasx.Thumbnail.ds_aasx_thumbnail_icon.png"
@@ -69,6 +109,12 @@ module AasxExporter =
                 { EntryName = "ds_aasx_thumbnail_icon.png"
                   ContentType = "image/png"
                   Bytes = mem.ToArray() }
+
+    /// 썸네일 선택: 원본 우선, 없으면 기본 썸네일
+    let private selectThumbnail (originalEntries: System.Collections.Generic.Dictionary<string, byte[]> option) : AasxThumbnail option =
+        match tryGetOriginalThumbnail originalEntries with
+        | Some thumb -> Some thumb
+        | None -> tryGetDefaultThumbnail ()
 
     /// Device용 기본 메타데이터 Submodel 추가
     let private appendDefaultDeviceMetadataSubmodels (device: DsSystem) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
@@ -324,62 +370,62 @@ module AasxExporter =
     // ────────────────────────────────────────────────────────────────────────────
 
     /// 프로젝트를 단일 AASX 파일로 Export
-    let internal exportToAasxFile (store: DsStore) (project: Project) (iriPrefix: string) (outputPath: string) : unit =
+    /// autoCreateEmptySubmodels: 빈 서브모델 Properties를 자동으로 생성할지 여부
+    let internal exportToAasxFile (store: DsStore) (project: Project) (iriPrefix: string) (outputPath: string) (autoCreateEmptySubmodels: bool) : unit =
         let prefix = if String.IsNullOrWhiteSpace(iriPrefix) then DefaultIriPrefix else iriPrefix
-        let thumbnail = tryGetDefaultThumbnail ()
+        let thumbnail = selectThumbnail project.OriginalAasxEntries
 
-        // Debug 모드 체크 및 기본 서브모델 생성
-        #if DEBUG
-        log.Info("Debug 모드: 모든 엔티티에 기본 서브모델 Properties를 추가합니다.")
+        // 설정에 따라 기본 서브모델 생성
+        if autoCreateEmptySubmodels then
+            log.Info("빈 서브모델 자동 생성: 모든 엔티티에 기본 서브모델 Properties를 추가합니다.")
 
-        // Debug 모드일 때 모든 ActiveSystem에 기본 Properties 추가
-        let activeSystems = Queries.activeSystemsOf project.Id store
-        for sys in activeSystems do
-            if sys.GetSimulationProperties().IsNone then sys.SetSimulationProperties(SimulationSystemProperties())
-            if sys.GetControlProperties().IsNone then sys.SetControlProperties(ControlSystemProperties())
-            if sys.GetMonitoringProperties().IsNone then sys.SetMonitoringProperties(MonitoringSystemProperties())
-            if sys.GetLoggingProperties().IsNone then sys.SetLoggingProperties(LoggingSystemProperties())
-            if sys.GetMaintenanceProperties().IsNone then sys.SetMaintenanceProperties(MaintenanceSystemProperties())
-            if sys.GetHMIProperties().IsNone then sys.SetHMIProperties(HMISystemProperties())
-            if sys.GetQualityProperties().IsNone then sys.SetQualityProperties(QualitySystemProperties())
-            if sys.GetCostAnalysisProperties().IsNone then sys.SetCostAnalysisProperties(CostAnalysisSystemProperties())
+            // 모든 ActiveSystem에 기본 Properties 추가
+            let activeSystems = Queries.activeSystemsOf project.Id store
+            for sys in activeSystems do
+                if sys.GetSimulationProperties().IsNone then sys.SetSimulationProperties(SimulationSystemProperties())
+                if sys.GetControlProperties().IsNone then sys.SetControlProperties(ControlSystemProperties())
+                if sys.GetMonitoringProperties().IsNone then sys.SetMonitoringProperties(MonitoringSystemProperties())
+                if sys.GetLoggingProperties().IsNone then sys.SetLoggingProperties(LoggingSystemProperties())
+                if sys.GetMaintenanceProperties().IsNone then sys.SetMaintenanceProperties(MaintenanceSystemProperties())
+                if sys.GetCostAnalysisProperties().IsNone then sys.SetCostAnalysisProperties(CostAnalysisSystemProperties())
+                if sys.GetQualityProperties().IsNone then sys.SetQualityProperties(QualitySystemProperties())
+                if sys.GetHMIProperties().IsNone then sys.SetHMIProperties(HMISystemProperties())
 
-            // Flow에도 기본 Properties 추가
-            let flows = Queries.flowsOf sys.Id store
-            for flow in flows do
-                if flow.GetSimulationProperties().IsNone then flow.SetSimulationProperties(SimulationFlowProperties())
-                if flow.GetControlProperties().IsNone then flow.SetControlProperties(ControlFlowProperties())
-                if flow.GetMonitoringProperties().IsNone then flow.SetMonitoringProperties(MonitoringFlowProperties())
-                if flow.GetLoggingProperties().IsNone then flow.SetLoggingProperties(LoggingFlowProperties())
-                if flow.GetMaintenanceProperties().IsNone then flow.SetMaintenanceProperties(MaintenanceFlowProperties())
-                if flow.GetHMIProperties().IsNone then flow.SetHMIProperties(HMIFlowProperties())
-                if flow.GetQualityProperties().IsNone then flow.SetQualityProperties(QualityFlowProperties())
-                if flow.GetCostAnalysisProperties().IsNone then flow.SetCostAnalysisProperties(CostAnalysisFlowProperties())
+                // Flow에도 기본 Properties 추가
+                let flows = Queries.flowsOf sys.Id store
+                for flow in flows do
+                    if flow.GetSimulationProperties().IsNone then flow.SetSimulationProperties(SimulationFlowProperties())
+                    if flow.GetControlProperties().IsNone then flow.SetControlProperties(ControlFlowProperties())
+                    if flow.GetMonitoringProperties().IsNone then flow.SetMonitoringProperties(MonitoringFlowProperties())
+                    if flow.GetLoggingProperties().IsNone then flow.SetLoggingProperties(LoggingFlowProperties())
+                    if flow.GetMaintenanceProperties().IsNone then flow.SetMaintenanceProperties(MaintenanceFlowProperties())
+                    if flow.GetCostAnalysisProperties().IsNone then flow.SetCostAnalysisProperties(CostAnalysisFlowProperties())
+                    if flow.GetQualityProperties().IsNone then flow.SetQualityProperties(QualityFlowProperties())
+                    if flow.GetHMIProperties().IsNone then flow.SetHMIProperties(HMIFlowProperties())
 
-                // Work에도 기본 Properties 추가
-                let works = Queries.worksOf flow.Id store
-                for work in works do
-                    if work.GetSimulationProperties().IsNone then work.SetSimulationProperties(SimulationWorkProperties())
-                    if work.GetControlProperties().IsNone then work.SetControlProperties(ControlWorkProperties())
-                    if work.GetMonitoringProperties().IsNone then work.SetMonitoringProperties(MonitoringWorkProperties())
-                    if work.GetLoggingProperties().IsNone then work.SetLoggingProperties(LoggingWorkProperties())
-                    if work.GetMaintenanceProperties().IsNone then work.SetMaintenanceProperties(MaintenanceWorkProperties())
-                    if work.GetHMIProperties().IsNone then work.SetHMIProperties(HMIWorkProperties())
-                    if work.GetQualityProperties().IsNone then work.SetQualityProperties(QualityWorkProperties())
-                    if work.GetCostAnalysisProperties().IsNone then work.SetCostAnalysisProperties(CostAnalysisWorkProperties())
+                    // Work에도 기본 Properties 추가
+                    let works = Queries.worksOf flow.Id store
+                    for work in works do
+                        if work.GetSimulationProperties().IsNone then work.SetSimulationProperties(SimulationWorkProperties())
+                        if work.GetControlProperties().IsNone then work.SetControlProperties(ControlWorkProperties())
+                        if work.GetMonitoringProperties().IsNone then work.SetMonitoringProperties(MonitoringWorkProperties())
+                        if work.GetLoggingProperties().IsNone then work.SetLoggingProperties(LoggingWorkProperties())
+                        if work.GetMaintenanceProperties().IsNone then work.SetMaintenanceProperties(MaintenanceWorkProperties())
+                        if work.GetCostAnalysisProperties().IsNone then work.SetCostAnalysisProperties(CostAnalysisWorkProperties())
+                        if work.GetQualityProperties().IsNone then work.SetQualityProperties(QualityWorkProperties())
+                        if work.GetHMIProperties().IsNone then work.SetHMIProperties(HMIWorkProperties())
 
-                    // Call에도 기본 Properties 추가
-                    let calls = Queries.callsOf work.Id store
-                    for call in calls do
-                        if call.GetSimulationProperties().IsNone then call.SetSimulationProperties(SimulationCallProperties())
-                        if call.GetControlProperties().IsNone then call.SetControlProperties(ControlCallProperties())
-                        if call.GetMonitoringProperties().IsNone then call.SetMonitoringProperties(MonitoringCallProperties())
-                        if call.GetLoggingProperties().IsNone then call.SetLoggingProperties(LoggingCallProperties())
-                        if call.GetMaintenanceProperties().IsNone then call.SetMaintenanceProperties(MaintenanceCallProperties())
-                        if call.GetHMIProperties().IsNone then call.SetHMIProperties(HMICallProperties())
-                        if call.GetQualityProperties().IsNone then call.SetQualityProperties(QualityCallProperties())
-                        if call.GetCostAnalysisProperties().IsNone then call.SetCostAnalysisProperties(CostAnalysisCallProperties())
-        #endif
+                        // Call에도 기본 Properties 추가
+                        let calls = Queries.callsOf work.Id store
+                        for call in calls do
+                            if call.GetSimulationProperties().IsNone then call.SetSimulationProperties(SimulationCallProperties())
+                            if call.GetControlProperties().IsNone then call.SetControlProperties(ControlCallProperties())
+                            if call.GetMonitoringProperties().IsNone then call.SetMonitoringProperties(MonitoringCallProperties())
+                            if call.GetLoggingProperties().IsNone then call.SetLoggingProperties(LoggingCallProperties())
+                            if call.GetMaintenanceProperties().IsNone then call.SetMaintenanceProperties(MaintenanceCallProperties())
+                            if call.GetCostAnalysisProperties().IsNone then call.SetCostAnalysisProperties(CostAnalysisCallProperties())
+                            if call.GetQualityProperties().IsNone then call.SetQualityProperties(QualityCallProperties())
+                            if call.GetHMIProperties().IsNone then call.SetHMIProperties(HMICallProperties())
 
         // 서브모델 생성 (데이터가 있는 것만)
         let modelSm = exportToModelSubmodel store project prefix
@@ -387,30 +433,114 @@ module AasxExporter =
             SubmodelType.AllDomains
             |> List.choose (fun submodelType -> tryExportToDomainSubmodel submodelType store project)
 
-        let allSubmodels = modelSm :: optionalSubmodels
+        let allNewSubmodels = modelSm :: optionalSubmodels
 
-        let submodels = ResizeArray<ISubmodel>(allSubmodels |> List.map (fun sm -> sm :> ISubmodel))
-        let smRefs = ResizeArray<IReference>(allSubmodels |> List.map mkSmRef)
+        // 원본 AASX Environment가 있으면 기존 서브모델 유지 + Sequence* 서브모델만 교체
+        let (finalSubmodels, finalShells, finalConceptDescs) =
+            match project.OriginalAasxEnvironment with
+            | Some envObj ->
+                try
+                    let originalEnv = envObj :?> Environment
 
-        // Nameplate / Documentation (항상 포함 — Ev2 동일)
-        appendProjectMetadataSubmodels project submodels smRefs
+                    // Sequence* 관련 서브모델 IdShort 목록
+                    let sequenceIdShorts =
+                        Set.ofList [
+                            SubmodelModelIdShort
+                            yield! SubmodelType.AllDomains |> List.map (fun t -> t.IdShort)
+                        ]
 
-        // Shell — IriPrefix 기반 ID
-        let globalAssetId = resolveGlobalAssetId prefix project.Name
-        let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
-        let shell = AssetAdministrationShell(id = $"{prefix}shell/{project.Name}", assetInformation = assetInfo)
-        shell.IdShort <- "ProjectShell"
-        shell.Submodels <- smRefs
+                    // 원본 서브모델 중 Sequence* 아닌 것만 유지
+                    let preservedSubmodels =
+                        if originalEnv.Submodels <> null then
+                            originalEnv.Submodels
+                            |> Seq.filter (fun sm -> not (sequenceIdShorts.Contains(sm.IdShort)))
+                            |> Seq.toList
+                        else []
 
-        // ConceptDescriptions (Nameplate + Documentation)
-        let conceptDescs = createAllConceptDescriptions true true
+                    // 새 서브모델 + 보존된 서브모델 결합
+                    let combinedSubmodels = ResizeArray<ISubmodel>()
+                    allNewSubmodels |> List.iter (fun sm -> combinedSubmodels.Add(sm :> ISubmodel))
+                    preservedSubmodels |> List.iter combinedSubmodels.Add
+
+                    // Nameplate / Documentation 추가 (원본에 없으면)
+                    let hasNameplate = combinedSubmodels |> Seq.exists (fun sm -> sm.IdShort = NameplateSubmodelIdShort)
+                    let hasDocumentation = combinedSubmodels |> Seq.exists (fun sm -> sm.IdShort = DocumentationSubmodelIdShort)
+
+                    let smRefs = ResizeArray<IReference>()
+                    allNewSubmodels |> List.iter (fun sm -> smRefs.Add(mkSmRef sm))
+                    preservedSubmodels |> List.iter (fun sm -> smRefs.Add(mkSmRef sm))
+
+                    if not hasNameplate || not hasDocumentation then
+                        let nameplate = project.Nameplate |> Option.defaultValue (Nameplate())
+                        let npSm = nameplateToSubmodel nameplate project.Id
+                        if not hasNameplate then
+                            combinedSubmodels.Add(npSm :> ISubmodel)
+                            smRefs.Add(mkSmRef npSm)
+
+                        let documentation = project.HandoverDocumentation |> Option.defaultValue (HandoverDocumentation())
+                        let docSm = documentationToSubmodel documentation project.Id
+                        if not hasDocumentation then
+                            combinedSubmodels.Add(docSm :> ISubmodel)
+                            smRefs.Add(mkSmRef docSm)
+
+                    // Shell 유지 또는 생성
+                    let finalShells =
+                        if originalEnv.AssetAdministrationShells <> null && originalEnv.AssetAdministrationShells.Count > 0 then
+                            // 원본 Shell 사용하되 Submodels 참조만 업데이트
+                            let originalShell = originalEnv.AssetAdministrationShells.[0]
+                            originalShell.Submodels <- smRefs
+                            ResizeArray<IAssetAdministrationShell>([originalShell])
+                        else
+                            // Shell 생성
+                            let globalAssetId = resolveGlobalAssetId prefix project.Name
+                            let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
+                            let shell = AssetAdministrationShell(id = $"{prefix}shell/{project.Name}", assetInformation = assetInfo)
+                            shell.IdShort <- "ProjectShell"
+                            shell.Submodels <- smRefs
+                            ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell])
+
+                    // ConceptDescriptions 유지 또는 생성
+                    let finalConcepts =
+                        if originalEnv.ConceptDescriptions <> null && originalEnv.ConceptDescriptions.Count > 0 then
+                            originalEnv.ConceptDescriptions
+                        else
+                            createAllConceptDescriptions None
+
+                    (combinedSubmodels, finalShells, finalConcepts)
+                with ex ->
+                    log.Warn($"원본 Environment 처리 실패: {ex.Message}. 새로운 Environment를 생성합니다.", ex)
+                    // 실패 시 기본 동작
+                    let submodels = ResizeArray<ISubmodel>(allNewSubmodels |> List.map (fun sm -> sm :> ISubmodel))
+                    let smRefs = ResizeArray<IReference>(allNewSubmodels |> List.map mkSmRef)
+                    appendProjectMetadataSubmodels project submodels smRefs
+
+                    let globalAssetId = resolveGlobalAssetId prefix project.Name
+                    let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
+                    let shell = AssetAdministrationShell(id = $"{prefix}shell/{project.Name}", assetInformation = assetInfo)
+                    shell.IdShort <- "ProjectShell"
+                    shell.Submodels <- smRefs
+
+                    (submodels, ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]), createAllConceptDescriptions None)
+            | None ->
+                // 원본 Environment 없음 - 새로 생성
+                let submodels = ResizeArray<ISubmodel>(allNewSubmodels |> List.map (fun sm -> sm :> ISubmodel))
+                let smRefs = ResizeArray<IReference>(allNewSubmodels |> List.map mkSmRef)
+                appendProjectMetadataSubmodels project submodels smRefs
+
+                let globalAssetId = resolveGlobalAssetId prefix project.Name
+                let assetInfo = AssetInformation(assetKind = AssetKind.Instance, globalAssetId = globalAssetId)
+                let shell = AssetAdministrationShell(id = $"{prefix}shell/{project.Name}", assetInformation = assetInfo)
+                shell.IdShort <- "ProjectShell"
+                shell.Submodels <- smRefs
+
+                (submodels, ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]), createAllConceptDescriptions None)
 
         let env =
             Environment(
-                submodels = submodels,
-                assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
-                conceptDescriptions = conceptDescs)
-        writeEnvironment env outputPath thumbnail
+                submodels = finalSubmodels,
+                assetAdministrationShells = finalShells,
+                conceptDescriptions = finalConceptDescs)
+        writeEnvironment env outputPath thumbnail project.OriginalAasxEntries
 
     /// 단일 Device를 독립 AASX로 저장 (ev2처럼 ActiveSystems=[device] 래핑)
     let internal exportDeviceAasx (store: DsStore) (project: Project) (device: DsSystem) (iriPrefix: string) (outputPath: string) : unit =
@@ -440,15 +570,16 @@ module AasxExporter =
         appendDefaultDeviceMetadataSubmodels device submodels smRefs
         shell.Submodels <- smRefs
 
-        let conceptDescs = createAllConceptDescriptions true true
+        // ConceptDescriptions (Nameplate + Documentation)
+        let conceptDescs = createAllConceptDescriptions None
 
         let env =
             Environment(
                 submodels = submodels,
                 assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
                 conceptDescriptions = conceptDescs)
-        let thumbnail = tryGetDefaultThumbnail ()
-        writeEnvironment env outputPath thumbnail
+        let thumbnail = selectThumbnail None  // Device AASX는 원본 없음 → 기본 썸네일
+        writeEnvironment env outputPath thumbnail None
 
     /// Device 이름 → 유니크 파일명 (같은 이름이 있으면 Guid 해시 추가)
     let internal resolveDeviceFileName (usedNames: System.Collections.Generic.HashSet<string>) (device: DsSystem) : string =
@@ -500,26 +631,27 @@ module AasxExporter =
         shell.IdShort <- "ProjectShell"
         shell.Submodels <- smRefs
 
-        let conceptDescs = createAllConceptDescriptions true true
+        // ConceptDescriptions (IDTA JSON 또는 fallback)
+        let conceptDescs = createAllConceptDescriptions None
         let env =
             Environment(
                 submodels = submodels,
                 assetAdministrationShells = ResizeArray<IAssetAdministrationShell>([shell :> IAssetAdministrationShell]),
                 conceptDescriptions = conceptDescs)
-        let thumbnail = tryGetDefaultThumbnail ()
-        writeEnvironment env outputPath thumbnail
+        let thumbnail = selectThumbnail project.OriginalAasxEntries  // 원본 썸네일 우선 사용
+        writeEnvironment env outputPath thumbnail project.OriginalAasxEntries
         log.Info($"분리 저장 완료: {passiveSystems.Length}개 Device → {devicesDir}")
 
     /// Export helper for UI callers that should not access Project entity directly.
     /// Returns false when there is no project in the store.
-    let internal tryExportFirstProjectToAasxFile (store: DsStore) (iriPrefix: string) (outputPath: string) : bool =
+    let internal tryExportFirstProjectToAasxFile (store: DsStore) (iriPrefix: string) (outputPath: string) (autoCreateEmptySubmodels: bool) : bool =
         match Queries.allProjects store |> List.tryHead with
         | None -> false
         | Some project ->
-            exportToAasxFile store project iriPrefix outputPath
+            exportToAasxFile store project iriPrefix outputPath autoCreateEmptySubmodels
             true
 
-    let exportFromStore (store: DsStore) (path: string) (iriPrefix: string) (splitDeviceAasx: bool) : bool =
+    let exportFromStore (store: DsStore) (path: string) (iriPrefix: string) (splitDeviceAasx: bool) (autoCreateEmptySubmodels: bool) : bool =
         // 필드 자동 생성 검증 (개발 시 정보 출력)
         validateAll () |> ignore
 
@@ -529,5 +661,5 @@ module AasxExporter =
             if splitDeviceAasx then
                 exportSplitAasx store project iriPrefix path
             else
-                exportToAasxFile store project iriPrefix path
+                exportToAasxFile store project iriPrefix path autoCreateEmptySubmodels
             true

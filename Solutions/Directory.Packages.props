@@ -2,7 +2,6 @@
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
-
   <!-- 데이터베이스 -->
   <ItemGroup>
     <PackageVersion Include="Dapper" Version="2.1.35" />
@@ -10,17 +9,14 @@
     <PackageVersion Include="Npgsql" Version="9.0.0" />
     <PackageVersion Include="System.Data.Common" Version="9.0.0" />
   </ItemGroup>
-
   <!-- 직렬화 -->
   <ItemGroup>
     <PackageVersion Include="System.Text.Json" Version="9.0.0" />
   </ItemGroup>
-
   <!-- F# 핵심 라이브러리 -->
   <ItemGroup>
     <PackageVersion Include="FSharp.Core" Version="9.0.100" />
   </ItemGroup>
-
   <!-- 테스트 -->
   <ItemGroup>
     <PackageVersion Include="xunit" Version="2.9.0" />
@@ -28,22 +24,18 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="coverlet.collector" Version="6.0.2" />
   </ItemGroup>
-
   <!-- AAS -->
   <ItemGroup>
-    <PackageVersion Include="AasCore.Aas3_0" Version="1.0.0" />
+    <PackageVersion Include="AasCore.Aas3_1" Version="1.0.0" />
   </ItemGroup>
-
   <!-- WPF MVVM -->
   <ItemGroup>
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.0" />
   </ItemGroup>
-
   <!-- 로깅 -->
   <ItemGroup>
-    <PackageVersion Include="log4net" Version="3.2.0" />
+    <PackageVersion Include="log4net" Version="3.3.0" />
   </ItemGroup>
-
   <!-- 리포트 -->
   <ItemGroup>
     <PackageVersion Include="ClosedXML" Version="0.104.2" />

@@ -2,6 +2,7 @@ using AasxEditor.Models;
 using AasxEditor.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
+using Environment = AasCore.Aas3_1.Environment;
 
 namespace AasxEditor.Components.Pages;
 
@@ -23,7 +24,7 @@ public partial class Home : IAsyncDisposable
     private bool _contentLoaded;
     private long _currentFileId;
     private string _currentJson = "";
-    private AasCore.Aas3_0.Environment? _currentEnv;
+    private AasCore.Aas3_1.Environment? _currentEnv;
 
     private List<AasTreeNode> _treeNodes = [];
     private AasTreeNode? _selectedNode;

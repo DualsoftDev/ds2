@@ -111,8 +111,8 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode) =
                 ScheduledEventType.ForcedCallTransition(callGuid, newState),
                 ScheduledEvent.PriorityStateChange) |> ignore
     let executeApiCall deviceWorkGuid =
-        // Device Work는 Ready 상태일 때만 Going 전이 (F→G 직접 점프 방지)
-        if stateManager.GetWorkState(deviceWorkGuid) <> Status4.Ready then () else
+        // Finish 상태인 Device Work는 Going 전이 차단 (Reset 없이 재전진 방지)
+        if stateManager.GetWorkState(deviceWorkGuid) = Status4.Finish then () else
         match runtimeMode with
         | RuntimeMode.Simulation ->
             forceWorkState deviceWorkGuid Status4.Going

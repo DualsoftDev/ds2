@@ -158,7 +158,7 @@ module internal DirectDeviceOps =
                 let apiDef = ApiDef(apiName, system.Id)
                 match Map.tryFind key state.PendingWorks with
                 | Some work ->
-                    apiDef.IsPush <- false
+                    apiDef.ApiDefActionType <- ApiDefActionType.Normal
                     apiDef.TxGuid <- Some work.Id
                     apiDef.RxGuid <- Some work.Id
                 | None -> ()

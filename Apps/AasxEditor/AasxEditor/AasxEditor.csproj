@@ -11,7 +11,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="AasCore.Aas3_0" Version="*" />
+    <PackageReference Include="AasCore.Aas3_1" Version="*" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.*" />
   </ItemGroup>
 

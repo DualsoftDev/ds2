@@ -199,6 +199,21 @@ public sealed class Status4ToStringConverter : IValueConverter
         => Binding.DoNothing;
 }
 
+public sealed class DotToNewlineConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not string name || !name.Contains('.'))
+            return value ?? "";
+
+        var dotIndex = name.IndexOf('.');
+        return name.Substring(0, dotIndex + 1) + "\n" + name.Substring(dotIndex + 1);
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => Binding.DoNothing;
+}
+
 public sealed class TabKindToBrushConverter : IValueConverter
 {
     private static readonly IReadOnlyDictionary<TabKind, string> TabBrushKeys =

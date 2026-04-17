@@ -97,20 +97,20 @@ module DeepCopyTests =
     let ``ApiDef DeepCopy should copy Properties correctly`` () =
         let systemId = Guid.NewGuid()
         let original = ApiDef("TestApiDef", systemId)
-        original.IsPush <- true
+        original.ApiDefActionType <- ApiDefActionType.Push
         original.TxGuid <- Some (Guid.NewGuid())
 
         let copied = original.DeepCopy()
 
         Assert.NotEqual(original.Id, copied.Id)
         Assert.Equal(original.ParentId, copied.ParentId)
-        Assert.True(copied.IsPush)
+        Assert.Equal(ApiDefActionType.Push, copied.ApiDefActionType)
         Assert.Equal(original.TxGuid, copied.TxGuid)
 
         // Properties가 독립적인지 확인
-        copied.IsPush <- false
-        Assert.True(original.IsPush)
-        Assert.False(copied.IsPush)
+        copied.ApiDefActionType <- ApiDefActionType.Normal
+        Assert.Equal(ApiDefActionType.Push, original.ApiDefActionType)
+        Assert.Equal(ApiDefActionType.Normal, copied.ApiDefActionType)
 
     [<Fact>]
     let ``Multiple nested DeepCopy should maintain independence`` () =

@@ -2,7 +2,7 @@ namespace Ds2.Aasx
 
 open System
 open System.Reflection
-open AasCore.Aas3_0
+open AasCore.Aas3_1
 open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
@@ -114,9 +114,7 @@ module internal AasxImportGraph =
         try
             let call = Call("", "", workId)
             setPropsFromAasxFields smc call
-            // 모든 도메인 속성 Import (통합 버전)
-            SubmodelType.AllDomains
-            |> List.iter (fun submodelType -> PropertyConversion.importCallProperty submodelType smc call.Properties)
+            // 도메인 속성은 importDomainSubmodel에서 별도 처리 (여기서 중복 import하면 기본값이 먼저 들어가 실제 값을 덮음)
             // ApiCalls를 SubmodelElementList에서 읽기 (새 형식)
             let apiCalls = getChildSmlSmcs smc ApiCalls_ |> List.choose smcToApiCall
             if not apiCalls.IsEmpty then
@@ -142,9 +140,7 @@ module internal AasxImportGraph =
             | Some flowId ->
                 let work = Work("", "", flowId)
                 setPropsFromAasxFields smc work
-                // 모든 도메인 속성 Import (통합 버전)
-                SubmodelType.AllDomains
-                |> List.iter (fun submodelType -> PropertyConversion.importWorkProperty submodelType smc work.Properties)
+                // 도메인 속성은 importDomainSubmodel에서 별도 처리
 
                 let calls      = getChildSmlSmcs smc Calls_  |> List.choose (fun c -> smcToCall c work.Id)
                 let arrowCalls = getChildSmlSmcs smc Arrows_ |> List.choose (fun a -> smcToArrowCall a work.Id)
@@ -158,9 +154,7 @@ module internal AasxImportGraph =
         try
             let flow = Flow("", systemId)
             setPropsFromAasxFields smc flow
-            // 모든 도메인 속성 Import (통합 버전)
-            SubmodelType.AllDomains
-            |> List.iter (fun submodelType -> PropertyConversion.importFlowProperty submodelType smc flow.Properties)
+            // 도메인 속성은 importDomainSubmodel에서 별도 처리
             Some flow
         with ex -> log.Warn($"smcToFlow 실패: {ex.Message}", ex); None
 
@@ -183,9 +177,7 @@ module internal AasxImportGraph =
                 log.Error($"AASX import failed: System entry missing Name and Guid ({describeSmc smc}).")
                 None
             else
-                // 모든 도메인 속성 Import (통합 버전)
-                SubmodelType.AllDomains
-                |> List.iter (fun submodelType -> PropertyConversion.importSystemProperty submodelType smc system.Properties)
+                // 도메인 속성은 importDomainSubmodel에서 별도 처리
 
                 let systemLabel = $"System '{system.Name}' ({system.Id})"
 

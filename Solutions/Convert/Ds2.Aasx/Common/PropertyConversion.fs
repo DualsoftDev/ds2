@@ -1,6 +1,6 @@
 namespace Ds2.Aasx
 
-open AasCore.Aas3_0
+open AasCore.Aas3_1
 open Ds2.Core
 open Ds2.Aasx.AasxExportCore
 open Ds2.Aasx.AasxImportCore

@@ -5,7 +5,7 @@ open System.IO
 open System.IO.Compression
 open System.Text
 open System.Xml
-open AasCore.Aas3_0
+open AasCore.Aas3_1
 open log4net
 
 let private log = LogManager.GetLogger("Ds2.Aasx.AasxFileIO")
@@ -15,39 +15,82 @@ type AasxThumbnail =
       ContentType: string
       Bytes: byte[] }
 
-/// AAS XML 네임스페이스 정규화 (모든 버전 → 3.0으로 변환)
+/// AAS XML 네임스페이스 정규화 (모든 버전 → 3.1로 변환)
 let private normalizeAasXml (xml: string) : string =
     xml
-        // AAS 버전 네임스페이스 정규화 (1.0, 2.0, 3.1 → 3.0)
-        .Replace("http://www.admin-shell.io/aas/1/0", "https://admin-shell.io/aas/3/0")
-        .Replace("http://admin-shell.io/aas/1/0", "https://admin-shell.io/aas/3/0")
-        .Replace("https://www.admin-shell.io/aas/1/0", "https://admin-shell.io/aas/3/0")
-        .Replace("https://admin-shell.io/aas/1/0", "https://admin-shell.io/aas/3/0")
-        .Replace("http://www.admin-shell.io/aas/2/0", "https://admin-shell.io/aas/3/0")
-        .Replace("http://admin-shell.io/aas/2/0", "https://admin-shell.io/aas/3/0")
-        .Replace("https://www.admin-shell.io/aas/2/0", "https://admin-shell.io/aas/3/0")
-        .Replace("https://admin-shell.io/aas/2/0", "https://admin-shell.io/aas/3/0")
-        .Replace("http://www.admin-shell.io/aas/3/1", "https://admin-shell.io/aas/3/0")
-        .Replace("http://admin-shell.io/aas/3/1", "https://admin-shell.io/aas/3/0")
-        .Replace("https://www.admin-shell.io/aas/3/1", "https://admin-shell.io/aas/3/0")
-        .Replace("https://admin-shell.io/aas/3/1", "https://admin-shell.io/aas/3/0")
-        // HTTP → HTTPS 정규화
-        .Replace("http://admin-shell.io/aas/3/0", "https://admin-shell.io/aas/3/0")
-        .Replace("http://www.admin-shell.io/aas/3/0", "https://admin-shell.io/aas/3/0")
-        // IEC 버전 네임스페이스 정규화
-        .Replace("http://www.admin-shell.io/IEC61360/1/0", "https://admin-shell.io/aas/3/0/IEC61360")
-        .Replace("http://admin-shell.io/IEC61360/1/0", "https://admin-shell.io/aas/3/0/IEC61360")
-        .Replace("https://www.admin-shell.io/IEC61360/1/0", "https://admin-shell.io/aas/3/0/IEC61360")
-        .Replace("https://admin-shell.io/IEC61360/1/0", "https://admin-shell.io/aas/3/0/IEC61360")
-        .Replace("http://www.admin-shell.io/IEC61360/2/0", "https://admin-shell.io/aas/3/0/IEC61360")
-        .Replace("http://admin-shell.io/IEC61360/2/0", "https://admin-shell.io/aas/3/0/IEC61360")
-        .Replace("https://www.admin-shell.io/IEC61360/2/0", "https://admin-shell.io/aas/3/0/IEC61360")
-        .Replace("https://admin-shell.io/IEC61360/2/0", "https://admin-shell.io/aas/3/0/IEC61360")
+        // AAS 버전 네임스페이스 정규화 (1.0, 2.0, 3.0 → 3.1)
+        .Replace("http://www.admin-shell.io/aas/1/0", "https://admin-shell.io/aas/3/1")
+        .Replace("http://admin-shell.io/aas/1/0", "https://admin-shell.io/aas/3/1")
+        .Replace("https://www.admin-shell.io/aas/1/0", "https://admin-shell.io/aas/3/1")
+        .Replace("https://admin-shell.io/aas/1/0", "https://admin-shell.io/aas/3/1")
+        .Replace("http://www.admin-shell.io/aas/2/0", "https://admin-shell.io/aas/3/1")
+        .Replace("http://admin-shell.io/aas/2/0", "https://admin-shell.io/aas/3/1")
+        .Replace("https://www.admin-shell.io/aas/2/0", "https://admin-shell.io/aas/3/1")
+        .Replace("https://admin-shell.io/aas/2/0", "https://admin-shell.io/aas/3/1")
+        .Replace("http://www.admin-shell.io/aas/3/0", "https://admin-shell.io/aas/3/1")
+        .Replace("http://admin-shell.io/aas/3/0", "https://admin-shell.io/aas/3/1")
+        .Replace("https://www.admin-shell.io/aas/3/0", "https://admin-shell.io/aas/3/1")
+        .Replace("https://admin-shell.io/aas/3/0", "https://admin-shell.io/aas/3/1")
+        // HTTP → HTTPS 정규화 (3.1)
+        .Replace("http://admin-shell.io/aas/3/1", "https://admin-shell.io/aas/3/1")
+        .Replace("http://www.admin-shell.io/aas/3/1", "https://admin-shell.io/aas/3/1")
+        // IEC 버전 네임스페이스 정규화 (3.1로 변환)
+        .Replace("http://www.admin-shell.io/IEC61360/1/0", "https://admin-shell.io/aas/3/1")
+        .Replace("http://admin-shell.io/IEC61360/1/0", "https://admin-shell.io/aas/3/1")
+        .Replace("https://www.admin-shell.io/IEC61360/1/0", "https://admin-shell.io/aas/3/1")
+        .Replace("https://admin-shell.io/IEC61360/1/0", "https://admin-shell.io/aas/3/1")
+        .Replace("http://www.admin-shell.io/IEC61360/2/0", "https://admin-shell.io/aas/3/1")
+        .Replace("http://admin-shell.io/IEC61360/2/0", "https://admin-shell.io/aas/3/1")
+        .Replace("https://www.admin-shell.io/IEC61360/2/0", "https://admin-shell.io/aas/3/1")
+        .Replace("https://admin-shell.io/IEC61360/2/0", "https://admin-shell.io/aas/3/1")
+        .Replace("https://admin-shell.io/aas/3/0/IEC61360", "https://admin-shell.io/aas/3/1")
+        .Replace("http://admin-shell.io/aas/3/0/IEC61360", "https://admin-shell.io/aas/3/1")
         // 루트 엘리먼트 이름 정규화 (aasenv, aasEnv → environment)
         .Replace("<aasenv ", "<environment ")
         .Replace("</aasenv>", "</environment>")
         .Replace("<aasEnv ", "<environment ")
         .Replace("</aasEnv>", "</environment>")
+
+/// AAS 3.1 엄격 스키마 위반 보정:
+/// <embeddedDataSpecification> 에 <dataSpecification> 참조가 누락된 경우 기본 IEC61360 참조를 주입.
+/// (SICK, 일부 카탈로그 파일처럼 dataSpecificationContent만 있는 경우를 허용)
+let private fixMissingDataSpecifications (xml: string) : string =
+    try
+        let doc = System.Xml.Linq.XDocument.Parse(xml)
+        let ns = doc.Root.GetDefaultNamespace()
+        let edsName         = ns + "embeddedDataSpecification"
+        let dataSpecName    = ns + "dataSpecification"
+        let contentName     = ns + "dataSpecificationContent"
+        let typeName        = ns + "type"
+        let keysName        = ns + "keys"
+        let keyName         = ns + "key"
+        let valueName       = ns + "value"
+
+        let mutable fixedCount = 0
+        for eds in doc.Descendants(edsName) |> Seq.toList do
+            if isNull (eds.Element(dataSpecName)) then
+                let dataSpec =
+                    System.Xml.Linq.XElement(dataSpecName,
+                        System.Xml.Linq.XElement(typeName, "ExternalReference"),
+                        System.Xml.Linq.XElement(keysName,
+                            System.Xml.Linq.XElement(keyName,
+                                System.Xml.Linq.XElement(typeName, "GlobalReference"),
+                                System.Xml.Linq.XElement(valueName,
+                                    "https://admin-shell.io/aas/3/0/DataSpecificationIEC61360"))))
+                // dataSpecification은 dataSpecificationContent 앞에 와야 함
+                let contentEl = eds.Element(contentName)
+                if not (isNull contentEl) then
+                    contentEl.AddBeforeSelf(dataSpec)
+                else
+                    eds.AddFirst(dataSpec)
+                fixedCount <- fixedCount + 1
+
+        if fixedCount > 0 then
+            log.Info($"AAS XML: 누락된 dataSpecification 참조 {fixedCount}개 보정")
+        doc.ToString()
+    with ex ->
+        log.Warn($"dataSpecification 보정 실패 (원본 사용): {ex.Message}")
+        xml
 
 /// 네임스페이스 버전 감지
 let private detectAasVersion (xml: string) : string option =
@@ -61,11 +104,29 @@ let private detectAasVersion (xml: string) : string option =
     |> List.tryPick (fun (version, pattern) ->
         if xml.Contains(pattern) then Some version else None)
 
+/// AASX ZIP의 모든 엔트리를 읽어서 Dictionary로 반환
+let internal readAllZipEntries (path: string) : System.Collections.Generic.Dictionary<string, byte[]> option =
+    try
+        use fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)
+        use archive = new ZipArchive(fileStream, ZipArchiveMode.Read)
+        let entries = System.Collections.Generic.Dictionary<string, byte[]>()
+
+        for entry in archive.Entries do
+            use stream = entry.Open()
+            use memStream = new IO.MemoryStream()
+            stream.CopyTo(memStream)
+            entries.[entry.FullName] <- memStream.ToArray()
+
+        Some entries
+    with ex ->
+        log.Warn($"ZIP 엔트리 읽기 실패: {path} - {ex.Message}")
+        None
+
 /// AASX ZIP에서 Environment를 읽어 반환합니다.
 /// 실패 시 Result로 에러 메시지 반환
 let readEnvironmentWithError (path: string) : Result<Environment, string> =
     try
-        use fileStream = new FileStream(path, FileMode.Open, FileAccess.Read)
+        use fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)
         use archive = new ZipArchive(fileStream, ZipArchiveMode.Read)
 
         let resolveAasPath () =
@@ -112,15 +173,18 @@ let readEnvironmentWithError (path: string) : Result<Environment, string> =
                         use rdr = new IO.StreamReader(aasStream, Encoding.UTF8)
                         let xml = rdr.ReadToEnd()
                         let detectedVersion = detectAasVersion xml
-                        let normalizedXml = normalizeAasXml xml
+                        let normalizedXml =
+                            xml
+                            |> normalizeAasXml
+                            |> fixMissingDataSpecifications
                         use stringReader = new IO.StringReader(normalizedXml)
                         use xmlReader = XmlReader.Create(stringReader)
                         xmlReader.MoveToContent() |> ignore
                         let env = Xmlization.Deserialize.EnvironmentFrom(xmlReader)
 
                         match detectedVersion with
-                        | Some v when v <> "3.0" ->
-                            log.Info($"AAS {v} 파일을 3.0 형식으로 변환하여 읽었습니다.")
+                        | Some v when v <> "3.1" ->
+                            log.Info($"AAS {v} 파일을 3.1 형식으로 변환하여 읽었습니다.")
                         | _ -> ()
 
                         Ok env
@@ -132,7 +196,7 @@ let readEnvironmentWithError (path: string) : Result<Environment, string> =
                         let env = Jsonization.Deserialize.EnvironmentFrom(node)
                         Ok env
                 with
-                | :? AasCore.Aas3_0.Xmlization.Exception as ex ->
+                | :? AasCore.Aas3_1.Xmlization.Exception as ex ->
                     let detectedVersion =
                         use rdr2 = new IO.StreamReader(entry.Open(), Encoding.UTF8)
                         detectAasVersion (rdr2.ReadToEnd())
@@ -185,10 +249,29 @@ let private buildThumbnailContentTypeXml (thumbnail: AasxThumbnail option) =
     | None ->
         ""
 
-/// Environment를 AASX ZIP으로 저장합니다 (XML 직렬화).
-let writeEnvironment (env: Environment) (path: string) (thumbnail: AasxThumbnail option) : unit =
-    use fileStream = new FileStream(path, FileMode.Create)
-    use archive = new ZipArchive(fileStream, ZipArchiveMode.Create)
+/// 헬퍼: ZIP 아카이브에 Environment를 작성
+let private writeEnvironmentToArchive (archive: ZipArchive) (env: Environment) (thumbnail: AasxThumbnail option) (preservedEntries: System.Collections.Generic.Dictionary<string, byte[]> option) : unit =
+    // 보존된 엔트리가 있으면 먼저 복사 (교체할 파일은 제외)
+    // 썸네일도 교체 대상에 추가 (중복 방지)
+    let thumbnailEntryName = thumbnail |> Option.map (fun t -> t.EntryName)
+    let filesToReplaceList = [
+        "[Content_Types].xml"
+        "_rels/.rels"
+        "aasx/aasx-origin"
+        "aasx/_rels/aasx-origin.rels"
+        "aasx/aas/aas.aas.xml"
+    ]
+    let filesToReplace =
+        match thumbnailEntryName with
+        | Some name -> Set.ofList (name :: filesToReplaceList)
+        | None -> Set.ofList filesToReplaceList
+
+    match preservedEntries with
+    | Some entries ->
+        for kvp in entries do
+            if not (filesToReplace.Contains(kvp.Key)) then
+                writeBinaryEntry archive kvp.Key kvp.Value
+    | None -> ()
 
     let thumbnailContentTypeXml = buildThumbnailContentTypeXml thumbnail
 
@@ -232,3 +315,39 @@ let writeEnvironment (env: Environment) (path: string) (thumbnail: AasxThumbnail
 
     thumbnail
     |> Option.iter (fun thumb -> writeBinaryEntry archive thumb.EntryName thumb.Bytes)
+
+/// Environment를 AASX ZIP으로 저장합니다 (XML 직렬화).
+/// preservedEntries가 제공되면 기존 엔트리를 복사하고 필요한 파일만 교체합니다.
+let writeEnvironment (env: Environment) (path: string) (thumbnail: AasxThumbnail option) (preservedEntries: System.Collections.Generic.Dictionary<string, byte[]> option) : unit =
+    let tempPath = path + ".tmp"
+
+    try
+        // 임시 파일에 ZIP 작성
+        do
+            use fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None)
+            use archive = new ZipArchive(fileStream, ZipArchiveMode.Create)
+            writeEnvironmentToArchive archive env thumbnail preservedEntries
+
+        // 파일 핸들 완전 해제
+        System.GC.Collect()
+        System.GC.WaitForPendingFinalizers()
+
+        // 파일 잠금 방지: 임시 파일을 원본으로 복사 (재시도 포함)
+        let rec replaceWithRetry (attempt: int) =
+            try
+                if File.Exists(path) then
+                    File.Copy(tempPath, path, overwrite = true)
+                    try File.Delete(tempPath) with _ -> ()
+                else
+                    File.Move(tempPath, path)
+            with
+            | :? UnauthorizedAccessException | :? IOException when attempt < 10 ->
+                System.Threading.Thread.Sleep(500 * attempt)
+                replaceWithRetry (attempt + 1)
+
+        replaceWithRetry 1
+
+    with ex ->
+        if File.Exists(tempPath) then
+            try File.Delete(tempPath) with _ -> ()
+        reraise()

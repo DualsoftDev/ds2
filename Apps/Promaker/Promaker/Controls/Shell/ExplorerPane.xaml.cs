@@ -125,7 +125,7 @@ public partial class ExplorerPane : UserControl
         var ctrlPressed = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
         var shiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
 
-        if (sender is TreeViewItem { DataContext: EntityNode node }
+        if (sender is TreeViewItem { DataContext: EntityNode node } item
             && node.EntityType == EntityKind.Call
             && !ctrlPressed
             && !shiftPressed)
@@ -494,7 +494,11 @@ public partial class ExplorerPane : UserControl
         ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
 
         if (HasActiveSearch)
+        {
             RefreshFilteredSelectionState();
+            if (node.EntityType is EntityKind.System or EntityKind.Flow or EntityKind.Work)
+                ViewModel.Canvas.OpenParentCanvasAndFocusNode(node.Id, node.EntityType);
+        }
     }
 
     private void HandleTreeItemMouseDown(TreePaneKind pane, object sender, MouseButtonEventArgs e, bool requireModifiers)
