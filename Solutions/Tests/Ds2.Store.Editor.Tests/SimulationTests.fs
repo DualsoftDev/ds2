@@ -115,6 +115,50 @@ module SimIndexTests =
         Assert.Equal(Some sourceApiCall.Id, specs[0].ApiCallGuid)
 
     [<Fact>]
+    let ``build collects child condition specs recursively`` () =
+        let store = createStore ()
+        let project, _, flow, work = setupBasicHierarchy store
+        let rxWork1 = addWork store "RxWork1" flow.Id
+        let rxWork2 = addWork store "RxWork2" flow.Id
+
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Src1.Api"; "Src2.Api"; "Target.Api" ], true, None)
+
+        let calls = Queries.callsOf work.Id store
+        let src1Call = calls[0]
+        let src2Call = calls[1]
+        let targetCall = calls[2]
+        let src1ApiCall = src1Call.ApiCalls |> Seq.head
+        let src2ApiCall = src2Call.ApiCalls |> Seq.head
+
+        // RxGuid 설정
+        let apiDef1 = store.ApiDefs[src1ApiCall.ApiDefId |> Option.defaultValue Guid.Empty]
+        apiDef1.RxGuid <- Some rxWork1.Id
+        let apiDef2 = store.ApiDefs[src2ApiCall.ApiDefId |> Option.defaultValue Guid.Empty]
+        apiDef2.RxGuid <- Some rxWork2.Id
+
+        // 상위 조건: Src1.Api
+        store.AddCallCondition(targetCall.Id, CallConditionType.AutoAux)
+        let parentCondId =
+            store.Calls[targetCall.Id].CallConditions |> Seq.head |> fun cc -> cc.Id
+        store.AddApiCallsToConditionBatch(targetCall.Id, parentCondId, [ src1ApiCall.Id ]) |> ignore
+
+        // 하위 조건: Src2.Api (Children)
+        store.AddChildCondition(targetCall.Id, parentCondId, false)
+        let childCondId =
+            store.Calls[targetCall.Id].CallConditions |> Seq.head
+            |> fun cc -> cc.Children |> Seq.head |> fun ch -> ch.Id
+        store.AddApiCallsToConditionBatch(targetCall.Id, childCondId, [ src2ApiCall.Id ]) |> ignore
+
+        let index = SimIndex.build store 10
+        let specs = index.CallAutoAuxConditions[targetCall.Id]
+
+        // 상위 + 하위 조건 모두 수집되어야 함
+        Assert.Equal(2, specs.Length)
+        let rxGuids = specs |> List.map (fun s -> s.RxWorkGuid) |> Set.ofList
+        Assert.Contains(rxWork1.Id, rxGuids)
+        Assert.Contains(rxWork2.Id, rxGuids)
+
+    [<Fact>]
     let ``build collects token role successor and manual sink`` () =
         let store = createStore ()
         let _, _, flow, work1 = setupBasicHierarchy store

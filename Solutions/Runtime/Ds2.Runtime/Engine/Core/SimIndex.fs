@@ -136,10 +136,18 @@ module SimIndex =
         resolveApiDefGuids index.Store index.CallApiCallObjects (findOrEmpty callGuid index.CallApiCallGuids) (fun p -> p.RxGuid)
 
 
+    /// CallCondition 트리를 재귀적으로 순회하여 모든 ApiCall 수집
+    let rec private collectAllApiCalls (cond: CallCondition) : ApiCall seq =
+        seq {
+            yield! cond.Conditions
+            for child in cond.Children do
+                yield! collectAllApiCalls child
+        }
+
     let private convertConditions (store: DsStore) (conditions: CallCondition seq) : ConditionEntry list =
         conditions
         |> Seq.collect (fun cond ->
-            cond.Conditions |> Seq.choose (fun apiCall ->
+            collectAllApiCalls cond |> Seq.choose (fun apiCall ->
                 match apiCall.ApiDefId with
                 | Some apiDefId ->
                     match Queries.getApiDef apiDefId store with
