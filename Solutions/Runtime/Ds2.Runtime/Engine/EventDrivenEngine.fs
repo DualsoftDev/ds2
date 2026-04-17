@@ -458,9 +458,10 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         stateManager.SetIOValue(apiCallGuid, value)
         scheduleConditionEvaluation ()
     member _.InjectIOValueByAddress(address: string, value: string) : bool =
-        match ioMap.InAddressToMapping |> Map.tryFind address with
-        | Some mapping ->
-            stateManager.SetIOValue(mapping.ApiCallGuid, value)
+        match ioMap.InAddressToMappings |> Map.tryFind address with
+        | Some mappings ->
+            for m in mappings do
+                stateManager.SetIOValue(m.ApiCallGuid, value)
             scheduleConditionEvaluation ()
             true
         | None -> false

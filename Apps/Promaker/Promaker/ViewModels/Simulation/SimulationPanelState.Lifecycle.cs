@@ -633,20 +633,20 @@ public partial class SimulationPanelState
             {
                 // InTag 수신 → IO 값 주입 + RxWork Finish
                 var ioMap = _simEngine.IOMap;
-                var inMappingOpt = ioMap.TryGetByInAddress(address);
-                if (inMappingOpt != null && FSharpOption<SignalMapping>.get_IsSome(inMappingOpt))
+                var inMappings = ioMap.GetByInAddress(address);
+                if (!inMappings.IsEmpty)
                 {
-                    var mapping = inMappingOpt.Value;
                     _simEngine.InjectIOValueByAddress(address, value);
 
-                    // RxWork를 Finish/Ready로 전이
-                    var rxOpt = mapping.RxWorkGuid;
-                    if (rxOpt != null && FSharpOption<Guid>.get_IsSome(rxOpt))
+                    // 모든 매핑의 RxWork를 Finish
+                    foreach (var mapping in inMappings)
                     {
-                        var rxWorkGuid = rxOpt.Value;
-                        if (value == "true")
-                            _simEngine.ForceWorkState(rxWorkGuid, Status4.Finish);
-                        // value="false"는 리셋 — H→R은 엔진이 알아서
+                        var rxOpt = mapping.RxWorkGuid;
+                        if (rxOpt != null && FSharpOption<Guid>.get_IsSome(rxOpt))
+                        {
+                            if (value == "true")
+                                _simEngine.ForceWorkState(rxOpt.Value, Status4.Finish);
+                        }
                     }
 
                     _dispatcher.BeginInvoke(() =>
@@ -664,10 +664,11 @@ public partial class SimulationPanelState
             {
                 // OutTag 수신 → Device Work Going → Duration 후 InTag 응답
                 var ioMap = _simEngine.IOMap;
-                var mappingOpt = ioMap.TryGetByOutAddress(address);
-                if (mappingOpt != null && FSharpOption<SignalMapping>.get_IsSome(mappingOpt))
+                var mappings = ioMap.GetByOutAddress(address);
+                // 첫 번째 매핑으로 Device Work 처리 (Out 주소당 Device Work는 1개)
+                var firstMapping = mappings.IsEmpty ? null : mappings.Head;
+                if (firstMapping is { } mapping)
                 {
-                    var mapping = mappingOpt.Value;
                     var txWorkGuidOpt = mapping.TxWorkGuid;
                     if (txWorkGuidOpt != null && FSharpOption<Guid>.get_IsSome(txWorkGuidOpt))
                     {
@@ -675,8 +676,39 @@ public partial class SimulationPanelState
                         var callGuid = mapping.CallGuid;
                         if (value == "true")
                         {
-                            // Out ON → Device Work Going + Duration 후 Finish + In Write
+                            // Out ON → Device Work Going + 상호 리셋 + Duration 후 Finish + In Write
                             _simEngine.ForceWorkState(txWorkGuid, Status4.Going);
+
+                            // 상호 리셋: 이 Work의 ResetPreds(상대 Device Work)의 In OFF
+                            var resetPreds = _simEngine.Index.WorkResetPreds;
+                            if (resetPreds.ContainsKey(txWorkGuid))
+                            {
+                                foreach (var predGuid in resetPreds[txWorkGuid])
+                                {
+                                    var rxInMap = ioMap.RxWorkToInAddresses;
+                                    if (rxInMap.ContainsKey(predGuid))
+                                    {
+                                        var hubConn = _hubConnection;
+                                        foreach (var resetInAddr in rxInMap[predGuid])
+                                        {
+                                            if (hubConn is not null)
+                                            {
+                                                var ria = resetInAddr;
+                                                Task.Run(() => hubConn.InvokeAsync(HubMethod.WriteTag, ria, "false", HubSource.VirtualPlant));
+                                            }
+                                            // 자기 자신도 In OFF 판정 (상호 리셋)
+                                            var resetInMappings = ioMap.GetByInAddress(resetInAddr);
+                                            var doneReset = new HashSet<Guid>();
+                                            foreach (var rim in resetInMappings)
+                                                if (doneReset.Add(rim.ApiCallGuid))
+                                                    PassiveStateInferByApiCall(rim.ApiCallGuid, resetInAddr, "false");
+                                            _dispatcher.BeginInvoke(() =>
+                                                AddSimLog($"[VP] 상호리셋: {resetInAddr}=false", LogSeverity.Homing));
+                                        }
+                                    }
+                                }
+                            }
+
                             _dispatcher.BeginInvoke(() =>
                                 AddSimLog($"[VP] Out ON: {address} → Device Going", LogSeverity.Going));
 
@@ -693,6 +725,12 @@ public partial class SimulationPanelState
                                     {
                                         _simEngine.ForceWorkState(txWorkGuid, Status4.Finish);
                                         await hub.InvokeAsync(HubMethod.WriteTag, inAddress, "true", HubSource.VirtualPlant);
+                                        // 자기 자신도 In ON 판정 (Hub 수신은 source 필터로 무시되므로)
+                                        var inMappings = _simEngine.IOMap.GetByInAddress(inAddress);
+                                        var done = new HashSet<Guid>();
+                                        foreach (var im in inMappings)
+                                            if (done.Add(im.ApiCallGuid))
+                                                PassiveStateInferByApiCall(im.ApiCallGuid, inAddress, "true");
                                         _dispatcher.BeginInvoke(() =>
                                             AddSimLog($"[VP→] In ON: {inAddress} (after {duration}ms)", LogSeverity.Finish));
                                     }
@@ -706,17 +744,32 @@ public partial class SimulationPanelState
                             var hub = _hubConnection;
                             if (hub is not null && !string.IsNullOrEmpty(inAddress))
                             {
+                                var inAddr2 = inAddress;
                                 Task.Run(async () =>
                                 {
-                                    await hub.InvokeAsync(HubMethod.WriteTag, inAddress, "false", HubSource.VirtualPlant);
+                                    await hub.InvokeAsync(HubMethod.WriteTag, inAddr2, "false", HubSource.VirtualPlant);
+                                    // 자기 자신도 In OFF 판정
+                                    if (_simEngine is not null)
+                                    {
+                                        var inMappings2 = _simEngine.IOMap.GetByInAddress(inAddr2);
+                                        var done2 = new HashSet<Guid>();
+                                        foreach (var im in inMappings2)
+                                            if (done2.Add(im.ApiCallGuid))
+                                                PassiveStateInferByApiCall(im.ApiCallGuid, inAddr2, "false");
+                                    }
                                     _dispatcher.BeginInvoke(() =>
-                                        AddSimLog($"[VP→] In OFF: {inAddress}", LogSeverity.Ready));
+                                        AddSimLog($"[VP→] In OFF: {inAddr2}", LogSeverity.Ready));
                                 });
                             }
                         }
 
-                        // IO 에지 기반 Call/Work 상태 유추
-                        PassiveStateInfer(callGuid, address, value);
+                        // IO 에지 기반 상태 유추 — ApiCall 단위로 한 번만, 공유 Call 전부 적용
+                        var processedApiCalls = new HashSet<Guid>();
+                        foreach (var m in mappings)
+                        {
+                            if (processedApiCalls.Add(m.ApiCallGuid))
+                                PassiveStateInferByApiCall(m.ApiCallGuid, address, value);
+                        }
                     }
                 }
                 break;
@@ -724,18 +777,16 @@ public partial class SimulationPanelState
 
             case RuntimeMode.Monitoring:
             {
-                // IO 에지 기반 Call/Work 상태 유추
                 var ioMap = _simEngine.IOMap;
-                var outOpt = ioMap.TryGetByOutAddress(address);
-                var inOpt = ioMap.TryGetByInAddress(address);
-                Guid? inferCallGuid = null;
-                if (outOpt != null && FSharpOption<SignalMapping>.get_IsSome(outOpt))
-                    inferCallGuid = outOpt.Value.CallGuid;
-                else if (inOpt != null && FSharpOption<SignalMapping>.get_IsSome(inOpt))
-                    inferCallGuid = inOpt.Value.CallGuid;
-
-                if (inferCallGuid is { } cg)
-                    PassiveStateInfer(cg, address, value);
+                var outMappings = ioMap.GetByOutAddress(address);
+                var inMappings = ioMap.GetByInAddress(address);
+                var allMappings = outMappings.IsEmpty ? inMappings : outMappings;
+                var processedApiCalls = new HashSet<Guid>();
+                foreach (var m in allMappings)
+                {
+                    if (processedApiCalls.Add(m.ApiCallGuid))
+                        PassiveStateInferByApiCall(m.ApiCallGuid, address, value);
+                }
 
                 _dispatcher.BeginInvoke(() =>
                     AddSimLog($"[Mon] {address}={value} (from {source})", LogSeverity.Info));
@@ -746,54 +797,83 @@ public partial class SimulationPanelState
 
     // ── Passive 상태 유추 (VirtualPlant / Monitoring) ──────────────────
 
-    /// Call별 Out 선행 여부 추적
+    /// Call별 Out 선행 여부 추적 (이번 사이클에서 Out ON을 본 적 있는지)
     private readonly Dictionary<Guid, bool> _callOutSeen = [];
+    /// Call별 F 래치 (Out OFF에 대해서만 래치, In OFF → H)
+    private readonly HashSet<Guid> _callFinishLatched = [];
 
-    /// IO 에지 기반 Call 상태 판정 + Work 합산
-    private void PassiveStateInfer(Guid callGuid, string address, string value)
+    /// ApiCall 단위로 상태 판정 → 공유하는 모든 Call에 적용
+    private void PassiveStateInferByApiCall(Guid apiCallGuid, string address, string value)
     {
         if (_simEngine is null) return;
+
+        // 이 ApiCall을 공유하는 모든 Call 찾기
+        var sharingCalls = new List<Guid>();
+        foreach (var call in _simEngine.Index.Store.Calls.Values)
+            foreach (var ac in call.ApiCalls)
+                if (ac.Id == apiCallGuid && !sharingCalls.Contains(call.Id))
+                    sharingCalls.Add(call.Id);
+
+        if (sharingCalls.Count == 0) return;
+
+        // 첫 번째 Call 기준으로 판정
+        var primaryCallGuid = sharingCalls[0];
+        var newState = InferCallStateFromIO(primaryCallGuid, address, value);
+
+        if (newState is { } ncs)
+        {
+            // 모든 공유 Call에 같은 상태 적용
+            var affectedWorks = new HashSet<Guid>();
+            foreach (var cg in sharingCalls)
+            {
+                _simEngine.ForceCallState(cg, ncs);
+                if (ncs == Status4.Going)
+                    _callOutSeen[cg] = true;
+                if (ncs == Status4.Homing || ncs == Status4.Ready)
+                    _callOutSeen[cg] = false;
+
+                var callWorkMap = _simEngine.Index.CallWorkGuid;
+                if (callWorkMap.ContainsKey(cg))
+                    affectedWorks.Add(callWorkMap[cg]);
+            }
+
+            foreach (var wg in affectedWorks)
+                InferWorkState(wg);
+        }
+    }
+
+    /// IO 에지로 Call 상태 판정 (상태만 반환, 적용은 안 함)
+    private Status4? InferCallStateFromIO(Guid callGuid, string address, string value)
+    {
+        if (_simEngine is null) return null;
         var ioMap = _simEngine.IOMap;
 
         var outOpt = ioMap.TryGetByOutAddress(address);
         var isOut = outOpt != null && FSharpOption<SignalMapping>.get_IsSome(outOpt);
+        var cs = GetCallStateValue(callGuid);
 
-        Status4? newCallState = null;
         if (isOut && value == "true")
         {
-            _callOutSeen[callGuid] = true;
-            newCallState = Status4.Going;
-        }
-        else if (!isOut && value == "true" && _callOutSeen.GetValueOrDefault(callGuid))
-        {
-            newCallState = Status4.Finish;
+            if (cs == Status4.Ready)
+                return Status4.Going;
         }
         else if (isOut && value == "false")
         {
-            var cs = GetCallStateValue(callGuid);
-            if (cs == Status4.Finish)
-            {
-                newCallState = Status4.Homing;
-                _callOutSeen[callGuid] = false;
-            }
+            if (cs == Status4.Going)
+                return Status4.Homing;
+        }
+        else if (!isOut && value == "true")
+        {
+            if (cs == Status4.Going && _callOutSeen.GetValueOrDefault(callGuid))
+                return Status4.Finish;
         }
         else if (!isOut && value == "false")
         {
-            var cs = GetCallStateValue(callGuid);
-            if (cs == Status4.Homing || cs == Status4.Finish)
-            {
-                newCallState = Status4.Ready;
-                _callOutSeen[callGuid] = false;
-            }
+            if (cs == Status4.Finish)
+                return Status4.Homing;
         }
 
-        if (newCallState is { } ncs)
-        {
-            _simEngine.ForceCallState(callGuid, ncs);
-            var callWorkMap = _simEngine.Index.CallWorkGuid;
-            if (callWorkMap.ContainsKey(callGuid))
-                InferWorkState(callWorkMap[callGuid]);
-        }
+        return null;
     }
 
     private Status4 GetCallStateValue(Guid callGuid)
@@ -808,7 +888,7 @@ public partial class SimulationPanelState
         return opt != null && FSharpOption<Status4>.get_IsSome(opt) ? opt.Value : Status4.Ready;
     }
 
-    /// Call 상태 합산 → Work 상태 판정
+    /// Call 상태 합산 → Work 상태 판정 + H 탑다운 전파
     private void InferWorkState(Guid workGuid)
     {
         if (_simEngine is null) return;
@@ -832,8 +912,42 @@ public partial class SimulationPanelState
         else
             newWorkState = Status4.Homing;
 
-        if (GetWorkStateValue(workGuid) != newWorkState)
-            _simEngine.ForceWorkState(workGuid, newWorkState);
+        var currentWork = GetWorkStateValue(workGuid);
+        if (currentWork == newWorkState) return;
+
+        _simEngine.ForceWorkState(workGuid, newWorkState);
+
+        // Work H → Call 탑다운 H + outSeen/래치 리셋
+        if (newWorkState == Status4.Homing)
+        {
+            PropagateWorkHomingToCalls(workGuid, callGuids);
+        }
+
+        // Work F → 리셋 화살표 없으면 자동 H→R (비동기)
+        if (newWorkState == Status4.Finish)
+        {
+            var resetPreds = _simEngine.Index.WorkResetPreds;
+            var hasResetPred = resetPreds.ContainsKey(workGuid) && !resetPreds[workGuid].IsEmpty;
+            if (!hasResetPred)
+            {
+                _simEngine.ForceWorkState(workGuid, Status4.Homing);
+                PropagateWorkHomingToCalls(workGuid, callGuids);
+                _simEngine.ForceWorkState(workGuid, Status4.Ready);
+            }
+            // 리셋 화살표 있으면 — 엔진의 evaluateWorkResets가 처리
+        }
+    }
+
+    /// Work H → 소속 Call 전부 H (탑다운) + outSeen/래치 리셋
+    private void PropagateWorkHomingToCalls(Guid workGuid, IEnumerable<Guid> callGuids)
+    {
+        foreach (var cg in callGuids)
+        {
+            _simEngine!.ForceCallState(cg, Status4.Homing);
+            _simEngine!.ForceCallState(cg, Status4.Ready);
+            _callOutSeen[cg] = false;
+            _callFinishLatched.Remove(cg);
+        }
     }
 
     private void DisposeSimEngine()
