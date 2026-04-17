@@ -47,9 +47,6 @@
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
     <!-- Ds2.View3D Lib3D 癲ル슢?꾤땟???????? wwwroot\models\??癲ル슢??湲룹물?-->
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\models\**\*" Link="wwwroot\models\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <!-- 커스텀 모델 프리뷰 도구 + 스펙 문서 -->
-    <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\device-preview.html" Link="wwwroot\device-preview.html" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\DEVICE_JSON_SPEC.md" Link="wwwroot\DEVICE_JSON_SPEC.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\Solutions\View\Ds2.View3D\Ds2.View3D.Core\Ds2.View3D.Core.fsproj" />
