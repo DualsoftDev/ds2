@@ -128,7 +128,7 @@ module SceneError =
 
 /// 3D 모델로 매핑 가능한 SystemType 집합
 module DevicePresets =
-    /// 알려진 Device 타입 목록 (대소문자 구분 없음)
+    /// 알려진 Device 타입 목록 (하드코딩된 Lib3D 모델)
     let KnownNames =
         Set.ofList [
             "Robot"
@@ -151,3 +151,18 @@ module DevicePresets =
             "Turntable"
             "Tilter"
         ]
+
+    /// JSON으로 등록된 커스텀 모델명 (런타임에 추가됨)
+    let mutable CustomNames : Set<string> = Set.empty
+
+    /// 커스텀 모델명 등록
+    let registerCustomName (name: string) =
+        CustomNames <- Set.add name CustomNames
+
+    /// 커스텀 모델명 일괄 등록
+    let registerCustomNames (names: string seq) =
+        CustomNames <- names |> Seq.fold (fun s n -> Set.add n s) CustomNames
+
+    /// 전체 알려진 이름 (하드코딩 + 커스텀)
+    let allKnownNames () =
+        Set.union KnownNames CustomNames

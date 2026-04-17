@@ -25,6 +25,7 @@
                     <RowDefinition Height="*"/>         <!-- Tree -->
                     <RowDefinition Height="Auto"/>      <!-- Device Info -->
                     <RowDefinition Height="Auto"/>      <!-- Mode Selection -->
+                    <RowDefinition Height="Auto"/>      <!-- Custom Models -->
                 </Grid.RowDefinitions>
 
                 <!-- Tree Header -->
@@ -66,10 +67,44 @@
                                      GroupName="ViewMode" IsChecked="True"
                                      Foreground="#e2e8f0" FontSize="11" Margin="0,0,0,6"
                                      Checked="CameraMode_Checked"/>
-                        <RadioButton x:Name="MoveModeRadio" Content="장비 이동 모드"
-                                     GroupName="ViewMode"
-                                     Foreground="#e2e8f0" FontSize="11"
-                                     Checked="MoveMode_Checked"/>
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="MoveModeRadio" Content="장비 이동 모드"
+                                         GroupName="ViewMode"
+                                         Foreground="#e2e8f0" FontSize="11"
+                                         Checked="MoveMode_Checked"/>
+                            <CheckBox x:Name="GridSnapCheck" Content="격자 스냅"
+                                      Foreground="#94a3b8" FontSize="10"
+                                      Margin="10,0,0,0" VerticalAlignment="Center"
+                                      ToolTip="장비를 격자 단위로 정렬하여 배치합니다"
+                                      Checked="GridSnap_Changed" Unchecked="GridSnap_Changed"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Custom Models Section -->
+                <Border Grid.Row="4" Background="#0f172a" BorderBrush="#334155" BorderThickness="0,1,0,0" Padding="12,8">
+                    <StackPanel>
+                        <TextBlock Text="커스텀 3D 모델" FontSize="10" Foreground="#94a3b8" Margin="0,0,0,6" FontWeight="SemiBold"/>
+                        <ListBox x:Name="CustomModelList" MaxHeight="100"
+                                 Background="#1e293b" BorderBrush="#334155" BorderThickness="1"
+                                 Foreground="#e2e8f0" FontSize="11" Padding="2"
+                                 MouseDoubleClick="CustomModelList_DoubleClick">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" Foreground="#e2e8f0" Padding="4,2"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <Button Content="+ 모델 등록" Click="AddCustomModel_Click"
+                                    Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
+                                    Padding="10,4" FontSize="11" Cursor="Hand" Margin="0,0,6,0"
+                                    ToolTip="JSON으로 커스텀 3D 모델을 등록합니다"/>
+                            <Button Content="삭제" Click="DeleteCustomModel_Click"
+                                    Background="#334155" Foreground="#64748b" BorderBrush="#475569"
+                                    Padding="10,4" FontSize="11" Cursor="Hand"
+                                    ToolTip="선택한 커스텀 모델을 삭제합니다"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
             </Grid>
