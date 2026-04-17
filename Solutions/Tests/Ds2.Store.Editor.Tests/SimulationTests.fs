@@ -1240,3 +1240,202 @@ module WaitForCompletionIsFinishedTests =
         // IsFinished + Reset 없음 + WaitForCompletion → SET은 Finish 상태 유지
         // H→R 없이 반복 G→F는 버그
         Assert.True(setGoingCount <= 1, $"SET should not cycle G→F repeatedly. Going count={setGoingCount}\nLog:\n  {logStr}")
+
+module CallRaceExclusionTests =
+
+    [<Fact>]
+    let ``CallRaceExclusions contains entries for ResetReset device work pairs`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSys.Id
+        let work = addWork store "W" flow.Id
+
+        let devSys = addSystem store "Dev" project.Id false
+        let devFlow = addFlow store "DF" devSys.Id
+        let advWork = addWork store "ADV" devFlow.Id
+        advWork.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+        let retWork = addWork store "RET" devFlow.Id
+        retWork.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+        let advDef = addApiDef store "ADV" devSys.Id
+        advDef.TxGuid <- Some advWork.Id; advDef.RxGuid <- Some advWork.Id
+        let retDef = addApiDef store "RET" devSys.Id
+        retDef.TxGuid <- Some retWork.Id; retDef.RxGuid <- Some retWork.Id
+        store.ConnectSelectionInOrder([advWork.Id; retWork.Id], ArrowType.ResetReset) |> ignore
+
+        let advCallId = store.AddCallWithLinkedApiDefs(work.Id, "Dev", "ADV", [advDef.Id])
+        let retCallId = store.AddCallWithLinkedApiDefs(work.Id, "Dev", "RET", [retDef.Id])
+
+        let index = SimIndex.build store 10
+
+        // WorkResetPreds 확인
+        let advResetPreds = SimIndex.findOrEmpty advWork.Id index.WorkResetPreds
+        let retResetPreds = SimIndex.findOrEmpty retWork.Id index.WorkResetPreds
+        printfn $"ADV WorkResetPreds: {advResetPreds}"
+        printfn $"RET WorkResetPreds: {retResetPreds}"
+        Assert.Contains(retWork.Id, advResetPreds)
+        Assert.Contains(advWork.Id, retResetPreds)
+
+        // TxWork 확인
+        let advTxGuids = SimIndex.txWorkGuids index advCallId
+        let retTxGuids = SimIndex.txWorkGuids index retCallId
+        printfn $"ADV Call TxGuids: {advTxGuids}"
+        printfn $"RET Call TxGuids: {retTxGuids}"
+        Assert.Contains(advWork.Id, advTxGuids)
+        Assert.Contains(retWork.Id, retTxGuids)
+
+        // CallRaceExclusions 확인
+        printfn $"CallRaceExclusions: {index.CallRaceExclusions}"
+        let advExclusions = index.CallRaceExclusions |> Map.tryFind advCallId |> Option.defaultValue Set.empty
+        let retExclusions = index.CallRaceExclusions |> Map.tryFind retCallId |> Option.defaultValue Set.empty
+        printfn $"ADV Call exclusions: {advExclusions}"
+        printfn $"RET Call exclusions: {retExclusions}"
+        Assert.Contains(retCallId, advExclusions)
+        Assert.Contains(advCallId, retExclusions)
+
+    [<Fact>]
+    let ``CallRaceExclusions works across different parent Works`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow1 = addFlow store "F1" activeSys.Id
+        let w1 = addWork store "W1" flow1.Id
+        let flow2 = addFlow store "F2" activeSys.Id
+        let w2 = addWork store "W2" flow2.Id
+
+        let devSys = addSystem store "Dev" project.Id false
+        let devFlow = addFlow store "DF" devSys.Id
+        let advWork = addWork store "ADV" devFlow.Id
+        advWork.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+        let retWork = addWork store "RET" devFlow.Id
+        retWork.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+        let advDef = addApiDef store "ADV" devSys.Id
+        advDef.TxGuid <- Some advWork.Id; advDef.RxGuid <- Some advWork.Id
+        let retDef = addApiDef store "RET" devSys.Id
+        retDef.TxGuid <- Some retWork.Id; retDef.RxGuid <- Some retWork.Id
+        store.ConnectSelectionInOrder([advWork.Id; retWork.Id], ArrowType.ResetReset) |> ignore
+
+        // W1에 ADV Call, W2에 RET Call — 다른 Work에서 같은 Device 참조
+        let advCallId = store.AddCallWithLinkedApiDefs(w1.Id, "Dev", "ADV", [advDef.Id])
+        let retCallId = store.AddCallWithLinkedApiDefs(w2.Id, "Dev", "RET", [retDef.Id])
+
+        let index = SimIndex.build store 10
+
+        let advExcl = index.CallRaceExclusions |> Map.tryFind advCallId |> Option.defaultValue Set.empty
+        let retExcl = index.CallRaceExclusions |> Map.tryFind retCallId |> Option.defaultValue Set.empty
+        Assert.Contains(retCallId, advExcl)
+        Assert.Contains(advCallId, retExcl)
+
+    [<Fact>]
+    let ``ResetReset device pair calls do not go Going simultaneously`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow = addFlow store "F" activeSys.Id
+        let work = addWork store "W" flow.Id
+
+        let devSys = addSystem store "Dev" project.Id false
+        let devFlow = addFlow store "DF" devSys.Id
+        let advWork = addWork store "ADV" devFlow.Id
+        advWork.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+        let retWork = addWork store "RET" devFlow.Id
+        retWork.Duration <- Some (TimeSpan.FromMilliseconds 500.)
+        let retProps = SimulationWorkProperties()
+        retProps.IsFinished <- true
+        retWork.SetSimulationProperties(retProps)
+        let advDef = addApiDef store "ADV" devSys.Id
+        advDef.TxGuid <- Some advWork.Id; advDef.RxGuid <- Some advWork.Id
+        let retDef = addApiDef store "RET" devSys.Id
+        retDef.TxGuid <- Some retWork.Id; retDef.RxGuid <- Some retWork.Id
+        store.ConnectSelectionInOrder([advWork.Id; retWork.Id], ArrowType.ResetReset) |> ignore
+
+        // Call 간 순서 화살표 없음 — 동시 시작 가능 상황
+        let advCallId = store.AddCallWithLinkedApiDefs(work.Id, "Dev", "ADV", [advDef.Id])
+        let retCallId = store.AddCallWithLinkedApiDefs(work.Id, "Dev", "RET", [retDef.Id])
+
+        let index = SimIndex.build store 10
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let sim = engine :> ISimulationEngine
+
+        let mutable bothGoingDetected = false
+        sim.CallStateChanged.AddHandler(fun _ e ->
+            if e.NewState = Status4.Going then
+                let otherCallGuid = if e.CallGuid = advCallId then retCallId else advCallId
+                let otherState = sim.GetCallState(otherCallGuid)
+                if otherState = Some Status4.Going then
+                    bothGoingDetected <- true)
+
+        sim.SpeedMultiplier <- 1.0
+        sim.StartWithHomingPhase() |> ignore
+        let _ = waitUntil 3000 (fun () -> sim.GetWorkState(work.Id) = Some Status4.Ready)
+
+        // Work를 수동 Going
+        sim.ForceWorkState(work.Id, Status4.Going)
+        System.Threading.Thread.Sleep(3000)
+
+        sim.Stop()
+        printfn $"bothGoingDetected={bothGoingDetected}"
+        Assert.False(bothGoingDetected, "ADV and RET should not be Going simultaneously")
+
+    [<Fact>]
+    let ``cross-Work race exclusion prevents deadlock`` () =
+        let store = createStore ()
+        let project = addProject store "P"
+        let activeSys = addSystem store "Active" project.Id true
+        let flow1 = addFlow store "F1" activeSys.Id
+        let w1 = addWork store "W1" flow1.Id
+        let flow2 = addFlow store "F2" activeSys.Id
+        let w2 = addWork store "W2" flow2.Id
+
+        let devSys = addSystem store "Dev" project.Id false
+        let devFlow = addFlow store "DF" devSys.Id
+        let advWork = addWork store "ADV" devFlow.Id
+        advWork.Duration <- Some (TimeSpan.FromMilliseconds 100.)
+        let retWork = addWork store "RET" devFlow.Id
+        retWork.Duration <- Some (TimeSpan.FromMilliseconds 100.)
+        let retProps = SimulationWorkProperties()
+        retProps.IsFinished <- true
+        retWork.SetSimulationProperties(retProps)
+        let advDef = addApiDef store "ADV" devSys.Id
+        advDef.TxGuid <- Some advWork.Id; advDef.RxGuid <- Some advWork.Id
+        let retDef = addApiDef store "RET" devSys.Id
+        retDef.TxGuid <- Some retWork.Id; retDef.RxGuid <- Some retWork.Id
+        store.ConnectSelectionInOrder([advWork.Id; retWork.Id], ArrowType.ResetReset) |> ignore
+
+        // W1에 ADV+RET, W2에도 ADV+RET — 같은 Device 공유
+        let _w1Adv = store.AddCallWithLinkedApiDefs(w1.Id, "Dev", "ADV", [advDef.Id])
+        let _w1Ret = store.AddCallWithLinkedApiDefs(w1.Id, "Dev", "RET", [retDef.Id])
+        let _w2Adv = store.AddCallWithLinkedApiDefs(w2.Id, "Dev", "ADV", [advDef.Id])
+        let _w2Ret = store.AddCallWithLinkedApiDefs(w2.Id, "Dev", "RET", [retDef.Id])
+
+        // W1 ↔ W2 StartReset 양방향
+        store.ConnectSelectionInOrder([w1.Id; w2.Id], ArrowType.StartReset) |> ignore
+        store.ConnectSelectionInOrder([w2.Id; w1.Id], ArrowType.StartReset) |> ignore
+
+        let index = SimIndex.build store 10
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let sim = engine :> ISimulationEngine
+
+        let mutable bothGoingDetected = false
+        let raceExclusions = index.CallRaceExclusions
+        sim.CallStateChanged.AddHandler(fun _ e ->
+            if e.NewState = Status4.Going then
+                match raceExclusions |> Map.tryFind e.CallGuid with
+                | Some excludedSet ->
+                    for ex in excludedSet do
+                        if sim.GetCallState(ex) = Some Status4.Going then
+                            bothGoingDetected <- true
+                | None -> ())
+
+        sim.SpeedMultiplier <- 100.0
+        let _ = sim.StartWithHomingPhase()
+        let _ = waitUntil 5000 (fun () -> not sim.IsHomingPhase)
+
+        // 두 Work 동시 Going
+        sim.ForceWorkState(w1.Id, Status4.Going)
+        sim.ForceWorkState(w2.Id, Status4.Going)
+
+        System.Threading.Thread.Sleep(3000)
+        sim.Stop()
+
+        Assert.False(bothGoingDetected, "ResetReset pair calls across different Works should not be Going simultaneously")
