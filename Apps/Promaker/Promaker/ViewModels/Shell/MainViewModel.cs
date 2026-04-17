@@ -479,6 +479,8 @@ public partial class MainViewModel : ObservableObject
         _clipboardSelection.Clear();
         Selection.Reset();
         CanvasManager.Reset();
+        _rebuildQueued = false;
+        _pendingRebuildActions.Clear();
         SelectedNode = null;
         SelectedArrow = null;
         RefreshEditorCommandStates();
@@ -633,16 +635,22 @@ public partial class MainViewModel : ObservableObject
         _rebuildQueued = true;
         _dispatcher.BeginInvoke(new Action(() =>
         {
-            _rebuildQueued = false;
-            RebuildAll();
+            try
+            {
+                RebuildAll();
 
-            if (_pendingRebuildActions.Count == 0)
-                return;
+                if (_pendingRebuildActions.Count == 0)
+                    return;
 
-            var actions = _pendingRebuildActions.ToArray();
-            _pendingRebuildActions.Clear();
-            foreach (var action in actions)
-                action();
+                var actions = _pendingRebuildActions.ToArray();
+                _pendingRebuildActions.Clear();
+                foreach (var action in actions)
+                    action();
+            }
+            finally
+            {
+                _rebuildQueued = false;
+            }
         }), DispatcherPriority.Background);
     }
 
