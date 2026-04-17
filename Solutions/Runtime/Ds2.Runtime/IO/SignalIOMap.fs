@@ -18,25 +18,35 @@ type SignalMapping = {
 /// 빌드타임 IO 매핑 결과
 type SignalIOMap = {
     Mappings: SignalMapping list
-    /// OutTag 주소 → 매핑 (Engine이 Out Write 시 사용)
-    OutAddressToMapping: Map<string, SignalMapping>
-    /// InTag 주소 → 매핑 (Hub에서 In 수신 시 사용)
-    InAddressToMapping: Map<string, SignalMapping>
+    /// OutTag 주소 → 매핑 목록 (같은 주소에 여러 Call 가능)
+    OutAddressToMappings: Map<string, SignalMapping list>
+    /// InTag 주소 → 매핑 목록
+    InAddressToMappings: Map<string, SignalMapping list>
     /// Call Guid → 관련 매핑들
     CallToMappings: Map<Guid, SignalMapping list>
     /// TxWork Guid → Out 주소 (executeApiCall에서 사용)
     TxWorkToOutAddresses: Map<Guid, string list>
+    /// RxWork Guid → In 주소 목록 (상호 리셋 시 사용)
+    RxWorkToInAddresses: Map<Guid, string list>
 }
 
 /// C#에서 사용하기 쉬운 SignalIOMap 조회 헬퍼
 type SignalIOMap with
-    /// OutTag 주소로 매핑 조회 (C#용). 없으면 null.
-    member this.TryGetByOutAddress(address: string) : SignalMapping option =
-        this.OutAddressToMapping |> Map.tryFind address
+    /// OutTag 주소로 매핑 목록 조회
+    member this.GetByOutAddress(address: string) : SignalMapping list =
+        this.OutAddressToMappings |> Map.tryFind address |> Option.defaultValue []
 
-    /// InTag 주소로 매핑 조회 (C#용). 없으면 null.
+    /// InTag 주소로 매핑 목록 조회
+    member this.GetByInAddress(address: string) : SignalMapping list =
+        this.InAddressToMappings |> Map.tryFind address |> Option.defaultValue []
+
+    /// OutTag 주소로 첫 번째 매핑 (하위 호환)
+    member this.TryGetByOutAddress(address: string) : SignalMapping option =
+        this.OutAddressToMappings |> Map.tryFind address |> Option.bind List.tryHead
+
+    /// InTag 주소로 첫 번째 매핑 (하위 호환)
     member this.TryGetByInAddress(address: string) : SignalMapping option =
-        this.InAddressToMapping |> Map.tryFind address
+        this.InAddressToMappings |> Map.tryFind address |> Option.bind List.tryHead
 
     /// Call의 OutTag 주소 목록 (C#용)
     member this.GetOutAddressesForCall(callGuid: Guid) : string list =
@@ -77,13 +87,13 @@ module SignalIOMap =
         let outMap =
             list
             |> List.filter (fun m -> not (String.IsNullOrEmpty m.OutAddress))
-            |> List.map (fun m -> m.OutAddress, m)
+            |> List.groupBy (fun m -> m.OutAddress)
             |> Map.ofList
 
         let inMap =
             list
             |> List.filter (fun m -> not (String.IsNullOrEmpty m.InAddress))
-            |> List.map (fun m -> m.InAddress, m)
+            |> List.groupBy (fun m -> m.InAddress)
             |> Map.ofList
 
         let callMap =
@@ -98,10 +108,18 @@ module SignalIOMap =
             |> List.map (fun (wg, ms) -> wg, ms |> List.map (fun m -> m.OutAddress))
             |> Map.ofList
 
+        let rxWorkMap =
+            list
+            |> List.filter (fun m -> m.RxWorkGuid.IsSome && not (String.IsNullOrEmpty m.InAddress))
+            |> List.groupBy (fun m -> m.RxWorkGuid.Value)
+            |> List.map (fun (wg, ms) -> wg, ms |> List.map (fun m -> m.InAddress))
+            |> Map.ofList
+
         {
             Mappings = list
-            OutAddressToMapping = outMap
-            InAddressToMapping = inMap
+            OutAddressToMappings = outMap
+            InAddressToMappings = inMap
             CallToMappings = callMap
             TxWorkToOutAddresses = txWorkMap
+            RxWorkToInAddresses = rxWorkMap
         }
