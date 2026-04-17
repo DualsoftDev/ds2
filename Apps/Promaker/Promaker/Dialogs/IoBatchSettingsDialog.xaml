@@ -189,12 +189,12 @@
                         <DataGridTextColumn Header="Work" Binding="{Binding Work}" Width="120" IsReadOnly="True"/>
                         <DataGridTextColumn Header="Device" Binding="{Binding Device}" Width="120" IsReadOnly="True"/>
                         <DataGridTextColumn Header="Api" Binding="{Binding Api}" Width="120" IsReadOnly="True"/>
-                        <DataGridTextColumn Header="OutName" Binding="{Binding OutSymbol, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
-                        <DataGridTextColumn Header="Out Type" Binding="{Binding OutDataType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
-                        <DataGridTextColumn Header="Out Address" Binding="{Binding OutAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                         <DataGridTextColumn Header="InName" Binding="{Binding InSymbol, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
                         <DataGridTextColumn Header="In Type" Binding="{Binding InDataType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
                         <DataGridTextColumn Header="In Address" Binding="{Binding InAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
+                        <DataGridTextColumn Header="OutName" Binding="{Binding OutSymbol, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                        <DataGridTextColumn Header="Out Type" Binding="{Binding OutDataType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
+                        <DataGridTextColumn Header="Out Address" Binding="{Binding OutAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                     </DataGrid.Columns>
                 </DataGrid>
             </Border>

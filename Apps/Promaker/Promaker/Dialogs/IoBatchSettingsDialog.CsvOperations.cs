@@ -325,7 +325,7 @@ public partial class IoBatchSettingsDialog
             return;
 
         var sb = new StringBuilder();
-        sb.AppendLine("Flow,Work,Device,Api,OutName,OutDataType,OutAddress,InName,InDataType,InAddress");
+        sb.AppendLine("Flow,Work,Device,Api,InName,InDataType,InAddress,OutName,OutDataType,OutAddress");
         foreach (var row in _rows)
         {
             sb.AppendLine(string.Join(",",
@@ -333,12 +333,12 @@ public partial class IoBatchSettingsDialog
                 EscapeCsvField(row.Work),
                 EscapeCsvField(row.Device),
                 EscapeCsvField(row.Api),
-                EscapeCsvField(row.OutSymbol),
-                EscapeCsvField(row.OutDataType),
-                EscapeCsvField(row.OutAddress),
                 EscapeCsvField(row.InSymbol),
                 EscapeCsvField(row.InDataType),
-                EscapeCsvField(row.InAddress)));
+                EscapeCsvField(row.InAddress),
+                EscapeCsvField(row.OutSymbol),
+                EscapeCsvField(row.OutDataType),
+                EscapeCsvField(row.OutAddress)));
         }
 
         File.WriteAllText(picker.FileName, sb.ToString(), Encoding.UTF8);
