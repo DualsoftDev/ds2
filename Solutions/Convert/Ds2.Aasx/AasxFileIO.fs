@@ -51,6 +51,47 @@ let private normalizeAasXml (xml: string) : string =
         .Replace("<aasEnv ", "<environment ")
         .Replace("</aasEnv>", "</environment>")
 
+/// AAS 3.1 엄격 스키마 위반 보정:
+/// <embeddedDataSpecification> 에 <dataSpecification> 참조가 누락된 경우 기본 IEC61360 참조를 주입.
+/// (SICK, 일부 카탈로그 파일처럼 dataSpecificationContent만 있는 경우를 허용)
+let private fixMissingDataSpecifications (xml: string) : string =
+    try
+        let doc = System.Xml.Linq.XDocument.Parse(xml)
+        let ns = doc.Root.GetDefaultNamespace()
+        let edsName         = ns + "embeddedDataSpecification"
+        let dataSpecName    = ns + "dataSpecification"
+        let contentName     = ns + "dataSpecificationContent"
+        let typeName        = ns + "type"
+        let keysName        = ns + "keys"
+        let keyName         = ns + "key"
+        let valueName       = ns + "value"
+
+        let mutable fixedCount = 0
+        for eds in doc.Descendants(edsName) |> Seq.toList do
+            if isNull (eds.Element(dataSpecName)) then
+                let dataSpec =
+                    System.Xml.Linq.XElement(dataSpecName,
+                        System.Xml.Linq.XElement(typeName, "ExternalReference"),
+                        System.Xml.Linq.XElement(keysName,
+                            System.Xml.Linq.XElement(keyName,
+                                System.Xml.Linq.XElement(typeName, "GlobalReference"),
+                                System.Xml.Linq.XElement(valueName,
+                                    "https://admin-shell.io/aas/3/0/DataSpecificationIEC61360"))))
+                // dataSpecification은 dataSpecificationContent 앞에 와야 함
+                let contentEl = eds.Element(contentName)
+                if not (isNull contentEl) then
+                    contentEl.AddBeforeSelf(dataSpec)
+                else
+                    eds.AddFirst(dataSpec)
+                fixedCount <- fixedCount + 1
+
+        if fixedCount > 0 then
+            log.Info($"AAS XML: 누락된 dataSpecification 참조 {fixedCount}개 보정")
+        doc.ToString()
+    with ex ->
+        log.Warn($"dataSpecification 보정 실패 (원본 사용): {ex.Message}")
+        xml
+
 /// 네임스페이스 버전 감지
 let private detectAasVersion (xml: string) : string option =
     let patterns = [
@@ -132,7 +173,10 @@ let readEnvironmentWithError (path: string) : Result<Environment, string> =
                         use rdr = new IO.StreamReader(aasStream, Encoding.UTF8)
                         let xml = rdr.ReadToEnd()
                         let detectedVersion = detectAasVersion xml
-                        let normalizedXml = normalizeAasXml xml
+                        let normalizedXml =
+                            xml
+                            |> normalizeAasXml
+                            |> fixMissingDataSpecifications
                         use stringReader = new IO.StringReader(normalizedXml)
                         use xmlReader = XmlReader.Create(stringReader)
                         xmlReader.MoveToContent() |> ignore
