@@ -74,7 +74,7 @@ public partial class CustomModelDialog : Window
             // IsEditable ComboBox의 내부 edit TextBox는 Loaded 시점엔 템플릿이 미완성이라
             // Text 할당이 시각적으로 반영되지 않는 경우가 있음.
             // Dispatcher Input 우선순위로 지연하여 SelectedItem + Text 재설정 → 표시 갱신.
-            Dispatcher.BeginInvoke(new Action(() =>
+            _ = Dispatcher.BeginInvoke(new Action(() =>
             {
                 object? matched = null;
                 foreach (var item in SystemTypeInput.Items)
