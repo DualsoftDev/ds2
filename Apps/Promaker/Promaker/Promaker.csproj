@@ -6,9 +6,9 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>Promaker</RootNamespace>
     <AssemblyName>Promaker</AssemblyName>
-    <Version>0.0.0.16</Version>
-    <AssemblyVersion>0.0.0.16</AssemblyVersion>
-    <FileVersion>0.0.0.16</FileVersion>
+    <Version>0.0.0.17</Version>
+    <AssemblyVersion>0.0.0.17</AssemblyVersion>
+    <FileVersion>0.0.0.17</FileVersion>
     <ApplicationIcon>Assets\Promaker.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -46,8 +46,11 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
-    <!-- Ds2.View3D Lib3D 癲ル슢?꾤땟???????? wwwroot\models\??癲ル슢??湲룹물?-->
+    <!-- Ds2.View3D Lib3D ?꿔꺂??袁ㅻ븶???????? wwwroot\models\???꿔꺂???疫뀀９臾?-->
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\models\**\*" Link="wwwroot\models\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 커스텀 모델 프리뷰 도구 + 스펙 문서 -->
+    <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\device-preview.html" Link="wwwroot\device-preview.html" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\DEVICE_JSON_SPEC.md" Link="wwwroot\DEVICE_JSON_SPEC.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\Solutions\View\Ds2.View3D\Ds2.View3D.Core\Ds2.View3D.Core.fsproj" />

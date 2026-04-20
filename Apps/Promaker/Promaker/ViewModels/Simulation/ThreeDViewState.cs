@@ -50,6 +50,11 @@ public partial class ThreeDViewState : ObservableObject
     private readonly Dictionary<Guid, string> _pendingApiDefStates = new();
     private readonly Dictionary<Guid, string> _pendingDeviceStates = new();
     private bool _flushScheduled;
+    private DateTime _lastFlushTime = DateTime.MinValue;
+    private const int FlushIntervalMs = 33; // ~30fps cap for 3D view updates
+
+    /// <summary>커스텀 모델 레지스트리 (View3DWindow에서 주입)</summary>
+    private CustomModelRegistry? _customModelRegistry;
 
     [ObservableProperty] private bool _hasScene;
 
@@ -58,6 +63,8 @@ public partial class ThreeDViewState : ObservableObject
     // ─────────────────────────────────────────────────────────────────────────
 
     public void SetWebViewSender(Func<string, Task>? sender) => _sendToWebView = sender;
+
+    public void SetCustomModelRegistry(CustomModelRegistry? registry) => _customModelRegistry = registry;
 
     public void SetSelectionCallbacks(
         Action<Guid, EntityKind>? onDeviceSelected,
@@ -73,8 +80,20 @@ public partial class ThreeDViewState : ObservableObject
     {
         if (_sendToWebView == null) return;
 
+        // F# CustomNames를 현재 레지스트리와 동기화 (삭제된 모델이 이전 세션의 잔재로 남지 않도록)
+        if (_customModelRegistry != null)
+            Ds2.View3D.DevicePresets.setCustomNames(_customModelRegistry.GetRegisteredNames());
+
+        // 디버그: 커스텀 모델 등록 상태 확인
+        var customNames = Ds2.View3D.DevicePresets.CustomNames;
+        System.Diagnostics.Debug.WriteLine($"[3D BuildScene] CustomNames registered: [{string.Join(", ", customNames)}]");
+
         _engine = CreateSceneEngine(store);
         var scene = _engine.BuildDeviceScene(SceneId, projectId);
+
+        // 디버그: 각 디바이스의 ModelType 확인
+        foreach (var d in scene.Devices)
+            System.Diagnostics.Debug.WriteLine($"[3D BuildScene] Device '{d.Name}': SystemType={d.SystemType}, ModelType={d.ModelType}");
 
         ClearCaches();
         BuildMappings(store, scene);
@@ -159,38 +178,73 @@ public partial class ThreeDViewState : ObservableObject
 
     /// <summary>
     /// UI 스레드 Background 우선순위로 배치 전송 예약.
-    /// 같은 프레임 내 모든 상태 변경이 한 번에 전송된다.
+    /// 최소 FlushIntervalMs 간격으로 쓰로틀링하여 WebView2 과부하를 방지한다.
     /// </summary>
     private void ScheduleFlush()
     {
         if (_flushScheduled) return;
         _flushScheduled = true;
-        System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
-            System.Windows.Threading.DispatcherPriority.Background,
-            FlushPendingStates);
+
+        var elapsed = (DateTime.UtcNow - _lastFlushTime).TotalMilliseconds;
+        if (elapsed >= FlushIntervalMs)
+        {
+            // 충분히 시간이 지남 — 즉시 flush
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Background,
+                FlushPendingStates);
+        }
+        else
+        {
+            // 아직 간격 미달 — 남은 시간만큼 지연 후 flush
+            var delay = TimeSpan.FromMilliseconds(FlushIntervalMs - elapsed);
+            var timer = new System.Windows.Threading.DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = delay
+            };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                FlushPendingStates();
+            };
+            timer.Start();
+        }
     }
 
     private async void FlushPendingStates()
     {
         _flushScheduled = false;
+        _lastFlushTime = DateTime.UtcNow;
         if (_sendToWebView == null) return;
+
+        // ApiDef + Device 상태를 단일 메시지로 합쳐서 WebView2 마샬링 횟수를 줄인다
+        object[]? apiDefArr = null;
+        object[]? deviceArr = null;
 
         if (_pendingApiDefStates.Count > 0)
         {
-            var states = _pendingApiDefStates
-                .Select(kv => new { id = kv.Key.ToString(), state = kv.Value })
+            apiDefArr = _pendingApiDefStates
+                .Select(kv => (object)new { id = kv.Key.ToString(), state = kv.Value })
                 .ToArray();
             _pendingApiDefStates.Clear();
-            await SendAsync(new { type = "updateApiDefStates", states });
         }
 
         if (_pendingDeviceStates.Count > 0)
         {
-            var states = _pendingDeviceStates
-                .Select(kv => new { id = kv.Key.ToString(), state = kv.Value })
+            deviceArr = _pendingDeviceStates
+                .Select(kv => (object)new { id = kv.Key.ToString(), state = kv.Value })
                 .ToArray();
             _pendingDeviceStates.Clear();
-            await SendAsync(new { type = "updateDeviceStates", states });
+        }
+
+        if (apiDefArr != null || deviceArr != null)
+        {
+            // fire-and-forget: UI 스레드 블로킹 방지
+            _ = SendAsync(new
+            {
+                type = "batchStateUpdate",
+                apiDefStates = apiDefArr,
+                deviceStates = deviceArr
+            });
         }
     }
 
@@ -380,11 +434,24 @@ public partial class ThreeDViewState : ObservableObject
 
     private async Task SendInitMessage(IEnumerable<FlowZone> flowZones, double floorSize)
     {
+        // 커스텀 JSON 모델 레지스트리 (추후 프로젝트 디렉터리에서 로드 예정)
+        var customModels = LoadCustomModelRegistry();
+
         await SendAsync(new
         {
             type = "init",
-            config = new { flowZones = ToJsFlowZones(flowZones), floorSize }
+            config = new { flowZones = ToJsFlowZones(flowZones), floorSize, customModels }
         });
+    }
+
+    /// <summary>
+    /// 커스텀 JSON 디바이스 모델 레지스트리를 직렬화 가능한 형태로 반환.
+    /// View3DWindow에서 주입된 CustomModelRegistry를 사용한다.
+    /// </summary>
+    private Dictionary<string, object> LoadCustomModelRegistry()
+    {
+        return _customModelRegistry?.ToSerializableDictionary()
+               ?? new Dictionary<string, object>();
     }
 
     private async Task SendDevices(IEnumerable<DeviceInfo> devices)

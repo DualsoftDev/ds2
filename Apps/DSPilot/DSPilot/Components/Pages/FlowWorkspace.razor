@@ -1,0 +1,1029 @@
+@page "/flow"
+@using Ds2.Core
+@using DSPilot.Models
+@inject DsProjectService ProjectService
+@inject DspDbService DbService
+@inject PlcToCallMapperService MapperService
+@inject AppSettingsService SettingsService
+@inject IFlowMetricsService FlowMetricsService
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>Flow Workspace - DSPilot</PageTitle>
+
+<div class="flow-workspace-page">
+@if (!ProjectService.IsLoaded)
+{
+    <section class="card flow-workspace-empty">
+        <span class="material-icons">info</span>
+        <div class="typo-h6 mt-2">프로젝트가 로드되지 않았습니다.</div>
+        <div class="typo-body2 mt-1">AASX 프로젝트를 로드한 뒤 Flow Workspace를 사용할 수 있습니다.</div>
+    </section>
+}
+else if (SelectedFlow is null)
+{
+    <section class="card flow-workspace-empty">
+        <span class="material-icons">account_tree</span>
+        <div class="typo-h6 mt-2">선택 가능한 Flow가 없습니다.</div>
+        <div class="typo-body2 mt-1">왼쪽 Tree에서 Flow를 선택하거나 프로젝트 구조를 확인하세요.</div>
+    </section>
+}
+else
+{
+    <section class="card flow-workspace-hero">
+        <div class="flow-workspace-hero-main">
+            <div class="flow-workspace-hero-top">
+                <div>
+                    <div class="flow-workspace-eyebrow">Flow Workspace</div>
+                    <h4 class="flow-workspace-title">@SelectedFlow.Name</h4>
+                    <div class="flow-workspace-subtitle">
+                        <span>@SelectedSystemName</span>
+                        <span>•</span>
+                        <span>@_workCount Works</span>
+                        <span>•</span>
+                        <span>@_callRows.Count Calls</span>
+                        <span>•</span>
+                        <span>업데이트 @_dbSnapshot.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                    </div>
+                </div>
+                <div class="flow-workspace-hero-actions">
+                    <div class="flow-workspace-button-row">
+                        <button class="btn btn-outlined" @onclick="RefreshWorkspace">
+                            <span class="material-icons" style="font-size:18px;">refresh</span>
+                            새로고침
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="flow-workspace-state-row">
+                <span class="chip" style="@GetStateChipStyle(_flowRuntime?.State)">
+                    @GetFlowStateLabel(_flowRuntime?.State)
+                </span>
+                @if (!string.IsNullOrWhiteSpace(_flowRuntime?.MovingStartName))
+                {
+                    <span class="chip flow-workspace-info-chip">Start: @_flowRuntime!.MovingStartName</span>
+                }
+                @if (!string.IsNullOrWhiteSpace(_flowRuntime?.MovingEndName))
+                {
+                    <span class="chip flow-workspace-info-chip">End: @_flowRuntime!.MovingEndName</span>
+                }
+            </div>
+        </div>
+    </section>
+
+    <section class="card flow-workspace-panel">
+        <div class="flow-workspace-panel-header">
+            <div>
+                <h6 class="typo-h6">Flow CT 기준</h6>
+                <div class="typo-caption flow-workspace-muted">AASX 기본 start/end Call을 기준으로 사용자 override를 저장합니다.</div>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(_cycleConfigMessage))
+            {
+                <div class="flow-workspace-cycle-message">@_cycleConfigMessage</div>
+            }
+        </div>
+
+        <div class="flow-workspace-cycle-grid">
+            <div class="flow-workspace-cycle-item">
+                <label class="form-label">AASX 기본 시작 Call</label>
+                <input class="form-field" value="@(_aasxDefaultStartCallName ?? "-")" disabled />
+            </div>
+            <div class="flow-workspace-cycle-item">
+                <label class="form-label">AASX 기본 종료 Call</label>
+                <input class="form-field" value="@(_aasxDefaultEndCallName ?? "-")" disabled />
+            </div>
+            <div class="flow-workspace-cycle-item">
+                <label class="form-label">Cycle 시작 Call</label>
+                <select class="form-select" @bind="_selectedCycleStartCallName">
+                    @foreach (var option in _cycleCallOptions)
+                    {
+                        <option value="@option.CallName">@option.DisplayLabel</option>
+                    }
+                </select>
+            </div>
+            <div class="flow-workspace-cycle-item">
+                <label class="form-label">Cycle 종료 Call</label>
+                <select class="form-select" @bind="_selectedCycleEndCallName">
+                    @foreach (var option in _cycleCallOptions)
+                    {
+                        <option value="@option.CallName">@option.DisplayLabel</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <div class="flow-workspace-cycle-actions">
+            <button class="btn btn-filled" @onclick="SaveCycleBoundaryOverrideAsync" disabled="@(!_cycleCallOptions.Any())">
+                <span class="material-icons" style="font-size:18px;">save</span>
+                CT 기준 저장
+            </button>
+            <span class="typo-caption flow-workspace-muted">
+                AASX 기본값과 동일하게 저장하면 override는 제거됩니다.
+            </span>
+        </div>
+    </section>
+
+    <section class="flow-workspace-kpi-grid">
+        <article class="card flow-workspace-kpi">
+            <span class="flow-workspace-kpi-label">Current CT</span>
+            <strong class="flow-workspace-kpi-value">@FormatDurationMs(_flowRuntime?.CT)</strong>
+            <span class="flow-workspace-kpi-sub">Flow 총 시간</span>
+        </article>
+        <article class="card flow-workspace-kpi">
+            <span class="flow-workspace-kpi-label">MT</span>
+            <strong class="flow-workspace-kpi-value">@FormatDurationMs(_flowRuntime?.MT)</strong>
+            <span class="flow-workspace-kpi-sub">가동 시간</span>
+        </article>
+        <article class="card flow-workspace-kpi">
+            <span class="flow-workspace-kpi-label">WT</span>
+            <strong class="flow-workspace-kpi-value">@FormatDurationMs(_flowRuntime?.WT)</strong>
+            <span class="flow-workspace-kpi-sub">대기 시간</span>
+        </article>
+        <article class="card flow-workspace-kpi">
+            <span class="flow-workspace-kpi-label">Active Calls</span>
+            <strong class="flow-workspace-kpi-value">@_activeCallCount</strong>
+            <span class="flow-workspace-kpi-sub">현재 Going 상태</span>
+        </article>
+        <article class="card flow-workspace-kpi">
+            <span class="flow-workspace-kpi-label">Error Calls</span>
+            <strong class="flow-workspace-kpi-value">@_errorCallCount</strong>
+            <span class="flow-workspace-kpi-sub">오류 상태 Call</span>
+        </article>
+        <article class="card flow-workspace-kpi">
+            <span class="flow-workspace-kpi-label">Avg Call Time</span>
+            <strong class="flow-workspace-kpi-value">@FormatDurationMs(_averageCallTimeMs)</strong>
+            <span class="flow-workspace-kpi-sub">평균 Going 시간</span>
+        </article>
+    </section>
+
+    <section class="card flow-workspace-panel">
+        <div class="flow-workspace-panel-header">
+            <div>
+                <h6 class="typo-h6">Call Inventory</h6>
+                <div class="typo-caption flow-workspace-muted">Work / Call / InTag / OutTag / 상태를 한 번에 확인</div>
+            </div>
+            <div class="flow-workspace-inventory-controls">
+                <input class="form-field"
+                       value="@_searchText"
+                       @oninput="OnSearchChanged"
+                       placeholder="Call, Work, Tag 검색" />
+                <select class="form-select" value="@(_stateFilter ?? string.Empty)" @onchange="OnStateFilterChanged">
+                    <option value="">State (전체)</option>
+                    @foreach (var state in _stateOptions)
+                    {
+                        <option value="@state">@state</option>
+                    }
+                </select>
+                <button class="btn btn-sm btn-outlined" @onclick="ExportCsv" disabled="@(FilteredCallRows.Count == 0)">CSV 내보내기</button>
+            </div>
+        </div>
+
+        <div class="table-container" style="max-height: calc(100vh - 420px); overflow:auto;">
+            <table class="table table-hover table-striped">
+                <thead class="table-head-sticky">
+                    <tr>
+                        <th>Work</th>
+                        <th>Call</th>
+                        <th>In Tag</th>
+                        <th>Out Tag</th>
+                        <th>State</th>
+                        <th>Count</th>
+                        <th>Avg Time</th>
+                        <th>Device</th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (FilteredCallRows.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="9" style="text-align:center; padding:24px; color:var(--color-text-secondary);">
+                                표시할 Call이 없습니다.
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var row in FilteredCallRows)
+                        {
+                            <tr>
+                                <td>@row.WorkName</td>
+                                <td>
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <img src="images/aas.png" alt="" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
+                                        @row.CallName
+                                    </div>
+                                </td>
+                                <td>@(row.InTag ?? "-")</td>
+                                <td>@(row.OutTag ?? "-")</td>
+                                <td>
+                                    <span class="chip" style="@GetStateChipStyle(row.State)">
+                                        @GetFlowStateLabel(row.State)
+                                    </span>
+                                </td>
+                                <td>@row.GoingCount</td>
+                                <td>@FormatDurationMs(row.AverageGoingTime)</td>
+                                <td>@(row.Device ?? "-")</td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(row.ErrorText))
+                                    {
+                                        <span class="flow-workspace-error-text" title="@row.ErrorText">Error</span>
+                                    }
+                                    else
+                                    {
+                                        <span style="color:var(--color-text-disabled);">-</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+</div>
+
+<style>
+    .flow-workspace-page {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        min-height: calc(100vh - 100px);
+    }
+
+    .flow-workspace-hero {
+        padding: 20px 24px;
+        background:
+            radial-gradient(circle at top left, rgba(0, 155, 180, 0.10), transparent 32%),
+            linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.05), var(--color-surface));
+    }
+
+    .flow-workspace-hero-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: flex-start;
+    }
+
+    .flow-workspace-eyebrow {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--color-primary);
+        font-weight: 700;
+    }
+
+    .flow-workspace-title {
+        margin: 6px 0 0;
+        font-weight: 700;
+        color: var(--color-text-primary);
+    }
+
+    .flow-workspace-subtitle {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+        color: var(--color-text-secondary);
+        font-size: 0.95rem;
+    }
+
+    .flow-workspace-hero-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-width: 360px;
+    }
+
+    .flow-workspace-button-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .flow-workspace-state-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+    }
+
+    .flow-workspace-info-chip {
+        background: rgba(var(--color-primary-rgb), 0.08);
+        color: var(--color-primary);
+    }
+
+    .flow-workspace-kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .flow-workspace-kpi {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .flow-workspace-kpi-label {
+        color: var(--color-text-secondary);
+        font-size: 0.84rem;
+    }
+
+    .flow-workspace-kpi-value {
+        font-size: 1.5rem;
+        color: var(--color-text-primary);
+        font-weight: 700;
+    }
+
+    .flow-workspace-kpi-sub {
+        color: var(--color-text-secondary);
+        font-size: 0.82rem;
+    }
+
+    .flow-workspace-secondary-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+        gap: 16px;
+    }
+
+    .flow-workspace-panel {
+        padding: 18px 20px;
+    }
+
+    .flow-workspace-cycle-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .flow-workspace-cycle-item {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .flow-workspace-cycle-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+    }
+
+    .flow-workspace-cycle-message {
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(var(--color-primary-rgb), 0.08);
+        color: var(--color-primary);
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+    .flow-workspace-panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+
+    .flow-workspace-muted {
+        color: var(--color-text-secondary);
+    }
+
+    .flow-workspace-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .flow-workspace-summary-item {
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: rgba(var(--color-primary-rgb), 0.04);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .flow-workspace-summary-label {
+        color: var(--color-text-secondary);
+        font-size: 0.8rem;
+    }
+
+    .flow-workspace-work-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .flow-workspace-work-card {
+        border-radius: 10px;
+        border: 1px solid var(--color-lines);
+        padding: 12px 14px;
+        background: rgba(var(--color-primary-rgb), 0.02);
+    }
+
+    .flow-workspace-work-title {
+        font-weight: 700;
+        color: var(--color-primary);
+    }
+
+    .flow-workspace-work-meta,
+    .flow-workspace-work-avg {
+        font-size: 0.84rem;
+        color: var(--color-text-secondary);
+        margin-top: 4px;
+    }
+
+    .flow-workspace-work-stats {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+        font-size: 0.82rem;
+    }
+
+    .flow-workspace-focus-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .flow-workspace-focus-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        border: 1px solid var(--color-lines);
+        border-radius: 10px;
+        padding: 12px 14px;
+    }
+
+    .flow-workspace-focus-name {
+        font-weight: 700;
+        color: var(--color-primary);
+    }
+
+    .flow-workspace-focus-sub {
+        font-size: 0.82rem;
+        color: var(--color-text-secondary);
+        margin-top: 4px;
+    }
+
+    .flow-workspace-focus-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .flow-workspace-focus-time {
+        font-weight: 600;
+        color: var(--color-primary);
+    }
+
+    .flow-workspace-inventory-controls {
+        display: flex;
+        gap: 10px;
+        min-width: 420px;
+    }
+
+    .flow-workspace-error-text {
+        color: var(--color-error);
+        font-weight: 600;
+        cursor: help;
+    }
+
+    .flow-workspace-empty {
+        padding: 40px 24px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: var(--color-text-secondary);
+        min-height: 280px;
+    }
+
+    .flow-workspace-empty .material-icons {
+        font-size: 44px;
+        color: var(--color-primary);
+    }
+
+    @@media (max-width: 1200px) {
+        .flow-workspace-kpi-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .flow-workspace-secondary-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @@media (max-width: 900px) {
+        .flow-workspace-hero-top {
+            flex-direction: column;
+        }
+
+        .flow-workspace-hero-actions,
+        .flow-workspace-inventory-controls {
+            min-width: 0;
+            width: 100%;
+        }
+
+        .flow-workspace-kpi-grid,
+        .flow-workspace-summary-grid,
+        .flow-workspace-cycle-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .flow-workspace-work-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+@code {
+    [SupplyParameterFromQuery(Name = "name")]
+    public string? QueryFlowName { get; set; }
+
+    private static readonly string[] _stateOptions = ["Ready", "Going", "Finish", "Error", "Pause", "Abort"];
+
+    private DspDbSnapshot _dbSnapshot = new();
+    private List<CallInventoryRow> _callRows = [];
+    private FlowState? _flowRuntime;
+    private string? _selectedFlowName;
+    private string _searchText = string.Empty;
+    private string? _stateFilter;
+    private int _workCount;
+    private int _activeCallCount;
+    private int _errorCallCount;
+    private int _finishedCallCount;
+    private int _readyCallCount;
+    private double? _averageCallTimeMs;
+    private double _completionRate;
+    private List<WorkSummaryRow> _workSummaries = [];
+    private bool _disposed;
+    private string _workspaceSignature = string.Empty;
+    private string? _aasxDefaultStartCallName;
+    private string? _aasxDefaultEndCallName;
+    private string? _selectedCycleStartCallName;
+    private string? _selectedCycleEndCallName;
+    private string? _cycleConfigMessage;
+    private string? _cycleEditorFlowName;
+    private List<FlowCycleCallOption> _cycleCallOptions = [];
+
+    private Flow? SelectedFlow => string.IsNullOrWhiteSpace(_selectedFlowName)
+        ? null
+        : ProjectService.GetFlowByName(_selectedFlowName);
+
+    private string SelectedSystemName => SelectedFlow is null
+        ? "-"
+        : ProjectService.GetActiveSystems()
+            .FirstOrDefault(system => ProjectService.GetFlows(system.Id).Any(flow => flow.Name == SelectedFlow.Name))
+            ?.Name ?? "-";
+
+    private List<CallInventoryRow> FilteredCallRows => _callRows
+        .Where(MatchesStateFilter)
+        .Where(MatchesSearchFilter)
+        .ToList();
+
+    protected override void OnInitialized()
+    {
+        ApplySnapshot(DbService.Snapshot, true);
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender) return;
+        DbService.OnDataChanged += OnDbDataChanged;
+    }
+
+    protected override void OnParametersSet()
+    {
+        var availableFlows = ProjectService.IsLoaded
+            ? ProjectService.GetAllFlows().Select(flow => flow.Name).Distinct().OrderBy(name => name).ToList()
+            : [];
+
+        var previousSelectedFlow = _selectedFlowName;
+        var requestedFlow = string.IsNullOrWhiteSpace(QueryFlowName) ? null : QueryFlowName.Trim();
+        if (!string.IsNullOrWhiteSpace(requestedFlow) &&
+            availableFlows.Contains(requestedFlow, StringComparer.OrdinalIgnoreCase))
+        {
+            _selectedFlowName = availableFlows.First(name => string.Equals(name, requestedFlow, StringComparison.OrdinalIgnoreCase));
+        }
+        else if (string.IsNullOrWhiteSpace(_selectedFlowName) ||
+                 !availableFlows.Contains(_selectedFlowName, StringComparer.OrdinalIgnoreCase))
+        {
+            _selectedFlowName = availableFlows.FirstOrDefault();
+        }
+
+        var flowChanged = !string.Equals(previousSelectedFlow, _selectedFlowName, StringComparison.OrdinalIgnoreCase);
+        ApplySnapshot(DbService.Snapshot, flowChanged || string.IsNullOrEmpty(_workspaceSignature));
+    }
+
+    private void RefreshWorkspace()
+    {
+        ApplySnapshot(DbService.Snapshot, true);
+    }
+
+    private bool ApplySnapshot(DspDbSnapshot snapshot, bool forceRender = false)
+    {
+        var nextSignature = BuildWorkspaceSignature(snapshot);
+        if (!forceRender && nextSignature == _workspaceSignature)
+        {
+            return false;
+        }
+
+        _dbSnapshot = snapshot;
+        RebuildWorkspace();
+        _workspaceSignature = nextSignature;
+        return true;
+    }
+
+    private void RebuildWorkspace()
+    {
+        _callRows = [];
+        _flowRuntime = null;
+        _workCount = 0;
+        _activeCallCount = 0;
+        _errorCallCount = 0;
+        _finishedCallCount = 0;
+        _readyCallCount = 0;
+        _averageCallTimeMs = null;
+        _completionRate = 0.0;
+        _workSummaries = [];
+
+        var flow = SelectedFlow;
+        if (flow is null)
+        {
+            return;
+        }
+
+        _flowRuntime = _dbSnapshot.Flows.FirstOrDefault(item => item.FlowName == flow.Name);
+
+        var works = ProjectService.GetWorks(flow.Id)
+            .OrderBy(work => work.Name)
+            .ToList();
+        _workCount = works.Count;
+
+        if (!string.Equals(_cycleEditorFlowName, flow.Name, StringComparison.OrdinalIgnoreCase) || _cycleCallOptions.Count == 0)
+        {
+            LoadCycleBoundaryEditor(flow, works);
+        }
+
+        var runtimeCalls = _dbSnapshot.CallsByFlow.TryGetValue(flow.Name, out var callsByFlow)
+            ? callsByFlow
+            : [];
+
+        _callRows = works
+            .SelectMany(work => ProjectService.GetCalls(work.Id)
+                .OrderBy(call => call.Name)
+                .Select(call =>
+                {
+                    var runtime = runtimeCalls.FirstOrDefault(item => item.CallId == call.Id) ??
+                                  _dbSnapshot.Calls.FirstOrDefault(item => item.CallId == call.Id);
+                    var tags = MapperService.GetCallTagsByCallId(call.Id);
+
+                    return new CallInventoryRow(
+                        call.Id,
+                        call.Name,
+                        work.Name,
+                        tags?.InTag,
+                        tags?.OutTag,
+                        runtime?.State ?? "Ready",
+                        runtime?.GoingCount ?? 0,
+                        runtime?.AverageGoingTime,
+                        runtime?.Device,
+                        runtime?.ErrorText);
+                }))
+            .ToList();
+
+        _activeCallCount = _callRows.Count(row => string.Equals(row.State, "Going", StringComparison.OrdinalIgnoreCase));
+        _errorCallCount = _callRows.Count(row => string.Equals(row.State, "Error", StringComparison.OrdinalIgnoreCase));
+        _finishedCallCount = _callRows.Count(row => string.Equals(row.State, "Finish", StringComparison.OrdinalIgnoreCase));
+        _readyCallCount = _callRows.Count(row => string.Equals(row.State, "Ready", StringComparison.OrdinalIgnoreCase));
+        _completionRate = _callRows.Count > 0 ? (double)_finishedCallCount / _callRows.Count : 0.0;
+
+        var avgSamples = _callRows
+            .Where(row => row.AverageGoingTime is > 0)
+            .Select(row => row.AverageGoingTime!.Value)
+            .ToList();
+        _averageCallTimeMs = avgSamples.Count > 0 ? avgSamples.Average() : null;
+
+        _workSummaries = _callRows
+            .GroupBy(row => row.WorkName)
+            .Select(group =>
+            {
+                var averages = group.Where(row => row.AverageGoingTime is > 0).Select(row => row.AverageGoingTime!.Value).ToList();
+                return new WorkSummaryRow(
+                    group.Key,
+                    group.Count(),
+                    group.Count(row => string.Equals(row.State, "Going", StringComparison.OrdinalIgnoreCase)),
+                    group.Count(row => string.Equals(row.State, "Error", StringComparison.OrdinalIgnoreCase)),
+                    group.Count(row => string.Equals(row.State, "Finish", StringComparison.OrdinalIgnoreCase)),
+                    averages.Count > 0 ? averages.Average() : null);
+            })
+            .OrderBy(row => row.WorkName)
+            .ToList();
+    }
+
+    private void LoadCycleBoundaryEditor(Flow flow, List<Work> works)
+    {
+        _cycleEditorFlowName = flow.Name;
+        _cycleCallOptions = works
+            .SelectMany(work => ProjectService.GetCalls(work.Id)
+                .OrderBy(call => call.Name)
+                .Select(call => new FlowCycleCallOption(call.Name, call.Name)))
+            .ToList();
+
+        var (defaultStartCallName, defaultEndCallName) = FlowMetricsService.GetAasxCycleBoundaries(flow.Name);
+        _aasxDefaultStartCallName = defaultStartCallName;
+        _aasxDefaultEndCallName = defaultEndCallName;
+
+        var overrideConfig = SettingsService.GetFlowCycleOverride(flow.Name);
+        _selectedCycleStartCallName = NormalizeCycleSelection(
+            overrideConfig?.StartCallName ?? defaultStartCallName,
+            _cycleCallOptions);
+        _selectedCycleEndCallName = NormalizeCycleSelection(
+            overrideConfig?.EndCallName ?? defaultEndCallName,
+            _cycleCallOptions);
+
+        _cycleConfigMessage = overrideConfig is null
+            ? "현재 AASX 기본값 사용 중"
+            : "사용자 override 저장됨";
+    }
+
+    private async Task SaveCycleBoundaryOverrideAsync()
+    {
+        var flow = SelectedFlow;
+        if (flow is null)
+        {
+            return;
+        }
+
+        var effectiveStartCallName = NormalizeCycleSelection(_selectedCycleStartCallName, _cycleCallOptions) ?? _aasxDefaultStartCallName;
+        var effectiveEndCallName = NormalizeCycleSelection(_selectedCycleEndCallName, _cycleCallOptions) ?? _aasxDefaultEndCallName;
+
+        var overrideStartCallName = string.Equals(effectiveStartCallName, _aasxDefaultStartCallName, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : effectiveStartCallName;
+        var overrideEndCallName = string.Equals(effectiveEndCallName, _aasxDefaultEndCallName, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : effectiveEndCallName;
+
+        SettingsService.SaveFlowCycleOverride(flow.Name, overrideStartCallName, overrideEndCallName);
+        await FlowMetricsService.ApplyCycleBoundaryOverrideAsync(flow.Name, effectiveStartCallName, effectiveEndCallName);
+
+        if (_flowRuntime is not null)
+        {
+            _flowRuntime.MovingStartName = effectiveStartCallName is null ? null : $"{flow.Name}.{effectiveStartCallName}";
+            _flowRuntime.MovingEndName = effectiveEndCallName is null ? null : $"{flow.Name}.{effectiveEndCallName}";
+            _workspaceSignature = BuildWorkspaceSignature(_dbSnapshot);
+        }
+
+        _cycleConfigMessage = string.IsNullOrWhiteSpace(overrideStartCallName) && string.IsNullOrWhiteSpace(overrideEndCallName)
+            ? "AASX 기본값으로 저장됨"
+            : "사용자 override 저장됨";
+    }
+
+    private void OnSearchChanged(ChangeEventArgs e)
+    {
+        _searchText = e.Value?.ToString()?.Trim() ?? string.Empty;
+    }
+
+    private void OnStateFilterChanged(ChangeEventArgs e)
+    {
+        _stateFilter = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : e.Value?.ToString();
+    }
+
+    private bool MatchesStateFilter(CallInventoryRow row)
+    {
+        return string.IsNullOrWhiteSpace(_stateFilter) ||
+               string.Equals(row.State, _stateFilter, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool MatchesSearchFilter(CallInventoryRow row)
+    {
+        if (string.IsNullOrWhiteSpace(_searchText))
+        {
+            return true;
+        }
+
+        return row.CallName.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ||
+               row.WorkName.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ||
+               (row.InTag?.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+               (row.OutTag?.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private void OnDbDataChanged()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var snapshot = DbService.Snapshot;
+
+        _ = InvokeAsync(() =>
+        {
+            if (_disposed)
+            {
+                return Task.CompletedTask;
+            }
+
+            if (ApplySnapshot(snapshot))
+            {
+                StateHasChanged();
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
+    private string BuildWorkspaceSignature(DspDbSnapshot snapshot)
+    {
+        if (!ProjectService.IsLoaded)
+        {
+            return "project:not-loaded";
+        }
+
+        if (string.IsNullOrWhiteSpace(_selectedFlowName))
+        {
+            return "flow:none";
+        }
+
+        var flow = ProjectService.GetFlowByName(_selectedFlowName);
+        if (flow is null)
+        {
+            return $"flow:missing:{_selectedFlowName}";
+        }
+
+        var parts = new List<string>(64)
+        {
+            flow.Name
+        };
+
+        var runtimeFlow = snapshot.Flows.FirstOrDefault(item => item.FlowName == flow.Name);
+        parts.Add(runtimeFlow?.State ?? string.Empty);
+        parts.Add(runtimeFlow?.CT?.ToString() ?? string.Empty);
+        parts.Add(runtimeFlow?.MT?.ToString() ?? string.Empty);
+        parts.Add(runtimeFlow?.WT?.ToString() ?? string.Empty);
+        parts.Add(runtimeFlow?.MovingStartName ?? string.Empty);
+        parts.Add(runtimeFlow?.MovingEndName ?? string.Empty);
+
+        var runtimeCalls = snapshot.CallsByFlow.TryGetValue(flow.Name, out var callsByFlow)
+            ? callsByFlow
+            : [];
+        var runtimeByCallId = runtimeCalls
+            .DistinctBy(call => call.CallId)
+            .ToDictionary(call => call.CallId, call => call);
+
+        foreach (var work in ProjectService.GetWorks(flow.Id).OrderBy(work => work.Name))
+        {
+            foreach (var call in ProjectService.GetCalls(work.Id).OrderBy(call => call.Name))
+            {
+                runtimeByCallId.TryGetValue(call.Id, out var runtimeCall);
+                parts.Add(call.Id.ToString("N"));
+                parts.Add(runtimeCall?.State ?? "Ready");
+                parts.Add((runtimeCall?.GoingCount ?? 0).ToString());
+                parts.Add(runtimeCall?.AverageGoingTime?.ToString("F3") ?? string.Empty);
+                parts.Add(runtimeCall?.Device ?? string.Empty);
+                parts.Add(runtimeCall?.ErrorText ?? string.Empty);
+            }
+        }
+
+        return string.Join('|', parts);
+    }
+
+    private static string GetFlowStateLabel(string? state)
+        => string.IsNullOrWhiteSpace(state) ? "No Data" : state;
+
+    private static string GetStateChipStyle(string? state)
+    {
+        var normalized = state?.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "going" => "background:#EAB308; color:white;",
+            "finish" => "background:#2196F3; color:white;",
+            "error" => "background:#F44336; color:white;",
+            "pause" => "background:#FF9800; color:white;",
+            "abort" => "background:#7B1FA2; color:white;",
+            "ready" => "background:#4CAF50; color:white;",
+            _ => "background:rgba(var(--color-primary-rgb), 0.10); color:var(--color-primary);"
+        };
+    }
+
+    private static string FormatDurationMs(double? milliseconds)
+    {
+        if (milliseconds is null || milliseconds <= 0)
+        {
+            return "-";
+        }
+
+        return $"{milliseconds / 1000.0:F1} sec";
+    }
+
+    private static string? NormalizeCycleSelection(string? callName, List<FlowCycleCallOption> options)
+    {
+        var firstOption = options.FirstOrDefault();
+        if (firstOption is null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(callName))
+        {
+            return firstOption.CallName;
+        }
+
+        var trimmed = callName.Trim();
+        var option = options.FirstOrDefault(item => string.Equals(item.CallName, trimmed, StringComparison.OrdinalIgnoreCase));
+        return option?.CallName ?? firstOption.CallName;
+    }
+
+    private async Task ExportCsv()
+    {
+        var rows = FilteredCallRows;
+        if (rows.Count == 0) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Work,Call,In Tag,Out Tag,State,Count,Avg Time,Device,Error");
+
+        foreach (var row in rows)
+        {
+            sb.AppendLine(string.Join(",",
+                CsvEscape(row.WorkName),
+                CsvEscape(row.CallName),
+                CsvEscape(row.InTag ?? "-"),
+                CsvEscape(row.OutTag ?? "-"),
+                CsvEscape(GetFlowStateLabel(row.State)),
+                row.GoingCount,
+                CsvEscape(FormatDurationMs(row.AverageGoingTime)),
+                CsvEscape(row.Device ?? "-"),
+                CsvEscape(row.ErrorText ?? "-")));
+        }
+
+        var flowName = _selectedFlowName ?? "Flow";
+        var fileName = $"CallInventory_{flowName}_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        var bytes = System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+        var base64 = Convert.ToBase64String(bytes);
+
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var byteChars = atob('{base64}');
+                var bytes = new Uint8Array(byteChars.length);
+                for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+                var blob = new Blob([bytes], {{ type: 'text/csv;charset=utf-8' }});
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = '{fileName}';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            }})();
+        ");
+    }
+
+    private static string CsvEscape(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        return value;
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        DbService.OnDataChanged -= OnDbDataChanged;
+    }
+
+    private sealed record CallInventoryRow(
+        Guid CallId,
+        string CallName,
+        string WorkName,
+        string? InTag,
+        string? OutTag,
+        string State,
+        int GoingCount,
+        double? AverageGoingTime,
+        string? Device,
+        string? ErrorText);
+
+    private sealed record WorkSummaryRow(
+        string WorkName,
+        int CallCount,
+        int GoingCount,
+        int ErrorCount,
+        int FinishCount,
+        double? AverageGoingTime);
+
+    private sealed record FlowCycleCallOption(
+        string CallName,
+        string DisplayLabel);
+}

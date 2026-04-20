@@ -30,6 +30,7 @@ public partial class Home
                 var env = Converter.ReadEnvironmentFromBytes(ms.ToArray());
                 if (env is null) { SetStatus($"{file.Name}: 읽기 실패", "error"); continue; }
 
+                EnsureErrorDefinitions(env);
                 var json = Converter.EnvironmentToJson(env);
                 await ApplyEnvironmentAsync(env, json, file.Name);
                 await RegisterInDbAsync(file.Name, env, json);
@@ -55,9 +56,52 @@ public partial class Home
             var env = Converter.JsonToEnvironment(json);
             if (env is null) return;
 
+            EnsureErrorDefinitions(env);
+            json = Converter.EnvironmentToJson(env);
             await ApplyEnvironmentAsync(env, json, lastFile.FileName);
             _currentFileId = lastFile.Id;
             SetStatus($"DB에서 복원됨: {lastFile.FileName}", "success");
+        }
+        catch { }
+    }
+
+    private async Task ApplyEnvironmentAsync(AasCore.Aas3_1.Environment env, string json, string fileName)
+    {
+        _contentLoaded = true;
+        _fileName = fileName;
+        _currentEnv = env;
+        await SyncJsonToEditorAsync(json);
+        RebuildTree();
+        ClearUndoHistory();
+    }
+
+    private async Task RegisterInDbAsync(string fileName, AasCore.Aas3_1.Environment env, string json)
+    {
+        var shellCount = env.AssetAdministrationShells?.Count ?? 0;
+        var submodelCount = env.Submodels?.Count ?? 0;
+        var fileRecord = await MetadataStore.AddFileAsync(fileName, fileName, shellCount, submodelCount, json);
+        _currentFileId = fileRecord.Id;
+        var entities = EntityExtractor.Extract(env);
+        await MetadataStore.AddEntitiesAsync(_currentFileId, entities);
+    }
+
+    private async Task ResetForNewOpenAsync()
+    {
+        await ClearDbAsync();
+        _searchResults.Clear();
+        _searchText = "";
+    }
+
+    private async Task ClearDbAsync()
+    {
+        try
+        {
+            var files = await MetadataStore.GetFilesAsync();
+            foreach (var f in files)
+            {
+                await MetadataStore.RemoveEntitiesByFileAsync(f.Id);
+                await MetadataStore.RemoveFileAsync(f.Id);
+            }
         }
         catch { }
     }

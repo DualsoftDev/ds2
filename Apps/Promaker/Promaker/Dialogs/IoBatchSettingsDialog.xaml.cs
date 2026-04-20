@@ -20,6 +20,7 @@ public partial class IoBatchSettingsDialog : Window
     private readonly ICollectionView _view;
     private readonly string? _currentFilePath;
     private readonly Func<IReadOnlyList<IoBatchRow>, bool>? _applyChanges;
+    private bool _showOnlyUnmatched;
 
     public IoBatchSettingsDialog(
         DsStore store,
@@ -52,6 +53,9 @@ public partial class IoBatchSettingsDialog : Window
     private bool FilterRow(object obj)
     {
         if (obj is not IoBatchRow row) return false;
+
+        if (_showOnlyUnmatched && !row.IsUnmatched)
+            return false;
 
         var flow = FlowFilterBox.Text;
         var work = WorkFilterBox.Text;
@@ -221,6 +225,12 @@ public partial class IoBatchSettingsDialog : Window
         _view.Refresh();
         BatchDialogHelper.UpdateSelectedCount(_rows, SelectedCountText);
         RefreshApplyButtonState();
+    }
+
+    private void ShowOnlyUnmatched_Changed(object sender, RoutedEventArgs e)
+    {
+        _showOnlyUnmatched = ShowOnlyUnmatchedCheckBox.IsChecked == true;
+        _view.Refresh();
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();

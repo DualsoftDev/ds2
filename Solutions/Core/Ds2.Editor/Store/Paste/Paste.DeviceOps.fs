@@ -77,7 +77,7 @@ module internal PasteDeviceOps =
                         sourceApiDefs
                         |> List.map (fun src ->
                             let cloned = ApiDef(src.Name, newSystem.Id)
-                            cloned.IsPush <- src.IsPush
+                            cloned.ApiDefActionType <- src.ApiDefActionType
                             let work = Work(newFlow.Name, src.Name, newFlow.Id)
                             // 원본 ApiDef의 TxGuid Work에서 SimulationProperties와 Duration 복사
                             src.TxGuid

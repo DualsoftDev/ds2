@@ -181,7 +181,7 @@ module JsonRoundTripTests =
         let workId = Guid.NewGuid()
 
         let apiDef = ApiDef("ApiDef-Full", systemId)
-        apiDef.IsPush <- true
+        apiDef.ApiDefActionType <- ApiDefActionType.Push
         apiDef.TxGuid <- Some(Guid.NewGuid())
         apiDef.RxGuid <- Some(Guid.NewGuid())
 
@@ -348,4 +348,86 @@ module FileRoundTripTests =
             Assert.Equal(passive.Id, actual.PassiveSystemIds.[0])
         finally
             if File.Exists(filePath) then File.Delete(filePath)
+
+
+module ApiDefActionTypeTests =
+
+    [<Fact>]
+    let ``JsonConverter should roundtrip ApiDefActionType Normal`` () =
+        let value = ApiDefActionType.Normal
+        let actual = roundTrip value
+        Assert.Equal(value, actual)
+
+    [<Fact>]
+    let ``JsonConverter should roundtrip ApiDefActionType Push`` () =
+        let value = ApiDefActionType.Push
+        let actual = roundTrip value
+        Assert.Equal(value, actual)
+
+    [<Fact>]
+    let ``JsonConverter should roundtrip ApiDefActionType Pulse`` () =
+        let value = ApiDefActionType.Pulse
+        let actual = roundTrip value
+        Assert.Equal(value, actual)
+
+    [<Fact>]
+    let ``JsonConverter should roundtrip ApiDefActionType Time`` () =
+        let value = ApiDefActionType.Time 1500
+        let actual = roundTrip value
+        Assert.Equal(value, actual)
+
+    [<Fact>]
+    let ``DsSystem should roundtrip SystemType option`` () =
+        let system = DsSystem("TestSystem")
+        system.SystemType <- Some "ConveyorBelt"
+        let actual = roundTrip system
+        Assert.Equal(system.Id, actual.Id)
+        Assert.Equal(system.Name, actual.Name)
+        Assert.Equal(system.SystemType, actual.SystemType)
+        Assert.Equal(Some "ConveyorBelt", actual.SystemType)
+
+    [<Fact>]
+    let ``ApiDef should roundtrip with Normal ActionType`` () =
+        let systemId = Guid.NewGuid()
+        let apiDef = ApiDef("TestApi", systemId)
+        apiDef.ApiDefActionType <- ApiDefActionType.Normal
+        apiDef.TxGuid <- Some (Guid.NewGuid())
+        apiDef.RxGuid <- Some (Guid.NewGuid())
+        let actual = roundTrip apiDef
+        Assert.Equal(apiDef.Id, actual.Id)
+        Assert.Equal(apiDef.Name, actual.Name)
+        Assert.Equal(apiDef.ParentId, actual.ParentId)
+        Assert.Equal(apiDef.ApiDefActionType, actual.ApiDefActionType)
+        Assert.Equal(ApiDefActionType.Normal, actual.ApiDefActionType)
+        Assert.Equal(apiDef.TxGuid, actual.TxGuid)
+        Assert.Equal(apiDef.RxGuid, actual.RxGuid)
+
+    [<Fact>]
+    let ``ApiDef should roundtrip with Push ActionType`` () =
+        let systemId = Guid.NewGuid()
+        let apiDef = ApiDef("TestApi", systemId)
+        apiDef.ApiDefActionType <- ApiDefActionType.Push
+        let actual = roundTrip apiDef
+        Assert.Equal(apiDef.ApiDefActionType, actual.ApiDefActionType)
+        Assert.Equal(ApiDefActionType.Push, actual.ApiDefActionType)
+
+    [<Fact>]
+    let ``ApiDef should roundtrip with Pulse ActionType`` () =
+        let systemId = Guid.NewGuid()
+        let apiDef = ApiDef("TestApi", systemId)
+        apiDef.ApiDefActionType <- ApiDefActionType.Pulse
+        let actual = roundTrip apiDef
+        Assert.Equal(apiDef.ApiDefActionType, actual.ApiDefActionType)
+        Assert.Equal(ApiDefActionType.Pulse, actual.ApiDefActionType)
+
+    [<Fact>]
+    let ``ApiDef should roundtrip with Time ActionType`` () =
+        let systemId = Guid.NewGuid()
+        let apiDef = ApiDef("TestApi", systemId)
+        apiDef.ApiDefActionType <- ApiDefActionType.Time 2500
+        let actual = roundTrip apiDef
+        Assert.Equal(apiDef.ApiDefActionType, actual.ApiDefActionType)
+        match actual.ApiDefActionType with
+        | ApiDefActionType.Time ms -> Assert.Equal(2500, ms)
+        | _ -> Assert.Fail("Expected Time action type")
 

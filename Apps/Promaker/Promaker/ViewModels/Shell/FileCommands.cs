@@ -127,17 +127,18 @@ public partial class MainViewModel
                 $"Open AASX '{fileName}'",
                 () =>
                 {
-                    if (!AasxImporter.importIntoStore(_store, fileName))
+                    var result = AasxImporter.importIntoStoreWithError(_store, fileName);
+                    if (result.IsError)
                     {
-                        Log.Warn($"AASX open failed: empty result ({fileName})");
-                        _dialogService.ShowWarning("Failed to open AASX file.");
+                        Log.Warn($"AASX open failed: {result.ErrorValue}");
+                        _dialogService.ShowWarning($"AASX 파일 열기 실패:\n\n{result.ErrorValue}");
                         return;
                     }
 
                     PrepareForLoadedStore();
                     CompleteOpen(fileName, "AASX");
                 },
-                ex => $"Failed to open AASX: {ex.Message}");
+                ex => $"AASX 파일 열기 실패:\n\n{ex.Message}");
         }
         else
         {
@@ -167,6 +168,12 @@ public partial class MainViewModel
             var projectId = Queries.allProjects(_store).Head.Id;
             _ = Simulation.ThreeD.BuildScene(_store, projectId);
         }
+
+        // AutoLayoutIfNeeded가 좌표 없는 노드에 자동 배치를 적용하면서
+        // undo 항목을 생성할 수 있으므로, 로드 완료 후 초기 상태로 확정
+        _store.ClearHistory();
+        IsDirty = false;
+        UpdateTitle();
     }
 
     private static void ExpandAllNodes(IEnumerable<EntityNode> nodes)
@@ -204,6 +211,7 @@ public partial class MainViewModel
 
             // 앱 설정으로 저장
             SetSplitDeviceAasx(dlg.ResultSplitDeviceAasx);
+            SetCreateDefaultEntitiesOnEmptyAasx(dlg.ResultCreateDefaultEntities);
             SetIriPrefix(dlg.ResultIriPrefix);
             // PresetSystemTypes는 Dialog 내부에서 이미 파일에 저장됨
         });
@@ -274,7 +282,7 @@ public partial class MainViewModel
         {
             try
             {
-                var exported = AasxExporter.exportFromStore(_store, filePath, IriPrefix, SplitDeviceAasx);
+                var exported = AasxExporter.exportFromStore(_store, filePath, IriPrefix, SplitDeviceAasx, CreateDefaultEntitiesOnEmptyAasx);
                 if (!exported)
                     Log.Warn($"AASX save failed: no project ({filePath})");
 

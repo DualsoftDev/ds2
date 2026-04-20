@@ -59,13 +59,30 @@ module CsvImporter =
         | -1 -> callName
         | idx -> callName.Substring(idx + 1)
 
+    /// 헤더 열 이름 정규화 (공백 제거 + 소문자 + 별칭)
+    let private normalizeColumnName (name: string) =
+        let n = name.ToLowerInvariant().Replace(" ", "")
+        match n with
+        | "outsymbol" | "outtag" -> "outname"
+        | "insymbol"  | "intag"  -> "inname"
+        | "outtype" -> "outdatatype"
+        | "intype"  -> "indatatype"
+        | other -> other
+
+    /// 헤더 행에서 열 이름 → 인덱스 맵 생성
+    let private buildColumnMap (headerLine: string) : Map<string, int> =
+        parseFields headerLine
+        |> List.mapi (fun i name -> normalizeColumnName name, i)
+        |> Map.ofList
+
     /// CSV 파일 텍스트를 trim된 줄 배열로 변환 (빈 줄 제거)
     let private readLines (filePath: string) : string array =
         let text =
             use fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete)
-            use sr = new StreamReader(fs, Encoding.UTF8)
+            use sr = new StreamReader(fs, Encoding.UTF8, detectEncodingFromByteOrderMarks = true)
             sr.ReadToEnd()
-        text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n')
+        let cleaned = if text.Length > 0 && text.[0] = '\uFEFF' then text.[1..] else text
+        cleaned.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n')
         |> Array.map (fun s -> s.Trim())
         |> Array.filter (fun s -> s.Length > 0)
 
@@ -91,34 +108,41 @@ module CsvImporter =
             else None)
         |> Array.toList
 
-    /// 9열/10열 양식 파싱
-    /// 9열: Flow,Device,Api,OutTag,OutDataType,OutAddress,InTag,InDataType,InAddress
-    /// 10열: Flow,Work,Device,Api,OutTag,OutDataType,OutAddress,InTag,InDataType,InAddress
-    let private parseTemplate (hasWork: bool) (lines: string array) : IoImportRow list =
-        let offset = if hasWork then 1 else 0
+    /// 헤더 열 이름 기반 양식 파싱 (열 순서/System 열 유무/DataType 열 유무에 무관)
+    let private parseByColumnMap (colMap: Map<string, int>) (lines: string array) : IoImportRow list =
+        let tryCol name (fields: string list) =
+            colMap |> Map.tryFind name |> Option.bind (fun i ->
+                if i < fields.Length then
+                    let v = fields.[i]
+                    if String.IsNullOrWhiteSpace(v) then None else Some v
+                else None)
+        let col name fields = tryCol name fields |> Option.defaultValue ""
+
         lines
         |> Array.collect (fun line ->
             let fields = parseFields line
-            if fields.Length >= 3 + offset then
-                let flow = fields.[0]
-                let work = if hasWork then fields.[1] else ""
-                let device = fields.[1 + offset]
-                let api = fields.[2 + offset]
-                let outSymbol   = if fields.Length >= 4 + offset then fields.[3 + offset] else ""
-                let outDataType = if fields.Length >= 5 + offset then fields.[4 + offset] else ""
-                let outAddress  = if fields.Length >= 6 + offset then fields.[5 + offset] else ""
-                let inSymbol    = if fields.Length >= 7 + offset then fields.[6 + offset] else ""
-                let inDataType  = if fields.Length >= 8 + offset then fields.[7 + offset] else ""
-                let inAddress   = if fields.Length >= 9 + offset then fields.[8 + offset] else ""
+            let flow      = col "flow" fields
+            let work      = col "work" fields
+            let device    = col "device" fields
+            let api       = col "api" fields
+            let outSymbol   = col "outname" fields
+            let outDataType = col "outdatatype" fields
+            let outAddress  = col "outaddress" fields
+            let inSymbol    = col "inname" fields
+            let inDataType  = col "indatatype" fields
+            let inAddress   = col "inaddress" fields
 
-                [|  if inAddress <> "" && inAddress <> "-" then
+            if String.IsNullOrEmpty(flow) && String.IsNullOrEmpty(device) then [||]
+            else
+                let hasIn  = inSymbol <> "" || inDataType <> "" || (inAddress <> "" && inAddress <> "-")
+                let hasOut = outSymbol <> "" || outDataType <> "" || (outAddress <> "" && outAddress <> "-")
+                [|  if hasIn then
                         yield { VarName = inSymbol; DataType = inDataType; Address = inAddress
                                 FlowName = flow; WorkName = work; DeviceName = device; ApiName = api; Direction = "Input" }
-                    if outAddress <> "" && outAddress <> "-" then
+                    if hasOut then
                         yield { VarName = outSymbol; DataType = outDataType; Address = outAddress
                                 FlowName = flow; WorkName = work; DeviceName = device; ApiName = api; Direction = "Output" }
-                |]
-            else [||])
+                |])
         |> Array.toList
 
     /// CSV 파일을 파싱하여 IoImportRow 리스트 반환 (헤더 자동 감지)
@@ -134,9 +158,9 @@ module CsvImporter =
                 if header.Contains("var_name") && header.Contains("direction") then
                     Ok (parseExtended11 dataLines)
                 elif header.Contains("flow") && header.Contains("device") && header.Contains("api") then
-                    let hasWork = header.Contains("work")
-                    Ok (parseTemplate hasWork dataLines)
+                    let colMap = buildColumnMap lines.[0]
+                    Ok (parseByColumnMap colMap dataLines)
                 else
-                    Error "CSV 헤더를 인식할 수 없습니다.\n\n지원 형식:\n- 양식: Flow,Work,Device,Api,OutTag,OutDataType,OutAddress,InTag,InDataType,InAddress\n- 양식(구버전): Flow,Device,Api,OutTag,OutDataType,OutAddress,InTag,InDataType,InAddress\n- Extended: var_name,...,direction,comment (11열)"
+                    Error "CSV 헤더를 인식할 수 없습니다.\n\n지원 형식:\n- 양식: Flow,[Work,]Device,[System,]Api,OutName,[OutDataType,]OutAddress,InName,[InDataType,]InAddress (열 순서 자유)\n- Extended: var_name,...,direction,comment (11열)"
         with ex ->
             Error $"CSV 파일 읽기 실패: {ex.Message}"

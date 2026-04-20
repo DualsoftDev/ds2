@@ -40,9 +40,9 @@ public class SqliteMetadataStore : IAasMetadataStore
             )
             """);
 
-        // 기존 테이블에 JsonContent 컬럼이 없으면 추가 (마이그레이션)
-        try { await ExecuteNonQueryAsync(conn, "ALTER TABLE AasxFiles ADD COLUMN JsonContent TEXT"); }
-        catch { /* 이미 존재 */ }
+        // 기존 테이블에 JsonContent 컬럼이 없으면 추가 (예외 없는 마이그레이션)
+        if (!await ColumnExistsAsync(conn, "AasxFiles", "JsonContent"))
+            await ExecuteNonQueryAsync(conn, "ALTER TABLE AasxFiles ADD COLUMN JsonContent TEXT");
 
         await ExecuteNonQueryAsync(conn, """
             CREATE TABLE IF NOT EXISTS AasEntities (
@@ -283,6 +283,34 @@ public class SqliteMetadataStore : IAasMetadataStore
         return await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task<int> BatchUpdateFieldByIdsAsync(IEnumerable<long> entityIds, string field, string newValue)
+    {
+        // 허용된 컬럼만 업데이트 가능 (SQL 인젝션 방지)
+        var allowedFields = new HashSet<string> { "Value", "SemanticId", "ValueType", "Category" };
+        if (!allowedFields.Contains(field))
+            throw new ArgumentException($"일괄 편집 대상이 아닌 필드: {field}");
+
+        var ids = entityIds.ToList();
+        if (ids.Count == 0) return 0;
+
+        var conn = await GetConnectionAsync();
+        using var cmd = conn.CreateCommand();
+
+        // 파라미터 바인딩으로 ID 목록 전달
+        var idParams = new List<string>();
+        for (var i = 0; i < ids.Count; i++)
+        {
+            var pName = $"@id{i}";
+            idParams.Add(pName);
+            cmd.Parameters.AddWithValue(pName, ids[i]);
+        }
+
+        cmd.CommandText = $"UPDATE AasEntities SET {field} = @newVal WHERE Id IN ({string.Join(",", idParams)})";
+        cmd.Parameters.AddWithValue("@newVal", newValue);
+
+        return await cmd.ExecuteNonQueryAsync();
+    }
+
     // === Helpers ===
 
     private static async Task<List<AasEntityRecord>> ReadEntitiesAsync(SqliteCommand cmd)
@@ -307,6 +335,16 @@ public class SqliteMetadataStore : IAasMetadataStore
             });
         }
         return result;
+    }
+
+    private static async Task<bool> ColumnExistsAsync(SqliteConnection conn, string table, string column)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({table})";
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            if (reader.GetString(1) == column) return true;
+        return false;
     }
 
     private static async Task ExecuteNonQueryAsync(SqliteConnection conn, string sql)

@@ -1,21 +1,12 @@
 namespace Ds2.CSV
 
 open System
-open System.Collections.Generic
 open System.Text
 
 module CsvParser =
 
-    type private EntryAccumulator = {
-        Row         : CsvRow
-        mutable InName : string option
-        mutable InTag  : string option
-        mutable OutName: string option
-        mutable OutTag : string option
-        SourceLines : ResizeArray<int>
-    }
-
-    let private expectedHeader = [ "flow"; "work"; "device"; "system"; "api"; "inname"; "inaddress"; "outname"; "outaddress" ]
+    let private expectedHeader9 = [ "flow"; "work"; "device"; "system"; "api"; "inname"; "inaddress"; "outname"; "outaddress" ]
+    let private expectedHeader8 = [ "flow"; "work"; "device"; "api"; "inname"; "inaddress"; "outname"; "outaddress" ]
 
     let private trim (value: string) =
         if isNull value then "" else value.Trim()
@@ -90,21 +81,6 @@ module CsvParser =
             values.Add(current.ToString())
             Ok (values |> Seq.toList)
 
-    let private mergeAddress
-        (kind: string)
-        (lineNumber: int)
-        (current: string option)
-        (incoming: string option)
-        : Result<string option, ParseError> =
-        match current, incoming with
-        | Some existing, Some next when not (String.Equals(existing, next, StringComparison.Ordinal)) ->
-            Error {
-                LineNumber = lineNumber
-                Message = $"conflicting {kind} address: '{existing}' vs '{next}'"
-            }
-        | None, Some next -> Ok (Some next)
-        | _ -> Ok current
-
     let parse (content: string) : Result<CsvDocument, ParseError list> =
         let text =
             if String.IsNullOrEmpty(content) then ""
@@ -131,13 +107,20 @@ module CsvParser =
                     headerFields
                     |> List.map (fun value -> trim value |> fun item -> item.ToLowerInvariant())
 
-                if normalizedHeader <> expectedHeader then
-                    let expectedText = String.concat "," expectedHeader
+                let hasSystem =
+                    if normalizedHeader = expectedHeader9 then Some true
+                    elif normalizedHeader = expectedHeader8 then Some false
+                    else None
+
+                match hasSystem with
+                | None ->
+                    let expectedText = String.concat "," expectedHeader9
                     Error [ {
                         LineNumber = headerLineNumber
                         Message = $"invalid header. expected: {expectedText}"
                     } ]
-                else
+                | Some hasSystemCol ->
+                    let expectedCols = if hasSystemCol then 9 else 8
                     let parseErrors = ResizeArray<ParseError>()
                     let rows = ResizeArray<CsvRow>()
 
@@ -145,16 +128,21 @@ module CsvParser =
                         match splitCsvLine lineNumber line with
                         | Error error ->
                             parseErrors.Add(error)
-                        | Ok values when values.Length <> 9 ->
+                        | Ok values when values.Length <> expectedCols ->
                             parseErrors.Add({
                                 LineNumber = lineNumber
-                                Message = $"expected 9 columns but found {values.Length}"
+                                Message = $"expected {expectedCols} columns but found {values.Length}"
                             })
                         | Ok values ->
                             let flowName = trim values.[0]
                             let workName = trim values.[1]
                             let deviceName = trim values.[2]
-                            let systemName = trim values.[3]
+                            let systemName  = if hasSystemCol then trim values.[3] else ""
+                            let apiName     = trim values.[if hasSystemCol then 4 else 3]
+                            let inName      = trim values.[if hasSystemCol then 5 else 4]
+                            let inAddress   = trim values.[if hasSystemCol then 6 else 5]
+                            let outName     = trim values.[if hasSystemCol then 7 else 6]
+                            let outAddress  = trim values.[if hasSystemCol then 8 else 7]
                             if String.IsNullOrWhiteSpace(flowName) then
                                 parseErrors.Add({
                                     LineNumber = lineNumber
@@ -176,78 +164,42 @@ module CsvParser =
                                     WorkName = workName
                                     DeviceName = deviceName
                                     SystemName = systemName
-                                    ApiName = trim values.[4]
-                                    InName = trim values.[5]
-                                    InAddress = trim values.[6]
-                                    OutName = trim values.[7]
-                                    OutAddress = trim values.[8]
+                                    ApiName = apiName
+                                    InName = inName
+                                    InAddress = inAddress
+                                    OutName = outName
+                                    OutAddress = outAddress
                                     LineNumber = lineNumber
                                 })
 
                     if parseErrors.Count > 0 then
                         Error (parseErrors |> Seq.toList)
                     else
-                        let groups = Dictionary<string * string * string * string * string, EntryAccumulator>()
-                        let ordered = ResizeArray<EntryAccumulator>()
+                        let entries =
+                            rows
+                            |> Seq.map (fun row ->
+                                let alias = resolveDeviceAlias row.DeviceName
+                                let sysName =
+                                    let s = row.SystemName
+                                    if String.IsNullOrWhiteSpace(s) then alias else s
+                                let inName = toOption row.InName
+                                let inAddress = toOption row.InAddress
+                                let outName = toOption row.OutName
+                                let outAddress = toOption row.OutAddress
+                                {
+                                    FlowName = row.FlowName
+                                    WorkName = row.WorkName
+                                    DeviceName = row.DeviceName
+                                    DeviceAlias = alias
+                                    SystemName = sysName
+                                    ApiName = resolveApiName row.ApiName inAddress outAddress
+                                    IsSyntheticApi = String.IsNullOrWhiteSpace(row.ApiName)
+                                    InName = inName
+                                    InAddress = inAddress
+                                    OutName = outName
+                                    OutAddress = outAddress
+                                    SourceLines = [ row.LineNumber ]
+                                })
+                            |> Seq.toList
 
-                        for row in rows do
-                            let key = (row.FlowName, row.WorkName, row.DeviceName, row.SystemName, row.ApiName)
-                            let incomingInName = toOption row.InName
-                            let incomingInAddress = toOption row.InAddress
-                            let incomingOutName = toOption row.OutName
-                            let incomingOutAddress = toOption row.OutAddress
-
-                            match groups.TryGetValue(key) with
-                            | true, existing ->
-                                existing.SourceLines.Add(row.LineNumber)
-                                match mergeAddress "inName" row.LineNumber existing.InName incomingInName with
-                                | Error error -> parseErrors.Add(error)
-                                | Ok value -> existing.InName <- value
-                                match mergeAddress "inAddress" row.LineNumber existing.InTag incomingInAddress with
-                                | Error error -> parseErrors.Add(error)
-                                | Ok value -> existing.InTag <- value
-                                match mergeAddress "outName" row.LineNumber existing.OutName incomingOutName with
-                                | Error error -> parseErrors.Add(error)
-                                | Ok value -> existing.OutName <- value
-                                match mergeAddress "outAddress" row.LineNumber existing.OutTag incomingOutAddress with
-                                | Error error -> parseErrors.Add(error)
-                                | Ok value -> existing.OutTag <- value
-                            | false, _ ->
-                                let acc = {
-                                    Row = row
-                                    InName = incomingInName
-                                    InTag = incomingInAddress
-                                    OutName = incomingOutName
-                                    OutTag = incomingOutAddress
-                                    SourceLines = ResizeArray([ row.LineNumber ])
-                                }
-                                groups.[key] <- acc
-                                ordered.Add(acc)
-
-                        if parseErrors.Count > 0 then
-                            Error (parseErrors |> Seq.toList)
-                        else
-                            let entries =
-                                ordered
-                                |> Seq.map (fun acc ->
-                                    let alias = resolveDeviceAlias acc.Row.DeviceName
-                                    let sysName =
-                                        let s = acc.Row.SystemName
-                                        if String.IsNullOrWhiteSpace(s) then alias else s
-                                    {
-                                        FlowName = acc.Row.FlowName
-                                        WorkName = acc.Row.WorkName
-                                        DeviceName = acc.Row.DeviceName
-                                        DeviceAlias = alias
-                                        SystemName = sysName
-                                        ApiName = resolveApiName acc.Row.ApiName acc.InTag acc.OutTag
-                                        IsSyntheticApi = String.IsNullOrWhiteSpace(acc.Row.ApiName)
-                                        InName = acc.InName
-                                        InAddress = acc.InTag
-                                        OutName = acc.OutName
-                                        OutAddress = acc.OutTag
-                                        SourceLines = acc.SourceLines |> Seq.toList
-                                    })
-                                |> Seq.toList
-
-                            Ok { Entries = entries }
+                        Ok { Entries = entries }

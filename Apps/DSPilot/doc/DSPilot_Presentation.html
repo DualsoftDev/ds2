@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSPilot Presentation - Projection Architecture</title>
+    <style>
+        :root {
+            --bg: #f2f5f9;
+            --panel: #ffffff;
+            --panel-soft: #eef4f8;
+            --ink: #13212e;
+            --muted: #5b6b79;
+            --line: #d7e0e8;
+            --brand: #0f5f73;
+            --brand-strong: #0b4352;
+            --accent: #d7862a;
+            --accent-soft: #fff2df;
+            --good: #1d8f5b;
+            --warn: #c07a18;
+            --danger: #c43c3c;
+            --shadow: 0 24px 70px rgba(15, 37, 52, 0.16);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(15, 95, 115, 0.18), transparent 28%),
+                radial-gradient(circle at bottom right, rgba(215, 134, 42, 0.14), transparent 24%),
+                linear-gradient(180deg, #edf3f8 0%, #e6edf4 100%);
+            color: var(--ink);
+            line-height: 1.55;
+        }
+
+        .presentation {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 28px 20px 64px;
+        }
+
+        .slide {
+            background: var(--panel);
+            border: 1px solid rgba(15, 95, 115, 0.08);
+            border-radius: 28px;
+            box-shadow: var(--shadow);
+            min-height: 760px;
+            margin-bottom: 36px;
+            padding: 56px 58px;
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+            page-break-after: always;
+        }
+
+        .slide.compact {
+            min-height: 640px;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            align-self: flex-start;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: var(--panel-soft);
+            color: var(--brand);
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            font-size: 54px;
+            line-height: 1.08;
+            letter-spacing: -0.03em;
+            color: var(--brand-strong);
+        }
+
+        h2 {
+            font-size: 34px;
+            line-height: 1.18;
+            letter-spacing: -0.02em;
+            color: var(--brand-strong);
+        }
+
+        h3 {
+            font-size: 20px;
+            line-height: 1.3;
+            color: var(--ink);
+            margin-bottom: 12px;
+        }
+
+        p,
+        li,
+        td,
+        th {
+            font-size: 17px;
+        }
+
+        p.lead {
+            font-size: 24px;
+            line-height: 1.45;
+            color: var(--muted);
+            max-width: 1000px;
+        }
+
+        .hero-grid,
+        .two-col,
+        .three-col,
+        .four-col {
+            display: grid;
+            gap: 18px;
+        }
+
+        .hero-grid {
+            grid-template-columns: 1.35fr 0.95fr;
+            align-items: stretch;
+        }
+
+        .two-col {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .three-col {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .four-col {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .card {
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            padding: 24px 24px 22px;
+            background: var(--panel);
+        }
+
+        .card.soft {
+            background: var(--panel-soft);
+        }
+
+        .card.brand {
+            background: linear-gradient(155deg, var(--brand-strong) 0%, var(--brand) 100%);
+            color: #fff;
+            border: 0;
+        }
+
+        .card.brand h3,
+        .card.brand p,
+        .card.brand li {
+            color: #fff;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 16px;
+        }
+
+        .metric {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 22px;
+        }
+
+        .metric .label {
+            color: var(--muted);
+            font-size: 14px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-weight: 700;
+        }
+
+        .metric .value {
+            font-size: 40px;
+            line-height: 1;
+            color: var(--brand-strong);
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
+        .metric .desc {
+            color: var(--muted);
+            font-size: 15px;
+        }
+
+        .agenda {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .agenda-item {
+            border-radius: 16px;
+            padding: 16px 18px;
+            background: var(--panel-soft);
+            border: 1px solid rgba(15, 95, 115, 0.08);
+        }
+
+        .agenda-item strong {
+            display: block;
+            color: var(--brand-strong);
+            margin-bottom: 6px;
+            font-size: 18px;
+        }
+
+        .bullet-list {
+            padding-left: 22px;
+        }
+
+        .bullet-list li {
+            margin-bottom: 10px;
+            color: var(--ink);
+        }
+
+        .highlight-box {
+            background: var(--accent-soft);
+            border-left: 5px solid var(--accent);
+            border-radius: 18px;
+            padding: 20px 22px;
+        }
+
+        .highlight-box strong {
+            color: #7d4a00;
+        }
+
+        .diagram {
+            background: #0f1d28;
+            color: #d9ecf2;
+            border-radius: 22px;
+            padding: 24px 26px;
+            font-family: "Cascadia Mono", "Consolas", monospace;
+            font-size: 14px;
+            line-height: 1.55;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            overflow: hidden;
+            border-radius: 16px;
+            border: 1px solid var(--line);
+        }
+
+        thead th {
+            background: linear-gradient(180deg, #0f5f73 0%, #0b4352 100%);
+            color: #fff;
+            font-weight: 700;
+            text-align: left;
+            padding: 16px 18px;
+        }
+
+        tbody td {
+            padding: 16px 18px;
+            border-bottom: 1px solid var(--line);
+            vertical-align: top;
+            background: #fff;
+        }
+
+        tbody tr:nth-child(even) td {
+            background: #f9fbfd;
+        }
+
+        .phase-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .phase {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 16px;
+            padding: 18px 20px;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            background: #fff;
+        }
+
+        .phase .tag {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            background: var(--panel-soft);
+            color: var(--brand-strong);
+            align-self: start;
+        }
+
+        .badge-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 8px 12px;
+            border-radius: 999px;
+            font-size: 14px;
+            font-weight: 700;
+            background: var(--panel-soft);
+            color: var(--brand-strong);
+        }
+
+        .badge.good { background: #e9f8f1; color: var(--good); }
+        .badge.warn { background: #fff4e5; color: var(--warn); }
+        .badge.danger { background: #fdecec; color: var(--danger); }
+
+        .closing {
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 18px;
+            align-items: stretch;
+        }
+
+        .footer-note {
+            font-size: 14px;
+            color: var(--muted);
+            text-align: center;
+            margin-top: 8px;
+        }
+
+        @media (max-width: 1100px) {
+            .hero-grid,
+            .two-col,
+            .three-col,
+            .four-col,
+            .closing,
+            .metric-grid,
+            .agenda {
+                grid-template-columns: 1fr;
+            }
+
+            .slide {
+                padding: 34px 24px;
+                min-height: auto;
+            }
+
+            h1 {
+                font-size: 42px;
+            }
+        }
+
+        @media print {
+            body {
+                background: #fff;
+            }
+
+            .slide {
+                box-shadow: none;
+                border: 1px solid #d7e0e8;
+                margin-bottom: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="presentation">
+
+        <section class="slide">
+            <div class="eyebrow">DSPilot.Engine Refactoring</div>
+            <div class="hero-grid">
+                <div style="display:flex; flex-direction:column; gap:20px; justify-content:center;">
+                    <h1>DS Pilot 발표자료</h1>
+                    <p class="lead">
+                        `doc` 폴더 설계 문서를 기준으로 정리한
+                        <strong>Projection 기반 DSPilot.Engine 재설계</strong> 발표자료입니다.
+                    </p>
+                    <div class="highlight-box">
+                        <strong>핵심 메시지</strong><br>
+                        UI는 계산하지 않고, Engine이 `dspFlow` / `dspCall` projection을 유지하며,
+                        PLC 이벤트와 AASX 구조를 화면이 바로 읽을 수 있는 상태로 만든다.
+                    </div>
+                    <div class="badge-row">
+                        <span class="badge">Projection First</span>
+                        <span class="badge">Patch Update</span>
+                        <span class="badge">UI Read Only</span>
+                        <span class="badge warn">DROP TABLE 금지</span>
+                    </div>
+                </div>
+                <div class="card brand">
+                    <h3>문서 기준</h3>
+                    <ul class="bullet-list">
+                        <li><strong>01_ARCHITECTURE</strong>: 전체 구조와 불변 규칙</li>
+                        <li><strong>02_DATABASE_SCHEMA</strong>: `dspFlow`, `dspCall` 스키마</li>
+                        <li><strong>03_PROJECTION_PATTERN</strong>: 계산 책임과 patch 업데이트</li>
+                        <li><strong>04_EVENT_PIPELINE</strong>: 이벤트 처리 단계</li>
+                        <li><strong>05_FEATURE_IMPLEMENTATION</strong>: 기능별 projection 사용 방식</li>
+                        <li><strong>09_REFACTORING_PLAN</strong>: 단계별 적용 계획</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="slide compact">
+            <div class="eyebrow">Agenda</div>
+            <h2>발표 흐름</h2>
+            <div class="agenda">
+                <div class="agenda-item">
+                    <strong>1. 왜 재설계하는가</strong>
+                    기존 구조의 문제와 이번 문서 세트가 해결하려는 핵심 과제
+                </div>
+                <div class="agenda-item">
+                    <strong>2. 전체 아키텍처</strong>
+                    AASX, PLC 이벤트, Engine, SQLite, Blazor UI의 관계
+                </div>
+                <div class="agenda-item">
+                    <strong>3. Projection 패턴</strong>
+                    Static Bootstrap, Runtime Event, Aggregate Recompute
+                </div>
+                <div class="agenda-item">
+                    <strong>4. 데이터 모델</strong>
+                    `dspFlow`, `dspCall`, `plcTagLog`의 역할과 책임
+                </div>
+                <div class="agenda-item">
+                    <strong>5. 이벤트 파이프라인</strong>
+                    Rising Edge 감지부터 projection patch 반영까지의 흐름
+                </div>
+                <div class="agenda-item">
+                    <strong>6. 기능 구현 맵</strong>
+                    공정 상태, 분석, 병목, Heatmap, 이력 화면이 무엇을 읽는지
+                </div>
+                <div class="agenda-item">
+                    <strong>7. 리팩토링 계획</strong>
+                    스키마 확장, patch 메서드, runtime/aggregation 재설계
+                </div>
+                <div class="agenda-item">
+                    <strong>8. 기대 효과</strong>
+                    성능, 유지보수성, 데이터 일관성, UI 단순화
+                </div>
+            </div>
+        </section>
+
+        <section class="slide">
+            <div class="eyebrow">Why</div>
+            <h2>왜 Projection 중심 구조로 다시 묶는가</h2>
+            <div class="two-col">
+                <div class="card">
+                    <h3>현재 구조의 문제</h3>
+                    <ul class="bullet-list">
+                        <li>UI에서 데이터 조합과 계산이 섞이기 쉽다.</li>
+                        <li>이벤트 처리, 통계 계산, Flow 집계가 여러 서비스로 흩어져 있다.</li>
+                        <li>좁은 update 메서드만으로는 상세 projection을 안정적으로 유지하기 어렵다.</li>
+                        <li>`DROP TABLE` 방식은 누적 통계와 화면 신뢰성을 무너뜨린다.</li>
+                        <li>`WorkName` 정확도 같은 메타데이터 오류가 전체 화면 품질을 무너뜨린다.</li>
+                    </ul>
+                </div>
+                <div class="card soft">
+                    <h3>문서가 제시하는 방향</h3>
+                    <ul class="bullet-list">
+                        <li>UI는 `dspFlow`, `dspCall`만 읽는다.</li>
+                        <li>계산은 Engine에서 완료된 projection으로 제공한다.</li>
+                        <li>업데이트는 patch 기반으로 넓게 처리한다.</li>
+                        <li>AASX 구조와 PLC 이벤트를 하나의 projection 흐름으로 묶는다.</li>
+                        <li>기능 구현은 projection 필드 정의에서 시작한다.</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="metric-grid">
+                <div class="metric">
+                    <div class="label">Rule 1</div>
+                    <div class="value">UI</div>
+                    <div class="desc">계산 금지, 읽기만 수행</div>
+                </div>
+                <div class="metric">
+                    <div class="label">Rule 2</div>
+                    <div class="value">Patch</div>
+                    <div class="desc">필드 단위 projection 업데이트</div>
+                </div>
+                <div class="metric">
+                    <div class="label">Rule 3</div>
+                    <div class="value">No Drop</div>
+                    <div class="desc">통계 보존, migration 기반 확장</div>
+                </div>
+                <div class="metric">
+                    <div class="label">Rule 4</div>
+                    <div class="value">Accurate</div>
+                    <div class="desc">`WorkName`, topology, tag mapping 정확도 확보</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="slide">
+            <div class="eyebrow">Architecture</div>
+            <h2>전체 아키텍처</h2>
+            <div class="diagram">
+<pre>
+┌───────────────────────────────────────────────────────────────────────────┐
+│                           DSPilot 시스템 구조                              │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  AASX File                               PLC Events                       │
+│  (정적 구조)                              (실시간 신호)                    │
+│      │                                         │                           │
+│      ├──────────────────────┬──────────────────┤                           │
+│      ▼                      ▼                                              │
+│  ┌─────────────────────────────────────────────────────────────┐           │
+│  │                  DSPilot.Engine (F#)                       │           │
+│  │                                                             │           │
+│  │ 1. AASX Bootstrap      → Static Metadata Projection         │           │
+│  │ 2. Event Processor     → Runtime State Update               │           │
+│  │ 3. Statistics Module   → Avg / StdDev / Min / Max           │           │
+│  │ 4. Aggregation Module  → Flow State / MT / WT / CT          │           │
+│  │ 5. Projection Writer   → dspFlow / dspCall PATCH            │           │
+│  └─────────────────────────────────────────────────────────────┘           │
+│                                │                                           │
+│                                ▼                                           │
+│  ┌─────────────────────────────────────────────────────────────┐           │
+│  │                        SQLite Database                      │           │
+│  │  • dspFlow   : Flow projection                              │           │
+│  │  • dspCall   : Call projection                              │           │
+│  │  • plcTagLog : Raw PLC log                                  │           │
+│  └─────────────────────────────────────────────────────────────┘           │
+│                                │                                           │
+│                                ▼                                           │
+│  ┌─────────────────────────────────────────────────────────────┐           │
+│  │                  DSPilot UI (Blazor, C#)                   │           │
+│  │  규칙: Projection만 읽기 / Mapper 호출 금지 / 통계 재계산 금지 │           │
+│  └─────────────────────────────────────────────────────────────┘           │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+</pre>
+            </div>
+            <div class="highlight-box">
+                <strong>아키텍처 기준 문장</strong><br>
+                AASX는 구조를 제공하고, PLC 이벤트는 상태를 제공하며,
+                Engine은 이 둘을 합쳐서 `화면이 바로 읽을 수 있는 Projection`으로 유지한다.
+            </div>
+        </section>
+
+        <section class="slide">
+            <div class="eyebrow">Projection Pattern</div>
+            <h2>세 가지 계산 책임</h2>
+            <div class="three-col">
+                <div class="card">
+                    <h3>1. Static Bootstrap</h3>
+                    <ul class="bullet-list">
+                        <li>트리거: 프로젝트/AASX 로드 시</li>
+                        <li>역할: Flow, Work, Call 구조 적재</li>
+                        <li>계산: topology, sequence, tag mapping, device</li>
+                        <li>출력: `dspFlow`, `dspCall` 초기 projection</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3>2. Runtime Event Update</h3>
+                    <ul class="bullet-list">
+                        <li>트리거: PLC value change</li>
+                        <li>역할: Rising Edge 감지, Tag → Call 매핑</li>
+                        <li>계산: state transition, start/finish timestamp</li>
+                        <li>출력: call state, active count, cycle start/end</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3>3. Aggregate Recompute</h3>
+                    <ul class="bullet-list">
+                        <li>트리거: Call 완료, Tail 완료</li>
+                        <li>역할: 통계와 Flow 집계 계산</li>
+                        <li>계산: Avg, StdDev, Min, Max, MT, WT, CT</li>
+                        <li>출력: `FocusScore`, `SlowFlag`, Flow KPI</li>
+                    </ul>
+                </div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>계산 책임</th>
+                        <th>주요 입력</th>
+                        <th>핵심 산출물</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Static Bootstrap</td>
+                        <td>AASX System / Flow / Work / Call</td>
+                        <td>WorkName, SequenceNo, Prev, Next, IsHead, IsTail, InTag, OutTag</td>
+                    </tr>
+                    <tr>
+                        <td>Runtime Event Update</td>
+                        <td>PLC tag rising edge</td>
+                        <td>State, LastStartAt, LastFinishAt, LastTransitionAt, ActiveCallCount</td>
+                    </tr>
+                    <tr>
+                        <td>Aggregate Recompute</td>
+                        <td>Call 완료 결과</td>
+                        <td>AverageGoingTime, StdDevGoingTime, MT, WT, CT, FocusScore</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="slide">
+            <div class="eyebrow">Database Schema</div>
+            <h2>Projection 테이블 구조</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>테이블</th>
+                        <th>역할</th>
+                        <th>대표 필드</th>
+                        <th>업데이트 시점</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>dspFlow</strong></td>
+                        <td>Flow 레벨 projection</td>
+                        <td>State, MovingStartName, MovingEndName, ActiveCallCount, ErrorCallCount, MT, WT, CT, LastCycleStartAt, LastCycleEndAt</td>
+                        <td>프로젝트 로드, call 상태 변경, tail 완료</td>
+                    </tr>
+                    <tr>
+                        <td><strong>dspCall</strong></td>
+                        <td>Call 레벨 projection</td>
+                        <td>WorkName, SequenceNo, State, ProgressRate, LastStartAt, LastFinishAt, LastDurationMs, AverageGoingTime, StdDevGoingTime, FocusScore</td>
+                        <td>프로젝트 로드, In/Out tag 이벤트, 오류 이벤트</td>
+                    </tr>
+                    <tr>
+                        <td><strong>plcTagLog</strong></td>
+                        <td>원시 PLC 이력</td>
+                        <td>TagName, Value, Timestamp, Source</td>
+                        <td>PLC 수집 시</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="two-col">
+                <div class="card soft">
+                    <h3>중요 규칙</h3>
+                    <ul class="bullet-list">
+                        <li>`dspFlow`, `dspCall`은 화면용 read model이다.</li>
+                        <li>UPSERT 시 기존 통계는 보존한다.</li>
+                        <li>누적 필드와 정적 메타 필드는 구분해서 업데이트한다.</li>
+                    </ul>
+                </div>
+                <div class="card soft">
+                    <h3>선행 수정 포인트</h3>
+                    <ul class="bullet-list">
+                        <li>`WorkName = flow.Name` 버그 수정</li>
+                        <li>`DROP TABLE` 제거 후 migration 전환</li>
+                        <li>좁은 update 메서드를 patch 메서드로 교체</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="slide">
+            <div class="eyebrow">Event Pipeline</div>
+            <h2>이벤트 처리 파이프라인</h2>
+            <div class="four-col">
+                <div class="card">
+                    <h3>Stage 1</h3>
+                    <p><strong>Event Source</strong></p>
+                    <p>PLC 이벤트 수집, batch timestamp 확보</p>
+                </div>
+                <div class="card">
+                    <h3>Stage 2</h3>
+                    <p><strong>Edge Detection</strong></p>
+                    <p>PreviousValue=false → Value=true Rising Edge 감지</p>
+                </div>
+                <div class="card">
+                    <h3>Stage 3</h3>
+                    <p><strong>Tag → Call Mapping</strong></p>
+                    <p>InTag/OutTag 기준으로 Call 식별</p>
+                </div>
+                <div class="card">
+                    <h3>Stage 4</h3>
+                    <p><strong>State Transition</strong></p>
+                    <p>Ready → Going → Ready / Error + Projection Patch</p>
+                </div>
+            </div>
+            <div class="diagram">
+<pre>
+PLC Tag Value Change
+  │
+  ├─ Rising Edge Detection
+  │
+  ├─ Tag to Call Mapping
+  │
+  ├─ InTag?
+  │    └─ YES → Ready → Going
+  │             LastStartAt
+  │             ActiveCallCount + 1
+  │             (Head Call이면 Cycle Start)
+  │
+  ├─ OutTag?
+  │    └─ YES → Going → Ready
+  │             LastFinishAt
+  │             Duration 계산
+  │             Statistics 갱신
+  │             ActiveCallCount - 1
+  │             (Tail Call이면 Cycle End, MT/WT/CT 갱신)
+  │
+  └─ Projection Writer
+       ├─ dspCall PATCH
+       └─ dspFlow PATCH
+</pre>
+            </div>
+            <div class="badge-row">
+                <span class="badge good">Latency 목표: &lt; 10ms</span>
+                <span class="badge">Throughput 목표: 100+ events/sec</span>
+                <span class="badge warn">향후 개선: Batch Update</span>
+            </div>
+        </section>
+
+        <section class="slide">
+            <div class="eyebrow">Feature Mapping</div>
+            <h2>기능 구현과 Projection 필드 매핑</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>기능</th>
+                        <th>주요 읽기 테이블</th>
+                        <th>핵심 필드</th>
+                        <th>의미</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>공정 상태</td>
+                        <td>`dspFlow`, `dspCall`</td>
+                        <td>State, ActiveCallCount, ErrorCallCount, WorkName</td>
+                        <td>현재 공정 가시화</td>
+                    </tr>
+                    <tr>
+                        <td>공정 분석</td>
+                        <td>`dspCall`, `dspFlow`</td>
+                        <td>LastDurationMs, AverageGoingTime, MT, WT, CT</td>
+                        <td>동작 시간과 상태 해석</td>
+                    </tr>
+                    <tr>
+                        <td>병목공정 분석</td>
+                        <td>`dspFlow`, `dspCall`</td>
+                        <td>MT, WT, CT, SequenceNo</td>
+                        <td>Moving / Waiting 시간 비교</td>
+                    </tr>
+                    <tr>
+                        <td>사이클 타임 분석</td>
+                        <td>`dspCall`, `plcTagLog`</td>
+                        <td>LastStartAt, LastFinishAt, InTag, OutTag</td>
+                        <td>Gantt / 시퀀스 타이밍 분석</td>
+                    </tr>
+                    <tr>
+                        <td>편차 분석</td>
+                        <td>`dspCall`</td>
+                        <td>AverageGoingTime, StdDevGoingTime, FocusScore</td>
+                        <td>Heatmap 기반 안정성 분석</td>
+                    </tr>
+                    <tr>
+                        <td>이력 분석</td>
+                        <td>`plcTagLog`</td>
+                        <td>TagName, Value, Timestamp</td>
+                        <td>원시 이벤트 추적</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="two-col">
+                <div class="card">
+                    <h3>핵심 메시지</h3>
+                    <ul class="bullet-list">
+                        <li>기능 구현은 화면부터 시작하지 않는다.</li>
+                        <li>먼저 필요한 projection 필드를 정의한다.</li>
+                        <li>그 다음 update trigger를 정의한다.</li>
+                        <li>마지막에 UI는 read-only로 붙인다.</li>
+                    </ul>
+                </div>
+                <div class="card soft">
+                    <h3>UI 금지사항</h3>
+                    <ul class="bullet-list">
+                        <li>Mapper 재호출</li>
+                        <li>Raw log 직접 스캔으로 평균/표준편차 재계산</li>
+                        <li>Head/Tail 재판정</li>
+                        <li>Focus score를 UI에서 재계산</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="slide">
+            <div class="eyebrow">Refactoring Plan</div>
+            <h2>리팩토링 우선순위</h2>
+            <div class="phase-list">
+                <div class="phase">
+                    <div class="tag">Phase 1</div>
+                    <div>
+                        <h3>데이터베이스 스키마 확장</h3>
+                        <p>`dspFlow`, `dspCall`에 projection 필드를 추가하고 migration 기반 관리로 전환한다.</p>
+                    </div>
+                </div>
+                <div class="phase">
+                    <div class="tag">Phase 2</div>
+                    <div>
+                        <h3>Repository Patch 메서드 구현</h3>
+                        <p>좁은 update 메서드를 `FlowPatch`, `CallPatch` 기반 업데이트로 교체한다.</p>
+                    </div>
+                </div>
+                <div class="phase">
+                    <div class="tag">Phase 3</div>
+                    <div>
+                        <h3>WorkName 버그 수정</h3>
+                        <p>`flow.Name`이 아니라 `work.Name`을 저장해 Work 단위 화면과 통계를 바로잡는다.</p>
+                    </div>
+                </div>
+                <div class="phase">
+                    <div class="tag">Phase 4</div>
+                    <div>
+                        <h3>Bootstrap 모듈 재설계</h3>
+                        <p>정적 메타데이터와 누적 통계를 분리하고, UPSERT 시 통계를 보존한다.</p>
+                    </div>
+                </div>
+                <div class="phase">
+                    <div class="tag">Phase 5-7</div>
+                    <div>
+                        <h3>Runtime / Statistics / Flow Aggregation 재정비</h3>
+                        <p>이벤트 처리, 통계 계산, Flow 집계를 patch 기반 projection writer로 일관되게 묶는다.</p>
+                    </div>
+                </div>
+                <div class="phase">
+                    <div class="tag">Phase 8</div>
+                    <div>
+                        <h3>C# Service Layer 단순화</h3>
+                        <p>UI/서비스 계층은 projection 읽기에 집중하고, 계산 책임을 Engine으로 되돌린다.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="slide compact">
+            <div class="eyebrow">Invariants</div>
+            <h2>반드시 지켜야 하는 불변 규칙</h2>
+            <div class="three-col">
+                <div class="card">
+                    <h3>UI는 계산 금지</h3>
+                    <p>화면은 `dspFlow`, `dspCall`만 읽는다. 평균, 표준편차, FocusScore를 다시 계산하지 않는다.</p>
+                </div>
+                <div class="card">
+                    <h3>Projection은 완전해야 함</h3>
+                    <p>화면이 필요한 핵심 값은 projection에 직접 존재해야 한다. 화면에서 join/recompute 하지 않는다.</p>
+                </div>
+                <div class="card">
+                    <h3>DROP TABLE 금지</h3>
+                    <p>통계 보존이 핵심이다. 스키마 변경은 migration과 UPSERT로 처리한다.</p>
+                </div>
+                <div class="card">
+                    <h3>WorkName 정확도</h3>
+                    <p>Call은 반드시 `work.Name`을 가진다. 이 값이 틀리면 Heatmap, Flow Detail, 병목 분석이 전부 흔들린다.</p>
+                </div>
+                <div class="card">
+                    <h3>Patch Update</h3>
+                    <p>한 서비스가 필요한 필드만 patch로 갱신한다. 전체 row를 무분별하게 덮어쓰지 않는다.</p>
+                </div>
+                <div class="card">
+                    <h3>Raw Log는 보조 역할</h3>
+                    <p>`plcTagLog`는 디버그와 검증용이다. 기본 UI는 projection 중심으로 설계한다.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="slide">
+            <div class="eyebrow">Outcome</div>
+            <h2>기대 효과와 검증 기준</h2>
+            <div class="closing">
+                <div class="card brand">
+                    <h3>기대 효과</h3>
+                    <ul class="bullet-list">
+                        <li>UI 단순화: 화면은 projection 읽기에만 집중</li>
+                        <li>성능 향상: 실시간 계산을 UI에서 제거</li>
+                        <li>일관성 향상: Flow/Call 상태와 통계가 하나의 모델로 정리</li>
+                        <li>확장성 확보: 새 기능 추가 시 projection 필드만 확장</li>
+                        <li>운영 안정성: DROP TABLE 제거로 누적 통계 보존</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3>검증 기준</h3>
+                    <ul class="bullet-list">
+                        <li>프로젝트 로드 후 `WorkName`, topology, tag mapping 정확성 확인</li>
+                        <li>PLC 이벤트 수신 후 state / timestamp / duration이 projection에 즉시 반영되는지 확인</li>
+                        <li>Tail 완료 시 MT / WT / CT가 정확히 계산되는지 확인</li>
+                        <li>UI가 raw log 없이 필요한 화면을 그릴 수 있는지 확인</li>
+                        <li>migration 후 기존 통계가 유지되는지 확인</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="highlight-box">
+                <strong>최종 결론</strong><br>
+                DSPilot의 핵심은 화면을 많이 만드는 것이 아니라,
+                `AASX 구조 + PLC 이벤트 + 통계 계산`을 일관된 projection으로 유지하는 엔진을 만드는 것이다.
+                발표자료도 그 구조를 기준으로 이해시키는 방향으로 정리해야 한다.
+            </div>
+            <p class="footer-note">
+                Based on: `doc/01_ARCHITECTURE.md`, `02_DATABASE_SCHEMA.md`, `03_PROJECTION_PATTERN.md`,
+                `04_EVENT_PIPELINE.md`, `05_FEATURE_IMPLEMENTATION.md`, `09_REFACTORING_PLAN.md`
+            </p>
+        </section>
+
+    </div>
+</body>
+</html>

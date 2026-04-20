@@ -27,7 +27,7 @@ module internal CallTransitions =
     let setCallIOValues (ctx: Context) (callGuid: Guid) =
         SimIndex.findOrEmpty callGuid ctx.Index.CallApiCallGuids
         |> List.iter (fun apiCallId ->
-            Queries.getApiCall apiCallId ctx.Index.Store
+            ctx.Index.CallApiCallObjects |> Map.tryFind apiCallId
             |> Option.iter (fun apiCall ->
                 ctx.StateManager.SetIOValue(apiCallId, ValueSpec.toDefaultString apiCall.InputSpec)))
 
@@ -35,7 +35,7 @@ module internal CallTransitions =
     let setRxWorkIOValues (ctx: Context) (callGuid: Guid) =
         SimIndex.findOrEmpty callGuid ctx.Index.CallApiCallGuids
         |> List.iter (fun apiCallId ->
-            Queries.getApiCall apiCallId ctx.Index.Store
+            ctx.Index.CallApiCallObjects |> Map.tryFind apiCallId
             |> Option.iter (fun apiCall ->
                 let hasRx =
                     apiCall.ApiDefId

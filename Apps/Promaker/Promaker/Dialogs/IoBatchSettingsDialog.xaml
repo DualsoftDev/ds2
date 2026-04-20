@@ -73,6 +73,8 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="10"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0">
@@ -130,6 +132,15 @@
                         Click="ImportCsv_Click"
                         Content="CSV 가져오기"
                         ToolTip="CSV 파일을 불러와 I/O 태그를 매핑합니다"/>
+
+                <CheckBox x:Name="ShowOnlyUnmatchedCheckBox"
+                          Grid.Column="16"
+                          Content="미매치만 보기"
+                          Visibility="Collapsed"
+                          VerticalAlignment="Bottom"
+                          Margin="0,0,0,6"
+                          Checked="ShowOnlyUnmatched_Changed"
+                          Unchecked="ShowOnlyUnmatched_Changed"/>
             </Grid>
 
             <Border Grid.Row="3"
@@ -146,6 +157,15 @@
                           SelectionUnit="FullRow"
                           RowHeaderWidth="0"
                           PreviewMouseLeftButtonDown="Grid_PreviewMouseLeftButtonDown">
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsUnmatched}" Value="True">
+                                    <Setter Property="Background" Value="#30FF6B6B"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
                     <DataGrid.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="선택 항목 체크" Click="CheckSelected_Click"/>
@@ -169,12 +189,12 @@
                         <DataGridTextColumn Header="Work" Binding="{Binding Work}" Width="120" IsReadOnly="True"/>
                         <DataGridTextColumn Header="Device" Binding="{Binding Device}" Width="120" IsReadOnly="True"/>
                         <DataGridTextColumn Header="Api" Binding="{Binding Api}" Width="120" IsReadOnly="True"/>
-                        <DataGridTextColumn Header="Out tag" Binding="{Binding OutSymbol, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
-                        <DataGridTextColumn Header="Out Type" Binding="{Binding OutDataType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
-                        <DataGridTextColumn Header="Out Address" Binding="{Binding OutAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
-                        <DataGridTextColumn Header="In tag" Binding="{Binding InSymbol, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                        <DataGridTextColumn Header="InName" Binding="{Binding InSymbol, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
                         <DataGridTextColumn Header="In Type" Binding="{Binding InDataType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
                         <DataGridTextColumn Header="In Address" Binding="{Binding InAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
+                        <DataGridTextColumn Header="OutName" Binding="{Binding OutSymbol, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                        <DataGridTextColumn Header="Out Type" Binding="{Binding OutDataType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
+                        <DataGridTextColumn Header="Out Address" Binding="{Binding OutAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
                     </DataGrid.Columns>
                 </DataGrid>
             </Border>
@@ -229,9 +249,9 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- Out Tag 행 -->
+                        <!-- OutName 행 -->
                         <TextBlock Grid.Row="0" Grid.Column="0"
-                                   Text="Out Tag:"
+                                   Text="OutName:"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <TextBox Grid.Row="0" Grid.Column="2"
@@ -262,13 +282,13 @@
                         <Button Grid.Row="0" Grid.Column="8"
                                 MinWidth="120"
                                 Style="{StaticResource DarkButton}"
-                                Content="Out 태그 생성"
+                                Content="OutName 생성"
                                 Click="GenerateOutTags_Click"
-                                ToolTip="선택된 행에 Out Tag/Address 자동 생성"/>
+                                ToolTip="선택된 행에 OutName/Address 자동 생성"/>
 
-                        <!-- In Tag 행 -->
+                        <!-- InName 행 -->
                         <TextBlock Grid.Row="2" Grid.Column="0"
-                                   Text="In Tag:"
+                                   Text="InName:"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <TextBox Grid.Row="2" Grid.Column="2"
@@ -299,9 +319,9 @@
                         <Button Grid.Row="2" Grid.Column="8"
                                 MinWidth="120"
                                 Style="{StaticResource DarkButton}"
-                                Content="In 태그 생성"
+                                Content="InName 생성"
                                 Click="GenerateInTags_Click"
-                                ToolTip="선택된 행에 In Tag/Address 자동 생성"/>
+                                ToolTip="선택된 행에 InName/Address 자동 생성"/>
                     </Grid>
                 </Grid>
             </Border>

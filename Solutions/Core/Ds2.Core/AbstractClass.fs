@@ -4,6 +4,20 @@ open System
 open System.Text.Json
 open System.Reflection
 
+
+
+/// AASX 파일에 저장될 필드명을 지정하는 Attribute
+/// 이 Attribute가 있는 속성은 자동으로 AASX Export/Import에 포함됩니다.
+[<AttributeUsage(AttributeTargets.Property, AllowMultiple = false)>]
+type AasxFieldAttribute(fieldName: string) =
+    inherit Attribute()
+
+    /// AASX 파일에서 사용할 필드명
+    member _.FieldName = fieldName
+
+    /// 이 필드를 Export/Import에서 제외할지 여부 (기본값: false)
+    member val Skip = false with get, set
+
 // =============================================================================
 // 기반 클래스
 // =============================================================================
@@ -11,8 +25,13 @@ open System.Reflection
 [<AbstractClass>]
 type DsEntity(name: string) =
     let mutable _name = name
+
+    [<AasxField("Guid")>]
     member val Id  = Guid.NewGuid() with get, set
+
     abstract Name  : string with get, set
+
+    [<AasxField("Name")>]
     default  _.Name with get() = _name and set(v) = _name <- v
 
 [<AbstractClass>]
@@ -25,8 +44,14 @@ type DsArrow(parentId, sourceId: Guid, targetId: Guid, arrowType: ArrowType) =
     inherit DsChild("", parentId)
     // 화살표는 이름이 없는 개념 — Name set을 봉인
     override _.Name with get() = "" and set _ = ()
+
+    [<AasxField("Source")>]
     member val SourceId  = sourceId  with get, set
+
+    [<AasxField("Target")>]
     member val TargetId  = targetId  with get, set
+
+    [<AasxField("Type")>]
     member val ArrowType = arrowType with get, set
 
 // =============================================================================

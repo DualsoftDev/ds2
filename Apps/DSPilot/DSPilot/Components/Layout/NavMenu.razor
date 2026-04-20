@@ -1,0 +1,147 @@
+@implements IDisposable
+@inject DsProjectService ProjectService
+@inject NavigationManager Nav
+@inject DashboardEditService EditService
+@inject AppSettingsService AppSettings
+@using Microsoft.AspNetCore.WebUtilities
+
+<nav class="nav-menu">
+    <div style="display:flex; align-items:center; border-radius:4px;
+                background: @(_isHome ? "rgba(var(--color-primary-rgb), 0.15)" : "transparent");">
+        <NavLink class="nav-link" href="" Match="NavLinkMatch.All"
+                 style="flex:1; min-width:0; background: transparent !important;">
+            <span class="material-icons">space_dashboard</span>
+            대시보드
+        </NavLink>
+        <button class="btn btn-sm @(EditService.IsEditing ? "btn-filled color-warning" : "btn-outlined")"
+                @onclick="EditService.Toggle"
+                style="margin:0 6px; padding:0 10px; min-width:0; font-size:11px; height:28px; border-radius:6px; flex-shrink:0;">
+            <span class="material-icons" style="font-size:14px;">@(EditService.IsEditing ? "check" : "dashboard_customize")</span>
+            @(EditService.IsEditing ? "완료" : "편집")
+        </button>
+    </div>
+    <NavLink class="nav-link" href="heatmap" Match="NavLinkMatch.Prefix">
+        <span class="material-icons">gradient</span>
+        동작편차
+    </NavLink>
+    <NavLink class="nav-link" href="cycle-time-analysis" Match="NavLinkMatch.Prefix">
+        <span class="material-icons">timeline</span>
+        사이클 분석
+    </NavLink>
+
+    @if (_showPlcDebug)
+    {
+        <NavLink class="nav-link" href="plc-debug" Match="NavLinkMatch.Prefix">
+            <span class="material-icons">bug_report</span>
+            PLC 디버그
+        </NavLink>
+    }
+
+    <hr class="divider" style="margin: 8px 0;" />
+
+    @if (!ProjectService.IsLoaded)
+    {
+        <span class="typo-caption" style="padding: 8px 16px; display:block; color: var(--color-tertiary);">
+            No project loaded
+        </span>
+    }
+    else
+    {
+        @foreach (var systemFlows in _systemFlowMap)
+        {
+            <div class="typo-h6" style="padding: 8px 16px 4px; font-weight:700; display: flex; align-items: center; gap: 8px;">
+                <img src="images/aas.png" alt="AAS" style="width: 20px; height: 20px; object-fit: contain;" />
+                @systemFlows.Key
+            </div>
+            <div style="margin-left: 24px;">
+                @{ var flowList = systemFlows.Value; }
+                @for (int i = 0; i < flowList.Count; i++)
+                {
+                    var idx = i;
+                    var flow = flowList[idx];
+                    var isLast = idx == flowList.Count - 1;
+                    var isSelected = _selectedFlow == flow.Name;
+                    <button type="button"
+                            @onclick="@(() => NavigateToFlow(flow.Name))"
+                            style="position: relative; padding: 4px 0 4px 16px; cursor: pointer; border-radius: 4px;
+                                   text-decoration: none; display: block; width: 100%; border: 0; text-align: left;
+                                   background: @(isSelected ? "rgba(var(--color-primary-rgb), 0.15)" : "transparent");">
+                        <span style="position: absolute; left: 0; top: 0;
+                                     width: 1px; height: @(isLast ? "50%" : "100%");
+                                     background: var(--color-lines);"></span>
+                        <span style="position: absolute; left: 0; top: 50%;
+                                     width: 12px; height: 1px;
+                                     background: var(--color-lines);"></span>
+                        <span style="font-size: 0.875rem;
+                                     font-weight: @(isSelected ? "700" : "400");
+                                     color: @(isSelected ? "var(--color-primary)" : "var(--color-drawer-text)");">
+                            @flow.Name
+                        </span>
+                    </button>
+                }
+            </div>
+        }
+    }
+</nav>
+
+@code {
+    private Dictionary<string, List<Ds2.Core.Flow>> _systemFlowMap = new();
+    private string? _selectedFlow;
+    private bool _isHome;
+    private bool _showPlcDebug = true;
+
+    protected override void OnInitialized()
+    {
+        UpdateLocationState(Nav.Uri);
+        Nav.LocationChanged += OnLocationChanged;
+        _showPlcDebug = AppSettings.LoadSettings().Ui.ShowPlcDebug;
+
+        if (!ProjectService.IsLoaded) return;
+
+        var systems = ProjectService.GetActiveSystems();
+        foreach (var system in systems)
+        {
+            var flows = ProjectService.GetFlows(system.Id);
+            if (flows.Count > 0)
+            {
+                _systemFlowMap[system.Name] = flows;
+            }
+        }
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        UpdateLocationState(e.Location);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void NavigateToFlow(string flowName)
+    {
+        _selectedFlow = flowName;
+        Nav.NavigateTo($"/flow?name={Uri.EscapeDataString(flowName)}");
+    }
+
+    private void UpdateLocationState(string location)
+    {
+        var absoluteUri = Nav.ToAbsoluteUri(location);
+        var relativePath = Nav.ToBaseRelativePath(absoluteUri.ToString());
+        _isHome = relativePath is "" or "/";
+
+        if (relativePath.Equals("flow", StringComparison.OrdinalIgnoreCase))
+        {
+            var query = QueryHelpers.ParseQuery(absoluteUri.Query);
+            _selectedFlow = query.TryGetValue("name", out var flowName)
+                ? flowName.ToString()
+                : null;
+            return;
+        }
+
+        _selectedFlow = null;
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+
+}

@@ -17,6 +17,7 @@ public partial class DurationBatchDialog : Window
     private readonly ObservableCollection<DurationRow> _workRows;
     private readonly ICollectionView _view;
     private readonly string? _currentFilePath;
+    private bool _showOnlyUnmatched;
 
     public DurationBatchDialog(IReadOnlyList<DurationRow> rows, string? currentFilePath = null)
     {
@@ -47,6 +48,9 @@ public partial class DurationBatchDialog : Window
     private bool FilterRow(object obj)
     {
         if (obj is not DurationRow row) return false;
+
+        if (_showOnlyUnmatched && !row.IsUnmatched)
+            return false;
 
         // Work type filter
         // Control = Explorer Control tree (active system) work
@@ -135,6 +139,12 @@ public partial class DurationBatchDialog : Window
 
     private void Grid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) =>
         BatchDialogHelper.DeselectOnEmptyAreaClick(sender, e);
+
+    private void ShowOnlyUnmatched_Changed(object sender, RoutedEventArgs e)
+    {
+        _showOnlyUnmatched = ShowOnlyUnmatchedCheckBox.IsChecked == true;
+        _view.Refresh();
+    }
 
     private void Accept_Click(object sender, RoutedEventArgs e) => DialogResult = true;
 

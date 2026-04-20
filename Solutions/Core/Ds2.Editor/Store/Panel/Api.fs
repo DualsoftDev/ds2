@@ -11,7 +11,7 @@ open Ds2.Core.Store
 module internal PanelApiDefOps =
     let toApiDefPanelItem (apiDef: ApiDef) =
         ApiDefPanelItem(
-            apiDef.Id, apiDef.Name, apiDef.IsPush,
+            apiDef.Id, apiDef.Name, apiDef.ApiDefActionType,
             apiDef.TxGuid, apiDef.RxGuid,
             "")
 
@@ -54,12 +54,15 @@ type DsStorePanelApiDefExtensions =
 
     [<Extension>]
     static member UpdateApiDef
-        (store: DsStore, apiDefId: Guid, newName: string) =
-        StoreLog.debug($"apiDefId={apiDefId}, newName={newName}")
+        (store: DsStore, apiDefId: Guid, newName: string, actionType: ApiDefActionType, txGuid: Guid option, rxGuid: Guid option) =
+        StoreLog.debug($"apiDefId={apiDefId}, newName={newName}, actionType={actionType}")
         StoreLog.requireApiDef(store, apiDefId) |> ignore
         store.WithTransaction("ApiDef 편집", fun () ->
             store.TrackMutate(store.ApiDefs, apiDefId, fun d ->
-                d.Name <- newName))
+                d.Name <- newName
+                d.ApiDefActionType <- actionType
+                d.TxGuid <- txGuid
+                d.RxGuid <- rxGuid))
         store.EmitRefreshAndHistory()
 
 // ─── ApiCall extensions ──────────────────────────────────────────────

@@ -1,0 +1,227 @@
+@using DSPilot.Models.Dsp
+@inject IJSRuntime JS
+
+<div class="modal @(_isVisible ? "show" : "")" tabindex="-1" style="display: @(_isVisible ? "block" : "none")">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <span class="material-icons" style="vertical-align:middle;">history</span>
+                    Flow History - @FlowName
+                </h5>
+                <button type="button" class="btn-close" @onclick="Close"></button>
+            </div>
+            <div class="modal-body">
+                @if (_isLoading)
+                {
+                    <div class="text-center p-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">히스토리 데이터를 불러오는 중...</p>
+                    </div>
+                }
+                else if (_histories == null || _histories.Count == 0)
+                {
+                    <div class="alert alert-info">
+                        <span class="material-icons" style="vertical-align:middle;">info</span>
+                        저장된 히스토리 데이터가 없습니다.
+                    </div>
+                }
+                else
+                {
+                    <div class="history-controls mb-3">
+                        <div class="row align-items-center">
+                            <div class="col-auto">
+                                <label class="form-label mb-0">표시 데이터:</label>
+                            </div>
+                            <div class="col-auto">
+                                <select class="form-select form-select-sm" @bind="_selectedLimit" @bind:after="OnLimitChanged">
+                                    <option value="50">최근 50개</option>
+                                    <option value="100">최근 100개</option>
+                                    <option value="200">최근 200개</option>
+                                    <option value="500">최근 500개</option>
+                                </select>
+                            </div>
+                            <div class="col text-end">
+                                <span class="badge bg-secondary">총 @(_histories.Count)개 사이클</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chart Container -->
+                    <div class="chart-container mb-4">
+                        <canvas id="flowHistoryChart" style="height: 400px;"></canvas>
+                    </div>
+
+                    <!-- Statistics Summary -->
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <div class="stat-card">
+                                <h6>Cycle Time (CT)</h6>
+                                <div class="stat-value">@_stats.AvgCT.ToString("F0") ms</div>
+                                <div class="stat-range">@_stats.MinCT ~ @_stats.MaxCT ms</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="stat-card">
+                                <h6>Machine Time (MT)</h6>
+                                <div class="stat-value">@_stats.AvgMT.ToString("F0") ms</div>
+                                <div class="stat-range">@_stats.MinMT ~ @_stats.MaxMT ms</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="stat-card">
+                                <h6>Wait Time (WT)</h6>
+                                <div class="stat-value">@_stats.AvgWT.ToString("F0") ms</div>
+                                <div class="stat-range">@_stats.MinWT ~ @_stats.MaxWT ms</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Data Table -->
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>사이클 번호</th>
+                                    <th>CT (ms)</th>
+                                    <th>MT (ms)</th>
+                                    <th>WT (ms)</th>
+                                    <th>기록 시간</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <Virtualize Items="_indexedHistories" Context="item" ItemSize="37" OverscanCount="5" SpacerElement="tr">
+                                    <tr>
+                                        <td>@(item.Index + 1)</td>
+                                        <td>@(item.History.CycleNo?.ToString() ?? "-")</td>
+                                        <td>@(item.History.CT?.ToString() ?? "-")</td>
+                                        <td>@(item.History.MT?.ToString() ?? "-")</td>
+                                        <td>@(item.History.WT?.ToString() ?? "-")</td>
+                                        <td>@item.History.RecordedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                    </tr>
+                                </Virtualize>
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" @onclick="Close">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_isVisible)
+{
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter] public string FlowName { get; set; } = string.Empty;
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    private bool _isVisible = false;
+    private bool _isLoading = false;
+    private List<DspFlowHistoryEntity> _histories = new();
+    private List<(DspFlowHistoryEntity History, int Index)> _indexedHistories = new();
+    private int _selectedLimit = 100;
+    private HistoryStats _stats = new();
+
+    private class HistoryStats
+    {
+        public double AvgCT { get; set; }
+        public double AvgMT { get; set; }
+        public double AvgWT { get; set; }
+        public int MinCT { get; set; }
+        public int MaxCT { get; set; }
+        public int MinMT { get; set; }
+        public int MaxMT { get; set; }
+        public int MinWT { get; set; }
+        public int MaxWT { get; set; }
+    }
+
+    public async Task ShowAsync(string flowName, List<DspFlowHistoryEntity> histories)
+    {
+        FlowName = flowName;
+        _histories = histories;
+        _indexedHistories = _histories.Select((h, i) => (h, i)).ToList();
+        _isVisible = true;
+        _isLoading = false;
+
+        CalculateStats();
+        StateHasChanged();
+
+        // Render chart after DOM update
+        await Task.Delay(100);
+        await RenderChartAsync();
+    }
+
+    private void Close()
+    {
+        _isVisible = false;
+        StateHasChanged();
+        OnClosed.InvokeAsync();
+    }
+
+    private async Task OnLimitChanged()
+    {
+        // This will be called when user changes the limit selector
+        // Parent component should handle reloading with new limit
+        await OnClosed.InvokeAsync();
+    }
+
+    private void CalculateStats()
+    {
+        if (_histories == null || _histories.Count == 0)
+        {
+            _stats = new HistoryStats();
+            return;
+        }
+
+        var validCT = _histories.Where(h => h.CT.HasValue).Select(h => h.CT!.Value).ToList();
+        var validMT = _histories.Where(h => h.MT.HasValue).Select(h => h.MT!.Value).ToList();
+        var validWT = _histories.Where(h => h.WT.HasValue).Select(h => h.WT!.Value).ToList();
+
+        _stats = new HistoryStats
+        {
+            AvgCT = validCT.Any() ? validCT.Average() : 0,
+            AvgMT = validMT.Any() ? validMT.Average() : 0,
+            AvgWT = validWT.Any() ? validWT.Average() : 0,
+            MinCT = validCT.Any() ? validCT.Min() : 0,
+            MaxCT = validCT.Any() ? validCT.Max() : 0,
+            MinMT = validMT.Any() ? validMT.Min() : 0,
+            MaxMT = validMT.Any() ? validMT.Max() : 0,
+            MinWT = validWT.Any() ? validWT.Min() : 0,
+            MaxWT = validWT.Any() ? validWT.Max() : 0
+        };
+    }
+
+    private async Task RenderChartAsync()
+    {
+        if (_histories == null || _histories.Count == 0) return;
+
+        // Prepare chart data (reverse to show oldest to newest)
+        var reversedHistories = _histories.AsEnumerable().Reverse().ToList();
+        var labels = reversedHistories.Select((h, i) => h.CycleNo?.ToString() ?? $"#{i + 1}").ToArray();
+        var ctData = reversedHistories.Select(h => h.CT ?? 0).ToArray();
+        var mtData = reversedHistories.Select(h => h.MT ?? 0).ToArray();
+        var wtData = reversedHistories.Select(h => h.WT ?? 0).ToArray();
+
+        var chartData = new
+        {
+            labels = labels,
+            datasets = new[]
+            {
+                new { label = "CT (Cycle Time)", data = ctData, borderColor = "rgb(75, 192, 192)", backgroundColor = "rgba(75, 192, 192, 0.2)", borderWidth = 2, fill = false },
+                new { label = "MT (Machine Time)", data = mtData, borderColor = "rgb(54, 162, 235)", backgroundColor = "rgba(54, 162, 235, 0.2)", borderWidth = 2, fill = false },
+                new { label = "WT (Wait Time)", data = wtData, borderColor = "rgb(255, 206, 86)", backgroundColor = "rgba(255, 206, 86, 0.2)", borderWidth = 2, fill = false }
+            }
+        };
+
+        await JS.InvokeVoidAsync("renderFlowHistoryChart", "flowHistoryChart", chartData);
+    }
+}

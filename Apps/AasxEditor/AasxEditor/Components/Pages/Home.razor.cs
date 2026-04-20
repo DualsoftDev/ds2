@@ -2,6 +2,7 @@ using AasxEditor.Models;
 using AasxEditor.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
+using Environment = AasCore.Aas3_1.Environment;
 
 namespace AasxEditor.Components.Pages;
 
@@ -12,6 +13,7 @@ public partial class Home : IAsyncDisposable
     [Inject] private AasEntityExtractor EntityExtractor { get; set; } = default!;
     [Inject] private IAasMetadataStore MetadataStore { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
+    [Inject] private CircuitTracker CircuitTracker { get; set; } = default!;
 
     // ===== State =====
     private string? _fileName;
@@ -22,13 +24,14 @@ public partial class Home : IAsyncDisposable
     private bool _contentLoaded;
     private long _currentFileId;
     private string _currentJson = "";
-    private AasCore.Aas3_0.Environment? _currentEnv;
+    private AasCore.Aas3_1.Environment? _currentEnv;
 
     private List<AasTreeNode> _treeNodes = [];
     private AasTreeNode? _selectedNode;
     private string _centerTab = "explorer";
-    private bool _propsDirty;
     private List<AasTreeNode> _explorerPath = [];
+    private readonly Stack<List<AasTreeNode>> _navBack = new();
+    private readonly Stack<List<AasTreeNode>> _navForward = new();
 
     private List<AasxFileRecord> _loadedFiles = [];
     private long _selectedFileId;
@@ -37,12 +40,23 @@ public partial class Home : IAsyncDisposable
 
     // 드래그앤드롭
     private bool _isDragOver;
+    private bool _scrollColumnsToEnd;
     private bool _showDropChoice;
     private string[] _pendingDropFileNames = [];
 
-    // 모달
+    // 모달 — 일괄 편집
     private bool _showBatchEdit;
     private string _batchNewValue = "";
+    private string _batchEditMode = "overwrite"; // overwrite, findReplace, prepend, append
+    private string _batchFindText = "";
+    private string _batchTypeFilter = "";         // 엔티티 타입 필터 ("" = 전체)
+    private string _batchValueTypeFilter = "";    // ValueType 카테고리 필터 (bit, number, string)
+    private string _batchIdFilter = "";           // IdShort 텍스트 필터
+    private HashSet<long> _batchSelectedIds = []; // 체크된 엔티티 ID (일괄 편집 대상)
+    private HashSet<long> _batchHighlightedIds = []; // 행 클릭으로 하이라이트된 ID
+    private long _batchLastClickedId;              // Shift 클릭 기준점
+    private string _batchSortColumn = "";          // 정렬 컬럼 ("", "EntityType", "IdShort", "ValueType", "Value")
+    private bool _batchSortAsc = true;             // 정렬 방향
     private bool _showSaveAs;
     private string _saveAsName = "";
 
@@ -57,7 +71,6 @@ public partial class Home : IAsyncDisposable
     private void SelectNode(AasTreeNode node)
     {
         _selectedNode = node;
-        _propsDirty = false;
     }
 
     private void SetStatus(string message, string cssClass)
@@ -85,46 +98,8 @@ public partial class Home : IAsyncDisposable
             _treeNodes = TreeBuilder.BuildTree(_currentEnv);
         _selectedNode = null;
         _explorerPath.Clear();
-    }
-
-    private async Task ApplyEnvironmentAsync(AasCore.Aas3_0.Environment env, string json, string fileName)
-    {
-        _contentLoaded = true;
-        _fileName = fileName;
-        _currentEnv = env;
-        await SyncJsonToEditorAsync(json);
-        RebuildTree();
-    }
-
-    private async Task RegisterInDbAsync(string fileName, AasCore.Aas3_0.Environment env, string json)
-    {
-        var shellCount = env.AssetAdministrationShells?.Count ?? 0;
-        var submodelCount = env.Submodels?.Count ?? 0;
-        var fileRecord = await MetadataStore.AddFileAsync(fileName, fileName, shellCount, submodelCount, json);
-        _currentFileId = fileRecord.Id;
-        var entities = EntityExtractor.Extract(env);
-        await MetadataStore.AddEntitiesAsync(_currentFileId, entities);
-    }
-
-    private async Task ResetForNewOpenAsync()
-    {
-        await ClearDbAsync();
-        _searchResults.Clear();
-        _searchText = "";
-    }
-
-    private async Task ClearDbAsync()
-    {
-        try
-        {
-            var files = await MetadataStore.GetFilesAsync();
-            foreach (var f in files)
-            {
-                await MetadataStore.RemoveEntitiesByFileAsync(f.Id);
-                await MetadataStore.RemoveFileAsync(f.Id);
-            }
-        }
-        catch { }
+        _navBack.Clear();
+        _navForward.Clear();
     }
 
     private static int Do(Action action) { action(); return 1; }
@@ -132,6 +107,12 @@ public partial class Home : IAsyncDisposable
     // ===== Lifecycle =====
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_scrollColumnsToEnd)
+        {
+            _scrollColumnsToEnd = false;
+            try { await JS.InvokeVoidAsync("FinderColumns.scrollToEnd", "finder-columns"); } catch { }
+        }
+
         if (firstRender)
         {
             _dotnetRef = DotNetObjectReference.Create(this);
@@ -139,8 +120,12 @@ public partial class Home : IAsyncDisposable
             _editorInitialized = true;
 
             await JS.InvokeVoidAsync("ResizeHandle.init", "resize-left", "panel-tree", "left");
-            await JS.InvokeVoidAsync("ResizeHandle.init", "resize-right", "panel-props", "right");
             await JS.InvokeVoidAsync("DropZone.init", _dotnetRef);
+
+            CircuitTracker.Connect(_circuitId);
+            CircuitTracker.OnChanged += OnCircuitChanged;
+            UpdateClientCountIndicator();
+            await JS.InvokeVoidAsync("ClientCount.initUnload", _dotnetRef);
 
             if (_sessionStarted)
                 await RestoreFromDbAsync();
@@ -154,8 +139,12 @@ public partial class Home : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        CircuitTracker.OnChanged -= OnCircuitChanged;
+        CircuitTracker.Disconnect(_circuitId);
+
         if (_editorInitialized)
         {
+            try { await JS.InvokeVoidAsync("ClientCount.dispose"); } catch { }
             try { await JS.InvokeVoidAsync("MonacoInterop.dispose"); } catch { }
         }
         _dotnetRef?.Dispose();

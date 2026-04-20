@@ -2,7 +2,7 @@ namespace Ds2.Aasx
 
 open System
 open System.Reflection
-open AasCore.Aas3_0
+open AasCore.Aas3_1
 open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
@@ -71,8 +71,8 @@ module internal AasxImportCore =
     // ── 유틸리티 ─────────────────────────────────────────────────────────────
 
     let describeSmc (smc: SubmodelElementCollection) =
-        let guid = getProp smc Guid_ |> Option.defaultValue "<missing>"
-        let name = getProp smc Name_ |> Option.defaultValue "<missing>"
+        let guid = getProp smc "Guid" |> Option.defaultValue "<missing>"
+        let name = getProp smc "Name" |> Option.defaultValue "<missing>"
         $"Guid={guid}, Name={name}"
 
     let parseStrictList ownerLabel itemLabel (items: SubmodelElementCollection list) (parser: SubmodelElementCollection -> 'T option) =
@@ -121,6 +121,34 @@ module internal AasxImportCore =
 
     // ── elementsToProps ──────────────────────────────────────────────────────
 
+    /// SubmodelElementList → ResizeArray<string> 복원
+    let private trySetResizeArray (pi: PropertyInfo) (sml: SubmodelElementList) (target: obj) : unit option =
+        let propType = pi.PropertyType
+        if propType.IsGenericType
+           && propType.GetGenericTypeDefinition() = typedefof<ResizeArray<_>> then
+            let elemType = propType.GetGenericArguments().[0]
+            if elemType = typeof<string> then
+                let list = pi.GetValue(target) :?> ResizeArray<string>
+                if sml.Value <> null then
+                    for elem in sml.Value do
+                        match elem with
+                        | :? Property as p when p.Value <> null -> list.Add(p.Value)
+                        | _ -> ()
+                Some ()
+            elif elemType = typeof<Guid> then
+                let list = pi.GetValue(target) :?> ResizeArray<Guid>
+                if sml.Value <> null then
+                    for elem in sml.Value do
+                        match elem with
+                        | :? Property as p when p.Value <> null ->
+                            match Guid.TryParse(p.Value) with
+                            | true, g -> list.Add(g)
+                            | _ -> ()
+                        | _ -> ()
+                Some ()
+            else None
+        else None
+
     let internal elementsToProps<'T when 'T : (new : unit -> 'T)> (smc: SubmodelElementCollection) : 'T option =
         try
             let instance = new 'T()
@@ -132,6 +160,9 @@ module internal AasxImportCore =
                         | :? Property as p when p.IdShort = pi.Name && p.Value <> null ->
                             try trySetValue pi.PropertyType p.Value pi instance
                             with ex -> log.Warn($"Property 역직렬화 실패: {pi.Name} ({ex.Message})"); None
+                        | :? SubmodelElementList as sml when sml.IdShort = pi.Name ->
+                            try trySetResizeArray pi sml instance
+                            with ex -> log.Warn($"SubmodelElementList 역직렬화 실패: {pi.Name} ({ex.Message})"); None
                         | _ -> None)
                     |> ignore
             Some instance
@@ -143,12 +174,12 @@ module internal AasxImportCore =
     let smcToArrow<'T when 'T :> DsArrow> label (smc: SubmodelElementCollection) parentId
                                           (ctor: Guid -> Guid -> Guid -> ArrowType -> 'T) : 'T option =
         try
-            match getProp smc Source_ |> Option.map Guid.Parse,
-                  getProp smc Target_ |> Option.map Guid.Parse with
+            match getProp smc "Source" |> Option.map Guid.Parse,
+                  getProp smc "Target" |> Option.map Guid.Parse with
             | Some sourceId, Some targetId ->
                 let arrow = ctor parentId sourceId targetId
-                                (getProp smc Type_ |> Option.map parseArrowType |> Option.defaultValue ArrowType.Unspecified)
-                arrow.Id <- getProp smc Guid_ |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
+                                (getProp smc "Type" |> Option.map parseArrowType |> Option.defaultValue ArrowType.Unspecified)
+                arrow.Id <- getProp smc "Guid" |> Option.map Guid.Parse |> Option.defaultValue (Guid.NewGuid())
                 Some arrow
             | _ -> log.Warn($"{label}: Source 또는 Target 누락"); None
         with ex -> log.Warn($"{label} 실패: {ex.Message}", ex); None

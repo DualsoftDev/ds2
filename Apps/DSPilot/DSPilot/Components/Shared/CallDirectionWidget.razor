@@ -1,0 +1,152 @@
+@using DSPilot.Engine.Tracking
+@using DSPilot.Services
+@using CallDirection = Ds2.Core.CallDirection
+@using DSPilot.Repositories
+@inject PlcToCallMapperService CallMapper
+@inject IDspRepository DspRepo
+@implements IDisposable
+
+<div class="call-direction-widget">
+    <div class="widget-header">
+        <h5>Call Direction Status</h5>
+        <button class="btn-refresh" @onclick="RefreshData">
+            <span class="material-icons">refresh</span>
+        </button>
+    </div>
+
+    <div class="direction-stats">
+        <div class="stat-card inout">
+            <div class="stat-icon">
+                <span class="material-icons">swap_horiz</span>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">InOut</div>
+                <div class="stat-value">@_inOutCount</div>
+                <div class="stat-states">
+                    <span class="state-badge ready">Ready: @_inOutReady</span>
+                    <span class="state-badge going">Going: @_inOutGoing</span>
+                    <span class="state-badge finish">Finish: @_inOutFinish</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="stat-card inonly">
+            <div class="stat-icon">
+                <span class="material-icons">input</span>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">InOnly</div>
+                <div class="stat-value">@_inOnlyCount</div>
+                <div class="stat-states">
+                    <span class="state-badge ready">Ready: @_inOnlyReady</span>
+                    <span class="state-badge going">Going: @_inOnlyGoing</span>
+                    <span class="state-badge finish">Finish: @_inOnlyFinish</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="stat-card outonly">
+            <div class="stat-icon">
+                <span class="material-icons">output</span>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">OutOnly</div>
+                <div class="stat-value">@_outOnlyCount</div>
+                <div class="stat-states">
+                    <span class="state-badge ready">Ready: @_outOnlyReady</span>
+                    <span class="state-badge going">Going: @_outOnlyGoing</span>
+                    <span class="state-badge finish">Finish: @_outOnlyFinish</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="widget-loading">
+            <div class="spinner"></div>
+        </div>
+    }
+</div>
+
+@code {
+    private int _inOutCount = 0, _inOnlyCount = 0, _outOnlyCount = 0;
+    private int _inOutReady = 0, _inOutGoing = 0, _inOutFinish = 0;
+    private int _inOnlyReady = 0, _inOnlyGoing = 0, _inOnlyFinish = 0;
+    private int _outOnlyReady = 0, _outOnlyGoing = 0, _outOnlyFinish = 0;
+    private bool _isLoading = false;
+    private System.Threading.Timer? _autoRefreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshData();
+        _autoRefreshTimer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await RefreshData();
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task RefreshData()
+    {
+        _isLoading = true;
+        try
+        {
+            var mappings = CallMapper.GetAllMappings();
+
+            _inOutCount = mappings.Count(m => m.Direction == CallDirection.InOut);
+            _inOnlyCount = mappings.Count(m => m.Direction == CallDirection.InOnly);
+            _outOnlyCount = mappings.Count(m => m.Direction == CallDirection.OutOnly);
+
+            // Reset counters
+            _inOutReady = _inOutGoing = _inOutFinish = 0;
+            _inOnlyReady = _inOnlyGoing = _inOnlyFinish = 0;
+            _outOnlyReady = _outOnlyGoing = _outOnlyFinish = 0;
+
+            foreach (var mapping in mappings)
+            {
+                var state = await DspRepo.GetCallStateAsync(mapping.Call.Id);
+                if (string.IsNullOrEmpty(state)) continue;
+
+                switch (mapping.Direction)
+                {
+                    case CallDirection.InOut:
+                        UpdateStateCount(state, ref _inOutReady, ref _inOutGoing, ref _inOutFinish);
+                        break;
+                    case CallDirection.InOnly:
+                        UpdateStateCount(state, ref _inOnlyReady, ref _inOnlyGoing, ref _inOnlyFinish);
+                        break;
+                    case CallDirection.OutOnly:
+                        UpdateStateCount(state, ref _outOnlyReady, ref _outOnlyGoing, ref _outOnlyFinish);
+                        break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error refreshing call direction data: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void UpdateStateCount(string state, ref int ready, ref int going, ref int finish)
+    {
+        switch (state.ToLower())
+        {
+            case "ready": ready++; break;
+            case "going": going++; break;
+            case "finish": finish++; break;
+        }
+    }
+
+    public void Dispose()
+    {
+        _autoRefreshTimer?.Dispose();
+    }
+}

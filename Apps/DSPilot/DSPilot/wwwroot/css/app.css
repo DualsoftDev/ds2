@@ -1,0 +1,193 @@
+html, body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Noto Sans KR', sans-serif;
+}
+
+.blueprint-canvas svg text {
+    pointer-events: none;
+    user-select: none;
+}
+
+.blueprint-canvas svg rect:hover {
+    filter: brightness(1.15);
+}
+
+/* Heatmap 색상 코드 스타일 */
+.heatmap-cell {
+    display: inline-block;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-weight: 600;
+    text-align: center;
+    min-width: 80px;
+    color: #fff;
+    transition: all 0.2s ease;
+}
+
+.heatmap-cell:hover {
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* 우수: 진한 녹색 */
+.heatmap-excellent {
+    background: linear-gradient(135deg, #2E7D32, #388E3C);
+}
+
+/* 양호: 연한 녹색 */
+.heatmap-good {
+    background: linear-gradient(135deg, #66BB6A, #81C784);
+}
+
+/* 보통: 노란색 */
+.heatmap-fair {
+    background: linear-gradient(135deg, #FFA726, #FFB74D);
+    color: #333;
+}
+
+/* 개선 필요: 주황색 */
+.heatmap-poor {
+    background: linear-gradient(135deg, #F57C00, #FB8C00);
+}
+
+/* 심각: 빨간색 */
+.heatmap-critical {
+    background: linear-gradient(135deg, #C62828, #D32F2F);
+}
+
+/* Heatmap 범례 스타일 */
+.heatmap-legend-item {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 16px;
+    margin-bottom: 8px;
+}
+
+.heatmap-legend-item .heatmap-cell {
+    width: 60px;
+    height: 32px;
+    margin-right: 8px;
+    font-size: 0;
+    min-width: unset;
+}
+
+/* ── 매트릭스 히트맵 ── */
+
+/* 컴팩트 셀 (매트릭스 테이블 내 색상 셀) */
+.heatmap-cell-compact {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.8125rem;
+    text-align: center;
+    min-width: 56px;
+    color: #fff;
+    transition: all 0.15s ease;
+    cursor: default;
+}
+
+.heatmap-cell-compact:hover {
+    transform: scale(1.08);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    z-index: 1;
+    position: relative;
+}
+
+/* 미니 셀 (Flow 헤더 집계용) */
+.heatmap-cell-mini {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    font-size: 0.6875rem;
+    text-align: center;
+    min-width: 36px;
+    color: #fff;
+}
+
+/* 매트릭스 테이블 */
+.heatmap-matrix-table td {
+    padding: 4px 8px;
+    vertical-align: middle;
+}
+
+.heatmap-matrix-table .heatmap-matrix-label {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 클릭 가능한 행 */
+.heatmap-matrix-row {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.heatmap-matrix-row:hover {
+    background: rgba(10, 30, 90, 0.04) !important;
+}
+
+.heatmap-matrix-row.selected {
+    background: rgba(10, 30, 90, 0.08) !important;
+    box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+/* 열 헤더 */
+.heatmap-col-header {
+    text-align: center !important;
+    min-width: 80px;
+}
+
+/* 상세 패널 메트릭 카드 */
+.heatmap-detail-card {
+    padding: 12px;
+    border-radius: 6px;
+    color: #fff;
+    text-align: center;
+}
+
+/* 반응형 */
+@media (max-width: 768px) {
+    .heatmap-matrix-table {
+        font-size: 0.75rem;
+    }
+    .heatmap-cell-compact {
+        padding: 3px 4px;
+        min-width: 40px;
+        font-size: 0.6875rem;
+    }
+    .heatmap-matrix-label {
+        max-width: 80px !important;
+    }
+    .heatmap-detail-card {
+        padding: 8px;
+    }
+}
+
+/* ── 상태 구분: focus / hover / transition ── */
+
+/* 포커스 표시 (접근성) */
+[tabindex]:focus-visible,
+.nav-link:focus-visible,
+button:focus-visible {
+    outline: 2px solid #0569A0;
+    outline-offset: 2px;
+}
+
+/* CT 차트 행 hover */
+.ct-chart-row {
+    transition: background 0.15s ease;
+}
+
+/* FlowLayout SVG 블록 hover */
+.flow-block {
+    transition: filter 0.2s ease;
+}
+.flow-block:hover {
+    filter: brightness(0.97) drop-shadow(0 2px 6px rgba(0,0,0,0.10));
+}
