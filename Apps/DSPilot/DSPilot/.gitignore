@@ -1,0 +1,4 @@
+# 사용자별 설정 파일 (appsettings.defaults.json은 git 추적 유지)
+appsettings.json
+appsettings.Production.json
+appsettings.Development.json

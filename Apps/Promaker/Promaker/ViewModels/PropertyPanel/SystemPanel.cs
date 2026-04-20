@@ -21,7 +21,12 @@ public partial class PropertyPanelState
 
     private bool TryUpdateApiDef(Guid apiDefId, ApiDefEditDialog dialog) =>
         _host.TryAction(
-            () => Store.UpdateApiDef(apiDefId, dialog.ApiDefName));
+            () => Store.UpdateApiDef(
+                apiDefId,
+                dialog.ApiDefName,
+                dialog.ActionType,
+                dialog.TxGuid,
+                dialog.RxGuid));
 
     [RelayCommand]
     private void AddSystemApiDef()

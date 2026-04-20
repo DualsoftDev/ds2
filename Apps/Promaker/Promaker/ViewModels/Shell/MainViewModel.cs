@@ -60,6 +60,7 @@ public partial class MainViewModel : ObservableObject
         RefreshLanguageState();
         LoadRecentFiles();
         LoadSplitDeviceAasxSetting();
+        LoadCreateDefaultEntitiesSetting();
         LoadIriPrefixSetting();
 
         // 템플릿 폴더 초기화
@@ -256,7 +257,7 @@ public partial class MainViewModel : ObservableObject
         var projectId = Queries.allProjects(_store).Head.Id;
         _view3DWindow = new View3DWindow(Simulation.ThreeD,
             onReady: () => Simulation.ThreeD.BuildScene(store, projectId));
-        _view3DWindow.SetSceneData(store, projectId);
+        _view3DWindow.SetSceneData(store, projectId, _currentFilePath);
 
         // 3D 뷰 선택 이벤트 콜백 주입 (View3DWindow 생성 후)
         Simulation.ThreeD.SetSelectionCallbacks(
@@ -279,6 +280,9 @@ public partial class MainViewModel : ObservableObject
             SelectedNode = systemNode;
             PropertyPanel.SyncSelection(systemNode, [new SelectionKey(systemId, kind)]);
         }
+
+        // 3D 뷰 창 내 Devices 트리도 동기화
+        _view3DWindow?.SelectDeviceInTree(systemId);
     }
 
     private void Handle3DApiDefSelection(Guid deviceId, string apiName)
@@ -478,6 +482,8 @@ public partial class MainViewModel : ObservableObject
         _clipboardSelection.Clear();
         Selection.Reset();
         CanvasManager.Reset();
+        _rebuildQueued = false;
+        _pendingRebuildActions.Clear();
         SelectedNode = null;
         SelectedArrow = null;
         RefreshEditorCommandStates();
@@ -632,16 +638,22 @@ public partial class MainViewModel : ObservableObject
         _rebuildQueued = true;
         _dispatcher.BeginInvoke(new Action(() =>
         {
-            _rebuildQueued = false;
-            RebuildAll();
+            try
+            {
+                RebuildAll();
 
-            if (_pendingRebuildActions.Count == 0)
-                return;
+                if (_pendingRebuildActions.Count == 0)
+                    return;
 
-            var actions = _pendingRebuildActions.ToArray();
-            _pendingRebuildActions.Clear();
-            foreach (var action in actions)
-                action();
+                var actions = _pendingRebuildActions.ToArray();
+                _pendingRebuildActions.Clear();
+                foreach (var action in actions)
+                    action();
+            }
+            finally
+            {
+                _rebuildQueued = false;
+            }
         }), DispatcherPriority.Background);
     }
 
@@ -682,6 +694,27 @@ public partial class MainViewModel : ObservableObject
         {
             SplitDeviceAasx = value;
             AppSettingStore.SaveBool(SplitDeviceAasxSettingsPath, value);
+        }
+    }
+
+    // ========== CreateDefaultEntitiesOnEmptyAasx 설정 ==========
+    private static readonly string CreateDefaultEntitiesSettingsPath = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Dualsoft", "Promaker", "createDefaultEntitiesOnEmptyAasx.txt");
+
+    public bool CreateDefaultEntitiesOnEmptyAasx { get; private set; }
+
+    private void LoadCreateDefaultEntitiesSetting()
+    {
+        CreateDefaultEntitiesOnEmptyAasx = AppSettingStore.LoadBoolOrDefault(CreateDefaultEntitiesSettingsPath, false);
+    }
+
+    public void SetCreateDefaultEntitiesOnEmptyAasx(bool value)
+    {
+        if (CreateDefaultEntitiesOnEmptyAasx != value)
+        {
+            CreateDefaultEntitiesOnEmptyAasx = value;
+            AppSettingStore.SaveBool(CreateDefaultEntitiesSettingsPath, value);
         }
     }
 

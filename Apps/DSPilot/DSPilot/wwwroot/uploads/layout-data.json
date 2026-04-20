@@ -1,0 +1,57 @@
+{
+  "BlueprintImagePath": "uploads/blueprint.png",
+  "CanvasWidth": 4401,
+  "CanvasHeight": 1955,
+  "GridColumns": 9,
+  "GridRows": 6,
+  "OffsetX": 174,
+  "OffsetY": 170,
+  "OffsetRight": 110,
+  "OffsetBottom": 45,
+  "FlowPlacements": [
+    {
+      "FlowId": "a4a2c3f9-1264-4dd1-aca7-5f23c5e1f7e7",
+      "SystemId": "a7b2e774-05fe-4b68-8cae-c2606624aaaf",
+      "FlowName": "STN2",
+      "SystemName": "NewSystem",
+      "Col": 2,
+      "Row": 1,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "3dd862bb-e4e3-4e96-ba74-10ab73cde002",
+      "SystemId": "a7b2e774-05fe-4b68-8cae-c2606624aaaf",
+      "FlowName": "STN1",
+      "SystemName": "NewSystem",
+      "Col": 1,
+      "Row": 1,
+      "ColSpan": 1,
+      "RowSpan": 1
+    },
+    {
+      "FlowId": "f94cd0ed-ccc9-4603-a452-021354cdd0cb",
+      "SystemId": "a7b2e774-05fe-4b68-8cae-c2606624aaaf",
+      "FlowName": "STN3",
+      "SystemName": "NewSystem",
+      "Col": 3,
+      "Row": 1,
+      "ColSpan": 1,
+      "RowSpan": 1
+    }
+  ],
+  "FlowProcessOrder": [
+    {
+      "FlowId": "3dd862bb-e4e3-4e96-ba74-10ab73cde002",
+      "FlowName": "STN1"
+    },
+    {
+      "FlowId": "a4a2c3f9-1264-4dd1-aca7-5f23c5e1f7e7",
+      "FlowName": "STN2"
+    },
+    {
+      "FlowId": "f94cd0ed-ccc9-4603-a452-021354cdd0cb",
+      "FlowName": "STN3"
+    }
+  ]
+}

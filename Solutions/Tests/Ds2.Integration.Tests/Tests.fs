@@ -107,7 +107,7 @@ module FileSerializationTests =
 /// AASX 라운드트립 통합 테스트
 module AasxRoundTripTests =
 
-    open AasCore.Aas3_0
+    open AasCore.Aas3_1
     open Ds2.Core.Store
     open Ds2.Editor
     open Ds2.Aasx.AasxSemantics
@@ -165,7 +165,7 @@ module AasxRoundTripTests =
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false false
             Assert.True(exported, "Export should succeed")
 
             let store2 = DsStore()
@@ -199,7 +199,7 @@ module AasxRoundTripTests =
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false false
             Assert.True(exported, "Export should succeed")
 
             let store2 = DsStore()
@@ -231,7 +231,7 @@ module AasxRoundTripTests =
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false false
             Assert.True(exported, "Export should succeed")
 
             let store2 = DsStore()
@@ -262,7 +262,7 @@ module AasxRoundTripTests =
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false false
             Assert.True(exported, "Export should succeed")
 
             let store2 = DsStore()
@@ -289,7 +289,7 @@ module AasxRoundTripTests =
 
         let path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{Guid.NewGuid()}.aasx")
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false false
             Assert.True(exported, "Export should succeed")
 
             let store2 = DsStore()
@@ -305,7 +305,7 @@ module AasxRoundTripTests =
 /// SplitDeviceAasx 분리 저장 통합 테스트
 module SplitDeviceAasxTests =
 
-    open AasCore.Aas3_0
+    open AasCore.Aas3_1
     open Ds2.Core.Store
     open Ds2.Editor
     open Ds2.Aasx.AasxFileIO
@@ -347,7 +347,7 @@ module SplitDeviceAasxTests =
 
         let path = getTempAasxPath()
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" true
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" true false
             Assert.True(exported, "Export should succeed")
 
             // _devices 폴더와 Device AASX 파일 존재 확인
@@ -390,7 +390,7 @@ module SplitDeviceAasxTests =
 
         let path = getTempAasxPath()
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false false
             Assert.True(exported)
 
             let store2 = DsStore()
@@ -415,7 +415,7 @@ module SplitDeviceAasxTests =
 
         let path = getTempAasxPath()
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" true
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" true false
             Assert.True(exported)
 
             // Device AASX 파일 하나 삭제
@@ -452,7 +452,7 @@ module SplitDeviceAasxTests =
 
         let path = getTempAasxPath()
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" true
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" true false
             Assert.True(exported)
 
             let baseName = Path.GetFileNameWithoutExtension(path)
@@ -505,7 +505,7 @@ module SplitDeviceAasxTests =
         let store, _projectId = createStoreWithDevices()
         let path = getTempAasxPath()
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false false
             Assert.True(exported)
             AasxPackageAssertions.assertPngThumbnailInAasxPackage path
         finally
@@ -518,7 +518,7 @@ module SplitDeviceAasxTests =
 
         let path = getTempAasxPath()
         try
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false false
             Assert.True(exported)
 
             // _devices 폴더가 생성되지 않아야 함
@@ -575,7 +575,7 @@ module NameplateRoundTripTests =
             // 3. SDF → AASX Export
             let aasxPath = Path.ChangeExtension(sdfPath, ".aasx")
             try
-                let exported = Ds2.Aasx.AasxExporter.exportFromStore store aasxPath "https://dualsoft.com/" false
+                let exported = Ds2.Aasx.AasxExporter.exportFromStore store aasxPath "https://dualsoft.com/" false false
                 Assert.True(exported, "AASX export should succeed")
 
                 // 4. AASX → DsStore Import
@@ -651,7 +651,7 @@ module NameplateRoundTripTests =
             // 3. SDF → AASX Export
             let aasxPath = Path.ChangeExtension(sdfPath, ".aasx")
             try
-                let exported = Ds2.Aasx.AasxExporter.exportFromStore store aasxPath "https://dualsoft.com/" false
+                let exported = Ds2.Aasx.AasxExporter.exportFromStore store aasxPath "https://dualsoft.com/" false false
                 Assert.True(exported, "AASX export should succeed")
 
                 // 4. AASX → DsStore Import
@@ -720,7 +720,7 @@ module NameplateRoundTripTests =
         // 2. AASX Export
         let aasxPath1 = Path.Combine(Path.GetTempPath(), $"test_complete_{Guid.NewGuid()}.aasx")
         try
-            let exported1 = Ds2.Aasx.AasxExporter.exportFromStore store aasxPath1 "https://dualsoft.com/" false
+            let exported1 = Ds2.Aasx.AasxExporter.exportFromStore store aasxPath1 "https://dualsoft.com/" false false
             Assert.True(exported1)
 
             // 3. AASX → SDF
@@ -740,7 +740,7 @@ module NameplateRoundTripTests =
 
                 let aasxPath2 = Path.Combine(Path.GetTempPath(), $"test_complete2_{Guid.NewGuid()}.aasx")
                 try
-                    let exported2 = Ds2.Aasx.AasxExporter.exportFromStore store3 aasxPath2 "https://dualsoft.com/" false
+                    let exported2 = Ds2.Aasx.AasxExporter.exportFromStore store3 aasxPath2 "https://dualsoft.com/" false false
                     Assert.True(exported2)
 
                     // 5. 최종 AASX Import 및 검증
@@ -763,7 +763,7 @@ module NameplateRoundTripTests =
 /// AAS 검증 API 테스트
 module AasValidationTests =
 
-    open AasCore.Aas3_0
+    open AasCore.Aas3_1
     open Ds2.Core.Store
     open Ds2.Editor
 
@@ -781,7 +781,7 @@ module AasValidationTests =
 
         try
             // Act - Export
-            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false
+            let exported = Ds2.Aasx.AasxExporter.exportFromStore store path "https://dualsoft.com/" false false
             Assert.True(exported)
 
             // Act - Load and validate Environment

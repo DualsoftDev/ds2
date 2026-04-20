@@ -1,0 +1,78 @@
+/* ============================================
+   DSPilot Theme Variables
+   MainLayout.razor PaletteLight 기반
+   ============================================ */
+
+:root {
+    /* Primary palette */
+    --color-primary: #0A1E5A;
+    --color-primary-rgb: 10, 30, 90;
+    --color-secondary: #FA002D;
+    --color-tertiary: #0569A0;
+    --color-info: #009BB4;
+    --color-success: #4CAF50;
+    --color-warning: #FF9800;
+    --color-error: #F44336;
+    --color-success-rgb: 76, 175, 80;
+    --color-warning-rgb: 255, 152, 0;
+    --color-error-rgb: 244, 67, 54;
+
+    /* Surfaces */
+    --color-background: #F5F5F5;
+    --color-surface: #FFFFFF;
+    --color-lines: rgba(0, 0, 0, 0.12);
+
+    /* AppBar */
+    --color-appbar-bg: #FFFFFF;
+    --color-appbar-text: #0A1E5A;
+
+    /* Drawer */
+    --color-drawer-bg: #FFFFFF;
+    --color-drawer-text: #212121;
+    --color-drawer-icon: #0A1E5A;
+    --drawer-width: 260px;
+
+    /* Text */
+    --color-text-primary: #212121;
+    --color-text-secondary: #7D8282;
+    --color-text-disabled: #bdbdbd;
+    --color-action-default: #0A1E5A;
+
+    /* Typography */
+    --font-family: 'Noto Sans KR', sans-serif;
+
+    /* Gantt Chart */
+    --gantt-bg: #fafafa;
+    --gantt-lane-even: #ffffff;
+    --gantt-lane-odd: #f5f5f5;
+    --gantt-lane-border: #e0e0e0;
+    --gantt-lane-center: #eceff1;
+    --gantt-label: #333333;
+    --gantt-sublabel: #78909c;
+    --gantt-axis: #333333;
+    --gantt-tick-label: #666666;
+    --gantt-bar-in: #42a5f5;
+    --gantt-bar-in-stroke: #1e88e5;
+    --gantt-bar-out: #f8a8c8;
+    --gantt-bar-out-stroke: #e58ab0;
+    --gantt-gap-fill: rgba(244, 67, 54, 0.10);
+    --gantt-gap-stroke: rgba(244, 67, 54, 0.50);
+    --gantt-gap-text: #d32f2f;
+    --gantt-ct-fill: rgba(76, 175, 80, 0.08);
+    --gantt-ct-stroke: rgba(76, 175, 80, 0.50);
+    --gantt-ct-start: #4caf50;
+    --gantt-ct-end: #ff9800;
+    --gantt-ct-text: #2e7d32;
+    --gantt-connector-bg: rgba(255, 255, 255, 0.92);
+    --gantt-info-from: #667eea;
+    --gantt-info-to: #764ba2;
+    --gantt-info-shadow: rgba(102, 126, 234, 0.3);
+    --gantt-arrow-orange: #ff9800;
+    --gantt-arrow-teal: #26a69a;
+    --gantt-arrow-purple: #8b5cf6;
+
+    /* Elevation shadows */
+    --shadow-1: 0 2px 1px -1px rgba(0,0,0,.2), 0 1px 1px 0 rgba(0,0,0,.14), 0 1px 3px 0 rgba(0,0,0,.12);
+    --shadow-2: 0 3px 1px -2px rgba(0,0,0,.2), 0 2px 2px 0 rgba(0,0,0,.14), 0 1px 5px 0 rgba(0,0,0,.12);
+    --shadow-4: 0 2px 4px -1px rgba(0,0,0,.2), 0 4px 5px 0 rgba(0,0,0,.14), 0 1px 10px 0 rgba(0,0,0,.12);
+}

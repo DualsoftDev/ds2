@@ -1,0 +1,583 @@
+/* ── 전체화면 모드 ── */
+.dashboard-fullscreen {
+    background: var(--color-background);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+}
+.fullscreen-close-btn {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 10001;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(128, 128, 128, 0.15);
+    color: rgba(128, 128, 128, 0.3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.25s, color 0.25s, transform 0.15s;
+    backdrop-filter: blur(4px);
+}
+.fullscreen-close-btn:hover {
+    background: rgba(0, 0, 0, 0.5);
+    color: rgba(255, 255, 255, 0.95);
+    transform: scale(1.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.fullscreen-close-btn .material-icons {
+    font-size: 20px;
+}
+/* 전체화면에서 X버튼과 겹침 방지 — 마지막 위젯 카드 헤더에 오른쪽 여백 추가 */
+.dashboard-fullscreen .widget-container:last-child .ds-card-header {
+    padding-right: calc(var(--u) * 1.2 + 42px);
+}
+
+/* 그리드: 두 방향 모두 뷰포트 채움 */
+.dashboard-grid {
+    display: flex;
+    gap: 12px;
+    min-height: 0;
+    flex: 1;
+}
+.dashboard-grid.grid-h {
+    flex-direction: row;
+}
+.dashboard-grid.grid-v {
+    flex-direction: column;
+}
+.widget-container {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+/* 모바일: 강제 단일 컬럼 */
+@media (max-width: 1024px) {
+    .dashboard-grid.grid-h {
+        flex-direction: column !important;
+        height: auto !important;
+    }
+    .dashboard-grid.grid-h > .widget-container {
+        flex: 0 0 auto !important;
+        height: 60vh !important;
+    }
+}
+
+/* ── CT 카드 디자인 ── */
+/* 요약 셀 3개 가로 배치 (데이터 있을 때만) */
+.ct-summary-bar {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    padding: 2px;
+    margin-top: 12px;
+    flex-shrink: 0;
+    background: var(--color-background);
+    border-bottom: 1px solid var(--color-lines);
+}
+.ct-summary-group {
+    display: flex;
+    gap: 2px;
+}
+.ct-summary-group.group-time { flex: 2; }
+.ct-summary-group.group-wait { flex: 1; }
+.ct-top-cell {
+    flex: 1;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    background: var(--color-surface);
+    border-radius: 4px;
+    min-width: 0;
+}
+.ct-top-cell.danger  { border-top: 3px solid #ef5350; }
+.ct-top-cell.warning { border-top: 3px solid #F48FB1; }
+.ct-top-cell.success { border-top: 3px solid #26a69a; }
+/* 최대/최소 통합 카드 */
+.ct-combined-cell {
+    flex: 1;
+    display: flex;
+    background: var(--color-surface);
+    border-radius: 8px;
+    min-width: 0;
+    overflow: hidden;
+}
+.ct-combined-half {
+    flex: 1;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+}
+.ct-combined-half.danger  { border-top: 3px solid #ef5350; }
+.ct-combined-half.success { border-top: 3px solid #26a69a; }
+.ct-combined-half + .ct-combined-half { border-left: 1px solid var(--color-lines); }
+.ct-combined-half, .ct-top-cell { cursor: pointer; transition: box-shadow 0.15s; }
+.ct-combined-half:hover, .ct-top-cell:hover { box-shadow: inset 0 0 0 1.5px var(--color-lines); }
+.ct-combined-half.active, .ct-top-cell.active {
+    box-shadow: inset 0 0 0 2px var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+}
+.ct-summary-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+.ct-top-cell.danger  .ct-summary-title,
+.ct-combined-half.danger .ct-summary-title { color: #ef5350; }
+.ct-top-cell.warning .ct-summary-title { color: #F48FB1; }
+.ct-top-cell.success .ct-summary-title,
+.ct-combined-half.success .ct-summary-title { color: #26a69a; }
+/* 배지 (차트 행 전용) */
+.ct-badge-pill {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    color: white;
+    white-space: nowrap;
+    flex-shrink: 0;
+    line-height: 1.6;
+}
+/* 차트 리스트 영역 */
+.ct-chart-section {
+    padding: 10px 12px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    background: var(--color-surface);
+}
+.ct-summary-sub {
+    font-size: 14px;
+    color: var(--color-text-primary);
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+.ct-summary-value {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+}
+/* CT 차트 행 — 2줄 카드 스타일 */
+.ct-chart-row {
+    display: flex;
+    flex-direction: column;
+    padding: 7px 10px;
+    border-radius: 6px;
+    margin-bottom: 3px;
+    border-left: 3px solid transparent;
+    background: var(--color-background);
+}
+.ct-chart-row.highlighted {
+    background: var(--color-surface);
+    border: 1px solid var(--color-lines);
+    border-left-width: 3px;
+}
+.ct-chart-row.selected {
+    background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+    border: 1.5px solid var(--color-primary);
+    border-left-width: 3px;
+    border-left-color: var(--color-primary);
+}
+.ct-chart-row:hover {
+    background: color-mix(in srgb, var(--color-primary) 4%, var(--color-background));
+}
+.ct-chart-row.selected:hover {
+    background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+}
+/* 1줄: 카테고리 라벨 + 플로우 이름 */
+.ct-row-header {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 4px;
+    min-width: 0;
+}
+
+.ct-row-name {
+    font-size: 13px;
+    color: var(--color-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+.ct-process-number {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-primary);
+    min-width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+}
+/* 2줄: 바 + 시간 */
+.ct-row-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.ct-bar-track {
+    flex: 1;
+    height: 10px;
+    background: transparent;
+    border-radius: 10px;
+    display: flex;
+}
+.ct-bar-mt { background: #0569A0; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.ct-bar-wt { background: #F48FB1; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0 10px 10px 0; }
+.ct-bar-track > :first-child { border-radius: 10px 0 0 10px; overflow: hidden; }
+.ct-bar-track > :last-child  { border-radius: 0 10px 10px 0; overflow: hidden; }
+.ct-bar-track > :only-child  { border-radius: 10px; overflow: hidden; }
+.ct-bar-pct { font-size: 9px; font-weight: 700; color: white; line-height: 1; white-space: nowrap; }
+.ct-row-time {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+}
+/* ── 호버 툴팁 (고정 위치, 페이지 레벨) ── */
+.ct-chart-row { position: relative; z-index: 0; }
+.ct-chart-row:hover { z-index: 10; }
+.ct-tooltip-fixed {
+    position: fixed;
+    z-index: 2000;
+    width: 220px;
+    min-width: 200px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-lines);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    padding: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+.ct-tooltip-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--color-background);
+    border-bottom: 1px solid var(--color-lines);
+}
+.ct-tooltip-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+.ct-tooltip-state {
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    padding: 1px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.ct-tooltip-badges {
+    display: flex;
+    gap: 4px;
+    padding: 6px 10px 0;
+    flex-wrap: wrap;
+}
+.ct-tooltip-grid {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px 12px;
+    padding: 8px 10px 10px;
+}
+.ct-tooltip-label {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    font-weight: 500;
+}
+.ct-tooltip-val {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    text-align: right;
+}
+.ct-tooltip-val.mt { color: #0569A0; }
+.ct-tooltip-val.wt { color: #F48FB1; }
+.ct-tooltip-val.ct { color: var(--color-text-primary); }
+/* ── 공통 카드 구조 ── */
+.ds-card {
+    --u: clamp(10px, 1.3vh, 15px);
+    border-radius: 8px;
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--color-lines);
+    background: var(--color-surface);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.ds-card-header {
+    padding: calc(var(--u) * 0.4) calc(var(--u) * 1.2);
+    background: var(--color-background);
+    border-bottom: 1px solid var(--color-lines);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: calc(var(--u) * 0.9);
+    min-height: calc(var(--u) * 3.2);
+    overflow: visible;
+    flex-wrap: wrap;
+}
+.ct-section-title {
+    font-size: calc(var(--u) * 1.1);
+    color: var(--color-text-primary);
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+.ds-card-header .btn-sm {
+    padding: calc(var(--u) * 0.35) calc(var(--u) * 0.9);
+    font-size: calc(var(--u) * 1.05);
+}
+.ds-card-header .btn-icon {
+    width: calc(var(--u) * 2.6);
+    height: calc(var(--u) * 2.6);
+}
+.ds-card-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+/* ── 범례 ── */
+.layout-legend {
+    display: flex;
+    gap: calc(var(--u) * 0.9);
+    flex-wrap: wrap;
+    align-items: center;
+}
+.layout-legend-item {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--u) * 0.4);
+    font-size: calc(var(--u) * 1.0);
+    color: var(--color-text-secondary);
+    font-weight: 500;
+}
+.layout-legend-dot {
+    width: calc(var(--u) * 0.9);
+    height: calc(var(--u) * 0.9);
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+/* ── 클릭 팝업 모달 ── */
+.ct-popup-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: ct-fade-in 0.15s ease;
+}
+@keyframes ct-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes ct-scale-in {
+    from { opacity: 0; transform: scale(0.92); }
+    to   { opacity: 1; transform: scale(1); }
+}
+.ct-popup-modal {
+    background: var(--color-surface);
+    border: 1px solid var(--color-lines);
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+    width: 380px;
+    max-width: 90vw;
+    overflow: hidden;
+    animation: ct-scale-in 0.15s ease;
+}
+.ct-popup-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 16px;
+    background: var(--color-background);
+    border-bottom: 1px solid var(--color-lines);
+}
+.ct-popup-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+.ct-popup-close {
+    flex-shrink: 0;
+    color: var(--color-text-secondary);
+}
+.ct-popup-close:hover {
+    color: var(--color-text-primary);
+}
+.ct-popup-badges {
+    display: flex;
+    gap: 6px;
+    padding: 10px 16px 0;
+    flex-wrap: wrap;
+}
+.ct-popup-bar-section {
+    padding: 14px 16px 6px;
+}
+.ct-popup-bar-track {
+    height: 18px;
+    display: flex;
+    border-radius: 10px;
+    overflow: hidden;
+}
+.ct-popup-bar-track > :first-child { border-radius: 10px 0 0 10px; }
+.ct-popup-bar-track > :last-child  { border-radius: 0 10px 10px 0; }
+.ct-popup-bar-track > :only-child  { border-radius: 10px; }
+.ct-popup-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    padding: 6px 12px 16px;
+}
+.ct-popup-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px;
+    border-radius: 6px;
+    background: var(--color-background);
+}
+.ct-popup-label {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    font-weight: 500;
+}
+.ct-popup-val {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+/* ── History Section in Popup ── */
+.ct-popup-history {
+    margin-top: 12px;
+    border-top: 1px solid var(--color-lines);
+    padding: 12px;
+}
+
+.ct-popup-history-header {
+    display: flex;
+    align-items: center;
+    padding-bottom: 8px;
+    font-size: 13px;
+    color: var(--color-text-primary);
+}
+
+.ct-popup-history-list {
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.ct-history-item {
+    padding: 8px;
+    background: var(--color-background);
+    border-radius: 6px;
+    border: 1px solid var(--color-lines);
+    margin-bottom: 8px;
+}
+
+.ct-history-item:last-child {
+    margin-bottom: 0;
+}
+
+.ct-history-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 11px;
+}
+
+.ct-history-cycle {
+    font-weight: 700;
+    color: var(--color-primary);
+}
+
+.ct-history-time {
+    color: var(--color-text-secondary);
+}
+
+.ct-history-bar {
+    height: 8px;
+    display: flex;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+
+.ct-history-bar > :first-child { border-radius: 4px 0 0 4px; }
+.ct-history-bar > :last-child  { border-radius: 0 4px 4px 0; }
+.ct-history-bar > :only-child  { border-radius: 4px; }
+
+.ct-history-values {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.ct-popup-history-more {
+    text-align: center;
+    padding-top: 8px;
+    border-top: 1px dashed var(--color-lines);
+    margin-top: 8px;
+}
+
+/* ── 정렬 드롭다운 ── */
+.ct-sort-select {
+    padding: calc(var(--u) * 0.3) calc(var(--u) * 0.7);
+    font-size: calc(var(--u) * 1.05);
+    font-family: var(--font-family);
+    font-weight: 600;
+    border: 1px solid var(--color-primary);
+    border-radius: 6px;
+    background: var(--color-surface);
+    color: var(--color-primary);
+    cursor: pointer;
+    outline: none;
+}
+.ct-sort-select:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb, 25, 118, 210), 0.15);
+}

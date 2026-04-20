@@ -64,6 +64,7 @@ type CostAnalysisSystemProperties() =
 /// Flow-level 원가 분석 속성
 type CostAnalysisFlowProperties() =
     inherit PropertiesBase<CostAnalysisFlowProperties>()
+    member val Name: string = "" with get, set
 
 /// Work-level 원가 분석 속성
 type CostAnalysisWorkProperties() =
@@ -126,6 +127,7 @@ type CostAnalysisWorkProperties() =
     /// Call-level 원가 분석 속성
 type CostAnalysisCallProperties() =
     inherit PropertiesBase<CostAnalysisCallProperties>()
+    member val Name: string = "" with get, set
 
 // =============================================================================
 // HELPER FUNCTIONS - 원가 및 OEE 계산 함수

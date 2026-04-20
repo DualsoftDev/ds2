@@ -111,15 +111,15 @@ type NodeSelectionResult(orderedKeys: SelectionKey list, anchor: SelectionKey op
 
 /// System 프로퍼티 패널 — ApiDef 항목 (C# 소비용)
 [<Sealed>]
-type ApiDefPanelItem(id: Guid, name: string, isPush: bool, txWorkId: Guid option, rxWorkId: Guid option, description: string) =
-    member _.Id          = id
-    member _.Name        = name
-    member _.IsPush      = isPush
-    member _.TxWorkId    = txWorkId
-    member _.RxWorkId    = rxWorkId
+type ApiDefPanelItem(id: Guid, name: string, actionType: ApiDefActionType, txWorkId: Guid option, rxWorkId: Guid option, description: string) =
+    member _.Id             = id
+    member _.Name           = name
+    member _.ActionType     = actionType
+    member _.TxWorkId       = txWorkId
+    member _.RxWorkId       = rxWorkId
     member _.TxWorkIdOrNull = txWorkId |> Option.toNullable
     member _.RxWorkIdOrNull = rxWorkId |> Option.toNullable
-    member _.Description = description
+    member _.Description    = description
 
 [<Sealed>]
 type ApiDefEditInfo(systemId: Guid, item: ApiDefPanelItem) =

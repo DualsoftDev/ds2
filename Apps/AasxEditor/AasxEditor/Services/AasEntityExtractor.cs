@@ -1,7 +1,9 @@
 using System.Text.Json;
-using AasCore.Aas3_0;
+using AasCore.Aas3_1;
 using AasxEditor.Models;
-using Env = AasCore.Aas3_0.Environment;
+using Env = AasCore.Aas3_1.Environment;
+using File = AasCore.Aas3_1.File;
+using Range = AasCore.Aas3_1.Range;
 
 namespace AasxEditor.Services;
 
@@ -109,11 +111,11 @@ public class AasEntityExtractor
                 var first = mlp.Value?.FirstOrDefault();
                 record.Value = first is not null ? $"[{first.Language}] {first.Text}" : null;
                 break;
-            case AasCore.Aas3_0.File f:
+            case File f:
                 record.Value = f.Value;
                 record.ValueType = f.ContentType;
                 break;
-            case AasCore.Aas3_0.Range r:
+            case Range r:
                 record.Value = $"{r.Min} ~ {r.Max}";
                 record.ValueType = r.ValueType.ToString();
                 break;
@@ -158,9 +160,9 @@ public class AasEntityExtractor
         MultiLanguageProperty => "MLP",
         SubmodelElementCollection => "SMC",
         SubmodelElementList => "SML",
-        AasCore.Aas3_0.File => "File",
+        File => "File",
         Blob => "Blob",
-        AasCore.Aas3_0.Range => "Range",
+        Range => "Range",
         ReferenceElement => "Ref",
         RelationshipElement => "Rel",
         AnnotatedRelationshipElement => "ARel",
@@ -190,11 +192,11 @@ public class AasEntityExtractor
                 var first = mlp.Value?.FirstOrDefault();
                 props["value"] = first is not null ? $"[{first.Language}] {first.Text}" : null;
                 break;
-            case AasCore.Aas3_0.File f:
+            case File f:
                 props["contentType"] = f.ContentType;
                 props["value"] = f.Value;
                 break;
-            case AasCore.Aas3_0.Range r:
+            case Range r:
                 props["valueType"] = r.ValueType.ToString();
                 props["min"] = r.Min;
                 props["max"] = r.Max;

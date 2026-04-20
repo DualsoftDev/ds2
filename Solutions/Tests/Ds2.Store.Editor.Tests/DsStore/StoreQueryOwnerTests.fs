@@ -51,7 +51,7 @@ module CallConditionQueryTests =
         let calls = Queries.callsOf work.Id store
         let sourceCall = calls[0]
         let targetCall = calls[1]
-        let sourceApiCall = sourceCall.ApiCalls |> Seq.head
+        let sourceApiCall = sourceCall.ApiCalls[0]
 
         store.AddCallCondition(targetCall.Id, CallConditionType.ComAux)
         let conditionId =

@@ -1,7 +1,8 @@
 namespace Ds2.Aasx
 
 open System
-open AasCore.Aas3_0
+open System.Reflection
+open AasCore.Aas3_1
 open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
@@ -12,33 +13,108 @@ module internal AasxImportGraph =
 
     open AasxImportCore
 
+    /// AasxField Attribute가 있는 속성들을 자동으로 SMC에서 읽어와 엔티티에 설정
+    let private setPropsFromAasxFields<'T> (smc: SubmodelElementCollection) (entity: 'T) =
+        let entityType = entity.GetType()  // 런타임 타입 사용 (상속 고려)
+
+        // 현재 타입과 모든 베이스 타입의 속성을 가져오기
+        let rec getAllProperties (t: Type) =
+            seq {
+                yield! t.GetProperties(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+                if t.BaseType <> null && t.BaseType <> typeof<obj> then
+                    yield! getAllProperties t.BaseType
+            }
+
+        let props = getAllProperties entityType |> Seq.toArray
+
+        props
+        |> Seq.distinctBy (fun p -> p.Name)  // 중복 속성 제거 (abstract + default 패턴 대응)
+        |> Seq.toArray
+        |> Array.iter (fun prop ->
+            match prop.GetCustomAttribute<AasxFieldAttribute>(true) |> box with  // inherit=true, 상속된 어트리뷰트 포함
+                | null -> ()
+                | :? AasxFieldAttribute as attr when not attr.Skip ->
+                    // 특수 타입 처리
+                    if prop.PropertyType = typeof<Xywh option> then
+                        fromJsonProp<Xywh option> smc attr.FieldName
+                        |> Option.flatten
+                        |> Option.iter (fun pos -> prop.SetValue(entity, Some pos))
+                    elif prop.PropertyType = typeof<TimeSpan option> then
+                        getProp smc attr.FieldName
+                        |> Option.bind tryParseIsoDuration
+                        |> Option.iter (fun d -> prop.SetValue(entity, Some d))
+                    elif prop.PropertyType = typeof<ResizeArray<CallCondition>> then
+                        fromJsonProp<ResizeArray<CallCondition>> smc attr.FieldName
+                        |> Option.iter (fun ccs -> prop.SetValue(entity, ccs))
+                    elif prop.PropertyType = typeof<ResizeArray<TokenSpec>> then
+                        fromJsonProp<ResizeArray<TokenSpec>> smc attr.FieldName
+                        |> Option.iter (fun ts -> prop.SetValue(entity, ts))
+                    elif prop.PropertyType = typeof<IOTag option> then
+                        fromJsonProp<IOTag option> smc attr.FieldName
+                        |> Option.iter (fun t -> prop.SetValue(entity, t))
+                    elif prop.PropertyType = typeof<ValueSpec> then
+                        fromJsonProp<ValueSpec> smc attr.FieldName
+                        |> Option.iter (fun s -> prop.SetValue(entity, s))
+                    elif prop.PropertyType = typeof<DateTimeOffset> then
+                        getProp smc attr.FieldName
+                        |> Option.iter (fun dtStr ->
+                            match DateTimeOffset.TryParse(dtStr) with
+                            | true, dt -> prop.SetValue(entity, dt)
+                            | _ -> ())
+                    elif prop.PropertyType = typeof<TokenRole> then
+                        getProp smc attr.FieldName
+                        |> Option.iter (fun s ->
+                            match System.Int32.TryParse(s) with
+                            | true, v -> prop.SetValue(entity, enum<TokenRole> v)
+                            | _ -> ())
+                    elif prop.PropertyType = typeof<Status4> then
+                        getProp smc attr.FieldName
+                        |> Option.iter (fun s -> prop.SetValue(entity, parseStatus4 s))
+                    elif prop.PropertyType = typeof<ArrowType> then
+                        getProp smc attr.FieldName
+                        |> Option.iter (fun s -> prop.SetValue(entity, parseArrowType s))
+                    elif prop.PropertyType = typeof<ApiDefActionType> then
+                        fromJsonProp<ApiDefActionType> smc attr.FieldName
+                        |> Option.iter (fun at -> prop.SetValue(entity, at))
+                    elif prop.PropertyType = typeof<bool> then
+                        getProp smc attr.FieldName
+                        |> Option.iter (fun s ->
+                            match System.Boolean.TryParse(s) with
+                            | true, b -> prop.SetValue(entity, b)
+                            | _ -> ())
+                    else
+                        // 기본 문자열/GUID 처리
+                        let value = getProp smc attr.FieldName
+                        match value with
+                        | None -> ()
+                        | Some str ->
+                            if prop.PropertyType = typeof<Guid> then
+                                match Guid.TryParse(str) with
+                                | true, g -> prop.SetValue(entity, g)
+                                | _ -> ()
+                            elif prop.PropertyType = typeof<string> then
+                                prop.SetValue(entity, str)
+                            elif prop.PropertyType = typeof<string option> then
+                                let optValue = if String.IsNullOrEmpty str then None else Some str
+                                prop.SetValue(entity, optValue)
+                            elif prop.PropertyType = typeof<Guid option> then
+                                match Guid.TryParse(str) with
+                                | true, g -> prop.SetValue(entity, Some g)
+                                | _ -> ()
+                | _ -> ())
+
     let smcToApiCall (smc: SubmodelElementCollection) : ApiCall option =
         try
-            let name = getProp smc Name_ |> Option.defaultValue ""
-            let apiCall = ApiCall(name)
-            getProp smc Guid_ |> Option.iter (fun g -> apiCall.Id <- Guid.Parse g)
-            getProp smc ApiDefId_ |> Option.bind (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None)
-                                  |> Option.iter (fun g -> apiCall.ApiDefId <- Some g)
-            fromJsonProp<IOTag option> smc InTag_     |> Option.iter (fun t -> apiCall.InTag <- t)
-            fromJsonProp<IOTag option> smc OutTag_    |> Option.iter (fun t -> apiCall.OutTag <- t)
-            fromJsonProp<ValueSpec>    smc InputSpec_ |> Option.iter (fun s -> apiCall.InputSpec <- s)
-            fromJsonProp<ValueSpec>    smc OutputSpec_|> Option.iter (fun s -> apiCall.OutputSpec <- s)
-            getProp smc OriginFlowId_ |> Option.bind (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None)
-                                      |> Option.iter (fun g -> apiCall.OriginFlowId <- Some g)
+            let apiCall = ApiCall("")
+            setPropsFromAasxFields smc apiCall
             Some apiCall
         with ex -> log.Warn($"smcToApiCall 실패: {ex.Message}", ex); None
 
     let smcToCall (smc: SubmodelElementCollection) (workId: Guid) : Call option =
         try
-            let devAlias = getProp smc DevicesAlias_ |> Option.defaultValue ""
-            let apiName  = getProp smc ApiName_       |> Option.defaultValue ""
-            let call = Call(devAlias, apiName, workId)
-            getProp smc Guid_ |> Option.iter (fun g -> call.Id <- Guid.Parse g)
-            // 모든 도메인 속성 Import (통합 버전)
-            SubmodelType.AllDomains
-            |> List.iter (fun submodelType -> PropertyConversion.importCallProperty submodelType smc call.Properties)
-            fromJsonProp<Xywh option>    smc Position_       |> Option.flatten |> Option.iter (fun pos -> call.Position <- Some pos)
-            getProp smc Status_          |> Option.iter (fun s -> call.Status4 <- parseStatus4 s)
+            let call = Call("", "", workId)
+            setPropsFromAasxFields smc call
+            // 도메인 속성은 importDomainSubmodel에서 별도 처리 (여기서 중복 import하면 기본값이 먼저 들어가 실제 값을 덮음)
             // ApiCalls를 SubmodelElementList에서 읽기 (새 형식)
             let apiCalls = getChildSmlSmcs smc ApiCalls_ |> List.choose smcToApiCall
             if not apiCalls.IsEmpty then
@@ -46,7 +122,6 @@ module internal AasxImportGraph =
             else
                 // 하위 호환성: JSON blob에서 읽기 (구 형식)
                 fromJsonProp<ResizeArray<ApiCall>> smc ApiCalls_ |> Option.iter (fun acs -> call.ApiCalls <- acs)
-            fromJsonProp<ResizeArray<CallCondition>> smc CallConditions_ |> Option.iter (fun ccs -> call.CallConditions <- ccs)
             Some call
         with ex -> log.Warn($"smcToCall 실패: {ex.Message}", ex); None
 
@@ -58,28 +133,14 @@ module internal AasxImportGraph =
             let tryParseGuid (s: string) = match Guid.TryParse(s) with true, v -> Some v | _ -> None
             match getProp smc FlowGuid_ |> Option.bind tryParseGuid with
             | None ->
-                let workGuid = getProp smc Guid_ |> Option.defaultValue "<missing>"
-                let workName = getProp smc Name_ |> Option.defaultValue "<missing>"
+                let workGuid = getProp smc "Guid" |> Option.defaultValue "<missing>"
+                let workName = getProp smc "Name" |> Option.defaultValue "<missing>"
                 log.Error($"AASX import failed: Work FlowGuid missing or invalid (WorkGuid={workGuid}, WorkName={workName}).")
                 None
             | Some flowId ->
                 let work = Work("", "", flowId)
-                getProp smc Guid_   |> Option.iter (fun g -> work.Id <- Guid.Parse g)
-                // 새 형식: FlowPrefix + LocalName 우선, 없으면 Name 폴백 (마이그레이션)
-                match getProp smc FlowPrefix_, getProp smc LocalName_ with
-                | Some fp, Some ln -> work.FlowPrefix <- fp; work.LocalName <- ln
-                | _ -> getProp smc Name_ |> Option.iter (fun n -> work.Name <- n)
-                getProp smc ReferenceOf_ |> Option.bind tryParseGuid |> Option.iter (fun g -> work.ReferenceOf <- Some g)
-                // 모든 도메인 속성 Import (통합 버전)
-                SubmodelType.AllDomains
-                |> List.iter (fun submodelType -> PropertyConversion.importWorkProperty submodelType smc work.Properties)
-                fromJsonProp<Xywh option>    smc Position_    |> Option.flatten |> Option.iter (fun pos -> work.Position <- Some pos)
-                getProp smc Status_ |> Option.iter (fun s -> work.Status4 <- parseStatus4 s)
-                getProp smc TokenRole_ |> Option.iter (fun s ->
-                    match System.Int32.TryParse(s) with
-                    | true, v -> work.TokenRole <- enum<TokenRole> v
-                    | _ -> ())
-                getProp smc "Duration" |> Option.bind tryParseIsoDuration |> Option.iter (fun d -> work.Duration <- Some d)
+                setPropsFromAasxFields smc work
+                // 도메인 속성은 importDomainSubmodel에서 별도 처리
 
                 let calls      = getChildSmlSmcs smc Calls_  |> List.choose (fun c -> smcToCall c work.Id)
                 let arrowCalls = getChildSmlSmcs smc Arrows_ |> List.choose (fun a -> smcToArrowCall a work.Id)
@@ -92,47 +153,31 @@ module internal AasxImportGraph =
         : Flow option =
         try
             let flow = Flow("", systemId)
-            getProp smc Guid_ |> Option.iter (fun g -> flow.Id <- Guid.Parse g)
-            getProp smc Name_ |> Option.iter (fun n -> flow.Name <- n)
-            // 모든 도메인 속성 Import (통합 버전)
-            SubmodelType.AllDomains
-            |> List.iter (fun submodelType -> PropertyConversion.importFlowProperty submodelType smc flow.Properties)
+            setPropsFromAasxFields smc flow
+            // 도메인 속성은 importDomainSubmodel에서 별도 처리
             Some flow
         with ex -> log.Warn($"smcToFlow 실패: {ex.Message}", ex); None
 
     let smcToApiDef (smc: SubmodelElementCollection) (systemId: Guid) : ApiDef option =
         try
             let apiDef = ApiDef("", systemId)
-            getProp smc Guid_ |> Option.iter (fun g -> apiDef.Id <- Guid.Parse g)
-            getProp smc Name_ |> Option.iter (fun n -> apiDef.Name <- n)
-            getProp smc IsPush_ |> Option.iter (fun s ->
-                match System.Boolean.TryParse(s) with
-                | true, b -> apiDef.IsPush <- b
-                | _ -> ())
-            getProp smc TxGuid_ |> Option.bind (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None)
-                                |> Option.iter (fun g -> apiDef.TxGuid <- Some g)
-            getProp smc RxGuid_ |> Option.bind (fun s -> match Guid.TryParse(s) with true, g -> Some g | _ -> None)
-                                |> Option.iter (fun g -> apiDef.RxGuid <- Some g)
+            setPropsFromAasxFields smc apiDef
             Some apiDef
         with ex -> log.Warn($"smcToApiDef 실패: {ex.Message}", ex); None
 
     let smcToSystem (smc: SubmodelElementCollection)
         : (DsSystem * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) option =
         try
-            let name = getProp smc Name_
-            let guid = getProp smc Guid_
-            if name.IsNone && guid.IsNone then
+            let system = DsSystem("")
+            // AasxField Attribute 기반 자동 속성 설정 (Name, Guid 포함)
+            setPropsFromAasxFields smc system
+
+            // 검증: Name과 Guid가 있는지 확인
+            if String.IsNullOrEmpty(system.Name) && system.Id = Guid.Empty then
                 log.Error($"AASX import failed: System entry missing Name and Guid ({describeSmc smc}).")
                 None
             else
-                let system = DsSystem("")
-                guid |> Option.iter (fun g -> system.Id <- Guid.Parse g)
-                name |> Option.iter (fun n -> system.Name <- n)
-                // 모든 도메인 속성 Import (통합 버전)
-                SubmodelType.AllDomains
-                |> List.iter (fun submodelType -> PropertyConversion.importSystemProperty submodelType smc system.Properties)
-                let iri = getProp smc IRI_ |> Option.bind (fun s -> if String.IsNullOrEmpty s then None else Some s)
-                system.IRI <- iri
+                // 도메인 속성은 importDomainSubmodel에서 별도 처리
 
                 let systemLabel = $"System '{system.Name}' ({system.Id})"
 
@@ -265,20 +310,7 @@ module internal AasxImportGraph =
                 |> Seq.tryPick (function
                     | :? SubmodelElementCollection as pSmc ->
                         let project = Project("")
-                        getProp pSmc Guid_ |> Option.iter (fun g -> project.Id <- Guid.Parse g)
-                        getProp pSmc Name_ |> Option.iter (fun n -> project.Name <- n)
-                        fromJsonProp<ResizeArray<TokenSpec>> pSmc TokenSpecs_ |> Option.iter (fun ts ->
-                            project.TokenSpecs.Clear()
-                            for spec in ts do project.TokenSpecs.Add(spec))
-
-                        // Project 메타데이터 로드
-                        getProp pSmc Author_ |> Option.iter (fun v -> project.Author <- v)
-                        getProp pSmc Version_ |> Option.iter (fun v -> project.Version <- v)
-                        // IriPrefix는 앱 설정에서 관리되므로 import하지 않음
-                        getProp pSmc DateTime_ |> Option.iter (fun dtStr ->
-                            match DateTimeOffset.TryParse(dtStr) with
-                            | true, dt -> project.DateTime <- dt
-                            | _ -> ())
+                        setPropsFromAasxFields pSmc project
 
                         match parseSystemsStrict $"Project '{project.Name}' ActiveSystems" (getChildSmlSmcs pSmc ActiveSystems_) with
                         | None -> None

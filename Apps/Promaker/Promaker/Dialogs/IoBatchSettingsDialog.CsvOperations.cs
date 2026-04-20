@@ -325,7 +325,7 @@ public partial class IoBatchSettingsDialog
             return;
 
         var sb = new StringBuilder();
-        sb.AppendLine("Flow,Work,Device,Api,OutTag,OutDataType,OutAddress,InTag,InDataType,InAddress");
+        sb.AppendLine("Flow,Work,Device,Api,InName,InDataType,InAddress,OutName,OutDataType,OutAddress");
         foreach (var row in _rows)
         {
             sb.AppendLine(string.Join(",",
@@ -333,12 +333,12 @@ public partial class IoBatchSettingsDialog
                 EscapeCsvField(row.Work),
                 EscapeCsvField(row.Device),
                 EscapeCsvField(row.Api),
-                EscapeCsvField(row.OutSymbol),
-                EscapeCsvField(row.OutDataType),
-                EscapeCsvField(row.OutAddress),
                 EscapeCsvField(row.InSymbol),
                 EscapeCsvField(row.InDataType),
-                EscapeCsvField(row.InAddress)));
+                EscapeCsvField(row.InAddress),
+                EscapeCsvField(row.OutSymbol),
+                EscapeCsvField(row.OutDataType),
+                EscapeCsvField(row.OutAddress)));
         }
 
         File.WriteAllText(picker.FileName, sb.ToString(), Encoding.UTF8);
@@ -375,6 +375,14 @@ public partial class IoBatchSettingsDialog
             }
 
             var applyResult = ApplyImportedRows(_rows, importRows);
+
+            // 미매치 행 하이라이트 설정
+            foreach (var row in _rows) row.IsUnmatched = false;
+            foreach (var row in applyResult.UnmatchedTargetRows) row.IsUnmatched = true;
+            ShowOnlyUnmatchedCheckBox.Visibility = applyResult.UnmatchedTargetRows.Count > 0
+                ? System.Windows.Visibility.Visible
+                : System.Windows.Visibility.Collapsed;
+            _view.Refresh();
 
             RefreshApplyButtonState();
             var unmatchedDetails = FormatUnmatchedTargetRows(applyResult.UnmatchedTargetRows);

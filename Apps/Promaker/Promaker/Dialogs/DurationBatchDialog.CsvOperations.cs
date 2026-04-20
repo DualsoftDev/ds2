@@ -80,11 +80,26 @@ public partial class DurationBatchDialog
             return;
         }
 
-        var matched = ApplyImportedRows(_workRows, importRows);
+        var result = ApplyImportedRows(_workRows, importRows);
+
+        // 미매치 행 하이라이트 설정
+        foreach (var row in _workRows) row.IsUnmatched = false;
+        foreach (var row in result.UnmatchedTargetRows) row.IsUnmatched = true;
+        ShowOnlyUnmatchedCheckBox.Visibility = result.UnmatchedTargetRows.Count > 0
+            ? System.Windows.Visibility.Visible
+            : System.Windows.Visibility.Collapsed;
+        _view.Refresh();
+
+        var unmatchedDetails = FormatUnmatchedTargetRows(result.UnmatchedTargetRows);
+        var icon = result.UnmatchedTargetRows.Count > 0 ? "⚠" : "✓";
 
         DialogHelpers.ShowThemedMessageBox(
-            $"CSV 가져오기 완료:\n\n- 전체: {importRows.Count}건\n- 매칭: {matched}건\n- 미매칭: {importRows.Count - matched}건",
-            "CSV Import", MessageBoxButton.OK, "✓");
+            $"CSV 가져오기 완료:\n\n" +
+            $"- 프로젝트 전체 행: {result.TotalTargetRows}건\n" +
+            $"- 적용된 행: {result.AppliedTargetRows}건\n" +
+            $"- 미적용 행: {result.UnmatchedTargetRows.Count}건" +
+            unmatchedDetails,
+            "Duration CSV Import", MessageBoxButton.OK, icon);
     }
 
     private static List<DurationImportRow> ParseDurationCsv(string filePath)
@@ -164,32 +179,65 @@ public partial class DurationBatchDialog
         return fields;
     }
 
-    private static int ApplyImportedRows(
-        IEnumerable<DurationRow> targetRows,
+    private sealed record ImportApplyResult(
+        int TotalTargetRows,
+        int AppliedTargetRows,
+        int TargetCellsUpdated,
+        IReadOnlyList<DurationRow> UnmatchedTargetRows);
+
+    private static ImportApplyResult ApplyImportedRows(
+        IReadOnlyCollection<DurationRow> targetRows,
         IEnumerable<DurationImportRow> importRows)
     {
         var rowMap = targetRows.ToLookup(
             row => BuildImportKey(row.SystemName, row.FlowName, row.WorkName),
             StringComparer.OrdinalIgnoreCase);
 
-        var matched = 0;
+        var matchedTargetRows = new HashSet<DurationRow>();
+        var targetCellsUpdated = 0;
+
         foreach (var importRow in importRows)
         {
             var key = BuildImportKey(importRow.System, importRow.Flow, importRow.Work);
-            if (!rowMap.Contains(key))
-                continue;
-
-            if (string.IsNullOrEmpty(importRow.Duration))
+            if (!rowMap.Contains(key) || string.IsNullOrEmpty(importRow.Duration))
                 continue;
 
             foreach (var target in rowMap[key])
             {
                 target.Duration = importRow.Duration;
-                matched++;
+                targetCellsUpdated++;
+                matchedTargetRows.Add(target);
             }
         }
 
-        return matched;
+        var unmatched = targetRows.Where(r => !matchedTargetRows.Contains(r)).ToList();
+        return new ImportApplyResult(targetRows.Count, matchedTargetRows.Count, targetCellsUpdated, unmatched);
+    }
+
+    private static string FormatUnmatchedTargetRows(IReadOnlyList<DurationRow> unmatched, int previewLimit = 10)
+    {
+        if (unmatched.Count == 0) return string.Empty;
+        var sb = new StringBuilder();
+        sb.AppendLine();
+
+        var controlRows = unmatched.Where(r => !r.IsDeviceWork).ToList();
+        var deviceRows = unmatched.Where(r => r.IsDeviceWork).ToList();
+
+        FormatGroup(sb, "Control 미적용", controlRows, r => $"{r.FlowName}/{r.WorkName}", previewLimit);
+        FormatGroup(sb, "Device 미적용", deviceRows, r => $"{r.SystemName}/{r.WorkName}", previewLimit);
+
+        return sb.ToString();
+
+        static void FormatGroup(StringBuilder sb, string header, List<DurationRow> rows, Func<DurationRow, string> formatter, int limit)
+        {
+            if (rows.Count == 0) return;
+            sb.AppendLine($"[{header}] {rows.Count}건");
+            var preview = Math.Min(rows.Count, limit);
+            for (var i = 0; i < preview; i++)
+                sb.AppendLine($"  · {formatter(rows[i])}");
+            if (rows.Count > preview)
+                sb.AppendLine($"  … 외 {rows.Count - preview}건");
+        }
     }
 
     private static string BuildImportKey(string system, string flow, string work) =>

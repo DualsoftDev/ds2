@@ -1,0 +1,83 @@
+.modal {
+    z-index: 1050;
+}
+
+.modal-backdrop {
+    z-index: 1040;
+}
+
+.modal-dialog {
+    max-width: 1200px;
+}
+
+.history-controls {
+    padding: 12px;
+    background-color: var(--surface-color);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.chart-container {
+    padding: 20px;
+    background-color: var(--surface-color);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.stat-card {
+    padding: 16px;
+    background-color: var(--surface-color);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    text-align: center;
+}
+
+.stat-card h6 {
+    margin-bottom: 8px;
+    color: var(--text-secondary-color);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    margin-bottom: 4px;
+}
+
+.stat-range {
+    font-size: 0.75rem;
+    color: var(--text-secondary-color);
+}
+
+.table {
+    margin-bottom: 0;
+}
+
+.table thead {
+    background-color: var(--surface-color);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.table th {
+    font-weight: 600;
+    font-size: 0.875rem;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.table td {
+    font-size: 0.875rem;
+    vertical-align: middle;
+}
+
+.table-hover tbody tr:hover {
+    background-color: var(--hover-bg-color);
+}
+
+.badge {
+    padding: 6px 12px;
+    font-weight: 600;
+}

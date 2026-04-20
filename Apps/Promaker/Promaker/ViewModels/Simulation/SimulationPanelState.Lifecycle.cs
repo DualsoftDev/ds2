@@ -95,6 +95,32 @@ public partial class SimulationPanelState
                 }
             }
 
+            // Race Condition 경고: 순서 없는 Call이 같은 Device의 ResetReset 관계 Work를 참조
+            if (index.CallRaceExclusions.Count > 0)
+            {
+                var raceWarnings = new List<string>();
+                var reported = new HashSet<string>();
+                foreach (var kv in index.CallRaceExclusions)
+                {
+                    var callGuid = kv.Key;
+                    var callName = Store.Calls.TryGetValue(callGuid, out var c) ? c.Name : "?";
+                    var workGuid = index.CallWorkGuid.TryGetValue(callGuid, out var wg) ? wg : Guid.Empty;
+                    var workName = index.WorkName.TryGetValue(workGuid, out var wn) ? wn : "?";
+                    foreach (var exGuid in kv.Value)
+                    {
+                        var exName = Store.Calls.TryGetValue(exGuid, out var ec) ? ec.Name : "?";
+                        var pairKey = string.Join(",", new[] { callGuid.ToString(), exGuid.ToString() }.OrderBy(x => x));
+                        if (reported.Add(pairKey))
+                            raceWarnings.Add($"  {workName}: {callName} ↔ {exName}");
+                    }
+                }
+                if (raceWarnings.Count > 0)
+                {
+                    hasPreStartWarnings = true;
+                    AddSimLog($"[WARN] Race Condition: 순서 없는 Call {raceWarnings.Count}쌍이 동일 Device ResetReset 관계 — 먼저 스케줄된 Call만 실행됩니다", LogSeverity.Warn);
+                }
+            }
+
             if (!TryDisposeCurrentEngine("Simulation restart"))
                 return;
 
@@ -134,6 +160,8 @@ public partial class SimulationPanelState
                     FSharpOption<FSharpFunc<string, FSharpFunc<string, Unit>>>.Some(
                         FuncConvert.FromAction<string, string>(writeTagAction)))
                 : new EventDrivenEngine(index, SelectedRuntimeMode);
+            _simEngine.SpeedMultiplier = SimSpeed;
+            _simEngine.TimeIgnore = SimTimeIgnore;
             AdvanceSimUiGeneration();
 
             WireSimEvents();

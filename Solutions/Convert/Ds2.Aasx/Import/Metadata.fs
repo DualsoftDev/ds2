@@ -1,7 +1,7 @@
 namespace Ds2.Aasx
 
 open System
-open AasCore.Aas3_0
+open AasCore.Aas3_1
 open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics

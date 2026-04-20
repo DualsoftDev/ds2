@@ -3,69 +3,23 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Xml;
 using System.IO.Compression;
-using AasCore.Aas3_0;
-using Env = AasCore.Aas3_0.Environment;
+using AasCore.Aas3_1;
+using Env = AasCore.Aas3_1.Environment;
 
 namespace AasxEditor.Services;
 
 public class AasxConverterService
 {
     /// <summary>
-    /// AASX 바이트 배열 → AAS Environment
+    /// AASX 바이트 배열 → AAS Environment.
+    /// Ds2.Aasx의 스트림 리더에 위임하여 v1.0/v2.0/v3.0 파일도 v3.1로 자동 정규화합니다.
     /// </summary>
     public Env? ReadEnvironmentFromBytes(byte[] aasxBytes)
     {
         using var ms = new MemoryStream(aasxBytes);
-        using var archive = new ZipArchive(ms, ZipArchiveMode.Read);
-
-        var aasPath = ResolveAasPath(archive);
-        if (aasPath is null) return null;
-
-        var entry = archive.GetEntry(aasPath);
-        if (entry is null) return null;
-
-        using var stream = entry.Open();
-
-        if (aasPath.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
-        {
-            // 먼저 네임스페이스를 확인하여 AAS 버전 검증
-            using var preReadStream = new MemoryStream();
-            stream.CopyTo(preReadStream);
-            preReadStream.Position = 0;
-
-            var detectedNs = DetectAasNamespace(preReadStream);
-            if (detectedNs is not null && detectedNs != "https://admin-shell.io/aas/3/0")
-                throw new NotSupportedException(
-                    $"이 파일은 AAS v3.0이 아닙니다 (감지된 네임스페이스: {detectedNs}). " +
-                    $"AAS v1.0/v2.0 파일은 먼저 v3.0으로 변환해야 합니다.");
-
-            preReadStream.Position = 0;
-            using var xmlReader = XmlReader.Create(preReadStream);
-            xmlReader.MoveToContent();
-            return Xmlization.Deserialize.EnvironmentFrom(xmlReader);
-        }
-        else
-        {
-            using var reader = new StreamReader(stream, Encoding.UTF8);
-            var json = reader.ReadToEnd();
-            var node = JsonNode.Parse(json);
-            return Jsonization.Deserialize.EnvironmentFrom(node!);
-        }
-    }
-
-    private static string? DetectAasNamespace(Stream xmlStream)
-    {
-        try
-        {
-            using var xmlReader = XmlReader.Create(xmlStream);
-            while (xmlReader.Read())
-            {
-                if (xmlReader.NodeType == XmlNodeType.Element)
-                    return xmlReader.NamespaceURI;
-            }
-        }
-        catch { /* 무시 */ }
-        return null;
+        var result = Ds2.Aasx.AasxFileIO.readEnvironmentFromStreamWithError(ms);
+        if (result.IsOk) return result.ResultValue;
+        throw new NotSupportedException(result.ErrorValue);
     }
 
     /// <summary>
@@ -155,7 +109,7 @@ public class AasxConverterService
         {
             return (false, $"JSON 구문 오류: {ex.Message}");
         }
-        catch (AasCore.Aas3_0.Jsonization.Exception ex)
+        catch (Jsonization.Exception ex)
         {
             return (false, $"AAS 구조 오류: {ex.Message}");
         }
@@ -163,39 +117,6 @@ public class AasxConverterService
         {
             return (false, $"검증 실패: {ex.Message}");
         }
-    }
-
-    private static readonly string[] AasSpecTypes =
-    [
-        "http://www.admin-shell.io/aasx/relationships/aas-spec",
-        "http://admin-shell.io/aasx/relationships/aas-spec"
-    ];
-
-    private static string? ResolveAasPath(ZipArchive archive)
-    {
-        var relsEntry = archive.GetEntry("aasx/_rels/aasx-origin.rels");
-        if (relsEntry is null) return null;
-
-        using var stream = relsEntry.Open();
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        var xml = reader.ReadToEnd();
-
-        var doc = new XmlDocument();
-        doc.LoadXml(xml);
-
-        var nsm = new XmlNamespaceManager(doc.NameTable);
-        nsm.AddNamespace("r", "http://schemas.openxmlformats.org/package/2006/relationships");
-
-        // www 있는 버전과 없는 버전 모두 지원
-        foreach (var type in AasSpecTypes)
-        {
-            var node = doc.SelectSingleNode(
-                $"//r:Relationship[@Type='{type}']", nsm);
-            if (node is not null)
-                return node.Attributes?["Target"]?.Value?.TrimStart('/');
-        }
-
-        return null;
     }
 
     private static void WriteTextEntry(ZipArchive archive, string entryName, string content)
