@@ -9,10 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Phase 1: Core -->
+    <!-- Phase 1: Core (Store 모듈 포함) -->
     <ProjectReference Include="..\..\Solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
-    <!-- Phase 2: Store -->
-    <ProjectReference Include="..\..\Solutions\Core\Ds2.Store\Ds2.Store.fsproj" />
     <!-- Phase 3a: AASX -->
     <ProjectReference Include="..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
     <!-- Phase 3b: Runtime.Sim -->
@@ -23,7 +21,7 @@
 
   <ItemGroup>
     <PackageReference Include="FSharp.Core" Version="9.0.100" />
-    <PackageReference Include="log4net" Version="3.0.4" />
+    <PackageReference Include="log4net" Version="3.3.0" />
   </ItemGroup>
 
 </Project>
