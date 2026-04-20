@@ -159,9 +159,14 @@ module DevicePresets =
     let registerCustomName (name: string) =
         CustomNames <- Set.add name CustomNames
 
-    /// 커스텀 모델명 일괄 등록
+    /// 커스텀 모델명 일괄 등록 (기존 이름 유지, 추가만)
     let registerCustomNames (names: string seq) =
         CustomNames <- names |> Seq.fold (fun s n -> Set.add n s) CustomNames
+
+    /// 커스텀 모델명 전체 교체 (삭제 반영용)
+    /// 기존 이름을 버리고 주어진 이름으로 완전 치환한다.
+    let setCustomNames (names: string seq) =
+        CustomNames <- Set.ofSeq names
 
     /// 전체 알려진 이름 (하드코딩 + 커스텀)
     let allKnownNames () =

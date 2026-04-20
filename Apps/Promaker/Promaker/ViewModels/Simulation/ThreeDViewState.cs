@@ -80,6 +80,10 @@ public partial class ThreeDViewState : ObservableObject
     {
         if (_sendToWebView == null) return;
 
+        // F# CustomNames를 현재 레지스트리와 동기화 (삭제된 모델이 이전 세션의 잔재로 남지 않도록)
+        if (_customModelRegistry != null)
+            Ds2.View3D.DevicePresets.setCustomNames(_customModelRegistry.GetRegisteredNames());
+
         // 디버그: 커스텀 모델 등록 상태 확인
         var customNames = Ds2.View3D.DevicePresets.CustomNames;
         System.Diagnostics.Debug.WriteLine($"[3D BuildScene] CustomNames registered: [{string.Join(", ", customNames)}]");
