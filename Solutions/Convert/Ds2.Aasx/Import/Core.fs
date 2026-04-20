@@ -129,6 +129,36 @@ module internal AasxImportCore =
             try set (Enum.Parse(t, value)) with _ -> None
         | _ -> None
 
+    // ── elementsToProps ──────────────────────────────────────────────────────
+
+    /// SubmodelElementList → ResizeArray<string> 복원
+    let private trySetResizeArray (pi: PropertyInfo) (sml: SubmodelElementList) (target: obj) : unit option =
+        let propType = pi.PropertyType
+        if propType.IsGenericType
+           && propType.GetGenericTypeDefinition() = typedefof<ResizeArray<_>> then
+            let elemType = propType.GetGenericArguments().[0]
+            if elemType = typeof<string> then
+                let list = pi.GetValue(target) :?> ResizeArray<string>
+                if sml.Value <> null then
+                    for elem in sml.Value do
+                        match elem with
+                        | :? Property as p when p.Value <> null -> list.Add(p.Value)
+                        | _ -> ()
+                Some ()
+            elif elemType = typeof<Guid> then
+                let list = pi.GetValue(target) :?> ResizeArray<Guid>
+                if sml.Value <> null then
+                    for elem in sml.Value do
+                        match elem with
+                        | :? Property as p when p.Value <> null ->
+                            match Guid.TryParse(p.Value) with
+                            | true, g -> list.Add(g)
+                            | _ -> ()
+                        | _ -> ()
+                Some ()
+            else None
+        else None
+
     let internal elementsToProps<'T when 'T : (new : unit -> 'T)> (smc: SubmodelElementCollection) : 'T option =
         try
             let instance = new 'T()
@@ -140,6 +170,9 @@ module internal AasxImportCore =
                         | :? Property as p when p.IdShort = pi.Name && p.Value <> null ->
                             try trySetValue pi.PropertyType p.Value pi instance
                             with ex -> log.Warn($"Property 역직렬화 실패: {pi.Name} ({ex.Message})"); None
+                        | :? SubmodelElementList as sml when sml.IdShort = pi.Name ->
+                            try trySetResizeArray pi sml instance
+                            with ex -> log.Warn($"SubmodelElementList 역직렬화 실패: {pi.Name} ({ex.Message})"); None
                         | _ -> None)
                     |> ignore
             Some instance

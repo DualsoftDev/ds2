@@ -59,7 +59,7 @@ module CallConditionQueryTests =
             |> Seq.head
             |> fun condition -> condition.Id
 
-        store.AddApiCallsToConditionBatch(targetCall.Id, conditionId, [ sourceApiCall.Id ]) |> ignore
+        store.AddApiCallsToConditionBatch(targetCall.Id, conditionId, seq { sourceApiCall.Id }) |> ignore
 
         let callRefs = CallConditionQueries.findCallsByApiCallId store sourceApiCall.Id
 

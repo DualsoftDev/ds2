@@ -1,0 +1,92 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>1.0.0.24</Version>
+    <NoWarn>MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.104.2" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.3" />
+    <PackageReference Include="System.Data.SQLite.Core" Version="1.0.119" />
+    <PackageReference Include="Dapper" Version="2.1.35" />
+    <PackageReference Include="System.Threading.Channels" Version="9.0.0" />
+    <PackageReference Include="System.Reactive" Version="6.1.0" />
+    <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="log4net" Version="3.3.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DSPilot.Engine\DSPilot.Engine.fsproj" />
+    <ProjectReference Include="..\..\..\solutions\Core\Ds2.Core\Ds2.Core.fsproj" />
+    <ProjectReference Include="..\..\..\solutions\Core\Ds2.Editor\Ds2.Editor.fsproj" />
+    <ProjectReference Include="..\..\..\solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Ev2.Backend.PLC">
+      <HintPath>..\..\..\ExternalDlls\Ev2.Backend.PLC.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.Backend.Common">
+      <HintPath>..\..\..\ExternalDlls\Ev2.Backend.Common.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.Core.FS">
+      <HintPath>..\..\..\ExternalDlls\Ev2.Core.FS.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.PLC.Common.FS">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Common.FS.dll</HintPath>
+    </Reference>
+    <Reference Include="Dual.Common.Base.FS">
+      <HintPath>..\..\..\ExternalDlls\Dual.Common.Base.FS.dll</HintPath>
+    </Reference>
+    <Reference Include="Dual.Common.Db.FS">
+      <HintPath>..\..\..\ExternalDlls\Dual.Common.Db.FS.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.PLC.Protocol.AB">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.AB.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.PLC.Protocol.S7">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.S7.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.PLC.Protocol.LS">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.LS.dll</HintPath>
+    </Reference>
+    <Reference Include="Ev2.PLC.Protocol.MX">
+      <HintPath>..\..\..\ExternalDlls\Ev2.PLC.Protocol.MX.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="log4net.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- appsettings는 프로그램이 시작 시 자동 생성하므로 publish에서 제외 -->
+    <Content Remove="appsettings.json" />
+    <Content Remove="appsettings.*.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exclude backup folder from build -->
+    <Compile Remove="_backup/**" />
+    <Content Remove="_backup/**" />
+    <EmbeddedResource Remove="_backup/**" />
+    <None Remove="_backup/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 오프라인용 로컬 폰트/라이브러리를 publish에 포함 -->
+    <Content Update="wwwroot\fonts\**" CopyToPublishDirectory="PreserveNewest" />
+    <Content Update="wwwroot\lib\**" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

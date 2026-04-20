@@ -1,0 +1,1019 @@
+@page "/"
+@page "/dashboard"
+@inject DsProjectService ProjectService
+@inject DspDbService DbService
+@inject BlueprintService BlueprintService
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject DashboardEditService EditService
+@inject DSPilot.Adapters.DspRepositoryAdapter DspRepository
+@inject AppSettingsService SettingsService
+@inject ILogger<Dashboard> Logger
+@implements IDisposable
+
+<PageTitle>Dashboard - DSPilot</PageTitle>
+<div @ref="_fullscreenRef" class="@(_isFullscreen ? "dashboard-fullscreen" : "")" style="display:flex; flex-direction:column; flex:1; min-height:0;">
+
+@if (!ProjectService.IsLoaded)
+{
+    <div class="alert alert-info mb-4">
+        <span class="material-icons">info</span>
+        No project loaded. Configure the AASX file path in <code>appsettings.json</code> to get started.
+    </div>
+}
+else
+{
+    @* ── 전체화면 닫기 버튼 ── *@
+    @if (_isFullscreen)
+    {
+        <button class="fullscreen-close-btn" @onclick="ExitFullscreen" title="전체화면 닫기">
+            <span class="material-icons">close</span>
+        </button>
+    }
+
+    @* ── 편집 모드 설정 패널 ── *@
+    @if (EditService.IsEditing && !_isFullscreen)
+    {
+        <div class="card mb-3" style="box-shadow: var(--shadow-1);">
+            <div style="padding: 12px;">
+                <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;">
+
+                    @* 배치 *@
+                    <div>
+                        <div style="font-size:11px; color:var(--color-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">배치</div>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn btn-sm @(_direction == "horizontal" ? "btn-filled" : "btn-outlined")"
+                                    @onclick="@(() => SetDirection("horizontal"))">
+                                <span class="material-icons" style="font-size:18px;">view_column</span> 좌우
+                            </button>
+                            <button class="btn btn-sm @(_direction == "vertical" ? "btn-filled" : "btn-outlined")"
+                                    @onclick="@(() => SetDirection("vertical"))">
+                                <span class="material-icons" style="font-size:18px;">view_stream</span> 상하
+                            </button>
+                        </div>
+                    </div>
+
+                    @* 순서 *@
+                    <div>
+                        <div style="font-size:11px; color:var(--color-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">순서</div>
+                        <div style="display:flex; align-items:center; gap:8px; background:var(--color-background); border-radius:8px; padding:4px 12px;">
+                            <span style="font-size:13px; font-weight:600; color:var(--color-primary);">@GetWidgetTitle(_widgetOrder[0])</span>
+                            <button class="btn-icon" style="color:var(--color-primary);" @onclick="SwapWidgets">
+                                <span class="material-icons">@(_direction == "horizontal" ? "swap_horiz" : "swap_vert")</span>
+                            </button>
+                            <span style="font-size:13px; font-weight:600; color:var(--color-primary);">@GetWidgetTitle(_widgetOrder[1])</span>
+                        </div>
+                    </div>
+
+                    @* 비율 *@
+                    <div>
+                        <div style="font-size:11px; color:var(--color-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">
+                            @(_direction == "horizontal" ? "좌우 비율" : "상하 비율")
+                        </div>
+                        <div style="display:flex; gap:4px;">
+                            @foreach (var r in RatioOptions)
+                            {
+                                var ratio = r;
+                                <button class="btn btn-sm @(_ratio == ratio ? "btn-filled" : "btn-outlined")"
+                                        @onclick="@(() => SetRatio(ratio))">@ratio</button>
+                            }
+                        </div>
+                    </div>
+
+                    @* 표시 *@
+                    <div>
+                        <div style="font-size:11px; color:var(--color-text-secondary); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;">표시</div>
+                        <div style="display:flex; gap:6px;">
+                            @foreach (var wid in _widgetOrder)
+                            {
+                                var w      = wid;
+                                var hidden = _hiddenWidgets.Contains(w);
+                                <button class="btn btn-sm @(hidden ? "btn-outlined" : "btn-filled")"
+                                        @onclick="@(() => ToggleVisibility(w))">
+                                    <span class="material-icons" style="font-size:18px;">@(hidden ? "visibility_off" : "visibility")</span>
+                                    @GetWidgetTitle(w)
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    @* 기본값 *@
+                    <div style="margin-left:auto; display:flex; align-items:flex-end;">
+                        <button class="btn btn-sm btn-outlined" @onclick="ResetToDefault">
+                            <span class="material-icons" style="font-size:18px;">restart_alt</span> 기본값
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ── 위젯 그리드 ── *@
+    <div class="@GridClass">
+        @foreach (var widgetId in _widgetOrder)
+        {
+            var wid = widgetId;
+            if (!_hiddenWidgets.Contains(wid))
+            {
+                <div class="widget-container" style="@GetWidgetContainerStyle(wid)">
+
+                    @if (wid == "layout")
+                    {
+                        <div class="ds-card">
+                            <div class="ds-card-header">
+                                <span class="ct-section-title">도면 레이아웃</span>
+                                <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.7);">
+                                    <div class="layout-legend">
+                                        @foreach (var (label, clr) in _stateLegend)
+                                        {
+                                            <div class="layout-legend-item">
+                                                <span class="layout-legend-dot" style="background:@clr;"></span>
+                                                @label
+                                            </div>
+                                        }
+                                    </div>
+                                    @if (!_isFullscreen)
+                                    {
+                                        <button class="btn btn-sm btn-outlined" @onclick="@(() => Nav.NavigateTo("/editor"))">
+                                            <span class="material-icons" style="font-size:calc(var(--u) * 1.3);">edit</span> 편집
+                                        </button>
+                                        <button class="btn btn-sm btn-outlined" @onclick="EnterFullscreen" title="전체화면">
+                                            <span class="material-icons" style="font-size:calc(var(--u) * 1.3);">fullscreen</span> 전체화면
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            <div class="ds-card-body" style="align-items:center; justify-content:center;">
+                                @if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+                                {
+                                    <div style="flex:1; min-height:0; width:100%; display:flex; justify-content:center; align-items:center; overflow:hidden; padding:12px;">
+                                        <FlowLayoutSvg Style="@($"width:100%; max-height:100%;")"
+                                                       CanvasWidth="_cw" CanvasHeight="_ch"
+                                                       ImagePath="@BlueprintService.Layout.BlueprintImagePath"
+                                                       ImageVersion="BlueprintService.ImageVersion"
+                                                       OffsetX="_ox" OffsetY="_oy" CellWidth="_cellW" CellHeight="_cellH"
+                                                       Placements="BlueprintService.Layout.FlowPlacements"
+                                                       GetColor="@(fp => GetFlowColor(fp.FlowName, fp.SystemId))"
+                                                       GetStateLabel="@(fp => GetFlowStateLabel(fp.FlowName))"
+                                                       GetMtWt="@(fp => GetFlowMtWt(fp.FlowName))"
+                                                       GetBadges="@(fp => GetFlowBadges(fp.FlowName))"
+                                                       SelectedFlowName="@_selectedFlowName"
+                                                       OnFlowClicked="OnFlowSelectedFromLayout" />
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--color-text-disabled); padding:40px 0;">
+                                        <span class="material-icons" style="font-size:48px;">map</span>
+                                        <span class="typo-body2">도면 이미지가 등록되지 않았습니다</span>
+                                        <button class="btn btn-sm btn-outlined" @onclick="@(() => Nav.NavigateTo("/editor"))">레이아웃 수정</button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else if (wid == "ct")
+                    {
+                        <div class="ds-card">
+                            @* ── 헤더 (항상 표시, 도면 레이아웃 카드와 동일 높이) ── *@
+                            <div class="ds-card-header">
+                                <span class="ct-section-title">Time 분석</span>
+                                <div style="display:flex; align-items:center; gap:calc(var(--u) * 0.35); flex-wrap:wrap;">
+                                    @* 평균/이전 토글 - 두 버튼으로 표시 *@
+                                    <div style="display:flex; gap:4px; background:var(--color-background); padding:4px; border-radius:8px;">
+                                        <button class="btn btn-sm @(!_showAverage ? "btn-filled" : "btn-outlined")"
+                                                @onclick="@(() => SetDisplayMode(false))"
+                                                title="이전 사이클 값 표시">
+                                            <span class="material-icons" style="font-size:18px;">history</span>
+                                            이전
+                                        </button>
+                                        <button class="btn btn-sm @(_showAverage ? "btn-filled" : "btn-outlined")"
+                                                @onclick="@(() => SetDisplayMode(true))"
+                                                title="평균값 표시">
+                                            <span class="material-icons" style="font-size:18px;">analytics</span>
+                                            평균
+                                        </button>
+                                    </div>
+                                    <div style="width:1px; height:16px; background:var(--color-border);"></div>
+                                    <select class="ct-sort-select" value="@_sortField" @onchange="OnSortFieldChanged">
+                                        <option value="ct">전체시간</option>
+                                        <option value="mt">가동시간</option>
+                                        <option value="wt">대기시간</option>
+                                        <option value="name">이름</option>
+                                        <option value="order">공정</option>
+                                    </select>
+                                    <button class="btn-icon" title="@(_sortDesc ? "내림차순" : "오름차순")"
+                                            @onclick="ToggleSortDir">
+                                        <span class="material-icons">@(_sortDesc ? "arrow_downward" : "arrow_upward")</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            @if (_chartData.Count > 0)
+                            {
+                                @* ── 요약 셀 ── *@
+                                <div class="ct-summary-bar">
+                                    <div class="ct-summary-group group-time">
+                                        <div class="ct-combined-cell">
+                                            <div class="ct-combined-half danger @(_selectedFlowName != null && _selectedFlowName == _maxCtName ? "active" : "")"
+                                                 @onclick="() => OnFlowSelected(_maxCtName == _selectedFlowName ? null : _maxCtName)">
+                                                <span class="ct-summary-title">최대시간</span>
+                                                <span class="ct-summary-sub" title="@_maxCtName">@(_maxCtName ?? "-")</span>
+                                                <span class="ct-summary-value">@(_maxCtName != null ? FormatMs(_maxCtVal) : "--")</span>
+                                            </div>
+                                            <div class="ct-combined-half success @(_selectedFlowName != null && _selectedFlowName == _minCtName ? "active" : "")"
+                                                 @onclick="() => OnFlowSelected(_minCtName == _selectedFlowName ? null : _minCtName)">
+                                                <span class="ct-summary-title">최소시간</span>
+                                                <span class="ct-summary-sub" title="@_minCtName">@(_minCtName ?? "-")</span>
+                                                <span class="ct-summary-value">@(_minCtName != null ? FormatMs(_chartData.Min(f => f.CT)) : "--")</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="ct-summary-group group-wait">
+                                        <div class="ct-top-cell warning @(_selectedFlowName != null && _selectedFlowName == _maxWtName ? "active" : "")"
+                                             @onclick="() => OnFlowSelected(_maxWtName == _selectedFlowName ? null : _maxWtName)">
+                                            <span class="ct-summary-title">최대 대기율</span>
+                                            <span class="ct-summary-sub" title="@_maxWtName">@(_maxWtName ?? "-")</span>
+                                            <span class="ct-summary-value">@(_maxWtName != null ? $"{_chartData.FirstOrDefault(f => f.FlowName == _maxWtName).WTRatio * 100:F1}%" : "--")</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="ds-card-body" style="display:flex; align-items:center; justify-content:center; padding:24px 0; color:var(--color-text-disabled);">
+                                    <span class="typo-body2">사이클 데이터 대기 중</span>
+                                </div>
+                            }
+
+                            @if (_chartData.Count > 0)
+                            {
+                                @* ── 차트 리스트 ── *@
+                                <div class="ct-chart-section" @onclick="() => OnFlowSelected(null)">
+                                    @foreach (var flow in _chartData)
+                                    {
+                                        var fn          = flow.FlowName;
+                                        var isMaxCT     = fn == _maxCtName;
+                                        var isMinCT     = fn == _minCtName;
+                                        var isMaxWT     = fn == _maxWtName;
+                                        var highlighted  = isMaxCT || isMinCT || isMaxWT;
+                                        var isSelected  = fn == _selectedFlowName;
+                                        var fillPct     = _maxCtVal > 0 ? flow.CT * 100.0 / _maxCtVal : 0;
+                                        var mtPct       = flow.CT > 0 ? flow.MT * 100.0 / flow.CT : 0;
+                                        var wtPct       = 100.0 - mtPct;
+                                        var accentColor = isMaxCT ? "#ef5350" : isMinCT ? "#26a69a" : isMaxWT ? "#F48FB1" : "";
+                                        var categoryLabel = isMaxCT ? "최대시간" : isMinCT ? "최소시간" : isMaxWT ? "최대대기" : "";
+                                        var borderStyle = highlighted ? $"border-left-color:{accentColor};" : "";
+                                        var flowState = GetFlowStateLabel(fn);
+                                        var stateColor = flowState?.ToLowerInvariant() switch
+                                        {
+                                            "ready" => "#4CAF50", "going" => "#EAB308", "finish" => "#2196F3",
+                                            "error" => "#F44336", _ => "#4CAF50"
+                                        };
+                                        <div class="ct-chart-row @(highlighted ? "highlighted" : "") @(isSelected ? "selected" : "")"
+                                             style="@borderStyle cursor:pointer;"
+                                             @onclick="() => OnFlowSelected(fn == _selectedFlowName ? null : fn)"
+                                             @onclick:stopPropagation
+                                             @onmouseenter="(e) => OnRowMouseEnter(fn, e)"
+                                             @onmouseleave="OnRowMouseLeave">
+                                            <div class="ct-row-header">
+                                                <span class="ct-row-name" style="font-weight:@(highlighted ? "700" : "500"); display: flex; align-items: center; gap: 6px;">
+                                                    @if (_sortField == "order")
+                                                    {
+                                                        <span class="ct-process-number">@(_flowProcessOrder.GetValueOrDefault(fn, 0) + 1)</span>
+                                                    }
+                                                    <img src="images/aas.png" alt="" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
+                                                    @flow.FlowName
+                                                </span>
+                                                @if (isMaxCT)
+                                                {
+                                                    <span class="ct-badge-pill" style="background:#ef5350;">최대</span>
+                                                }
+                                                @if (isMinCT)
+                                                {
+                                                    <span class="ct-badge-pill" style="background:#26a69a;">최소</span>
+                                                }
+                                                @if (isMaxWT)
+                                                {
+                                                    <span class="ct-badge-pill" style="background:#F48FB1;">대기</span>
+                                                }
+                                            </div>
+                                            <div class="ct-row-footer">
+                                                <div class="ct-bar-track">
+                                                    <div style="display:flex; height:100%; width:@(fillPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;">
+                                                        <div class="ct-bar-mt" style="width:@(mtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;">
+                                                            @if (mtPct >= 15) { <span class="ct-bar-pct">@($"{mtPct:F0}%")</span> }
+                                                        </div>
+                                                        <div class="ct-bar-wt" style="width:@(wtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;">
+                                                            @if (wtPct >= 15) { <span class="ct-bar-pct">@($"{wtPct:F0}%")</span> }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <span class="ct-row-time">@FormatMs(flow.CT)</span>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:40px 0; color:var(--color-text-disabled); flex:1;">
+                                    <span class="material-icons" style="font-size:48px;">bar_chart</span>
+                                    <span class="typo-body2">Time 데이터가 없습니다</span>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                </div>
+            }
+        }
+    </div>
+}
+
+@* ── 호버 툴팁 (고정 위치) ── *@
+@if (_hoverFlowName != null && _popupFlow == null)
+{
+    var hFlow = _chartData.FirstOrDefault(f => f.FlowName == _hoverFlowName);
+    if (hFlow.FlowName != null)
+    {
+        var hState = GetFlowStateLabel(hFlow.FlowName);
+        var hStateColor = hState?.ToLowerInvariant() switch
+        {
+            "ready" => "#4CAF50", "going" => "#EAB308", "finish" => "#2196F3",
+            "error" => "#F44336", _ => "#4CAF50"
+        };
+        var hIsMaxCT = hFlow.FlowName == _maxCtName;
+        var hIsMinCT = hFlow.FlowName == _minCtName;
+        var hIsMaxWT = hFlow.FlowName == _maxWtName;
+        <div class="ct-tooltip-fixed"
+             style="left:@(_tooltipX.ToString(System.Globalization.CultureInfo.InvariantCulture))px; top:@(_tooltipY.ToString(System.Globalization.CultureInfo.InvariantCulture))px;">
+            <div class="ct-tooltip-header" style="border-left: 3px solid @hStateColor;">
+                <span class="ct-tooltip-name">@hFlow.FlowName</span>
+                <span class="ct-tooltip-state" style="background:@hStateColor;">@(string.IsNullOrEmpty(hState) ? "Ready" : hState)</span>
+            </div>
+            @if (hIsMaxCT || hIsMinCT || hIsMaxWT)
+            {
+                <div class="ct-tooltip-badges">
+                    @if (hIsMaxCT) { <span class="ct-badge-pill" style="background:#ef5350;">최대시간</span> }
+                    @if (hIsMinCT) { <span class="ct-badge-pill" style="background:#26a69a;">최소시간</span> }
+                    @if (hIsMaxWT) { <span class="ct-badge-pill" style="background:#F48FB1;">최대대기율</span> }
+                </div>
+            }
+            <div class="ct-tooltip-grid">
+                <span class="ct-tooltip-label">가동시간 (MT)</span>
+                <span class="ct-tooltip-val mt">@FormatMs(hFlow.MT)</span>
+                <span class="ct-tooltip-label">대기시간 (WT)</span>
+                <span class="ct-tooltip-val wt">@FormatMs(hFlow.WT)</span>
+                <span class="ct-tooltip-label">전체시간 (CT)</span>
+                <span class="ct-tooltip-val ct">@FormatMs(hFlow.CT)</span>
+                <span class="ct-tooltip-label">대기율</span>
+                <span class="ct-tooltip-val">@($"{hFlow.WTRatio * 100:F1}%")</span>
+            </div>
+        </div>
+    }
+}
+
+@* ── 클릭 팝업 모달 ── *@
+@if (_popupFlow is var (pName, pMT, pWT, pCT, pWTRatio, _) && _popupFlow != null)
+{
+    var flowState = GetFlowStateLabel(pName);
+    var stateColor = flowState?.ToLowerInvariant() switch
+    {
+        "ready" => "#4CAF50", "going" => "#EAB308", "finish" => "#2196F3",
+        "error" => "#F44336", _ => "#4CAF50"
+    };
+    var isMaxCT = pName == _maxCtName;
+    var isMinCT = pName == _minCtName;
+    var isMaxWT = pName == _maxWtName;
+    var mtPct = pCT > 0 ? pMT * 100.0 / pCT : 0;
+    var wtPct = 100.0 - mtPct;
+
+    <div class="ct-popup-overlay" @onclick="ClosePopup">
+        <div class="ct-popup-modal" @onclick:stopPropagation>
+            <div class="ct-popup-header" style="border-left: 4px solid @stateColor;">
+                <span class="ct-popup-name">@pName</span>
+                <span class="ct-tooltip-state" style="background:@stateColor;">@(string.IsNullOrEmpty(flowState) ? "Ready" : flowState)</span>
+                <button class="btn-icon ct-popup-close" @onclick="ClosePopup">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+            @if (isMaxCT || isMinCT || isMaxWT)
+            {
+                <div class="ct-popup-badges">
+                    @if (isMaxCT) { <span class="ct-badge-pill" style="background:#ef5350;">최대시간</span> }
+                    @if (isMinCT) { <span class="ct-badge-pill" style="background:#26a69a;">최소시간</span> }
+                    @if (isMaxWT) { <span class="ct-badge-pill" style="background:#F48FB1;">최대대기율</span> }
+                </div>
+            }
+            <div class="ct-popup-bar-section">
+                <div class="ct-popup-bar-track">
+                    <div class="ct-bar-mt" style="width:@(mtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;">
+                        @if (mtPct >= 10) { <span class="ct-bar-pct" style="font-size:12px;">@($"{mtPct:F0}%")</span> }
+                    </div>
+                    <div class="ct-bar-wt" style="width:@(wtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;">
+                        @if (wtPct >= 10) { <span class="ct-bar-pct" style="font-size:12px;">@($"{wtPct:F0}%")</span> }
+                    </div>
+                </div>
+            </div>
+            <div class="ct-popup-grid">
+                <div class="ct-popup-item">
+                    <span class="ct-popup-label">가동시간 (MT)</span>
+                    <span class="ct-popup-val" style="color:#0569A0;">@FormatMs(pMT)</span>
+                </div>
+                <div class="ct-popup-item">
+                    <span class="ct-popup-label">대기시간 (WT)</span>
+                    <span class="ct-popup-val" style="color:#F48FB1;">@FormatMs(pWT)</span>
+                </div>
+                <div class="ct-popup-item">
+                    <span class="ct-popup-label">전체시간 (CT)</span>
+                    <span class="ct-popup-val">@FormatMs(pCT)</span>
+                </div>
+                <div class="ct-popup-item">
+                    <span class="ct-popup-label">대기율</span>
+                    <span class="ct-popup-val">@($"{pWTRatio * 100:F1}%")</span>
+                </div>
+            </div>
+
+            @* History Section *@
+            @if (_flowHistory != null && _flowHistory.Count > 0)
+            {
+                <div class="ct-popup-history">
+                    <div class="ct-popup-history-header">
+                        <span class="material-icons" style="font-size:16px; vertical-align:middle;">history</span>
+                        <span style="font-weight:600; margin-left:4px;">최근 히스토리</span>
+                        <span style="margin-left:auto; font-size:12px; color:var(--color-text-secondary);">총 @(_flowHistory.Count)개</span>
+                    </div>
+                    <div class="ct-popup-history-list">
+                        <Virtualize Items="_flowHistory" Context="history" ItemSize="76" OverscanCount="3">
+                            @{
+                                var histCT = history.CT ?? 0;
+                                var histMT = history.MT ?? 0;
+                                var histWT = history.WT ?? 0;
+                                var histMtPct = histCT > 0 ? histMT * 100.0 / histCT : 0;
+                                var histWtPct = 100.0 - histMtPct;
+                            }
+                            <div class="ct-history-item">
+                                <div class="ct-history-meta">
+                                    <span class="ct-history-cycle">#@(history.CycleNo ?? 0)</span>
+                                    <span class="ct-history-time">@history.RecordedAt.ToLocalTime().ToString("MM-dd HH:mm")</span>
+                                </div>
+                                <div class="ct-history-bar">
+                                    <div class="ct-bar-mt" style="width:@(histMtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;"></div>
+                                    <div class="ct-bar-wt" style="width:@(histWtPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;"></div>
+                                </div>
+                                <div class="ct-history-values">
+                                    <span style="color:#0569A0;">MT: @FormatMs(histMT)</span>
+                                    <span style="color:#F48FB1;">WT: @FormatMs(histWT)</span>
+                                    <span style="font-weight:600;">CT: @FormatMs(histCT)</span>
+                                </div>
+                            </div>
+                        </Virtualize>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "flow")]
+    public string? QueryFlow { get; set; }
+
+    private DspDbSnapshot _dbSnapshot = new();
+
+    // 도면 레이아웃 필드
+    private int _cw, _ch, _cellW, _cellH, _ox, _oy;
+    private readonly Dictionary<Guid, int> _systemColorIndex = [];
+    private static readonly string[] SystemColors =
+        ["#0A1E5A", "#1A3A7A", "#2D5499", "#4070B8", "#5A8CD7"];
+    private static readonly (string Label, string Color)[] _stateLegend =
+    [
+        ("Ready", "#4CAF50"), ("Going", "#EAB308"), ("Finish", "#2196F3"),
+        ("Error", "#F44336")
+    ];
+
+    // CT 차트 필드
+    private List<(string FlowName, int MT, int WT, int CT, double WTRatio, int Order)> _chartData = [];
+    private string? _maxCtName, _minCtName, _maxWtName;
+    private int _maxCtVal;
+
+    // 선택 동기화
+    private string? _selectedFlowName;
+
+    // 팝업 모달
+    private (string FlowName, int MT, int WT, int CT, double WTRatio, int Order)? _popupFlow;
+
+    // Flow History Data (최근 5개 표시)
+    private List<Models.Dsp.DspFlowHistoryEntity> _flowHistory = new();
+    private DateTime _lastHistoryLoad = DateTime.MinValue;
+
+    // 호버 툴팁 (고정 위치)
+    private string? _hoverFlowName;
+    private double _tooltipX, _tooltipY, _windowHeight = 900;
+
+    // 정렬 설정
+    private string _sortField = "ct";   // "ct" | "mt" | "wt" | "name" | "order"
+    private bool   _sortDesc  = true;
+
+    // 공정 순서 (PLC 실행 순서 기반)
+    private Dictionary<string, int> _flowProcessOrder = new();
+
+    // 평균/이전 표시 토글
+    private bool _showAverage = false;  // false: 이전값, true: 평균값
+
+    // 전체화면 모드
+    private bool _isFullscreen = false;
+    private ElementReference _fullscreenRef;
+    private DotNetObjectReference<Dashboard>? _dotNetRef;
+
+    // 대시보드 레이아웃 설정
+    private List<string> _widgetOrder    = ["ct", "layout"];
+    private HashSet<string> _hiddenWidgets = [];
+    private string _direction            = "horizontal";   // "horizontal" | "vertical"
+    private string _ratio                = "1:3";
+
+    private static readonly string[] RatioOptions = ["1:3", "1:2", "1:1", "2:1", "3:1"];
+
+    private string GridClass =>
+        "dashboard-grid " + (_direction == "horizontal" ? "grid-h" : "grid-v") + (EditService.IsEditing ? " editing" : "");
+
+    private static readonly Dictionary<string, string> WidgetTitles = new()
+    {
+        ["layout"] = "도면 레이아웃",
+        ["ct"]     = "Time 분석",
+    };
+    private static string GetWidgetTitle(string id) =>
+        WidgetTitles.TryGetValue(id, out var t) ? t : id;
+
+    /// <summary>
+    /// 비율에 따라 위젯 flex 스타일 반환.
+    /// horizontal → flex-basis(너비), vertical → flex(높이) 모두 동일 로직.
+    /// </summary>
+    private string GetWidgetContainerStyle(string widgetId)
+    {
+        var parts     = _ratio.Split(':');
+        var leftFlex  = int.Parse(parts[0]);
+        var rightFlex = int.Parse(parts[1]);
+        var isFirst   = _widgetOrder.Count > 0 && _widgetOrder[0] == widgetId;
+        var flex      = isFirst ? leftFlex : rightFlex;
+        return $"flex: {flex}; min-width: 0; min-height: 0;";
+    }
+
+    protected override void OnInitialized()
+    {
+        _dbSnapshot = DbService.Snapshot;
+
+        var layout = BlueprintService.Layout;
+        _cw = layout.CanvasWidth; _ch = layout.CanvasHeight;
+        _cellW = layout.CellWidth; _cellH = layout.CellHeight;
+        _ox = layout.OffsetX; _oy = layout.OffsetY;
+        LoadFlowProcessOrder();
+    }
+
+    protected override void OnParametersSet()
+    {
+        _selectedFlowName = string.IsNullOrWhiteSpace(QueryFlow) ? null : QueryFlow.Trim();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        DbService.OnDataChanged += OnDbDataChanged;
+        EditService.OnChanged += OnEditStateChanged;
+
+        _dotNetRef = DotNetObjectReference.Create(this);
+
+        try { _windowHeight = await JS.InvokeAsync<double>("eval", "window.innerHeight"); } catch { }
+
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("localStorage.getItem", "dsp-dashboard-layout-v5");
+            if (json == null) return;
+            var doc = System.Text.Json.JsonDocument.Parse(json);
+
+            if (doc.RootElement.TryGetProperty("order", out var orderEl))
+            {
+                var loaded = orderEl.EnumerateArray()
+                    .Select(e => e.GetString()!)
+                    .Where(s => _widgetOrder.Contains(s))
+                    .ToList();
+                foreach (var w in _widgetOrder.Where(w => !loaded.Contains(w)))
+                    loaded.Add(w);
+                _widgetOrder = loaded;
+            }
+            if (doc.RootElement.TryGetProperty("hidden", out var hiddenEl))
+                _hiddenWidgets = hiddenEl.EnumerateArray()
+                    .Select(e => e.GetString()!)
+                    .Where(s => s != null)
+                    .ToHashSet();
+            if (doc.RootElement.TryGetProperty("direction", out var dirEl) && dirEl.GetString() is string dir)
+                _direction = dir;
+            if (doc.RootElement.TryGetProperty("ratio", out var ratioEl) && ratioEl.GetString() is string rat)
+                _ratio = rat;
+
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    private void LoadFlowProcessOrder()
+    {
+        var flows = BlueprintService.Layout.FlowPlacements;
+        if (flows.Count == 0) return;
+
+        var savedOrder = BlueprintService.Layout.FlowProcessOrder;
+        if (savedOrder.Count > 0)
+        {
+            _flowProcessOrder = savedOrder
+                .Select((e, i) => (e.FlowName, Rank: i))
+                .ToDictionary(x => x.FlowName, x => x.Rank);
+        }
+        else
+        {
+            // 저장된 순서 없으면 FlowPlacements 리스트 인덱스 순서 사용
+            _flowProcessOrder = flows
+                .Select((fp, i) => (fp.FlowName, Rank: i))
+                .ToDictionary(x => x.FlowName, x => x.Rank);
+        }
+
+        UpdateChartCache();
+    }
+
+    private bool _disposed;
+
+    private async void OnDbDataChanged()
+    {
+        if (_disposed) return;
+        _dbSnapshot = DbService.Snapshot;
+        UpdateChartCache();
+
+        // 팝업이 열려 있으면 요약 데이터 + 히스토리 갱신
+        if (_popupFlow != null)
+        {
+            var openName = _popupFlow.Value.FlowName;
+            var updated = _chartData.FirstOrDefault(f => f.FlowName == openName);
+            if (updated.FlowName != null)
+            {
+                _popupFlow = updated;
+
+                // 히스토리는 2초 간격으로 갱신 (DB 부하 방지)
+                if ((DateTime.UtcNow - _lastHistoryLoad).TotalSeconds >= 2)
+                {
+                    _lastHistoryLoad = DateTime.UtcNow;
+                    await InvokeAsync(async () => await LoadFlowHistoryAsync(openName));
+                }
+            }
+        }
+
+        try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
+    }
+
+    private async void OnEditStateChanged()
+    {
+        if (_disposed) return;
+        try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        DbService.OnDataChanged -= OnDbDataChanged;
+        EditService.OnChanged -= OnEditStateChanged;
+        _dotNetRef?.Dispose();
+    }
+
+    private async Task EnterFullscreen()
+    {
+        _isFullscreen = true;
+        StateHasChanged();
+        await Task.Yield(); // DOM 업데이트 대기
+        await JS.InvokeVoidAsync("uiUtils.enterFullscreen", _fullscreenRef, _dotNetRef);
+    }
+
+    private async Task ExitFullscreen()
+    {
+        _isFullscreen = false;
+        await JS.InvokeVoidAsync("uiUtils.exitFullscreen");
+    }
+
+    [JSInvokable]
+    public async Task OnBrowserFullscreenExited()
+    {
+        _isFullscreen = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ResetToDefault()
+    {
+        _direction     = "horizontal";
+        _widgetOrder   = ["ct", "layout"];
+        _ratio         = "1:3";
+        _hiddenWidgets = [];
+        _ = SaveLayoutAsync();
+    }
+
+    private void SetDirection(string dir)
+    {
+        _direction = dir;
+        _ = SaveLayoutAsync();
+    }
+
+    private void SetRatio(string ratio)
+    {
+        _ratio = ratio;
+        _ = SaveLayoutAsync();
+    }
+
+    private void SwapWidgets()
+    {
+        (_widgetOrder[0], _widgetOrder[1]) = (_widgetOrder[1], _widgetOrder[0]);
+        _ = SaveLayoutAsync();
+    }
+
+    private void ToggleVisibility(string widgetId)
+    {
+        if (!_hiddenWidgets.Add(widgetId)) _hiddenWidgets.Remove(widgetId);
+        _ = SaveLayoutAsync();
+    }
+
+    private async void SetDisplayMode(bool showAverage)
+    {
+        if (_showAverage != showAverage)
+        {
+            _showAverage = showAverage;
+            Logger.LogInformation("Display mode changed to: {Mode}", showAverage ? "Average" : "Previous");
+
+            // DB 스냅샷 새로고침
+            _dbSnapshot = DbService.Snapshot;
+            Logger.LogInformation("DB Snapshot reloaded. Flow count: {Count}", _dbSnapshot.Flows.Count);
+
+            // 첫 번째 Flow의 평균값 로그 출력 (디버깅용)
+            var firstFlow = _dbSnapshot.Flows.FirstOrDefault();
+            if (firstFlow != null)
+            {
+                Logger.LogInformation("Sample Flow: {Name}, MT={MT}, AvgMT={AvgMT}, WT={WT}, AvgWT={AvgWT}",
+                    firstFlow.FlowName, firstFlow.MT, firstFlow.AvgMT, firstFlow.WT, firstFlow.AvgWT);
+            }
+
+            UpdateChartCache();  // 차트 데이터 재계산
+            Logger.LogInformation("Chart cache updated. Chart data count: {Count}", _chartData.Count);
+
+            try
+            {
+                await InvokeAsync(StateHasChanged);  // UI 즉시 반영 (비동기)
+                Logger.LogInformation("StateHasChanged invoked successfully");
+            }
+            catch (ObjectDisposedException ex)
+            {
+                Logger.LogWarning(ex, "Component disposed during state update");
+            }
+        }
+    }
+
+    private async Task SaveLayoutAsync()
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                order     = _widgetOrder,
+                hidden    = _hiddenWidgets.ToList(),
+                direction = _direction,
+                ratio     = _ratio,
+            });
+            await JS.InvokeVoidAsync("localStorage.setItem", "dsp-dashboard-layout-v5", json);
+        }
+        catch { }
+    }
+
+    private (int Mt, int Wt)? GetFlowMtWt(string flowName)
+    {
+        var s = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == flowName);
+
+        if (_showAverage)
+        {
+            // 평균값 사용
+            if (s?.AvgMT.HasValue == true || s?.AvgWT.HasValue == true)
+            {
+                var mt = s?.AvgMT.HasValue == true ? (int)s.AvgMT.Value : 0;
+                var wt = s?.AvgWT.HasValue == true ? (int)s.AvgWT.Value : 0;
+                return (mt, wt);
+            }
+            // 평균값이 없으면 이전값으로 폴백
+            if (s?.MT == null && s?.WT == null) return null;
+            return (s.MT ?? 0, s.WT ?? 0);
+        }
+        else
+        {
+            // 이전값 사용
+            if (s?.MT == null && s?.WT == null) return null;
+            return (s.MT ?? 0, s.WT ?? 0);
+        }
+    }
+
+    private string GetFlowColor(string flowName, Guid systemId)
+    {
+        var s = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == flowName);
+        if (s == null) return GetSystemColor(systemId);
+        return s.State?.ToLowerInvariant() switch
+        {
+            "ready" => "#4CAF50", "going" => "#EAB308", "finish" => "#2196F3",
+            "error" => "#F44336",
+            _ => "#4CAF50",
+        };
+    }
+
+    private string GetFlowStateLabel(string flowName) =>
+        _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == flowName)?.State ?? "";
+
+    private IEnumerable<(string Label, string Color)> GetFlowBadges(string flowName)
+    {
+        if (flowName == _maxCtName) yield return ("최대", "#ef5350");
+        if (flowName == _minCtName) yield return ("최소", "#26a69a");
+        if (flowName == _maxWtName) yield return ("대기", "#F48FB1");
+    }
+
+    private string GetSystemColor(Guid systemId)
+    {
+        if (!_systemColorIndex.ContainsKey(systemId))
+            _systemColorIndex[systemId] = _systemColorIndex.Count % SystemColors.Length;
+        return SystemColors[_systemColorIndex[systemId]];
+    }
+
+    private void OnFlowSelected(string? flowName)
+    {
+        _selectedFlowName = flowName;
+        _popupFlow = null;
+    }
+
+    private async void OnFlowSelectedFromLayout(string? flowName)
+    {
+        _selectedFlowName = flowName;
+        // 도면 레이아웃 flow 카드 클릭 시 팝업과 히스토리 열기
+        if (flowName != null)
+        {
+            _popupFlow = _chartData.FirstOrDefault(f => f.FlowName == flowName);
+
+            // Flow 히스토리 로드 (최근 100개, 최근 5개만 표시하고 나머지는 스크롤)
+            await LoadFlowHistoryAsync(flowName);
+        }
+        else
+        {
+            _popupFlow = null;
+            _flowHistory.Clear();
+        }
+    }
+
+    private async Task LoadFlowHistoryAsync(string flowName)
+    {
+        try
+        {
+            var settings = SettingsService.LoadSettings();
+            var filter = settings.HistoryView;
+            if (filter.FilterMode == "Cycles")
+            {
+                _flowHistory = await DspRepository.GetFlowHistoryAsync(flowName, filter.MaxCycles);
+            }
+            else if (filter.FilterMode == "Days")
+            {
+                _flowHistory = await DspRepository.GetFlowHistoryByDaysAsync(flowName, filter.MaxDays);
+            }
+            else if (filter.FilterMode == "StartTime" && filter.StartTime.HasValue)
+            {
+                _flowHistory = await DspRepository.GetFlowHistoryByStartTimeAsync(flowName, filter.StartTime.Value);
+            }
+            else
+            {
+                // None: 제한 없이 로드 (안전 상한 10000)
+                _flowHistory = await DspRepository.GetFlowHistoryAsync(flowName, 10000);
+            }
+
+            // 비가동 사이클 제외
+            _flowHistory = _flowHistory.Where(h => !h.IsIdle).ToList();
+
+            // UI 표시용 순번 재계산: 목록은 최신순(DESC)이므로 가장 최근 = 최대 번호
+            for (int i = 0; i < _flowHistory.Count; i++)
+            {
+                _flowHistory[i].CycleNo = _flowHistory.Count - i;
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load flow history for {FlowName}", flowName);
+            _flowHistory.Clear();
+        }
+    }
+
+    private void ClosePopup()
+    {
+        _popupFlow = null;
+        _flowHistory.Clear();
+    }
+
+    private void OnRowMouseEnter(string flowName, MouseEventArgs e)
+    {
+        _hoverFlowName = flowName;
+        _tooltipX = e.ClientX + 16;
+        const double tooltipH = 200;
+        var top = e.ClientY - 20;
+        // 화면 하단 넘침 방지: 툴팁이 뷰포트 아래로 넘어가면 커서 위쪽에 표시
+        _tooltipY = (top + tooltipH > _windowHeight)
+            ? Math.Max(8, e.ClientY - tooltipH - 10)
+            : top;
+    }
+
+    private void OnRowMouseLeave()
+    {
+        _hoverFlowName = null;
+    }
+
+    private void SetSort(string field)
+    {
+        _sortField = field;
+        _sortDesc = field is "ct" or "mt" or "wt";  // 시간→내림차순, 이름/공정→오름차순
+        UpdateChartCache();
+    }
+
+    private void ToggleSortDir()
+    {
+        _sortDesc = !_sortDesc;
+        UpdateChartCache();
+    }
+
+    private void OnSortFieldChanged(ChangeEventArgs e)
+    {
+        SetSort(e.Value?.ToString() ?? "ct");
+    }
+
+    private void UpdateChartCache()
+    {
+        var placements = BlueprintService.Layout.FlowPlacements;
+        var rows = placements
+            .Select((fp, idx) =>
+            {
+                var s = _dbSnapshot.Flows.FirstOrDefault(f => f.FlowName == fp.FlowName);
+
+                // 평균/이전 토글에 따라 값 선택
+                int mt, wt, ct;
+                if (_showAverage)
+                {
+                    // 평균값 사용 (REAL -> int 변환)
+                    mt = s?.AvgMT.HasValue == true ? (int)s.AvgMT.Value : 0;
+                    wt = s?.AvgWT.HasValue == true ? (int)s.AvgWT.Value : 0;
+                    ct = s?.AvgCT.HasValue == true ? (int)s.AvgCT.Value : 0;
+
+                    // 평균값이 없으면 이전값으로 폴백
+                    if (ct == 0)
+                    {
+                        mt = s?.MT ?? 0;
+                        wt = s?.WT ?? 0;
+                        ct = mt + wt;
+                    }
+                }
+                else
+                {
+                    // 이전값 사용 (마지막 사이클)
+                    mt = s?.MT ?? 0;
+                    wt = s?.WT ?? 0;
+                    ct = mt + wt;
+                }
+
+                return (fp.FlowName, mt, wt, ct, ct > 0 ? (double)wt / ct : 0.0, idx);
+            })
+            .Where(f => f.ct > 0)
+            .ToList();
+
+        // 배지용: 항상 CT 기준 최대/최소, WT비율 기준 최대 대기
+        _maxCtName = rows.Count > 0 ? rows.MaxBy(f => f.ct)!.FlowName : null;
+        _minCtName = rows.Count > 1 ? rows.MinBy(f => f.ct)!.FlowName : null;
+        _maxWtName = rows.Count > 0 ? rows.MaxBy(f => f.Item5)!.FlowName : null;
+        _maxCtVal  = rows.Count > 0 ? rows.Max(f => f.ct) : 1;
+
+        // 정렬 적용
+        IEnumerable<(string FlowName, int mt, int wt, int ct, double, int idx)> sorted = _sortField switch
+        {
+            "wt"    => _sortDesc ? rows.OrderByDescending(f => f.wt)       : rows.OrderBy(f => f.wt),
+            "mt"    => _sortDesc ? rows.OrderByDescending(f => f.mt)       : rows.OrderBy(f => f.mt),
+            "name"  => _sortDesc ? rows.OrderByDescending(f => f.FlowName) : rows.OrderBy(f => f.FlowName),
+            "order" => _sortDesc ? rows.OrderByDescending(f => _flowProcessOrder.GetValueOrDefault(f.FlowName, f.idx)) : rows.OrderBy(f => _flowProcessOrder.GetValueOrDefault(f.FlowName, f.idx)),
+            _       => _sortDesc ? rows.OrderByDescending(f => f.ct)       : rows.OrderBy(f => f.ct),
+        };
+        _chartData = sorted.ToList();
+    }
+
+    private static string FormatMs(int ms)
+    {
+        if (ms <= 0) return "0s";
+        if (ms < 1_000) return $"{ms}ms";
+        if (ms < 60_000) return $"{ms / 1000.0:F1}s";
+        if (ms < 3_600_000) return $"{ms / 60000}m {ms % 60000 / 1000}s";
+        return $"{ms / 3_600_000}h {ms % 3_600_000 / 60000}m";
+    }
+}

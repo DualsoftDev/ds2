@@ -39,6 +39,7 @@ module internal ConditionEvaluation =
             ScheduledEvent.PriorityStateChange)
         |> ignore
 
+
     let private tryQueueWorkReset (ctx: Context) (scheduledGoingGuids: Set<Guid>) workGuid =
         let tryFindResetTriggerPred resetPreds =
             let isGoingOrScheduled predGuid =
@@ -95,6 +96,8 @@ module internal ConditionEvaluation =
                 tryQueueWorkReset ctx scheduledGoingGuids workGuid
 
     let evaluateCallStarts (ctx: Context) () =
+        // 1. Going 후보 수집
+        let candidates = ResizeArray<Guid>()
         for callGuid in ctx.Index.AllCallGuids do
             match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with
             | Some workGuid ->
@@ -104,8 +107,41 @@ module internal ConditionEvaluation =
                    && ctx.StateManager.GetWorkState(workGuid) = Status4.Going
                    && ctx.CanStartCall callGuid
                    && not (ctx.StateManager.IsCallPending(callGuid)) then
-                    scheduleCallTransition ctx callGuid Status4.Going
+                    candidates.Add(callGuid)
             | None -> ()
+
+        // 2. Race Condition 탈락 — 이미 Going/Pending인 exclusion 상대 + 이번 사이클 먼저 온 놈 우선
+        let accepted = System.Collections.Generic.HashSet<Guid>()
+        let rejected = System.Collections.Generic.HashSet<Guid>()
+        // 이미 Going이거나 Pending인 Call의 exclusion 상대를 미리 rejected에 등록
+        for callGuid in ctx.Index.AllCallGuids do
+            if ctx.StateManager.GetCallState(callGuid) = Status4.Going
+               || ctx.StateManager.IsCallPending(callGuid) then
+                match ctx.Index.CallRaceExclusions |> Map.tryFind callGuid with
+                | Some excludedSet ->
+                    for ex in excludedSet do
+                        rejected.Add(ex) |> ignore
+                | None -> ()
+        // Call의 TxWork가 실제로 Going 가능한지 (Finish 상태면 불가)
+        let canTxWorksGo callGuid =
+            let txGuids = SimIndex.txWorkGuids ctx.Index callGuid
+            txGuids.IsEmpty || txGuids |> List.exists (fun tx -> ctx.StateManager.GetWorkState(tx) <> Status4.Finish)
+        for callGuid in candidates do
+            if not (rejected.Contains(callGuid)) then
+                // TxWork Going 불가능한 Call은 점유 안 함 (상대를 막지 않음)
+                if canTxWorksGo callGuid then
+                    accepted.Add(callGuid) |> ignore
+                    match ctx.Index.CallRaceExclusions |> Map.tryFind callGuid with
+                    | Some excludedSet ->
+                        for ex in excludedSet do
+                            rejected.Add(ex) |> ignore
+                    | None -> ()
+                else
+                    accepted.Add(callGuid) |> ignore  // Going은 시키되 점유는 안 함
+
+        // 3. 통과한 Call만 스케줄
+        for callGuid in accepted do
+            scheduleCallTransition ctx callGuid Status4.Going
 
     let evaluateCallCompletions (ctx: Context) () =
         for callGuid in ctx.Index.AllCallGuids do

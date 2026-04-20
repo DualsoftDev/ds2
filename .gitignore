@@ -85,6 +85,16 @@ scripts/scratch/
 Apps/Promaker/Installer/Output/
 Apps/Promaker/Installer/TestInstall/
 Apps/Promaker/Installer/IconCheck/
+Apps/DSPilot/DSPilot/sample/db/DsDB.sqlite3-shm
+Apps/DSPilot/DSPilot/sample/db/DsDB.sqlite3
+/Apps/DSPilot/DSPilot/sample/db/DsDB.sqlite3
+/Apps/DSPilot/DSPilot/sample/db/DsDB.sqlite3-wal
+Apps/DSPilot/example.html
+/Apps/DSPilot/DSPilot/sample/db
+Apps/DSPilot/publish/
+Apps/DSPilot/publish-tray/
+Apps/DSPilot/Output/
+
 
 docs/
 /Apps/CostSim/Installer/Output

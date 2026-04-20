@@ -1,0 +1,961 @@
+@page "/plc-debug"
+@using System.Globalization
+@using DSPilot.Models.Plc
+@using DSPilot.Services
+@inject PlcDebugService DebugService
+@inject DsProjectService ProjectService
+@inject PlcToCallMapperService MapperService
+@inject IJSRuntime JS
+
+<PageTitle>PLC 디버그 - DSPilot</PageTitle>
+
+<div class="plc-debug-page">
+    <section class="card plc-debug-hero">
+        <div>
+            <h5 class="typo-h5 plc-debug-title">PLC DB 전체 타임라인</h5>
+            <p class="typo-body1 plc-debug-subtitle">
+                DB 파일을 선택하면 전체 태그를 자동 선택하고 전체 기간으로 바로 그립니다.
+            </p>
+        </div>
+
+        <label class="btn btn-filled plc-debug-upload">
+            <span class="material-icons" style="font-size:20px;">upload_file</span>
+            DB 파일 선택
+            <InputFile OnChange="@OnDbFileSelected" accept=".db,.sqlite,.sqlite3" style="display:none;" />
+        </label>
+    </section>
+
+    @if (_uploading)
+    {
+        <div class="alert alert-info">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <div class="spinner" style="width:18px; height:18px; border-width:2px;"></div>
+                <span>DB 파일 업로드 및 분석 준비 중...</span>
+            </div>
+        </div>
+    }
+
+    @if (_dbLoaded)
+    {
+        <section class="card plc-debug-toolbar">
+            <div class="plc-debug-toolbar-grid">
+                <div class="plc-debug-stat">
+                    <span class="plc-debug-stat-label">파일</span>
+                    <strong class="plc-debug-stat-value">@_currentDbFileName</strong>
+                </div>
+                <div class="plc-debug-stat">
+                    <span class="plc-debug-stat-label">태그</span>
+                    <strong class="plc-debug-stat-value">@_totalTags.ToString("N0")</strong>
+                </div>
+                <div class="plc-debug-stat">
+                    <span class="plc-debug-stat-label">로그</span>
+                    <strong class="plc-debug-stat-value">@_totalLogs.ToString("N0")</strong>
+                </div>
+                <div class="plc-debug-stat">
+                    <span class="plc-debug-stat-label">선택</span>
+                    <strong class="plc-debug-stat-value">@_selectedTagIds.Count.ToString("N0")</strong>
+                </div>
+                <div class="plc-debug-stat">
+                    <span class="plc-debug-stat-label">활성 태그</span>
+                    <strong class="plc-debug-stat-value">@_activeTagCount.ToString("N0")</strong>
+                </div>
+                <div class="plc-debug-stat">
+                    <span class="plc-debug-stat-label">기간</span>
+                    <strong class="plc-debug-stat-value">@GetCurrentRangeLabel()</strong>
+                </div>
+                <div class="plc-debug-actions">
+                    <div class="form-group">
+                        <label class="form-label">Flow</label>
+                        <select class="form-select"
+                                value="@(_selectedFlow ?? string.Empty)"
+                                @onchange="@(e => OnFlowChanged(e.Value?.ToString()))"
+                                disabled="@(_flowNames.Count == 0)">
+                            <option value="">전체</option>
+                            @foreach (var flow in _flowNames)
+                            {
+                                <option value="@flow">@flow</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">검색</label>
+                        <input class="form-field"
+                               value="@_tagFilter"
+                               @oninput="@(e => OnTagFilterChanged(e.Value?.ToString()))"
+                               placeholder="주소 또는 이름" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">최대 포인트/태그</label>
+                        <select class="form-select" @bind="_maxPointsPerTag">
+                            <option value="120">120 (전체 보기)</option>
+                            <option value="240">240 (기본)</option>
+                            <option value="500">500 (상세)</option>
+                            <option value="1000">1,000 (고해상도)</option>
+                        </select>
+                    </div>
+                    <div class="plc-debug-button-row">
+                        <button class="btn btn-outlined" @onclick="SelectAllFilteredTags">
+                            <span class="material-icons" style="font-size:18px;">done_all</span>
+                            전체 선택
+                        </button>
+                        <button class="btn btn-outlined" @onclick="ClearSelection">
+                            <span class="material-icons" style="font-size:18px;">clear_all</span>
+                            전체 해제
+                        </button>
+                        <button class="btn btn-outlined" @onclick="ResetTimeRange">
+                            <span class="material-icons" style="font-size:18px;">history</span>
+                            전체 기간
+                        </button>
+                        <button class="btn btn-filled" @onclick="LoadChartData" disabled="@(_loadingChart || _selectedTagIds.Count == 0)">
+                            <span class="material-icons" style="font-size:18px;">@(_loadingChart ? "hourglass_empty" : "refresh")</span>
+                            @(_loadingChart ? "로딩 중..." : "다시 그리기")
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="plc-debug-time-range">
+                <div class="form-group">
+                    <label class="form-label">시작 시간</label>
+                    <input type="datetime-local" class="form-field" step="1" @bind="_startTime" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">종료 시간</label>
+                    <input type="datetime-local" class="form-field" step="1" @bind="_endTime" />
+                </div>
+            </div>
+        </section>
+
+        <details class="expansion-panel plc-debug-selector">
+            <summary>태그 선택(@_selectedTagIds.Count / @_tags.Count)</summary>
+            <div class="plc-debug-selector-body">
+                <div class="plc-debug-tag-grid">
+                    @foreach (var tag in _filteredTags)
+                    {
+                        var isSelected = _selectedTagIds.Contains(tag.Id);
+                        var logCount = _tagLogCounts.TryGetValue(tag.Id, out var count) ? count : 0;
+                        <button type="button"
+                                class="plc-debug-tag-chip @(isSelected ? "is-selected" : "")"
+                                title="@BuildTagLabel(tag)"
+                                @onclick="() => ToggleTag(tag.Id)">
+                            <span class="plc-debug-tag-main">@tag.Address</span>
+                            <span class="plc-debug-tag-sub">@(!string.IsNullOrWhiteSpace(tag.Name) ? tag.Name : "No Name")</span>
+                            <span class="plc-debug-tag-count">@logCount.ToString("N0")</span>
+                        </button>
+                    }
+                </div>
+            </div>
+        </details>
+
+        <section class="card plc-debug-chart-card">
+            <div class="card-header">
+                <span class="material-icons mr-2">monitoring</span>
+                <h6 class="typo-h6">전체 태그 타임라인</h6>
+            </div>
+            <div class="card-content">
+                @if (_loadingChart)
+                {
+                    <div class="alert alert-info mb-3">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <div class="spinner" style="width:18px; height:18px; border-width:2px;"></div>
+                            <span>@_loadingProgress</span>
+                        </div>
+                    </div>
+                }
+
+                <div class="plc-debug-chart-shell" style="@($"height:{_chartHeightPx}px;")">
+                    <canvas id="plcDebugChart"></canvas>
+
+                    @if (!_chartLoaded && !_loadingChart)
+                    {
+                        <div class="plc-debug-chart-placeholder">
+                            <span class="material-icons">monitoring</span>
+                            <div>선택한 태그와 기간으로 차트를 다시 그려주세요.</div>
+                        </div>
+                    }
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_samplingInfo))
+                {
+                    <div class="alert alert-info mt-3">
+                        <span class="material-icons">info</span>
+                        @_samplingInfo
+                    </div>
+                }
+            </div>
+        </section>
+    }
+    else if (!_uploading)
+    {
+        <section class="card plc-debug-empty">
+            <span class="material-icons">database</span>
+            <div class="typo-h6 mt-3">PLC 로그 DB 파일을 선택하세요</div>
+            <div class="typo-caption mt-2">선택 즉시 전체 태그와 전체 기간이 자동으로 로드됩니다.</div>
+        </section>
+    }
+</div>
+
+<style>
+    .plc-debug-page {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        min-height: calc(100vh - 100px);
+    }
+
+    .plc-debug-hero {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+        padding: 20px 24px;
+        background:
+            linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.06), rgba(0, 155, 180, 0.08)),
+            linear-gradient(180deg, var(--color-surface), var(--color-background));
+    }
+
+    .plc-debug-title {
+        margin: 0;
+        font-weight: 700;
+        color: var(--color-text-primary);
+    }
+
+    .plc-debug-subtitle {
+        margin: 6px 0 0;
+        color: var(--color-text-secondary);
+    }
+
+    .plc-debug-upload {
+        min-width: 200px;
+        justify-content: center;
+    }
+
+    .plc-debug-toolbar {
+        padding: 18px 20px;
+    }
+
+    .plc-debug-toolbar-grid {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr)) minmax(420px, 2fr);
+        gap: 12px;
+        align-items: stretch;
+    }
+
+    .plc-debug-stat {
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--color-lines);
+        background: var(--color-surface);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .plc-debug-stat-label {
+        font-size: 0.78rem;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .plc-debug-stat-value {
+        font-size: 1rem;
+        color: var(--color-text-primary);
+        word-break: break-word;
+    }
+
+    .plc-debug-actions {
+        display: grid;
+        grid-template-columns: 160px minmax(180px, 1fr) 180px;
+        gap: 12px;
+        align-content: start;
+    }
+
+    .plc-debug-button-row {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .plc-debug-time-range {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(220px, 280px));
+        gap: 12px;
+    }
+
+    .plc-debug-selector {
+        background: var(--color-surface);
+    }
+
+    .plc-debug-selector-body {
+        padding: 14px 0 0;
+    }
+
+    .plc-debug-tag-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 8px;
+        max-height: 360px;
+        overflow: auto;
+    }
+
+    .plc-debug-tag-chip {
+        border: 1px solid var(--color-lines);
+        background: var(--color-surface);
+        border-radius: 10px;
+        padding: 10px 12px;
+        text-align: left;
+        display: grid;
+        gap: 3px;
+        cursor: pointer;
+        transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+    }
+
+    .plc-debug-tag-chip:hover {
+        transform: translateY(-1px);
+        border-color: var(--color-primary);
+    }
+
+    .plc-debug-tag-chip.is-selected {
+        background: rgba(var(--color-primary-rgb), 0.08);
+        border-color: var(--color-primary);
+        box-shadow: inset 0 0 0 1px rgba(var(--color-primary-rgb), 0.08);
+    }
+
+    .plc-debug-tag-main {
+        font-weight: 700;
+        color: var(--color-text-primary);
+    }
+
+    .plc-debug-tag-sub,
+    .plc-debug-tag-count {
+        font-size: 0.82rem;
+        color: var(--color-text-secondary);
+    }
+
+    .plc-debug-chart-card {
+        padding-bottom: 8px;
+    }
+
+    .plc-debug-chart-shell {
+        position: relative;
+        width: 100%;
+        min-height: 720px;
+        border: 1px solid var(--color-lines);
+        border-radius: 12px;
+        padding: 14px;
+        background:
+            linear-gradient(180deg, var(--color-surface), var(--color-background));
+    }
+
+    .plc-debug-chart-placeholder {
+        position: absolute;
+        inset: 14px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        color: var(--color-text-secondary);
+        background: rgba(255, 255, 255, 0.72);
+        border-radius: 10px;
+        text-align: center;
+        pointer-events: none;
+    }
+
+    .plc-debug-chart-placeholder .material-icons {
+        font-size: 42px;
+        opacity: 0.55;
+    }
+
+    .plc-debug-empty {
+        min-height: 70vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: var(--color-text-secondary);
+        text-align: center;
+    }
+
+    .plc-debug-empty .material-icons {
+        font-size: 84px;
+        opacity: 0.35;
+    }
+
+    @@media (max-width: 1280px) {
+        .plc-debug-toolbar-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .plc-debug-actions {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+
+    @@media (max-width: 900px) {
+        .plc-debug-hero {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .plc-debug-time-range {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+@code {
+    [SupplyParameterFromQuery(Name = "flow")]
+    public string? QueryFlow { get; set; }
+
+    private bool _uploading;
+    private bool _dbLoaded;
+    private bool _loadingChart;
+    private bool _chartLoaded;
+    private bool _pendingAutoRender;
+
+    private string _currentDbFileName = string.Empty;
+    private List<PlcTagEntity> _tags = new();
+    private HashSet<int> _selectedTagIds = new();
+    private Dictionary<int, int> _tagLogCounts = new();
+    private Dictionary<int, string> _tagFlowNames = new();
+    private List<string> _flowNames = new();
+    private string? _selectedFlow;
+    private string _tagFilter = string.Empty;
+
+    private int _totalTags;
+    private long _totalLogs;
+    private DateTime? _oldestLog;
+    private DateTime? _latestLog;
+
+    private DateTime? _startTime;
+    private DateTime? _endTime;
+    private int _maxPointsPerTag = 240;
+    private int _effectiveMaxPointsPerTag = 240;
+    private int _chartHeightPx = 720;
+    private int _activeTagCount;
+
+    private string _loadingProgress = string.Empty;
+    private string _samplingInfo = string.Empty;
+    private string? _lastAppliedQueryFlow;
+
+    private List<PlcTagEntity> _filteredTags
+    {
+        get
+        {
+            return _tags
+                .Where(MatchesFlowFilter)
+                .Where(MatchesSearchFilter)
+                .ToList();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_pendingAutoRender && _dbLoaded && !_loadingChart && _selectedTagIds.Count > 0)
+        {
+            _pendingAutoRender = false;
+            await LoadChartData();
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        var normalizedQueryFlow = string.IsNullOrWhiteSpace(QueryFlow) ? null : QueryFlow.Trim();
+        if (string.Equals(_lastAppliedQueryFlow, normalizedQueryFlow, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastAppliedQueryFlow = normalizedQueryFlow;
+        _selectedFlow = normalizedQueryFlow;
+
+        if (_dbLoaded)
+        {
+            SyncSelectionToCurrentFilter();
+            MarkChartAsFilterChanged();
+        }
+    }
+
+    private async Task OnDbFileSelected(InputFileChangeEventArgs e)
+    {
+        _uploading = true;
+        _dbLoaded = false;
+        _chartLoaded = false;
+        _samplingInfo = string.Empty;
+        _selectedTagIds.Clear();
+        _currentDbFileName = string.Empty;
+        await JS.InvokeVoidAsync("plcDebug.destroyChart");
+        StateHasChanged();
+
+        try
+        {
+            var file = e.File;
+            _currentDbFileName = file.Name;
+
+            var tempDir = Path.Combine(Path.GetTempPath(), "DSPilot_Debug");
+            Directory.CreateDirectory(tempDir);
+
+            var destPath = Path.Combine(tempDir, $"{Guid.NewGuid()}.db");
+
+            await using var stream = file.OpenReadStream(maxAllowedSize: 2L * 1024 * 1024 * 1024);
+            await using var fs = new FileStream(destPath, FileMode.Create);
+            await stream.CopyToAsync(fs);
+
+            if (!DebugService.SetDatabasePath(destPath))
+            {
+                throw new InvalidOperationException("DB 파일 연결에 실패했습니다.");
+            }
+
+            await LoadDatabaseInfo();
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"파일 로드 완료: {file.Name}", "success");
+        }
+        catch (Exception ex)
+        {
+            _dbLoaded = false;
+            _chartLoaded = false;
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"파일 로드 실패: {ex.Message}", "error");
+        }
+        finally
+        {
+            _uploading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadDatabaseInfo()
+    {
+        _tags = await DebugService.GetAllTagsAsync();
+        (_totalTags, _totalLogs) = await DebugService.GetStatisticsAsync();
+        (_oldestLog, _latestLog) = await DebugService.GetLogTimeRangeAsync();
+
+        _dbLoaded = _tags.Count > 0;
+        _tagLogCounts = _tags.Count > 0
+            ? await DebugService.GetLogCountsByTagAsync(_tags.Select(t => t.Id).ToList())
+            : new Dictionary<int, int>();
+
+        _startTime = _oldestLog;
+        _endTime = _latestLog;
+        BuildTagFlowMappings();
+        _tagFilter = string.Empty;
+        _selectedFlow = string.IsNullOrWhiteSpace(_selectedFlow) || _flowNames.Contains(_selectedFlow, StringComparer.OrdinalIgnoreCase)
+            ? _selectedFlow
+            : null;
+
+        SyncSelectionToCurrentFilter();
+
+        if (_dbLoaded)
+        {
+            _pendingAutoRender = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OnFlowChanged(string? value)
+    {
+        _selectedFlow = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        SyncSelectionToCurrentFilter();
+        MarkChartAsFilterChanged();
+    }
+
+    private void OnTagFilterChanged(string? value)
+    {
+        _tagFilter = value?.Trim() ?? string.Empty;
+        SyncSelectionToCurrentFilter();
+        MarkChartAsFilterChanged();
+    }
+
+    private void ToggleTag(int tagId)
+    {
+        if (_selectedTagIds.Contains(tagId))
+            _selectedTagIds.Remove(tagId);
+        else
+            _selectedTagIds.Add(tagId);
+    }
+
+    private void SelectAllFilteredTags()
+    {
+        SyncSelectionToCurrentFilter();
+        MarkChartAsFilterChanged();
+    }
+
+    private async Task ClearSelection()
+    {
+        _selectedTagIds.Clear();
+        _chartLoaded = false;
+        _samplingInfo = "선택된 태그가 없습니다.";
+        await JS.InvokeVoidAsync("plcDebug.destroyChart");
+    }
+
+    private void ResetTimeRange()
+    {
+        _startTime = _oldestLog;
+        _endTime = _latestLog;
+    }
+
+    private void BuildTagFlowMappings()
+    {
+        _tagFlowNames = new Dictionary<int, string>();
+        _flowNames = new List<string>();
+
+        if (!ProjectService.IsLoaded)
+            return;
+
+        if (!MapperService.IsInitialized)
+        {
+            MapperService.Initialize();
+        }
+
+        if (!MapperService.IsInitialized)
+            return;
+
+        var flows = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var tag in _tags)
+        {
+            var mapping = MapperService.FindCallByTag(tag.Name, tag.Address);
+            if (string.IsNullOrWhiteSpace(mapping?.FlowName))
+                continue;
+
+            _tagFlowNames[tag.Id] = mapping.FlowName;
+            flows.Add(mapping.FlowName);
+        }
+
+        _flowNames = flows
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void SyncSelectionToCurrentFilter()
+    {
+        _selectedTagIds = _filteredTags
+            .Select(tag => tag.Id)
+            .ToHashSet();
+    }
+
+    private void MarkChartAsFilterChanged()
+    {
+        if (!_dbLoaded)
+            return;
+
+        _chartLoaded = false;
+        _activeTagCount = 0;
+        _samplingInfo = _selectedTagIds.Count == 0
+            ? "현재 필터 조건에 맞는 태그가 없습니다."
+            : $"현재 필터로 {_selectedTagIds.Count:N0}개 태그가 선택되었습니다. 다시 그리기를 눌러 반영하세요.";
+    }
+
+    private async Task LoadChartData()
+    {
+        var filteredTagIds = _filteredTags
+            .Select(tag => tag.Id)
+            .ToHashSet();
+
+        if (filteredTagIds.Count == 0)
+        {
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "필터 조건에 맞는 태그가 없습니다.", "warning");
+            return;
+        }
+
+        if (_selectedTagIds.Count == 0)
+        {
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "태그를 선택하세요.", "warning");
+            return;
+        }
+
+        _loadingChart = true;
+        _chartLoaded = false;
+        _samplingInfo = string.Empty;
+        _activeTagCount = 0;
+        StateHasChanged();
+
+        try
+        {
+            var orderedTagIds = _tags
+                .Where(tag => filteredTagIds.Contains(tag.Id) && _selectedTagIds.Contains(tag.Id))
+                .OrderBy(tag => tag.Address, StringComparer.OrdinalIgnoreCase)
+                .Select(tag => tag.Id)
+                .ToList();
+
+            if (orderedTagIds.Count == 0)
+            {
+                await JS.InvokeVoidAsync("uiUtils.showSnackbar", "현재 필터에서 선택된 태그가 없습니다.", "warning");
+                return;
+            }
+
+            _effectiveMaxPointsPerTag = GetEffectiveMaxPointsPerTag(orderedTagIds.Count, _maxPointsPerTag);
+            _loadingProgress = $"데이터 샘플링 중... (태그 {orderedTagIds.Count:N0}개, 태그당 최대 {_effectiveMaxPointsPerTag:N0}개)";
+            StateHasChanged();
+
+            var tagLogsMap = await DebugService.GetSampledLogsAsync(
+                orderedTagIds,
+                _startTime,
+                _endTime,
+                _effectiveMaxPointsPerTag);
+
+            _loadingProgress = "전체 페이지 차트 렌더링 중...";
+            StateHasChanged();
+
+            var datasets = new List<object>();
+            var lanes = new List<object>();
+            var totalOriginalPoints = 0;
+            var totalSampledPoints = 0;
+            var activeTags = 0;
+            DateTime? actualRangeStart = null;
+            DateTime? actualRangeEnd = null;
+
+            for (var index = 0; index < orderedTagIds.Count; index++)
+            {
+                var tagId = orderedTagIds[index];
+                var tag = _tags.First(t => t.Id == tagId);
+                var logs = tagLogsMap.GetValueOrDefault(tagId, new List<PlcTagLogEntity>());
+
+                if (_tagLogCounts.TryGetValue(tagId, out var originalCount))
+                {
+                    totalOriginalPoints += originalCount;
+                }
+
+                if (logs.Count == 0)
+                {
+                    continue;
+                }
+
+                var firstLogTime = logs[0].DateTime;
+                var lastLogTime = logs[^1].DateTime;
+                actualRangeStart = !actualRangeStart.HasValue || firstLogTime < actualRangeStart.Value
+                    ? firstLogTime
+                    : actualRangeStart;
+                actualRangeEnd = !actualRangeEnd.HasValue || lastLogTime > actualRangeEnd.Value
+                    ? lastLogTime
+                    : actualRangeEnd;
+
+                var laneIndex = activeTags++;
+                var laneBase = laneIndex * 2.0;
+                var laneCenter = laneBase + 0.8;
+                var label = BuildTagLabel(tag);
+                var color = BuildColor(laneIndex, Math.Max(1, orderedTagIds.Count));
+
+                lanes.Add(new
+                {
+                    value = laneCenter,
+                    label
+                });
+
+                var numericValues = logs
+                    .Select(log => TryParseNumericValue(log.Value, out var parsed) ? (double?)parsed : null)
+                    .Where(value => value.HasValue)
+                    .Select(value => value!.Value)
+                    .ToList();
+
+                var isBinary = numericValues.Count > 0 && numericValues.All(value => IsBinaryValue(value));
+                var minNumeric = numericValues.Count > 0 ? numericValues.Min() : 0d;
+                var maxNumeric = numericValues.Count > 0 ? numericValues.Max() : 0d;
+
+                var data = logs.Select(log =>
+                {
+                    var y = MapValueToLane(log.Value, laneBase, minNumeric, maxNumeric, isBinary);
+                    return new
+                    {
+                        x = log.DateTime.ToString("o"),
+                        y,
+                        rawValue = log.Value ?? string.Empty
+                    };
+                }).ToList();
+
+                totalSampledPoints += data.Count;
+
+                datasets.Add(new
+                {
+                    label,
+                    data,
+                    borderColor = color,
+                    backgroundColor = color,
+                    borderWidth = isBinary ? 2.4 : 1.8,
+                    pointRadius = data.Count <= 160 ? 1.5 : 0,
+                    pointHoverRadius = 3,
+                    fill = false,
+                    tension = isBinary ? 0.0 : 0.18,
+                    stepped = isBinary ? "before" : null,
+                    spanGaps = true,
+                    showLine = true
+                });
+            }
+
+            _activeTagCount = activeTags;
+
+            if (_activeTagCount == 0 || !actualRangeStart.HasValue || !actualRangeEnd.HasValue)
+            {
+                _samplingInfo = $"선택 태그 {_selectedTagIds.Count:N0}개 중 현재 기간에 로그가 있는 태그가 없습니다.";
+                await JS.InvokeVoidAsync("plcDebug.destroyChart");
+                _chartLoaded = false;
+                return;
+            }
+
+            _startTime = actualRangeStart.Value;
+            _endTime = actualRangeEnd.Value;
+
+            _chartHeightPx = GetChartHeightPx(_activeTagCount);
+
+            var rendered = await JS.InvokeAsync<bool>("plcDebug.renderChart", datasets, new
+            {
+                rangeStart = actualRangeStart.Value.ToString("o"),
+                rangeEnd = actualRangeEnd.Value.ToString("o"),
+                chartHeight = _chartHeightPx,
+                lanes
+            });
+
+            if (!rendered)
+            {
+                throw new InvalidOperationException("차트 캔버스를 찾지 못했습니다. 페이지를 다시 렌더링한 후 다시 시도하세요.");
+            }
+
+            _chartLoaded = true;
+            _samplingInfo =
+                $"선택 태그 {orderedTagIds.Count:N0}개 중 활성 {_activeTagCount:N0}개, 전체 기간 {GetCurrentRangeLabel()}, " +
+                $"원본 {totalOriginalPoints:N0}개 -> 렌더 {totalSampledPoints:N0}개, 태그당 최대 {_effectiveMaxPointsPerTag:N0}개";
+        }
+        catch (Exception ex)
+        {
+            _chartLoaded = false;
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"차트 로드 실패: {ex.Message}", "error");
+        }
+        finally
+        {
+            _loadingChart = false;
+            _loadingProgress = string.Empty;
+            StateHasChanged();
+        }
+    }
+
+    private string GetCurrentRangeLabel()
+    {
+        if (!_startTime.HasValue || !_endTime.HasValue)
+            return "-";
+
+        var span = _endTime.Value - _startTime.Value;
+        if (span.TotalDays >= 1)
+            return $"{span.TotalDays:F1} day";
+        if (span.TotalHours >= 1)
+            return $"{span.TotalHours:F1} hr";
+        if (span.TotalMinutes >= 1)
+            return $"{span.TotalMinutes:F1} min";
+
+        return $"{span.TotalSeconds:F1} sec";
+    }
+
+    private static int GetEffectiveMaxPointsPerTag(int selectedTagCount, int requestedMaxPoints)
+    {
+        const int totalPointBudget = 30000;
+        if (selectedTagCount <= 0)
+            return requestedMaxPoints;
+
+        var budgetPerTag = Math.Max(40, totalPointBudget / selectedTagCount);
+        return Math.Min(requestedMaxPoints, budgetPerTag);
+    }
+
+    private static int GetChartHeightPx(int laneCount)
+    {
+        var rowHeight = laneCount switch
+        {
+            <= 120 => 28,
+            <= 240 => 22,
+            <= 400 => 18,
+            <= 700 => 14,
+            _ => 12
+        };
+
+        return Math.Clamp(laneCount * rowHeight + 120, 720, 12000);
+    }
+
+    private static string BuildColor(int index, int total)
+    {
+        var hue = total <= 0 ? 210 : (index * 360.0 / total) % 360;
+        return $"hsl({hue:F0}, 72%, 46%)";
+    }
+
+    private bool MatchesFlowFilter(PlcTagEntity tag)
+    {
+        if (string.IsNullOrWhiteSpace(_selectedFlow))
+            return true;
+
+        return _tagFlowNames.TryGetValue(tag.Id, out var flowName) &&
+               string.Equals(flowName, _selectedFlow, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool MatchesSearchFilter(PlcTagEntity tag)
+    {
+        if (string.IsNullOrWhiteSpace(_tagFilter))
+            return true;
+
+        var filter = _tagFilter.Trim();
+        return tag.Address.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+               (tag.Name?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private static string BuildTagLabel(PlcTagEntity tag)
+    {
+        return string.IsNullOrWhiteSpace(tag.Name)
+            ? tag.Address
+            : $"{tag.Address} | {tag.Name}";
+    }
+
+    private static bool TryParseNumericValue(string? value, out double parsed)
+    {
+        parsed = 0;
+
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        var trimmed = value.Trim();
+
+        if (bool.TryParse(trimmed, out var boolValue))
+        {
+            parsed = boolValue ? 1 : 0;
+            return true;
+        }
+
+        if (string.Equals(trimmed, "on", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(trimmed, "high", StringComparison.OrdinalIgnoreCase))
+        {
+            parsed = 1;
+            return true;
+        }
+
+        if (string.Equals(trimmed, "off", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(trimmed, "low", StringComparison.OrdinalIgnoreCase))
+        {
+            parsed = 0;
+            return true;
+        }
+
+        return double.TryParse(trimmed, NumberStyles.Any, CultureInfo.InvariantCulture, out parsed) ||
+               double.TryParse(trimmed, NumberStyles.Any, CultureInfo.CurrentCulture, out parsed);
+    }
+
+    private static bool IsBinaryValue(double value)
+    {
+        return Math.Abs(value) < 0.000001 || Math.Abs(value - 1) < 0.000001;
+    }
+
+    private static double MapValueToLane(string? rawValue, double laneBase, double minNumeric, double maxNumeric, bool isBinary)
+    {
+        const double low = 0.18;
+        const double high = 1.42;
+
+        if (!TryParseNumericValue(rawValue, out var value))
+            return laneBase + 0.8;
+
+        if (isBinary)
+            return laneBase + (value > 0.5 ? high : low);
+
+        if (Math.Abs(maxNumeric - minNumeric) < 0.000001)
+            return laneBase + 0.8;
+
+        var normalized = (value - minNumeric) / (maxNumeric - minNumeric);
+        normalized = Math.Clamp(normalized, 0, 1);
+        return laneBase + low + normalized * (high - low);
+    }
+}

@@ -1,0 +1,989 @@
+/* ============================================
+   DSPilot Dark Theme
+   Google Material Design 기반 다크모드
+   ============================================ */
+
+/* ═══════════════════════════════════════════
+   1. CSS 변수 오버라이드 (theme.css :root 대체)
+   ═══════════════════════════════════════════ */
+.dark-theme {
+    /* Background */
+    --color-background: #121212;
+    --color-surface: #1E1E1E;
+
+    /* Primary / Accent — 밝은 파스텔 블루 */
+    --color-primary: #81D4FA;
+    --color-primary-rgb: 129, 212, 250;
+    --color-secondary: #FF6E6E;
+    --color-tertiary: #81D4FA;
+    --color-info: #4DD0E1;
+    --color-success: #A5D6A7;
+    --color-warning: #FFD54F;
+    --color-error: #EF9A9A;
+    --color-success-rgb: 165, 214, 167;
+    --color-warning-rgb: 255, 213, 79;
+    --color-error-rgb: 239, 154, 154;
+
+    /* AppBar / Drawer */
+    --color-appbar-bg: #1E1E1E;
+    --color-appbar-text: rgba(255, 255, 255, 0.87);
+    --color-drawer-bg: #1E1E1E;
+    --color-drawer-text: rgba(255, 255, 255, 0.87);
+    --color-drawer-icon: #81D4FA;
+
+    /* Text — 톤다운된 백색 */
+    --color-text-primary: rgba(255, 255, 255, 0.87);
+    --color-text-secondary: rgba(255, 255, 255, 0.60);
+    --color-text-disabled: rgba(255, 255, 255, 0.38);
+    --color-action-default: #81D4FA;
+
+    /* Lines / Borders */
+    --color-lines: rgba(255, 255, 255, 0.12);
+
+    /* Gantt Chart */
+    --gantt-bg: #1E1E1E;
+    --gantt-lane-even: #232323;
+    --gantt-lane-odd: #2A2A2A;
+    --gantt-lane-border: rgba(255, 255, 255, 0.06);
+    --gantt-lane-center: rgba(255, 255, 255, 0.05);
+    --gantt-label: rgba(255, 255, 255, 0.87);
+    --gantt-sublabel: rgba(255, 255, 255, 0.45);
+    --gantt-axis: rgba(255, 255, 255, 0.50);
+    --gantt-tick-label: rgba(255, 255, 255, 0.50);
+    --gantt-bar-in: #64B5F6;
+    --gantt-bar-in-stroke: #42A5F5;
+    --gantt-bar-out: #F48FB1;
+    --gantt-bar-out-stroke: #EC407A;
+    --gantt-gap-fill: rgba(239, 154, 154, 0.12);
+    --gantt-gap-stroke: rgba(239, 154, 154, 0.50);
+    --gantt-gap-text: #EF9A9A;
+    --gantt-ct-fill: rgba(165, 214, 167, 0.08);
+    --gantt-ct-stroke: rgba(165, 214, 167, 0.50);
+    --gantt-ct-start: #A5D6A7;
+    --gantt-ct-end: #FFD54F;
+    --gantt-ct-text: #A5D6A7;
+    --gantt-connector-bg: rgba(30, 30, 30, 0.92);
+    --gantt-info-from: #3949AB;
+    --gantt-info-to: #5E35B1;
+    --gantt-info-shadow: rgba(57, 73, 171, 0.3);
+    --gantt-arrow-orange: #FFB74D;
+    --gantt-arrow-teal: #80CBC4;
+    --gantt-arrow-purple: #B39DDB;
+
+    /* Shadows — 다크에서는 더 강한 그림자 */
+    --shadow-1: 0 2px 1px -1px rgba(0,0,0,.4), 0 1px 1px 0 rgba(0,0,0,.28), 0 1px 3px 0 rgba(0,0,0,.24);
+    --shadow-2: 0 3px 1px -2px rgba(0,0,0,.4), 0 2px 2px 0 rgba(0,0,0,.28), 0 1px 5px 0 rgba(0,0,0,.24);
+    --shadow-4: 0 2px 4px -1px rgba(0,0,0,.4), 0 4px 5px 0 rgba(0,0,0,.28), 0 1px 10px 0 rgba(0,0,0,.24);
+
+    color-scheme: dark;
+}
+
+/* ═══════════════════════════════════════════
+   2. 전역 배경 & 텍스트
+   ═══════════════════════════════════════════ */
+.dark-theme {
+    background: #121212;
+    color: rgba(255, 255, 255, 0.87);
+}
+
+/* ═══════════════════════════════════════════
+   3. 레이아웃: AppBar, Drawer, Main
+   ═══════════════════════════════════════════ */
+.dark-theme .app-bar {
+    background: #1E1E1E;
+    color: rgba(255, 255, 255, 0.87);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dark-theme .header-nav-link {
+    color: rgba(255, 255, 255, 0.70);
+}
+.dark-theme .header-nav-link:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .header-nav-link.active {
+    background: rgba(129, 212, 250, 0.16);
+    color: #81D4FA;
+}
+
+.dark-theme .drawer {
+    background: #1E1E1E;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dark-theme .main-content {
+    background: #121212;
+}
+
+/* ═══════════════════════════════════════════
+   4. 네비게이션
+   ═══════════════════════════════════════════ */
+.dark-theme .nav-menu {
+    background: #1E1E1E;
+}
+.dark-theme .nav-link {
+    color: rgba(255, 255, 255, 0.70);
+}
+.dark-theme .nav-link:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+.dark-theme .nav-link.active,
+.dark-theme a.nav-link.active {
+    background: rgba(129, 212, 250, 0.12);
+    border-left-color: #81D4FA;
+    color: #81D4FA;
+}
+.dark-theme .nav-link .material-icons {
+    color: rgba(255, 255, 255, 0.60);
+}
+.dark-theme .nav-link.active .material-icons {
+    color: #81D4FA;
+}
+
+/* ═══════════════════════════════════════════
+   5. 카드 & Paper
+   ═══════════════════════════════════════════ */
+.dark-theme .card,
+.dark-theme .paper {
+    background: #1E1E1E;
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .card-header {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .card-header .material-icons {
+    color: rgba(255, 255, 255, 0.60);
+}
+
+/* ═══════════════════════════════════════════
+   6. 버튼
+   ═══════════════════════════════════════════ */
+.dark-theme .btn-icon:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .btn-outlined {
+    border-color: rgba(255, 255, 255, 0.20);
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .btn-outlined:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+.dark-theme .btn-outlined.color-default {
+    border-color: rgba(255, 255, 255, 0.20);
+    color: rgba(255, 255, 255, 0.87);
+}
+
+/* ═══════════════════════════════════════════
+   7. 폼 필드
+   ═══════════════════════════════════════════ */
+.dark-theme .form-field,
+.dark-theme .form-select,
+.dark-theme input,
+.dark-theme select,
+.dark-theme textarea {
+    background: #2C2C2C;
+    border-color: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .form-field:focus,
+.dark-theme .form-select:focus {
+    border-color: #81D4FA;
+    box-shadow: 0 0 0 2px rgba(129, 212, 250, 0.25);
+}
+.dark-theme .form-field::placeholder {
+    color: rgba(255, 255, 255, 0.38);
+}
+.dark-theme .form-label {
+    color: rgba(255, 255, 255, 0.60);
+}
+.dark-theme .form-helper {
+    color: rgba(255, 255, 255, 0.50);
+}
+
+/* Switch */
+.dark-theme .switch input[type="checkbox"] {
+    background: #555;
+}
+.dark-theme .switch input[type="checkbox"]:checked {
+    background: #81D4FA;
+}
+
+/* ═══════════════════════════════════════════
+   8. 테이블
+   ═══════════════════════════════════════════ */
+.dark-theme .table th {
+    background: #2C2C2C;
+    color: #81D4FA;
+}
+.dark-theme .table td {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .table-hover tbody tr:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+.dark-theme .table-striped tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.03);
+}
+.dark-theme .table-head-sticky th {
+    background: #2C2C2C;
+}
+.dark-theme .data-table thead {
+    background: #2C2C2C;
+}
+.dark-theme .data-table th {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .data-table td {
+    color: rgba(255, 255, 255, 0.87);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .data-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+/* ═══════════════════════════════════════════
+   9. 알림 (Alert)
+   ═══════════════════════════════════════════ */
+.dark-theme .alert {
+    background: #2C2C2C;
+    border-color: rgba(255, 255, 255, 0.12);
+}
+.dark-theme .alert-info {
+    background: rgba(77, 208, 225, 0.12);
+    border-color: rgba(77, 208, 225, 0.30);
+    color: #4DD0E1;
+}
+.dark-theme .alert-success {
+    background: rgba(165, 214, 167, 0.12);
+    border-color: rgba(165, 214, 167, 0.30);
+    color: #A5D6A7;
+}
+.dark-theme .alert-warning {
+    background: rgba(255, 213, 79, 0.12);
+    border-color: rgba(255, 213, 79, 0.30);
+    color: #FFD54F;
+}
+.dark-theme .alert-error {
+    background: rgba(239, 154, 154, 0.12);
+    border-color: rgba(239, 154, 154, 0.30);
+    color: #EF9A9A;
+}
+
+/* ═══════════════════════════════════════════
+   10. 칩 (Chip)
+   ═══════════════════════════════════════════ */
+.dark-theme .chip-primary {
+    background: rgba(129, 212, 250, 0.18);
+    color: #81D4FA;
+}
+.dark-theme .chip-success {
+    background: rgba(165, 214, 167, 0.18);
+    color: #A5D6A7;
+}
+.dark-theme .chip-error {
+    background: rgba(239, 154, 154, 0.18);
+    color: #EF9A9A;
+}
+.dark-theme .chip-warning {
+    background: rgba(255, 213, 79, 0.18);
+    color: #FFD54F;
+}
+.dark-theme .chip-info {
+    background: rgba(77, 208, 225, 0.18);
+    color: #4DD0E1;
+}
+
+/* ═══════════════════════════════════════════
+   11. Expansion Panel
+   ═══════════════════════════════════════════ */
+.dark-theme .expansion-panel {
+    border-color: rgba(255, 255, 255, 0.12);
+}
+.dark-theme .expansion-header:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+.dark-theme details.expansion-panel > summary {
+    background: #2C2C2C;
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.87);
+}
+
+/* ═══════════════════════════════════════════
+   12. Dialog (Modal)
+   ═══════════════════════════════════════════ */
+.dark-theme .dialog-overlay {
+    background: rgba(0, 0, 0, 0.65);
+}
+.dark-theme .dialog {
+    background: #2C2C2C;
+}
+.dark-theme .dialog-title {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .dialog-body {
+    color: rgba(255, 255, 255, 0.60);
+}
+
+/* ═══════════════════════════════════════════
+   13. Tooltip
+   ═══════════════════════════════════════════ */
+.dark-theme [data-tooltip]::after {
+    background: #3a3a3a;
+    color: rgba(255, 255, 255, 0.87);
+}
+
+/* ═══════════════════════════════════════════
+   14. 타이포그래피 유틸리티
+   ═══════════════════════════════════════════ */
+.dark-theme .typo-caption,
+.dark-theme .typo-overline {
+    color: rgba(255, 255, 255, 0.50);
+}
+
+/* ═══════════════════════════════════════════
+   15. 프로그레스 & 스피너
+   ═══════════════════════════════════════════ */
+.dark-theme .progress-bar {
+    background: rgba(255, 255, 255, 0.10);
+}
+.dark-theme .spinner {
+    border-color: rgba(255, 255, 255, 0.12);
+    border-top-color: #81D4FA;
+}
+
+/* ═══════════════════════════════════════════
+   16. Snackbar
+   ═══════════════════════════════════════════ */
+.dark-theme .snackbar {
+    background: #3a3a3a;
+    color: rgba(255, 255, 255, 0.87);
+}
+
+/* ═══════════════════════════════════════════
+   17. 스크롤바
+   ═══════════════════════════════════════════ */
+.dark-theme ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+.dark-theme ::-webkit-scrollbar-track {
+    background: #1E1E1E;
+}
+.dark-theme ::-webkit-scrollbar-thumb {
+    background: #444;
+    border-radius: 4px;
+}
+.dark-theme ::-webkit-scrollbar-thumb:hover {
+    background: #666;
+}
+
+/* ═══════════════════════════════════════════
+   18. Dashboard 카드 (ds-card, ct-*)
+   ═══════════════════════════════════════════ */
+.dark-theme .ds-card {
+    background: #1E1E1E;
+    border-color: rgba(255, 255, 255, 0.10);
+}
+.dark-theme .ds-card-header {
+    background: #2C2C2C;
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .ct-section-title {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .ct-summary-bar {
+    background: #2C2C2C;
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .ct-top-cell,
+.dark-theme .ct-combined-cell {
+    background: #1E1E1E;
+}
+.dark-theme .ct-combined-half + .ct-combined-half {
+    border-left-color: rgba(255, 255, 255, 0.10);
+}
+.dark-theme .ct-combined-half:hover,
+.dark-theme .ct-top-cell:hover {
+    box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.15);
+}
+.dark-theme .ct-combined-half.active,
+.dark-theme .ct-top-cell.active {
+    background: rgba(129, 212, 250, 0.08);
+}
+.dark-theme .ct-summary-sub {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .ct-summary-value {
+    color: rgba(255, 255, 255, 0.60);
+}
+.dark-theme .ct-chart-section {
+    background: #1E1E1E;
+}
+.dark-theme .ct-chart-row {
+    background: #2C2C2C;
+}
+.dark-theme .ct-chart-row.highlighted {
+    background: #1E1E1E;
+    border-color: rgba(255, 255, 255, 0.15);
+}
+.dark-theme .ct-chart-row.selected {
+    background: rgba(129, 212, 250, 0.10);
+    border-color: #81D4FA;
+}
+.dark-theme .ct-chart-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+.dark-theme .ct-row-name {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .ct-row-time {
+    color: rgba(255, 255, 255, 0.60);
+}
+/* CT Tooltip */
+.dark-theme .ct-tooltip {
+    background: #2C2C2C;
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+}
+.dark-theme .ct-tooltip::before {
+    background: #2C2C2C;
+    border-left-color: rgba(255, 255, 255, 0.12);
+    border-top-color: rgba(255, 255, 255, 0.12);
+}
+.dark-theme .ct-tooltip-header {
+    background: #353535;
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .ct-tooltip-name {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .ct-tooltip-label {
+    color: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .ct-tooltip-val {
+    color: rgba(255, 255, 255, 0.87);
+}
+
+/* ═══════════════════════════════════════════
+   19. Flow Card (fl-card, fc-*)
+   ═══════════════════════════════════════════ */
+.dark-theme .fl-card {
+    background: #2B2F36;
+    border-color: rgba(255, 255, 255, 0.14);
+}
+.dark-theme .fc-root {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .fc-header {
+    background: color-mix(in srgb, var(--state-color) 15%, #383D45);
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+.dark-theme .fc-chart-label {
+    color: rgba(255, 255, 255, 0.80);
+}
+.dark-theme .fc-stat-label {
+    color: rgba(255, 255, 255, 0.55);
+}
+.dark-theme .fc-stat-value {
+    color: rgba(255, 255, 255, 0.90);
+}
+.dark-theme .fc-state-label {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+.dark-theme .fc-stat-row {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+/* 도넛 배경 원 */
+.dark-theme .fc-chart svg circle[stroke="#eee"] {
+    stroke: rgba(255, 255, 255, 0.10);
+}
+
+/* ═══════════════════════════════════════════
+   20. Heatmap 페이지 (flow-dashboard-*)
+   ═══════════════════════════════════════════ */
+.dark-theme .flow-dashboard-panel {
+    background: #1E1E1E;
+    border-color: rgba(255, 255, 255, 0.10);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
+}
+.dark-theme .flow-dashboard-panel-header {
+    background: linear-gradient(180deg, #2C2C2C, #252525);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .flow-dashboard-panel-title {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .flow-dashboard-panel-subtitle {
+    color: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .flow-dashboard-work-grid {
+    background: linear-gradient(180deg, rgba(30, 30, 30, 0.96), rgba(25, 25, 25, 0.9));
+}
+.dark-theme .flow-dashboard-work-panel {
+    background: rgba(44, 44, 44, 0.55);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .flow-dashboard-work-header {
+    background: rgba(60, 60, 60, 0.72);
+    color: rgba(255, 255, 255, 0.70);
+}
+.dark-theme .flow-dashboard-call-cell {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .flow-dashboard-call-cell.heatmap-excellent,
+.dark-theme .flow-dashboard-call-cell.heatmap-good,
+.dark-theme .flow-dashboard-call-cell.heatmap-poor,
+.dark-theme .flow-dashboard-call-cell.heatmap-critical {
+    color: rgba(255, 255, 255, 0.87);
+}
+/* Heatmap 매트릭스 */
+.dark-theme .heatmap-matrix-row:hover {
+    background: rgba(129, 212, 250, 0.06) !important;
+}
+.dark-theme .heatmap-matrix-row.selected {
+    background: rgba(129, 212, 250, 0.10) !important;
+}
+.dark-theme .heatmap-matrix-label {
+    color: rgba(255, 255, 255, 0.87);
+}
+
+/* ═══════════════════════════════════════════
+   21. CycleTimeAnalysis 페이지
+   ═══════════════════════════════════════════ */
+.dark-theme .summary-card {
+    background: #1E1E1E;
+    border-color: rgba(255, 255, 255, 0.10);
+}
+.dark-theme .card-label {
+    color: rgba(255, 255, 255, 0.60);
+}
+.dark-theme .card-value {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .card-value .unit {
+    color: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .chart-section,
+.dark-theme .call-list,
+.dark-theme .call-detail {
+    background: #1E1E1E;
+    border-color: rgba(255, 255, 255, 0.10);
+}
+.dark-theme .chart-section h4,
+.dark-theme .call-list h4,
+.dark-theme .detail-header h4 {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .table-header {
+    background: #2C2C2C;
+    color: rgba(255, 255, 255, 0.60);
+}
+.dark-theme .table-row {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .table-row:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+.dark-theme .stat-item {
+    background: #2C2C2C;
+    border-left-color: #81D4FA;
+}
+.dark-theme .stat-item label {
+    color: rgba(255, 255, 255, 0.60);
+}
+.dark-theme .stat-item span {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .page-header {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+.dark-theme .page-header h3 {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .detail-header {
+    border-bottom-color: #81D4FA;
+}
+.dark-theme .detail-chart-section h5 {
+    color: rgba(255, 255, 255, 0.87);
+}
+
+/* --- Signal Selection Panel (sel-*) --- */
+.dark-theme .sel-panel {
+    background: #1E1E1E;
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.dark-theme .sel-header {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .sel-selected-signal strong {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .sel-badge-selected {
+    background: rgba(234, 88, 12, 0.15);
+    color: #FB923C;
+    border-color: rgba(234, 88, 12, 0.30);
+}
+.dark-theme .sel-badge-next {
+    background: rgba(22, 163, 74, 0.15);
+    color: #4ADE80;
+    border-color: rgba(22, 163, 74, 0.30);
+}
+.dark-theme .sel-event-type {
+    color: rgba(255, 255, 255, 0.60);
+    background: rgba(255, 255, 255, 0.08);
+}
+.dark-theme .sel-time {
+    color: rgba(255, 255, 255, 0.45);
+}
+.dark-theme .sel-gap-card {
+    background: #2C2C2C;
+    border-color: rgba(255, 255, 255, 0.10);
+}
+.dark-theme .sel-gap-direction {
+    color: rgba(255, 255, 255, 0.45);
+}
+.dark-theme .sel-arrow-left {
+    border-right-color: rgba(255, 255, 255, 0.45);
+}
+.dark-theme .sel-arrow-right {
+    border-left-color: rgba(255, 255, 255, 0.45);
+}
+.dark-theme .sel-gap-value {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .sel-gap-signal {
+    color: rgba(255, 255, 255, 0.60);
+}
+.dark-theme .sel-gap-signal span {
+    color: rgba(255, 255, 255, 0.40);
+}
+.dark-theme .sel-cycle-card {
+    background: linear-gradient(135deg, rgba(22, 163, 74, 0.12) 0%, rgba(22, 163, 74, 0.06) 100%);
+    border-color: rgba(74, 222, 128, 0.30);
+}
+.dark-theme .sel-cycle-label {
+    color: #4ADE80;
+}
+.dark-theme .sel-cycle-value {
+    color: #86EFAC;
+}
+.dark-theme .sel-cycle-signal {
+    color: rgba(255, 255, 255, 0.60);
+}
+
+/* --- Gantt Chart SVG --- */
+.dark-theme .gantt-chart {
+    border-color: rgba(255, 255, 255, 0.10);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.30);
+}
+.dark-theme .gantt-bg {
+    fill: #1E1E1E;
+}
+.dark-theme .gantt-idle-region {
+    fill: #ffffff;
+    opacity: 0.12;
+}
+.dark-theme .gantt-idle-label {
+    fill: #aaa;
+    opacity: 0.6;
+}
+.dark-theme .gantt-lane-even {
+    fill: #232323;
+    stroke: rgba(255, 255, 255, 0.06);
+}
+.dark-theme .gantt-lane-odd {
+    fill: #2A2A2A;
+    stroke: rgba(255, 255, 255, 0.06);
+}
+.dark-theme .gantt-lane-center {
+    stroke: rgba(255, 255, 255, 0.05);
+}
+.dark-theme .gantt-lane-label {
+    fill: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .gantt-lane-sublabel {
+    fill: rgba(255, 255, 255, 0.45);
+}
+.dark-theme .gantt-axis {
+    stroke: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .gantt-tick {
+    stroke: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .gantt-tick-label {
+    fill: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .gantt-bar-in {
+    fill: #64B5F6;
+    stroke: #42A5F5;
+}
+.dark-theme .gantt-bar-out {
+    fill: #F48FB1;
+    stroke: #EC407A;
+}
+.dark-theme .gantt-gap-overlay {
+    fill: rgba(239, 154, 154, 0.12);
+    stroke: rgba(239, 154, 154, 0.50);
+}
+.dark-theme .gantt-gap-text {
+    fill: #EF9A9A;
+}
+.dark-theme .gantt-gap-label-bg {
+    fill: rgba(30, 30, 30, 0.92);
+    stroke: #EF9A9A;
+}
+.dark-theme .gantt-ct-label-bg {
+    fill: rgba(30, 30, 30, 0.92);
+    stroke: #A5D6A7;
+}
+.dark-theme .gantt-connector-bg {
+    fill: rgba(30, 30, 30, 0.92);
+}
+/* --- Selection Path Bar --- */
+.dark-theme .selection-node {
+    background: #2C2C2C;
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.dark-theme .selection-node.current {
+    border-color: #FFB74D;
+    background: linear-gradient(180deg, rgba(255, 183, 77, 0.10) 0%, #2C2C2C 100%);
+}
+.dark-theme .selection-node.previous {
+    border-color: #FFCC80;
+}
+.dark-theme .selection-node.next {
+    border-color: #80CBC4;
+}
+.dark-theme .selection-node-label {
+    color: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .selection-node strong {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .selection-node span:last-child {
+    color: rgba(255, 255, 255, 0.60);
+}
+.dark-theme .selection-gap-pill {
+    background: linear-gradient(180deg, rgba(129, 212, 250, 0.10) 0%, #2C2C2C 100%);
+    border-color: rgba(129, 212, 250, 0.25);
+}
+.dark-theme .selection-gap-label {
+    color: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .selection-gap-pill strong {
+    color: rgba(255, 255, 255, 0.87);
+}
+
+/* ═══════════════════════════════════════════
+   22. CycleAnalysisPerfect 페이지
+   ═══════════════════════════════════════════ */
+.dark-theme .mode-btn {
+    background: #1E1E1E;
+    border-color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .mode-btn:hover {
+    border-color: #81D4FA;
+    box-shadow: 0 4px 12px rgba(129, 212, 250, 0.15);
+}
+.dark-theme .mode-btn.active {
+    border-color: #81D4FA;
+    background: rgba(129, 212, 250, 0.08);
+}
+.dark-theme .mode-btn strong {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .mode-btn small {
+    color: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .cycle-item {
+    background: #1E1E1E;
+    border-color: rgba(255, 255, 255, 0.12);
+}
+.dark-theme .cycle-item:hover {
+    border-color: #81D4FA;
+    box-shadow: 0 2px 8px rgba(129, 212, 250, 0.15);
+}
+.dark-theme .cycle-item.selected {
+    border-color: #81D4FA;
+    background: rgba(129, 212, 250, 0.08);
+}
+.dark-theme .metric-card {
+    background: #1E1E1E;
+    border-color: rgba(255, 255, 255, 0.10);
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .metric-label {
+    color: rgba(255, 255, 255, 0.60);
+}
+.dark-theme .metric-value {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .gap-card {
+    background: #1E1E1E;
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .gap-card.rank-1 { background: linear-gradient(to right, rgba(211, 47, 47, 0.10), #1E1E1E); }
+.dark-theme .gap-card.rank-2 { background: linear-gradient(to right, rgba(245, 124, 0, 0.10), #1E1E1E); }
+.dark-theme .gap-card.rank-3 { background: linear-gradient(to right, rgba(251, 192, 45, 0.10), #1E1E1E); }
+.dark-theme .gap-calls {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .gap-calls .material-icons {
+    color: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .gap-time {
+    color: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .progress-bar {
+    background: #333;
+}
+/* Badge — 다크 배경 대응 */
+.dark-theme .badge-success {
+    background: rgba(165, 214, 167, 0.18);
+    color: #A5D6A7;
+}
+.dark-theme .badge-warning {
+    background: rgba(255, 213, 79, 0.18);
+    color: #FFD54F;
+}
+.dark-theme .badge-error {
+    background: rgba(239, 154, 154, 0.18);
+    color: #EF9A9A;
+}
+
+/* ═══════════════════════════════════════════
+   23. Editor 페이지
+   ═══════════════════════════════════════════ */
+.dark-theme .ed-card {
+    background: #1E1E1E;
+    border-color: rgba(255, 255, 255, 0.10);
+}
+.dark-theme .ed-card-header {
+    background: #2C2C2C;
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+    color: #81D4FA;
+}
+.dark-theme .ed-flow-item.active {
+    background: rgba(129, 212, 250, 0.10);
+    color: #81D4FA;
+    border-left-color: #81D4FA;
+}
+.dark-theme .ed-flow-item.placed {
+    background: #2C2C2C;
+    color: rgba(255, 255, 255, 0.38);
+}
+.dark-theme .ed-offset-input,
+.dark-theme .ed-cell-input {
+    background: #2C2C2C;
+    border-color: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.87);
+}
+
+/* ═══════════════════════════════════════════
+   24. CallDirectionWidget
+   ═══════════════════════════════════════════ */
+.dark-theme .call-direction-widget {
+    background: #1E1E1E;
+}
+.dark-theme .widget-header h5 {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .stat-label {
+    color: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .stat-value {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .stat-card.inout {
+    background: linear-gradient(135deg, rgba(23, 162, 184, 0.10), rgba(23, 162, 184, 0.04));
+}
+.dark-theme .stat-card.inonly {
+    background: linear-gradient(135deg, rgba(40, 167, 69, 0.10), rgba(40, 167, 69, 0.04));
+}
+.dark-theme .stat-card.outonly {
+    background: linear-gradient(135deg, rgba(255, 193, 7, 0.10), rgba(255, 193, 7, 0.04));
+}
+.dark-theme .state-badge {
+    background: #2C2C2C;
+    color: rgba(255, 255, 255, 0.70);
+}
+.dark-theme .btn-refresh {
+    border-color: rgba(255, 255, 255, 0.16);
+}
+.dark-theme .btn-refresh:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+.dark-theme .btn-refresh .material-icons {
+    color: rgba(255, 255, 255, 0.60);
+}
+.dark-theme .widget-loading {
+    background: rgba(30, 30, 30, 0.85);
+}
+
+/* ═══════════════════════════════════════════
+   25. IoDataChart
+   ═══════════════════════════════════════════ */
+.dark-theme .io-data-chart {
+    background: #1E1E1E;
+}
+.dark-theme .chart-header {
+    border-bottom-color: rgba(255, 255, 255, 0.10);
+}
+.dark-theme .chart-header h6 {
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .form-field-sm {
+    background: #2C2C2C;
+    border-color: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.87);
+}
+.dark-theme .loading-overlay {
+    background: rgba(30, 30, 30, 0.85);
+}
+
+/* ═══════════════════════════════════════════
+   26. Heatmap Fair 셀 다크 대응
+   ═══════════════════════════════════════════ */
+.dark-theme .heatmap-fair {
+    color: rgba(255, 255, 255, 0.87);
+}
+
+/* ═══════════════════════════════════════════
+   27. FlowLayout 도면 배경 이미지 — 밝기 완화
+       다크모드에서 이미지가 과도하게 어두워지지 않도록
+       기본 opacity 0.3 → 다크모드에서 0.55 + 밝기 보정
+   ═══════════════════════════════════════════ */
+.dark-theme .blueprint-bg-image {
+    opacity: 0.55 !important;
+    filter: brightness(1.4) contrast(0.85);
+}
+
+/* ═══════════════════════════════════════════
+   28. 레이아웃 범례
+   ═══════════════════════════════════════════ */
+.dark-theme .layout-legend-item {
+    color: rgba(255, 255, 255, 0.60);
+}
+
+/* ═══════════════════════════════════════════
+   29. Empty State
+   ═══════════════════════════════════════════ */
+.dark-theme .empty-state {
+    color: rgba(255, 255, 255, 0.50);
+}
+.dark-theme .empty-state .material-icons {
+    color: rgba(255, 255, 255, 0.25);
+}
+
+/* ═══════════════════════════════════════════
+   30. Sortable 헤더
+   ═══════════════════════════════════════════ */
+.dark-theme .sortable:hover {
+    background: rgba(129, 212, 250, 0.10);
+}

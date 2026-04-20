@@ -52,6 +52,8 @@ type SimIndex = {
     TokenSinkGuids: Set<Guid>
     /// 토큰 경로에 포함된 Work (Source → successor 체인의 모든 Work)
     mutable TokenPathGuids: Set<Guid>
+    /// Call Guid → 동시 Going 불가 Call Set (ResetReset Device Work 관계 기반)
+    CallRaceExclusions: Map<Guid, Set<Guid>>
     /// Call Guid → CallType (WaitForCompletion / SkipIfCompleted)
     CallTypeMap: Map<Guid, CallType>
     /// Call Guid → Timeout (TimeSpan)
@@ -134,10 +136,18 @@ module SimIndex =
         resolveApiDefGuids index.Store index.CallApiCallObjects (findOrEmpty callGuid index.CallApiCallGuids) (fun p -> p.RxGuid)
 
 
+    /// CallCondition 트리를 재귀적으로 순회하여 모든 ApiCall 수집
+    let rec private collectAllApiCalls (cond: CallCondition) : ApiCall seq =
+        seq {
+            yield! cond.Conditions
+            for child in cond.Children do
+                yield! collectAllApiCalls child
+        }
+
     let private convertConditions (store: DsStore) (conditions: CallCondition seq) : ConditionEntry list =
         conditions
         |> Seq.collect (fun cond ->
-            cond.Conditions |> Seq.choose (fun apiCall ->
+            collectAllApiCalls cond |> Seq.choose (fun apiCall ->
                 match apiCall.ApiDefId with
                 | Some apiDefId ->
                     match Queries.getApiDef apiDefId store with
@@ -490,6 +500,73 @@ module SimIndex =
           TokenSourceGuids = tokenSources |> List.distinct |> List.sort
           TokenSinkGuids = tokenSinkGuids
           TokenPathGuids = tokenPathGuids
+          CallRaceExclusions =
+            // Device Work의 ResetReset 관계 → 그 Device Work를 TxWork로 참조하는 Call 수집
+            // → 동시 Going 불가 Call 쌍 (단, 순서 관계로 동시 Going 불가능한 쌍은 제외)
+            let deviceWorkToCalls =
+                state.AllCallGuids
+                |> List.collect (fun callGuid ->
+                    let apiCallGuids = state.CallApiCallGuids |> Map.tryFind callGuid |> Option.defaultValue []
+                    let txGuids =
+                        apiCallGuids |> List.choose (fun acGuid ->
+                            state.CallApiCallObjects |> Map.tryFind acGuid
+                            |> Option.bind (fun ac -> ac.ApiDefId)
+                            |> Option.bind (fun defId -> Queries.getApiDef defId store)
+                            |> Option.bind (fun d -> d.TxGuid))
+                    txGuids |> List.map (fun txGuid -> txGuid, callGuid))
+                |> List.groupBy fst
+                |> List.map (fun (dwGuid, pairs) -> dwGuid, pairs |> List.map snd)
+                |> Map.ofList
+
+            // predecessors 맵에서 from→to 도달 가능한지 BFS
+            let isReachable (predsMap: Map<Guid, Guid list>) fromId toId =
+                let rec bfs visited = function
+                    | [] -> false
+                    | cur :: rest ->
+                        if cur = fromId then true
+                        elif Set.contains cur visited then bfs visited rest
+                        else
+                            let preds = predsMap |> Map.tryFind cur |> Option.defaultValue []
+                            bfs (Set.add cur visited) (rest @ preds)
+                bfs Set.empty [toId]
+
+            // 두 Call이 순서 관계로 동시 Going 불가능한지 판정
+            let areOrdered callA callB =
+                let workA = state.CallWorkGuid |> Map.tryFind callA
+                let workB = state.CallWorkGuid |> Map.tryFind callB
+                match workA, workB with
+                | Some wa, Some wb when wa = wb ->
+                    // 같은 Work: Call 간 순서 화살표 체인
+                    isReachable state.CallStartPreds callA callB
+                    || isReachable state.CallStartPreds callB callA
+                | Some wa, Some wb ->
+                    // 다른 Work: Work 간 Start 순서 화살표 체인
+                    isReachable state.WorkStartPreds wa wb
+                    || isReachable state.WorkStartPreds wb wa
+                | _ -> false
+
+            state.AllCallGuids
+            |> List.map (fun callGuid ->
+                let apiCallGuids = state.CallApiCallGuids |> Map.tryFind callGuid |> Option.defaultValue []
+                let myTxGuids =
+                    apiCallGuids |> List.choose (fun acGuid ->
+                        state.CallApiCallObjects |> Map.tryFind acGuid
+                        |> Option.bind (fun ac -> ac.ApiDefId)
+                        |> Option.bind (fun defId -> Queries.getApiDef defId store)
+                        |> Option.bind (fun d -> d.TxGuid))
+                let peerDeviceWorks =
+                    myTxGuids
+                    |> List.collect (fun txGuid ->
+                        state.WorkResetPreds |> Map.tryFind txGuid |> Option.defaultValue [])
+                let excludedCalls =
+                    peerDeviceWorks
+                    |> List.collect (fun peerDw ->
+                        deviceWorkToCalls |> Map.tryFind peerDw |> Option.defaultValue [])
+                    |> List.filter (fun c -> c <> callGuid && not (areOrdered callGuid c))
+                    |> Set.ofList
+                callGuid, excludedCalls)
+            |> List.filter (fun (_, s) -> not s.IsEmpty)
+            |> Map.ofList
           CallTypeMap = state.CallTypeMap
           CallTimeoutMap = state.CallTimeoutMap }
 

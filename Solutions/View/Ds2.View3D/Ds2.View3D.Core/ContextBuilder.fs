@@ -7,11 +7,13 @@ open Ds2.View3D
 open Ds2.View3D.ResultExtensions
 
 /// SystemType이 DevicePresets에 등록된 이름과 일치하면 그대로 사용, 없으면 "Dummy"
+/// 하드코딩 모델(KnownNames) + JSON 커스텀 모델(CustomNames) 모두 검색
 let inferModelType (systemType: string option) : string =
     match systemType with
     | None -> "Dummy"
     | Some st ->
-        if Set.contains st DevicePresets.KnownNames then st
+        let allNames = DevicePresets.allKnownNames ()
+        if Set.contains st allNames then st
         else "Dummy"
 
 // =============================================================================

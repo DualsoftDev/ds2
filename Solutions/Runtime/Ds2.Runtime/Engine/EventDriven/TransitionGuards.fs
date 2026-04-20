@@ -53,6 +53,13 @@ module internal TransitionGuards =
                     ctx.StateManager.GetCallState(callGuid) = Status4.Ready
                     && not (ctx.IsWorkFrozen workGuid)
                     && ctx.CanStartCall callGuid
+                    && not (
+                        match ctx.Index.CallRaceExclusions |> Map.tryFind callGuid with
+                        | Some excludedSet ->
+                            excludedSet |> Set.exists (fun ex ->
+                                ctx.StateManager.GetCallState(ex) = Status4.Going
+                                || ctx.StateManager.IsCallPending(ex))
+                        | None -> false)
                 | None -> false
             | Status4.Finish ->
                 match ctx.Index.CallWorkGuid |> Map.tryFind callGuid with

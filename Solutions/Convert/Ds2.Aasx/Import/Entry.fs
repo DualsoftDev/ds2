@@ -98,11 +98,18 @@ module AasxImporter =
                 let result =
                     env.Submodels
                     |> Seq.tryPick (fun sm ->
-                        if sm.IdShort = SubmodelModelIdShort then submodelToProjectStore sm (Some mainDir)
+                        // SequenceModel 서브모델 찾기 (구 버전 "SequenceControlSubmodel"도 호환)
+                        if sm.IdShort = SubmodelModelIdShort || sm.IdShort = LegacySubmodelIdShort then
+                            submodelToProjectStore sm (Some mainDir)
                         else None)
                 match result with
                 | None ->
-                    log.Warn($"AASX 파싱 실패: '{SubmodelModelIdShort}' Submodel을 찾을 수 없습니다 ({path})")
+                    let idShorts = env.Submodels |> Seq.map (fun sm -> sm.IdShort) |> Seq.toList
+                    let hasLegacy = idShorts |> List.exists (fun id -> id = "SequenceControlSubmodel")
+                    if hasLegacy then
+                        log.Warn($"AASX import 실패: 구 포맷('SequenceControlSubmodel') 파일입니다. ds2 에디터에서 다시 내보내기(Export) 해 주세요. ({path})")
+                    else
+                        log.Warn($"AASX import 실패: '{SubmodelModelIdShort}' Submodel을 찾을 수 없습니다. (발견된 Submodels: {idShorts}) ({path})")
                     None
                 | Some (project, store) ->
                     env.Submodels
