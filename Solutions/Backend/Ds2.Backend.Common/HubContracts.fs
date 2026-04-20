@@ -10,6 +10,9 @@ module HubMethod =
     let SubscribeTag = "SubscribeTag"
     [<Literal>]
     let UnsubscribeTag = "UnsubscribeTag"
+    /// Control 시작 시 현재 Tag 값 조회 (Hub 캐시에서 반환)
+    [<Literal>]
+    let QueryTag = "QueryTag"
 
 [<RequireQualifiedAccess>]
 module HubSource =

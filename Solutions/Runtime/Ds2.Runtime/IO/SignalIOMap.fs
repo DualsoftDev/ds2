@@ -105,14 +105,22 @@ module SignalIOMap =
             list
             |> List.filter (fun m -> m.TxWorkGuid.IsSome && not (String.IsNullOrEmpty m.OutAddress))
             |> List.groupBy (fun m -> m.TxWorkGuid.Value)
-            |> List.map (fun (wg, ms) -> wg, ms |> List.map (fun m -> m.OutAddress))
+            |> List.map (fun (wg, ms) ->
+                wg,
+                (ms
+                 |> List.map (fun m -> m.OutAddress)
+                 |> List.distinct))
             |> Map.ofList
 
         let rxWorkMap =
             list
             |> List.filter (fun m -> m.RxWorkGuid.IsSome && not (String.IsNullOrEmpty m.InAddress))
             |> List.groupBy (fun m -> m.RxWorkGuid.Value)
-            |> List.map (fun (wg, ms) -> wg, ms |> List.map (fun m -> m.InAddress))
+            |> List.map (fun (wg, ms) ->
+                wg,
+                (ms
+                 |> List.map (fun m -> m.InAddress)
+                 |> List.distinct))
             |> Map.ofList
 
         {

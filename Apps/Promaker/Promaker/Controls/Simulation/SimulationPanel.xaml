@@ -64,11 +64,21 @@
                 </Grid>
             </TabItem>
             <TabItem Header="Event Log">
-                <ListBox ItemsSource="{Binding SimEventLog}"
+                <ListBox x:Name="EventLogListBox"
+                         ItemsSource="{Binding SimEventLog}"
                          Background="{DynamicResource SecondaryBackgroundBrush}"
                          Foreground="{DynamicResource PrimaryTextBrush}"
                          FontFamily="Consolas" FontSize="11"
-                         BorderThickness="0">
+                         BorderThickness="0"
+                         SelectionMode="Extended">
+                    <ListBox.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="전체 복사" Click="EventLogCopyAll_Click"/>
+                            <MenuItem Header="선택 복사" Click="EventLogCopySelected_Click"/>
+                            <Separator/>
+                            <MenuItem Header="로그 지우기" Click="EventLogClear_Click"/>
+                        </ContextMenu>
+                    </ListBox.ContextMenu>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding Message}">
