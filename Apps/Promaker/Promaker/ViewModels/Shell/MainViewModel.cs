@@ -238,11 +238,7 @@ public partial class MainViewModel : ObservableObject
         });
     }
 
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(Open3DViewCommand))]
-    private bool _is3DViewEnabled = false;
-
-    private bool CanOpen3DView() => HasProject && Is3DViewEnabled;
+    private bool CanOpen3DView() => HasProject;
 
     [RelayCommand(CanExecute = nameof(CanOpen3DView))]
     private void Open3DView()
