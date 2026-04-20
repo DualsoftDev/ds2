@@ -57,9 +57,10 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="JSON" Foreground="#94a3b8" FontSize="11" FontWeight="SemiBold"
                                        VerticalAlignment="Center" Margin="0,0,12,0"/>
-                            <Button Content="📁 파일 불러오기" Click="LoadFile_Click"
+                            <Button x:Name="LoadFileButton" Content="📁 파일 불러오기" Click="LoadFile_Click"
                                     Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
-                                    Padding="8,3" FontSize="11" Cursor="Hand" Margin="0,0,6,0"/>
+                                    Padding="8,3" FontSize="11" Cursor="Hand" Margin="0,0,6,0"
+                                    IsEnabled="False"/>
                             <Button Content="🤖 AI 프롬프트 복사" Click="CopyAIPrompt_Click"
                                     Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
                                     Padding="8,3" FontSize="11" Cursor="Hand"
@@ -74,7 +75,13 @@
                              FontSize="12" Background="#0f172a" Foreground="#e2e8f0"
                              BorderThickness="0" Padding="10,8"
                              SpellCheck.IsEnabled="False"
+                             IsEnabled="False"
                              TextChanged="JsonEditor_TextChanged"/>
+                    <TextBlock x:Name="JsonEditorHint" Grid.Row="1"
+                               Text="먼저 위에서 SystemType 이름을 선택하거나 입력하세요"
+                               Foreground="#64748b" FontSize="12" FontStyle="Italic"
+                               IsHitTestVisible="False"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Grid>
             </Border>
 
