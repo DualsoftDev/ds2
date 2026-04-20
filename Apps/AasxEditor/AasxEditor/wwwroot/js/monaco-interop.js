@@ -23,7 +23,17 @@ window.MonacoInterop = {
                 wordWrap: 'on'
             });
 
-            // editor ready
+            // Ctrl+Z / Ctrl+Y: 코드 에디터 포커스가 아닐 때만 앱 undo/redo 호출
+            document.addEventListener('keydown', function (e) {
+                if (editor && editor.hasTextFocus()) return; // Monaco가 자체 undo 처리
+                if (e.ctrlKey && !e.shiftKey && e.key === 'z') {
+                    e.preventDefault();
+                    dotnetRef.invokeMethodAsync('OnUndoKeyboard');
+                } else if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) {
+                    e.preventDefault();
+                    dotnetRef.invokeMethodAsync('OnRedoKeyboard');
+                }
+            });
         });
     },
 
@@ -198,5 +208,35 @@ window.ResizeHandle = {
             document.body.style.cursor = 'col-resize';
             document.body.style.userSelect = 'none';
         });
+    }
+};
+
+// ===== Finder Column View =====
+window.FinderColumns = {
+    scrollToEnd: function (id) {
+        var el = document.getElementById(id);
+        if (el) {
+            el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' });
+        }
+    }
+};
+
+window.ClientCount = {
+    update: function (text) {
+        var el = document.getElementById('client-count-indicator');
+        if (el) el.textContent = text;
+    },
+    initUnload: function (dotnetRef) {
+        window.__clientCountRef = dotnetRef;
+        window.addEventListener('beforeunload', window.ClientCount._onUnload);
+    },
+    _onUnload: function () {
+        if (window.__clientCountRef) {
+            window.__clientCountRef.invokeMethodAsync('OnBeforeUnload');
+        }
+    },
+    dispose: function () {
+        window.removeEventListener('beforeunload', window.ClientCount._onUnload);
+        window.__clientCountRef = null;
     }
 };

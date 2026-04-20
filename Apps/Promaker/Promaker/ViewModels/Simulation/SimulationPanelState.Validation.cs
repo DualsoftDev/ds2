@@ -30,6 +30,7 @@ public partial class SimulationPanelState
         CollectWarning(sections, "Source 후보", WarningSeverity.Yellow,
             GraphValidator.findSourceCandidates(index),
             "(이 Work들을 Token Source로 지정하면 자동 시작/데드락 해소가 가능합니다)", index);
+        CollectRaceConditionWarning(sections, index);
         CollectDurationWarning(sections, index);
         CollectTokenSpecWarning(sections, index);
 
@@ -148,6 +149,34 @@ public partial class SimulationPanelState
         sections.Add(new GraphWarningSection(
             "Group Ignore 누락", WarningSeverity.Red, FormatGroupLines(groups),
             "(그룹 내 Work 중 1개를 제외한 나머지는 TokenRole.Ignore를 지정해야 합니다)"));
+    }
+
+    private void CollectRaceConditionWarning(List<GraphWarningSection> sections, SimIndex index)
+    {
+        if (index.CallRaceExclusions.Count == 0) return;
+
+        var lines = new List<string>();
+        var reported = new HashSet<string>();
+        foreach (var kv in index.CallRaceExclusions)
+        {
+            var callGuid = kv.Key;
+            var callName = Store.Calls.TryGetValue(callGuid, out var c) ? c.Name : "?";
+            var workGuid = index.CallWorkGuid.TryGetValue(callGuid, out var wg) ? wg : Guid.Empty;
+            var workName = index.WorkName.TryFind(workGuid)?.Value ?? "?";
+            foreach (var exGuid in kv.Value)
+            {
+                var exName = Store.Calls.TryGetValue(exGuid, out var ec) ? ec.Name : "?";
+                var pairKey = string.Join(",", new[] { callGuid.ToString(), exGuid.ToString() }.OrderBy(x => x));
+                if (reported.Add(pairKey))
+                    lines.Add($"  - {workName}: {callName} ↔ {exName}");
+            }
+        }
+
+        if (lines.Count == 0) return;
+
+        sections.Add(new GraphWarningSection(
+            $"Race Condition ({lines.Count}쌍)", WarningSeverity.Yellow, lines,
+            "(동일 Device의 ResetReset 관계 Work를 참조하는 Call 쌍 — 먼저 스케줄된 Call만 실행됩니다)"));
     }
 
     private void CollectDurationWarning(List<GraphWarningSection> sections, SimIndex index)

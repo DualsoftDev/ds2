@@ -1,0 +1,257 @@
+@* 도면 레이아웃: 순수 HTML/CSS 기반 (SVG foreignObject 제거 → 선명한 네이티브 렌더링) *@
+<div style="position:relative; @Style; aspect-ratio:@CanvasWidth/@CanvasHeight; overflow:hidden; background:var(--color-background);"
+     @onclick="OnBackgroundClicked" @onclick:stopPropagation>
+
+    @* 도면 배경 *@
+    @if (!string.IsNullOrEmpty(ImagePath))
+    {
+        <img src="/@(ImagePath?.TrimStart('/'))?v=@(ImageVersion)"
+             class="blueprint-bg-image"
+             style="position:absolute; inset:0; width:100%; height:100%; opacity:0.3; pointer-events:none; object-fit:fill;" />
+    }
+
+    @* Flow 카드 *@
+    @foreach (var b in _blockLayouts)
+    {
+        var sel = b.FlowName == SelectedFlowName;
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+
+        <div class="fl-card @(sel ? "fl-card-selected" : "")"
+             style="left:@(b.LeftPct.ToString("F4", inv))%; top:@(b.TopPct.ToString("F4", inv))%; width:@(b.WidthPct.ToString("F4", inv))%; height:@(b.HeightPct.ToString("F4", inv))%; --state-color:@(b.Color);"
+             @onclick="() => OnBlockClicked(b.FlowName)" @onclick:stopPropagation>
+
+            <div class="fc-cq" style="--state-color:@(b.Color)">
+                <div class="fc-root">
+                    @* ── 헤더: 상태색 틴트 배경 + 제목 + 배지 ── *@
+                    <div class="fc-header">
+                        <div class="fc-title">@b.FlowName</div>
+                        @if (b.Badges.Count > 0)
+                        {
+                            <div class="fc-badges">
+                                @foreach (var badge in b.Badges)
+                                {
+                                    <span class="fc-badge"
+                                          style="background: @badge.Color; border-color: @badge.Color; color: #fff;">
+                                        @badge.Label
+                                    </span>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @* ── 본문: 도넛(좌) + 통계(우) ── *@
+                    <div class="fc-body @(b.IsVertical ? "fc-body-vertical" : "")">
+                        <div class="fc-chart @(b.ShowStats ? "" : "fc-chart-full")">
+                            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                                <defs>
+                                    <linearGradient id="mt-g-@b.GradientId" x1="0%" y1="0%" x2="0%" y2="100%">
+                                        <stop offset="0%" stop-color="#4285f4" />
+                                        <stop offset="100%" stop-color="#4285f4" stop-opacity="0.7" />
+                                    </linearGradient>
+                                    <linearGradient id="wt-g-@b.GradientId" x1="0%" y1="0%" x2="0%" y2="100%">
+                                        <stop offset="0%" stop-color="#F48FB1" />
+                                        <stop offset="100%" stop-color="#F48FB1" stop-opacity="0.7" />
+                                    </linearGradient>
+                                </defs>
+                                <g transform="rotate(-90 50 50)">
+                                    <circle cx="50" cy="50" r="40" fill="none"
+                                            stroke="#eee" stroke-width="9" />
+                                    @if (b.MtFrac > 0)
+                                    {
+                                        <circle cx="50" cy="50" r="40" fill="none"
+                                                stroke="url(#mt-g-@b.GradientId)" stroke-width="9"
+                                                stroke-dasharray="@b.SMtDash @b.SCirc" />
+                                    }
+                                    @if (b.WtFrac > 0)
+                                    {
+                                        <circle cx="50" cy="50" r="40" fill="none"
+                                                stroke="url(#wt-g-@b.GradientId)" stroke-width="9"
+                                                stroke-dasharray="@b.SWtDash @b.SCirc"
+                                                stroke-dashoffset="@b.SNegMt" />
+                                    }
+                                </g>
+                                @* 도넛 테두리 (외곽/내곽) *@
+                                <circle cx="50" cy="50" r="44.5" fill="none"
+                                        stroke="rgba(0,0,0,0.08)" stroke-width="0.5" />
+                                <circle cx="50" cy="50" r="35.5" fill="none"
+                                        stroke="rgba(0,0,0,0.08)" stroke-width="0.5" />
+                            </svg>
+                            <span class="fc-chart-label">@FormatMs(b.Total)</span>
+                        </div>
+
+                        @if (b.ShowStats)
+                        {
+                            <div class="fc-stats">
+                                <div class="fc-state-label">@b.StateLabel</div>
+                                <div class="fc-stat-row">
+                                    <span class="fc-dot fc-dot-mt"></span>
+                                    <span class="fc-stat-label">가동</span>
+                                    <span class="fc-stat-value">@FormatMs(b.Mt)</span>
+                                </div>
+                                <div class="fc-stat-row">
+                                    <span class="fc-dot fc-dot-wt"></span>
+                                    <span class="fc-stat-label">대기</span>
+                                    <span class="fc-stat-value">@FormatMs(b.Wt)</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    @if (!b.ShowStats)
+                    {
+                        <div class="fc-footer">@b.StateLabel</div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // ── Parameters ──
+    [Parameter] public string Style { get; set; } = "";
+    [Parameter] public int CanvasWidth { get; set; }
+    [Parameter] public int CanvasHeight { get; set; }
+    [Parameter] public string? ImagePath { get; set; }
+    [Parameter] public long ImageVersion { get; set; }
+    [Parameter] public int OffsetX { get; set; }
+    [Parameter] public int OffsetY { get; set; }
+    [Parameter] public int CellWidth { get; set; }
+    [Parameter] public int CellHeight { get; set; }
+    [Parameter] public List<FlowPlacement> Placements { get; set; } = [];
+    [Parameter] public Func<FlowPlacement, string>? GetColor { get; set; }
+    [Parameter] public Func<FlowPlacement, string>? GetStateLabel { get; set; }
+    [Parameter] public Func<FlowPlacement, (int Mt, int Wt)?>? GetMtWt { get; set; }
+    [Parameter] public Func<FlowPlacement, IEnumerable<(string Label, string Color)>>? GetBadges { get; set; }
+    [Parameter] public string? SelectedFlowName { get; set; }
+    [Parameter] public EventCallback<string?> OnFlowClicked { get; set; }
+
+    // ── Pre-computed block layouts ──
+    private List<FlowBlockLayout> _blockLayouts = [];
+
+    protected override void OnParametersSet()
+    {
+        var pad = 4;
+        var minContentW = Placements.Count > 0
+            ? Placements.Min(fp => fp.ColSpan * CellWidth - pad * 2) : 0;
+
+        _blockLayouts = Placements
+            .Select(fp => ComputeSingleBlock(fp, minContentW, pad))
+            .ToList();
+    }
+
+    private record FlowBlockLayout
+    {
+        // 데이터
+        public required string FlowName { get; init; }
+        public required string Color { get; init; }
+        public required string StateLabel { get; init; }
+        public required bool HasMtWt { get; init; }
+        public required int Mt { get; init; }
+        public required int Wt { get; init; }
+        public required int Total { get; init; }
+        public required List<(string Label, string Color)> Badges { get; init; }
+
+        // CSS 퍼센트 좌표
+        public required double LeftPct { get; init; }
+        public required double TopPct { get; init; }
+        public required double WidthPct { get; init; }
+        public required double HeightPct { get; init; }
+
+        // 레이아웃 플래그
+        public required bool ShowStats { get; init; }
+        public required bool IsVertical { get; init; }
+
+        // 도넛 SVG gradient ID
+        public required string GradientId { get; init; }
+
+        // 도넛 비율 (viewBox 100x100 기준, r=40, sw=9)
+        public required double MtFrac { get; init; }
+        public required double WtFrac { get; init; }
+        public required string SCirc { get; init; }
+        public required string SMtDash { get; init; }
+        public required string SWtDash { get; init; }
+        public required string SNegMt { get; init; }
+    }
+
+    private FlowBlockLayout ComputeSingleBlock(FlowPlacement fp, int minContentW, int pad)
+    {
+        var color      = GetColor?.Invoke(fp) ?? "#4CAF50";
+        var stateLabel = GetStateLabel?.Invoke(fp) ?? "";
+        var mtWt       = GetMtWt?.Invoke(fp);
+
+        // 블록 지오메트리
+        var px     = OffsetX + fp.Col * CellWidth;
+        var py     = OffsetY + fp.Row * CellHeight;
+        var pw     = fp.ColSpan * CellWidth;
+        var ph     = fp.RowSpan * CellHeight;
+        var innerW = pw - pad * 2;
+        var innerH = ph - pad * 2;
+
+        // CSS 퍼센트 좌표
+        var leftPct   = (double)(px + pad) / CanvasWidth * 100;
+        var topPct    = (double)(py + pad) / CanvasHeight * 100;
+        var widthPct  = (double)innerW / CanvasWidth * 100;
+        var heightPct = (double)innerH / CanvasHeight * 100;
+
+        var isVertical = fp.RowSpan > fp.ColSpan;
+        var showStats  = isVertical || minContentW >= 130;
+
+        var hasMtWt = mtWt != null;
+        var mt    = mtWt?.Mt ?? 0;
+        var wt    = mtWt?.Wt ?? 0;
+        var total = mt + wt;
+
+        // 도넛 비율
+        var mtFrac = total > 0 ? (double)mt / total : (hasMtWt ? 1.0 : 0.0);
+        var wtFrac = hasMtWt ? 1.0 - mtFrac : 0.0;
+        const double circ = 2 * Math.PI * 40;
+        var mtDash = circ * mtFrac;
+        var wtDash = circ * wtFrac;
+
+        var inv     = System.Globalization.CultureInfo.InvariantCulture;
+        var sCirc   = circ.ToString("F1", inv);
+        var sMtDash = mtDash.ToString("F1", inv);
+        var sWtDash = wtDash.ToString("F1", inv);
+        var sNegMt  = (-mtDash).ToString("F1", inv);
+
+        var gradientId = $"g{(fp.FlowName.GetHashCode() & 0x7FFFFFFF)}";
+        var badges = GetBadges?.Invoke(fp)?.ToList() ?? new List<(string Label, string Color)>();
+
+        return new FlowBlockLayout
+        {
+            FlowName = fp.FlowName, Color = color, StateLabel = stateLabel,
+            HasMtWt = hasMtWt, Mt = mt, Wt = wt, Total = total,
+            Badges = badges,
+            LeftPct = leftPct, TopPct = topPct,
+            WidthPct = widthPct, HeightPct = heightPct,
+            ShowStats = showStats, IsVertical = isVertical,
+            GradientId = gradientId,
+            MtFrac = mtFrac, WtFrac = wtFrac,
+            SCirc = sCirc, SMtDash = sMtDash, SWtDash = sWtDash, SNegMt = sNegMt,
+        };
+    }
+
+    // ── 블록 클릭 → 항상 팝업 열기 (배경 클릭으로 닫기)
+    private async Task OnBlockClicked(string flowName)
+    {
+        await OnFlowClicked.InvokeAsync(flowName);
+    }
+
+    // ── 배경 클릭 → 선택 해제 ──
+    private async Task OnBackgroundClicked()
+    {
+        if (SelectedFlowName != null)
+            await OnFlowClicked.InvokeAsync((string?)null);
+    }
+
+    // ── 시간 포맷 ──
+    private static string FormatMs(int ms)
+    {
+        if (ms <= 0) return "0초";
+        if (ms < 1000) return $"{ms}ms";
+        if (ms < 60_000) return $"{ms / 1000.0:F1}초";
+        if (ms < 3_600_000) return $"{ms / 60000}분 {ms % 60000 / 1000}초";
+        return $"{ms / 3_600_000}시 {ms % 3_600_000 / 60000}분";
+    }
+}

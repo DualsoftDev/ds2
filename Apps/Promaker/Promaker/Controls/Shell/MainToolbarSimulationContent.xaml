@@ -167,35 +167,71 @@
                         </StackPanel>
                     </Button>
                 </StackPanel>
-                <TextBlock Text="{Binding Simulation.SimStatusText}"
-                           FontSize="9"
-                           HorizontalAlignment="Center"
-                           Margin="0,0,0,0">
-                    <TextBlock.Style>
-                        <Style TargetType="TextBlock">
-                            <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
-                            <Style.Triggers>
-                                <MultiDataTrigger>
-                                    <MultiDataTrigger.Conditions>
-                                        <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
-                                        <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
-                                    </MultiDataTrigger.Conditions>
-                                    <Setter Property="Foreground" Value="{DynamicResource IconGreenBrush}"/>
-                                </MultiDataTrigger>
-                                <MultiDataTrigger>
-                                    <MultiDataTrigger.Conditions>
-                                        <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
-                                        <Condition Binding="{Binding Simulation.IsSimPaused}" Value="True"/>
-                                    </MultiDataTrigger.Conditions>
-                                    <Setter Property="Foreground" Value="{DynamicResource IconOrangeBrush}"/>
-                                </MultiDataTrigger>
-                                <DataTrigger Binding="{Binding Simulation.SimStatusText}" Value="시뮬레이션 단계 제어 중">
-                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </TextBlock.Style>
-                </TextBlock>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,0">
+                    <iconPacks:PackIconMaterial Kind="Autorenew"
+                                                Width="12" Height="12"
+                                                VerticalAlignment="Center"
+                                                Margin="0,0,4,0"
+                                                SpinDuration="1.5"
+                                                Foreground="{DynamicResource IconOrangeBrush}">
+                        <iconPacks:PackIconMaterial.Style>
+                            <Style TargetType="iconPacks:PackIconMaterial">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Setter Property="Spin" Value="False"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Simulation.IsHomingPhase}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                        <Setter Property="Spin" Value="True"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </iconPacks:PackIconMaterial.Style>
+                    </iconPacks:PackIconMaterial>
+                    <TextBlock Text="{Binding Simulation.SimStatusText}"
+                               FontSize="9"
+                               VerticalAlignment="Center">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{DynamicResource IconRedBrush}"/>
+                                <Style.Triggers>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
+                                            <Condition Binding="{Binding Simulation.IsSimPaused}" Value="False"/>
+                                            <Condition Binding="{Binding Simulation.IsHomingPhase}" Value="False"/>
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Foreground" Value="{DynamicResource IconGreenBrush}"/>
+                                    </MultiDataTrigger>
+                                    <MultiDataTrigger>
+                                        <MultiDataTrigger.Conditions>
+                                            <Condition Binding="{Binding Simulation.IsSimulating}" Value="True"/>
+                                            <Condition Binding="{Binding Simulation.IsSimPaused}" Value="True"/>
+                                        </MultiDataTrigger.Conditions>
+                                        <Setter Property="Foreground" Value="{DynamicResource IconOrangeBrush}"/>
+                                    </MultiDataTrigger>
+                                    <DataTrigger Binding="{Binding Simulation.SimStatusText}" Value="시뮬레이션 단계 제어 중">
+                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Simulation.IsHomingPhase}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource IconOrangeBrush}"/>
+                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                        <DataTrigger.EnterActions>
+                                            <BeginStoryboard Name="PulseStoryboard">
+                                                <Storyboard RepeatBehavior="Forever" AutoReverse="True" FillBehavior="Stop">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                     From="1.0" To="0.55" Duration="0:0:0.9"/>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </DataTrigger.EnterActions>
+                                        <DataTrigger.ExitActions>
+                                            <StopStoryboard BeginStoryboardName="PulseStoryboard"/>
+                                        </DataTrigger.ExitActions>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
             </StackPanel>
             <StackPanel Orientation="Vertical"
                         Margin="8,0,0,0"

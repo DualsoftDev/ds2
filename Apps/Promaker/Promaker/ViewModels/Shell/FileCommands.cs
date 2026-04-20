@@ -168,6 +168,12 @@ public partial class MainViewModel
             var projectId = Queries.allProjects(_store).Head.Id;
             _ = Simulation.ThreeD.BuildScene(_store, projectId);
         }
+
+        // AutoLayoutIfNeeded가 좌표 없는 노드에 자동 배치를 적용하면서
+        // undo 항목을 생성할 수 있으므로, 로드 완료 후 초기 상태로 확정
+        _store.ClearHistory();
+        IsDirty = false;
+        UpdateTitle();
     }
 
     private static void ExpandAllNodes(IEnumerable<EntityNode> nodes)

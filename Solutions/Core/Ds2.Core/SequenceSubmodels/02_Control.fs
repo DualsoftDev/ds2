@@ -27,13 +27,6 @@ open System.Text.Json.Serialization
 // =============================================================================
 
 
-/// Call 방향 (I/O 태그 매핑)
-type CallDirection =
-    | InOut         // InTag + OutTag 모두 존재 (양방향)
-    | InOnly        // InTag만 존재 (센서 읽기)
-    | OutOnly       // OutTag만 존재 (액추에이터 쓰기)
-    | NoMapping     // PLC 매핑 없음 (순수 소프트웨어)
-
 /// 태그 매칭 모드
 type TagMatchMode =
     | ByAddress     // 주소 기반 매칭 (권장) - M100, D200

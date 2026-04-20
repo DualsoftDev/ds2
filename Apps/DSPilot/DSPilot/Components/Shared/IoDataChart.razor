@@ -1,0 +1,205 @@
+@using DSPilot.Services
+@using DSPilot.Models.Plc
+@inject PlcIoDataService IoDataService
+@inject PlcToCallMapperService CallMapper
+@inject IJSRuntime JS
+
+<div class="io-data-chart">
+    <div class="chart-header">
+        <h6>@Title</h6>
+        <div class="chart-controls">
+            <button class="btn-sm" @onclick="RefreshData" disabled="@_isLoading">
+                <span class="material-icons">refresh</span>
+            </button>
+            <select class="form-field-sm" @bind="_timeRange" @bind:after="OnTimeRangeChanged">
+                <option value="60">최근 1분</option>
+                <option value="300">최근 5분</option>
+                <option value="600">최근 10분</option>
+                <option value="1800">최근 30분</option>
+                <option value="3600">최근 1시간</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="@_chartId"></canvas>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="loading-overlay">
+            <div class="spinner"></div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-error">
+            <span class="material-icons">error</span>
+            @_errorMessage
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "IO Data Timeline";
+    [Parameter] public string CallName { get; set; } = "";
+    [Parameter] public Guid CallId { get; set; }
+
+    private string _chartId = $"ioChart_{Guid.NewGuid():N}";
+    private bool _isLoading = false;
+    private string? _errorMessage;
+    private int _timeRange = 300; // 5 minutes default
+    private IJSObjectReference? _chartModule;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _chartModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/io-chart.js");
+                await LoadAndDisplayData();
+            }
+            catch (Exception ex)
+            {
+                _errorMessage = $"Chart initialization failed: {ex.Message}";
+                Console.WriteLine($"Chart init error: {ex}");
+            }
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadAndDisplayData();
+    }
+
+    private async Task OnTimeRangeChanged()
+    {
+        await LoadAndDisplayData();
+    }
+
+    private async Task LoadAndDisplayData()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            // Get Call's InTag and OutTag
+            var tags = CallMapper.GetCallTagsByCallId(CallId);
+            if (tags == null)
+            {
+                _errorMessage = "No tags mapped for this Call";
+                return;
+            }
+
+            var (inTag, outTag) = tags.Value;
+
+            // Get IO data for time range
+            var endTime = DateTime.Now;
+            var startTime = endTime.AddSeconds(-_timeRange);
+
+            var (inTagLogs, outTagLogs) = await IoDataService.GetCallTagHistoryAsync(
+                inTag, outTag, 1000);
+
+            // Filter by time range
+            inTagLogs = inTagLogs.Where(l => l.DateTime >= startTime && l.DateTime <= endTime).ToList();
+            outTagLogs = outTagLogs.Where(l => l.DateTime >= startTime && l.DateTime <= endTime).ToList();
+
+            // Prepare data for Chart.js
+            var chartData = new
+            {
+                labels = GenerateTimeLabels(startTime, endTime),
+                datasets = new[]
+                {
+                    new
+                    {
+                        label = $"InTag: {inTag ?? "N/A"}",
+                        data = PrepareDataPoints(inTagLogs, startTime, endTime),
+                        borderColor = "rgb(75, 192, 192)",
+                        backgroundColor = "rgba(75, 192, 192, 0.2)",
+                        stepped = "before",
+                        fill = true
+                    },
+                    new
+                    {
+                        label = $"OutTag: {outTag ?? "N/A"}",
+                        data = PrepareDataPoints(outTagLogs, startTime, endTime),
+                        borderColor = "rgb(255, 99, 132)",
+                        backgroundColor = "rgba(255, 99, 132, 0.2)",
+                        stepped = "before",
+                        fill = true
+                    }
+                }
+            };
+
+            if (_chartModule != null)
+            {
+                await _chartModule.InvokeVoidAsync("renderChart", _chartId, chartData);
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load data: {ex.Message}";
+            Console.WriteLine($"Data loading error: {ex}");
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private List<string> GenerateTimeLabels(DateTime start, DateTime end)
+    {
+        var labels = new List<string>();
+        var interval = (end - start).TotalSeconds / 20; // 20 labels
+        for (int i = 0; i <= 20; i++)
+        {
+            var time = start.AddSeconds(interval * i);
+            labels.Add(time.ToString("HH:mm:ss"));
+        }
+        return labels;
+    }
+
+    private List<object> PrepareDataPoints(List<PlcTagLogEntity> logs, DateTime start, DateTime end)
+    {
+        var points = new List<object>();
+
+        // Sample data points across the time range
+        var interval = (end - start).TotalSeconds / 100; // 100 points
+        for (int i = 0; i <= 100; i++)
+        {
+            var time = start.AddSeconds(interval * i);
+            var nearestLog = logs
+                .OrderBy(l => Math.Abs((l.DateTime - time).TotalSeconds))
+                .FirstOrDefault();
+
+            if (nearestLog != null && Math.Abs((nearestLog.DateTime - time).TotalSeconds) < interval)
+            {
+                points.Add(new { x = time.ToString("o"), y = nearestLog.Value == "1" ? 1 : 0 });
+            }
+            else
+            {
+                points.Add(new { x = time.ToString("o"), y = (object?)null });
+            }
+        }
+
+        return points;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_chartModule != null)
+        {
+            try
+            {
+                await _chartModule.InvokeVoidAsync("destroyChart", _chartId);
+                await _chartModule.DisposeAsync();
+            }
+            catch { }
+        }
+    }
+}

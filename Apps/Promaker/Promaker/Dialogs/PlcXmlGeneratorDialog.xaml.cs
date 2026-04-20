@@ -274,26 +274,12 @@ public partial class PlcXmlGeneratorDialog : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        if (_generatedXml == null) return;
-
-        var modelName = !string.IsNullOrEmpty(_currentFilePath)
-            ? Path.GetFileNameWithoutExtension(_currentFilePath)
-            : "plc_output";
-
-        var saveDialog = new SaveFileDialog
-        {
-            Title  = "PLC 저장",
-            Filter = "XG5000 XML Files (*.xml)|*.xml|All Files (*.*)|*.*",
-            FileName = $"{modelName}.xml"
-        };
-
-        if (saveDialog.ShowDialog(this) != true) return;
-
-        var crlfXml = _generatedXml.Replace("\r\n", "\n").Replace("\n", "\r\n");
-        File.WriteAllText(saveDialog.FileName, crlfXml, new System.Text.UTF8Encoding(false));
-
-        SetStatus($"✓ 저장 완료: {Path.GetFileName(saveDialog.FileName)}");
-        OpenWithXg5000(saveDialog.FileName);
+        MessageBox.Show(
+            "XGI PLC 생성은 추후 패치 예정입니다.",
+            "패치 예정",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+        Close();
     }
 
     private void OpenWithXg5000(string filePath)

@@ -110,9 +110,7 @@ module internal AasxExportCore =
         match uri with
         | None -> elem
         | Some u ->
-            match elem with
-            | :? IHasSemantics as hs -> hs.SemanticId <- mkSemanticRef u
-            | _ -> ()
+            (elem :> IHasSemantics).SemanticId <- mkSemanticRef u
             elem
 
     let mkSubmodel (id: string) (idShort: string) (semanticId: string) (elems: ISubmodelElement list) : Submodel =
@@ -163,6 +161,8 @@ module internal AasxExportCore =
           if cp.IoDeviceTemplates.Count > 0 then
               yield mkJsonProp "IoDeviceTemplates" cp.IoDeviceTemplates ]
 
+    /// 리플렉션을 사용하여 Properties 객체를 AAS SubmodelElement 리스트로 자동 변환
+    /// 지원 타입: string, bool, int, float, TimeSpan, Guid, DateTime, Array, ResizeArray, Enum, Option
     let private propsToElements<'T> (props: 'T) : ISubmodelElement list =
         let t = typeof<'T>
         let properties = t.GetProperties(System.Reflection.BindingFlags.Public ||| System.Reflection.BindingFlags.Instance)
@@ -208,20 +208,6 @@ module internal AasxExportCore =
                         mkSmlProp name (arr |> Seq.cast<Guid> |> Seq.map (fun id -> mkGuidProp "Id" id) |> Seq.toList)
                     elif elemType = typeof<string> then
                         mkSmlProp name (arr |> Seq.cast<string> |> Seq.map (fun s -> mkProp "Tag" s) |> Seq.toList)
-                    else
-                        Some (mkJsonProp name value)
-            elif propType.IsGenericType && propType.GetGenericTypeDefinition() = typedefof<ResizeArray<_>> then
-                let resizeArr = value :?> System.Collections.IEnumerable
-                let elemType = propType.GetGenericArguments().[0]
-                let items = resizeArr |> Seq.cast<obj> |> Seq.toList
-                if items.IsEmpty then None
-                else
-                    if elemType = typeof<FBTagMapPort> then
-                        let portList = items |> List.map (fun obj -> fbTagMapPortToSmc (obj :?> FBTagMapPort))
-                        mkSml name portList
-                    elif elemType = typeof<FBTagMapInstance> then
-                        let instList = items |> List.map (fun obj -> fbTagMapInstanceToSmc (obj :?> FBTagMapInstance))
-                        mkSml name instList
                     else
                         Some (mkJsonProp name value)
             elif propType.IsEnum then Some (mkProp name (value.ToString()))

@@ -6,6 +6,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+builder.Services.AddSingleton<CircuitTracker>();
 builder.Services.AddSingleton<AasxConverterService>();
 builder.Services.AddSingleton<AasTreeBuilderService>();
 builder.Services.AddSingleton<AasEntityExtractor>();

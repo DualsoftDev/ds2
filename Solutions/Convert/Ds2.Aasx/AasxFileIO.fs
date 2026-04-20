@@ -51,6 +51,47 @@ let private normalizeAasXml (xml: string) : string =
         .Replace("<aasEnv ", "<environment ")
         .Replace("</aasEnv>", "</environment>")
 
+/// AAS 3.1 엄격 스키마 위반 보정:
+/// <embeddedDataSpecification> 에 <dataSpecification> 참조가 누락된 경우 기본 IEC61360 참조를 주입.
+/// (SICK, 일부 카탈로그 파일처럼 dataSpecificationContent만 있는 경우를 허용)
+let private fixMissingDataSpecifications (xml: string) : string =
+    try
+        let doc = System.Xml.Linq.XDocument.Parse(xml)
+        let ns = doc.Root.GetDefaultNamespace()
+        let edsName         = ns + "embeddedDataSpecification"
+        let dataSpecName    = ns + "dataSpecification"
+        let contentName     = ns + "dataSpecificationContent"
+        let typeName        = ns + "type"
+        let keysName        = ns + "keys"
+        let keyName         = ns + "key"
+        let valueName       = ns + "value"
+
+        let mutable fixedCount = 0
+        for eds in doc.Descendants(edsName) |> Seq.toList do
+            if isNull (eds.Element(dataSpecName)) then
+                let dataSpec =
+                    System.Xml.Linq.XElement(dataSpecName,
+                        System.Xml.Linq.XElement(typeName, "ExternalReference"),
+                        System.Xml.Linq.XElement(keysName,
+                            System.Xml.Linq.XElement(keyName,
+                                System.Xml.Linq.XElement(typeName, "GlobalReference"),
+                                System.Xml.Linq.XElement(valueName,
+                                    "https://admin-shell.io/aas/3/0/DataSpecificationIEC61360"))))
+                // dataSpecification은 dataSpecificationContent 앞에 와야 함
+                let contentEl = eds.Element(contentName)
+                if not (isNull contentEl) then
+                    contentEl.AddBeforeSelf(dataSpec)
+                else
+                    eds.AddFirst(dataSpec)
+                fixedCount <- fixedCount + 1
+
+        if fixedCount > 0 then
+            log.Info($"AAS XML: 누락된 dataSpecification 참조 {fixedCount}개 보정")
+        doc.ToString()
+    with ex ->
+        log.Warn($"dataSpecification 보정 실패 (원본 사용): {ex.Message}")
+        xml
+
 /// 네임스페이스 버전 감지
 let private detectAasVersion (xml: string) : string option =
     let patterns = [
@@ -81,90 +122,107 @@ let internal readAllZipEntries (path: string) : System.Collections.Generic.Dicti
         log.Warn($"ZIP 엔트리 읽기 실패: {path} - {ex.Message}")
         None
 
+/// ZipArchive에서 Environment를 읽어 반환 (핵심 로직, 버전 정규화 포함)
+let private readEnvironmentFromArchive (archive: ZipArchive) : Result<Environment, string> =
+    let resolveAasPath () =
+        let relsEntry = archive.GetEntry("aasx/_rels/aasx-origin.rels")
+        if relsEntry = null then Error "AASX 파일 구조 오류: aasx/_rels/aasx-origin.rels 파일을 찾을 수 없습니다."
+        else
+            use stream = relsEntry.Open()
+            use reader = new IO.StreamReader(stream, Encoding.UTF8)
+            let xml = reader.ReadToEnd()
+            let doc = Xml.XmlDocument()
+            doc.LoadXml(xml)
+            let nsm = Xml.XmlNamespaceManager(doc.NameTable)
+            nsm.AddNamespace("r", "http://schemas.openxmlformats.org/package/2006/relationships")
+
+            // www 포함/미포함 두 가지 URL 패턴 모두 시도
+            let node =
+                doc.SelectSingleNode(
+                    "//r:Relationship[@Type='http://www.admin-shell.io/aasx/relationships/aas-spec']",
+                    nsm)
+            let nodeCompat =
+                if node = null then
+                    doc.SelectSingleNode(
+                        "//r:Relationship[@Type='http://admin-shell.io/aasx/relationships/aas-spec']",
+                        nsm)
+                else node
+
+            if nodeCompat = null then
+                Error "AASX 파일 구조 오류: AAS 스펙 관계를 찾을 수 없습니다."
+            else
+                let target = nodeCompat.Attributes.["Target"].Value.TrimStart('/')
+                Ok target
+
+    match resolveAasPath () with
+    | Error msg -> Error msg
+    | Ok aasPath ->
+        let entry = archive.GetEntry(aasPath)
+        if entry = null then
+            Error $"AASX 파일 구조 오류: {aasPath} 파일을 찾을 수 없습니다."
+        else
+            try
+                use aasStream = entry.Open()
+                if aasPath.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) then
+                    // XML: 네임스페이스 정규화 후 역직렬화
+                    use rdr = new IO.StreamReader(aasStream, Encoding.UTF8)
+                    let xml = rdr.ReadToEnd()
+                    let detectedVersion = detectAasVersion xml
+                    let normalizedXml =
+                        xml
+                        |> normalizeAasXml
+                        |> fixMissingDataSpecifications
+                    use stringReader = new IO.StringReader(normalizedXml)
+                    use xmlReader = XmlReader.Create(stringReader)
+                    xmlReader.MoveToContent() |> ignore
+                    let env = Xmlization.Deserialize.EnvironmentFrom(xmlReader)
+
+                    match detectedVersion with
+                    | Some v when v <> "3.1" ->
+                        log.Info($"AAS {v} 파일을 3.1 형식으로 변환하여 읽었습니다.")
+                    | _ -> ()
+
+                    Ok env
+                else
+                    // JSON
+                    use rdr = new IO.StreamReader(aasStream, Encoding.UTF8)
+                    let json = rdr.ReadToEnd()
+                    let node = Text.Json.Nodes.JsonNode.Parse(json)
+                    let env = Jsonization.Deserialize.EnvironmentFrom(node)
+                    Ok env
+            with
+            | :? AasCore.Aas3_1.Xmlization.Exception as ex ->
+                let detectedVersion =
+                    try
+                        use rdr2 = new IO.StreamReader(entry.Open(), Encoding.UTF8)
+                        detectAasVersion (rdr2.ReadToEnd())
+                    with _ -> None
+
+                let versionMsg =
+                    match detectedVersion with
+                    | Some v -> $"감지된 AAS 버전: {v}"
+                    | None -> "AAS 버전을 감지할 수 없습니다."
+
+                Error $"AAS XML 역직렬화 실패:\n\n{ex.Message}\n\n{versionMsg}\n\n파일이 손상되었거나 지원하지 않는 형식일 수 있습니다."
+            | ex ->
+                Error $"파일 읽기 실패:\n\n{ex.Message}"
+
+/// Stream에서 AASX를 읽어 Environment를 반환합니다 (버전 정규화 포함).
+/// 호출자가 stream 수명을 관리합니다 (ZipArchive는 leaveOpen=true).
+let readEnvironmentFromStreamWithError (stream: Stream) : Result<Environment, string> =
+    try
+        use archive = new ZipArchive(stream, ZipArchiveMode.Read, true)
+        readEnvironmentFromArchive archive
+    with ex ->
+        Error $"AASX 스트림 읽기 실패:\n\n{ex.Message}"
+
 /// AASX ZIP에서 Environment를 읽어 반환합니다.
 /// 실패 시 Result로 에러 메시지 반환
 let readEnvironmentWithError (path: string) : Result<Environment, string> =
     try
         use fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)
         use archive = new ZipArchive(fileStream, ZipArchiveMode.Read)
-
-        let resolveAasPath () =
-            let relsEntry = archive.GetEntry("aasx/_rels/aasx-origin.rels")
-            if relsEntry = null then Error "AASX 파일 구조 오류: aasx/_rels/aasx-origin.rels 파일을 찾을 수 없습니다."
-            else
-                use stream = relsEntry.Open()
-                use reader = new IO.StreamReader(stream, Encoding.UTF8)
-                let xml = reader.ReadToEnd()
-                let doc = Xml.XmlDocument()
-                doc.LoadXml(xml)
-                let nsm = Xml.XmlNamespaceManager(doc.NameTable)
-                nsm.AddNamespace("r", "http://schemas.openxmlformats.org/package/2006/relationships")
-
-                // www 포함/미포함 두 가지 URL 패턴 모두 시도
-                let node =
-                    doc.SelectSingleNode(
-                        "//r:Relationship[@Type='http://www.admin-shell.io/aasx/relationships/aas-spec']",
-                        nsm)
-                let nodeCompat =
-                    if node = null then
-                        doc.SelectSingleNode(
-                            "//r:Relationship[@Type='http://admin-shell.io/aasx/relationships/aas-spec']",
-                            nsm)
-                    else node
-
-                if nodeCompat = null then
-                    Error "AASX 파일 구조 오류: AAS 스펙 관계를 찾을 수 없습니다."
-                else
-                    let target = nodeCompat.Attributes.["Target"].Value.TrimStart('/')
-                    Ok target
-
-        match resolveAasPath () with
-        | Error msg -> Error msg
-        | Ok aasPath ->
-            let entry = archive.GetEntry(aasPath)
-            if entry = null then
-                Error $"AASX 파일 구조 오류: {aasPath} 파일을 찾을 수 없습니다."
-            else
-                use aasStream = entry.Open()
-                try
-                    if aasPath.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) then
-                        // XML: 네임스페이스 정규화 후 역직렬화
-                        use rdr = new IO.StreamReader(aasStream, Encoding.UTF8)
-                        let xml = rdr.ReadToEnd()
-                        let detectedVersion = detectAasVersion xml
-                        let normalizedXml = normalizeAasXml xml
-                        use stringReader = new IO.StringReader(normalizedXml)
-                        use xmlReader = XmlReader.Create(stringReader)
-                        xmlReader.MoveToContent() |> ignore
-                        let env = Xmlization.Deserialize.EnvironmentFrom(xmlReader)
-
-                        match detectedVersion with
-                        | Some v when v <> "3.1" ->
-                            log.Info($"AAS {v} 파일을 3.1 형식으로 변환하여 읽었습니다.")
-                        | _ -> ()
-
-                        Ok env
-                    else
-                        // JSON
-                        use rdr = new IO.StreamReader(aasStream, Encoding.UTF8)
-                        let json = rdr.ReadToEnd()
-                        let node = Text.Json.Nodes.JsonNode.Parse(json)
-                        let env = Jsonization.Deserialize.EnvironmentFrom(node)
-                        Ok env
-                with
-                | :? AasCore.Aas3_1.Xmlization.Exception as ex ->
-                    let detectedVersion =
-                        use rdr2 = new IO.StreamReader(entry.Open(), Encoding.UTF8)
-                        detectAasVersion (rdr2.ReadToEnd())
-
-                    let versionMsg =
-                        match detectedVersion with
-                        | Some v -> $"감지된 AAS 버전: {v}"
-                        | None -> "AAS 버전을 감지할 수 없습니다."
-
-                    Error $"AAS XML 역직렬화 실패:\n\n{ex.Message}\n\n{versionMsg}\n\n파일이 손상되었거나 지원하지 않는 형식일 수 있습니다."
-                | ex ->
-                    Error $"파일 읽기 실패:\n\n{ex.Message}"
+        readEnvironmentFromArchive archive
     with
     | :? FileNotFoundException ->
         Error $"파일을 찾을 수 없습니다:\n\n{path}"

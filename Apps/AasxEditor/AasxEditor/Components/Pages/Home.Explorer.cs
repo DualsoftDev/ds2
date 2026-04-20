@@ -29,20 +29,71 @@ public partial class Home
         }
     }
 
-    private void SwitchTab(string tab) => _centerTab = tab;
+    private async Task SwitchTab(string tab)
+    {
+        _centerTab = tab;
+        if (tab == "code" && _selectedNode?.JsonPath is { } path)
+        {
+            StateHasChanged();
+            await Task.Yield();
+            await JS.InvokeVoidAsync("MonacoInterop.revealJsonPath", path);
+        }
+    }
 
     // ===== Explorer navigation =====
+    private void PushNavHistory()
+    {
+        _navBack.Push(new List<AasTreeNode>(_explorerPath));
+        _navForward.Clear();
+    }
+
     private void ExplorerDrillDown(AasTreeNode node)
     {
         SelectNode(node);
-        if (node.Children.Count > 0) _explorerPath.Add(node);
+        if (node.Children.Count > 0)
+        {
+            PushNavHistory();
+            _explorerPath.Add(node);
+        }
     }
 
-    private void ExplorerGoRoot() => _explorerPath.Clear();
-    private void ExplorerGoTo(int index) => _explorerPath = _explorerPath.Take(index + 1).ToList();
+    private void ExplorerGoRoot()
+    {
+        if (_explorerPath.Count == 0) return;
+        PushNavHistory();
+        _explorerPath.Clear();
+    }
+
+    private void ExplorerGoTo(int index)
+    {
+        PushNavHistory();
+        _explorerPath = _explorerPath.Take(index + 1).ToList();
+    }
+
+    private void ExplorerGoBack()
+    {
+        if (_navBack.Count == 0) return;
+        _navForward.Push(new List<AasTreeNode>(_explorerPath));
+        _explorerPath = _navBack.Pop();
+    }
+
+    private void ExplorerGoForward()
+    {
+        if (_navForward.Count == 0) return;
+        _navBack.Push(new List<AasTreeNode>(_explorerPath));
+        _explorerPath = _navForward.Pop();
+    }
+
+    private void ExplorerGoUp()
+    {
+        if (_explorerPath.Count == 0) return;
+        PushNavHistory();
+        _explorerPath.RemoveAt(_explorerPath.Count - 1);
+    }
 
     private void NavigateExplorerToNode(AasTreeNode target)
     {
+        PushNavHistory();
         _explorerPath.Clear();
         var path = new List<AasTreeNode>();
         if (FindPathToNode(_treeNodes, target, path))
@@ -65,27 +116,34 @@ public partial class Home
     }
 
     // ===== Properties editing =====
-    private void OnPropFieldChanged(string key, string? newValue)
-    {
-        if (_selectedNode is not null)
-        {
-            _selectedNode.Properties[key] = newValue;
-            _propsDirty = true;
-        }
-    }
+    private Task OnCardBoolChanged(AasTreeNode node, bool value)
+        => OnCardValueChanged(node, value ? "true" : "false");
 
-    private async Task OnApplyPropChanges()
+    private async Task OnCardValueChanged(AasTreeNode node, string? newValue)
     {
-        if (_selectedNode is null || string.IsNullOrWhiteSpace(_currentJson)) return;
+        PushUndo($"'{node.Label}' 값 변경");
+        node.Properties["value"] = newValue;
         try
         {
-            var updatedJson = ApplyPropertyChanges(_currentJson, _selectedNode);
+            // value만 변경 — valueType 등 메타 속성은 건드리지 않음
+            var valueOnly = new Dictionary<string, string?> { ["value"] = newValue };
+            var updatedJson = ApplyPropertyChanges(_currentJson, node.JsonPath, valueOnly);
             _currentEnv = Converter.JsonToEnvironment(updatedJson);
             await SyncJsonToEditorAsync(updatedJson);
-            _propsDirty = false;
-            SetStatus("속성 변경이 JSON에 반영되었습니다", "success");
+            SetStatus($"{node.Label} 값 변경됨", "success");
         }
         catch (Exception ex) { SetStatus($"반영 실패: {ex.Message}", "error"); }
+    }
+
+    private string ApplyPropertyChanges(string json, string jsonPath, Dictionary<string, string?> changes)
+    {
+        var doc = System.Text.Json.JsonDocument.Parse(json);
+        using var ms = new MemoryStream();
+        using (var writer = new System.Text.Json.Utf8JsonWriter(ms, new System.Text.Json.JsonWriterOptions { Indented = true }))
+        {
+            WriteWithChanges(writer, doc.RootElement, jsonPath, changes);
+        }
+        return System.Text.Encoding.UTF8.GetString(ms.ToArray());
     }
 
     private string ApplyPropertyChanges(string json, AasTreeNode node)
@@ -184,6 +242,33 @@ public partial class Home
                 return true;
             }
         }
+        return false;
+    }
+
+    // ===== Finder Column View =====
+    private void ColumnSelect(int columnIndex, AasTreeNode node)
+    {
+        PushNavHistory();
+        while (_explorerPath.Count > columnIndex)
+            _explorerPath.RemoveAt(_explorerPath.Count - 1);
+
+        SelectNode(node);
+
+        // 자식이 있고, 그 중 컨테이너(손자가 있는) 자식이 있을 때만 다음 컬럼 표시
+        // 자식이 모두 리프면 컬럼 생성 없이 프리뷰에서 일괄 편집
+        if (node.Children.Count > 0 && node.Children.Any(c => c.Children.Count > 0))
+        {
+            _explorerPath.Add(node);
+            _scrollColumnsToEnd = true;
+        }
+    }
+
+    private bool IsColumnItemSelected(int columnIndex, AasTreeNode node)
+    {
+        if (columnIndex < _explorerPath.Count && _explorerPath[columnIndex] == node)
+            return true;
+        if (_selectedNode == node)
+            return true;
         return false;
     }
 }

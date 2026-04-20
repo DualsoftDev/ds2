@@ -1,0 +1,771 @@
+@page "/editor"
+@inject DsProjectService ProjectService
+@inject BlueprintService BlueprintService
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@implements IAsyncDisposable
+
+<PageTitle>Editor - DSPilot</PageTitle>
+
+<NavigationLock ConfirmExternalNavigation="_isDirty"
+                OnBeforeInternalNavigation="OnBeforeInternalNavigation" />
+
+<div class="ed-page">
+
+    @* ── 헤더 ── *@
+    <div class="ed-header">
+        <div class="spacer"></div>
+        <button class="btn @(_isDirty ? "btn-filled" : "btn-outlined") mr-2" @onclick="ApplyChanges">
+            <span class="material-icons" style="font-size:18px;">save</span>
+            적용@(_isDirty ? " *" : "")
+        </button>
+        <label class="btn btn-outlined mr-2" style="cursor:pointer;">
+            <span class="material-icons" style="font-size:18px;">image</span>
+            Upload Image
+            @if (HasPendingImage)
+            {
+                <span style="font-size:10px; color:var(--color-warning); margin-left:4px; font-weight:600;">
+                    @(_pendingCanvasWidth)x@(_pendingCanvasHeight) (미적용)
+                </span>
+            }
+            else if (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath))
+            {
+                <span style="font-size:10px; color:var(--color-text-secondary); margin-left:4px;">
+                    @(BlueprintService.Layout.CanvasWidth)x@(BlueprintService.Layout.CanvasHeight)
+                </span>
+            }
+            <InputFile OnChange="@(e => OnBlueprintFileSelected(e.File))" accept=".png,.jpg,.jpeg" style="display:none;" />
+        </label>
+        <label class="btn btn-outlined color-warning mr-2" style="cursor:pointer;">
+            <span class="material-icons" style="font-size:18px;">file_upload</span>
+            Import JSON
+            <InputFile OnChange="@(e => ImportJson(e.File))" accept=".json" style="display:none;" />
+        </label>
+        <button class="btn btn-outlined color-success mr-2" @onclick="ExportJson">
+            <span class="material-icons" style="font-size:18px;">file_download</span>
+            Export JSON
+        </button>
+        <button class="btn btn-outlined color-warning mr-2" @onclick="ClearAllPlacements"
+                disabled="@(!BlueprintService.Layout.FlowPlacements.Any())">
+            <span class="material-icons" style="font-size:18px;">delete_sweep</span>
+            블럭 모두 지우기
+        </button>
+        <button class="btn btn-outlined" @onclick="@(() => Nav.NavigateTo("/"))">
+            <span class="material-icons" style="font-size:18px;">dashboard</span>
+            대시보드
+        </button>
+    </div>
+
+    @if (!ProjectService.IsLoaded)
+    {
+        <div class="alert alert-info">
+            <span class="material-icons">info</span>
+            No project loaded.
+        </div>
+    }
+    else
+    {
+        @* ── 메인: 사이드바(좌) + 캔버스(우) ── *@
+        <div class="ed-main">
+
+            @* 왼쪽 사이드바 *@
+            <div class="ed-sidebar">
+
+                @* Grid *@
+                <div class="ed-card">
+                    <div class="ed-card-header">Grid</div>
+                    <div class="ed-card-body">
+                        <div class="d-flex gap-2">
+                            <div class="form-group" style="flex:1;">
+                                <label class="form-label">Columns</label>
+                                <input type="number" class="form-field" value="@_gridColumns" min="2" max="20"
+                                       @onchange="@(async e => { if (int.TryParse(e.Value?.ToString(), out var v)) await OnGridChanged(() => _gridColumns = v); })" />
+                            </div>
+                            <div class="form-group" style="flex:1;">
+                                <label class="form-label">Rows</label>
+                                <input type="number" class="form-field" value="@_gridRows" min="2" max="20"
+                                       @onchange="@(async e => { if (int.TryParse(e.Value?.ToString(), out var v)) await OnGridChanged(() => _gridRows = v); })" />
+                            </div>
+                        </div>
+                        @* Offset 방향 배치 *@
+                        <div style="display:flex; flex-direction:column; align-items:center; gap:4px; margin-top:10px;">
+                            @* Top *@
+                            <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+                                <span class="ed-offset-label">Top</span>
+                                <input type="number" value="@_offsetY" class="ed-offset-input"
+                                       @onchange="@(async e => { if (int.TryParse(e.Value?.ToString(), out var v)) await OnGridChanged(() => _offsetY = v); })" />
+                            </div>
+                            @* Middle: Left + Rect + Right *@
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+                                    <span class="ed-offset-label">Left</span>
+                                    <input type="number" value="@_offsetX" class="ed-offset-input"
+                                           @onchange="@(async e => { if (int.TryParse(e.Value?.ToString(), out var v)) await OnGridChanged(() => _offsetX = v); })" />
+                                </div>
+                                <div style="width:52px; height:24px; border:2px solid var(--color-primary); border-radius:4px; background:color-mix(in srgb, var(--color-primary) 5%, transparent); flex-shrink:0;"></div>
+                                <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+                                    <span class="ed-offset-label">Right</span>
+                                    <input type="number" value="@_offsetRight" class="ed-offset-input"
+                                           @onchange="@(async e => { if (int.TryParse(e.Value?.ToString(), out var v)) await OnGridChanged(() => _offsetRight = v); })" />
+                                </div>
+                            </div>
+                            @* Bottom *@
+                            <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+                                <input type="number" value="@_offsetBottom" class="ed-offset-input"
+                                       @onchange="@(async e => { if (int.TryParse(e.Value?.ToString(), out var v)) await OnGridChanged(() => _offsetBottom = v); })" />
+                                <span class="ed-offset-label">Bottom</span>
+                            </div>
+                        </div>
+                        <span class="typo-caption mt-1" style="display:block; color: var(--color-secondary);">
+                            Cell: @(EffectiveCellWidth) x @(EffectiveCellHeight) px
+                        </span>
+                    </div>
+                </div>
+
+                @* Flows — 남은 높이 채움 (공정 순서 드래그 정렬 지원) *@
+                <div class="ed-card ed-flows-card">
+                    <div class="ed-card-header">
+                        Flows
+                        <span class="flow-hint">드래그하여 공정 순서 변경</span>
+                    </div>
+                    <div class="ed-flows-body" id="flow-reorder-list">
+                        @for (int i = 0; i < _orderedFlows.Count; i++)
+                        {
+                            var idx = i;
+                            var f = _orderedFlows[idx];
+                            var placed = BlueprintService.Layout.FlowPlacements.Any(p => p.FlowId == f.FlowId);
+                            <div draggable="@(!placed ? "true" : "false")"
+                                 data-drag-flow-id="@f.FlowId"
+                                 class="ed-flow-item @(placed ? "placed" : "active")">
+                                <span class="flow-order-num">@(idx + 1)</span>
+                                <span class="flow-name-text">@f.FlowName</span>
+                                <span class="flow-system-badge">@f.SystemName</span>
+                                <span class="material-icons flow-reorder-handle" data-reorder-handle="true">drag_indicator</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+            </div>
+
+            @* SVG 캔버스 *@
+            <div class="ed-canvas">
+              <div style="width:100%; max-height:100%; aspect-ratio:@EffectiveCanvasWidth/@EffectiveCanvasHeight;">
+                <svg id="editor-svg" xmlns="http://www.w3.org/2000/svg"
+                     style="display: block; width: 100%; height: 100%;"
+                     viewBox="0 0 @EffectiveCanvasWidth @EffectiveCanvasHeight"
+                     preserveAspectRatio="none">
+
+                    @if (EffectiveImageHref != null)
+                    {
+                        <image @key="EffectiveImageHref"
+                               href="@EffectiveImageHref"
+                               x="0" y="0"
+                               width="@EffectiveCanvasWidth"
+                               height="@EffectiveCanvasHeight"
+                               opacity="0.3" />
+                    }
+                    else
+                    {
+                        <rect x="0" y="0"
+                              width="@EffectiveCanvasWidth"
+                              height="@EffectiveCanvasHeight"
+                              style="fill: var(--color-background)" />
+                    }
+
+                    @{
+                        var ecw   = EffectiveCanvasWidth;
+                        var ech   = EffectiveCanvasHeight;
+                        var ox    = _offsetX;
+                        var oy    = _offsetY;
+                        var cellW = _gridColumns > 0 ? (ecw - _offsetX - _offsetRight) / _gridColumns : 200;
+                        var cellH = _gridRows > 0 ? (ech - _offsetY - _offsetBottom) / _gridRows : 200;
+                    }
+
+                    @* Grid lines *@
+                    @for (int c = 0; c <= _gridColumns; c++)
+                    {
+                        var x = ox + c * cellW;
+                        var isEdge = c == 0 || c == _gridColumns;
+                        <line x1="@x" y1="@oy" x2="@x"
+                              y2="@(oy + _gridRows * cellH)"
+                              stroke="@(isEdge ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.18)")"
+                              stroke-width="@(isEdge ? 1.5 : 0.8)"
+                              stroke-dasharray="@(isEdge ? "0" : "6,4")" />
+                    }
+                    @for (int r = 0; r <= _gridRows; r++)
+                    {
+                        var y = oy + r * cellH;
+                        var isEdge = r == 0 || r == _gridRows;
+                        <line x1="@ox" y1="@y"
+                              x2="@(ox + _gridColumns * cellW)" y2="@y"
+                              stroke="@(isEdge ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.18)")"
+                              stroke-width="@(isEdge ? 1.5 : 0.8)"
+                              stroke-dasharray="@(isEdge ? "0" : "6,4")" />
+                    }
+
+                    @* Grid corner resize handles *@
+                    @{
+                        var gridLeft   = ox;
+                        var gridTop    = oy;
+                        var gridRight  = ox + _gridColumns * cellW;
+                        var gridBottom = oy + _gridRows * cellH;
+                        var handleR    = Math.Max(8, Math.Min(cellW, cellH) / 6);
+                    }
+                    <circle data-grid-handle="tl" cx="@gridLeft" cy="@gridTop" r="@handleR"
+                            fill="var(--color-primary)" fill-opacity="0.25" stroke="var(--color-primary)"
+                            stroke-width="2" style="cursor:nw-resize;" />
+                    <circle data-grid-handle="tr" cx="@gridRight" cy="@gridTop" r="@handleR"
+                            fill="var(--color-primary)" fill-opacity="0.25" stroke="var(--color-primary)"
+                            stroke-width="2" style="cursor:ne-resize;" />
+                    <circle data-grid-handle="bl" cx="@gridLeft" cy="@gridBottom" r="@handleR"
+                            fill="var(--color-primary)" fill-opacity="0.25" stroke="var(--color-primary)"
+                            stroke-width="2" style="cursor:sw-resize;" />
+                    <circle data-grid-handle="br" cx="@gridRight" cy="@gridBottom" r="@handleR"
+                            fill="var(--color-primary)" fill-opacity="0.25" stroke="var(--color-primary)"
+                            stroke-width="2" style="cursor:se-resize;" />
+
+                    @* Flow nodes *@
+                    @foreach (var fp in BlueprintService.Layout.FlowPlacements)
+                    {
+                        var color      = GetSystemColor(fp.SystemId);
+                        var px         = ox + fp.Col * cellW;
+                        var py         = oy + fp.Row * cellH;
+                        var pw         = fp.ColSpan * cellW;
+                        var ph         = fp.RowSpan * cellH;
+                        var pad        = 4;
+                        var hasOverlap = IsOccupied(fp.Col, fp.Row, fp.ColSpan, fp.RowSpan, fp.FlowId);
+                        var strokeColor  = hasOverlap ? "#e53935" : color;
+                        var strokeWidth  = hasOverlap ? 3 : 2;
+                        var fillOpacity  = hasOverlap ? "0.6" : "0.9";
+
+                        <g data-flow-id="@fp.FlowId"
+                           data-col="@fp.Col" data-row="@fp.Row"
+                           data-colspan="@fp.ColSpan" data-rowspan="@fp.RowSpan"
+                           style="cursor: grab;">
+                            <rect x="@(px + pad)" y="@(py + pad)"
+                                  width="@(pw - pad * 2)" height="@(ph - pad * 2)"
+                                  rx="6" ry="6"
+                                  fill="@color" fill-opacity="@fillOpacity"
+                                  stroke="@strokeColor" stroke-width="@strokeWidth" />
+                            @* 삭제 버튼 (우상단) *@
+                            <g data-delete-for="@fp.FlowId.ToString()" style="cursor: pointer;">
+                                <circle cx="@(px + pw - pad - 16)" cy="@(py + pad + 16)"
+                                        r="14" fill="@(hasOverlap ? "#e53935" : "rgba(0,0,0,0.45)")" />
+                                <text x="@(px + pw - pad - 16)" y="@(py + pad + 22)"
+                                      text-anchor="middle" fill="white"
+                                      font-size="20" font-weight="700"
+                                      style="pointer-events: none; user-select: none;">×</text>
+                            </g>
+                            <text x="@(px + pw / 2)" y="@(py + ph / 2 - 6)"
+                                  text-anchor="middle" fill="white"
+                                  font-size="20" font-weight="600"
+                                  style="pointer-events: none;">
+                                @fp.FlowName
+                            </text>
+                            <text x="@(px + pw / 2)" y="@(py + ph / 2 + 18)"
+                                  text-anchor="middle" fill="rgba(255,255,255,0.7)"
+                                  font-size="15"
+                                  style="pointer-events: none;">
+                                @fp.SystemName
+                            </text>
+                            @* 리사이즈 핸들 (우하단) *@
+                            <g data-resize-for="@fp.FlowId.ToString()" style="cursor: se-resize;">
+                                <rect x="@(px + pw - pad - 24)" y="@(py + ph - pad - 24)"
+                                      width="24" height="24" rx="4" ry="4"
+                                      fill="rgba(255,255,255,0.85)"
+                                      stroke="@color" stroke-width="2" />
+                                <text x="@(px + pw - pad - 12)" y="@(py + ph - pad - 4)"
+                                      text-anchor="middle" fill="@color"
+                                      font-size="18" font-weight="700"
+                                      style="pointer-events: none; user-select: none;">⤡</text>
+                            </g>
+                        </g>
+                    }
+                </svg>
+              </div>
+            </div>
+        </div>
+
+    }
+</div>
+
+@code {
+    private List<Ds2.Core.DsSystem> _systems = [];
+    private Dictionary<Guid, List<Ds2.Core.Flow>> _systemFlows = [];
+    private Dictionary<Guid, (string SystemName, string FlowName, Guid SystemId)> _flowInfo = [];
+    private List<(Guid FlowId, string FlowName, string SystemName, Guid SystemId)> _orderedFlows = [];
+    private DotNetObjectReference<Editor>? _dotNetRef;
+    private bool _isDirty;
+
+    private int _gridColumns;
+    private int _gridRows;
+    private int _offsetX;
+    private int _offsetY;
+    private int _offsetRight;
+    private int _offsetBottom;
+
+    // 이미지 업로드 미리보기 (적용 전까지 임시 보관)
+    private byte[]? _pendingImageBytes;
+    private string? _pendingImageDataUrl;
+    private string? _pendingImageFileName;
+    private int _pendingCanvasWidth;
+    private int _pendingCanvasHeight;
+    private bool HasPendingImage => _pendingImageBytes != null;
+
+    // 현재 표시할 캔버스 크기 (pending 우선)
+    private int EffectiveCanvasWidth => HasPendingImage ? _pendingCanvasWidth : BlueprintService.Layout.CanvasWidth;
+    private int EffectiveCanvasHeight => HasPendingImage ? _pendingCanvasHeight : BlueprintService.Layout.CanvasHeight;
+
+    // 현재 표시할 이미지 경로 (pending 우선)
+    private string? EffectiveImageHref => HasPendingImage
+        ? _pendingImageDataUrl
+        : (!string.IsNullOrEmpty(BlueprintService.Layout.BlueprintImagePath)
+            ? $"/{BlueprintService.Layout.BlueprintImagePath.TrimStart('/')}?v={BlueprintService.ImageVersion}"
+            : null);
+
+    private static readonly string[] SystemColors =
+        ["#0A1E5A", "#1A3A7A", "#2D5499", "#4070B8", "#5A8CD7"];
+    private readonly Dictionary<Guid, int> _systemColorIndex = [];
+
+    protected override void OnInitialized()
+    {
+        if (!ProjectService.IsLoaded) return;
+        _systems = ProjectService.GetActiveSystems();
+        foreach (var sys in _systems)
+        {
+            var flows = ProjectService.GetFlows(sys.Id);
+            _systemFlows[sys.Id] = flows;
+            foreach (var flow in flows)
+            {
+                _flowInfo[flow.Id] = (sys.Name, flow.Name, sys.Id);
+            }
+        }
+
+        // Build flat ordered flow list
+        var allFlows = _systems.SelectMany(sys =>
+            ProjectService.GetFlows(sys.Id).Select(f => (f.Id, f.Name, SystemName: sys.Name, SystemId: sys.Id))
+        ).ToList();
+
+        var savedOrder = BlueprintService.Layout.FlowProcessOrder;
+        if (savedOrder.Count > 0)
+        {
+            var orderMap = savedOrder.Select((e, i) => (e.FlowId, Index: i))
+                .ToDictionary(x => x.FlowId, x => x.Index);
+            _orderedFlows = allFlows
+                .OrderBy(f => orderMap.GetValueOrDefault(f.Id, int.MaxValue))
+                .Select(f => (f.Id, f.Name, f.SystemName, f.SystemId))
+                .ToList();
+        }
+        else
+        {
+            _orderedFlows = allFlows.Select(f => (f.Id, f.Name, f.SystemName, f.SystemId)).ToList();
+        }
+
+        _gridColumns = BlueprintService.Layout.GridColumns;
+        _gridRows = BlueprintService.Layout.GridRows;
+        _offsetX = BlueprintService.Layout.OffsetX;
+        _offsetY = BlueprintService.Layout.OffsetY;
+        _offsetRight = BlueprintService.Layout.OffsetRight;
+        _offsetBottom = BlueprintService.Layout.OffsetBottom;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && ProjectService.IsLoaded)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("canvasInterop.init",
+                _dotNetRef, "editor-svg", EffectiveCellWidth, EffectiveCellHeight,
+                _gridColumns, _gridRows, _offsetX, _offsetY);
+            await JS.InvokeVoidAsync("flowReorder.init", _dotNetRef, "flow-reorder-list");
+        }
+    }
+
+    private int EffectiveCellWidth => _gridColumns > 0 ? (EffectiveCanvasWidth - _offsetX - _offsetRight) / _gridColumns : 200;
+    private int EffectiveCellHeight => _gridRows > 0 ? (EffectiveCanvasHeight - _offsetY - _offsetBottom) / _gridRows : 200;
+
+    private async Task SyncGridToJs()
+    {
+        await JS.InvokeVoidAsync("canvasInterop.updateGrid",
+            EffectiveCellWidth, EffectiveCellHeight, _gridColumns, _gridRows,
+            _offsetX, _offsetY);
+    }
+
+    private async Task OnGridChanged(Action assign)
+    {
+        assign();
+        BlueprintService.Layout.GridColumns = _gridColumns;
+        BlueprintService.Layout.GridRows = _gridRows;
+        BlueprintService.Layout.OffsetX = _offsetX;
+        BlueprintService.Layout.OffsetY = _offsetY;
+        BlueprintService.Layout.OffsetRight = _offsetRight;
+        BlueprintService.Layout.OffsetBottom = _offsetBottom;
+        _isDirty = true;
+        await SyncGridToJs();
+    }
+
+    private async Task OnBlueprintFileSelected(IBrowserFile file)
+    {
+        if (file == null) return;
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            _pendingImageBytes = ms.ToArray();
+            _pendingImageFileName = file.Name;
+
+            // 이미지 크기 감지
+            var (w, h) = DetectImageDimensions(_pendingImageBytes);
+            if (w > 0 && h > 0)
+            {
+                _pendingCanvasWidth = w;
+                _pendingCanvasHeight = h;
+            }
+            else
+            {
+                // 감지 실패 시 기존 캔버스 크기 유지
+                _pendingCanvasWidth = BlueprintService.Layout.CanvasWidth;
+                _pendingCanvasHeight = BlueprintService.Layout.CanvasHeight;
+            }
+
+            // data URL 생성 (미리보기용)
+            var ext = Path.GetExtension(file.Name).ToLowerInvariant();
+            var mime = ext == ".png" ? "image/png" : "image/jpeg";
+            _pendingImageDataUrl = $"data:{mime};base64,{Convert.ToBase64String(_pendingImageBytes)}";
+
+            _isDirty = true;
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar",
+                $"이미지 미리보기 ({w}x{h}). '적용' 버튼을 눌러 저장하세요.", "info");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"Upload failed: {ex.Message}", "error");
+        }
+    }
+
+    private static (int Width, int Height) DetectImageDimensions(byte[] data)
+    {
+        if (data.Length < 24) return (0, 0);
+
+        // PNG
+        if (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47)
+        {
+            var width = (data[16] << 24) | (data[17] << 16) | (data[18] << 8) | data[19];
+            var height = (data[20] << 24) | (data[21] << 16) | (data[22] << 8) | data[23];
+            return (width, height);
+        }
+
+        // JPEG
+        if (data[0] == 0xFF && data[1] == 0xD8)
+        {
+            int pos = 2;
+            while (pos < data.Length - 8)
+            {
+                if (data[pos] != 0xFF) { pos++; continue; }
+                var marker = data[pos + 1];
+                if (marker == 0xC0 || marker == 0xC2)
+                {
+                    var height = (data[pos + 5] << 8) | data[pos + 6];
+                    var width = (data[pos + 7] << 8) | data[pos + 8];
+                    return (width, height);
+                }
+                if (marker == 0xD9 || marker == 0xDA) break;
+                var len = (data[pos + 2] << 8) | data[pos + 3];
+                pos += 2 + len;
+            }
+        }
+
+        return (0, 0);
+    }
+
+    [JSInvokable]
+    public void OnFlowDropped(string flowIdStr, int col, int row)
+    {
+        if (!Guid.TryParse(flowIdStr, out var flowId)) return;
+        if (!_flowInfo.TryGetValue(flowId, out var info)) return;
+        if (BlueprintService.Layout.FlowPlacements.Any(p => p.FlowId == flowId)) return;
+
+        if (IsOccupied(col, row, 1, 1))
+        {
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", $"해당 위치가 이미 점유되어 있습니다. [{col},{row}]", "warning");
+            InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        var placement = new FlowPlacement
+        {
+            FlowId = flowId,
+            SystemId = info.SystemId,
+            FlowName = info.FlowName,
+            SystemName = info.SystemName,
+            Col = col,
+            Row = row,
+            ColSpan = 1,
+            RowSpan = 1
+        };
+
+        BlueprintService.UpdatePlacementLocal(placement);
+        _isDirty = true;
+        _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", $"배치됨: {info.FlowName} [{col},{row}] 1x1", "success");
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public void OnNodeDropped(string flowIdStr, int col, int row)
+    {
+        if (!Guid.TryParse(flowIdStr, out var flowId)) return;
+        var existing = BlueprintService.Layout.FlowPlacements.FirstOrDefault(p => p.FlowId == flowId);
+        if (existing == null) return;
+
+        if (IsOccupied(col, row, existing.ColSpan, existing.RowSpan, flowId))
+        {
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "해당 위치가 다른 블럭과 겹칩니다.", "warning");
+            InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        existing.Col = col;
+        existing.Row = row;
+        BlueprintService.UpdatePlacementLocal(existing);
+        _isDirty = true;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnCellChanged(FlowPlacement fp, string field, ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var val)) return;
+        var prev = (fp.Col, fp.Row, fp.ColSpan, fp.RowSpan);
+        switch (field)
+        {
+            case nameof(FlowPlacement.Col): fp.Col = Math.Clamp(val, 0, _gridColumns - 1); break;
+            case nameof(FlowPlacement.Row): fp.Row = Math.Clamp(val, 0, _gridRows - 1); break;
+            case nameof(FlowPlacement.ColSpan): fp.ColSpan = Math.Clamp(val, 1, _gridColumns - fp.Col); break;
+            case nameof(FlowPlacement.RowSpan): fp.RowSpan = Math.Clamp(val, 1, _gridRows - fp.Row); break;
+        }
+        if (IsOccupied(fp.Col, fp.Row, fp.ColSpan, fp.RowSpan, fp.FlowId))
+        {
+            (fp.Col, fp.Row, fp.ColSpan, fp.RowSpan) = prev;
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "해당 위치/크기가 다른 블럭과 겹칩니다.", "warning");
+        }
+        else
+        {
+            BlueprintService.UpdatePlacementLocal(fp);
+            _isDirty = true;
+        }
+        StateHasChanged();
+    }
+
+    private bool IsOccupied(int col, int row, int colSpan, int rowSpan, Guid? excludeId = null)
+    {
+        foreach (var fp in BlueprintService.Layout.FlowPlacements)
+        {
+            if (excludeId.HasValue && fp.FlowId == excludeId.Value) continue;
+            bool colOverlap = col < fp.Col + fp.ColSpan && col + colSpan > fp.Col;
+            bool rowOverlap = row < fp.Row + fp.RowSpan && row + rowSpan > fp.Row;
+            if (colOverlap && rowOverlap) return true;
+        }
+        return false;
+    }
+
+    private void RemovePlacement(Guid flowId)
+    {
+        BlueprintService.RemovePlacementLocal(flowId);
+        _isDirty = true;
+        _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "Removed.", "info");
+        StateHasChanged();
+    }
+
+    private async Task ClearAllPlacements()
+    {
+        var count = BlueprintService.Layout.FlowPlacements.Count;
+        if (count == 0) return;
+
+        var confirmed = await JS.InvokeAsync<bool>("uiUtils.showConfirm",
+            "블럭 모두 지우기",
+            $"배치된 오버레이 블럭 {count}개를 모두 삭제하시겠습니까?",
+            "삭제", "취소");
+        if (!confirmed) return;
+
+        BlueprintService.Layout.FlowPlacements.Clear();
+        _isDirty = true;
+        await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"블럭 {count}개가 삭제되었습니다.", "info");
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnFlowReordered(int fromIndex, int toIndex)
+    {
+        if (fromIndex < 0 || fromIndex >= _orderedFlows.Count) return;
+        if (toIndex < 0 || toIndex >= _orderedFlows.Count) return;
+        if (fromIndex == toIndex) return;
+
+        var item = _orderedFlows[fromIndex];
+        _orderedFlows.RemoveAt(fromIndex);
+        _orderedFlows.Insert(toIndex, item);
+        _isDirty = true;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (_isDirty)
+        {
+            var confirmed = await JS.InvokeAsync<bool>(
+                "confirm", "저장하지 않은 변경사항이 있습니다. 정말 떠나시겠습니까?");
+            if (!confirmed)
+            {
+                context.PreventNavigation();
+            }
+        }
+    }
+
+    private async Task ApplyChanges()
+    {
+        // pending 이미지가 있으면 저장
+        if (HasPendingImage)
+        {
+            using var ms = new MemoryStream(_pendingImageBytes!);
+            await BlueprintService.SaveBlueprintImageAsync(ms, _pendingImageFileName!);
+            _pendingImageBytes = null;
+            _pendingImageDataUrl = null;
+            _pendingImageFileName = null;
+
+            // 그리드 업데이트 (캔버스 크기 변경 반영)
+            await SyncGridToJs();
+        }
+
+        // Save flow process order
+        BlueprintService.Layout.FlowProcessOrder = _orderedFlows
+            .Select(f => new FlowOrderEntry { FlowId = f.FlowId, FlowName = f.FlowName })
+            .ToList();
+
+        BlueprintService.SaveLayout();
+        _isDirty = false;
+        await JS.InvokeVoidAsync("uiUtils.showSnackbar", "저장되었습니다.", "success");
+    }
+
+    [JSInvokable]
+    public void OnNodeDeleted(string flowIdStr)
+    {
+        if (!Guid.TryParse(flowIdStr, out var flowId)) return;
+        RemovePlacement(flowId);
+    }
+
+    [JSInvokable]
+    public async Task OnGridHandleDragged(string handle, int svgX, int svgY)
+    {
+        var cw = EffectiveCanvasWidth;
+        var ch = EffectiveCanvasHeight;
+
+        switch (handle)
+        {
+            case "tl":
+                _offsetX = Math.Clamp(svgX, 0, cw - _offsetRight - _gridColumns * 10);
+                _offsetY = Math.Clamp(svgY, 0, ch - _offsetBottom - _gridRows * 10);
+                break;
+            case "tr":
+                _offsetRight = Math.Clamp(cw - svgX, 0, cw - _offsetX - _gridColumns * 10);
+                _offsetY = Math.Clamp(svgY, 0, ch - _offsetBottom - _gridRows * 10);
+                break;
+            case "bl":
+                _offsetX = Math.Clamp(svgX, 0, cw - _offsetRight - _gridColumns * 10);
+                _offsetBottom = Math.Clamp(ch - svgY, 0, ch - _offsetY - _gridRows * 10);
+                break;
+            case "br":
+                _offsetRight = Math.Clamp(cw - svgX, 0, cw - _offsetX - _gridColumns * 10);
+                _offsetBottom = Math.Clamp(ch - svgY, 0, ch - _offsetY - _gridRows * 10);
+                break;
+        }
+
+        BlueprintService.Layout.OffsetX = _offsetX;
+        BlueprintService.Layout.OffsetY = _offsetY;
+        BlueprintService.Layout.OffsetRight = _offsetRight;
+        BlueprintService.Layout.OffsetBottom = _offsetBottom;
+        _isDirty = true;
+
+        await SyncGridToJs();
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnNodeResized(string flowIdStr, int colSpan, int rowSpan)
+    {
+        if (!Guid.TryParse(flowIdStr, out var flowId)) return;
+        var existing = BlueprintService.Layout.FlowPlacements.FirstOrDefault(p => p.FlowId == flowId);
+        if (existing == null) return;
+
+        var newCS = Math.Clamp(colSpan, 1, _gridColumns - existing.Col);
+        var newRS = Math.Clamp(rowSpan, 1, _gridRows - existing.Row);
+        if (newCS == existing.ColSpan && newRS == existing.RowSpan) return;
+
+        var prev = (existing.ColSpan, existing.RowSpan);
+        existing.ColSpan = newCS;
+        existing.RowSpan = newRS;
+
+        if (IsOccupied(existing.Col, existing.Row, newCS, newRS, flowId))
+        {
+            (existing.ColSpan, existing.RowSpan) = prev;
+            _ = JS.InvokeVoidAsync("uiUtils.showSnackbar", "해당 크기가 다른 블럭과 겹칩니다.", "warning");
+        }
+        else
+        {
+            BlueprintService.UpdatePlacementLocal(existing);
+            _isDirty = true;
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ImportJson(IBrowserFile file)
+    {
+        if (file == null) return;
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var reader = new System.IO.StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+            BlueprintService.LoadLayoutJson(json);
+
+            _gridColumns = BlueprintService.Layout.GridColumns;
+            _gridRows = BlueprintService.Layout.GridRows;
+            _offsetX = BlueprintService.Layout.OffsetX;
+            _offsetY = BlueprintService.Layout.OffsetY;
+            _offsetRight = BlueprintService.Layout.OffsetRight;
+            _offsetBottom = BlueprintService.Layout.OffsetBottom;
+
+            await SyncGridToJs();
+
+            _isDirty = false;
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", "JSON imported.", "success");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("uiUtils.showSnackbar", $"Import failed: {ex.Message}", "error");
+        }
+    }
+
+    private async Task ExportJson()
+    {
+        var json = BlueprintService.GetLayoutJson();
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+        var base64 = Convert.ToBase64String(bytes);
+        await JS.InvokeVoidAsync("canvasInterop.downloadFile",
+            "layout-data.json", "application/json", base64);
+        await JS.InvokeVoidAsync("uiUtils.showSnackbar", "JSON exported.", "success");
+    }
+
+    private string GetSystemColor(Guid systemId)
+    {
+        if (!_systemColorIndex.ContainsKey(systemId))
+            _systemColorIndex[systemId] = _systemColorIndex.Count % SystemColors.Length;
+        return SystemColors[_systemColorIndex[systemId]];
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("canvasInterop.dispose"); } catch { }
+        try { await JS.InvokeVoidAsync("flowReorder.dispose"); } catch { }
+        _dotNetRef?.Dispose();
+    }
+}
