@@ -194,6 +194,23 @@ public partial class CustomModelDialog : Window
         if (SystemTypePlaceholder != null)
             SystemTypePlaceholder.Visibility = string.IsNullOrEmpty(SystemTypeInput.Text)
                 ? Visibility.Visible : Visibility.Collapsed;
+
+        UpdateJsonEditorEnabled();
+    }
+
+    /// <summary>
+    /// SystemType 이름이 비어있으면 JSON 입력 / 파일 불러오기를 차단.
+    /// (이름이 없는 상태에서 JSON만 편집되는 것을 방지)
+    /// </summary>
+    private void UpdateJsonEditorEnabled()
+    {
+        if (JsonEditor == null) return;
+        var hasType = !string.IsNullOrWhiteSpace(SystemTypeInput.Text);
+        JsonEditor.IsEnabled = hasType;
+        if (LoadFileButton != null) LoadFileButton.IsEnabled = hasType;
+        if (JsonEditorHint != null)
+            JsonEditorHint.Visibility = (!hasType && string.IsNullOrEmpty(JsonEditor.Text))
+                ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>
