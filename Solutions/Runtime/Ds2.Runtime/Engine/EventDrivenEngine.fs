@@ -117,8 +117,21 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
                 ScheduledEventType.ForcedCallTransition(callGuid, newState),
                 ScheduledEvent.PriorityStateChange) |> ignore
     let executeApiCall deviceWorkGuid =
+        let curSt = stateManager.GetWorkState(deviceWorkGuid)
+        let wname = index.WorkName |> Map.tryFind deviceWorkGuid |> Option.defaultValue (string deviceWorkGuid)
+        // 진단 파일 append (간이 로그)
+        let diagPath =
+            System.IO.Path.Combine(
+                System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),
+                sprintf "ds2_execapi_%A.txt" runtimeMode)
+        try
+            System.IO.File.AppendAllText(
+                diagPath,
+                sprintf "[%O] mode=%A device=%s state=%A\n"
+                    System.DateTime.Now runtimeMode wname curSt)
+        with _ -> ()
         // Finish 상태인 Device Work는 Going 전이 차단 (Reset 없이 재전진 방지)
-        if stateManager.GetWorkState(deviceWorkGuid) = Status4.Finish then () else
+        if curSt = Status4.Finish then () else
         match runtimeMode with
         | RuntimeMode.Simulation ->
             forceWorkState deviceWorkGuid Status4.Going
@@ -183,8 +196,16 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         CanReceiveToken = canReceiveToken
         ApplyWorkTransition = applyWorkTransition
     }
+    /// Passive 모드 (VirtualPlant / Monitoring)는 상태 전이를 IO 이벤트 기반 외부 유추로만 처리.
+    /// 엔진의 자체 조건 평가 루프를 끔 — 수동 관찰자 역할.
+    let isPassiveMode =
+        match runtimeMode with
+        | RuntimeMode.VirtualPlant | RuntimeMode.Monitoring -> true
+        | _ -> false
+
     let evaluateConditions () =
-        ConditionEvaluation.evaluateConditions conditionEvaluationContext ()
+        if not isPassiveMode then
+            ConditionEvaluation.evaluateConditions conditionEvaluationContext ()
     let transitionGuardsContext : TransitionGuards.Context = {
         Index = index
         StateManager = stateManager
@@ -210,7 +231,8 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     }
     let handleDurationComplete workGuid =
         durationTracker.Remove(workGuid)
-        if stateManager.GetWorkState(workGuid) = Status4.Going then
+        // Passive 모드에서는 Duration 기반 자동 Finish도 끔 (외부에서 수동 제어)
+        if not isPassiveMode && stateManager.GetWorkState(workGuid) = Status4.Going then
             stateManager.MarkMinDurationMet(workGuid)
             let callGuids = SimIndex.findOrEmpty workGuid index.WorkCallGuids
             if callGuids.IsEmpty then
