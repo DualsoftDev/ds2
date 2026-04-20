@@ -64,11 +64,31 @@ public partial class CustomModelDialog : Window
         // 편집 모드이면 기존 데이터 로드
         if (!string.IsNullOrEmpty(EditingSystemType))
         {
-            SystemTypeInput.Text = EditingSystemType;
             if (_registry.Models.TryGetValue(EditingSystemType, out var json))
                 JsonEditor.Text = json;
             Title = $"커스텀 3D 모델 편집 — {EditingSystemType}";
             RegisterButton.Content = "저장";
+            // 상태 동기 설정 (UpdateJsonEditorEnabled가 hasType=true로 인식해 dim 깜빡임 방지)
+            SystemTypeInput.Text = EditingSystemType;
+
+            // IsEditable ComboBox의 내부 edit TextBox는 Loaded 시점엔 템플릿이 미완성이라
+            // Text 할당이 시각적으로 반영되지 않는 경우가 있음.
+            // Dispatcher Input 우선순위로 지연하여 SelectedItem + Text 재설정 → 표시 갱신.
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                object? matched = null;
+                foreach (var item in SystemTypeInput.Items)
+                {
+                    if (item is string s && string.Equals(s, EditingSystemType, StringComparison.Ordinal))
+                    {
+                        matched = item;
+                        break;
+                    }
+                }
+                if (matched != null)
+                    SystemTypeInput.SelectedItem = matched;
+                SystemTypeInput.Text = EditingSystemType;
+            }), System.Windows.Threading.DispatcherPriority.Input);
         }
 
         UpdatePlaceholder();
@@ -199,18 +219,31 @@ public partial class CustomModelDialog : Window
     }
 
     /// <summary>
-    /// SystemType 이름이 비어있으면 JSON 입력 / 파일 불러오기를 차단.
-    /// (이름이 없는 상태에서 JSON만 편집되는 것을 방지)
+    /// SystemType 이름이 비어있으면 JSON 입력 / 파일 불러오기 / AI 프롬프트 / 프리뷰를 비활성화.
+    /// 숨기지 않고 불투명도로 죽여서 중앙 힌트로 안내.
+    /// WebView2는 native HWND(airspace)라 Opacity가 먹히지 않으므로 Visibility=Hidden으로 처리
+    /// — 프리뷰 Border 프레임은 dim된 채로 남아 "꺼짐" 느낌 유지.
     /// </summary>
     private void UpdateJsonEditorEnabled()
     {
         if (JsonEditor == null) return;
         var hasType = !string.IsNullOrWhiteSpace(SystemTypeInput.Text);
+        var dimOpacity = 0.35;
+
         JsonEditor.IsEnabled = hasType;
         if (LoadFileButton != null) LoadFileButton.IsEnabled = hasType;
-        if (JsonEditorHint != null)
-            JsonEditorHint.Visibility = (!hasType && string.IsNullOrEmpty(JsonEditor.Text))
-                ? Visibility.Visible : Visibility.Collapsed;
+        if (AIPromptButton != null) AIPromptButton.IsEnabled = hasType;
+
+        if (JsonBorder != null) JsonBorder.Opacity = hasType ? 1.0 : dimOpacity;
+        if (PreviewBorder != null)
+        {
+            PreviewBorder.Opacity = hasType ? 1.0 : dimOpacity;
+            PreviewBorder.IsEnabled = hasType;
+        }
+        if (PreviewWebView != null)
+            PreviewWebView.Visibility = hasType ? Visibility.Visible : Visibility.Hidden;
+        if (DisabledHint != null)
+            DisabledHint.Visibility = hasType ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>
