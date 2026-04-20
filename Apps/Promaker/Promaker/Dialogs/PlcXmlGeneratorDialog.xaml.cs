@@ -274,50 +274,12 @@ public partial class PlcXmlGeneratorDialog : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        if (_generatedXml == null) return;
-
-        var modelName = !string.IsNullOrEmpty(_currentFilePath)
-            ? Path.GetFileNameWithoutExtension(_currentFilePath)
-            : "plc_output";
-
-        var saveDialog = new SaveFileDialog
-        {
-            Title  = "PLC 저장",
-            Filter = "XG5000 XML Files (*.xml)|*.xml|All Files (*.*)|*.*",
-            FileName = $"{modelName}.xml"
-        };
-
-        if (saveDialog.ShowDialog(this) != true) return;
-
-        var crlfXml = _generatedXml.Replace("\r\n", "\n").Replace("\n", "\r\n");
-        File.WriteAllText(saveDialog.FileName, crlfXml, new System.Text.UTF8Encoding(false));
-
-        SetStatus($"✓ 저장 완료: {Path.GetFileName(saveDialog.FileName)}");
-        OpenWithXg5000(saveDialog.FileName);
-    }
-
-    private void OpenWithXg5000(string filePath)
-    {
-        var xg5000Exe = PlcConfig.Settings.EffectiveXg5000ExePath;
-        if (string.IsNullOrEmpty(xg5000Exe))
-        {
-            SetStatus("✓ 저장 완료 (XG5000 경로 미설정 — 프로젝트 속성에서 지정하세요)", isError: false);
-            return;
-        }
-
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = xg5000Exe,
-                Arguments = $"\"{filePath}\"",
-                UseShellExecute = false
-            });
-        }
-        catch (Exception ex)
-        {
-            SetStatus($"⚠ XG5000 실행 실패: {ex.Message}", isError: true);
-        }
+        MessageBox.Show(
+            "XGI PLC 생성은 추후 패치 예정입니다.",
+            "패치 예정",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+        Close();
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────────

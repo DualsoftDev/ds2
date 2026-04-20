@@ -210,7 +210,7 @@ public partial class ThreeDViewState : ObservableObject
         }
     }
 
-    private async void FlushPendingStates()
+    private void FlushPendingStates()
     {
         _flushScheduled = false;
         _lastFlushTime = DateTime.UtcNow;

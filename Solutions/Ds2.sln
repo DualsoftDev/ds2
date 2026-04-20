@@ -49,11 +49,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CostSim", "..\Apps\CostSim\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Promaker", "..\Apps\Promaker\Promaker\Promaker.csproj", "{76AE351D-4F1C-8A45-EFAB-89688F4C2DB4}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.IOList", "Convert\Ds2.IOList\Ds2.IOList.fsproj", "{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AasxEditor", "..\Apps\AasxEditor\AasxEditor\AasxEditor.csproj", "{0B0541FA-0693-DB28-2777-970CFD444102}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DSPilot", "..\Apps\DSPilot\DSPilot\DSPilot.csproj", "{F718AAC7-64F5-3D67-FF69-5877D6479083}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Ds2.IOList", "Convert\Ds2.IOList\Ds2.IOList.fsproj", "{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -269,18 +269,6 @@ Global
 		{76AE351D-4F1C-8A45-EFAB-89688F4C2DB4}.Release|x64.Build.0 = Release|Any CPU
 		{76AE351D-4F1C-8A45-EFAB-89688F4C2DB4}.Release|x86.ActiveCfg = Release|Any CPU
 		{76AE351D-4F1C-8A45-EFAB-89688F4C2DB4}.Release|x86.Build.0 = Release|Any CPU
-		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Debug|x64.Build.0 = Debug|Any CPU
-		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Debug|x86.Build.0 = Debug|Any CPU
-		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Release|Any CPU.Build.0 = Release|Any CPU
-		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Release|x64.ActiveCfg = Release|Any CPU
-		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Release|x64.Build.0 = Release|Any CPU
-		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Release|x86.ActiveCfg = Release|Any CPU
-		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Release|x86.Build.0 = Release|Any CPU
 		{0B0541FA-0693-DB28-2777-970CFD444102}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{0B0541FA-0693-DB28-2777-970CFD444102}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0B0541FA-0693-DB28-2777-970CFD444102}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -305,6 +293,18 @@ Global
 		{F718AAC7-64F5-3D67-FF69-5877D6479083}.Release|x64.Build.0 = Release|Any CPU
 		{F718AAC7-64F5-3D67-FF69-5877D6479083}.Release|x86.ActiveCfg = Release|Any CPU
 		{F718AAC7-64F5-3D67-FF69-5877D6479083}.Release|x86.Build.0 = Release|Any CPU
+		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Debug|x64.Build.0 = Debug|Any CPU
+		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Debug|x86.Build.0 = Debug|Any CPU
+		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Release|x64.ActiveCfg = Release|Any CPU
+		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Release|x64.Build.0 = Release|Any CPU
+		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Release|x86.ActiveCfg = Release|Any CPU
+		{7A713C2A-2812-471F-6F3F-0747CA7C5FEB}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
