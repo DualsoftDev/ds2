@@ -234,7 +234,7 @@
                 </StackPanel>
             </StackPanel>
             <StackPanel Orientation="Vertical"
-                        Margin="8,0,0,0"
+                        Margin="18,0,0,0"
                         VerticalAlignment="Center"
                         IsEnabled="{Binding HasProject}">
                 <TextBlock Text="Work" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,1"/>
@@ -286,7 +286,7 @@
                 </UniformGrid>
             </StackPanel>
             <StackPanel Orientation="Vertical"
-                        Margin="8,0,0,0"
+                        Margin="18,0,0,0"
                         VerticalAlignment="Center"
                         IsEnabled="{Binding HasProject}">
                 <TextBlock Text="{x:Static res:Strings.Speed}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,1"/>
@@ -306,6 +306,7 @@
             </StackPanel>
             <Button x:Name="OpenTokenSpecButton"
                     Style="{StaticResource RibbonFlatButton}"
+                    Margin="18,0,0,0"
                     Command="{Binding OpenTokenSpecDialogCommand}"
                     IsEnabled="{Binding HasProject}"
                     ToolTip="TokenSpec 편집">
@@ -316,6 +317,7 @@
             </Button>
             <Button x:Name="CheckModelButton"
                     Style="{StaticResource RibbonFlatButton}"
+                    Margin="18,0,0,0"
                     Command="{Binding Simulation.CheckModelCommand}"
                     IsEnabled="{Binding HasProject}"
                     ToolTip="모델 검증 (그래프 경고 확인)">

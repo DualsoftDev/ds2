@@ -50,11 +50,10 @@ public partial class GanttChartControl
         double targetOffset = currentTimeX - viewportWidth * 0.8;
         if (targetOffset < 0) targetOffset = 0;
 
-        double lineScreenX = currentTimeX - _viewModel.HorizontalOffset;
+        double lineScreenX = currentTimeX - TimelineScrollViewer.HorizontalOffset;
         if (lineScreenX < 0 || lineScreenX > viewportWidth)
         {
-            _viewModel.HorizontalOffset = targetOffset;
-            TimelineScrollViewer.ScrollToHorizontalOffset(targetOffset);
+            ApplyHorizontalOffset(targetOffset);
         }
     }
 
@@ -209,7 +208,7 @@ public partial class GanttChartControl
         double totalSeconds = Math.Max(_viewModel.TotalDuration.TotalSeconds, 1);
         double pixelsPerSecond = _viewModel.PixelsPerSecond;
         double viewportWidth = TimeRulerCanvas.ActualWidth;
-        double offset = _viewModel.HorizontalOffset;
+        double offset = TimelineScrollViewer.HorizontalOffset;
 
         double tickInterval = pixelsPerSecond >= 100 ? 1
             : pixelsPerSecond >= 50 ? 5
@@ -248,7 +247,7 @@ public partial class GanttChartControl
     private void UpdateCurrentTimeIndicator()
     {
         if (_viewModel == null) return;
-        double x = _viewModel.TotalDuration.TotalSeconds * _viewModel.PixelsPerSecond - _viewModel.HorizontalOffset;
+        double x = _viewModel.TotalDuration.TotalSeconds * _viewModel.PixelsPerSecond - TimelineScrollViewer.HorizontalOffset;
         Canvas.SetLeft(CurrentTimeLine, x);
         CurrentTimeLine.Y2 = CurrentTimeOverlay.ActualHeight;
         CurrentTimeLine.Visibility = x >= 0 && x <= CurrentTimeOverlay.ActualWidth
