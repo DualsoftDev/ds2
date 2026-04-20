@@ -13,8 +13,6 @@ module internal AasxImportCore =
 
     let log = LogManager.GetLogger("Ds2.Aasx.AasxImporter")
 
-    // ── 파싱 헬퍼 ────────────────────────────────────────────────────────────
-
     let valueOrEmpty (p: Property) = if p.Value = null then "" else p.Value
 
     let tryParseGuid (s: string) =
@@ -59,7 +57,23 @@ module internal AasxImportCore =
                 | _ -> None)
             |> Option.defaultValue []
 
-    // ── Enum 파싱 (통합) ─────────────────────────────────────────────────────
+    /// 시스템 SMC에서 IoConfig 4개 필드를 JSON 역직렬화로 복원
+    let smcToControlIoConfig (systemSmc: SubmodelElementCollection) =
+        let presets =
+            getProp systemSmc "FBTagMapPresets"
+            |> Option.bind (fun json ->
+                try Some (Ds2.Serialization.JsonConverter.deserialize<System.Collections.Generic.Dictionary<string, FBTagMapPreset>> json)
+                with ex -> log.Warn($"FBTagMapPresets 역직렬화 실패: {ex.Message}"); None)
+            |> Option.defaultWith System.Collections.Generic.Dictionary
+        let ioSystemBase     = getProp systemSmc "IoSystemBase"     |> Option.defaultValue ""
+        let ioFlowBase       = getProp systemSmc "IoFlowBase"       |> Option.defaultValue ""
+        let deviceTemplates  =
+            getProp systemSmc "IoDeviceTemplates"
+            |> Option.bind (fun json ->
+                try Some (Ds2.Serialization.JsonConverter.deserialize<System.Collections.Generic.Dictionary<string, string>> json)
+                with ex -> log.Warn($"IoDeviceTemplates 역직렬화 실패: {ex.Message}"); None)
+            |> Option.defaultWith System.Collections.Generic.Dictionary
+        (presets, ioSystemBase, ioFlowBase, deviceTemplates)
 
     let private parseEnum<'T when 'T: struct and 'T :> ValueType and 'T: (new: unit -> 'T)> (defaultVal: 'T) (s: string) : 'T =
         let mutable result = defaultVal
@@ -67,8 +81,6 @@ module internal AasxImportCore =
 
     let parseArrowType = parseEnum ArrowType.Unspecified
     let parseStatus4   = parseEnum Status4.Ready
-
-    // ── 유틸리티 ─────────────────────────────────────────────────────────────
 
     let describeSmc (smc: SubmodelElementCollection) =
         let guid = getProp smc "Guid" |> Option.defaultValue "<missing>"
@@ -83,8 +95,6 @@ module internal AasxImportCore =
                 | Some v -> loop (v :: acc) tail
                 | None   -> log.Error($"AASX import failed: invalid {itemLabel} under {ownerLabel} ({describeSmc smc})."); None
         loop [] items
-
-    // ── elementsToProps 핵심: 타입별 변환 ────────────────────────────────────
 
     let private trySetValue (propType: Type) (value: string) (pi: PropertyInfo) (target: obj) : unit option =
         let set (v: obj) = pi.SetValue(target, v); Some ()
@@ -168,8 +178,6 @@ module internal AasxImportCore =
             Some instance
         with ex ->
             log.Warn($"elementsToProps 실패: {ex.Message}", ex); None
-
-    // ── Arrow 변환 ───────────────────────────────────────────────────────────
 
     let smcToArrow<'T when 'T :> DsArrow> label (smc: SubmodelElementCollection) parentId
                                           (ctor: Guid -> Guid -> Guid -> ArrowType -> 'T) : 'T option =

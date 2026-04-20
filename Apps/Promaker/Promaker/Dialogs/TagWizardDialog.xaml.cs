@@ -8,6 +8,7 @@ using System.Windows.Media;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
+using Microsoft.FSharp.Core;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;
@@ -67,6 +68,23 @@ public partial class TagWizardDialog : Window
         PreviewApiFilterBox.TextChanged += (_, _) => _ioView.Refresh();
 
         InitializeStep1();
+    }
+
+    internal ControlSystemProperties? GetOrCreateControlProps()
+    {
+        var projects = Queries.allProjects(_store);
+        if (projects.IsEmpty) return null;
+        var activeSystems = Queries.activeSystemsOf(projects.Head.Id, _store);
+        if (activeSystems.IsEmpty) return null;
+        var sys = activeSystems.Head;
+        var ctrlOpt = sys.GetControlProperties();
+        if (!FSharpOption<ControlSystemProperties>.get_IsSome(ctrlOpt))
+        {
+            var cp = new ControlSystemProperties();
+            sys.SetControlProperties(cp);
+            return cp;
+        }
+        return ctrlOpt.Value;
     }
 
     private bool FilterIoRow(object obj)
