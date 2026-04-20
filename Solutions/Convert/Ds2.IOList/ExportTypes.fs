@@ -3,13 +3,12 @@ namespace Ds2.IOList
 open System
 
 // =============================================================================
-// Export Types & Helpers
+// Export Types & Helpers (CSV only - no Excel)
 // =============================================================================
 
 type ExportFormat =
     | CsvLegacy
     | CsvExtended
-    | Excel
 
 type ExportOptions = {
     Format: ExportFormat

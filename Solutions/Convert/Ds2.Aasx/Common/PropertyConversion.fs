@@ -7,7 +7,6 @@ open Ds2.Aasx.AasxImportCore
 
 module PropertyConversion =
 
-    // ── Record (non-generic, obj-free) ──────────────────────────────────────
     type PropertyOps = {
         GetSystemElems  : DsSystem -> ISubmodelElement list
         GetFlowElems    : Flow     -> ISubmodelElement list
@@ -19,7 +18,6 @@ module PropertyConversion =
         CallFromElems   : SubmodelElementCollection -> CallSubmodelProperty   option
     }
 
-    // ── 헬퍼: 4-튜플 × 4개 → PropertyOps ───────────────────────────────────
     let private mkOps
         (gS, sToE, sFrE, sTDU)
         (gF, fToE, fFrE, fTDU)
@@ -35,7 +33,6 @@ module PropertyConversion =
         CallFromElems   = fun smc -> cFrE smc |> Option.map cTDU
     }
 
-    // ── SubmodelType → PropertyOps ──────────────────────────────────────────
     let getPropertyOps = function
         | SequenceModel ->
             { GetSystemElems  = fun _ -> []
@@ -104,7 +101,6 @@ module PropertyConversion =
                 ((fun c -> c.GetCostAnalysisProperties()), costAnalysisCallPropsToElements,   elementsToProps<CostAnalysisCallProperties>,   CostAnalysisCall)
 
 
-    // ── Export ──────────────────────────────────────────────────────────────
     let getEntityElements (submodelType: SubmodelType) (entity: obj) =
         let ops = getPropertyOps submodelType
         match entity with
@@ -114,7 +110,6 @@ module PropertyConversion =
         | :? Call     as c -> ops.GetCallElems   c
         | _                -> []
 
-    // ── Import ──────────────────────────────────────────────────────────────
     let importSystemProperty t smc (props: ResizeArray<_>) = (getPropertyOps t).SystemFromElems smc |> Option.iter props.Add
     let importFlowProperty   t smc (props: ResizeArray<_>) = (getPropertyOps t).FlowFromElems   smc |> Option.iter props.Add
     let importWorkProperty   t smc (props: ResizeArray<_>) = (getPropertyOps t).WorkFromElems   smc |> Option.iter props.Add

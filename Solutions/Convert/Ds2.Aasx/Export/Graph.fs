@@ -14,11 +14,89 @@ module internal AasxExportGraph =
 
     open AasxExportCore
 
-    // ────────────────────────────────────────────────────────────────────────────
-    // 헬퍼 함수들
-    // ────────────────────────────────────────────────────────────────────────────
+    // ── CD URI 매핑: (TypeName, FieldName) → CD URI ───────────────────────────
+    let private cdBase = "https://dualsoft.com/cd/SequenceModel"
 
-    /// GUID 기반 idShort 생성
+    let private cdUriMap : Map<string * string, string> =
+        Map.ofList [
+            // Project
+            ("Project",  "Guid"),             $"{cdBase}/Project/Guid"
+            ("Project",  "Name"),             $"{cdBase}/Project/Name"
+            ("Project",  "Author"),           $"{cdBase}/Project/Author"
+            ("Project",  "Version"),          $"{cdBase}/Project/Version"
+            ("Project",  "DateTime"),         $"{cdBase}/Project/DateTime"
+            ("Project",  "TokenSpecs"),       $"{cdBase}/Project/TokenSpecs"
+            // DsSystem
+            ("DsSystem", "Guid"),             $"{cdBase}/System/Guid"
+            ("DsSystem", "Name"),             $"{cdBase}/System/Name"
+            ("DsSystem", "IRI"),              $"{cdBase}/System/IRI"
+            ("DsSystem", "SystemType"),       $"{cdBase}/System/SystemType"
+            // Flow
+            ("Flow",     "Guid"),             $"{cdBase}/Flow/Guid"
+            ("Flow",     "Name"),             $"{cdBase}/Flow/Name"
+            // Work
+            ("Work",     "Guid"),             $"{cdBase}/Work/Guid"
+            ("Work",     "Name"),             $"{cdBase}/Work/Name"
+            ("Work",     "Status"),           $"{cdBase}/Work/Status"
+            ("Work",     "Position"),         $"{cdBase}/Work/Position"
+            ("Work",     "TokenRole"),        $"{cdBase}/Work/TokenRole"
+            ("Work",     "Duration"),         $"{cdBase}/Work/Duration"
+            ("Work",     "ReferenceOf"),      $"{cdBase}/Work/ReferenceOf"
+            // Call
+            ("Call",     "Guid"),             $"{cdBase}/Call/Guid"
+            ("Call",     "Name"),             $"{cdBase}/Call/Name"
+            ("Call",     "Status"),           $"{cdBase}/Call/Status"
+            ("Call",     "Position"),         $"{cdBase}/Call/Position"
+            ("Call",     "ReferenceOf"),      $"{cdBase}/Call/ReferenceOf"
+            ("Call",     "CallConditions"),   $"{cdBase}/Call/CallConditions"
+            // ApiCall
+            ("ApiCall",  "Guid"),             $"{cdBase}/ApiCall/Guid"
+            ("ApiCall",  "Name"),             $"{cdBase}/ApiCall/Name"
+            ("ApiCall",  "InTag"),            $"{cdBase}/ApiCall/InTag"
+            ("ApiCall",  "OutTag"),           $"{cdBase}/ApiCall/OutTag"
+            ("ApiCall",  "ApiDefId"),         $"{cdBase}/ApiCall/ApiDefId"
+            ("ApiCall",  "InputSpec"),        $"{cdBase}/ApiCall/InputSpec"
+            ("ApiCall",  "OutputSpec"),       $"{cdBase}/ApiCall/OutputSpec"
+            ("ApiCall",  "OriginFlowId"),     $"{cdBase}/ApiCall/OriginFlowId"
+            // ApiDef
+            ("ApiDef",   "Guid"),             $"{cdBase}/ApiDef/Guid"
+            ("ApiDef",   "Name"),             $"{cdBase}/ApiDef/Name"
+            ("ApiDef",   "ApiDefActionType"), $"{cdBase}/ApiDef/ApiDefActionType"
+            ("ApiDef",   "TxGuid"),           $"{cdBase}/ApiDef/TxGuid"
+            ("ApiDef",   "RxGuid"),           $"{cdBase}/ApiDef/RxGuid"
+            // Arrow
+            ("ArrowBetweenWorks", "Guid"),    $"{cdBase}/Arrow/Guid"
+            ("ArrowBetweenWorks", "Source"),  $"{cdBase}/Arrow/Source"
+            ("ArrowBetweenWorks", "Target"),  $"{cdBase}/Arrow/Target"
+            ("ArrowBetweenWorks", "Type"),    $"{cdBase}/Arrow/Type"
+            ("ArrowBetweenCalls", "Guid"),    $"{cdBase}/Arrow/Guid"
+            ("ArrowBetweenCalls", "Source"),  $"{cdBase}/Arrow/Source"
+            ("ArrowBetweenCalls", "Target"),  $"{cdBase}/Arrow/Target"
+            ("ArrowBetweenCalls", "Type"),    $"{cdBase}/Arrow/Type"
+        ]
+
+    // 컬렉션 노드 CD URI
+    let private collectionCdUri : Map<string, string> =
+        Map.ofList [
+            ActiveSystems_,     $"{cdBase}/ActiveSystems"
+            Flows_,             $"{cdBase}/Flows"
+            Works_,             $"{cdBase}/Works"
+            Calls_,             $"{cdBase}/Calls"
+            Arrows_,            $"{cdBase}/Arrows"
+            ApiDefs_,           $"{cdBase}/ApiDefs"
+            ApiCalls_,          $"{cdBase}/ApiCalls"
+            ReferencedApiDefs_, $"{cdBase}/ReferencedApiDefs"
+            DeviceReferences_,  $"{cdBase}/DeviceReferences"
+        ]
+
+    let internal mkSmlSem (idShort: string) (items: ISubmodelElement list) : ISubmodelElement option =
+        mkSml idShort items
+        |> Option.map (withSemId (Map.tryFind idShort collectionCdUri))
+
+    let internal mkSmcSem (idShort: string) (elems: ISubmodelElement list) : ISubmodelElement =
+        mkSmc idShort elems
+        |> withSemId (Map.tryFind idShort collectionCdUri)
+
     let private mkEntityIdShort (prefix: string) (id: Guid) =
         sanitizeIdShort (sprintf "%s_%s" prefix (id.ToString("N")))
 
@@ -61,16 +139,19 @@ module internal AasxExportGraph =
 
     /// Arrow SMC 생성 (Call/Work 공통)
     let private mkArrowSmc (arrow: DsArrow) =
+        let tn = arrow.GetType().Name
+        let sem f = Map.tryFind (tn, f) cdUriMap
         mkSmc "Arrow" [
-            yield mkProp "Guid"   (arrow.Id.ToString())
-            yield mkProp "Source" (arrow.SourceId.ToString())
-            yield mkProp "Target" (arrow.TargetId.ToString())
-            yield mkProp "Type"   (string arrow.ArrowType)
+            yield mkProp "Guid"   (arrow.Id.ToString())       |> withSemId (sem "Guid")
+            yield mkProp "Source" (arrow.SourceId.ToString()) |> withSemId (sem "Source")
+            yield mkProp "Target" (arrow.TargetId.ToString()) |> withSemId (sem "Target")
+            yield mkProp "Type"   (string arrow.ArrowType)    |> withSemId (sem "Type")
         ]
 
-    /// AasxField Attribute가 있는 속성들을 자동으로 Property로 변환
+    /// AasxField Attribute가 있는 속성들을 자동으로 Property로 변환 (semanticId 포함)
     let internal mkPropsFromAasxFields<'T> (entity: 'T) =
         let entityType = entity.GetType()  // 런타임 타입 사용 (상속 고려)
+        let typeName = entityType.Name
 
         // 현재 타입과 모든 베이스 타입의 속성을 가져오기
         let rec getAllProperties (t: Type) =
@@ -90,54 +171,53 @@ module internal AasxExportGraph =
                 | null -> None
                 | :? AasxFieldAttribute as attr when not attr.Skip ->
                     let value = prop.GetValue(entity)
+                    let cdUri = Map.tryFind (typeName, attr.FieldName) cdUriMap
                     // 특수 타입 처리
-                    if prop.PropertyType = typeof<Xywh option> then
-                        Some (mkJsonProp<Xywh option> attr.FieldName (value :?> Xywh option))
-                    elif prop.PropertyType = typeof<TimeSpan option> then
-                        match value :?> TimeSpan option with
-                        | Some ts -> Some (mkTimeSpanProp attr.FieldName ts)
-                        | None -> None
-                    elif prop.PropertyType = typeof<ResizeArray<CallCondition>> then
-                        Some (mkJsonProp<ResizeArray<CallCondition>> attr.FieldName (value :?> ResizeArray<CallCondition>))
-                    elif prop.PropertyType = typeof<ResizeArray<TokenSpec>> then
-                        Some (mkJsonProp<ResizeArray<TokenSpec>> attr.FieldName (value :?> ResizeArray<TokenSpec>))
-                    elif prop.PropertyType = typeof<IOTag option> then
-                        Some (mkJsonProp<IOTag option> attr.FieldName (value :?> IOTag option))
-                    elif prop.PropertyType = typeof<ValueSpec> then
-                        Some (mkJsonProp<ValueSpec> attr.FieldName (value :?> ValueSpec))
-                    elif prop.PropertyType = typeof<DateTimeOffset> then
-                        let dt = value :?> DateTimeOffset
-                        Some (mkProp attr.FieldName (dt.ToString("o")))
-                    elif prop.PropertyType = typeof<TokenRole> then
-                        let tr = value :?> TokenRole
-                        Some (mkProp attr.FieldName (string (int tr)))
-                    elif prop.PropertyType = typeof<Status4> then
-                        let st = value :?> Status4
-                        Some (mkProp attr.FieldName (string st))
-                    elif prop.PropertyType = typeof<ArrowType> then
-                        let at = value :?> ArrowType
-                        Some (mkProp attr.FieldName (string at))
-                    elif prop.PropertyType = typeof<ApiDefActionType> then
-                        Some (mkJsonProp<ApiDefActionType> attr.FieldName (value :?> ApiDefActionType))
-                    elif prop.PropertyType = typeof<bool> then
-                        Some (mkProp attr.FieldName (string (value :?> bool)))
-                    else
-                        // 기본 문자열 변환
-                        let strValue =
-                            match value with
-                            | null -> ""
-                            | :? Guid as g -> g.ToString()
-                            | :? string as s -> s
-                            | :? (string option) as opt -> opt |> Option.defaultValue ""
-                            | :? (Guid option) as opt -> opt |> Option.map (fun g -> g.ToString()) |> Option.defaultValue ""
-                            | v -> v.ToString()
-                        Some (mkProp attr.FieldName strValue)
+                    let elemOpt =
+                        if prop.PropertyType = typeof<Xywh option> then
+                            Some (mkJsonProp<Xywh option> attr.FieldName (value :?> Xywh option))
+                        elif prop.PropertyType = typeof<TimeSpan option> then
+                            match value :?> TimeSpan option with
+                            | Some ts -> Some (mkTimeSpanProp attr.FieldName ts)
+                            | None -> None
+                        elif prop.PropertyType = typeof<ResizeArray<CallCondition>> then
+                            Some (mkJsonProp<ResizeArray<CallCondition>> attr.FieldName (value :?> ResizeArray<CallCondition>))
+                        elif prop.PropertyType = typeof<ResizeArray<TokenSpec>> then
+                            Some (mkJsonProp<ResizeArray<TokenSpec>> attr.FieldName (value :?> ResizeArray<TokenSpec>))
+                        elif prop.PropertyType = typeof<IOTag option> then
+                            Some (mkJsonProp<IOTag option> attr.FieldName (value :?> IOTag option))
+                        elif prop.PropertyType = typeof<ValueSpec> then
+                            Some (mkJsonProp<ValueSpec> attr.FieldName (value :?> ValueSpec))
+                        elif prop.PropertyType = typeof<DateTimeOffset> then
+                            let dt = value :?> DateTimeOffset
+                            Some (mkProp attr.FieldName (dt.ToString("o")))
+                        elif prop.PropertyType = typeof<TokenRole> then
+                            let tr = value :?> TokenRole
+                            Some (mkProp attr.FieldName (string (int tr)))
+                        elif prop.PropertyType = typeof<Status4> then
+                            let st = value :?> Status4
+                            Some (mkProp attr.FieldName (string st))
+                        elif prop.PropertyType = typeof<ArrowType> then
+                            let at = value :?> ArrowType
+                            Some (mkProp attr.FieldName (string at))
+                        elif prop.PropertyType = typeof<ApiDefActionType> then
+                            Some (mkJsonProp<ApiDefActionType> attr.FieldName (value :?> ApiDefActionType))
+                        elif prop.PropertyType = typeof<bool> then
+                            Some (mkProp attr.FieldName (string (value :?> bool)))
+                        else
+                            // 기본 문자열 변환
+                            let strValue =
+                                match value with
+                                | null -> ""
+                                | :? Guid as g -> g.ToString()
+                                | :? string as s -> s
+                                | :? (string option) as opt -> opt |> Option.defaultValue ""
+                                | :? (Guid option) as opt -> opt |> Option.map (fun g -> g.ToString()) |> Option.defaultValue ""
+                                | v -> v.ToString()
+                            Some (mkProp attr.FieldName strValue)
+                    elemOpt |> Option.map (withSemId cdUri)
                 | _ -> None)
         |> Array.toList
-
-    // ────────────────────────────────────────────────────────────────────────────
-    // Entity → SMC 변환 함수들
-    // ────────────────────────────────────────────────────────────────────────────
 
     let private apiCallToSmc (apiCall: ApiCall) =
         mkSmc "ApiCall" (mkPropsFromAasxFields apiCall)
@@ -149,7 +229,7 @@ module internal AasxExportGraph =
         smc.Value <- ResizeArray<ISubmodelElement>([
             yield! mkPropsFromAasxFields call
             yield! mkSmcOpt "DomainReferences" domainRefs |> Option.toList
-            yield! call.ApiCalls |> Seq.map apiCallToSmc |> List.ofSeq |> mkSml ApiCalls_ |> Option.toList
+            yield! call.ApiCalls |> Seq.map apiCallToSmc |> List.ofSeq |> mkSmlSem ApiCalls_ |> Option.toList
         ])
         smc :> ISubmodelElement
 
@@ -169,11 +249,11 @@ module internal AasxExportGraph =
         let smc = SubmodelElementCollection()
         smc.IdShort <- mkEntityIdShort "Work" work.Id
         smc.Value <- ResizeArray<ISubmodelElement>([
-            yield mkProp FlowGuid_ (work.ParentId.ToString())
+            yield mkProp FlowGuid_ (work.ParentId.ToString()) |> withSemId (Some $"{cdBase}/Work/FlowGuid")
             yield! mkPropsFromAasxFields work
             yield! mkSmcOpt "DomainReferences" domainRefs |> Option.toList
-            yield! mkSml Calls_ calls |> Option.toList
-            yield! mkSml Arrows_ arrows |> Option.toList
+            yield! mkSmlSem Calls_ calls |> Option.toList
+            yield! mkSmlSem Arrows_ arrows |> Option.toList
         ])
         smc :> ISubmodelElement
 
@@ -212,11 +292,11 @@ module internal AasxExportGraph =
         smc.Value <- ResizeArray<ISubmodelElement>([
             yield! mkPropsFromAasxFields system
             yield! mkSmcOpt "DomainReferences" domainRefs |> Option.toList
-            yield! mkSml ApiDefs_ apiDefs |> Option.toList
-            yield! mkSml ReferencedApiDefs_ referencedApiDefs |> Option.toList
-            yield! mkSml Flows_ flows |> Option.toList
-            yield! mkSml Arrows_ arrows |> Option.toList
-            yield! mkSml Works_ works |> Option.toList
+            yield! mkSmlSem ApiDefs_ apiDefs |> Option.toList
+            yield! mkSmlSem ReferencedApiDefs_ referencedApiDefs |> Option.toList
+            yield! mkSmlSem Flows_ flows |> Option.toList
+            yield! mkSmlSem Arrows_ arrows |> Option.toList
+            yield! mkSmlSem Works_ works |> Option.toList
         ])
         smc :> ISubmodelElement
 

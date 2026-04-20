@@ -825,3 +825,55 @@ module AasValidationTests =
         finally
             if File.Exists(path) then File.Delete(path)
 
+    [<Fact>]
+    let ``Re-exported AASX (import then re-export) should pass AasCore validation`` () =
+        let store = DsStore()
+        let projectId = store.AddProject("ReExportTest")
+        let systemId = store.AddSystem("S", projectId, true)
+        let flowId = store.AddFlow("F", systemId)
+        store.AddWork("W", flowId) |> ignore
+
+        let path1 = Path.Combine(Path.GetTempPath(), $"reexport1_{Guid.NewGuid()}.aasx")
+        let path2 = Path.Combine(Path.GetTempPath(), $"reexport2_{Guid.NewGuid()}.aasx")
+        try
+            let exported1 = Ds2.Aasx.AasxExporter.exportFromStore store path1 "https://dualsoft.com/" false false
+            Assert.True(exported1)
+
+            // Import the exported AASX (sets OriginalAasxEnvironment)
+            let store2 = DsStore()
+            let imported = Ds2.Aasx.AasxImporter.importIntoStoreWithError store2 path1
+            Assert.True(imported.IsOk)
+
+            // Re-export (this uses OriginalAasxEnvironment for CDs)
+            let exported2 = Ds2.Aasx.AasxExporter.exportFromStore store2 path2 "https://dualsoft.com/" false false
+            Assert.True(exported2)
+
+            let envOpt = Ds2.Aasx.AasxFileIO.readEnvironment path2
+            Assert.True(envOpt.IsSome)
+            let env = envOpt.Value
+
+            let errorList = ResizeArray<Reporting.Error>()
+            for item in Verification.Verify(env) do
+                errorList.Add(item)
+
+            if errorList.Count > 0 then
+                let errorMessages =
+                    errorList
+                    |> Seq.mapi (fun i e ->
+                        let pathStr =
+                            e.PathSegments
+                            |> Seq.map (fun seg ->
+                                match seg with
+                                | :? Reporting.NameSegment as ns -> sprintf "[%s]" ns.Name
+                                | :? Reporting.IndexSegment as is -> sprintf "[%d]" is.Index
+                                | _ -> sprintf "[%O]" seg)
+                            |> String.concat ""
+                        sprintf "%d. %s\n   %O" (i+1) pathStr e.Cause)
+                    |> String.concat "\n\n"
+                Assert.True(false, sprintf "Re-export AAS validation failed with %d errors:\n%s" errorList.Count errorMessages)
+
+            Assert.Equal(0, errorList.Count)
+        finally
+            if File.Exists(path1) then File.Delete(path1)
+            if File.Exists(path2) then File.Delete(path2)
+
