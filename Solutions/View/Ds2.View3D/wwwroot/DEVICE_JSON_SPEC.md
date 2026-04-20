@@ -303,7 +303,7 @@ Multiple animations:
 
 | type | parameters | description |
 |------|-----------|-------------|
-| move | axis, min, max, speed | oscillate position between min and max |
+| move | axis, min, max, speed, loop | position min↔max (loop 모드로 왕복/단방향 선택) |
 | spin | axis, speed | continuous rotation |
 | swing | axis, angle, speed, phase | pendulum rotation (sin wave) |
 | roll | speed | wheel/roller rotation (x-axis) |
@@ -312,6 +312,22 @@ Multiple animations:
 - `speed`: animation speed multiplier (default 1). Higher = faster.
 - `angle`: swing amplitude in radians (default 0.5)
 - `phase`: swing phase offset in radians (default 0)
+
+### `loop` — move 진행 방식 (방향성 표현의 핵심)
+
+`move` 타입에서 min→max 진행 방식을 지정한다. 상반되는 방향(전진/후진 등)이 시각적으로 구분되도록 단방향 모드를 지원한다.
+
+| loop | 동작 | 용도 |
+|------|------|------|
+| `pingpong` | min→max→min 왕복 (sin 기반) | `animation` 기본값 — 컨베이어/크레인 등 주기적 왕복 |
+| `restart` | min→max 선형 진행 후 min으로 스냅, 반복 (톱니파) | `dirs` 기본값 — 피스톤 전진/후진처럼 방향성이 명확한 반복 동작 |
+| `once` | min→max 선형 진행 후 max에서 정지 (한번만) | 리프터 상승/하강처럼 목표 위치에 도달 후 유지하는 동작 |
+
+**기본값:**
+- `animation.active` 내 move → `pingpong`
+- `dirs` 내 move → `restart` (상반 방향이 구분되도록)
+
+비활성 상태(Idle)로 전환되면 자동으로 rest 위치로 부드럽게 복귀한다.
 
 ---
 
@@ -350,9 +366,10 @@ Multiple animations:
 }
 ```
 
-- ApiDef "ADV"가 Going → 캐리지 전진 (X = +0.5)
-- ApiDef "RET"가 Going → 캐리지 후진 (X = -0.5)
+- ApiDef "ADV"가 Going → 캐리지 전진 (X = +0.5) 반복 (restart 기본)
+- ApiDef "RET"가 Going → 캐리지 후진 (X = -0.5) 반복 (restart 기본)
 - 둘 다 Idle → 캐리지 원위치 복귀
+- `dirs` 내 `move`는 기본 `loop: "restart"` — 전진만 반복하고 끝나면 시작점으로 스냅하여 방향이 명확히 구분된다. 원하면 `"loop": "once"`(한번만 진행 후 정지)나 `"loop": "pingpong"`(왕복)으로 변경 가능.
 
 ### 예시: 슬라이딩 도어 (열기/닫기)
 
@@ -391,11 +408,13 @@ Multiple animations:
     {"id": "platform", "shape": "box", "size": [1.0, 0.15, 1.0], "color": "#fbbf24", "glow": 0.3, "on": "base"}
   ],
   "dirs": {
-    "UP":   {"target": "platform", "type": "move", "axis": "y", "min": 0.38, "max": 2.2},
-    "DOWN": {"target": "platform", "type": "move", "axis": "y", "min": 2.2, "max": 0.38}
+    "UP":   {"target": "platform", "type": "move", "axis": "y", "min": 0.38, "max": 2.2, "loop": "once"},
+    "DOWN": {"target": "platform", "type": "move", "axis": "y", "min": 2.2, "max": 0.38, "loop": "once"}
   }
 }
 ```
+
+- 리프터처럼 목표 위치에 도달 후 유지하는 동작은 `"loop": "once"` 권장.
 
 ### 예시: 로봇 (다중 명령)
 

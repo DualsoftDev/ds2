@@ -257,9 +257,10 @@ public partial class CustomModelDialog : Window
         else
         {
             // ApiDef 2개 이상 → dirs 템플릿 자동 생성
+            // dirs는 기본 loop="restart" (전진만 반복, 시작점 스냅) — 상반 방향이 명확히 구분됨
             var dirsEntries = string.Join(",\n    ",
                 apiDefNames.Select(name =>
-                    $"\"{name}\": {{\"target\": \"body\", \"type\": \"move\", \"axis\": \"x\", \"min\": 0, \"max\": 0.5}}"));
+                    $"\"{name}\": {{\"target\": \"body\", \"type\": \"move\", \"axis\": \"x\", \"min\": 0, \"max\": 0.5, \"loop\": \"restart\"}}"));
 
             var apiDefComment = string.Join(", ", apiDefNames.Select((n, i) => $"{n}(#{i})"));
 
@@ -388,7 +389,7 @@ public partial class CustomModelDialog : Window
 
         var dirsLines = string.Join(",\n      ",
             apiDefNames.Select(n =>
-                $"\"{n}\": {{\"target\": \"...\", \"type\": \"move\", \"axis\": \"...\", \"min\": 0, \"max\": 0.5}}"));
+                $"\"{n}\": {{\"target\": \"...\", \"type\": \"move\", \"axis\": \"...\", \"min\": 0, \"max\": 0.5, \"loop\": \"restart\"}}"));
 
         return "## 요청\n" +
                "다음 장비의 3D 모델 JSON을 생성해주세요.\n\n" +
@@ -402,7 +403,11 @@ public partial class CustomModelDialog : Window
                "      " + dirsLines + "\n" +
                "  }\n" +
                "  ```\n" +
-               "- 각 dir의 애니메이션은 해당 ApiDef의 물리적 동작에 맞게 설정\n\n" +
+               "- 각 dir의 애니메이션은 해당 ApiDef의 물리적 동작에 맞게 설정\n" +
+               "- `loop` 필드로 진행 방식 지정 (상반 방향 구분에 중요):\n" +
+               "  - \"restart\" (dirs 기본): 전진만 반복하고 끝나면 시작점으로 스냅 — 피스톤/컨베이어 등\n" +
+               "  - \"once\": 한번 진행 후 정지, Idle 되면 원위치 복귀 — 리프터/도어 등\n" +
+               "  - \"pingpong\": min↔max 왕복 (방향성 없음)\n\n" +
                "장비 설명: [여기에 원하는 장비를 설명하세요]";
     }
 
