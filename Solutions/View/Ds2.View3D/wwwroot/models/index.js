@@ -265,10 +265,24 @@ const Ds2View3DLibrary = {
   },
 
   /**
-   * 여러 JSON 모델 일괄 등록
+   * 현재 등록된 커스텀 모델 전부 제거 (file=null 엔트리).
+   * 내장 모델은 건드리지 않는다.
+   */
+  clearCustomModels() {
+    for (const name of Object.keys(this.deviceTypes)) {
+      if (this.deviceTypes[name] && this.deviceTypes[name].file === null) {
+        delete this.deviceTypes[name];
+      }
+    }
+  },
+
+  /**
+   * 여러 JSON 모델 일괄 등록 (replace 시맨틱).
+   * 호출 전 기존 커스텀 모델을 모두 제거하므로, 삭제된 모델도 올바르게 반영된다.
    * @param {Object} registry - { modelName: jsonSpec, ... }
    */
   registerAllFromJSON(registry) {
+    this.clearCustomModels();
     if (!registry) return;
     for (const [name, spec] of Object.entries(registry)) {
       this.registerFromJSON(name, spec);

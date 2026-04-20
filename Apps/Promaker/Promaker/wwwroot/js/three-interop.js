@@ -32,6 +32,11 @@ const Ev23DViewer = {
             return false;
         }
 
+        // 씬 리빌드 시 기존 씬 정리 (캔버스/리스너/리소스) — 중복 canvas 누적 방지
+        if (this._scenes[elementId]) {
+            this.dispose(elementId);
+        }
+
         try {
             // Debug: Log config received
             console.log('=== Ev23DViewer.init ===');
@@ -5512,11 +5517,16 @@ const Ev23DViewer = {
                     var cachedDev = deviceId && deviceCache && deviceCache[deviceId];
                     var model = cachedDev ? cachedDev.libModel : deviceGroup.children.find(c => c.userData && c.userData.isDeviceIndicator);
                     if (model) {
-                        var apiDefIdx = child.userData.apiDefIdx ?? 0;
                         var modelType = model.userData.deviceType;
                         var lib = window.Ds2View3DLibrary;
                         var dirs = lib?.deviceTypes[modelType]?.dirs;
-                        var animDir = dirs?.[apiDefIdx];
+                        // dirs 키 = ApiDef 이름 매칭이 1순위 (커스텀 JSON 규격).
+                        // 이름 매칭 실패 시 인덱스 매칭으로 fallback (내장 모델 호환: Unit=ADV/RET 등).
+                        var apiDefName = child.userData.apiDefData?.name;
+                        var apiDefIdx = child.userData.apiDefIdx ?? 0;
+                        var animDir = (apiDefName && dirs && dirs.indexOf(apiDefName) >= 0)
+                            ? apiDefName
+                            : dirs?.[apiDefIdx];
                         if (animDir) {
                             if (state === 'G') {
                                 model.userData.activeAnimation = animDir;
@@ -6971,6 +6981,11 @@ const Ev23DViewer = {
         const positions = this._loadDevicePositions(elementId) || {};
         positions[device.id] = { x, z };
         this._saveDevicePositions(elementId, positions);
+
+        // 디바이스 추가 후 캐시 재구축 — 상태 업데이트(updateDeviceStates)가
+        // _deviceMeshCache를 참조하고, 애니메이션 루프는 _animDeviceIndicators를 iterate
+        this._updateCallCubesCache(elementId);
+        this._rebuildDeviceMeshCache(elementId);
 
         console.log(`✓ Device '${device.name}' added to scene with ${device.apiDefs.length} ApiDefs`);
     },
