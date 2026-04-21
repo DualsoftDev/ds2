@@ -916,6 +916,7 @@ public partial class SimulationPanelState
         public List<(string Dir, string Val)> CycleGroupKeys = new();
         public (string Dir, string Val)? LiveCurrentKey;
         public HashSet<string> LiveCurrentTokens = new(StringComparer.Ordinal);
+        public bool HasObservedSyncedGoing;
     }
     private readonly Dictionary<Guid, WorkLearning> _workLearning = [];
     /// Work별 고유 IO 주소 (다른 어떤 Work와도 공유 안 되는 주소만). StartSimulation에서 계산.
@@ -1257,8 +1258,10 @@ public partial class SimulationPanelState
                 wl.WorkGoingStartGroupIdx = workGoingStartIdx >= 0 ? workGoingStartIdx : (int?)null;
                 wl.Synced = true;
                 wl.NextExpectedGroupIdx = (completedCount - start) % period;
+                RotateCycleToCanonicalStart(wl, period);
                 wl.LiveCurrentKey = null;
                 wl.LiveCurrentTokens.Clear();
+                wl.HasObservedSyncedGoing = false;
 
                 var wname = ResolveWorkName(workGuid);
                 var seqStr = string.Join(" | ", wl.CycleSequence);
@@ -1283,6 +1286,29 @@ public partial class SimulationPanelState
         RuntimeMode.VirtualPlant => "VP",
         _ => "Passive"
     };
+
+    private static void RotateCycleToCanonicalStart(WorkLearning wl, int period)
+    {
+        if (period <= 0 || wl.WorkGoingStartGroupIdx is not int rotationOffset || rotationOffset <= 0)
+            return;
+
+        wl.CycleSequence = RotateList(wl.CycleSequence, rotationOffset);
+        wl.CycleGroupKeys = RotateList(wl.CycleGroupKeys, rotationOffset);
+        wl.NextExpectedGroupIdx = (wl.NextExpectedGroupIdx - rotationOffset + period) % period;
+
+        if (wl.WorkFinishGroupIdx is int finishIdx)
+            wl.WorkFinishGroupIdx = (finishIdx - rotationOffset + period) % period;
+
+        wl.WorkGoingStartGroupIdx = 0;
+    }
+
+    private static List<T> RotateList<T>(List<T> items, int startIdx)
+    {
+        if (items.Count == 0 || startIdx <= 0)
+            return items;
+
+        return items.Skip(startIdx).Concat(items.Take(startIdx)).ToList();
+    }
 
     private void ObserveSyncedWorkGroup(
         Guid workGuid,
@@ -1348,11 +1374,22 @@ public partial class SimulationPanelState
             return;
 
         var nextState = shouldFinish ? Status4.Finish : Status4.Going;
+        if (SelectedRuntimeMode == RuntimeMode.Monitoring
+            && nextState == Status4.Finish
+            && !wl.HasObservedSyncedGoing
+            && currentState is not (Status4.Going or Status4.Finish))
+        {
+            return;
+        }
+
         if (currentState != nextState)
         {
             _simEngine.ForceWorkState(workGuid, nextState);
             if (nextState == Status4.Going)
+            {
+                wl.HasObservedSyncedGoing = true;
                 ApplyPassiveResetTargets(workGuid);
+            }
         }
     }
 
