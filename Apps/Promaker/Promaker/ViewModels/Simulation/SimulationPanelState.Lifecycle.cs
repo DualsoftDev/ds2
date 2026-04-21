@@ -1199,7 +1199,7 @@ public partial class SimulationPanelState
     }
 
     /// 시퀀스 그룹에서 엄격 순서 일치 주기 검출. 매칭되는 최소 k를 주기로 확정.
-    /// 두 사이클 관찰(L >= 2k) 필요 — 루프 조건 k <= L/2 로 충족.
+    /// Passive 모드별로 필요한 반복 수만큼(예: VP 2회, Monitoring 3회) 관찰 후 확정.
     /// 단 현재 진행 중인 그룹(마지막 요소)은 아직 미완성일 수 있어 비교 대상에서 제외 (L-1까지만).
     private void DetectWorkPeriod(Guid workGuid)
     {
@@ -1208,18 +1208,22 @@ public partial class SimulationPanelState
         var seq = wl.Sequence;
         var completedCount = seq.Count;
         if (completedCount < 2) return;
+        var requiredMatches = GetRequiredPassiveCycleMatchCount();
 
-        for (var period = 1; period <= completedCount / 2; period++)
+        for (var period = 1; period <= completedCount / requiredMatches; period++)
         {
-            for (var start = 0; start + (period * 2) <= completedCount; start++)
+            for (var start = 0; start + (period * requiredMatches) <= completedCount; start++)
             {
                 var match = true;
-                for (var i = 0; i < period; i++)
+                for (var repeat = 1; repeat < requiredMatches && match; repeat++)
                 {
-                    if (seq[start + i] != seq[start + period + i])
+                    for (var i = 0; i < period; i++)
                     {
-                        match = false;
-                        break;
+                        if (seq[start + i] != seq[start + (repeat * period) + i])
+                        {
+                            match = false;
+                            break;
+                        }
                     }
                 }
 
@@ -1258,7 +1262,7 @@ public partial class SimulationPanelState
 
                 var wname = ResolveWorkName(workGuid);
                 var seqStr = string.Join(" | ", wl.CycleSequence);
-                var msg = $"[VP] {wname} cycle fixed groups={period}, GoingStart={wl.WorkGoingStartGroupIdx?.ToString() ?? "none"}, Finish={wl.WorkFinishGroupIdx?.ToString() ?? "none"} / Seq[0..{period - 1}]={seqStr}";
+                var msg = $"[{ResolvePassiveLearningLogPrefix()}] {wname} cycle fixed groups={period}, matches={requiredMatches}, GoingStart={wl.WorkGoingStartGroupIdx?.ToString() ?? "none"}, Finish={wl.WorkFinishGroupIdx?.ToString() ?? "none"} / Seq[0..{period - 1}]={seqStr}";
                 _dispatcher.BeginInvoke(() => AddSimLog(msg, LogSeverity.System));
                 return;
             }
@@ -1270,6 +1274,15 @@ public partial class SimulationPanelState
         var wname = _simEngine?.Index.WorkName.TryFind(workGuid);
         return (wname != null && FSharpOption<string>.get_IsSome(wname)) ? wname.Value : workGuid.ToString();
     }
+
+    private int GetRequiredPassiveCycleMatchCount() => SelectedRuntimeMode == RuntimeMode.Monitoring ? 3 : 2;
+
+    private string ResolvePassiveLearningLogPrefix() => SelectedRuntimeMode switch
+    {
+        RuntimeMode.Monitoring => "Mon",
+        RuntimeMode.VirtualPlant => "VP",
+        _ => "Passive"
+    };
 
     private void ObserveSyncedWorkGroup(
         Guid workGuid,

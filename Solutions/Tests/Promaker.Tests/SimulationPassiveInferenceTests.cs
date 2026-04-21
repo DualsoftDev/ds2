@@ -403,6 +403,48 @@ public sealed class SimulationPassiveInferenceTests
         });
     }
 
+    [Fact]
+    public void Monitoring_passive_inference_requires_a_third_matching_cycle_before_work_sync()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var fixture = BuildSingleCallFixture();
+            var index = SimIndexModule.build(fixture.Store, 10);
+            using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+            var state = CreatePassiveState(fixture.Store, engine, RuntimeMode.Monitoring);
+
+            engine.Start();
+
+            ObservePassive(state, fixture.OutAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Going));
+            Assert.Equal(Status4.Ready, GetWorkState(engine, fixture.ActiveWorkId));
+
+            ObservePassive(state, fixture.InAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Finish));
+            Assert.Equal(Status4.Ready, GetWorkState(engine, fixture.ActiveWorkId));
+            ObservePassive(state, fixture.OutAddress, "false");
+            ObservePassive(state, fixture.InAddress, "false");
+
+            ObservePassive(state, fixture.OutAddress, "true");
+            ObservePassive(state, fixture.InAddress, "true");
+            ObservePassive(state, fixture.OutAddress, "false");
+            ObservePassive(state, fixture.InAddress, "false");
+
+            ObservePassive(state, fixture.OutAddress, "true");
+            ObservePassive(state, fixture.InAddress, "true");
+            ObservePassive(state, fixture.OutAddress, "false");
+            ObservePassive(state, fixture.InAddress, "false");
+
+            Assert.Equal(Status4.Ready, GetWorkState(engine, fixture.ActiveWorkId));
+
+            ObservePassive(state, fixture.OutAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Going));
+
+            ObservePassive(state, fixture.InAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Finish));
+        });
+    }
+
     private static SharedCallFixture BuildSharedSingleAndMultiCallFixture()
     {
         var store = new DsStore();
@@ -592,7 +634,10 @@ public sealed class SimulationPassiveInferenceTests
             new IOTag("In", inAddress, ""));
     }
 
-    private static SimulationPanelState CreatePassiveState(DsStore store, EventDrivenEngine engine)
+    private static SimulationPanelState CreatePassiveState(
+        DsStore store,
+        EventDrivenEngine engine,
+        RuntimeMode runtimeMode = RuntimeMode.VirtualPlant)
     {
         var state = new SimulationPanelState(
             () => store,
@@ -601,7 +646,7 @@ public sealed class SimulationPassiveInferenceTests
             () => Array.Empty<EntityNode>(),
             _ => { });
 
-        state.SelectedRuntimeMode = RuntimeMode.VirtualPlant;
+        state.SelectedRuntimeMode = runtimeMode;
         SetPrivateField(state, "_simEngine", engine);
         InvokeNonPublic(state, "PreparePassiveModeIoInference");
         return state;
