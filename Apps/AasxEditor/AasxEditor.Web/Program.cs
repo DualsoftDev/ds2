@@ -1,3 +1,4 @@
+using AasxEditor;
 using AasxEditor.Components;
 using AasxEditor.Services;
 
@@ -31,6 +32,7 @@ app.UseAntiforgery();
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
-    .AddInteractiveServerRenderMode();
+    .AddInteractiveServerRenderMode()
+    .AddAdditionalAssemblies(typeof(CoreAssemblyMarker).Assembly);
 
 app.Run();

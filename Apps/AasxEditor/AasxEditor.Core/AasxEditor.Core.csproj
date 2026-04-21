@@ -1,10 +1,16 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Razor">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AasxEditor</RootNamespace>
+    <AssemblyName>AasxEditor.Core</AssemblyName>
   </PropertyGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\Solutions\Convert\Ds2.Aasx\Ds2.Aasx.fsproj" />
@@ -12,6 +18,8 @@
 
   <ItemGroup>
     <PackageReference Include="AasCore.Aas3_1" Version="*" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="9.0.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Forms" Version="9.0.*" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.*" />
   </ItemGroup>
 
