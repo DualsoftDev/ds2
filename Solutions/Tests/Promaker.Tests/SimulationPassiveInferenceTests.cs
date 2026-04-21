@@ -445,6 +445,48 @@ public sealed class SimulationPassiveInferenceTests
         });
     }
 
+    [Fact]
+    public void Monitoring_passive_inference_rotates_mid_cycle_learning_window_and_skips_ready_to_finish_bootstrap()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var fixture = BuildBatchedCleanupInterleaveFixture();
+            var index = SimIndexModule.build(fixture.Store, 10);
+            using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+            var state = CreatePassiveState(fixture.Store, engine, RuntimeMode.Monitoring);
+
+            engine.Start();
+
+            for (var i = 0; i < 3; i++)
+            {
+                ObservePassiveRawDirection(state, engine, fixture.SecondInAddress, "true", isOut: false);
+                ObservePassiveRawDirection(state, engine, fixture.FirstOutAddress, "true", isOut: true);
+                ObservePassiveRawDirection(state, engine, fixture.FirstInAddress, "true", isOut: false);
+                ObservePassiveRawDirection(state, engine, fixture.SecondOutAddress, "true", isOut: true);
+            }
+
+            Assert.Equal(Status4.Ready, GetWorkState(engine, fixture.ActiveWorkId));
+
+            ObservePassiveRawDirection(state, engine, fixture.SecondInAddress, "true", isOut: false);
+            StaTestRunner.PumpPendingUi();
+            Assert.Equal(Status4.Ready, GetWorkState(engine, fixture.ActiveWorkId));
+
+            ObservePassiveRawDirection(state, engine, fixture.FirstOutAddress, "true", isOut: true);
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Going));
+
+            ObservePassiveRawDirection(state, engine, fixture.FirstInAddress, "true", isOut: false);
+            StaTestRunner.PumpPendingUi();
+            Assert.Equal(Status4.Going, GetWorkState(engine, fixture.ActiveWorkId));
+
+            ObservePassiveRawDirection(state, engine, fixture.SecondOutAddress, "true", isOut: true);
+            StaTestRunner.PumpPendingUi();
+            Assert.Equal(Status4.Going, GetWorkState(engine, fixture.ActiveWorkId));
+
+            ObservePassiveRawDirection(state, engine, fixture.SecondInAddress, "true", isOut: false);
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Finish));
+        });
+    }
+
     private static SharedCallFixture BuildSharedSingleAndMultiCallFixture()
     {
         var store = new DsStore();
