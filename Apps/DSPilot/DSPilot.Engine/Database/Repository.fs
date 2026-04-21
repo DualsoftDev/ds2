@@ -35,9 +35,9 @@ module DspRepository =
     /// 컬럼 존재 여부 확인
     let private columnExistsAsync (connection: SqliteConnection) (tableName: string) (columnName: string) =
         task {
-            let sql = sprintf "PRAGMA table_info(%s)" tableName
-            let! columns = connection.QueryAsync<{| name: string |}>(sql)
-            return columns |> Seq.exists (fun c -> c.name = columnName)
+            let sql = sprintf "SELECT name FROM pragma_table_info('%s')" tableName
+            let! names = connection.QueryAsync<string>(sql)
+            return names |> Seq.exists (fun n -> n = columnName)
         }
 
     /// IsIdle 컬럼 자동 마이그레이션 (dspFlowHistory)
