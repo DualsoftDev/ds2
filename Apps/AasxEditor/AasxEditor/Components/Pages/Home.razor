@@ -145,6 +145,7 @@
                             <div class="finder-nav">
                                 <button class="finder-nav-btn" disabled="@(_navBack.Count == 0)" @onclick="ExplorerGoBack" title="뒤로">&#x276E;</button>
                                 <button class="finder-nav-btn" disabled="@(_navForward.Count == 0)" @onclick="ExplorerGoForward" title="앞으로">&#x276F;</button>
+                                <button class="finder-nav-btn" disabled="@(_explorerPath.Count == 0)" @onclick="ExplorerGoUp" title="상위 폴더">&#x2191;</button>
                             </div>
                             <div class="finder-title">
                                 @if (_explorerPath.Count > 0)
@@ -157,48 +158,118 @@
                                     <span>Root</span>
                                 }
                             </div>
+                            <div class="finder-view-toggle" role="group" title="보기 모드">
+                                <button class="finder-view-btn @(_explorerViewMode == "mac" ? "active" : "")"
+                                        @onclick='() => SetExplorerViewMode("mac")' title="컬럼 (macOS 스타일)">
+                                    <span class="view-icon-mac"><span></span><span></span><span></span></span>
+                                    <span class="finder-view-label">컬럼</span>
+                                </button>
+                                <button class="finder-view-btn @(_explorerViewMode == "windows" ? "active" : "")"
+                                        @onclick='() => SetExplorerViewMode("windows")' title="큰 아이콘 (Windows 스타일)">
+                                    <span class="view-icon-win"><span></span><span></span><span></span><span></span></span>
+                                    <span class="finder-view-label">아이콘</span>
+                                </button>
+                            </div>
                         </div>
+
+                        @* ── Missing SequenceLogging banner ── *@
+                        @if (ShouldShowCreateLoggingBanner)
+                        {
+                            <div class="create-logging-banner">
+                                <div class="create-logging-banner-icon">!</div>
+                                <div class="create-logging-banner-text">
+                                    <div class="create-logging-banner-title">SequenceLogging 서브모델이 없습니다</div>
+                                    <div class="create-logging-banner-desc">
+                                        에러 정의를 추가하려면 Logging 서브모델 구조가 필요합니다. Promaker에서 "기본 엔티티 생성" 옵션을 켜고 다시 저장하거나, 여기서 바로 생성할 수 있습니다.
+                                    </div>
+                                </div>
+                                <div class="create-logging-banner-actions">
+                                    <button class="btn btn-sm btn-primary" @onclick="OnOpenCreateLoggingModal">Logging 구조 생성</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="OnDismissCreateLoggingBanner" title="숨기기">&#10005;</button>
+                                </div>
+                            </div>
+                        }
 
                         @* ── Column View + Preview ── *@
                         <div class="finder-body">
-                            <div class="finder-columns" id="finder-columns">
-                                @* Column 0: Root *@
-                                <div class="finder-column">
-                                    @foreach (var node in _treeNodes)
+                            @if (_explorerViewMode == "mac")
+                            {
+                                <div class="finder-columns" id="finder-columns">
+                                    @* Column 0: Root *@
+                                    <div class="finder-column">
+                                        @foreach (var node in _treeNodes)
+                                        {
+                                            var n = node;
+                                            <div class="finder-item @(IsColumnItemSelected(0, n) ? "selected" : "")"
+                                                 @onclick="() => ColumnSelect(0, n)">
+                                                <span class="node-icon icon-@(IconClass(n))" style="width:18px;height:16px;font-size:9px">@n.Icon</span>
+                                                <span class="finder-item-label">@n.Label</span>
+                                                @if (n.Children.Count > 0)
+                                                {
+                                                    <span class="finder-item-chevron">&#x203A;</span>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+
+                                    @* Columns 1..N: 컨테이너 자식만 표시 (리프는 프리뷰에서 편집) *@
+                                    @for (var ci = 0; ci < _explorerPath.Count; ci++)
                                     {
-                                        var n = node;
-                                        <div class="finder-item @(IsColumnItemSelected(0, n) ? "selected" : "")"
-                                             @onclick="() => ColumnSelect(0, n)">
-                                            <span class="node-icon icon-@(IconClass(n))" style="width:18px;height:16px;font-size:9px">@n.Icon</span>
-                                            <span class="finder-item-label">@n.Label</span>
-                                            @if (n.Children.Count > 0)
+                                        var colIdx = ci + 1;
+                                        var parentNode = _explorerPath[ci];
+                                        <div class="finder-column">
+                                            @foreach (var child in parentNode.Children.Where(ch => ch.Children.Count > 0))
                                             {
-                                                <span class="finder-item-chevron">&#x203A;</span>
+                                                var c = child;
+                                                var idx = colIdx;
+                                                <div class="finder-item @(IsColumnItemSelected(idx, c) ? "selected" : "")"
+                                                     @onclick="() => ColumnSelect(idx, c)">
+                                                    <span class="node-icon icon-@(IconClass(c))" style="width:18px;height:16px;font-size:9px">@c.Icon</span>
+                                                    <span class="finder-item-label">@c.Label</span>
+                                                    <span class="finder-item-chevron">&#x203A;</span>
+                                                </div>
                                             }
                                         </div>
                                     }
                                 </div>
-
-                                @* Columns 1..N: 컨테이너 자식만 표시 (리프는 프리뷰에서 편집) *@
-                                @for (var ci = 0; ci < _explorerPath.Count; ci++)
-                                {
-                                    var colIdx = ci + 1;
-                                    var parentNode = _explorerPath[ci];
-                                    <div class="finder-column">
-                                        @foreach (var child in parentNode.Children.Where(ch => ch.Children.Count > 0))
-                                        {
-                                            var c = child;
-                                            var idx = colIdx;
-                                            <div class="finder-item @(IsColumnItemSelected(idx, c) ? "selected" : "")"
-                                                 @onclick="() => ColumnSelect(idx, c)">
-                                                <span class="node-icon icon-@(IconClass(c))" style="width:18px;height:16px;font-size:9px">@c.Icon</span>
-                                                <span class="finder-item-label">@c.Label</span>
-                                                <span class="finder-item-chevron">&#x203A;</span>
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                            </div>
+                            }
+                            else
+                            {
+                                @* Windows-style large icons grid *@
+                                <div class="finder-grid-wrap">
+                                    @{
+                                        var currentNodes = _explorerPath.Count == 0 ? _treeNodes : _explorerPath[^1].Children;
+                                    }
+                                    @if (currentNodes.Count == 0)
+                                    {
+                                        <div class="finder-grid-empty">이 폴더는 비어 있습니다</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="finder-grid">
+                                            @foreach (var item in currentNodes)
+                                            {
+                                                var it = item;
+                                                var isFolder = it.Children.Count > 0;
+                                                <div class="finder-tile @(_selectedNode == it ? "selected" : "") @(isFolder ? "is-folder" : "is-leaf")"
+                                                     @onclick="() => WindowsTileClick(it)"
+                                                     @ondblclick="() => WindowsTileDblClick(it)"
+                                                     title="@it.Label">
+                                                    <div class="finder-tile-icon-wrap">
+                                                        <span class="node-icon icon-@(IconClass(it)) finder-tile-icon">@it.Icon</span>
+                                                        @if (isFolder)
+                                                        {
+                                                            <span class="finder-tile-badge">@it.Children.Count</span>
+                                                        }
+                                                    </div>
+                                                    <div class="finder-tile-label">@it.Label</div>
+                                                    <div class="finder-tile-type">@it.NodeType</div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
 
                             @* ── Preview Pane ── *@
                             @if (_selectedNode is not null)
@@ -509,6 +580,58 @@
 </div>
 
 @* === 모달들 (DOM 최하단 배치 — three-panel 위에 렌더링) === *@
+@if (_showCreateLoggingModal)
+{
+    <div class="modal-overlay">
+        <div class="modal-dialog" style="width:480px;max-height:70vh;display:flex;flex-direction:column">
+            <div class="modal-title">SequenceLogging 서브모델 생성</div>
+            <div class="modal-body" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+                <p style="margin:0 0 8px;color:#aaa;font-size:12px">
+                    에러 정의를 추가할 System을 선택하세요. 선택한 System마다 빈 ErrorDefinitions가 생성됩니다.
+                </p>
+
+                @if (_systemPickerItems.Count == 0)
+                {
+                    <div style="color:#e57373;font-size:13px;padding:12px 0">
+                        SequenceModel에서 System을 찾을 수 없습니다. SequenceModel > Project > ActiveSystems 구조를 확인하세요.
+                    </div>
+                }
+                else
+                {
+                    <div style="display:flex;gap:6px;margin-bottom:6px;flex-shrink:0">
+                        <button class="btn btn-outline-info" style="font-size:11px;padding:3px 8px"
+                                @onclick="OnPickerSelectAll">전체선택</button>
+                        <button class="btn btn-outline-secondary" style="font-size:11px;padding:3px 8px"
+                                @onclick="OnPickerDeselectAll">전체해제</button>
+                        <span style="margin-left:auto;color:#636366;font-size:11px;align-self:center">
+                            @_systemPickerItems.Count(i => i.Selected) / @_systemPickerItems.Count 선택됨
+                        </span>
+                    </div>
+
+                    <div style="flex:1;min-height:0;overflow-y:auto;border:1px solid #333;border-radius:6px;padding:4px">
+                        @foreach (var item in _systemPickerItems)
+                        {
+                            var it = item;
+                            <label class="system-picker-row">
+                                <input type="checkbox" checked="@it.Selected"
+                                       @onchange="() => OnTogglePickerItem(it)" />
+                                <span class="system-picker-label">@it.Label</span>
+                                <span class="system-picker-guid">@it.Guid.ToString("N")[..8]…</span>
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary btn-sm"
+                        disabled="@(_systemPickerItems.Count == 0 || !_systemPickerItems.Any(i => i.Selected))"
+                        @onclick="OnConfirmCreateLogging">생성</button>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="OnCancelCreateLogging">취소</button>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_showDropChoice)
 {
     <div class="modal-overlay">

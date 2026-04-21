@@ -271,4 +271,21 @@ public partial class Home
             return true;
         return false;
     }
+
+    // ===== Windows Explorer View =====
+    private void SetExplorerViewMode(string mode)
+    {
+        if (mode == _explorerViewMode) return;
+        _explorerViewMode = mode;
+    }
+
+    private void WindowsTileClick(AasTreeNode node) => SelectNode(node);
+
+    private void WindowsTileDblClick(AasTreeNode node)
+    {
+        if (node.Children.Count == 0) return;
+        PushNavHistory();
+        _explorerPath.Add(node);
+        SelectNode(node);
+    }
 }
