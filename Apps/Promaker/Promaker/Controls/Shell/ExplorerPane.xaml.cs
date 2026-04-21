@@ -37,6 +37,7 @@ public partial class ExplorerPane : UserControl
         };
         _searchRefreshTimer.Tick += SearchRefreshTimer_Tick;
         DataContextChanged += ExplorerPane_DataContextChanged;
+        Loaded   += ExplorerPane_Loaded;
         Unloaded += ExplorerPane_Unloaded;
     }
 
@@ -64,6 +65,20 @@ public partial class ExplorerPane : UserControl
     private void ExplorerPane_Unloaded(object sender, RoutedEventArgs e) =>
         RebindViewModel(_boundViewModel, null);
 
+    private void ExplorerPane_Loaded(object sender, RoutedEventArgs e)
+    {
+        var currentVm = ViewModel;
+        if (currentVm is null) return;
+        if (!ReferenceEquals(_boundViewModel, currentVm) || ControlTree.ItemsSource is null)
+            RebindViewModel(_boundViewModel, currentVm);
+    }
+
+    private void HandleExplorerRebindRequested()
+    {
+        if (_boundViewModel is not null)
+            RebindViewModel(_boundViewModel, _boundViewModel);
+    }
+
     private void RebindViewModel(MainViewModel? oldVm, MainViewModel? newVm)
     {
         _searchRefreshTimer.Stop();
@@ -73,6 +88,7 @@ public partial class ExplorerPane : UserControl
             oldVm.ControlTreeRoots.CollectionChanged -= TreeRoots_CollectionChanged;
             oldVm.DeviceTreeRoots.CollectionChanged -= TreeRoots_CollectionChanged;
             oldVm.SearchResetRequested -= ClearSearch;
+            oldVm.ExplorerRebindRequested -= HandleExplorerRebindRequested;
         }
 
         _boundViewModel = newVm;
@@ -82,6 +98,7 @@ public partial class ExplorerPane : UserControl
             newVm.ControlTreeRoots.CollectionChanged += TreeRoots_CollectionChanged;
             newVm.DeviceTreeRoots.CollectionChanged += TreeRoots_CollectionChanged;
             newVm.SearchResetRequested += ClearSearch;
+            newVm.ExplorerRebindRequested += HandleExplorerRebindRequested;
         }
 
         RefreshTreeItemsSource();

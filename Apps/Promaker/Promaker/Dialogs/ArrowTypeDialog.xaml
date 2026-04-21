@@ -118,11 +118,11 @@
                             <StackPanel Grid.Column="0">
                                 <StackPanel Orientation="Horizontal">
                                     <Canvas Width="44" Height="16" Margin="0,0,10,0">
-                                        <Border Canvas.Left="0" Canvas.Top="6.5" Width="34" Height="3" Background="{DynamicResource GreenAccentBrush}" CornerRadius="1"/>
-                                        <Path Canvas.Left="34" Canvas.Top="0"
-                                              Data="M0,2 L10,8 L0,14"
-                                              Stroke="{DynamicResource GreenAccentBrush}" StrokeThickness="2"
-                                              Fill="Transparent" StrokeLineJoin="Miter"/>
+                                        <Line X1="0" Y1="8" X2="34" Y2="8"
+                                              Stroke="{DynamicResource GreenAccentBrush}" StrokeThickness="2.5"/>
+                                        <Path Canvas.Left="34" Canvas.Top="2.5"
+                                              Data="M0,0 L8,5.5 L0,11 Z"
+                                              Fill="{DynamicResource GreenAccentBrush}"/>
                                     </Canvas>
                                     <TextBlock Text="시작 인과" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                 </StackPanel>
@@ -148,12 +148,11 @@
                                 <StackPanel Orientation="Horizontal">
                                     <Canvas Width="44" Height="16" Margin="0,0,10,0">
                                         <Line X1="0" Y1="8" X2="34" Y2="8"
-                                              Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="3"
-                                              StrokeDashArray="2,1"/>
-                                        <Path Canvas.Left="34" Canvas.Top="0"
-                                              Data="M0,2 L10,8 L0,14"
-                                              Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2"
-                                              Fill="Transparent" StrokeLineJoin="Miter"/>
+                                              Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2.5"
+                                              StrokeDashArray="2,1.5"/>
+                                        <Path Canvas.Left="34" Canvas.Top="2.5"
+                                              Data="M0,0 L8,5.5 L0,11 Z"
+                                              Fill="{DynamicResource OrangeAccentBrush}"/>
                                     </Canvas>
                                     <TextBlock Text="리셋 인과" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                 </StackPanel>
@@ -178,12 +177,12 @@
                             <StackPanel Grid.Column="0">
                                 <StackPanel Orientation="Horizontal">
                                     <Canvas Width="44" Height="16" Margin="0,0,10,0">
-                                        <Rectangle Canvas.Left="0" Canvas.Top="4" Width="8" Height="8" Fill="{DynamicResource RedAccentBrush}"/>
-                                        <Border Canvas.Left="8" Canvas.Top="6.5" Width="26" Height="3" Background="{DynamicResource RedAccentBrush}" CornerRadius="1"/>
-                                        <Path Canvas.Left="34" Canvas.Top="0"
-                                              Data="M0,2 L10,8 L0,14"
-                                              Stroke="{DynamicResource RedAccentBrush}" StrokeThickness="2"
-                                              Fill="Transparent" StrokeLineJoin="Miter"/>
+                                        <Rectangle Canvas.Left="0" Canvas.Top="3.5" Width="6" Height="9" Fill="{DynamicResource RedAccentBrush}" RadiusX="0.5" RadiusY="0.5"/>
+                                        <Line X1="6" Y1="8" X2="34" Y2="8"
+                                              Stroke="{DynamicResource RedAccentBrush}" StrokeThickness="2.5"/>
+                                        <Path Canvas.Left="34" Canvas.Top="2.5"
+                                              Data="M0,0 L8,5.5 L0,11 Z"
+                                              Fill="{DynamicResource RedAccentBrush}"/>
                                     </Canvas>
                                     <TextBlock Text="시작리셋 인과" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                 </StackPanel>
@@ -209,17 +208,15 @@
                             <StackPanel Grid.Column="0">
                                 <StackPanel Orientation="Horizontal">
                                     <Canvas Width="44" Height="16" Margin="0,0,10,0">
-                                        <Path Canvas.Left="0" Canvas.Top="0"
-                                              Data="M10,2 L0,8 L10,14"
-                                              Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2"
-                                              Fill="Transparent" StrokeLineJoin="Miter"/>
-                                        <Line X1="10" Y1="8" X2="34" Y2="8"
-                                              Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="3"
-                                              StrokeDashArray="2,1"/>
-                                        <Path Canvas.Left="34" Canvas.Top="0"
-                                              Data="M0,2 L10,8 L0,14"
-                                              Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2"
-                                              Fill="Transparent" StrokeLineJoin="Miter"/>
+                                        <Path Canvas.Left="0" Canvas.Top="2.5"
+                                              Data="M8,0 L0,5.5 L8,11 Z"
+                                              Fill="{DynamicResource OrangeAccentBrush}"/>
+                                        <Line X1="8" Y1="8" X2="34" Y2="8"
+                                              Stroke="{DynamicResource OrangeAccentBrush}" StrokeThickness="2.5"
+                                              StrokeDashArray="2,1.5"/>
+                                        <Path Canvas.Left="34" Canvas.Top="2.5"
+                                              Data="M0,0 L8,5.5 L0,11 Z"
+                                              Fill="{DynamicResource OrangeAccentBrush}"/>
                                     </Canvas>
                                     <TextBlock Text="상호리셋 인과" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                 </StackPanel>
@@ -244,7 +241,8 @@
                             <StackPanel Grid.Column="0">
                                 <StackPanel Orientation="Horizontal">
                                     <Canvas Width="44" Height="16" Margin="0,0,10,0">
-                                        <Border Canvas.Left="0" Canvas.Top="6.5" Width="44" Height="3" Background="{DynamicResource AccentBrush}" CornerRadius="1"/>
+                                        <Line X1="0" Y1="8" X2="44" Y2="8"
+                                              Stroke="{DynamicResource AccentBrush}" StrokeThickness="2.5"/>
                                     </Canvas>
                                     <TextBlock Text="그룹연결" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                 </StackPanel>

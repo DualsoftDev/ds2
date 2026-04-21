@@ -98,7 +98,9 @@ let extractApiDefs (store: DsStore) (callerCountMap: Map<Guid, int>) (systemId: 
 // Device Extraction
 // =============================================================================
 
-/// Project의 모든 Device 추출 (성능 최적화: 전체 맵 미리 빌드)
+/// Project의 Device 추출 — 실제 설비는 모두 PassiveSystem 으로 저장되므로
+/// (Device.fs AddDevice 경로) PassiveSystemIds 만 반환. ActiveSystem 은 Work 컨테이너
+/// 이므로 3D 배치 뷰의 설비 목록 대상 아님.
 let extractDevices (store: DsStore) (projectId: Guid) : Result<DeviceInfo list, SceneError> =
     match Queries.getProject projectId store with
     | None ->
@@ -107,42 +109,35 @@ let extractDevices (store: DsStore) (projectId: Guid) : Result<DeviceInfo list, 
     | Some project ->
         Log.info "Extracting devices for project: %s" project.Name
 
-        let allSystemIds =
-            Seq.append project.ActiveSystemIds project.PassiveSystemIds
-            |> Seq.toList
-
-        Log.info "Found %d systems in project" allSystemIds.Length
+        let allSystems = Queries.passiveSystemsOf projectId store
+        Log.info "Found %d systems in project" allSystems.Length
 
         // 성능 최적화: 전체 맵 미리 빌드 (전체 Call 1회 순회)
         let systemToFlowsMap = buildSystemToFlowsMap store
         let callerCountMap = buildCallerCountMap store
         Log.debug "Built system-to-flows map with %d entries" systemToFlowsMap.Count
 
-        allSystemIds
-        |> List.map (fun systemId ->
-            match Queries.getSystem systemId store with
-            | None ->
-                Log.warn "System not found: %A" systemId
-                Error (SystemNotFound systemId)
-            | Some system ->
-                let participatingFlows = extractParticipatingFlows systemToFlowsMap systemId
-                let primaryFlow = determinePrimaryFlow participatingFlows
-                let systemType = system.SystemType
-                let modelType = inferModelType systemType
-                let apiDefs = extractApiDefs store callerCountMap systemId
+        allSystems
+        |> List.map (fun system ->
+            let systemId = system.Id
+            let participatingFlows = extractParticipatingFlows systemToFlowsMap systemId
+            let primaryFlow = determinePrimaryFlow participatingFlows
+            let systemType = system.SystemType
+            let modelType = inferModelType systemType
+            let apiDefs = extractApiDefs store callerCountMap systemId
 
-                Log.debug "Device: %s, ModelType: %s, Flows: %A" system.Name modelType participatingFlows
+            Log.debug "Device: %s, ModelType: %s, Flows: %A" system.Name modelType participatingFlows
 
-                Ok {
-                    Id = systemId
-                    Name = system.Name
-                    SystemType = systemType
-                    ModelType  = modelType
-                    FlowName = primaryFlow |> Option.defaultValue "Unassigned"
-                    ParticipatingFlows = participatingFlows
-                    IsUsedInSimulation = not participatingFlows.IsEmpty
-                    ApiDefs = apiDefs
-                    Position = None  // Layout 단계에서 설정
-                }
+            Ok {
+                Id = systemId
+                Name = system.Name
+                SystemType = systemType
+                ModelType  = modelType
+                FlowName = primaryFlow |> Option.defaultValue "Unassigned"
+                ParticipatingFlows = participatingFlows
+                IsUsedInSimulation = not participatingFlows.IsEmpty
+                ApiDefs = apiDefs
+                Position = None
+            }
         )
         |> sequenceResultA
