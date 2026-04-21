@@ -56,6 +56,15 @@
     </div>
 </div>
 
+@* === 외부 AASX 안내 배너 === *@
+@if (_contentLoaded && _isExternalAasx)
+{
+    <div class="external-aasx-banner">
+        <span class="external-aasx-icon">ℹ</span>
+        <span>외부 AASX 파일입니다. 편집은 Property / MultiLanguageProperty / Range 값에만 적용되며, 원본 구조·첨부파일·썸네일은 저장 시 그대로 보존됩니다.</span>
+    </div>
+}
+
 @* === 드래그앤드롭 오버레이 (JS에서 제어) === *@
 @if (_isDragOver)
 {

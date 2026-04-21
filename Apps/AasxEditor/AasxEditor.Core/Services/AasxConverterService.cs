@@ -42,14 +42,30 @@ public class AasxConverterService
         return Jsonization.Deserialize.EnvironmentFrom(node);
     }
 
+    // AAS 스펙 ZIP에서 우리가 새로 기록하는 엔트리 목록. 원본 보존 시 이 이름들은 원본에서 복사하지 않고 새로 씀.
+    private static readonly HashSet<string> StandardEntriesToReplace = new(StringComparer.Ordinal)
+    {
+        "[Content_Types].xml",
+        "_rels/.rels",
+        "aasx/aasx-origin",
+        "aasx/_rels/aasx-origin.rels",
+        "aasx/aas/aas.aas.xml",
+    };
+
     /// <summary>
-    /// AAS Environment → AASX 바이트 배열
+    /// AAS Environment → AASX 바이트 배열.
+    /// <paramref name="originalPackageBytes"/>가 제공되면 원본 ZIP의 부가 엔트리(첨부파일·썸네일·커스텀 관계 등)를
+    /// 그대로 복사하여 라운드트립 손실을 방지합니다. 편집된 Environment는 aasx/aas/aas.aas.xml 에만 반영됩니다.
     /// </summary>
-    public byte[] WriteEnvironmentToBytes(Env env)
+    public byte[] WriteEnvironmentToBytes(Env env, byte[]? originalPackageBytes = null)
     {
         using var ms = new MemoryStream();
         using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
         {
+            // 원본 엔트리 중 표준 5개를 제외한 나머지(첨부/썸네일/커스텀 관계)를 먼저 복사
+            if (originalPackageBytes is { Length: > 0 })
+                CopyPreservedEntries(archive, originalPackageBytes);
+
             WriteTextEntry(archive, "[Content_Types].xml",
                 """
                 <?xml version="1.0" encoding="utf-8"?>
@@ -88,6 +104,22 @@ public class AasxConverterService
         }
 
         return ms.ToArray();
+    }
+
+    private static void CopyPreservedEntries(ZipArchive target, byte[] originalPackageBytes)
+    {
+        using var sourceMs = new MemoryStream(originalPackageBytes, writable: false);
+        using var sourceArchive = new ZipArchive(sourceMs, ZipArchiveMode.Read);
+        foreach (var entry in sourceArchive.Entries)
+        {
+            if (StandardEntriesToReplace.Contains(entry.FullName)) continue;
+            if (entry.FullName.EndsWith("/", StringComparison.Ordinal)) continue; // 디렉터리 엔트리 스킵
+
+            var newEntry = target.CreateEntry(entry.FullName);
+            using var src = entry.Open();
+            using var dst = newEntry.Open();
+            src.CopyTo(dst);
+        }
     }
 
     /// <summary>

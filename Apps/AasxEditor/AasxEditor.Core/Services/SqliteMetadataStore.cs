@@ -44,6 +44,10 @@ public class SqliteMetadataStore : IAasMetadataStore
         if (!await ColumnExistsAsync(conn, "AasxFiles", "JsonContent"))
             await ExecuteNonQueryAsync(conn, "ALTER TABLE AasxFiles ADD COLUMN JsonContent TEXT");
 
+        // 원본 AASX ZIP 바이트 보존용 BLOB 컬럼 (라운드트립 저장 시 첨부파일·메타 보존)
+        if (!await ColumnExistsAsync(conn, "AasxFiles", "OriginalBytes"))
+            await ExecuteNonQueryAsync(conn, "ALTER TABLE AasxFiles ADD COLUMN OriginalBytes BLOB");
+
         await ExecuteNonQueryAsync(conn, """
             CREATE TABLE IF NOT EXISTS AasEntities (
                 Id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,15 +74,15 @@ public class SqliteMetadataStore : IAasMetadataStore
 
     // === 파일 관리 ===
 
-    public async Task<AasxFileRecord> AddFileAsync(string fileName, string filePath, int shellCount, int submodelCount, string? jsonContent = null)
+    public async Task<AasxFileRecord> AddFileAsync(string fileName, string filePath, int shellCount, int submodelCount, string? jsonContent = null, byte[]? originalBytes = null)
     {
         var conn = await GetConnectionAsync();
         var now = DateTime.UtcNow.ToString("o");
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO AasxFiles (FileName, FilePath, ImportedAt, ShellCount, SubmodelCount, JsonContent)
-            VALUES (@fn, @fp, @at, @sc, @smc, @jc);
+            INSERT INTO AasxFiles (FileName, FilePath, ImportedAt, ShellCount, SubmodelCount, JsonContent, OriginalBytes)
+            VALUES (@fn, @fp, @at, @sc, @smc, @jc, @ob);
             SELECT last_insert_rowid();
             """;
         cmd.Parameters.AddWithValue("@fn", fileName);
@@ -87,6 +91,7 @@ public class SqliteMetadataStore : IAasMetadataStore
         cmd.Parameters.AddWithValue("@sc", shellCount);
         cmd.Parameters.AddWithValue("@smc", submodelCount);
         cmd.Parameters.AddWithValue("@jc", (object?)jsonContent ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@ob", (object?)originalBytes ?? DBNull.Value);
 
         var id = (long)(await cmd.ExecuteScalarAsync())!;
         return new AasxFileRecord
@@ -118,6 +123,16 @@ public class SqliteMetadataStore : IAasMetadataStore
         cmd.Parameters.AddWithValue("@id", fileId);
         var result = await cmd.ExecuteScalarAsync();
         return result is DBNull or null ? null : (string)result;
+    }
+
+    public async Task<byte[]?> GetOriginalBytesAsync(long fileId)
+    {
+        var conn = await GetConnectionAsync();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT OriginalBytes FROM AasxFiles WHERE Id = @id";
+        cmd.Parameters.AddWithValue("@id", fileId);
+        var result = await cmd.ExecuteScalarAsync();
+        return result is DBNull or null ? null : (byte[])result;
     }
 
     public async Task RemoveFileAsync(long fileId)

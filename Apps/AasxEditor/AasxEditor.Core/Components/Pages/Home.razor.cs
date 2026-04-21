@@ -25,6 +25,8 @@ public partial class Home : IAsyncDisposable
     private long _currentFileId;
     private string _currentJson = "";
     private AasCore.Aas3_1.Environment? _currentEnv;
+    // DS가 생성한 AASX가 아닌 외부 AASX 파일을 불러온 경우 true. 편집 범위·보존 안내 배너 표출에 사용.
+    private bool _isExternalAasx;
 
     private List<AasTreeNode> _treeNodes = [];
     private AasTreeNode? _selectedNode;

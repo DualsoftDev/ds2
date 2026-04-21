@@ -23,17 +23,19 @@ public partial class Home
                 SetStatus($"파일 읽는 중: {file.Name}...", "info");
                 StateHasChanged();
 
-                using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+                using var stream = file.OpenReadStream(maxAllowedSize: 200 * 1024 * 1024);
                 using var ms = new MemoryStream();
                 await stream.CopyToAsync(ms);
+                var originalBytes = ms.ToArray();
 
-                var env = Converter.ReadEnvironmentFromBytes(ms.ToArray());
+                var env = Converter.ReadEnvironmentFromBytes(originalBytes);
                 if (env is null) { SetStatus($"{file.Name}: 읽기 실패", "error"); continue; }
 
                 EnsureErrorDefinitions(env);
                 var json = Converter.EnvironmentToJson(env);
                 await ApplyEnvironmentAsync(env, json, file.Name);
-                await RegisterInDbAsync(file.Name, env, json);
+                _isExternalAasx = !IsDsAasx(env);
+                await RegisterInDbAsync(file.Name, env, json, originalBytes);
             }
 
             _loadedFiles = await MetadataStore.GetFilesAsync();
@@ -60,6 +62,7 @@ public partial class Home
             json = Converter.EnvironmentToJson(env);
             await ApplyEnvironmentAsync(env, json, lastFile.FileName);
             _currentFileId = lastFile.Id;
+            _isExternalAasx = !IsDsAasx(env);
             SetStatus($"DB에서 복원됨: {lastFile.FileName}", "success");
         }
         catch { }
@@ -75,14 +78,29 @@ public partial class Home
         ClearUndoHistory();
     }
 
-    private async Task RegisterInDbAsync(string fileName, AasCore.Aas3_1.Environment env, string json)
+    private async Task RegisterInDbAsync(string fileName, AasCore.Aas3_1.Environment env, string json, byte[]? originalBytes)
     {
         var shellCount = env.AssetAdministrationShells?.Count ?? 0;
         var submodelCount = env.Submodels?.Count ?? 0;
-        var fileRecord = await MetadataStore.AddFileAsync(fileName, fileName, shellCount, submodelCount, json);
+        var fileRecord = await MetadataStore.AddFileAsync(fileName, fileName, shellCount, submodelCount, json, originalBytes);
         _currentFileId = fileRecord.Id;
         var entities = EntityExtractor.Extract(env);
         await MetadataStore.AddEntitiesAsync(_currentFileId, entities);
+    }
+
+    /// <summary>DS가 생성한 AASX인지 판별 (semanticId "dualsoft.com" 포함 여부로 판정).</summary>
+    private static bool IsDsAasx(AasCore.Aas3_1.Environment env)
+    {
+        if (env.Submodels is null) return false;
+        foreach (var sm in env.Submodels)
+        {
+            var keys = sm.SemanticId?.Keys;
+            if (keys is null) continue;
+            foreach (var k in keys)
+                if (!string.IsNullOrEmpty(k.Value) && k.Value.Contains("dualsoft.com", StringComparison.OrdinalIgnoreCase))
+                    return true;
+        }
+        return false;
     }
 
     private async Task ResetForNewOpenAsync()
@@ -133,7 +151,12 @@ public partial class Home
             SetStatus("AASX 생성 중...", "info");
             StateHasChanged();
 
-            var aasxBytes = Converter.WriteEnvironmentToBytes(_currentEnv);
+            // 외부 AASX의 경우 원본 ZIP 엔트리(썸네일·첨부파일·커스텀 관계)를 보존하기 위해 원본 바이트를 전달
+            byte[]? originalBytes = null;
+            if (_currentFileId > 0)
+                originalBytes = await MetadataStore.GetOriginalBytesAsync(_currentFileId);
+
+            var aasxBytes = Converter.WriteEnvironmentToBytes(_currentEnv, originalBytes);
             var base64 = Convert.ToBase64String(aasxBytes);
             await JS.InvokeVoidAsync("MonacoInterop.downloadFile", outputName, base64);
 
