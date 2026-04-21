@@ -2,9 +2,11 @@ module JsonConverterTests
 
 open System
 open System.IO
+open System.Text
 open System.Text.Json
 open Xunit
 open Ds2.Core
+open Ds2.Core.Store
 open Ds2.Serialization
 
 let private roundTrip<'T> (value: 'T) : 'T =
@@ -122,6 +124,53 @@ module JsonOptionsFactoryTests =
 
         Assert.True(project.IncludeFields)
         Assert.False(deep.IncludeFields)
+
+module SdfCompressionTests =
+
+    let private createStore () =
+        let store = DsStore()
+        let project = Project("CompressedProject")
+        project.Author <- "dual"
+        project.Version <- "1.0.0"
+        store.Projects.[project.Id] <- project
+        store, project
+
+    [<Fact>]
+    let ``saveToFile should gzip sdf files and load them back`` () =
+        let store, project = createStore ()
+        let filePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.sdf")
+
+        try
+            JsonConverter.saveToFile filePath store
+
+            use stream = File.OpenRead(filePath)
+            Assert.Equal(0x1f, stream.ReadByte())
+            Assert.Equal(0x8b, stream.ReadByte())
+
+            let actual = JsonConverter.loadFromFile<DsStore> filePath
+            Assert.Equal(1, actual.Projects.Count)
+            Assert.True(actual.Projects.ContainsKey(project.Id))
+            Assert.Equal(project.Name, actual.Projects.[project.Id].Name)
+            Assert.Equal(project.Author, actual.Projects.[project.Id].Author)
+            Assert.Equal(project.Version, actual.Projects.[project.Id].Version)
+        finally
+            if File.Exists(filePath) then File.Delete(filePath)
+
+    [<Fact>]
+    let ``loadFromFile should keep legacy plain sdf compatibility`` () =
+        let store, project = createStore ()
+        let filePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.sdf")
+
+        try
+            let json = JsonConverter.serialize store
+            File.WriteAllText(filePath, json, Encoding.UTF8)
+
+            let actual = JsonConverter.loadFromFile<DsStore> filePath
+            Assert.Equal(1, actual.Projects.Count)
+            Assert.True(actual.Projects.ContainsKey(project.Id))
+            Assert.Equal(project.Name, actual.Projects.[project.Id].Name)
+        finally
+            if File.Exists(filePath) then File.Delete(filePath)
 
 module ValueSpecSerializationTests =
 
