@@ -23,6 +23,18 @@ type SceneEngine(store: DsStore, layoutStore: ILayoutStore) =
             Log.error "Failed to build scene: %A" err
             SceneData.empty
 
+    /// Device Scene 빌드 (자동 배치 강제 — "전체 재배치" 전용)
+    member _.BuildDeviceSceneAutoLayout(sceneId: string, projectId: Guid) : SceneData =
+        Log.info "SceneEngine.BuildDeviceSceneAutoLayout: %s, %A" sceneId projectId
+
+        match SceneBuilder.buildSceneAutoLayout store projectId layoutStore with
+        | Ok scene ->
+            Log.info "Auto-layout scene built: %d devices, %d zones" scene.Devices.Length scene.FlowZones.Length
+            scene
+        | Error err ->
+            Log.error "Failed to build auto-layout scene: %A" err
+            SceneData.empty
+
     /// Layout 저장
     member _.SaveLayout(projectId: Guid, positions: (Guid * float * float) list) : unit =
         Log.info "SceneEngine.SaveLayout: %A (%d positions)" projectId positions.Length
