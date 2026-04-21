@@ -3,7 +3,7 @@
                     xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks">
     <Style x:Key="RibbonSectionSeparator" TargetType="Border">
         <Setter Property="Width" Value="1"/>
-        <Setter Property="Margin" Value="6,6"/>
+        <Setter Property="Margin" Value="10,6"/>
         <Setter Property="Background" Value="{DynamicResource BorderBrush}"/>
     </Style>
     <Style x:Key="RibbonSectionLabel" TargetType="TextBlock">
@@ -80,10 +80,10 @@
                                        Visibility="Collapsed"/>
                             <Grid Margin="8,6">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="18"/>
+                                    <ColumnDefinition Width="30"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <Grid Width="14" Height="14" VerticalAlignment="Top" Margin="0,2,0,0">
+                                <Grid Width="14" Height="14" VerticalAlignment="Top">
                                     <Ellipse x:Name="Ring" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2"/>
                                     <iconPacks:PackIconMaterial x:Name="SelectedIcon"
                                                                 Kind="CheckCircle"
