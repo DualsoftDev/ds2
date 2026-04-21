@@ -32,6 +32,7 @@ public partial class Home : IAsyncDisposable
     private List<AasTreeNode> _explorerPath = [];
     private readonly Stack<List<AasTreeNode>> _navBack = new();
     private readonly Stack<List<AasTreeNode>> _navForward = new();
+    private string _explorerViewMode = "windows"; // "mac" | "windows"
 
     private List<AasxFileRecord> _loadedFiles = [];
     private long _selectedFileId;
