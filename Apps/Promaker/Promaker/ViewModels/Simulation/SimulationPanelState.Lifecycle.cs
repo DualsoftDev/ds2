@@ -901,21 +901,21 @@ public partial class SimulationPanelState
     //
     // 3) Synced 단계: IO 수신 즉시 Call/Work 상태 유추 (가장 specific Call 선택)
 
-    /// Work별 학습 상태 — 고유 IO 이벤트 그룹 시퀀스 + 주기 감지
-    /// 그룹 = 같은 (direction, value) 연속 이벤트 묶음 (토큰 정렬 join, multiset)
-    /// 주기 k = seq[0..k-1] == seq[k..2k-1] 매칭되는 최소 k
-    /// Work.Finish 타이밍 = 사이클 내 마지막 (In, true) 그룹 — 그 뒤는 Out OFF / In OFF 뒷정리뿐
+    /// Work learning state.
     private sealed class WorkLearning
     {
-        public List<string> Sequence = new();                    // 그룹 토큰 시퀀스
-        public List<(string Dir, string Val)> GroupKeys = new(); // 시퀀스와 1:1 병행하는 key 기록
+        public List<string> Sequence = new();
+        public List<(string Dir, string Val)> GroupKeys = new();
         public (string Dir, string Val)? LearningCurrentKey;
-        public int? DetectedPeriod;                              // 주기 (그룹 수)
-        public int? WorkFinishGroupIdx;                          // 사이클 내 마지막 (In,true) 그룹 인덱스
+        public int? DetectedPeriod;
+        public int? WorkFinishGroupIdx;
+        public int? WorkGoingStartGroupIdx;
         public bool Synced;
         public int NextExpectedGroupIdx;
+        public List<string> CycleSequence = new();
+        public List<(string Dir, string Val)> CycleGroupKeys = new();
         public (string Dir, string Val)? LiveCurrentKey;
-        public List<string> LiveCurrentTokens = new();
+        public HashSet<string> LiveCurrentTokens = new(StringComparer.Ordinal);
     }
     private readonly Dictionary<Guid, WorkLearning> _workLearning = [];
     /// Work별 고유 IO 주소 (다른 어떤 Work와도 공유 안 되는 주소만). StartSimulation에서 계산.
@@ -1008,8 +1008,11 @@ public partial class SimulationPanelState
         foreach (var callGuid in mappings.Select(m => m.CallGuid).Distinct())
             ObservePassiveCallSignal(callGuid, address, isOut, isOn);
 
+        if (!isOn)
+            return;
+
         var dirVal = (isOut ? "Out" : "In", value);
-        var token = $"{address}={value}";
+        var token = address;
 
         foreach (var (workGuid, uniqueAddresses) in _workUniqueAddresses)
         {
@@ -1059,17 +1062,17 @@ public partial class SimulationPanelState
     {
         if (wl.LearningCurrentKey == dirVal && wl.Sequence.Count > 0)
         {
-            var items = wl.Sequence[^1].Split('|').ToList();
+            var items = wl.Sequence[^1]
+                .Split('|', StringSplitOptions.RemoveEmptyEntries)
+                .ToHashSet(StringComparer.Ordinal);
             items.Add(token);
-            items.Sort(StringComparer.Ordinal);
-            wl.Sequence[^1] = string.Join("|", items);
+            wl.Sequence[^1] = string.Join("|", items.OrderBy(static x => x, StringComparer.Ordinal));
+            return;
         }
-        else
-        {
-            wl.Sequence.Add(token);
-            wl.GroupKeys.Add(dirVal);
-            wl.LearningCurrentKey = dirVal;
-        }
+
+        wl.Sequence.Add(token);
+        wl.GroupKeys.Add(dirVal);
+        wl.LearningCurrentKey = dirVal;
     }
 
     /// Work별 고유 IO 주소 계산: Work의 모든 Call의 모든 ApiCall Out+In 주소 중
@@ -1123,36 +1126,59 @@ public partial class SimulationPanelState
         if (!_workLearning.TryGetValue(workGuid, out var wl)) return;
         if (wl.Synced) return;
         var seq = wl.Sequence;
-        var L = seq.Count - 1;
-        if (L < 2) return;
+        var completedCount = seq.Count;
+        if (completedCount < 2) return;
 
-        for (int k = 1; k <= L / 2; k++)
+        for (var period = 1; period <= completedCount / 2; period++)
         {
-            bool match = true;
-            for (int i = 0; i < k; i++)
+            for (var start = 0; start + (period * 2) <= completedCount; start++)
             {
-                if (seq[i] != seq[i + k]) { match = false; break; }
-            }
-            if (match)
-            {
-                wl.DetectedPeriod = k;
-                int workFinishIdx = -1;
-                for (int j = k - 1; j >= 0; j--)
+                var match = true;
+                for (var i = 0; i < period; i++)
                 {
-                    var gk = wl.GroupKeys[j];
-                    if (gk.Dir == "In" && gk.Val == "true") { workFinishIdx = j; break; }
+                    if (seq[start + i] != seq[start + period + i])
+                    {
+                        match = false;
+                        break;
+                    }
                 }
+
+                if (!match)
+                    continue;
+
+                wl.DetectedPeriod = period;
+                wl.CycleSequence = seq.Skip(start).Take(period).ToList();
+                wl.CycleGroupKeys = wl.GroupKeys.Skip(start).Take(period).ToList();
+
+                var workGoingStartIdx = -1;
+                for (var i = 0; i < wl.CycleGroupKeys.Count; i++)
+                {
+                    var gk = wl.CycleGroupKeys[i];
+                    if (workGoingStartIdx < 0 && gk.Dir == "Out" && gk.Val == "true")
+                        workGoingStartIdx = i;
+                }
+
+                var workFinishIdx = -1;
+                for (var i = wl.CycleGroupKeys.Count - 1; i >= 0; i--)
+                {
+                    var gk = wl.CycleGroupKeys[i];
+                    if (gk.Dir == "In" && gk.Val == "true")
+                    {
+                        workFinishIdx = i;
+                        break;
+                    }
+                }
+
                 wl.WorkFinishGroupIdx = workFinishIdx >= 0 ? workFinishIdx : (int?)null;
+                wl.WorkGoingStartGroupIdx = workGoingStartIdx >= 0 ? workGoingStartIdx : (int?)null;
                 wl.Synced = true;
-                wl.NextExpectedGroupIdx = 0;
-                wl.LiveCurrentKey = wl.LearningCurrentKey;
-                wl.LiveCurrentTokens = seq.Count > 0
-                    ? wl.Sequence[^1].Split('|').ToList()
-                    : [];
+                wl.NextExpectedGroupIdx = (completedCount - start) % period;
+                wl.LiveCurrentKey = null;
+                wl.LiveCurrentTokens.Clear();
+
                 var wname = ResolveWorkName(workGuid);
-                var seqStr = string.Join(" | ", seq.Take(k));
-                var msg = $"[VP] {wname} cycle fixed groups={k}, WorkFinish idx={wl.WorkFinishGroupIdx?.ToString() ?? "none"} / Seq[0..{k - 1}]={seqStr}";
-                ApplyWorkStateForExpectedGroup(workGuid, wl);
+                var seqStr = string.Join(" | ", wl.CycleSequence);
+                var msg = $"[VP] {wname} cycle fixed groups={period}, GoingStart={wl.WorkGoingStartGroupIdx?.ToString() ?? "none"}, Finish={wl.WorkFinishGroupIdx?.ToString() ?? "none"} / Seq[0..{period - 1}]={seqStr}";
                 _dispatcher.BeginInvoke(() => AddSimLog(msg, LogSeverity.System));
                 return;
             }
@@ -1165,8 +1191,6 @@ public partial class SimulationPanelState
         return (wname != null && FSharpOption<string>.get_IsSome(wname)) ? wname.Value : workGuid.ToString();
     }
 
-    /// Pseudo Call state 전이 (엔진을 건드리지 않음). Going→Finish 전이 발생 시 true.
-    /// Multi Call (ApiCall > 1)은 소속 모든 Device Work 상태가 같을 때만 전이 (엄격화).
     private void ObserveSyncedWorkGroup(
         Guid workGuid,
         WorkLearning wl,
@@ -1176,7 +1200,6 @@ public partial class SimulationPanelState
         if (wl.LiveCurrentKey == dirVal)
         {
             wl.LiveCurrentTokens.Add(token);
-            wl.LiveCurrentTokens.Sort(StringComparer.Ordinal);
             return;
         }
 
@@ -1194,10 +1217,9 @@ public partial class SimulationPanelState
         if (wl.DetectedPeriod is not int period || period <= 0 || wl.LiveCurrentTokens.Count == 0)
             return;
 
-        wl.LiveCurrentTokens.Sort(StringComparer.Ordinal);
-        var actual = string.Join("|", wl.LiveCurrentTokens);
+        var actual = string.Join("|", wl.LiveCurrentTokens.OrderBy(static x => x, StringComparer.Ordinal));
 
-        if (wl.NextExpectedGroupIdx < period && wl.Sequence[wl.NextExpectedGroupIdx] == actual)
+        if (wl.NextExpectedGroupIdx < period && wl.CycleSequence[wl.NextExpectedGroupIdx] == actual)
         {
             wl.NextExpectedGroupIdx = (wl.NextExpectedGroupIdx + 1) % period;
             return;
@@ -1206,7 +1228,7 @@ public partial class SimulationPanelState
         var matchedIdx = -1;
         for (var i = 0; i < period; i++)
         {
-            if (wl.Sequence[i] != actual)
+            if (wl.CycleSequence[i] != actual)
                 continue;
 
             matchedIdx = i;
@@ -1218,7 +1240,7 @@ public partial class SimulationPanelState
             : 0;
     }
 
-    private void ApplyWorkStateForExpectedGroup(Guid workGuid, WorkLearning wl)
+    private void ApplyWorkStateForExpectedGroup(Guid workGuid, WorkLearning wl, bool isBootstrap = false)
     {
         if (_simEngine is null || wl.DetectedPeriod is not int period || period <= 0)
             return;
@@ -1227,11 +1249,37 @@ public partial class SimulationPanelState
         if (groupIdx < 0 || groupIdx >= period)
             return;
 
-        var shouldFinish = wl.WorkFinishGroupIdx is int finishIdx && groupIdx >= finishIdx;
-        var nextState = shouldFinish ? Status4.Finish : Status4.Going;
+        var shouldFinish = ShouldHoldFinishForGroup(wl, groupIdx, period);
+        var currentState = GetWorkStateSafe(workGuid);
+        if (isBootstrap && shouldFinish && currentState != Status4.Finish)
+            return;
 
-        if (GetWorkStateSafe(workGuid) != nextState)
+        var nextState = shouldFinish ? Status4.Finish : Status4.Going;
+        if (currentState != nextState)
             _simEngine.ForceWorkState(workGuid, nextState);
+    }
+
+    private static bool ShouldHoldFinishForGroup(WorkLearning wl, int groupIdx, int period)
+    {
+        if (wl.WorkFinishGroupIdx is not int finishIdx)
+            return false;
+
+        if (wl.WorkGoingStartGroupIdx is not int goingStartIdx)
+            return groupIdx >= finishIdx;
+
+        var finishTailEnd = (goingStartIdx - 1 + period) % period;
+        return IsCircularInclusive(groupIdx, finishIdx, finishTailEnd, period);
+    }
+
+    private static bool IsCircularInclusive(int value, int start, int end, int period)
+    {
+        if (period <= 0)
+            return false;
+
+        if (start <= end)
+            return value >= start && value <= end;
+
+        return value >= start || value <= end;
     }
 
     private Status4 GetWorkStateSafe(Guid workGuid)
