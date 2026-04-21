@@ -140,6 +140,7 @@ public partial class MainViewModel : ObservableObject
 
     public Action? FocusNameEditorRequested { get; set; }
     public Action? SearchResetRequested { get; set; }
+    public Action? ExplorerRebindRequested { get; set; }
 
     private bool CanFocusNameEditor() =>
         SelectedNode is not null && Selection.OrderedNodeSelection.Count <= 1;
@@ -235,6 +236,7 @@ public partial class MainViewModel : ObservableObject
             ExpandAllNodes(ControlTreeRoots);
             ActivateInitialSystemTab();
             RefreshEditorCommandStates();
+            ResyncView3DIfOpen();
         });
     }
 
@@ -265,6 +267,20 @@ public partial class MainViewModel : ObservableObject
 
         _view3DWindow.Owner = Application.Current.MainWindow;
         _view3DWindow.Show();
+    }
+
+    /// 3D 창이 열려 있으면 현재 프로젝트로 재동기화 — 창 내부 참조·DeviceTree·WebView 씬까지 일괄 갱신.
+    /// 프로젝트 변경(파일 열기/새 파일) 훅에서 호출. Device 0개 프로젝트도 그대로 빈 상태로 갱신된다.
+    private void ResyncView3DIfOpen()
+    {
+        if (_view3DWindow is not { IsVisible: true }) return;
+
+        var projects = Queries.allProjects(_store);
+        if (projects.IsEmpty) return;
+
+        var projectId = projects.Head.Id;
+        _view3DWindow.SetSceneData(_store, projectId, _currentFilePath);
+        _ = Simulation.ThreeD.BuildScene(_store, projectId);
     }
 
     private void Handle3DDeviceSelection(Guid systemId, EntityKind kind)

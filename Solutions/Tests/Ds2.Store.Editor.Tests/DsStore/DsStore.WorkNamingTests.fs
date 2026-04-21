@@ -301,3 +301,44 @@ let ``parseWorkNameParts with no dot returns empty prefix`` () =
     let struct(prefix, local) = TokenRoleOps.parseWorkNameParts "JustName"
     Assert.Equal("", prefix)
     Assert.Equal("JustName", local)
+
+// ─────────────────────────────────────────────────────────────────────────
+// findConflictingDeviceSystemType — DevicesAlias 단위 SystemType 충돌 판정
+// ─────────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``findConflictingDeviceSystemType returns None when types match`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "dev.ADV" ], true, Some "Conveyor")
+    Assert.Equal(None, Queries.findConflictingDeviceSystemType project.Id "dev" (Some "Conveyor") store)
+
+[<Fact>]
+let ``findConflictingDeviceSystemType returns Some when types differ`` () =
+    // devAlias 단위 검증이므로 같은 devAlias 면 ApiName 이 달라도(dev.ADV → dev.MOVE) 동일 충돌.
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "dev.ADV" ], true, Some "Conveyor")
+    let result = Queries.findConflictingDeviceSystemType project.Id "dev" (Some "Robot") store
+    Assert.Equal(Some ("Conveyor", "Robot"), result)
+
+[<Fact>]
+let ``findConflictingDeviceSystemType returns None when existing SystemType is None`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "dev.ADV" ], true, None)
+    Assert.Equal(None, Queries.findConflictingDeviceSystemType project.Id "dev" (Some "Robot") store)
+
+[<Fact>]
+let ``findConflictingDeviceSystemType returns None for different devAlias`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "dev.ADV" ], true, Some "Conveyor")
+    Assert.Equal(None, Queries.findConflictingDeviceSystemType project.Id "other" (Some "Robot") store)
+
+[<Fact>]
+let ``findConflictingDeviceSystemType returns None when new SystemType is None`` () =
+    let store = createStore()
+    let project, _, _, work = setupBasicHierarchy store
+    store.AddCallsWithDevice(project.Id, work.Id, [ "dev.ADV" ], true, Some "Conveyor")
+    Assert.Equal(None, Queries.findConflictingDeviceSystemType project.Id "dev" None store)
