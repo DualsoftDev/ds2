@@ -143,6 +143,14 @@ module internal WorkTransitions =
         ctx.ScheduleConditionEvaluation()
 
     let runPostWorkTransitionEffects (ctx: Context) workGuid newState =
+        // Passive 모드 (VirtualPlant / Monitoring): VP passive inference가 Work 상태 owner.
+        // 엔진이 덮어쓰지 않게 후속 자동 전이 차단.
+        let isPassive =
+            match ctx.RuntimeMode with
+            | Ds2.Core.RuntimeMode.VirtualPlant
+            | Ds2.Core.RuntimeMode.Monitoring -> true
+            | _ -> false
+        if isPassive then () else
         match newState with
         | Status4.Going -> handleWorkGoingTransition ctx workGuid
         | Status4.Finish -> handleWorkFinishTransition ctx workGuid
