@@ -25,50 +25,74 @@ AASX(Asset Administration Shell) 파일을 웹 브라우저에서 열고, 탐색
 
 ## 프로젝트 구조
 
+코어(RCL)와 두 개의 호스트(Web / Desktop)로 분리된 구성입니다. 코어에 실질 코드의 대부분이 있고, 호스트는 각각 얇은 래퍼입니다.
+
 ```
-AasxEditor/
-  Components/
-    Pages/
-      Home.razor          - 마크업 (툴바, 검색, 3패널 레이아웃, 모달)
-      Home.razor.cs       - 상태 필드, DI, 공용 헬퍼, 라이프사이클
-      Home.FileIO.cs      - 파일 열기/추가/저장/복원/툴바 액션
-      Home.Explorer.cs    - 트리/익스플로러/검색/속성 편집
-      Home.BatchEdit.cs   - 일괄 편집 (Environment 직접 수정)
-      Home.DragDrop.cs    - 드래그앤드롭 (InputFile 주입 방식)
-    Layout/
-      MainLayout.razor    - 앱 레이아웃 셸
-  Models/
-    AasEntity.cs          - AasxFileRecord, AasEntityRecord, AasSearchQuery
-    AasTreeNode.cs        - 트리 노드 모델
-  Services/
-    IAasMetadataStore.cs  - 메타데이터 저장소 인터페이스
-    SqliteMetadataStore.cs - SQLite 구현
-    AasxConverterService.cs - AASX <-> JSON 변환
-    AasTreeBuilderService.cs - Environment -> 트리 노드 변환
-    AasEntityExtractor.cs - Environment -> 검색용 엔티티 추출
-  wwwroot/
-    js/monaco-interop.js  - Monaco/DropZone/ResizeHandle JS 모듈
-    app.css               - 전체 스타일 (Bootstrap과 공존)
-  Program.cs              - DI 등록 및 앱 설정
-samples/                  - 테스트용 AASX 샘플 파일
+Apps/AasxEditor/
+  AasxEditor.Core/          ← [RCL] 공유 코어 (90%+ 코드)
+    Components/
+      Pages/
+        Home.razor          - 마크업 (툴바, 검색, 3패널 레이아웃, 모달)
+        Home.razor.cs       - 상태 필드, DI, 공용 헬퍼, 라이프사이클
+        Home.FileIO.cs      - 파일 열기/추가/저장/복원/툴바 액션
+        Home.Explorer.cs    - 트리/익스플로러/검색/속성 편집
+        Home.BatchEdit.cs   - 일괄 편집 (Environment 직접 수정)
+        Home.DragDrop.cs    - 드래그앤드롭 (InputFile 주입 방식)
+      Layout/
+        MainLayout.razor    - 앱 레이아웃 셸
+      Routes.razor          - 라우터 (AppAssembly = Core)
+      _Imports.razor
+    Models/                 - AasEntity, AasTreeNode
+    Services/               - IAasMetadataStore, SqliteMetadataStore, AasxConverterService,
+                              AasTreeBuilderService, AasEntityExtractor, CircuitTracker, ...
+    wwwroot/                - js/monaco-interop.js, app.css, favicon, lib/bootstrap
+    CoreAssemblyMarker.cs   - Router AppAssembly 해석용 마커
+
+  AasxEditor.Web/           ← Blazor Server 호스트 (IIS 배포 / SaaS)
+    Program.cs              - DI 등록, Interactive Server 렌더 모드
+    Components/App.razor    - 호스트 HTML (blazor.web.js 로드, @rendermode="InteractiveServer")
+    appsettings.json, Properties/launchSettings.json
+
+  AasxEditor.Desktop/       ← WPF + BlazorWebView 호스트 (데스크톱 배포)
+    App.xaml / .xaml.cs     - WPF 진입점, DI 등록 (DB는 LocalAppData에)
+    MainWindow.xaml / .xaml.cs - BlazorWebView 창
+    wwwroot/index.html      - 호스트 HTML (blazor.webview.js 로드)
+
+samples/                    - 테스트용 AASX 샘플 파일
 ```
 
 ## 실행
 
+### Web (Blazor Server)
 ```bash
 cd Apps/AasxEditor
-dotnet run --project AasxEditor
+dotnet run --project AasxEditor.Web
 ```
+기본 URL: `http://localhost:5236` (launchSettings.json 참조)
 
-기본 URL: `https://localhost:5001` (launchSettings.json에 따라 다를 수 있음)
+### Desktop (WPF BlazorWebView, Windows 전용)
+```bash
+cd Apps/AasxEditor
+dotnet run --project AasxEditor.Desktop
+```
+SQLite DB는 `%LocalAppData%\AasxEditor\aas_metadata.db`에 생성됩니다.
 
 ## 빌드
 
 ```bash
-dotnet build AasxEditor/AasxEditor.csproj
+dotnet build AasxEditor.sln
 ```
 
 ## 아키텍처 노트
+
+### 코어/호스트 분리 (RCL 패턴)
+
+Blazor 컴포넌트·서비스·모델·정적 자산은 모두 `AasxEditor.Core` RCL에 있고, 두 호스트가 이를 참조합니다. 같은 기능이 **Web(SignalR 기반)** 과 **Desktop(InProc WebView)** 양쪽에서 동일하게 동작합니다.
+
+- 렌더 모드는 호스트에서 결정: Web의 `App.razor`가 `<Routes @rendermode="InteractiveServer"/>`를 걸고, Desktop은 `BlazorWebView`가 InProc로 처리 (rendermode 불필요).
+- 코어의 정적 자산은 `_content/AasxEditor.Core/...` 경로로 서빙됩니다.
+- `CircuitTracker`/`ClientCount` 계열은 Web에서만 의미 있는 다중 클라이언트 기능이지만, Desktop에서도 단일 "세션" 하나로 동작하며 부작용은 없습니다.
+- SQLite 위치는 Web=ContentRoot, Desktop=`%LocalAppData%\AasxEditor`.
 
 ### Blazor Server + JS Interop 제약
 

@@ -98,4 +98,7 @@ Apps/DSPilot/Output/
 
 docs/
 /Apps/CostSim/Installer/Output
-/Apps/AasxEditor/AasxEditor/aas_metadata.db
+/Apps/AasxEditor/**/aas_metadata.db
+/Apps/AasxEditor/**/aas_metadata.db-journal
+/Apps/AasxEditor/**/aas_metadata.db-wal
+/Apps/AasxEditor/**/aas_metadata.db-shm
