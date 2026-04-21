@@ -920,6 +920,10 @@ public partial class SimulationPanelState
     private readonly Dictionary<Guid, WorkLearning> _workLearning = [];
     /// Work별 고유 IO 주소 (다른 어떤 Work와도 공유 안 되는 주소만). StartSimulation에서 계산.
     private readonly Dictionary<Guid, HashSet<string>> _workUniqueAddresses = [];
+    /// Work별 positive phase family token map: ("Out|addr" / "In|addr") -> family token.
+    private readonly Dictionary<Guid, Dictionary<string, string>> _workPositiveFamilyTokens = [];
+    /// Reset predecessor -> passive target Work list.
+    private readonly Dictionary<Guid, List<Guid>> _workResetTargetsByPred = [];
     private readonly Dictionary<Guid, HashSet<string>> _callOutAddresses = [];
     /// Pseudo Call state — 학습 중 엔진을 건드리지 않고 Call 상태 추적용 (Synced 전)
     private readonly Dictionary<Guid, HashSet<string>> _callInAddresses = [];
@@ -933,12 +937,88 @@ public partial class SimulationPanelState
     private void PreparePassiveModeIoInference()
     {
         ComputeWorkUniqueAddresses();
+        ComputeWorkPositiveFamilyTokens();
+        BuildPassiveResetTargetsByPred();
         BuildPassiveCallAddressSets();
 
         _workLearning.Clear();
         _callOutHighAddresses.Clear();
         _callInHighAddresses.Clear();
         _lastObservedValue.Clear();
+    }
+
+    private void ComputeWorkPositiveFamilyTokens()
+    {
+        if (_simEngine is null) return;
+
+        _workPositiveFamilyTokens.Clear();
+
+        foreach (var (workGuid, uniqueAddresses) in _workUniqueAddresses)
+        {
+            var workCalls = _simEngine.Index.WorkCallGuids.TryFind(workGuid);
+            if (workCalls == null)
+                continue;
+
+            var canonicalOrder = new Dictionary<Guid, int>();
+            var nextOrdinal = 0;
+            foreach (var callGuid in workCalls.Value)
+            {
+                var canonicalCallGuid = ResolveCanonicalCallGuid(callGuid);
+                if (!canonicalOrder.ContainsKey(canonicalCallGuid))
+                    canonicalOrder[canonicalCallGuid] = nextOrdinal++;
+            }
+
+            var tokenMap = new Dictionary<string, string>(StringComparer.Ordinal);
+            var workMappings = _simEngine.IOMap.Mappings
+                .Where(mapping =>
+                {
+                    var wgOpt = _simEngine.Index.CallWorkGuid.TryFind(mapping.CallGuid);
+                    return wgOpt != null && FSharpOption<Guid>.get_IsSome(wgOpt) && wgOpt.Value == workGuid;
+                })
+                .ToArray();
+
+            foreach (var address in uniqueAddresses)
+            {
+                SetPositiveFamilyToken(tokenMap, "Out", address,
+                    workMappings
+                        .Where(mapping => mapping.OutAddress == address)
+                        .Select(mapping => ResolveCanonicalCallGuid(mapping.CallGuid))
+                        .Where(canonicalOrder.ContainsKey)
+                        .Select(canonicalGuid => canonicalOrder[canonicalGuid]));
+
+                SetPositiveFamilyToken(tokenMap, "In", address,
+                    workMappings
+                        .Where(mapping => mapping.InAddress == address)
+                        .Select(mapping => ResolveCanonicalCallGuid(mapping.CallGuid))
+                        .Where(canonicalOrder.ContainsKey)
+                        .Select(canonicalGuid => canonicalOrder[canonicalGuid]));
+            }
+
+            if (tokenMap.Count > 0)
+                _workPositiveFamilyTokens[workGuid] = tokenMap;
+        }
+    }
+
+    private void BuildPassiveResetTargetsByPred()
+    {
+        if (_simEngine is null) return;
+
+        _workResetTargetsByPred.Clear();
+        foreach (var entry in _simEngine.Index.WorkResetPreds)
+        {
+            var targetGuid = entry.Key;
+            foreach (var predGuid in entry.Value.Distinct())
+            {
+                if (!_workResetTargetsByPred.TryGetValue(predGuid, out var targets))
+                {
+                    targets = [];
+                    _workResetTargetsByPred[predGuid] = targets;
+                }
+
+                if (!targets.Contains(targetGuid))
+                    targets.Add(targetGuid);
+            }
+        }
     }
 
     private void BuildPassiveCallAddressSets()
@@ -1012,13 +1092,13 @@ public partial class SimulationPanelState
             return;
 
         var dirVal = (isOut ? "Out" : "In", value);
-        var token = address;
 
         foreach (var (workGuid, uniqueAddresses) in _workUniqueAddresses)
         {
             if (!uniqueAddresses.Contains(address))
                 continue;
 
+            var token = ResolveWorkPositiveFamilyToken(workGuid, address, isOut) ?? address;
             var wl = GetOrCreateWorkLearning(workGuid);
             if (!wl.Synced)
             {
@@ -1256,7 +1336,11 @@ public partial class SimulationPanelState
 
         var nextState = shouldFinish ? Status4.Finish : Status4.Going;
         if (currentState != nextState)
+        {
             _simEngine.ForceWorkState(workGuid, nextState);
+            if (nextState == Status4.Going)
+                ApplyPassiveResetTargets(workGuid);
+        }
     }
 
     private static bool ShouldHoldFinishForGroup(WorkLearning wl, int groupIdx, int period)
@@ -1307,6 +1391,76 @@ public partial class SimulationPanelState
         _workLearning[workGuid] = wl;
         return wl;
     }
+
+    private Guid ResolveCanonicalCallGuid(Guid callGuid)
+    {
+        if (_simEngine is null)
+            return callGuid;
+
+        var canonical = _simEngine.Index.CallCanonicalGuids.TryFind(callGuid);
+        return (canonical != null && FSharpOption<Guid>.get_IsSome(canonical))
+            ? canonical.Value
+            : callGuid;
+    }
+
+    private string? ResolveWorkPositiveFamilyToken(Guid workGuid, string address, bool isOut)
+    {
+        if (!_workPositiveFamilyTokens.TryGetValue(workGuid, out var map))
+            return null;
+
+        return map.TryGetValue(FamilyAddressKey(isOut ? "Out" : "In", address), out var token)
+            ? token
+            : null;
+    }
+
+    private void ApplyPassiveResetTargets(Guid predWorkGuid)
+    {
+        if (_simEngine is null)
+            return;
+
+        if (!_workResetTargetsByPred.TryGetValue(predWorkGuid, out var targets))
+            return;
+
+        foreach (var targetWorkGuid in targets)
+        {
+            if (targetWorkGuid == predWorkGuid)
+                continue;
+
+            if (GetWorkStateSafe(targetWorkGuid) != Status4.Finish)
+                continue;
+
+            _simEngine.ForceWorkState(targetWorkGuid, Status4.Ready);
+
+            var workCalls = _simEngine.Index.WorkCallGuids.TryFind(targetWorkGuid);
+            if (workCalls == null)
+                continue;
+
+            foreach (var callGuid in workCalls.Value)
+            {
+                if (_callOutHighAddresses.TryGetValue(callGuid, out var outHigh))
+                    outHigh.Clear();
+                if (_callInHighAddresses.TryGetValue(callGuid, out var inHigh))
+                    inHigh.Clear();
+                if (GetCallStateSafe(callGuid) != Status4.Ready)
+                    _simEngine.ForceCallState(callGuid, Status4.Ready);
+            }
+        }
+    }
+
+    private static void SetPositiveFamilyToken(
+        Dictionary<string, string> tokenMap,
+        string dir,
+        string address,
+        IEnumerable<int> ownerOrdinals)
+    {
+        var ordinals = ownerOrdinals.Distinct().OrderBy(static ordinal => ordinal).ToArray();
+        if (ordinals.Length == 0)
+            return;
+
+        tokenMap[FamilyAddressKey(dir, address)] = $"{dir}#{string.Join(",", ordinals)}";
+    }
+
+    private static string FamilyAddressKey(string dir, string address) => $"{dir}|{address}";
 
     private static HashSet<string> GetOrAddSignalSet(Dictionary<Guid, HashSet<string>> map, Guid key)
     {

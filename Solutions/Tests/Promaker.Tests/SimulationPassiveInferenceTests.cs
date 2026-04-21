@@ -317,6 +317,92 @@ public sealed class SimulationPassiveInferenceTests
         });
     }
 
+    [Fact]
+    public void Passive_inference_uses_work_reset_connections_to_toggle_finished_work_and_calls_back_to_ready()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var fixture = BuildResetPairFixture();
+            var index = SimIndexModule.build(fixture.Store, 10);
+            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            var state = CreatePassiveState(fixture.Store, engine);
+            var targetWorkTransitions = new List<Status4>();
+            var targetCallTransitions = new List<Status4>();
+            engine.WorkStateChanged += (_, args) =>
+            {
+                if (args.WorkGuid == fixture.TargetWorkId)
+                    targetWorkTransitions.Add(args.NewState);
+            };
+            engine.CallStateChanged += (_, args) =>
+            {
+                if (args.CallGuid == fixture.TargetCallId)
+                    targetCallTransitions.Add(args.NewState);
+            };
+
+            engine.Start();
+
+            ObservePassive(state, fixture.TargetOutAddress, "true");
+            ObservePassive(state, fixture.TargetInAddress, "true");
+            ObservePassive(state, fixture.TargetOutAddress, "false");
+            ObservePassive(state, fixture.TargetInAddress, "false");
+
+            ObservePassive(state, fixture.TargetOutAddress, "true");
+            ObservePassive(state, fixture.TargetInAddress, "true");
+            ObservePassive(state, fixture.TargetOutAddress, "false");
+            ObservePassive(state, fixture.TargetInAddress, "false");
+
+            ObservePassive(state, fixture.TargetOutAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.TargetWorkId) == Status4.Going));
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.TargetCallId) == Status4.Going));
+            ObservePassive(state, fixture.TargetInAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.TargetWorkId) == Status4.Finish));
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.TargetCallId) == Status4.Finish));
+            ObservePassive(state, fixture.TargetOutAddress, "false");
+            ObservePassive(state, fixture.TargetInAddress, "false");
+
+            targetWorkTransitions.Clear();
+            targetCallTransitions.Clear();
+
+            ObservePassive(state, fixture.PredOutAddress, "true");
+            ObservePassive(state, fixture.PredInAddress, "true");
+            ObservePassive(state, fixture.PredOutAddress, "false");
+            ObservePassive(state, fixture.PredInAddress, "false");
+
+            ObservePassive(state, fixture.PredOutAddress, "true");
+            ObservePassive(state, fixture.PredInAddress, "true");
+            ObservePassive(state, fixture.PredOutAddress, "false");
+            ObservePassive(state, fixture.PredInAddress, "false");
+
+            ObservePassive(state, fixture.PredOutAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.TargetWorkId) == Status4.Ready));
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.TargetCallId) == Status4.Ready));
+
+            ObservePassive(state, fixture.PredInAddress, "true");
+            ObservePassive(state, fixture.PredOutAddress, "false");
+            ObservePassive(state, fixture.PredInAddress, "false");
+
+            ObservePassive(state, fixture.TargetOutAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.TargetWorkId) == Status4.Going));
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.TargetCallId) == Status4.Going));
+            ObservePassive(state, fixture.TargetInAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.TargetWorkId) == Status4.Finish));
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.TargetCallId) == Status4.Finish));
+            ObservePassive(state, fixture.TargetOutAddress, "false");
+            ObservePassive(state, fixture.TargetInAddress, "false");
+
+            ObservePassive(state, fixture.PredOutAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.TargetWorkId) == Status4.Ready));
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.TargetCallId) == Status4.Ready));
+
+            Assert.Equal(
+                new[] { Status4.Ready, Status4.Going, Status4.Finish, Status4.Ready },
+                targetWorkTransitions);
+            Assert.Equal(
+                new[] { Status4.Ready, Status4.Going, Status4.Finish, Status4.Ready },
+                targetCallTransitions);
+        });
+    }
+
     private static SharedCallFixture BuildSharedSingleAndMultiCallFixture()
     {
         var store = new DsStore();
@@ -443,6 +529,48 @@ public sealed class SimulationPassiveInferenceTests
             secondInAddress);
     }
 
+    private static ResetPairFixture BuildResetPairFixture()
+    {
+        var store = new DsStore();
+        var projectId = store.AddProject("P");
+        var activeSystemId = store.AddSystem("Active", projectId, true);
+        var activeFlowId = store.AddFlow("Flow", activeSystemId);
+        var predWorkId = store.AddWork("Pred", activeFlowId);
+        var targetWorkId = store.AddWork("Target", activeFlowId);
+        store.ConnectSelectionInOrder([predWorkId, targetWorkId], ArrowType.Reset);
+
+        var passiveSystemId = store.AddSystem("Passive", projectId, false);
+        var passiveFlowId = store.AddFlow("DeviceFlow", passiveSystemId);
+        var predDeviceWorkId = store.AddWork("PRED_DEV", passiveFlowId);
+        var targetDeviceWorkId = store.AddWork("TARGET_DEV", passiveFlowId);
+        var predApiDefId = AddDeviceApiDef(store, passiveSystemId, "PRED_API", predDeviceWorkId);
+        var targetApiDefId = AddDeviceApiDef(store, passiveSystemId, "TARGET_API", targetDeviceWorkId);
+
+        var predCallId = store.AddCallWithLinkedApiDefs(predWorkId, "Dev", "PRED", new[] { predApiDefId });
+        var targetCallId = store.AddCallWithLinkedApiDefs(targetWorkId, "Dev", "TARGET", new[] { targetApiDefId });
+
+        var predApiCallId = store.Calls[predCallId].ApiCalls.Single().Id;
+        var targetApiCallId = store.Calls[targetCallId].ApiCalls.Single().Id;
+
+        const string predOutAddress = "%Q6001";
+        const string predInAddress = "%I6001";
+        const string targetOutAddress = "%Q6002";
+        const string targetInAddress = "%I6002";
+        SetIoTags(store, predCallId, predApiCallId, predOutAddress, predInAddress);
+        SetIoTags(store, targetCallId, targetApiCallId, targetOutAddress, targetInAddress);
+
+        return new ResetPairFixture(
+            store,
+            predWorkId,
+            targetWorkId,
+            predCallId,
+            targetCallId,
+            predOutAddress,
+            predInAddress,
+            targetOutAddress,
+            targetInAddress);
+    }
+
     private static Guid AddDeviceApiDef(DsStore store, Guid systemId, string name, Guid deviceWorkId)
     {
         var apiDefId = store.AddApiDefWithProperties(name, systemId);
@@ -556,4 +684,15 @@ public sealed class SimulationPassiveInferenceTests
         string FirstInAddress,
         string SecondOutAddress,
         string SecondInAddress);
+
+    private sealed record ResetPairFixture(
+        DsStore Store,
+        Guid PredWorkId,
+        Guid TargetWorkId,
+        Guid PredCallId,
+        Guid TargetCallId,
+        string PredOutAddress,
+        string PredInAddress,
+        string TargetOutAddress,
+        string TargetInAddress);
 }
