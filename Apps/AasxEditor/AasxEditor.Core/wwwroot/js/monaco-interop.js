@@ -1,40 +1,52 @@
 let editor = null;
 
+// Where to load monaco editor modules from — set by the host page (loader script onload).
+// Falls back to jsdelivr CDN if the host page didn't set it.
+window.__MONACO_VS ||= 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs';
+
+function _attachMonaco(elementId, dotnetRef) {
+    editor = monaco.editor.create(document.getElementById(elementId), {
+        value: '',
+        language: 'json',
+        theme: 'vs-dark',
+        automaticLayout: true,
+        fontSize: 14,
+        minimap: { enabled: true },
+        lineNumbers: 'on',
+        tabSize: 2,
+        formatOnPaste: true,
+        scrollBeyondLastLine: false,
+        wordWrap: 'on'
+    });
+
+    // Ctrl+Z / Ctrl+Y: 코드 에디터 포커스가 아닐 때만 앱 undo/redo 호출
+    document.addEventListener('keydown', function (e) {
+        if (editor && editor.hasTextFocus()) return; // Monaco가 자체 undo 처리
+        if (e.ctrlKey && !e.shiftKey && e.key === 'z') {
+            e.preventDefault();
+            dotnetRef.invokeMethodAsync('OnUndoKeyboard');
+        } else if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) {
+            e.preventDefault();
+            dotnetRef.invokeMethodAsync('OnRedoKeyboard');
+        }
+    });
+}
+
 window.MonacoInterop = {
     init: function (elementId, dotnetRef) {
-        require.config({
-            paths: {
-                'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs'
-            }
-        });
-
-        require(['vs/editor/editor.main'], function () {
-            editor = monaco.editor.create(document.getElementById(elementId), {
-                value: '',
-                language: 'json',
-                theme: 'vs-dark',
-                automaticLayout: true,
-                fontSize: 14,
-                minimap: { enabled: true },
-                lineNumbers: 'on',
-                tabSize: 2,
-                formatOnPaste: true,
-                scrollBeyondLastLine: false,
-                wordWrap: 'on'
-            });
-
-            // Ctrl+Z / Ctrl+Y: 코드 에디터 포커스가 아닐 때만 앱 undo/redo 호출
-            document.addEventListener('keydown', function (e) {
-                if (editor && editor.hasTextFocus()) return; // Monaco가 자체 undo 처리
-                if (e.ctrlKey && !e.shiftKey && e.key === 'z') {
-                    e.preventDefault();
-                    dotnetRef.invokeMethodAsync('OnUndoKeyboard');
-                } else if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) {
-                    e.preventDefault();
-                    dotnetRef.invokeMethodAsync('OnRedoKeyboard');
-                }
-            });
-        });
+        var start = function () {
+            require.config({ paths: { 'vs': window.__MONACO_VS } });
+            require(['vs/editor/editor.main'], function () { _attachMonaco(elementId, dotnetRef); });
+        };
+        if (typeof require === 'function') { return start(); }
+        // loader.js not yet ready — poll briefly (e.g. fallback-to-CDN path still loading).
+        var t = 0;
+        var wait = function () {
+            if (typeof require === 'function') return start();
+            if ((t += 50) > 10000) return console.error('Monaco loader.js did not initialize within 10s');
+            setTimeout(wait, 50);
+        };
+        wait();
     },
 
     getValue: function () {
