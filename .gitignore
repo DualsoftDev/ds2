@@ -102,3 +102,10 @@ docs/
 /Apps/AasxEditor/**/aas_metadata.db-journal
 /Apps/AasxEditor/**/aas_metadata.db-wal
 /Apps/AasxEditor/**/aas_metadata.db-shm
+
+# Monaco Editor vendor bundle (fetched by scripts/fetch-monaco.ps1, not committed)
+/Apps/AasxEditor/AasxEditor.Core/wwwroot/lib/monaco-editor/
+
+# Installer outputs and bundled redistributables
+/Apps/AasxEditor/Installer/Output/
+/Apps/AasxEditor/Installer/Redist/MicrosoftEdgeWebView2RuntimeInstaller*.exe

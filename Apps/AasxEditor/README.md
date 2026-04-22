@@ -83,6 +83,64 @@ SQLite DB는 `%LocalAppData%\AasxEditor\aas_metadata.db`에 생성됩니다.
 dotnet build AasxEditor.sln
 ```
 
+## 설치 패키징 (Desktop)
+
+오프라인 설치 가능한 단일 exe 패키지를 생성합니다. 결과물: `Installer\Output\AasxEditor_Setup_<version>.exe`.
+
+### 자동 빌드 (권장)
+
+```cmd
+cd Apps\AasxEditor\Installer
+build-installer.bat
+```
+
+세 단계를 순차 실행:
+1. **Monaco Editor 다운로드** — `scripts\fetch-monaco.ps1`이 `AasxEditor.Core\wwwroot\lib\monaco-editor`에 ~13 MB의 Monaco 번들을 받음 (이미 있으면 건너뜀). 이로써 설치 후에도 인터넷 없이 Code 탭이 동작.
+2. **`dotnet publish` (self-contained, win-x64)** — .NET 9 런타임·모든 의존성 포함. 별도 .NET 설치 불필요.
+3. **Inno Setup 컴파일** — `Installer\AasxEditor.iss`를 ISCC.exe로 빌드.
+
+### 사전 요건
+
+- .NET SDK 9.0+
+- PowerShell (Win 10/11 기본)
+- [Inno Setup 6](https://jrsoftware.org/isdl.php) — `ISCC.exe`가 PATH 또는 기본 설치 위치에 있어야 함
+
+### WebView2 런타임 처리
+
+| 상황 | 동작 |
+|---|---|
+| 대상 PC에 WebView2 이미 설치됨 (Win 10/11 대부분) | 설치 시 감지 후 건너뜀 |
+| `Installer\Redist\MicrosoftEdgeWebView2RuntimeInstallerX64.exe`(약 170 MB) 동봉 | **완전 오프라인** 설치 가능 |
+| `Installer\Redist\MicrosoftEdgeWebview2Setup.exe`(약 2 MB 부트스트래퍼) 동봉 | 설치 시점에 인터넷에서 다운로드 |
+| 위 두 파일 모두 없음 + WebView2 미설치 | 설치 종료 후 안내 메시지 표시, 사용자가 수동 설치 필요 |
+
+오프라인 환경에 배포한다면 [WebView2 다운로드 페이지](https://developer.microsoft.com/microsoft-edge/webview2/)에서 **Evergreen Standalone Installer**를 받아 `Installer\Redist\`에 두세요. 자세한 내용은 [Installer/Redist/README.md](Installer/Redist/README.md).
+
+### 결과물 구성
+
+설치된 앱은 다음 구조:
+```
+%ProgramFiles%\Dualsoft\AasxEditor\
+├── AasxEditor.Desktop.exe       — 실행 파일
+├── AasxEditor.ico               — 아이콘
+├── *.dll, *.json                — .NET 9 self-contained 런타임
+└── wwwroot\
+    ├── index.html
+    └── _content\AasxEditor.Core\
+        ├── app.css, favicon.png
+        ├── js\monaco-interop.js
+        └── lib\
+            ├── bootstrap\...
+            └── monaco-editor\min\vs\...   ← 오프라인 Monaco
+```
+
+DB 위치: `%LocalAppData%\AasxEditor\aas_metadata.db` (사용자별).
+
+### 옵션
+
+- **시작 메뉴 / 바탕화면 바로가기**: 설치 마법사에서 선택
+- **`.aasx` 파일 연결**: 기본 비활성, 사용자가 옵트인 (현재 데스크톱 앱이 명령줄 인자를 처리하지 않으므로 연결만 등록되고 자동 열기는 미구현)
+
 ## 아키텍처 노트
 
 ### 코어/호스트 분리 (RCL 패턴)
