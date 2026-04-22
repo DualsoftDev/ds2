@@ -19,6 +19,13 @@
     <Compile Include="Engine\Core\StateManager.fs" />
     <Compile Include="Engine\Core\GraphValidator.fs" />
     <Compile Include="IO\SignalIOMap.fs" />
+    <Compile Include="Engine\Passive\PassiveInferenceTypes.fs" />
+    <Compile Include="Engine\Passive\PassiveInferenceWorkCycle.fs" />
+    <Compile Include="Engine\Passive\PassiveInference.fs" />
+    <Compile Include="Engine\Passive\RuntimeSessionEffects.fs" />
+    <Compile Include="Engine\Passive\RuntimeBootstrapSession.fs" />
+    <Compile Include="Engine\Passive\RuntimeHubSession.fs" />
+    <Compile Include="Engine\Passive\RuntimeModeSession.fs" />
     <Compile Include="Engine\ISimulationEngine.fs" />
     <Compile Include="Engine\EventDriven\TokenFlow.fs" />
     <Compile Include="Engine\EventDriven\WorkTransitions.fs" />

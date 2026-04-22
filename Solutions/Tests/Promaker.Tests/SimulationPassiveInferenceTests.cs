@@ -10,6 +10,8 @@ using Ds2.Core.Store;
 using Ds2.Editor;
 using Ds2.Runtime.Engine;
 using Ds2.Runtime.Engine.Core;
+using Ds2.Runtime.Engine.Passive;
+using Ds2.Runtime.IO;
 using Microsoft.FSharp.Core;
 using Promaker.ViewModels;
 using Xunit;
@@ -168,6 +170,46 @@ public sealed class SimulationPassiveInferenceTests
             ObservePassive(state, fixture.InAddress, "true");
             Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.SingleCallId) == Status4.Finish));
             Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.MultiCallId) == Status4.Finish));
+        });
+    }
+
+    [Fact]
+    public void Passive_call_inference_does_not_reenter_going_from_input_cleanup_without_a_new_out_on()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var fixture = BuildSingleCallFixture();
+            var index = SimIndexModule.build(fixture.Store, 10);
+            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            var state = CreatePassiveState(fixture.Store, engine);
+            var transitions = new List<Status4>();
+            engine.CallStateChanged += (_, args) =>
+            {
+                if (args.CallGuid == fixture.CallId)
+                    transitions.Add(args.NewState);
+            };
+
+            engine.Start();
+
+            ObservePassive(state, fixture.OutAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Going));
+
+            ObservePassive(state, fixture.InAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Finish));
+
+            ObservePassive(state, fixture.InAddress, "false");
+            StaTestRunner.PumpPendingUi();
+
+            Assert.Equal(Status4.Finish, GetCallState(engine, fixture.CallId));
+            Assert.Equal(new[] { Status4.Going, Status4.Finish }, transitions);
+
+            ObservePassive(state, fixture.OutAddress, "false");
+            StaTestRunner.PumpPendingUi();
+            Assert.Equal(Status4.Finish, GetCallState(engine, fixture.CallId));
+
+            ObservePassive(state, fixture.OutAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Going));
+            Assert.Equal(new[] { Status4.Going, Status4.Finish, Status4.Going }, transitions);
         });
     }
 
@@ -485,6 +527,307 @@ public sealed class SimulationPassiveInferenceTests
             ObservePassiveRawDirection(state, engine, fixture.SecondInAddress, "true", isOut: false);
             Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Finish));
         });
+    }
+
+    [Fact]
+    public void Control_runtime_hub_session_maps_in_tag_to_inject_and_rx_finish()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.Control);
+        var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.Control);
+
+        var effects = session.HandleHubTag(fixture.InAddress, "true", "virtualplant");
+
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.InjectIoByAddress
+            && effect.Address == fixture.InAddress
+            && effect.Value == "true");
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.ForceWorkState
+            && effect.State == Status4.Finish);
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.Log
+            && effect.Severity == RuntimeHubLogSeverity.Finish
+            && effect.Message.Contains(fixture.InAddress, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Monitoring_runtime_hub_session_emits_log_and_passive_observe_only()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.Monitoring);
+
+        var effects = session.HandleHubTag(fixture.OutAddress, "true", "control");
+
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.Log
+            && effect.Severity == RuntimeHubLogSeverity.Info
+            && effect.Message.Contains(fixture.OutAddress, StringComparison.Ordinal));
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.PassiveObserve
+            && effect.Address == fixture.OutAddress
+            && effect.Value == "true"
+            && effect.DelayMs == 0);
+        Assert.DoesNotContain(effects, effect => effect.Kind == RuntimeHubEffectKind.WriteTag);
+        Assert.DoesNotContain(effects, effect => effect.Kind == RuntimeHubEffectKind.ForceWorkState);
+    }
+
+    [Fact]
+    public void VirtualPlant_runtime_hub_session_emits_device_effects_but_leaves_synthetic_in_signals_to_hub_replay()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+        var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.VirtualPlant);
+
+        var effects = session.HandleHubTag(fixture.OutAddress, "true", "control");
+
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.ForceWorkState
+            && effect.State == Status4.Going
+            && effect.DelayMs == 0);
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.ForceWorkState
+            && effect.State == Status4.Finish);
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.WriteTag
+            && effect.Address == fixture.InAddress
+            && effect.Value == "true");
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.PassiveObserve
+            && effect.Address == fixture.OutAddress
+            && effect.Value == "true"
+            && effect.DelayMs == 0);
+        Assert.DoesNotContain(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.PassiveObserve
+            && effect.Address == fixture.InAddress
+            && effect.Value == "true");
+    }
+
+    [Fact]
+    public void VirtualPlant_runtime_mode_session_replays_its_own_hub_source_for_synthetic_inputs()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+        var session = new RuntimeModeSession(index, engine.IOMap, RuntimeMode.VirtualPlant);
+
+        Assert.False(session.ShouldIgnoreHubSource("virtualplant"));
+
+        var effects = session.HandleHubTag(fixture.InAddress, "true", "virtualplant");
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.PassiveObserve
+            && effect.Address == fixture.InAddress
+            && effect.Value == "true"
+            && effect.DelayMs == 0);
+    }
+
+    [Fact]
+    public void Monitoring_runtime_bootstrap_session_marks_passive_start_without_hub_sync()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new RuntimeBootstrapSession(index, engine.IOMap, RuntimeMode.Monitoring);
+
+        Assert.True(session.RequiresPassiveInference);
+        Assert.False(session.StartsWithHomingPhase);
+        Assert.False(session.RequiresHubSnapshotSync);
+        Assert.Empty(session.BuildHubSnapshotQueryAddresses());
+    }
+
+    [Fact]
+    public void Control_runtime_bootstrap_session_uses_all_device_addresses_to_infer_state()
+    {
+        var fixture = BuildUnsyncedMultiCallWorkFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.Control);
+        var session = new RuntimeBootstrapSession(index, engine.IOMap, RuntimeMode.Control);
+
+        var queryAddresses = session.BuildHubSnapshotQueryAddresses();
+        Assert.Contains(fixture.FirstOutAddress, queryAddresses);
+        Assert.Contains(fixture.SecondOutAddress, queryAddresses);
+        Assert.Contains(fixture.FirstInAddress, queryAddresses);
+        Assert.Contains(fixture.SecondInAddress, queryAddresses);
+
+        var snapshot = new Dictionary<string, string>
+        {
+            [fixture.FirstOutAddress] = "false",
+            [fixture.SecondOutAddress] = "true",
+            [fixture.FirstInAddress] = "false",
+            [fixture.SecondInAddress] = "false"
+        };
+
+        var effects = session.ResolveHubSnapshotEffects(snapshot);
+
+        var workStateEffect = Assert.Single(effects.Where(effect => effect.Kind == RuntimeHubEffectKind.ForceWorkState));
+        Assert.Equal(Status4.Going, workStateEffect.State);
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.Log
+            && effect.Severity == RuntimeHubLogSeverity.System);
+    }
+
+    [Fact]
+    public void Monitoring_runtime_mode_session_exposes_monitoring_source_and_passive_policy()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new RuntimeModeSession(index, engine.IOMap, RuntimeMode.Monitoring);
+
+        Assert.Equal("monitoring", session.HubSource);
+        Assert.True(session.RequiresHubConnection);
+        Assert.True(session.RequiresPassiveInference);
+        Assert.False(session.StartsWithHomingPhase);
+        Assert.False(session.RequiresHubSnapshotSync);
+        Assert.False(session.UsesControlWriteBridge);
+        Assert.True(session.ShouldIgnoreHubSource("monitoring"));
+        Assert.False(session.ShouldIgnoreHubSource("control"));
+    }
+
+    [Fact]
+    public void Control_runtime_mode_session_delegates_hub_and_snapshot_logic()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.Control);
+        var session = new RuntimeModeSession(index, engine.IOMap, RuntimeMode.Control);
+
+        Assert.Equal("control", session.HubSource);
+        Assert.True(session.RequiresHubConnection);
+        Assert.True(session.UsesControlWriteBridge);
+        Assert.True(session.RequiresHubSnapshotSync);
+
+        var tagEffects = session.HandleHubTag(fixture.InAddress, "true", "virtualplant");
+        Assert.Contains(tagEffects, effect =>
+            effect.Kind == RuntimeHubEffectKind.InjectIoByAddress
+            && effect.Address == fixture.InAddress
+            && effect.Value == "true");
+        Assert.Contains(tagEffects, effect =>
+            effect.Kind == RuntimeHubEffectKind.ForceWorkState
+            && effect.State == Status4.Finish);
+
+        var snapshot = new Dictionary<string, string>
+        {
+            [fixture.OutAddress] = "true",
+            [fixture.InAddress] = "false"
+        };
+
+        var snapshotEffects = session.ResolveHubSnapshotEffects(snapshot);
+        Assert.Contains(snapshotEffects, effect =>
+            effect.Kind == RuntimeHubEffectKind.ForceWorkState
+            && effect.State == Status4.Going);
+    }
+
+    [Fact]
+    public void Runtime_hub_effect_pipeline_keeps_zero_delay_effects_in_a_nonblocking_batch()
+    {
+        var effects = new List<RuntimeHubEffect>();
+        RuntimeSessionEffects.addLog(effects, 0, RuntimeHubLogSeverity.Going, "log");
+        RuntimeSessionEffects.addWriteTag(effects, 0, "%I1001", "false");
+        RuntimeSessionEffects.addPassiveObserve(effects, 0, "%Q1001", "true");
+        RuntimeSessionEffects.addForceWorkState(effects, 500, Guid.NewGuid(), Status4.Finish);
+        RuntimeSessionEffects.addWriteTag(effects, 500, "%I1001", "true");
+        RuntimeSessionEffects.addPassiveObserve(effects, 500, "%I1001", "true");
+
+        var batches = RuntimeHubEffectPipeline.Build(effects);
+
+        Assert.Collection(
+            batches,
+            batch =>
+            {
+                Assert.Equal(0, batch.DelayMs);
+                Assert.False(batch.AwaitWrites);
+                Assert.True(batch.RequiresExclusiveImmediateLane);
+                Assert.Equal(
+                    new[]
+                    {
+                        RuntimeHubEffectKind.Log,
+                        RuntimeHubEffectKind.WriteTag,
+                        RuntimeHubEffectKind.PassiveObserve
+                    },
+                    batch.Effects.Select(static effect => effect.Kind));
+            },
+            batch =>
+            {
+                Assert.Equal(500, batch.DelayMs);
+                Assert.True(batch.AwaitWrites);
+                Assert.False(batch.RequiresExclusiveImmediateLane);
+                Assert.Equal(
+                    new[]
+                    {
+                        RuntimeHubEffectKind.ForceWorkState,
+                        RuntimeHubEffectKind.WriteTag,
+                        RuntimeHubEffectKind.PassiveObserve
+                    },
+                    batch.Effects.Select(static effect => effect.Kind));
+            });
+    }
+
+    [Fact]
+    public void Runtime_hub_effect_pipeline_groups_delayed_effects_by_due_time()
+    {
+        var finishWorkGuid = Guid.NewGuid();
+        var effects = new List<RuntimeHubEffect>();
+        RuntimeSessionEffects.addWriteTag(effects, 0, "%I1001", "false");
+        RuntimeSessionEffects.addPassiveObserve(effects, 0, "%Q1001", "true");
+        RuntimeSessionEffects.addForceWorkState(effects, 500, finishWorkGuid, Status4.Finish);
+        RuntimeSessionEffects.addWriteTag(effects, 500, "%I1001", "true");
+        RuntimeSessionEffects.addLog(effects, 750, RuntimeHubLogSeverity.System, "later");
+        RuntimeSessionEffects.addPassiveObserve(effects, 750, "%I1001", "false");
+
+        var batches = RuntimeHubEffectPipeline.Build(effects);
+
+        Assert.Equal(3, batches.Count);
+        Assert.Equal(0, batches[0].DelayMs);
+        Assert.Equal(500, batches[1].DelayMs);
+        Assert.Equal(750, batches[2].DelayMs);
+        Assert.False(batches[0].AwaitWrites);
+        Assert.True(batches[1].AwaitWrites);
+        Assert.True(batches[2].AwaitWrites);
+        Assert.True(batches[0].RequiresExclusiveImmediateLane);
+        Assert.False(batches[1].RequiresExclusiveImmediateLane);
+        Assert.False(batches[2].RequiresExclusiveImmediateLane);
+        Assert.Equal(
+            new[]
+            {
+                RuntimeHubEffectKind.Log,
+                RuntimeHubEffectKind.PassiveObserve
+            },
+            batches[2].Effects.Select(static effect => effect.Kind));
+    }
+
+    [Fact]
+    public void Runtime_hub_effect_pipeline_keeps_delayed_virtualplant_batches_off_the_immediate_lane()
+    {
+        var effects = new List<RuntimeHubEffect>();
+        RuntimeSessionEffects.addLog(effects, 0, RuntimeHubLogSeverity.Homing, "reset");
+        RuntimeSessionEffects.addWriteTag(effects, 0, "%I2101", "false");
+        RuntimeSessionEffects.addPassiveObserve(effects, 0, "%I2101", "false");
+        RuntimeSessionEffects.addPassiveObserve(effects, 0, "%Q1001", "true");
+        RuntimeSessionEffects.addForceWorkState(effects, 500, Guid.NewGuid(), Status4.Finish);
+        RuntimeSessionEffects.addWriteTag(effects, 500, "%I1101", "true");
+        RuntimeSessionEffects.addPassiveObserve(effects, 500, "%I1101", "true");
+
+        var batches = RuntimeHubEffectPipeline.Build(effects);
+
+        Assert.Collection(
+            batches,
+            batch =>
+            {
+                Assert.Equal(0, batch.DelayMs);
+                Assert.True(batch.RequiresExclusiveImmediateLane);
+                Assert.False(batch.AwaitWrites);
+            },
+            batch =>
+            {
+                Assert.Equal(500, batch.DelayMs);
+                Assert.False(batch.RequiresExclusiveImmediateLane);
+                Assert.True(batch.AwaitWrites);
+            });
     }
 
     private static SharedCallFixture BuildSharedSingleAndMultiCallFixture()
