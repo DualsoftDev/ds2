@@ -24,11 +24,7 @@ echo.
 echo ======================================================================
 echo [2/3] Publishing AasxEditor.Desktop (self-contained, win-x64) ...
 echo ======================================================================
-dotnet publish "AasxEditor.Desktop\AasxEditor.Desktop.csproj" ^
-  -c Release ^
-  -p:PublishProfile=win-x64 ^
-  --nologo ^
-  -v minimal
+dotnet publish "AasxEditor.Desktop\AasxEditor.Desktop.csproj" -c Release -p:PublishProfile=win-x64 --nologo -v minimal
 if errorlevel 1 goto :err
 
 echo.
@@ -36,7 +32,7 @@ echo ======================================================================
 echo [3/3] Compiling Inno Setup installer ...
 echo ======================================================================
 
-REM Find ISCC.exe — try PATH first, then default install locations.
+REM Find ISCC.exe -- try PATH first, then default install locations.
 set "ISCC_EXE="
 where iscc.exe >nul 2>nul && set "ISCC_EXE=iscc.exe"
 if not defined ISCC_EXE if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC_EXE=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
@@ -52,7 +48,7 @@ if errorlevel 1 goto :err
 
 echo.
 echo ======================================================================
-echo SUCCESS — installer placed in Installer\Output\
+echo SUCCESS -- installer placed in Installer\Output\
 echo ======================================================================
 dir /b "Installer\Output\*.exe" 2>nul
 
