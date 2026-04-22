@@ -1096,20 +1096,6 @@ html, body {
 .create-logging-banner-desc { font-size: 11px; color: #b8ad88; line-height: 1.4; }
 .create-logging-banner-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
-/* ===== System Picker (Create Logging Modal) ===== */
-.system-picker-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 13px;
-}
-.system-picker-row:hover { background: #2a2a2c; }
-.system-picker-label { flex: 1; color: #e0e0e0; }
-.system-picker-guid { color: #636366; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 11px; }
-
 /* ===== 외부 AASX 배너 ===== */
 .external-aasx-banner {
     display: flex;

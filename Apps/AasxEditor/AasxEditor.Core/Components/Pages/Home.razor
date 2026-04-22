@@ -188,11 +188,10 @@
                                 <div class="create-logging-banner-text">
                                     <div class="create-logging-banner-title">SequenceLogging 서브모델이 없습니다</div>
                                     <div class="create-logging-banner-desc">
-                                        에러 정의를 추가하려면 Logging 서브모델 구조가 필요합니다. Promaker에서 "기본 엔티티 생성" 옵션을 켜고 다시 저장하거나, 여기서 바로 생성할 수 있습니다.
+                                        에러 정의를 추가하려면 Logging 서브모델 구조가 필요합니다. Promaker에서 "기본 엔티티 생성" 옵션을 켜고 다시 저장해 주세요.
                                     </div>
                                 </div>
                                 <div class="create-logging-banner-actions">
-                                    <button class="btn btn-sm btn-primary" @onclick="OnOpenCreateLoggingModal">Logging 구조 생성</button>
                                     <button class="btn btn-sm btn-outline-secondary" @onclick="OnDismissCreateLoggingBanner" title="숨기기">&#10005;</button>
                                 </div>
                             </div>
@@ -588,58 +587,6 @@
 </div>
 
 @* === 모달들 (DOM 최하단 배치 — three-panel 위에 렌더링) === *@
-@if (_showCreateLoggingModal)
-{
-    <div class="modal-overlay">
-        <div class="modal-dialog" style="width:480px;max-height:70vh;display:flex;flex-direction:column">
-            <div class="modal-title">SequenceLogging 서브모델 생성</div>
-            <div class="modal-body" style="display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
-                <p style="margin:0 0 8px;color:#aaa;font-size:12px">
-                    에러 정의를 추가할 System을 선택하세요. 선택한 System마다 빈 ErrorDefinitions가 생성됩니다.
-                </p>
-
-                @if (_systemPickerItems.Count == 0)
-                {
-                    <div style="color:#e57373;font-size:13px;padding:12px 0">
-                        SequenceModel에서 System을 찾을 수 없습니다. SequenceModel > Project > ActiveSystems 구조를 확인하세요.
-                    </div>
-                }
-                else
-                {
-                    <div style="display:flex;gap:6px;margin-bottom:6px;flex-shrink:0">
-                        <button class="btn btn-outline-info" style="font-size:11px;padding:3px 8px"
-                                @onclick="OnPickerSelectAll">전체선택</button>
-                        <button class="btn btn-outline-secondary" style="font-size:11px;padding:3px 8px"
-                                @onclick="OnPickerDeselectAll">전체해제</button>
-                        <span style="margin-left:auto;color:#636366;font-size:11px;align-self:center">
-                            @_systemPickerItems.Count(i => i.Selected) / @_systemPickerItems.Count 선택됨
-                        </span>
-                    </div>
-
-                    <div style="flex:1;min-height:0;overflow-y:auto;border:1px solid #333;border-radius:6px;padding:4px">
-                        @foreach (var item in _systemPickerItems)
-                        {
-                            var it = item;
-                            <label class="system-picker-row">
-                                <input type="checkbox" checked="@it.Selected"
-                                       @onchange="() => OnTogglePickerItem(it)" />
-                                <span class="system-picker-label">@it.Label</span>
-                                <span class="system-picker-guid">@it.Guid.ToString("N")[..8]…</span>
-                            </label>
-                        }
-                    </div>
-                }
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-primary btn-sm"
-                        disabled="@(_systemPickerItems.Count == 0 || !_systemPickerItems.Any(i => i.Selected))"
-                        @onclick="OnConfirmCreateLogging">생성</button>
-                <button class="btn btn-outline-secondary btn-sm" @onclick="OnCancelCreateLogging">취소</button>
-            </div>
-        </div>
-    </div>
-}
-
 @if (_showDropChoice)
 {
     <div class="modal-overlay">
