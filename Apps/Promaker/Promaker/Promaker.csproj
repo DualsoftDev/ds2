@@ -6,9 +6,9 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>Promaker</RootNamespace>
     <AssemblyName>Promaker</AssemblyName>
-    <Version>0.0.0.17</Version>
-    <AssemblyVersion>0.0.0.17</AssemblyVersion>
-    <FileVersion>0.0.0.17</FileVersion>
+    <Version>0.0.0.18</Version>
+    <AssemblyVersion>0.0.0.18</AssemblyVersion>
+    <FileVersion>0.0.0.18</FileVersion>
     <ApplicationIcon>Assets\Promaker.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -48,9 +48,9 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
-    <!-- Ds2.View3D Lib3D ?꿔꺂??袁ㅻ븶???????? wwwroot\models\???꿔꺂???疫뀀９臾?-->
+    <!-- Ds2.View3D Lib3D ?轅붽틓??熬곥끇釉???????? wwwroot\models\???轅붽틓????ル竊숃눧?-->
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\models\**\*" Link="wwwroot\models\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <!-- 커스텀 모델 프리뷰 도구 + 스펙 문서 -->
+    <!-- 而ㅼ뒪? 紐⑤뜽 ?꾨━酉??꾧뎄 + ?ㅽ럺 臾몄꽌 -->
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\device-preview.html" Link="wwwroot\device-preview.html" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\Solutions\View\Ds2.View3D\wwwroot\DEVICE_JSON_SPEC.md" Link="wwwroot\DEVICE_JSON_SPEC.md" CopyToOutputDirectory="PreserveNewest" />
     <!-- AAStoXGI Template files (XGI_Template.xml, FB_Template.json, etc.) -->

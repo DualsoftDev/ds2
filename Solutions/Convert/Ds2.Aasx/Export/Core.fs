@@ -110,9 +110,7 @@ module internal AasxExportCore =
         match uri with
         | None -> elem
         | Some u ->
-            match elem with
-            | :? IHasSemantics as hs -> hs.SemanticId <- mkSemanticRef u
-            | _ -> ()
+            elem.SemanticId <- mkSemanticRef u
             elem
 
     let mkSubmodel (id: string) (idShort: string) (semanticId: string) (elems: ISubmodelElement list) : Submodel =

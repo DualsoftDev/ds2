@@ -1,6 +1,7 @@
 namespace Ds2.Aasx
 
 open System
+open System.IO
 open AasCore.Aas3_1
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
@@ -203,3 +204,8 @@ module AasxImporter =
         | Error msg ->
             log.Warn($"AASX import failed: {msg}")
             false
+
+    let importIntoStoreOrRaise (store: DsStore) (path: string) : unit =
+        match importIntoStoreWithError store path with
+        | Ok () -> ()
+        | Error msg -> raise (InvalidDataException(msg))
