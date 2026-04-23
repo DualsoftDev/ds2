@@ -148,22 +148,25 @@
                     }
                     else
                     {
-                        @* ── Finder Toolbar ── *@
+                        @* ── Finder Toolbar (Windows Explorer 스타일) ── *@
                         <div class="finder-toolbar">
                             <div class="finder-nav">
-                                <button class="finder-nav-btn" disabled="@(_navBack.Count == 0)" @onclick="ExplorerGoBack" title="뒤로">&#x276E;</button>
-                                <button class="finder-nav-btn" disabled="@(_navForward.Count == 0)" @onclick="ExplorerGoForward" title="앞으로">&#x276F;</button>
+                                <button class="finder-nav-btn" disabled="@(_navBack.Count == 0)" @onclick="ExplorerGoBack" title="뒤로">&#x2190;</button>
+                                <button class="finder-nav-btn" disabled="@(_navForward.Count == 0)" @onclick="ExplorerGoForward" title="앞으로">&#x2192;</button>
                                 <button class="finder-nav-btn" disabled="@(_explorerPath.Count == 0)" @onclick="ExplorerGoUp" title="상위 폴더">&#x2191;</button>
                             </div>
-                            <div class="finder-title">
-                                @if (_explorerPath.Count > 0)
+                            <div class="finder-addressbar">
+                                <span class="finder-addr-icon">&#x1F4C1;</span>
+                                <span class="finder-addr-seg @(_explorerPath.Count == 0 ? "active" : "")"
+                                      @onclick="ExplorerGoRoot">Root</span>
+                                @for (var pi = 0; pi < _explorerPath.Count; pi++)
                                 {
-                                    <span class="node-icon icon-@(IconClass(_explorerPath[^1]))" style="width:16px;height:14px;font-size:8px">@_explorerPath[^1].Icon</span>
-                                    <span>@_explorerPath[^1].Label</span>
-                                }
-                                else
-                                {
-                                    <span>Root</span>
+                                    var pidx = pi;
+                                    <span class="finder-addr-sep">&#x203A;</span>
+                                    <span class="finder-addr-seg @(pi == _explorerPath.Count - 1 ? "active" : "")"
+                                          @onclick="() => ExplorerGoTo(pidx)">
+                                        @_explorerPath[pidx].Label
+                                    </span>
                                 }
                             </div>
                             <div class="finder-view-toggle" role="group" title="보기 모드">
@@ -564,18 +567,26 @@
                             }
                         </div>
 
-                        @* ── Path Bar ── *@
-                        <div class="finder-pathbar">
-                            <span class="finder-path-item @(_explorerPath.Count == 0 ? "active" : "")"
-                                  @onclick="ExplorerGoRoot">Root</span>
-                            @for (var pi = 0; pi < _explorerPath.Count; pi++)
+                        @* ── Status Bar (Windows Explorer 하단 상태) ── *@
+                        var statusNodes = _explorerPath.Count == 0 ? _treeNodes : _explorerPath[^1].Children;
+                        var statusFolderCount = statusNodes.Count(n => n.Children.Count > 0);
+                        var statusLeafCount = statusNodes.Count - statusFolderCount;
+                        <div class="finder-statusbar">
+                            <span class="finder-status-item">@statusNodes.Count 개 항목</span>
+                            @if (statusFolderCount > 0)
                             {
-                                var pidx = pi;
-                                <span class="finder-path-sep">&#x203A;</span>
-                                <span class="finder-path-item @(pi == _explorerPath.Count - 1 ? "active" : "")"
-                                      @onclick="() => ExplorerGoTo(pidx)">
-                                    @_explorerPath[pidx].Label
-                                </span>
+                                <span class="finder-status-sep">·</span>
+                                <span class="finder-status-item">폴더 @statusFolderCount</span>
+                            }
+                            @if (statusLeafCount > 0)
+                            {
+                                <span class="finder-status-sep">·</span>
+                                <span class="finder-status-item">항목 @statusLeafCount</span>
+                            }
+                            @if (_selectedNode is not null)
+                            {
+                                <span class="finder-status-sep">·</span>
+                                <span class="finder-status-item">선택: @_selectedNode.Label</span>
                             }
                         </div>
                     }
