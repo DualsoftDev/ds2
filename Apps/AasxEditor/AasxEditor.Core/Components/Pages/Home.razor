@@ -477,12 +477,12 @@
                                                                 var (eName, eTag, eVt) = inlineErrDefs[ei];
                                                                 <tr>
                                                                     <td>@eName</td>
-                                                                    <td style="color:#4fc3f7">@eTag</td>
-                                                                    <td style="color:#98989d">@eVt</td>
+                                                                    <td class="err-table-tag">@eTag</td>
+                                                                    <td class="err-table-vt">@eVt</td>
                                                                     <td style="text-align:right">
                                                                         <button class="btn-icon" title="편집"
                                                                                 @onclick="() => { SelectNode(inlineErr); OnEditErrorDef(idx); }">&#9998;</button>
-                                                                        <button class="btn-icon" title="삭제" style="color:#e57373"
+                                                                        <button class="btn-icon btn-icon-danger" title="삭제"
                                                                                 @onclick="() => { SelectNode(inlineErr); _ = OnDeleteErrorDef(idx); }">&#10005;</button>
                                                                     </td>
                                                                 </tr>
@@ -492,7 +492,7 @@
                                                 }
                                                 else
                                                 {
-                                                    <div style="color:#636366;font-size:12px;padding:8px 0">에러 정의가 없습니다. + 추가를 눌러 추가하세요.</div>
+                                                    <div class="err-empty">에러 정의가 없습니다. + 추가를 눌러 추가하세요.</div>
                                                 }
                                             </div>
                                         }
@@ -544,12 +544,12 @@
                                                             var (eName, eTag, eVt) = errDefs[ei];
                                                             <tr>
                                                                 <td>@eName</td>
-                                                                <td style="color:#4fc3f7">@eTag</td>
-                                                                <td style="color:#98989d">@eVt</td>
+                                                                <td class="err-table-tag">@eTag</td>
+                                                                <td class="err-table-vt">@eVt</td>
                                                                 <td style="text-align:right">
                                                                     <button class="btn-icon" title="편집"
                                                                             @onclick="() => { SelectNode(capturedErrNode); OnEditErrorDef(idx); }">&#9998;</button>
-                                                                    <button class="btn-icon" title="삭제" style="color:#e57373"
+                                                                    <button class="btn-icon btn-icon-danger" title="삭제"
                                                                             @onclick="() => { SelectNode(capturedErrNode); _ = OnDeleteErrorDef(idx); }">&#10005;</button>
                                                                 </td>
                                                             </tr>
@@ -559,7 +559,7 @@
                                             }
                                             else
                                             {
-                                                <div style="color:#636366;font-size:12px;padding:8px 0">에러 정의가 없습니다.</div>
+                                                <div class="err-empty">에러 정의가 없습니다.</div>
                                             }
                                         </div>
                                     }
@@ -604,7 +604,7 @@
         <div class="modal-dialog">
             <div class="modal-title">파일 열기 방식 선택</div>
             <div class="modal-body">
-                <p style="margin:0 0 8px;color:#aaa;font-size:13px">@(string.Join(", ", _pendingDropFileNames)) 파일을 어떻게 여시겠습니까?</p>
+                <p class="dialog-message">@(string.Join(", ", _pendingDropFileNames)) 파일을 어떻게 여시겠습니까?</p>
             </div>
             <div class="modal-actions" style="justify-content:center;gap:16px">
                 <button class="btn btn-primary" @onclick="OnDropChoiceOpen">새로 열기</button>
@@ -697,8 +697,8 @@
                 @* Row 2.5: 하이라이트 액션 바 (행 클릭 선택 시 표시) *@
                 @if (highlightCount > 0)
                 {
-                    <div style="display:flex;gap:6px;margin-bottom:6px;flex-shrink:0;align-items:center;padding:4px 8px;background:#1a2a3a;border-radius:6px;font-size:12px">
-                        <span style="color:#4fc3f7">@highlightCount 건 선택됨</span>
+                    <div class="batch-highlight-bar">
+                        <span class="batch-highlight-count">@highlightCount 건 선택됨</span>
                         <button class="btn btn-outline-info" style="font-size:11px;padding:2px 8px" @onclick="OnBatchCheckHighlighted">
                             체크
                         </button>
@@ -708,15 +708,15 @@
                         <button class="btn btn-outline-secondary" style="font-size:11px;padding:2px 6px" @onclick="() => _batchHighlightedIds.Clear()">
                             취소
                         </button>
-                        <span style="color:#666;margin-left:auto;font-size:11px">Ctrl+클릭: 추가, Shift+클릭: 범위</span>
+                        <span class="batch-highlight-hint">Ctrl+클릭: 추가, Shift+클릭: 범위</span>
                     </div>
                 }
 
                 @* Row 3: 스크롤 가능한 항목 목록 *@
-                <div style="flex:1;min-height:0;overflow-y:auto;border:1px solid #333;border-radius:6px;margin-bottom:8px">
-                    <table style="width:100%;border-collapse:collapse;font-size:12px;user-select:none">
-                        <thead style="position:sticky;top:0;background:#1e1e1e;z-index:1">
-                            <tr style="border-bottom:1px solid #333">
+                <div class="batch-table-wrap">
+                    <table class="batch-table">
+                        <thead>
+                            <tr>
                                 <td style="width:28px;padding:4px;text-align:center"></td>
                                 <td style="width:65px;padding:4px;cursor:pointer" @onclick='() => OnBatchSortToggle("EntityType")'>
                                     타입@(_batchSortColumn == "EntityType" ? (_batchSortAsc ? " \u25B2" : " \u25BC") : "")
@@ -746,10 +746,10 @@
                                 var curVal = rec.Value ?? "";
                                 var showPreview = CanApply() && _batchEditMode != "overwrite" && isChecked;
 
-                                var bgColor = isHighlighted ? "#1a3a5a" : "transparent";
                                 var opacity = !isEditable ? "0.35" : isChecked ? "1" : "0.55";
 
-                                <tr style="border-bottom:1px solid #2a2a2a;background:@bgColor;opacity:@opacity;cursor:@(isEditable ? "pointer" : "default")"
+                                <tr class="@(isHighlighted ? "highlighted" : "")"
+                                    style="opacity:@opacity;cursor:@(isEditable ? "pointer" : "default")"
                                     @onclick="(e) => OnBatchRowClick(rec.Id, e)"
                                     @onclick:stopPropagation="true">
                                     <td style="padding:3px 4px;text-align:center" @onclick:stopPropagation="true">
@@ -759,9 +759,9 @@
                                     <td style="padding:3px 4px">
                                         <span class="modal-chip-type" style="font-size:10px">@rec.EntityType</span>
                                     </td>
-                                    <td style="padding:3px 4px;color:#4fc3f7">@rec.IdShort</td>
-                                    <td style="padding:3px 4px;color:#98989d;font-size:11px">@(rec.ValueType ?? "")</td>
-                                    <td style="padding:3px 4px;color:#aaa;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                    <td class="batch-id-cell">@rec.IdShort</td>
+                                    <td class="batch-vt-cell">@(rec.ValueType ?? "")</td>
+                                    <td class="batch-value-cell">
                                         @if (!string.IsNullOrEmpty(curVal))
                                         {
                                             <span style="@(showPreview ? "text-decoration:line-through;opacity:0.5" : "")">@TruncateValue(curVal, 18)</span>
@@ -769,7 +769,7 @@
                                     </td>
                                     @if (CanApply() && _batchEditMode != "overwrite")
                                     {
-                                        <td style="padding:3px 4px;color:#81c784;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                                        <td class="batch-preview-cell">
                                             @if (showPreview)
                                             {
                                                 @TruncateValue(PreviewNewValue(rec), 18)
@@ -890,8 +890,8 @@
         <div class="modal-dialog" style="width:400px">
             <div class="modal-title">CSV 교체 확인</div>
             <div class="modal-body">
-                <p style="margin:0;color:#e57373">기존에 추가한 에러 정의를 모두 삭제하고 CSV 파일의 내용으로 덮어씁니다.</p>
-                <p style="margin:8px 0 0;color:#aaa;font-size:13px">현재 @(_csvReplaceTargetNode?.Children.Count ?? 0)건의 정의가 삭제됩니다. 계속하시겠습니까?</p>
+                <p class="dialog-danger">기존에 추가한 에러 정의를 모두 삭제하고 CSV 파일의 내용으로 덮어씁니다.</p>
+                <p class="dialog-subtext">현재 @(_csvReplaceTargetNode?.Children.Count ?? 0)건의 정의가 삭제됩니다. 계속하시겠습니까?</p>
             </div>
             <div class="modal-actions">
                 <label class="btn btn-warning btn-sm btn-file" style="margin:0;cursor:pointer">
