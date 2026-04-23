@@ -155,16 +155,31 @@
                                 <button class="finder-nav-btn" disabled="@(_navForward.Count == 0)" @onclick="ExplorerGoForward" title="앞으로">&#x2192;</button>
                                 <button class="finder-nav-btn" disabled="@(_explorerPath.Count == 0)" @onclick="ExplorerGoUp" title="상위 폴더">&#x2191;</button>
                             </div>
+                            @{
+                                const int AddrMaxSegments = 4;
+                                var addrTruncated = _explorerPath.Count > AddrMaxSegments;
+                                var addrStartIdx = addrTruncated ? _explorerPath.Count - (AddrMaxSegments - 1) : 0;
+                                var addrHiddenTitle = addrTruncated
+                                    ? string.Join(" › ", _explorerPath.Take(addrStartIdx).Select(n => n.Label))
+                                    : string.Empty;
+                            }
                             <div class="finder-addressbar">
                                 <span class="finder-addr-icon">&#x1F4C1;</span>
                                 <span class="finder-addr-seg @(_explorerPath.Count == 0 ? "active" : "")"
                                       @onclick="ExplorerGoRoot">Root</span>
-                                @for (var pi = 0; pi < _explorerPath.Count; pi++)
+                                @if (addrTruncated)
+                                {
+                                    <span class="finder-addr-sep">&#x203A;</span>
+                                    <span class="finder-addr-seg finder-addr-ellipsis"
+                                          title="@addrHiddenTitle">…</span>
+                                }
+                                @for (var pi = addrStartIdx; pi < _explorerPath.Count; pi++)
                                 {
                                     var pidx = pi;
                                     <span class="finder-addr-sep">&#x203A;</span>
-                                    <span class="finder-addr-seg @(pi == _explorerPath.Count - 1 ? "active" : "")"
-                                          @onclick="() => ExplorerGoTo(pidx)">
+                                    <span class="finder-addr-seg @(pi == _explorerPath.Count - 1 ? "active" : "") @(pi == _explorerPath.Count - 1 ? "finder-addr-seg-last" : "")"
+                                          @onclick="() => ExplorerGoTo(pidx)"
+                                          title="@_explorerPath[pidx].Label">
                                         @_explorerPath[pidx].Label
                                     </span>
                                 }
