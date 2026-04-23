@@ -499,18 +499,14 @@ html, body {
     background: var(--bg-base);
     border: 1px solid var(--border-default);
     border-radius: 6px;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: hidden;
     white-space: nowrap;
     font-size: 13px;
-    scrollbar-width: thin;
 }
 .finder-addressbar:focus-within,
 .finder-addressbar:hover {
     border-color: var(--finder-accent);
 }
-.finder-addressbar::-webkit-scrollbar { height: 4px; }
-.finder-addressbar::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 2px; }
 
 .finder-addr-icon {
     font-size: 13px;
@@ -526,10 +522,23 @@ html, body {
     padding: 2px 8px;
     border-radius: 4px;
     flex-shrink: 0;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     transition: background 0.1s, color 0.1s;
 }
 .finder-addr-seg:hover { background: rgba(255,255,255,0.08); color: var(--text-strong); }
 .finder-addr-seg.active { color: var(--text-strong); font-weight: 600; }
+.finder-addr-seg.finder-addr-seg-last {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: none;
+}
+.finder-addr-ellipsis {
+    cursor: default;
+    color: var(--text-muted);
+}
+.finder-addr-ellipsis:hover { background: transparent; color: var(--text-muted); }
 
 .finder-addr-sep {
     color: var(--text-muted);
