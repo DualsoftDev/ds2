@@ -48,6 +48,134 @@ module internal PassiveInferenceWorkCycle =
             wl.WorkGoingStartGroupIdx <- Some 0
         | _ -> ()
 
+    let private tryGetRelativeProvisionalHeadIdx start period requiredMatches (wl: WorkLearning) =
+        match wl.ProvisionalHeadGroupIdx with
+        | Some headIdx when period > 0 && headIdx >= start && headIdx < start + (period * requiredMatches) ->
+            Some ((headIdx - start) % period)
+        | _ -> None
+
+    let private tryGetGapBeforeGroupIdx start period repeatIdx relIdx (wl: WorkLearning) =
+        let absoluteIdx = start + (repeatIdx * period) + relIdx
+        if absoluteIdx > start && absoluteIdx < wl.GroupStartTicks.Count && absoluteIdx - 1 < wl.GroupEndTicks.Count then
+            Some (wl.GroupStartTicks[absoluteIdx] - wl.GroupEndTicks[absoluteIdx - 1])
+        else
+            None
+
+    let private tryGetRotatedFinishInfo start period headRelIdx (wl: WorkLearning) =
+        let mutable finishRotIdx = -1
+
+        for rotIdx in 0 .. period - 1 do
+            let dir, value = wl.GroupKeys[start + ((headRelIdx + rotIdx) % period)]
+            if dir = "In" && value = "true" then
+                finishRotIdx <- rotIdx
+
+        if finishRotIdx < 0 then
+            None
+        else
+            let mutable outAfterFinish = 0
+            for rotIdx in finishRotIdx + 1 .. period - 1 do
+                let dir, value = wl.GroupKeys[start + ((headRelIdx + rotIdx) % period)]
+                if dir = "Out" && value = "true" then
+                    outAfterFinish <- outAfterFinish + 1
+
+            let finishOriginalIdx = (headRelIdx + finishRotIdx) % period
+            Some (finishOriginalIdx, finishRotIdx, outAfterFinish)
+
+    let private tryResolveMonitoringGapScoredCycleShape
+        (ctx: PassiveWorkContext)
+        workGuid
+        start
+        period
+        requiredMatches
+        (wl: WorkLearning)
+        fallbackStartIdx
+        fallbackFinishIdx =
+        if period <= 0 then
+            fallbackStartIdx, fallbackFinishIdx
+        else
+            let provisionalRelIdx = tryGetRelativeProvisionalHeadIdx start period requiredMatches wl
+            let mutable bestHeadIdx = fallbackStartIdx
+            let mutable bestFinishIdx = fallbackFinishIdx
+            let mutable bestFinishRotIdx =
+                if fallbackFinishIdx >= 0 then
+                    (fallbackFinishIdx - fallbackStartIdx + period) % period
+                else
+                    -1
+            let mutable bestOutAfterFinish = Int32.MaxValue
+            let mutable bestGap = Int64.MinValue
+            let mutable bestProvisional = false
+            let mutable foundCandidate = false
+
+            for relIdx in 0 .. period - 1 do
+                let dir, value = wl.GroupKeys[start + relIdx]
+                if dir = "Out" && value = "true" then
+                    match tryGetRotatedFinishInfo start period relIdx wl with
+                    | Some (finishOriginalIdx, finishRotIdx, outAfterFinish) ->
+                        let gapSamples =
+                            [|
+                                for repeatIdx in 0 .. requiredMatches - 1 do
+                                    match tryGetGapBeforeGroupIdx start period repeatIdx relIdx wl with
+                                    | Some gap -> yield gap
+                                    | None -> ()
+                            |]
+
+                        let avgGap =
+                            if gapSamples.Length = 0 then 0L
+                            else gapSamples |> Array.averageBy float |> int64
+
+                        let matchesProvisional =
+                            match provisionalRelIdx with
+                            | Some idx -> idx = relIdx
+                            | None -> false
+
+                        if
+                            not foundCandidate
+                            || outAfterFinish < bestOutAfterFinish
+                            || (outAfterFinish = bestOutAfterFinish && finishRotIdx > bestFinishRotIdx)
+                            || (outAfterFinish = bestOutAfterFinish && finishRotIdx = bestFinishRotIdx && avgGap > bestGap)
+                            || (outAfterFinish = bestOutAfterFinish && finishRotIdx = bestFinishRotIdx && avgGap = bestGap && matchesProvisional && not bestProvisional)
+                            || (outAfterFinish = bestOutAfterFinish && finishRotIdx = bestFinishRotIdx && avgGap = bestGap && matchesProvisional = bestProvisional && relIdx = fallbackStartIdx && bestHeadIdx <> fallbackStartIdx)
+                        then
+                            foundCandidate <- true
+                            bestHeadIdx <- relIdx
+                            bestFinishIdx <- finishOriginalIdx
+                            bestFinishRotIdx <- finishRotIdx
+                            bestOutAfterFinish <- outAfterFinish
+                            bestGap <- avgGap
+                            bestProvisional <- matchesProvisional
+                    | None -> ()
+
+            if foundCandidate then
+                ctx.AddLog
+                    PassiveInferenceLogKind.System
+                    (sprintf
+                        "[Mon] %s gap-scored head=%d finish=%d fallback=%d avgGap=%d outAfterFinish=%d provisional=%s"
+                        (resolveWorkName ctx workGuid)
+                        bestHeadIdx
+                        bestFinishRotIdx
+                        fallbackStartIdx
+                        bestGap
+                        bestOutAfterFinish
+                        (if bestProvisional then "yes" else "no"))
+                bestHeadIdx, bestFinishIdx
+            else
+                fallbackStartIdx, fallbackFinishIdx
+
+    let private tryLogMonitoringGapHint
+        (ctx: PassiveWorkContext)
+        workGuid
+        tailIdx
+        headIdx
+        gapTicks =
+        ctx.AddLog
+            PassiveInferenceLogKind.System
+            (sprintf
+                "[Mon] %s provisional gap head=%d tail=%d ticks=%d"
+                (resolveWorkName ctx workGuid)
+                headIdx
+                tailIdx
+                gapTicks)
+
     let private isCircularInclusive value startIdx endIdx period =
         if period <= 0 then
             false
@@ -213,6 +341,12 @@ module internal PassiveInferenceWorkCycle =
                                     workFinishIdx <- finishSearch
                                 finishSearch <- finishSearch - 1
 
+                            let workGoingStartIdx, workFinishIdx =
+                                if ctx.RuntimeMode = RuntimeMode.Monitoring then
+                                    tryResolveMonitoringGapScoredCycleShape ctx workGuid start period requiredMatches wl workGoingStartIdx workFinishIdx
+                                else
+                                    workGoingStartIdx, workFinishIdx
+
                             wl.WorkFinishGroupIdx <- if workFinishIdx >= 0 then Some workFinishIdx else None
                             wl.WorkGoingStartGroupIdx <- if workGoingStartIdx >= 0 then Some workGoingStartIdx else None
                             wl.Synced <- true
@@ -221,6 +355,9 @@ module internal PassiveInferenceWorkCycle =
                             wl.LiveCurrentKey <- None
                             wl.LiveCurrentTokens.Clear()
                             wl.HasObservedSyncedGoing <- false
+                            wl.ProvisionalHeadGroupIdx <- None
+                            wl.ProvisionalTailGroupIdx <- None
+                            wl.LargestGapTicks <- 0L
 
                             let seqStr = wl.CycleSequence |> String.concat " | "
                             ctx.AddLog
@@ -268,7 +405,7 @@ module internal PassiveInferenceWorkCycle =
             | _ -> None
         | _ -> None
 
-    let appendToWorkSequence (wl: WorkLearning) dirVal token =
+    let appendToWorkSequence (wl: WorkLearning) dirVal token observedTick =
         match wl.LearningCurrentKey with
         | Some current when current = dirVal && wl.Sequence.Count > 0 ->
             let items =
@@ -281,10 +418,31 @@ module internal PassiveInferenceWorkCycle =
                 items
                 |> Seq.sortWith (fun left right -> StringComparer.Ordinal.Compare(left, right))
                 |> String.concat "|"
+            wl.GroupEndTicks[wl.GroupEndTicks.Count - 1] <- observedTick
+            false
         | _ ->
             wl.Sequence.Add(token)
             wl.GroupKeys.Add(dirVal)
+            wl.GroupStartTicks.Add(observedTick)
+            wl.GroupEndTicks.Add(observedTick)
             wl.LearningCurrentKey <- Some dirVal
+            true
+
+    let private tryUpdateMonitoringGapHint
+        (ctx: PassiveWorkContext)
+        workGuid
+        (wl: WorkLearning) =
+        if ctx.RuntimeMode = RuntimeMode.Monitoring && not wl.Synced && wl.GroupStartTicks.Count >= 2 then
+            let headIdx = wl.GroupStartTicks.Count - 1
+            let tailIdx = headIdx - 1
+            let headDir, headValue = wl.GroupKeys[headIdx]
+            let gapTicks = wl.GroupStartTicks[headIdx] - wl.GroupEndTicks[tailIdx]
+
+            if gapTicks > wl.LargestGapTicks && headDir = "Out" && headValue = "true" then
+                wl.LargestGapTicks <- gapTicks
+                wl.ProvisionalHeadGroupIdx <- Some headIdx
+                wl.ProvisionalTailGroupIdx <- Some tailIdx
+                tryLogMonitoringGapHint ctx workGuid tailIdx headIdx gapTicks
 
     let private setPositiveFamilyToken
         (tokenMap: Dictionary<string, string>)
@@ -412,7 +570,8 @@ module internal PassiveInferenceWorkCycle =
         (actions: ResizeArray<PassiveInferenceAction>)
         (overlay: StateOverlay)
         address
-        isOut =
+        isOut
+        observedTick =
         let dirVal = (if isOut then "Out" else "In"), "true"
         for KeyValue(workGuid, uniqueAddresses) in ctx.WorkUniqueAddresses do
             if uniqueAddresses.Contains(address) then
@@ -422,7 +581,9 @@ module internal PassiveInferenceWorkCycle =
 
                 let wl = getOrCreateWorkLearning ctx workGuid
                 if not wl.Synced then
-                    appendToWorkSequence wl dirVal token
+                    let createdGroup = appendToWorkSequence wl dirVal token observedTick
+                    if createdGroup then
+                        tryUpdateMonitoringGapHint ctx workGuid wl
                     detectWorkPeriod ctx workGuid wl
                 else
                     observeSyncedWorkGroup ctx actions overlay workGuid wl dirVal token

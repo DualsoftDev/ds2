@@ -488,6 +488,100 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
+    public void Monitoring_passive_inference_records_provisional_gap_hint_without_replacing_strict_sync()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring);
+
+        _ = session.DrainLogs();
+
+        _ = session.Observe(
+            fixture.OutAddress,
+            "true",
+            new Func<Guid, Status4>(_ => Status4.Ready),
+            new Func<Guid, Status4>(_ => Status4.Ready));
+        _ = session.DrainLogs();
+
+        _ = session.Observe(
+            fixture.InAddress,
+            "true",
+            new Func<Guid, Status4>(_ => Status4.Ready),
+            new Func<Guid, Status4>(_ => Status4.Ready));
+        _ = session.DrainLogs();
+
+        _ = session.Observe(
+            fixture.OutAddress,
+            "false",
+            new Func<Guid, Status4>(_ => Status4.Ready),
+            new Func<Guid, Status4>(_ => Status4.Ready));
+        _ = session.Observe(
+            fixture.InAddress,
+            "false",
+            new Func<Guid, Status4>(_ => Status4.Ready),
+            new Func<Guid, Status4>(_ => Status4.Ready));
+
+        Thread.Sleep(25);
+
+        var actions = session.Observe(
+            fixture.OutAddress,
+            "true",
+            new Func<Guid, Status4>(_ => Status4.Ready),
+            new Func<Guid, Status4>(_ => Status4.Ready));
+        var logs = session.DrainLogs();
+
+        Assert.DoesNotContain(actions, action => action.TargetKind == PassiveInferenceTarget.Work);
+        Assert.DoesNotContain(logs, log => log.Message.Contains("cycle fixed", StringComparison.Ordinal));
+        Assert.Contains(logs, log => log.Message.Contains("provisional gap head=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Monitoring_passive_inference_uses_repeating_gap_profile_to_rotate_cycle_head()
+    {
+        var fixture = BuildBatchedCleanupInterleaveFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        var session = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring);
+
+        _ = session.DrainLogs();
+
+        void Observe(string address, string value)
+        {
+            _ = session.Observe(
+                address,
+                value,
+                new Func<Guid, Status4>(_ => Status4.Ready),
+                new Func<Guid, Status4>(_ => Status4.Ready));
+        }
+
+        for (var i = 0; i < 3; i++)
+        {
+            Observe(fixture.FirstOutAddress, "true");
+            Observe(fixture.FirstInAddress, "true");
+            Observe(fixture.FirstOutAddress, "false");
+            Observe(fixture.FirstInAddress, "false");
+
+            Thread.Sleep(25);
+
+            Observe(fixture.SecondOutAddress, "true");
+            Observe(fixture.SecondInAddress, "true");
+            Observe(fixture.SecondOutAddress, "false");
+            Observe(fixture.SecondInAddress, "false");
+        }
+
+        var logs = session.DrainLogs();
+
+        Assert.Contains(logs, log => log.Message.Contains("provisional gap head=", StringComparison.Ordinal));
+        Assert.Contains(logs, log => log.Message.Contains("gap-scored head=", StringComparison.Ordinal) &&
+                                     log.Message.Contains("finish=3", StringComparison.Ordinal) &&
+                                     log.Message.Contains("outAfterFinish=0", StringComparison.Ordinal));
+        Assert.Contains(logs, log => log.Message.Contains("cycle fixed", StringComparison.Ordinal) &&
+                                     log.Message.Contains("Finish=3", StringComparison.Ordinal) &&
+                                     log.Message.Contains("Seq[0..3]=Out#1 | In#1 | Out#0 | In#0", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Monitoring_passive_inference_rotates_mid_cycle_learning_window_and_skips_ready_to_finish_bootstrap()
     {
         StaTestRunner.Run(() =>

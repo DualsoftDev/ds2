@@ -2,6 +2,7 @@ namespace Ds2.Runtime.Engine.Passive
 
 open System
 open System.Collections.Generic
+open System.Diagnostics
 open Ds2.Core
 open Ds2.Runtime.Engine.Core
 open Ds2.Runtime.IO
@@ -105,6 +106,7 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         isOut
         (mappings: seq<SignalMapping>) =
         let isOn = value = "true"
+        let observedTick = Stopwatch.GetTimestamp()
 
         mappings
         |> Seq.map (fun mapping -> mapping.CallGuid)
@@ -112,7 +114,7 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         |> Seq.iter (fun callGuid -> observePassiveCallSignal actions overlay callGuid address isOut isOn)
 
         if isOn then
-            PassiveInferenceWorkCycle.observePositiveWorkSignal workContext actions overlay address isOut
+            PassiveInferenceWorkCycle.observePositiveWorkSignal workContext actions overlay address isOut observedTick
 
     do
         PassiveInferenceWorkCycle.computeWorkUniqueAddresses workContext
