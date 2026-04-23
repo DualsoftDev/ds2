@@ -363,22 +363,22 @@ html, body {
 .finder-toolbar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 6px 12px;
+    gap: 8px;
+    padding: 6px 10px;
     background: #2c2c2e;
     border-bottom: 1px solid #3a3a3c;
     flex-shrink: 0;
 }
 
-.finder-nav { display: flex; gap: 2px; }
+.finder-nav { display: flex; gap: 2px; flex-shrink: 0; }
 
 .finder-nav-btn {
-    width: 28px;
-    height: 24px;
+    width: 30px;
+    height: 28px;
     background: none;
     border: none;
-    color: #98989d;
-    font-size: 16px;
+    color: #cfcfd2;
+    font-size: 14px;
     cursor: pointer;
     border-radius: 6px;
     display: flex;
@@ -386,22 +386,61 @@ html, body {
     justify-content: center;
     padding: 0;
     line-height: 1;
+    font-weight: 600;
 }
-.finder-nav-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: #e5e5e7; }
+.finder-nav-btn:hover:not(:disabled) { background: rgba(255,255,255,0.08); color: #ffffff; }
 .finder-nav-btn:disabled { color: #48484a; cursor: default; }
 
-.finder-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: #e5e5e7;
+/* === Windows 11 Style Address Bar === */
+.finder-addressbar {
     flex: 1;
-    text-align: center;
+    min-width: 0;
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 6px;
-    overflow: hidden;
+    gap: 2px;
+    padding: 4px 10px;
+    height: 28px;
+    background: #1c1c1e;
+    border: 1px solid #3a3a3c;
+    border-radius: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
     white-space: nowrap;
+    font-size: 13px;
+    scrollbar-width: thin;
+}
+.finder-addressbar:focus-within,
+.finder-addressbar:hover {
+    border-color: #0A84FF;
+}
+.finder-addressbar::-webkit-scrollbar { height: 4px; }
+.finder-addressbar::-webkit-scrollbar-thumb { background: #48484a; border-radius: 2px; }
+
+.finder-addr-icon {
+    font-size: 13px;
+    color: #e8b84a;
+    margin-right: 4px;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.finder-addr-seg {
+    color: #cfcfd2;
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    transition: background 0.1s, color 0.1s;
+}
+.finder-addr-seg:hover { background: rgba(255,255,255,0.08); color: #ffffff; }
+.finder-addr-seg.active { color: #ffffff; font-weight: 600; }
+
+.finder-addr-sep {
+    color: #636366;
+    font-size: 12px;
+    flex-shrink: 0;
+    padding: 0 1px;
+    user-select: none;
 }
 
 /* === Finder Body === */
@@ -689,29 +728,24 @@ html, body {
 }
 .finder-error-table tbody tr:hover { background: rgba(255,255,255,0.04); }
 
-/* === Path Bar === */
-.finder-pathbar {
+/* === Status Bar (Windows 하단 상태바) === */
+.finder-statusbar {
     display: flex;
     align-items: center;
-    gap: 2px;
-    padding: 5px 12px;
-    background: #1c1c1e;
+    gap: 8px;
+    padding: 4px 12px;
+    background: #252527;
     border-top: 1px solid #3a3a3c;
-    font-size: 12px;
+    font-size: 11px;
+    color: #98989d;
     flex-shrink: 0;
     overflow-x: auto;
     white-space: nowrap;
+    min-height: 22px;
 }
 
-.finder-path-item {
-    color: #636366;
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: 4px;
-}
-.finder-path-item:hover { color: #98989d; background: rgba(255,255,255,0.06); }
-.finder-path-item.active { color: #e5e5e7; font-weight: 500; }
-.finder-path-sep { color: #48484a; font-size: 10px; padding: 0 1px; }
+.finder-status-item { color: #cfcfd2; flex-shrink: 0; }
+.finder-status-sep { color: #48484a; flex-shrink: 0; }
 
 /* ===== View Mode Toggle ===== */
 .finder-view-toggle {
@@ -833,14 +867,24 @@ html, body {
     justify-content: center;
 }
 
+/* Windows 11 스타일 폴더: 뒷면(탭) + 앞면 본체 */
+.finder-tile.is-folder .finder-tile-icon-wrap::after {
+    content: "";
+    position: absolute;
+    inset: 6% 4% 2% 4%;
+    background: linear-gradient(180deg, #e8a828 0%, #c48810 100%);
+    border-radius: 3px 8px 3px 3px;
+    clip-path: polygon(0 22%, 38% 22%, 46% 0%, 100% 0%, 100% 100%, 0 100%);
+    z-index: 0;
+}
 .finder-tile.is-folder .finder-tile-icon-wrap::before {
     content: "";
     position: absolute;
-    inset: 0;
-    background: linear-gradient(145deg, #f7d27a 0%, #e8b84a 50%, #c99327 100%);
-    border-radius: 6px 10px 8px 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.25);
-    clip-path: polygon(0 18%, 40% 18%, 48% 4%, 100% 4%, 100% 100%, 0 100%);
+    inset: 16% 2% 4% 2%;
+    background: linear-gradient(180deg, #ffce5a 0%, #f0b133 50%, #d49820 100%);
+    border-radius: 3px 3px 4px 4px;
+    box-shadow: 0 2px 3px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.3);
+    z-index: 1;
 }
 
 .finder-tile.is-leaf .finder-tile-icon-wrap::before {
@@ -854,7 +898,7 @@ html, body {
 
 .finder-tile-icon {
     position: relative;
-    z-index: 1;
+    z-index: 2;
     width: 28px !important;
     height: 22px !important;
     font-size: 11px !important;
@@ -862,9 +906,13 @@ html, body {
     box-shadow: 0 1px 2px rgba(0,0,0,0.3);
 }
 
+.finder-tile.is-folder .finder-tile-icon {
+    margin-top: 10px;
+}
+
 .finder-tile-badge {
     position: absolute;
-    z-index: 2;
+    z-index: 3;
     right: -2px;
     bottom: -2px;
     min-width: 16px;
