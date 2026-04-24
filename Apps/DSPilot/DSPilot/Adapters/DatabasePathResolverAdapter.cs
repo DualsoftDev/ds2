@@ -1,34 +1,29 @@
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using DSPilot.Engine;
+using DSPilot.Infrastructure;
 using DSPilot.Services;
+using Microsoft.Extensions.Configuration;
 
 namespace DSPilot.Adapters;
 
 /// <summary>
-/// F# DatabaseConfig를 C#에서 사용하기 위한 Adapter (Unified 모드 전용)
-/// IDatabasePathResolver 인터페이스 유지하여 기존 코드 호환성 보장
+/// Unified 모드 DSP DB 경로 리졸버.
+/// IDatabasePathResolver 인터페이스 유지.
 /// </summary>
 public class DatabasePathResolverAdapter : IDatabasePathResolver
 {
     private readonly DatabasePaths _paths;
 
-    public bool IsUnified => true; // 항상 Unified 모드
+    public bool IsUnified => true;
 
     public DatabasePathResolverAdapter(IConfiguration configuration, ILogger<DatabasePathResolverAdapter> logger)
     {
-        _paths = DatabaseConfig.loadDatabasePaths(configuration, logger);
-        DatabaseConfig.logDatabasePaths(logger, _paths);
+        _paths = DatabaseConfigLoader.Load(configuration, logger);
     }
 
-    /// <summary>
-    /// 내부 F# DatabasePaths 객체 반환 (F# 모듈에서 사용)
-    /// </summary>
     public DatabasePaths GetDatabasePaths() => _paths;
 
     public string GetSharedDbPath() => _paths.SharedDbPath;
 
-    public string GetPlcDbPath() => _paths.SharedDbPath; // Unified 모드: 모두 같은 경로
+    public string GetPlcDbPath() => _paths.SharedDbPath;
 
-    public string GetDspDbPath() => _paths.SharedDbPath; // Unified 모드: 모두 같은 경로
+    public string GetDspDbPath() => _paths.SharedDbPath;
 }

@@ -69,6 +69,7 @@ builder.Services.AddSingleton<PlcTagStateTrackerService>();
 builder.Services.AddSingleton<CallStateNotificationService>();
 
 builder.Services.AddSingleton<CallStatisticsService>();
+builder.Services.AddSingleton<StateTransitionService>();
 builder.Services.AddSingleton<InMemoryCallStateStore>();
 builder.Services.AddSingleton<IFlowMetricsService, FlowMetricsService>();
 builder.Services.AddScoped<CycleAnalysisService>();

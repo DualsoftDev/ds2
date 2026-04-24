@@ -1,11 +1,9 @@
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
-using DSPilot.Engine;
 using DSPilot.Repositories;
-using Microsoft.FSharp.Collections;
+using DSPilot.Services.FlowAnalysis;
 using System.Collections.Concurrent;
-using EngineFlowAnalysis = DSPilot.Engine.FlowAnalysis;
 
 namespace DSPilot.Services;
 
@@ -22,7 +20,7 @@ public class FlowMetricsService : IFlowMetricsService
     private readonly ILogger<FlowMetricsService> _logger;
 
     // Flow별 분석 결과 캐시
-    private readonly ConcurrentDictionary<string, EngineFlowAnalysis.FlowAnalysisResult> _flowAnalysisCache = new();
+    private readonly ConcurrentDictionary<string, FlowAnalysisResult> _flowAnalysisCache = new();
 
     // Flow별 사이클 상태 추적 (Phase 2)
     private readonly ConcurrentDictionary<string, FlowCycleState> _flowCycleStates = new();
@@ -74,9 +72,8 @@ public class FlowMetricsService : IFlowMetricsService
             {
                 try
                 {
-                    // F# FlowAnalysis 모듈 사용
                     var store = GetDsStore();
-                    var analysisResult = EngineFlowAnalysis.analyzeFlow(flow, store);
+                    var analysisResult = FlowAnalyzer.AnalyzeFlow(flow, store);
 
                     // 캐시 저장
                     _flowAnalysisCache[flow.Name] = analysisResult;
@@ -171,12 +168,10 @@ public class FlowMetricsService : IFlowMetricsService
         var analysisResult = _flowAnalysisCache.GetOrAdd(flow.Name, _ =>
         {
             var store = GetDsStore();
-            return EngineFlowAnalysis.analyzeFlow(flow, store);
+            return FlowAnalyzer.AnalyzeFlow(flow, store);
         });
 
-        return (
-            FromFSharpStringOption(analysisResult.MovingStartName),
-            FromFSharpStringOption(analysisResult.MovingEndName));
+        return (analysisResult.MovingStartName, analysisResult.MovingEndName);
     }
 
     public async Task ApplyCycleBoundaryOverrideAsync(string flowName, string? startCallName, string? endCallName)
@@ -444,13 +439,6 @@ public class FlowMetricsService : IFlowMetricsService
     private static string? NormalizeCallName(string? callName)
     {
         return string.IsNullOrWhiteSpace(callName) ? null : callName.Trim();
-    }
-
-    private static string? FromFSharpStringOption(Microsoft.FSharp.Core.FSharpOption<string> option)
-    {
-        return Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(option)
-            ? option.Value
-            : null;
     }
 
     /// <summary>
