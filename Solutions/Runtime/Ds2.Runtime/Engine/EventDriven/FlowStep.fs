@@ -4,8 +4,24 @@ open System
 open Ds2.Core
 open Ds2.Runtime.Model
 open Ds2.Runtime.Engine.Core
+open Ds2.Runtime.Engine.Scheduler
 
 module internal EngineFlowStep =
+
+    /// TimeIgnore가 켜지는 순간 (Running 중 + 직전 false) 호출.
+    /// 진행 중인 duration/homing을 즉시 완료시키도록 재스케줄.
+    let rescheduleOnTimeIgnoreEnabled
+        (index: SimIndex)
+        (stateManager: StateManager)
+        (scheduleDurationCheck: ScheduledEventType -> unit)
+        (scheduleStateChange: ScheduledEventType -> unit) =
+        for workGuid in index.AllWorkGuids do
+            match stateManager.GetWorkState(workGuid) with
+            | Status4.Going when not (stateManager.IsMinDurationMet(workGuid)) ->
+                scheduleDurationCheck (ScheduledEventType.DurationComplete workGuid)
+            | Status4.Homing ->
+                scheduleStateChange (ScheduledEventType.HomingComplete workGuid)
+            | _ -> ()
 
     type FlowContext = {
         Index: SimIndex

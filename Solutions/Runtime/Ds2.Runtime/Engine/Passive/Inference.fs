@@ -13,8 +13,6 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
     let workUniqueAddresses = Dictionary<Guid, HashSet<string>>()
     let workPositiveFamilyTokens = Dictionary<Guid, Dictionary<string, string>>()
     let workResetTargetsByPred = Dictionary<Guid, ResizeArray<Guid>>()
-    let callOutAddresses = Dictionary<Guid, HashSet<string>>()
-    let callInAddresses = Dictionary<Guid, HashSet<string>>()
     let callOutHighAddresses = Dictionary<Guid, HashSet<string>>()
     let callInHighAddresses = Dictionary<Guid, HashSet<string>>()
     let lastObservedValue = Dictionary<string, string>(StringComparer.Ordinal)
@@ -43,60 +41,44 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
             map[key] <- set
             set
 
-    let hasAllObservedSignals
-        (expectedMap: Dictionary<Guid, HashSet<string>>)
-        (highMap: Dictionary<Guid, HashSet<string>>)
-        key =
-        match expectedMap.TryGetValue(key), highMap.TryGetValue(key) with
-        | (true, expected), (true, high) when expected.Count > 0 -> high.IsSupersetOf(expected)
-        | _ -> false
+    let matchesPassiveSpec valueSpec currentValue =
+        match valueSpec with
+        | UndefinedValue -> String.Equals(currentValue, "true", StringComparison.OrdinalIgnoreCase)
+        | _ -> ValueSpec.evaluate valueSpec currentValue
 
-    let buildPassiveCallAddressSets () =
-        callOutAddresses.Clear()
-        callInAddresses.Clear()
-
-        for callGuid in index.AllCallGuids do
-            match index.Store.Calls.TryGetValue(callGuid) with
-            | true, call ->
-                let outSet = HashSet<string>(StringComparer.Ordinal)
-                let inSet = HashSet<string>(StringComparer.Ordinal)
-                for apiCall in call.ApiCalls do
-                    let outAddress = apiCall.OutTag |> Option.map (fun tag -> tag.Address)
-                    let inAddress = apiCall.InTag |> Option.map (fun tag -> tag.Address)
-                    match outAddress with
-                    | Some address when not (String.IsNullOrWhiteSpace(address)) ->
-                        outSet.Add(address) |> ignore
-                    | _ -> ()
-                    match inAddress with
-                    | Some address when not (String.IsNullOrWhiteSpace(address)) ->
-                        inSet.Add(address) |> ignore
-                    | _ -> ()
-
-                callOutAddresses[callGuid] <- outSet
-                callInAddresses[callGuid] <- inSet
-            | _ -> ()
+    let tryGetApiCallSpec apiCallGuid isOut =
+        index.CallApiCallObjects
+        |> Map.tryFind apiCallGuid
+        |> Option.map (fun apiCall -> if isOut then apiCall.OutputSpec else apiCall.InputSpec)
 
     let observePassiveCallSignal
         (actions: ResizeArray<PassiveInferenceAction>)
         (overlay: StateOverlay)
-        callGuid
+        (mapping: SignalMapping)
         address
-        isOut
-        isOn =
+        value
+        isOut =
+        let callGuid = mapping.CallGuid
         let highMap = if isOut then callOutHighAddresses else callInHighAddresses
         let highSet = getOrAddSignalSet highMap callGuid
+        let matchesSpec =
+            tryGetApiCallSpec mapping.ApiCallGuid isOut
+            |> Option.map (fun valueSpec -> matchesPassiveSpec valueSpec value)
+            |> Option.defaultValue (String.Equals(value, "true", StringComparison.OrdinalIgnoreCase))
 
-        if isOn then
+        if matchesSpec then
             highSet.Add(address) |> ignore
         else
             highSet.Remove(address) |> ignore
 
-        if hasAllObservedSignals callInAddresses callInHighAddresses callGuid then
-            if overlay.GetCallState(callGuid) <> Status4.Finish then
-                PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Finish
-        elif isOut && isOn && hasAllObservedSignals callOutAddresses callOutHighAddresses callGuid then
+        if not matchesSpec then
+            ()
+        elif isOut then
             if overlay.GetCallState(callGuid) <> Status4.Going then
                 PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Going
+        else
+            if overlay.GetCallState(callGuid) <> Status4.Finish then
+                PassiveInferenceWorkCycle.enqueueCallState actions overlay callGuid Status4.Finish
 
     let observePassiveSignalDirectionInternal
         (actions: ResizeArray<PassiveInferenceAction>)
@@ -109,9 +91,7 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         let observedTick = Stopwatch.GetTimestamp()
 
         mappings
-        |> Seq.map (fun mapping -> mapping.CallGuid)
-        |> Seq.distinct
-        |> Seq.iter (fun callGuid -> observePassiveCallSignal actions overlay callGuid address isOut isOn)
+        |> Seq.iter (fun mapping -> observePassiveCallSignal actions overlay mapping address value isOut)
 
         if isOn then
             PassiveInferenceWorkCycle.observePositiveWorkSignal workContext actions overlay address isOut observedTick
@@ -120,7 +100,6 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         PassiveInferenceWorkCycle.computeWorkUniqueAddresses workContext
         PassiveInferenceWorkCycle.computeWorkPositiveFamilyTokens workContext
         PassiveInferenceWorkCycle.buildPassiveResetTargetsByPred workContext
-        buildPassiveCallAddressSets ()
 
     member _.DrainLogs() =
         let logs = pendingLogs.ToArray()

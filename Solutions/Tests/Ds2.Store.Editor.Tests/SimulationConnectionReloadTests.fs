@@ -34,7 +34,7 @@ module ConnectionReloadTests =
     let ``removing pure Start predecessor freezes going work but preserves token`` () =
         let store, systemId, work1Id, work2Id = buildTwoWorkScenario ArrowType.Start
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         engine.Start()
         let token = engine.NextToken()
@@ -56,7 +56,7 @@ module ConnectionReloadTests =
     let ``reconnecting pure Start predecessor resumes frozen work and completes it`` () =
         let store, systemId, work1Id, work2Id = buildTwoWorkScenario ArrowType.Start
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         engine.Start()
         let token = engine.NextToken()
@@ -83,7 +83,7 @@ module ConnectionReloadTests =
     let ``removing StartReset predecessor does not freeze already going work`` () =
         let store, systemId, work1Id, work2Id = buildTwoWorkScenario ArrowType.StartReset
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         engine.Start()
         let token = engine.NextToken()

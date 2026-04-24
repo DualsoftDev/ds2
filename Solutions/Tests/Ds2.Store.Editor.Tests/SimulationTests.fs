@@ -294,7 +294,7 @@ module StepModeTests =
         store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         let dumpState () =
             let w1 = engine.GetWorkState(work1.Id)
@@ -341,7 +341,7 @@ module StepModeTests =
         store.UpdateWorkPeriodMs(work.Id, Some 1)
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         try
             engine.Start()
@@ -370,7 +370,7 @@ module StepModeTests =
         store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         try
             engine.Start()
@@ -402,7 +402,7 @@ module EventDrivenEngineTokenTests =
         store.UpdateWorkPeriodMs(work.Id, Some 100)
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         try
             engine.Start()
@@ -430,7 +430,7 @@ module EventDrivenEngineTokenTests =
         store.ConnectSelectionInOrder([ guard.Id; w3.Id ], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         try
             engine.Start()
@@ -463,7 +463,7 @@ module EventDrivenEngineTokenTests =
         store.ConnectSelectionInOrder([ w2.Id; w3.Id ], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         try
             engine.Start()
@@ -615,7 +615,7 @@ module EventDrivenEngineTokenTests =
         store.Calls.[advCallId].SetSimulationProperties(advCallProps)
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         let sim = engine :> ISimulationEngine
 
         sim.SpeedMultiplier <- 100.0
@@ -833,7 +833,7 @@ module AutoHomingOriginTests =
         store.ConnectSelectionInOrder([ setCall1; setCall2 ], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         let sim = engine :> ISimulationEngine
 
         let hasHoming = sim.StartWithHomingPhase()
@@ -875,7 +875,7 @@ module CallTimeoutTests =
         store.Calls.[callId].SetSimulationProperties(callProps)
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         let sim = engine :> ISimulationEngine
 
         let mutable timeoutFired = false
@@ -918,7 +918,7 @@ module ResetTriggerClearTests =
         store.ConnectSelectionInOrder([ w1.Id; w2.Id ], ArrowType.Reset) |> ignore
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         let sim = engine :> ISimulationEngine
 
         sim.SpeedMultiplier <- 1.0
@@ -1035,7 +1035,7 @@ module HomingPhaseExecutionTests =
         store.ConnectSelectionInOrder([_retCallId; _advCallId], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         let sim = engine :> ISimulationEngine
 
         let mutable homingCompleted = false
@@ -1106,7 +1106,7 @@ module HomingPhaseExecutionTests =
         store.ConnectSelectionInOrder([w2.Id; w1.Id], ArrowType.StartReset) |> ignore
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         let sim = engine :> ISimulationEngine
 
         let mutable homingCompleted = false
@@ -1158,7 +1158,7 @@ module HomingPhaseExecutionTests =
         let readyCall = store.AddCallWithLinkedApiDefs(work.Id, "ReadyDevice", "RUN", [readyDef.Id])
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         let sim = engine :> ISimulationEngine
 
         sim.SpeedMultiplier <- 1.0
@@ -1199,7 +1199,7 @@ module HomingPhaseExecutionTests =
         let _setCall = store.AddCallWithLinkedApiDefs(work.Id, "POS", "SET", [setDef.Id])
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         let sim = engine :> ISimulationEngine
 
         let hasTargets = sim.StartWithHomingPhase()
@@ -1256,7 +1256,7 @@ module WaitForCompletionIsFinishedTests =
         store.ConnectSelectionInOrder([retCallId; advCallId; setCallId], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         let sim = engine :> ISimulationEngine
 
         let log = System.Collections.Generic.List<string>()
@@ -1398,7 +1398,7 @@ module CallRaceExclusionTests =
         let retCallId = store.AddCallWithLinkedApiDefs(work.Id, "Dev", "RET", [retDef.Id])
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         let sim = engine :> ISimulationEngine
 
         let mutable bothGoingDetected = false
@@ -1457,7 +1457,7 @@ module CallRaceExclusionTests =
         store.ConnectSelectionInOrder([w2.Id; w1.Id], ArrowType.StartReset) |> ignore
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
         let sim = engine :> ISimulationEngine
 
         let mutable bothGoingDetected = false

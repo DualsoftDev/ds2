@@ -27,7 +27,7 @@ public sealed class SimulationPassiveInferenceTests
         {
             var fixture = BuildSharedSingleAndMultiCallFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
 
             var outAddresses = engine.IOMap.TxWorkToOutAddresses.Single(kv => kv.Key == fixture.DeviceWorkId).Value.ToArray();
             var inAddresses = engine.IOMap.RxWorkToInAddresses.Single(kv => kv.Key == fixture.DeviceWorkId).Value.ToArray();
@@ -44,7 +44,7 @@ public sealed class SimulationPassiveInferenceTests
         {
             var fixture = BuildSingleCallFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
             var state = CreatePassiveState(fixture.Store, engine);
             var transitions = new List<Status4>();
             engine.WorkStateChanged += (_, args) =>
@@ -94,7 +94,7 @@ public sealed class SimulationPassiveInferenceTests
         {
             var fixture = BuildSingleCallFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
             var transitions = new List<Status4>();
             engine.WorkStateChanged += (_, args) =>
             {
@@ -126,7 +126,7 @@ public sealed class SimulationPassiveInferenceTests
         {
             var fixture = BuildSingleCallFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
             var state = CreatePassiveState(fixture.Store, engine);
 
             engine.Start();
@@ -158,7 +158,7 @@ public sealed class SimulationPassiveInferenceTests
         {
             var fixture = BuildSharedSingleAndMultiCallFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
             var state = CreatePassiveState(fixture.Store, engine);
 
             engine.Start();
@@ -180,7 +180,7 @@ public sealed class SimulationPassiveInferenceTests
         {
             var fixture = BuildSingleCallFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
             var state = CreatePassiveState(fixture.Store, engine);
             var transitions = new List<Status4>();
             engine.CallStateChanged += (_, args) =>
@@ -214,13 +214,61 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
+    public void Passive_call_inference_marks_multi_api_call_finish_when_any_input_turns_on()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var fixture = BuildMultiApiCallFixture();
+            var index = SimIndexModule.build(fixture.Store, 10);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            var state = CreatePassiveState(fixture.Store, engine);
+
+            engine.Start();
+
+            ObservePassive(state, fixture.FirstOutAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Going));
+
+            ObservePassive(state, fixture.FirstInAddress, "true");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Finish));
+        });
+    }
+
+    [Fact]
+    public void Passive_call_inference_uses_valuespec_matches_for_output_and_input()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var fixture = BuildValueSpecCallFixture();
+            var index = SimIndexModule.build(fixture.Store, 10);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            var state = CreatePassiveState(fixture.Store, engine);
+
+            engine.Start();
+
+            ObservePassive(state, fixture.OutAddress, "5");
+            StaTestRunner.PumpPendingUi();
+            Assert.Equal(Status4.Ready, GetCallState(engine, fixture.CallId));
+
+            ObservePassive(state, fixture.OutAddress, "7");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Going));
+
+            ObservePassive(state, fixture.InAddress, "8");
+            StaTestRunner.PumpPendingUi();
+            Assert.Equal(Status4.Going, GetCallState(engine, fixture.CallId));
+
+            ObservePassive(state, fixture.InAddress, "9");
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Finish));
+        });
+    }
+
+    [Fact]
     public void Passive_unsynced_multi_call_work_stays_ready_until_cycle_is_learned()
     {
         StaTestRunner.Run(() =>
         {
             var fixture = BuildUnsyncedMultiCallWorkFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
             var state = CreatePassiveState(fixture.Store, engine);
 
             engine.Start();
@@ -250,7 +298,7 @@ public sealed class SimulationPassiveInferenceTests
         {
             var fixture = BuildSingleCallFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
             var state = CreatePassiveState(fixture.Store, engine);
 
             engine.Start();
@@ -291,7 +339,7 @@ public sealed class SimulationPassiveInferenceTests
         {
             var fixture = BuildSingleCallFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
             var state = CreatePassiveState(fixture.Store, engine);
 
             engine.Start();
@@ -324,7 +372,7 @@ public sealed class SimulationPassiveInferenceTests
         {
             var fixture = BuildBatchedCleanupInterleaveFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
             var state = CreatePassiveState(fixture.Store, engine);
 
             engine.Start();
@@ -366,7 +414,7 @@ public sealed class SimulationPassiveInferenceTests
         {
             var fixture = BuildResetPairFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
             var state = CreatePassiveState(fixture.Store, engine);
             var targetWorkTransitions = new List<Status4>();
             var targetCallTransitions = new List<Status4>();
@@ -452,7 +500,7 @@ public sealed class SimulationPassiveInferenceTests
         {
             var fixture = BuildSingleCallFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
             var state = CreatePassiveState(fixture.Store, engine, RuntimeMode.Monitoring);
 
             engine.Start();
@@ -492,7 +540,7 @@ public sealed class SimulationPassiveInferenceTests
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
-        using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
         var session = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring);
 
         _ = session.DrainLogs();
@@ -541,7 +589,7 @@ public sealed class SimulationPassiveInferenceTests
     {
         var fixture = BuildBatchedCleanupInterleaveFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
-        using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
         var session = new PassiveInferenceSession(index, engine.IOMap, RuntimeMode.Monitoring);
 
         _ = session.DrainLogs();
@@ -588,7 +636,7 @@ public sealed class SimulationPassiveInferenceTests
         {
             var fixture = BuildBatchedCleanupInterleaveFixture();
             var index = SimIndexModule.build(fixture.Store, 10);
-            using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
             var state = CreatePassiveState(fixture.Store, engine, RuntimeMode.Monitoring);
 
             engine.Start();
@@ -628,7 +676,7 @@ public sealed class SimulationPassiveInferenceTests
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
-        using var engine = new EventDrivenEngine(index, RuntimeMode.Control);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Control);
         var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.Control);
 
         var effects = session.HandleHubTag(fixture.InAddress, "true", "virtualplant");
@@ -651,7 +699,7 @@ public sealed class SimulationPassiveInferenceTests
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
-        using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
         var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.Monitoring);
 
         var effects = session.HandleHubTag(fixture.OutAddress, "true", "control");
@@ -674,7 +722,7 @@ public sealed class SimulationPassiveInferenceTests
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
-        using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
         var session = new RuntimeHubSession(index, engine.IOMap, RuntimeMode.VirtualPlant);
 
         var effects = session.HandleHubTag(fixture.OutAddress, "true", "control");
@@ -706,7 +754,7 @@ public sealed class SimulationPassiveInferenceTests
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
-        using var engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
         var session = new RuntimeModeSession(index, engine.IOMap, RuntimeMode.VirtualPlant);
 
         Assert.False(session.ShouldIgnoreHubSource("virtualplant"));
@@ -724,7 +772,7 @@ public sealed class SimulationPassiveInferenceTests
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
-        using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
         var session = new RuntimeBootstrapSession(index, engine.IOMap, RuntimeMode.Monitoring);
 
         Assert.True(session.RequiresPassiveInference);
@@ -738,7 +786,7 @@ public sealed class SimulationPassiveInferenceTests
     {
         var fixture = BuildUnsyncedMultiCallWorkFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
-        using var engine = new EventDrivenEngine(index, RuntimeMode.Control);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Control);
         var session = new RuntimeBootstrapSession(index, engine.IOMap, RuntimeMode.Control);
 
         var queryAddresses = session.BuildHubSnapshotQueryAddresses();
@@ -769,7 +817,7 @@ public sealed class SimulationPassiveInferenceTests
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
-        using var engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Monitoring);
         var session = new RuntimeModeSession(index, engine.IOMap, RuntimeMode.Monitoring);
 
         Assert.Equal("monitoring", session.HubSource);
@@ -787,7 +835,7 @@ public sealed class SimulationPassiveInferenceTests
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
-        using var engine = new EventDrivenEngine(index, RuntimeMode.Control);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.Control);
         var session = new RuntimeModeSession(index, engine.IOMap, RuntimeMode.Control);
 
         Assert.Equal("control", session.HubSource);
@@ -976,6 +1024,64 @@ public sealed class SimulationPassiveInferenceTests
         return new SingleCallFixture(store, activeWorkId, callId, outAddress, inAddress);
     }
 
+    private static MultiApiCallFixture BuildMultiApiCallFixture()
+    {
+        var store = new DsStore();
+        var projectId = store.AddProject("P");
+        var activeSystemId = store.AddSystem("Active", projectId, true);
+        var activeFlowId = store.AddFlow("Flow", activeSystemId);
+        var activeWorkId = store.AddWork("Main", activeFlowId);
+
+        var passiveSystemId = store.AddSystem("Passive", projectId, false);
+        var passiveFlowId = store.AddFlow("DeviceFlow", passiveSystemId);
+        var deviceWorkId = store.AddWork("ADV", passiveFlowId);
+        var apiDefOneId = AddDeviceApiDef(store, passiveSystemId, "ADV_A", deviceWorkId);
+        var apiDefTwoId = AddDeviceApiDef(store, passiveSystemId, "ADV_B", deviceWorkId);
+
+        var callId = store.AddCallWithLinkedApiDefs(activeWorkId, "Dev", "ADV_MULTI", new[] { apiDefOneId, apiDefTwoId });
+        var apiCalls = store.Calls[callId].ApiCalls.ToArray();
+
+        const string firstOutAddress = "%Q3501";
+        const string firstInAddress = "%I3501";
+        const string secondOutAddress = "%Q3502";
+        const string secondInAddress = "%I3502";
+        SetIoTags(store, callId, apiCalls[0].Id, firstOutAddress, firstInAddress);
+        SetIoTags(store, callId, apiCalls[1].Id, secondOutAddress, secondInAddress);
+
+        return new MultiApiCallFixture(
+            store,
+            callId,
+            firstOutAddress,
+            firstInAddress,
+            secondOutAddress,
+            secondInAddress);
+    }
+
+    private static ValueSpecCallFixture BuildValueSpecCallFixture()
+    {
+        var store = new DsStore();
+        var projectId = store.AddProject("P");
+        var activeSystemId = store.AddSystem("Active", projectId, true);
+        var activeFlowId = store.AddFlow("Flow", activeSystemId);
+        var activeWorkId = store.AddWork("Main", activeFlowId);
+
+        var passiveSystemId = store.AddSystem("Passive", projectId, false);
+        var passiveFlowId = store.AddFlow("DeviceFlow", passiveSystemId);
+        var deviceWorkId = store.AddWork("ADV", passiveFlowId);
+        var apiDefId = AddDeviceApiDef(store, passiveSystemId, "ADV_SPEC", deviceWorkId);
+
+        var callId = store.AddCallWithLinkedApiDefs(activeWorkId, "Dev", "ADV_SPEC", new[] { apiDefId });
+        var apiCall = store.Calls[callId].ApiCalls.Single();
+
+        const string outAddress = "%Q3601";
+        const string inAddress = "%I3601";
+        SetIoTags(store, callId, apiCall.Id, outAddress, inAddress);
+        apiCall.OutputSpec = ValueSpecModule.singleInt32(7);
+        apiCall.InputSpec = ValueSpecModule.singleInt32(9);
+
+        return new ValueSpecCallFixture(store, callId, outAddress, inAddress);
+    }
+
     private static UnsyncedMultiCallWorkFixture BuildUnsyncedMultiCallWorkFixture()
     {
         var store = new DsStore();
@@ -1115,7 +1221,7 @@ public sealed class SimulationPassiveInferenceTests
 
     private static SimulationPanelState CreatePassiveState(
         DsStore store,
-        EventDrivenEngine engine,
+        ISimulationEngine engine,
         RuntimeMode runtimeMode = RuntimeMode.VirtualPlant)
     {
         var state = new SimulationPanelState(
@@ -1139,7 +1245,7 @@ public sealed class SimulationPassiveInferenceTests
 
     private static void ObservePassiveRawDirection(
         SimulationPanelState state,
-        EventDrivenEngine engine,
+        ISimulationEngine engine,
         string address,
         string value,
         bool isOut)
@@ -1152,13 +1258,13 @@ public sealed class SimulationPassiveInferenceTests
         StaTestRunner.PumpPendingUi();
     }
 
-    private static Status4 GetWorkState(EventDrivenEngine engine, Guid workGuid)
+    private static Status4 GetWorkState(ISimulationEngine engine, Guid workGuid)
     {
         var state = engine.GetWorkState(workGuid);
         return state != null && FSharpOption<Status4>.get_IsSome(state) ? state.Value : Status4.Ready;
     }
 
-    private static Status4 GetCallState(EventDrivenEngine engine, Guid callGuid)
+    private static Status4 GetCallState(ISimulationEngine engine, Guid callGuid)
     {
         var state = engine.GetCallState(callGuid);
         return state != null && FSharpOption<Status4>.get_IsSome(state) ? state.Value : Status4.Ready;
@@ -1187,6 +1293,20 @@ public sealed class SimulationPassiveInferenceTests
     private sealed record SingleCallFixture(
         DsStore Store,
         Guid ActiveWorkId,
+        Guid CallId,
+        string OutAddress,
+        string InAddress);
+
+    private sealed record MultiApiCallFixture(
+        DsStore Store,
+        Guid CallId,
+        string FirstOutAddress,
+        string FirstInAddress,
+        string SecondOutAddress,
+        string SecondInAddress);
+
+    private sealed record ValueSpecCallFixture(
+        DsStore Store,
         Guid CallId,
         string OutAddress,
         string InAddress);
