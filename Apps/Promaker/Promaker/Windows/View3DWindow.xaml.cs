@@ -68,8 +68,8 @@ public partial class View3DWindow : Window
         var project = _store.Projects.Values.FirstOrDefault(p => p.Id == _projectId);
         if (project == null) return;
 
-        // Group devices by Flow
-        var allSystems = _store.Systems.Values.ToList();
+        // 실제 설비(Passive)만 조회 — F# Core 의 단일 진원지 Queries.passiveSystemsOf 재사용
+        var allSystems = Queries.passiveSystemsOf(project.Id, _store);
         var systemFlowMap = new Dictionary<Guid, List<Guid>>();
 
         // Find flows that contain each system
@@ -375,6 +375,13 @@ public partial class View3DWindow : Window
             var method = doc.RootElement.GetProperty("method").GetString() ?? "";
             var argsEl = doc.RootElement.GetProperty("args");
             var args = argsEl.EnumerateArray().ToArray();
+
+            if (method == "RebuildWithAutoLayout")
+            {
+                if (_store != null)
+                    _ = _vm.RebuildWithAutoLayout(_store, _projectId);
+                return;
+            }
 
             _vm.OnSelectionMessage(method, args);
         }

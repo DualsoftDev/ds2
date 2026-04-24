@@ -192,55 +192,50 @@ public partial class EditorCanvas
         bool hasStartRect = type == ArrowType.StartReset;
         bool noArrowHead = type == ArrowType.Group;
 
-        // 시작점 사각형 (StartReset)
         double lineStart = 0;
         if (hasStartRect)
         {
-            var rect = new Rectangle { Width = 6, Height = 6, Fill = brush };
+            var rect = new Rectangle { Width = 6, Height = 9, RadiusX = 0.5, RadiusY = 0.5, Fill = brush };
             Canvas.SetLeft(rect, 0);
-            Canvas.SetTop(rect, 4);
+            Canvas.SetTop(rect, 2.5);
             canvas.Children.Add(rect);
             lineStart = 6;
         }
 
-        // 선
+        if (bidirectional)
+        {
+            var backHead = new Path
+            {
+                Data = Geometry.Parse("M8,0 L0,5.5 L8,11 Z"),
+                Fill = brush,
+            };
+            Canvas.SetLeft(backHead, 0);
+            Canvas.SetTop(backHead, 1.5);
+            canvas.Children.Add(backHead);
+            lineStart = 8;
+        }
+
         var line = new Line
         {
             X1 = lineStart, Y1 = 7,
             X2 = noArrowHead ? 32 : 24, Y2 = 7,
             Stroke = brush,
-            StrokeThickness = 2,
+            StrokeThickness = 2.5,
         };
         if (dashed)
-            line.StrokeDashArray = new DoubleCollection { 2, 1 };
+            line.StrokeDashArray = new DoubleCollection { 2, 1.5 };
         canvas.Children.Add(line);
 
-        // 역방향 화살촉 (ResetReset)
-        if (bidirectional)
-        {
-            var backArrow = new Path
-            {
-                Data = Geometry.Parse("M7,1 L0,7 L7,13"),
-                Stroke = brush,
-                StrokeThickness = 1.5,
-                Fill = Brushes.Transparent,
-                StrokeLineJoin = PenLineJoin.Miter,
-            };
-            canvas.Children.Add(backArrow);
-        }
-
-        // 정방향 화살촉
         if (!noArrowHead)
         {
-            var arrow = new Path
+            var head = new Path
             {
-                Data = Geometry.Parse("M24,1 L32,7 L24,13"),
-                Stroke = brush,
-                StrokeThickness = 1.5,
-                Fill = Brushes.Transparent,
-                StrokeLineJoin = PenLineJoin.Miter,
+                Data = Geometry.Parse("M0,0 L8,5.5 L0,11 Z"),
+                Fill = brush,
             };
-            canvas.Children.Add(arrow);
+            Canvas.SetLeft(head, 24);
+            Canvas.SetTop(head, 1.5);
+            canvas.Children.Add(head);
         }
 
         return canvas;

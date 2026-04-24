@@ -55,6 +55,35 @@ let buildScene (store: DsStore) (projectId: Guid) (layoutStore: ILayoutStore)
         }
     }
 
+/// Scene 빌드 — 저장된 layout 을 무시하고 자동 배치 강제. "전체 재배치" 전용.
+/// layoutStore 파라미터는 시그니처 일관성 + 향후 자동 배치 결과 저장 확장 여지로 유지.
+let buildSceneAutoLayout (store: DsStore) (projectId: Guid) (_layoutStore: ILayoutStore)
+    : Result<SceneData, SceneError> =
+    result {
+        Log.info "Building scene with forced auto-layout for project: %A" projectId
+
+        let! devices = ContextBuilder.extractDevices store projectId
+        Log.info "Extracted %d devices" devices.Length
+
+        // 저장된 layout 무시 — 바로 auto layout
+        let flowGroups0 = LayoutEngine.groupDevicesByFlow devices
+        let (layoutedDevices, _) = LayoutEngine.arrangeFlowZonesHorizontally flowGroups0
+
+        // FlowZone 계산 (buildScene 과 동일 로직)
+        let flowGroups = LayoutEngine.groupDevicesByFlow layoutedDevices
+        let flowZones =
+            flowGroups
+            |> Map.toList
+            |> List.map (fun (flowName, devs) ->
+                let color = LayoutEngine.generateFlowColor flowName
+                LayoutEngine.calculateFlowZone flowName devs color)
+
+        return {
+            Devices = layoutedDevices
+            FlowZones = flowZones
+        }
+    }
+
 /// Layout 저장
 let saveLayout (store: DsStore) (projectId: Guid) (layoutStore: ILayoutStore) : Result<unit, SceneError> =
     result {

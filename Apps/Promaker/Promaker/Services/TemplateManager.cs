@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Ds2.Core;
+using Ds2.Core.Store;
+using Microsoft.FSharp.Core;
 
 namespace Promaker.Services;
 
@@ -18,6 +21,19 @@ public static class TemplateManager
     /// 템플릿 폴더 경로
     /// </summary>
     public static string TemplatesFolderPath => TemplatesPath;
+
+    /// <summary>
+    /// FB 템플릿 폴더 경로 (AAStoXGI FB_Template.json 파일 위치)
+    /// 애플리케이션 실행 파일과 함께 복사된 Template 폴더를 사용
+    /// </summary>
+    public static string FBTemplatesFolderPath =>
+        Path.Combine(AppContext.BaseDirectory, "Template");
+
+    /// <summary>
+    /// XGI 프로젝트 템플릿 파일 경로 (XGI_Template.xml)
+    /// </summary>
+    public static string XgiTemplatePath =>
+        Path.Combine(AppContext.BaseDirectory, "Template", "XGI_Template.xml");
 
     /// <summary>
     /// system_base.txt 경로 (시스템 타입별 글로벌 주소)
@@ -375,6 +391,45 @@ BWD: W_$(F)_M_$(D)_$(A)_BUSY
         {
             var filePath = Path.Combine(TemplatesPath, template.Key);
             File.WriteAllText(filePath, template.Value);
+        }
+    }
+
+    /// <summary>
+    /// 첫 번째 ActiveSystem의 IO 템플릿을 AppData 폴더로 동기화.
+    /// TAG Wizard 신호 생성 전에 호출하여 F# 파이프라인이 읽을 수 있게 함.
+    /// </summary>
+    public static void SyncFromStore(DsStore store)
+    {
+        if (store == null) return;
+
+        try
+        {
+            EnsureTemplatesExist();
+
+            var projects = Queries.allProjects(store);
+            if (projects.IsEmpty) return;
+            var activeSystems = Queries.activeSystemsOf(projects.Head.Id, store);
+            if (activeSystems.IsEmpty) return;
+
+            var ctrlOpt = activeSystems.Head.GetControlProperties();
+            if (!FSharpOption<ControlSystemProperties>.get_IsSome(ctrlOpt)) return;
+            var cp = ctrlOpt.Value;
+
+            if (!string.IsNullOrEmpty(cp.IoSystemBase))
+                WriteTemplateFile("system_base.txt", cp.IoSystemBase);
+
+            if (!string.IsNullOrEmpty(cp.IoFlowBase))
+                WriteTemplateFile("flow_base.txt", cp.IoFlowBase);
+
+            foreach (var kv in cp.IoDeviceTemplates)
+            {
+                if (!string.IsNullOrWhiteSpace(kv.Key))
+                    WriteTemplateFile(kv.Key, kv.Value);
+            }
+        }
+        catch
+        {
+            // Sync failure is non-fatal — AppData may already have usable templates
         }
     }
 

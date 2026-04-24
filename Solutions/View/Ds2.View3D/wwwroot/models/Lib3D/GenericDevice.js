@@ -422,7 +422,8 @@ class GenericDevice {
     if (spec.dirs && typeof spec.dirs === 'object') {
       st.dirAnimMap = {};
       for (const [dirName, animDef] of Object.entries(spec.dirs)) {
-        st.dirAnimMap[dirName] = this._buildAnimEntries(animDef, st);
+        // dirs 모드 move 기본값 = 'restart' (전진/후진이 시각적으로 구분되도록)
+        st.dirAnimMap[dirName] = this._buildAnimEntries(animDef, st, 'restart');
       }
       return;
     }
@@ -436,7 +437,7 @@ class GenericDevice {
   /**
    * 하나의 애니메이션 정의를 엔트리 배열로 변환 (모드 A, B 공용)
    */
-  static _buildAnimEntries(activeDef, st) {
+  static _buildAnimEntries(activeDef, st, defaultLoop = 'pingpong') {
     const entries = [];
     const joints = st.partMap['__chain_joints'];
 
@@ -491,6 +492,7 @@ class GenericDevice {
         min: anim.min, max: anim.max,
         angle: anim.angle || 0.5,
         phase: anim.phase || 0,
+        loop: anim.loop || defaultLoop,
         restPositions: targets.map(m => m.position.clone()),
         restRotations: targets.map(m => m.rotation.clone())
       });
@@ -601,6 +603,7 @@ class GenericDevice {
       for (let i = 0; i < meshes.length; i++) {
         const m = meshes[i];
         if (!isActive) {
+          if (entry.type === 'move') entry._progress = 0;
           if (restPositions && restPositions[i]) {
             m.position.x += (restPositions[i].x - m.position.x) * 0.05;
             m.position.y += (restPositions[i].y - m.position.y) * 0.05;
@@ -614,8 +617,7 @@ class GenericDevice {
           continue;
         }
         if (entry.type === 'move' && min !== undefined && max !== undefined) {
-          const t = (Math.sin(st.time * (entry.speed || 1) * 2) + 1) / 2;
-          m.position[axIdx] = min + t * (max - min);
+          m.position[axIdx] = min + this._moveT(entry, st.time) * (max - min);
         } else if (entry.type === 'spin') {
           m.rotation[axIdx] += (entry.speed || 0.02);
         } else if (entry.type === 'roll') {
@@ -624,6 +626,21 @@ class GenericDevice {
       }
     }
     return false;
+  }
+
+  // move 애니메이션 진행률 (0→1) 계산
+  //   pingpong: sin 기반 왕복 (0→1→0 반복, 기존 동작)
+  //   restart:  톱니파 — 0→1 선형 진행 후 0으로 스냅 (전진만 반복)
+  //   once:     0→1 선형 진행 후 1에서 정지 (한번만 진행)
+  static _moveT(entry, t) {
+    const speed = entry.speed || 1;
+    const mode = entry.loop || 'pingpong';
+    if (mode === 'pingpong') return (Math.sin(t * speed * 2) + 1) / 2;
+    if (mode === 'once') {
+      entry._progress = Math.min((entry._progress || 0) + 0.016 * speed * 2 / Math.PI, 1);
+      return entry._progress;
+    }
+    return ((t * speed * 2) % (2 * Math.PI)) / (2 * Math.PI);
   }
 
   /**
@@ -647,6 +664,7 @@ class GenericDevice {
     } else if (entry.type === 'swing' && entry.mesh) {
       entry.mesh.rotation[entry.axis] *= 0.94;
     } else if (entry.meshes) {
+      if (entry.type === 'move') entry._progress = 0;
       const { meshes, restPositions, restRotations } = entry;
       for (let i = 0; i < meshes.length; i++) {
         const m = meshes[i];

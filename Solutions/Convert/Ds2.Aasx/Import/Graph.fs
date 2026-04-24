@@ -3,7 +3,6 @@ namespace Ds2.Aasx
 open System
 open System.Reflection
 open AasCore.Aas3_1
-open log4net
 open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 open Ds2.Aasx.AasxFileIO
@@ -13,11 +12,8 @@ module internal AasxImportGraph =
 
     open AasxImportCore
 
-    /// AasxField Attribute가 있는 속성들을 자동으로 SMC에서 읽어와 엔티티에 설정
     let private setPropsFromAasxFields<'T> (smc: SubmodelElementCollection) (entity: 'T) =
-        let entityType = entity.GetType()  // 런타임 타입 사용 (상속 고려)
-
-        // 현재 타입과 모든 베이스 타입의 속성을 가져오기
+        let entityType = entity.GetType()
         let rec getAllProperties (t: Type) =
             seq {
                 yield! t.GetProperties(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
@@ -26,12 +22,11 @@ module internal AasxImportGraph =
             }
 
         let props = getAllProperties entityType |> Seq.toArray
-
         props
-        |> Seq.distinctBy (fun p -> p.Name)  // 중복 속성 제거 (abstract + default 패턴 대응)
+        |> Seq.distinctBy (fun p -> p.Name)
         |> Seq.toArray
         |> Array.iter (fun prop ->
-            match prop.GetCustomAttribute<AasxFieldAttribute>(true) |> box with  // inherit=true, 상속된 어트리뷰트 포함
+            match prop.GetCustomAttribute<AasxFieldAttribute>(true) |> box with
                 | null -> ()
                 | :? AasxFieldAttribute as attr when not attr.Skip ->
                     // 특수 타입 처리
@@ -114,13 +109,10 @@ module internal AasxImportGraph =
         try
             let call = Call("", "", workId)
             setPropsFromAasxFields smc call
-            // 도메인 속성은 importDomainSubmodel에서 별도 처리 (여기서 중복 import하면 기본값이 먼저 들어가 실제 값을 덮음)
-            // ApiCalls를 SubmodelElementList에서 읽기 (새 형식)
             let apiCalls = getChildSmlSmcs smc ApiCalls_ |> List.choose smcToApiCall
             if not apiCalls.IsEmpty then
                 call.ApiCalls <- ResizeArray(apiCalls)
             else
-                // 하위 호환성: JSON blob에서 읽기 (구 형식)
                 fromJsonProp<ResizeArray<ApiCall>> smc ApiCalls_ |> Option.iter (fun acs -> call.ApiCalls <- acs)
             Some call
         with ex -> log.Warn($"smcToCall 실패: {ex.Message}", ex); None
@@ -129,7 +121,6 @@ module internal AasxImportGraph =
         (smc: SubmodelElementCollection)
         : (Work * Call list * ArrowBetweenCalls list) option =
         try
-            // FlowGuid로 parentId 설정
             let tryParseGuid (s: string) = match Guid.TryParse(s) with true, v -> Some v | _ -> None
             match getProp smc FlowGuid_ |> Option.bind tryParseGuid with
             | None ->
@@ -140,21 +131,15 @@ module internal AasxImportGraph =
             | Some flowId ->
                 let work = Work("", "", flowId)
                 setPropsFromAasxFields smc work
-                // 도메인 속성은 importDomainSubmodel에서 별도 처리
-
                 let calls      = getChildSmlSmcs smc Calls_  |> List.choose (fun c -> smcToCall c work.Id)
                 let arrowCalls = getChildSmlSmcs smc Arrows_ |> List.choose (fun a -> smcToArrowCall a work.Id)
                 Some (work, calls, arrowCalls)
         with ex -> log.Warn($"smcToWork 실패: {ex.Message}", ex); None
 
-    let smcToFlow
-        (smc: SubmodelElementCollection)
-        (systemId: Guid)
-        : Flow option =
+    let smcToFlow (smc: SubmodelElementCollection) (systemId: Guid) : Flow option =
         try
             let flow = Flow("", systemId)
             setPropsFromAasxFields smc flow
-            // 도메인 속성은 importDomainSubmodel에서 별도 처리
             Some flow
         with ex -> log.Warn($"smcToFlow 실패: {ex.Message}", ex); None
 
@@ -169,16 +154,11 @@ module internal AasxImportGraph =
         : (DsSystem * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) option =
         try
             let system = DsSystem("")
-            // AasxField Attribute 기반 자동 속성 설정 (Name, Guid 포함)
             setPropsFromAasxFields smc system
-
-            // 검증: Name과 Guid가 있는지 확인
             if String.IsNullOrEmpty(system.Name) && system.Id = Guid.Empty then
                 log.Error($"AASX import failed: System entry missing Name and Guid ({describeSmc smc}).")
                 None
             else
-                // 도메인 속성은 importDomainSubmodel에서 별도 처리
-
                 let systemLabel = $"System '{system.Name}' ({system.Id})"
 
                 match parseStrictList systemLabel "Flow" (getChildSmlSmcs smc Flows_) (fun f -> smcToFlow f system.Id) with
@@ -256,17 +236,14 @@ module internal AasxImportGraph =
         : (DsSystem * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) list option =
         parseStrictList ownerLabel "System" systemSmcs smcToSystem
 
-    /// DeviceReference SMC에서 DeviceRelativePath 확인 → 외부 참조 여부 판별
     let private hasDeviceRelativePath (smc: SubmodelElementCollection) : bool =
         getProp smc DeviceRelativePath_ |> Option.isSome
 
-    /// 상대경로 검증 (.. 금지, 절대경로 금지)
     let private isValidRelativePath (path: string) : bool =
         not (System.String.IsNullOrWhiteSpace path)
         && not (System.IO.Path.IsPathRooted path)
         && not (path.Contains "..")
 
-    /// 외부 Device AASX 파일에서 System 데이터를 로드
     let private loadExternalDevice (mainDir: string) (smc: SubmodelElementCollection)
         : (DsSystem * Flow list * Work list * Call list * ArrowBetweenCalls list * ArrowBetweenWorks list * ApiDef list) option =
         let relPath = getProp smc DeviceRelativePath_ |> Option.defaultValue ""
@@ -293,7 +270,6 @@ module internal AasxImportGraph =
                                 sm.SubmodelElements
                                 |> Seq.tryPick (function
                                     | :? SubmodelElementCollection as pSmc ->
-                                        // Device AASX에서 ActiveSystems에 저장된 System 추출
                                         let systemSmcs = getChildSmlSmcs pSmc ActiveSystems_
                                         match parseSystemsStrict $"Device '{deviceName}'" systemSmcs with
                                         | Some (head :: _) -> Some head
@@ -328,14 +304,10 @@ module internal AasxImportGraph =
                                     let dir = mainDir.Value
                                     deviceRefSmcs
                                     |> List.choose (fun smc ->
-                                        if hasDeviceRelativePath smc then
-                                            loadExternalDevice dir smc
-                                        else
-                                            // DeviceRelativePath 없는 인라인 참조
-                                            smcToSystem smc |> Option.map id)
+                                        if hasDeviceRelativePath smc then loadExternalDevice dir smc
+                                        else smcToSystem smc |> Option.map id)
                                     |> Some
                                 else
-                                    // 인라인 모드
                                     parseSystemsStrict $"Project '{project.Name}' DeviceReferences" deviceRefSmcs
 
                             match passiveSystems with
@@ -349,8 +321,6 @@ module internal AasxImportGraph =
                     | _ -> None)
         with ex -> log.Warn($"submodelToProjectStore failed: {ex.Message}", ex); None
 
-    // ── Nameplate 역직렬화 (IDTA 02006-3-0) ─────────────────────────────────────
-
     let tryGetSmcChild (smc: SubmodelElementCollection) (idShort: string) : SubmodelElementCollection option =
         if smc.Value = null then None
         else
@@ -358,7 +328,6 @@ module internal AasxImportGraph =
                 | :? SubmodelElementCollection as c when c.IdShort = idShort -> Some c
                 | _ -> None)
 
-    /// Property 또는 MultiLanguageProperty에서 문자열 값 추출
     let getAnyStringValue (smc: SubmodelElementCollection) (idShort: string) : string =
         if smc.Value = null then ""
         else

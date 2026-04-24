@@ -3,8 +3,10 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows;
-using Promaker.Services;
+using Ds2.Core;
 using Ds2.Core.Store;
+using Microsoft.FSharp.Core;
+using Promaker.Services;
 
 namespace Promaker.Dialogs;
 
@@ -15,6 +17,9 @@ public partial class TagWizardDialog
     /// </summary>
     private void LoadTemplateFileList()
     {
+        // 첫 번째 ActiveSystem의 IO 템플릿을 AppData로 먼저 동기화 (F# 파이프라인 호환)
+        TemplateManager.SyncFromStore(_store);
+
         // Tab 1: system_base.txt 로드
         LoadSystemBase();
 
@@ -191,7 +196,10 @@ public partial class TagWizardDialog
                 }
             }
 
-            TemplateManager.WriteTemplateFile("system_base.txt", sb.ToString());
+            var systemBaseContent = sb.ToString();
+            TemplateManager.WriteTemplateFile("system_base.txt", systemBaseContent);
+            var cp1 = GetOrCreateControlProps();
+            if (cp1 != null) cp1.IoSystemBase = systemBaseContent;
 
             SystemBaseStatusText.Text = $"✓ 저장 완료 ({enabledSystems.Count}개 시스템) | {DateTime.Now:HH:mm:ss}";
 
@@ -381,7 +389,10 @@ public partial class TagWizardDialog
                 }
             }
 
-            TemplateManager.WriteTemplateFile("flow_base.txt", sb.ToString());
+            var flowBaseContent = sb.ToString();
+            TemplateManager.WriteTemplateFile("flow_base.txt", flowBaseContent);
+            var cp2 = GetOrCreateControlProps();
+            if (cp2 != null) cp2.IoFlowBase = flowBaseContent;
 
             FlowBaseStatusText.Text = $"✓ 저장 완료 | {DateTime.Now:HH:mm:ss}";
 
@@ -646,7 +657,16 @@ public partial class TagWizardDialog
                 }
             }
 
-            File.WriteAllText(_currentDeviceTemplateFile, sb.ToString(), Encoding.UTF8);
+            var deviceTemplateContent = sb.ToString();
+            File.WriteAllText(_currentDeviceTemplateFile, deviceTemplateContent, Encoding.UTF8);
+
+            // ActiveSystem ControlSystemProperties에도 저장 (AASX 내보내기 시 포함됨)
+            var templateFileName = Path.GetFileName(_currentDeviceTemplateFile);
+            if (!string.IsNullOrEmpty(templateFileName))
+            {
+                var cp3 = GetOrCreateControlProps();
+                if (cp3 != null) cp3.IoDeviceTemplates[templateFileName] = deviceTemplateContent;
+            }
 
             var totalCount = _iwSignalRows.Count + _qwSignalRows.Count + _mwSignalRows.Count;
             DeviceTemplateStatusText.Text = $"✓ 저장 완료 | IW: {_iwSignalRows.Count}, QW: {_qwSignalRows.Count}, MW: {_mwSignalRows.Count} | 총 {totalCount}개 신호";

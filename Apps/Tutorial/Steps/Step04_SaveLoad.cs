@@ -47,7 +47,7 @@ static class Step04_SaveLoad
             // ── AASX (산업 표준) ─────────────────────────────
             Console.WriteLine("  [AASX]");
             var aasxPath = Path.Combine(tempDir, "project.aasx");
-            AasxExporter.exportFromStore(store, aasxPath, "https://dualsoft.com/", false);
+            AasxExporter.exportFromStore(store, aasxPath, "https://dualsoft.com/", false, false);
             Console.WriteLine($"    Export → {new FileInfo(aasxPath).Length:N0} bytes");
 
             var aasxStore = DsStore.empty();

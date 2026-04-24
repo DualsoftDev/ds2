@@ -4,7 +4,7 @@ using System.Linq;
 using System.Windows;
 using Ds2.Core;
 using Ds2.Core.Store;
-using Ds2.IOList;
+using Plc.Xgi;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;
@@ -23,6 +23,9 @@ public partial class TagWizardDialog
         {
             NextButton.IsEnabled = false;
             NextButton.Content = "생성 중...";
+
+            // ActiveSystem IO 템플릿을 AppData로 동기화 (F# 파이프라인은 파일 시스템을 읽음)
+            TemplateManager.SyncFromStore(_store);
 
             // 주소 설정 파일이 없으면 자동 생성
             EnsureAddressConfigFiles();

@@ -97,21 +97,38 @@
                     setupContextMenu();
                     initialized = true;
                     document.getElementById('sound-btn').style.display = 'block';
-                    // Lib3D 모델 사전 로드 시작 (addDevice 전에 완료 보장)
+
                     if (window.Ds2View3DLibrary) {
-                        // 씬 리빌드 시 preload 캐시 리셋 (새 커스텀 모델 반영)
-                        Ds2View3DLibrary._preloadPromise = null;
+                        var customModels = (msg.config && msg.config.customModels) || {};
+                        var initDevices  = (msg.config && msg.config.devices)      || [];
+
+                        // (W1) 해시 기반 조건부 preload 캐시 무효화 — 커스텀 모델이 바뀌었을 때만 리셋.
+                        //      재배치만 반복하는 경우 preload skip 으로 원샷 전환 달성.
+                        var newKey = JSON.stringify(customModels);
+                        if (Ds2View3DLibrary._cachedCustomModelsKey !== newKey) {
+                            Ds2View3DLibrary._preloadPromise = null;
+                            Ds2View3DLibrary._cachedCustomModelsKey = newKey;
+                        }
 
                         _modelsReady = (async function() {
-                            // 1. GenericDevice 클래스 사전 로드
                             await Ds2View3DLibrary.preloadGenericDevice();
-                            // 2. 커스텀 JSON 모델 등록 (C#에서 전달된 레지스트리)
-                            //    — 항상 호출해야 삭제된 모델도 반영됨 (replace 시맨틱)
-                            const customModels = (msg.config && msg.config.customModels) || {};
+                            // replace 시맨틱 — 삭제/추가 반영 위해 매 init 호출
                             Ds2View3DLibrary.registerAllFromJSON(customModels);
                             console.log('✅ Custom models registered:', Object.keys(customModels));
-                            // 3. 기존 하드코딩 모델 포함 전체 사전 로드
                             await Ds2View3DLibrary.preloadAll();
+
+                            // (W3) devices 가 init 에 포함됐으면 일괄 추가. WorkScene 처럼 없는 경로는 skip.
+                            if (Array.isArray(initDevices) && initDevices.length > 0) {
+                                for (var i = 0; i < initDevices.length; i++) {
+                                    var d = initDevices[i];
+                                    try {
+                                        Ev23DViewer.addDeviceAtPosition(SCENE_ID, d.device, d.x, d.z);
+                                    } catch (e) {
+                                        console.error('[init] addDevice failed:', d, e);
+                                    }
+                                }
+                                Ev23DViewer.fitCameraToDevices(SCENE_ID);
+                            }
                         })();
                     }
                 } else if (!initialized) {
@@ -158,10 +175,27 @@
             var canvas = document.querySelector('#scene3d canvas');
             if (!canvas) return;
 
-            canvas.addEventListener('contextmenu', function(e) {
-                e.preventDefault();
-                showCtxMenu(e.clientX, e.clientY);
-            });
+            // 우클릭 드래그(팬)와 짧은 우클릭(메뉴) 구분.
+            // OrbitControls 의 pointer capture 영향을 피하기 위해 capture phase 로 먼저 받고,
+            // 판정은 contextmenu 가 아닌 pointerup 에서 수행한다.
+            var rDown = null;
+            var DRAG_PX = 6;
+
+            canvas.addEventListener('pointerdown', function(e) {
+                if (e.button === 2) rDown = { x: e.clientX, y: e.clientY };
+            }, true);
+
+            canvas.addEventListener('pointerup', function(e) {
+                if (e.button !== 2 || !rDown) return;
+                var dist = Math.hypot(e.clientX - rDown.x, e.clientY - rDown.y);
+                rDown = null;
+                if (dist <= DRAG_PX) showCtxMenu(e.clientX, e.clientY);
+            }, true);
+
+            canvas.addEventListener('pointercancel', function() { rDown = null; }, true);
+
+            // 브라우저 기본 컨텍스트 메뉴만 차단 (커스텀 메뉴는 pointerup 에서 이미 처리)
+            canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
 
             document.addEventListener('click', function(e) {
                 if (!e.target.closest('#ctx-menu')) hideCtxMenu();

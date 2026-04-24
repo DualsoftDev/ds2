@@ -47,7 +47,7 @@
             </Grid.ColumnDefinitions>
 
             <!-- 좌측: JSON 편집기 -->
-            <Border Grid.Column="0" Background="#1e293b" BorderBrush="#334155" BorderThickness="1" CornerRadius="4">
+            <Border x:Name="JsonBorder" Grid.Column="0" Background="#1e293b" BorderBrush="#334155" BorderThickness="1" CornerRadius="4">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -57,12 +57,14 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="JSON" Foreground="#94a3b8" FontSize="11" FontWeight="SemiBold"
                                        VerticalAlignment="Center" Margin="0,0,12,0"/>
-                            <Button Content="📁 파일 불러오기" Click="LoadFile_Click"
+                            <Button x:Name="LoadFileButton" Content="📁 파일 불러오기" Click="LoadFile_Click"
                                     Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
-                                    Padding="8,3" FontSize="11" Cursor="Hand" Margin="0,0,6,0"/>
-                            <Button Content="🤖 AI 프롬프트 복사" Click="CopyAIPrompt_Click"
+                                    Padding="8,3" FontSize="11" Cursor="Hand" Margin="0,0,6,0"
+                                    IsEnabled="False"/>
+                            <Button x:Name="AIPromptButton" Content="🤖 AI 프롬프트 복사" Click="CopyAIPrompt_Click"
                                     Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
                                     Padding="8,3" FontSize="11" Cursor="Hand"
+                                    IsEnabled="False"
                                     ToolTip="AI에게 전달할 스펙 + 장비 정보를 클립보드에 복사"/>
                         </StackPanel>
                     </Border>
@@ -74,12 +76,13 @@
                              FontSize="12" Background="#0f172a" Foreground="#e2e8f0"
                              BorderThickness="0" Padding="10,8"
                              SpellCheck.IsEnabled="False"
+                             IsEnabled="False"
                              TextChanged="JsonEditor_TextChanged"/>
                 </Grid>
             </Border>
 
             <!-- 우측: 3D 프리뷰 -->
-            <Border Grid.Column="2" Background="#1e293b" BorderBrush="#334155" BorderThickness="1" CornerRadius="4">
+            <Border x:Name="PreviewBorder" Grid.Column="2" Background="#1e293b" BorderBrush="#334155" BorderThickness="1" CornerRadius="4">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -91,6 +94,13 @@
                     <wv2:WebView2 x:Name="PreviewWebView" Grid.Row="1"/>
                 </Grid>
             </Border>
+
+            <!-- SystemType 미선택 시 중앙 힌트 (양 패널 위에 표시) -->
+            <TextBlock x:Name="DisabledHint" Grid.Column="0" Grid.ColumnSpan="3"
+                       Text="먼저 위에서 SystemType 이름을 선택하거나 입력하세요"
+                       Foreground="#94a3b8" FontSize="14" FontStyle="Italic"
+                       IsHitTestVisible="False"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Grid>
 
         <!-- Row 2: 에러/상태 메시지 -->
