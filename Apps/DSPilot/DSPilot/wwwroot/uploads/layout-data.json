@@ -38,20 +38,22 @@
       "Row": 1,
       "ColSpan": 1,
       "RowSpan": 1
+    },
+    {
+      "FlowId": "ebb66b2d-356e-4fb5-8e81-6827c066ee30",
+      "SystemId": "ea46bab4-e731-41fb-88af-8198069d0445",
+      "FlowName": "KIT",
+      "SystemName": "NewSystem",
+      "Col": 5,
+      "Row": 1,
+      "ColSpan": 1,
+      "RowSpan": 1
     }
   ],
   "FlowProcessOrder": [
     {
-      "FlowId": "3dd862bb-e4e3-4e96-ba74-10ab73cde002",
-      "FlowName": "STN1"
-    },
-    {
-      "FlowId": "a4a2c3f9-1264-4dd1-aca7-5f23c5e1f7e7",
-      "FlowName": "STN2"
-    },
-    {
-      "FlowId": "f94cd0ed-ccc9-4603-a452-021354cdd0cb",
-      "FlowName": "STN3"
+      "FlowId": "ebb66b2d-356e-4fb5-8e81-6827c066ee30",
+      "FlowName": "KIT"
     }
   ]
 }
