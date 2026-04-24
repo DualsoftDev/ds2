@@ -4,6 +4,7 @@ open System
 open System.Threading
 open Ds2.Core
 open Ds2.Runtime.Model
+open Ds2.Runtime.Engine.Core
 
 module internal EngineLifecycle =
 
@@ -85,6 +86,23 @@ module internal EngineLifecycle =
             disposeCurrentCts ctx
             ctx.SetEngineThread None
             ctx.TriggerStatusChanged({ PreviousStatus = previous; NewStatus = Stopped })
+
+    /// InitialFlag가 붙은 RxWork들을 즉시 Finish 상태로 고정하고 Ready→Finish 전이 이벤트 발행.
+    /// Engine.ApplyInitialStates의 외부화 버전.
+    let applyInitialFinishStates
+        (index: SimIndex)
+        (stateManager: StateManager)
+        (resolveWorkName: Guid -> string)
+        (triggerWorkStateChanged: WorkStateChangedArgs -> unit) =
+        for workGuid in SimIndex.findInitialFlagRxWorkGuids index do
+            stateManager.ForceWorkState(workGuid, Status4.Finish)
+            triggerWorkStateChanged {
+                WorkGuid = workGuid
+                WorkName = resolveWorkName workGuid
+                PreviousState = Status4.Ready
+                NewState = Status4.Finish
+                Clock = TimeSpan.Zero
+            }
 
     let reset (ctx: Context) =
         stop ctx
