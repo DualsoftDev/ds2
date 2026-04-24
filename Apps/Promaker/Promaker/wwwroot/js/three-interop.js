@@ -2040,31 +2040,89 @@ const Ev23DViewer = {
         return { group, indicator };
     },
 
+    // 분리자(_ - . 공백) 중 문자열 중앙에 가장 가까운 위치에서 1회 분할. 없으면 null.
+    _splitByDelimiter: function(name) {
+        const delims = ['_', '-', '.', ' '];
+        const mid = name.length / 2;
+        let best = -1;
+        let bestDist = Infinity;
+        for (let i = 1; i < name.length - 1; i++) {
+            if (delims.indexOf(name[i]) >= 0) {
+                const dist = Math.abs(i - mid);
+                if (dist < bestDist) { bestDist = dist; best = i; }
+            }
+        }
+        if (best < 0) return null;
+        return [name.substring(0, best + 1), name.substring(best + 1)];
+    },
+
+    // 한 줄 기본 → 2줄 분할 → 폰트 축소(하한 16px) 순으로 수용. lines/fontSize 반환.
+    _fitLabelText: function(ctx, name, maxWidth, baseFontSize) {
+        const smallerSizes = [24, 20, 16];
+
+        // Step 1: 기본 폰트 한 줄
+        ctx.font = `bold ${baseFontSize}px Arial`;
+        if (ctx.measureText(name).width <= maxWidth) {
+            return { lines: [name], fontSize: baseFontSize };
+        }
+
+        // Step 2: 분리자 기준 2줄
+        const split = this._splitByDelimiter(name);
+        if (split) {
+            const candidates = [baseFontSize, ...smallerSizes];
+            for (const fs of candidates) {
+                ctx.font = `bold ${fs}px Arial`;
+                const w = Math.max(
+                    ctx.measureText(split[0]).width,
+                    ctx.measureText(split[1]).width
+                );
+                if (w <= maxWidth) return { lines: split, fontSize: fs };
+            }
+            return { lines: split, fontSize: 16 };
+        }
+
+        // Step 3: 분리자 없음 — 한 줄 폰트 축소
+        for (const fs of smallerSizes) {
+            ctx.font = `bold ${fs}px Arial`;
+            if (ctx.measureText(name).width <= maxWidth) {
+                return { lines: [name], fontSize: fs };
+            }
+        }
+        return { lines: [name], fontSize: 16 };
+    },
+
     _createLabel: function(name, num) {
         const canvas = document.createElement('canvas');
         canvas.width = 256;
-        canvas.height = 128;
+        canvas.height = 160;
         const ctx = canvas.getContext('2d');
 
         // Background
         ctx.fillStyle = '#1e293b';
-        ctx.fillRect(0, 0, 256, 128);
+        ctx.fillRect(0, 0, 256, 160);
 
-        // Work name
+        // Work name (auto-wrap + font-fit)
+        const fit = this._fitLabelText(ctx, name, 230, 36);
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 36px Arial';
+        ctx.font = `bold ${fit.fontSize}px Arial`;
         ctx.textAlign = 'center';
-        ctx.fillText(name, 128, 50);
+        ctx.textBaseline = 'middle';
+        if (fit.lines.length === 1) {
+            ctx.fillText(fit.lines[0], 128, 55);
+        } else {
+            ctx.fillText(fit.lines[0], 128, 38);
+            ctx.fillText(fit.lines[1], 128, 78);
+        }
 
         // Work number
         ctx.font = '24px Arial';
         ctx.fillStyle = '#94a3b8';
-        ctx.fillText(`Work ${num}`, 128, 90);
+        ctx.fillText(`Work ${num}`, 128, 125);
 
         const texture = new THREE.CanvasTexture(canvas);
         const spriteMat = new THREE.SpriteMaterial({ map: texture });
         const sprite = new THREE.Sprite(spriteMat);
-        sprite.scale.set(4, 2, 1);
+        sprite.scale.set(4, 2.5, 1);
         return sprite;
     },
 
@@ -2182,44 +2240,48 @@ const Ev23DViewer = {
      */
     _createDeviceLabel: function(name, apiDefCount, state) {
         const canvas = document.createElement('canvas');
-        canvas.width = 512;  // Wider canvas for long device names
-        canvas.height = 128;
+        canvas.width = 512;
+        canvas.height = 160;
         const ctx = canvas.getContext('2d');
 
         // Semi-transparent background
         ctx.fillStyle = 'rgba(30, 41, 59, 0.9)';
-        ctx.roundRect(0, 0, 512, 128, 8);
+        ctx.roundRect(0, 0, 512, 160, 8);
         ctx.fill();
 
         // State color border
         const stateColor = this.stateColors[state] || this.stateColors.R;
         ctx.strokeStyle = `#${stateColor.hex.toString(16).padStart(6, '0')}`;
         ctx.lineWidth = 3;
-        ctx.roundRect(0, 0, 512, 128, 8);
+        ctx.roundRect(0, 0, 512, 160, 8);
         ctx.stroke();
 
-        // Device name (auto-size font based on name length)
+        // Device name (auto-wrap + font-fit, 하한 16px)
+        const fit = this._fitLabelText(ctx, name, 484, 32);
         ctx.fillStyle = '#fff';
-        let fontSize = 32;
-        if (name.length > 20) fontSize = 24;
-        if (name.length > 30) fontSize = 20;
-        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.font = `bold ${fit.fontSize}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(name, 256, 50);
+        if (fit.lines.length === 1) {
+            ctx.fillText(fit.lines[0], 256, 60);
+        } else {
+            ctx.fillText(fit.lines[0], 256, 42);
+            ctx.fillText(fit.lines[1], 256, 82);
+        }
 
         // ApiDef count badge
         if (apiDefCount > 0) {
             ctx.font = '20px Arial';
             ctx.fillStyle = '#06b6d4';
-            ctx.fillText(`${apiDefCount} ApiDefs`, 256, 95);
+            ctx.fillText(`${apiDefCount} ApiDefs`, 256, 128);
         }
 
         const texture = new THREE.CanvasTexture(canvas);
         const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
         const sprite = new THREE.Sprite(spriteMat);
-        sprite.scale.set(6, 1.5, 1);  // Wider scale
+        sprite.scale.set(6, 1.875, 1);
         sprite.userData.isLabel = true;
+        sprite.userData.deviceName = name;
         return sprite;
     },
 
@@ -2431,6 +2493,14 @@ const Ev23DViewer = {
         const mouseUpHandler = (event) => this._handleMouseUp(elementId, event);
         canvas.addEventListener('mouseup', mouseUpHandler);
         sceneData.mouseUpHandler = mouseUpHandler;
+
+        // 캔버스 밖으로 나가면 hover 툴팁 숨김
+        const mouseLeaveHandler = () => {
+            if (sceneData.hoverTip) sceneData.hoverTip.style.display = 'none';
+            clearTimeout(sceneData.hoverTimer);
+        };
+        canvas.addEventListener('mouseleave', mouseLeaveHandler);
+        sceneData.mouseLeaveHandler = mouseLeaveHandler;
 
         // Set cursor style
         canvas.style.cursor = 'pointer';
@@ -2692,9 +2762,72 @@ const Ev23DViewer = {
         }
     },
 
+    // raycast hit object 의 부모 체인에서 deviceName 을 찾는다.
+    _findDeviceName: function(obj) {
+        let cur = obj;
+        while (cur) {
+            if (cur.userData && cur.userData.deviceName) return cur.userData.deviceName;
+            cur = cur.parent;
+        }
+        return null;
+    },
+
+    // hover 툴팁 표시 — 드래그 중이면 숨김, 아니면 150ms 디바운스 후 raycast.
+    _updateHoverTip: function(elementId, event) {
+        const sceneData = this._scenes[elementId];
+        if (!sceneData) return;
+
+        // 드래그 / Alt 누른 상태면 즉시 숨김 (raycast 스킵)
+        const dragging = sceneData.dragState && (sceneData.dragState.isDragging || sceneData.altPressed);
+        if (dragging) {
+            if (sceneData.hoverTip) sceneData.hoverTip.style.display = 'none';
+            clearTimeout(sceneData.hoverTimer);
+            return;
+        }
+
+        // lazy-init 툴팁 DOM
+        if (!sceneData.hoverTip) {
+            const tip = document.createElement('div');
+            tip.id = 'device-hover-tip-' + elementId;
+            Object.assign(tip.style, {
+                position: 'absolute', pointerEvents: 'none',
+                background: 'rgba(30,41,59,0.95)', color: '#fff',
+                padding: '4px 8px', borderRadius: '4px',
+                font: 'bold 12px Arial', zIndex: '9999',
+                display: 'none', whiteSpace: 'nowrap',
+                border: '1px solid rgba(148,163,184,0.4)'
+            });
+            document.body.appendChild(tip);
+            sceneData.hoverTip = tip;
+        }
+
+        clearTimeout(sceneData.hoverTimer);
+        const self = this;
+        sceneData.hoverTimer = setTimeout(() => {
+            const hits = self._getRaycasterIntersects(elementId, event);
+            let name = null;
+            for (const h of hits) {
+                name = self._findDeviceName(h.object);
+                if (name) break;
+            }
+            const tip = sceneData.hoverTip;
+            if (!tip) return;
+            if (name) {
+                tip.textContent = name;
+                tip.style.left = (event.clientX + 12) + 'px';
+                tip.style.top = (event.clientY + 12) + 'px';
+                tip.style.display = 'block';
+            } else {
+                tip.style.display = 'none';
+            }
+        }, 150);
+    },
+
     _handleMouseMove: function(elementId, event) {
         const sceneData = this._scenes[elementId];
         if (!sceneData) return;
+
+        this._updateHoverTip(elementId, event);
 
         const dragState = sceneData.dragState;
         const canvas = sceneData.renderer.domElement;
@@ -2839,6 +2972,10 @@ const Ev23DViewer = {
     _handleMouseDown: function(elementId, event) {
         const sceneData = this._scenes[elementId];
         if (!sceneData) return;
+
+        // 드래그/팬 시작 시 hover 툴팁 즉시 숨김
+        if (sceneData.hoverTip) sceneData.hoverTip.style.display = 'none';
+        clearTimeout(sceneData.hoverTimer);
 
         // Ignore right-click
         if (event.button !== 0) return;
@@ -4885,10 +5022,14 @@ const Ev23DViewer = {
         // Device name label (using device-specific label with full name)
         const labelY = modelHeight + (device.apiDefs?.length > 0 ? 2.0 : 1.0);
         const apiDefCount = device.apiDefs?.length || 0;
-        const label = this._createDeviceLabel(device.name || device.id, apiDefCount, device.state);
+        const deviceFullName = device.name || device.id;
+        const label = this._createDeviceLabel(deviceFullName, apiDefCount, device.state);
         label.position.set(0, labelY, 0);
         label.userData.deviceId = device.id;
         group.add(label);
+        // hover 툴팁용 — group/model 어느 쪽이 raycast 에 걸려도 찾을 수 있도록
+        group.userData.deviceName = deviceFullName;
+        if (model) model.userData.deviceName = deviceFullName;
 
         return { group, indicator: model };
     },
@@ -5896,55 +6037,14 @@ const Ev23DViewer = {
     /**
      * Re-calculate and reposition all devices with auto-layout (grouped by flow)
      */
+    // "전체 재배치" — F# SceneBuilder.buildSceneAutoLayout 에 위임.
+    // device 좌표와 Flow Zone 을 단일 F# 경로에서 재계산하여 init 메시지로 전체 덮어쓴다.
     autoLayoutDevices: function(elementId) {
-        const sceneData = this._scenes[elementId];
-        if (!sceneData || !sceneData.devices || sceneData.devices.length === 0) return;
-
-        const devices = sceneData.devices;
-        const flowGroups = {};
-        devices.forEach(d => {
-            const fn = d.flowName || 'Default';
-            if (!flowGroups[fn]) flowGroups[fn] = [];
-            flowGroups[fn].push(d);
-        });
-
-        const flowNames = Object.keys(flowGroups);
-        const flowCount = flowNames.length;
-        const spacing = 12;
-        const flowSpacing = Math.max(20, spacing * Math.ceil(Math.sqrt(
-            Math.max(...flowNames.map(fn => flowGroups[fn].length))
-        )));
-
-        flowNames.forEach((flowName, flowIdx) => {
-            const flowDevices = flowGroups[flowName];
-            const cols = Math.ceil(Math.sqrt(flowDevices.length));
-            const totalRows = Math.ceil(flowDevices.length / cols);
-            const flowOffsetZ = (flowIdx - (flowCount - 1) / 2) * flowSpacing;
-
-            flowDevices.forEach((device, idx) => {
-                const col = idx % cols;
-                const row = Math.floor(idx / cols);
-                const x = (col - (cols - 1) / 2) * spacing;
-                const z = (row - (totalRows - 1) / 2) * spacing + flowOffsetZ;
-
-                // Move the existing scene group
-                sceneData.scene.traverse(obj => {
-                    if (obj.isGroup && obj.userData.deviceId === device.id) {
-                        obj.position.set(x, 0, z);
-                    }
-                });
-                device.posX = x;
-                device.posZ = z;
-            });
-        });
-
-        // Persist new positions
-        const positions = {};
-        devices.forEach(d => { positions[d.id] = { x: d.posX, z: d.posZ }; });
-        this._saveDevicePositions(elementId, positions);
-
-        this.fitCameraToDevices(elementId);
-        console.log(`Auto-layout applied to ${devices.length} devices`);
+        if (window._wpfCallbackRef) {
+            window._wpfCallbackRef.invokeMethodAsync("RebuildWithAutoLayout");
+        } else {
+            console.warn('[autoLayoutDevices] _wpfCallbackRef not available');
+        }
     },
 
     /**
@@ -6063,6 +6163,20 @@ const Ev23DViewer = {
         const deviceName = deviceData.deviceName || deviceData.name || 'Unknown';
         const deviceId = deviceData.deviceId || deviceData.id || `device_${Date.now()}`;
         const apiDefs = Array.isArray(deviceData.apiDefs) ? deviceData.apiDefs : [];
+
+        // 중복 가드: 이미 같은 deviceId 의 group 이 있으면 위치만 업데이트.
+        if (deviceId && sceneData.scene) {
+            let existing = null;
+            sceneData.scene.traverse(obj => {
+                if (obj.isGroup && obj.userData && obj.userData.deviceId === deviceId) {
+                    existing = obj;
+                }
+            });
+            if (existing) {
+                existing.position.set(x, 0, z);
+                return;
+            }
+        }
 
         console.log(`Adding device '${deviceName}' at (${x.toFixed(2)}, ${z.toFixed(2)}) with ${apiDefs.length} ApiDefs`);
 
@@ -6943,6 +7057,20 @@ const Ev23DViewer = {
         const deviceName = deviceData.deviceName || deviceData.name || 'Unknown';
         const deviceId = deviceData.deviceId || deviceData.id || `device_${Date.now()}`;
         const apiDefs = Array.isArray(deviceData.apiDefs) ? deviceData.apiDefs : [];
+
+        // 중복 가드: 이미 같은 deviceId 의 group 이 있으면 위치만 업데이트.
+        if (deviceId && sceneData.scene) {
+            let existing = null;
+            sceneData.scene.traverse(obj => {
+                if (obj.isGroup && obj.userData && obj.userData.deviceId === deviceId) {
+                    existing = obj;
+                }
+            });
+            if (existing) {
+                existing.position.set(x, 0, z);
+                return;
+            }
+        }
 
         console.log(`Adding device '${deviceName}' at (${x.toFixed(2)}, ${z.toFixed(2)}) with ${apiDefs.length} ApiDefs`);
 

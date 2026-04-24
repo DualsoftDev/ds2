@@ -1,10 +1,8 @@
 using System.Collections.Concurrent;
 using Ds2.Core;
-using DSPilot.Engine;
-using static DSPilot.Engine.Models;
 using DSPilot.Models;
+using DSPilot.Models.Heatmap;
 using DSPilot.Repositories;
-using Microsoft.FSharp.Collections;
 
 namespace DSPilot.Services;
 
@@ -239,13 +237,13 @@ public class HeatmapService
     /// 메트릭 표시 이름 반환
     /// </summary>
     public static string GetMetricDisplayName(HeatmapMetric metric) =>
-        Performance.getMetricDisplayName(metric);
+        HeatmapPerformance.GetMetricDisplayName(metric);
 
     /// <summary>
     /// 메트릭 값 포맷
     /// </summary>
     public static string FormatMetricValue(HeatmapMetric metric, double value) =>
-        Performance.formatMetricValue(metric, value);
+        HeatmapPerformance.FormatMetricValue(metric, value);
 
     /// <summary>
     /// 컴팩트 셀용 짧은 포맷
@@ -283,9 +281,9 @@ public class HeatmapService
         // 3개 메트릭 색상 클래스 동시 할당
         foreach (var item in items)
         {
-            item.ColorClassAvg = Performance.assignColorClass(HeatmapMetric.AverageTime, item.AverageGoingTime, minAvg, maxAvg);
-            item.ColorClassStdDev = Performance.assignColorClass(HeatmapMetric.StdDeviation, item.StdDevGoingTime, minStdDev, maxStdDev);
-            item.ColorClassCV = Performance.assignColorClass(HeatmapMetric.CoefficientOfVariation, item.CoefficientOfVariation, minCV, maxCV);
+            item.ColorClassAvg = HeatmapPerformance.AssignColorClass(HeatmapMetric.AverageTime, item.AverageGoingTime, minAvg, maxAvg);
+            item.ColorClassStdDev = HeatmapPerformance.AssignColorClass(HeatmapMetric.StdDeviation, item.StdDevGoingTime, minStdDev, maxStdDev);
+            item.ColorClassCV = HeatmapPerformance.AssignColorClass(HeatmapMetric.CoefficientOfVariation, item.CoefficientOfVariation, minCV, maxCV);
         }
 
         // Flow별로 그룹화 + Flow 수준 집계 색상
@@ -301,11 +299,11 @@ public class HeatmapService
                 return new FlowHeatmapGroup
                 {
                     FlowName = g.Key,
-                    Calls = ListModule.OfSeq(calls),
+                    Calls = calls,
                     IsExpanded = true,
-                    FlowColorClassAvg = Performance.assignColorClass(HeatmapMetric.AverageTime, flowAvg, minAvg, maxAvg),
-                    FlowColorClassStdDev = Performance.assignColorClass(HeatmapMetric.StdDeviation, flowStdDev, minStdDev, maxStdDev),
-                    FlowColorClassCV = Performance.assignColorClass(HeatmapMetric.CoefficientOfVariation, flowCV, minCV, maxCV)
+                    FlowColorClassAvg = HeatmapPerformance.AssignColorClass(HeatmapMetric.AverageTime, flowAvg, minAvg, maxAvg),
+                    FlowColorClassStdDev = HeatmapPerformance.AssignColorClass(HeatmapMetric.StdDeviation, flowStdDev, minStdDev, maxStdDev),
+                    FlowColorClassCV = HeatmapPerformance.AssignColorClass(HeatmapMetric.CoefficientOfVariation, flowCV, minCV, maxCV)
                 };
             })
             .OrderBy(g => g.FlowName)

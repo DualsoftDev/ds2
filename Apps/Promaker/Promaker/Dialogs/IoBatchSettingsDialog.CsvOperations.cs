@@ -5,8 +5,9 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows;
-using Ds2.IOList;
 using Microsoft.Win32;
+using Ds2.IOList;
+using Plc.Xgi;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;
@@ -73,7 +74,7 @@ public partial class IoBatchSettingsDialog
 
         try
         {
-            var generationResult = Pipeline.generate(_store, templateDir);
+            var generationResult = IoListPipeline.generate(_store, templateDir);
 
             var errorCount = Microsoft.FSharp.Collections.ListModule.Length(generationResult.Errors);
             if (errorCount > 0)
@@ -96,7 +97,12 @@ public partial class IoBatchSettingsDialog
                     ExportAsCsv(generationResult, directory, fileNameWithoutExt);
                     break;
                 case ExportFormat.Excel:
-                    ExportAsExcel(generationResult, selectedPath, useTemplate, templatePath);
+                    // Excel export is no longer supported - use CSV instead
+                    DialogHelpers.ShowThemedMessageBox(
+                        "Excel export is no longer supported. Please use CSV format instead.",
+                        "Export Error",
+                        MessageBoxButton.OK,
+                        "⚠");
                     break;
             }
         }
@@ -108,15 +114,48 @@ public partial class IoBatchSettingsDialog
     }
 
     private static void ExportAsCsv(
-        Ds2.IOList.GenerationResult generationResult,
+        Plc.Xgi.GenerationResult generationResult,
         string directory,
         string fileNameWithoutExt)
     {
         var ioPath = Path.Combine(directory, $"{fileNameWithoutExt}_io.csv");
         var dummyPath = Path.Combine(directory, $"{fileNameWithoutExt}_dummy.csv");
 
-        var ioResult = Pipeline.exportIoListExtended(generationResult, ioPath);
-        var dummyResult = Pipeline.exportDummyListExtended(generationResult, dummyPath);
+        var ioSignals = Microsoft.FSharp.Collections.ListModule.ToArray(generationResult.IoSignals)
+            .Select(s => new Ds2.IOList.SignalRecord(
+                varName:     s.VarName,
+                address:     s.Address,
+                dataType:    s.DataType,
+                ioType:      s.IoType,
+                category:    s.Category,
+                comment:     s.Comment,
+                flowName:    s.FlowName,
+                workName:    s.WorkName,
+                deviceName:  s.DeviceName,
+                deviceAlias: s.DeviceAlias,
+                callName:    s.CallName))
+            .ToList();
+
+        var dummySignals = Microsoft.FSharp.Collections.ListModule.ToArray(generationResult.DummySignals)
+            .Select(s => new Ds2.IOList.SignalRecord(
+                varName:     s.VarName,
+                address:     s.Address,
+                dataType:    s.DataType,
+                ioType:      s.IoType,
+                category:    s.Category,
+                comment:     s.Comment,
+                flowName:    s.FlowName,
+                workName:    s.WorkName,
+                deviceName:  s.DeviceName,
+                deviceAlias: s.DeviceAlias,
+                callName:    s.CallName))
+            .ToList();
+
+        var ioList    = Microsoft.FSharp.Collections.ListModule.OfSeq(ioSignals);
+        var dummyList = Microsoft.FSharp.Collections.ListModule.OfSeq(dummySignals);
+
+        var ioResult    = Ds2.IOList.CsvExporter.exportIoExtended(ioList, ioPath);
+        var dummyResult = Ds2.IOList.CsvExporter.exportDummyExtended(dummyList, dummyPath);
 
         if (ioResult.IsError)
         {
@@ -132,8 +171,8 @@ public partial class IoBatchSettingsDialog
             return;
         }
 
-        var ioCount = Microsoft.FSharp.Collections.ListModule.Length(generationResult.IoSignals);
-        var dummyCount = Microsoft.FSharp.Collections.ListModule.Length(generationResult.DummySignals);
+        var ioCount = ioSignals.Count;
+        var dummyCount = dummySignals.Count;
 
         var summary =
             $"내보내기 완료:\n\n" +
@@ -142,53 +181,7 @@ public partial class IoBatchSettingsDialog
         CsvFileHelper.PromptOpenFolderAfterExport(directory, summary, "Export IO List");
     }
 
-    private static void ExportAsExcel(
-        Ds2.IOList.GenerationResult generationResult,
-        string selectedPath,
-        bool useTemplate,
-        string? templatePath)
-    {
-        Microsoft.FSharp.Core.FSharpResult<Microsoft.FSharp.Core.Unit, string> result;
-
-        if (useTemplate && !string.IsNullOrEmpty(templatePath))
-        {
-            if (!File.Exists(templatePath))
-            {
-                DialogHelpers.ShowThemedMessageBox(
-                    $"템플릿 파일을 찾을 수 없습니다:\n{templatePath}", "Export Error", MessageBoxButton.OK, "❌");
-                return;
-            }
-
-            var templateOption = Microsoft.FSharp.Core.FSharpOption<string>.Some(templatePath);
-            result = Pipeline.exportToExcelWithTemplate(generationResult, selectedPath, templateOption);
-        }
-        else
-        {
-            result = Pipeline.exportToExcel(generationResult, selectedPath);
-        }
-
-        if (result.IsError)
-        {
-            DialogHelpers.ShowThemedMessageBox(
-                $"Excel 내보내기 실패:\n{result.ErrorValue}", "Export Error", MessageBoxButton.OK, "❌");
-            return;
-        }
-
-        var ioCount = Microsoft.FSharp.Collections.ListModule.Length(generationResult.IoSignals);
-        var dummyCount = Microsoft.FSharp.Collections.ListModule.Length(generationResult.DummySignals);
-
-        var templateInfo = useTemplate && !string.IsNullOrEmpty(templatePath)
-            ? $"\n- 템플릿: {Path.GetFileName(templatePath)}"
-            : "";
-
-        var summary =
-            $"내보내기 완료:\n\n" +
-            $"- 파일: {Path.GetFileName(selectedPath)}\n" +
-            $"- IO 신호: {ioCount}개\n" +
-            $"- Dummy 신호: {dummyCount}개{templateInfo}";
-        // Excel도 같은 헬퍼로 자동 열기 통일 (UseShellExecute=true)
-        CsvFileHelper.PromptOpenAfterExportWithSummary(selectedPath, summary, "Export IO List");
-    }
+    // Excel export removed - no longer supported
 
     private static string EscapeCsvField(string value) =>
         BatchDialogHelper.EscapeCsvField(value);
@@ -401,4 +394,6 @@ public partial class IoBatchSettingsDialog
                 $"CSV 가져오기 중 오류:\n{ex.Message}", "CSV Import 오류", MessageBoxButton.OK, "⚠");
         }
     }
+
+
 }

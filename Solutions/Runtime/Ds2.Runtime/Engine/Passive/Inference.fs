@@ -47,8 +47,7 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         | _ -> ValueSpec.evaluate valueSpec currentValue
 
     let tryGetApiCallSpec apiCallGuid isOut =
-        index.CallApiCallObjects
-        |> Map.tryFind apiCallGuid
+        Ds2.Core.Store.Queries.getApiCall apiCallGuid index.Store
         |> Option.map (fun apiCall -> if isOut then apiCall.OutputSpec else apiCall.InputSpec)
 
     let observePassiveCallSignal

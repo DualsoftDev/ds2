@@ -6,7 +6,7 @@ using System.Windows;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
-using Ds2.IOList;
+using Plc.Xgi;
 using Promaker.Services;
 
 namespace Promaker.Dialogs;
@@ -128,7 +128,7 @@ public partial class TagWizardDialog
     /// <summary>
     /// 오류를 다이얼로그 탭에 표시
     /// </summary>
-    private void DisplayErrors(Ds2.IOList.GenerationResult result)
+    private void DisplayErrors(GenerationResult result)
     {
         _errorItems.Clear();
 
@@ -165,12 +165,12 @@ public partial class TagWizardDialog
     /// <summary>
     /// 오류 타입을 사용자 친화적 문자열로 변환
     /// </summary>
-    private string FormatErrorType(Ds2.IOList.ErrorType errorType)
+    private string FormatErrorType(ErrorType errorType)
     {
         return errorType switch
         {
-            Ds2.IOList.ErrorType.TemplateNotFound => "템플릿 파일 없음",
-            Ds2.IOList.ErrorType.ApiDefNotInTemplate => "API가 템플릿에 정의되지 않음",
+            ErrorType.TemplateNotFound => "템플릿 파일 없음",
+            ErrorType.ApiDefNotInTemplate => "API가 템플릿에 정의되지 않음",
             _ => errorType.ToString()
         };
     }

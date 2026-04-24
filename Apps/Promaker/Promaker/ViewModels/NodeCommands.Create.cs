@@ -135,6 +135,35 @@ public partial class MainViewModel
             CallCreateMode.ApiDefPicker => [$"{dialog.DevicesAlias}.{dialog.ApiName}"],
             _ => []
         };
+
+        // DevicesAlias 별 SystemType 충돌: 같은 devAlias 가 이미 다른 SystemType 으로
+        // 프로젝트에 등록돼 있으면 강제 거부 (dev.ADV, dev.MOVE 등 이름이 달라도 dev 공유 시)
+        if (project is not null)
+        {
+            var devAliases = callNamesToCheck
+                .Select(name => name.Split(new[] { '.' }, 2)[0])
+                .Where(a => !string.IsNullOrEmpty(a))
+                .Distinct()
+                .ToList();
+            var typeConflicts = devAliases
+                .Select(dev => (Dev: dev,
+                                Conflict: Queries.findConflictingDeviceSystemType(
+                                    project.Id, dev, systemTypeOption, _store)))
+                .Where(x => FSharpOption<Tuple<string, string>>.get_IsSome(x.Conflict))
+                .Select(x => (x.Dev, Existing: x.Conflict.Value.Item1, Requested: x.Conflict.Value.Item2))
+                .ToList();
+            if (typeConflicts.Count > 0)
+            {
+                var lines = typeConflicts
+                    .Select(c => $"  • {c.Dev}  (기존: {c.Existing} / 요청: {c.Requested})");
+                _dialogService.ShowWarning(
+                    "다음 Device(DevicesAlias) 는 이미 다른 SystemType 으로 등록돼 있어 추가할 수 없습니다:\n\n"
+                    + string.Join("\n", lines)
+                    + "\n\n같은 SystemType 으로 추가하거나 다른 이름을 사용하세요.");
+                return;
+            }
+        }
+
         var duplicateCallNames = callNamesToCheck
             .Where(name => !Queries.isCallNameUniqueInWork(targetWorkId, name, FSharpOption<Guid>.None, _store))
             .ToList();

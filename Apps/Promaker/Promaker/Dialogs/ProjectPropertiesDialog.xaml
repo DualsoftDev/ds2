@@ -86,7 +86,104 @@
                     </ScrollViewer>
                 </TabItem>
 
-                <!-- 탭 3: 프리셋 -->
+                <!-- 탭 3: PLC -->
+                <TabItem Header="PLC">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+                        <StackPanel>
+                            <!-- IOList 템플릿 폴더 -->
+                            <TextBlock Text="IOList 템플릿 폴더"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="PlcIoTemplateDirBox" Grid.Column="0"
+                                         Padding="6,4" FontFamily="Consolas" FontSize="11"/>
+                                <Button Grid.Column="2" Content="..."
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Click="BrowsePlcIoTemplateDir_Click"/>
+                            </Grid>
+                            <TextBlock Text="Ds2.IOList 신호 템플릿 (.txt) 폴더 — 비워두면 기본 경로 사용"
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,16" FontStyle="Italic"/>
+
+                            <!-- FBTagMap 디바이스 타입 설정 -->
+                            <TextBlock Text="FBTagMap 디바이스 타입 설정"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <ListBox x:Name="FBTagMapDeviceTypeListBox" Grid.Column="0"
+                                         Height="80"
+                                         BorderBrush="{DynamicResource BorderBrush}"
+                                         Background="{DynamicResource SecondaryBackgroundBrush}"
+                                         FontFamily="Consolas" FontSize="11">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding DisplayText}"/>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                                <Button Grid.Column="2" Content="편집"
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" VerticalAlignment="Top"
+                                        Click="EditFBTagMap_Click"/>
+                            </Grid>
+                            <TextBlock Text="프리셋 탭의 디바이스 타입(SystemType)별 FB 타입과 포트 TagPattern 설정"
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,16" FontStyle="Italic"/>
+
+                            <!-- XGI 템플릿 파일 -->
+                            <TextBlock Text="XGI 템플릿 파일"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="PlcXgiTemplatePathBox" Grid.Column="0"
+                                         Padding="6,4" FontFamily="Consolas" FontSize="11"/>
+                                <Button Grid.Column="2" Content="..."
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Click="BrowsePlcXgiTemplate_Click"/>
+                            </Grid>
+                            <TextBlock Text="XGI_Template.xml 경로 — 비워두면 앱 기본 경로 사용"
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,16" FontStyle="Italic"/>
+
+                            <!-- XG5000 실행 파일 -->
+                            <TextBlock Text="XG5000 실행 파일"
+                                       FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,2"/>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="PlcXg5000ExePathBox" Grid.Column="0"
+                                         Padding="6,4" FontFamily="Consolas" FontSize="11"/>
+                                <Button Grid.Column="2" Content="..."
+                                        Style="{StaticResource DarkButton}"
+                                        Padding="10,4" Click="BrowsePlcXg5000Exe_Click"/>
+                            </Grid>
+                            <TextBlock Text="XG5000.exe 경로 — 비워두면 기본 설치 경로 자동 탐색"
+                                       FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,0" FontStyle="Italic"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- 탭 4: 프리셋 -->
                 <TabItem Header="프리셋">
                     <Grid Margin="10">
                         <Grid.RowDefinitions>

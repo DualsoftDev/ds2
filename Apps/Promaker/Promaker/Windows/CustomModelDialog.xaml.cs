@@ -64,11 +64,31 @@ public partial class CustomModelDialog : Window
         // 편집 모드이면 기존 데이터 로드
         if (!string.IsNullOrEmpty(EditingSystemType))
         {
-            SystemTypeInput.Text = EditingSystemType;
             if (_registry.Models.TryGetValue(EditingSystemType, out var json))
                 JsonEditor.Text = json;
             Title = $"커스텀 3D 모델 편집 — {EditingSystemType}";
             RegisterButton.Content = "저장";
+            // 상태 동기 설정 (UpdateJsonEditorEnabled가 hasType=true로 인식해 dim 깜빡임 방지)
+            SystemTypeInput.Text = EditingSystemType;
+
+            // IsEditable ComboBox의 내부 edit TextBox는 Loaded 시점엔 템플릿이 미완성이라
+            // Text 할당이 시각적으로 반영되지 않는 경우가 있음.
+            // Dispatcher Input 우선순위로 지연하여 SelectedItem + Text 재설정 → 표시 갱신.
+            _ = Dispatcher.BeginInvoke(new Action(() =>
+            {
+                object? matched = null;
+                foreach (var item in SystemTypeInput.Items)
+                {
+                    if (item is string s && string.Equals(s, EditingSystemType, StringComparison.Ordinal))
+                    {
+                        matched = item;
+                        break;
+                    }
+                }
+                if (matched != null)
+                    SystemTypeInput.SelectedItem = matched;
+                SystemTypeInput.Text = EditingSystemType;
+            }), System.Windows.Threading.DispatcherPriority.Input);
         }
 
         UpdatePlaceholder();
@@ -194,6 +214,36 @@ public partial class CustomModelDialog : Window
         if (SystemTypePlaceholder != null)
             SystemTypePlaceholder.Visibility = string.IsNullOrEmpty(SystemTypeInput.Text)
                 ? Visibility.Visible : Visibility.Collapsed;
+
+        UpdateJsonEditorEnabled();
+    }
+
+    /// <summary>
+    /// SystemType 이름이 비어있으면 JSON 입력 / 파일 불러오기 / AI 프롬프트 / 프리뷰를 비활성화.
+    /// 숨기지 않고 불투명도로 죽여서 중앙 힌트로 안내.
+    /// WebView2는 native HWND(airspace)라 Opacity가 먹히지 않으므로 Visibility=Hidden으로 처리
+    /// — 프리뷰 Border 프레임은 dim된 채로 남아 "꺼짐" 느낌 유지.
+    /// </summary>
+    private void UpdateJsonEditorEnabled()
+    {
+        if (JsonEditor == null) return;
+        var hasType = !string.IsNullOrWhiteSpace(SystemTypeInput.Text);
+        var dimOpacity = 0.35;
+
+        JsonEditor.IsEnabled = hasType;
+        if (LoadFileButton != null) LoadFileButton.IsEnabled = hasType;
+        if (AIPromptButton != null) AIPromptButton.IsEnabled = hasType;
+
+        if (JsonBorder != null) JsonBorder.Opacity = hasType ? 1.0 : dimOpacity;
+        if (PreviewBorder != null)
+        {
+            PreviewBorder.Opacity = hasType ? 1.0 : dimOpacity;
+            PreviewBorder.IsEnabled = hasType;
+        }
+        if (PreviewWebView != null)
+            PreviewWebView.Visibility = hasType ? Visibility.Visible : Visibility.Hidden;
+        if (DisabledHint != null)
+            DisabledHint.Visibility = hasType ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>
@@ -240,9 +290,10 @@ public partial class CustomModelDialog : Window
         else
         {
             // ApiDef 2개 이상 → dirs 템플릿 자동 생성
+            // dirs는 기본 loop="restart" (전진만 반복, 시작점 스냅) — 상반 방향이 명확히 구분됨
             var dirsEntries = string.Join(",\n    ",
                 apiDefNames.Select(name =>
-                    $"\"{name}\": {{\"target\": \"body\", \"type\": \"move\", \"axis\": \"x\", \"min\": 0, \"max\": 0.5}}"));
+                    $"\"{name}\": {{\"target\": \"body\", \"type\": \"move\", \"axis\": \"x\", \"min\": 0, \"max\": 0.5, \"loop\": \"restart\"}}"));
 
             var apiDefComment = string.Join(", ", apiDefNames.Select((n, i) => $"{n}(#{i})"));
 
@@ -371,7 +422,7 @@ public partial class CustomModelDialog : Window
 
         var dirsLines = string.Join(",\n      ",
             apiDefNames.Select(n =>
-                $"\"{n}\": {{\"target\": \"...\", \"type\": \"move\", \"axis\": \"...\", \"min\": 0, \"max\": 0.5}}"));
+                $"\"{n}\": {{\"target\": \"...\", \"type\": \"move\", \"axis\": \"...\", \"min\": 0, \"max\": 0.5, \"loop\": \"restart\"}}"));
 
         return "## 요청\n" +
                "다음 장비의 3D 모델 JSON을 생성해주세요.\n\n" +
@@ -385,7 +436,11 @@ public partial class CustomModelDialog : Window
                "      " + dirsLines + "\n" +
                "  }\n" +
                "  ```\n" +
-               "- 각 dir의 애니메이션은 해당 ApiDef의 물리적 동작에 맞게 설정\n\n" +
+               "- 각 dir의 애니메이션은 해당 ApiDef의 물리적 동작에 맞게 설정\n" +
+               "- `loop` 필드로 진행 방식 지정 (상반 방향 구분에 중요):\n" +
+               "  - \"restart\" (dirs 기본): 전진만 반복하고 끝나면 시작점으로 스냅 — 피스톤/컨베이어 등\n" +
+               "  - \"once\": 한번 진행 후 정지, Idle 되면 원위치 복귀 — 리프터/도어 등\n" +
+               "  - \"pingpong\": min↔max 왕복 (방향성 없음)\n\n" +
                "장비 설명: [여기에 원하는 장비를 설명하세요]";
     }
 

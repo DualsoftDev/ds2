@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
-using Ds2.IOList;
 using Ds2.Core.Store;
+using Plc.Xgi;
 
 namespace Promaker.Services;
 
@@ -18,7 +18,7 @@ public class IoListGeneratorService
     /// <returns>생성 결과 (IO 신호, Dummy 신호, 에러, 경고)</returns>
     public GenerationResult Generate(DsStore store, string templateDir)
     {
-        return Pipeline.generate(store, templateDir);
+        return IoListPipeline.generate(store, templateDir);
     }
 
     /// <summary>

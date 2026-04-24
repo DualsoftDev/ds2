@@ -27,30 +27,6 @@ let ``inferModelType should return Dummy when SystemType is None`` () =
     shouldEqual "Dummy" (inferModelType None)
 
 [<Fact>]
-let ``extractParticipatingFlows should return flows using the device`` () =
-    let (store, projectId, _, _, _, _) = createTestStore()
-
-    match extractDevices store projectId with
-    | Ok devices ->
-        let robot = devices |> List.find (fun d -> d.Name = "Robot_RB01")
-        shouldNotBeEmpty robot.ParticipatingFlows
-        shouldContain "Flow1" robot.ParticipatingFlows
-        shouldContain "Flow2" robot.ParticipatingFlows
-    | Error err ->
-        failwithf "extractDevices failed: %A" err
-
-[<Fact>]
-let ``extractParticipatingFlows should return single flow for conveyor`` () =
-    let (store, projectId, _, _, _, _) = createTestStore()
-
-    match extractDevices store projectId with
-    | Ok devices ->
-        let conveyor = devices |> List.find (fun d -> d.Name = "Conveyor_CV01")
-        shouldEqual ["Flow1"] conveyor.ParticipatingFlows
-    | Error err ->
-        failwithf "extractDevices failed: %A" err
-
-[<Fact>]
 let ``determinePrimaryFlow should return most frequent flow`` () =
     let flows = ["Flow1"; "Flow1"; "Flow2"]
     shouldEqual (Some "Flow1") (determinePrimaryFlow flows)
@@ -58,20 +34,6 @@ let ``determinePrimaryFlow should return most frequent flow`` () =
 [<Fact>]
 let ``determinePrimaryFlow should return None for empty list`` () =
     shouldEqual None (determinePrimaryFlow [])
-
-[<Fact>]
-let ``extractDevices should return all systems in project`` () =
-    let (store, projectId, _, _, _, _) = createTestStore()
-
-    match extractDevices store projectId with
-    | Ok devices ->
-        Assert.Equal(4, devices.Length)
-        Assert.Contains(devices, fun d -> d.ModelType = "Robot")
-        Assert.Contains(devices, fun d -> d.ModelType = "Conveyor")
-        Assert.Contains(devices, fun d -> d.ModelType = "Unit")
-        Assert.Contains(devices, fun d -> d.ModelType = "Dummy")
-    | Error err ->
-        failwithf "extractDevices failed: %A" err
 
 [<Fact>]
 let ``extractDevices should return error for non-existent project`` () =
@@ -83,19 +45,32 @@ let ``extractDevices should return error for non-existent project`` () =
     | Error (ProjectNotFound id) -> shouldEqual fakeProjectId id
     | Error err -> failwithf "Wrong error type: %A" err
 
+// TestHelpers: Robot/Conveyor = Active, Cylinder(Unit)/Unknown = Passive.
+// 3D 배치 뷰는 실제 설비(Passive)만 표시하므로 extractDevices 는 Passive 만 반환.
+
 [<Fact>]
-let ``extractDevices should calculate CallerCount for ApiDefs`` () =
+let ``extractDevices should return only PassiveSystems`` () =
+    let (store, projectId, _, _, cylinderId, unknownId) = createTestStore()
+
+    match extractDevices store projectId with
+    | Ok devices ->
+        Assert.Equal(2, devices.Length)
+        Assert.Contains(devices, fun d -> d.Id = cylinderId && d.ModelType = "Unit")
+        Assert.Contains(devices, fun d -> d.Id = unknownId && d.ModelType = "Dummy")
+        Assert.DoesNotContain(devices, fun d -> d.ModelType = "Robot")
+        Assert.DoesNotContain(devices, fun d -> d.ModelType = "Conveyor")
+    | Error err ->
+        failwithf "extractDevices failed: %A" err
+
+[<Fact>]
+let ``extractDevices should calculate CallerCount for passive device ApiDefs`` () =
     let (store, projectId, _, _, _, _) = createTestStore()
 
     match extractDevices store projectId with
     | Ok devices ->
-        let robot = devices |> List.find (fun d -> d.Name = "Robot_RB01")
-        let pick = robot.ApiDefs |> List.find (fun a -> a.Name = "Pick")
-        // Pick은 call1(Flow1)과 call3(Flow2)에서 호출됨 → CallerCount = 2
-        Assert.Equal(2, pick.CallerCount)
-
-        let place = robot.ApiDefs |> List.find (fun a -> a.Name = "Place")
-        // Place는 아무 Call에서도 호출되지 않음 → CallerCount = 0
-        Assert.Equal(0, place.CallerCount)
+        let cylinder = devices |> List.find (fun d -> d.Name = "Cylinder_CY01")
+        let extend = cylinder.ApiDefs |> List.find (fun a -> a.Name = "Extend")
+        // Extend 는 call4(Flow2)에서 1회 호출됨
+        Assert.Equal(1, extend.CallerCount)
     | Error err ->
         failwithf "extractDevices failed: %A" err

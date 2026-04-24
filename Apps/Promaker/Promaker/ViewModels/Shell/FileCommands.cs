@@ -156,18 +156,16 @@ public partial class MainViewModel
 
     private void AfterFileLoad()
     {
+        ExplorerRebindRequested?.Invoke();
+
         // Control Tree 전체 확장
         ExpandAllNodes(ControlTreeRoots);
 
         // 첫 번째 System 캔버스를 띄움 (Flow 하이라이트 없이)
         ActivateInitialSystemTab();
 
-        // 3D 창이 열려있으면 씬 자동 재빌드
-        if (_view3DWindow is { IsVisible: true })
-        {
-            var projectId = Queries.allProjects(_store).Head.Id;
-            _ = Simulation.ThreeD.BuildScene(_store, projectId);
-        }
+        // 3D 창이 열려있으면 창 내부 참조·DeviceTree·씬 모두 새 프로젝트로 재동기화
+        ResyncView3DIfOpen();
 
         // AutoLayoutIfNeeded가 좌표 없는 노드에 자동 배치를 적용하면서
         // undo 항목을 생성할 수 있으므로, 로드 완료 후 초기 상태로 확정
@@ -194,7 +192,7 @@ public partial class MainViewModel
 
         if (project is null) return;
 
-        var dlg = new ProjectPropertiesDialog(project.Name, project);
+        var dlg = new ProjectPropertiesDialog(project.Name, _store);
         var accepted = _dialogService.ShowDialog(dlg) == true;
         if (!accepted) return;
 

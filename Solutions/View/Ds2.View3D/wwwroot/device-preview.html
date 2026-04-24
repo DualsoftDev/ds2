@@ -247,8 +247,8 @@ piston: {
     {id:"cylinder", shape:"cylinder", radius:0.08, height:0.7, color:"#475569", pos:[0,0.63,-0.55]}
   ],
   dirs: {
-    "ADV": {target:"carriage", type:"move", axis:"x", min:0, max:0.45},
-    "RET": {target:"carriage", type:"move", axis:"x", min:0, max:-0.45}
+    "ADV": {target:"carriage", type:"move", axis:"x", min:0, max:0.45, loop:"restart"},
+    "RET": {target:"carriage", type:"move", axis:"x", min:0, max:-0.45, loop:"restart"}
   }
 },
 lifter_dir: {
@@ -261,8 +261,8 @@ lifter_dir: {
     {id:"motor", shape:"cylinder", radius:0.15, height:0.25, color:"#334155", on:"cols"}
   ],
   dirs: {
-    "UP":   {target:"platform", type:"move", axis:"y", min:0.38, max:2.2},
-    "DOWN": {target:"platform", type:"move", axis:"y", min:2.2, max:0.38}
+    "UP":   {target:"platform", type:"move", axis:"y", min:0.38, max:2.2, loop:"once"},
+    "DOWN": {target:"platform", type:"move", axis:"y", min:2.2, max:0.38, loop:"once"}
   }
 },
 spray: {
@@ -437,7 +437,7 @@ function buildDevice(spec) {
         } else if (anim.target) {
           const targets = partMap[anim.target];
           if (targets && targets.length > 0) {
-            entries.push({type:anim.type, meshes:targets, axis:anim.axis||'y', speed:anim.speed||1, min:anim.min, max:anim.max, restPositions:targets.map(m=>m.position.clone()), restRotations:targets.map(m=>m.rotation.clone())});
+            entries.push({type:anim.type, meshes:targets, axis:anim.axis||'y', speed:anim.speed||1, min:anim.min, max:anim.max, loop:anim.loop||'restart', restPositions:targets.map(m=>m.position.clone()), restRotations:targets.map(m=>m.rotation.clone())});
           }
         }
       }
@@ -1029,6 +1029,7 @@ function setupAnimations(animSpec) {
       max: anim.max,
       angle: anim.angle || 0.5,
       phase: anim.phase || 0,
+      loop: anim.loop || 'pingpong',
       restPositions: meshes.map(m => m.position.clone()),
       restRotations: meshes.map(m => m.rotation.clone())
     };
@@ -1056,6 +1057,22 @@ function setupAnimations(animSpec) {
 
     animEntries.push(entry);
   }
+}
+
+// ── Move Loop Progression (0→1 according to loop mode) ──────
+// pingpong: sin-based round-trip (0→1→0→...)
+// restart:  sawtooth, 0→1 linear then snap to 0 (one-way, repeat)
+// once:     0→1 linear, then hold at 1 (one-way, stop)
+function moveT(entry, t) {
+  const speed = entry.speed || 1;
+  const mode = entry.loop || 'pingpong';
+  if (mode === 'pingpong') return (Math.sin(t * speed * 2) + 1) / 2;
+  if (mode === 'once') {
+    entry._progress = Math.min((entry._progress || 0) + 0.016 * speed * 2 / Math.PI, 1);
+    return entry._progress;
+  }
+  // 'restart' (sawtooth) — same forward-cadence as pingpong half-period
+  return ((t * speed * 2) % (2 * Math.PI)) / (2 * Math.PI);
 }
 
 // ── Animation Update ─────────────────────────────────────────
@@ -1158,6 +1175,7 @@ function updateAnimations() {
       const restR = restRotations ? restRotations[i] : null;
 
       if (!isActive) {
+        if (type === 'move') entry._progress = 0;
         if (restP) {
           m.position.x += (restP.x - m.position.x) * 0.05;
           m.position.y += (restP.y - m.position.y) * 0.05;
@@ -1173,8 +1191,7 @@ function updateAnimations() {
 
       if (type === 'move') {
         if (min !== undefined && max !== undefined) {
-          const t = (Math.sin(time * speed * 2) + 1) / 2;
-          m.position[axIdx] = min + t * (max - min);
+          m.position[axIdx] = min + moveT(entry, time) * (max - min);
         }
       } else if (type === 'spin') {
         m.rotation[axIdx] += speed;
@@ -1222,11 +1239,12 @@ function updateSingleEntry(entry, isActive) {
   for (let i=0; i<meshes.length; i++) {
     const m=meshes[i];
     if (!isActive) {
+      if (entry.type === 'move') entry._progress = 0;
       if(restPositions&&restPositions[i]){m.position.x+=(restPositions[i].x-m.position.x)*0.05;m.position.y+=(restPositions[i].y-m.position.y)*0.05;m.position.z+=(restPositions[i].z-m.position.z)*0.05;}
       if(restRotations&&restRotations[i]&&entry.type!=='spin'){m.rotation.x+=(restRotations[i].x-m.rotation.x)*0.05;m.rotation.y+=(restRotations[i].y-m.rotation.y)*0.05;m.rotation.z+=(restRotations[i].z-m.rotation.z)*0.05;}
       continue;
     }
-    if(entry.type==='move'&&min!==undefined&&max!==undefined){const t=(Math.sin(time*(speed||1)*2)+1)/2;m.position[axIdx]=min+t*(max-min);}
+    if(entry.type==='move'&&min!==undefined&&max!==undefined){m.position[axIdx]=min+moveT(entry,time)*(max-min);}
     else if(entry.type==='spin'){m.rotation[axIdx]+=(speed||0.02);}
     else if(entry.type==='roll'){m.rotation.x+=(speed||0.05);}
   }

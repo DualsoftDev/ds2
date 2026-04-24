@@ -236,7 +236,7 @@
                 </StackPanel>
             </StackPanel>
             <StackPanel Orientation="Vertical"
-                        Margin="8,0,0,0"
+                        Margin="22,0,0,0"
                         VerticalAlignment="Center"
                         IsEnabled="{Binding HasProject}">
                 <TextBlock Text="Work" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,1"/>
@@ -288,7 +288,7 @@
                 </UniformGrid>
             </StackPanel>
             <StackPanel Orientation="Vertical"
-                        Margin="8,0,0,0"
+                        Margin="22,0,0,0"
                         VerticalAlignment="Center"
                         IsEnabled="{Binding HasProject}">
                 <TextBlock Text="{x:Static res:Strings.Speed}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,1"/>
@@ -305,6 +305,49 @@
                     <ComboBoxItem Content="10x"><ComboBoxItem.Tag><sys:Double>10.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                     <ComboBoxItem Content="{x:Static res:Strings.IgnoreTime}"><ComboBoxItem.Tag><sys:Double>0.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
                 </ComboBox>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,1,0,0">
+                    <Button x:Name="OpenTokenSpecButton"
+                            Command="{Binding OpenTokenSpecDialogCommand}"
+                            IsEnabled="{Binding HasProject}"
+                            ToolTip="TokenSpec 편집"
+                            Margin="0,0,4,0">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
+                                <Setter Property="Foreground" Value="{DynamicResource IconGrayBrush}"/>
+                                <Setter Property="MinWidth" Value="0"/>
+                                <Setter Property="MinHeight" Value="0"/>
+                                <Setter Property="Padding" Value="6,2"/>
+                            </Style>
+                        </Button.Style>
+                        <StackPanel Orientation="Horizontal">
+                            <iconPacks:PackIconMaterial Kind="CheckCircle" Width="11" Height="11"
+                                                        VerticalAlignment="Center" Margin="0,0,3,0"
+                                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock Text="Token" FontSize="11" VerticalAlignment="Center"
+                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="CheckModelButton"
+                            Command="{Binding Simulation.CheckModelCommand}"
+                            IsEnabled="{Binding HasProject}"
+                            ToolTip="모델 검증 (그래프 경고 확인)">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
+                                <Setter Property="Foreground" Value="{DynamicResource IconGrayBrush}"/>
+                                <Setter Property="MinWidth" Value="0"/>
+                                <Setter Property="MinHeight" Value="0"/>
+                                <Setter Property="Padding" Value="6,2"/>
+                            </Style>
+                        </Button.Style>
+                        <StackPanel Orientation="Horizontal">
+                            <iconPacks:PackIconMaterial Kind="ShieldCheck" Width="11" Height="11"
+                                                        VerticalAlignment="Center" Margin="0,0,3,0"
+                                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock Text="Check" FontSize="11" VerticalAlignment="Center"
+                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
             </StackPanel>
             <StackPanel Orientation="Vertical"
                         Margin="8,0,0,0"
@@ -331,26 +374,6 @@
                          ToolTip="Hub 주소 (host:port)"
                          Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"/>
             </StackPanel>
-            <Button x:Name="OpenTokenSpecButton"
-                    Style="{StaticResource RibbonFlatButton}"
-                    Command="{Binding OpenTokenSpecDialogCommand}"
-                    IsEnabled="{Binding HasProject}"
-                    ToolTip="TokenSpec 편집">
-                <StackPanel Orientation="Vertical">
-                    <iconPacks:PackIconMaterial Kind="CheckCircle" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
-                    <TextBlock Text="Token" Style="{StaticResource RibbonIconLabel}"/>
-                </StackPanel>
-            </Button>
-            <Button x:Name="CheckModelButton"
-                    Style="{StaticResource RibbonFlatButton}"
-                    Command="{Binding Simulation.CheckModelCommand}"
-                    IsEnabled="{Binding HasProject}"
-                    ToolTip="모델 검증 (그래프 경고 확인)">
-                <StackPanel Orientation="Vertical">
-                    <iconPacks:PackIconMaterial Kind="ShieldCheck" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
-                    <TextBlock Text="Check" Style="{StaticResource RibbonIconLabel}"/>
-                </StackPanel>
-            </Button>
         </WrapPanel>
         <TextBlock Grid.Row="1" Text="시뮬레이션" Style="{StaticResource RibbonSectionLabel}"/>
     </Grid>

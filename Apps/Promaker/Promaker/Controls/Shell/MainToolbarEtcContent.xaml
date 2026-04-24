@@ -20,7 +20,7 @@
         </Grid.RowDefinitions>
         <WrapPanel Orientation="Horizontal">
             <Grid>
-                <ToggleButton x:Name="UtilMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="유틸리티" Checked="UtilMenuToggle_Checked">
+                <ToggleButton x:Name="UtilMenuToggle" Style="{StaticResource RibbonFlatToggleButton}" ToolTip="유틸리티">
                     <StackPanel Orientation="Vertical">
                         <iconPacks:PackIconMaterial Kind="Wrench" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
                         <TextBlock Text="유틸" Style="{StaticResource RibbonIconLabel}"/>
@@ -39,7 +39,6 @@
                             MinWidth="180">
                         <StackPanel>
                             <TextBlock Text="편집" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
-                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="I/O 편집"/></Button>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenDurationBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="Duration 편집"/></Button>
                             <Separator Margin="4,4"/>
                             <TextBlock Text="리포트" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
@@ -49,11 +48,13 @@
                             <Separator Margin="4,4"/>
                             <TextBlock Text="CSV" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="CSV 불러오기"/></Button>
-                            <StackPanel Visibility="{Binding Is3DViewEnabled, Converter={StaticResource BoolToVis}}">
-                                <Separator Margin="4,4"/>
-                                <TextBlock Text="뷰" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
-                                <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Open3DViewCommand}" Click="CloseUtilPopup"><TextBlock Text="3D 배치 뷰"/></Button>
-                            </StackPanel>
+                            <Separator Margin="4,4"/>
+                            <TextBlock Text="PLC" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="I/O 편집"/></Button>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenPlcXmlGeneratorCommand}" Click="CloseUtilPopup"><TextBlock Text="PLC 생성"/></Button>
+                            <Separator Margin="4,4"/>
+                            <TextBlock Text="뷰" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Open3DViewCommand}" Click="CloseUtilPopup"><TextBlock Text="3D 배치 뷰"/></Button>
                         </StackPanel>
                     </Border>
                 </Popup>

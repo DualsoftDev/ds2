@@ -228,6 +228,38 @@ module Queries =
     /// <summary>모든 ApiCall 조회</summary>
     let allApiCalls (store: DsStore) : ApiCall list = allOf store.ApiCallsReadOnly
 
+    /// 프로젝트 전체에서 같은 DevicesAlias 를 쓰는 Device System 의 SystemType 과
+    /// 새로 지정한 SystemType 이 다르면 (기존 SystemType, 새 SystemType) 쌍을 반환.
+    /// 충돌 없으면 None.
+    /// - newSystemType None 이면 None (타입 미지정은 기존 것을 승계)
+    /// - 기존 System.SystemType None 이면 None (기존 ensureSystem 이 채울 여지 보존)
+    /// - DevicesAlias 는 Call 의 "{DevicesAlias}.{ApiName}" 중 앞부분. 같은 devAlias 를
+    ///   쓰는 Call 이 여러 Flow/Work 에 있어도 모두 하나의 Unit(SystemType) 으로 통일돼야 함.
+    let findConflictingDeviceSystemType
+        (projectId: Guid) (devAlias: string) (newSystemType: string option) (store: DsStore)
+        : (string * string) option =
+        match newSystemType with
+        | None -> None
+        | Some newType ->
+            let projectSystemIds =
+                passiveSystemsOf projectId store
+                |> List.map (fun s -> s.Id)
+                |> Set.ofList
+            store.CallsReadOnly.Values
+            |> Seq.filter (fun c -> c.DevicesAlias = devAlias)
+            |> Seq.tryPick (fun c ->
+                c.ApiCalls
+                |> Seq.tryHead
+                |> Option.bind (fun ac -> ac.ApiDefId)
+                |> Option.bind (fun apiDefId -> getApiDef apiDefId store)
+                |> Option.bind (fun apiDef ->
+                    if Set.contains apiDef.ParentId projectSystemIds
+                    then getSystem apiDef.ParentId store
+                    else None)
+                |> Option.bind (fun sys -> sys.SystemType)
+                |> Option.filter (fun existingType -> existingType <> newType)
+                |> Option.map (fun existingType -> (existingType, newType)))
+
     // ─────────────────────────────────────────────────────────────────────────
     // ArrowBetweenWorks 쿼리
     // ─────────────────────────────────────────────────────────────────────────
