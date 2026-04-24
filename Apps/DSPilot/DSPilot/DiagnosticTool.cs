@@ -1,9 +1,8 @@
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
-using DSPilot.Engine;
-using EngineFlowAnalysis = DSPilot.Engine.FlowAnalysis;
 using DSPilot.Services;
+using DSPilot.Services.FlowAnalysis;
 using Microsoft.Data.Sqlite;
 
 namespace DSPilot;
@@ -78,21 +77,15 @@ public static class DiagnosticTool
             // FlowAnalysis 실행
             try
             {
-                var result = EngineFlowAnalysis.analyzeFlow(flow, store);
+                var result = FlowAnalyzer.AnalyzeFlow(flow, store);
 
                 Console.WriteLine($"\n  DAG Analysis Result:");
                 Console.WriteLine($"    Representative Work: {result.RepresentativeWorkName ?? "None"}");
 
-                // Head Call 정보
-                var headCallName = Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Call>.get_IsSome(result.HeadCall)
-                    ? result.HeadCall.Value.Name
-                    : "None";
+                var headCallName = result.HeadCall?.Name ?? "None";
                 Console.WriteLine($"    Head Call: {headCallName} (Total: {result.HeadCount})");
 
-                // Tail Call 정보
-                var tailCallName = Microsoft.FSharp.Core.FSharpOption<Ds2.Core.Call>.get_IsSome(result.TailCall)
-                    ? result.TailCall.Value.Name
-                    : "None";
+                var tailCallName = result.TailCall?.Name ?? "None";
                 Console.WriteLine($"    Tail Call: {tailCallName} (Total: {result.TailCount})");
 
                 // 복수 Head/Tail 경고
