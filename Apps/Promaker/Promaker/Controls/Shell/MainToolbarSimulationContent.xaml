@@ -292,25 +292,41 @@
                         VerticalAlignment="Center"
                         IsEnabled="{Binding HasProject}">
                 <TextBlock Text="{x:Static res:Strings.Speed}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,1"/>
-                <ComboBox x:Name="SimSpeedComboBox"
-                          SelectedValue="{Binding Simulation.SimSpeed}"
-                          SelectedValuePath="Tag"
-                          Width="72"
-                          MinHeight="24"
-                          FontSize="11">
-                    <ComboBoxItem Content="0.5x"><ComboBoxItem.Tag><sys:Double>0.5</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
-                    <ComboBoxItem Content="1x"><ComboBoxItem.Tag><sys:Double>1.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
-                    <ComboBoxItem Content="2x"><ComboBoxItem.Tag><sys:Double>2.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
-                    <ComboBoxItem Content="5x"><ComboBoxItem.Tag><sys:Double>5.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
-                    <ComboBoxItem Content="10x"><ComboBoxItem.Tag><sys:Double>10.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
-                    <ComboBoxItem Content="{x:Static res:Strings.IgnoreTime}"><ComboBoxItem.Tag><sys:Double>0.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
-                </ComboBox>
+                <StackPanel Orientation="Horizontal">
+                    <ComboBox x:Name="SimSpeedComboBox"
+                              SelectedValue="{Binding Simulation.SimSpeed}"
+                              SelectedValuePath="Tag"
+                              Width="72"
+                              MinHeight="24"
+                              FontSize="11">
+                        <ComboBoxItem Content="0.5x"><ComboBoxItem.Tag><sys:Double>0.5</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
+                        <ComboBoxItem Content="1x"><ComboBoxItem.Tag><sys:Double>1.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
+                        <ComboBoxItem Content="2x"><ComboBoxItem.Tag><sys:Double>2.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
+                        <ComboBoxItem Content="5x"><ComboBoxItem.Tag><sys:Double>5.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
+                        <ComboBoxItem Content="10x"><ComboBoxItem.Tag><sys:Double>10.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
+                        <ComboBoxItem Content="{x:Static res:Strings.IgnoreTime}"><ComboBoxItem.Tag><sys:Double>0.0</sys:Double></ComboBoxItem.Tag></ComboBoxItem>
+                    </ComboBox>
+                    <Button x:Name="CheckModelButton"
+                            Command="{Binding Simulation.CheckModelCommand}"
+                            IsEnabled="{Binding HasProject}"
+                            ToolTip="모델 검증 (그래프 경고 확인)"
+                            Style="{StaticResource RibbonOutlinedButton}"
+                            MinHeight="24"
+                            Margin="4,0,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <iconPacks:PackIconMaterial Kind="ShieldCheck" Width="12" Height="12"
+                                                        VerticalAlignment="Center" Margin="0,0,4,0"
+                                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock Text="Check" FontSize="11" VerticalAlignment="Center"
+                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,1,0,0">
                     <Button x:Name="OpenTokenSpecButton"
                             Command="{Binding OpenTokenSpecDialogCommand}"
                             IsEnabled="{Binding HasProject}"
-                            ToolTip="TokenSpec 편집"
-                            Margin="0,0,4,0">
+                            ToolTip="TokenSpec 편집">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
                                 <Setter Property="Foreground" Value="{DynamicResource IconGrayBrush}"/>
@@ -324,26 +340,6 @@
                                                         VerticalAlignment="Center" Margin="0,0,3,0"
                                                         Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                             <TextBlock Text="Token" FontSize="11" VerticalAlignment="Center"
-                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="CheckModelButton"
-                            Command="{Binding Simulation.CheckModelCommand}"
-                            IsEnabled="{Binding HasProject}"
-                            ToolTip="모델 검증 (그래프 경고 확인)">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
-                                <Setter Property="Foreground" Value="{DynamicResource IconGrayBrush}"/>
-                                <Setter Property="MinWidth" Value="0"/>
-                                <Setter Property="MinHeight" Value="0"/>
-                                <Setter Property="Padding" Value="6,2"/>
-                            </Style>
-                        </Button.Style>
-                        <StackPanel Orientation="Horizontal">
-                            <iconPacks:PackIconMaterial Kind="ShieldCheck" Width="11" Height="11"
-                                                        VerticalAlignment="Center" Margin="0,0,3,0"
-                                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                            <TextBlock Text="Check" FontSize="11" VerticalAlignment="Center"
                                        Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                         </StackPanel>
                     </Button>
