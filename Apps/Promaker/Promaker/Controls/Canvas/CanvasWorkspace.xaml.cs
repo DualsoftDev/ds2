@@ -41,6 +41,8 @@ public partial class CanvasWorkspace : UserControl, INotifyPropertyChanged
     public void FitToViewZoomOut() => EditorCanvasControl.FitToViewZoomOut();
     public void ApplyZoomCentered(double zoom) => EditorCanvasControl.ApplyZoomCentered(zoom);
     public Point? GetViewportCenter() => EditorCanvasControl.GetViewportCenter();
+    public (double Zoom, double PanX, double PanY) GetCurrentView() => EditorCanvasControl.GetCurrentView();
+    public void RestoreView(double zoom, double panX, double panY) => EditorCanvasControl.RestoreView(zoom, panX, panY);
 
     private void TabHeader_MouseDown(object sender, MouseButtonEventArgs e)
     {
