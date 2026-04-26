@@ -82,6 +82,21 @@ public partial class EditorCanvas
         ZoomText.Text = $"{(int)(_zoom * 100)}%";
     }
 
+    /// <summary>탭 전환 시 보존하기 위해 현재 줌/팬 상태를 반환합니다.</summary>
+    public (double Zoom, double PanX, double PanY) GetCurrentView()
+        => (_zoom, PanTransform.X, PanTransform.Y);
+
+    /// <summary>저장된 줌/팬 상태를 그대로 적용합니다 (재계산/센터링 없음).</summary>
+    public void RestoreView(double zoom, double panX, double panY)
+    {
+        _zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+        ZoomTransform.ScaleX = _zoom;
+        ZoomTransform.ScaleY = _zoom;
+        PanTransform.X = panX;
+        PanTransform.Y = panY;
+        ZoomText.Text = $"{(int)(_zoom * 100)}%";
+    }
+
     public void ApplyZoomCentered(double zoom)
     {
         if (ActiveCanvasState?.CanvasNodes is not { Count: > 0 } nodes) return;

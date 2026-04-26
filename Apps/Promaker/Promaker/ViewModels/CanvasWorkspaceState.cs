@@ -15,6 +15,7 @@ public partial class CanvasWorkspaceState : ObservableObject
 {
     private readonly MainViewModel.CanvasHost _host;
     private bool _suppressFitToView;
+    private CanvasTab? _previousTab;
 
     public CanvasWorkspaceState(MainViewModel.CanvasHost host)
     {
@@ -37,9 +38,23 @@ public partial class CanvasWorkspaceState : ObservableObject
     public Action? FitToViewZoomOutRequested { get; set; }
     public Action<double>? ApplyZoomCenteredRequested { get; set; }
     public Func<Point?>? GetViewportCenterRequested { get; set; }
+    public Func<(double Zoom, double PanX, double PanY)>? GetCurrentViewRequested { get; set; }
+    public Action<double, double, double>? RestoreViewRequested { get; set; }
 
     partial void OnActiveTabChanged(CanvasTab? value)
     {
+        // 이전 탭의 줌/팬 상태를 캐시 (탭은 살아있으므로 다시 활성화될 때 복원)
+        if (_previousTab is not null
+            && OpenTabs.Contains(_previousTab)
+            && GetCurrentViewRequested?.Invoke() is { } view)
+        {
+            _previousTab.SavedZoom = view.Zoom;
+            _previousTab.SavedPanX = view.PanX;
+            _previousTab.SavedPanY = view.PanY;
+            _previousTab.HasSavedView = true;
+        }
+        _previousTab = value;
+
         foreach (var t in OpenTabs)
             t.IsActive = t == value;
 
@@ -48,6 +63,8 @@ public partial class CanvasWorkspaceState : ObservableObject
         RefreshCanvasForActiveTab();
         if (_suppressFitToView)
             _suppressFitToView = false;
+        else if (value is { HasSavedView: true } && RestoreViewRequested is not null)
+            RestoreViewRequested.Invoke(value.SavedZoom, value.SavedPanX, value.SavedPanY);
         else
             FitToViewZoomOutRequested?.Invoke();
         _host.NotifyCommandStatesChanged();
@@ -55,6 +72,7 @@ public partial class CanvasWorkspaceState : ObservableObject
 
     public void Reset()
     {
+        _previousTab = null;
         OpenTabs.Clear();
         CanvasNodes.Clear();
         CanvasArrows.Clear();
