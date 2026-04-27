@@ -116,6 +116,75 @@ window.MonacoInterop = {
     }
 };
 
+// ===== Inline JSON Editor (Property 값용 보조 Monaco 인스턴스) =====
+window.InlineJsonEditor = (function () {
+    var inst = null;
+    var hostId = null;
+    var dotnetRef = null;
+    var changeListener = null;
+
+    function _create(elementId, value, ref) {
+        var el = document.getElementById(elementId);
+        if (!el) return false;
+        inst = monaco.editor.create(el, {
+            value: value || '',
+            language: 'json',
+            theme: 'vs-dark',
+            automaticLayout: true,
+            fontSize: 13,
+            minimap: { enabled: false },
+            lineNumbers: 'on',
+            tabSize: 2,
+            scrollBeyondLastLine: false,
+            wordWrap: 'on',
+            formatOnPaste: true
+        });
+        hostId = elementId;
+        dotnetRef = ref;
+        changeListener = inst.onDidChangeModelContent(function () {
+            if (!dotnetRef) return;
+            var raw = inst.getValue();
+            var ok = false;
+            try { JSON.parse(raw); ok = true; } catch (e) { ok = false; }
+            dotnetRef.invokeMethodAsync('OnInlineJsonChanged', ok);
+        });
+        return true;
+    }
+
+    return {
+        attach: function (elementId, value, ref) {
+            if (inst) {
+                try { inst.dispose(); } catch (e) { }
+                inst = null;
+            }
+            var go = function () { _create(elementId, value, ref); };
+            if (typeof monaco !== 'undefined') { go(); return; }
+            var t = 0;
+            var wait = function () {
+                if (typeof require === 'function') {
+                    require.config({ paths: { 'vs': window.__MONACO_VS } });
+                    require(['vs/editor/editor.main'], go);
+                    return;
+                }
+                if ((t += 50) > 10000) return;
+                setTimeout(wait, 50);
+            };
+            wait();
+        },
+        getValue: function () { return inst ? inst.getValue() : ''; },
+        setValue: function (value) { if (inst) inst.setValue(value || ''); },
+        format: function () {
+            if (inst) inst.getAction('editor.action.formatDocument').run();
+        },
+        dispose: function () {
+            if (changeListener) { try { changeListener.dispose(); } catch (e) { } changeListener = null; }
+            if (inst) { try { inst.dispose(); } catch (e) { } inst = null; }
+            hostId = null;
+            dotnetRef = null;
+        }
+    };
+})();
+
 // ===== Drag & Drop =====
 window.DropZone = {
     _droppedFiles: null,

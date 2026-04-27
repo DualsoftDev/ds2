@@ -20,6 +20,18 @@ public static class PropertyDescriptions
         return null;
     }
 
+    public enum EditorHint { Auto, ForceJson, ForceText }
+
+    /// <summary>idShort 기반 편집기 힌트. 기본은 Auto(자동 감지).</summary>
+    public static EditorHint GetEditorHint(string idShort)
+        => EditorHints.GetValueOrDefault(idShort, EditorHint.Auto);
+
+    private static readonly Dictionary<string, EditorHint> EditorHints = new(StringComparer.Ordinal)
+    {
+        // 항상 JSON 구조로 저장되는 Property들 — 처음부터 JSON 편집기로 표시
+        ["FBTagMapPresets"] = EditorHint.ForceJson,
+    };
+
     private static readonly Dictionary<string, string> Descriptions = new(StringComparer.Ordinal)
     {
         // =====================================================================

@@ -75,6 +75,8 @@ public partial class Home
         _currentEnv = env;
         await SyncJsonToEditorAsync(json);
         RebuildTree();
+        ResetEditorModeCache();
+        ScanEditorModesForTree(_treeNodes);
         ClearUndoHistory();
     }
 
