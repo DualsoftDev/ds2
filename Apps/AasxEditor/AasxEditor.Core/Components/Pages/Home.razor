@@ -372,8 +372,50 @@
                                             }
                                             else
                                             {
-                                                <input type="text" class="card-input" value="@val"
-                                                       @onchange="(e) => OnCardValueChanged(sel, e.Value?.ToString())" />
+                                                var selMode = GetEditorMode(sel);
+                                                var selCaptured = sel;
+                                                <div class="value-editor-toggle">
+                                                    <button type="button"
+                                                            class="ve-toggle-btn @(selMode == ValueEditorMode.Text ? "active" : "")"
+                                                            @onclick="() => SetEditorMode(selCaptured, ValueEditorMode.Text)">
+                                                        텍스트
+                                                    </button>
+                                                    <button type="button"
+                                                            class="ve-toggle-btn @(selMode == ValueEditorMode.Json ? "active" : "")"
+                                                            @onclick="() => SetEditorMode(selCaptured, ValueEditorMode.Json)"
+                                                            title="JSON 편집기 (Monaco)">
+                                                        { } JSON
+                                                    </button>
+                                                </div>
+                                                @if (selMode == ValueEditorMode.Json)
+                                                {
+                                                    <div id="@InlineJsonEditorId" class="inline-json-editor"></div>
+                                                    <div class="inline-json-actions">
+                                                        @if (_inlineEditorInvalid)
+                                                        {
+                                                            <span class="inline-json-warn">JSON 구문 오류</span>
+                                                        }
+                                                        else if (_inlineEditorDirty)
+                                                        {
+                                                            <span class="inline-json-dirty">변경됨 (저장되지 않음)</span>
+                                                        }
+                                                        <button class="btn btn-sm btn-outline-secondary"
+                                                                @onclick="() => ResetInlineJsonAsync(selCaptured)"
+                                                                disabled="@(!_inlineEditorDirty)">
+                                                            되돌리기
+                                                        </button>
+                                                        <button class="btn btn-sm btn-primary"
+                                                                @onclick="() => ApplyInlineJsonAsync(selCaptured)"
+                                                                disabled="@(!_inlineEditorDirty || _inlineEditorInvalid)">
+                                                            적용
+                                                        </button>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <textarea class="card-input card-input-multiline" rows="3"
+                                                              @onchange="(e) => OnCardValueChanged(sel, e.Value?.ToString())">@val</textarea>
+                                                }
                                             }
                                         </div>
                                     }

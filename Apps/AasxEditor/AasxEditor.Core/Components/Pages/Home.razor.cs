@@ -116,6 +116,8 @@ public partial class Home : IAsyncDisposable
             try { await JS.InvokeVoidAsync("FinderColumns.scrollToEnd", "finder-columns"); } catch { }
         }
 
+        await SyncInlineJsonEditorAsync();
+
         if (firstRender)
         {
             _dotnetRef = DotNetObjectReference.Create(this);
