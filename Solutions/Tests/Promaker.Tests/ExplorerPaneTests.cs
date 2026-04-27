@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
@@ -155,6 +156,56 @@ public sealed class ExplorerPaneTests
                     1000,
                     () => vm.Canvas.ActiveTab is not null
                         && vm.Canvas.CanvasNodes.Any(node => node.Id == workId && node.EntityType == EntityKind.Work)));
+            }
+            finally
+            {
+                host.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void Clicking_already_selected_tree_item_resyncs_property_panel()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
+            var workId = store.AddWork("ReselectWork", flowId);
+
+            Assert.True(StaTestRunner.WaitUntil(1000, () => Flatten(vm.ControlTreeRoots).Any(node => node.Id == workId)));
+
+            var host = CreateHost(vm, out var pane);
+            try
+            {
+                var controlTree = GetNamed<TreeView>(pane, "ControlTree");
+                ExpandAllContainers(controlTree);
+
+                var item = FindTreeViewItem(controlTree, workId);
+                Assert.NotNull(item);
+
+                item!.IsSelected = true;
+                StaTestRunner.PumpPendingUi();
+
+                Assert.Equal(workId, vm.PropertyPanel.SelectedNode?.Id);
+
+                vm.PropertyPanel.SyncSelection(null, []);
+                Assert.Null(vm.PropertyPanel.SelectedNode);
+
+                var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
+                };
+
+                item.RaiseEvent(args);
+                StaTestRunner.PumpPendingUi();
+
+                Assert.Equal(workId, vm.PropertyPanel.SelectedNode?.Id);
             }
             finally
             {
