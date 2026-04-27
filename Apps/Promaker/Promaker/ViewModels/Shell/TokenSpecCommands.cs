@@ -19,29 +19,48 @@ public partial class MainViewModel
             return;
 
         var specs = NormalizeTokenSpecsForDialog(_store, Queries.getTokenSpecs(_store));
-        var sourceWorks = BuildTokenSpecSourceWorks(_store);
+        var allWorks = BuildTokenSpecPickerWorks(_store);
 
-        var dialog = new TokenSpecDialog(specs, sourceWorks);
+        var dialog = new TokenSpecDialog(specs, allWorks);
         if (!DialogHelpers.ShowOwnedDialog(dialog))
             return;
 
         var result = dialog.Result;
-        if (result.SequenceEqual(specs))
+        var worksRequiringSourceRole = dialog.WorksRequiringSourceRole;
+        if (result.SequenceEqual(specs) && worksRequiringSourceRole.Count == 0)
             return;
 
-        if (TryEditorAction(() => _store.UpdateTokenSpecs(result)))
-            StatusText = $"TokenSpec 변경: {result.Count}건";
+        if (TryEditorAction(() =>
+            {
+                foreach (var workId in worksRequiringSourceRole)
+                    _store.UpdateWorkTokenRole(workId, TokenRole.Source);
+                _store.UpdateTokenSpecs(result);
+            }))
+        {
+            var sourceMsg = worksRequiringSourceRole.Count > 0
+                ? $", Source Role 등록 {worksRequiringSourceRole.Count}건"
+                : "";
+            StatusText = $"TokenSpec 변경: {result.Count}건{sourceMsg}";
+        }
     }
 
-    private static List<WorkOption> BuildTokenSpecSourceWorks(DsStore store)
+    private static List<WorkOption> BuildTokenSpecPickerWorks(DsStore store)
     {
-        return store.Works.Values
+        // 원본/레퍼런스 어느 쪽이든 Source Role 을 가지면 원본 Work 그룹을 Source 로 인식
+        var sourceCanonicalIds = store.Works.Values
             .Where(w => w.TokenRole.HasFlag(TokenRole.Source))
+            .Select(w => Queries.resolveOriginalWorkId(w.Id, store))
+            .ToHashSet();
+
+        return store.Works.Values
             .Select(w => Queries.resolveOriginalWorkId(w.Id, store))
             .Distinct()
             .Select(workId => Queries.getWork(workId, store))
             .Where(work => work is not null)
-            .Select(work => new WorkOption(work!.Value.Id, work.Value.Name))
+            .Select(work => new WorkOption(
+                work!.Value.Id,
+                work.Value.Name,
+                sourceCanonicalIds.Contains(work.Value.Id)))
             .OrderBy(work => work.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }

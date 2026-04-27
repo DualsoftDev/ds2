@@ -56,7 +56,7 @@ public sealed class TokenSpecRow : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
-public record WorkOption(Guid Id, string Name)
+public record WorkOption(Guid Id, string Name, bool IsSource = false)
 {
     public override string ToString() => Name;
 }
