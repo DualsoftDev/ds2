@@ -180,21 +180,25 @@ public partial class SimulationPanelState
 
     private void ApplyWarningsToCanvas()
     {
+        var visibleWarningGuids = ExpandWarningGroups(_warningGuids);
         foreach (var node in _allCanvasNodes())
-            node.IsWarning = _warningGuids.Contains(node.Id);
+            node.IsWarning = visibleWarningGuids.Contains(node.Id);
         foreach (var node in _allTreeNodes())
-            node.IsWarning = _warningGuids.Contains(node.Id);
+            node.IsWarning = visibleWarningGuids.Contains(node.Id);
     }
 
     /// <summary>노드 클릭 시 해당 노드의 경고를 해제합니다.</summary>
     internal void ClearWarning(Guid nodeId)
     {
-        if (!_warningGuids.Remove(nodeId)) return;
-        foreach (var node in _allCanvasNodes().Concat(_allTreeNodes()))
-        {
-            if (node.Id == nodeId)
-                node.IsWarning = false;
-        }
+        var clearTargets = _warningGuids
+            .Where(warningGuid => ExpandWarningGroup(warningGuid).Contains(nodeId))
+            .ToList();
+
+        if (clearTargets.Count == 0)
+            return;
+
+        _warningGuids.ExceptWith(clearTargets);
+        ApplyWarningsToCanvas();
     }
 
     internal void ClearAllWarnings()
@@ -202,6 +206,95 @@ public partial class SimulationPanelState
         _warningGuids.Clear();
         foreach (var node in _allCanvasNodes().Concat(_allTreeNodes()))
             node.IsWarning = false;
+    }
+
+    private HashSet<Guid> ExpandWarningGroups(IEnumerable<Guid> warningGuids)
+    {
+        var expanded = new HashSet<Guid>();
+        foreach (var warningGuid in warningGuids)
+            expanded.UnionWith(ExpandWarningGroup(warningGuid));
+        return expanded;
+    }
+
+    private HashSet<Guid> ExpandWarningGroup(Guid warningGuid)
+    {
+        if (Store.Works.ContainsKey(warningGuid))
+            return ExpandWorkWarningGroup(warningGuid);
+
+        if (Store.Calls.ContainsKey(warningGuid))
+            return ExpandCallWarningGroup(warningGuid);
+
+        return [warningGuid];
+    }
+
+    private HashSet<Guid> ExpandWorkWarningGroup(Guid warningGuid)
+    {
+        var originalId = Queries.resolveOriginalWorkId(warningGuid, Store);
+        var expanded = Store.Works.Values
+            .Where(work =>
+                work.Id == originalId
+                || OptionEquals(work.ReferenceOf, originalId))
+            .Select(work => work.Id)
+            .ToHashSet();
+
+        expanded.UnionWith(ExpandCallsReferencingWork(originalId));
+        return expanded;
+    }
+
+    private HashSet<Guid> ExpandCallWarningGroup(Guid warningGuid)
+    {
+        var originalId = Queries.resolveOriginalCallId(warningGuid, Store);
+        return [.. Store.Calls.Values
+            .Where(call =>
+                call.Id == originalId
+                || OptionEquals(call.ReferenceOf, originalId))
+            .Select(call => call.Id)];
+    }
+
+    private HashSet<Guid> ExpandCallsReferencingWork(Guid originalWorkId)
+    {
+        var originalCallIds = Store.Calls.Values
+            .Where(call => CallReferencesWork(call, originalWorkId))
+            .Select(call => Queries.resolveOriginalCallId(call.Id, Store))
+            .ToHashSet();
+
+        return [.. Store.Calls.Values
+            .Where(call => originalCallIds.Contains(Queries.resolveOriginalCallId(call.Id, Store)))
+            .Select(call => call.Id)];
+    }
+
+    private bool CallReferencesWork(Call call, Guid originalWorkId)
+    {
+        foreach (var apiCall in call.ApiCalls)
+        {
+            if (!TryGetGuid(apiCall.ApiDefId, out var apiDefId))
+                continue;
+
+            if (!Store.ApiDefs.TryGetValue(apiDefId, out var apiDef))
+                continue;
+
+            if (OptionEquals(apiDef.TxGuid, originalWorkId) || OptionEquals(apiDef.RxGuid, originalWorkId))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool OptionEquals(FSharpOption<Guid>? option, Guid expected) =>
+        option is { } some
+        && FSharpOption<Guid>.get_IsSome(some)
+        && some.Value == expected;
+
+    private static bool TryGetGuid(FSharpOption<Guid>? option, out Guid value)
+    {
+        if (option is { } some && FSharpOption<Guid>.get_IsSome(some))
+        {
+            value = some.Value;
+            return true;
+        }
+
+        value = default;
+        return false;
     }
 
     private void SetCanvasSimState(Status4? state, Func<EntityNode, bool> predicate)
