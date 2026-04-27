@@ -13,6 +13,8 @@ module BackendHost =
 
     let start (port: int option) =
         let p = port |> Option.defaultValue defaultPort
+        SignalHub.ClearTagCache()
+
         let builder = WebApplication.CreateBuilder()
         builder.Services.AddSignalR() |> ignore
 

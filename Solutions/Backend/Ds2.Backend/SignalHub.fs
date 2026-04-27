@@ -11,6 +11,9 @@ type SignalHub() =
     /// Tag 값 캐시: 마지막 WriteTag 값을 기억해서 Control 재접속/재시작 시 QueryTag로 복원
     static let tagCache = System.Collections.Concurrent.ConcurrentDictionary<string, string>()
 
+    static member ClearTagCache() =
+        tagCache.Clear()
+
     member this.WriteTag(address: string, value: string, source: string) : Task =
         log.Debug($"WriteTag: {address}={value} source={source}")
         tagCache.[address] <- value
