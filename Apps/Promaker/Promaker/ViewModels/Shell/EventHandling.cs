@@ -71,6 +71,12 @@ public partial class MainViewModel
                 Simulation.NotifyStoreChanged();
                 return;
 
+            case EditorEvent.SystemPropsChanged:
+                PropertyPanel.Refresh();
+                Simulation.NotifyStoreChanged();
+                ResyncView3DIfOpen();
+                return;
+
             case EditorEvent.CallPropsChanged cp:
                 PropertyPanel.Refresh();
                 RefreshCallConditionBadge(cp.id);

@@ -28,6 +28,15 @@
         #sound-btn:hover { background: #334155; color: #e2e8f0; }
         #sound-btn.active { color: #e2e8f0; }
 
+        /* 조작 힌트 (3D 모델 등록 화면과 통일) */
+        #info {
+            position: fixed; top: 8px; left: 8px; z-index: 100;
+            background: rgba(30,41,59,0.75); border: 1px solid #334155;
+            border-radius: 6px; padding: 4px 8px;
+            color: #94a3b8; font-family: sans-serif; font-size: 11px;
+            pointer-events: none; user-select: none;
+        }
+
         /* Context menu */
         #ctx-menu {
             display: none; position: fixed; z-index: 9999;
@@ -52,6 +61,9 @@
     <div id="overlay">
         <span>시뮬레이션을 시작하면 3D 장비 배치도가 표시됩니다.</span>
     </div>
+
+    <!-- 조작 힌트 -->
+    <div id="info">드래그: 회전 · 휠클릭/우드래그: 이동 · 스크롤: 줌</div>
 
     <!-- Sound toggle button -->
     <button id="sound-btn" class="active" title="사운드 켜기/끄기 (M)" onclick="toggleSound()">🔊</button>

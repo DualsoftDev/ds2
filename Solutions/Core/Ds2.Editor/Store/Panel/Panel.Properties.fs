@@ -27,6 +27,7 @@ type DsStorePanelPropertiesExtensions =
         store.WithTransaction("시스템 타입 변경", fun () ->
             store.TrackMutate(store.Systems, systemId, fun sys ->
                 sys.SystemType <- DirectPanelOps.toOpt systemType))
+        store.EmitAndHistory(SystemPropsChanged systemId)
 
     /// ApiCall의 IO 태그 정보 업데이트 (TAG Wizard에서 사용)
     /// C#에서는 IOTag 또는 null을 넘기면 됩니다.
