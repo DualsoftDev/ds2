@@ -12,6 +12,7 @@ using Microsoft.Web.WebView2.Core;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.View3D;
+using Promaker.Presentation;
 using Promaker.ViewModels;
 
 namespace Promaker.Windows;
@@ -21,13 +22,6 @@ public partial class View3DWindow : Window
     private const string VirtualHostName = "promaker.app";
     private const string FacilityHtmlPage = "facility3d.html";
 
-    private static class UIColors
-    {
-        public static readonly Color ActiveBlue = (Color)ColorConverter.ConvertFromString("#3b82f6");
-        public static readonly Color InactiveGray = (Color)ColorConverter.ConvertFromString("#475569");
-        public static readonly Color InactiveTextGray = (Color)ColorConverter.ConvertFromString("#94a3b8");
-    }
-
     private readonly ThreeDViewState _vm;
     private readonly Func<Task>? _onReady;
     private DsStore? _store;
@@ -36,6 +30,10 @@ public partial class View3DWindow : Window
     private bool _isDeviceScene = true;
     private CustomModelRegistry? _customModelRegistry;
     private bool _suppressTreeSelectionEvent;
+    // Set true once the WebView page is ready to receive setTheme messages.
+    // Theme changes that arrive before this point are applied automatically
+    // when the page finishes loading (via OnNavigationCompleted).
+    private bool _webViewReady;
 
     public View3DWindow(ThreeDViewState vm, Func<Task>? onReady = null)
     {
@@ -45,6 +43,26 @@ public partial class View3DWindow : Window
         Loaded += OnWindowLoaded;
         Closed += OnWindowClosed;
         KeyDown += OnKeyDown;
+        ThemeManager.ThemeChanged += OnPromakerThemeChanged;
+    }
+
+    private void OnPromakerThemeChanged(AppTheme theme)
+    {
+        PushThemeToWebView(theme);
+        // SetResourceReference 로 묶이지 않은 Scene Mode 토글 버튼은 수동 재적용
+        UpdateButtonStates();
+    }
+
+    private void PushThemeToWebView(AppTheme theme)
+    {
+        if (!_webViewReady || WebView3D?.CoreWebView2 == null) return;
+        var keyword = theme == AppTheme.Light ? "light" : "dark";
+        var script = $"handleFromCSharp({{ type: 'setTheme', theme: '{keyword}' }})";
+        try { _ = WebView3D.CoreWebView2.ExecuteScriptAsync(script); }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[View3DWindow] setTheme push failed: {ex.Message}");
+        }
     }
 
     public void SetSceneData(DsStore store, Guid projectId, string? projectFilePath = null)
@@ -159,18 +177,18 @@ public partial class View3DWindow : Window
             var label = new TextBlock
             {
                 Text = key,
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#94a3b8")),
                 FontSize = 10,
                 Margin = new Thickness(0, 0, 0, 2)
             };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "SecondaryTextBrush");
 
             var valueText = new TextBlock
             {
                 Text = value?.ToString() ?? "N/A",
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#e2e8f0")),
                 FontSize = 11,
                 TextWrapping = TextWrapping.Wrap
             };
+            valueText.SetResourceReference(TextBlock.ForegroundProperty, "PrimaryTextBrush");
 
             panel.Children.Add(label);
             panel.Children.Add(valueText);
@@ -188,42 +206,43 @@ public partial class View3DWindow : Window
         var summary = new TextBlock
         {
             Text = $"→ Out {outgoing.Count}   ← In {incoming.Count}",
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#e2e8f0")!),
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 8)
         };
+        summary.SetResourceReference(TextBlock.ForegroundProperty, "PrimaryTextBrush");
         InfoContent.Children.Add(summary);
 
-        AddConnectionGroup("Outgoing", outgoing, "→ ", "#10b981");
-        AddConnectionGroup("Incoming", incoming, "← ", "#f59e0b");
+        // 연결 방향 색상은 의미가 있으므로 테마 리소스의 Green/Orange 사용
+        AddConnectionGroup("Outgoing", outgoing, "→ ", "GreenAccentBrush");
+        AddConnectionGroup("Incoming", incoming, "← ", "OrangeAccentBrush");
     }
 
     private void AddConnectionGroup(string title, IReadOnlyList<ConnectionItem> items,
-        string prefix, string prefixColor)
+        string prefix, string prefixBrushKey)
     {
         if (items.Count == 0) return;
 
-        InfoContent.Children.Add(new TextBlock
+        var titleBlock = new TextBlock
         {
             Text = title,
-            Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#94a3b8")!),
             FontSize = 10,
             Margin = new Thickness(0, 4, 0, 2)
-        });
+        };
+        titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SecondaryTextBrush");
+        InfoContent.Children.Add(titleBlock);
 
         foreach (var item in items)
         {
             var tb = new TextBlock { FontSize = 11, Margin = new Thickness(4, 1, 0, 1) };
-            tb.Inlines.Add(new Run(prefix)
-            {
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(prefixColor)!),
-                FontWeight = FontWeights.Bold
-            });
-            tb.Inlines.Add(new Run(item.Display)
-            {
-                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#e2e8f0")!)
-            });
+            var prefixRun = new Run(prefix) { FontWeight = FontWeights.Bold };
+            prefixRun.SetResourceReference(Run.ForegroundProperty, prefixBrushKey);
+            tb.Inlines.Add(prefixRun);
+
+            var bodyRun = new Run(item.Display);
+            bodyRun.SetResourceReference(Run.ForegroundProperty, "PrimaryTextBrush");
+            tb.Inlines.Add(bodyRun);
+
             InfoContent.Children.Add(tb);
         }
     }
@@ -354,6 +373,11 @@ public partial class View3DWindow : Window
     private async void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
         WebView3D.CoreWebView2.NavigationCompleted -= OnNavigationCompleted;
+
+        // 페이지 로드 직후 — init 메시지보다 먼저 테마를 적용해 흰 배경 깜빡임 방지.
+        _webViewReady = true;
+        PushThemeToWebView(ThemeManager.CurrentTheme);
+
         if (_onReady != null)
         {
             try { await _onReady(); }
@@ -393,6 +417,8 @@ public partial class View3DWindow : Window
 
     private void OnWindowClosed(object? sender, EventArgs e)
     {
+        ThemeManager.ThemeChanged -= OnPromakerThemeChanged;
+        _webViewReady = false;
         try { _ = WebView3D.CoreWebView2?.ExecuteScriptAsync("if(window.Ds2Sound)Ds2Sound.stopAll();"); }
         catch { }
         if (WebView3D.CoreWebView2 != null)
@@ -612,9 +638,21 @@ public partial class View3DWindow : Window
         ApplyButtonState(WorkSceneButton, !_isDeviceScene);
     }
 
-    private static void ApplyButtonState(Button button, bool isActive)
+    /// <summary>
+    /// 활성 버튼은 액센트 배경 + 액센트 위 텍스트, 비활성 버튼은 BorderBrush 위
+    /// SecondaryText 로 표시. 두 테마(다크/라이트) 모두에서 충분한 대비를 확보한다.
+    /// </summary>
+    private void ApplyButtonState(Button button, bool isActive)
     {
-        button.Background = new SolidColorBrush(isActive ? UIColors.ActiveBlue : UIColors.InactiveGray);
-        button.Foreground = new SolidColorBrush(isActive ? Colors.White : UIColors.InactiveTextGray);
+        if (isActive)
+        {
+            button.SetResourceReference(Control.BackgroundProperty, "AccentBrush");
+            button.SetResourceReference(Control.ForegroundProperty, "AccentTextBrush");
+        }
+        else
+        {
+            button.SetResourceReference(Control.BackgroundProperty, "BorderBrush");
+            button.SetResourceReference(Control.ForegroundProperty, "SecondaryTextBrush");
+        }
     }
 }

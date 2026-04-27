@@ -13,6 +13,118 @@ const Ev23DViewer = {
         H: { hex: 0x6b7280, name: 'Homing' }     // Gray
     },
 
+    // ─── Theme palette (synced with Promaker WPF ThemeManager) ──────────
+    // Promaker Dark : Canvas #1E1E22, Panel #27272B, Border #45454A
+    // Promaker Light: Canvas #E8EAED, Panel #F5F6F8, Border #D0D7DE
+    THEMES: {
+        dark: {
+            background: 0x1E1E22,
+            fog:        0x1E1E22,
+            floor:      0x27272B,
+            gridMain:   0x45454A,
+            gridSec:    0x2E2E34,
+            // Label background for floating sprites — keep dark capsule for
+            // readability of white text in both themes.
+            labelBg:        'rgba(30, 30, 36, 0.92)',
+            labelBgSolid:   '#27272B',
+            labelText:      '#FFFFFF',
+            labelSubtle:    '#B5B7BD'
+        },
+        light: {
+            background: 0xE8EAED,
+            fog:        0xE8EAED,
+            floor:      0xDDE0E4,
+            gridMain:   0xB0B7BE,
+            gridSec:    0xD0D7DE,
+            // Light theme uses light capsule + dark text so labels are
+            // legible on light scene background. (Dark capsule on light bg
+            // is also readable, but switching keeps the visual harmony.)
+            labelBg:        'rgba(245, 246, 248, 0.92)',
+            labelBgSolid:   '#F5F6F8',
+            labelText:      '#1E1E22',
+            labelSubtle:    '#5A5D62'
+        }
+    },
+    _currentTheme: 'dark',
+
+    _palette: function() {
+        return this.THEMES[this._currentTheme] || this.THEMES.dark;
+    },
+
+    /**
+     * Create a GridHelper that follows the current theme. The size and
+     * divisions are tagged on userData so setTheme can rebuild it later.
+     */
+    _makeThemeGrid: function(size, divisions) {
+        const p = this._palette();
+        const grid = new THREE.GridHelper(size, divisions, p.gridMain, p.gridSec);
+        grid.userData.isThemeGrid = true;
+        grid.userData.gridSize = size;
+        grid.userData.gridDivisions = divisions;
+        return grid;
+    },
+
+    /**
+     * Apply theme to a live scene. If the scene isn't initialized yet,
+     * just remember the choice — init will pick it up automatically.
+     * @param {string} elementId
+     * @param {string} themeName 'dark' | 'light'
+     */
+    setTheme: function(elementId, themeName) {
+        this._currentTheme = (themeName === 'light') ? 'light' : 'dark';
+        const palette = this._palette();
+        const sd = this._scenes[elementId];
+        if (!sd || !sd.scene) {
+            return false;  // Will be applied on next init
+        }
+        const scene = sd.scene;
+
+        // Background
+        if (scene.background instanceof THREE.Color) {
+            scene.background.set(palette.background);
+        } else {
+            scene.background = new THREE.Color(palette.background);
+        }
+
+        // Fog color (preserve existing near/far)
+        if (scene.fog && scene.fog.color) {
+            scene.fog.color.set(palette.fog);
+        }
+
+        // Floor color (any mesh tagged with isFloor)
+        scene.traverse(obj => {
+            if (obj.userData && obj.userData.isFloor &&
+                obj.material && obj.material.color &&
+                !obj.userData.preserveFloorColor) {
+                obj.material.color.set(palette.floor);
+            }
+        });
+
+        // Rebuild theme-tagged grids (vertex colors are baked, replacement
+        // is the cleanest way to re-tint them).
+        const grids = [];
+        scene.traverse(obj => {
+            if (obj.userData && obj.userData.isThemeGrid) grids.push(obj);
+        });
+        grids.forEach(old => {
+            const parent = old.parent || scene;
+            const fresh = this._makeThemeGrid(
+                old.userData.gridSize, old.userData.gridDivisions);
+            fresh.position.copy(old.position);
+            fresh.rotation.copy(old.rotation);
+            fresh.name = old.name;
+            if (old.geometry) old.geometry.dispose();
+            if (old.material) {
+                if (Array.isArray(old.material)) old.material.forEach(m => m.dispose());
+                else old.material.dispose();
+            }
+            parent.remove(old);
+            parent.add(fresh);
+        });
+
+        return true;
+    },
+
     /**
      * Initialize 3D scene in container
      * @param {string} elementId - Container DOM id
@@ -52,8 +164,9 @@ const Ev23DViewer = {
 
             // Scene setup
             const scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x0f172a);
-            scene.fog = new THREE.Fog(0x0f172a, 100, 300); // Increased fog range for larger scenes
+            const _palInit = this._palette();
+            scene.background = new THREE.Color(_palInit.background);
+            scene.fog = new THREE.Fog(_palInit.fog, 100, 300); // Increased fog range for larger scenes
 
             // Camera
             const camera = new THREE.PerspectiveCamera(
@@ -119,7 +232,7 @@ const Ev23DViewer = {
             const floorSize = Math.max(config.floorSize || 100, 100);
 
             // Update fog and camera max distance for large floors
-            scene.fog = new THREE.Fog(0x0f172a, floorSize, floorSize * 3);
+            scene.fog = new THREE.Fog(this._palette().fog, floorSize, floorSize * 3);
             controls.maxDistance = Math.max(300, floorSize * 3);
 
             let stationMeshes = {};
@@ -136,7 +249,7 @@ const Ev23DViewer = {
             } else if (works.length === 0) {
                 // Empty scene
                 console.warn(`No works or flow zones provided for scene '${elementId}'`);
-                scene.add(new THREE.GridHelper(20, 20, 0x6b7280, 0x52596380));
+                scene.add(this._makeThemeGrid(20, 20));
                 camera.position.set(0, 10, 15);
                 camera.lookAt(0, 0, 0);
                 controls.update();
@@ -538,6 +651,9 @@ const Ev23DViewer = {
             }
             if (sceneData.mouseUpHandler) {
                 canvas.removeEventListener('mouseup', sceneData.mouseUpHandler);
+            }
+            if (sceneData.dblClickHandler) {
+                canvas.removeEventListener('dblclick', sceneData.dblClickHandler);
             }
 
             // Remove detail panel
@@ -1452,7 +1568,7 @@ const Ev23DViewer = {
             grid.geometry.dispose();
 
             const gridDivisions = Math.max(Math.round(newSize / 2), 50);
-            const newGrid = new THREE.GridHelper(newSize, gridDivisions, 0x6b7280, 0x52596380);
+            const newGrid = this._makeThemeGrid(newSize, gridDivisions);
             newGrid.position.y = 0.01;
             scene.add(newGrid);
             console.log(`[Floor] Updated grid to ${newSize.toFixed(1)} with ${gridDivisions} divisions`);
@@ -1511,7 +1627,7 @@ const Ev23DViewer = {
         // Ground plane - centered on zones
         const groundGeo = new THREE.PlaneGeometry(floorSize, floorSize);
         const groundMat = new THREE.MeshStandardMaterial({
-            color: 0x1e293b,  // Dark floor for device view
+            color: this._palette().floor,
             roughness: 0.9,
             metalness: 0.1
         });
@@ -1524,7 +1640,7 @@ const Ev23DViewer = {
         scene.add(ground);
 
         // Grid - centered on zones
-        const gridHelper = new THREE.GridHelper(floorSize, gridDivisions, 0x334155, 0x1e293b);
+        const gridHelper = this._makeThemeGrid(floorSize, gridDivisions);
         gridHelper.position.set(floorCenterX, 0, floorCenterZ);
         scene.add(gridHelper);
 
@@ -1591,10 +1707,10 @@ const Ev23DViewer = {
         floorSize = Math.max(floorSize || 200, 200);
         const gridDivisions = Math.max(Math.round(floorSize / 2), 50);
 
-        // Ground plane - lighter factory floor color
+        // Ground plane - factory floor uses theme palette
         const groundGeo = new THREE.PlaneGeometry(floorSize, floorSize);
         const groundMat = new THREE.MeshStandardMaterial({
-            color: 0x4a5563, // Lighter gray for factory floor
+            color: this._palette().floor,
             roughness: 0.8,
             metalness: 0.2
         });
@@ -1607,7 +1723,7 @@ const Ev23DViewer = {
         scene.add(ground);
 
         // Grid helper - more visible lines
-        const grid = new THREE.GridHelper(floorSize, gridDivisions, 0x6b7280, 0x52596380);
+        const grid = this._makeThemeGrid(floorSize, gridDivisions);
         grid.position.y = 0.01;
         scene.add(grid);
 
@@ -2494,6 +2610,14 @@ const Ev23DViewer = {
         canvas.addEventListener('mouseup', mouseUpHandler);
         sceneData.mouseUpHandler = mouseUpHandler;
 
+        // 더블클릭: 트리에서 선택한 것처럼 카메라를 디바이스 모델로 포커싱
+        const dblClickHandler = (event) => {
+            if (sceneData.dragState.isDragging) return;
+            this._handleDoubleClick(elementId, event);
+        };
+        canvas.addEventListener('dblclick', dblClickHandler);
+        sceneData.dblClickHandler = dblClickHandler;
+
         // 캔버스 밖으로 나가면 hover 툴팁 숨김
         const mouseLeaveHandler = () => {
             if (sceneData.hoverTip) sceneData.hoverTip.style.display = 'none';
@@ -2760,6 +2884,76 @@ const Ev23DViewer = {
                     .catch(err => console.debug('OnEmptySpaceClicked callback not available:', err.message));
             }
         }
+    },
+
+    // 더블클릭: 클릭된 디바이스 모델을 트리 선택과 동일하게 하이라이트하고 카메라 타깃을 이동.
+    _handleDoubleClick: function(elementId, event) {
+        const sceneData = this._scenes[elementId];
+        if (!sceneData) return;
+
+        const isDragMode = sceneData.editMode || (event.altKey || sceneData.altPressed);
+        if (isDragMode) return;
+
+        const intersects = this._getRaycasterIntersects(elementId, event);
+        const nonFloorIntersects = intersects.filter(hit => !hit.object.userData?.isFloor);
+        if (nonFloorIntersects.length === 0) return;
+
+        // 부모 체인을 따라 deviceId 탐색 (_handleClick 과 동일 방식)
+        let deviceId = null;
+        let searchObj = nonFloorIntersects[0].object;
+        const maxIterations = 20;
+        let iterations = 0;
+        while (searchObj && !deviceId && iterations < maxIterations) {
+            iterations++;
+            if (searchObj.userData?.deviceId) {
+                deviceId = searchObj.userData.deviceId;
+                break;
+            }
+            searchObj = searchObj.parent;
+        }
+        if (!deviceId && sceneData.deviceMeshes) {
+            searchObj = nonFloorIntersects[0].object;
+            iterations = 0;
+            while (searchObj && !deviceId && iterations < maxIterations) {
+                iterations++;
+                for (const [id, mesh] of Object.entries(sceneData.deviceMeshes)) {
+                    if (mesh === searchObj || mesh.parent === searchObj) {
+                        deviceId = id;
+                        break;
+                    }
+                }
+                searchObj = searchObj.parent;
+            }
+        }
+        if (!deviceId) return;
+
+        const deviceMesh = sceneData.deviceMeshes?.[deviceId];
+        if (!deviceMesh) return;
+
+        // selectDeviceByName 과 동일: 기존 하이라이트/연결 정리 후 재하이라이트 + 카메라 타깃 이동
+        this._clearHighlights(elementId);
+        this._clearApiDefConnections(elementId);
+        sceneData.selectedApiDef = null;
+        sceneData.selectedObject = deviceId;
+        this._highlightDevice(elementId, deviceMesh);
+
+        const camera = sceneData.camera;
+        const controls = sceneData.controls;
+        if (camera && controls) {
+            const pos = deviceMesh.position;
+            controls.target.set(pos.x, 0, pos.z);
+            controls.update();
+        }
+
+        // 트리 동기화: 단일 클릭과 동일한 콜백 호출
+        if (sceneData.callSelectionCallback) {
+            const deviceData = sceneData.devices?.find(d => d.id === deviceId) || {};
+            const screenPos = this._getScreenPosition(elementId, deviceMesh);
+            sceneData.callSelectionCallback.invokeMethodAsync('OnDeviceSelected', deviceId, deviceData, screenPos.x, screenPos.y)
+                .catch(err => console.error('Device selection callback error:', err));
+        }
+
+        console.log(`✓ Double-click focused on device: ${deviceId}`);
     },
 
     // raycast hit object 의 부모 체인에서 deviceName 을 찾는다.
@@ -4634,8 +4828,9 @@ const Ev23DViewer = {
 
             // Scene setup
             const scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x0f172a);
-            scene.fog = new THREE.Fog(0x0f172a, 100, 300);
+            const _palDev = this._palette();
+            scene.background = new THREE.Color(_palDev.background);
+            scene.fog = new THREE.Fog(_palDev.fog, 100, 300);
 
             // Camera
             const camera = new THREE.PerspectiveCamera(
@@ -4849,7 +5044,7 @@ const Ev23DViewer = {
         // Ground plane - centered on device layout
         const groundGeo = new THREE.PlaneGeometry(floorSize, floorSize);
         const groundMat = new THREE.MeshStandardMaterial({
-            color: 0x1e293b,
+            color: this._palette().floor,
             roughness: 0.9,
             metalness: 0.1
         });
@@ -4862,7 +5057,7 @@ const Ev23DViewer = {
         scene.add(ground);
 
         // Grid - centered on device layout
-        const gridHelper = new THREE.GridHelper(floorSize, gridDivisions, 0x334155, 0x1e293b);
+        const gridHelper = this._makeThemeGrid(floorSize, gridDivisions);
         gridHelper.position.set(floorCenterX, 0, floorCenterZ);
         scene.add(gridHelper);
 
