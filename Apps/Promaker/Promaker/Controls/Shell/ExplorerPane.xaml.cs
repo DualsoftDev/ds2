@@ -531,7 +531,7 @@ public partial class ExplorerPane : UserControl
         var shiftPressed = (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift;
         if (requireModifiers && !ctrlPressed && !shiftPressed)
         {
-            if (node.IsTreeSelected)
+            if (node.IsTreeSelected || item.IsSelected)
             {
                 ViewModel.Selection.SelectNodeFromTree(node, ctrlPressed: false, shiftPressed: false);
                 e.Handled = true;
