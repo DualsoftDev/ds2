@@ -36,6 +36,7 @@ type EditorEvent =
     | ConnectionsChanged
     | EntityRenamed of id: Guid * newName: string * treeName: string
     | ProjectPropsChanged of id: Guid
+    | SystemPropsChanged of id: Guid
     | WorkPropsChanged of id: Guid
     | CallPropsChanged of id: Guid
     | ApiDefPropsChanged of id: Guid

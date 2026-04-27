@@ -20,6 +20,7 @@ The JSON is rendered in a Three.js cartoon-style 3D viewer for factory simulatio
 {
   "name": "장비 이름",
   "height": 2.0,            ← target height in meters (auto-scaled)
+  "apiDefs": ["Fwd","Bwd"], ← (선택) 이 SystemType이 가지는 ApiDef 이름 목록
   "parts": [ ... ],         ← part list (OR use "chain" for robot arms)
   "animation": { ... },     ← 단일 애니메이션 (ApiDef 구분 불필요한 경우)
   "dirs": { ... }           ← ApiDef별 독립 애니메이션 (선택 — animation 대신 사용)
@@ -29,6 +30,11 @@ The JSON is rendered in a Three.js cartoon-style 3D viewer for factory simulatio
 `animation`과 `dirs` 중 하나만 사용:
 - `animation`: 장비가 Going이면 하나의 애니메이션 실행 (컨베이어, 턴테이블 등)
 - `dirs`: ApiDef별로 다른 애니메이션 (피스톤 전진/후진, 도어 열기/닫기 등)
+
+`apiDefs` (선택):
+- 이 커스텀 모델이 어떤 ApiDef를 가지는 SystemType인지 메타데이터로 기록
+- 다른 프로젝트에서 같은 SystemType을 사용할 때 ApiDef 정보가 없어도 dirs 템플릿/AI 프롬프트가 정상 동작
+- 프로젝트에 동일 SystemType이 존재하면 프로젝트의 ApiDef와 합집합으로 사용 (동명일 때 프로젝트가 우선)
 
 ---
 

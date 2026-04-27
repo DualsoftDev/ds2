@@ -75,7 +75,7 @@ const Ev23DViewer = {
             // OrbitControls
             const controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
+            controls.dampingFactor = 0.08;
             controls.maxPolarAngle = Math.PI / 2;
             controls.minDistance = 10; // Prevent camera from going inside objects
             controls.maxDistance = 300; // Limit maximum zoom out
@@ -4657,7 +4657,7 @@ const Ev23DViewer = {
             // OrbitControls
             const controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
+            controls.dampingFactor = 0.08;
             controls.maxPolarAngle = Math.PI / 2;
             controls.minDistance = 10;
             controls.maxDistance = 300;

@@ -26,6 +26,9 @@ public partial class CustomModelDialog : Window
     private DispatcherTimer? _debounceTimer;
     private bool _previewReady;
 
+    /// <summary>"+ 새로 만들기"로 추가했지만 아직 등록(Save)되지 않은 항목의 ApiDef 메타데이터</summary>
+    private readonly Dictionary<string, List<string>> _pendingNewApiDefs = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>등록 완료 시 설정되는 결과</summary>
     public string? RegisteredSystemType { get; private set; }
     public string? RegisteredJson { get; private set; }
@@ -68,31 +71,54 @@ public partial class CustomModelDialog : Window
                 JsonEditor.Text = json;
             Title = $"커스텀 3D 모델 편집 — {EditingSystemType}";
             RegisterButton.Content = "저장";
-            // 상태 동기 설정 (UpdateJsonEditorEnabled가 hasType=true로 인식해 dim 깜빡임 방지)
-            SystemTypeInput.Text = EditingSystemType;
-
-            // IsEditable ComboBox의 내부 edit TextBox는 Loaded 시점엔 템플릿이 미완성이라
-            // Text 할당이 시각적으로 반영되지 않는 경우가 있음.
-            // Dispatcher Input 우선순위로 지연하여 SelectedItem + Text 재설정 → 표시 갱신.
-            _ = Dispatcher.BeginInvoke(new Action(() =>
-            {
-                object? matched = null;
-                foreach (var item in SystemTypeInput.Items)
-                {
-                    if (item is string s && string.Equals(s, EditingSystemType, StringComparison.Ordinal))
-                    {
-                        matched = item;
-                        break;
-                    }
-                }
-                if (matched != null)
-                    SystemTypeInput.SelectedItem = matched;
-                SystemTypeInput.Text = EditingSystemType;
-            }), System.Windows.Threading.DispatcherPriority.Input);
+            TrySelectSystemType(EditingSystemType);
         }
 
-        UpdatePlaceholder();
+        UpdateJsonEditorEnabled();
         await InitializePreviewWebView();
+    }
+
+    private string GetSystemType()
+        => (SystemTypeInput.SelectedItem as string)?.Trim() ?? "";
+
+    private bool TrySelectSystemType(string name)
+    {
+        foreach (var item in SystemTypeInput.Items)
+        {
+            if (item is string s && string.Equals(s, name, StringComparison.Ordinal))
+            {
+                SystemTypeInput.SelectedItem = item;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 프로젝트 ApiDef ∪ 전역 device.json apiDefs ∪ 보류 중인 신규 항목의 합집합.
+    /// 동일 이름이면 프로젝트가 우선(이름·순서). 대소문자 무시 중복 제거.
+    /// </summary>
+    private List<string> GetEffectiveApiDefs(string systemType)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (_systemTypeApiDefs.TryGetValue(systemType, out var fromProject))
+        {
+            foreach (var name in fromProject)
+                if (!string.IsNullOrWhiteSpace(name) && seen.Add(name)) result.Add(name);
+        }
+
+        foreach (var name in _registry.GetApiDefs(systemType))
+            if (!string.IsNullOrWhiteSpace(name) && seen.Add(name)) result.Add(name);
+
+        if (_pendingNewApiDefs.TryGetValue(systemType, out var pending))
+        {
+            foreach (var name in pending)
+                if (!string.IsNullOrWhiteSpace(name) && seen.Add(name)) result.Add(name);
+        }
+
+        return result;
     }
 
     private static System.Windows.Media.SolidColorBrush Brush(string hex)
@@ -146,7 +172,7 @@ public partial class CustomModelDialog : Window
         if (SystemTypeInput.Items.Count == 0)
         {
             SystemTypeInput.Items.Add(new ComboBoxItem
-                { Content = "프로젝트에 SystemType이 없습니다 — 직접 입력하세요", IsEnabled = false, Foreground = Brush("#64748b") });
+                { Content = "프로젝트에 등록 가능한 SystemType이 없습니다", IsEnabled = false, Foreground = Brush("#64748b") });
         }
     }
 
@@ -181,14 +207,7 @@ public partial class CustomModelDialog : Window
 
     private void SystemTypeInput_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        // ComboBox 선택 시 — SelectedItem이 string이면 텍스트 설정
-        if (SystemTypeInput.SelectedItem is string selected)
-        {
-            SystemTypeInput.Text = selected.Replace(" ✓", "").Trim();
-        }
-
-        // 선택된 SystemType의 ApiDef 정보로 JSON 템플릿 생성
-        var typeName = SystemTypeInput.Text?.Trim() ?? "";
+        var typeName = GetSystemType();
         if (!string.IsNullOrEmpty(typeName))
         {
             // JSON이 비어있거나 이전 자동 생성 템플릿이면 교체
@@ -199,23 +218,8 @@ public partial class CustomModelDialog : Window
             }
         }
 
-        UpdatePlaceholder();
-        ValidateForm();
-    }
-
-    private void SystemTypeInput_KeyUp(object sender, System.Windows.Input.KeyEventArgs e)
-    {
-        UpdatePlaceholder();
-        ValidateForm();
-    }
-
-    private void UpdatePlaceholder()
-    {
-        if (SystemTypePlaceholder != null)
-            SystemTypePlaceholder.Visibility = string.IsNullOrEmpty(SystemTypeInput.Text)
-                ? Visibility.Visible : Visibility.Collapsed;
-
         UpdateJsonEditorEnabled();
+        ValidateForm();
     }
 
     /// <summary>
@@ -227,7 +231,7 @@ public partial class CustomModelDialog : Window
     private void UpdateJsonEditorEnabled()
     {
         if (JsonEditor == null) return;
-        var hasType = !string.IsNullOrWhiteSpace(SystemTypeInput.Text);
+        var hasType = !string.IsNullOrEmpty(GetSystemType());
         var dimOpacity = 0.35;
 
         JsonEditor.IsEnabled = hasType;
@@ -251,7 +255,12 @@ public partial class CustomModelDialog : Window
     /// </summary>
     private void GenerateJsonTemplate(string systemType)
     {
-        if (!_systemTypeApiDefs.TryGetValue(systemType, out var apiDefNames) || apiDefNames.Count == 0)
+        var apiDefNames = GetEffectiveApiDefs(systemType);
+        var apiDefsField = apiDefNames.Count > 0
+            ? $"\n  \"apiDefs\": [{string.Join(", ", apiDefNames.Select(n => $"\"{n}\""))}],"
+            : "";
+
+        if (apiDefNames.Count == 0)
         {
             // ApiDef 정보 없음 → 기본 단일 애니메이션 템플릿
             JsonEditor.Text = $$"""
@@ -267,15 +276,13 @@ public partial class CustomModelDialog : Window
               }
             }
             """;
-            return;
         }
-
-        if (apiDefNames.Count == 1)
+        else if (apiDefNames.Count == 1)
         {
             // ApiDef 1개 → 단일 애니메이션
             JsonEditor.Text = $$"""
             {
-              "name": "{{systemType}}",
+              "name": "{{systemType}}",{{apiDefsField}}
               "height": 2.0,
               "parts": [
                 {"id": "base", "shape": "box", "size": [1.2, 0.3, 1.2], "color": "#64748b"},
@@ -299,7 +306,7 @@ public partial class CustomModelDialog : Window
 
             JsonEditor.Text = $$"""
             {
-              "name": "{{systemType}}",
+              "name": "{{systemType}}",{{apiDefsField}}
               "height": 2.0,
               "parts": [
                 {"id": "base", "shape": "box", "size": [1.5, 0.3, 1.0], "color": "#64748b"},
@@ -336,16 +343,7 @@ public partial class CustomModelDialog : Window
         {
             try
             {
-                var json = File.ReadAllText(dlg.FileName);
-                JsonEditor.Text = json;
-
-                // SystemType이 비어있으면 파일명에서 추출
-                if (string.IsNullOrWhiteSpace(SystemTypeInput.Text))
-                {
-                    var name = Path.GetFileNameWithoutExtension(dlg.FileName)
-                        .Replace(".device", "");
-                    SystemTypeInput.Text = name;
-                }
+                JsonEditor.Text = File.ReadAllText(dlg.FileName);
             }
             catch (Exception ex)
             {
@@ -366,7 +364,7 @@ public partial class CustomModelDialog : Window
             }
 
             var spec = File.ReadAllText(specPath);
-            var systemType = SystemTypeInput.Text?.Trim() ?? "";
+            var systemType = GetSystemType();
 
             // 장비 맥락 정보 생성
             var context = BuildDeviceContext(systemType);
@@ -401,11 +399,11 @@ public partial class CustomModelDialog : Window
                    "장비 설명: [여기에 원하는 장비를 설명하세요]";
         }
 
-        _systemTypeApiDefs.TryGetValue(systemType, out var apiDefNames);
+        var apiDefNames = GetEffectiveApiDefs(systemType);
 
-        if (apiDefNames == null || apiDefNames.Count <= 1)
+        if (apiDefNames.Count <= 1)
         {
-            var apiNote = apiDefNames?.Count == 1
+            var apiNote = apiDefNames.Count == 1
                 ? $"\n- ApiDef: \"{apiDefNames[0]}\" (1개) → \"animation\" 사용"
                 : "";
             return "## 요청\n" +
@@ -446,7 +444,7 @@ public partial class CustomModelDialog : Window
 
     private void Register_Click(object sender, RoutedEventArgs e)
     {
-        var systemType = SystemTypeInput.Text.Trim();
+        var systemType = GetSystemType();
         var json = JsonEditor.Text.Trim();
 
         // 최종 검증
@@ -460,7 +458,7 @@ public partial class CustomModelDialog : Window
         // 이름이 비어있는지 체크
         if (string.IsNullOrEmpty(systemType))
         {
-            ShowMessage("SystemType 이름을 입력하세요.", true);
+            ShowMessage("SystemType을 선택하세요.", true);
             return;
         }
 
@@ -518,11 +516,35 @@ public partial class CustomModelDialog : Window
         Close();
     }
 
+    private void CreateNew_Click(object sender, RoutedEventArgs e)
+    {
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in SystemTypeInput.Items)
+            if (item is string s) existing.Add(s);
+        foreach (var name in _registry.ModelNames) existing.Add(name);
+        foreach (var name in Ds2.View3D.DevicePresets.KnownNames) existing.Add(name);
+
+        var dlg = new NewCustomModelDialog(this, existing);
+        if (dlg.ShowDialog() != true) return;
+
+        var newName = dlg.ResultSystemType;
+        if (string.IsNullOrWhiteSpace(newName)) return;
+
+        // 보류 메타에 저장 → GenerateJsonTemplate이 union으로 사용
+        _pendingNewApiDefs[newName] = dlg.ResultApiDefs;
+
+        // 드롭다운에 신규 항목 추가 후 선택
+        SystemTypeInput.Items.Insert(0, new ComboBoxItem
+            { Content = "── 빠른 등록 (미저장) ──", IsEnabled = false, Foreground = Brush("#3b82f6") });
+        SystemTypeInput.Items.Insert(1, newName);
+        SystemTypeInput.SelectedIndex = 1;
+    }
+
     // ── 내부 로직 ─────────────────────────────────────────────
 
     private void ValidateForm()
     {
-        var hasType = !string.IsNullOrWhiteSpace(SystemTypeInput.Text);
+        var hasType = !string.IsNullOrEmpty(GetSystemType());
         var hasJson = !string.IsNullOrWhiteSpace(JsonEditor.Text);
 
         if (hasJson)
