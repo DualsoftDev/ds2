@@ -497,11 +497,13 @@ public partial class ExplorerPane : UserControl
         if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) != ModifierKeys.None)
             return;
 
+        if (newValue is not EntityNode node)
+            return;
+
         if (_activeTreePane != pane)
             SetActiveTreePane(pane);
 
         ViewModel.Selection.SetActiveTreePane(pane);
-        if (newValue is not EntityNode node) return;
 
         if (_treeDragCandidate
             && _pendingTreeSelectionNode is not null
