@@ -54,12 +54,12 @@ type RuntimeBootstrapSession(_index: SimIndex, ioMap: SignalIOMap, runtimeMode: 
 
     member _.RequiresPassiveInference = requiresPassiveInference
     member _.StartsWithHomingPhase = not requiresPassiveInference
-    member _.RequiresHubSnapshotSync = runtimeMode = RuntimeMode.Control
+    member _.RequiresHubSnapshotSync = runtimeMode <> RuntimeMode.Simulation
     member _.HubConnectionWaitTimeoutMs = 3000
     member _.HubSnapshotSyncTimeoutMs = 5000
 
     member _.BuildHubSnapshotQueryAddresses() =
-        if runtimeMode <> RuntimeMode.Control then
+        if runtimeMode = RuntimeMode.Simulation then
             Array.empty
         else
             workIo

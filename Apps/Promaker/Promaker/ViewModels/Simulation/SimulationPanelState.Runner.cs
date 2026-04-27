@@ -129,25 +129,56 @@ public partial class SimulationPanelState
             if (_hubConnection is not null && SelectedRuntimeMode == RuntimeMode.Control)
             {
                 var hub = _hubConnection;
+                var hubGeneration = CurrentHubGeneration;
                 writeTagAction = (address, value) =>
                 {
-                    var state = hub.State;
-                    _dispatcher.BeginInvoke(() =>
-                        AddSimLog($"[Ctrl→] Out {address}={value} (hub={state})", LogSeverity.Going));
-                    if (state != HubConnectionState.Connected)
+                    if (!IsCurrentHubConnection(hubGeneration, hub))
                         return;
-                    Task.Run(async () =>
+
+                    var state = hub.State;
+                    _ = _dispatcher.BeginInvoke(() =>
+                    {
+                        if (IsCurrentHubConnection(hubGeneration, hub))
+                            AddSimLog($"[Ctrl→] Out {address}={value} (hub={state})", LogSeverity.Going);
+                    });
+                    _ = Task.Run(async () =>
                     {
                         try
                         {
+                            var waitStart = DateTime.Now;
+                            while (hub.State != HubConnectionState.Connected
+                                   && IsCurrentHubConnection(hubGeneration, hub)
+                                   && (DateTime.Now - waitStart).TotalMilliseconds < 3000)
+                            {
+                                await Task.Delay(50);
+                            }
+
+                            if (!IsCurrentHubConnection(hubGeneration, hub))
+                                return;
+                            if (hub.State != HubConnectionState.Connected)
+                            {
+                                _ = _dispatcher.BeginInvoke(() =>
+                                {
+                                    if (IsCurrentHubConnection(hubGeneration, hub))
+                                        AddSimLog($"[Ctrl→] WriteTag skipped: Hub not connected ({address}={value})", LogSeverity.Warn);
+                                });
+                                return;
+                            }
+
                             await hub.InvokeAsync(HubMethod.WriteTag, address, value, HubSource.Control);
-                            _dispatcher.BeginInvoke(() =>
-                                AddSimLog($"[Ctrl→] Hub 전송 완료: {address}={value}", LogSeverity.System));
+                            _ = _dispatcher.BeginInvoke(() =>
+                            {
+                                if (IsCurrentHubConnection(hubGeneration, hub))
+                                    AddSimLog($"[Ctrl→] Hub 전송 완료: {address}={value}", LogSeverity.System);
+                            });
                         }
                         catch (Exception ex)
                         {
-                            _dispatcher.BeginInvoke(() =>
-                                AddSimLog($"[Ctrl→] WriteTag 실패: {ex.Message}", LogSeverity.Error));
+                            _ = _dispatcher.BeginInvoke(() =>
+                            {
+                                if (IsCurrentHubConnection(hubGeneration, hub))
+                                    AddSimLog($"[Ctrl→] WriteTag 실패: {ex.Message}", LogSeverity.Error);
+                            });
                         }
                     });
                 };
@@ -233,6 +264,7 @@ public partial class SimulationPanelState
             if (_hubConnection is not null && _runtimeSession?.RequiresHubSnapshotSync == true)
             {
                 var hub = _hubConnection;
+                var hubGeneration = CurrentHubGeneration;
                 var runtimeSession = _runtimeSession;
                 try
                 {
@@ -242,16 +274,17 @@ public partial class SimulationPanelState
                         // Hub 연결 대기 (최대 3초)
                         var waitStart = DateTime.Now;
                         while (hub.State != HubConnectionState.Connected
+                               && IsCurrentHubConnection(hubGeneration, hub)
                                && runtimeSession is not null
                                && (DateTime.Now - waitStart).TotalMilliseconds < runtimeSession.HubConnectionWaitTimeoutMs)
                         {
                             await Task.Delay(50);
                         }
-                        if (hub.State != HubConnectionState.Connected)
+                        if (hub.State != HubConnectionState.Connected || !IsCurrentHubConnection(hubGeneration, hub))
                             return false;
                         if (runtimeSession is null)
                             return false;
-                        await SyncRuntimeBootstrapStateFromHub(hub, runtimeSession);
+                        await SyncRuntimeBootstrapStateFromHub(hub, runtimeSession, hubGeneration);
                         return true;
                     });
                     if (!syncTask.Wait(runtimeSession?.HubSnapshotSyncTimeoutMs ?? 5000))

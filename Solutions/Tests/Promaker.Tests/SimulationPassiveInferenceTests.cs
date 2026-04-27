@@ -768,7 +768,7 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
-    public void Monitoring_runtime_bootstrap_session_marks_passive_start_without_hub_sync()
+    public void Monitoring_runtime_bootstrap_session_queries_snapshot_for_late_join()
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
@@ -777,8 +777,40 @@ public sealed class SimulationPassiveInferenceTests
 
         Assert.True(session.RequiresPassiveInference);
         Assert.False(session.StartsWithHomingPhase);
-        Assert.False(session.RequiresHubSnapshotSync);
-        Assert.Empty(session.BuildHubSnapshotQueryAddresses());
+        Assert.True(session.RequiresHubSnapshotSync);
+
+        var queryAddresses = session.BuildHubSnapshotQueryAddresses();
+        Assert.Contains(fixture.OutAddress, queryAddresses);
+        Assert.Contains(fixture.InAddress, queryAddresses);
+    }
+
+    [Fact]
+    public void VirtualPlant_runtime_mode_session_replays_current_out_snapshot_for_late_join()
+    {
+        var fixture = BuildSingleCallFixture();
+        var index = SimIndexModule.build(fixture.Store, 10);
+        using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
+        var session = new RuntimeModeSession(index, engine.IOMap, RuntimeMode.VirtualPlant);
+
+        var snapshot = new Dictionary<string, string>
+        {
+            [fixture.OutAddress] = "true",
+            [fixture.InAddress] = "false"
+        };
+
+        var effects = session.ResolveHubSnapshotEffects(snapshot);
+
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.ForceWorkState
+            && effect.State == Status4.Going);
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.WriteTag
+            && effect.Address == fixture.InAddress
+            && effect.Value == "true");
+        Assert.Contains(effects, effect =>
+            effect.Kind == RuntimeHubEffectKind.PassiveObserve
+            && effect.Address == fixture.OutAddress
+            && effect.Value == "true");
     }
 
     [Fact]
@@ -813,7 +845,7 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
-    public void Monitoring_runtime_mode_session_exposes_monitoring_source_and_passive_policy()
+    public void Monitoring_runtime_mode_session_exposes_monitoring_source_and_snapshot_policy()
     {
         var fixture = BuildSingleCallFixture();
         var index = SimIndexModule.build(fixture.Store, 10);
@@ -824,10 +856,19 @@ public sealed class SimulationPassiveInferenceTests
         Assert.True(session.RequiresHubConnection);
         Assert.True(session.RequiresPassiveInference);
         Assert.False(session.StartsWithHomingPhase);
-        Assert.False(session.RequiresHubSnapshotSync);
+        Assert.True(session.RequiresHubSnapshotSync);
         Assert.False(session.UsesControlWriteBridge);
         Assert.True(session.ShouldIgnoreHubSource("monitoring"));
         Assert.False(session.ShouldIgnoreHubSource("control"));
+
+        var snapshotEffects = session.ResolveHubSnapshotEffects(new Dictionary<string, string>
+        {
+            [fixture.OutAddress] = "true"
+        });
+        Assert.Contains(snapshotEffects, effect =>
+            effect.Kind == RuntimeHubEffectKind.PassiveObserve
+            && effect.Address == fixture.OutAddress
+            && effect.Value == "true");
     }
 
     [Fact]

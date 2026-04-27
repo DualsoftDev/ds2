@@ -103,6 +103,7 @@ public partial class SimulationPanelState
             return;
 
         var runtimeSource = ResolveRuntimeHubSource();
+        var hubGeneration = CurrentHubGeneration;
         foreach (var batch in RuntimeHubEffectPipeline.Build(effects))
         {
             if (batch.DelayMs <= 0)
@@ -110,6 +111,7 @@ public partial class SimulationPanelState
                 ApplyRuntimeHubEffectBatch(
                     engine,
                     runtimeSource,
+                    hubGeneration,
                     batch.Effects,
                     batch.AwaitWrites,
                     batch.RequiresExclusiveImmediateLane);
@@ -122,6 +124,7 @@ public partial class SimulationPanelState
                 ApplyRuntimeHubEffectBatch(
                     engine,
                     runtimeSource,
+                    hubGeneration,
                     batch.Effects,
                     batch.AwaitWrites,
                     batch.RequiresExclusiveImmediateLane);
@@ -132,30 +135,38 @@ public partial class SimulationPanelState
     private void ApplyRuntimeHubEffectBatch(
         ISimulationEngine engine,
         string runtimeSource,
+        int hubGeneration,
         IReadOnlyList<RuntimeHubEffect> effects,
         bool awaitWrites,
         bool requiresExclusiveImmediateLane)
     {
+        if (!ReferenceEquals(_simEngine, engine) || !IsCurrentHubGeneration(hubGeneration))
+            return;
+
         if (!requiresExclusiveImmediateLane)
         {
             foreach (var effect in effects)
-                ApplyRuntimeHubEffect(engine, runtimeSource, effect, awaitWrites);
+                ApplyRuntimeHubEffect(engine, runtimeSource, hubGeneration, effect, awaitWrites);
             return;
         }
 
         lock (_runtimeImmediateEffectLock)
         {
             foreach (var effect in effects)
-                ApplyRuntimeHubEffect(engine, runtimeSource, effect, awaitWrites);
+                ApplyRuntimeHubEffect(engine, runtimeSource, hubGeneration, effect, awaitWrites);
         }
     }
 
     private void ApplyRuntimeHubEffect(
         ISimulationEngine engine,
         string runtimeSource,
+        int hubGeneration,
         RuntimeHubEffect effect,
         bool awaitWrite)
     {
+        if (!ReferenceEquals(_simEngine, engine) || !IsCurrentHubGeneration(hubGeneration))
+            return;
+
         switch (effect.Kind)
         {
             case RuntimeHubEffectKind.Log:
@@ -164,46 +175,60 @@ public partial class SimulationPanelState
                 return;
 
             case RuntimeHubEffectKind.InjectIoByAddress:
-                if (ReferenceEquals(_simEngine, engine))
-                    engine.InjectIOValueByAddress(effect.Address, effect.Value);
+                engine.InjectIOValueByAddress(effect.Address, effect.Value);
                 return;
 
             case RuntimeHubEffectKind.ForceWorkState:
-                if (ReferenceEquals(_simEngine, engine) && effect.WorkGuid != Guid.Empty)
+                if (effect.WorkGuid != Guid.Empty)
                     engine.ForceWorkState(effect.WorkGuid, effect.State);
                 return;
 
             case RuntimeHubEffectKind.WriteTag:
                 if (_hubConnection is { State: HubConnectionState.Connected } hub
+                    && IsCurrentHubConnection(hubGeneration, hub)
                     && !string.IsNullOrEmpty(effect.Address))
                 {
-                    var writeTask = InvokeRuntimeHubWriteTagAsync(hub, effect.Address, effect.Value, runtimeSource);
+                    var writeTask = InvokeRuntimeHubWriteTagAsync(
+                        hub,
+                        hubGeneration,
+                        effect.Address,
+                        effect.Value,
+                        runtimeSource);
                     if (awaitWrite)
                         writeTask.GetAwaiter().GetResult();
                 }
                 return;
 
             case RuntimeHubEffectKind.PassiveObserve:
-                if (ReferenceEquals(_simEngine, engine))
-                    _dispatcher.BeginInvoke(() => ObserveAndInferPassiveState(effect.Address, effect.Value));
+                _dispatcher.BeginInvoke(() =>
+                {
+                    if (ReferenceEquals(_simEngine, engine) && IsCurrentHubGeneration(hubGeneration))
+                        ObserveAndInferPassiveState(effect.Address, effect.Value);
+                });
                 return;
         }
     }
 
     private async Task InvokeRuntimeHubWriteTagAsync(
         HubConnection hub,
+        int hubGeneration,
         string address,
         string value,
         string runtimeSource)
     {
         try
         {
+            if (!IsCurrentHubConnection(hubGeneration, hub))
+                return;
             await hub.InvokeAsync(HubMethod.WriteTag, address, value, runtimeSource);
         }
         catch (Exception ex)
         {
-            _dispatcher.BeginInvoke(() =>
-                AddSimLog($"[Hub] WriteTag failed: {ex.Message}", LogSeverity.Error));
+            _ = _dispatcher.BeginInvoke(() =>
+            {
+                if (IsCurrentHubGeneration(hubGeneration))
+                    AddSimLog($"[Hub] WriteTag failed: {ex.Message}", LogSeverity.Error);
+            });
         }
     }
 
@@ -244,30 +269,31 @@ public partial class SimulationPanelState
 
     private async Task SyncRuntimeBootstrapStateFromHub(
         HubConnection hub,
-        RuntimeModeSession runtimeSession)
+        RuntimeModeSession runtimeSession,
+        int hubGeneration)
     {
         if (_simEngine is null) return;
         try
         {
+            if (!IsCurrentHubConnection(hubGeneration, hub))
+                return;
+
             var tagValues = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var address in runtimeSession.BuildHubSnapshotQueryAddresses())
             {
+                if (!IsCurrentHubConnection(hubGeneration, hub))
+                    return;
                 tagValues[address] = await hub.InvokeAsync<string>(HubMethod.QueryTag, address);
             }
 
             var effects = runtimeSession.ResolveHubSnapshotEffects(tagValues)
                 .OrderBy(effect => effect.DelayMs)
                 .ToArray();
-            ApplyRuntimeHubEffectBatch(
-                _simEngine,
-                ResolveRuntimeHubSource(),
-                effects,
-                awaitWrites: true,
-                requiresExclusiveImmediateLane: false);
+            ApplyRuntimeHubEffects(effects);
         }
         catch (Exception ex)
         {
-            _dispatcher.BeginInvoke(() =>
+            _ = _dispatcher.BeginInvoke(() =>
                 AddSimLog($"[Ctrl] Device state sync failed: {ex.Message}", LogSeverity.Warn));
         }
     }

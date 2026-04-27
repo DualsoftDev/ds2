@@ -36,7 +36,15 @@ type RuntimeModeSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtim
         bootstrapSession.BuildHubSnapshotQueryAddresses()
 
     member _.ResolveHubSnapshotEffects(tagValues: IReadOnlyDictionary<string, string>) =
-        bootstrapSession.ResolveHubSnapshotEffects(tagValues)
+        match runtimeMode with
+        | RuntimeMode.VirtualPlant
+        | RuntimeMode.Monitoring ->
+            tagValues
+            |> Seq.filter (fun (KeyValue(address, value)) -> not (System.String.IsNullOrWhiteSpace(address)) && value = "true")
+            |> Seq.collect (fun (KeyValue(address, value)) -> hubSession.HandleHubTag(address, value, "snapshot"))
+            |> Seq.toArray
+        | _ ->
+            bootstrapSession.ResolveHubSnapshotEffects(tagValues)
 
     member _.HandleHubTag(address: string, value: string, source: string) =
         hubSession.HandleHubTag(address, value, source)
