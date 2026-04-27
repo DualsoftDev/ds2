@@ -214,6 +214,44 @@ public sealed class ExplorerPaneTests
         });
     }
 
+    [Fact]
+    public void Null_selection_change_from_hidden_device_tree_does_not_switch_active_pane()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = store.AddSystem("DeviceSystem", projectId, false);
+            var flowId = store.AddFlow("DeviceFlow", systemId);
+            store.AddWork("DeviceWork", flowId);
+
+            var host = CreateHost(vm, out var pane);
+            try
+            {
+                var controlButton = GetNamed<ToggleButton>(pane, "ControlTreeButton");
+                var deviceButton = GetNamed<ToggleButton>(pane, "DeviceTreeButton");
+                var method = typeof(ExplorerPane).GetMethod("HandleTreeSelectionChanged", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+                Assert.True(controlButton.IsChecked ?? false);
+                Assert.False(deviceButton.IsChecked ?? true);
+
+                method.Invoke(pane, [TreePaneKind.Device, null]);
+                StaTestRunner.PumpPendingUi();
+
+                Assert.True(controlButton.IsChecked ?? false);
+                Assert.False(deviceButton.IsChecked ?? true);
+                Assert.Equal(TreePaneKind.Control, vm.Selection.ActiveTreePane);
+            }
+            finally
+            {
+                host.Close();
+            }
+        });
+    }
+
     private static DsStore GetStore(MainViewModel vm)
     {
         var field = typeof(MainViewModel).GetField("_store", BindingFlags.Instance | BindingFlags.NonPublic)!;
