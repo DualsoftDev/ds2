@@ -10,9 +10,9 @@
     <AssemblyName>AasxEditor.Desktop</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>..\Installer\Assets\AasxEditor.ico</ApplicationIcon>
-    <Version>1.0.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.0.0.1</Version>
+    <AssemblyVersion>1.0.0.1</AssemblyVersion>
+    <FileVersion>1.0.0.1</FileVersion>
     <Product>AASX JSON Editor</Product>
     <Company>Dualsoft</Company>
     <Copyright>Copyright © Dualsoft 2026</Copyright>
