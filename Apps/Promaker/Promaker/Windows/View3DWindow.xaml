@@ -6,7 +6,7 @@
         Title="3D 배치 뷰"
         Width="1280" Height="860"
         WindowStartupLocation="CenterOwner"
-        Background="#0f172a">
+        Background="{DynamicResource CanvasBackgroundBrush}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
@@ -18,7 +18,10 @@
         </Grid.ColumnDefinitions>
 
         <!-- Left Panel: Device Tree + Info + Mode -->
-        <Border Grid.Row="0" Grid.Column="0" Background="#1e293b" BorderBrush="#334155" BorderThickness="0,0,1,0">
+        <Border Grid.Row="0" Grid.Column="0"
+                Background="{DynamicResource PrimaryBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,0,1,0">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>      <!-- Header -->
@@ -29,51 +32,68 @@
                 </Grid.RowDefinitions>
 
                 <!-- Tree Header -->
-                <Border Grid.Row="0" Background="#0f172a" BorderBrush="#334155" BorderThickness="0,0,0,1" Padding="12,8">
-                    <TextBlock Text="Devices" FontSize="13" FontWeight="SemiBold" Foreground="#e2e8f0"/>
+                <Border Grid.Row="0"
+                        Background="{DynamicResource CanvasBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,0,0,1" Padding="12,8">
+                    <TextBlock Text="Devices" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
                 </Border>
 
                 <!-- Tree View -->
                 <TreeView x:Name="DeviceTree" Grid.Row="1"
-                          Background="#1e293b" BorderThickness="0"
-                          Foreground="#e2e8f0" FontSize="12"
+                          Background="{DynamicResource PrimaryBackgroundBrush}"
+                          BorderThickness="0"
+                          Foreground="{DynamicResource PrimaryTextBrush}" FontSize="12"
                           SelectedItemChanged="DeviceTree_SelectedItemChanged">
                     <TreeView.Resources>
                         <Style TargetType="TreeViewItem">
-                            <Setter Property="Foreground" Value="#e2e8f0"/>
+                            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
                             <Setter Property="Padding" Value="4,2"/>
                         </Style>
                     </TreeView.Resources>
                 </TreeView>
 
                 <!-- Device Info Panel -->
-                <Border Grid.Row="2" Background="#1e293b" BorderBrush="#334155" BorderThickness="0,1,0,0" Padding="12,10"
+                <Border Grid.Row="2"
+                        Background="{DynamicResource PrimaryBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,1,0,0" Padding="12,10"
                         MaxHeight="200">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel x:Name="InfoContent">
                             <TextBlock x:Name="InfoTitle" Text="장비 정보" FontSize="11"
-                                       Foreground="#94a3b8" Margin="0,0,0,8" FontWeight="SemiBold"/>
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Margin="0,0,0,8" FontWeight="SemiBold"/>
                             <TextBlock Text="장비를 선택하면 정보가 표시됩니다."
-                                       Foreground="#64748b" FontSize="10"/>
+                                       Foreground="{DynamicResource DisabledTextBrush}" FontSize="10"/>
                         </StackPanel>
                     </ScrollViewer>
                 </Border>
 
                 <!-- Edit Mode Toggle (bottom of tree panel) -->
-                <Border Grid.Row="3" Background="#0f172a" BorderBrush="#334155" BorderThickness="0,1,0,0" Padding="12,10">
+                <Border Grid.Row="3"
+                        Background="{DynamicResource CanvasBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,1,0,0" Padding="12,10">
                     <StackPanel Orientation="Vertical">
-                        <TextBlock Text="모드 선택" FontSize="10" Foreground="#94a3b8" Margin="0,0,0,6" FontWeight="SemiBold"/>
+                        <TextBlock Text="모드 선택" FontSize="10"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,0,0,6" FontWeight="SemiBold"/>
                         <RadioButton x:Name="CameraModeRadio" Content="카메라 모드 (회전/확대)"
                                      GroupName="ViewMode" IsChecked="True"
-                                     Foreground="#e2e8f0" FontSize="11" Margin="0,0,0,6"
+                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                     FontSize="11" Margin="0,0,0,6"
                                      Checked="CameraMode_Checked"/>
                         <StackPanel Orientation="Horizontal">
                             <RadioButton x:Name="MoveModeRadio" Content="장비 이동 모드"
                                          GroupName="ViewMode"
-                                         Foreground="#e2e8f0" FontSize="11"
+                                         Foreground="{DynamicResource PrimaryTextBrush}"
+                                         FontSize="11"
                                          Checked="MoveMode_Checked"/>
                             <CheckBox x:Name="GridSnapCheck" Content="격자 스냅"
-                                      Foreground="#94a3b8" FontSize="10"
+                                      Foreground="{DynamicResource SecondaryTextBrush}"
+                                      FontSize="10"
                                       Margin="10,0,0,0" VerticalAlignment="Center"
                                       ToolTip="장비를 격자 단위로 정렬하여 배치합니다"
                                       Checked="GridSnap_Changed" Unchecked="GridSnap_Changed"/>
@@ -82,26 +102,39 @@
                 </Border>
 
                 <!-- Custom Models Section -->
-                <Border Grid.Row="4" Background="#0f172a" BorderBrush="#334155" BorderThickness="0,1,0,0" Padding="12,8">
+                <Border Grid.Row="4"
+                        Background="{DynamicResource CanvasBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,1,0,0" Padding="12,8">
                     <StackPanel>
-                        <TextBlock Text="커스텀 3D 모델" FontSize="10" Foreground="#94a3b8" Margin="0,0,0,6" FontWeight="SemiBold"/>
+                        <TextBlock Text="커스텀 3D 모델" FontSize="10"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="0,0,0,6" FontWeight="SemiBold"/>
                         <ListBox x:Name="CustomModelList" MaxHeight="100"
-                                 Background="#1e293b" BorderBrush="#334155" BorderThickness="1"
-                                 Foreground="#e2e8f0" FontSize="11" Padding="2"
+                                 Background="{DynamicResource PrimaryBackgroundBrush}"
+                                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                 Foreground="{DynamicResource PrimaryTextBrush}"
+                                 FontSize="11" Padding="2"
                                  MouseDoubleClick="CustomModelList_DoubleClick">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding}" Foreground="#e2e8f0" Padding="4,2"/>
+                                    <TextBlock Text="{Binding}"
+                                               Foreground="{DynamicResource PrimaryTextBrush}"
+                                               Padding="4,2"/>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
                         <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                             <Button Content="+ 모델 등록" Click="AddCustomModel_Click"
-                                    Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
+                                    Background="{DynamicResource TertiaryBackgroundBrush}"
+                                    Foreground="{DynamicResource PrimaryTextBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
                                     Padding="10,4" FontSize="11" Cursor="Hand" Margin="0,0,6,0"
                                     ToolTip="JSON으로 커스텀 3D 모델을 등록합니다"/>
                             <Button Content="삭제" Click="DeleteCustomModel_Click"
-                                    Background="#334155" Foreground="#64748b" BorderBrush="#475569"
+                                    Background="{DynamicResource TertiaryBackgroundBrush}"
+                                    Foreground="{DynamicResource SecondaryTextBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
                                     Padding="10,4" FontSize="11" Cursor="Hand"
                                     ToolTip="선택한 커스텀 모델을 삭제합니다"/>
                         </StackPanel>
@@ -117,7 +150,9 @@
         <Button x:Name="ToggleLeftPanelButton" Grid.Row="0" Grid.Column="1"
                 Content="☰" Click="ToggleLeftPanel_Click"
                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10"
-                Background="#1e293b" Foreground="#e2e8f0" BorderBrush="#334155" BorderThickness="1"
+                Background="{DynamicResource PrimaryBackgroundBrush}"
+                Foreground="{DynamicResource PrimaryTextBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                 Width="40" Height="40" FontSize="18" Cursor="Hand"
                 ToolTip="좌측 패널 숨기기/보이기 (F2)">
             <Button.Style>
@@ -136,7 +171,7 @@
                     </Setter>
                     <Style.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Background" Value="#334155"/>
+                            <Setter Property="Background" Value="{DynamicResource HoverBackgroundBrush}"/>
                         </Trigger>
                     </Style.Triggers>
                 </Style>
@@ -145,11 +180,17 @@
 
         <!-- Scene Mode Toggle (top-right corner of 3D view) -->
         <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="10">
-            <Border Background="#1e293b" BorderBrush="#334155" BorderThickness="1" CornerRadius="4" Padding="8,4">
+            <Border Background="{DynamicResource PrimaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1" CornerRadius="4" Padding="8,4">
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="Scene Mode:" Foreground="#94a3b8" FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Scene Mode:"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               FontSize="12" Margin="0,0,8,0" VerticalAlignment="Center"/>
                     <Button x:Name="DeviceSceneButton" Content="Device Placement" Click="DeviceSceneButton_Click"
-                            Background="#3b82f6" Foreground="White" BorderThickness="0" Padding="12,4" Margin="0,0,4,0"
+                            Background="{DynamicResource AccentBrush}"
+                            Foreground="{DynamicResource AccentTextBrush}"
+                            BorderThickness="0" Padding="12,4" Margin="0,0,4,0"
                             Cursor="Hand" FontSize="11" FontWeight="SemiBold">
                         <Button.Style>
                             <Style TargetType="Button">
@@ -166,7 +207,9 @@
                         </Button.Style>
                     </Button>
                     <Button x:Name="WorkSceneButton" Content="Work Graph" Click="WorkSceneButton_Click"
-                            Background="#475569" Foreground="#94a3b8" BorderThickness="0" Padding="12,4"
+                            Background="{DynamicResource BorderBrush}"
+                            Foreground="{DynamicResource SecondaryTextBrush}"
+                            BorderThickness="0" Padding="12,4"
                             Cursor="Hand" FontSize="11" FontWeight="SemiBold">
                         <Button.Style>
                             <Style TargetType="Button">
@@ -188,22 +231,24 @@
 
         <!-- Bottom: Shortcut Keys Info Panel -->
         <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                Background="#0f172a" BorderBrush="#334155" BorderThickness="0,1,0,0" Padding="12,6">
+                Background="{DynamicResource CanvasBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,1,0,0" Padding="12,6">
             <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                <TextBlock Foreground="#64748b" FontSize="10" Margin="0,0,12,0">
-                    <Run Text="F2" Foreground="#94a3b8" FontWeight="SemiBold"/>
+                <TextBlock Foreground="{DynamicResource DisabledTextBrush}" FontSize="10" Margin="0,0,12,0">
+                    <Run Text="F2" Foreground="{DynamicResource SecondaryTextBrush}" FontWeight="SemiBold"/>
                     <Run Text=": 좌측패널"/>
                 </TextBlock>
-                <TextBlock Foreground="#64748b" FontSize="10" Margin="0,0,12,0">
-                    <Run Text="F4" Foreground="#94a3b8" FontWeight="SemiBold"/>
+                <TextBlock Foreground="{DynamicResource DisabledTextBrush}" FontSize="10" Margin="0,0,12,0">
+                    <Run Text="F4" Foreground="{DynamicResource SecondaryTextBrush}" FontWeight="SemiBold"/>
                     <Run Text=": 장비이동"/>
                 </TextBlock>
-                <TextBlock Foreground="#64748b" FontSize="10" Margin="0,0,12,0">
-                    <Run Text="F5" Foreground="#94a3b8" FontWeight="SemiBold"/>
+                <TextBlock Foreground="{DynamicResource DisabledTextBrush}" FontSize="10" Margin="0,0,12,0">
+                    <Run Text="F5" Foreground="{DynamicResource SecondaryTextBrush}" FontWeight="SemiBold"/>
                     <Run Text=": 카메라"/>
                 </TextBlock>
-                <TextBlock Foreground="#64748b" FontSize="10">
-                    <Run Text="F" Foreground="#94a3b8" FontWeight="SemiBold"/>
+                <TextBlock Foreground="{DynamicResource DisabledTextBrush}" FontSize="10">
+                    <Run Text="F" Foreground="{DynamicResource SecondaryTextBrush}" FontWeight="SemiBold"/>
                     <Run Text=": 카메라맞춤"/>
                 </TextBlock>
             </WrapPanel>
