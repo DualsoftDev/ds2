@@ -220,7 +220,11 @@ module internal PassiveInferenceWorkCycleAlignment =
                                 finishSearch <- finishSearch - 1
 
                             let workGoingStartIdx, workFinishIdx =
-                                if ctx.RuntimeMode = RuntimeMode.Monitoring then
+                                // Monitoring/VirtualPlant 모두 동일 Work 의 cycle 안 Call 들이 다시 시작되는
+                                // 시간 간격(gap)을 분석해 head/finish boundary 를 보정. VP 가 빠져있던
+                                // 부분 — 학습 완료 후 boundary 가 부정확해 cycle 이 한 단계씩 밀려 보였음.
+                                if ctx.RuntimeMode = RuntimeMode.Monitoring
+                                   || ctx.RuntimeMode = RuntimeMode.VirtualPlant then
                                     tryResolveMonitoringGapScoredCycleShape ctx workGuid start period requiredMatches wl workGoingStartIdx workFinishIdx
                                 else
                                     workGoingStartIdx, workFinishIdx

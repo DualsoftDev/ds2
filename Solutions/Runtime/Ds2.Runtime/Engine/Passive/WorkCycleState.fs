@@ -75,6 +75,17 @@ module internal PassiveInferenceWorkCycleState =
                     | None -> ()
         | _ -> ()
 
+    let private enqueueWorkStateWithGoingEffects
+        (ctx: PassiveWorkContext)
+        (actions: ResizeArray<PassiveInferenceAction>)
+        (overlay: StateOverlay)
+        workGuid
+        state =
+        if overlay.GetWorkState(workGuid) <> state then
+            enqueueWorkState actions overlay workGuid state
+            if state = Status4.Going then
+                applyPassiveResetTargets ctx actions overlay workGuid
+
     let private applyWorkStateForExpectedGroup
         (ctx: PassiveWorkContext)
         (actions: ResizeArray<PassiveInferenceAction>)
@@ -98,10 +109,9 @@ module internal PassiveInferenceWorkCycleState =
                     && currentState <> Status4.Finish
 
                 if not shouldSuppressMonitoringFinish && currentState <> nextState then
-                    enqueueWorkState actions overlay workGuid nextState
+                    enqueueWorkStateWithGoingEffects ctx actions overlay workGuid nextState
                     if nextState = Status4.Going then
                         wl.HasObservedSyncedGoing <- true
-                        applyPassiveResetTargets ctx actions overlay workGuid
         | _ -> ()
 
     let private finalizeObservedWorkGroup (wl: WorkLearning) =

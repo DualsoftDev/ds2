@@ -17,7 +17,9 @@ type RuntimeHubSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: Runtime
                 if value = "true" then
                     for mapping in inMappings do
                         match mapping.RxWorkGuid with
-                        | Some rxWorkGuid -> RuntimeSessionEffects.addForceWorkState effects 0 rxWorkGuid Status4.Finish
+                        // currentState=Going 일 때만 atomic Force. 외부 PLC 의 stale IN=true 가
+                        // Reset 흐름 도중 Homing→Finish 잘못 전이시키는 race 차단.
+                        | Some rxWorkGuid -> RuntimeSessionEffects.addForceWorkStateIfGoing effects 0 rxWorkGuid Status4.Finish
                         | None -> ()
 
                 RuntimeSessionEffects.addLog effects 0 RuntimeHubLogSeverity.Finish (sprintf "[Ctrl] In %s=%s (from %s)" address value source)
