@@ -134,15 +134,11 @@ public sealed class IoBatchSettingsDialogTests
     {
         StaTestRunner.Run(() =>
         {
+            // 새 시그니처: 1-arg (store) — 행은 다이얼로그가 IoQueryService 로 직접 채움.
+            // 빈 store 에서 행이 0 개여도 RowCheckBox 경로는 grid 가 외부 source 일 때 검증되므로,
+            //   여기서는 외부 grid 에 행을 직접 주입하는 단위 검증으로 대체.
             var store = DsStore.empty();
-            var seedRows = new[]
-            {
-                MakeRow("F1"),
-                MakeRow("F2"),
-                MakeRow("F3"),
-            };
-
-            var dlg = new IoBatchSettingsDialog(store, seedRows);
+            var dlg = new IoBatchSettingsDialog(store);
 
             var gridField = typeof(IoBatchSettingsDialog)
                 .GetField("IoGrid",
@@ -152,9 +148,9 @@ public sealed class IoBatchSettingsDialogTests
             var grid = (DataGrid)gridField!.GetValue(dlg)!;
             Assert.NotNull(grid);
 
-            // 다이얼로그가 _rows 를 ObservableCollection 으로 복제하므로 grid 의 항목으로 작업.
-            var displayed = grid.Items.Cast<IoBatchRow>().ToList();
-            Assert.Equal(3, displayed.Count);
+            // 외부 IoBatchRow 리스트로 grid.ItemsSource 교체하여 ApplyCheckStateToSelectedRows 경로만 직접 검증.
+            var displayed = new[] { MakeRow("F1"), MakeRow("F2"), MakeRow("F3") };
+            grid.ItemsSource = displayed;
 
             grid.SelectedItems.Clear();
             grid.SelectedItems.Add(displayed[0]);

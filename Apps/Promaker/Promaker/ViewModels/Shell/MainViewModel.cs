@@ -141,6 +141,9 @@ public partial class MainViewModel : ObservableObject
         false;
 #endif
 
+    /// <summary>XAML 바인딩용 인스턴스 프록시 — DEBUG 빌드에서만 미완성 기능(예: PLC 생성) 노출.</summary>
+    public bool IsDebugBuildInstance => IsDebugBuild;
+
     public Xywh? PendingAddPosition { get; set; }
 
     [ObservableProperty] private ArrowType _selectedConnectArrowType = ArrowType.Start;
@@ -696,9 +699,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     // ========== SplitDeviceAasx 설정 ==========
-    private static readonly string SplitDeviceAasxSettingsPath = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Dualsoft", "Promaker", "splitDeviceAasx.txt");
+    private static string SplitDeviceAasxSettingsPath => Promaker.Services.SettingsPaths.SplitDeviceAasx;
 
     public bool SplitDeviceAasx { get; private set; }
 
@@ -717,9 +718,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     // ========== CreateDefaultEntitiesOnEmptyAasx 설정 ==========
-    private static readonly string CreateDefaultEntitiesSettingsPath = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Dualsoft", "Promaker", "createDefaultEntitiesOnEmptyAasx.txt");
+    private static string CreateDefaultEntitiesSettingsPath => Promaker.Services.SettingsPaths.CreateDefaultEntitiesOnEmptyAasx;
 
     public bool CreateDefaultEntitiesOnEmptyAasx { get; private set; }
 
@@ -738,9 +737,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     // ========== IriPrefix 설정 ==========
-    private static readonly string IriPrefixSettingsPath = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Dualsoft", "Promaker", "iriPrefix.txt");
+    private static string IriPrefixSettingsPath => Promaker.Services.SettingsPaths.IriPrefix;
 
     public string IriPrefix { get; private set; } = "https://dualsoft.com/";
 

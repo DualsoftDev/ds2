@@ -18,17 +18,9 @@ public partial class ProjectPropertiesDialog : Window
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Dualsoft", "Promaker", "systemTypePreset", "systemTypePreset.json");
 
-    private static readonly string SplitDeviceAasxSettingsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Dualsoft", "Promaker", "splitDeviceAasx.txt");
-
-    private static readonly string IriPrefixSettingsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Dualsoft", "Promaker", "iriPrefix.txt");
-
-    private static readonly string CreateDefaultEntitiesSettingsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Dualsoft", "Promaker", "createDefaultEntitiesOnEmptyAasx.txt");
+    private static string SplitDeviceAasxSettingsPath        => Promaker.Services.SettingsPaths.SplitDeviceAasx;
+    private static string IriPrefixSettingsPath              => Promaker.Services.SettingsPaths.IriPrefix;
+    private static string CreateDefaultEntitiesSettingsPath  => Promaker.Services.SettingsPaths.CreateDefaultEntitiesOnEmptyAasx;
 
     private const string DefaultIriPrefix = "https://dualsoft.com/";
     private readonly string _initialProjectName;
@@ -63,16 +55,17 @@ public partial class ProjectPropertiesDialog : Window
         SplitDeviceAasxBox.IsChecked = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxSettingsPath, false);
         CreateDefaultEntitiesBox.IsChecked = AppSettingStore.LoadBoolOrDefault(CreateDefaultEntitiesSettingsPath, false);
 
-        // PLC 설정 로드 — IoTemplateDirPath 는 더 이상 사용하지 않음 (AASX Preset 기반)
+        // PLC 설정 로드 — 빈 값 금지. 항상 effective 값(디폴트 자동 채움)을 표시.
         var plcCfg = PlcConfig.Settings;
-        PlcXgiTemplatePathBox.Text = plcCfg.XgiTemplatePath;
-        PlcXg5000ExePathBox.Text   = plcCfg.Xg5000ExePath;
+        PlcXgiTemplatePathBox.Text = plcCfg.EffectiveXgiTemplatePath;
+        PlcXg5000ExePathBox.Text   = plcCfg.EffectiveXg5000ExePath;
 
         // 프리셋 SystemType 매핑 로드
         LoadPresetMappings();
 
-        // 기본 값 설정
-        PresetTextBox.Text = Ds2.Core.Store.DevicePresets.Entries[0].Item2;
+        // 기본 값 — Motor 샘플 (프리셋 입력 형식 안내용). 실제 systemTypePreset.json 의
+        // 디폴트 항목은 CallCreateDialog 가 없을 때 자동 생성하는 5종 (Unit/Cylinder_#/Robot*/Part).
+        PresetTextBox.Text = "FWD;BWD";
 
         Loaded += (_, _) => ProjectNameBox.Focus();
     }

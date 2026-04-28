@@ -160,9 +160,9 @@
                     <DataGridTextColumn Header="Flow"     Width="*"   Binding="{Binding Flow}"/>
                     <DataGridTextColumn Header="Device"   Width="*"   Binding="{Binding Device}"/>
                     <DataGridTextColumn Header="Api"      Width="*"   Binding="{Binding Api}"/>
-                    <DataGridTextColumn Header="InTag"    Width="2*"  Binding="{Binding InTag}"/>
+                    <DataGridTextColumn Header="InTag"    Width="2*"  Binding="{Binding InSymbol}"/>
                     <DataGridTextColumn Header="InAddr"   Width="*"   Binding="{Binding InAddress}"/>
-                    <DataGridTextColumn Header="OutTag"   Width="2*"  Binding="{Binding OutTag}"/>
+                    <DataGridTextColumn Header="OutTag"   Width="2*"  Binding="{Binding OutSymbol}"/>
                     <DataGridTextColumn Header="OutAddr"  Width="*"   Binding="{Binding OutAddress}"/>
                 </DataGrid.Columns>
             </DataGrid>

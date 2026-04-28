@@ -102,6 +102,9 @@ module internal AasxImportTechnicalData =
     let private smcToCycleTime (smc: SubmodelElementCollection) : KpiCycleTime =
         elementsToProps<KpiCycleTime> smc |> Option.defaultWith KpiCycleTime
 
+    let private smcToCallCycleTime (smc: SubmodelElementCollection) : KpiCallCycleTime =
+        elementsToProps<KpiCallCycleTime> smc |> Option.defaultWith KpiCallCycleTime
+
     let private smcToThroughput (smc: SubmodelElementCollection) : KpiThroughput =
         elementsToProps<KpiThroughput> smc |> Option.defaultWith KpiThroughput
 
@@ -134,6 +137,9 @@ module internal AasxImportTechnicalData =
         | None -> ()
         match tryFindSml smc "KPI_CycleTime" with
         | Some sml -> for c in smlChildSmcs sml do s.CycleTimes.Add(smcToCycleTime c)
+        | None -> ()
+        match tryFindSml smc "KPI_CallCycleTime" with
+        | Some sml -> for c in smlChildSmcs sml do s.CallCycleTimes.Add(smcToCallCycleTime c)
         | None -> ()
         s.Throughput <- tryFindSmc smc "KPI_Throughput" |> Option.map smcToThroughput
         s.Capacity   <- tryFindSmc smc "KPI_Capacity"   |> Option.map smcToCapacity

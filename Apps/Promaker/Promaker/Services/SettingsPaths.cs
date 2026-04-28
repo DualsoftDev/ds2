@@ -1,0 +1,65 @@
+using System;
+using System.IO;
+
+namespace Promaker.Services;
+
+/// <summary>
+/// AppData 의 Promaker 설정 파일 경로 단일 출처.
+/// 이전엔 Dualsoft\Promaker 직속이었으나 Settings 하위 폴더로 이동.
+/// 첫 호출 시 옛 위치에 파일이 있고 새 위치에는 없으면 자동 이동(1회) — 사용자 설정 보존.
+/// </summary>
+public static class SettingsPaths
+{
+    private static readonly string AppDataRoot =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                     "Dualsoft", "Promaker");
+
+    private static readonly string SettingsRoot = Path.Combine(AppDataRoot, "Settings");
+
+    private static readonly string[] MovedFileNames =
+    {
+        "PlcConfig.txt",
+        "splitDeviceAasx.txt",
+        "iriPrefix.txt",
+        "createDefaultEntitiesOnEmptyAasx.txt",
+    };
+
+    private static bool _migrated;
+
+    public static string Of(string fileName)
+    {
+        EnsureMigrated();
+        return Path.Combine(SettingsRoot, fileName);
+    }
+
+    public static string PlcConfig                       => Of("PlcConfig.txt");
+    public static string SplitDeviceAasx                 => Of("splitDeviceAasx.txt");
+    public static string IriPrefix                       => Of("iriPrefix.txt");
+    public static string CreateDefaultEntitiesOnEmptyAasx => Of("createDefaultEntitiesOnEmptyAasx.txt");
+
+    /// <summary>PLC 템플릿 사용자 복사본 폴더 — AppData\Dualsoft\Promaker\PlcTemplate</summary>
+    public static string PlcTemplateDir => Path.Combine(AppDataRoot, "PlcTemplate");
+
+    /// <summary>PlcConfig 미존재 시 동봉 XGI_Template.xml 가 복사될 기본 위치.</summary>
+    public static string DefaultXgiTemplate => Path.Combine(PlcTemplateDir, "XGI_Template.xml");
+
+    /// <summary>옛 경로(AppData\Dualsoft\Promaker\xxx) → 새 경로(Settings\xxx) 1회 이동.</summary>
+    private static void EnsureMigrated()
+    {
+        if (_migrated) return;
+        _migrated = true;
+
+        try
+        {
+            Directory.CreateDirectory(SettingsRoot);
+            foreach (var name in MovedFileNames)
+            {
+                var oldPath = Path.Combine(AppDataRoot, name);
+                var newPath = Path.Combine(SettingsRoot, name);
+                if (File.Exists(oldPath) && !File.Exists(newPath))
+                    File.Move(oldPath, newPath);
+            }
+        }
+        catch { /* 마이그레이션 실패해도 신규 경로는 그대로 사용 */ }
+    }
+}

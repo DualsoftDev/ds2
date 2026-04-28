@@ -149,6 +149,24 @@ module internal AasxExportTechnicalData =
             mkSml "KPI_CycleTime" children
             |> Option.map (withSem SimKpiCycleTimeSemanticId)
 
+    let private callCycleTimeToSmc (k: KpiCallCycleTime) : ISubmodelElement =
+        mkSmc "CallCycleTimeItem" [
+            mkProp       "CallName"               k.CallName |> tagSim
+            mkProp       "ParentWorkName"         k.ParentWorkName |> tagSim
+            mkDoubleProp "ActualCycleTime_s"      k.ActualCycleTime_s |> tagSim
+            mkDoubleProp "MinCycleTime_s"         k.MinCycleTime_s |> tagSim
+            mkDoubleProp "MaxCycleTime_s"         k.MaxCycleTime_s |> tagSim
+            mkIntProp    "CycleCount"             k.CycleCount |> tagSim
+            mkDoubleProp "IdleGapBetweenCycles_s" k.IdleGapBetweenCycles_s |> tagSim
+            mkDoubleProp "EfficiencyRate_pct"     k.EfficiencyRate_pct |> tagSim
+        ]
+
+    let private callCycleTimesToSmcGroup (items: ResizeArray<KpiCallCycleTime>) : ISubmodelElement option =
+        if items.Count = 0 then None
+        else
+            let children = items |> Seq.map callCycleTimeToSmc |> Seq.toList
+            mkSml "KPI_CallCycleTime" children
+
     let private throughputToSmc (t: KpiThroughput) : ISubmodelElement =
         let elems : ISubmodelElement list = [
             mkProp       "StartTime"             (t.StartTime.ToString("O")) |> tagSim
@@ -302,6 +320,7 @@ module internal AasxExportTechnicalData =
             let elems : ISubmodelElement list = [
                 simMetaToSmc s.Meta
                 yield! cycleTimesToSmcGroup s.CycleTimes |> Option.toList
+                yield! callCycleTimesToSmcGroup s.CallCycleTimes |> Option.toList
                 yield! (s.Throughput |> Option.map throughputToSmc |> Option.toList)
                 yield! (s.Capacity   |> Option.map capacityToSmc   |> Option.toList)
                 yield! constraintsToSmcGroup s.Constraints |> Option.toList

@@ -77,11 +77,13 @@ public partial class TagWizardDialog
     {
         if (allTypes == null)
         {
+            // '#' 포함 SystemType 은 AddCall 용 템플릿 — TagWizard 콤보에서 제외.
+            static bool IsTemplate(string n) => !string.IsNullOrEmpty(n) && n.Contains('#');
             var set = new System.Collections.Generic.SortedSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var t in Promaker.Services.SystemTypePresetProvider.GetSystemTypes())
-                set.Add(t);
+                if (!IsTemplate(t)) set.Add(t);
             foreach (var kv in Promaker.Services.FBTagMapStore.LoadAll(_store))
-                set.Add(kv.Key);
+                if (!IsTemplate(kv.Key)) set.Add(kv.Key);
             allTypes = set.ToList();
         }
 
@@ -421,12 +423,14 @@ public partial class TagWizardDialog
             DeviceTemplateListBox.Items.Clear();
 
             var names = new System.Collections.Generic.SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            // '#' 포함 SystemType 은 AddCall 용 템플릿 — TagWizard 의 구체 FB 매핑 대상이 아니므로 제외.
+            static bool IsTemplate(string n) => !string.IsNullOrEmpty(n) && n.Contains('#');
             // 1순위: 프로젝트 속성 프리셋
             foreach (var t in Promaker.Services.SystemTypePresetProvider.GetSystemTypes())
-                names.Add(t);
+                if (!IsTemplate(t)) names.Add(t);
             // 2순위: 이미 AASX 안에 존재하는 FBTagMap Preset 키 (프리셋에 없는 사용자 추가분)
             foreach (var kv in Promaker.Services.FBTagMapStore.LoadAll(_store))
-                names.Add(kv.Key);
+                if (!IsTemplate(kv.Key)) names.Add(kv.Key);
 
             if (names.Count == 0)
             {

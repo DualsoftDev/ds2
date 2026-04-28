@@ -58,15 +58,62 @@ public partial class CallCreateDialog : Window
         };
     }
 
+    /// <summary>
+    /// systemTypePreset.json 을 읽는다. 파일이 없으면 DevicePresets.Entries 의 디폴트로
+    /// 새 파일을 생성한 뒤 그 내용을 반환 — 사용자는 이후 이 파일만 편집하면 됨.
+    /// </summary>
     private static string[] LoadPresetsFromFile()
     {
         try
         {
-            if (!File.Exists(PresetFilePath)) return [];
+            if (!File.Exists(PresetFilePath))
+                CreateDefaultPresetFile();
+
             var json = File.ReadAllText(PresetFilePath);
             return JsonSerializer.Deserialize<string[]>(json) ?? [];
         }
         catch { return []; }
+    }
+
+    /// <summary>
+    /// systemTypePreset.json 미존재 시 — Ds2.Core.Store.DevicePresets.Entries3 의
+    /// (modelType, apiList) 를 "apiList:modelType" 형식으로 직렬화해 파일 생성.
+    /// 디폴트 항목의 단일 출처는 F# 의 DevicePresets — 여기서 중복 정의하지 않는다.
+    /// (Motor 샘플은 파일이 아닌 다이얼로그 SystemType 입력란 placeholder 로 별도 노출.)
+    /// </summary>
+    /// <summary>"Cylinder_1".."Cylinder_10" → "Cylinder_#" 로 정규화. 그 외는 원본 유지.</summary>
+    private static string NormalizeCylinder(string modelType)
+    {
+        const string prefix = "Cylinder_";
+        if (modelType.StartsWith(prefix, StringComparison.Ordinal)
+            && int.TryParse(modelType.AsSpan(prefix.Length), out _))
+        {
+            return prefix + "#";
+        }
+        return modelType;
+    }
+
+    private static void CreateDefaultPresetFile()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(PresetFilePath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
+            // Cylinder_N (N=1,2,3,...) 은 모두 ADV;RET — 단일 템플릿 "Cylinder_#" 로 합친다.
+            // ('#' 마커는 AddCall 다이얼로그에서 ApiCall 복제 카운트로 치환됨)
+            var defaults = Ds2.Core.Store.DevicePresets.Entries3
+                .Where(t => !string.IsNullOrEmpty(t.Item2))
+                .Select(t => (modelType: NormalizeCylinder(t.Item1), apiList: t.Item2))
+                .GroupBy(x => x.modelType, StringComparer.Ordinal)
+                .Select(g => $"{g.First().apiList}:{g.Key}")
+                .ToArray();
+
+            var json = JsonSerializer.Serialize(defaults,
+                new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(PresetFilePath, json);
+        }
+        catch { /* 디렉토리 생성/쓰기 실패는 무시 — fallback 으로 진행 */ }
     }
 
     /// <summary>
@@ -80,21 +127,23 @@ public partial class CallCreateDialog : Window
     {
         PresetComboBox.Items.Clear();
 
-        // 프리셋 소스 — 사용자 파일 우선, 없으면 DevicePresets.Entries.
+        // 프리셋 소스 우선순위:
+        //  (1) systemTypePreset.json — 사용자 편집 가능. 없으면 디폴트로 자동 생성.
+        //  (2) DevicePresets.Entries — 파일 읽기/생성 실패 시 in-memory fallback.
+        // FBTagMapStore (AASX) 는 PLC 생성용으로 별도 — AddCall 콤보와 무관.
         var rawEntries = new List<(string modelType, string apiList)>();
-        if (_project != null)
+
+        foreach (var preset in LoadPresetsFromFile())
         {
-            foreach (var preset in LoadPresetsFromFile())
-            {
-                var parts = preset.Split(':');
-                if (parts.Length == 2) rawEntries.Add((parts[1], parts[0]));
-            }
+            var parts = preset.Split(':');
+            if (parts.Length == 2) rawEntries.Add((parts[1], parts[0]));
         }
+
         if (rawEntries.Count == 0)
         {
-            foreach (var (modelType, apiList) in Ds2.Core.Store.DevicePresets.Entries)
-                if (!string.IsNullOrEmpty(apiList))
-                    rawEntries.Add((modelType, apiList));
+            foreach (var t in Ds2.Core.Store.DevicePresets.Entries3)
+                if (!string.IsNullOrEmpty(t.Item2))
+                    rawEntries.Add((t.Item1, t.Item2));
         }
 
         foreach (var (modelType, apiList) in rawEntries)

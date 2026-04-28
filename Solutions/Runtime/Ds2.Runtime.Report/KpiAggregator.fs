@@ -188,6 +188,71 @@ module KpiAggregator =
             })
         |> List.toArray
 
+    /// Call 단위 사이클 분석 — Work drill-down 차트용.
+    /// Type="Call" 인 ReportEntry 들을 Work 사이클과 동일 공식으로 집계.
+    ///
+    /// ParentWorkName 결정 우선순위:
+    ///   1. ReportEntry.ParentWorkId 로 entries 에서 Type="Work" 매칭. (현재 ReportService 는 None 채움.)
+    ///   2. 호출자가 제공한 callToWorkName : CallName → ParentWorkName lookup. (store 기반 fallback.)
+    let buildCallCycleTimes
+            (callToWorkName: string -> string)
+            (report: SimulationReport)
+            : Ds2.Core.SimulationResultSnapshotTypes.KpiCallCycleTime array =
+        let workNameById =
+            report.Entries
+            |> List.filter (fun e -> e.Type = "Work")
+            |> List.map (fun e -> e.Id, e.Name)
+            |> Map.ofList
+        SimulationReport.getCalls report
+        |> List.map (fun entry ->
+            let cts = cycleDurations entry
+            let count = List.length cts
+            let avg   = mean cts
+            let mn    = if cts.IsEmpty then 0.0 else List.min cts
+            let mx    = if cts.IsEmpty then 0.0 else List.max cts
+            let gTime = secondsOf entry.Segments StateGoing
+
+            let idleGap =
+                let segs = entry.Segments |> List.toArray
+                let mutable acc = 0.0
+                for i in 0 .. segs.Length - 1 do
+                    if segs.[i].State = StateFinish then
+                        match segs.[i].EndTime with
+                        | Some fEnd ->
+                            let mutable j = i + 1
+                            let mutable found = false
+                            while not found && j < segs.Length do
+                                if segs.[j].State = StateGoing then found <- true
+                                else j <- j + 1
+                            if found then
+                                let gap = (segs.[j].StartTime - fEnd).TotalSeconds
+                                if gap > 0.0 then acc <- acc + gap
+                        | None -> ()
+                acc
+
+            let den = gTime + idleGap
+            let efficiencyPct = if den > 0.0 then (gTime / den) * 100.0 else 0.0
+
+            let parentWorkName =
+                match entry.ParentWorkId with
+                | Some pid ->
+                    match Map.tryFind pid workNameById with
+                    | Some n when not (System.String.IsNullOrEmpty n) -> n
+                    | _ -> callToWorkName entry.Name
+                | None -> callToWorkName entry.Name
+
+            let r = Ds2.Core.SimulationResultSnapshotTypes.KpiCallCycleTime()
+            r.CallName               <- entry.Name
+            r.ParentWorkName         <- parentWorkName
+            r.ActualCycleTime_s      <- avg
+            r.MinCycleTime_s         <- mn
+            r.MaxCycleTime_s         <- mx
+            r.CycleCount             <- count
+            r.IdleGapBetweenCycles_s <- idleGap
+            r.EfficiencyRate_pct     <- efficiencyPct
+            r)
+        |> List.toArray
+
     /// 시스템 전체 SimThroughputResult 산출 (단위 = Work F-카운트 합계)
     let buildThroughput
             (taktTime: float)
@@ -563,9 +628,22 @@ module KpiAggregator =
         let targetThPerHour  = p |> Option.map (fun x -> x.TargetThroughputPerHour)  |> Option.defaultValue 0.0
         let bottleneck       = p |> Option.map (fun x -> x.BottleneckThreshold)      |> Option.defaultValue 0.90
         let warnPct          = p |> Option.map (fun x -> x.CycleTimeWarningThreshold) |> Option.defaultValue 10.0
+        // 산업별 World-Class OEE 벤치마크 (자체 inline — 외부 helper 의존 제거).
+        let industryBenchmarkOf (industryType: string) =
+            if isNull industryType then 80.0
+            else
+                match industryType.ToLowerInvariant() with
+                | "automotive" -> 87.5
+                | "electronics" | "semiconductor" -> 92.5
+                | "food" | "beverage" -> 80.0
+                | "pharmaceutical" -> 75.0
+                | "metal" | "steel" -> 85.0
+                | "plastic" -> 80.0
+                | "logistics" | "packaging" -> 77.5
+                | _ -> 80.0
         let benchmark        =
             p
-            |> Option.map (fun x -> SimulationHelpers.getIndustryBenchmark x.IndustryType)
+            |> Option.map (fun x -> industryBenchmarkOf x.IndustryType)
             |> Option.defaultValue 80.0
         let targetUtil       = p |> Option.map (fun x -> x.TargetUtilizationRate)    |> Option.defaultValue 85.0
         let targetOee        = p |> Option.map (fun x -> x.TargetOEE)                |> Option.defaultValue 85.0

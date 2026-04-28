@@ -51,12 +51,8 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
     public string PvOutAddressFilter { get => _pvOutAddr;  set => SetPv(ref _pvOutAddr, value, nameof(PvOutAddressFilter)); }
     public string PvInSymbolFilter   { get => _pvInSym;    set => SetPv(ref _pvInSym, value, nameof(PvInSymbolFilter)); }
     public string PvInAddressFilter  { get => _pvInAddr;   set => SetPv(ref _pvInAddr, value, nameof(PvInAddressFilter)); }
-    /// <summary>
-    /// 빠른 타이핑 중 매 키마다 전체 행 재평가 + 재렌더로 버벅이므로 150ms 디바운스.
-    /// 마지막 키 입력 후 한 번만 Refresh 수행.
-    /// </summary>
-    private readonly System.Windows.Threading.DispatcherTimer _pvDebounce =
-        new() { Interval = TimeSpan.FromMilliseconds(150) };
+    /// <summary>150ms 디바운스 — 빠른 타이핑 시 마지막 입력 후 한 번만 _ioView.Refresh.</summary>
+    private RowFilterDebouncer _pvDebounce = null!;
 
     private void SetPv(ref string field, string value, string name)
     {
@@ -64,8 +60,7 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         if (field == value) return;
         field = value;
         OnPropertyChanged(name);
-        _pvDebounce.Stop();
-        _pvDebounce.Start();
+        _pvDebounce.Bump();
     }
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged(string name) =>
@@ -97,12 +92,7 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         _ioView.Filter = FilterIoRow;
         IoSignalPreviewGrid.ItemsSource = _ioView;
 
-        // 필터 디바운스 Tick — Refresh 1 회 후 자기 자신 stop.
-        _pvDebounce.Tick += (_, _) =>
-        {
-            _pvDebounce.Stop();
-            _ioView?.Refresh();
-        };
+        _pvDebounce = new RowFilterDebouncer(() => _ioView?.Refresh());
 
         DummySignalPreviewGrid.ItemsSource = _dummyRows;
         UnmatchedSignalGrid.ItemsSource = _unmatchedRows;
@@ -153,8 +143,8 @@ public partial class TagWizardDialog : Window, INotifyPropertyChanged
         foreach (var n in names) WizApiNames.Add(n);
     }
 
-    /// <summary>"Api 사용 안 함" 표시용 sentinel.</summary>
-    public const string ApiNoneSentinel = "Api_None";
+    /// <summary>"Api 사용 안 함" 표시용 sentinel — IoConstants 의 별칭(기존 호출부 호환).</summary>
+    public const string ApiNoneSentinel = Promaker.Services.IoConstants.ApiNoneSentinel;
 
     /// <summary>새 행의 기본 ApiName 은 Api_None — 사용자가 명시적으로 실제 API 를 선택해야 한다.</summary>
     private string DefaultApiName() => ApiNoneSentinel;

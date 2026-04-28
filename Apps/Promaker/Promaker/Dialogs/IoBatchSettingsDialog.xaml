@@ -198,15 +198,34 @@
             <!-- 필터는 그리드 컬럼 헤더 안으로 이전됨. 조회 전용이므로 편집 버튼 제거. -->
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="8"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
+                <Button x:Name="RefreshButton"
+                        Grid.Column="0"
+                        Style="{StaticResource DarkButton}"
+                        Content="🔄 새로고침"
+                        MinWidth="110"
+                        Padding="8,4"
+                        Click="Refresh_Click"
+                        ToolTip="현재 store 의 매크로/Preset 으로 IO 신호 재생성"/>
+
+                <TextBlock x:Name="StatusText"
+                           Grid.Column="1"
+                           VerticalAlignment="Center"
+                           Margin="14,0,0,0"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           FontSize="12"/>
+
                 <CheckBox x:Name="ShowOnlyUnmatchedCheckBox"
-                          Grid.Column="1"
+                          Grid.Column="2"
                           Content="미매치만 보기"
-                          Visibility="Collapsed"
                           VerticalAlignment="Center"
+                          Visibility="Collapsed"
                           Checked="ShowOnlyUnmatched_Changed"
                           Unchecked="ShowOnlyUnmatched_Changed"/>
             </Grid>

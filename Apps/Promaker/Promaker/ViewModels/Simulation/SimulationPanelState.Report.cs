@@ -128,4 +128,7 @@ public partial class SimulationPanelState
         var endTime = currentTime >= lastRecordTime ? currentTime : lastRecordTime;
         return ReportService.fromStateChanges(_simStartTime, endTime, _stateChangeRecords);
     }
+
+    /// <summary>Live SimulationReport — Call/Work 의 raw StateSegment 타임라인 접근용.</summary>
+    internal SimulationReport CurrentReport() => BuildReport();
 }
