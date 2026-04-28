@@ -63,51 +63,64 @@ public partial class CallCreateDialog : Window
         catch { return []; }
     }
 
+    /// <summary>
+    /// Cylinder_1 … Cylinder_10 을 단일 "Cylinder" 프리셋으로 표시하기 위한 가상 model 이름.
+    /// SystemType 은 Add 시점에 ApiCall 개수로부터 동적으로 결정 ("Cylinder_N").
+    /// </summary>
+    private const string CylinderVirtualModel = "Cylinder";
+
+    private static bool IsCylinderModel(string? modelType) =>
+        !string.IsNullOrEmpty(modelType) && modelType.StartsWith("Cylinder", StringComparison.Ordinal);
+
     private void LoadPresets()
     {
         PresetComboBox.Items.Clear();
 
+        // 프리셋 소스 — 사용자 파일 우선, 없으면 DevicePresets.Entries.
+        var rawEntries = new List<(string modelType, string apiList)>();
         if (_project != null)
         {
-            var presets = LoadPresetsFromFile();
-            foreach (var preset in presets)
+            foreach (var preset in LoadPresetsFromFile())
             {
                 var parts = preset.Split(':');
-                if (parts.Length == 2)
-                {
-                    var sysType  = parts[0];  // "ADV;RET" — ApiName 템플릿
-                    var modelType = parts[1]; // "Unit"    — SystemType으로 저장될 값
-                    PresetComboBox.Items.Add(new ComboBoxItem
-                    {
-                        Content = modelType,
-                        Tag = $"{sysType}|{modelType}"
-                    });
-                }
+                if (parts.Length == 2) rawEntries.Add((parts[1], parts[0]));
             }
         }
-
-        // 프리셋이 없으면 기본값 추가 (DevicePresets.Entries 단일 정의 참조)
-        if (PresetComboBox.Items.Count == 0)
+        if (rawEntries.Count == 0)
         {
-            foreach (var (modelType, sysType) in Ds2.Core.Store.DevicePresets.Entries)
+            foreach (var (modelType, apiList) in Ds2.Core.Store.DevicePresets.Entries)
+                if (!string.IsNullOrEmpty(apiList))
+                    rawEntries.Add((modelType, apiList));
+        }
+
+        // Cylinder_N 들을 가상 "Cylinder" 한 항목으로 병합.
+        // 첫 등장한 ApiList 를 대표로 사용 (모두 "ADV;RET" 로 동일).
+        bool cylinderAdded = false;
+        foreach (var (modelType, apiList) in rawEntries)
+        {
+            if (IsCylinderModel(modelType))
             {
-                if (string.IsNullOrEmpty(sysType)) continue;
+                if (cylinderAdded) continue;
+                PresetComboBox.Items.Add(new ComboBoxItem
+                {
+                    Content = CylinderVirtualModel,
+                    Tag = $"{apiList}|{CylinderVirtualModel}",
+                });
+                cylinderAdded = true;
+            }
+            else
+            {
                 PresetComboBox.Items.Add(new ComboBoxItem
                 {
                     Content = modelType,
-                    Tag = $"{sysType}|{modelType}"
+                    Tag = $"{apiList}|{modelType}",
                 });
             }
         }
 
         // 직접 입력 항목 추가 (Tag = null → Dummy SystemType)
-        PresetComboBox.Items.Add(new ComboBoxItem
-        {
-            Content = "직접 입력",
-            Tag = null
-        });
+        PresetComboBox.Items.Add(new ComboBoxItem { Content = "직접 입력", Tag = null });
 
-        // 첫 번째 항목 선택
         if (PresetComboBox.Items.Count > 0)
             PresetComboBox.SelectedIndex = 0;
     }
@@ -128,10 +141,31 @@ public partial class CallCreateDialog : Window
         }
         else if (PresetComboBox.SelectedItem is ComboBoxItem item)
         {
-            var sysType = ParseSysType(item.Tag?.ToString());
+            var apiList   = ParseSysType(item.Tag?.ToString());
+            var modelType = ParseModelType(item.Tag?.ToString());
             BasicApiNameTextBox.IsEnabled = false;
-            BasicApiNameTextBox.Text = sysType ?? "";
+            BasicApiNameTextBox.Text = apiList ?? "";
+
+            // Cylinder 프리셋: ApiCall 복제 카운트로 SystemType 을 결정 — 패널 자동 펼침.
+            if (string.Equals(modelType, CylinderVirtualModel, StringComparison.Ordinal))
+            {
+                if (RadioApiCallReplication is not null) RadioApiCallReplication.IsChecked = true;
+                if (AdvancedExpander is not null) AdvancedExpander.IsExpanded = true;
+            }
         }
+    }
+
+    /// <summary>
+    /// Cylinder FB 가 지원하는 인스턴스 크기 (XGI_Template.xml 기준).
+    /// 입력된 ApiCall 개수보다 크거나 같은 가장 작은 값으로 올림 매핑.
+    /// </summary>
+    private static readonly int[] CylinderSupportedSizes = { 1, 2, 3, 4, 6, 8, 10 };
+
+    private static int RoundUpToCylinderSize(int n)
+    {
+        foreach (var s in CylinderSupportedSizes)
+            if (s >= n) return s;
+        return CylinderSupportedSizes[^1];
     }
 
     // ─── 복제 모드 라디오 ───
@@ -143,6 +177,19 @@ public partial class CallCreateDialog : Window
         CallReplicationPanel.IsEnabled = isCallMode;
         ApiCallReplicationPanel.IsEnabled = !isCallMode;
     }
+
+    // 좌/우 카운트 TextBox — 입력 시 해당 라디오 자동 선택 (UX 버그 방지).
+    private void OnCallCountFocus(object sender, RoutedEventArgs e)
+    {
+        if (RadioCallReplication is { } r && r.IsChecked != true) r.IsChecked = true;
+    }
+    private void OnCallCountChanged(object sender, TextChangedEventArgs e) => OnCallCountFocus(sender, e);
+
+    private void OnApiCallCountFocus(object sender, RoutedEventArgs e)
+    {
+        if (RadioApiCallReplication is { } r && r.IsChecked != true) r.IsChecked = true;
+    }
+    private void OnApiCallCountChanged(object sender, TextChangedEventArgs e) => OnApiCallCountFocus(sender, e);
 
     // ─── 고급 탭: ApiDef 검색 ───
     private void OnApiNameFilterChanged(object sender, TextChangedEventArgs e)
@@ -223,8 +270,23 @@ public partial class CallCreateDialog : Window
             return null;
         // 직접 입력 선택 시 → Dummy (Tag=null)
         if (IsCustomInputSelected()) return "Dummy";
-        // ModelType("Unit")을 SystemType으로 저장 — inferModelType이 직접 인식
-        return ParseModelType(item.Tag?.ToString());
+
+        var modelType = ParseModelType(item.Tag?.ToString());
+
+        // 가상 Cylinder 프리셋 → ApiCall 개수로 Cylinder_N 동적 결정.
+        // (지원 크기 {1,2,3,4,6,8,10} 중 입력 N 이상의 최소 값)
+        if (string.Equals(modelType, CylinderVirtualModel, StringComparison.Ordinal))
+        {
+            int n = 1;
+            if (AdvancedExpander?.IsExpanded == true
+                && RadioApiCallReplication?.IsChecked == true
+                && int.TryParse(ApiCallCountTextBox?.Text?.Trim(), out var parsed)
+                && parsed >= 1)
+                n = parsed;
+            return $"Cylinder_{RoundUpToCylinderSize(n)}";
+        }
+
+        return modelType;
     }
 
     private void CommitCallReplication(string alias, List<string> apiNames)

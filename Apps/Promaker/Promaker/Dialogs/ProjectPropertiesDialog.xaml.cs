@@ -63,17 +63,13 @@ public partial class ProjectPropertiesDialog : Window
         SplitDeviceAasxBox.IsChecked = AppSettingStore.LoadBoolOrDefault(SplitDeviceAasxSettingsPath, false);
         CreateDefaultEntitiesBox.IsChecked = AppSettingStore.LoadBoolOrDefault(CreateDefaultEntitiesSettingsPath, false);
 
-        // PLC 설정 로드
+        // PLC 설정 로드 — IoTemplateDirPath 는 더 이상 사용하지 않음 (AASX Preset 기반)
         var plcCfg = PlcConfig.Settings;
-        PlcIoTemplateDirBox.Text   = plcCfg.IoTemplateDirPath;
         PlcXgiTemplatePathBox.Text = plcCfg.XgiTemplatePath;
         PlcXg5000ExePathBox.Text   = plcCfg.Xg5000ExePath;
 
-        // 프리셋 SystemType 매핑 로드 (FBTagMap 목록이 이에 의존함)
+        // 프리셋 SystemType 매핑 로드
         LoadPresetMappings();
-
-        // FBTagMap 디바이스 타입 목록 로드
-        LoadFBTagMapDeviceTypes();
 
         // 기본 값 설정
         PresetTextBox.Text = Ds2.Core.Store.DevicePresets.Entries[0].Item2;
@@ -81,58 +77,8 @@ public partial class ProjectPropertiesDialog : Window
         Loaded += (_, _) => ProjectNameBox.Focus();
     }
 
-    // ── FBTagMap 디바이스 타입 목록 ──────────────────────────────────────────
-
-    private void LoadFBTagMapDeviceTypes()
-    {
-        FBTagMapDeviceTypeListBox.Items.Clear();
-
-        var store = FBTagMapStore.LoadAll(_store);
-
-        // 현재 프리셋 매핑에서 디바이스 타입(=SystemType) 추출
-        var deviceTypes = PresetMappingListBox.Items
-            .Cast<string>()
-            .Select(m =>
-            {
-                var parts = m.Split(':');
-                return parts.Length == 2 ? parts[1].Trim() : "";
-            })
-            .Where(s => !string.IsNullOrEmpty(s))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase);
-
-        foreach (var dt in deviceTypes)
-        {
-            var fbName = store.TryGetValue(dt, out var preset) ? preset.FBTagMapName : "";
-            var portCount = store.TryGetValue(dt, out var p2) ? (p2.Ports?.Count ?? 0) : 0;
-            var display = string.IsNullOrEmpty(fbName)
-                ? $"{dt}  (미설정)"
-                : $"{dt}  → {fbName} ({portCount}포트)";
-
-            FBTagMapDeviceTypeListBox.Items.Add(new FBTagMapDeviceTypeItem(dt, display));
-        }
-    }
-
-    private void EditFBTagMap_Click(object sender, RoutedEventArgs e)
-    {
-        if (FBTagMapDeviceTypeListBox.SelectedItem is not FBTagMapDeviceTypeItem item)
-        {
-            DialogHelpers.Warn("편집할 디바이스 타입을 선택해주세요.");
-            return;
-        }
-
-        var xgiTemplatePath = string.IsNullOrWhiteSpace(PlcXgiTemplatePathBox.Text)
-            ? PlcConfig.Settings.EffectiveXgiTemplatePath
-            : PlcXgiTemplatePathBox.Text.Trim();
-
-        var dlg = new FBTagMapEditorDialog(item.DeviceType, xgiTemplatePath, _store)
-        {
-            Owner = this
-        };
-
-        if (dlg.ShowDialog() == true)
-            LoadFBTagMapDeviceTypes(); // 목록 새로고침
-    }
+    // ── FBTagMap 디바이스 타입 설정은 제거됨 ────────────────────────────────
+    //    IoList = 단일 진실원 (B안). FB 포트 바인딩은 IO Wizard 에서 편집합니다.
 
     // ── 프리셋 ───────────────────────────────────────────────────────────────
 
@@ -211,9 +157,6 @@ public partial class ProjectPropertiesDialog : Window
             PresetMappingListBox.Items.Remove(item);
 
         PresetMappingListBox.Items.Add(mapping);
-
-        // 디바이스 타입 목록 갱신 (추가/제거로 디바이스 타입이 변할 수 있음)
-        LoadFBTagMapDeviceTypes();
     }
 
     private void RemovePreset_Click(object sender, RoutedEventArgs e)
@@ -221,7 +164,6 @@ public partial class ProjectPropertiesDialog : Window
         if (PresetMappingListBox.SelectedItem is string selectedMapping)
         {
             PresetMappingListBox.Items.Remove(selectedMapping);
-            LoadFBTagMapDeviceTypes();
         }
         else
         {
@@ -275,7 +217,6 @@ public partial class ProjectPropertiesDialog : Window
         SavePresetsToFile(ResultPresetSystemTypes);
 
         PlcConfig.Save(
-            PlcIoTemplateDirBox.Text.Trim(),
             PlcXgiTemplatePathBox.Text.Trim(),
             PlcXg5000ExePathBox.Text.Trim());
 
@@ -283,12 +224,6 @@ public partial class ProjectPropertiesDialog : Window
     }
 
     // ── PLC 탭: 폴더/파일 선택 ───────────────────────────────────────────────
-
-    private void BrowsePlcIoTemplateDir_Click(object sender, RoutedEventArgs e)
-    {
-        var result = BrowseFolder("IOList 템플릿 폴더 선택", PlcIoTemplateDirBox.Text);
-        if (result != null) PlcIoTemplateDirBox.Text = result;
-    }
 
     private void BrowsePlcXgiTemplate_Click(object sender, RoutedEventArgs e)
     {
@@ -325,5 +260,3 @@ public partial class ProjectPropertiesDialog : Window
     }
 }
 
-/// <summary>FBTagMap 디바이스 타입 목록 항목 (ListBox 바인딩용)</summary>
-public record FBTagMapDeviceTypeItem(string DeviceType, string DisplayText);

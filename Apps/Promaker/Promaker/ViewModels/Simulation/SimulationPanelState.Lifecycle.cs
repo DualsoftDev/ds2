@@ -126,6 +126,7 @@ public partial class SimulationPanelState
 
             _simStartTime = DateTime.Now;
             _stateChangeRecords.Clear();
+            ResetTraversalTracking();
             _suppressedWarnings.Clear();
             HasReportData = false;
             SimEventLog.Clear();
@@ -207,6 +208,13 @@ public partial class SimulationPanelState
             isSimPaused: false,
             statusText: SimText.Stopped,
             logText: SimText.Stopped);
+
+        // 시뮬 종료 시 결과 시나리오 자동 저장 (TechnicalData.SimulationResults)
+        try
+        {
+            TryCaptureScenario($"Run_{DateTime.Now:yyyyMMdd_HHmmss}");
+        }
+        catch { /* best-effort */ }
     }
 
     private void InitSceneEventHandler()
@@ -471,6 +479,7 @@ public partial class SimulationPanelState
     {
         GanttChart.IsRunning = false;
         _stateChangeRecords.Clear();
+        ResetTraversalTracking();
         HasReportData = false;
         SimClock = SimText.ClockZero;
         SelectedSimWork = null;

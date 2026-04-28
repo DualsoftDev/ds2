@@ -1,0 +1,196 @@
+<Window x:Class="Promaker.Dialogs.TagWizardBasicDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="TAG Wizard (기본) - 심볼 매크로 할당"
+        Width="1100" Height="720"
+        MinWidth="900" MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        ResizeMode="CanResize">
+    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1">
+        <Grid Margin="20,16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>   <!-- 제목 -->
+                <RowDefinition Height="10"/>
+                <RowDefinition Height="Auto"/>   <!-- 매크로 입력 -->
+                <RowDefinition Height="12"/>
+                <RowDefinition Height="Auto"/>   <!-- Flow 주소 헤더 -->
+                <RowDefinition Height="*"/>      <!-- Flow 주소 그리드 -->
+                <RowDefinition Height="10"/>
+                <RowDefinition Height="Auto"/>   <!-- 미리보기 헤더 -->
+                <RowDefinition Height="2*"/>     <!-- 미리보기 그리드 -->
+                <RowDefinition Height="10"/>
+                <RowDefinition Height="Auto"/>   <!-- 버튼 -->
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Orientation="Horizontal">
+                <TextBlock Text="⚡ TAG Wizard (기본)"
+                           FontSize="18" FontWeight="SemiBold"
+                           VerticalAlignment="Center"/>
+                <TextBlock Text="  — 심볼 매크로 및 선두 주소로 ApiCall InTag/OutTag 일괄 생성"
+                           FontSize="11" VerticalAlignment="Center"
+                           Margin="8,3,0,0"
+                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+            </StackPanel>
+
+            <!-- 매크로 입력 -->
+            <Border Grid.Row="2"
+                    Background="{DynamicResource PrimaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="6" Padding="14,10">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="8"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.ColumnSpan="8"
+                               FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
+                               TextWrapping="Wrap"
+                               Text="💡 심볼 매크로 — $(F)=Flow명, $(D)=Device Alias, $(A)=Api명. Input/Output 각각 지정. 비워두면 해당 방향은 생성하지 않음."/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Input(IW):"
+                               VerticalAlignment="Center" Margin="0,0,6,0"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    <TextBox   Grid.Row="2" Grid.Column="1" x:Name="IwMacroBox"
+                               Text="$(F)_I_$(D)_$(A)"
+                               FontFamily="Consolas" Padding="6,4"
+                               ToolTip="비워두면 IW 미생성"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="3" Text="Output(QW):"
+                               VerticalAlignment="Center" Margin="0,0,6,0"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    <TextBox   Grid.Row="2" Grid.Column="4" x:Name="QwMacroBox"
+                               Text="$(F)_O_$(D)_$(A)"
+                               FontFamily="Consolas" Padding="6,4"
+                               ToolTip="비워두면 QW 미생성"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="6" Text="Memory(MW):"
+                               VerticalAlignment="Center" Margin="0,0,6,0"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    <TextBox   Grid.Row="2" Grid.Column="7" x:Name="MwMacroBox"
+                               Text=""
+                               FontFamily="Consolas" Padding="6,4"
+                               ToolTip="비워두면 MW 미생성"/>
+                </Grid>
+            </Border>
+
+            <!-- Flow 주소 헤더 -->
+            <Grid Grid.Row="4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0"
+                           Text="📊 Flow 별 선두 주소 (비워두면 주소 미할당)"
+                           FontSize="13" FontWeight="SemiBold"
+                           Foreground="{DynamicResource PrimaryTextBrush}"/>
+                <Button Grid.Column="1"
+                        Content="🔄 Flow 재로드"
+                        Style="{StaticResource DarkButton}"
+                        Padding="10,4"
+                        Click="ReloadFlows_Click"/>
+            </Grid>
+
+            <!-- Flow 주소 그리드 -->
+            <DataGrid Grid.Row="5" x:Name="FlowBaseGrid"
+                      AutoGenerateColumns="False"
+                      CanUserAddRows="False"
+                      CanUserDeleteRows="False"
+                      CanUserSortColumns="True"
+                      SelectionMode="Single"
+                      GridLinesVisibility="All"
+                      BorderBrush="{DynamicResource BorderBrush}"
+                      BorderThickness="1"
+                      Margin="0,8,0,0">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Flow 이름"  Width="*"
+                                        Binding="{Binding FlowName}" IsReadOnly="True"/>
+                    <DataGridTextColumn Header="IW_BASE"   Width="120"
+                                        Binding="{Binding IW_Base, UpdateSourceTrigger=PropertyChanged}"/>
+                    <DataGridTextColumn Header="QW_BASE"   Width="120"
+                                        Binding="{Binding QW_Base, UpdateSourceTrigger=PropertyChanged}"/>
+                    <DataGridTextColumn Header="MW_BASE"   Width="120"
+                                        Binding="{Binding MW_Base, UpdateSourceTrigger=PropertyChanged}"/>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <!-- 미리보기 헤더 -->
+            <Grid Grid.Row="7">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0"
+                           Text="🔍 미리보기"
+                           FontSize="13" FontWeight="SemiBold"
+                           Foreground="{DynamicResource PrimaryTextBrush}"/>
+                <Button Grid.Column="1"
+                        Content="🔄 미리보기 갱신"
+                        Style="{StaticResource DarkButton}"
+                        Padding="10,4"
+                        Click="RefreshPreview_Click"/>
+            </Grid>
+
+            <!-- 미리보기 그리드 -->
+            <DataGrid Grid.Row="8" x:Name="PreviewGrid"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      CanUserAddRows="False"
+                      CanUserDeleteRows="False"
+                      SelectionMode="Extended"
+                      GridLinesVisibility="All"
+                      BorderBrush="{DynamicResource BorderBrush}"
+                      BorderThickness="1"
+                      Margin="0,8,0,0">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Flow"     Width="*"   Binding="{Binding Flow}"/>
+                    <DataGridTextColumn Header="Device"   Width="*"   Binding="{Binding Device}"/>
+                    <DataGridTextColumn Header="Api"      Width="*"   Binding="{Binding Api}"/>
+                    <DataGridTextColumn Header="InTag"    Width="2*"  Binding="{Binding InTag}"/>
+                    <DataGridTextColumn Header="InAddr"   Width="*"   Binding="{Binding InAddress}"/>
+                    <DataGridTextColumn Header="OutTag"   Width="2*"  Binding="{Binding OutTag}"/>
+                    <DataGridTextColumn Header="OutAddr"  Width="*"   Binding="{Binding OutAddress}"/>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <!-- 버튼 -->
+            <Grid Grid.Row="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" x:Name="StatusText"
+                           VerticalAlignment="Center"
+                           FontSize="11"
+                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                <Button Grid.Column="1"
+                        Content="취소"
+                        Style="{StaticResource DarkButton}"
+                        MinWidth="90" Padding="8,6"
+                        IsCancel="True"/>
+                <Button Grid.Column="3"
+                        Content="✓ 적용"
+                        Style="{StaticResource DarkButton}"
+                        MinWidth="110" Padding="8,6"
+                        Click="Apply_Click"
+                        ToolTip="미리보기의 모든 태그를 ApiCall.InTag/OutTag 에 일괄 덮어쓰기"/>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

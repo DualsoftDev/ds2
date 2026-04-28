@@ -24,17 +24,11 @@ public partial class TagWizardDialog
             NextButton.IsEnabled = false;
             NextButton.Content = "생성 중...";
 
-            // ActiveSystem IO 템플릿을 AppData로 동기화 (F# 파이프라인은 파일 시스템을 읽음)
-            TemplateManager.SyncFromStore(_store);
-
-            // 주소 설정 파일이 없으면 자동 생성
-            EnsureAddressConfigFiles();
-
-            // 프로젝트에서 사용된 시스템 타입 수집 및 템플릿 자동 생성
-            EnsureTemplatesForUsedSystemTypes();
-
-            var templateDir = TemplateManager.TemplatesFolderPath;
-            var result = _generator.Generate(_store, templateDir);
+            // IoList 파이프라인은 여전히 디렉토리 입력을 받는다. AASX 내 Preset 데이터를
+            // 휘발성 임시 디렉토리에 txt 로 emit 후 호출 → 즉시 삭제.
+            // 영구 AppData 경로는 사용하지 않는다.
+            using var tempDir = PresetToTempTemplateDir.Materialize(_store);
+            var result = _generator.Generate(_store, tempDir.Path);
 
             if (!_generator.IsSuccess(result))
             {
@@ -89,6 +83,10 @@ public partial class TagWizardDialog
 
         foreach (var row in _ioRows)
         {
+            // Api_None 행은 의도적으로 API 미바인딩 — 매칭 실패가 아니므로 분류 대상에서 제외.
+            if (string.IsNullOrEmpty(row.Api))
+                continue;
+
             if (row.CallId == Guid.Empty || row.ApiCallId == Guid.Empty)
             {
                 string reason = (row.CallId == Guid.Empty, row.ApiCallId == Guid.Empty) switch
@@ -124,37 +122,45 @@ public partial class TagWizardDialog
     }
 
     /// <summary>
-    /// SignalRecord → IoBatchRow 변환
+    /// SignalRecord → IoBatchRow 변환 (B안 v2: ApiCallId 기준 1:1 행 생성)
     /// </summary>
     private List<IoBatchRow> ConvertSignalsToRows(GenerationResult result)
     {
         var rows = new List<IoBatchRow>();
 
-        // Group signals by Flow/Work/Call/Device
+        // Api_None 신호: 묶음 없이 신호 1개 = 행 1개 (API 컬럼 빈칸).
+        foreach (var s in result.IoSignals.Where(IsApiNone))
+            rows.Add(MakeSingleSignalRow(s));
+
+        // 그 외: ApiDefName 기준 IW + QW 페어링.
         var grouped = result.IoSignals
-            .GroupBy(s => new { s.FlowName, s.WorkName, s.CallName, s.DeviceName });
+            .Where(s => !IsApiNone(s))
+            .GroupBy(s => new { s.ApiCallId, s.FlowName, s.WorkName, s.CallName, s.DeviceName });
 
         foreach (var group in grouped)
         {
             var key = group.Key;
-
-            // Find input and output signals (IoType starts with I/Q)
-            var inputSignal = group.FirstOrDefault(s => s.IoType.StartsWith("I", StringComparison.OrdinalIgnoreCase));
+            var inputSignal  = group.FirstOrDefault(s => s.IoType.StartsWith("I", StringComparison.OrdinalIgnoreCase));
             var outputSignal = group.FirstOrDefault(s => s.IoType.StartsWith("Q", StringComparison.OrdinalIgnoreCase));
 
-            // ApiCall 매칭
+            // ApiCall 매칭 — SignalRecord.ApiCallId 우선, 없으면 이름 fallback (legacy)
             var matchedCall = FindCallByName(_store, key.FlowName, key.WorkName, key.CallName);
             var callId = matchedCall?.Id ?? Guid.Empty;
 
-            var apiCallId = Guid.Empty;
+            var apiCallId = key.ApiCallId;
             string device = "UNKNOWN";
-            string api = key.DeviceName;  // Initial value (DeviceName represents ApiDef.Name)
+            string api = key.DeviceName;
 
+            ApiCall? matchedApiCall = null;
             if (matchedCall != null)
             {
-                var matchedApiCall = Device.findApiCallByDeviceName(matchedCall, key.DeviceName, _store)?.Value;
-                apiCallId = matchedApiCall?.Id ?? Guid.Empty;
-
+                if (apiCallId != Guid.Empty)
+                    matchedApiCall = matchedCall.ApiCalls.FirstOrDefault(ac => ac.Id == apiCallId);
+                if (matchedApiCall == null)
+                {
+                    matchedApiCall = Device.findApiCallByDeviceName(matchedCall, key.DeviceName, _store)?.Value;
+                    apiCallId = matchedApiCall?.Id ?? apiCallId;
+                }
                 if (matchedApiCall?.ApiDefId?.Value is { } apiDefId)
                 {
                     var apiDef = Queries.getApiDef(apiDefId, _store)?.Value;
@@ -182,6 +188,26 @@ public partial class TagWizardDialog
         }
 
         return rows;
+    }
+
+    private static bool IsApiNone(SignalRecord s) =>
+        string.Equals(s.DeviceName, TagWizardDialog.ApiNoneSentinel, StringComparison.OrdinalIgnoreCase);
+
+    private static IoBatchRow MakeSingleSignalRow(SignalRecord s)
+    {
+        bool isInput  = s.IoType.StartsWith("I", StringComparison.OrdinalIgnoreCase);
+        bool isOutput = s.IoType.StartsWith("Q", StringComparison.OrdinalIgnoreCase);
+        return new IoBatchRow(
+            callId:     Guid.Empty,
+            apiCallId:  s.ApiCallId,
+            flow:       s.FlowName,
+            work:       s.WorkName,
+            device:     s.DeviceAlias,
+            api:        "",                                 // Api_None → 빈칸
+            inAddress:  isInput  ? s.Address : "",
+            inSymbol:   isInput  ? s.VarName : "",
+            outAddress: isOutput ? s.Address : "",
+            outSymbol:  isOutput ? s.VarName : "");
     }
 
     /// <summary>

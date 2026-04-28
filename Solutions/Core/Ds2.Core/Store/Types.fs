@@ -55,18 +55,48 @@ module UiDefaults =
 //   C# 사용: Ds2.Store.DevicePresets.Entries / DefaultMappingStrings
 //   F# 사용: DevicePresets.KnownNames / DefaultMappingStrings (open Ds2.Store 후)
 
-/// 등록된 3D 모델 프리셋 레지스트리
+/// 등록된 시스템 타입 프리셋 레지스트리 (B안 v2 — Cylinder 7종 + 로봇 2종).
+/// 각 entry 는 (SystemType, ApiList, DefaultFBName).
+/// ApiList: ';' 구분 API 이름 목록. DefaultFBName: XGI_Template.xml 의 FB 이름.
+/// Cylinder_N: 센서 N쌍 (LS_AdvN/LS_RetN) 을 가진 N-실린더 FB. XGI_Template 에 1/2/3/4/6/8/10 FB 존재.
 module DevicePresets =
-    /// (modelType, canonicalSystemType) 쌍 배열 — Dummy 포함
-    let Entries : (string * string)[] = [|
-        ("Unit",        "ADV;RET")
-        ("Robot",       "START;1ST_IN_OK;2ND_IN_OK;WORK_COMMP_RST")
-        ("Lifter",      "UP;DOWN")
-        ("Pusher",      "FWD;BWD")
-        ("Conveyor",    "MOVE;STOP")
-        ("Robot_SCARA", "POS1;POS2;HOME")
-        ("Dummy",       "")
+    let private cylinderApis = "ADV;RET"
+    let private partApis     = "ON;OFF"
+    let Entries3 : (string * string * string)[] = [|
+        ("Cylinder_1",  cylinderApis, "FB421_Com_Cylinder_1_v1")
+        ("Cylinder_2",  cylinderApis, "FB422_Com_Cylinder_2_v1")
+        ("Cylinder_3",  cylinderApis, "FB423_Com_Cylinder_3_v1")
+        ("Cylinder_4",  cylinderApis, "FB424_Com_Cylinder_4_v1")
+        ("Cylinder_6",  cylinderApis, "FB425_Com_Cylinder_6_v1")
+        ("Cylinder_8",  cylinderApis, "FB426_Com_Cylinder_8_v1")
+        ("Cylinder_10", cylinderApis, "FB427_Com_Cylinder_10_v1")
+        ("RobotWeldGrip",
+            "WORK_COMP_RST;START;A_1ST_IN_OK;B_1ST_IN_OK;2ND_IN_OK;3RD_IN_OK;4TH_IN_OK;5TH_IN_OK;6TH_IN_OK;7TH_IN_OK",
+            "FB496_Robot_Kawasaki_v3_260225_용접_그리퍼")
+        ("RobotWeldGripPallet",
+            "WORK_COMP_RST;START;A_1ST_IN_OK;B_1ST_IN_OK;2ND_IN_OK;3RD_IN_OK;4TH_IN_OK;5TH_IN_OK;6TH_IN_OK;7TH_IN_OK;PLT1_IN_OK;PLT2_IN_OK;PLT3_IN_OK;PLT4_IN_OK;PLT1_COUNT_RST;PLT2_COUNT_RST;PLT3_COUNT_RST;PLT4_COUNT_RST",
+            "FB496_Robot_Kawasaki_v3_260225_종합")
+        ("Part",        partApis,     "")
     |]
+
+    /// SystemType 이름이 "Cylinder_N" 형식이면 N 반환 (1~10).
+    let tryCylinderSize (sysType: string) : int option =
+        if isNull sysType then None
+        elif not (sysType.StartsWith("Cylinder_")) then None
+        else
+            match System.Int32.TryParse(sysType.Substring("Cylinder_".Length)) with
+            | true, n when n >= 1 && n <= 10 -> Some n
+            | _ -> None
+
+    /// (SystemType, ApiList) 호환 배열 — 기존 사용처 그대로 동작.
+    let Entries : (string * string)[] =
+        Entries3 |> Array.map (fun (sysType, apis, _) -> (sysType, apis))
+
+    /// SystemType → 기본 FB 이름 lookup (XGI_Template.xml 기준).
+    let DefaultFBNames : Map<string, string> =
+        Entries3
+        |> Array.map (fun (sysType, _, fb) -> (sysType, fb))
+        |> Map.ofArray
 
     /// 등록된 ModelType 이름 집합 (inferModelType 직접 매칭용)
     let KnownNames : Set<string> =

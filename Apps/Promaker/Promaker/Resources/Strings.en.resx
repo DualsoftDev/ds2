@@ -17,7 +17,7 @@
        공통 (Common)
        ======================================== -->
   <data name="AppTitle" xml:space="preserve">
-    <value>Ds2 Promaker</value>
+    <value>Promaker</value>
   </data>
   <data name="Ready" xml:space="preserve">
     <value>Ready</value>

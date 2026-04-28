@@ -60,6 +60,9 @@ public partial class SimulationPanelState
 
     private void OnTokenEvent(TokenEventArgs args)
     {
+        // 토큰별 traversal 시간 추적 (혼류 KPI 집계용)
+        OnTokenEventForTraversal(args);
+
         var label = FormatTokenDisplay(args.Token);
         var target = args.TargetWorkName is not null
             ? $" → {args.TargetWorkName.Value}"

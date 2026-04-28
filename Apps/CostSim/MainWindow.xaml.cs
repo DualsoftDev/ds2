@@ -2289,7 +2289,9 @@ public partial class MainWindow : Window
                     nodeType: "Work",
                     systemId: ReadOption(index.WorkSystemName.TryFind(args.WorkGuid)),
                     state: args.NewState.ToString(),
-                    timestamp: startTime + args.Clock));
+                    timestamp: startTime + args.Clock,
+                    tokenItem: FSharpOption<int>.None,
+                    tokenOriginName: ""));
             }
         };
 

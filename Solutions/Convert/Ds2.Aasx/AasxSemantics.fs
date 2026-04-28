@@ -27,6 +27,29 @@ let [<Literal>] NameplateSemanticId       = "https://admin-shell.io/zvei/namepla
 let [<Literal>] DocumentationSubmodelIdShort = "HandoverDocumentation"
 let [<Literal>] DocumentationSemanticId      = "0173-1#01-AHF578#001"
 
+// Technical Data (IDTA 02003 v1.2) 상수
+let [<Literal>] TechnicalDataSubmodelIdShort = "TechnicalData"
+let [<Literal>] TechnicalDataSemanticId      = "https://admin-shell.io/ZVEI/TechnicalData/Submodel/1/2"
+
+// ProMaker 시뮬결과 박제용 자체 semanticId 네임스페이스 (IDTA 정식 spec 등장 시 교체 가능)
+let [<Literal>] PromakerSimNamespace          = "https://dualsoft.com/semantics/promaker/sim"
+let [<Literal>] SimulationResultSemanticId    = "https://dualsoft.com/semantics/promaker/sim/Result/1/0"
+let [<Literal>] SimulationMetaSemanticId      = "https://dualsoft.com/semantics/promaker/sim/Meta/1/0"
+let [<Literal>] SimKpiCycleTimeSemanticId     = "https://dualsoft.com/semantics/promaker/sim/Kpi/CycleTime/1/0"
+let [<Literal>] SimKpiThroughputSemanticId    = "https://dualsoft.com/semantics/promaker/sim/Kpi/Throughput/1/0"
+let [<Literal>] SimKpiCapacitySemanticId      = "https://dualsoft.com/semantics/promaker/sim/Kpi/Capacity/1/0"
+let [<Literal>] SimKpiConstraintsSemanticId   = "https://dualsoft.com/semantics/promaker/sim/Kpi/Constraints/1/0"
+let [<Literal>] SimKpiResourceUtilSemanticId  = "https://dualsoft.com/semantics/promaker/sim/Kpi/ResourceUtilization/1/0"
+let [<Literal>] SimKpiOeeSemanticId           = "https://dualsoft.com/semantics/promaker/sim/Kpi/OEE/1/0"
+let [<Literal>] SimKpiPerTokenSemanticId      = "https://dualsoft.com/semantics/promaker/sim/Kpi/PerToken/1/0"
+
+// 출처(Provenance) Qualifier — 모든 KPI Property 에 부여하여 Simulation/Measurement/CatalogSpec/Estimate 구분
+let [<Literal>] DataSourceQualifierType     = "DataSource"
+let [<Literal>] DataSourceSimulation        = "Simulation"
+let [<Literal>] DataSourceMeasurement       = "Measurement"
+let [<Literal>] DataSourceCatalogSpec       = "CatalogSpec"
+let [<Literal>] DataSourceEstimate          = "Estimate"
+
 // IRI 기본값
 let [<Literal>] DefaultIriPrefix = "http://your-company.com/"
 

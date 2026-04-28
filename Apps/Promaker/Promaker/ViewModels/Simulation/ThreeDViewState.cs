@@ -192,7 +192,7 @@ public partial class ThreeDViewState : ObservableObject
             System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
                 System.Windows.Threading.DispatcherPriority.Background,
                 FlushPendingStates);
-        }
+        } 
         else
         {
             // 아직 간격 미달 — 남은 시간만큼 지연 후 flush
@@ -210,7 +210,7 @@ public partial class ThreeDViewState : ObservableObject
         }
     }
 
-    private async void FlushPendingStates()
+    private void FlushPendingStates()
     {
         _flushScheduled = false;
         _lastFlushTime = DateTime.UtcNow;

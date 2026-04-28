@@ -349,3 +349,37 @@ module Queries =
         match allProjects store |> List.tryHead with
         | Some project -> project.TokenSpecs |> Seq.toList
         | None -> []
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ControlSystemProperties 단축 접근 (B안: IoListEntries / FBTagMapPresets 의 단일 진실원)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>첫 번째 Project × 첫 번째 ActiveSystem 의 ControlSystemProperties 조회. 없으면 None.</summary>
+    let tryGetPrimaryControlProps (store: DsStore) : ControlSystemProperties option =
+        match allProjects store |> List.tryHead with
+        | None -> None
+        | Some project ->
+            match activeSystemsOf project.Id store |> List.tryHead with
+            | None -> None
+            | Some sys ->
+                match sys.GetControlProperties() with
+                | Some cp -> Some cp
+                | None    -> None
+
+    /// <summary>
+    /// 첫 번째 Project × 첫 번째 ActiveSystem 의 ControlSystemProperties 를 반환.
+    /// 없으면 신규 생성하여 Set 후 반환. Project/ActiveSystem 자체가 없으면 None.
+    /// </summary>
+    let getOrCreatePrimaryControlProps (store: DsStore) : ControlSystemProperties option =
+        match allProjects store |> List.tryHead with
+        | None -> None
+        | Some project ->
+            match activeSystemsOf project.Id store |> List.tryHead with
+            | None -> None
+            | Some sys ->
+                match sys.GetControlProperties() with
+                | Some cp -> Some cp
+                | None ->
+                    let cp = ControlSystemProperties()
+                    sys.SetControlProperties(cp)
+                    Some cp

@@ -1,7 +1,7 @@
 <Window x:Class="Promaker.Dialogs.IoBatchSettingsDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="I/O 일괄 편집"
+        Title="I/O 조회"
         Width="1180"
         Height="720"
         MinWidth="980"
@@ -13,8 +13,142 @@
         <Style x:Key="BatchGridHeaderStyle" TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
             <Setter Property="BorderThickness" Value="0,0,1,1"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-            <Setter Property="Padding" Value="8,6"/>
+            <!-- Padding=0 → 헤더 DataTemplate 의 Grid 가 header ActualWidth 전체를 사용 -->
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         </Style>
+
+        <!-- 공용 필터 헤더 DataTemplate: 레이블 + 컬럼 폭에 맞는 TextBox -->
+        <DataTemplate x:Key="FilterHeaderFlow">
+            <Grid HorizontalAlignment="Stretch"
+                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Flow" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                <TextBox   Grid.Row="1"
+                           Tag="Flow" TextChanged="FilterTextBox_TextChanged"
+                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Flow 이름 필터"/>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="FilterHeaderWork">
+            <Grid HorizontalAlignment="Stretch"
+                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Work" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                <TextBox   Grid.Row="1"
+                           Tag="Work" TextChanged="FilterTextBox_TextChanged"
+                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Work 이름 필터"/>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="FilterHeaderDevice">
+            <Grid HorizontalAlignment="Stretch"
+                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Device" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                <TextBox   Grid.Row="1"
+                           Tag="Device" TextChanged="FilterTextBox_TextChanged"
+                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Device 이름 필터"/>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="FilterHeaderApi">
+            <Grid HorizontalAlignment="Stretch"
+                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Api" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                <TextBox   Grid.Row="1"
+                           Tag="Api" TextChanged="FilterTextBox_TextChanged"
+                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Api 이름 필터"/>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="FilterHeaderInName">
+            <Grid HorizontalAlignment="Stretch"
+                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="InName" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                <TextBox   Grid.Row="1"
+                           Tag="InName" TextChanged="FilterTextBox_TextChanged"
+                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="In Symbol 필터"/>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="FilterHeaderInType">
+            <Grid HorizontalAlignment="Stretch"
+                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="In Type" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                <TextBox   Grid.Row="1"
+                           Tag="InType" TextChanged="FilterTextBox_TextChanged"
+                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="In DataType 필터"/>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="FilterHeaderInAddress">
+            <Grid HorizontalAlignment="Stretch"
+                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="In Address" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                <TextBox   Grid.Row="1"
+                           Tag="InAddress" TextChanged="FilterTextBox_TextChanged"
+                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="In Address 필터"/>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="FilterHeaderOutName">
+            <Grid HorizontalAlignment="Stretch"
+                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="OutName" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                <TextBox   Grid.Row="1"
+                           Tag="OutName" TextChanged="FilterTextBox_TextChanged"
+                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Out Symbol 필터"/>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="FilterHeaderOutType">
+            <Grid HorizontalAlignment="Stretch"
+                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Out Type" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                <TextBox   Grid.Row="1"
+                           Tag="OutType" TextChanged="FilterTextBox_TextChanged"
+                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Out DataType 필터"/>
+            </Grid>
+        </DataTemplate>
+        <DataTemplate x:Key="FilterHeaderOutAddress">
+            <Grid HorizontalAlignment="Stretch"
+                  Width="{Binding ActualWidth, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=DataGridColumnHeader}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Out Address" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                <TextBox   Grid.Row="1"
+                           Tag="OutAddress" TextChanged="FilterTextBox_TextChanged"
+                           Padding="4,2" HorizontalAlignment="Stretch" ToolTip="Out Address 필터"/>
+            </Grid>
+        </DataTemplate>
 
         <Style x:Key="BatchGridCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource {x:Type DataGridCell}}">
             <Setter Property="BorderThickness" Value="0,0,1,1"/>
@@ -48,98 +182,33 @@
             </Grid.RowDefinitions>
 
             <Grid Grid.Row="0">
-                <TextBlock Text="I/O 일괄 편집"
-                           FontSize="18"
-                           FontWeight="SemiBold"
-                           VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="I/O 조회"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                    <TextBlock Text="(읽기 전용 — 편집은 TAG Wizard 에서만 가능)"
+                               FontSize="11"
+                               VerticalAlignment="Center"
+                               Margin="12,4,0,0"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                </StackPanel>
             </Grid>
 
+            <!-- 필터는 그리드 컬럼 헤더 안으로 이전됨. 조회 전용이므로 편집 버튼 제거. -->
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1*"/>
-                    <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="1*"/>
-                    <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="1*"/>
-                    <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="1*"/>
-                    <ColumnDefinition Width="12"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="10"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="10"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="10"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0">
-                    <TextBlock Text="Flow" Margin="0,0,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="FlowFilterBox" Padding="8,6" ToolTip="Flow 이름으로 필터링"/>
-                </StackPanel>
-
-                <StackPanel Grid.Column="2">
-                    <TextBlock Text="Work" Margin="0,0,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="WorkFilterBox" Padding="8,6" ToolTip="Work 이름으로 필터링"/>
-                </StackPanel>
-
-                <StackPanel Grid.Column="4">
-                    <TextBlock Text="Device" Margin="0,0,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="DeviceFilterBox" Padding="8,6" ToolTip="Device 이름으로 필터링"/>
-                </StackPanel>
-
-                <StackPanel Grid.Column="6">
-                    <TextBlock Text="Api" Margin="0,0,0,4" Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    <TextBox x:Name="ApiFilterBox" Padding="8,6" ToolTip="Api 이름으로 필터링"/>
-                </StackPanel>
-
-                <Button Grid.Column="8"
-                        Height="34"
-                        MinWidth="102"
-                        VerticalAlignment="Bottom"
-                        Style="{StaticResource DarkButton}"
-                        Content="TAG Wizard"
-                        Click="TagWizard_Click"
-                        ToolTip="템플릿 기반 자동 신호 생성"/>
-
-                <Button Grid.Column="10"
-                        Height="34"
-                        MinWidth="120"
-                        VerticalAlignment="Bottom"
-                        Style="{StaticResource DarkButton}"
-                        Content="Export IO List"
-                        Click="ExportIoList_Click"
-                        ToolTip="IO 신호를 CSV/Excel로 내보내기"/>
-
-                <Button Grid.Column="12"
-                        Height="34"
-                        MinWidth="102"
-                        VerticalAlignment="Bottom"
-                        Style="{StaticResource DarkButton}"
-                        Click="ExportCsv_Click"
-                        Content="CSV 내보내기"
-                        ToolTip="현재 I/O 데이터를 CSV 파일로 내보냅니다"/>
-
-                <Button Grid.Column="14"
-                        Height="34"
-                        MinWidth="102"
-                        VerticalAlignment="Bottom"
-                        Style="{StaticResource DarkButton}"
-                        Click="ImportCsv_Click"
-                        Content="CSV 가져오기"
-                        ToolTip="CSV 파일을 불러와 I/O 태그를 매핑합니다"/>
-
                 <CheckBox x:Name="ShowOnlyUnmatchedCheckBox"
-                          Grid.Column="16"
+                          Grid.Column="1"
                           Content="미매치만 보기"
                           Visibility="Collapsed"
-                          VerticalAlignment="Bottom"
-                          Margin="0,0,0,6"
+                          VerticalAlignment="Center"
                           Checked="ShowOnlyUnmatched_Changed"
                           Unchecked="ShowOnlyUnmatched_Changed"/>
-
             </Grid>
 
             <Border Grid.Row="3"
@@ -151,6 +220,7 @@
                           AutoGenerateColumns="False"
                           CanUserAddRows="False"
                           CanUserDeleteRows="False"
+                          IsReadOnly="True"
                           HeadersVisibility="Column"
                           SelectionMode="Extended"
                           SelectionUnit="FullRow"
@@ -184,171 +254,71 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTextColumn Header="Flow" Binding="{Binding Flow}" Width="100" IsReadOnly="True"/>
-                        <DataGridTextColumn Header="Work" Binding="{Binding Work}" Width="120" IsReadOnly="True"/>
-                        <DataGridTextColumn Header="Device" Binding="{Binding Device}" Width="120" IsReadOnly="True"/>
-                        <DataGridTextColumn Header="Api" Binding="{Binding Api}" Width="120" IsReadOnly="True"/>
-                        <DataGridTextColumn Header="InName" Binding="{Binding InSymbol, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
-                        <DataGridTextColumn Header="In Type" Binding="{Binding InDataType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
-                        <DataGridTextColumn Header="In Address" Binding="{Binding InAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
-                        <DataGridTextColumn Header="OutName" Binding="{Binding OutSymbol, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
-                        <DataGridTextColumn Header="Out Type" Binding="{Binding OutDataType, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="70"/>
-                        <DataGridTextColumn Header="Out Address" Binding="{Binding OutAddress, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="120"/>
+                        <DataGridTextColumn Binding="{Binding Flow}"   Width="120" IsReadOnly="True"
+                                            HeaderTemplate="{StaticResource FilterHeaderFlow}"/>
+                        <DataGridTextColumn Binding="{Binding Work}"   Width="140" IsReadOnly="True"
+                                            HeaderTemplate="{StaticResource FilterHeaderWork}"/>
+                        <DataGridTextColumn Binding="{Binding Device}" Width="140" IsReadOnly="True"
+                                            HeaderTemplate="{StaticResource FilterHeaderDevice}"/>
+                        <DataGridTextColumn Binding="{Binding Api}"    Width="140" IsReadOnly="True"
+                                            HeaderTemplate="{StaticResource FilterHeaderApi}"/>
+                        <DataGridTextColumn Binding="{Binding InSymbol}"    Width="*"   IsReadOnly="True"
+                                            HeaderTemplate="{StaticResource FilterHeaderInName}"/>
+                        <DataGridTextColumn Binding="{Binding InDataType}"  Width="80"  IsReadOnly="True"
+                                            HeaderTemplate="{StaticResource FilterHeaderInType}"/>
+                        <DataGridTextColumn Binding="{Binding InAddress}"   Width="120" IsReadOnly="True"
+                                            HeaderTemplate="{StaticResource FilterHeaderInAddress}"/>
+                        <DataGridTextColumn Binding="{Binding OutSymbol}"   Width="*"   IsReadOnly="True"
+                                            HeaderTemplate="{StaticResource FilterHeaderOutName}"/>
+                        <DataGridTextColumn Binding="{Binding OutDataType}" Width="80"  IsReadOnly="True"
+                                            HeaderTemplate="{StaticResource FilterHeaderOutType}"/>
+                        <DataGridTextColumn Binding="{Binding OutAddress}"  Width="120" IsReadOnly="True"
+                                            HeaderTemplate="{StaticResource FilterHeaderOutAddress}"/>
                     </DataGrid.Columns>
                 </DataGrid>
             </Border>
 
+            <!-- 선택 카운트 표시만 (자동 생성 섹션 제거 — 조회 전용) -->
             <Border Grid.Row="5"
                     Background="{DynamicResource TertiaryBackgroundBrush}"
                     BorderBrush="{DynamicResource BorderBrush}"
                     BorderThickness="1"
                     CornerRadius="3"
-                    Padding="16,12">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="10"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-
-                    <!-- 헤더 -->
-                    <StackPanel Grid.Row="0" Orientation="Horizontal">
-                        <TextBlock Text="🔧 태그 자동 생성"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"
-                                   VerticalAlignment="Center"
-                                   Margin="0,0,16,0"/>
-                        <TextBlock Text="선택:"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource SecondaryTextBrush}"
-                                   Margin="0,0,4,0"/>
-                        <TextBlock x:Name="SelectedCountText"
-                                   Text="0"
-                                   VerticalAlignment="Center"
-                                   FontWeight="SemiBold"/>
-                    </StackPanel>
-
-                    <!-- 자동 생성 컨트롤 -->
-                    <Grid Grid.Row="2">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="10"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="10"/>
-                            <ColumnDefinition Width="2*"/>
-                            <ColumnDefinition Width="10"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="10"/>
-                            <ColumnDefinition Width="1.2*"/>
-                            <ColumnDefinition Width="20"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-
-                        <!-- OutName 행 -->
-                        <TextBlock Grid.Row="0" Grid.Column="0"
-                                   Text="OutName:"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
-                        <TextBox Grid.Row="0" Grid.Column="2"
-                                 x:Name="OutTagPatternBox"
-                                 Text="$(F)_Q_$(D)_$(A)"
-                                 Padding="8,6"
-                                 FontFamily="Consolas"
-                                 ToolTip="매크로: $(F)=Flow, $(D)=Device, $(A)=ApiDef"/>
-                        <TextBlock Grid.Row="0" Grid.Column="4"
-                                   Text="Out Addr:"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
-                        <StackPanel Grid.Row="0" Grid.Column="6" Orientation="Horizontal">
-                            <TextBox x:Name="OutAddressPrefixBox"
-                                     Text="%QW"
-                                     Width="60"
-                                     Padding="8,6"
-                                     FontFamily="Consolas"
-                                     ToolTip="주소 접두사"/>
-                            <TextBox x:Name="OutAddressStartBox"
-                                     Text="3070"
-                                     Width="70"
-                                     Padding="8,6"
-                                     Margin="6,0,0,0"
-                                     FontFamily="Consolas"
-                                     ToolTip="시작 주소"/>
-                        </StackPanel>
-                        <Button Grid.Row="0" Grid.Column="8"
-                                MinWidth="120"
-                                Style="{StaticResource DarkButton}"
-                                Content="OutName 생성"
-                                Click="GenerateOutTags_Click"
-                                ToolTip="선택된 행에 OutName/Address 자동 생성"/>
-
-                        <!-- InName 행 -->
-                        <TextBlock Grid.Row="2" Grid.Column="0"
-                                   Text="InName:"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
-                        <TextBox Grid.Row="2" Grid.Column="2"
-                                 x:Name="InTagPatternBox"
-                                 Text="$(F)_I_$(D)_$(A)"
-                                 Padding="8,6"
-                                 FontFamily="Consolas"
-                                 ToolTip="매크로: $(F)=Flow, $(D)=Device, $(A)=ApiDef"/>
-                        <TextBlock Grid.Row="2" Grid.Column="4"
-                                   Text="In Addr:"
-                                   VerticalAlignment="Center"
-                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
-                        <StackPanel Grid.Row="2" Grid.Column="6" Orientation="Horizontal">
-                            <TextBox x:Name="InAddressPrefixBox"
-                                     Text="%IW"
-                                     Width="60"
-                                     Padding="8,6"
-                                     FontFamily="Consolas"
-                                     ToolTip="주소 접두사"/>
-                            <TextBox x:Name="InAddressStartBox"
-                                     Text="3070"
-                                     Width="70"
-                                     Padding="8,6"
-                                     Margin="6,0,0,0"
-                                     FontFamily="Consolas"
-                                     ToolTip="시작 주소"/>
-                        </StackPanel>
-                        <Button Grid.Row="2" Grid.Column="8"
-                                MinWidth="120"
-                                Style="{StaticResource DarkButton}"
-                                Content="InName 생성"
-                                Click="GenerateInTags_Click"
-                                ToolTip="선택된 행에 InName/Address 자동 생성"/>
-                    </Grid>
-                </Grid>
+                    Padding="16,8">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="💡 I/O 편집은 TAG Wizard 에서만 가능합니다. (메뉴: TAG Wizard → Step 3 → '패턴 적용' 버튼)"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               FontSize="12"/>
+                    <TextBlock Text="   |   선택:"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               Margin="16,0,4,0"/>
+                    <TextBlock x:Name="SelectedCountText"
+                               Text="0"
+                               VerticalAlignment="Center"
+                               FontWeight="SemiBold"/>
+                </StackPanel>
             </Border>
 
             <Grid Grid.Row="7">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Text="변경된 행만 프로젝트에 반영됩니다."
-                           VerticalAlignment="Center"
-                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                <Button Grid.Column="0"
+                        MinWidth="140"
+                        Style="{StaticResource DarkButton}"
+                        Content="📥 CSV 내보내기"
+                        Click="ExportCsv_Click"
+                        ToolTip="현재 필터 적용된 행을 CSV 파일로 저장"/>
 
-                <Button Grid.Column="1"
-                        x:Name="ApplyButton"
+                <Button Grid.Column="2"
                         MinWidth="82"
                         Style="{StaticResource DarkButton}"
-                        Content="확인"
-                        IsEnabled="False"
-                        Click="Apply_Click"/>
-
-                <Button Grid.Column="3"
-                        MinWidth="82"
-                        Style="{StaticResource DarkButton}"
-                        Content="취소"
+                        Content="닫기"
                         IsCancel="True"/>
             </Grid>
         </Grid>

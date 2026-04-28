@@ -66,6 +66,8 @@ public partial class SimulationPanelState : ObservableObject
         public static string ReportSaved(string path) => $"리포트 저장 완료: {path}";
         public static string ReportSaveFailed(string message) => $"리포트 저장 실패: {message}";
         public static string ReportError(string message) => $"리포트 오류: {message}";
+        public static string ScenarioCaptured(string name) => $"시뮬 시나리오 저장됨: {name}";
+        public const string ScenarioCaptureFailed = "시뮬 시나리오 저장 실패: 데이터가 없거나 프로젝트를 찾을 수 없습니다.";
         public static string StateCode(Status4 state) => Presentation.Status4Visuals.ShortCode(state);
 
         public const string ClockFormat = @"hh\:mm\:ss\.fff";
@@ -136,9 +138,8 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty] private bool _simTimeIgnore;
     [ObservableProperty] private string _simClock = SimText.ClockZero;
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ExportReportCsvCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ExportReportXlsxCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ExportReportHtmlCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportReportCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CaptureScenarioToProjectCommand))]
     private bool _hasReportData;
 
     [ObservableProperty]
