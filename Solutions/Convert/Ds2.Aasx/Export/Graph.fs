@@ -15,7 +15,9 @@ module internal AasxExportGraph =
     open AasxExportCore
 
     // ── CD URI 매핑: (TypeName, FieldName) → CD URI ───────────────────────────
-    let private cdBase = "https://dualsoft.com/cd/SequenceModel"
+    // BaseUrl 은 AasxSemantics.CdBaseUrl 단일 진실 원천에서 가져온다.
+    // 필드 단위 CD 는 SequenceModel 서브모델 하위 네임스페이스에 둔다.
+    let private cdBase = CdBaseUrl + "/sm/SequenceModel"
 
     let private cdUriMap : Map<string * string, string> =
         Map.ofList [

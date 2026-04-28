@@ -9,6 +9,7 @@
     <Compile Include="AasxSemantics.fs" />
     <Compile Include="AasxProjectCache.fs" />
     <Compile Include="AasxFileIO.fs" />
+    <Compile Include="Concepts\Catalog.fs" />
     <Compile Include="Concepts\Builder.fs" />
     <Compile Include="Import\Core.fs" />
     <Compile Include="Export\Core.fs" />

@@ -17,7 +17,7 @@ let [<Literal>] SubmodelCostAnalysisIdShort = "SequenceCostAnalysis"
 let [<Literal>] SubmodelQualityIdShort      = "SequenceQuality"
 let [<Literal>] SubmodelHmiIdShort          = "SequenceHmi"
 
-let [<Literal>] SubmodelSemanticId   = "https://dualsoft.com/aas/submodel"
+// (deprecated: SubmodelSemanticId — 모든 SM SemanticId 는 CdBaseUrl 기반 상수로 일원화됨)
 
 // Digital Nameplate (IDTA 02006-3-0) 상수
 let [<Literal>] NameplateSubmodelIdShort  = "Nameplate"
@@ -31,17 +31,60 @@ let [<Literal>] DocumentationSemanticId      = "0173-1#01-AHF578#001"
 let [<Literal>] TechnicalDataSubmodelIdShort = "TechnicalData"
 let [<Literal>] TechnicalDataSemanticId      = "https://admin-shell.io/ZVEI/TechnicalData/Submodel/1/2"
 
-// ProMaker 시뮬결과 박제용 자체 semanticId 네임스페이스 (IDTA 정식 spec 등장 시 교체 가능)
-let [<Literal>] PromakerSimNamespace          = "https://dualsoft.com/semantics/promaker/sim"
-let [<Literal>] SimulationResultSemanticId    = "https://dualsoft.com/semantics/promaker/sim/Result/1/0"
-let [<Literal>] SimulationMetaSemanticId      = "https://dualsoft.com/semantics/promaker/sim/Meta/1/0"
-let [<Literal>] SimKpiCycleTimeSemanticId     = "https://dualsoft.com/semantics/promaker/sim/Kpi/CycleTime/1/0"
-let [<Literal>] SimKpiThroughputSemanticId    = "https://dualsoft.com/semantics/promaker/sim/Kpi/Throughput/1/0"
-let [<Literal>] SimKpiCapacitySemanticId      = "https://dualsoft.com/semantics/promaker/sim/Kpi/Capacity/1/0"
-let [<Literal>] SimKpiConstraintsSemanticId   = "https://dualsoft.com/semantics/promaker/sim/Kpi/Constraints/1/0"
-let [<Literal>] SimKpiResourceUtilSemanticId  = "https://dualsoft.com/semantics/promaker/sim/Kpi/ResourceUtilization/1/0"
-let [<Literal>] SimKpiOeeSemanticId           = "https://dualsoft.com/semantics/promaker/sim/Kpi/OEE/1/0"
-let [<Literal>] SimKpiPerTokenSemanticId      = "https://dualsoft.com/semantics/promaker/sim/Kpi/PerToken/1/0"
+// =============================================================================
+// CD (ConceptDescription) 베이스 URL — 단일 진실 원천
+// 향후 호스팅 위치 변경 시 이 한 줄만 수정하면 모든 자체 semanticId 가 일괄 전환됨.
+//
+// 후보:
+//   "https://dualsoftdev.github.io/aas-semantics"   ← GitHub Pages (현재)
+//   "https://semantics.dualsoft.com"                ← 커스텀 도메인 (장기)
+//   "https://dualsoft.com/semantics"                ← 메인 도메인 직접 호스팅
+// =============================================================================
+let [<Literal>] CdBaseUrl = "https://dualsoftdev.github.io/aas-semantics"
+
+// CD IRI 헬퍼 — IDTA / AAS 컨벤션에 맞춰 확장자 없는 깨끗한 identifier.
+// (파일은 GitHub Pages 측에 <path>.json 으로 존재 — fetch URL 과 IRI 는 분리된 개념)
+let private cdId (path: string) : string = CdBaseUrl + "/" + path
+
+// ── Sequence Model 시뮬결과 CD 네임스페이스 ────────────────────────────────────
+let SequenceModelSimNamespace     = CdBaseUrl + "/sim"
+let SimulationResultSemanticId    = cdId "sim/Result/1/0"
+let SimulationMetaSemanticId      = cdId "sim/Meta/1/0"
+let SimKpiCycleTimeSemanticId     = cdId "sim/Kpi/CycleTime/1/0"
+let SimKpiThroughputSemanticId    = cdId "sim/Kpi/Throughput/1/0"
+let SimKpiCapacitySemanticId      = cdId "sim/Kpi/Capacity/1/0"
+let SimKpiConstraintsSemanticId   = cdId "sim/Kpi/Constraints/1/0"
+let SimKpiResourceUtilSemanticId  = cdId "sim/Kpi/ResourceUtilization/1/0"
+let SimKpiOeeSemanticId           = cdId "sim/Kpi/OEE/1/0"
+let SimKpiPerTokenSemanticId      = cdId "sim/Kpi/PerToken/1/0"
+
+// ── ds2 도메인 엔티티 CD ───────────────────────────────────────────────────────
+let EntityProjectSemanticId       = cdId "entity/Project/1/0"
+let EntitySystemSemanticId        = cdId "entity/System/1/0"
+let EntityDeviceSemanticId        = cdId "entity/Device/1/0"
+let EntityFlowSemanticId          = cdId "entity/Flow/1/0"
+let EntityWorkSemanticId          = cdId "entity/Work/1/0"
+let EntityCallSemanticId          = cdId "entity/Call/1/0"
+let EntityApiDefSemanticId        = cdId "entity/ApiDef/1/0"
+let EntityApiCallSemanticId       = cdId "entity/ApiCall/1/0"
+let EntityTokenSpecSemanticId     = cdId "entity/TokenSpec/1/0"
+let EntityArrowWorkSemanticId     = cdId "entity/ArrowWork/1/0"
+let EntityArrowCallSemanticId     = cdId "entity/ArrowCall/1/0"
+
+// ── 시퀀스 모델 + 도메인 서브모델 CD ──────────────────────────────────────────
+let SequenceModelSubmodelSemanticId        = cdId "sm/SequenceModel/1/0"
+let SequenceSimulationSubmodelSemanticId   = cdId "sm/SequenceSimulation/1/0"
+let SequenceControlSubmodelSemanticId      = cdId "sm/SequenceControl/1/0"
+let SequenceMonitoringSubmodelSemanticId   = cdId "sm/SequenceMonitoring/1/0"
+let SequenceLoggingSubmodelSemanticId      = cdId "sm/SequenceLogging/1/0"
+let SequenceMaintenanceSubmodelSemanticId  = cdId "sm/SequenceMaintenance/1/0"
+let SequenceHmiSubmodelSemanticId          = cdId "sm/SequenceHmi/1/0"
+let SequenceQualitySubmodelSemanticId      = cdId "sm/SequenceQuality/1/0"
+let SequenceCostAnalysisSubmodelSemanticId = cdId "sm/SequenceCostAnalysis/1/0"
+
+/// 서브모델 idShort → SemanticId (런타임 매핑 — 도메인 서브모델 export 시 사용)
+let submodelSemanticIdByIdShort (idShort: string) : string =
+    cdId ("sm/" + idShort + "/1/0")
 
 // 출처(Provenance) Qualifier — 모든 KPI Property 에 부여하여 Simulation/Measurement/CatalogSpec/Estimate 구분
 let [<Literal>] DataSourceQualifierType     = "DataSource"
