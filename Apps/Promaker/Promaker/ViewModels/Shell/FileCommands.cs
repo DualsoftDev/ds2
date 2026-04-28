@@ -313,6 +313,22 @@ public partial class MainViewModel
     }
 
     /// <summary>
+    /// 런타임 설정 Dialog 열기 — Runtime Mode 선택 + 좌·우 이미지 미리보기.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(HasProject))]
+    private void ShowRuntimeSettings()
+    {
+        if (!GuardSimulationSemanticEdit("런타임 설정"))
+            return;
+
+        var dlg = new Promaker.Windows.RuntimeSettingDialog(this)
+        {
+            Owner = System.Windows.Application.Current.MainWindow
+        };
+        _dialogService.ShowDialog(dlg);
+    }
+
+    /// <summary>
     /// 최근 파일 열기
     /// </summary>
     [RelayCommand]
