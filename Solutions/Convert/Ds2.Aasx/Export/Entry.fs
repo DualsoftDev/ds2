@@ -134,7 +134,7 @@ module AasxExporter =
 
         let sm = Submodel(id = mkSubmodelId project.Id SequenceModel.Offset)
         sm.IdShort <- SubmodelModelIdShort
-        sm.SemanticId <- mkSemanticRef $"{SubmodelSemanticId}/model"
+        sm.SemanticId <- mkSemanticRef SequenceModelSubmodelSemanticId
         sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
         sm
 
@@ -184,8 +184,7 @@ module AasxExporter =
         else
             let sm = Submodel(id = mkSubmodelId project.Id submodelType.Offset)
             sm.IdShort <- submodelType.IdShort
-            let semanticPath = submodelType.IdShort.ToLower().Replace("sequence", "")
-            sm.SemanticId <- mkSemanticRef $"{SubmodelSemanticId}/{semanticPath}"
+            sm.SemanticId <- mkSemanticRef (submodelSemanticIdByIdShort submodelType.IdShort)
             sm.SubmodelElements <- ResizeArray<ISubmodelElement>(elements)
             Some sm
 
@@ -214,7 +213,7 @@ module AasxExporter =
 
         let sm = Submodel(id = mkSubmodelId project.Id SequenceModel.Offset)
         sm.IdShort <- SubmodelModelIdShort
-        sm.SemanticId <- mkSemanticRef $"{SubmodelSemanticId}/model"
+        sm.SemanticId <- mkSemanticRef SequenceModelSubmodelSemanticId
         sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
         sm
 
@@ -393,7 +392,7 @@ module AasxExporter =
 
         let sm = Submodel(id = project.Id.ToString())
         sm.IdShort <- SubmodelModelIdShort
-        sm.SemanticId <- mkSemanticRef SubmodelSemanticId
+        sm.SemanticId <- mkSemanticRef SequenceModelSubmodelSemanticId
         sm.SubmodelElements <- ResizeArray<ISubmodelElement>([projectSmc :> ISubmodelElement])
 
         let globalAssetId = resolveGlobalAssetId prefix device.Name

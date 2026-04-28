@@ -6,7 +6,7 @@ open Ds2.Core
 open Ds2.Aasx.AasxSemantics
 
 /// IDTA 02003 TechnicalData → AAS Submodel 직렬화
-/// + ProMaker 시뮬결과 박제(SimulationResults SML)
+/// + Sequence Model 시뮬결과 박제(SimulationResult SMC)
 module internal AasxExportTechnicalData =
 
     open AasxExportCore
