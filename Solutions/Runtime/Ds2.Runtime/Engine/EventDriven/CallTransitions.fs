@@ -14,6 +14,7 @@ module internal CallTransitions =
         Index: SimIndex
         StateManager: StateManager
         Scheduler: EventScheduler
+        RuntimeMode: RuntimeMode
         ShouldSkipCall: Guid -> bool
         TriggerCallStateChanged: CallStateChangedArgs -> unit
         ScheduleWorkIfReady: Guid -> Status4 -> unit

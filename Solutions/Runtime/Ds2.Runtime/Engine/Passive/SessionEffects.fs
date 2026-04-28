@@ -10,6 +10,10 @@ type RuntimeHubEffectKind =
     | ForceWorkState = 2
     | WriteTag = 3
     | PassiveObserve = 4
+    /// Control 모드 IN=true 응답 처리 전용. engine 내부 lock 안에서 atomic 가드 —
+    /// currentState=Going 일 때만 newState 로 Force. Reset 흐름 도중 stale 응답이
+    /// Homing→Finish 잘못 전이시키는 race 차단.
+    | ForceWorkStateIfGoing = 5
 
 type RuntimeHubLogSeverity =
     | Info = 0
@@ -63,6 +67,9 @@ module RuntimeSessionEffects =
 
     let addForceWorkState effects delayMs workGuid state =
         addEffect effects RuntimeHubEffectKind.ForceWorkState delayMs "" RuntimeHubLogSeverity.Info "" "" workGuid state
+
+    let addForceWorkStateIfGoing effects delayMs workGuid state =
+        addEffect effects RuntimeHubEffectKind.ForceWorkStateIfGoing delayMs "" RuntimeHubLogSeverity.Info "" "" workGuid state
 
     let addWriteTag effects delayMs address value =
         addEffect effects RuntimeHubEffectKind.WriteTag delayMs "" RuntimeHubLogSeverity.Info address value Guid.Empty Status4.Ready

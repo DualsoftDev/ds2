@@ -88,10 +88,15 @@ type PassiveInferenceSession(index: SimIndex, ioMap: SignalIOMap, runtimeMode: R
         (mappings: seq<SignalMapping>) =
         let isOn = value = "true"
         let observedTick = Stopwatch.GetTimestamp()
+        let mappingArray = mappings |> Seq.toArray
 
-        mappings
+        mappingArray
         |> Seq.iter (fun mapping -> observePassiveCallSignal actions overlay mapping address value isOut)
 
+        // e2b6d21 방식 복귀: VP/Monitoring 모두 observePositiveWorkSignal 로 cycle 학습 진행 →
+        // applyWorkStateForExpectedGroup 가 cycle boundary 기반 정확한 Work 상태 trigger.
+        // 9abc013 가 도입한 VP 전용 단순 집계(syncVirtualPlantWorkFromCalls) 는 cycle 끝과 다음 cycle
+        // 첫 자식 Going 사이의 ms 공백에 Finish→Going 깜빡임을 유발해 폐기.
         if isOn then
             PassiveInferenceWorkCycle.observePositiveWorkSignal workContext actions overlay address isOut observedTick
 
