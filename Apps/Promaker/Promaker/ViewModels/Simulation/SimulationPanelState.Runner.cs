@@ -382,9 +382,16 @@ public partial class SimulationPanelState
         // CapturedRuns 에 누적되어 "시뮬레이션 결과 보기" 다이얼로그에 표시된다.
         try
         {
+            // 활성 traversal 들을 finalize → KPI 집계가 모든 토큰을 본다.
+            // (분기 도중 stuck 된 branch 까지 포함; 완주 branch 가 있으면 그 max 시각으로 기록.)
+            FinalizePendingTraversals();
             TryCaptureScenario($"Run_{DateTime.Now:yyyyMMdd_HHmmss}");
         }
         catch { /* best-effort */ }
+
+        // 토큰 traversal 누적 초기화 — 다음 Run 이 이전 완주 카운트/이력 위에 누적되지 않도록.
+        // (Capture 가 _completedTraversals 를 사용하므로 반드시 capture 이후에 reset.)
+        ResetTraversalTracking();
     }
 
     private void InitSceneEventHandler()

@@ -153,6 +153,10 @@ type SimCycleTimeAnalysis = {
     // 개선 가능성
     ImprovementPotential: float     // 개선 여지 (%, Actual→Min 달성 시)
     RecommendedTargetCT: float      // 권장 목표 사이클 타임 (초)
+
+    // 효율 — 사이클 사이 낭비 시간을 분리 측정.
+    IdleGapBetweenCycles: float     // Σ(Finish 종료 → 다음 Going 시작) 갭 합계 (초)
+    EfficiencyRate: float           // Going 시간 / (Going + IdleGap) × 100 (%)
 }
 
 /// TOC (Theory of Constraints) 제약 분석 - Simulation 전용
@@ -919,6 +923,9 @@ module SimulationResultSnapshotTypes =
         member val UtilizationRate_pct            = 0.0 with get, set
         member val ImprovementPotential_pct       = 0.0 with get, set
         member val RecommendedTargetCT_s          = 0.0 with get, set
+        // 효율 — 사이클 사이 낭비 시간 측정.
+        member val IdleGapBetweenCycles_s         = 0.0 with get, set
+        member val EfficiencyRate_pct             = 0.0 with get, set
 
     /// SimThroughputResult → AAS 매핑용 POCO
     type KpiThroughput() =
@@ -1084,6 +1091,8 @@ module SimulationResultSnapshot =
         r.UtilizationRate_pct          <- a.UtilizationRate
         r.ImprovementPotential_pct     <- a.ImprovementPotential
         r.RecommendedTargetCT_s        <- a.RecommendedTargetCT
+        r.IdleGapBetweenCycles_s       <- a.IdleGapBetweenCycles
+        r.EfficiencyRate_pct           <- a.EfficiencyRate
         r
 
     let fromThroughput (t: SimThroughputResult) : KpiThroughput =

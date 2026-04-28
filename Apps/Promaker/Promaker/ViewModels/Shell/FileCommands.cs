@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Ds2.Aasx;
 using Ds2.Core.Store;
@@ -203,6 +204,19 @@ public partial class MainViewModel
     {
         var project = HasProject ? Queries.allProjects(_store).Head : null;
         if (project is null) return;
+
+        // 시뮬레이션 진행 중이면 — 결과 보기 전에 시뮬레이션을 종료해야 함을 안내.
+        if (Simulation.IsSimulating)
+        {
+            var proceed = Promaker.Dialogs.DialogHelpers.Confirm(
+                Application.Current?.MainWindow,
+                "시뮬레이션이 실행 중입니다.\n결과 보기 다이얼로그를 열려면 시뮬레이션을 종료해야 합니다.\n\n종료하시겠습니까?",
+                "시뮬레이션 종료 확인");
+            if (!proceed) return;
+
+            if (Simulation.StopSimulationCommand.CanExecute(null))
+                Simulation.StopSimulationCommand.Execute(null);
+        }
 
         // TechnicalData 가 없으면 표시할 게 없음 — 빈 상태로라도 열어 사용자가 확인 가능하도록 신규 생성
         Ds2.Core.TechnicalDataTypes.TechnicalData td;

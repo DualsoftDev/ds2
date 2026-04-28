@@ -138,6 +138,8 @@ module internal AasxExportTechnicalData =
             mkDoubleProp "UtilizationRate_pct"          k.UtilizationRate_pct |> tagSim
             mkDoubleProp "ImprovementPotential_pct"     k.ImprovementPotential_pct |> tagSim
             mkDoubleProp "RecommendedTargetCT_s"        k.RecommendedTargetCT_s |> tagSim
+            mkDoubleProp "IdleGapBetweenCycles_s"       k.IdleGapBetweenCycles_s |> tagSim
+            mkDoubleProp "EfficiencyRate_pct"           k.EfficiencyRate_pct |> tagSim
         ]
 
     let private cycleTimesToSmcGroup (items: ResizeArray<KpiCycleTime>) : ISubmodelElement option =

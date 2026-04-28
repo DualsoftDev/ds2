@@ -18,18 +18,12 @@ module KpiAggregator =
         segs |> List.filter (fun s -> s.State = state) |> List.sumBy (fun s -> s.DurationSeconds)
 
     let private cycleDurations (entry: ReportEntry) : float list =
-        // G-세그먼트 시작에서 다음 G-세그먼트 시작까지를 한 사이클로 본다.
-        // 마지막 G 는 종료 사이클이 없으므로 제외.
-        let gStarts =
-            entry.Segments
-            |> List.filter (fun s -> s.State = StateGoing)
-            |> List.map (fun s -> s.StartTime)
-        match gStarts with
-        | [] | [_] -> []
-        | _ ->
-            gStarts
-            |> List.pairwise
-            |> List.map (fun (a, b) -> (b - a).TotalSeconds)
+        // 한 G-세그먼트 = 한 사이클 (= Work 가 Going 상태로 실제 작업 수행한 시간).
+        // 1회만 실행된 Work 도 Cycles=1, Actual=G 의 DurationSeconds 로 기록되도록 함.
+        // (이전 버전: G→다음 G start 간격 사용 → 1회 실행 시 Cycles=0/Actual=0 으로 누락)
+        entry.Segments
+        |> List.filter (fun s -> s.State = StateGoing)
+        |> List.map (fun s -> s.DurationSeconds)
 
     let private finishCount (entry: ReportEntry) : int =
         entry.Segments |> List.filter (fun s -> s.State = StateFinish) |> List.length
@@ -146,6 +140,30 @@ module KpiAggregator =
             let improvement =
                 if avg > 0.0 && mn > 0.0 && avg > mn then ((avg - mn) / avg) * 100.0 else 0.0
             let recommendedTarget = if mn > 0.0 then mn + (avg - mn) * 0.2 else avg
+
+            // 사이클 사이 낭비 시간 — 각 Finish 종료 시각과 그 다음 Going 시작 시각의 양수 차 합계.
+            //   "Finish 후 다음 Going 전까지의 idle 은 낭비" 의미. R/H 세그먼트가 그 사이에 끼어 있어도 합산.
+            let idleGapBetweenCycles =
+                let segs = entry.Segments |> List.toArray
+                let mutable acc = 0.0
+                for i in 0 .. segs.Length - 1 do
+                    if segs.[i].State = StateFinish then
+                        match segs.[i].EndTime with
+                        | Some fEnd ->
+                            // i+1 이후 첫 Going 세그먼트 찾기.
+                            let mutable j = i + 1
+                            let mutable found = false
+                            while not found && j < segs.Length do
+                                if segs.[j].State = StateGoing then found <- true
+                                else j <- j + 1
+                            if found then
+                                let gap = (segs.[j].StartTime - fEnd).TotalSeconds
+                                if gap > 0.0 then acc <- acc + gap
+                        | None -> ()
+                acc
+            let efficiencyDen = gTime + idleGapBetweenCycles
+            let efficiencyPct =
+                if efficiencyDen > 0.0 then (gTime / efficiencyDen) * 100.0 else 0.0
             {
                 WorkId = (match Guid.TryParse entry.Id with true, g -> g | _ -> Guid.Empty)
                 WorkName = entry.Name
@@ -165,6 +183,8 @@ module KpiAggregator =
                 UtilizationRate = utilPct
                 ImprovementPotential = improvement
                 RecommendedTargetCT = recommendedTarget
+                IdleGapBetweenCycles = idleGapBetweenCycles
+                EfficiencyRate = efficiencyPct
             })
         |> List.toArray
 
@@ -332,7 +352,14 @@ module KpiAggregator =
             })
         |> List.toArray
 
-    /// 작업별 SimOeeTracking (Quality 정보 부재 시 1.0 가정)
+    /// 작업별 SimOeeTracking — 시뮬레이션 가정.
+    ///   • Availability = 1.0  (시뮬 = 가동 시간이 곧 계획 시간; 고장/계획 정지 텔레메트리 없음)
+    ///   • Performance  = G / (G + IdleGap)  — 사이클 사이 대기 시간이 적을수록 1 에 가까움
+    ///   • Quality      = 1.0  (양/불량 텔레메트리 없음)
+    ///
+    /// 의도: 단일 제품을 1번 흘리면 IdleGap = 0 → Performance = 1 → OEE = 1.0.
+    ///       여러 제품 흘리면 앞 Work 의 처리량 한계로 뒷 Work 가 사이클 사이 대기 → IdleGap 증가
+    ///       → Performance < 1 → OEE < 1.
     let buildOees
             (designCtFor: string -> float)
             (targetOee: float)
@@ -342,16 +369,48 @@ module KpiAggregator =
         |> List.map (fun entry ->
             let gTime = secondsOf entry.Segments StateGoing
             let actualSpan = TimeSpan.FromSeconds gTime
-            let availability =
-                if plannedSpan.TotalSeconds > 0.0 then actualSpan.TotalSeconds / plannedSpan.TotalSeconds else 0.0
             let producedQty = finishCount entry
-            let standardCt = designCtFor entry.Name
+
+            // 사이클 사이 낭비(F → 다음 G 갭) — buildCycleTimes 와 동일 정의.
+            let idleGapBetweenCycles =
+                let segs = entry.Segments |> List.toArray
+                let mutable acc = 0.0
+                for i in 0 .. segs.Length - 1 do
+                    if segs.[i].State = StateFinish then
+                        match segs.[i].EndTime with
+                        | Some fEnd ->
+                            let mutable j = i + 1
+                            let mutable found = false
+                            while not found && j < segs.Length do
+                                if segs.[j].State = StateGoing then found <- true
+                                else j <- j + 1
+                            if found then
+                                let gap = (segs.[j].StartTime - fEnd).TotalSeconds
+                                if gap > 0.0 then acc <- acc + gap
+                        | None -> ()
+                acc
+
+            // 시뮬 가정: 가동시간 = 계획시간 (계획 정지 없음).
+            let availability = 1.0
+
+            // Performance = Efficiency = G / (G + IdleGap).
+            //   단일 제품: 사이클 1회 → IdleGap = 0 → 1.0
+            //   여러 제품 + 앞 Work 대기: IdleGap > 0 → < 1.0
             let performance =
-                if actualSpan.TotalSeconds > 0.0 && standardCt > 0.0 then
-                    (float producedQty * standardCt) / actualSpan.TotalSeconds
+                let den = gTime + idleGapBetweenCycles
+                if den > 0.0 then min 1.0 (max 0.0 (gTime / den))
+                elif producedQty > 0 then 1.0
                 else 0.0
-            let quality = 1.0       // 텔레메트리에 양/불량 데이터 없음 — 100% 가정
+
+            let quality = 1.0       // 양/불량 텔레메트리 없음 — 100% 가정
             let oee = availability * performance * quality
+
+            // 참고용 (KPI 호환 필드) — Design CT 가 있으면 그 기준의 standardCt, 없으면 actual.
+            let standardCt =
+                let d = designCtFor entry.Name
+                if d > 0.0 then d
+                elif producedQty > 0 && gTime > 0.0 then gTime / float producedQty
+                else 0.0
             let timeLoss =
                 if plannedSpan.TotalSeconds > 0.0 then
                     ((plannedSpan.TotalSeconds - actualSpan.TotalSeconds) / plannedSpan.TotalSeconds) * 100.0
