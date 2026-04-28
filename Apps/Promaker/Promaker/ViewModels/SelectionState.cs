@@ -131,6 +131,9 @@ public class SelectionState
         if (_orderedNodeSelection.Count < 2)
             return false;
 
+        if (!_host.GuardArrowEditByRuntimeMode("Arrow 순서 연결"))
+            return false;
+
         // Call 노드 간 사이클 검사
         var ids = _orderedNodeSelection.Select(s => s.Id);
         if (ConnectionQueries.hasCallCycleInSequence(Store, ids))
