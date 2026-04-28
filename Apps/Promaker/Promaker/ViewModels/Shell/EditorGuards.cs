@@ -97,6 +97,7 @@ public partial class MainViewModel
 
     public bool TryReconnectArrowFromCanvas(Guid arrowId, bool replaceSource, Guid newEndpointId)
     {
+        if (!GuardArrowEditByRuntimeMode("Arrow 재연결")) return false;
         if (!TryEditorFunc(
                 () => _store.ReconnectArrow(arrowId, replaceSource, newEndpointId),
                 out bool changed,
@@ -107,16 +108,20 @@ public partial class MainViewModel
         return changed;
     }
 
-    public bool TryUpdateArrowType(Guid arrowId, ArrowType newArrowType) =>
-        TryEditorFunc(
+    public bool TryUpdateArrowType(Guid arrowId, ArrowType newArrowType)
+    {
+        if (!GuardArrowEditByRuntimeMode("Arrow Type 변경")) return false;
+        return TryEditorFunc(
             () => _store.UpdateArrowType(arrowId, newArrowType),
             out bool _,
             fallback: false,
             statusOverride: "[ERROR] Failed to change arrow type.");
+    }
 
     public int TryUpdateArrowTypesBatch(IReadOnlyList<Guid> arrowIds, ArrowType newArrowType)
     {
         if (arrowIds.Count == 0) return 0;
+        if (!GuardArrowEditByRuntimeMode("Arrow Type 일괄 변경")) return 0;
         if (!TryEditorFunc(
                 () => _store.UpdateArrowTypesBatch(arrowIds, newArrowType),
                 out int changed,
@@ -126,16 +131,20 @@ public partial class MainViewModel
         return changed;
     }
 
-    public bool TryReverseArrow(Guid arrowId) =>
-        TryEditorFunc(
+    public bool TryReverseArrow(Guid arrowId)
+    {
+        if (!GuardArrowEditByRuntimeMode("Arrow 방향 반전")) return false;
+        return TryEditorFunc(
             () => _store.ReverseArrow(arrowId),
             out bool _,
             fallback: false,
             statusOverride: "[ERROR] Failed to reverse arrow direction.");
+    }
 
     public int TryReverseArrowsBatch(IReadOnlyList<Guid> arrowIds)
     {
         if (arrowIds.Count == 0) return 0;
+        if (!GuardArrowEditByRuntimeMode("Arrow 일괄 방향 반전")) return 0;
         if (!TryEditorFunc(
                 () => _store.ReverseArrowsBatch(arrowIds),
                 out int changed,
@@ -147,6 +156,8 @@ public partial class MainViewModel
 
     public bool TryConnectNodesFromCanvas(Guid sourceId, Guid targetId, ArrowType arrowType)
     {
+        if (!GuardArrowEditByRuntimeMode("Arrow 연결")) return false;
+
         if (Queries.getCall(sourceId, _store) is not null
             && Queries.getCall(targetId, _store) is not null
             && ConnectionQueries.wouldCreateCallCycle(_store, sourceId, targetId))

@@ -28,7 +28,13 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     /// Hub OnTagChanged 가 lock 없이 enqueue 하는 IO 신호 큐.
     /// simulationLoop 이 advance 안에서 매 iter 마다 한 항목씩 dequeue → SetIOValue + ConditionEval
     /// 페어 broadcast(IN=true → IN=false) 의 의미가 advance 도중 분리돼 처리되도록 함.
-    let hubInjectQueue = System.Collections.Concurrent.ConcurrentQueue<struct(string * string)>()
+    /// 큐 항목: address, value, enqueue 시점 ticks. dequeue 시점에 elapsed 계산해 latency 진단.
+    let hubInjectQueue = System.Collections.Concurrent.ConcurrentQueue<struct(string * string * int64)>()
+    /// Control 모드 ms 단위 PLC 연동 가정 — broadcast → dequeue latency 임계치 5ms 초과 시 경고 로그.
+    /// 간헐적 OS scheduling 지연/lock contention 진단용. 정상 시는 조용.
+    let hubInjectLatencyWarnThresholdMs = 5L
+    let hubInjectLatencyLog =
+        log4net.LogManager.GetLogger("EventDrivenEngine.HubInject")
     let engineThreadJoinTimeoutMs = 1000
     let getStatus () = Volatile.Read(&status)
     let setStatus newStatus = Volatile.Write(&status, newStatus)
@@ -49,9 +55,16 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     /// simulationLoop 의 advance 안에서 호출. 큐에서 한 항목 dequeue 후 SetIOValue + scheduleConditionEval.
     /// dequeue 마다 ConditionEval 이벤트를 사이에 끼워 IN=true 가 적용된 시점의 평가를 보장한다.
     let tryDrainHubInjectOnce () : bool =
-        let mutable item = Unchecked.defaultof<struct(string * string)>
+        let mutable item = Unchecked.defaultof<struct(string * string * int64)>
         if hubInjectQueue.TryDequeue(&item) then
-            let struct(address, value) = item
+            let struct(address, value, enqueueTicks) = item
+            // enqueue → dequeue latency 측정. 임계치 초과 시 경고 (Control 모드 ms 단위 응답성 진단)
+            let elapsedMs =
+                let now = System.Diagnostics.Stopwatch.GetTimestamp()
+                ((now - enqueueTicks) * 1000L) / System.Diagnostics.Stopwatch.Frequency
+            if elapsedMs >= hubInjectLatencyWarnThresholdMs then
+                hubInjectLatencyLog.Warn(
+                    sprintf "Hub inject latency %dms (addr=%s value=%s) — wake/lock contention 의심" elapsedMs address value)
             match ioMap.InAddressToMappings |> Map.tryFind address with
             | Some mappings ->
                 for m in mappings do
@@ -278,6 +291,10 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         let thread = Thread(ThreadStart(fun () -> EventDrivenEngineRuntime.simulationLoop runtimeContext tokenSource.Token))
         thread.IsBackground <- true
         thread.Name <- "EventDrivenEngine"
+        // Control 모드에서 외부 PLC 와 ms 단위 응답성 유지 위해 우선순위 상향.
+        // wakeSignal 도착 후 simulationLoop 이 lock 잡고 advance 시작하기까지 OS scheduler 의존
+        // — AboveNormal 로 두면 일반 thread 들 사이에서 우선 깨어나게.
+        thread.Priority <- ThreadPriority.AboveNormal
         thread.Start()
         engineThread <- Some thread
     let runExternalMutation action =
@@ -412,7 +429,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     /// simulationLoop 이 advance 안에서 한 항목씩 처리해서 페어 broadcast 도중 stale eval race 차단.
     let enqueueHubIOValueByAddress (address: string) (value: string) : bool =
         if ioMap.InAddressToMappings.ContainsKey(address) then
-            hubInjectQueue.Enqueue(struct(address, value))
+            hubInjectQueue.Enqueue(struct(address, value, System.Diagnostics.Stopwatch.GetTimestamp()))
             signalWork ()
             true
         else
