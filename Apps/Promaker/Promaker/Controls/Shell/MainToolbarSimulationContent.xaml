@@ -4,6 +4,7 @@
              xmlns:sys="clr-namespace:System;assembly=mscorlib"
              xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
              xmlns:core="clr-namespace:Ds2.Core;assembly=Ds2.Core"
+             xmlns:conv="clr-namespace:Promaker.Presentation"
              xmlns:res="clr-namespace:Promaker.Resources">
     <UserControl.Resources>
         <ResourceDictionary>
@@ -328,31 +329,71 @@
                     </Button>
                 </StackPanel>
             </StackPanel>
+            <!-- 좌측 세로선: 다른 ribbon 그룹과 동일한 분리 패턴 (플랫 테마) -->
+            <Rectangle Width="1"
+                       Fill="{DynamicResource BorderBrush}"
+                       Margin="18,4,18,4"
+                       VerticalAlignment="Stretch"/>
+            <!-- Runtime 진입 버튼 -->
+            <StackPanel Orientation="Vertical" VerticalAlignment="Center">
+                <Button x:Name="RuntimeSettingButton"
+                        Command="{Binding ShowRuntimeSettingsCommand}"
+                        IsEnabled="{Binding HasProject}"
+                        ToolTip="런타임 설정 (Runtime Mode · Variant · Theme)">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource RibbonFlatButton}">
+                            <Setter Property="Foreground" Value="{DynamicResource IconGrayBrush}"/>
+                            <Setter Property="MinWidth" Value="56"/>
+                            <Setter Property="MinHeight" Value="0"/>
+                            <Setter Property="Padding" Value="8,6"/>
+                        </Style>
+                    </Button.Style>
+                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                        <iconPacks:PackIconMaterial Kind="Cog" Width="18" Height="18"
+                                                    HorizontalAlignment="Center"
+                                                    Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                        <TextBlock Text="Runtime" FontSize="10" HorizontalAlignment="Center" Margin="0,2,0,0"
+                                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+            <!-- 모드 라벨 + Hub 연결 상태 dot + Hub 입력란 -->
             <StackPanel Orientation="Vertical"
-                        Margin="22,0,0,0"
-                        VerticalAlignment="Center"
-                        IsEnabled="{Binding HasProject}">
-                <TextBlock Text="Mode" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,1"/>
-                <ComboBox SelectedValue="{Binding Simulation.SelectedRuntimeMode}"
-                          SelectedValuePath="Tag"
-                          IsEnabled="{Binding Simulation.CanChangeMode}"
-                          Width="100"
-                          MinHeight="24"
-                          FontSize="11">
-                    <ComboBoxItem Content="Simulation"><ComboBoxItem.Tag><core:RuntimeMode>Simulation</core:RuntimeMode></ComboBoxItem.Tag></ComboBoxItem>
-                    <ComboBoxItem Content="Control"><ComboBoxItem.Tag><core:RuntimeMode>Control</core:RuntimeMode></ComboBoxItem.Tag></ComboBoxItem>
-                    <ComboBoxItem Content="Monitoring"><ComboBoxItem.Tag><core:RuntimeMode>Monitoring</core:RuntimeMode></ComboBoxItem.Tag></ComboBoxItem>
-                    <ComboBoxItem Content="VirtualPlant"><ComboBoxItem.Tag><core:RuntimeMode>VirtualPlant</core:RuntimeMode></ComboBoxItem.Tag></ComboBoxItem>
-                </ComboBox>
-                <Grid Margin="0,1,0,0" MinHeight="20">
-                    <TextBox Text="{Binding Simulation.HubAddress, UpdateSourceTrigger=PropertyChanged}"
-                             Width="100"
-                             MinHeight="20"
-                             FontSize="10"
-                             IsEnabled="{Binding Simulation.CanChangeMode}"
-                             ToolTip="Hub 주소 (host:port)"
-                             Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"/>
-                </Grid>
+                        Margin="12,0,0,0"
+                        MinWidth="130"
+                        VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <TextBlock Text="{Binding Simulation.SelectedRuntimeMode}"
+                               FontSize="11" FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               VerticalAlignment="Center"/>
+                    <Ellipse Width="8" Height="8" Margin="6,0,0,0"
+                             VerticalAlignment="Center"
+                             Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"
+                             ToolTip="{Binding Simulation.HubStatusText}">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="{DynamicResource IconRedBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Simulation.IsHubReconnecting}" Value="True">
+                                        <Setter Property="Fill" Value="{DynamicResource IconOrangeBrush}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Simulation.IsHubConnected}" Value="True">
+                                        <Setter Property="Fill" Value="{DynamicResource IconGreenBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                </StackPanel>
+                <TextBox Text="{Binding Simulation.HubAddress, UpdateSourceTrigger=PropertyChanged}"
+                         Width="130" MinHeight="24" FontSize="11"
+                         Margin="0,3,0,0"
+                         Padding="6,2"
+                         VerticalContentAlignment="Center"
+                         IsEnabled="{Binding Simulation.CanChangeMode}"
+                         ToolTip="Hub 주소 (host:port) — Sim 외 모드에서 입력"
+                         Visibility="{Binding Simulation.NeedsHubConnection, Converter={StaticResource BoolToVis}}"/>
             </StackPanel>
         </WrapPanel>
         <TextBlock Grid.Row="1" Text="시뮬레이션" Style="{StaticResource RibbonSectionLabel}"/>

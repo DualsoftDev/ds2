@@ -17,6 +17,8 @@
     <Compile Include="Exporters/HtmlExporter.fs" />
     <Compile Include="Exporters/ExcelExporter.fs" />
     <Compile Include="ReportService.fs" />
+    <Compile Include="KpiAggregator.fs" />
+    <Compile Include="SimulationSnapshotBuilder.fs" />
   </ItemGroup>
 
   <ItemGroup>

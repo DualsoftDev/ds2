@@ -66,6 +66,8 @@ public partial class SimulationPanelState : ObservableObject
         public static string ReportSaved(string path) => $"리포트 저장 완료: {path}";
         public static string ReportSaveFailed(string message) => $"리포트 저장 실패: {message}";
         public static string ReportError(string message) => $"리포트 오류: {message}";
+        public static string ScenarioCaptured(string name) => $"시뮬 시나리오 저장됨: {name}";
+        public const string ScenarioCaptureFailed = "시뮬 시나리오 저장 실패: 데이터가 없거나 프로젝트를 찾을 수 없습니다.";
         public static string StateCode(Status4 state) => Presentation.Status4Visuals.ShortCode(state);
 
         public const string ClockFormat = @"hh\:mm\:ss\.fff";
@@ -90,6 +92,7 @@ public partial class SimulationPanelState : ObservableObject
     private long AdvanceSimUiGeneration() => Interlocked.Increment(ref _simUiGeneration);
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanChangeMode))]
     [NotifyPropertyChangedFor(nameof(CanChangeSpeed))]
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
@@ -113,6 +116,7 @@ public partial class SimulationPanelState : ObservableObject
 
     /// 자동 원위치 페이즈 진행 중 — PLAY/PAUSE/ForceWork/ForceReset/SeedToken/Step 비활성화
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanChangeMode))]
     [NotifyCanExecuteChangedFor(nameof(StartSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseSimulationCommand))]
     [NotifyCanExecuteChangedFor(nameof(ForceWorkStartCommand))]
@@ -134,14 +138,29 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty] private RuntimeMode _selectedRuntimeMode = RuntimeMode.Simulation;
     [ObservableProperty] private string _hubAddress = "localhost:5050";
     [ObservableProperty] private bool _isHubHosting;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HubStatusText))]
+    private bool _isHubConnected;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HubStatusText))]
+    private bool _isHubReconnecting;
+
     public bool NeedsHubConnection => SelectedRuntimeMode != RuntimeMode.Simulation;
     public bool IsHubHost => SelectedRuntimeMode == RuntimeMode.Control;
     public bool CanChangeMode => !IsSimulating && !IsHomingPhase;
+
+    public string HubStatusText =>
+        IsHubConnected ? "Hub 연결됨"
+        : IsHubReconnecting ? "Hub 재연결 시도 중"
+        : "Hub 끊김";
 
     partial void OnSelectedRuntimeModeChanged(RuntimeMode value)
     {
         OnPropertyChanged(nameof(NeedsHubConnection));
         OnPropertyChanged(nameof(IsHubHost));
+        SetHubStatus(connected: false, reconnecting: false);
     }
 
     public bool CanChangeSpeed => !IsSimulating || IsSimPaused;
@@ -150,9 +169,8 @@ public partial class SimulationPanelState : ObservableObject
     [ObservableProperty] private bool _simTimeIgnore;
     [ObservableProperty] private string _simClock = SimText.ClockZero;
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ExportReportCsvCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ExportReportXlsxCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ExportReportHtmlCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportReportCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CaptureScenarioToProjectCommand))]
     private bool _hasReportData;
 
     [ObservableProperty]

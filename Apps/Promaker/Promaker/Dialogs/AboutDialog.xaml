@@ -28,13 +28,6 @@
             <Border Height="1" Margin="0,0,0,16"
                     Background="{DynamicResource BorderBrush}"/>
 
-            <!-- Description -->
-            <TextBlock Text="DS2 기반 시뮬레이션 모델링 도구"
-                       FontSize="12"
-                       Foreground="{DynamicResource PrimaryTextBrush}"
-                       HorizontalAlignment="Center"
-                       Margin="0,0,0,8"/>
-
             <!-- Copyright -->
             <TextBlock x:Name="CopyrightText"
                        FontSize="11"
@@ -42,7 +35,7 @@
                        HorizontalAlignment="Center"
                        Margin="0,0,0,4"/>
 
-            <TextBlock Text="Dualsoft Technology Inc."
+            <TextBlock Text="Dual Inc"
                        FontSize="11"
                        Foreground="{DynamicResource SecondaryTextBrush}"
                        HorizontalAlignment="Center"

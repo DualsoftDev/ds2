@@ -16,7 +16,7 @@ public static class PlcConfig
 
     public static PlcSettings Settings => Load();
 
-    public static void Save(string ioTemplateDirPath, string xgiTemplatePath, string xg5000ExePath)
+    public static void Save(string xgiTemplatePath, string xg5000ExePath)
     {
         try
         {
@@ -26,7 +26,6 @@ public static class PlcConfig
 
             File.WriteAllLines(ConfigFile,
             [
-                $"IoTemplateDirPath={ioTemplateDirPath}",
                 $"XgiTemplatePath={xgiTemplatePath}",
                 $"Xg5000ExePath={xg5000ExePath}",
             ]);
@@ -53,23 +52,15 @@ public static class PlcConfig
 
         return new PlcSettings
         {
-            IoTemplateDirPath = dict.GetValueOrDefault("IoTemplateDirPath", ""),
-            XgiTemplatePath   = dict.GetValueOrDefault("XgiTemplatePath",   ""),
-            Xg5000ExePath     = dict.GetValueOrDefault("Xg5000ExePath",     ""),
+            XgiTemplatePath = dict.GetValueOrDefault("XgiTemplatePath", ""),
+            Xg5000ExePath   = dict.GetValueOrDefault("Xg5000ExePath",   ""),
         };
     }
 }
 
 public class PlcSettings
 {
-    public string IoTemplateDirPath { get; init; } = "";
     public string XgiTemplatePath   { get; init; } = "";
-
-    /// <summary>유효한 IOList 템플릿 폴더 경로 (비어 있으면 TemplateManager 기본값)</summary>
-    public string EffectiveIoTemplateDirPath =>
-        !string.IsNullOrWhiteSpace(IoTemplateDirPath)
-            ? IoTemplateDirPath
-            : TemplateManager.TemplatesFolderPath;
 
     /// <summary>유효한 XGI 템플릿 파일 경로 (비어 있으면 AppBase/Template/XGI_Template.xml)</summary>
     public string EffectiveXgiTemplatePath =>
