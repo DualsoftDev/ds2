@@ -43,10 +43,21 @@ public partial class EditorCanvas : UserControl
         public double OriginY { get; } = originY;
     }
 
-    private sealed class DragState(Point startPoint, IReadOnlyList<DragItem> items)
+    private sealed class DragArrowSnapshot(ArrowNode arrow, DragItem? sourceDrag, DragItem? targetDrag)
+    {
+        public ArrowNode Arrow { get; } = arrow;
+        public DragItem? SourceDrag { get; } = sourceDrag;
+        public DragItem? TargetDrag { get; } = targetDrag;
+    }
+
+    private sealed class DragState(
+        Point startPoint,
+        IReadOnlyList<DragItem> items,
+        IReadOnlyList<DragArrowSnapshot> arrowSnapshots)
     {
         public Point StartPoint { get; } = startPoint;
         public IReadOnlyList<DragItem> Items { get; } = items;
+        public IReadOnlyList<DragArrowSnapshot> ArrowSnapshots { get; } = arrowSnapshots;
     }
 
     private sealed class ArrowReconnectState(Guid arrowId, bool replaceSource, Point anchorPoint)
