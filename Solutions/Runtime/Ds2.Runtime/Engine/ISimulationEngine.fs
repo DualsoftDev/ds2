@@ -30,6 +30,11 @@ type ISimulationEngine =
     // 상태 제어
     abstract ForceWorkState: workGuid: Guid * newState: Status4 -> unit
     abstract ForceCallState: callGuid: Guid * newState: Status4 -> unit
+    /// Hub IN=true 응답 처리 전용 atomic 가드.
+    /// engine 내부 lock 안에서 currentState=Going 일 때만 newState 로 Force.
+    /// 외부 thread(SignalR) 가 GetWorkState + ForceWorkState 를 분리 호출하면 그 사이
+    /// Reset 흐름이 진행되어 stale 응답이 Homing→Finish 잘못 전이시키는 race 차단.
+    abstract TryForceWorkStateIfGoing: workGuid: Guid * newState: Status4 -> unit
     abstract GetWorkState: workGuid: Guid -> Status4 option
     abstract GetCallState: callGuid: Guid -> Status4 option
 

@@ -183,6 +183,14 @@ public partial class SimulationPanelState
                     engine.ForceWorkState(effect.WorkGuid, effect.State);
                 return;
 
+            case RuntimeHubEffectKind.ForceWorkStateIfGoing:
+                // Control 모드 IN=true 응답 전용. engine 내부 lock 안에서 atomic 으로
+                // currentState=Going 일 때만 Force — Reset 흐름 도중 stale 응답이 Homing→Finish
+                // 잘못 전이시키는 race 차단.
+                if (effect.WorkGuid != Guid.Empty)
+                    engine.TryForceWorkStateIfGoing(effect.WorkGuid, effect.State);
+                return;
+
             case RuntimeHubEffectKind.WriteTag:
                 if (_hubConnection is { State: HubConnectionState.Connected } hub
                     && IsCurrentHubConnection(hubGeneration, hub)

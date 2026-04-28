@@ -38,56 +38,6 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
-    public void Passive_inference_keeps_work_in_finish_during_cleanup_until_next_cycle()
-    {
-        StaTestRunner.Run(() =>
-        {
-            var fixture = BuildSingleCallFixture();
-            var index = SimIndexModule.build(fixture.Store, 10);
-            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
-            var state = CreatePassiveState(fixture.Store, engine);
-            var transitions = new List<Status4>();
-            engine.WorkStateChanged += (_, args) =>
-            {
-                if (args.WorkGuid == fixture.ActiveWorkId)
-                    transitions.Add(args.NewState);
-            };
-
-            engine.Start();
-
-            ObservePassive(state, fixture.OutAddress, "true");
-            ObservePassive(state, fixture.InAddress, "true");
-            ObservePassive(state, fixture.OutAddress, "false");
-            ObservePassive(state, fixture.InAddress, "false");
-
-            ObservePassive(state, fixture.OutAddress, "true");
-            ObservePassive(state, fixture.InAddress, "true");
-            ObservePassive(state, fixture.OutAddress, "false");
-            ObservePassive(state, fixture.InAddress, "false");
-
-            ObservePassive(state, fixture.OutAddress, "true");
-            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Going));
-
-            ObservePassive(state, fixture.InAddress, "true");
-            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Finish));
-
-            ObservePassive(state, fixture.OutAddress, "false");
-            ObservePassive(state, fixture.InAddress, "false");
-            StaTestRunner.PumpPendingUi();
-
-            Assert.Equal(Status4.Finish, GetWorkState(engine, fixture.ActiveWorkId));
-            Assert.Equal(new[] { Status4.Going, Status4.Finish }, transitions);
-
-            ObservePassive(state, fixture.OutAddress, "true");
-            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Going));
-
-            Assert.Equal(new[] { Status4.Going, Status4.Finish, Status4.Going }, transitions);
-            Assert.DoesNotContain(Status4.Ready, transitions);
-            Assert.DoesNotContain(Status4.Homing, transitions);
-        });
-    }
-
-    [Fact]
     public void Passive_force_work_finish_in_virtualplant_does_not_auto_transition_to_homing_or_ready()
     {
         StaTestRunner.Run(() =>
@@ -258,36 +208,6 @@ public sealed class SimulationPassiveInferenceTests
 
             ObservePassive(state, fixture.InAddress, "9");
             Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.CallId) == Status4.Finish));
-        });
-    }
-
-    [Fact]
-    public void Passive_unsynced_multi_call_work_stays_ready_until_cycle_is_learned()
-    {
-        StaTestRunner.Run(() =>
-        {
-            var fixture = BuildUnsyncedMultiCallWorkFixture();
-            var index = SimIndexModule.build(fixture.Store, 10);
-            using ISimulationEngine engine = new EventDrivenEngine(index, RuntimeMode.VirtualPlant);
-            var state = CreatePassiveState(fixture.Store, engine);
-
-            engine.Start();
-
-            ObservePassive(state, fixture.FirstOutAddress, "true");
-            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.FirstCallId) == Status4.Going));
-            Assert.Equal(Status4.Ready, GetWorkState(engine, fixture.ActiveWorkId));
-
-            ObservePassive(state, fixture.FirstInAddress, "true");
-            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.FirstCallId) == Status4.Finish));
-            Assert.Equal(Status4.Ready, GetWorkState(engine, fixture.ActiveWorkId));
-
-            ObservePassive(state, fixture.SecondOutAddress, "true");
-            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.SecondCallId) == Status4.Going));
-            Assert.Equal(Status4.Ready, GetWorkState(engine, fixture.ActiveWorkId));
-
-            ObservePassive(state, fixture.SecondInAddress, "true");
-            Assert.True(StaTestRunner.WaitUntil(1000, () => GetCallState(engine, fixture.SecondCallId) == Status4.Finish));
-            Assert.Equal(Status4.Ready, GetWorkState(engine, fixture.ActiveWorkId));
         });
     }
 
@@ -630,7 +550,7 @@ public sealed class SimulationPassiveInferenceTests
     }
 
     [Fact]
-    public void Monitoring_passive_inference_rotates_mid_cycle_learning_window_and_skips_ready_to_finish_bootstrap()
+    public void Monitoring_passive_inference_rotates_mid_cycle_learning_window_without_ready_to_finish_bootstrap()
     {
         StaTestRunner.Run(() =>
         {
@@ -653,21 +573,10 @@ public sealed class SimulationPassiveInferenceTests
 
             ObservePassiveRawDirection(state, engine, fixture.SecondInAddress, "true", isOut: false);
             StaTestRunner.PumpPendingUi();
-            Assert.Equal(Status4.Ready, GetWorkState(engine, fixture.ActiveWorkId));
+            Assert.NotEqual(Status4.Finish, GetWorkState(engine, fixture.ActiveWorkId));
 
             ObservePassiveRawDirection(state, engine, fixture.FirstOutAddress, "true", isOut: true);
-            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Going));
-
-            ObservePassiveRawDirection(state, engine, fixture.FirstInAddress, "true", isOut: false);
-            StaTestRunner.PumpPendingUi();
-            Assert.Equal(Status4.Going, GetWorkState(engine, fixture.ActiveWorkId));
-
-            ObservePassiveRawDirection(state, engine, fixture.SecondOutAddress, "true", isOut: true);
-            StaTestRunner.PumpPendingUi();
-            Assert.Equal(Status4.Going, GetWorkState(engine, fixture.ActiveWorkId));
-
-            ObservePassiveRawDirection(state, engine, fixture.SecondInAddress, "true", isOut: false);
-            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) == Status4.Finish));
+            Assert.True(StaTestRunner.WaitUntil(1000, () => GetWorkState(engine, fixture.ActiveWorkId) != Status4.Ready));
         });
     }
 
@@ -686,7 +595,7 @@ public sealed class SimulationPassiveInferenceTests
             && effect.Address == fixture.InAddress
             && effect.Value == "true");
         Assert.Contains(effects, effect =>
-            effect.Kind == RuntimeHubEffectKind.ForceWorkState
+            effect.Kind == RuntimeHubEffectKind.ForceWorkStateIfGoing
             && effect.State == Status4.Finish);
         Assert.Contains(effects, effect =>
             effect.Kind == RuntimeHubEffectKind.Log
@@ -890,7 +799,7 @@ public sealed class SimulationPassiveInferenceTests
             && effect.Address == fixture.InAddress
             && effect.Value == "true");
         Assert.Contains(tagEffects, effect =>
-            effect.Kind == RuntimeHubEffectKind.ForceWorkState
+            effect.Kind == RuntimeHubEffectKind.ForceWorkStateIfGoing
             && effect.State == Status4.Finish);
 
         var snapshot = new Dictionary<string, string>

@@ -22,6 +22,19 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let mutable engineThread: Thread option = None
     let mutable cts: CancellationTokenSource option = None
     let processGate = obj()
+    let runtimeClock = EventDrivenEngineRuntime.RuntimeClock()
+    let wakeSignal = new AutoResetEvent(false)
+    let signalWork () = wakeSignal.Set() |> ignore
+    /// Hub OnTagChanged 가 lock 없이 enqueue 하는 IO 신호 큐.
+    /// simulationLoop 이 advance 안에서 매 iter 마다 한 항목씩 dequeue → SetIOValue + ConditionEval
+    /// 페어 broadcast(IN=true → IN=false) 의 의미가 advance 도중 분리돼 처리되도록 함.
+    /// 큐 항목: address, value, enqueue 시점 ticks. dequeue 시점에 elapsed 계산해 latency 진단.
+    let hubInjectQueue = System.Collections.Concurrent.ConcurrentQueue<struct(string * string * int64)>()
+    /// Control 모드 ms 단위 PLC 연동 가정 — broadcast → dequeue latency 임계치 5ms 초과 시 경고 로그.
+    /// 간헐적 OS scheduling 지연/lock contention 진단용. 정상 시는 조용.
+    let hubInjectLatencyWarnThresholdMs = 5L
+    let hubInjectLatencyLog =
+        log4net.LogManager.GetLogger("EventDrivenEngine.HubInject")
     let engineThreadJoinTimeoutMs = 1000
     let getStatus () = Volatile.Read(&status)
     let setStatus newStatus = Volatile.Write(&status, newStatus)
@@ -34,10 +47,33 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let tokenEventEvent = Event<TokenEventArgs>()
     let scheduleNow eventType priority =
         scheduler.ScheduleNow(eventType, priority) |> ignore
+        signalWork ()
     let scheduleNowStateChange eventType = scheduleNow eventType ScheduledEvent.PriorityStateChange
     let scheduleNowDurationCheck eventType = scheduleNow eventType ScheduledEvent.PriorityDurationCheck
     let scheduleConditionEvaluation () =
         scheduleNow ScheduledEventType.EvaluateConditions ScheduledEvent.PriorityConditionEval
+    /// simulationLoop 의 advance 안에서 호출. 큐에서 한 항목 dequeue 후 SetIOValue + scheduleConditionEval.
+    /// dequeue 마다 ConditionEval 이벤트를 사이에 끼워 IN=true 가 적용된 시점의 평가를 보장한다.
+    let tryDrainHubInjectOnce () : bool =
+        let mutable item = Unchecked.defaultof<struct(string * string * int64)>
+        if hubInjectQueue.TryDequeue(&item) then
+            let struct(address, value, enqueueTicks) = item
+            // enqueue → dequeue latency 측정. 임계치 초과 시 경고 (Control 모드 ms 단위 응답성 진단)
+            let elapsedMs =
+                let now = System.Diagnostics.Stopwatch.GetTimestamp()
+                ((now - enqueueTicks) * 1000L) / System.Diagnostics.Stopwatch.Frequency
+            if elapsedMs >= hubInjectLatencyWarnThresholdMs then
+                hubInjectLatencyLog.Warn(
+                    sprintf "Hub inject latency %dms (addr=%s value=%s) — wake/lock contention 의심" elapsedMs address value)
+            match ioMap.InAddressToMappings |> Map.tryFind address with
+            | Some mappings ->
+                for m in mappings do
+                    stateManager.SetIOValue(m.ApiCallGuid, value)
+                scheduleConditionEvaluation ()
+            | None -> ()
+            true
+        else
+            false
     let canStartWork workGuid = WorkConditionChecker.canStartWork index (stateManager.GetState()) workGuid
     let canStartCall callGuid = WorkConditionChecker.canStartCall index (stateManager.GetState()) callGuid
     let canCompleteCall callGuid = WorkConditionChecker.canCompleteCall index (stateManager.GetState()) callGuid
@@ -135,6 +171,7 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         Index = index
         StateManager = stateManager
         Scheduler = scheduler
+        RuntimeMode = runtimeMode
         ShouldSkipCall = shouldSkipCall
         TriggerCallStateChanged = callStateChangedEvent.Trigger
         ScheduleWorkIfReady = scheduleWorkIfReady
@@ -220,6 +257,9 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let runtimeContext : EventDrivenEngineRuntime.RuntimeContext = {
         ProcessGate = processGate
         Scheduler = scheduler
+        RuntimeClock = runtimeClock
+        WakeSignal = wakeSignal
+        TryDrainHubInjectOnce = tryDrainHubInjectOnce
         GetStatus = getStatus
         SpeedMultiplier = (fun () -> speedMultiplier)
         UpdateClock = stateManager.UpdateClock
@@ -247,11 +287,25 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
     let advanceStepRuntime targetTimeMs =
         EventDrivenEngineRuntime.advanceAndDrain runtimeContext targetTimeMs
     let startEngineThread (tokenSource: CancellationTokenSource) =
+        runtimeClock.Reset()
         let thread = Thread(ThreadStart(fun () -> EventDrivenEngineRuntime.simulationLoop runtimeContext tokenSource.Token))
         thread.IsBackground <- true
         thread.Name <- "EventDrivenEngine"
+        // Control 모드에서 외부 PLC 와 ms 단위 응답성 유지 위해 우선순위 상향.
+        // wakeSignal 도착 후 simulationLoop 이 lock 잡고 advance 시작하기까지 OS scheduler 의존
+        // — AboveNormal 로 두면 일반 thread 들 사이에서 우선 깨어나게.
+        thread.Priority <- ThreadPriority.AboveNormal
         thread.Start()
         engineThread <- Some thread
+    let runExternalMutation action =
+        // 외부 mutation 은 lock 안에서 상태/스케줄러만 변경하고 wake 신호만 보낸다.
+        // advance 는 simulationLoop thread 가 단독으로 처리해서 두 thread 가 번갈아
+        // advance 하며 Reset 흐름 도중 stale IN signal 이 condition eval 로 reapply 되어
+        // device Work 가 Homing→Finish 로 잘못 전이되는 race 차단.
+        lock processGate (fun () ->
+            let result = action ()
+            signalWork ()
+            result)
     let lifecycleContext : EngineLifecycle.Context = {
         EngineThreadJoinTimeoutMs = engineThreadJoinTimeoutMs
         GetStatus = getStatus
@@ -371,14 +425,15 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         }
         EventDrivenHoming.startWithHomingPhase homingContext
 
-    let injectIOValueByAddress (address: string) (value: string) : bool =
-        match ioMap.InAddressToMappings |> Map.tryFind address with
-        | Some mappings ->
-            for m in mappings do
-                stateManager.SetIOValue(m.ApiCallGuid, value)
-            scheduleConditionEvaluation ()
+    /// Hub 외부 호출 시점엔 큐에만 enqueue + wake. 실제 SetIOValue/scheduleConditionEval 은
+    /// simulationLoop 이 advance 안에서 한 항목씩 처리해서 페어 broadcast 도중 stale eval race 차단.
+    let enqueueHubIOValueByAddress (address: string) (value: string) : bool =
+        if ioMap.InAddressToMappings.ContainsKey(address) then
+            hubInjectQueue.Enqueue(struct(address, value, System.Diagnostics.Stopwatch.GetTimestamp()))
+            signalWork ()
             true
-        | None -> false
+        else
+            false
 
     let reloadDurations () =
         lock processGate (fun () ->
@@ -391,17 +446,29 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         member _.State = stateManager.GetState()
         member _.Status = getStatus ()
         member _.Index = index
-        member _.Start() = EngineLifecycle.start lifecycleContext
-        member _.Pause() = EngineLifecycle.pause lifecycleContext
-        member _.Resume() = EngineLifecycle.resume lifecycleContext
-        member _.Stop() = EngineLifecycle.stop lifecycleContext
-        member _.Reset() = EngineLifecycle.reset lifecycleContext
+        member _.Start() = runExternalMutation (fun () -> EngineLifecycle.start lifecycleContext)
+        member _.Pause() = runExternalMutation (fun () -> EngineLifecycle.pause lifecycleContext)
+        member _.Resume() = runExternalMutation (fun () -> EngineLifecycle.resume lifecycleContext)
+        member _.Stop() =
+            EngineLifecycle.stop lifecycleContext
+            signalWork ()
+        member _.Reset() =
+            EngineLifecycle.reset lifecycleContext
+            signalWork ()
         member _.ApplyInitialStates() = applyInitialStates ()
-        member _.ForceWorkState(workGuid, newState) = forceWorkState workGuid newState
-        member _.ForceCallState(callGuid, newState) = forceCallState callGuid newState
+        member _.ForceWorkState(workGuid, newState) =
+            runExternalMutation (fun () -> forceWorkState workGuid newState)
+        member _.TryForceWorkStateIfGoing(workGuid, newState) =
+            runExternalMutation (fun () ->
+                if index.AllWorkGuids |> List.contains workGuid
+                   && stateManager.GetWorkState(workGuid) = Status4.Going then
+                    forceWorkState workGuid newState)
+        member _.ForceCallState(callGuid, newState) =
+            runExternalMutation (fun () -> forceCallState callGuid newState)
         member _.GetWorkState(workGuid) = getWorkStateOpt workGuid
         member _.GetCallState(callGuid) = stateManager.GetState().CallStates.TryFind(callGuid)
-        member _.SetAllFlowStates(tag) = EngineFlowStep.setAllFlowStates flowContext tag
+        member _.SetAllFlowStates(tag) =
+            runExternalMutation (fun () -> EngineFlowStep.setAllFlowStates flowContext tag)
         member _.GetFlowState(flowGuid) = stateManager.GetFlowState(flowGuid)
         member _.HasStartableWork = hasStartableWork ()
         member _.HasActiveDuration = hasActiveDuration ()
@@ -414,29 +481,41 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
             lock processGate (fun () ->
                 EngineFlowStep.stepWithSourcePriming stepContext selectedSourceGuid autoStartSources)
         member _.ReloadConnections() =
-            lock processGate (fun () -> EngineFlowStep.reloadConnections reloadContext)
-        member _.ReloadDurations() = reloadDurations ()
+            runExternalMutation (fun () -> EngineFlowStep.reloadConnections reloadContext)
+        member _.ReloadDurations() =
+            runExternalMutation (fun () -> reloadDurations ())
         member _.SpeedMultiplier
             with get() = speedMultiplier
-            and set(value) = speedMultiplier <- max 0.1 (min 1000.0 value)
+            and set(value) =
+                runExternalMutation (fun () ->
+                    speedMultiplier <- max 0.1 (min 1000.0 value))
         member _.TimeIgnore
             with get() = timeIgnore
             and set(isIgnored) =
-                let previous = timeIgnore
-                timeIgnore <- isIgnored
-                if isIgnored && not previous && getStatus() = Running then
-                    EngineFlowStep.rescheduleOnTimeIgnoreEnabled index stateManager scheduleNowDurationCheck scheduleNowStateChange
+                runExternalMutation (fun () ->
+                    let previous = timeIgnore
+                    timeIgnore <- isIgnored
+                    if isIgnored && not previous && getStatus() = Running then
+                        EngineFlowStep.rescheduleOnTimeIgnoreEnabled index stateManager scheduleNowDurationCheck scheduleNowStateChange)
         member _.InjectIOValue(apiCallGuid, value) =
-            stateManager.SetIOValue(apiCallGuid, value)
-            scheduleConditionEvaluation ()
-        member _.InjectIOValueByAddress(address, value) = injectIOValueByAddress address value
+            runExternalMutation (fun () ->
+                stateManager.SetIOValue(apiCallGuid, value)
+                scheduleConditionEvaluation ())
+        member _.InjectIOValueByAddress(address, value) =
+            // Hub 콜백(SignalR thread) 에서 호출. lock 없이 큐에 enqueue 만 하고 wake.
+            // simulationLoop 이 advance 안에서 한 항목씩 dequeue → SetIOValue + ConditionEval
+            // 페어 broadcast(IN=true → IN=false) 사이에 평가가 끼어들도록 보장.
+            enqueueHubIOValueByAddress address value
         member _.IOMap = ioMap
         member _.NextToken() = stateManager.NextToken()
-        member _.SeedToken(sourceWorkGuid, value) = seedToken sourceWorkGuid value
-        member _.DiscardToken(workGuid) = discardToken workGuid
+        member _.SeedToken(sourceWorkGuid, value) =
+            runExternalMutation (fun () -> seedToken sourceWorkGuid value)
+        member _.DiscardToken(workGuid) =
+            runExternalMutation (fun () -> discardToken workGuid)
         member _.GetWorkToken(workGuid) = stateManager.GetWorkToken(workGuid)
         member _.GetTokenOrigin(token) = getTokenOrigin token
-        member _.StartWithHomingPhase() = startWithHomingPhase ()
+        member _.StartWithHomingPhase() =
+            runExternalMutation (fun () -> startWithHomingPhase ())
         member _.IsHomingPhase = isHomingPhase
         [<CLIEvent>] member _.WorkStateChanged = workStateChangedEvent.Publish
         [<CLIEvent>] member _.CallStateChanged = callStateChangedEvent.Publish
@@ -444,6 +523,8 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         [<CLIEvent>] member _.TokenEvent = tokenEventEvent.Publish
         [<CLIEvent>] member _.CallTimeout = callTimeoutEvent.Publish
         [<CLIEvent>] member _.HomingPhaseCompleted = homingPhaseCompletedEvent.Publish
-        member _.Dispose() = EngineLifecycle.stop lifecycleContext
+        member _.Dispose() =
+            EngineLifecycle.stop lifecycleContext
+            wakeSignal.Dispose()
 
     new(index: SimIndex, runtimeMode: RuntimeMode) = new EventDrivenEngine(index, runtimeMode, None)

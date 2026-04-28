@@ -101,6 +101,22 @@ type EventScheduler() =
                     result <- Some event
             result)
 
+    member _.TryDequeueDue(targetTimeMs: int64) : ScheduledEvent option =
+        lock syncLock (fun () ->
+            let mutable result = None
+            let mutable searching = true
+            while searching && queue.Count > 0 && result.IsNone do
+                let event = queue.Peek()
+                if not (pendingEvents.Contains event.EventId) then
+                    queue.Dequeue() |> ignore
+                elif event.ScheduledTimeMs <= targetTimeMs then
+                    let dueEvent = queue.Dequeue()
+                    pendingEvents.Remove(dueEvent.EventId) |> ignore
+                    result <- Some dueEvent
+                else
+                    searching <- false
+            result)
+
     member _.AdvanceTo(targetTimeMs: int64) : ScheduledEvent list =
         let mutable events = []
         lock syncLock (fun () ->

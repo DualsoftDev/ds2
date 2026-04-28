@@ -15,6 +15,8 @@ public partial class MainViewModel
     {
         if (Selection.OrderedArrowSelection.Count > 0)
         {
+            if (!GuardArrowEditByRuntimeMode("Arrow 삭제"))
+                return;
             var count = Selection.OrderedArrowSelection.Count;
             if (TryEditorAction(() => _store.RemoveArrows(Selection.OrderedArrowSelection)))
             {

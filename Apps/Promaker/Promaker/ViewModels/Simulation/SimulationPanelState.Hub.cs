@@ -25,6 +25,16 @@ public partial class SimulationPanelState
     private bool IsCurrentHubConnection(int generation, HubConnection hub) =>
         IsCurrentHubGeneration(generation) && ReferenceEquals(_hubConnection, hub);
 
+    /// <summary>
+    /// Hub 연결 3-state 을 두 bool 한 쌍으로 set. Reconnecting 먼저 → Connected 나중 순서를
+    /// 헬퍼 안에 고정해 두 bool 동시 true 모순 시점이 호출자에 의존하지 않도록 보장.
+    /// </summary>
+    private void SetHubStatus(bool connected, bool reconnecting)
+    {
+        IsHubReconnecting = reconnecting;
+        IsHubConnected = connected;
+    }
+
     private int StartNewHubGeneration()
     {
         _hubConnectionCts?.Cancel();
@@ -82,7 +92,11 @@ public partial class SimulationPanelState
                     _dispatcher.BeginInvoke(() =>
                     {
                         if (IsCurrentHubConnection(generation, hubConnection))
+                        {
                             SimStatusText = "Hub 재연결 중...";
+                            SetHubStatus(connected: false, reconnecting: true);
+                            AddSimLog("Hub 연결 끊김 — 자동 재연결 시도 중", LogSeverity.Warn);
+                        }
                     });
                 return Task.CompletedTask;
             };
@@ -95,6 +109,7 @@ public partial class SimulationPanelState
                             return;
                         SimStatusText = IsSimulating ? "Hub 재연결 완료" : SimText.Stopped;
                         AddSimLog("Hub 재연결 완료", LogSeverity.System);
+                        SetHubStatus(connected: true, reconnecting: false);
                     });
                 return Task.CompletedTask;
             };
@@ -145,6 +160,7 @@ public partial class SimulationPanelState
                     if (!IsCurrentHubConnection(generation, hubConnection))
                         return;
                     AddSimLog($"SignalR Hub 연결 완료 ({hubUrl})", LogSeverity.System);
+                    SetHubStatus(connected: true, reconnecting: false);
                     var isPassive = SelectedRuntimeMode is RuntimeMode.VirtualPlant or RuntimeMode.Monitoring;
                     var statusMsg = isPassive ? "Hub 신호 대기 중..." : $"{SelectedRuntimeMode} 동작 중";
                     SimStatusText = statusMsg;
@@ -193,6 +209,7 @@ public partial class SimulationPanelState
             if (!IsCurrentHubGeneration(generation)) return;
             AddSimLog($"Hub 연결 끊김{(ex is not null ? $": {ex.Message}" : "")}", LogSeverity.Warn);
             SimStatusText = "Hub 연결 끊김";
+            SetHubStatus(connected: false, reconnecting: false);
         });
         return Task.CompletedTask;
     }
@@ -200,6 +217,7 @@ public partial class SimulationPanelState
     private void StopHub()
     {
         InvalidateHubGeneration();
+        SetHubStatus(connected: false, reconnecting: false);
 
         if (_hubConnection is not null)
         {
