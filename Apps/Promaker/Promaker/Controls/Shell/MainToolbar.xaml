@@ -28,13 +28,15 @@
                 <ColumnDefinition Width="Auto"/> <!-- 1: sep -->
                 <ColumnDefinition Width="Auto"/> <!-- 2: Edit -->
                 <ColumnDefinition Width="Auto"/> <!-- 3: sep -->
-                <ColumnDefinition Width="Auto"/> <!-- 4: Connect -->
+                <ColumnDefinition Width="Auto"/> <!-- 4: Check -->
                 <ColumnDefinition Width="Auto"/> <!-- 5: sep -->
-                <ColumnDefinition Width="Auto"/> <!-- 6: Simulation -->
+                <ColumnDefinition Width="Auto"/> <!-- 6: Connect -->
                 <ColumnDefinition Width="Auto"/> <!-- 7: sep -->
-                <ColumnDefinition Width="*"/>    <!-- 8: spacer -->
-                <ColumnDefinition Width="Auto"/> <!-- 9: Util -->
-                <ColumnDefinition Width="Auto"/> <!-- 10: Settings -->
+                <ColumnDefinition Width="Auto"/> <!-- 8: Simulation -->
+                <ColumnDefinition Width="Auto"/> <!-- 9: sep -->
+                <ColumnDefinition Width="*"/>    <!-- 10: spacer -->
+                <ColumnDefinition Width="Auto"/> <!-- 11: Util -->
+                <ColumnDefinition Width="Auto"/> <!-- 12: Settings -->
             </Grid.ColumnDefinitions>
 
             <!-- File Section -->
@@ -151,10 +153,25 @@
                 </Grid>
                 <TextBlock Grid.Row="1" Text="편집" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
-            <Border x:Name="EditConnectSeparator" Grid.Column="3" Style="{StaticResource RibbonSectionSeparator}"/>
+            <!-- Check Section (model validation) -->
+            <Grid x:Name="CheckSection" Grid.Column="4">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Button x:Name="CheckModelButton"
+                        Style="{StaticResource RibbonFlatButton}"
+                        Command="{Binding Simulation.CheckModelCommand}"
+                        IsEnabled="{Binding HasProject}"
+                        ToolTip="모델 검증 (그래프 경고 확인)">
+                    <StackPanel Orientation="Vertical">
+                        <iconPacks:PackIconMaterial Kind="ShieldCheck" Width="18" Height="18" HorizontalAlignment="Center" Foreground="{DynamicResource IconGrayBrush}"/>
+                        <TextBlock Text="검증" Style="{StaticResource RibbonIconLabel}"/>
+                    </StackPanel>
+                </Button>
+                <TextBlock Grid.Row="1" Text="검증" Style="{StaticResource RibbonSectionLabel}"/>
+            </Grid>
+            <Border x:Name="CheckConnectSeparator" Grid.Column="5" Style="{StaticResource RibbonSectionSeparator}"/>
 
             <!-- Connect Section (dropdown with arrow type selection) -->
-            <Grid x:Name="ConnectSection" Grid.Column="4">
+            <Grid x:Name="ConnectSection" Grid.Column="6">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="ConnectExecuteButton" Style="{StaticResource RibbonFlatButton}"
@@ -369,10 +386,10 @@
                 </WrapPanel>
                 <TextBlock Grid.Row="1" Text="연결" Style="{StaticResource RibbonSectionLabel}"/>
             </Grid>
-            <Border x:Name="ConnectSimulationSeparator" Grid.Column="5" Style="{StaticResource RibbonSectionSeparator}"/>
+            <Border x:Name="ConnectSimulationSeparator" Grid.Column="7" Style="{StaticResource RibbonSectionSeparator}"/>
 
-            <controls:MainToolbarSimulationContent Grid.Column="6" DataContext="{Binding}"/>
-            <controls:MainToolbarEtcContent Grid.Column="9" Grid.ColumnSpan="2" DataContext="{Binding}"/>
+            <controls:MainToolbarSimulationContent Grid.Column="8" DataContext="{Binding}"/>
+            <controls:MainToolbarEtcContent Grid.Column="11" Grid.ColumnSpan="2" DataContext="{Binding}"/>
         </Grid>
     </Border>
 </UserControl>
