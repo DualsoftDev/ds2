@@ -25,5 +25,6 @@ module BackendHost =
         app
 
     let stop (app: WebApplication) =
+        SignalHub.ClearTagCache()
         app.StopAsync() |> Async.AwaitTask |> Async.RunSynchronously
         (app :> IDisposable).Dispose()
