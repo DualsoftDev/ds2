@@ -17,7 +17,36 @@ namespace Promaker.Dialogs;
 public partial class TagWizardDialog
 {
     /// <summary>
-    /// 신호 적용
+    /// "패턴 적용" 버튼 클릭 핸들러 — 명시적 동의 후 ApiCall 에 일괄 덮어쓰기.
+    /// IoBatch 에서 수동 설정한 이름이 있을 수 있으므로 반드시 경고 표시.
+    /// </summary>
+    private void ApplyPatterns_Click(object sender, RoutedEventArgs e)
+    {
+        var confirm = DialogHelpers.ShowThemedMessageBox(
+            $"프리뷰의 모든 패턴을 {_ioRows.Count}개 ApiCall 의 InTag/OutTag 에 적용합니다.\n\n" +
+            "⚠ 현재 ApiCall 에 수동으로 설정된 이름과 주소가 모두 덮어써집니다.\n" +
+            "   (I/O 일괄 편집에서 개별 수정한 항목 포함)\n\n" +
+            "계속하시겠습니까?",
+            "패턴 적용 확인",
+            MessageBoxButton.YesNo,
+            "⚠");
+        if (confirm != MessageBoxResult.Yes) return;
+
+        if (ApplySignals())
+        {
+            DialogHelpers.ShowThemedMessageBox(
+                $"✓ {_successCount}개 ApiCall 에 패턴이 적용되었습니다.\n\n" +
+                $"이후 I/O 일괄 편집에서 개별 수정한 값은 이 적용으로 손실될 수 있으며,\n" +
+                $"필요 시 다시 '패턴 적용' 을 눌러야 합니다.",
+                "패턴 적용 완료",
+                MessageBoxButton.OK,
+                "✓");
+        }
+    }
+
+    /// <summary>
+    /// 신호 적용 — 프리뷰의 각 IoRow 를 ApiCall.InTag/OutTag 에 덮어쓴다.
+    /// 자동 호출 금지 — 반드시 ApplyPatterns_Click 또는 사용자 명시적 트리거로만 호출.
     /// </summary>
     private bool ApplySignals()
     {

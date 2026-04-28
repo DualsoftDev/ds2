@@ -41,16 +41,16 @@
                             <TextBlock Text="편집" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenDurationBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="Duration 편집"/></Button>
                             <Separator Margin="4,4"/>
-                            <TextBlock Text="리포트" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
-                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="리포트 CSV"/></Button>
-                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportXlsxCommand}" Click="CloseUtilPopup"><TextBlock Text="리포트 Excel"/></Button>
-                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportHtmlCommand}" Click="CloseUtilPopup"><TextBlock Text="리포트 HTML"/></Button>
+                            <TextBlock Text="시뮬레이션" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding Simulation.ExportReportCommand}" Click="CloseUtilPopup"><TextBlock Text="시뮬레이션 출력"/></Button>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ShowSimulationScenariosCommand}" Click="CloseUtilPopup"><TextBlock Text="시뮬레이션 결과 보기"/></Button>
                             <Separator Margin="4,4"/>
                             <TextBlock Text="CSV" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding ImportCsvCommand}" Click="CloseUtilPopup"><TextBlock Text="CSV 불러오기"/></Button>
                             <Separator Margin="4,4"/>
                             <TextBlock Text="PLC" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>
-                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="I/O 편집"/></Button>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenTagWizardCommand}" Click="CloseUtilPopup"><TextBlock Text="IO 생성"/></Button>
+                            <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenIoBatchDialogCommand}" Click="CloseUtilPopup"><TextBlock Text="IO 조회"/></Button>
                             <Button Style="{StaticResource AddMenuItemButton}" Command="{Binding OpenPlcXmlGeneratorCommand}" Click="CloseUtilPopup"><TextBlock Text="PLC 생성"/></Button>
                             <Separator Margin="4,4"/>
                             <TextBlock Text="뷰" FontSize="11" FontWeight="SemiBold" Margin="8,4,8,4" Foreground="{DynamicResource PrimaryTextBrush}"/>

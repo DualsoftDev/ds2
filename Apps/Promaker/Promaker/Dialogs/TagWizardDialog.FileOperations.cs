@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -13,20 +15,14 @@ namespace Promaker.Dialogs;
 public partial class TagWizardDialog
 {
     /// <summary>
-    /// Step 2 초기화: 3개 탭 로드
+    /// 각 그리드/리스트 초기 로드.
+    /// Step 1: 시스템/Flow 선두 주소 / Step 2: SystemType 템플릿 목록
+    /// 외부 txt 파일 동기화는 수행하지 않음 (AASX 내 FBTagMapPresets 가 단일 진실원).
     /// </summary>
     private void LoadTemplateFileList()
     {
-        // 첫 번째 ActiveSystem의 IO 템플릿을 AppData로 먼저 동기화 (F# 파이프라인 호환)
-        TemplateManager.SyncFromStore(_store);
-
-        // Tab 1: system_base.txt 로드
         LoadSystemBase();
-
-        // Tab 2: flow_base.txt 로드
         LoadFlowBase();
-
-        // Tab 3: 장치 템플릿 목록 로드
         LoadDeviceTemplateList();
     }
 
@@ -41,50 +37,31 @@ public partial class TagWizardDialog
         {
             _systemBaseRows.Clear();
 
-            // 템플릿 파일에서 SystemType 목록 추출
-            var templateFiles = TemplateManager.GetDeviceTemplateFiles();
-            var systemTypes = templateFiles
-                .Where(f => f.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
-                .Select(f => Path.GetFileNameWithoutExtension(f))
-                .OrderBy(s => s)
-                .ToList();
+            // 템플릿 파일에서 사용 가능한 SystemType 목록 (콤보 데이터소스)
+            // SystemType 목록 — 프로젝트 속성의 프리셋이 단일 진실원, AASX Preset 키는 보완.
+            var availableSet = new System.Collections.Generic.SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in Promaker.Services.SystemTypePresetProvider.GetSystemTypes())
+                availableSet.Add(t);
+            foreach (var kv in Promaker.Services.FBTagMapStore.LoadAll(_store))
+                availableSet.Add(kv.Key);
+            var systemTypes = availableSet.ToList();
 
-            // 기존 system_base.txt 파일에서 설정 읽기
+            // 각 Preset 의 BaseAddresses 를 그리드에 표시 (추가/삭제 방식)
             var existingConfig = ParseSystemBaseFile();
-
-            // 각 SystemType에 대해 행 생성
-            foreach (var systemType in systemTypes)
+            foreach (var kv in existingConfig)
             {
-                var row = new SystemBaseRow { SystemType = systemType };
-
-                if (existingConfig.TryGetValue(systemType, out var config))
+                _systemBaseRows.Add(new SystemBaseRow
                 {
-                    // 파일에 존재하면 사용 중으로 표시
-                    row.IsEnabled = true;
-                    row.IW_Base = config.IW_Base?.ToString() ?? "";
-                    row.QW_Base = config.QW_Base?.ToString() ?? "";
-                    row.MW_Base = config.MW_Base?.ToString() ?? "";
-                }
-                else
-                {
-                    // RBT는 기본적으로 사용 체크하고 기본값 설정
-                    if (systemType.Equals("RBT", StringComparison.OrdinalIgnoreCase))
-                    {
-                        row.IsEnabled = true;
-                        row.IW_Base = "3070";
-                        row.QW_Base = "3070";
-                        row.MW_Base = "9110";
-                    }
-                    else
-                    {
-                        row.IsEnabled = false;
-                    }
-                }
-
-                _systemBaseRows.Add(row);
+                    SystemType = kv.Key,
+                    IsEnabled  = true,
+                    IW_Base    = kv.Value.IW_Base?.ToString() ?? "",
+                    QW_Base    = kv.Value.QW_Base?.ToString() ?? "",
+                    MW_Base    = kv.Value.MW_Base?.ToString() ?? "",
+                });
             }
 
-            SystemBaseStatusText.Text = $"{systemTypes.Count}개의 시스템 타입을 찾았습니다.";
+            RefreshAvailableSystemTypes(systemTypes);
+            SystemBaseStatusText.Text = $"{_systemBaseRows.Count}개 추가됨 (가용 타입 {systemTypes.Count}개)";
         }
         catch (Exception ex)
         {
@@ -93,67 +70,101 @@ public partial class TagWizardDialog
     }
 
     /// <summary>
-    /// system_base.txt 파일 파싱 (기존 설정 읽기)
+    /// AvailableSystemTypes 콤보 데이터 갱신 — 소스는 AASX 내 FBTagMapPresets 키 ∪ 임베디드 기본 템플릿 이름.
+    /// 이미 추가된 타입은 제외.
+    /// </summary>
+    private void RefreshAvailableSystemTypes(System.Collections.Generic.List<string>? allTypes = null)
+    {
+        if (allTypes == null)
+        {
+            var set = new System.Collections.Generic.SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in Promaker.Services.SystemTypePresetProvider.GetSystemTypes())
+                set.Add(t);
+            foreach (var kv in Promaker.Services.FBTagMapStore.LoadAll(_store))
+                set.Add(kv.Key);
+            allTypes = set.ToList();
+        }
+
+        var usedTypes = _systemBaseRows.Select(r => r.SystemType)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        AvailableSystemTypes.Clear();
+        foreach (var t in allTypes)
+            if (!usedTypes.Contains(t))
+                AvailableSystemTypes.Add(t);
+    }
+
+    private void AddSystemBaseRow_Click(object sender, RoutedEventArgs e)
+    {
+        var sysType = NewSystemTypeCombo.Text?.Trim() ?? "";
+        if (string.IsNullOrEmpty(sysType))
+        {
+            SystemBaseStatusText.Text = "⚠ 시스템 타입을 선택하거나 입력하세요.";
+            return;
+        }
+        if (_systemBaseRows.Any(r => r.SystemType.Equals(sysType, StringComparison.OrdinalIgnoreCase)))
+        {
+            SystemBaseStatusText.Text = $"⚠ '{sysType}' 은(는) 이미 추가되어 있습니다.";
+            return;
+        }
+
+        _systemBaseRows.Add(new SystemBaseRow
+        {
+            SystemType = sysType,
+            IsEnabled  = true,
+            IW_Base    = NewSystemIwBox.Text?.Trim() ?? "",
+            QW_Base    = NewSystemQwBox.Text?.Trim() ?? "",
+            MW_Base    = NewSystemMwBox.Text?.Trim() ?? "",
+        });
+
+        // 입력 필드 리셋
+        NewSystemTypeCombo.Text = "";
+        NewSystemIwBox.Text = "";
+        NewSystemQwBox.Text = "";
+        NewSystemMwBox.Text = "";
+
+        RefreshAvailableSystemTypes();
+        SystemBaseStatusText.Text = $"✓ '{sysType}' 추가됨 ({_systemBaseRows.Count}개)";
+    }
+
+    private void RemoveSystemBaseRow_Click(object sender, RoutedEventArgs e)
+    {
+        if (SystemBaseGrid.SelectedItem is SystemBaseRow row)
+        {
+            var name = row.SystemType;
+            _systemBaseRows.Remove(row);
+            RefreshAvailableSystemTypes();
+            SystemBaseStatusText.Text = $"✓ '{name}' 삭제됨 ({_systemBaseRows.Count}개)";
+        }
+        else
+        {
+            SystemBaseStatusText.Text = "⚠ 삭제할 행을 먼저 선택하세요.";
+        }
+    }
+
+    /// <summary>
+    /// SystemType 별 BaseAddress 를 FBTagMapPresets 에서 직접 읽어온다 (외부 파일 불필요).
+    /// Preset 이 없는 SystemType 은 결과에 포함되지 않는다.
     /// </summary>
     private Dictionary<string, (int? IW_Base, int? QW_Base, int? MW_Base)> ParseSystemBaseFile()
     {
-        var result = new Dictionary<string, (int? IW_Base, int? QW_Base, int? MW_Base)>();
-
-        try
+        var result = new Dictionary<string, (int? IW_Base, int? QW_Base, int? MW_Base)>(StringComparer.OrdinalIgnoreCase);
+        var presets = Promaker.Services.FBTagMapStore.LoadAll(_store);
+        foreach (var kv in presets)
         {
-            var content = TemplateManager.ReadTemplateFile("system_base.txt");
-            var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-
-            string? currentSystem = null;
-            int? currentIW = null, currentQW = null, currentMW = null;
-
-            foreach (var line in lines)
-            {
-                var trimmed = line.Trim();
-                if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("#"))
-                    continue;
-
-                if (trimmed.StartsWith("@SYSTEM ", StringComparison.OrdinalIgnoreCase))
-                {
-                    // 이전 시스템 저장
-                    if (currentSystem != null)
-                    {
-                        result[currentSystem] = (currentIW, currentQW, currentMW);
-                    }
-
-                    // 새 시스템 시작
-                    currentSystem = trimmed.Substring(8).Trim();
-                    currentIW = currentQW = currentMW = null;
-                }
-                else if (trimmed.StartsWith("@IW_BASE ", StringComparison.OrdinalIgnoreCase) && currentSystem != null)
-                {
-                    if (int.TryParse(trimmed.Substring(9).Trim(), out var val))
-                        currentIW = val;
-                }
-                else if (trimmed.StartsWith("@QW_BASE ", StringComparison.OrdinalIgnoreCase) && currentSystem != null)
-                {
-                    if (int.TryParse(trimmed.Substring(9).Trim(), out var val))
-                        currentQW = val;
-                }
-                else if (trimmed.StartsWith("@MW_BASE ", StringComparison.OrdinalIgnoreCase) && currentSystem != null)
-                {
-                    if (int.TryParse(trimmed.Substring(9).Trim(), out var val))
-                        currentMW = val;
-                }
-            }
-
-            // 마지막 시스템 저장
-            if (currentSystem != null)
-            {
-                result[currentSystem] = (currentIW, currentQW, currentMW);
-            }
+            var ba = kv.Value.BaseAddresses;
+            if (ba == null) continue;
+            result[kv.Key] = (TryParseNum(ba.InputBase), TryParseNum(ba.OutputBase), TryParseNum(ba.MemoryBase));
         }
-        catch
-        {
-            // 파일이 없거나 파싱 실패 시 빈 딕셔너리 반환
-        }
-
         return result;
+    }
+
+    /// <summary>"%IW1234.0.0" / "4000" 등에서 첫 정수를 추출. 실패 시 null.</summary>
+    private static int? TryParseNum(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        var m = System.Text.RegularExpressions.Regex.Match(s, @"\d+");
+        return m.Success && int.TryParse(m.Value, out var n) ? n : null;
     }
 
     /// <summary>
@@ -197,9 +208,10 @@ public partial class TagWizardDialog
             }
 
             var systemBaseContent = sb.ToString();
-            TemplateManager.WriteTemplateFile("system_base.txt", systemBaseContent);
+            // txt 파일 쓰기 제거 — AASX 내 FBTagMapPresets 가 유일한 진실원.
             var cp1 = GetOrCreateControlProps();
-            if (cp1 != null) cp1.IoSystemBase = systemBaseContent;
+            if (cp1 != null)
+                ControlIoLegacyMigration.applySystemBaseToPresets(cp1.FBTagMapPresets, systemBaseContent);
 
             SystemBaseStatusText.Text = $"✓ 저장 완료 ({enabledSystems.Count}개 시스템) | {DateTime.Now:HH:mm:ss}";
 
@@ -226,7 +238,8 @@ public partial class TagWizardDialog
     #region Tab 2: Flow 주소
 
     /// <summary>
-    /// Flow 주소 로드 (모델에서 자동 추출)
+    /// Flow 주소 로드 — ACTIVE 시스템에 속한 Flow 만 대상.
+    /// (Passive 시스템의 Flow 는 PLC 주소 설정 대상이 아님)
     /// </summary>
     private void LoadFlowBase()
     {
@@ -234,10 +247,15 @@ public partial class TagWizardDialog
         {
             _flowBaseRows.Clear();
 
-            // DsStore에서 Flow 목록 추출
-            var flows = Queries.allFlows(_store);
+            var projects = Queries.allProjects(_store);
+            var flows = projects.IsEmpty
+                ? new System.Collections.Generic.List<Flow>()
+                : Queries.activeSystemsOf(projects.Head.Id, _store)
+                    .SelectMany(sys => Queries.flowsOf(sys.Id, _store))
+                    .ToList();
             var flowNames = flows
                 .Select(f => f.Name)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(n => n)
                 .ToList();
 
@@ -280,66 +298,20 @@ public partial class TagWizardDialog
     }
 
     /// <summary>
-    /// flow_base.txt 파일 파싱 (기존 설정 읽기)
+    /// Flow 별 BaseAddressOverride 를 ControlFlowProperties 에서 직접 읽어온다 (외부 파일 불필요).
     /// </summary>
     private Dictionary<string, (int? IW_Base, int? QW_Base, int? MW_Base)> ParseFlowBaseFile()
     {
-        var result = new Dictionary<string, (int? IW_Base, int? QW_Base, int? MW_Base)>();
-
-        try
+        var result = new Dictionary<string, (int? IW_Base, int? QW_Base, int? MW_Base)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var flow in _store.Flows.Values)
         {
-            var content = TemplateManager.ReadTemplateFile("flow_base.txt");
-            var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-
-            string? currentFlow = null;
-            int? currentIW = null, currentQW = null, currentMW = null;
-
-            foreach (var line in lines)
-            {
-                var trimmed = line.Trim();
-                if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("#"))
-                    continue;
-
-                if (trimmed.StartsWith("@FLOW ", StringComparison.OrdinalIgnoreCase))
-                {
-                    // 이전 Flow 저장
-                    if (currentFlow != null)
-                    {
-                        result[currentFlow] = (currentIW, currentQW, currentMW);
-                    }
-
-                    // 새 Flow 시작
-                    currentFlow = trimmed.Substring(6).Trim();
-                    currentIW = currentQW = currentMW = null;
-                }
-                else if (trimmed.StartsWith("@IW_BASE ", StringComparison.OrdinalIgnoreCase) && currentFlow != null)
-                {
-                    if (int.TryParse(trimmed.Substring(9).Trim(), out var val))
-                        currentIW = val;
-                }
-                else if (trimmed.StartsWith("@QW_BASE ", StringComparison.OrdinalIgnoreCase) && currentFlow != null)
-                {
-                    if (int.TryParse(trimmed.Substring(9).Trim(), out var val))
-                        currentQW = val;
-                }
-                else if (trimmed.StartsWith("@MW_BASE ", StringComparison.OrdinalIgnoreCase) && currentFlow != null)
-                {
-                    if (int.TryParse(trimmed.Substring(9).Trim(), out var val))
-                        currentMW = val;
-                }
-            }
-
-            // 마지막 Flow 저장
-            if (currentFlow != null)
-            {
-                result[currentFlow] = (currentIW, currentQW, currentMW);
-            }
+            var cfpOpt = flow.GetControlProperties();
+            if (!FSharpOption<ControlFlowProperties>.get_IsSome(cfpOpt)) continue;
+            var ov = cfpOpt.Value.BaseAddressOverride;
+            if (!FSharpOption<FBBaseAddressSet>.get_IsSome(ov)) continue;
+            var ba = ov.Value;
+            result[flow.Name] = (TryParseNum(ba.InputBase), TryParseNum(ba.OutputBase), TryParseNum(ba.MemoryBase));
         }
-        catch
-        {
-            // 파일이 없거나 파싱 실패 시 빈 딕셔너리 반환
-        }
-
         return result;
     }
 
@@ -390,9 +362,29 @@ public partial class TagWizardDialog
             }
 
             var flowBaseContent = sb.ToString();
-            TemplateManager.WriteTemplateFile("flow_base.txt", flowBaseContent);
-            var cp2 = GetOrCreateControlProps();
-            if (cp2 != null) cp2.IoFlowBase = flowBaseContent;
+            // txt 파일 쓰기 제거 — Flow 별 BaseAddressOverride 는 ControlFlowProperties 에만 기록.
+            // Flow 별 BaseAddressOverride 로 이식 (레거시 IoFlowBase 대체)
+            var store = _store;
+            if (store != null)
+            {
+                var flowMap = ControlIoLegacyMigration.parseFlowBase(flowBaseContent);
+                foreach (var flow in store.Flows.Values)
+                {
+                    if (flowMap.TryGetValue(flow.Name, out var baseSet))
+                    {
+                        var cfpOpt = flow.GetControlProperties();
+                        ControlFlowProperties cfp;
+                        if (FSharpOption<ControlFlowProperties>.get_IsSome(cfpOpt))
+                            cfp = cfpOpt.Value;
+                        else
+                        {
+                            cfp = new ControlFlowProperties();
+                            flow.SetControlProperties(cfp);
+                        }
+                        cfp.BaseAddressOverride = FSharpOption<FBBaseAddressSet>.Some(baseSet);
+                    }
+                }
+            }
 
             FlowBaseStatusText.Text = $"✓ 저장 완료 | {DateTime.Now:HH:mm:ss}";
 
@@ -419,7 +411,8 @@ public partial class TagWizardDialog
     #region Tab 3: 신호 템플릿
 
     /// <summary>
-    /// 장치 템플릿 파일 목록 로드
+    /// SystemType 목록 로드 — 프로젝트 속성의 "SystemType 프리셋" 이 단일 진실원.
+    /// 이미 저장된 FBTagMap Preset 은 합쳐서 함께 표시 (사용자가 추가한 커스텀 포함).
     /// </summary>
     private void LoadDeviceTemplateList()
     {
@@ -427,99 +420,127 @@ public partial class TagWizardDialog
         {
             DeviceTemplateListBox.Items.Clear();
 
-            var files = TemplateManager.GetDeviceTemplateFiles();
+            var names = new System.Collections.Generic.SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            // 1순위: 프로젝트 속성 프리셋
+            foreach (var t in Promaker.Services.SystemTypePresetProvider.GetSystemTypes())
+                names.Add(t);
+            // 2순위: 이미 AASX 안에 존재하는 FBTagMap Preset 키 (프리셋에 없는 사용자 추가분)
+            foreach (var kv in Promaker.Services.FBTagMapStore.LoadAll(_store))
+                names.Add(kv.Key);
 
-            if (files.Count == 0)
+            if (names.Count == 0)
             {
-                DeviceTemplateStatusText.Text = "장치 템플릿 파일이 없습니다.";
+                DeviceTemplateStatusText.Text = "등록된 SystemType 프리셋이 없습니다. 프로젝트 속성에서 프리셋을 추가하세요.";
                 return;
             }
 
-            foreach (var file in files)
-            {
-                DeviceTemplateListBox.Items.Add(file);
-            }
+            // 사전 seed — 사용자가 SystemType 을 클릭하지 않아도 모든 타입의
+            // FBTagMapPreset 이 임베디드 디폴트 템플릿으로 채워지고 AASX 에 저장된다.
+            // (Step 3 신호 생성이 클릭과 무관하게 동작하도록 보장.)
+            SeedAllSystemTypes(names);
 
-            // RBT.txt를 기본 선택
-            var defaultFile = files.FirstOrDefault(f => f?.Equals("RBT.txt", StringComparison.OrdinalIgnoreCase) == true);
-            if (defaultFile != null)
-            {
-                DeviceTemplateListBox.SelectedItem = defaultFile;
-            }
-            else if (files.Count > 0)
-            {
-                DeviceTemplateListBox.SelectedIndex = 0;
-            }
+            foreach (var n in names)
+                DeviceTemplateListBox.Items.Add(n);
 
-            DeviceTemplateStatusText.Text = $"{files.Count}개의 장치 템플릿이 발견되었습니다.";
+            // 기본 선택: 첫 항목 (정렬된 상태)
+            DeviceTemplateListBox.SelectedItem = names.First();
+
+            DeviceTemplateStatusText.Text = $"{names.Count}개의 SystemType 이 발견되었습니다.";
         }
         catch (Exception ex)
         {
-            DeviceTemplateStatusText.Text = $"파일 목록 로드 실패: {ex.Message}";
+            DeviceTemplateStatusText.Text = $"목록 로드 실패: {ex.Message}";
         }
     }
 
     /// <summary>
-    /// 장치 템플릿 선택 시 내용 로드
+    /// 모든 SystemType 의 FBTagMapPreset 을 사전에 seed. 빈 섹션만 채우므로
+    /// 사용자 편집 데이터는 보존된다. 변경된 preset 만 저장한다.
     /// </summary>
-    private void DeviceTemplateListBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        if (DeviceTemplateListBox.SelectedItem is string fileName)
-        {
-            LoadDeviceTemplate(fileName);
-        }
-    }
-
-    /// <summary>
-    /// 장치 템플릿 파일 로드 (DataGrid 방식)
-    /// </summary>
-    private void LoadDeviceTemplate(string fileName)
+    private void SeedAllSystemTypes(System.Collections.Generic.IEnumerable<string> systemTypes)
     {
         try
         {
-            var filePath = Path.Combine(TemplateManager.TemplatesFolderPath, fileName);
-
-            if (!File.Exists(filePath))
+            var presets = Promaker.Services.FBTagMapStore.LoadAll(_store);
+            foreach (var systemType in systemTypes)
             {
-                DeviceTemplateStatusText.Text = $"파일을 찾을 수 없습니다: {fileName}";
-                ClearSignalGrids();
-                return;
+                if (string.IsNullOrWhiteSpace(systemType)) continue;
+                if (!presets.TryGetValue(systemType, out var presetDto))
+                    presetDto = new Promaker.Services.FBTagMapPresetDto();
+
+                if (SeedPresetDtoIfEmpty(presetDto, systemType))
+                    Promaker.Services.FBTagMapStore.Save(_store, systemType, presetDto);
             }
+        }
+        catch (Exception ex)
+        {
+            // seed 실패는 치명적이지 않음 — 사용자가 클릭 시 다시 시도된다.
+            DeviceTemplateStatusText.Text = $"사전 seed 일부 실패: {ex.Message}";
+        }
+    }
 
-            _currentDeviceTemplateFile = filePath;
-            CurrentDeviceTemplateText.Text = fileName;
+    /// <summary>
+    /// 장치 템플릿 선택 시 내용 로드. ListBox 항목은 순수 SystemType 이름.
+    /// </summary>
+    private void DeviceTemplateListBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (DeviceTemplateListBox.SelectedItem is string systemType)
+        {
+            LoadDeviceTemplate(systemType);
+        }
+    }
 
-            // 파일 파싱: [IW], [QW], [MW] 섹션 분리
-            var content = File.ReadAllText(filePath, Encoding.UTF8);
-            var (iwSignals, qwSignals, mwSignals) = ParseTemplateContent(content);
+    /// <summary>
+    /// 장치 템플릿 로드 — AASX 내 FBTagMapPreset.(Iw|Qw|Mw)Patterns 를 단일 진실원으로 사용.
+    /// Preset 의 해당 섹션이 비어있으면 임베디드 기본 템플릿(DefaultTemplatesRO) 으로 seed 후 Preset 에 저장.
+    /// </summary>
+    private void LoadDeviceTemplate(string systemType)
+    {
+        try
+        {
+            // 이전 버전 호환: ".txt" 가 섞여 들어오면 벗겨냄
+            if (systemType.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+                systemType = Path.GetFileNameWithoutExtension(systemType);
 
-            // DataGrid에 로드
+            _currentDeviceTemplateFile = systemType; // SystemType 식별자
+            CurrentDeviceTemplateText.Text = systemType;
+
+            // Preset 조회 (없으면 신규) → 비어있는 섹션에 한해 DefaultTemplates 로 seed → 다시 저장
+            var presets = Promaker.Services.FBTagMapStore.LoadAll(_store);
+            if (!presets.TryGetValue(systemType, out var presetDto))
+                presetDto = new Promaker.Services.FBTagMapPresetDto();
+
+            bool seeded = SeedPresetDtoIfEmpty(presetDto, systemType);
+            if (seeded)
+                Promaker.Services.FBTagMapStore.Save(_store, systemType, presetDto);
+
+            var currentFb = GlobalFBTypeCombo?.SelectedItem as string ?? presetDto.FBTagMapName ?? "";
+
             _iwSignalRows.Clear();
-            foreach (var (apiName, pattern) in iwSignals)
-            {
-                _iwSignalRows.Add(new SignalPatternRow { ApiName = apiName, Pattern = pattern });
-            }
-
+            foreach (var e in presetDto.IwPatterns)
+                _iwSignalRows.Add(HookAutoSave(new SignalPatternRow { ApiName = e.ApiName, Pattern = e.Pattern, TargetFBType = currentFb, TargetFBPort = e.TargetFBPort }));
             _qwSignalRows.Clear();
-            foreach (var (apiName, pattern) in qwSignals)
-            {
-                _qwSignalRows.Add(new SignalPatternRow { ApiName = apiName, Pattern = pattern });
-            }
-
+            foreach (var e in presetDto.QwPatterns)
+                _qwSignalRows.Add(HookAutoSave(new SignalPatternRow { ApiName = e.ApiName, Pattern = e.Pattern, TargetFBType = currentFb, TargetFBPort = e.TargetFBPort }));
             _mwSignalRows.Clear();
-            foreach (var (apiName, pattern) in mwSignals)
-            {
-                _mwSignalRows.Add(new SignalPatternRow { ApiName = apiName, Pattern = pattern });
-            }
+            foreach (var e in presetDto.MwPatterns)
+                _mwSignalRows.Add(HookAutoSave(new SignalPatternRow { ApiName = e.ApiName, Pattern = e.Pattern, TargetFBType = currentFb, TargetFBPort = e.TargetFBPort }));
 
-            var fileInfo = new FileInfo(filePath);
-            var totalCount = iwSignals.Count + qwSignals.Count + mwSignals.Count;
-            DeviceTemplateStatusText.Text = $"✓ 로드 완료 | IW: {iwSignals.Count}, QW: {qwSignals.Count}, MW: {mwSignals.Count} | 총 {totalCount}개 신호";
+            var totalCount = presetDto.IwPatterns.Count + presetDto.QwPatterns.Count + presetDto.MwPatterns.Count;
+            DeviceTemplateStatusText.Text = $"✓ 로드 완료 | IW: {presetDto.IwPatterns.Count}, QW: {presetDto.QwPatterns.Count}, MW: {presetDto.MwPatterns.Count} | 총 {totalCount}개 신호";
+
+            // AUX 포트 행 로드 (distinct API 이름 집계)
+            var apis = presetDto.IwPatterns.Select(p => p.ApiName)
+                .Concat(presetDto.QwPatterns.Select(p => p.ApiName))
+                .Concat(presetDto.MwPatterns.Select(p => p.ApiName))
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+            LoadAuxPortRows(systemType, apis);
         }
         catch (Exception ex)
         {
             DialogHelpers.ShowThemedMessageBox(
-                $"파일 로드 실패:\n\n{ex.Message}",
+                $"템플릿 로드 실패:\n\n{ex.Message}",
                 "오류",
                 MessageBoxButton.OK,
                 "✖");
@@ -530,60 +551,55 @@ public partial class TagWizardDialog
     }
 
     /// <summary>
-    /// 템플릿 파일 내용 파싱 ([IW], [QW], [MW] 섹션 분리)
+    /// presetDto 의 IW/QW/MW 섹션이 모두 비어있으면 "SystemType 프리셋" 의 API 목록으로 seed.
+    /// 프리셋에 해당 SystemType 이 있고 API 리스트가 비어있지 않으면 각 API 당 IW/QW/MW 기본 패턴 한 줄씩 추가.
     /// </summary>
-    private (List<(string, string)> iw, List<(string, string)> qw, List<(string, string)> mw) ParseTemplateContent(string content)
+    private static bool SeedPresetDtoIfEmpty(Promaker.Services.FBTagMapPresetDto dto, string systemType)
     {
-        var iwSignals = new List<(string, string)>();
-        var qwSignals = new List<(string, string)>();
-        var mwSignals = new List<(string, string)>();
+        // 섹션별 독립 seed — 한 섹션이 비어있지 않다고 다른 빈 섹션 seed 까지 막지 않는다.
+        bool changed = false;
 
-        var currentSection = "";
-        var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-
-        foreach (var line in lines)
+        // 1순위: 임베디드 디폴트 템플릿
+        if (Promaker.Services.TemplateManager.DefaultTemplatesRO.TryGetValue(
+                systemType + ".txt", out var embedded)
+            && !string.IsNullOrWhiteSpace(embedded))
         {
-            var trimmed = line.Trim();
-
-            // 주석 또는 빈 줄 무시
-            if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("#"))
-                continue;
-
-            // 섹션 헤더 감지: [IW], [QW], [MW], [RBT.IW] 등
-            if (trimmed.StartsWith("[") && trimmed.EndsWith("]"))
+            var (iw, qw, mw) = Promaker.Services.PresetTemplateSeeder.Parse(embedded);
+            if (dto.IwPatterns.Count == 0 && iw.Count > 0)
             {
-                var section = trimmed.Trim('[', ']').ToUpperInvariant();
-
-                // 간소화된 형식 또는 레거시 형식 모두 지원
-                if (section.EndsWith(".IW") || section == "IW")
-                    currentSection = "IW";
-                else if (section.EndsWith(".QW") || section == "QW")
-                    currentSection = "QW";
-                else if (section.EndsWith(".MW") || section == "MW")
-                    currentSection = "MW";
-                else
-                    currentSection = "";
-
-                continue;
+                foreach (var (api, pat) in iw)
+                    dto.IwPatterns.Add(new Promaker.Services.SignalPatternEntryDto { ApiName = api, Pattern = pat });
+                changed = true;
             }
-
-            // API: Pattern 형식 파싱
-            var colonIndex = trimmed.IndexOf(':');
-            if (colonIndex > 0 && !string.IsNullOrEmpty(currentSection))
+            if (dto.QwPatterns.Count == 0 && qw.Count > 0)
             {
-                var apiName = trimmed.Substring(0, colonIndex).Trim();
-                var pattern = trimmed.Substring(colonIndex + 1).Trim();
-
-                if (currentSection == "IW")
-                    iwSignals.Add((apiName, pattern));
-                else if (currentSection == "QW")
-                    qwSignals.Add((apiName, pattern));
-                else if (currentSection == "MW")
-                    mwSignals.Add((apiName, pattern));
+                foreach (var (api, pat) in qw)
+                    dto.QwPatterns.Add(new Promaker.Services.SignalPatternEntryDto { ApiName = api, Pattern = pat });
+                changed = true;
             }
+            if (dto.MwPatterns.Count == 0 && mw.Count > 0)
+            {
+                foreach (var (api, pat) in mw)
+                    dto.MwPatterns.Add(new Promaker.Services.SignalPatternEntryDto { ApiName = api, Pattern = pat });
+                changed = true;
+            }
+            if (changed) return true;
         }
 
-        return (iwSignals, qwSignals, mwSignals);
+        // 2순위: 모든 섹션이 비어있을 때만 프로젝트 프리셋 API 기반 폴백.
+        if (dto.IwPatterns.Count > 0 || dto.QwPatterns.Count > 0 || dto.MwPatterns.Count > 0)
+            return false;
+
+        var apis = Promaker.Services.SystemTypePresetProvider.GetApiNames(systemType);
+        if (apis.Length == 0) return false;
+
+        foreach (var api in apis)
+        {
+            dto.IwPatterns.Add(new Promaker.Services.SignalPatternEntryDto { ApiName = api, Pattern = "W_$(F)_WRS_$(D)_$(A)" });
+            dto.QwPatterns.Add(new Promaker.Services.SignalPatternEntryDto { ApiName = api, Pattern = "W_$(F)_SOL_$(D)_$(A)" });
+            dto.MwPatterns.Add(new Promaker.Services.SignalPatternEntryDto { ApiName = api, Pattern = "W_$(F)_M_$(D)_$(A)" });
+        }
+        return true;
     }
 
     /// <summary>
@@ -594,85 +610,229 @@ public partial class TagWizardDialog
         _iwSignalRows.Clear();
         _qwSignalRows.Clear();
         _mwSignalRows.Clear();
+        _auxPortRows.Clear();
     }
 
     /// <summary>
-    /// 장치 템플릿 저장 버튼 클릭 (DataGrid 방식)
+    /// 주어진 SystemType 에 대해 AUX 포트 행을 로드.
+    /// FBTagMapPreset 에 기존 설정이 있으면 값 채움. API 목록은 signal template 에서 전달받은 distinct API 이름들.
+    /// SystemType 당 단일 FB 타입을 글로벌 콤보에도 반영.
+    /// </summary>
+    private void LoadAuxPortRows(string systemType, IEnumerable<string> apis)
+    {
+        _auxPortRows.Clear();
+
+        // 현재 preset 로드 (해당 SystemType 의 FBTagMapName 과 AUX 맵)
+        var presets = Promaker.Services.FBTagMapStore.LoadAll(_store);
+        var fbType = "";
+        var existingAutoMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var existingComMap  = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (presets.TryGetValue(systemType, out var preset))
+        {
+            fbType = preset.FBTagMapName ?? "";
+            if (preset.AutoAuxPortMap != null)
+                foreach (var kv in preset.AutoAuxPortMap) existingAutoMap[kv.Key] = kv.Value;
+            if (preset.ComAuxPortMap != null)
+                foreach (var kv in preset.ComAuxPortMap) existingComMap[kv.Key] = kv.Value;
+        }
+
+        // 글로벌 FB 타입 콤보 동기화 (이벤트 미발화 상태에서 선택 — 후속 AuxPortRow 주입과 충돌 방지)
+        if (GlobalFBTypeCombo != null)
+        {
+            GlobalFBTypeCombo.SelectionChanged -= GlobalFBType_Changed;
+            GlobalFBTypeCombo.SelectedItem =
+                string.IsNullOrEmpty(fbType) ? null : WizFBTypes.FirstOrDefault(x => x == fbType);
+            GlobalFBTypeCombo.SelectionChanged += GlobalFBType_Changed;
+        }
+
+        foreach (var api in apis)
+        {
+            var row = new AuxPortRow
+            {
+                ApiName      = api,
+                TargetFBType = fbType,
+                AutoAuxPort  = existingAutoMap.TryGetValue(api, out var a) ? a : "",
+                ComAuxPort   = existingComMap.TryGetValue(api, out var c) ? c : "",
+            };
+            _auxPortRows.Add(HookAutoSave(row));
+        }
+    }
+
+    /// <summary>
+    /// SignalPatternRow 에 PropertyChanged 구독을 붙여 TargetFBPort/Pattern/ApiName 변경 시 Preset 자동 persist.
+    /// </summary>
+    private SignalPatternRow HookAutoSave(SignalPatternRow row)
+    {
+        row.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(SignalPatternRow.TargetFBPort)
+                              or nameof(SignalPatternRow.Pattern)
+                              or nameof(SignalPatternRow.ApiName))
+                PersistCurrentPreset();
+        };
+        return row;
+    }
+
+    /// <summary>AuxPortRow 에 PropertyChanged 구독을 붙여 AutoAuxPort/ComAuxPort 변경 시 Preset 자동 persist.</summary>
+    private AuxPortRow HookAutoSave(AuxPortRow row)
+    {
+        row.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(AuxPortRow.AutoAuxPort)
+                              or nameof(AuxPortRow.ComAuxPort))
+                PersistCurrentPreset();
+        };
+        return row;
+    }
+
+    /// <summary>
+    /// 현재 SystemType 의 Preset 을 즉시 저장 — 💾 저장 버튼을 누르지 않아도 수정 사항이 유지되게 함.
+    /// </summary>
+    private void PersistCurrentPreset()
+    {
+        var systemType = _currentDeviceTemplateFile;
+        if (string.IsNullOrWhiteSpace(systemType)) return;
+
+        var presets = Promaker.Services.FBTagMapStore.LoadAll(_store);
+        if (!presets.TryGetValue(systemType, out var presetDto))
+            presetDto = new Promaker.Services.FBTagMapPresetDto();
+
+        var selectedFb = GlobalFBTypeCombo?.SelectedItem as string;
+        if (!string.IsNullOrWhiteSpace(selectedFb))
+            presetDto.FBTagMapName = selectedFb;
+
+        presetDto.IwPatterns.Clear();
+        foreach (var row in _iwSignalRows)
+            if (!string.IsNullOrWhiteSpace(row.ApiName))
+                presetDto.IwPatterns.Add(new Promaker.Services.SignalPatternEntryDto { ApiName = row.ApiName, Pattern = row.Pattern, TargetFBPort = row.TargetFBPort ?? "" });
+
+        presetDto.QwPatterns.Clear();
+        foreach (var row in _qwSignalRows)
+            if (!string.IsNullOrWhiteSpace(row.ApiName))
+                presetDto.QwPatterns.Add(new Promaker.Services.SignalPatternEntryDto { ApiName = row.ApiName, Pattern = row.Pattern, TargetFBPort = row.TargetFBPort ?? "" });
+
+        presetDto.MwPatterns.Clear();
+        foreach (var row in _mwSignalRows)
+            if (!string.IsNullOrWhiteSpace(row.ApiName))
+                presetDto.MwPatterns.Add(new Promaker.Services.SignalPatternEntryDto { ApiName = row.ApiName, Pattern = row.Pattern, TargetFBPort = row.TargetFBPort ?? "" });
+
+        presetDto.AutoAuxPortMap.Clear();
+        presetDto.ComAuxPortMap.Clear();
+        foreach (var row in _auxPortRows)
+        {
+            if (string.IsNullOrWhiteSpace(row.ApiName)) continue;
+            if (!string.IsNullOrWhiteSpace(row.AutoAuxPort))
+                presetDto.AutoAuxPortMap[row.ApiName] = row.AutoAuxPort;
+            if (!string.IsNullOrWhiteSpace(row.ComAuxPort))
+                presetDto.ComAuxPortMap[row.ApiName] = row.ComAuxPort;
+        }
+
+        // 코드 생성용 Ports 도 재생성 (SaveDeviceTemplate_Click 와 동일 규칙).
+        presetDto.Ports.Clear();
+        void AddPorts(System.Collections.Generic.List<Promaker.Services.SignalPatternEntryDto> entries, string direction, bool isDummy)
+        {
+            foreach (var e in entries)
+            {
+                if (string.IsNullOrWhiteSpace(e.TargetFBPort)) continue;
+                presetDto.Ports.Add(new Promaker.Services.FBTagMapPortDto
+                {
+                    FBPort     = e.TargetFBPort,
+                    Direction  = direction,
+                    DataType   = "BOOL",
+                    TagPattern = e.Pattern ?? "",
+                    IsDummy    = isDummy,
+                });
+            }
+        }
+        AddPorts(presetDto.IwPatterns, "Input",  false);
+        AddPorts(presetDto.QwPatterns, "Output", false);
+        AddPorts(presetDto.MwPatterns, "Input",  true);
+
+        Promaker.Services.FBTagMapStore.Save(_store, systemType, presetDto);
+    }
+
+    /// <summary>
+    /// 장치 템플릿 저장 — AASX 내 FBTagMapPreset 에 IW/QW/MW 패턴을 기록.
+    /// 외부 txt 파일은 더 이상 쓰지 않음 (Preset 이 유일한 진실원).
     /// </summary>
     private void SaveDeviceTemplate_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrEmpty(_currentDeviceTemplateFile))
+        if (string.IsNullOrWhiteSpace(_currentDeviceTemplateFile))
         {
-            DeviceTemplateStatusText.Text = "저장할 파일을 선택하세요.";
+            DeviceTemplateStatusText.Text = "먼저 SystemType 을 선택하세요.";
             return;
         }
 
         try
         {
-            // DataGrid에서 텍스트 파일 형식으로 변환
-            var sb = new StringBuilder();
-            sb.AppendLine("# 신호 템플릿");
-            sb.AppendLine($"# 파일명이 SystemType으로 사용됩니다");
-            sb.AppendLine("# $(F)=Flow명, $(D)=Device명, $(A)=Api명");
-            sb.AppendLine();
+            var systemType = _currentDeviceTemplateFile; // LoadDeviceTemplate 이 SystemType 을 보관
 
-            // [IW] 섹션
-            if (_iwSignalRows.Count > 0)
+            var presets = Promaker.Services.FBTagMapStore.LoadAll(_store);
+            if (!presets.TryGetValue(systemType, out var presetDto))
+                presetDto = new Promaker.Services.FBTagMapPresetDto();
+
+            // 글로벌 FB 타입 반영
+            var selectedFb = GlobalFBTypeCombo?.SelectedItem as string;
+            if (!string.IsNullOrWhiteSpace(selectedFb))
+                presetDto.FBTagMapName = selectedFb;
+
+            // IW/QW/MW 그리드 → Preset (ApiName 이 비어있는 행은 스킵)
+            presetDto.IwPatterns.Clear();
+            foreach (var row in _iwSignalRows)
+                if (!string.IsNullOrWhiteSpace(row.ApiName))
+                    presetDto.IwPatterns.Add(new Promaker.Services.SignalPatternEntryDto { ApiName = row.ApiName, Pattern = row.Pattern, TargetFBPort = row.TargetFBPort ?? "" });
+
+            presetDto.QwPatterns.Clear();
+            foreach (var row in _qwSignalRows)
+                if (!string.IsNullOrWhiteSpace(row.ApiName))
+                    presetDto.QwPatterns.Add(new Promaker.Services.SignalPatternEntryDto { ApiName = row.ApiName, Pattern = row.Pattern, TargetFBPort = row.TargetFBPort ?? "" });
+
+            presetDto.MwPatterns.Clear();
+            foreach (var row in _mwSignalRows)
+                if (!string.IsNullOrWhiteSpace(row.ApiName))
+                    presetDto.MwPatterns.Add(new Promaker.Services.SignalPatternEntryDto { ApiName = row.ApiName, Pattern = row.Pattern, TargetFBPort = row.TargetFBPort ?? "" });
+
+            // AUX 포트 매핑도 함께 반영
+            presetDto.AutoAuxPortMap.Clear();
+            presetDto.ComAuxPortMap.Clear();
+            foreach (var row in _auxPortRows)
             {
-                sb.AppendLine("[IW]");
-                foreach (var row in _iwSignalRows)
+                if (string.IsNullOrWhiteSpace(row.ApiName)) continue;
+                if (!string.IsNullOrWhiteSpace(row.AutoAuxPort))
+                    presetDto.AutoAuxPortMap[row.ApiName] = row.AutoAuxPort;
+                if (!string.IsNullOrWhiteSpace(row.ComAuxPort))
+                    presetDto.ComAuxPortMap[row.ApiName] = row.ComAuxPort;
+            }
+
+            // 코드 생성용 FBTagMapTemplate(Ports) 를 신호 패턴으로부터 재생성 — codegen 은 Ports 를 사용.
+            // TargetFBPort 가 비어있는 엔트리는 FB 에 연결할 수 없으므로 제외.
+            presetDto.Ports.Clear();
+            void AddPorts(System.Collections.Generic.List<Promaker.Services.SignalPatternEntryDto> entries, string direction, bool isDummy)
+            {
+                foreach (var e in entries)
                 {
-                    if (!string.IsNullOrWhiteSpace(row.ApiName))
+                    if (string.IsNullOrWhiteSpace(e.TargetFBPort)) continue;
+                    presetDto.Ports.Add(new Promaker.Services.FBTagMapPortDto
                     {
-                        sb.AppendLine($"{row.ApiName}: {row.Pattern}");
-                    }
-                }
-                sb.AppendLine();
-            }
-
-            // [QW] 섹션
-            if (_qwSignalRows.Count > 0)
-            {
-                sb.AppendLine("[QW]");
-                foreach (var row in _qwSignalRows)
-                {
-                    if (!string.IsNullOrWhiteSpace(row.ApiName))
-                    {
-                        sb.AppendLine($"{row.ApiName}: {row.Pattern}");
-                    }
-                }
-                sb.AppendLine();
-            }
-
-            // [MW] 섹션
-            if (_mwSignalRows.Count > 0)
-            {
-                sb.AppendLine("[MW]");
-                foreach (var row in _mwSignalRows)
-                {
-                    if (!string.IsNullOrWhiteSpace(row.ApiName))
-                    {
-                        sb.AppendLine($"{row.ApiName}: {row.Pattern}");
-                    }
+                        FBPort     = e.TargetFBPort,
+                        Direction  = direction,
+                        DataType   = "BOOL",
+                        TagPattern = e.Pattern ?? "",
+                        IsDummy    = isDummy,
+                    });
                 }
             }
+            AddPorts(presetDto.IwPatterns, "Input",  false);
+            AddPorts(presetDto.QwPatterns, "Output", false);
+            AddPorts(presetDto.MwPatterns, "Input",  true);  // MW = Dummy 메모리
 
-            var deviceTemplateContent = sb.ToString();
-            File.WriteAllText(_currentDeviceTemplateFile, deviceTemplateContent, Encoding.UTF8);
-
-            // ActiveSystem ControlSystemProperties에도 저장 (AASX 내보내기 시 포함됨)
-            var templateFileName = Path.GetFileName(_currentDeviceTemplateFile);
-            if (!string.IsNullOrEmpty(templateFileName))
-            {
-                var cp3 = GetOrCreateControlProps();
-                if (cp3 != null) cp3.IoDeviceTemplates[templateFileName] = deviceTemplateContent;
-            }
+            Promaker.Services.FBTagMapStore.Save(_store, systemType, presetDto);
 
             var totalCount = _iwSignalRows.Count + _qwSignalRows.Count + _mwSignalRows.Count;
-            DeviceTemplateStatusText.Text = $"✓ 저장 완료 | IW: {_iwSignalRows.Count}, QW: {_qwSignalRows.Count}, MW: {_mwSignalRows.Count} | 총 {totalCount}개 신호";
+            DeviceTemplateStatusText.Text = $"✓ AASX 저장 완료 | IW: {_iwSignalRows.Count}, QW: {_qwSignalRows.Count}, MW: {_mwSignalRows.Count} | 총 {totalCount}개 신호";
 
             DialogHelpers.ShowThemedMessageBox(
-                $"'{Path.GetFileName(_currentDeviceTemplateFile)}' 파일이 저장되었습니다.",
+                $"SystemType '{systemType}' 의 신호 템플릿이 AASX(프로젝트 모델) 에 저장되었습니다.\n외부 txt 파일은 사용되지 않습니다.",
                 "저장 완료",
                 MessageBoxButton.OK,
                 "✓");
@@ -694,59 +854,80 @@ public partial class TagWizardDialog
     /// </summary>
     private void AddIwRow_Click(object sender, RoutedEventArgs e)
     {
-        _iwSignalRows.Add(new SignalPatternRow { ApiName = "", Pattern = "W_$(F)_I_$(D)_$(A)_LS" });
+        var fb = GlobalFBTypeCombo?.SelectedItem as string ?? "";
+        _iwSignalRows.Add(HookAutoSave(new SignalPatternRow { ApiName = DefaultApiName(), Pattern = "W_$(F)_WRS_$(D)_$(A)", TargetFBType = fb }));
+        PersistCurrentPreset();
     }
 
     /// <summary>
-    /// IW 행 삭제
+    /// IW 행 삭제 — 삭제 후 다음 행을 자동 선택해 연속 삭제가 가능하게 함.
     /// </summary>
-    private void RemoveIwRow_Click(object sender, RoutedEventArgs e)
-    {
-        var selected = IwSignalGrid.SelectedItems.Cast<SignalPatternRow>().ToList();
-        foreach (var row in selected)
-        {
-            _iwSignalRows.Remove(row);
-        }
-    }
+    private void RemoveIwRow_Click(object sender, RoutedEventArgs e) =>
+        RemoveSelectedAndAdvance(IwSignalGrid, _iwSignalRows);
 
     /// <summary>
     /// QW 행 추가
     /// </summary>
     private void AddQwRow_Click(object sender, RoutedEventArgs e)
     {
-        _qwSignalRows.Add(new SignalPatternRow { ApiName = "", Pattern = "W_$(F)_Q_$(D)_$(A)_CMD" });
+        var fb = GlobalFBTypeCombo?.SelectedItem as string ?? "";
+        _qwSignalRows.Add(HookAutoSave(new SignalPatternRow { ApiName = DefaultApiName(), Pattern = "W_$(F)_SOL_$(D)_$(A)", TargetFBType = fb }));
+        PersistCurrentPreset();
     }
 
     /// <summary>
-    /// QW 행 삭제
+    /// QW 행 삭제 — 삭제 후 다음 행 자동 선택.
     /// </summary>
-    private void RemoveQwRow_Click(object sender, RoutedEventArgs e)
-    {
-        var selected = QwSignalGrid.SelectedItems.Cast<SignalPatternRow>().ToList();
-        foreach (var row in selected)
-        {
-            _qwSignalRows.Remove(row);
-        }
-    }
+    private void RemoveQwRow_Click(object sender, RoutedEventArgs e) =>
+        RemoveSelectedAndAdvance(QwSignalGrid, _qwSignalRows);
 
     /// <summary>
     /// MW 행 추가
     /// </summary>
     private void AddMwRow_Click(object sender, RoutedEventArgs e)
     {
-        _mwSignalRows.Add(new SignalPatternRow { ApiName = "", Pattern = "W_$(F)_M_$(D)_$(A)_BUSY" });
+        var fb = GlobalFBTypeCombo?.SelectedItem as string ?? "";
+        _mwSignalRows.Add(HookAutoSave(new SignalPatternRow { ApiName = DefaultApiName(), Pattern = "W_$(F)_M_$(D)_$(A)", TargetFBType = fb }));
+        PersistCurrentPreset();
     }
 
     /// <summary>
-    /// MW 행 삭제
+    /// MW 행 삭제 — 삭제 후 다음 행 자동 선택.
     /// </summary>
-    private void RemoveMwRow_Click(object sender, RoutedEventArgs e)
+    private void RemoveMwRow_Click(object sender, RoutedEventArgs e) =>
+        RemoveSelectedAndAdvance(MwSignalGrid, _mwSignalRows);
+
+    /// <summary>
+    /// 선택된 행 제거 후 가장 작은 삭제 인덱스 위치로 커서 이동.
+    /// 삭제 버튼을 연속으로 눌러 여러 행을 순차 제거할 수 있게 한다.
+    /// </summary>
+    private void RemoveSelectedAndAdvance<T>(
+        System.Windows.Controls.DataGrid grid,
+        ObservableCollection<T> rows) where T : class
     {
-        var selected = MwSignalGrid.SelectedItems.Cast<SignalPatternRow>().ToList();
+        if (grid == null || rows == null || rows.Count == 0) return;
+        var selected = grid.SelectedItems.Cast<T>().ToList();
+        if (selected.Count == 0) return;
+
+        // 삭제될 행들의 최소 인덱스를 기록 — 삭제 후 그 자리의 행이 새 선택.
+        int anchor = selected.Min(r => rows.IndexOf(r));
+
         foreach (var row in selected)
-        {
-            _mwSignalRows.Remove(row);
-        }
+            rows.Remove(row);
+
+        // 행 제거 후 Preset 도 반영 — 💾 없이 자동 persist.
+        PersistCurrentPreset();
+
+        grid.SelectedItems.Clear();
+        if (rows.Count == 0) return;
+
+        int next = Math.Min(anchor, rows.Count - 1);
+        if (next < 0) return;
+        var target = rows[next];
+        grid.SelectedItem = target;
+        grid.CurrentItem = target;
+        grid.ScrollIntoView(target);
+        grid.Focus();
     }
 
     #endregion

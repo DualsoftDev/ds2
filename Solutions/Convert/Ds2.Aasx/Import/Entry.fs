@@ -13,6 +13,7 @@ module AasxImporter =
     open AasxImportCore
     open AasxImportGraph
     open AasxImportMetadata
+    open AasxImportTechnicalData
     open FieldValidation
 
     let private importDomainSubmodel (sm: Submodel) (store: DsStore) (_project: Project) (submodelType: SubmodelType) : unit =
@@ -33,16 +34,36 @@ module AasxImporter =
                             PropertyConversion.importSystemProperty submodelType systemSmc system.Properties
                             match submodelType with
                             | SequenceControl ->
-                                let (presets, sysBase, flowBase, deviceTemplates) = smcToControlIoConfig systemSmc
-                                let hasData = presets.Count > 0 || not (String.IsNullOrEmpty sysBase) || not (String.IsNullOrEmpty flowBase) || deviceTemplates.Count > 0
+                                let (presets, legacySysBase, legacyFlowBase, _legacyDeviceTemplates) = smcToControlIoConfig systemSmc
+                                let hasData =
+                                    presets.Count > 0 ||
+                                    not (String.IsNullOrEmpty legacySysBase) ||
+                                    not (String.IsNullOrEmpty legacyFlowBase)
                                 if hasData then
                                     if system.GetControlProperties().IsNone then
                                         system.SetControlProperties(ControlSystemProperties())
                                     let cp = system.GetControlProperties().Value
                                     for kv in presets do cp.FBTagMapPresets.[kv.Key] <- kv.Value
-                                    if not (String.IsNullOrEmpty sysBase) then cp.IoSystemBase <- sysBase
-                                    if not (String.IsNullOrEmpty flowBase) then cp.IoFlowBase <- flowBase
-                                    for kv in deviceTemplates do cp.IoDeviceTemplates.[kv.Key] <- kv.Value
+                                    // 레거시 IoSystemBase → FBTagMapPreset.BaseAddresses 이식
+                                    if not (String.IsNullOrEmpty legacySysBase) then
+                                        ControlIoLegacyMigration.applySystemBaseToPresets cp.FBTagMapPresets legacySysBase |> ignore
+                                    // 레거시 IoFlowBase → Flow 별 BaseAddressOverride 이식
+                                    if not (String.IsNullOrEmpty legacyFlowBase) then
+                                        let flowMap = ControlIoLegacyMigration.parseFlowBase legacyFlowBase
+                                        for flow in store.Flows.Values do
+                                            match flowMap.TryGetValue flow.Name with
+                                            | true, baseSet ->
+                                                let cfp =
+                                                    match flow.GetControlProperties() with
+                                                    | Some c -> c
+                                                    | None ->
+                                                        let c = ControlFlowProperties()
+                                                        flow.SetControlProperties c
+                                                        c
+                                                cfp.BaseAddressOverride <- Some baseSet
+                                            | _ -> ()
+                                    // IoDeviceTemplates 는 신 모델에서 FBTagMapPreset.FBTagMapTemplate 으로 대체되며
+                                    // 자동 이식이 어렵기 때문에 로그만 남기고 무시.
                             | _ -> ())))
 
             sm.SubmodelElements
@@ -129,6 +150,12 @@ module AasxImporter =
                         let doc = submodelToDocumentation sm
                         if doc.Documents.Count > 0 then project.HandoverDocumentation <- Some doc)
 
+                    env.Submodels
+                    |> Seq.tryFind (fun sm -> sm.IdShort = TechnicalDataSubmodelIdShort)
+                    |> Option.iter (fun sm ->
+                        let td = submodelToTechnicalData sm
+                        project.TechnicalData <- Some td)
+
                     SubmodelType.AllDomains
                     |> List.iter (fun submodelType ->
                         env.Submodels
@@ -162,7 +189,7 @@ module AasxImporter =
                         let newStore = DsStore()
                         newStore.DirectWrite(newStore.Projects, newProject)
                         let newSystem = DsSystem("NewSystem")
-                        newSystem.SystemType <- Some "Unit"
+                        newSystem.SystemType <- Some "Cylinder_1"
                         newStore.DirectWrite(newStore.Systems, newSystem)
                         newProject.ActiveSystemIds.Add(newSystem.Id)
                         let newFlow = Flow("NewFlow", newSystem.Id)
@@ -189,6 +216,12 @@ module AasxImporter =
                     let doc = submodelToDocumentation sm
                     if doc.Documents.Count > 0 then project.HandoverDocumentation <- Some doc)
 
+                env.Submodels
+                |> Seq.tryFind (fun sm -> sm.IdShort = TechnicalDataSubmodelIdShort)
+                |> Option.iter (fun sm ->
+                    let td = submodelToTechnicalData sm
+                    project.TechnicalData <- Some td)
+
                 SubmodelType.AllDomains
                 |> List.iter (fun submodelType ->
                     env.Submodels
@@ -196,6 +229,13 @@ module AasxImporter =
                     |> Option.iter (fun sm -> importDomainSubmodel sm imported project submodelType))
 
                 store.ReplaceStore(imported)
+
+                // 레거시 파일 복구: OriginFlowId 가 누락된 ApiCall 을 Call→Work→Flow 체인으로 자동 설정.
+                // (예전 Panel.buildApiCall 경유 생성 시 해당 값이 누락되던 버그의 뒤처리)
+                let healed = CallValidation.healMissingOriginFlowIds store
+                if healed > 0 then
+                    log.Info($"OriginFlowId 자동 복구: {healed}개 ApiCall")
+
                 Ok ()
 
     let importIntoStore (store: DsStore) (path: string) : bool =

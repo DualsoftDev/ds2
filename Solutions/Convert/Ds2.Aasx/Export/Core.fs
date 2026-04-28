@@ -1,5 +1,6 @@
 namespace Ds2.Aasx
 
+
 open System
 open AasCore.Aas3_1
 open Ds2.Core
@@ -153,13 +154,7 @@ module internal AasxExportCore =
 
     let internal controlIoConfigElems (cp: ControlSystemProperties) : ISubmodelElement list =
         [ if cp.FBTagMapPresets.Count > 0 then
-              yield mkJsonProp "FBTagMapPresets" cp.FBTagMapPresets
-          if not (String.IsNullOrEmpty cp.IoSystemBase) then
-              yield mkProp "IoSystemBase" cp.IoSystemBase
-          if not (String.IsNullOrEmpty cp.IoFlowBase) then
-              yield mkProp "IoFlowBase" cp.IoFlowBase
-          if cp.IoDeviceTemplates.Count > 0 then
-              yield mkJsonProp "IoDeviceTemplates" cp.IoDeviceTemplates ]
+              yield mkJsonProp "FBTagMapPresets" cp.FBTagMapPresets ]
 
     /// 리플렉션을 사용하여 Properties 객체를 AAS SubmodelElement 리스트로 자동 변환
     /// 지원 타입: string, bool, int, float, TimeSpan, Guid, DateTime, Array, ResizeArray, Enum, Option
@@ -211,25 +206,19 @@ module internal AasxExportCore =
                     else
                         Some (mkJsonProp name value)
             elif propType.IsGenericType && propType.GetGenericTypeDefinition() = typedefof<ResizeArray<_>> then
+                let resizeArr = value :?> System.Collections.IEnumerable
                 let elemType = propType.GetGenericArguments().[0]
-                if elemType = typeof<string> then
-                    let list = value :?> ResizeArray<string>
-                    if list.Count = 0 then None
-                    else mkSmlProp name (list |> Seq.map (fun s -> mkProp "Item" s) |> Seq.toList)
-                elif elemType = typeof<Guid> then
-                    let list = value :?> ResizeArray<Guid>
-                    if list.Count = 0 then None
-                    else mkSmlProp name (list |> Seq.map (fun id -> mkGuidProp "Id" id) |> Seq.toList)
-                elif elemType = typeof<FBTagMapPort> then
-                    let list = value :?> ResizeArray<FBTagMapPort>
-                    if list.Count = 0 then None
-                    else mkSml name (list |> Seq.map fbTagMapPortToSmc |> Seq.toList)
-                elif elemType = typeof<FBTagMapInstance> then
-                    let list = value :?> ResizeArray<FBTagMapInstance>
-                    if list.Count = 0 then None
-                    else mkSml name (list |> Seq.map fbTagMapInstanceToSmc |> Seq.toList)
+                let items = resizeArr |> Seq.cast<obj> |> Seq.toList
+                if items.IsEmpty then None
                 else
-                    Some (mkJsonProp name value)
+                    if elemType = typeof<FBTagMapPort> then
+                        let portList = items |> List.map (fun obj -> fbTagMapPortToSmc (obj :?> FBTagMapPort))
+                        mkSml name portList
+                    elif elemType = typeof<FBTagMapInstance> then
+                        let instList = items |> List.map (fun obj -> fbTagMapInstanceToSmc (obj :?> FBTagMapInstance))
+                        mkSml name instList
+                    else
+                        Some (mkJsonProp name value)
             elif propType.IsEnum then Some (mkProp name (value.ToString()))
             else None)
         |> Array.toList

@@ -22,6 +22,7 @@ using Ds2.Runtime.Engine.Core;
 using Ds2.Runtime.Report;
 using Ds2.Runtime.Report.Exporters;
 using Ds2.Runtime.Report.Model;
+using Microsoft.FSharp.Core;
 
 namespace Ds2.Tutorial.Steps;
 
@@ -55,7 +56,9 @@ static class Step06_Report
                 nodeType:  "Work",
                 systemId:  "",
                 state:     e.NewState.ToString(),
-                timestamp: startTime + e.Clock
+                timestamp: startTime + e.Clock,
+                tokenItem: FSharpOption<int>.None,
+                tokenOriginName: ""
             ));
 
         Console.WriteLine("  [수집] 20배속, 1.5초간 실행...");
