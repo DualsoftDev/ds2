@@ -1,108 +1,47 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using Ds2.Core;
-using Ds2.Core.Store;
-using Microsoft.FSharp.Core;
 
 namespace Promaker.Services;
 
 /// <summary>
-/// TAG Wizard 템플릿 파일 관리
+/// 신호 템플릿 원천 데이터 제공자.
+///
+/// 설계 전환 후:
+///   • 영구 디스크 파일 생성/편집은 수행하지 않는다.
+///   • <see cref="DefaultTemplatesRO"/> 는 신규 프로젝트/SystemType 에 대한 임베디드 fallback 이며,
+///     실제 편집 결과는 모두 AASX 내 FBTagMapPresets 에만 저장된다.
+///   • <see cref="XgiTemplatePath"/> 만 예외적으로 디스크 파일 (배포 시 동봉된 XGI_Template.xml) 경로를 노출한다.
 /// </summary>
 public static class TemplateManager
 {
-    private static readonly string TemplatesPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Dualsoft", "Promaker", "Templates");
-
     /// <summary>
-    /// 템플릿 폴더 경로
-    /// </summary>
-    public static string TemplatesFolderPath => TemplatesPath;
-
-    /// <summary>
-    /// FB 템플릿 폴더 경로 (AAStoXGI FB_Template.json 파일 위치)
-    /// 애플리케이션 실행 파일과 함께 복사된 Template 폴더를 사용
-    /// </summary>
-    public static string FBTemplatesFolderPath =>
-        Path.Combine(AppContext.BaseDirectory, "Template");
-
-    /// <summary>
-    /// XGI 프로젝트 템플릿 파일 경로 (XGI_Template.xml)
+    /// XGI 프로젝트 템플릿 파일 경로 (실행 파일과 함께 배포된 XGI_Template.xml)
     /// </summary>
     public static string XgiTemplatePath =>
         Path.Combine(AppContext.BaseDirectory, "Template", "XGI_Template.xml");
 
-    /// <summary>
-    /// system_base.txt 경로 (시스템 타입별 글로벌 주소)
-    /// </summary>
-    public static string SystemBasePath => Path.Combine(TemplatesPath, "system_base.txt");
+    /// <summary>기본 템플릿 문자열 테이블 — 신규 SystemType Preset seed 용 fallback</summary>
+    public static IReadOnlyDictionary<string, string> DefaultTemplatesRO => DefaultTemplates;
 
-    /// <summary>
-    /// flow_base.txt 경로 (Flow별 로컬 주소)
-    /// </summary>
-    public static string FlowBasePath => Path.Combine(TemplatesPath, "flow_base.txt");
-
-    /// <summary>
-    /// Legacy address_config.txt 경로 (하위 호환성)
-    /// </summary>
-    public static string AddressConfigPath => Path.Combine(TemplatesPath, "address_config.txt");
-
-    /// <summary>
-    /// 기본 템플릿 파일 목록
-    /// </summary>
     private static readonly Dictionary<string, string> DefaultTemplates = new()
     {
         ["system_base.txt"] = @"# System Base Address Configuration
-# 시스템 타입별 글로벌 주소 설정
-# 형식: @SYSTEM [타입명] 다음에 @IW_BASE, @QW_BASE, @MW_BASE 지정
+# 시스템 타입별 글로벌 주소 설정 (신규 Preset seed 용)
 
 @SYSTEM RBT
-@IW_BASE 3070
-@QW_BASE 3070
-@MW_BASE 9110
+@IW_BASE 3000
+@QW_BASE 3000
+@MW_BASE 30000
 
 @SYSTEM PIN
-@IW_BASE 3200
-@QW_BASE 3200
-@MW_BASE 9300
-
-@SYSTEM CLAMP
-@IW_BASE 3300
-@QW_BASE 3300
-@MW_BASE 9500
-
-@SYSTEM LATCH
-@IW_BASE 3250
-@QW_BASE 3250
-@MW_BASE 9400
-
-@SYSTEM Unit
-@IW_BASE 3400
-@QW_BASE 3400
-@MW_BASE 9600
-
-@SYSTEM UpDn
-@IW_BASE 3500
-@QW_BASE 3500
-@MW_BASE 9700
-
-@SYSTEM Motor
-@IW_BASE 3600
-@QW_BASE 3600
-@MW_BASE 9800
-
-@SYSTEM Multi
-@IW_BASE 3700
-@QW_BASE 3700
-@MW_BASE 9900
+@IW_BASE 2000
+@QW_BASE 2000
+@MW_BASE 20000
 ",
         ["flow_base.txt"] = @"# Flow Base Address Configuration
-# Flow별 로컬 주소 설정
-# 형식: @FLOW [Flow명] 다음에 @IW_BASE, @QW_BASE, @MW_BASE 지정
-
+# Flow별 로컬 주소 설정 (신규 Preset seed 용)
+#
 # 예시:
 # @FLOW Flow1
 # @IW_BASE 4000
@@ -115,342 +54,489 @@ public static class TemplateManager
 # @MW_BASE 10100
 ",
         ["RBT.txt"] = @"# RBT (Robot) 신호 템플릿
-# 파일명(RBT.txt)이 SystemType으로 사용됩니다.
 # $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
 [IW]
-ADV: W_$(F)_I_$(D)_$(A)_LS
-RET: W_$(F)_I_$(D)_$(A)_LS
+ADV: W_$(F)_WRS_$(D)_$(A)
+RET: W_$(F)_WRS_$(D)_$(A)
 
 [QW]
-ADV: W_$(F)_Q_$(D)_$(A)_CMD
-RET: W_$(F)_Q_$(D)_$(A)_CMD
+ADV: W_$(F)_SOL_$(D)_$(A)
+RET: W_$(F)_SOL_$(D)_$(A)
 
 [MW]
-ADV: W_$(F)_M_$(D)_$(A)_BUSY
-RET: W_$(F)_M_$(D)_$(A)_BUSY
+ADV: W_$(F)_M_$(D)_$(A)
+RET: W_$(F)_M_$(D)_$(A)
 ",
         ["PIN.txt"] = @"# PIN 신호 템플릿
-# 파일명(PIN.txt)이 SystemType으로 사용됩니다.
 # $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
 [IW]
-UP: W_$(F)_I_$(D)_$(A)_LS
-DOWN: W_$(F)_I_$(D)_$(A)_LS
+UP: W_$(F)_WRS_$(D)_$(A)
+DOWN: W_$(F)_WRS_$(D)_$(A)
 
 [QW]
-UP: W_$(F)_Q_$(D)_$(A)_CMD
-DOWN: W_$(F)_Q_$(D)_$(A)_CMD
+UP: W_$(F)_SOL_$(D)_$(A)
+DOWN: W_$(F)_SOL_$(D)_$(A)
 
 [MW]
-UP: W_$(F)_M_$(D)_$(A)_BUSY
-DOWN: W_$(F)_M_$(D)_$(A)_BUSY
+UP: W_$(F)_M_$(D)_$(A)
+DOWN: W_$(F)_M_$(D)_$(A)
 ",
         ["CLAMP.txt"] = @"# CLAMP 신호 템플릿
-# 파일명(CLAMP.txt)이 SystemType으로 사용됩니다.
 # $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
 [IW]
-CLOSE: W_$(F)_I_$(D)_$(A)_LS
-OPEN: W_$(F)_I_$(D)_$(A)_LS
+CLOSE: W_$(F)_WRS_$(D)_$(A)
+OPEN: W_$(F)_WRS_$(D)_$(A)
 
 [QW]
-CLOSE: W_$(F)_Q_$(D)_$(A)_CMD
-OPEN: W_$(F)_Q_$(D)_$(A)_CMD
+CLOSE: W_$(F)_SOL_$(D)_$(A)
+OPEN: W_$(F)_SOL_$(D)_$(A)
 
 [MW]
-CLOSE: W_$(F)_M_$(D)_$(A)_BUSY
-OPEN: W_$(F)_M_$(D)_$(A)_BUSY
+CLOSE: W_$(F)_M_$(D)_$(A)
+OPEN: W_$(F)_M_$(D)_$(A)
 ",
         ["LATCH.txt"] = @"# LATCH 신호 템플릿
-# 파일명(LATCH.txt)이 SystemType으로 사용됩니다.
 # $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
 [IW]
-LOCK: W_$(F)_I_$(D)_$(A)_LS
-UNLOCK: W_$(F)_I_$(D)_$(A)_LS
+LOCK: W_$(F)_WRS_$(D)_$(A)
+UNLOCK: W_$(F)_WRS_$(D)_$(A)
 
 [QW]
-LOCK: W_$(F)_Q_$(D)_$(A)_CMD
-UNLOCK: W_$(F)_Q_$(D)_$(A)_CMD
+LOCK: W_$(F)_SOL_$(D)_$(A)
+UNLOCK: W_$(F)_SOL_$(D)_$(A)
 
 [MW]
-LOCK: W_$(F)_M_$(D)_$(A)_BUSY
-UNLOCK: W_$(F)_M_$(D)_$(A)_BUSY
+LOCK: W_$(F)_M_$(D)_$(A)
+UNLOCK: W_$(F)_M_$(D)_$(A)
 ",
         ["Unit.txt"] = @"# Unit 신호 템플릿
-# 파일명(Unit.txt)이 SystemType으로 사용됩니다.
 # $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
 [IW]
-ADV: W_$(F)_I_$(D)_$(A)_LS
-RET: W_$(F)_I_$(D)_$(A)_LS
+ADV: W_$(F)_WRS_$(D)_$(A)
+RET: W_$(F)_WRS_$(D)_$(A)
 
 [QW]
-ADV: W_$(F)_Q_$(D)_$(A)_CMD
-RET: W_$(F)_Q_$(D)_$(A)_CMD
+ADV: W_$(F)_SOL_$(D)_$(A)
+RET: W_$(F)_SOL_$(D)_$(A)
 
 [MW]
-ADV: W_$(F)_M_$(D)_$(A)_BUSY
-RET: W_$(F)_M_$(D)_$(A)_BUSY
+ADV: W_$(F)_M_$(D)_$(A)
+RET: W_$(F)_M_$(D)_$(A)
 ",
         ["UpDn.txt"] = @"# UpDn 신호 템플릿
-# 파일명(UpDn.txt)이 SystemType으로 사용됩니다.
 # $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
 [IW]
-UP: W_$(F)_I_$(D)_$(A)_LS
-DOWN: W_$(F)_I_$(D)_$(A)_LS
+UP: W_$(F)_WRS_$(D)_$(A)
+DOWN: W_$(F)_WRS_$(D)_$(A)
 
 [QW]
-UP: W_$(F)_Q_$(D)_$(A)_CMD
-DOWN: W_$(F)_Q_$(D)_$(A)_CMD
+UP: W_$(F)_SOL_$(D)_$(A)
+DOWN: W_$(F)_SOL_$(D)_$(A)
 
 [MW]
-UP: W_$(F)_M_$(D)_$(A)_BUSY
-DOWN: W_$(F)_M_$(D)_$(A)_BUSY
+UP: W_$(F)_M_$(D)_$(A)
+DOWN: W_$(F)_M_$(D)_$(A)
 ",
         ["Motor.txt"] = @"# Motor 신호 템플릿
-# 파일명(Motor.txt)이 SystemType으로 사용됩니다.
 # $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
 [IW]
-FWD: W_$(F)_I_$(D)_$(A)_LS
-BWD: W_$(F)_I_$(D)_$(A)_LS
+FWD: W_$(F)_WRS_$(D)_$(A)
+BWD: W_$(F)_WRS_$(D)_$(A)
 
 [QW]
-FWD: W_$(F)_Q_$(D)_$(A)_CMD
-BWD: W_$(F)_Q_$(D)_$(A)_CMD
+FWD: W_$(F)_SOL_$(D)_$(A)
+BWD: W_$(F)_SOL_$(D)_$(A)
 
 [MW]
-FWD: W_$(F)_M_$(D)_$(A)_BUSY
-BWD: W_$(F)_M_$(D)_$(A)_BUSY
+FWD: W_$(F)_M_$(D)_$(A)
+BWD: W_$(F)_M_$(D)_$(A)
 ",
         ["Multi.txt"] = @"# Multi 신호 템플릿
-# 파일명(Multi.txt)이 SystemType으로 사용됩니다.
 # $(F) = Flow명, $(D) = Device명, $(A) = Api명
 
 [IW]
-ADV: W_$(F)_I_$(D)_$(A)_LS
-RET: W_$(F)_I_$(D)_$(A)_LS
-UP: W_$(F)_I_$(D)_$(A)_LS
-DOWN: W_$(F)_I_$(D)_$(A)_LS
-FWD: W_$(F)_I_$(D)_$(A)_LS
-BWD: W_$(F)_I_$(D)_$(A)_LS
+ADV: W_$(F)_WRS_$(D)_$(A)
+RET: W_$(F)_WRS_$(D)_$(A)
+UP: W_$(F)_WRS_$(D)_$(A)
+DOWN: W_$(F)_WRS_$(D)_$(A)
+FWD: W_$(F)_WRS_$(D)_$(A)
+BWD: W_$(F)_WRS_$(D)_$(A)
 
 [QW]
-ADV: W_$(F)_Q_$(D)_$(A)_CMD
-RET: W_$(F)_Q_$(D)_$(A)_CMD
-UP: W_$(F)_Q_$(D)_$(A)_CMD
-DOWN: W_$(F)_Q_$(D)_$(A)_CMD
-FWD: W_$(F)_Q_$(D)_$(A)_CMD
-BWD: W_$(F)_Q_$(D)_$(A)_CMD
+ADV: W_$(F)_SOL_$(D)_$(A)
+RET: W_$(F)_SOL_$(D)_$(A)
+UP: W_$(F)_SOL_$(D)_$(A)
+DOWN: W_$(F)_SOL_$(D)_$(A)
+FWD: W_$(F)_SOL_$(D)_$(A)
+BWD: W_$(F)_SOL_$(D)_$(A)
 
 [MW]
-ADV: W_$(F)_M_$(D)_$(A)_BUSY
-RET: W_$(F)_M_$(D)_$(A)_BUSY
-UP: W_$(F)_M_$(D)_$(A)_BUSY
-DOWN: W_$(F)_M_$(D)_$(A)_BUSY
-FWD: W_$(F)_M_$(D)_$(A)_BUSY
-BWD: W_$(F)_M_$(D)_$(A)_BUSY
-"
+ADV: W_$(F)_M_$(D)_$(A)
+RET: W_$(F)_M_$(D)_$(A)
+UP: W_$(F)_M_$(D)_$(A)
+DOWN: W_$(F)_M_$(D)_$(A)
+FWD: W_$(F)_M_$(D)_$(A)
+BWD: W_$(F)_M_$(D)_$(A)
+",
+        // ─── Robot 디폴트 템플릿 ─────────────────────────────────────────────
+        // weldgrip / weldgrippallet 공통 — 동일 IW/QW 레이아웃.
+        // '-' 단독 라인 = 빈 슬롯 (주소 1 비트 예약, 신호 없음).
+        ["RobotWeldGrip.txt"] = RobotDefaultTemplate,
+        ["RobotWeldGripPallet.txt"] = RobotDefaultTemplate,
     };
 
-    /// <summary>
-    /// 템플릿 폴더 초기화 (없으면 생성, 기본 템플릿 복사)
-    /// </summary>
-    public static void EnsureTemplatesExist()
-    {
-        try
-        {
-            // 템플릿 폴더 생성
-            if (!Directory.Exists(TemplatesPath))
-            {
-                Directory.CreateDirectory(TemplatesPath);
-            }
+    private const string RobotDefaultTemplate = @"# Robot (WeldGrip / WeldGripPallet) 신호 템플릿
+# $(F) = Flow명, $(D) = Device명, $(A) = Api명
+# '-' 단독 라인 = 빈 슬롯 (주소만 예약, 신호 미생성)
 
-            // 기본 템플릿 파일들 생성 (없으면)
-            foreach (var template in DefaultTemplates)
-            {
-                var filePath = Path.Combine(TemplatesPath, template.Key);
-                if (!File.Exists(filePath))
-                {
-                    File.WriteAllText(filePath, template.Value);
-                }
-            }
-        }
-        catch
-        {
-            // Ignore failures in template initialization
-        }
-    }
+[IW]
+# Word 0: 상태
+Api_None: W_$(F)_I_$(D)_HOME_POS
+Api_None: W_$(F)_I_$(D)_TOTAL_ERR
+Api_None: W_$(F)_I_$(D)_READY_ON
+Api_None: W_$(F)_I_$(D)_AUTO
+Api_None: W_$(F)_I_$(D)_RUNING
+Api_None: W_$(F)_I_$(D)_ABNORMAL_SEL
+Api_None: W_$(F)_I_$(D)_TIP_DRESSING
+Api_None: W_$(F)_I_$(D)_EM_STOP
+Api_None: W_$(F)_I_$(D)_LAST_WORK_COMP
+Api_None: W_$(F)_I_$(D)_1ST_WORK_COMP
+Api_None: W_$(F)_I_$(D)_2ND_WORK_COMP
+Api_None: W_$(F)_I_$(D)_3RD_WORK_COMP
+Api_None: W_$(F)_I_$(D)_4TH_WORK_COMP
+Api_None: W_$(F)_I_$(D)_5TH_WORK_COMP
+Api_None: W_$(F)_I_$(D)_6TH_WORK_COMP
+Api_None: W_$(F)_I_$(D)_7TH_WORK_COMP
+# Word 1: 간섭/통신
+Api_None: W_$(F)_I_$(D)_NON_INTF1
+Api_None: W_$(F)_I_$(D)_NON_INTF2
+Api_None: W_$(F)_I_$(D)_NON_INTF3
+Api_None: W_$(F)_I_$(D)_NON_INTF4
+Api_None: W_$(F)_I_$(D)_NON_INTF5
+Api_None: W_$(F)_I_$(D)_NON_INTF6
+Api_None: W_$(F)_I_$(D)_NON_INTF7
+Api_None: W_$(F)_I_$(D)_NON_INTF8
+Api_None: W_$(F)_I_$(D)_NON_INTF9
+Api_None: W_$(F)_I_$(D)_NON_INTF10
+Api_None: W_$(F)_I_$(D)_NON_INTF11
+Api_None: W_$(F)_I_$(D)_NON_INTF12
+-
+Api_None: W_$(F)_I_$(D)_EACH_WELD_COMP
+Api_None: W_$(F)_I_$(D)_MOTOR_MC_ON
+Api_None: W_$(F)_I_$(D)_COMM_CHK
+# Word 2: 에러 상세 1
+Api_None: W_$(F)_I_$(D)_CONTROLLER_ERR
+Api_None: W_$(F)_I_$(D)_COMM_ERR
+Api_None: W_$(F)_I_$(D)_AIR_ERR
+Api_None: W_$(F)_I_$(D)_WATER_ERR
+Api_None: W_$(F)_I_$(D)_GRIPPER_ERR
+Api_None: W_$(F)_I_$(D)_SEALER_ERR
+Api_None: W_$(F)_I_$(D)_VISION_ERR
+Api_None: W_$(F)_I_$(D)_BOLTING_ERR
+Api_None: W_$(F)_I_$(D)_LASER_ERR
+Api_None: W_$(F)_I_$(D)_CLEANNER_ERR
+Api_None: W_$(F)_I_$(D)_MARKING_ERR
+Api_None: W_$(F)_I_$(D)_TC_ERR
+Api_None: W_$(F)_I_$(D)_TR_ERR
+Api_None: W_$(F)_I_$(D)_ATD_ERR
+Api_None: W_$(F)_I_$(D)_TIP_CHK_ERR
+Api_None: W_$(F)_I_$(D)_WELD_COUNT_ERR
+# Word 3: 에러 상세 2 + 바이패스
+Api_None: W_$(F)_I_$(D)_WSENSOR_ERR
+Api_None: W_$(F)_I_$(D)_PLC_ERR
+Api_None: W_$(F)_I_$(D)_FEEDER_ERR
+Api_None: W_$(F)_I_$(D)_PLT_PICK_UP_ERR
+Api_None: W_$(F)_I_$(D)_BOLTING_ERR1
+Api_None: W_$(F)_I_$(D)_BOLTING_ERR2
+Api_None: W_$(F)_I_$(D)_BOLTING_ERR3
+Api_None: W_$(F)_I_$(D)_BOLTING_ERR4
+Api_None: W_$(F)_I_$(D)_BOLTING_ERR5
+Api_None: W_$(F)_I_$(D)_BOLTING_ERR6
+-
+-
+Api_None: W_$(F)_I_$(D)_SEALER_CHECK_BYPASS
+Api_None: W_$(F)_I_$(D)_TIP_CHK_BYPASS
+Api_None: W_$(F)_I_$(D)_VISION_BYPASS
+Api_None: W_$(F)_I_$(D)_CLEANNER_BYPASS
+# Word 4: PLT (예약 13비트)
+Api_None: W_$(F)_I_$(D)_PLT_COUNT_RST_COMP
+Api_None: W_$(F)_I_$(D)_PLT_UNLOAD_COMP
+Api_None: W_$(F)_I_$(D)_PLT_LAST_UNLOAD
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+# Word 5: PLT 간섭
+Api_None: W_$(F)_I_$(D)_PLT1_NON_INTF
+Api_None: W_$(F)_I_$(D)_PLT2_NON_INTF
+Api_None: W_$(F)_I_$(D)_PLT3_NON_INTF
+Api_None: W_$(F)_I_$(D)_PLT4_NON_INTF
+Api_None: W_$(F)_I_$(D)_PLT5_NON_INTF
+Api_None: W_$(F)_I_$(D)_PLT6_NON_INTF
+Api_None: W_$(F)_I_$(D)_PLT7_NON_INTF
+Api_None: W_$(F)_I_$(D)_PLT8_NON_INTF
+Api_None: W_$(F)_I_$(D)_PLT9_NON_INTF
+Api_None: W_$(F)_I_$(D)_PLT10_NON_INTF
+Api_None: W_$(F)_I_$(D)_PLT11_NON_INTF
+Api_None: W_$(F)_I_$(D)_PLT12_NON_INTF
+-
+-
+-
+-
+# Word 6: PROG ECHO (BCD)
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_1
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_2
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_4
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_8
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_10
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_20
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_40
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_80
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_100
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_200
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_400
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_800
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_1000
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_2000
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_4000
+Api_None: W_$(F)_I_$(D)_PROG_ECHO_8000
+# Word 7: 상호간섭
+Api_None: W_$(F)_I_$(D)_MUTUAL_INT1
+Api_None: W_$(F)_I_$(D)_MUTUAL_INT2
+Api_None: W_$(F)_I_$(D)_MUTUAL_INT3
+Api_None: W_$(F)_I_$(D)_MUTUAL_INT4
+Api_None: W_$(F)_I_$(D)_MUTUAL_INT5
+Api_None: W_$(F)_I_$(D)_MUTUAL_INT6
+Api_None: W_$(F)_I_$(D)_MUTUAL_INT7
+Api_None: W_$(F)_I_$(D)_MUTUAL_INT8
+Api_None: W_$(F)_I_$(D)_MUTUAL_INT9
+Api_None: W_$(F)_I_$(D)_MUTUAL_INT10
+-
+-
+-
+-
+-
+-
+# Word 8: 용접 PLT 카운트 (BCD)
+Api_None: W_$(F)_I_$(D)_WELD_PLT_COUNT_1
+Api_None: W_$(F)_I_$(D)_WELD_PLT_COUNT_2
+Api_None: W_$(F)_I_$(D)_WELD_PLT_COUNT_4
+Api_None: W_$(F)_I_$(D)_WELD_PLT_COUNT_8
+Api_None: W_$(F)_I_$(D)_WELD_PLT_COUNT_16
+Api_None: W_$(F)_I_$(D)_WELD_PLT_COUNT_32
+Api_None: W_$(F)_I_$(D)_WELD_PLT_COUNT_64
+Api_None: W_$(F)_I_$(D)_WELD_PLT_COUNT_128
+-
+-
+-
+-
+-
+-
+-
+-
+# Word 9: 예비
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
 
-    /// <summary>
-    /// 설정 파일 목록 조회 (system_base.txt, flow_base.txt)
-    /// </summary>
-    public static List<string> GetConfigFiles()
-    {
-        EnsureTemplatesExist();
-
-        try
-        {
-            var files = new List<string>();
-            var systemBase = Path.Combine(TemplatesPath, "system_base.txt");
-            var flowBase = Path.Combine(TemplatesPath, "flow_base.txt");
-
-            if (File.Exists(systemBase))
-                files.Add("system_base.txt");
-            if (File.Exists(flowBase))
-                files.Add("flow_base.txt");
-
-            return files;
-        }
-        catch
-        {
-            return new List<string>();
-        }
-    }
-
-    /// <summary>
-    /// 장치 템플릿 파일 목록 조회 (RBT.txt, PIN.txt 등)
-    /// </summary>
-    public static List<string> GetDeviceTemplateFiles()
-    {
-        EnsureTemplatesExist();
-
-        try
-        {
-            return Directory.GetFiles(TemplatesPath, "*.txt")
-                .Select(Path.GetFileName)
-                .Where(name => name != null)
-                .Select(name => name!)
-                .Where(name => name != "system_base.txt" &&
-                              name != "flow_base.txt" &&
-                              name != "address_config.txt")
-                .OrderBy(name => name)
-                .ToList();
-        }
-        catch
-        {
-            return new List<string>();
-        }
-    }
-
-    /// <summary>
-    /// 템플릿 파일 목록 조회 (모든 .txt 파일)
-    /// </summary>
-    public static List<string> GetTemplateFiles()
-    {
-        EnsureTemplatesExist();
-
-        try
-        {
-            return Directory.GetFiles(TemplatesPath, "*.txt")
-                .Select(Path.GetFileName)
-                .Where(name => name != null)
-                .Select(name => name!)
-                .OrderBy(name => name == "system_base.txt" ? 0 :
-                               name == "flow_base.txt" ? 1 :
-                               name == "address_config.txt" ? 2 : 3)
-                .ThenBy(name => name)
-                .ToList();
-        }
-        catch
-        {
-            return new List<string>();
-        }
-    }
-
-    /// <summary>
-    /// 템플릿 파일 내용 읽기
-    /// </summary>
-    public static string ReadTemplateFile(string fileName)
-    {
-        var filePath = Path.Combine(TemplatesPath, fileName);
-        return File.Exists(filePath) ? File.ReadAllText(filePath) : "";
-    }
-
-    /// <summary>
-    /// 템플릿 파일 내용 저장
-    /// </summary>
-    public static void WriteTemplateFile(string fileName, string content)
-    {
-        EnsureTemplatesExist();
-        var filePath = Path.Combine(TemplatesPath, fileName);
-        File.WriteAllText(filePath, content);
-    }
-
-    /// <summary>
-    /// 템플릿을 기본값으로 초기화
-    /// </summary>
-    public static void ResetToDefaults()
-    {
-        EnsureTemplatesExist();
-
-        foreach (var template in DefaultTemplates)
-        {
-            var filePath = Path.Combine(TemplatesPath, template.Key);
-            File.WriteAllText(filePath, template.Value);
-        }
-    }
-
-    /// <summary>
-    /// 첫 번째 ActiveSystem의 IO 템플릿을 AppData 폴더로 동기화.
-    /// TAG Wizard 신호 생성 전에 호출하여 F# 파이프라인이 읽을 수 있게 함.
-    /// </summary>
-    public static void SyncFromStore(DsStore store)
-    {
-        if (store == null) return;
-
-        try
-        {
-            EnsureTemplatesExist();
-
-            var projects = Queries.allProjects(store);
-            if (projects.IsEmpty) return;
-            var activeSystems = Queries.activeSystemsOf(projects.Head.Id, store);
-            if (activeSystems.IsEmpty) return;
-
-            var ctrlOpt = activeSystems.Head.GetControlProperties();
-            if (!FSharpOption<ControlSystemProperties>.get_IsSome(ctrlOpt)) return;
-            var cp = ctrlOpt.Value;
-
-            if (!string.IsNullOrEmpty(cp.IoSystemBase))
-                WriteTemplateFile("system_base.txt", cp.IoSystemBase);
-
-            if (!string.IsNullOrEmpty(cp.IoFlowBase))
-                WriteTemplateFile("flow_base.txt", cp.IoFlowBase);
-
-            foreach (var kv in cp.IoDeviceTemplates)
-            {
-                if (!string.IsNullOrWhiteSpace(kv.Key))
-                    WriteTemplateFile(kv.Key, kv.Value);
-            }
-        }
-        catch
-        {
-            // Sync failure is non-fatal — AppData may already have usable templates
-        }
-    }
-
-    /// <summary>
-    /// 템플릿 폴더를 탐색기에서 열기
-    /// </summary>
-    public static void OpenTemplatesFolder()
-    {
-        EnsureTemplatesExist();
-
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = TemplatesPath,
-                UseShellExecute = true
-            });
-        }
-        catch
-        {
-            // Ignore failures
-        }
-    }
+[QW]
+# Word 0: 제어 + 작업 완료 ECHO
+WORK_COMP_RST: W_$(F)_Q_$(D)_WORK_COMP_RST
+START: W_$(F)_Q_$(D)_START
+Api_None: W_$(F)_Q_$(D)_ERR_RST
+Api_None: W_$(F)_Q_$(D)_EXT_READY
+Api_None: W_$(F)_Q_$(D)_TIP_DRESS_START
+Api_None: W_$(F)_Q_$(D)_PAUSE_NC
+Api_None: W_$(F)_Q_$(D)_EACH_WORK_COMP_RST
+Api_None: W_$(F)_Q_$(D)_WATER_CUT_OFF
+Api_None: W_$(F)_Q_$(D)_LAST_WORK_COMP_ECHO
+Api_None: W_$(F)_Q_$(D)_1ST_WORK_COMP_ECHO
+Api_None: W_$(F)_Q_$(D)_2ND_WORK_COMP_ECHO
+Api_None: W_$(F)_Q_$(D)_3RD_WORK_COMP_ECHO
+Api_None: W_$(F)_Q_$(D)_4TH_WORK_COMP_ECHO
+Api_None: W_$(F)_Q_$(D)_5TH_WORK_COMP_ECHO
+Api_None: W_$(F)_Q_$(D)_6TH_WORK_COMP_ECHO
+Api_None: W_$(F)_Q_$(D)_7TH_WORK_COMP_ECHO
+# Word 1: 차종 IN_OK
+A_1ST_IN_OK: W_$(F)_Q_$(D)_A_1ST_IN_OK
+B_1ST_IN_OK: W_$(F)_Q_$(D)_B_1ST_IN_OK
+Api_None: W_$(F)_Q_$(D)_C_1ST_IN_OK
+Api_None: W_$(F)_Q_$(D)_D_1ST_IN_OK
+Api_None: W_$(F)_Q_$(D)_E_1ST_IN_OK
+Api_None: W_$(F)_Q_$(D)_F_1ST_IN_OK
+Api_None: W_$(F)_Q_$(D)_G_1ST_IN_OK
+Api_None: W_$(F)_Q_$(D)_H_1ST_IN_OK
+2ND_IN_OK: W_$(F)_Q_$(D)_2ND_IN_OK
+3RD_IN_OK: W_$(F)_Q_$(D)_3RD_IN_OK
+4TH_IN_OK: W_$(F)_Q_$(D)_4TH_IN_OK
+5TH_IN_OK: W_$(F)_Q_$(D)_5TH_IN_OK
+6TH_IN_OK: W_$(F)_Q_$(D)_6TH_IN_OK
+7TH_IN_OK: W_$(F)_Q_$(D)_7TH_IN_OK
+-
+Api_None: W_$(F)_Q_$(D)_COMM_CHK
+# Word 2: 프로그램 선택 (BCD)
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_1
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_2
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_4
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_8
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_10
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_20
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_40
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_80
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_100
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_200
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_400
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_800
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_1000
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_2000
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_4000
+Api_None: W_$(F)_Q_$(D)_PROG_SELECT_8000
+# Word 3: 상호간섭 + 기타제어
+Api_None: W_$(F)_Q_$(D)_MUTUAL_INT1
+Api_None: W_$(F)_Q_$(D)_MUTUAL_INT2
+Api_None: W_$(F)_Q_$(D)_MUTUAL_INT3
+Api_None: W_$(F)_Q_$(D)_MUTUAL_INT4
+Api_None: W_$(F)_Q_$(D)_MUTUAL_INT5
+Api_None: W_$(F)_Q_$(D)_MUTUAL_INT6
+Api_None: W_$(F)_Q_$(D)_MUTUAL_INT7
+Api_None: W_$(F)_Q_$(D)_MUTUAL_INT8
+Api_None: W_$(F)_Q_$(D)_MUTUAL_INT9
+Api_None: W_$(F)_Q_$(D)_MUTUAL_INT10
+Api_None: W_$(F)_Q_$(D)_TIP_CHANGE_START
+Api_None: W_$(F)_Q_$(D)_TIP_CHANGE_END
+Api_None: W_$(F)_Q_$(D)_GATE_OPEN_NC
+Api_None: W_$(F)_Q_$(D)_EM_STOP_NC
+Api_None: W_$(F)_Q_$(D)_BZ_STOP
+Api_None: W_$(F)_Q_$(D)_TEST
+# Word 4: PLT IN_OK
+PLT1_IN_OK: W_$(F)_Q_$(D)_PLT1_IN_OK
+PLT2_IN_OK: W_$(F)_Q_$(D)_PLT2_IN_OK
+PLT3_IN_OK: W_$(F)_Q_$(D)_PLT3_IN_OK
+PLT4_IN_OK: W_$(F)_Q_$(D)_PLT4_IN_OK
+Api_None: W_$(F)_Q_$(D)_PLT5_IN_OK
+Api_None: W_$(F)_Q_$(D)_PLT6_IN_OK
+Api_None: W_$(F)_Q_$(D)_PLT7_IN_OK
+Api_None: W_$(F)_Q_$(D)_PLT8_IN_OK
+Api_None: W_$(F)_Q_$(D)_PLT9_IN_OK
+Api_None: W_$(F)_Q_$(D)_PLT10_IN_OK
+Api_None: W_$(F)_Q_$(D)_PLT11_IN_OK
+Api_None: W_$(F)_Q_$(D)_PLT12_IN_OK
+-
+-
+-
+-
+# Word 5: PLT COUNT RST
+PLT1_COUNT_RST: W_$(F)_Q_$(D)_PLT1_COUNT_RST
+PLT2_COUNT_RST: W_$(F)_Q_$(D)_PLT2_COUNT_RST
+PLT3_COUNT_RST: W_$(F)_Q_$(D)_PLT3_COUNT_RST
+PLT4_COUNT_RST: W_$(F)_Q_$(D)_PLT4_COUNT_RST
+Api_None: W_$(F)_Q_$(D)_PLT5_COUNT_RST
+Api_None: W_$(F)_Q_$(D)_PLT6_COUNT_RST
+Api_None: W_$(F)_Q_$(D)_PLT7_COUNT_RST
+Api_None: W_$(F)_Q_$(D)_PLT8_COUNT_RST
+Api_None: W_$(F)_Q_$(D)_PLT9_COUNT_RST
+Api_None: W_$(F)_Q_$(D)_PLT10_COUNT_RST
+Api_None: W_$(F)_Q_$(D)_PLT11_COUNT_RST
+Api_None: W_$(F)_Q_$(D)_PLT12_COUNT_RST
+-
+-
+-
+-
+# Word 6: CN (BCD)
+Api_None: W_$(F)_Q_$(D)_CN_1
+Api_None: W_$(F)_Q_$(D)_CN_2
+Api_None: W_$(F)_Q_$(D)_CN_4
+Api_None: W_$(F)_Q_$(D)_CN_8
+Api_None: W_$(F)_Q_$(D)_CN_10
+Api_None: W_$(F)_Q_$(D)_CN_20
+Api_None: W_$(F)_Q_$(D)_CN_40
+Api_None: W_$(F)_Q_$(D)_CN_80
+Api_None: W_$(F)_Q_$(D)_CN_100
+Api_None: W_$(F)_Q_$(D)_CN_200
+Api_None: W_$(F)_Q_$(D)_CN_400
+Api_None: W_$(F)_Q_$(D)_CN_800
+Api_None: W_$(F)_Q_$(D)_CN_1000
+Api_None: W_$(F)_Q_$(D)_CN_2000
+Api_None: W_$(F)_Q_$(D)_CN_4000
+Api_None: W_$(F)_Q_$(D)_CN_8000
+# Word 7: 예비
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+# Word 8: CTYPE (BCD)
+Api_None: W_$(F)_Q_$(D)_CTYPE_1
+Api_None: W_$(F)_Q_$(D)_CTYPE_2
+Api_None: W_$(F)_Q_$(D)_CTYPE_4
+Api_None: W_$(F)_Q_$(D)_CTYPE_8
+Api_None: W_$(F)_Q_$(D)_CTYPE_10
+Api_None: W_$(F)_Q_$(D)_CTYPE_20
+Api_None: W_$(F)_Q_$(D)_CTYPE_40
+Api_None: W_$(F)_Q_$(D)_CTYPE_80
+Api_None: W_$(F)_Q_$(D)_CTYPE_100
+Api_None: W_$(F)_Q_$(D)_CTYPE_200
+Api_None: W_$(F)_Q_$(D)_CTYPE_400
+Api_None: W_$(F)_Q_$(D)_CTYPE_800
+Api_None: W_$(F)_Q_$(D)_CTYPE_1000
+Api_None: W_$(F)_Q_$(D)_CTYPE_2000
+Api_None: W_$(F)_Q_$(D)_CTYPE_4000
+Api_None: W_$(F)_Q_$(D)_CTYPE_8000
+# Word 9: 예비
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+";
 }

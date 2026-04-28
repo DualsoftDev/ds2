@@ -17,6 +17,12 @@ public partial class CallCreateDialog : Window
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Dualsoft", "Promaker", "systemTypePreset", "systemTypePreset.json");
 
+    /// <summary>
+    /// 마지막으로 선택한 SystemType modelType — 프로세스 메모리에만 유지 (재시작 시 초기화).
+    /// 다이얼로그 재오픈 시 자동 선택용.
+    /// </summary>
+    private static string? _lastSelectedPreset;
+
     private readonly Func<string, IReadOnlyList<ApiDefMatch>> _findApiDefsByName;
     private readonly Project? _project;
 
@@ -63,53 +69,62 @@ public partial class CallCreateDialog : Window
         catch { return []; }
     }
 
+    /// <summary>
+    /// '#' 을 포함한 SystemType 은 ApiCall 개수로 치환되는 템플릿 — Add 시점에 동적 결정.
+    /// 예: "Cylinder_#", "abcd#" → ApiCall 개수 N 일 때 "Cylinder_N", "abcdN".
+    /// </summary>
+    private static bool IsTemplateModel(string? modelType) =>
+        !string.IsNullOrEmpty(modelType) && modelType.Contains('#');
+
     private void LoadPresets()
     {
         PresetComboBox.Items.Clear();
 
+        // 프리셋 소스 — 사용자 파일 우선, 없으면 DevicePresets.Entries.
+        var rawEntries = new List<(string modelType, string apiList)>();
         if (_project != null)
         {
-            var presets = LoadPresetsFromFile();
-            foreach (var preset in presets)
+            foreach (var preset in LoadPresetsFromFile())
             {
                 var parts = preset.Split(':');
-                if (parts.Length == 2)
-                {
-                    var sysType  = parts[0];  // "ADV;RET" — ApiName 템플릿
-                    var modelType = parts[1]; // "Unit"    — SystemType으로 저장될 값
-                    PresetComboBox.Items.Add(new ComboBoxItem
-                    {
-                        Content = modelType,
-                        Tag = $"{sysType}|{modelType}"
-                    });
-                }
+                if (parts.Length == 2) rawEntries.Add((parts[1], parts[0]));
             }
         }
-
-        // 프리셋이 없으면 기본값 추가 (DevicePresets.Entries 단일 정의 참조)
-        if (PresetComboBox.Items.Count == 0)
+        if (rawEntries.Count == 0)
         {
-            foreach (var (modelType, sysType) in Ds2.Core.Store.DevicePresets.Entries)
+            foreach (var (modelType, apiList) in Ds2.Core.Store.DevicePresets.Entries)
+                if (!string.IsNullOrEmpty(apiList))
+                    rawEntries.Add((modelType, apiList));
+        }
+
+        foreach (var (modelType, apiList) in rawEntries)
+        {
+            PresetComboBox.Items.Add(new ComboBoxItem
             {
-                if (string.IsNullOrEmpty(sysType)) continue;
-                PresetComboBox.Items.Add(new ComboBoxItem
-                {
-                    Content = modelType,
-                    Tag = $"{sysType}|{modelType}"
-                });
-            }
+                Content = modelType,
+                Tag = $"{apiList}|{modelType}",
+            });
         }
 
         // 직접 입력 항목 추가 (Tag = null → Dummy SystemType)
-        PresetComboBox.Items.Add(new ComboBoxItem
-        {
-            Content = "직접 입력",
-            Tag = null
-        });
+        PresetComboBox.Items.Add(new ComboBoxItem { Content = "직접 입력", Tag = null });
 
-        // 첫 번째 항목 선택
-        if (PresetComboBox.Items.Count > 0)
-            PresetComboBox.SelectedIndex = 0;
+        // 마지막 선택 복원 — 일치 항목 없으면 첫 번째.
+        var last = _lastSelectedPreset;
+        var matchedIndex = -1;
+        if (!string.IsNullOrEmpty(last))
+        {
+            for (int i = 0; i < PresetComboBox.Items.Count; i++)
+            {
+                if (PresetComboBox.Items[i] is ComboBoxItem cbi
+                    && string.Equals(cbi.Content as string, last, StringComparison.Ordinal))
+                {
+                    matchedIndex = i;
+                    break;
+                }
+            }
+        }
+        PresetComboBox.SelectedIndex = matchedIndex >= 0 ? matchedIndex : 0;
     }
 
     private bool IsCustomInputSelected() =>
@@ -128,9 +143,17 @@ public partial class CallCreateDialog : Window
         }
         else if (PresetComboBox.SelectedItem is ComboBoxItem item)
         {
-            var sysType = ParseSysType(item.Tag?.ToString());
+            var apiList   = ParseSysType(item.Tag?.ToString());
+            var modelType = ParseModelType(item.Tag?.ToString());
             BasicApiNameTextBox.IsEnabled = false;
-            BasicApiNameTextBox.Text = sysType ?? "";
+            BasicApiNameTextBox.Text = apiList ?? "";
+
+            // 템플릿(#) 프리셋: ApiCall 복제 카운트로 SystemType 을 결정 — 패널 자동 펼침.
+            if (IsTemplateModel(modelType))
+            {
+                if (RadioApiCallReplication is not null) RadioApiCallReplication.IsChecked = true;
+                if (AdvancedExpander is not null) AdvancedExpander.IsExpanded = true;
+            }
         }
     }
 
@@ -143,6 +166,19 @@ public partial class CallCreateDialog : Window
         CallReplicationPanel.IsEnabled = isCallMode;
         ApiCallReplicationPanel.IsEnabled = !isCallMode;
     }
+
+    // 좌/우 카운트 TextBox — 입력 시 해당 라디오 자동 선택 (UX 버그 방지).
+    private void OnCallCountFocus(object sender, RoutedEventArgs e)
+    {
+        if (RadioCallReplication is { } r && r.IsChecked != true) r.IsChecked = true;
+    }
+    private void OnCallCountChanged(object sender, TextChangedEventArgs e) => OnCallCountFocus(sender, e);
+
+    private void OnApiCallCountFocus(object sender, RoutedEventArgs e)
+    {
+        if (RadioApiCallReplication is { } r && r.IsChecked != true) r.IsChecked = true;
+    }
+    private void OnApiCallCountChanged(object sender, TextChangedEventArgs e) => OnApiCallCountFocus(sender, e);
 
     // ─── 고급 탭: ApiDef 검색 ───
     private void OnApiNameFilterChanged(object sender, TextChangedEventArgs e)
@@ -193,6 +229,10 @@ public partial class CallCreateDialog : Window
         // SystemType 가져오기 - 프리셋에 따라 고급 탭에서 설정한 값 사용
         SelectedSystemType = GetSystemTypeForCurrentPreset();
 
+        // 마지막 선택 프리셋 저장 (메모리) — 다음 다이얼로그 오픈 시 자동 선택용.
+        if (PresetComboBox.SelectedItem is ComboBoxItem { Content: string label })
+            _lastSelectedPreset = label;
+
         // 추가 기능이 펼쳐진 경우 복수 생성
         if (AdvancedExpander.IsExpanded)
         {
@@ -223,8 +263,25 @@ public partial class CallCreateDialog : Window
             return null;
         // 직접 입력 선택 시 → Dummy (Tag=null)
         if (IsCustomInputSelected()) return "Dummy";
-        // ModelType("Unit")을 SystemType으로 저장 — inferModelType이 직접 인식
-        return ParseModelType(item.Tag?.ToString());
+
+        var modelType = ParseModelType(item.Tag?.ToString());
+
+        // ApiCall 개수 N 추출 (Advanced + ApiCallReplication 모드일 때만).
+        int GetApiCallCount()
+        {
+            if (AdvancedExpander?.IsExpanded == true
+                && RadioApiCallReplication?.IsChecked == true
+                && int.TryParse(ApiCallCountTextBox?.Text?.Trim(), out var parsed)
+                && parsed >= 1)
+                return parsed;
+            return 1;
+        }
+
+        // '#' 템플릿 → ApiCall 개수로 치환.
+        if (IsTemplateModel(modelType))
+            return modelType!.Replace("#", GetApiCallCount().ToString());
+
+        return modelType;
     }
 
     private void CommitCallReplication(string alias, List<string> apiNames)

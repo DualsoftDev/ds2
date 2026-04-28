@@ -13,8 +13,6 @@
     <Compile Include="JsonOptions.fs" />
     <Compile Include="AbstractClass.fs" />
     <Compile Include="ModelClass.fs" />
-    <Compile Include="StandardSubmodels\Nameplate.fs" />
-    <Compile Include="StandardSubmodels\HandoverDocumentation.fs" />
     <Compile Include="SequenceSubmodels\01_Simulation.fs" />
     <Compile Include="SequenceSubmodels\02_Control.fs" />
     <Compile Include="SequenceSubmodels\03_Monitoring.fs" />
@@ -23,6 +21,9 @@
     <Compile Include="SequenceSubmodels\06_Hmi.fs" />
     <Compile Include="SequenceSubmodels\07_Quality.fs" />
     <Compile Include="SequenceSubmodels\08_CostAnalysis.fs" />
+    <Compile Include="StandardSubmodels\Nameplate.fs" />
+    <Compile Include="StandardSubmodels\HandoverDocumentation.fs" />
+    <Compile Include="StandardSubmodels\TechnicalData.fs" />
     <Compile Include="SubmodelProperties.fs" />
     <Compile Include="ValueSpec.fs" />
     <Compile Include="TokenTypes.fs" />
@@ -38,6 +39,7 @@
     <Compile Include="Store\DsQuery\Device.fs" />
     <Compile Include="Store\StoreHierarchyQueries.fs" />
     <Compile Include="Store\Queries\CallConditionQueries.fs" />
+    <Compile Include="Store\Queries\CallValidation.fs" />
     <Compile Include="Store\ImportPlan.fs" />
     <Compile Include="Store\ImportPlan.Device.fs" />
   </ItemGroup>

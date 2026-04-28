@@ -75,6 +75,10 @@ public partial class MainViewModel
     private void ReplaceOpenedStore(string filePath, DsStore store, string kind)
     {
         _store.ReplaceStore(store);
+        // 레거시 파일 자동 복구 — OriginFlowId 누락 ApiCall 을 Call→Work→Flow 로 채움.
+        var healed = Ds2.Core.CallValidation.healMissingOriginFlowIds(_store);
+        if (healed > 0)
+            Log.Info($"OriginFlowId auto-heal: {healed} ApiCall(s) restored from Call→Work→Flow chain.");
         CompleteOpen(filePath, kind);
     }
 
@@ -147,6 +151,11 @@ public partial class MainViewModel
                 () =>
                 {
                     _store.LoadFromFile(fileName);
+                    // 레거시 파일 자동 복구 — OriginFlowId 누락 ApiCall 을 Call→Work→Flow 로 채움.
+                    // (과거 Panel.buildApiCall 경유 생성 시 미설정되던 버그의 뒤처리)
+                    var healed = Ds2.Core.CallValidation.healMissingOriginFlowIds(_store);
+                    if (healed > 0)
+                        Log.Info($"OriginFlowId auto-heal: {healed} ApiCall(s) restored from Call→Work→Flow chain.");
                     PrepareForLoadedStore();
                     CompleteOpen(fileName, "File");
                 },
@@ -181,6 +190,34 @@ public partial class MainViewModel
             node.IsExpanded = true;
             ExpandAllNodes(node.Children);
         }
+    }
+
+    /// <summary>
+    /// "시뮬레이션 결과 보기" 활성 조건 — "출력" 버튼과 동일하게 시뮬 결과 데이터가 있을 때만 활성.
+    /// (HasProject 는 HasReportData 가 true 인 시점에는 자명하므로 별도 검사 생략 가능하지만 안전 차원에서 함께 체크.)
+    /// </summary>
+    private bool CanShowSimulationScenarios() => HasProject && Simulation.HasReportData;
+
+    [RelayCommand(CanExecute = nameof(CanShowSimulationScenarios))]
+    private void ShowSimulationScenarios()
+    {
+        var project = HasProject ? Queries.allProjects(_store).Head : null;
+        if (project is null) return;
+
+        // TechnicalData 가 없으면 표시할 게 없음 — 빈 상태로라도 열어 사용자가 확인 가능하도록 신규 생성
+        Ds2.Core.TechnicalDataTypes.TechnicalData td;
+        if (Microsoft.FSharp.Core.FSharpOption<Ds2.Core.TechnicalDataTypes.TechnicalData>.get_IsSome(project.TechnicalData))
+        {
+            td = project.TechnicalData.Value;
+        }
+        else
+        {
+            td = new Ds2.Core.TechnicalDataTypes.TechnicalData();
+            project.TechnicalData = Microsoft.FSharp.Core.FSharpOption<Ds2.Core.TechnicalDataTypes.TechnicalData>.Some(td);
+        }
+
+        var dlg = new Promaker.Dialogs.SimulationScenariosDialog(Simulation, td);
+        _dialogService.ShowDialog(dlg);
     }
 
     [RelayCommand(CanExecute = nameof(HasProject))]
@@ -280,6 +317,19 @@ public partial class MainViewModel
         {
             try
             {
+                // 시뮬 데이터가 있으면 AASX export 직전 자동으로 시나리오 박제 → Ds2.Core.TechnicalDataTypes.TechnicalData.SimulationResults
+                try
+                {
+                    var captured = Simulation?.TryCaptureScenario(
+                        $"AutoCapture_{DateTime.Now:yyyyMMdd_HHmmss}");
+                    if (captured != null)
+                        Log.Info($"AASX 저장 전 시뮬 시나리오 박제됨: {captured.Meta.ScenarioName}");
+                }
+                catch (Exception capEx)
+                {
+                    Log.Warn($"AASX 저장 전 시뮬 시나리오 박제 실패 (무시): {capEx.Message}");
+                }
+
                 var exported = AasxExporter.exportFromStore(_store, filePath, IriPrefix, SplitDeviceAasx, CreateDefaultEntitiesOnEmptyAasx);
                 if (!exported)
                     Log.Warn($"AASX save failed: no project ({filePath})");
@@ -310,6 +360,22 @@ public partial class MainViewModel
             _dialogService.ShowWarning($"Failed to save file: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// 런타임 설정 Dialog 열기 — Runtime Mode 선택 + 좌·우 이미지 미리보기.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(HasProject))]
+    private void ShowRuntimeSettings()
+    {
+        if (!GuardSimulationSemanticEdit("런타임 설정"))
+            return;
+
+        var dlg = new Promaker.Windows.RuntimeSettingDialog(this)
+        {
+            Owner = System.Windows.Application.Current.MainWindow
+        };
+        _dialogService.ShowDialog(dlg);
     }
 
     /// <summary>

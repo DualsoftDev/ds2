@@ -53,6 +53,12 @@ public partial class MainViewModel : ObservableObject
             () => CanvasManager.AllPanes.SelectMany(p => p.CanvasNodes),
             () => FlattenTree(ControlTreeRoots).Concat(FlattenTree(DeviceTreeRoots)),
             value => StatusText = value);
+        // "시뮬레이션 결과 보기" 활성 조건은 Simulation.HasReportData 와 연동.
+        Simulation.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SimulationPanelState.HasReportData))
+                ShowSimulationScenariosCommand.NotifyCanExecuteChanged();
+        };
         PropertyPanel = new PropertyPanelState(new PropertyPanelHost(this));
         WireEvents();
         LanguageManager.ApplySavedLanguage();
@@ -63,8 +69,8 @@ public partial class MainViewModel : ObservableObject
         LoadCreateDefaultEntitiesSetting();
         LoadIriPrefixSetting();
 
-        // 템플릿 폴더 초기화
-        Services.TemplateManager.EnsureTemplatesExist();
+        // 외부 템플릿 폴더 초기화 제거 — AASX 내 FBTagMapPresets 가 단일 진실원이며,
+        // 필요한 경우 TAG Wizard 가 일시 임시 디렉토리를 사용한다.
     }
 
     /// <summary>
@@ -91,7 +97,7 @@ public partial class MainViewModel : ObservableObject
     public SelectionState Selection { get; }
 
     [ObservableProperty] private EntityNode? _selectedNode;
-    [ObservableProperty] private string _title = "Ds2 Promaker";
+    [ObservableProperty] private string _title = AppInfo.TitleBase;
     [ObservableProperty] private string _statusText = "Ready";
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(UndoCommand))]
@@ -116,6 +122,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ExportCsvCommand))]
     [NotifyCanExecuteChangedFor(nameof(ConnectSelectedNodesCommand))]
     [NotifyCanExecuteChangedFor(nameof(Open3DViewCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ShowRuntimeSettingsCommand))]
     private bool _hasProject;
     [ObservableProperty] private bool _isDarkTheme = ThemeManager.CurrentTheme == AppTheme.Dark;
     [ObservableProperty] private string _themeButtonText = ThemeManager.CurrentTheme == AppTheme.Dark ? Strings.LightTheme : Strings.DarkTheme;
@@ -485,7 +492,7 @@ public partial class MainViewModel : ObservableObject
     {
         var dirty = IsDirty ? " *" : "";
         var file = _currentFilePath is not null ? $" - {System.IO.Path.GetFileName(_currentFilePath)}" : "";
-        Title = $"Ds2 Promaker{file}{dirty}";
+        Title = $"{AppInfo.TitleBase}{file}{dirty}";
     }
 
     internal void PrepareForLoadedStore()

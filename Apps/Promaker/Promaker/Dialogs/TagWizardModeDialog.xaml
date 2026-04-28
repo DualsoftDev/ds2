@@ -1,0 +1,141 @@
+<Window x:Class="Promaker.Dialogs.TagWizardModeDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="TAG Wizard"
+        Width="640" Height="420"
+        MinWidth="560" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize">
+    <Window.Resources>
+        <!-- RadioButton 다크 테마용 명시적 Template — 선택 시 내부 원이 AccentBrush 로 선명히 표시 -->
+        <Style x:Key="WizardModeRadioStyle" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource PrimaryBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <!-- 바깥 원 + 안쪽 점 -->
+                                <Grid Grid.Column="0" Width="18" Height="18"
+                                      VerticalAlignment="Center" Margin="2,0,8,0">
+                                    <Ellipse Stroke="{DynamicResource PrimaryTextBrush}"
+                                             StrokeThickness="1.5"
+                                             Fill="Transparent"/>
+                                    <Ellipse x:Name="Dot"
+                                             Width="10" Height="10"
+                                             Fill="{DynamicResource AccentBrush}"
+                                             Visibility="Collapsed"/>
+                                </Grid>
+                                <ContentPresenter Grid.Column="1"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                  HorizontalAlignment="Left"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Dot" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1">
+        <Grid Margin="28,22">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="12"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="18"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="16"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Text="TAG Wizard 모드 선택"
+                       FontSize="20" FontWeight="SemiBold"
+                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+
+            <TextBlock Grid.Row="2"
+                       FontSize="12"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource SecondaryTextBrush}">
+                <Run Text="IO 태그 자동 생성 방식을 선택하세요. 기본 모드는 빠른 심볼 매크로 할당에 적합하며, 고급 모드는 SystemType 별 FB 매핑과 AUX 포트까지 설정 가능합니다."/>
+            </TextBlock>
+
+            <StackPanel Grid.Row="4" Orientation="Vertical">
+                <!-- 기본 모드 -->
+                <RadioButton x:Name="BasicRadio"
+                             GroupName="WizardMode"
+                             IsChecked="True"
+                             Padding="10,10"
+                             Margin="0,0,0,10"
+                             Style="{StaticResource WizardModeRadioStyle}">
+                    <StackPanel Margin="6,0,0,0">
+                        <TextBlock FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                   Text="⚡ 기본 (Basic)"/>
+                        <TextBlock FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Text="IO 심볼 매크로와 Flow 선두 주소만 설정. 빠르게 태그 이름/주소를 일괄 할당하고 싶을 때 사용."/>
+                    </StackPanel>
+                </RadioButton>
+
+                <!-- 고급 모드 -->
+                <RadioButton x:Name="AdvancedRadio"
+                             GroupName="WizardMode"
+                             Padding="10,10"
+                             Style="{StaticResource WizardModeRadioStyle}">
+                    <StackPanel Margin="6,0,0,0">
+                        <TextBlock FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                                   Text="🛠 고급 (Advanced)"/>
+                        <TextBlock FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Text="SystemType 별 FB 타입 · FB Local Label · AUX 포트 · 주소 오버라이드까지 세밀 설정. PLC 생성 연계용."/>
+                    </StackPanel>
+                </RadioButton>
+            </StackPanel>
+
+            <Grid Grid.Row="6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Button Grid.Column="1"
+                        Content="취소"
+                        Style="{StaticResource DarkButton}"
+                        MinWidth="90" Padding="8,6"
+                        IsCancel="True"/>
+                <Button Grid.Column="3"
+                        Content="다음 ▶"
+                        Style="{StaticResource DarkButton}"
+                        MinWidth="110" Padding="8,6"
+                        IsDefault="True"
+                        Click="Next_Click"/>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

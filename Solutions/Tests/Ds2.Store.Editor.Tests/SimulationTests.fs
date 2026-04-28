@@ -26,6 +26,8 @@ module ReportServiceTests =
                 SystemId = "SystemA"
                 State = "R"
                 Timestamp = startTime
+                TokenItem = None
+                TokenOriginName = "SourceWork"
             }
             {
                 NodeId = "call-1"
@@ -34,6 +36,8 @@ module ReportServiceTests =
                 SystemId = "SystemA"
                 State = "R"
                 Timestamp = startTime.AddSeconds(1)
+                TokenItem = Some 1
+                TokenOriginName = "SourceWork"
             }
             {
                 NodeId = "work-1"
@@ -42,6 +46,8 @@ module ReportServiceTests =
                 SystemId = "SystemA"
                 State = "G"
                 Timestamp = startTime.AddSeconds(2)
+                TokenItem = None
+                TokenOriginName = "SourceWork"
             }
         ]
 
@@ -731,7 +737,7 @@ module EventDrivenEngineTokenTests =
 
         let index = SimIndex.build store 10
         use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
-        let sim = engine :> ISimulationEngine
+        let sim = engine 
 
         sim.SpeedMultiplier <- 100.0
         sim.ApplyInitialStates()
@@ -949,7 +955,7 @@ module AutoHomingOriginTests =
 
         let index = SimIndex.build store 10
         use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
-        let sim = engine :> ISimulationEngine
+        let sim = engine 
 
         let hasHoming = sim.StartWithHomingPhase()
 
@@ -991,7 +997,7 @@ module CallTimeoutTests =
 
         let index = SimIndex.build store 10
         use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
-        let sim = engine :> ISimulationEngine
+        let sim = engine 
 
         let mutable timeoutFired = false
         let mutable timeoutCallGuid = Guid.Empty
@@ -1034,7 +1040,7 @@ module ResetTriggerClearTests =
 
         let index = SimIndex.build store 10
         use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
-        let sim = engine :> ISimulationEngine
+        let sim = engine 
 
         sim.SpeedMultiplier <- 1.0
         sim.Start()
@@ -1151,7 +1157,7 @@ module HomingPhaseExecutionTests =
 
         let index = SimIndex.build store 10
         use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
-        let sim = engine :> ISimulationEngine
+        let sim = engine 
 
         let mutable homingCompleted = false
         sim.HomingPhaseCompleted.AddHandler(fun _ _ -> homingCompleted <- true)
@@ -1222,7 +1228,7 @@ module HomingPhaseExecutionTests =
 
         let index = SimIndex.build store 10
         use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
-        let sim = engine :> ISimulationEngine
+        let sim = engine 
 
         let mutable homingCompleted = false
         sim.HomingPhaseCompleted.AddHandler(fun _ _ -> homingCompleted <- true)
@@ -1274,7 +1280,7 @@ module HomingPhaseExecutionTests =
 
         let index = SimIndex.build store 10
         use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
-        let sim = engine :> ISimulationEngine
+        let sim = engine 
 
         sim.SpeedMultiplier <- 1.0
         let hasTargets = sim.StartWithHomingPhase()
@@ -1315,7 +1321,7 @@ module HomingPhaseExecutionTests =
 
         let index = SimIndex.build store 10
         use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
-        let sim = engine :> ISimulationEngine
+        let sim = engine 
 
         let hasTargets = sim.StartWithHomingPhase()
         sim.Stop()
@@ -1372,7 +1378,7 @@ module WaitForCompletionIsFinishedTests =
 
         let index = SimIndex.build store 10
         use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
-        let sim = engine :> ISimulationEngine
+        let sim = engine 
 
         let log = System.Collections.Generic.List<string>()
         sim.WorkStateChanged.AddHandler(fun _ e ->
@@ -1514,7 +1520,7 @@ module CallRaceExclusionTests =
 
         let index = SimIndex.build store 10
         use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
-        let sim = engine :> ISimulationEngine
+        let sim = engine 
 
         let mutable bothGoingDetected = false
         sim.CallStateChanged.AddHandler(fun _ e ->
@@ -1573,7 +1579,7 @@ module CallRaceExclusionTests =
 
         let index = SimIndex.build store 10
         use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
-        let sim = engine :> ISimulationEngine
+        let sim = engine 
 
         let mutable bothGoingDetected = false
         let raceExclusions = index.CallRaceExclusions
