@@ -61,11 +61,11 @@ public partial class EditorCanvas
             if (!ctrlPressed && !shiftPressed)
             {
                 var canvasPos = e.GetPosition(MainCanvas);
-                _drag = new DragState(
-                    canvasPos,
-                    dragNodes
-                        .Select(n => new DragItem(n, n.X, n.Y))
-                        .ToList());
+                var dragItems = dragNodes
+                    .Select(n => new DragItem(n, n.X, n.Y))
+                    .ToList();
+                var arrowSnapshots = BuildArrowSnapshots(dragItems);
+                _drag = new DragState(canvasPos, dragItems, arrowSnapshots);
                 _dragElement = border;
                 border.CaptureMouse();
             }
@@ -144,32 +144,50 @@ public partial class EditorCanvas
             item.Node.Y = Math.Clamp(item.OriginY + dy, 0, maxY);
         }
 
-        UpdateDragArrows(_drag.Items);
+        UpdateDragArrows(_drag);
     }
 
-    private void UpdateDragArrows(IReadOnlyList<DragItem> dragItems)
+    /// <summary>드래그 시작 시 영향받는 화살표를 골라 현재 경로를 스냅샷한다.
+    /// 드래그 중에는 이 스냅샷을 평행이동만 시켜서 양방향 화살표가 갈라진 모양을 유지한다.</summary>
+    private List<DragArrowSnapshot> BuildArrowSnapshots(IReadOnlyList<DragItem> dragItems)
+    {
+        var snapshots = new List<DragArrowSnapshot>();
+        if (ActiveCanvasState is null) return snapshots;
+
+        var byNodeId = dragItems.ToDictionary(d => d.Node.Id);
+
+        foreach (var arrow in ActiveCanvasState.CanvasArrows)
+        {
+            var srcDragged = byNodeId.TryGetValue(arrow.SourceId, out var srcItem);
+            var tgtDragged = byNodeId.TryGetValue(arrow.TargetId, out var tgtItem);
+            if (!srcDragged && !tgtDragged) continue;
+
+            arrow.BeginDragSnapshot();
+            snapshots.Add(new DragArrowSnapshot(
+                arrow,
+                srcDragged ? srcItem : null,
+                tgtDragged ? tgtItem : null));
+        }
+
+        return snapshots;
+    }
+
+    private void UpdateDragArrows(DragState drag)
     {
         if (VM is null) return;
 
-        var dragNodeIds = new HashSet<Guid>(dragItems.Select(d => d.Node.Id));
-        var nodes = ActiveCanvasState!.CanvasNodes;
-
-        foreach (var arrow in ActiveCanvasState!.CanvasArrows)
+        foreach (var snap in drag.ArrowSnapshots)
         {
-            if (!dragNodeIds.Contains(arrow.SourceId) && !dragNodeIds.Contains(arrow.TargetId))
-                continue;
-
-            var srcNode = nodes.FirstOrDefault(n => n.Id == arrow.SourceId);
-            var tgtNode = nodes.FirstOrDefault(n => n.Id == arrow.TargetId);
-            if (srcNode is null || tgtNode is null) continue;
-
-            var srcRect = new Xywh((int)srcNode.X, (int)srcNode.Y, (int)srcNode.Width, (int)srcNode.Height);
-            var tgtRect = new Xywh((int)tgtNode.X, (int)tgtNode.Y, (int)tgtNode.Width, (int)tgtNode.Height);
-
-            var visual = ArrowPathCalculator.computePath(srcRect, tgtRect);
-            arrow.UpdateFromVisual(visual);
+            var srcDelta = ComputeDragDelta(snap.SourceDrag);
+            var tgtDelta = ComputeDragDelta(snap.TargetDrag);
+            snap.Arrow.ApplyDragTranslation(srcDelta, tgtDelta);
         }
     }
+
+    private static Vector ComputeDragDelta(DragItem? item) =>
+        item is null
+            ? new Vector(0, 0)
+            : new Vector(item.Node.X - item.OriginX, item.Node.Y - item.OriginY);
 
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
     {
@@ -232,6 +250,9 @@ public partial class EditorCanvas
             if (requests.Count > 0)
                 VM.TryMoveEntitiesFromCanvas(requests);
         }
+
+        foreach (var snap in _drag.ArrowSnapshots)
+            snap.Arrow.EndDragSnapshot();
 
         _drag = null;
         _dragElement = null;
