@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Ds2.Backend;
@@ -203,10 +204,20 @@ public partial class SimulationPanelState
         if (_hubConnection is not null)
         {
             var conn = _hubConnection;
+            var connectedAtStop = conn.State == HubConnectionState.Connected;
             _hubConnection = null;
-            // 비동기 정리 — UI 안 막음
+
+            // 자기 hub host 라면 다음 PLAY 가 BackendHost.start 새로 띄우기 전에
+            // 동기적으로 캐시 클리어 — Stop 비동기 cleanup 의 race 방지.
+            if (_hubHost is not null)
+                SignalHub.ClearTagCache();
+
+            // 비동기 정리 — UI 안 막음. 끊기 전에 자기가 쓴 OUT tag 모두 false 로
+            // broadcast 해서 attached client 들도 stale "true" 잔존 안 하게 cleanup.
             _ = Task.Run(async () =>
             {
+                if (connectedAtStop)
+                    await BroadcastClearOwnOutputsAsync(conn);
                 try { await conn.StopAsync(); } catch { /* ignore */ }
                 try { await conn.DisposeAsync(); } catch { /* ignore */ }
             });
@@ -221,6 +232,36 @@ public partial class SimulationPanelState
             {
                 try { BackendHost.stop(host); } catch { /* ignore */ }
             });
+        }
+    }
+
+    /// <summary>
+    /// Control 모드 종료 직전, 우리가 직접 작성하는 OUT(Tx) tag 들을 false 로 broadcast.
+    /// attached client 의 stale "true" 잔존을 cleanup 하기 위함. Rx tag 는 외부 PLC 가
+    /// 쓰는 영역이라 절대 건드리지 않는다.
+    /// </summary>
+    private async Task BroadcastClearOwnOutputsAsync(HubConnection conn)
+    {
+        if (SelectedRuntimeMode != RuntimeMode.Control) return;
+        if (_simEngine?.IOMap is not { } ioMap) return;
+
+        var outAddresses = ioMap.TxWorkToOutAddresses
+            .SelectMany(kv => kv.Value)
+            .Where(addr => !string.IsNullOrWhiteSpace(addr))
+            .Distinct()
+            .ToArray();
+
+        var source = ResolveRuntimeHubSource() + ":stop";
+        foreach (var address in outAddresses)
+        {
+            try
+            {
+                await conn.InvokeAsync(HubMethod.WriteTag, address, "false", source);
+            }
+            catch
+            {
+                // hub 가 이미 끊어졌거나 race — 다음 PLAY 의 ClearTagCache 가 정리한다.
+            }
         }
     }
 
