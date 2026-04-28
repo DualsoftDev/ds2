@@ -16,9 +16,11 @@
     <Compile Include="Common\FieldValidation.fs" />
     <Compile Include="Import\Graph.fs" />
     <Compile Include="Import\Metadata.fs" />
+    <Compile Include="Import\TechnicalData.fs" />
     <Compile Include="Import\Entry.fs" />
     <Compile Include="Export\Graph.fs" />
     <Compile Include="Export\Metadata.fs" />
+    <Compile Include="Export\TechnicalData.fs" />
     <Compile Include="Export\Entry.fs" />
   </ItemGroup>
 

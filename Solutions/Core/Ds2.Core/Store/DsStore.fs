@@ -92,8 +92,8 @@ type DsStore() =
     member private this.MigrateSystemType() =
         for system in this.Systems.Values do
             if system.SystemType.IsNone then
-                system.SystemType <- Some "Unit"
-                printfn $"[INFO] MigrateSystemType: Set SystemType='Unit' for '{system.Name}' (Id={system.Id})"
+                system.SystemType <- Some "Cylinder_1"
+                printfn $"[INFO] MigrateSystemType: Set SystemType='Cylinder' for '{system.Name}' (Id={system.Id})"
 
     member private this.ApplyNewStore(newStore: DsStore, contextLabel: string) =
         try

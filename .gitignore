@@ -99,3 +99,5 @@ Apps/DSPilot/Output/
 docs/
 /Apps/CostSim/Installer/Output
 /Apps/AasxEditor/AasxEditor/aas_metadata.db
+/ExternalDlls/AAStoXGI.pdb
+/ExternalDlls/AAStoXGI.xml

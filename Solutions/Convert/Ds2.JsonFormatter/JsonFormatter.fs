@@ -23,7 +23,7 @@ module Builder =
 
         let project = Project(projectName)
         let system = DsSystem(systemName)
-        system.SystemType <- Some "Unit"
+        system.SystemType <- Some "Cylinder_1"
         let flow = Flow(flowName, system.Id)
 
         store.Projects.Add(project.Id, project)
@@ -53,7 +53,7 @@ module Builder =
             | _ -> invalidOp $"Project {projectId} not found"
 
         let system = DsSystem(deviceName)
-        system.SystemType <- Some "Unit"
+        system.SystemType <- Some "Cylinder_1"
         store.Systems.Add(system.Id, system)
         project.PassiveSystemIds.Add(system.Id)
 

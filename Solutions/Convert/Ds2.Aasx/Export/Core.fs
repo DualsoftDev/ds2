@@ -1,5 +1,6 @@
 namespace Ds2.Aasx
 
+
 open System
 open AasCore.Aas3_1
 open Ds2.Core
@@ -153,13 +154,7 @@ module internal AasxExportCore =
 
     let internal controlIoConfigElems (cp: ControlSystemProperties) : ISubmodelElement list =
         [ if cp.FBTagMapPresets.Count > 0 then
-              yield mkJsonProp "FBTagMapPresets" cp.FBTagMapPresets
-          if not (String.IsNullOrEmpty cp.IoSystemBase) then
-              yield mkProp "IoSystemBase" cp.IoSystemBase
-          if not (String.IsNullOrEmpty cp.IoFlowBase) then
-              yield mkProp "IoFlowBase" cp.IoFlowBase
-          if cp.IoDeviceTemplates.Count > 0 then
-              yield mkJsonProp "IoDeviceTemplates" cp.IoDeviceTemplates ]
+              yield mkJsonProp "FBTagMapPresets" cp.FBTagMapPresets ]
 
     /// 리플렉션을 사용하여 Properties 객체를 AAS SubmodelElement 리스트로 자동 변환
     /// 지원 타입: string, bool, int, float, TimeSpan, Guid, DateTime, Array, ResizeArray, Enum, Option

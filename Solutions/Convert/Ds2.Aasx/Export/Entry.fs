@@ -18,6 +18,7 @@ module AasxExporter =
     open AasxExportCore
     open AasxExportGraph
     open AasxExportMetadata
+    open AasxExportTechnicalData
     open FieldValidation
 
     let private mkSmRef (submodel: ISubmodel) : IReference =
@@ -35,6 +36,12 @@ module AasxExporter =
         let docSm = documentationToSubmodel documentation project.Id
         submodels.Add(docSm :> ISubmodel)
         smRefs.Add(mkSmRef docSm)
+
+        // TechnicalData (IDTA 02003) — 시뮬결과 박제 가능. 항상 추가하되 비어있으면 기본 골격만.
+        let techData = project.TechnicalData |> Option.defaultValue (TechnicalData())
+        let tdSm = technicalDataToSubmodel techData project.Id
+        submodels.Add(tdSm :> ISubmodel)
+        smRefs.Add(mkSmRef tdSm)
 
     let private appendMetadataSubmodels (ownerId: Guid) (nameplate: Nameplate) (documentation: HandoverDocumentation) (submodels: ResizeArray<ISubmodel>) (smRefs: ResizeArray<IReference>) =
         let npSm = nameplateToSubmodel nameplate ownerId
@@ -276,6 +283,9 @@ module AasxExporter =
             | Some envObj ->
                 try
                     let originalEnv = envObj :?> Environment
+                    // ds2 가 진실의 원천 (오버라이트): SequenceModel + 모든 도메인 서브모델만 매번 새로 생성.
+                    // Nameplate / HandoverDocumentation / TechnicalData 는 원본이 있으면 보존 (ds2 변경분 무시).
+                    // 원본에 없는 경우에만 project.* 로부터 신규 생성.
                     let sequenceIdShorts =
                         Set.ofList [
                             SubmodelModelIdShort
@@ -293,25 +303,32 @@ module AasxExporter =
                     allNewSubmodels |> List.iter (fun sm -> combinedSubmodels.Add(sm :> ISubmodel))
                     preservedSubmodels |> List.iter combinedSubmodels.Add
 
+                    // 원본에 메타 서브모델이 이미 존재하면 보존 (ds2 변경분 무시), 없으면 project.* 로부터 신규 생성.
                     let hasNameplate = combinedSubmodels |> Seq.exists (fun sm -> sm.IdShort = NameplateSubmodelIdShort)
                     let hasDocumentation = combinedSubmodels |> Seq.exists (fun sm -> sm.IdShort = DocumentationSubmodelIdShort)
+                    let hasTechnicalData = combinedSubmodels |> Seq.exists (fun sm -> sm.IdShort = TechnicalDataSubmodelIdShort)
 
                     let smRefs = ResizeArray<IReference>()
                     allNewSubmodels |> List.iter (fun sm -> smRefs.Add(mkSmRef sm))
                     preservedSubmodels |> List.iter (fun sm -> smRefs.Add(mkSmRef sm))
 
-                    if not hasNameplate || not hasDocumentation then
+                    if not hasNameplate then
                         let nameplate = project.Nameplate |> Option.defaultValue (Nameplate())
                         let npSm = nameplateToSubmodel nameplate project.Id
-                        if not hasNameplate then
-                            combinedSubmodels.Add(npSm :> ISubmodel)
-                            smRefs.Add(mkSmRef npSm)
+                        combinedSubmodels.Add(npSm :> ISubmodel)
+                        smRefs.Add(mkSmRef npSm)
 
+                    if not hasDocumentation then
                         let documentation = project.HandoverDocumentation |> Option.defaultValue (HandoverDocumentation())
                         let docSm = documentationToSubmodel documentation project.Id
-                        if not hasDocumentation then
-                            combinedSubmodels.Add(docSm :> ISubmodel)
-                            smRefs.Add(mkSmRef docSm)
+                        combinedSubmodels.Add(docSm :> ISubmodel)
+                        smRefs.Add(mkSmRef docSm)
+
+                    if not hasTechnicalData then
+                        let techData = project.TechnicalData |> Option.defaultValue (TechnicalData())
+                        let tdSm = technicalDataToSubmodel techData project.Id
+                        combinedSubmodels.Add(tdSm :> ISubmodel)
+                        smRefs.Add(mkSmRef tdSm)
 
                     let finalShells =
                         if originalEnv.AssetAdministrationShells <> null && originalEnv.AssetAdministrationShells.Count > 0 then

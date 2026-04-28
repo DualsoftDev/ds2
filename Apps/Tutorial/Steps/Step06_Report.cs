@@ -55,7 +55,9 @@ static class Step06_Report
                 nodeType:  "Work",
                 systemId:  "",
                 state:     e.NewState.ToString(),
-                timestamp: startTime + e.Clock
+                timestamp: startTime + e.Clock,
+                tokenItem: FSharpOption<int>.None,
+                tokenOriginName: ""
             ));
 
         Console.WriteLine("  [수집] 20배속, 1.5초간 실행...");

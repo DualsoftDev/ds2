@@ -37,6 +37,9 @@ public partial class PlcXmlGeneratorDialog : Window
         SyncLadderTheme(ThemeManager.CurrentTheme);
         ThemeManager.ThemeChanged += OnThemeChanged;
         Closed += (_, _) => ThemeManager.ThemeChanged -= OnThemeChanged;
+
+        // 다이얼로그가 열리면 즉시 PLC 생성 (별도 버튼 없음)
+        Loaded += (_, _) => RunGeneration();
     }
 
     private void OnThemeChanged(AppTheme theme)
@@ -53,19 +56,12 @@ public partial class PlcXmlGeneratorDialog : Window
 
     // ── 생성 ─────────────────────────────────────────────────────────────────
 
-    private void Generate_Click(object sender, RoutedEventArgs e)
+    /// <summary>다이얼로그 Loaded 시점에 자동 실행되는 생성 루틴.</summary>
+    private void RunGeneration()
     {
         var cfg              = PlcConfig.Settings;
-        var ioTemplateDir    = cfg.EffectiveIoTemplateDirPath;
         var xgiTemplatePath  = cfg.EffectiveXgiTemplatePath;
 
-        if (!Directory.Exists(ioTemplateDir))
-        {
-            SetStatus("❌ IOList 템플릿 폴더가 존재하지 않습니다.", isError: true);
-            return;
-        }
-
-        GenerateButton.IsEnabled = false;
         SaveButton.IsEnabled = false;
         _generatedXml = null;
         ClearLadder();
@@ -73,7 +69,9 @@ public partial class PlcXmlGeneratorDialog : Window
 
         try
         {
-            var ioListResult = IoListPipeline.generate(_store, ioTemplateDir);
+            // IOList 파이프라인은 여전히 디렉토리 입력을 받는다 — AASX Preset 에서 일시 디렉토리로 emit.
+            using var tempDir = Promaker.Services.PresetToTempTemplateDir.Materialize(_store);
+            var ioListResult = IoListPipeline.generate(_store, tempDir.Path);
             var ioCount      = ioListResult.IoSignals.Length;
             var dummyCount   = ioListResult.DummySignals.Length;
             var ioErrCount   = ioListResult.Errors.Length;
@@ -82,7 +80,6 @@ public partial class PlcXmlGeneratorDialog : Window
                 ? Microsoft.FSharp.Core.FSharpOption<string>.Some(xgiTemplatePath)
                 : Microsoft.FSharp.Core.FSharpOption<string>.None;
 
-            // FBTagMap 프리셋은 첫 번째 ActiveSystem ControlSystemProperties에서 로드 (없으면 AppData JSON 폴백)
             var fbTagMaps = FBTagMapStore.ToFSharpMap(_store);
             var detailResult = Plc.Xgi.Api.generateXmlWithDetail(_store, fbTagMaps, xgiOpt);
 
@@ -96,7 +93,10 @@ public partial class PlcXmlGeneratorDialog : Window
                 Plc.Xgi.Api.persistFbMappings(_store, detailResult.ResultValue.FBResult);
 
                 SaveButton.IsEnabled = true;
-                var fbCount = detailResult.ResultValue.FBResult.FBMappings.Length;
+                var fbCount = detailResult.ResultValue.FBResult.FBMappings
+                    .Select(m => m.InstanceName)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Count();
                 SetStatus($"✓ 완료 — IO {ioCount + dummyCount}개 신호, FB {fbCount}개 인스턴스");
 
                 LoadLadder(_generatedXml);
@@ -104,17 +104,13 @@ public partial class PlcXmlGeneratorDialog : Window
             }
             else
             {
-                SetStatus("❌ FB 생성 실패", isError: true);
+                SetStatus("❌ FB 생성 실패 — 요약 탭 확인", isError: true);
                 PreviewTabs.SelectedIndex = 0;
             }
         }
         catch (Exception ex)
         {
             SetStatus($"❌ 오류: {ex.Message}", isError: true);
-        }
-        finally
-        {
-            GenerateButton.IsEnabled = true;
         }
     }
 
@@ -222,15 +218,41 @@ public partial class PlcXmlGeneratorDialog : Window
         {
             sb.AppendLine("=== FB 매핑 생성 ===");
             sb.AppendLine($"  ❌ 실패: {detailResult.ErrorValue}");
+
+            // FBMappings 가 비어있지만 Errors 가 없을 때는 경고(FBTagMap 미설정 등)가 원인.
+            try
+            {
+                var fbMaps = FBTagMapStore.ToFSharpMap(_store);
+                var probe  = Plc.Xgi.Pipeline.generate(_store, fbMaps);
+                // 같은 SystemType 에 여러 Device 가 있어도 사용자가 해야할 작업은 1회 — 중복 제거.
+                var uniqueWarns = probe.Warnings
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                if (uniqueWarns.Length > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine($"  해결해야 할 설정 ({uniqueWarns.Length}건):");
+                    foreach (var w in uniqueWarns.Take(20))
+                        sb.AppendLine($"    • {w}");
+                    if (uniqueWarns.Length > 20)
+                        sb.AppendLine($"    ... 외 {uniqueWarns.Length - 20}건");
+                }
+            }
+            catch { /* probe 실패해도 원래 오류는 표시됨 */ }
         }
         else
         {
             var fbResult   = detailResult.ResultValue.FBResult;
-            var fbCount    = fbResult.FBMappings.Length;
             var fbErrCount = fbResult.Errors.Length;
 
+            // InstanceName 기준으로 그룹화 — 같은 Device 의 여러 API Call 은 하나의 FB 로 표시.
+            var deviceGroups = fbResult.FBMappings
+                .GroupBy(m => m.InstanceName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var fbCount = deviceGroups.Count;
+
             sb.AppendLine("=== FB 매핑 생성 ===");
-            sb.AppendLine($"  FB 인스턴스: {fbCount}개");
+            sb.AppendLine($"  FB 인스턴스: {fbCount}개 (Device 당 1개)");
             if (fbErrCount > 0)
             {
                 sb.AppendLine($"  ⚠ 오류: {fbErrCount}개");
@@ -238,33 +260,8 @@ public partial class PlcXmlGeneratorDialog : Window
                     sb.AppendLine($"    - {err.Message}");
             }
             else sb.AppendLine("  오류: 없음");
-            sb.AppendLine();
 
-            sb.AppendLine("=== FB 인스턴스 목록 ===");
-            foreach (var m in fbResult.FBMappings)
-            {
-                sb.AppendLine($"  ■ {m.InstanceName}  ({m.FBType})");
-                sb.AppendLine($"    Work:     {m.WorkName}");
-                sb.AppendLine($"    AutoAux:  {m.AutoAuxBitName}");
-                sb.AppendLine($"    Running:  {m.RunningBitName}   Done: {m.DoneBitName}");
-
-                var inputs = m.InputMappings.ToArray();
-                if (inputs.Length > 0)
-                {
-                    sb.AppendLine($"    입력 ({inputs.Length}개):");
-                    foreach (var p in inputs)
-                        sb.AppendLine($"      IN  {p.Item1,-22} → {p.Item2}");
-                }
-
-                var outputs = m.OutputMappings.ToArray();
-                if (outputs.Length > 0)
-                {
-                    sb.AppendLine($"    출력 ({outputs.Length}개):");
-                    foreach (var p in outputs)
-                        sb.AppendLine($"      OUT {p.Item1,-22} → {p.Item2}");
-                }
-                sb.AppendLine();
-            }
+            // 상세 입출력 포트 목록은 표시하지 않음 — 래더 탭에서 직접 확인.
         }
 
         SummaryText.Text = sb.ToString().TrimEnd();
@@ -274,12 +271,38 @@ public partial class PlcXmlGeneratorDialog : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        MessageBox.Show(
-            "XGI PLC 생성은 추후 패치 예정입니다.",
-            "패치 예정",
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
-        Close();
+        if (string.IsNullOrEmpty(_generatedXml))
+        {
+            SetStatus("⚠ 저장할 XML 이 없습니다 — 먼저 생성이 성공해야 합니다.", isError: true);
+            return;
+        }
+
+        var defaultName =
+            !string.IsNullOrEmpty(_currentFilePath)
+                ? Path.GetFileNameWithoutExtension(_currentFilePath) + ".xml"
+                : "xgi_plc.xml";
+
+        var dlg = new SaveFileDialog
+        {
+            Title      = "XGI 프로젝트 저장",
+            Filter     = "XGI XML (*.xml)|*.xml|모든 파일 (*.*)|*.*",
+            FileName   = defaultName,
+            DefaultExt = ".xml",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        try
+        {
+            // UTF-8 BOM — XG5000 한글 인식 호환
+            File.WriteAllText(dlg.FileName, _generatedXml,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            SetStatus($"✓ 저장 완료: {Path.GetFileName(dlg.FileName)}");
+            OpenWithXg5000(dlg.FileName);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"❌ 저장 실패: {ex.Message}", isError: true);
+        }
     }
 
     private void OpenWithXg5000(string filePath)
