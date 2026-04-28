@@ -12,6 +12,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- No ClosedXML dependency - CSV only -->
+    <PackageReference Include="FSharp.Core" />
   </ItemGroup>
 </Project>

@@ -111,7 +111,7 @@ module internal AasxExportCore =
         match uri with
         | None -> elem
         | Some u ->
-            (elem :> IHasSemantics).SemanticId <- mkSemanticRef u
+            elem.SemanticId <- mkSemanticRef u
             elem
 
     let mkSubmodel (id: string) (idShort: string) (semanticId: string) (elems: ISubmodelElement list) : Submodel =
@@ -203,6 +203,20 @@ module internal AasxExportCore =
                         mkSmlProp name (arr |> Seq.cast<Guid> |> Seq.map (fun id -> mkGuidProp "Id" id) |> Seq.toList)
                     elif elemType = typeof<string> then
                         mkSmlProp name (arr |> Seq.cast<string> |> Seq.map (fun s -> mkProp "Tag" s) |> Seq.toList)
+                    else
+                        Some (mkJsonProp name value)
+            elif propType.IsGenericType && propType.GetGenericTypeDefinition() = typedefof<ResizeArray<_>> then
+                let resizeArr = value :?> System.Collections.IEnumerable
+                let elemType = propType.GetGenericArguments().[0]
+                let items = resizeArr |> Seq.cast<obj> |> Seq.toList
+                if items.IsEmpty then None
+                else
+                    if elemType = typeof<FBTagMapPort> then
+                        let portList = items |> List.map (fun obj -> fbTagMapPortToSmc (obj :?> FBTagMapPort))
+                        mkSml name portList
+                    elif elemType = typeof<FBTagMapInstance> then
+                        let instList = items |> List.map (fun obj -> fbTagMapInstanceToSmc (obj :?> FBTagMapInstance))
+                        mkSml name instList
                     else
                         Some (mkJsonProp name value)
             elif propType.IsEnum then Some (mkProp name (value.ToString()))

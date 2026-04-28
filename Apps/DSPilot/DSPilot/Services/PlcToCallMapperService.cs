@@ -1,10 +1,8 @@
-using DSPilot.Engine;
 using DSPilot.Models;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
 using CallDirection = Ds2.Core.CallDirection;
-using EngineTagEdgeState = DSPilot.Engine.TagEdgeState;
 
 namespace DSPilot.Services;
 
@@ -283,7 +281,7 @@ public class PlcToCallMapperService
     public (string NewState, bool StateChanged) DetermineCallState(
         string tagName,
         string tagAddress,
-        EngineTagEdgeState edgeState,
+        TagEdgeState edgeState,
         string currentState)
     {
         var mapping = FindCallByTag(tagName, tagAddress);
@@ -301,27 +299,27 @@ public class PlcToCallMapperService
         return (direction, mapping.IsInTag, edgeType) switch
         {
             // InOut Direction
-            (CallDirection.InOut, false, DSPilot.Engine.Core.EdgeType.RisingEdge) when currentState == "Ready"
+            (CallDirection.InOut, false, EdgeType.RisingEdge) when currentState == "Ready"
                 => ("Going", true),  // OutTag rising: Ready → Going
 
-            (CallDirection.InOut, true, DSPilot.Engine.Core.EdgeType.RisingEdge) when currentState == "Going"
+            (CallDirection.InOut, true, EdgeType.RisingEdge) when currentState == "Going"
                 => ("Finish", true), // InTag rising: Going → Finish
 
-            (CallDirection.InOut, true, DSPilot.Engine.Core.EdgeType.FallingEdge) when currentState == "Finish"
+            (CallDirection.InOut, true, EdgeType.FallingEdge) when currentState == "Finish"
                 => ("Ready", true),  // InTag falling: Finish → Ready
 
             // InOnly Direction
-            (CallDirection.InOnly, true, DSPilot.Engine.Core.EdgeType.RisingEdge) when currentState == "Ready"
+            (CallDirection.InOnly, true, EdgeType.RisingEdge) when currentState == "Ready"
                 => ("Finish", true), // InTag rising: Ready → Going → Finish (instant)
 
-            (CallDirection.InOnly, true, DSPilot.Engine.Core.EdgeType.FallingEdge) when currentState == "Finish"
+            (CallDirection.InOnly, true, EdgeType.FallingEdge) when currentState == "Finish"
                 => ("Ready", true),  // InTag falling: Finish → Ready
 
             // OutOnly Direction
-            (CallDirection.OutOnly, false, DSPilot.Engine.Core.EdgeType.RisingEdge) when currentState == "Ready"
+            (CallDirection.OutOnly, false, EdgeType.RisingEdge) when currentState == "Ready"
                 => ("Going", true),  // OutTag rising: Ready → Going
 
-            (CallDirection.OutOnly, false, DSPilot.Engine.Core.EdgeType.FallingEdge) when currentState == "Going"
+            (CallDirection.OutOnly, false, EdgeType.FallingEdge) when currentState == "Going"
                 => ("Finish", true), // OutTag falling: Going → Finish → Ready (auto)
 
             _ => (currentState, false) // No state change

@@ -42,13 +42,12 @@ module internal ConditionEvaluation =
 
     let private tryQueueWorkReset (ctx: Context) (scheduledGoingGuids: Set<Guid>) workGuid =
         let tryFindResetTriggerPred resetPreds =
-            let isGoingOrScheduled predGuid =
-                ctx.StateManager.GetWorkState(predGuid) = Status4.Going
-                || scheduledGoingGuids.Contains(predGuid)
-
+            // Rising edge only: pred가 이번 evaluation cycle에서 Ready→Going으로 방금 스케줄된 경우만 트리거.
+            // pred가 이미 Going 상태(level)인 경우는 handleWorkGoingTransition의 triggerImmediateResets가
+            // 사이클 시작 순간에 이미 처리하므로 여기서 중복 처리하지 않는다.
             resetPreds
             |> List.tryFind (fun predGuid ->
-                isGoingOrScheduled predGuid
+                scheduledGoingGuids.Contains(predGuid)
                 && not (ctx.StateManager.IsResetTriggered(predGuid, workGuid)))
 
         let emitConflictIfTokenHeld () =

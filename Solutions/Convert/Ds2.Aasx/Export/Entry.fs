@@ -9,11 +9,9 @@ open Ds2.Aasx.AasxConceptDescriptions
 open Ds2.Aasx.AasxFileIO
 open Ds2.Core.Store
 
-open log4net
-
 module AasxExporter =
 
-    let private log = LogManager.GetLogger("Ds2.Aasx.AasxExporter")
+    let private log = SimpleLog.create "Ds2.Aasx.AasxExporter"
 
     open AasxExportCore
     open AasxExportGraph
@@ -490,3 +488,14 @@ module AasxExporter =
             else
                 exportToAasxFile store project iriPrefix path autoCreateEmptySubmodels
             true
+
+    let exportFromStoreOrRaise (store: DsStore) (path: string) (iriPrefix: string) (splitDeviceAasx: bool) (autoCreateEmptySubmodels: bool) : unit =
+        validateAll () |> ignore
+
+        match Queries.allProjects store |> List.tryHead with
+        | None -> raise (InvalidOperationException("AASX export failed: store에 export할 Project가 없습니다."))
+        | Some project ->
+            if splitDeviceAasx then
+                exportSplitAasx store project iriPrefix path
+            else
+                exportToAasxFile store project iriPrefix path autoCreateEmptySubmodels

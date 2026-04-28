@@ -1,12 +1,9 @@
 using System.Threading.Channels;
 using DSPilot.Abstractions;
 using DSPilot.Models;
-using DSPilot.Engine.Tracking;
-using DSPilot.Engine.Core;
 using DSPilot.Repositories;
 using DSPilot.Adapters;
-using Microsoft.FSharp.Control;
-using CoreEdgeType = Ds2.Core.EdgeType;
+using Ds2.Core;
 
 namespace DSPilot.Services;
 
@@ -25,6 +22,7 @@ public class PlcEventProcessorService : BackgroundService
     private readonly CallStateNotificationService _notificationService;
     private readonly InMemoryCallStateStore _stateStore;
     private readonly CallStatisticsService _statisticsService;
+    private readonly StateTransitionService _stateTransition;
     private readonly IServiceScopeFactory _scopeFactory;
 
     // Channel 설정: Bounded + Wait 전략 (백프레셔)
@@ -43,6 +41,7 @@ public class PlcEventProcessorService : BackgroundService
         CallStateNotificationService notificationService,
         InMemoryCallStateStore stateStore,
         CallStatisticsService statisticsService,
+        StateTransitionService stateTransition,
         IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
@@ -53,6 +52,7 @@ public class PlcEventProcessorService : BackgroundService
         _notificationService = notificationService;
         _stateStore = stateStore;
         _statisticsService = statisticsService;
+        _stateTransition = stateTransition;
         _scopeFactory = scopeFactory;
 
         // Channel 생성 (용량: 100, Full일 때 대기)
@@ -161,23 +161,14 @@ public class PlcEventProcessorService : BackgroundService
                 var dbPath = (_pathResolver as DatabasePathResolverAdapter)?.GetDatabasePaths().SharedDbPath
                     ?? _pathResolver.GetDspDbPath();
 
-                var coreEdgeType = edgeState.EdgeType switch
-                {
-                    DSPilot.Engine.Core.EdgeType.RisingEdge => CoreEdgeType.RisingEdge,
-                    DSPilot.Engine.Core.EdgeType.FallingEdge => CoreEdgeType.FallingEdge,
-                    _ => CoreEdgeType.NoChange
-                };
-
-                var asyncOp = StateTransition.processEdgeEvent(
+                await _stateTransition.ProcessEdgeEventAsync(
                     dbPath,
                     tagData.Address,
                     mapping.IsInTag,
-                    coreEdgeType,
+                    edgeState.EdgeType,
                     DateTime.Now,
                     mapping.Call.Name
                 );
-
-                await FSharpAsync.StartAsTask(asyncOp, null, cancellationToken);
 
                 _logger.LogInformation(
                     "State transition triggered: Call={CallName}, Tag={TagAddress}, IsInTag={IsInTag}, Edge={EdgeType}",

@@ -1,11 +1,10 @@
+using DSPilot.Infrastructure;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using DSPilot.Engine;
 
 namespace DSPilot.Adapters;
 
 /// <summary>
-/// F# Ev2Bootstrap을 C#에서 사용하기 위한 IHostedService Adapter
+/// EV2 부트스트랩 서비스 (현재 실제 스키마 생성은 PlcCaptureService가 담당, 여기선 로깅만).
 /// </summary>
 public class Ev2BootstrapServiceAdapter : IHostedService
 {
@@ -20,19 +19,20 @@ public class Ev2BootstrapServiceAdapter : IHostedService
         _logger = logger;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
         if (!_paths.DspTablesEnabled)
         {
             _logger.LogInformation("DspTables:Enabled=false, skipping DSP schema bootstrap.");
-            return;
+            return Task.CompletedTask;
         }
 
-        await DatabaseInitialization.Schema.startAsync(_paths, _logger);
-    }
-
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
+        _logger.LogInformation("Starting EV2 Bootstrap Service");
+        _logger.LogInformation("EV2 base schema initialization delegated to PlcCaptureService");
+        _logger.LogInformation("DB Path: {DbPath}", _paths.SharedDbPath);
+        _logger.LogInformation("EV2 Bootstrap completed successfully");
         return Task.CompletedTask;
     }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

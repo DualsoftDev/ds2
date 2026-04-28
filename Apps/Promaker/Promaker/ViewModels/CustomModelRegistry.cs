@@ -147,6 +147,34 @@ public class CustomModelRegistry
     /// </summary>
     public IEnumerable<string> GetRegisteredNames() => Models.Keys;
 
+    /// <summary>
+    /// device.json의 "apiDefs" 필드에서 ApiDef 이름 목록을 추출.
+    /// 필드가 없거나 파싱 실패 시 빈 리스트.
+    /// </summary>
+    public List<string> GetApiDefs(string systemType)
+    {
+        if (!Models.TryGetValue(systemType, out var json)) return new List<string>();
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("apiDefs", out var arr) ||
+                arr.ValueKind != JsonValueKind.Array)
+                return new List<string>();
+
+            var result = new List<string>();
+            foreach (var el in arr.EnumerateArray())
+            {
+                if (el.ValueKind == JsonValueKind.String)
+                {
+                    var s = el.GetString();
+                    if (!string.IsNullOrWhiteSpace(s)) result.Add(s);
+                }
+            }
+            return result;
+        }
+        catch { return new List<string>(); }
+    }
+
     // ── Private Helpers ──────────────────────────────────────────
 
     private void EnsureDirectory()

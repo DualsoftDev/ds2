@@ -67,6 +67,10 @@ type ISimulationEngine =
 
     // 외부 신호
     abstract InjectIOValue: apiCallGuid: Guid * value: string -> unit
+    /// IO 주소 기반 InjectIOValue (Hub에서 수신 시 사용)
+    abstract InjectIOValueByAddress: address: string * value: string -> bool
+    /// IO 매핑 정보
+    abstract IOMap: Ds2.Runtime.IO.SignalIOMap
 
     // 토큰
     abstract NextToken: unit -> TokenValue

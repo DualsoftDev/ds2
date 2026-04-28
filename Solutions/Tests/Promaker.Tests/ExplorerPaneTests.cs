@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using Ds2.Core;
 using Ds2.Core.Store;
 using Ds2.Editor;
@@ -155,6 +156,149 @@ public sealed class ExplorerPaneTests
                     1000,
                     () => vm.Canvas.ActiveTab is not null
                         && vm.Canvas.CanvasNodes.Any(node => node.Id == workId && node.EntityType == EntityKind.Work)));
+            }
+            finally
+            {
+                host.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void Clicking_already_selected_tree_item_resyncs_property_panel()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
+            var workId = store.AddWork("ReselectWork", flowId);
+
+            Assert.True(StaTestRunner.WaitUntil(1000, () => Flatten(vm.ControlTreeRoots).Any(node => node.Id == workId)));
+
+            var host = CreateHost(vm, out var pane);
+            try
+            {
+                var controlTree = GetNamed<TreeView>(pane, "ControlTree");
+                ExpandAllContainers(controlTree);
+
+                var item = FindTreeViewItem(controlTree, workId);
+                Assert.NotNull(item);
+
+                item!.IsSelected = true;
+                StaTestRunner.PumpPendingUi();
+
+                Assert.Equal(workId, vm.PropertyPanel.SelectedNode?.Id);
+
+                vm.PropertyPanel.SyncSelection(null, []);
+                Assert.Null(vm.PropertyPanel.SelectedNode);
+
+                var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
+                };
+
+                item.RaiseEvent(args);
+                StaTestRunner.PumpPendingUi();
+
+                Assert.Equal(workId, vm.PropertyPanel.SelectedNode?.Id);
+            }
+            finally
+            {
+                host.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void Clicking_wpf_selected_tree_item_resyncs_property_panel_even_when_selection_state_was_cleared()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = Queries.activeSystemsOf(projectId, store).Head.Id;
+            var flowId = Queries.flowsOf(systemId, store).Head.Id;
+            var workId = store.AddWork("WpfReselectWork", flowId);
+
+            Assert.True(StaTestRunner.WaitUntil(1000, () => Flatten(vm.ControlTreeRoots).Any(node => node.Id == workId)));
+
+            var host = CreateHost(vm, out var pane);
+            try
+            {
+                var controlTree = GetNamed<TreeView>(pane, "ControlTree");
+                ExpandAllContainers(controlTree);
+
+                var item = FindTreeViewItem(controlTree, workId);
+                Assert.NotNull(item);
+
+                item!.IsSelected = true;
+                StaTestRunner.PumpPendingUi();
+
+                Assert.Equal(workId, vm.PropertyPanel.SelectedNode?.Id);
+
+                vm.Selection.ClearNodeSelection();
+                vm.PropertyPanel.SyncSelection(null, []);
+                StaTestRunner.PumpPendingUi();
+
+                Assert.Null(vm.PropertyPanel.SelectedNode);
+                Assert.False(Flatten(vm.ControlTreeRoots).First(node => node.Id == workId).IsTreeSelected);
+                Assert.True(item.IsSelected);
+
+                var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                {
+                    RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
+                };
+
+                item.RaiseEvent(args);
+                StaTestRunner.PumpPendingUi();
+
+                Assert.Equal(workId, vm.PropertyPanel.SelectedNode?.Id);
+            }
+            finally
+            {
+                host.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public void Null_selection_change_from_hidden_device_tree_does_not_switch_active_pane()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var vm = new MainViewModel();
+            vm.NewProjectCommand.Execute(null);
+
+            var store = GetStore(vm);
+            var projectId = Queries.allProjects(store).Head.Id;
+            var systemId = store.AddSystem("DeviceSystem", projectId, false);
+            var flowId = store.AddFlow("DeviceFlow", systemId);
+            store.AddWork("DeviceWork", flowId);
+
+            var host = CreateHost(vm, out var pane);
+            try
+            {
+                var controlButton = GetNamed<ToggleButton>(pane, "ControlTreeButton");
+                var deviceButton = GetNamed<ToggleButton>(pane, "DeviceTreeButton");
+                var method = typeof(ExplorerPane).GetMethod("HandleTreeSelectionChanged", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+                Assert.True(controlButton.IsChecked ?? false);
+                Assert.False(deviceButton.IsChecked ?? true);
+
+                method.Invoke(pane, [TreePaneKind.Device, null]);
+                StaTestRunner.PumpPendingUi();
+
+                Assert.True(controlButton.IsChecked ?? false);
+                Assert.False(deviceButton.IsChecked ?? true);
+                Assert.Equal(TreePaneKind.Control, vm.Selection.ActiveTreePane);
             }
             finally
             {

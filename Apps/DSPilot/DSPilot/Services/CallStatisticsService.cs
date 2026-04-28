@@ -1,17 +1,16 @@
-using Ds2.Core;
-using DSPilot.Engine;
 using DSPilot.Repositories;
+using DSPilot.Services.Statistics;
 
 namespace DSPilot.Services;
 
 /// <summary>
-/// Call 통계 계산 서비스 (F# RuntimeStatistics 래퍼)
+/// Call 통계 계산 서비스 (C# CallStatisticsTracker 기반)
 /// </summary>
 public class CallStatisticsService
 {
     private readonly ILogger<CallStatisticsService> _logger;
     private readonly IDspRepository _dspRepository;
-    private readonly RuntimeStatisticsTrackerMutable _tracker;
+    private readonly CallStatisticsTracker _tracker;
     private volatile bool _isDisposing = false;
 
     // CallId → DB에서 로드한 기존 GoingCount (캐시)
@@ -23,7 +22,7 @@ public class CallStatisticsService
     {
         _logger = logger;
         _dspRepository = dspRepository;
-        _tracker = new RuntimeStatisticsTrackerMutable();
+        _tracker = new CallStatisticsTracker();
     }
 
     /// <summary>
@@ -53,7 +52,6 @@ public class CallStatisticsService
             baseCount = _baseCountCache[callId];
         }
 
-        // F# RuntimeStatisticsTracker 호출 (callName을 키로 사용)
         _tracker.RecordStart(callName, baseCount);
         _logger.LogDebug("Call '{CallName}' (ID: {CallId}): Going started", callName, callId);
     }
@@ -96,15 +94,14 @@ public class CallStatisticsService
     }
 
     /// <summary>
-    /// Going 종료 시 시간 계산 및 통계 업데이트 (F# RuntimeStatistics 사용)
+    /// Going 종료 시 시간 계산 및 통계 업데이트
     /// </summary>
-    /// <param name="callName">Call 이름 (F# tracker 키용)</param>
+    /// <param name="callName">Call 이름 (tracker 키용)</param>
     /// <returns>(시작 시간, 종료 시간, Going 시간, 평균, 표준편차, 누적 횟수)</returns>
     public (DateTime? StartTime, DateTime FinishTime, int GoingTime, double Average, double StdDev, int GoingCount) RecordGoingFinish(string callName)
     {
         var finishTime = DateTime.Now;
 
-        // F# RuntimeStatisticsTracker 호출 (callName을 키로 사용)
         var stats = _tracker.RecordFinish(callName);
 
         if (stats == null)
@@ -118,7 +115,6 @@ public class CallStatisticsService
             callName, stats.Value.GoingTime, stats.Value.Average, stats.Value.StdDev,
             stats.Value.SessionCount, stats.Value.BaseCount, stats.Value.TotalCount);
 
-        // StartTime은 F#에서 이미 처리되었으므로 null 반환 (필요시 F#에 저장 가능)
         return (null, finishTime, stats.Value.GoingTime, stats.Value.Average, stats.Value.StdDev, stats.Value.TotalCount);
     }
 

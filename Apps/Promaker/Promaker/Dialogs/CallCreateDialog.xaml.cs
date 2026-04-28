@@ -17,6 +17,12 @@ public partial class CallCreateDialog : Window
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Dualsoft", "Promaker", "systemTypePreset", "systemTypePreset.json");
 
+    /// <summary>
+    /// 마지막으로 선택한 SystemType modelType — 프로세스 메모리에만 유지 (재시작 시 초기화).
+    /// 다이얼로그 재오픈 시 자동 선택용.
+    /// </summary>
+    private static string? _lastSelectedPreset;
+
     private readonly Func<string, IReadOnlyList<ApiDefMatch>> _findApiDefsByName;
     private readonly Project? _project;
 
@@ -64,13 +70,11 @@ public partial class CallCreateDialog : Window
     }
 
     /// <summary>
-    /// Cylinder_1 … Cylinder_10 을 단일 "Cylinder" 프리셋으로 표시하기 위한 가상 model 이름.
-    /// SystemType 은 Add 시점에 ApiCall 개수로부터 동적으로 결정 ("Cylinder_N").
+    /// '#' 을 포함한 SystemType 은 ApiCall 개수로 치환되는 템플릿 — Add 시점에 동적 결정.
+    /// 예: "Cylinder_#", "abcd#" → ApiCall 개수 N 일 때 "Cylinder_N", "abcdN".
     /// </summary>
-    private const string CylinderVirtualModel = "Cylinder";
-
-    private static bool IsCylinderModel(string? modelType) =>
-        !string.IsNullOrEmpty(modelType) && modelType.StartsWith("Cylinder", StringComparison.Ordinal);
+    private static bool IsTemplateModel(string? modelType) =>
+        !string.IsNullOrEmpty(modelType) && modelType.Contains('#');
 
     private void LoadPresets()
     {
@@ -93,36 +97,34 @@ public partial class CallCreateDialog : Window
                     rawEntries.Add((modelType, apiList));
         }
 
-        // Cylinder_N 들을 가상 "Cylinder" 한 항목으로 병합.
-        // 첫 등장한 ApiList 를 대표로 사용 (모두 "ADV;RET" 로 동일).
-        bool cylinderAdded = false;
         foreach (var (modelType, apiList) in rawEntries)
         {
-            if (IsCylinderModel(modelType))
+            PresetComboBox.Items.Add(new ComboBoxItem
             {
-                if (cylinderAdded) continue;
-                PresetComboBox.Items.Add(new ComboBoxItem
-                {
-                    Content = CylinderVirtualModel,
-                    Tag = $"{apiList}|{CylinderVirtualModel}",
-                });
-                cylinderAdded = true;
-            }
-            else
-            {
-                PresetComboBox.Items.Add(new ComboBoxItem
-                {
-                    Content = modelType,
-                    Tag = $"{apiList}|{modelType}",
-                });
-            }
+                Content = modelType,
+                Tag = $"{apiList}|{modelType}",
+            });
         }
 
         // 직접 입력 항목 추가 (Tag = null → Dummy SystemType)
         PresetComboBox.Items.Add(new ComboBoxItem { Content = "직접 입력", Tag = null });
 
-        if (PresetComboBox.Items.Count > 0)
-            PresetComboBox.SelectedIndex = 0;
+        // 마지막 선택 복원 — 일치 항목 없으면 첫 번째.
+        var last = _lastSelectedPreset;
+        var matchedIndex = -1;
+        if (!string.IsNullOrEmpty(last))
+        {
+            for (int i = 0; i < PresetComboBox.Items.Count; i++)
+            {
+                if (PresetComboBox.Items[i] is ComboBoxItem cbi
+                    && string.Equals(cbi.Content as string, last, StringComparison.Ordinal))
+                {
+                    matchedIndex = i;
+                    break;
+                }
+            }
+        }
+        PresetComboBox.SelectedIndex = matchedIndex >= 0 ? matchedIndex : 0;
     }
 
     private bool IsCustomInputSelected() =>
@@ -146,26 +148,13 @@ public partial class CallCreateDialog : Window
             BasicApiNameTextBox.IsEnabled = false;
             BasicApiNameTextBox.Text = apiList ?? "";
 
-            // Cylinder 프리셋: ApiCall 복제 카운트로 SystemType 을 결정 — 패널 자동 펼침.
-            if (string.Equals(modelType, CylinderVirtualModel, StringComparison.Ordinal))
+            // 템플릿(#) 프리셋: ApiCall 복제 카운트로 SystemType 을 결정 — 패널 자동 펼침.
+            if (IsTemplateModel(modelType))
             {
                 if (RadioApiCallReplication is not null) RadioApiCallReplication.IsChecked = true;
                 if (AdvancedExpander is not null) AdvancedExpander.IsExpanded = true;
             }
         }
-    }
-
-    /// <summary>
-    /// Cylinder FB 가 지원하는 인스턴스 크기 (XGI_Template.xml 기준).
-    /// 입력된 ApiCall 개수보다 크거나 같은 가장 작은 값으로 올림 매핑.
-    /// </summary>
-    private static readonly int[] CylinderSupportedSizes = { 1, 2, 3, 4, 6, 8, 10 };
-
-    private static int RoundUpToCylinderSize(int n)
-    {
-        foreach (var s in CylinderSupportedSizes)
-            if (s >= n) return s;
-        return CylinderSupportedSizes[^1];
     }
 
     // ─── 복제 모드 라디오 ───
@@ -240,6 +229,10 @@ public partial class CallCreateDialog : Window
         // SystemType 가져오기 - 프리셋에 따라 고급 탭에서 설정한 값 사용
         SelectedSystemType = GetSystemTypeForCurrentPreset();
 
+        // 마지막 선택 프리셋 저장 (메모리) — 다음 다이얼로그 오픈 시 자동 선택용.
+        if (PresetComboBox.SelectedItem is ComboBoxItem { Content: string label })
+            _lastSelectedPreset = label;
+
         // 추가 기능이 펼쳐진 경우 복수 생성
         if (AdvancedExpander.IsExpanded)
         {
@@ -273,18 +266,20 @@ public partial class CallCreateDialog : Window
 
         var modelType = ParseModelType(item.Tag?.ToString());
 
-        // 가상 Cylinder 프리셋 → ApiCall 개수로 Cylinder_N 동적 결정.
-        // (지원 크기 {1,2,3,4,6,8,10} 중 입력 N 이상의 최소 값)
-        if (string.Equals(modelType, CylinderVirtualModel, StringComparison.Ordinal))
+        // ApiCall 개수 N 추출 (Advanced + ApiCallReplication 모드일 때만).
+        int GetApiCallCount()
         {
-            int n = 1;
             if (AdvancedExpander?.IsExpanded == true
                 && RadioApiCallReplication?.IsChecked == true
                 && int.TryParse(ApiCallCountTextBox?.Text?.Trim(), out var parsed)
                 && parsed >= 1)
-                n = parsed;
-            return $"Cylinder_{RoundUpToCylinderSize(n)}";
+                return parsed;
+            return 1;
         }
+
+        // '#' 템플릿 → ApiCall 개수로 치환.
+        if (IsTemplateModel(modelType))
+            return modelType!.Replace("#", GetApiCallCount().ToString());
 
         return modelType;
     }

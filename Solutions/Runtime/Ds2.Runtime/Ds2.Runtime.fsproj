@@ -8,8 +8,7 @@
   <ItemGroup>
     <Compile Include="Model\SimState.fs" />
 <Compile Include="Model\StateCache.fs" />
-    <Compile Include="Engine\Scheduler\ScheduledEvent.fs" />
-    <Compile Include="Engine\Scheduler\EventScheduler.fs" />
+    <Compile Include="Engine\Core\Scheduler.fs" />
     <Compile Include="Engine\Core\SimIndex.GroupExpansion.fs" />
     <Compile Include="Engine\Core\SimIndex.TokenGraph.fs" />
     <Compile Include="Engine\Core\SimIndex.fs" />
@@ -18,6 +17,16 @@
     <Compile Include="Engine\Core\DurationTracker.fs" />
     <Compile Include="Engine\Core\StateManager.fs" />
     <Compile Include="Engine\Core\GraphValidator.fs" />
+    <Compile Include="IO\SignalIOMap.fs" />
+    <Compile Include="Engine\Passive\InferenceTypes.fs" />
+    <Compile Include="Engine\Passive\WorkCycleAlignment.fs" />
+    <Compile Include="Engine\Passive\WorkCycleState.fs" />
+    <Compile Include="Engine\Passive\WorkCycle.fs" />
+    <Compile Include="Engine\Passive\Inference.fs" />
+    <Compile Include="Engine\Passive\SessionEffects.fs" />
+    <Compile Include="Engine\Passive\BootstrapSession.fs" />
+    <Compile Include="Engine\Passive\HubSession.fs" />
+    <Compile Include="Engine\Passive\ModeSession.fs" />
     <Compile Include="Engine\ISimulationEngine.fs" />
     <Compile Include="Engine\EventDriven\TokenFlow.fs" />
     <Compile Include="Engine\EventDriven\WorkTransitions.fs" />
@@ -25,10 +34,12 @@
     <Compile Include="Engine\EventDriven\ConditionEvaluation.fs" />
     <Compile Include="Engine\EventDriven\TransitionGuards.fs" />
     <Compile Include="Engine\EventDriven\ConnectionReload.fs" />
-    <Compile Include="Engine\EventDriven\EngineLifecycle.fs" />
-    <Compile Include="Engine\EventDriven\EngineFlowStep.fs" />
-    <Compile Include="Engine\EventDriven\EngineRuntime.fs" />
-    <Compile Include="Engine\EventDrivenEngine.fs" />
+    <Compile Include="Engine\EventDriven\Lifecycle.fs" />
+    <Compile Include="Engine\EventDriven\FlowStep.fs" />
+    <Compile Include="Engine\EventDriven\Runtime.fs" />
+    <Compile Include="Engine\EventDriven\Execution.fs" />
+    <Compile Include="Engine\EventDriven\Homing.fs" />
+    <Compile Include="Engine\EventDriven\Composition.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -36,6 +47,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
     <PackageReference Include="log4net" />
   </ItemGroup>
 

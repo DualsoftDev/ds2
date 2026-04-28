@@ -26,6 +26,8 @@ module ReportServiceTests =
                 SystemId = "SystemA"
                 State = "R"
                 Timestamp = startTime
+                TokenItem = None
+                TokenOriginName = "SourceWork"
             }
             {
                 NodeId = "call-1"
@@ -34,6 +36,8 @@ module ReportServiceTests =
                 SystemId = "SystemA"
                 State = "R"
                 Timestamp = startTime.AddSeconds(1)
+                TokenItem = Some 1
+                TokenOriginName = "SourceWork"
             }
             {
                 NodeId = "work-1"
@@ -42,6 +46,8 @@ module ReportServiceTests =
                 SystemId = "SystemA"
                 State = "G"
                 Timestamp = startTime.AddSeconds(2)
+                TokenItem = None
+                TokenOriginName = "SourceWork"
             }
         ]
 
@@ -294,7 +300,7 @@ module StepModeTests =
         store.AddCallsWithDevice(project.Id, work1.Id, [ "Dev.Api1"; "Dev.Api2" ], true, None)
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         let dumpState () =
             let w1 = engine.GetWorkState(work1.Id)
@@ -341,7 +347,7 @@ module StepModeTests =
         store.UpdateWorkPeriodMs(work.Id, Some 1)
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         try
             engine.Start()
@@ -370,7 +376,7 @@ module StepModeTests =
         store.UpdateWorkTokenRole(work.Id, TokenRole.Source)
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         try
             engine.Start()
@@ -393,7 +399,9 @@ module StepModeTests =
 module EventDrivenEngineTokenTests =
 
     [<Fact>]
-    let ``reference work executes independently from original work`` () =
+    let ``reference work mirrors original work state`` () =
+        // REF Work 는 원본 Work 의 복사본으로, 원본 상태 변화에 따라 동일하게 전이되어야 함
+        // (ikshin 35274bb "Reference Work 시뮬레이션 상태 동기화" 원 설계)
         let store = createStore ()
         let _, _, _, work = setupBasicHierarchy store
         let refId = store.AddReferenceWork(work.Id)
@@ -402,7 +410,7 @@ module EventDrivenEngineTokenTests =
         store.UpdateWorkPeriodMs(work.Id, Some 100)
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         try
             engine.Start()
@@ -410,10 +418,123 @@ module EventDrivenEngineTokenTests =
             Assert.True(
                 waitUntil 1000 (fun () ->
                     engine.GetWorkState(work.Id) = Some Status4.Going
-                    && engine.GetWorkState(refId) = Some Status4.Ready),
-                "reference work should stay Ready when original goes Going")
+                    && engine.GetWorkState(refId) = Some Status4.Going),
+                "reference work should mirror original Going state")
+            engine.ForceWorkState(work.Id, Status4.Finish)
+            Assert.True(
+                waitUntil 1000 (fun () ->
+                    engine.GetWorkState(work.Id) = Some Status4.Finish
+                    && engine.GetWorkState(refId) = Some Status4.Finish),
+                "reference work should mirror original Finish state")
         finally
             engine.Stop()
+
+    [<Fact>]
+    let ``reference work outgoing edge does not leak into original successor map`` () =
+        // state 는 canonical 기준 그룹 공유, edge 는 각 Flow 에서 독립.
+        // 원본 W1 ↔ W2 순환 + REF(W1) → W3 구조에서, 원본 W1 successor 에 W3 가 역주입되면 안 됨.
+        let store = createStore ()
+        let _, _, flow, w1 = setupBasicHierarchy store
+        let w2 = addWork store "W2" flow.Id
+        let w3 = addWork store "W3" flow.Id
+
+        store.ConnectSelectionInOrder([ w1.Id; w2.Id ], ArrowType.Start) |> ignore
+        store.ConnectSelectionInOrder([ w2.Id; w1.Id ], ArrowType.Start) |> ignore
+
+        let refId = store.AddReferenceWork(w1.Id)
+        store.ConnectSelectionInOrder([ refId; w3.Id ], ArrowType.Start) |> ignore
+
+        let index = SimIndex.build store 10
+
+        let origSuccs =
+            index.WorkTokenSuccessors
+            |> Map.tryFind w1.Id
+            |> Option.defaultValue []
+            |> List.sort
+        Assert.Equal<Guid list>([ w2.Id ], origSuccs)
+
+        let refSuccs =
+            index.WorkTokenSuccessors
+            |> Map.tryFind refId
+            |> Option.defaultValue []
+            |> List.sort
+        Assert.Equal<Guid list>([ w3.Id ], refSuccs)
+
+    [<Fact>]
+    let ``reference work without own outgoing edge inherits canonical successor`` () =
+        // REF 가 자체 outgoing edge 가 없을 때는 canonical successor 를 상속 (기존 기능 유지).
+        let store = createStore ()
+        let _, _, flow, w1 = setupBasicHierarchy store
+        let w2 = addWork store "W2" flow.Id
+
+        store.ConnectSelectionInOrder([ w1.Id; w2.Id ], ArrowType.Start) |> ignore
+
+        let refId = store.AddReferenceWork(w1.Id)
+
+        let index = SimIndex.build store 10
+
+        let origSuccs =
+            index.WorkTokenSuccessors
+            |> Map.tryFind w1.Id
+            |> Option.defaultValue []
+            |> List.sort
+        Assert.Equal<Guid list>([ w2.Id ], origSuccs)
+
+        let refSuccs =
+            index.WorkTokenSuccessors
+            |> Map.tryFind refId
+            |> Option.defaultValue []
+            |> List.sort
+        Assert.Equal<Guid list>([ w2.Id ], refSuccs)
+
+    [<Fact>]
+    let ``reference work shares original call guids without cloning`` () =
+        // REF Work 의 WorkCallGuids 는 원본 Work 의 Call guid 와 동일해야 함.
+        // Store.Calls 에 없는 복제 guid 가 만들어지면 Validation 에서 "?" 표시 +
+        // CallRaceExclusions 오염이 발생하므로 이를 회귀 방지한다.
+        let store = createStore ()
+        let project, _, _, work = setupBasicHierarchy store
+        store.AddCallsWithDevice(project.Id, work.Id, [ "Dev.Api" ], true, None)
+        let originalCallIds =
+            Queries.callsOf work.Id store |> List.map (fun c -> c.Id) |> List.sort
+
+        let refWorkId = store.AddReferenceWork(work.Id)
+
+        let index = SimIndex.build store 10
+
+        let refWorkCallGuids =
+            index.WorkCallGuids
+            |> Map.tryFind refWorkId
+            |> Option.defaultValue []
+            |> List.sort
+        Assert.Equal<Guid list>(originalCallIds, refWorkCallGuids)
+
+        for cg in refWorkCallGuids do
+            Assert.True(
+                store.Calls.ContainsKey cg,
+                $"REF Work's call guid {cg} must exist in Store.Calls")
+
+    [<Fact>]
+    let ``call race exclusions contain only store resident call guids`` () =
+        // CallRaceExclusions 의 키와 값 모두 Store.Calls 에 존재해야 Validation 경고창에서
+        // Call 이름이 "?" 로 표시되지 않는다. REF Work 가 있어도 마찬가지.
+        let store = createStore ()
+        let project, _, flow, w1 = setupBasicHierarchy store
+        let w2 = addWork store "W2" flow.Id
+        store.AddCallsWithDevice(project.Id, w1.Id, [ "Dev.ADV"; "Dev.RET" ], true, None)
+        store.AddCallsWithDevice(project.Id, w2.Id, [ "Dev.ADV"; "Dev.RET" ], false, None)
+        let _ = store.AddReferenceWork(w1.Id)
+
+        let index = SimIndex.build store 10
+
+        for kv in index.CallRaceExclusions do
+            Assert.True(
+                store.Calls.ContainsKey kv.Key,
+                $"exclusion key {kv.Key} must exist in Store.Calls")
+            for ex in kv.Value do
+                Assert.True(
+                    store.Calls.ContainsKey ex,
+                    $"exclusion value {ex} must exist in Store.Calls")
 
     [<Fact>]
     let ``blocked token waits for successor ready before shifting`` () =
@@ -430,7 +551,7 @@ module EventDrivenEngineTokenTests =
         store.ConnectSelectionInOrder([ guard.Id; w3.Id ], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         try
             engine.Start()
@@ -463,7 +584,7 @@ module EventDrivenEngineTokenTests =
         store.ConnectSelectionInOrder([ w2.Id; w3.Id ], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
-        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
+        let engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
 
         try
             engine.Start()
@@ -615,8 +736,8 @@ module EventDrivenEngineTokenTests =
         store.Calls.[advCallId].SetSimulationProperties(advCallProps)
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
-        let sim = engine :> ISimulationEngine
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        let sim = engine 
 
         sim.SpeedMultiplier <- 100.0
         sim.ApplyInitialStates()
@@ -833,8 +954,8 @@ module AutoHomingOriginTests =
         store.ConnectSelectionInOrder([ setCall1; setCall2 ], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
-        let sim = engine :> ISimulationEngine
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        let sim = engine 
 
         let hasHoming = sim.StartWithHomingPhase()
 
@@ -875,8 +996,8 @@ module CallTimeoutTests =
         store.Calls.[callId].SetSimulationProperties(callProps)
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
-        let sim = engine :> ISimulationEngine
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        let sim = engine 
 
         let mutable timeoutFired = false
         let mutable timeoutCallGuid = Guid.Empty
@@ -918,8 +1039,8 @@ module ResetTriggerClearTests =
         store.ConnectSelectionInOrder([ w1.Id; w2.Id ], ArrowType.Reset) |> ignore
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
-        let sim = engine :> ISimulationEngine
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        let sim = engine 
 
         sim.SpeedMultiplier <- 1.0
         sim.Start()
@@ -1035,8 +1156,8 @@ module HomingPhaseExecutionTests =
         store.ConnectSelectionInOrder([_retCallId; _advCallId], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
-        let sim = engine :> ISimulationEngine
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        let sim = engine 
 
         let mutable homingCompleted = false
         sim.HomingPhaseCompleted.AddHandler(fun _ _ -> homingCompleted <- true)
@@ -1106,8 +1227,8 @@ module HomingPhaseExecutionTests =
         store.ConnectSelectionInOrder([w2.Id; w1.Id], ArrowType.StartReset) |> ignore
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
-        let sim = engine :> ISimulationEngine
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        let sim = engine 
 
         let mutable homingCompleted = false
         sim.HomingPhaseCompleted.AddHandler(fun _ _ -> homingCompleted <- true)
@@ -1158,8 +1279,8 @@ module HomingPhaseExecutionTests =
         let readyCall = store.AddCallWithLinkedApiDefs(work.Id, "ReadyDevice", "RUN", [readyDef.Id])
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
-        let sim = engine :> ISimulationEngine
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        let sim = engine 
 
         sim.SpeedMultiplier <- 1.0
         let hasTargets = sim.StartWithHomingPhase()
@@ -1199,8 +1320,8 @@ module HomingPhaseExecutionTests =
         let _setCall = store.AddCallWithLinkedApiDefs(work.Id, "POS", "SET", [setDef.Id])
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
-        let sim = engine :> ISimulationEngine
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        let sim = engine 
 
         let hasTargets = sim.StartWithHomingPhase()
         sim.Stop()
@@ -1256,8 +1377,8 @@ module WaitForCompletionIsFinishedTests =
         store.ConnectSelectionInOrder([retCallId; advCallId; setCallId], ArrowType.Start) |> ignore
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
-        let sim = engine :> ISimulationEngine
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        let sim = engine 
 
         let log = System.Collections.Generic.List<string>()
         sim.WorkStateChanged.AddHandler(fun _ e ->
@@ -1398,8 +1519,8 @@ module CallRaceExclusionTests =
         let retCallId = store.AddCallWithLinkedApiDefs(work.Id, "Dev", "RET", [retDef.Id])
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
-        let sim = engine :> ISimulationEngine
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        let sim = engine 
 
         let mutable bothGoingDetected = false
         sim.CallStateChanged.AddHandler(fun _ e ->
@@ -1457,8 +1578,8 @@ module CallRaceExclusionTests =
         store.ConnectSelectionInOrder([w2.Id; w1.Id], ArrowType.StartReset) |> ignore
 
         let index = SimIndex.build store 10
-        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation)
-        let sim = engine :> ISimulationEngine
+        use engine = new EventDrivenEngine(index, RuntimeMode.Simulation) :> ISimulationEngine
+        let sim = engine 
 
         let mutable bothGoingDetected = false
         let raceExclusions = index.CallRaceExclusions

@@ -1,0 +1,75 @@
+<Window x:Class="Promaker.Windows.NewCustomModelDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="커스텀 SystemType 빠른 등록"
+        Width="480" Height="460"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Background="#0f172a">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="프로젝트에 정의되지 않은 SystemType의 3D 메타데이터만 빠르게 등록합니다."
+                   Foreground="#94a3b8" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+        <StackPanel Grid.Row="1" Margin="0,0,0,10">
+            <TextBlock Text="SystemType 이름" Foreground="#e2e8f0" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,4"/>
+            <TextBox x:Name="NameInput" Height="30" FontSize="13"
+                     Background="#1e293b" Foreground="#e2e8f0" BorderBrush="#475569"
+                     Padding="8,4" TextChanged="OnInputChanged"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,4">
+            <TextBlock Text="ApiDef 이름 목록" Foreground="#e2e8f0" FontSize="13" FontWeight="SemiBold"
+                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBlock Text="(예: Fwd, Bwd / Open, Close)" Foreground="#64748b" FontSize="11" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <Border Grid.Row="3" Background="#1e293b" BorderBrush="#334155" BorderThickness="1" CornerRadius="4" Padding="6">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="ApiDefList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,3">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
+                                         Height="28" FontSize="13"
+                                         Background="#0f172a" Foreground="#e2e8f0" BorderBrush="#475569"
+                                         Padding="8,2" TextChanged="ApiDefRow_TextChanged"/>
+                                <Button Grid.Column="1" Content="✕" Width="28" Height="28" Margin="6,0,0,0"
+                                        Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
+                                        FontSize="12" Cursor="Hand"
+                                        Click="RemoveApiDef_Click" Tag="{Binding}"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <Button Grid.Row="4" Content="+ ApiDef 추가" Click="AddApiDef_Click"
+                HorizontalAlignment="Left" Margin="0,8,0,0"
+                Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
+                Padding="10,4" FontSize="12" Cursor="Hand"/>
+
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="취소" Click="Cancel_Click" Width="80" Height="32"
+                    Background="#334155" Foreground="#94a3b8" BorderBrush="#475569"
+                    FontSize="13" Cursor="Hand" Margin="0,0,8,0"/>
+            <Button x:Name="OkButton" Content="확인" Click="Ok_Click" Width="80" Height="32"
+                    Background="#3b82f6" Foreground="White" BorderThickness="0"
+                    FontSize="13" FontWeight="SemiBold" Cursor="Hand" IsEnabled="False"/>
+        </StackPanel>
+    </Grid>
+</Window>

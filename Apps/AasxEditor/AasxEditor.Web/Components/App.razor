@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="_content/AasxEditor.Core/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="_content/AasxEditor.Core/app.css" />
+    <link rel="stylesheet" href="AasxEditor.Core.styles.css" />
+    <link rel="icon" type="image/png" href="_content/AasxEditor.Core/favicon.png" />
+    <HeadOutlet />
+</head>
+
+<body>
+    <Routes @rendermode="InteractiveServer" />
+    <script src="_framework/blazor.web.js"></script>
+    @* Prefer local Monaco (offline install); fall back to CDN if not present. *@
+    <script src="_content/AasxEditor.Core/lib/monaco-editor/min/vs/loader.js"
+            onload="window.__MONACO_VS='_content/AasxEditor.Core/lib/monaco-editor/min/vs';"
+            onerror="this.remove(); var s=document.createElement('script'); s.src='https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js'; s.onload=function(){ window.__MONACO_VS='https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs'; }; document.head.appendChild(s);"></script>
+    <script src="_content/AasxEditor.Core/js/monaco-interop.js"></script>
+</body>
+
+</html>
