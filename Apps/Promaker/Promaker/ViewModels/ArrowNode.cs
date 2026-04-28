@@ -35,10 +35,49 @@ public partial class ArrowNode : ObservableObject
     [ObservableProperty] private double _endX;
     [ObservableProperty] private double _endY;
 
+    private List<Point>? _lastPoints;
+    private List<Point>? _dragSnapshot;
+
     /// <summary>F# ArrowVisual -> WPF geometry conversion.</summary>
     public void UpdateFromVisual(ArrowPathCalculator.ArrowVisual visual)
     {
-        var points = ToPointList(visual.Points);
+        SetGeometryFromPoints(ToPointList(visual.Points));
+    }
+
+    /// <summary>드래그 시작 시 현재 경로를 스냅샷한다. 드래그 중에는 이 스냅샷을 평행이동해서 그린다.</summary>
+    public void BeginDragSnapshot()
+    {
+        _dragSnapshot = _lastPoints is null ? null : new List<Point>(_lastPoints);
+    }
+
+    public void EndDragSnapshot()
+    {
+        _dragSnapshot = null;
+    }
+
+    /// <summary>스냅샷한 경로의 source-측 점들은 srcDelta로, target-측 점들은 tgtDelta로 평행이동.</summary>
+    public void ApplyDragTranslation(Vector srcDelta, Vector tgtDelta)
+    {
+        if (_dragSnapshot is null || _dragSnapshot.Count == 0)
+            return;
+
+        var pts = _dragSnapshot;
+        // 4-point cubic Bezier [start, cp1, cp2, end]: [0,1] = source side, [2,3] = target side
+        // 그 외 폴리라인은 중앙에서 분할하여 동일하게 처리
+        var srcSideCount = pts.Count / 2;
+
+        var translated = new List<Point>(pts.Count);
+        for (var i = 0; i < pts.Count; i++)
+        {
+            var d = i < srcSideCount ? srcDelta : tgtDelta;
+            translated.Add(new Point(pts[i].X + d.X, pts[i].Y + d.Y));
+        }
+
+        SetGeometryFromPoints(translated);
+    }
+
+    private void SetGeometryFromPoints(List<Point> points)
+    {
         PathGeometry = CreateLineGeometry(points);
         HeadGeometry = CreateHeadGeometry(ArrowType, points);
 
@@ -48,6 +87,7 @@ public partial class ArrowNode : ObservableObject
             StartY = 0;
             EndX = 0;
             EndY = 0;
+            _lastPoints = null;
             return;
         }
 
@@ -57,6 +97,7 @@ public partial class ArrowNode : ObservableObject
         StartY = start.Y;
         EndX = end.X;
         EndY = end.Y;
+        _lastPoints = points;
     }
 
     private static List<Point> ToPointList(
