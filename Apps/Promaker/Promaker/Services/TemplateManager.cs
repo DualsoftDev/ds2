@@ -11,16 +11,10 @@ namespace Promaker.Services;
 ///   • 영구 디스크 파일 생성/편집은 수행하지 않는다.
 ///   • <see cref="DefaultTemplatesRO"/> 는 신규 프로젝트/SystemType 에 대한 임베디드 fallback 이며,
 ///     실제 편집 결과는 모두 AASX 내 FBTagMapPresets 에만 저장된다.
-///   • <see cref="XgiTemplatePath"/> 만 예외적으로 디스크 파일 (배포 시 동봉된 XGI_Template.xml) 경로를 노출한다.
+///   • XGI_Template.xml 은 AAStoXGI.dll 의 EmbeddedResource — XgiTemplateExtractor 가 AppData 로 추출한다.
 /// </summary>
 public static class TemplateManager
 {
-    /// <summary>
-    /// XGI 프로젝트 템플릿 파일 경로 (실행 파일과 함께 배포된 XGI_Template.xml)
-    /// </summary>
-    public static string XgiTemplatePath =>
-        Path.Combine(AppContext.BaseDirectory, "Template", "XGI_Template.xml");
-
     /// <summary>기본 템플릿 문자열 테이블 — 신규 SystemType Preset seed 용 fallback</summary>
     public static IReadOnlyDictionary<string, string> DefaultTemplatesRO => DefaultTemplates;
 

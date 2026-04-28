@@ -109,7 +109,7 @@
                                         Style="{StaticResource DarkButton}"
                                         Padding="10,4" Click="BrowsePlcXgiTemplate_Click"/>
                             </Grid>
-                            <TextBlock Text="XGI_Template.xml 경로 — 비워두면 앱 기본 경로 사용"
+                            <TextBlock Text="XGI_Template.xml 경로 (필수) — 비우면 자동으로 디폴트 경로로 복원됩니다."
                                        FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                        Margin="0,0,0,16" FontStyle="Italic"/>
 
@@ -129,7 +129,7 @@
                                         Style="{StaticResource DarkButton}"
                                         Padding="10,4" Click="BrowsePlcXg5000Exe_Click"/>
                             </Grid>
-                            <TextBlock Text="XG5000.exe 경로 — 비워두면 기본 설치 경로 자동 탐색"
+                            <TextBlock Text="XG5000.exe 경로 (필수) — 비우면 자동으로 기본 설치 경로로 복원됩니다."
                                        FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"
                                        Margin="0,0,0,0" FontStyle="Italic"/>
                         </StackPanel>
@@ -169,7 +169,7 @@
                                 <TextBlock Text="SystemType" FontSize="11"
                                            Foreground="{DynamicResource SecondaryTextBrush}"
                                            Margin="0,0,0,2"/>
-                                <TextBox x:Name="SystemTypeTextBox" Padding="6,4" Text="Multi"/>
+                                <TextBox x:Name="SystemTypeTextBox" Padding="6,4" Text="Motor"/>
                             </StackPanel>
 
                             <!-- 추가 버튼 -->

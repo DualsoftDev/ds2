@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="시뮬레이션 결과"
-        Width="960" Height="640"
+        Width="1440" Height="960"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource PrimaryBackgroundBrush}"
         Foreground="{DynamicResource PrimaryTextBrush}"
@@ -63,8 +63,9 @@
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="200"/>
-            <RowDefinition Height="*"/>
+            <!-- 시나리오 리스트 : 결과 분석 = 1 : 4 (= 20% : 80%) 비율 -->
+            <RowDefinition Height="1*"/>
+            <RowDefinition Height="4*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
@@ -265,77 +266,152 @@
             <TabItem Header="Work 분석" Background="{DynamicResource SecondaryBackgroundBrush}"
                      Foreground="{DynamicResource PrimaryTextBrush}">
                 <Grid Background="{DynamicResource SecondaryBackgroundBrush}">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MinWidth="600"/>
+                        <ColumnDefinition Width="5"/>
+                        <ColumnDefinition Width="2*" MinWidth="450"/>
+                    </Grid.ColumnDefinitions>
 
-                    <!-- 범례 + 정렬 안내 -->
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="12,10,12,8">
-                        <Rectangle Width="14" Height="14" Fill="#3B82F6" VerticalAlignment="Center"/>
-                        <TextBlock Text="Going (작업 중)" Margin="6,0,16,0" VerticalAlignment="Center" FontSize="11"
-                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
-                        <Rectangle Width="14" Height="14" Fill="#F97316" VerticalAlignment="Center"/>
-                        <TextBlock Text="IdleGap (사이클 사이 대기)" Margin="6,0,24,0" VerticalAlignment="Center" FontSize="11"
-                                   Foreground="{DynamicResource PrimaryTextBrush}"/>
-                        <TextBlock Text="(정렬: 총 활동 시간 G+IdleGap 내림차순. 막대가 가장 긴 Work = 시스템 활동 중심)"
-                                   FontSize="11" VerticalAlignment="Center"
-                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
-                    </StackPanel>
+                    <!-- 좌측: Work 차트 -->
+                    <Grid Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
-                    <!-- Work 별 막대 -->
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="12,0,12,12">
-                        <ItemsControl x:Name="WorkChartItems">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Margin="0,3">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="220"/>
-                                            <ColumnDefinition Width="65"/>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="80"/>
-                                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="12,10,12,8">
+                            <Rectangle Width="14" Height="14" Fill="#3B82F6" VerticalAlignment="Center"/>
+                            <TextBlock Text="Going" Margin="6,0,12,0" VerticalAlignment="Center" FontSize="11"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <Rectangle Width="14" Height="14" Fill="#F97316" VerticalAlignment="Center"/>
+                            <TextBlock Text="IdleGap" Margin="6,0,16,0" VerticalAlignment="Center" FontSize="11"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <TextBlock Text="(행 클릭 → Call 상세 →)" FontSize="11" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </StackPanel>
 
-                                        <TextBlock Grid.Column="0" Text="{Binding WorkName}"
-                                                   VerticalAlignment="Center"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   ToolTip="{Binding WorkName}"
-                                                   Foreground="{DynamicResource PrimaryTextBrush}"
-                                                   FontSize="12"/>
-
-                                        <TextBlock Grid.Column="1" Text="{Binding CyclesLabel}"
-                                                   VerticalAlignment="Center"
-                                                   Foreground="{DynamicResource SecondaryTextBrush}"
-                                                   FontSize="11"/>
-
-                                        <Border Grid.Column="2" Height="20" VerticalAlignment="Center"
-                                                Background="{DynamicResource TertiaryBackgroundBrush}"
-                                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                                                CornerRadius="2">
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="12,0,12,12">
+                            <ItemsControl x:Name="WorkChartItems">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="0,2"
+                                                Background="Transparent"
+                                                MouseLeftButtonUp="WorkChartRow_Click"
+                                                Cursor="Hand"
+                                                ToolTip="클릭하여 이 Work 의 Call 상세 보기">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="{Binding GoingWidth}"/>
-                                                    <ColumnDefinition Width="{Binding IdleGapWidth}"/>
-                                                    <ColumnDefinition Width="{Binding EmptyWidth}"/>
+                                                    <ColumnDefinition Width="200"/>
+                                                    <ColumnDefinition Width="55"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="70"/>
                                                 </Grid.ColumnDefinitions>
-                                                <Border Grid.Column="0" Background="#3B82F6"
-                                                        ToolTip="{Binding GoingTooltip}"/>
-                                                <Border Grid.Column="1" Background="#F97316"
-                                                        ToolTip="{Binding IdleGapTooltip}"/>
+
+                                                <TextBlock Grid.Column="0" Text="{Binding WorkName}"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           ToolTip="{Binding WorkName}"
+                                                           Foreground="{DynamicResource PrimaryTextBrush}"
+                                                           FontSize="12"/>
+
+                                                <TextBlock Grid.Column="1" Text="{Binding CyclesLabel}"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                                           FontSize="11"/>
+
+                                                <Border Grid.Column="2" Height="20" VerticalAlignment="Center"
+                                                        Background="{DynamicResource TertiaryBackgroundBrush}"
+                                                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                        CornerRadius="2">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="{Binding GoingWidth}"/>
+                                                            <ColumnDefinition Width="{Binding IdleGapWidth}"/>
+                                                            <ColumnDefinition Width="{Binding EmptyWidth}"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Grid.Column="0" Background="#3B82F6"
+                                                                ToolTip="{Binding GoingTooltip}"/>
+                                                        <Border Grid.Column="1" Background="#F97316"
+                                                                ToolTip="{Binding IdleGapTooltip}"/>
+                                                    </Grid>
+                                                </Border>
+
+                                                <TextBlock Grid.Column="3" Text="{Binding EfficiencyLabel}"
+                                                           VerticalAlignment="Center" HorizontalAlignment="Right"
+                                                           FontWeight="SemiBold" FontSize="12"
+                                                           Foreground="{Binding EfficiencyColor}"
+                                                           Margin="6,0,0,0"
+                                                           ToolTip="{Binding EfficiencyTooltip}"/>
                                             </Grid>
                                         </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
 
-                                        <TextBlock Grid.Column="3" Text="{Binding EfficiencyLabel}"
-                                                   VerticalAlignment="Center" HorizontalAlignment="Right"
-                                                   FontWeight="SemiBold" FontSize="12"
-                                                   Foreground="{Binding EfficiencyColor}"
-                                                   Margin="8,0,0,0"
-                                                   ToolTip="{Binding EfficiencyTooltip}"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
+                    <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"
+                                  Background="{DynamicResource BorderBrush}"/>
+
+                    <!-- 우측: 선택된 Work 의 Call 상세 차트 -->
+                    <Grid Grid.Column="2" Background="{DynamicResource PrimaryBackgroundBrush}">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <Border Grid.Row="0" Background="{DynamicResource TertiaryBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
+                                Padding="12,8">
+                            <StackPanel>
+                                <TextBlock Text="Call 상세 분석"
+                                           FontSize="13" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                <TextBlock x:Name="CallDetailWorkName"
+                                           Text="(Work 행을 클릭하면 그 Work 내부의 Call 동작 시간 막대를 표시합니다)"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"
+                                           Margin="0,4,0,0" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="12,8,12,4"
+                                    x:Name="CallDetailLegend" Visibility="Collapsed">
+                            <Rectangle Width="14" Height="14" Fill="#10B981" VerticalAlignment="Center"/>
+                            <TextBlock Text="평균 동작" Margin="6,0,12,0" VerticalAlignment="Center" FontSize="11"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <Rectangle Width="14" Height="14" Fill="#EF4444" VerticalAlignment="Center"/>
+                            <TextBlock Text="가장 긴 평균 동작" Margin="6,0,16,0" VerticalAlignment="Center" FontSize="11"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <Rectangle Width="14" Height="14" Fill="#66FBBF24" Stroke="#F97316" StrokeThickness="1" VerticalAlignment="Center"/>
+                            <TextBlock Text="Gap" Margin="6,0,4,0" VerticalAlignment="Center" FontSize="11"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <ComboBox x:Name="GapRankCombo"
+                                      Width="90" Height="22" FontSize="11"
+                                      VerticalAlignment="Center" Padding="6,0"
+                                      SelectionChanged="GapRankCombo_SelectionChanged"
+                                      ToolTip="강조할 Gap 순위 선택 (지속 시간 큰 순서)"/>
+                        </StackPanel>
+
+                        <!--
+                            시간 순서 Gantt — 핵심 설계:
+                            각 Call 한 행이 단일 Grid 안에 [Label 180px | LeadingStar | BarStar | TrailingStar] 4 컬럼.
+                            Stars 의 합 = totalSec 로 모든 행이 동일하므로, 행 사이 시간축 픽셀 스케일이 자동 일치.
+                            라벨과 막대가 같은 Grid 행에 있으므로 어긋남 자체가 발생할 수 없음.
+                        -->
+                        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="12,4,12,12">
+                            <Grid>
+                                <!-- Call 간 Gap Top 2 하이라이트 — 같은 4 컬럼 구조로 행 뒤쪽에 z-stack 으로 깔림.
+                                     hit-test 활성: Gap rectangle 위에 마우스 올리면 ToolTip 노출. -->
+                                <Grid x:Name="CallTimelineGapOverlay" Visibility="Collapsed"/>
+
+                                <!-- 행들이 쌓이는 host. 각 행은 코드-비하인드에서 Grid 로 추가. -->
+                                <StackPanel x:Name="CallTimelineHost" Orientation="Vertical"/>
+                            </Grid>
+                        </ScrollViewer>
+                    </Grid>
                 </Grid>
             </TabItem>
             <TabItem Header="요약" Background="{DynamicResource SecondaryBackgroundBrush}"

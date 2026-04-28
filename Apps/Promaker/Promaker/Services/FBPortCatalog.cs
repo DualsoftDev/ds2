@@ -15,9 +15,19 @@ public static class FBPortCatalog
 {
     private static Dictionary<string, List<string>>? _cache;
 
-    /// <summary>XGI_Template.xml 기본 경로 (빌드 출력 폴더).</summary>
-    public static string DefaultTemplatePath =>
-        Path.Combine(System.AppContext.BaseDirectory, "Template", "XGI_Template.xml");
+    /// <summary>
+    /// XGI_Template.xml 기본 경로 — AppData 사본 (PlcConfig 가 임베디드 리소스에서 추출).
+    /// 호출 시점에 사본이 없으면 즉시 추출.
+    /// </summary>
+    public static string DefaultTemplatePath
+    {
+        get
+        {
+            if (!File.Exists(SettingsPaths.DefaultXgiTemplate))
+                XgiTemplateExtractor.ExtractIfMissing(SettingsPaths.DefaultXgiTemplate);
+            return SettingsPaths.DefaultXgiTemplate;
+        }
+    }
 
     /// <summary>FB 타입명 목록 (콤보 1 데이터소스).</summary>
     public static IReadOnlyList<string> GetFBTypeNames(string? xmlPath = null)

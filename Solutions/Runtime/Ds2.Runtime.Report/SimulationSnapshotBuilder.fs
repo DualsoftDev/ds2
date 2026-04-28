@@ -57,17 +57,21 @@ module SimulationSnapshotBuilder =
             (runStart: DateTime)
             (runEnd: DateTime)
             (kpis: KpiAggregator.AggregatedKpis)
+            (callCycleTimes: KpiCallCycleTime seq)
             (perTokenKpis: KpiPerToken seq) : SimulationScenario =
         let meta = toMeta input modelHash runStart runEnd
-        SimulationResultSnapshot.buildScenario
-            meta
-            kpis.CycleTimes
-            (Some kpis.Throughput)
-            (Some kpis.Capacity)
-            kpis.Constraints
-            kpis.ResourceUtilizations
-            kpis.OeeItems
-            perTokenKpis
+        let scenario =
+            SimulationResultSnapshot.buildScenario
+                meta
+                kpis.CycleTimes
+                (Some kpis.Throughput)
+                (Some kpis.Capacity)
+                kpis.Constraints
+                kpis.ResourceUtilizations
+                kpis.OeeItems
+                perTokenKpis
+        callCycleTimes |> Seq.iter (fun c -> scenario.CallCycleTimes.Add c)
+        scenario
 
     /// Project + 그래프(System/Flow/Work/Call) 의 결정적 정규화 표현을 산출.
     /// - 컬렉션은 Id 로 정렬하여 순서 비결정성 제거
@@ -170,10 +174,30 @@ module SimulationSnapshotBuilder =
             (tokenTraversals: KpiAggregator.TokenTraversal seq) : SimulationScenario =
         let kpis = KpiAggregator.aggregate kpiInputs report
         let perToken = KpiAggregator.buildPerTokenKpis tokenTraversals
+
+        // Call 이름 → 부모 Work 이름 lookup — store 가 있으면 정확한 매핑, 없으면 빈 문자열.
+        // ReportService 가 ParentWorkId 를 None 으로 채우는 한계를 store 기반으로 보완.
+        let callToWorkName : string -> string =
+            match storeOpt with
+            | Some store ->
+                let map =
+                    Queries.allProjects store
+                    |> List.tryHead
+                    |> Option.map (fun p ->
+                        Queries.activeWorksOf p.Id store
+                        |> List.collect (fun w ->
+                            Queries.callsOf w.Id store
+                            |> List.map (fun c -> c.Name, w.Name))
+                        |> Map.ofList)
+                    |> Option.defaultValue Map.empty
+                fun callName -> Map.tryFind callName map |> Option.defaultValue ""
+            | None -> fun _ -> ""
+
+        let callCycles = KpiAggregator.buildCallCycleTimes callToWorkName report
         let modelHash = computeModelHashWithStore project storeOpt
         let runStart = report.Metadata.StartTime
         let runEnd   = report.Metadata.EndTime
-        buildScenarioFromKpis input modelHash runStart runEnd kpis perToken
+        buildScenarioFromKpis input modelHash runStart runEnd kpis callCycles perToken
 
     /// 시나리오 빌드 + Project.TechnicalData.SimulationResult 갱신 (단일 hook).
     let captureFromReport

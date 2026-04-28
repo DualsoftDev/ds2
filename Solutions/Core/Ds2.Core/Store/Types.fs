@@ -52,8 +52,7 @@ module UiDefaults =
 // DevicePresets — 모델 프리셋 레지스트리 (단일 정의 위치)
 // =============================================================================
 //
-//   C# 사용: Ds2.Store.DevicePresets.Entries / DefaultMappingStrings
-//   F# 사용: DevicePresets.KnownNames / DefaultMappingStrings (open Ds2.Store 후)
+//   사용: DevicePresets.Entries3 / DefaultFBNames
 
 /// 각 entry 는 (SystemType, ApiList, DefaultFBName).
 /// ApiList: ';' 구분 API 이름 목록. DefaultFBName: XGI_Template.xml 의 FB 이름.
@@ -73,19 +72,11 @@ module DevicePresets =
         ("Part", "ADV;RET", "")
     |]
 
-    /// (SystemType, ApiList) 호환 배열 — 기존 사용처 그대로 동작.
-    let Entries : (string * string)[] =
-        Entries3 |> Array.map (fun (sysType, apis, _) -> (sysType, apis))
-
     /// SystemType → 기본 FB 이름 lookup (XGI_Template.xml 기준).
     let DefaultFBNames : Map<string, string> =
         Entries3
         |> Array.map (fun (sysType, _, fb) -> (sysType, fb))
         |> Map.ofArray
-
-    /// 등록된 ModelType 이름 집합 (inferModelType 직접 매칭용)
-    let KnownNames : Set<string> =
-        Entries |> Array.map fst |> Set.ofArray
 
 
 // =============================================================================

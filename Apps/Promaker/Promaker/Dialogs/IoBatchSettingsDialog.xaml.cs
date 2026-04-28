@@ -11,18 +11,26 @@ using System.Windows.Data;
 using System.Windows.Input;
 using Ds2.Core.Store;
 using Microsoft.Win32;
+using Promaker.Services;
 
 namespace Promaker.Dialogs;
 
+/// <summary>
+/// I/O 조회 다이얼로그 — 읽기 전용. 편집은 TAG Wizard.
+/// store 를 받아 IoQueryService 로 직접 행을 생성/새로고침하며, 표시·필터링·CSV 내보내기만 담당한다.
+/// 호출부는 DsStore 만 들고 다이얼로그를 띄우면 된다.
+/// </summary>
 public partial class IoBatchSettingsDialog : Window
 {
-    private readonly ObservableCollection<IoBatchRow> _rows;
+    private readonly DsStore _store;
+    private readonly ObservableCollection<IoBatchRow> _rows = new();
     private readonly ICollectionView _view;
-    private bool _showOnlyUnmatched;
+    private readonly RowFilterDebouncer _filterDebouncer;
 
-    // ── 그리드 헤더 내장 필터 ─────────────────────────────────────────────
-    // XAML 바인딩 대신 TextChanged 이벤트 + Tag 기반으로 필드 직접 갱신 →
-    // DataGrid/DataTemplate 바인딩 tick 지연 완전 회피.
+    private bool _showOnlyUnmatched;
+    private int _unmatchedCount;
+
+    // 그리드 헤더 내장 필터 — TextChanged 에서 Tag 키로 Map 업데이트 후 디바운스 Refresh.
     private readonly Dictionary<string, string> _filters = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Flow"] = "", ["Work"] = "", ["Device"] = "", ["Api"] = "",
@@ -30,55 +38,81 @@ public partial class IoBatchSettingsDialog : Window
         ["OutName"] = "", ["OutType"] = "", ["OutAddress"] = "",
     };
 
-    private string F(string key) => _filters.TryGetValue(key, out var v) ? v : "";
-
     /// <summary>
-    /// 빠른 타이핑 중 매 키마다 전체 행 재평가하면 버벅이므로
-    /// 150ms 디바운스 — 마지막 키입력 후 150ms 지난 뒤 한 번만 Refresh.
+    /// store 1개만으로 다이얼로그 생성. 행은 IoQueryService 가 만든다.
+    /// 호출부에서 행을 미리 만들어 넘기던 옛 시그니처는 제거 — 단일 책임.
     /// </summary>
-    private readonly System.Windows.Threading.DispatcherTimer _filterDebounce =
-        new() { Interval = TimeSpan.FromMilliseconds(150) };
-
-    /// <summary>필터 TextBox 의 TextChanged — Tag 에서 키를 읽어 딕셔너리 업데이트 후 디바운스 Refresh.</summary>
-    private void FilterTextBox_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        if (sender is not TextBox tb || tb.Tag is not string key) return;
-        _filters[key] = tb.Text ?? "";
-        // 기존 타이머를 리셋해 연속 입력 중에는 한 번만 Refresh.
-        _filterDebounce.Stop();
-        _filterDebounce.Start();
-    }
-
-    private static bool MatchFilter(string value, string filter) =>
-        string.IsNullOrEmpty(filter) || (value != null && value.Contains(filter, StringComparison.OrdinalIgnoreCase));
-
-    /// <summary>
-    /// I/O 조회 전용 다이얼로그. 편집은 TAG Wizard 에서만 수행.
-    /// </summary>
-    public IoBatchSettingsDialog(DsStore store, IReadOnlyList<IoBatchRow> rows)
+    public IoBatchSettingsDialog(DsStore store)
     {
         InitializeComponent();
-        // store 는 더 이상 필요하지 않으므로 null 검증만 수행하고 보관하지 않음
-        _ = store ?? throw new ArgumentNullException(nameof(store));
-
-        _rows = new ObservableCollection<IoBatchRow>(rows);
-
-        foreach (var row in _rows)
-            row.PropertyChanged += Row_PropertyChanged;
+        _store = store ?? throw new ArgumentNullException(nameof(store));
 
         _view = CollectionViewSource.GetDefaultView(_rows);
         _view.Filter = FilterRow;
         IoGrid.ItemsSource = _view;
-        BatchDialogHelper.UpdateSelectedCount(_rows, SelectedCountText);
 
-        // 디바운스 타이머 — 발화 시 Refresh 1회 실행 후 자기 자신 stop.
-        _filterDebounce.Tick += (_, _) =>
-        {
-            _filterDebounce.Stop();
-            _view?.Refresh();
-        };
+        _filterDebouncer = new RowFilterDebouncer(() => _view.Refresh());
 
         DataContext = this;
+
+        // 자동 1회 생성 — 사용자 입력 없이 진입 즉시 결과 표시.
+        LoadFromStore();
+    }
+
+    // ── 데이터 로드 / 새로고침 ────────────────────────────────────────────
+
+    private void LoadFromStore()
+    {
+        var prev = Cursor;
+        try
+        {
+            Cursor = Cursors.Wait;
+
+            var qr = IoQueryService.Generate(_store);
+
+            // 행 갱신 — 기존 PropertyChanged 핸들러 정리 후 재구독.
+            foreach (var r in _rows) r.PropertyChanged -= Row_PropertyChanged;
+            _rows.Clear();
+            foreach (var r in qr.Rows)
+            {
+                r.PropertyChanged += Row_PropertyChanged;
+                _rows.Add(r);
+            }
+
+            _unmatchedCount = qr.Unmatched.Count;
+            ShowOnlyUnmatchedCheckBox.Visibility =
+                _unmatchedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            BatchDialogHelper.UpdateSelectedCount(_rows, SelectedCountText);
+            UpdateStatus(qr);
+            _view.Refresh();
+        }
+        finally
+        {
+            Cursor = prev;
+        }
+    }
+
+    private void Refresh_Click(object sender, RoutedEventArgs e) => LoadFromStore();
+
+    private void UpdateStatus(IoQueryService.QueryResult qr)
+    {
+        var sb = new StringBuilder();
+        sb.Append($"총 {_rows.Count}개");
+        if (_unmatchedCount > 0)
+            sb.Append($" / 매칭 실패 {_unmatchedCount}개");
+        if (qr.HasError)
+            sb.Append($" / 오류 {qr.ErrorMessages.Count}건");
+        StatusText.Text = sb.ToString();
+    }
+
+    // ── 필터링 ────────────────────────────────────────────────────────────
+
+    private void FilterTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is not TextBox tb || tb.Tag is not string key) return;
+        _filters[key] = tb.Text ?? "";
+        _filterDebouncer.Bump();
     }
 
     private bool FilterRow(object obj)
@@ -88,17 +122,31 @@ public partial class IoBatchSettingsDialog : Window
         if (_showOnlyUnmatched && !row.IsUnmatched)
             return false;
 
-        return MatchFilter(row.Flow,        F("Flow"))
-            && MatchFilter(row.Work,        F("Work"))
-            && MatchFilter(row.Device,      F("Device"))
-            && MatchFilter(row.Api,         F("Api"))
-            && MatchFilter(row.InSymbol,    F("InName"))
-            && MatchFilter(row.InDataType,  F("InType"))
-            && MatchFilter(row.InAddress,   F("InAddress"))
-            && MatchFilter(row.OutSymbol,   F("OutName"))
-            && MatchFilter(row.OutDataType, F("OutType"))
-            && MatchFilter(row.OutAddress,  F("OutAddress"));
+        return Match(row.Flow,        F("Flow"))
+            && Match(row.Work,        F("Work"))
+            && Match(row.Device,      F("Device"))
+            && Match(row.Api,         F("Api"))
+            && Match(row.InSymbol,    F("InName"))
+            && Match(row.InDataType,  F("InType"))
+            && Match(row.InAddress,   F("InAddress"))
+            && Match(row.OutSymbol,   F("OutName"))
+            && Match(row.OutDataType, F("OutType"))
+            && Match(row.OutAddress,  F("OutAddress"));
     }
+
+    private string F(string key) => _filters.TryGetValue(key, out var v) ? v : "";
+
+    private static bool Match(string value, string filter) =>
+        string.IsNullOrEmpty(filter)
+        || (value != null && value.Contains(filter, StringComparison.OrdinalIgnoreCase));
+
+    private void ShowOnlyUnmatched_Changed(object sender, RoutedEventArgs e)
+    {
+        _showOnlyUnmatched = ShowOnlyUnmatchedCheckBox.IsChecked == true;
+        _view.Refresh();
+    }
+
+    // ── 선택/체크박스 ──────────────────────────────────────────────────────
 
     private void Row_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -123,31 +171,20 @@ public partial class IoBatchSettingsDialog : Window
 
     private void RowCheckBox_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not CheckBox { DataContext: IoBatchRow row } checkBox)
-            return;
-
-        BatchDialogHelper.ApplyCheckStateToSelectedRows(IoGrid, row, checkBox.IsChecked == true);
+        if (sender is not CheckBox { DataContext: IoBatchRow row } cb) return;
+        BatchDialogHelper.ApplyCheckStateToSelectedRows(IoGrid, row, cb.IsChecked == true);
     }
 
-    private void ShowOnlyUnmatched_Changed(object sender, RoutedEventArgs e)
-    {
-        _showOnlyUnmatched = ShowOnlyUnmatchedCheckBox.IsChecked == true;
-        _view.Refresh();
-    }
+    // ── CSV 내보내기 ──────────────────────────────────────────────────────
 
-    private void Close_Click(object sender, RoutedEventArgs e) => Close();
-
-    /// <summary>현재 화면(필터 적용 후)의 행들을 UTF-8 CSV(BOM) 로 내보냄.</summary>
+    /// <summary>현재 화면(필터 적용 후)의 행을 UTF-8 BOM CSV 로 내보낸다.</summary>
     private void ExportCsv_Click(object sender, RoutedEventArgs e)
     {
         var rows = _view.Cast<IoBatchRow>().ToList();
         if (rows.Count == 0)
         {
-            DialogHelpers.ShowThemedMessageBox(
-                "내보낼 행이 없습니다.",
-                "CSV 내보내기",
-                MessageBoxButton.OK,
-                "ℹ");
+            DialogHelpers.ShowThemedMessageBox("내보낼 행이 없습니다.",
+                "CSV 내보내기", MessageBoxButton.OK, "ℹ");
             return;
         }
 
@@ -164,88 +201,68 @@ public partial class IoBatchSettingsDialog : Window
         {
             var sb = new StringBuilder();
             sb.AppendLine("Flow,TagName,DataType,Address,Description");
-
             int emitted = 0;
             foreach (var r in rows)
             {
-                // 입력 태그 (값이 있을 때만 한 줄)
-                if (!string.IsNullOrWhiteSpace(r.InSymbol) || !string.IsNullOrWhiteSpace(r.InAddress))
-                {
-                    sb.Append(CsvEscape(r.Flow));       sb.Append(',');
-                    sb.Append(CsvEscape(r.InSymbol));   sb.Append(',');
-                    sb.Append(CsvEscape(r.InDataType)); sb.Append(',');
-                    sb.Append(CsvEscape(r.InAddress));  sb.Append(',');
-                    sb.Append(CsvEscape($"{r.Work}/{r.Device}/{r.Api} (In)"));
-                    sb.AppendLine();
-                    emitted++;
-                }
-
-                // 출력 태그
-                if (!string.IsNullOrWhiteSpace(r.OutSymbol) || !string.IsNullOrWhiteSpace(r.OutAddress))
-                {
-                    sb.Append(CsvEscape(r.Flow));        sb.Append(',');
-                    sb.Append(CsvEscape(r.OutSymbol));   sb.Append(',');
-                    sb.Append(CsvEscape(r.OutDataType)); sb.Append(',');
-                    sb.Append(CsvEscape(r.OutAddress));  sb.Append(',');
-                    sb.Append(CsvEscape($"{r.Work}/{r.Device}/{r.Api} (Out)"));
-                    sb.AppendLine();
-                    emitted++;
-                }
+                emitted += AppendCsvLine(sb, r, isInput: true);
+                emitted += AppendCsvLine(sb, r, isInput: false);
             }
 
-            // UTF-8 BOM — Excel 한글 깨짐 방지
-            File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            File.WriteAllText(dlg.FileName, sb.ToString(),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
 
-            // 저장 후 바로 열기 확인
             var openResult = DialogHelpers.ShowThemedMessageBox(
                 $"{emitted}개 태그를 저장했습니다.\n{dlg.FileName}\n\n파일을 바로 열어 볼까요?",
-                "CSV 내보내기 완료",
-                MessageBoxButton.YesNo,
-                "✓");
+                "CSV 내보내기 완료", MessageBoxButton.YesNo, "✓");
 
-            if (openResult == MessageBoxResult.Yes)
-            {
-                try
-                {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName        = dlg.FileName,
-                        UseShellExecute = true,  // 기본 프로그램(Excel 등)으로 열기
-                    });
-                }
-                catch (Exception openEx)
-                {
-                    DialogHelpers.ShowThemedMessageBox(
-                        $"파일 열기에 실패했습니다:\n{openEx.Message}",
-                        "열기 실패",
-                        MessageBoxButton.OK,
-                        "⚠");
-                }
-            }
+            if (openResult == MessageBoxResult.Yes) TryOpenFile(dlg.FileName);
         }
         catch (Exception ex)
         {
-            DialogHelpers.ShowThemedMessageBox(
-                $"저장 실패:\n{ex.Message}",
-                "CSV 내보내기 오류",
-                MessageBoxButton.OK,
-                "✖");
+            DialogHelpers.ShowThemedMessageBox($"저장 실패:\n{ex.Message}",
+                "CSV 내보내기 오류", MessageBoxButton.OK, "✖");
         }
     }
 
-    private static string CsvEscape(string? value)
+    private static int AppendCsvLine(StringBuilder sb, IoBatchRow r, bool isInput)
     {
-        if (string.IsNullOrEmpty(value)) return "";
-        // 쉼표, 쌍따옴표, 줄바꿈 포함 시 쌍따옴표로 감싸고 내부 " 는 "" 로 escape.
-        bool needsQuote = value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0;
-        var s = value.Replace("\"", "\"\"");
-        return needsQuote ? "\"" + s + "\"" : s;
+        var symbol  = isInput ? r.InSymbol    : r.OutSymbol;
+        var address = isInput ? r.InAddress   : r.OutAddress;
+        var dtype   = isInput ? r.InDataType  : r.OutDataType;
+        if (string.IsNullOrWhiteSpace(symbol) && string.IsNullOrWhiteSpace(address))
+            return 0;
+
+        var dir = isInput ? "In" : "Out";
+        sb.Append(BatchDialogHelper.EscapeCsvField(r.Flow));    sb.Append(',');
+        sb.Append(BatchDialogHelper.EscapeCsvField(symbol));    sb.Append(',');
+        sb.Append(BatchDialogHelper.EscapeCsvField(dtype));     sb.Append(',');
+        sb.Append(BatchDialogHelper.EscapeCsvField(address));   sb.Append(',');
+        sb.Append(BatchDialogHelper.EscapeCsvField($"{r.Work}/{r.Device}/{r.Api} ({dir})"));
+        sb.AppendLine();
+        return 1;
+    }
+
+    private void TryOpenFile(string path)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName        = path,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            DialogHelpers.ShowThemedMessageBox($"파일 열기에 실패했습니다:\n{ex.Message}",
+                "열기 실패", MessageBoxButton.OK, "⚠");
+        }
     }
 }
 
 /// <summary>
-/// I/O 조회용 데이터 행 — 조회 전용이므로 편집 추적 필드 없음.
-/// 값은 생성 시 주입되고 그대로 표시만 한다. TagWizard 가 저장한 값을 DsStore 에서 직접 읽어 바인딩.
+/// I/O 조회용 데이터 행 — 표시 + 매칭 강조용 IsUnmatched 만 변경 가능.
+/// IoQueryService.Generate 이 채워서 반환한다.
 /// </summary>
 public sealed class IoBatchRow : BatchRowBase
 {
