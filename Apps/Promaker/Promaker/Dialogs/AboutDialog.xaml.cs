@@ -14,7 +14,7 @@ public partial class AboutDialog : Window
 
         var version = Assembly.GetExecutingAssembly().GetName().Version;
         VersionText.Text = $"버전 {version}";
-        CopyrightText.Text = $"\u00a9 {DateTime.Now.Year} Dualsoft Technology Inc.";
+        CopyrightText.Text = $"\u00a9 {DateTime.Now.Year} Dual Inc";
     }
 
     private void Url_Click(object sender, MouseButtonEventArgs e)

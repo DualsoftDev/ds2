@@ -446,4 +446,4 @@ type EventDrivenEngine(index: SimIndex, runtimeMode: RuntimeMode, writeTag: (str
         [<CLIEvent>] member _.HomingPhaseCompleted = homingPhaseCompletedEvent.Publish
         member _.Dispose() = EngineLifecycle.stop lifecycleContext
 
-    new(index: SimIndex, runtimeMode: RuntimeMode) = EventDrivenEngine(index, runtimeMode, None)
+    new(index: SimIndex, runtimeMode: RuntimeMode) = new EventDrivenEngine(index, runtimeMode, None)

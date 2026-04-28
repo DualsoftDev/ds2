@@ -377,6 +377,14 @@ public partial class SimulationPanelState
             isSimPaused: false,
             statusText: SimText.Stopped,
             logText: SimText.Stopped);
+
+        // 시뮬 종료 시 결과 시나리오 자동 박제 (TechnicalData.SimulationResults).
+        // CapturedRuns 에 누적되어 "시뮬레이션 결과 보기" 다이얼로그에 표시된다.
+        try
+        {
+            TryCaptureScenario($"Run_{DateTime.Now:yyyyMMdd_HHmmss}");
+        }
+        catch { /* best-effort */ }
     }
 
     private void InitSceneEventHandler()

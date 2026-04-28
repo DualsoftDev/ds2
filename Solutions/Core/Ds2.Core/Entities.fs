@@ -19,6 +19,7 @@ type Project [<JsonConstructor>] internal (name) =
     // ── 별도 Submodel로 직렬화되는 필드 ─────────────────────────────────────
     [<AasxField("Nameplate",             Skip = true)>] member val Nameplate             : Nameplate option             = None    with get, set
     [<AasxField("HandoverDocumentation", Skip = true)>] member val HandoverDocumentation : HandoverDocumentation option = None    with get, set
+    [<AasxField("TechnicalData",         Skip = true)>] member val TechnicalData         : TechnicalData option         = None    with get, set
 
     // ── 프로젝트 메타데이터 ──────────────────────────────────────────────────
     [<AasxField("TokenSpecs")>]                         member val TokenSpecs            = ResizeArray<TokenSpec>()              with get, set

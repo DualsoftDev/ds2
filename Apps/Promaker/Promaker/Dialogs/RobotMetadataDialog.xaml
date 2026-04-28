@@ -1,0 +1,151 @@
+<Window x:Class="Promaker.Dialogs.RobotMetadataDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Robot 메타데이터 편집"
+        Width="1100" Height="680"
+        MinWidth="800" MinHeight="500"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1">
+        <Grid Margin="14">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0"
+                       Text="로봇 보조 rung 입력 데이터 (PROG_NO 분기 / 집계 그룹 / Mutual Interlock / Aux Coil)"
+                       FontSize="14" FontWeight="SemiBold"
+                       Foreground="{DynamicResource PrimaryTextBrush}"
+                       Margin="0,0,0,8"/>
+
+            <Grid Grid.Row="1" Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="로봇 Device:"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="0,0,8,0"/>
+                <ComboBox Grid.Column="1"
+                          x:Name="DeviceCombo"
+                          SelectionChanged="DeviceCombo_SelectionChanged"/>
+            </Grid>
+
+            <TabControl Grid.Row="2" x:Name="MetadataTabs">
+                <!-- Tab 1: PROG_NO 분기 -->
+                <TabItem Header="PROG_NO 분기">
+                    <Grid Margin="6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Text="조건 태그를 AND 결합 → 일치 시 ProgNo 를 PROG_NO 워드 변수에 할당. 조건은 'TAG' 또는 'NOT TAG' 형식. 여러 태그는 ; 로 구분."
+                                   Margin="0,0,0,6"/>
+                        <DataGrid Grid.Row="1"
+                                  x:Name="ProgNoGrid"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="True"
+                                  CanUserDeleteRows="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="조건 태그 (; 구분)" Binding="{Binding Conditions}" Width="*"/>
+                                <DataGridTextColumn Header="ProgNo" Binding="{Binding ProgNo}" Width="100"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </TabItem>
+
+                <!-- Tab 2: 집계 그룹 -->
+                <TabItem Header="집계 그룹">
+                    <Grid Margin="6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Text="여러 로봇 신호를 AND 로 묶어 종합 coil 생성 (READY / AUTO / FAULT / HOME / EMSTOP). Sources 는 ; 로 구분."
+                                   Margin="0,0,0,6"/>
+                        <DataGrid Grid.Row="1"
+                                  x:Name="AggGrid"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="True"
+                                  CanUserDeleteRows="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Kind" Binding="{Binding Kind}" Width="120"/>
+                                <DataGridTextColumn Header="Aggregated 신호" Binding="{Binding Aggregated}" Width="240"/>
+                                <DataGridTextColumn Header="Sources (; 구분)" Binding="{Binding Sources}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </TabItem>
+
+                <!-- Tab 3: Mutual Interlock -->
+                <TabItem Header="Mutual Interlock">
+                    <Grid Margin="6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Text="다른 로봇의 신호를 본 로봇 FB Call 의 특정 포트에 연결."
+                                   Margin="0,0,0,6"/>
+                        <DataGrid Grid.Row="1"
+                                  x:Name="MutualGrid"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="True"
+                                  CanUserDeleteRows="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Source 신호" Binding="{Binding SourceSignal}" Width="*"/>
+                                <DataGridTextColumn Header="Target Port" Binding="{Binding TargetPort}" Width="220"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </TabItem>
+
+                <!-- Tab 4: Aux Coils -->
+                <TabItem Header="Aux Coils">
+                    <Grid Margin="6">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Text="추가 조건 coil — Sources 를 AND 결합. 'TAG' 또는 'NOT TAG' 형식. ; 로 구분."
+                                   Margin="0,0,0,6"/>
+                        <DataGrid Grid.Row="1"
+                                  x:Name="AuxGrid"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="True"
+                                  CanUserDeleteRows="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Coil 이름" Binding="{Binding CoilName}" Width="280"/>
+                                <DataGridTextColumn Header="Sources (; 구분)" Binding="{Binding Sources}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </TabItem>
+            </TabControl>
+
+            <StackPanel Grid.Row="3" Orientation="Horizontal"
+                        HorizontalAlignment="Right" Margin="0,12,0,0">
+                <Button Content="저장 후 닫기" Width="120" Height="30" Margin="0,0,8,0"
+                        Click="Save_Click"
+                        Background="{DynamicResource AccentBrush}"
+                        Foreground="White"/>
+                <Button Content="취소" Width="100" Height="30"
+                        Click="Cancel_Click"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

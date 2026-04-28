@@ -106,7 +106,9 @@
                                                        Foreground="{DynamicResource SecondaryTextBrush}"/>
                                             <TextBox x:Name="CallCountTextBox" Width="44"
                                                      Padding="6,3" Text="1" TextAlignment="Center"
-                                                     VerticalAlignment="Center"/>
+                                                     VerticalAlignment="Center"
+                                                     GotFocus="OnCallCountFocus"
+                                                     TextChanged="OnCallCountChanged"/>
                                         </StackPanel>
                                         <StackPanel x:Name="CallReplicationPanel" Style="{StaticResource ReplicationPanel}">
                                             <TextBlock Text="Conv → Conv1, Conv2, ..."
@@ -140,7 +142,9 @@
                                                        Foreground="{DynamicResource SecondaryTextBrush}"/>
                                             <TextBox x:Name="ApiCallCountTextBox" Width="44"
                                                      Padding="6,3" Text="1" TextAlignment="Center"
-                                                     VerticalAlignment="Center"/>
+                                                     VerticalAlignment="Center"
+                                                     GotFocus="OnApiCallCountFocus"
+                                                     TextChanged="OnApiCallCountChanged"/>
                                         </StackPanel>
                                         <StackPanel x:Name="ApiCallReplicationPanel" IsEnabled="False" Style="{StaticResource ReplicationPanel}">
                                             <TextBlock Text="1개 Call 안에 N개 ApiCall"

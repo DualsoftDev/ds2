@@ -13,6 +13,10 @@ type StateChangeRecord = {
     SystemId  : string
     State     : string
     Timestamp : DateTime
+    /// 이 상태 전환을 일으킨 토큰의 인스턴스 번호 (TokenValue.IntToken). None = 미동봉/연관 없음.
+    TokenItem : int option
+    /// 토큰 출처 그룹 키 ("originName" — 보통 시드된 Source Work 의 이름). 빈 문자열 = 미상.
+    TokenOriginName : string
 }
 
 /// 리포트 서비스 - 시뮬레이션 결과 리포트 생성 및 내보내기

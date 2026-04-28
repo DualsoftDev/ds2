@@ -1,0 +1,161 @@
+<Window x:Class="Promaker.Dialogs.SimulationScenariosDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="시뮬레이션 결과"
+        Width="960" Height="640"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource PrimaryBackgroundBrush}"
+        Foreground="{DynamicResource PrimaryTextBrush}"
+        ShowInTaskbar="False">
+    <Window.Resources>
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="{DynamicResource PrimaryBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="RowBackground" Value="{DynamicResource PrimaryBackgroundBrush}"/>
+            <Setter Property="AlternatingRowBackground" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource BorderBrush}"/>
+        </Style>
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style TargetType="DataGridRow">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Style.Triggers>
+                <!-- 체크박스로 저장 대상 선택된 행: 강조 -->
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                    <Setter Property="Foreground" Value="White"/>
+                    <Setter Property="FontWeight" Value="SemiBold"/>
+                </DataTrigger>
+                <!-- 마우스로 클릭한 행 (커서 위치) -->
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="DataGridCell">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Padding" Value="6,3"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                    <Setter Property="Foreground" Value="White"/>
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="200"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Margin="0,0,0,6"
+                   Text="누적된 시뮬레이션 결과 — 체크박스로 AASX 저장 대상 선택 (디폴트: 최신)."
+                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+
+        <DataGrid x:Name="RunsGrid" Grid.Row="1"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="False"
+                  SelectionMode="Single"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal"
+                  CanUserAddRows="False"
+                  SelectionChanged="RunsGrid_SelectionChanged">
+            <DataGrid.Columns>
+                <DataGridTemplateColumn Header="저장" Width="50" CanUserSort="False">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox HorizontalAlignment="Center"
+                                      IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                                      Checked="SaveCheckBox_Checked"
+                                      Foreground="{DynamicResource PrimaryTextBrush}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="시나리오" Binding="{Binding Name}" Width="170" IsReadOnly="True"/>
+                <DataGridTextColumn Header="실행 시각" Binding="{Binding RunDate}" Width="160" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Duration(s)" Binding="{Binding Duration_s, StringFormat=F2}" Width="100" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Throughput/h" Binding="{Binding ThroughputPerHour, StringFormat=F1}" Width="110" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Avg CT(s)" Binding="{Binding AvgCt, StringFormat=F2}" Width="80" IsReadOnly="True"/>
+                <DataGridTextColumn Header="OEE" Binding="{Binding OEE, StringFormat=F2}" Width="60" IsReadOnly="True"/>
+                <DataGridTextColumn Header="PerToken" Binding="{Binding PerTokenCount}" Width="80" IsReadOnly="True"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <TabControl Grid.Row="2" Margin="0,8,0,0"
+                    Background="{DynamicResource PrimaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}">
+            <TabItem Header="요약" Background="{DynamicResource SecondaryBackgroundBrush}"
+                     Foreground="{DynamicResource PrimaryTextBrush}">
+                <Border Padding="10" Background="{DynamicResource SecondaryBackgroundBrush}">
+                    <TextBlock x:Name="DetailText" TextWrapping="Wrap" FontFamily="Consolas" FontSize="11"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                </Border>
+            </TabItem>
+            <TabItem Header="토큰별 (혼류)" Background="{DynamicResource SecondaryBackgroundBrush}"
+                     Foreground="{DynamicResource PrimaryTextBrush}">
+                <DataGrid x:Name="PerTokenGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Origin" Binding="{Binding OriginName}" Width="140"/>
+                        <DataGridTextColumn Header="Spec" Binding="{Binding SpecLabel}" Width="120"/>
+                        <DataGridTextColumn Header="총" Binding="{Binding InstanceCount}" Width="50"/>
+                        <DataGridTextColumn Header="완주" Binding="{Binding CompletedCount}" Width="50"/>
+                        <DataGridTextColumn Header="Avg(s)" Binding="{Binding AvgTraversalTime_s, StringFormat=F2}" Width="80"/>
+                        <DataGridTextColumn Header="Min(s)" Binding="{Binding MinTraversalTime_s, StringFormat=F2}" Width="80"/>
+                        <DataGridTextColumn Header="Max(s)" Binding="{Binding MaxTraversalTime_s, StringFormat=F2}" Width="80"/>
+                        <DataGridTextColumn Header="StdDev(s)" Binding="{Binding StdDevTraversalTime_s, StringFormat=F3}" Width="90"/>
+                        <DataGridTextColumn Header="Throughput/h" Binding="{Binding ThroughputPerHour, StringFormat=F1}" Width="100"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+            <TabItem Header="Work별 사이클" Background="{DynamicResource SecondaryBackgroundBrush}"
+                     Foreground="{DynamicResource PrimaryTextBrush}">
+                <DataGrid x:Name="CycleTimeGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Work" Binding="{Binding WorkName}" Width="160"/>
+                        <DataGridTextColumn Header="Cycles" Binding="{Binding CycleCount}" Width="60"/>
+                        <DataGridTextColumn Header="Design(s)" Binding="{Binding DesignCycleTime_s, StringFormat=F2}" Width="80"/>
+                        <DataGridTextColumn Header="Actual(s)" Binding="{Binding ActualCycleTime_s, StringFormat=F2}" Width="80"/>
+                        <DataGridTextColumn Header="Min(s)" Binding="{Binding MinCycleTime_s, StringFormat=F2}" Width="70"/>
+                        <DataGridTextColumn Header="Max(s)" Binding="{Binding MaxCycleTime_s, StringFormat=F2}" Width="70"/>
+                        <DataGridTextColumn Header="StdDev(s)" Binding="{Binding StandardDeviation_s, StringFormat=F3}" Width="80"/>
+                        <DataGridTextColumn Header="Util(%)" Binding="{Binding UtilizationRate_pct, StringFormat=F1}" Width="70"/>
+                        <DataGridTextColumn Header="Bottleneck" Binding="{Binding BottleneckSeverity}" Width="100"/>
+                        <DataGridTextColumn Header="Normal" Binding="{Binding IsNormalDistribution}" Width="70"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </TabItem>
+        </TabControl>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button x:Name="ClearButton" Content="모두 삭제"
+                    Style="{StaticResource DarkButton}"
+                    Click="Clear_Click" Margin="0,0,8,0" Padding="14,4"/>
+            <Button Content="닫기" IsCancel="True" Padding="14,4"
+                    Style="{StaticResource DarkButton}"/>
+        </StackPanel>
+    </Grid>
+</Window>
