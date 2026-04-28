@@ -44,7 +44,9 @@ module internal PassiveInferenceWorkCycle =
         (ctx: PassiveWorkContext)
         workGuid
         (wl: WorkLearning) =
-        if ctx.RuntimeMode = RuntimeMode.Monitoring && not wl.Synced && wl.GroupStartTicks.Count >= 2 then
+        let usesGapHint =
+            ctx.RuntimeMode = RuntimeMode.Monitoring || ctx.RuntimeMode = RuntimeMode.VirtualPlant
+        if usesGapHint && not wl.Synced && wl.GroupStartTicks.Count >= 2 then
             let headIdx = wl.GroupStartTicks.Count - 1
             let tailIdx = headIdx - 1
             let headDir, headValue = wl.GroupKeys[headIdx]

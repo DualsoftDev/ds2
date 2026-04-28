@@ -126,5 +126,8 @@ public partial class MainViewModel
         }
 
         public void NotifyCommandStatesChanged() => Owner.HandleSelectionStateChanged();
+
+        public bool GuardArrowEditByRuntimeMode(string editName) =>
+            Owner.GuardArrowEditByRuntimeMode(editName);
     }
 }
