@@ -77,6 +77,7 @@ public partial class SimulationPanelState
         DisposeSimEngine();
         _simStartTime = DateTime.Now;
         ApplySimulationResetUiState(clearCollections: true);
+        ClearAllWarnings();
         GanttChart.Reset(_simStartTime);
         PopulateWorkItems();
     }

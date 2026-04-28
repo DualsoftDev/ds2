@@ -73,6 +73,25 @@ public sealed class SimulationPanelStateTests
     }
 
     [Fact]
+    public void ResetForNewStore_clears_warning_guids_so_reloaded_file_does_not_inherit_previous_check_results()
+    {
+        // 같은 컨텐츠 파일을 다른 이름/확장자로 저장한 뒤 다시 불러오면 GUID 가 동일해서
+        // 이전 Check 결과의 _warningGuids 가 새 store 노드에 그대로 매칭돼 warning 이
+        // 잘못 표시되던 회귀를 방지한다.
+        StaTestRunner.Run(() =>
+        {
+            var state = CreateState();
+            SetWarningGuids(state, Guid.NewGuid(), Guid.NewGuid());
+
+            state.ResetForNewStore();
+
+            var field = typeof(SimulationPanelState).GetField("_warningGuids", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var set = (HashSet<Guid>)field.GetValue(state)!;
+            Assert.Empty(set);
+        });
+    }
+
+    [Fact]
     public void SyncCanvasSelection_selects_matching_work_only_while_simulating()
     {
         StaTestRunner.Run(() =>
